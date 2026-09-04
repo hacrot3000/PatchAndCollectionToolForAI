@@ -10,9 +10,12 @@ import shutil
 import tempfile
 import contextlib
 import io
-from typing import Any, Callable, Optional
+import sys
+import zipfile
+import datetime as _dt
+from typing import Any, Callable, Iterable, Optional
 
-VERSION = "6.18.1"
+VERSION = "6.18.2"
 
 
 class PatchFailure(RuntimeError):
@@ -34,6 +37,9 @@ class PatchStats:
     created: int = 0
     unchanged: int = 0
     failed: int = 0
+    backups: int = 0
+    skipped: int = 0
+    ignored: int = 0
 
 
 @dataclass
@@ -42,8 +48,19 @@ class PatchRunState:
     patch_name: str = "patch"
     stats: PatchStats = field(default_factory=PatchStats)
     failures: list[PatchFailure] = field(default_factory=list)
+    failed_files: set[str] = field(default_factory=set)
+    changed_files: set[str] = field(default_factory=set)
     backup_generation: str = field(default_factory=lambda: f"{os.getpid()}_{__import__('time').time_ns()}")
     backups: dict[str, Path] = field(default_factory=dict)
+
+    @property
+    def backed_up_files(self) -> dict[str, Path]:
+        return self.backups
+
+    def record_failure(self, exc: PatchFailure) -> None:
+        self.failures.append(exc)
+        self.failed_files.add(exc.rel_path)
+        self.stats.failed += 1
 
 
 def _safe_rel(rel_path: str) -> PurePosixPath:
@@ -100,6 +117,7 @@ def _backup_file(state: PatchRunState, rel_path: str) -> Path | None:
     backup.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, backup)
     state.backups[rel_path] = backup
+    state.stats.backups += 1
     return backup
 
 
@@ -149,6 +167,7 @@ def _write_text(state: PatchRunState, rel_path: str, content: str, *, create: bo
     else:
         state.stats.created += 1
         print(f"created: {rel_path}")
+    state.changed_files.add(rel_path)
     return True
 
 
@@ -375,7 +394,7 @@ def op_if(state: PatchRunState, op: dict[str, Any]) -> bool:
     if not isinstance(branch, list):
         raise PatchFailure("<condition>", "if then/else must be arrays")
     before = (state.stats.patched, state.stats.created)
-    apply_ops(state, branch, inherited_on_error=op.get("on_error", "stop"))
+    _apply_ops_state(state, branch, inherited_on_error=op.get("on_error", "stop"))
     return before != (state.stats.patched, state.stats.created)
 
 
@@ -388,7 +407,7 @@ def op_first_success(state: PatchRunState, op: dict[str, Any]) -> bool:
         checkpoint = (state.stats.patched, state.stats.created, state.stats.unchanged)
         try:
             ops = alt if isinstance(alt, list) else [alt]
-            apply_ops(state, ops, inherited_on_error="stop")
+            _apply_ops_state(state, ops, inherited_on_error="stop")
             print(f"first_success: selected alternative #{i}")
             return True
         except PatchFailure as exc:
@@ -416,7 +435,7 @@ OPS: dict[str, Callable[[PatchRunState, dict[str, Any]], bool]] = {
 }
 
 
-def apply_ops(state: PatchRunState, ops: list[dict[str, Any]], *, inherited_on_error: str = "stop") -> None:
+def _apply_ops_state(state: PatchRunState, ops: list[dict[str, Any]], *, inherited_on_error: str = "stop") -> None:
     if not isinstance(ops, list):
         raise PatchFailure("<ops>", "ops must be an array")
     for index, op in enumerate(ops, 1):
@@ -432,15 +451,47 @@ def apply_ops(state: PatchRunState, ops: list[dict[str, Any]], *, inherited_on_e
         except PatchFailure as exc:
             if not exc.op_id:
                 exc.op_id = str(op.get("id") or op.get("op_id") or f"#{index}:{kind}")
-            state.stats.failed += 1
-            state.failures.append(exc)
+            state.record_failure(exc)
             if on_error == "ignore":
+                state.stats.ignored += 1
                 print(f"WARNING ignored operation failure: {exc.rel_path}: {exc.message}")
                 continue
             if on_error == "skip":
+                state.stats.skipped += 1
                 print(f"WARNING skipped operation: {exc.rel_path}: {exc.message}")
                 continue
             raise
+
+
+def apply_ops(
+    project_root_or_state: Path | PatchRunState,
+    patch_name_or_ops: str | list[dict[str, Any]],
+    ops: Iterable[dict[str, Any]] | None = None,
+    *,
+    default_on_error: str = "stop",
+    inherited_on_error: str | None = None,
+) -> PatchRunState | None:
+    """Compatibility-preserving public API.
+
+    Historical v4/v5 form: apply_ops(project_root, patch_name, ops,
+    default_on_error=...).  Current internal/state form remains accepted so an
+    older import cannot force a rewrite of newer patches.
+    """
+    if isinstance(project_root_or_state, PatchRunState):
+        state = project_root_or_state
+        if not isinstance(patch_name_or_ops, list):
+            raise PatchFailure("<ops>", "state-form apply_ops requires ops array")
+        _apply_ops_state(state, patch_name_or_ops, inherited_on_error=inherited_on_error or default_on_error)
+        return None
+    root = Path(project_root_or_state).resolve()
+    patch_name = str(patch_name_or_ops)
+    op_list = list(ops or [])
+    state = PatchRunState(project_root=root, patch_name=patch_name)
+    try:
+        _apply_ops_state(state, op_list, inherited_on_error=default_on_error)
+    except PatchFailure:
+        pass
+    return state
 
 
 def run_ops(project_root: Path, payload: dict[str, Any], *, patch_name: str | None = None) -> PatchRunState:
@@ -450,7 +501,7 @@ def run_ops(project_root: Path, payload: dict[str, Any], *, patch_name: str | No
     if not isinstance(ops, list):
         raise PatchFailure("<ops>", "PATCH_TOOL_OPS.json requires ops[]")
     state = PatchRunState(project_root=project_root.resolve(), patch_name=patch_name or str(payload.get("patch_name") or "patch"))
-    apply_ops(state, ops, inherited_on_error=str(payload.get("default_on_error", "stop")))
+    _apply_ops_state(state, ops, inherited_on_error=str(payload.get("default_on_error", "stop")))
     return state
 
 
@@ -540,6 +591,101 @@ def diagnose_ops(project_root: Path, payload: dict[str, Any]) -> dict[str, Any]:
                 "path": exc.rel_path, "operation": exc.op_id, "message": exc.message,
                 "expected": exc.expected, "anchor": exc.anchor, "strategy": exc.strategy,
             }
+
+
+def find_project_root(start: Optional[Path] = None) -> Path:
+    cwd = (start or Path.cwd()).resolve()
+    if (cwd / "patchs").is_dir():
+        return cwd
+    for parent in [cwd, *cwd.parents]:
+        if parent.name == "patchs":
+            return parent.parent
+        if (parent / "patchs").is_dir():
+            return parent
+    raise RuntimeError("Cannot determine project root. Run patch from project root or <project>/patchs.")
+
+
+def print_summary(state: PatchRunState) -> None:
+    st = state.stats
+    print("Patch summary:")
+    print(f"  patched : {st.patched}")
+    print(f"  created : {st.created}")
+    print(f"  unchanged/check: {st.unchanged}")
+    print(f"  backups : {st.backups}")
+    print(f"  failed  : {st.failed}")
+    if st.skipped: print(f"  skipped : {st.skipped}")
+    if st.ignored: print(f"  ignored : {st.ignored}")
+    if state.failed_files:
+        print("Failed files:")
+        for rel in sorted(state.failed_files): print(f"  - {rel}")
+
+
+def zip_failed_files(state: PatchRunState) -> Optional[Path]:
+    if not state.failed_files:
+        return None
+    ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = state.project_root / "patchs" / "failed_patch_files"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", state.patch_name)[:96] or "patch"
+    zip_path = out_dir / f"{safe}_failed_{ts}.zip"
+    failure_map = {exc.rel_path: exc for exc in state.failures}
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        if sys.argv and sys.argv[0]:
+            argv0 = Path(sys.argv[0])
+            if argv0.is_file() and argv0.suffix.lower() == ".py":
+                zf.write(argv0, arcname=f"patchs/{argv0.name}")
+        for rel in sorted(state.failed_files):
+            path = state.project_root / rel
+            if path.is_file() and not path.is_symlink():
+                zf.write(path, arcname=rel)
+            else:
+                exc = failure_map.get(rel)
+                text = exc.expected if exc and exc.expected else f"// ERROR: File {rel} was not found during patch execution.\n"
+                zf.writestr(rel, text)
+    print(f"failed-files zip: {zip_path.resolve()}")
+    return zip_path
+
+
+def maybe_prompt_zip_failed_files(state: PatchRunState, *, force: Optional[bool] = None) -> Optional[Path]:
+    if not state.failed_files:
+        return None
+    if force is None and os.environ.get("PTV_LEGACY_ZIP_FAILED") == "1":
+        force = True
+    if force is False:
+        return None
+    if force is None:
+        if not sys.stdin.isatty():
+            return None
+        answer = input("Có zip toàn bộ file patch lỗi để gửi lên ChatGPT không? [Y/n]: ").strip().lower()
+        force = answer in {"", "y", "yes", "c", "co", "có"}
+    if not force:
+        return None
+    zip_path = zip_failed_files(state)
+    # --keep-failed-zip explicitly suppresses the historical post-create delete prompt.
+    if zip_path and os.environ.get("PTV_LEGACY_KEEP_FAILED_ZIP") != "1" and sys.stdin.isatty():
+        answer = input(f"Delete this generated zip file: {zip_path.name}? [Y/n]: ").strip().lower()
+        if answer in {"", "y", "yes", "c", "co", "có"}:
+            zip_path.unlink(missing_ok=True)
+    return zip_path
+
+
+def run_patch(
+    patch_name: str,
+    ops: Iterable[dict[str, Any]],
+    *,
+    default_on_error: str = "stop",
+    prompt_zip_on_error: Optional[bool] = None,
+) -> int:
+    root = find_project_root()
+    state = apply_ops(root, patch_name, list(ops), default_on_error=default_on_error)
+    assert isinstance(state, PatchRunState)
+    print_summary(state)
+    maybe_prompt_zip_failed_files(state, force=prompt_zip_on_error)
+    if state.failures:
+        print("Patch completed with errors.")
+        return 1
+    print("Patch completed successfully.")
+    return 0
 
 
 # Backward-compatible helpers used by existing Python patches.

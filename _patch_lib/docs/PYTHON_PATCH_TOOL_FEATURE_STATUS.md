@@ -1,4 +1,15 @@
-# Python Patch Tool v6.18.1 feature status
+# Python Patch Tool v6.18.2 feature status
+
+## v6.18.2 compatibility restoration and continuity gate
+
+- `--all`/`-a`, repeated `--patch`, and public `--select` non-interactive selection semantics: **COMPATIBILITY RESTORED**.
+- Legacy v4 multi-script archives and public helper API compatibility: **COMPATIBILITY RESTORED**.
+- Manifest-only command package + `no_change_reason` + bounded `legacy_strict` safety lane: **COMPATIBILITY RESTORED** without narrowing normal source-changing v6 post-patch commands.
+- `NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, and immutable `HISTORICAL_FEATURE_BASELINE_V5_15.md`: **MANDATORY RELEASE GOVERNANCE**.
+- Compatibility regression must execute behavior, not merely check flags/functions exist.
+- Search hardening from v6.18.0 and empty-queue HISTORY behavior from v6.18.1 remain **PRESERVED**.
+
+The current table below describes the v6 runtime. Historical capabilities that were superseded or are not currently guaranteed remain visible in `CAPABILITY_LEDGER.md`; absence from the current schema is not permission to delete their historical record or compatibility code.
 
 | Capability | Status |
 |---|---|
@@ -52,9 +63,9 @@ The dispatcher routes PATCH/COLLECT/inspect/validate/report directly through the
 
 Batch execution defaults to `continue_independent`; explicit `fail_fast` remains available. After a contained failure, unrelated PATCHes continue automatically. Declared dependency failures and failed effective-target overlap render successors `BLOCKED` by default. Ctrl+C, rollback failure, or partial/unknown state still safety-stop. Smart Resume uses arrow-key descriptions and failed-PATCH multi-select for Retry/COLLECT/Delete. v6.17.9 extends the same rule to item-local read-only `PREFLIGHT_FAIL`: unrelated PATCHes continue under per-PATCH transactions; related successors are `BLOCKED`, while global/atomic preflight failures remain fail-closed.
 
-## Stop condition
+## Historical v6.17.6 stop condition — superseded by later releases
 
-v6.17.6 completes the current robustness/data-integrity audit scope, aggregate/detail log browsing, diagnostics, Windows robustness/fullscreen parity and final audit scope. No new capability is started automatically after this release.
+v6.17.6 completed the current robustness/data-integrity audit scope, aggregate/detail log browsing, diagnostics, Windows robustness/fullscreen parity and final audit scope. No new capability is started automatically after this release.
 
 ## v6.17.7 planning/policy state
 

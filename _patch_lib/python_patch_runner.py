@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from python_patch_utils import PatchFailure, diagnose_ops, finish_failure, run_ops
 from python_patch_package_schema import PatchSchemaError, path_is_link_or_reparse, resolve_project_path, run_preflight, sha256_file
 
-VERSION = "6.18.1"
+VERSION = "6.18.2"
 _ACTIVE_TERMINATION_SIGNAL: int | None = None
 MAX_ARCHIVE_ENTRIES = 10000
 MAX_ARCHIVE_MEMBER_BYTES = 64 * 1024 * 1024
@@ -176,23 +176,89 @@ def _read_json(path: Path, label: str) -> dict:
     return data
 
 
-def _find_payload(extracted: Path) -> tuple[dict, str, Path]:
-    manifest_path = extracted / "PATCH_TOOL_MANIFEST.json"
-    manifest = _read_json(manifest_path, "PATCH_TOOL_MANIFEST.json") if manifest_path.is_file() else {}
-    ops = extracted / "PATCH_TOOL_OPS.json"
-    py_files: list[Path] = []
+def _python_payload_files(extracted: Path) -> list[Path]:
+    rows: list[Path] = []
     for path in extracted.rglob("*.py"):
         rel = path.relative_to(extracted)
         if not path.is_file() or "__MACOSX" in rel.parts or "resources" in rel.parts:
             continue
-        py_files.append(path)
+        if path.name == ".ptv_legacy_multi_entry.py":
+            continue
+        rows.append(path)
+    return sorted(rows, key=lambda x: x.relative_to(extracted).as_posix().lower())
+
+
+def _legacy_python_candidates(extracted: Path, archive_name: str) -> list[Path]:
+    py_files = _python_payload_files(extracted)
+    named = [p for p in py_files if p.name.lower().startswith("patch_")]
+    if named:
+        return named
+    marked: list[Path] = []
+    for path in py_files:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")[:262144]
+        except OSError:
+            continue
+        if any(marker in text for marker in ("python_patch_utils", "run_patch", "PATCH_NAME")):
+            marked.append(path)
+    if marked:
+        return marked
+    lower = archive_name.lower()
+    if lower.startswith("patch_") and not any(token in lower for token in ("handoff", "report", "python_patch_tool")):
+        return py_files
+    return []
+
+
+def _legacy_multi_wrapper(extracted: Path, scripts: list[Path]) -> Path:
+    wrapper = extracted / ".ptv_legacy_multi_entry.py"
+    rels = [p.relative_to(extracted).as_posix() for p in scripts]
+    wrapper.write_text(
+        "import runpy, sys\n"
+        "from pathlib import Path\n"
+        "_base = Path(__file__).resolve().parent\n"
+        f"_scripts = {rels!r}\n"
+        "for _rel in _scripts:\n"
+        "    _path = _base / _rel\n"
+        "    _old = list(sys.argv)\n"
+        "    try:\n"
+        "        sys.argv = [str(_path), *_old[1:]]\n"
+        "        try:\n"
+        "            runpy.run_path(str(_path), run_name='__main__')\n"
+        "        except SystemExit as _exc:\n"
+        "            _code = _exc.code if isinstance(_exc.code, int) else (0 if _exc.code is None else 1)\n"
+        "            if _code:\n"
+        "                raise\n"
+        "    finally:\n"
+        "        sys.argv = _old\n",
+        encoding="utf-8",
+    )
+    return wrapper
+
+
+def _find_payload(extracted: Path, *, archive_name: str = "") -> tuple[dict, str, Path, list[str]]:
+    manifest_path = extracted / "PATCH_TOOL_MANIFEST.json"
+    manifest = _read_json(manifest_path, "PATCH_TOOL_MANIFEST.json") if manifest_path.is_file() else {}
+    ops = extracted / "PATCH_TOOL_OPS.json"
+    py_files = _python_payload_files(extracted)
     if ops.is_file() and py_files:
         raise ValueError("package contains both PATCH_TOOL_OPS.json and Python patch entrypoint")
     if ops.is_file():
-        return manifest, "ops", ops
-    if len(py_files) != 1:
-        raise ValueError(f"package must contain exactly one Python patch entrypoint when OPS is absent (found {len(py_files)})")
-    return manifest, "python", py_files[0]
+        return manifest, "ops", ops, []
+    if manifest:
+        pp = manifest.get("post_patch") if isinstance(manifest.get("post_patch"), dict) else {}
+        commands = pp.get("commands") if isinstance(pp, dict) else None
+        if not py_files and isinstance(commands, list) and commands and bool(pp.get("run_when_no_changes")):
+            return manifest, "command_only", manifest_path, []
+        if len(py_files) != 1:
+            raise ValueError(f"package must contain exactly one Python patch entrypoint when OPS is absent (found {len(py_files)})")
+        return manifest, "python", py_files[0], []
+    candidates = _legacy_python_candidates(extracted, archive_name)
+    if not candidates:
+        raise ValueError(f"legacy archive has no positively recognized Python patch entrypoint (found {len(py_files)} Python file(s))")
+    if len(candidates) == 1:
+        return {}, "python", candidates[0], [candidates[0].relative_to(extracted).as_posix()]
+    wrapper = _legacy_multi_wrapper(extracted, candidates)
+    return {}, "python", wrapper, [p.relative_to(extracted).as_posix() for p in candidates]
 
 
 def _git_bytes(root: Path, args: list[str], *, timeout: int = 30) -> bytes | None:
@@ -1449,6 +1515,8 @@ def _prepare_package(root: Path, source: Path):
             "checks": [{"kind": "legacy_standalone_python", "status": "PASS"}],
             "target_paths": [],
             "legacy_standalone": True,
+            "package_format": "legacy_v4_standalone",
+            "project_scope_verified": False,
         }
         return temp_dir, extracted, manifest, kind, payload, None, preflight
     if not (source.suffix.lower() == ".zip" or source.name.lower().endswith((".tar.gz", ".tgz"))):
@@ -1460,20 +1528,23 @@ def _prepare_package(root: Path, source: Path):
     else:
         _safe_extract_tar(source, extracted)
     manifest_path = extracted / "PATCH_TOOL_MANIFEST.json"
-    manifest, kind, payload = _find_payload(extracted)
+    manifest, kind, payload, legacy_scripts = _find_payload(extracted, archive_name=source.name)
     if not manifest_path.is_file():
         if kind != "python":
             raise PatchSchemaError(
-                "legacy archive without PATCH_TOOL_MANIFEST.json must contain exactly one Python patch entrypoint",
+                "legacy archive without PATCH_TOOL_MANIFEST.json must contain a positively recognized Python patch entrypoint",
                 kind="manifest_missing",
             )
         preflight = {
             "status": "PASS",
             "tool_version": VERSION,
-            "warnings": ["legacy archive Python patch has no PATCH_TOOL_MANIFEST.json compatibility/schema metadata"],
-            "checks": [{"kind": "legacy_archive_python", "status": "PASS"}],
+            "warnings": ["legacy v4 archive has no PATCH_TOOL_MANIFEST.json; project scope is unverified"],
+            "checks": [{"kind": "legacy_archive_python", "status": "PASS", "script_count": len(legacy_scripts)}],
             "target_paths": [],
             "legacy_archive": True,
+            "legacy_scripts": legacy_scripts,
+            "package_format": "legacy_v4",
+            "project_scope_verified": False,
         }
         return temp_dir, extracted, {}, kind, payload, None, preflight
     ops_data = _read_json(payload, "PATCH_TOOL_OPS.json") if kind == "ops" else None
@@ -1826,6 +1897,15 @@ def _execute_patch(root: Path, source: Path) -> int:
             result["preflight"] = preflight
             result["manifest_patch"] = manifest.get("patch") if isinstance(manifest, dict) else None
             result["recovery"] = manifest.get("recovery") if isinstance(manifest, dict) else None
+            if preflight.get("legacy_archive") or preflight.get("legacy_standalone"):
+                result["package_format"] = preflight.get("package_format")
+                result["legacy_v4_compatibility"] = True
+                result["project_scope_verified"] = False
+                print(f"PACKAGE_FORMAT: {preflight.get('package_format')}")
+                print("LEGACY_V4_COMPATIBILITY: TRUE")
+                print("PROJECT_SCOPE_VERIFIED: FALSE")
+                if preflight.get("legacy_scripts"):
+                    print("LEGACY_V4_SCRIPTS: " + ", ".join(preflight.get("legacy_scripts") or []))
             _print_preflight_report(source, manifest, kind, preflight)
         except PatchSchemaError as exc:
             preflight_failure = _preflight_failure_payload(exc)
@@ -1868,7 +1948,11 @@ def _execute_patch(root: Path, source: Path) -> int:
         print(f"PATCH: {source.name}")
         print("Execution: IN-PLACE (SANDBOX/worktree disabled)")
         result["stage"] = "payload"
-        if kind == "python":
+        if kind == "command_only":
+            print("PATCH PAYLOAD: COMMAND_ONLY_PACKAGE (no source payload)")
+            rc = 0
+            payload_diag = None
+        elif kind == "python":
             outcome = _execute_python(payload, root, timeout)
             rc = outcome.effective_rc
             payload_diag = None
@@ -1950,7 +2034,7 @@ def _execute_patch(root: Path, source: Path) -> int:
             root, before_fp=before_fp, before_dirty=before_dirty,
             before_targets=before_targets, target_paths=target_paths,
         )
-        changed = payload_delta.get("detected") is not False
+        changed = False if kind == "command_only" else payload_delta.get("detected") is not False
         result["stage"] = "post_patch"
         post_report = _run_post_patch(root, manifest, changed=changed)
         if post_report is not None:

@@ -10,7 +10,7 @@ import shutil
 import stat
 from typing import Any
 
-VERSION = "6.18.1"
+VERSION = "6.18.2"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "PATCH_PACKAGE_SCHEMA.json"
 _HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 _SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
@@ -316,6 +316,76 @@ def _check_command(root: Path, command: dict[str, Any], index: int, *, field: st
             raise PatchSchemaError(f"{label} executable is not executable: {exe}", kind="command_missing")
     elif shutil.which(exe) is None:
         raise PatchSchemaError(f"{label} executable not found in PATH: {exe}", kind="command_missing")
+
+
+_STRICT_BASIC_COMMANDS = {"ls", "tree", "pwd", "find"}
+_STRICT_INTERPRETERS = {"python", "python3", "bash", "sh", "node", "pwsh", "powershell", "powershell.exe"}
+_SECRET_ARG_RE = re.compile(r"(?i)(?:password|passwd|token|secret|api[_-]?key|authorization|bearer|cookie|credential)\\s*[:=]")
+
+
+def _check_legacy_strict_command(root: Path, command: dict[str, Any], index: int) -> None:
+    """v5.10-v5.15 compatibility safety lane for command-only/no-change work.
+
+    Normal v6 source-changing PATCH commands intentionally keep the broader
+    current command contract.  This strict lane is additive compatibility, not
+    a global rollback to the retired transaction-sandbox policy.
+    """
+    label = f"post_patch.commands[{index}]"
+    argv = command.get("argv")
+    if not isinstance(argv, list) or not argv or not all(isinstance(x, str) and x for x in argv):
+        raise PatchSchemaError(f"{label}.argv must be a non-empty string array", kind="command_invalid")
+    for arg in argv:
+        if _SECRET_ARG_RE.search(arg):
+            raise PatchSchemaError(f"{label} contains credential-like argument", kind="command_secret_rejected")
+    cwd_raw = str(command.get("cwd", "."))
+    cwd = root if cwd_raw == "." else resolve_project_path(root, cwd_raw)
+    if not cwd.is_dir():
+        raise PatchSchemaError(f"{label}.cwd is not a directory: {cwd_raw}", kind="command_invalid")
+
+    exe = argv[0]
+    exe_name = Path(exe).name.lower()
+    if exe_name in _STRICT_BASIC_COMMANDS:
+        if exe_name == "find" and any(x in {"-exec", "-execdir", "-ok", "-delete", "-fls", "-fprint", "-fprintf"} for x in argv[1:]):
+            raise PatchSchemaError(f"{label} uses a mutating/executing find action", kind="command_not_allowed")
+        if exe_name == "tree" and "-o" in argv[1:]:
+            raise PatchSchemaError(f"{label} uses tree -o output side effect", kind="command_not_allowed")
+        for arg in argv[1:]:
+            if arg.startswith("/") or arg.startswith("\\") or ".." in PurePosixPath(arg.replace("\\", "/")).parts:
+                raise PatchSchemaError(f"{label} contains absolute/parent path argument: {arg}", kind="command_not_allowed")
+        return
+
+    if exe_name in _STRICT_INTERPRETERS:
+        if len(argv) < 2:
+            raise PatchSchemaError(f"{label} interpreter requires one project-local script", kind="command_not_allowed")
+        forbidden = {"-c", "-m", "-e", "--eval", "-encodedcommand", "-enc"}
+        if str(argv[1]).lower() in forbidden or any(str(x).lower() in forbidden for x in argv[1:2]):
+            raise PatchSchemaError(f"{label} inline/module execution is forbidden in legacy_strict mode", kind="command_not_allowed")
+        script_raw = str(argv[1]).replace("\\", "/")
+        if script_raw.startswith("/") or ".." in PurePosixPath(script_raw).parts:
+            raise PatchSchemaError(f"{label} script must be project-relative", kind="command_not_allowed")
+        script = resolve_project_path(root, script_raw)
+        if not script.is_file():
+            raise PatchSchemaError(f"{label} script not found: {script_raw}", kind="command_missing")
+        allowed_suffixes = {
+            "python": {".py"}, "python3": {".py"}, "bash": {".sh"}, "sh": {".sh"},
+            "node": {".js", ".mjs", ".cjs"}, "pwsh": {".ps1"}, "powershell": {".ps1"}, "powershell.exe": {".ps1"},
+        }
+        if script.suffix.lower() not in allowed_suffixes.get(exe_name, set()):
+            raise PatchSchemaError(f"{label} script extension is not allowed for {exe_name}: {script_raw}", kind="command_not_allowed")
+        return
+
+    # Direct project-local executable script is allowed; arbitrary PATH binary is not.
+    if "/" in exe or "\\" in exe:
+        rel = exe.replace("\\", "/")
+        if rel.startswith("/") or ".." in PurePosixPath(rel).parts:
+            raise PatchSchemaError(f"{label} executable must be project-relative", kind="command_not_allowed")
+        script = resolve_project_path(root, rel)
+        if not script.is_file():
+            raise PatchSchemaError(f"{label} executable not found: {rel}", kind="command_missing")
+        if os.name != "nt" and not os.access(script, os.X_OK):
+            raise PatchSchemaError(f"{label} executable is not executable: {rel}", kind="command_missing")
+        return
+    raise PatchSchemaError(f"{label} executable is outside legacy_strict allowlist: {exe}", kind="command_not_allowed")
 
 
 def _ops_target_paths(ops: Any) -> set[str]:
@@ -649,10 +719,26 @@ def run_preflight(
 
     pp = manifest.get("post_patch")
     if isinstance(pp, dict):
-        for i, cmd in enumerate(pp.get("commands") or []):
+        commands = pp.get("commands") or []
+        legacy_strict = kind == "command_only" or str(pp.get("safety_profile") or "current") == "legacy_strict"
+        if kind == "command_only":
+            if not bool(pp.get("run_when_no_changes")):
+                raise PatchSchemaError("command-only package requires post_patch.run_when_no_changes=true", kind="command_only_contract_invalid")
+            reason = pp.get("no_change_reason")
+            if not isinstance(reason, str) or not 20 <= len(reason.strip()) <= 500:
+                raise PatchSchemaError("command-only package requires post_patch.no_change_reason with 20-500 characters", kind="command_only_contract_invalid")
+            if len(commands) != 1:
+                raise PatchSchemaError("command-only package requires exactly one post_patch command by default", kind="command_only_contract_invalid")
+        elif bool(pp.get("run_when_no_changes")) and isinstance(pp.get("no_change_reason"), str):
+            reason = str(pp.get("no_change_reason")).strip()
+            if reason and not 20 <= len(reason) <= 500:
+                raise PatchSchemaError("post_patch.no_change_reason must be 20-500 characters when supplied", kind="command_contract_invalid")
+        for i, cmd in enumerate(commands):
             _check_command(root, cmd, i, field="post_patch.commands")
-        if pp.get("commands"):
-            checks.append({"kind": "post_patch_commands", "status": "PASS", "count": len(pp.get("commands") or [])})
+            if legacy_strict:
+                _check_legacy_strict_command(root, cmd, i)
+        if commands:
+            checks.append({"kind": "post_patch_commands", "status": "PASS", "count": len(commands), "safety_profile": "legacy_strict" if legacy_strict else "current"})
 
     on_failure = manifest.get("on_failure")
     if isinstance(on_failure, dict):

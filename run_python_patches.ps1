@@ -1,4 +1,4 @@
-# Python Patch Tool v6.18.1 public Windows launcher.
+# Python Patch Tool v6.18.2 public Windows launcher.
 # PowerShell 5.1+ compatible. SANDBOX/worktree transaction mode is permanently disabled.
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
@@ -110,6 +110,34 @@ if ([string]::Equals([string]$ToolArgs[0], 'collect', [StringComparison]::Ordina
     if ($ToolArgs.Count -gt 1) { $rest = @($ToolArgs[1..($ToolArgs.Count - 1)]) }
     $collectArgs = @($CollectProgress, '--project-root', $ProjectRoot, '--collector', $CollectCompat, '--') + $rest
     exit (Invoke-PatchPython $collectArgs)
+}
+
+
+# Historical/non-interactive queue automation is implemented by the dispatcher.
+$automationRoute = $false
+$patchArgCount = 0
+foreach ($rawArg in $ToolArgs) {
+    $lower = ([string]$rawArg).ToLowerInvariant()
+    if ($lower -eq '--patch') { $patchArgCount++ }
+    if ($lower -in @('--all', '-a', '--select', '--zip-failed', '--keep-failed-zip', '--move', '-y')) {
+        $automationRoute = $true
+    }
+}
+if ($patchArgCount -gt 1) { $automationRoute = $true }
+if ($automationRoute) {
+    $dispatchArgs = New-Object System.Collections.Generic.List[string]
+    $skipTx = $false
+    foreach ($rawArg in $ToolArgs) {
+        $arg = [string]$rawArg; $lower = $arg.ToLowerInvariant()
+        if ($skipTx) {
+            $skipTx = $false
+            if ($lower -in @('off','auto','required')) { continue }
+        }
+        if ($lower -eq '--transaction') { $skipTx = $true; continue }
+        if ($lower.StartsWith('--transaction=') -or $lower -eq '--keep-failed-sandbox' -or $lower.StartsWith('--keep-failed-sandbox=')) { continue }
+        [void]$dispatchArgs.Add($arg)
+    }
+    exit (Invoke-PatchPython (@($Dispatcher, '--project-root', $ProjectRoot, 'run') + @($dispatchArgs)))
 }
 
 if (-not (Test-Path -LiteralPath $Runner -PathType Leaf)) {

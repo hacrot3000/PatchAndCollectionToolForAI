@@ -1,6 +1,10 @@
+# v6.18.2 mandatory continuity gate — NO SILENT REMOVAL
+
+Before modifying Patch Tool, read `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, and `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Do not delete or narrow any capability previously marked COMPLETE/PRESERVED/COMPATIBILITY_RESTORED unless the user explicitly requests it or a later documented contract supersedes it. Every intentional transition must be recorded in the ledger and protected by a behavioral test. Surface/string-only compatibility tests are not sufficient.
+
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.18.1**  
+Phiên bản mục tiêu: **v6.18.2**  
 Trạng thái: **UPGRADE CONTINUITY + RESTORED EMPTY-QUEUE HISTORY — COMPLETE**
 
 ## Baseline
@@ -459,7 +463,7 @@ COLLECT `search` trước v6.18.0 dùng filesystem traversal nhưng tái sử d�
 
 `./tools/run_python_patches.sh health-search` tạo fixture tạm và kiểm literal/regex/find, nested tree, untracked/gitignored, Unicode, symlink safety, >5.000 files, relative/absolute in-project paths, `must_find`, anchors và expected files. Fixture không sửa source project.
 
-## v6.18.1 — Upgrade continuity + restored empty-queue HISTORY
+## v6.18.2 — Upgrade continuity + restored empty-queue HISTORY
 
 - Khôi phục workflow đã được yêu cầu ở v6.17.12: chạy public launcher không tham số trong TTY, nếu discovery không có PATCH/COLLECT runnable thì sau warning, `AUTO STATUS: IDLE` và Tool Health sẽ mở HISTORY hiện có.
 - Giữ nguyên hardening đúng của v6.17.14: invocation rỗng **không** tạo run mới, không ghi `LAST_RUN.json`, không thêm `history/*.json`, không tạo run log và không cập nhật unresolved/ledger. HISTORY chỉ là read-only navigation tới state đã tồn tại.

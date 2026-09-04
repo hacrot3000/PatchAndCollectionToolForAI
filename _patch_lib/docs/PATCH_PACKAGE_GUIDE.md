@@ -1,4 +1,4 @@
-# PATCH PACKAGE GUIDE — v6.18.1 authoritative AI/tool contract
+# PATCH PACKAGE GUIDE — v6.18.2 authoritative AI/tool contract
 
 Machine-readable source of truth:
 
@@ -370,3 +370,7 @@ Persistent failure registry giữ nhiều unresolved entries. Planner xét tất
 
 
 Recipe policy override rule: `run --recipe` uses the policies stored in the recipe; `--failure-policy`/`--transaction-policy` must not be combined with `--recipe`. Create a new recipe with `plan` overrides when different policies are intended.
+
+## v6.18.2 command-only / strict compatibility lane
+
+A manifest-only command package is accepted when `post_patch.run_when_no_changes=true`, `no_change_reason` is 20–500 non-whitespace characters, and exactly one command is declared. Command-only packages automatically use the `legacy_strict` safety profile. A source-changing PATCH keeps the current v6 post-patch command contract unless `post_patch.safety_profile=legacy_strict` is explicitly requested. This additive split restores historical compatibility without silently narrowing modern v6 build/test workflows.

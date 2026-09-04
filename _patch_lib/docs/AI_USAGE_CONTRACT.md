@@ -1,6 +1,12 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.18.1
+# AI / ChatGPT usage contract — Python Patch Tool v6.18.2
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
+
+## Mandatory continuity rule for modifying Patch Tool itself
+
+Before AI changes Patch Tool code, it MUST read `NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, and `HISTORICAL_FEATURE_BASELINE_V5_15.md` in addition to the current schemas/docs. A capability previously documented as COMPLETE/PRESERVED/COMPATIBILITY_RESTORED must not be silently deleted, narrowed, renamed, or made unreachable. Historical code must not be removed merely because the current schema does not exercise it. Intentional replacement/removal requires an explicit ledger disposition and behavioral regression evidence in the same release.
+
+Current docs override old docs for runtime semantics, but they do **not** erase historical capability evidence.
 
 ## Public workflow
 

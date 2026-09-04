@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Python Patch Tool v6.18.1 public launcher.
+# Python Patch Tool v6.18.2 public launcher.
 # SANDBOX/worktree transaction mode is permanently disabled at this boundary.
 set -euo pipefail
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,12 +57,43 @@ if [ "${1:-}" = "collect" ]; then
   exec python3 "$COLLECT_PROGRESS" --project-root "$PROJECT_ROOT" --collector "$COLLECT_COMPAT" -- "$@"
 fi
 
+
+# Historical/non-interactive queue automation belongs to the dispatcher.
+# A single direct --patch remains a runner route for inspect/validate-style
+# compatibility; repeated --patch, --all/-a and --select are queue selection.
+automation_route=0
+patch_arg_count=0
+for arg in "$@"; do
+  case "${arg,,}" in
+    --patch) patch_arg_count=$((patch_arg_count + 1)) ;;
+    --all|-a|--select|--zip-failed|--keep-failed-zip|--move|-y) automation_route=1 ;;
+  esac
+done
+if [ "$patch_arg_count" -gt 1 ]; then automation_route=1; fi
+if [ "$automation_route" -eq 1 ]; then
+  dispatch_args=()
+  skip_tx=0
+  for arg in "$@"; do
+    lower="${arg,,}"
+    if [ "$skip_tx" -eq 1 ]; then
+      skip_tx=0
+      case "$lower" in off|auto|required) continue ;; esac
+    fi
+    case "$lower" in
+      --transaction) skip_tx=1 ;;
+      --transaction=*|--keep-failed-sandbox|--keep-failed-sandbox=*) ;;
+      *) dispatch_args+=("$arg") ;;
+    esac
+  done
+  exec python3 "$DISPATCHER" --project-root "$PROJECT_ROOT" run "${dispatch_args[@]}"
+fi
+
 if [ ! -f "$RUNNER" ]; then
   echo "ERROR: Missing Patch Tool core: $RUNNER" >&2
   exit 2
 fi
 
-# v6.18.1 invariant: SANDBOX/Git-worktree transaction execution is removed.
+# v6.18.2 invariant: SANDBOX/Git-worktree transaction execution is removed.
 # The installed private core may still expose historical transaction options,
 # so every documented PATCH execution route is forced to --transaction off.
 # Utility-only routes such as paths/help remain untouched.

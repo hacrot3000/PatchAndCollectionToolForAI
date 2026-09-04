@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "tool_version": "6.18.1",
+  "tool_version": "6.18.2",
   "manifest_file": "PATCH_TOOL_MANIFEST.json",
   "manifest": {
     "type": "object",
@@ -187,7 +187,9 @@
         "type": "object",
         "allowed_fields": [
           "commands",
-          "run_when_no_changes"
+          "run_when_no_changes",
+          "no_change_reason",
+          "safety_profile"
         ],
         "fields": {
           "run_when_no_changes": {
@@ -227,6 +229,16 @@
                 }
               }
             }
+          },
+          "no_change_reason": {
+            "type": "string"
+          },
+          "safety_profile": {
+            "type": "string",
+            "enum": [
+              "current",
+              "legacy_strict"
+            ]
           }
         }
       },

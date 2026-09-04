@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.18.1"
+VERSION = "6.18.2"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -4497,6 +4497,63 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto", s
     return []
 
 
+def _resolve_explicit_selection(
+    root: Path, items: list[QueueItem], *, patch_specs: list[str] | None = None,
+    select_all: bool = False, select_spec: str | None = None,
+) -> list[QueueItem] | None:
+    """Resolve historical/non-interactive selector flags against the current runnable queue.
+
+    This is deliberately semantic rather than launcher-only compatibility: the
+    dispatcher itself must understand the selection so future launcher refactors
+    cannot silently preserve a flag while dropping its behavior.
+    """
+    patch_specs = list(patch_specs or [])
+    modes = int(bool(patch_specs)) + int(bool(select_all)) + int(select_spec is not None)
+    if modes == 0:
+        return None
+    if modes > 1:
+        raise ValueError("use only one explicit selection mode: repeated --patch, --all/-a, or --select")
+    if select_all:
+        chosen = [item for item in items if item.kind == "PATCH"]
+        if not chosen and items:
+            raise ValueError("--all selects PATCH packages only; current queue has no runnable PATCH")
+        return chosen
+    if select_spec is not None:
+        text = str(select_spec).strip().lower()
+        if text in {"a", "all", "*"}:
+            chosen = list(items)
+        else:
+            indexes = _parse_index_spec(text, len(items))
+            chosen = [item for i, item in enumerate(items) if i in indexes]
+        err = _selection_contract_error(chosen)
+        if err:
+            raise ValueError(err)
+        return chosen
+
+    by_name = {item.name: item for item in items}
+    chosen: list[QueueItem] = []
+    seen: set[str] = set()
+    for raw in patch_specs:
+        spec = str(raw).strip()
+        item = None
+        if spec.isdigit():
+            idx = int(spec)
+            if 1 <= idx <= len(items):
+                item = items[idx - 1]
+        if item is None:
+            normalized = spec.replace("\\", "/")
+            if normalized.startswith("patchs/"):
+                normalized = normalized.split("/", 1)[1]
+            item = by_name.get(Path(normalized).name if "/" in normalized else normalized)
+        if item is None:
+            raise ValueError(f"explicit --patch target is not runnable in current queue: {spec}")
+        if item.kind != "PATCH":
+            raise ValueError(f"--patch accepts PATCH packages only: {item.name}")
+        if item.name not in seen:
+            chosen.append(item); seen.add(item.name)
+    return chosen
+
+
 def _configured_auto_selection(root: Path, items: list[QueueItem], cfg: dict):
     mode = cfg.get("selection", "prompt")
     if mode == "prompt":
@@ -5985,7 +6042,8 @@ def _plan_queue(
 def _run_queue(
     root: Path, *, failure_policy_override: str | None = None, transaction_policy_override: str | None = None,
     force_resume: bool = False, resume_mode: str | None = None, recipe_path: str | None = None,
-    zero_argument_invocation: bool = False,
+    zero_argument_invocation: bool = False, explicit_patch_specs: list[str] | None = None,
+    select_all: bool = False, select_spec: str | None = None,
 ):
     global _ACTIVE_RUN_ID, _LAST_EXECUTION_DETAILS
     started_mono = time.monotonic()
@@ -6174,11 +6232,25 @@ def _run_queue(
         return 0
 
     chosen = list(recipe_chosen) if recipe_chosen is not None else None
+    explicit_selection_requested = bool(explicit_patch_specs) or bool(select_all) or select_spec is not None
+    if chosen is None and explicit_selection_requested:
+        try:
+            chosen = _resolve_explicit_selection(
+                root, items, patch_specs=explicit_patch_specs, select_all=select_all, select_spec=select_spec,
+            )
+            print("EXPLICIT SELECTION: " + ", ".join(item.name for item in chosen))
+        except Exception as exc:
+            _LAST_EXECUTION_DETAILS = [{
+                "name": "CLI_SELECTION", "kind": "SELECTION", "status": "PREFLIGHT_FAIL", "rc": 2,
+                "diagnosis": {"kind": "selection_invalid", "message": str(exc)},
+            }]
+            print(f"SELECTION FAIL — project unchanged | {_safe_display(str(exc))}", file=sys.stderr)
+            return finish_report("FAIL", 2, failed_item="CLI_SELECTION")
     # SMART RESUME is automatic only when the immediately recorded failed run
     # still has concrete recovery work in the current queue.  Older unresolved
     # failures remain planner constraints but do not hijack unrelated new work.
     should_auto_resume = _automatic_resume_available(root, items, meaningful_previous)
-    if chosen is None and (force_resume or should_auto_resume):
+    if chosen is None and not explicit_selection_requested and (force_resume or should_auto_resume):
         while True:
             try:
                 decision = _resume_selection(
@@ -6554,6 +6626,15 @@ def main(argv=None):
     ap.add_argument("--support-item", type=int)
     ap.add_argument("--recipe")
     ap.add_argument("--export-recipe", nargs="?", const="BATCH_RECIPE.json")
+    # Historical automation compatibility. These are real dispatcher semantics,
+    # not launcher-only aliases, so behavioral regression tests can exercise them.
+    ap.add_argument("--patch", action="append", dest="patch_specs")
+    ap.add_argument("--all", "-a", action="store_true", dest="select_all")
+    ap.add_argument("--select")
+    ap.add_argument("-y", action="store_true", dest="assume_yes")
+    ap.add_argument("--zip-failed", action="store_true")
+    ap.add_argument("--keep-failed-zip", action="store_true")
+    ap.add_argument("--move", action="store_true")
     ns = ap.parse_args(raw_argv)
     root = Path(ns.project_root).resolve()
     try:
@@ -6579,10 +6660,19 @@ def main(argv=None):
         # Deliberately NO process-wide/project-wide queue lock. Selection isolation
         # is per invocation only; operators may run other Patch Tool processes in
         # separate terminals when they intentionally choose to do so.
+        if ns.zip_failed:
+            os.environ["PTV_LEGACY_ZIP_FAILED"] = "1"
+        if ns.keep_failed_zip:
+            os.environ["PTV_LEGACY_KEEP_FAILED_ZIP"] = "1"
+        if ns.assume_yes:
+            os.environ["PTV_LEGACY_ASSUME_YES"] = "1"
+        # --move is retained as a compatibility no-op: current queue semantics
+        # already archive every successful PATCH into patchs/patched.
         return _run_queue(
             root, failure_policy_override=ns.failure_policy, transaction_policy_override=ns.transaction_policy,
             force_resume=(ns.command == "resume"), resume_mode=ns.resume_mode, recipe_path=ns.recipe,
-            zero_argument_invocation=zero_argument_invocation,
+            zero_argument_invocation=zero_argument_invocation, explicit_patch_specs=ns.patch_specs,
+            select_all=ns.select_all, select_spec=ns.select,
         )
     except QueueSafetyError as exc:
         # Fail closed without a Python traceback when the queue/artifact/lock

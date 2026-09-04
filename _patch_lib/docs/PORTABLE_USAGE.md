@@ -1,13 +1,13 @@
-# Python Patch Tool v6.18.1 portable usage
+# Python Patch Tool v6.18.2 portable usage
 
-The release is self-contained for its v6.18.1 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
+The release is self-contained for its v6.18.2 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
 
 ## Linux / POSIX
 
 Install/update at the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.18.0.zip -d "$PWD"
+unzip -o python_patch_tool_v6.18.2.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 
@@ -18,7 +18,7 @@ Requirement: **Python 3.10+**. The launcher accepts Python Launcher (`py -3`) or
 PowerShell install/update at the project root:
 
 ```powershell
-Expand-Archive -Force .\python_patch_tool_v6.18.0.zip .
+Expand-Archive -Force .\python_patch_tool_v6.18.2.zip .
 tools\run_python_patches.bat
 ```
 
@@ -117,7 +117,7 @@ Recipe policy override rule: `run --recipe` uses the policies stored in the reci
 
 ## v6.17.14 zero-work and SMART RESUME correction
 
-- **Current behavior supersedes the v6.17.12/v6.17.13 zero-work behavior above.** If discovery finds no runnable PATCH/COLLECT, warnings, `AUTO STATUS: IDLE` and Tool Health are printed and the zero-argument launcher exits `0` immediately. The invocation is not a run: it creates no run directory and does not write `LAST_RUN`, history, ledger or unresolved-failure state; it also does not auto-open HISTORY.
+- **Historical v6.17.14 behavior — superseded by v6.18.1 and retained here only for chronology.** If discovery finds no runnable PATCH/COLLECT, warnings, `AUTO STATUS: IDLE` and Tool Health are printed and the zero-argument launcher exits `0` immediately. The invocation is not a run: it creates no run directory and does not write `LAST_RUN`, history, ledger or unresolved-failure state; it also does not auto-open HISTORY.
 - If runnable candidates existed but duplicate/session filtering removes all of them, `QUEUE CLEANUP SUMMARY` is shown and Enter may open HISTORY so the operator can see what was removed. This cleanup-only invocation still does not create a run report.
 - Automatic SMART RESUME requires `LAST_RUN` itself to be FAIL **and** at least one replay/failed/remaining item from that exact run to still exist in the current runnable queue. Older unresolved failures remain planner constraints only for related successors and never force the startup recovery menu in front of unrelated new PATCH/COLLECT work.
 
@@ -129,3 +129,16 @@ Run `./tools/run_python_patches.sh health-search` (or the equivalent PowerShell/
 ## v6.18.1 empty-queue behavior
 
 Running the public launcher with no arguments on an interactive terminal and no runnable PATCH/COLLECT prints discovery warnings, IDLE status and Tool Health, then opens existing HISTORY. This does not create an IDLE run or modify LAST_RUN/history state.
+
+## v6.18.2 compatibility CLI
+
+Non-interactive historical automation is supported again by the public launcher:
+
+```text
+./tools/run_python_patches.sh --all
+./tools/run_python_patches.sh --patch patch_a.zip --patch patch_b.zip
+./tools/run_python_patches.sh --select 1,3-5
+./tools/run_python_patches.sh -a -y --zip-failed --keep-failed-zip --move
+```
+
+The last form preserves historical automation flags; `--move` is compatibility syntax because successful current queue runs already archive their inputs. Before modifying Patch Tool itself, read `NO_SILENT_REMOVAL_POLICY.md` and `CAPABILITY_LEDGER.md`.
