@@ -1,0 +1,115 @@
+name: hotfix-no-auto-recovery-collect
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/hotfix-no-auto-recovery-collect.yml
+permissions:
+  contents: write
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Guard baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "5e5da277195f4eb9ff18a337fd267aa69cf53db3"
+      - name: Patch automatic recovery behavior and regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          q=Path('_patch_lib/python_patch_queue_dispatcher.py')
+          s=q.read_text(encoding='utf-8')
+          old='    recovery_request = _create_recovery_collect_request(root, item, patch_result)\n    log_text = ""\n'
+          assert s.count(old)==1, s.count(old)
+          s=s.replace(old,'    # FAIL_HANDOFF already snapshots the exact current source evidence.\n    # Do not publish an automatic runnable recovery COLLECT into patchs/.\n    recovery_request = None\n    log_text = ""\n',1)
+          old='''        if rc and item.kind == "PATCH":\n            recovery_request = _create_recovery_collect_request(root, item, patch_result or {})\n            if recovery_request is not None:\n                detail["recovery_collect_request"] = recovery_request.name\n                print(f"[NEXT RUN - COLLECT REQUEST READY] patchs/{_safe_display(recovery_request.name)}")\n            handoff = _create_fail_handoff(\n'''
+          assert s.count(old)==1, s.count(old)
+          new='''        if rc and item.kind == "PATCH":\n            # FAIL_HANDOFF already contains source/log evidence.  Recovery\n            # COLLECT remains an explicit user action from failed-item recovery;\n            # it must not become a runnable queue item on the next invocation.\n            recovery_request = None\n            handoff = _create_fail_handoff(\n'''
+          s=s.replace(old,new,1)
+          # Existing auto-generated leftovers from older releases are reserved\n          # tool artifacts and should disappear from the next queue scan.
+          old='''    for path in directory.iterdir():\n        try:\n            if path.is_symlink():\n'''
+          assert s.count(old)==1, s.count(old)
+          new='''    for path in directory.iterdir():\n        try:\n            if path.is_symlink():\n'''
+          # Insert cleanup immediately after symlink/non-file safety checks, where
+          # path is known to be a regular file.
+          marker='''            if not path.is_file():\n                continue\n'''
+          assert s.count(marker)>=1
+          cleanup='''            if not path.is_file():\n                continue\n            if path.name.startswith("CODE_COLLECTION_REQUEST_patch_recovery_") and path.suffix.lower() == ".zip":\n                try:\n                    path.unlink()\n                    warnings.append(f"REMOVED stale auto recovery COLLECT: patchs/{path.name}")\n                except OSError as exc:\n                    warnings.append(f"COULD NOT REMOVE stale auto recovery COLLECT: patchs/{path.name}: {type(exc).__name__}")\n                continue\n'''
+          s=s.replace(marker,cleanup,1)
+          q.write_text(s,encoding='utf-8')
+
+          t=Path('_patch_lib/self_test_patch_recovery_v6_20_0.py')
+          x=t.read_text(encoding='utf-8')
+          old='''    requests=list((root/'patchs').glob('CODE_COLLECTION_REQUEST_patch_recovery_*.zip')); assert len(requests)==1,requests\n    with zipfile.ZipFile(requests[0]) as z:\n        inner=[n for n in z.namelist() if n.endswith('.json')][0]; req=json.loads(z.read(inner)); assert req['actions']==[{'type':'pack','paths':['source.txt']}]\n'''
+          assert x.count(old)==1
+          x=x.replace(old,"    requests=list((root/'patchs').glob('CODE_COLLECTION_REQUEST_patch_recovery_*.zip')); assert requests==[],requests\n    assert 'NEXT RUN - COLLECT REQUEST READY' not in cp.stdout+cp.stderr\n",1)
+          old="        assert any(n.startswith('recovery/CODE_COLLECTION_REQUEST_') for n in names)\n"
+          assert x.count(old)==1
+          x=x.replace(old,"        assert not any(n.startswith('recovery/CODE_COLLECTION_REQUEST_') for n in names)\n",1)
+          old="    assert last['results'][0]['fail_handoff'].startswith('artifacts/patch_tool/fail_handoffs/')\n"
+          assert x.count(old)==1
+          x=x.replace(old,old+"    assert not last['results'][0].get('recovery_collect_request')\n",1)
+          old="# Deterministic recovery request publication is idempotent without a process lock.\n"
+          assert x.count(old)==1
+          x=x.replace(old,"# Low-level recovery-request builder remains deterministic for explicit/manual diagnostics; queue discovery removes legacy auto-generated leftovers.\n",1)
+          old="    assert len(list((root/'patchs').glob('CODE_COLLECTION_REQUEST_patch_recovery_*.zip')))==1\n"
+          assert x.count(old)==1
+          x=x.replace(old,"    assert len(list((root/'patchs').glob('CODE_COLLECTION_REQUEST_patch_recovery_*.zip')))==1\n    items,warnings=m.discover_queue(root)\n    assert not list((root/'patchs').glob('CODE_COLLECTION_REQUEST_patch_recovery_*.zip'))\n    assert not any(i.kind.startswith('COLLECT') for i in items)\n    assert any('REMOVED stale auto recovery COLLECT' in w for w in warnings),warnings\n",1)
+          x=x.replace("print('PASS: v6.20.2 diagnosis, FAIL_HANDOFF, source-drift recollection, LAST_RUN/resume/history')","src=(HERE/'python_patch_queue_dispatcher.py').read_text(encoding='utf-8')\nassert '_create_recovery_collect_request(root, item, patch_result)' not in src\nassert '_create_recovery_collect_request(root, item, patch_result or {})' not in src\nprint('PASS: v6.20.2 FAIL_HANDOFF keeps source evidence without auto-queuing recovery COLLECT; LAST_RUN/resume/history preserved')")
+          t.write_text(x,encoding='utf-8')
+          PY
+      - name: Refresh metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
+          find . -type f -name '*.pyc' -delete
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/python_patch_release_metadata.py --tool-dir .
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/python_patch_release_metadata.py --tool-dir . --check
+      - name: Targeted regression in installed layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/ptv-project
+          mkdir -p /tmp/ptv-project/tools
+          rsync -a --exclude=.git --exclude=.github ./ /tmp/ptv-project/tools/
+          cd /tmp/ptv-project/tools/_patch_lib
+          export PYTHONDONTWRITEBYTECODE=1
+          python3 self_test_patch_recovery_v6_20_0.py
+          python3 self_test_preflight_continuation_v6_20_0.py
+          python3 self_test_failed_queue_persistence_v6_20_0.py
+          python3 self_test_recovery_menu_v6_20_0.py
+          python3 self_test_fail_handoff_sources_v6_20_0.py
+          python3 self_test_queue_discovery_v6_20_0.py
+          python3 self_test_package_checksums_v6_20_0.py
+      - name: Full master regression in installed layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/ptv-project/tools/_patch_lib
+          export PYTHONDONTWRITEBYTECODE=1
+          python3 self_test_python_patch_tool_v6_20_0.py
+          python3 python_patch_release_metadata.py --tool-dir .. --check
+      - name: Commit hotfix directly to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/hotfix-no-auto-recovery-collect.yml
+          rmdir .github/workflows 2>/dev/null || true
+          rmdir .github 2>/dev/null || true
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
+          find . -type f -name '*.pyc' -delete
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/python_patch_release_metadata.py --tool-dir .
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/python_patch_release_metadata.py --tool-dir . --check
+          git config user.name 'Patch Tool CI'
+          git config user.email 'patch-tool-ci@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: stop auto-queuing recovery collect after patch failure'
+          git push origin HEAD:main
