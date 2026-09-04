@@ -22,7 +22,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected=cdbbff1aa96168af2bdf59925e9b16f66d7b6395
+          expected=c8540718d686b080b907389edcbbe99be00c33bd
           actual="$(git rev-parse HEAD)"
           test "$actual" = "$expected" || { echo "Unexpected work branch HEAD: $actual"; exit 2; }
           git fetch origin ptv-v6.20.2-upload-helper
