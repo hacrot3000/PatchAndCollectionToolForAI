@@ -8,9 +8,9 @@ from pathlib import Path
 import sys
 import tempfile
 
-from python_patch_collect_compat import _search_action_direct
+from python_patch_collect_compat import _search_action_payload
 
-VERSION = "6.17.14"
+VERSION = "6.18.0"
 
 
 def _reject_duplicate_json_pairs(pairs):
@@ -55,8 +55,8 @@ def main(argv=None) -> int:
         data = json.loads(req.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_json_pairs)
         if not isinstance(data, dict) or not isinstance(data.get("action"), dict) or not isinstance(data.get("limits"), dict):
             raise ValueError("invalid regex worker request")
-        text = _search_action_direct(root, data["action"], data["limits"])
-        _atomic_text(result, text)
+        payload = _search_action_payload(root, data["action"], data["limits"])
+        _atomic_text(result, json.dumps(payload, ensure_ascii=False))
         return 0
     except Exception as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)

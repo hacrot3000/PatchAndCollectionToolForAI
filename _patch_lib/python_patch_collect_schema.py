@@ -5,19 +5,23 @@ import json
 from pathlib import Path
 from typing import Any
 
-VERSION = "6.17.14"
+VERSION = "6.18.0"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "COLLECT_ACTION_SCHEMA.json"
 DEFAULT_LIMITS = {
     "max_file_bytes": 8 * 1024 * 1024,
     "max_total_bytes": 256 * 1024 * 1024,
     "max_files": 5000,
     "max_report_bytes": 16 * 1024 * 1024,
+    "max_search_files": 250000,
+    "max_search_file_bytes": 64 * 1024 * 1024,
 }
 HARD_LIMITS = {
     "max_file_bytes": 64 * 1024 * 1024,
     "max_total_bytes": 512 * 1024 * 1024,
     "max_files": 20000,
     "max_report_bytes": 64 * 1024 * 1024,
+    "max_search_files": 1000000,
+    "max_search_file_bytes": 256 * 1024 * 1024,
 }
 
 
@@ -153,6 +157,33 @@ def validate_request_data(data: Any) -> dict[str, Any]:
             if not isinstance(mm, int) or isinstance(mm, bool) or not 1 <= mm <= 20000:
                 raise CollectSchemaError(f"{label}.max_matches must be an integer from 1 to 20000")
             norm["max_matches"] = mm
+            backend = norm.get("backend", "auto")
+            if backend not in {"auto", "rg", "python"}:
+                raise CollectSchemaError(f"{label}.backend must be auto, rg, or python")
+            norm["backend"] = backend
+            source_scope = norm.get("source_scope")
+            filesystem_alias = norm.get("filesystem")
+            if filesystem_alias is not None and not isinstance(filesystem_alias, bool):
+                raise CollectSchemaError(f"{label}.filesystem must be boolean")
+            if source_scope is None:
+                source_scope = "filesystem" if filesystem_alias is not False else "git_tracked"
+            if source_scope not in {"filesystem", "git_tracked"}:
+                raise CollectSchemaError(f"{label}.source_scope must be filesystem or git_tracked")
+            if filesystem_alias is not None and ((filesystem_alias and source_scope != "filesystem") or (not filesystem_alias and source_scope != "git_tracked")):
+                raise CollectSchemaError(f"{label}.filesystem conflicts with source_scope")
+            norm["source_scope"] = source_scope
+            norm["filesystem"] = source_scope == "filesystem"
+            for flag, default in (("respect_gitignore", False), ("follow_symlinks", False), ("must_find", False), ("diagnose_on_zero", True), ("fallback_search", True), ("report_coverage", True), ("report_skipped_dirs", True), ("module_discovery", True)):
+                value = norm.get(flag, default)
+                if not isinstance(value, bool):
+                    raise CollectSchemaError(f"{label}.{flag} must be boolean")
+                norm[flag] = value
+            for field in ("anchor_paths", "expected_files"):
+                value = norm.get(field, [])
+                if value == []:
+                    norm[field] = []
+                else:
+                    norm[field] = _path_list(value, f"{label}.{field}")
         elif action_type == "git":
             sections = norm.get("sections")
             allowed_sections = set(schema["git_sections"])

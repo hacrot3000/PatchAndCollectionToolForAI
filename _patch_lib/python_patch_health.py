@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import hashlib, json, os, stat
+import hashlib, json, os, stat, subprocess, tempfile
 from pathlib import Path
 
-VERSION = "6.17.14"
+VERSION = "6.18.0"
 REQUIRED_RUNTIME = [
     "tools/run_python_patches.sh",
     "tools/run_python_patches.ps1",
@@ -186,3 +186,69 @@ def print_health(root: Path, *, compact: bool=False) -> int:
             print(f"  ERROR: {msg}")
         print("=== END TOOL HEALTH ===")
     return 0 if status in {'PASS','WARN'} else 2
+
+
+def run_search_health(root: Path, *, compact: bool = False) -> int:
+    """Exercise discovery/search against a disposable fixture; never touches project source."""
+    from python_patch_collect_compat import _find_action, _search_action_payload
+    from python_patch_collect_schema import validate_request_data
+    checks=[]
+    def record(name: str, ok: bool, detail: str=''):
+        checks.append((name,ok,detail))
+    with tempfile.TemporaryDirectory(prefix='ptv-search-health-') as td:
+        fixture=Path(td).resolve()
+        (fixture/'module_a').mkdir(); (fixture/'module_b'/'nested').mkdir(parents=True)
+        (fixture/'module_a'/'A.java').write_text('class A { String literal = "HEALTH_LITERAL"; }\n',encoding='utf-8')
+        (fixture/'module_b'/'nested'/'B.java').write_text('class B { int value123 = 7; }\n',encoding='utf-8')
+        (fixture/'module_b'/'nested'/'TênUnicode.java').write_text('String unicode = "TÌM_KIẾM_ĐƯỢC";\n',encoding='utf-8')
+        (fixture/'.gitignore').write_text('ignored_module/\n',encoding='utf-8')
+        (fixture/'ignored_module').mkdir(); (fixture/'ignored_module'/'Ignored.java').write_text('String x="IGNORED_BUT_PRESENT";\n',encoding='utf-8')
+        subprocess.run(['git','init','-q'],cwd=fixture,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        subprocess.run(['git','add','.gitignore','module_a/A.java','module_b/nested/B.java'],cwd=fixture,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        try:
+            (fixture/'link_outside').symlink_to(Path(td).parent, target_is_directory=True)
+            symlink_created=True
+        except OSError:
+            symlink_created=False
+        # Reproduce the v6.17.14 false-zero class: target is beyond 5,000 ordinary files.
+        large=fixture/'large_tree'; large.mkdir()
+        for i in range(5050): (large/f'n{i:05}.txt').touch()
+        (large/'zz_target.java').write_text('CmdMineInfoCSReqMsg health;\n',encoding='utf-8')
+
+        def search(query: str, **overrides):
+            action={'type':'search','query':query,'paths':['.'],'context_lines':0,'max_matches':50}
+            action.update(overrides)
+            req=validate_request_data({'actions':[action]})
+            return _search_action_payload(fixture,req['actions'][0],req['limits'])
+
+        out=search('HEALTH_LITERAL'); record('literal search',out['matches']==1 and out['coverage_status']=='VERIFIED',out['coverage_status'])
+        out=search(r'value\d+',regex=True); record('regex search',out['matches']==1,out['coverage_status'])
+        req=validate_request_data({'actions':[{'type':'find','paths':['module_b'],'patterns':['*.java'],'max_results':20}]})
+        report,matches=_find_action(fixture,req['actions'][0],req['limits']); record('filename find',len(matches)>=2,str(len(matches)))
+        out=search('IGNORED_BUT_PRESENT'); record('filesystem sees gitignored/untracked',out['matches']==1,out['coverage_status'])
+        out=search('IGNORED_BUT_PRESENT',source_scope='git_tracked'); record('git_tracked remains explicit/narrow',out['matches']==0,str(out['matches']))
+        out=search('TÌM_KIẾM_ĐƯỢC'); record('Unicode filename/content',out['matches']==1,out['coverage_status'])
+        out=search('CmdMineInfoCSReqMsg',must_find=True); record('large tree beyond old 5000 limit',out['matches']==1 and not out['incomplete'],out['coverage_status'])
+        out=search('HEALTH_LITERAL',paths=[str(fixture/'module_a')]); record('absolute in-project search path',out['matches']==1,out['coverage_status'])
+        out=search('HEALTH_LITERAL',paths=['module_a']); record('relative search path',out['matches']==1,out['coverage_status'])
+        if symlink_created:
+            out=search('NO_SUCH_HEALTH_TOKEN')
+            record('symlink safety/reporting', 'symlink_follow_disabled' in out['report'] or 'symlink_escapes_project_root' in out['report'], out['coverage_status'])
+        else:
+            record('symlink safety/reporting',True,'fixture symlink unavailable on host; skipped')
+        out=search('NO_SUCH_HEALTH_TOKEN',must_find=True,diagnose_on_zero=True)
+        record('must_find + zero diagnostic',out['incomplete'] and 'ZERO MATCH DIAGNOSTIC' in out['report'] and 'must_find=true' in out['report'],out['coverage_status'])
+        out=search('HEALTH_LITERAL',anchor_paths=['module_a'],expected_files=['module_a/A.java'])
+        record('anchor_paths + expected_files',out['matches']>=1 and '[ANCHOR]' in out['report'] and '[EXPECTED_FILE]' in out['report'],out['coverage_status'])
+    failed=[x for x in checks if not x[1]]
+    if compact:
+        print(f"SEARCH HEALTH: {'PASS' if not failed else 'FAIL'} | version={VERSION} | pass={len(checks)-len(failed)} fail={len(failed)}")
+    else:
+        print('=== SEARCH HEALTH / DISCOVERY SELF-TEST ===')
+        print(f"Version     : {VERSION}")
+        for name,ok,detail in checks:
+            suffix=f" | {detail}" if detail else ''
+            print(f"  [{'PASS' if ok else 'FAIL'}] {name}{suffix}")
+        print('Principle   : Zero matches is a search result, not proof of absence.')
+        print('=== END SEARCH HEALTH ===')
+    return 0 if not failed else 2

@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.17.14"
+VERSION = "6.18.0"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -5128,10 +5128,11 @@ def execute_items(
                 live_status.set_status(item.name, "INTERRUPTED")
             print(f"[PTV v{VERSION}] INTERRUPTED by Ctrl+C", file=sys.stderr)
 
+        collect_incomplete = bool(item.kind == "COLLECT" and rc == 3 and isinstance(collect_result, dict) and collect_result.get("status") == "INCOMPLETE")
         if live_status is not None and rc != 130:
-            live_status.set_status(item.name, "PASS" if rc == 0 else "FAIL")
+            live_status.set_status(item.name, "INCOMPLETE" if collect_incomplete else ("PASS" if rc == 0 else "FAIL"))
         compare_info = _capture_item_compare_after(root, compare_before, meta)
-        if rc == 0 and item.kind == "COLLECT":
+        if (rc == 0 or collect_incomplete) and item.kind == "COLLECT":
             ok, post_detail = _collect_archive_postcondition(root, item)
             if not ok:
                 print(f"[PTV v{VERSION} ERROR] {_safe_display(post_detail)}", file=sys.stderr)
@@ -5141,7 +5142,7 @@ def execute_items(
 
         detail: dict[str, object] = {
             "name": item.name, "kind": item.kind,
-            "status": "PASS" if rc == 0 else "FAIL", "rc": rc,
+            "status": "INCOMPLETE" if collect_incomplete else ("PASS" if rc == 0 else "FAIL"), "rc": rc,
             "started_at": item_started_at,
             "elapsed_seconds": round(time.monotonic() - item_started_mono, 3),
         }

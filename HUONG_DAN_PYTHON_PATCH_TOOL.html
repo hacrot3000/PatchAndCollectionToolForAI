@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Hướng dẫn Python Patch Tool v6.17.14</title>
+<title>Hướng dẫn Python Patch Tool v6.18.0</title>
 <style>
 :root{color-scheme:light dark}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:980px;margin:32px auto;padding:0 18px;line-height:1.55;color:#1f2328;background:#fff}
@@ -27,16 +27,16 @@ h1,h2{line-height:1.25}
 </style>
 </head>
 <body>
-<h1>Python Patch Tool v6.17.14 — hướng dẫn nhanh</h1>
+<h1>Python Patch Tool v6.18.0 — hướng dẫn nhanh</h1>
 
 <h2>1. Cài đặt / cập nhật</h2>
 <p><strong>Linux / POSIX:</strong></p>
-<pre>unzip -o python_patch_tool_v6.17.14.zip -d "$PWD"
+<pre>unzip -o python_patch_tool_v6.18.0.zip -d "$PWD"
 cat tools/_patch_lib/VERSION</pre>
 <p><strong>Windows PowerShell:</strong> cần Python <strong>3.10+</strong>.</p>
-<pre>Expand-Archive -Force .\python_patch_tool_v6.17.14.zip .
+<pre>Expand-Archive -Force .\python_patch_tool_v6.18.0.zip .
 Get-Content .\tools\_patch_lib\VERSION</pre>
-<p>Kết quả version phải là <code>6.17.12</code>.</p>
+<p>Kết quả version phải là <code>6.18.0</code>.</p>
 
 <h2>2. Chạy công cụ</h2>
 <p><strong>Linux / POSIX:</strong></p>
@@ -56,6 +56,7 @@ Get-Content .\tools\_patch_lib\VERSION</pre>
 <li>Tool không khóa project; bạn có thể chủ động chạy terminal khác song song.</li>
 <li>Nếu nhiều PATCH trong cùng queue có checksum giống hệt nhau, tool giữ một file và tự loại file trùng.</li>
 <li>Nếu nghi ngờ tool bị copy/cài thiếu hoặc sai checksum, nhấn <code>h</code> trong menu để kiểm tra nhanh Tool Health; thao tác này không chạy PATCH.</li>
+<li>Nếu nghi ngờ COLLECT search bỏ sót source, chạy <code>./tools/run_python_patches.sh health-search</code> (Windows dùng launcher tương ứng) để tự kiểm tra lớp discovery/search trên fixture tạm.</li>
 <li>Khi chạy launcher không tham số, selector luôn có thêm mục <strong>HISTORY</strong>; dùng <strong>↑/↓ + Enter</strong> để xem lại lịch sử rồi quay lại queue. Nếu queue thực sự không có PATCH/COLLECT runnable, tool chỉ in warning, <code>AUTO STATUS: IDLE</code> và Tool Health rồi thoát mã 0; invocation này không tạo run/log, không ghi <code>LAST_RUN</code>/history và không tự mở HISTORY. Nếu queue có package nhưng tất cả bị duplicate/auto-filter, tool in <strong>QUEUE CLEANUP SUMMARY</strong> và chờ <strong>Enter</strong> trước khi mở HISTORY để bạn đọc được các package đã bị loại.</li>
 <li>SMART RESUME chỉ tự bật khi <strong>LAST_RUN thực sự FAIL và còn item recovery của chính run đó trong queue</strong>. Failure cũ vẫn được giữ để chặn successor liên quan nhưng không được chiếm màn hình trước PATCH/COLLECT mới độc lập.</li>
 </ul>

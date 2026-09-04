@@ -1,4 +1,4 @@
-# Python Patch Tool v6.17.14 feature status
+# Python Patch Tool v6.18.0 feature status
 
 | Capability | Status |
 |---|---|
@@ -101,3 +101,12 @@ v6.17.6 completes the current robustness/data-integrity audit scope, aggregate/d
 
 
 - v6.17.13 history browser hides IDLE, renders package-first rows and pauses after duplicate-only queue cleanup. v6.17.14 corrects zero-work semantics: a genuinely empty zero-argument queue creates no run/log/state and does not auto-open HISTORY; automatic SMART RESUME requires a failed LAST_RUN with concrete recovery work still present in the current queue, while persistent predecessor safety remains enforced for related successors.
+
+
+## v6.18.0 search discovery
+
+- COMPLETE: filesystem-first search; untracked/gitignored visibility by default.
+- COMPLETE: separate search budgets, coverage/skipped diagnostics, module inventory, zero diagnostics.
+- COMPLETE: auto primary + independent fallback consistency check and `SEARCH_INCONSISTENCY`.
+- COMPLETE: `must_find`, `anchor_paths`, `expected_files`, `COLLECT INCOMPLETE` diagnostic ZIP.
+- COMPLETE: `health-search` disposable fixture.

@@ -1,13 +1,13 @@
-# Python Patch Tool v6.17.14 portable usage
+# Python Patch Tool v6.18.0 portable usage
 
-The release is self-contained for its v6.17.14 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
+The release is self-contained for its v6.18.0 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
 
 ## Linux / POSIX
 
 Install/update at the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.17.14.zip -d "$PWD"
+unzip -o python_patch_tool_v6.18.0.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 
@@ -18,7 +18,7 @@ Requirement: **Python 3.10+**. The launcher accepts Python Launcher (`py -3`) or
 PowerShell install/update at the project root:
 
 ```powershell
-Expand-Archive -Force .\python_patch_tool_v6.17.14.zip .
+Expand-Archive -Force .\python_patch_tool_v6.18.0.zip .
 tools\run_python_patches.bat
 ```
 
@@ -120,3 +120,8 @@ Recipe policy override rule: `run --recipe` uses the policies stored in the reci
 - **Current behavior supersedes the v6.17.12/v6.17.13 zero-work behavior above.** If discovery finds no runnable PATCH/COLLECT, warnings, `AUTO STATUS: IDLE` and Tool Health are printed and the zero-argument launcher exits `0` immediately. The invocation is not a run: it creates no run directory and does not write `LAST_RUN`, history, ledger or unresolved-failure state; it also does not auto-open HISTORY.
 - If runnable candidates existed but duplicate/session filtering removes all of them, `QUEUE CLEANUP SUMMARY` is shown and Enter may open HISTORY so the operator can see what was removed. This cleanup-only invocation still does not create a run report.
 - Automatic SMART RESUME requires `LAST_RUN` itself to be FAIL **and** at least one replay/failed/remaining item from that exact run to still exist in the current runnable queue. Older unresolved failures remain planner constraints only for related successors and never force the startup recovery menu in front of unrelated new PATCH/COLLECT work.
+
+
+## v6.18.0 search health
+
+Run `./tools/run_python_patches.sh health-search` (or the equivalent PowerShell/BAT launcher command) to validate discovery/search independently of project source. Search is filesystem-first by default and does not use Git tracking as an implicit scope.

@@ -1,4 +1,4 @@
-Python Patch Tool v6.17.14 — full self-contained package
+Python Patch Tool v6.18.0 — full self-contained package
 
 Public launchers / user docs:
   tools/run_python_patches.sh
@@ -52,11 +52,11 @@ Runtime artifacts (created in project; not shipped pre-populated):
   patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip
 
 Normal use — Linux/POSIX:
-  unzip -o python_patch_tool_v6.17.13.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.18.0.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 Normal use — Windows (Python 3.10+):
-  Expand-Archive -Force .\python_patch_tool_v6.17.13.zip PROJECT_ROOT
+  Expand-Archive -Force .\python_patch_tool_v6.18.0.zip PROJECT_ROOT
   tools\run_python_patches.bat
   # or: .\tools\run_python_patches.ps1
 
@@ -139,3 +139,12 @@ v6.17.12 contract-consistency audit:
 - v6.17.13 history hides IDLE, uses package-first rows, pauses after duplicate-only cleanup, and SMART RESUME follows the latest meaningful failed execution while unresolved predecessor safety persists.
 
 - v6.17.14 zero-work zero-argument discovery exits without run/log/LAST_RUN/history state; SMART RESUME auto-opens only for a failed LAST_RUN that still has concrete recovery work in the current queue.
+
+
+v6.18.0 search/discovery hardening:
+- filesystem-first search defaults; git-tracked scope is explicit opt-in;
+- independent primary/fallback verification prevents silent false-zero;
+- search coverage uses dedicated max_search_files/max_search_file_bytes budgets;
+- coverage/skipped/module diagnostics + SEARCH_INCONSISTENCY + must_find/INCOMPLETE semantics;
+- anchor_paths/expected_files and in-project absolute search paths;
+- ./tools/run_python_patches.sh health-search disposable fixture suite.

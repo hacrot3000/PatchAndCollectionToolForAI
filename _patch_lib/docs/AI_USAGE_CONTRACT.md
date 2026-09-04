@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.17.14
+# AI / ChatGPT usage contract — Python Patch Tool v6.18.0
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
@@ -284,3 +284,12 @@ Once payload execution has begun, an unexpected runner exception is treated as a
 ### v6.17.13 history/resume semantics
 
 A zero-argument invocation with no runnable PATCH/COLLECT is not a run at all: it creates no LAST_RUN/history/run log/state. Persistent unresolved failures still constrain related successors through dependency/effective-target planning, but automatic SMART RESUME requires a failed LAST_RUN whose recovery item is still present in the current runnable queue; older registry entries never globally hijack unrelated new work.
+
+
+## v6.18.0 AI rule for search evidence
+
+**Zero matches is a search result, not proof of absence.** AI must not infer that a symbol/file/source tree is absent from `Matches: 0` alone. For absence claims, require `Coverage status: VERIFIED` in the search report. `PARTIAL`, `INCONSISTENT`, `INCOMPLETE`, a reached search limit, unreadable/oversize files, or disabled fallback means evidence is insufficient.
+
+For bug investigation, prefer `source_scope=filesystem` / `filesystem=true`, `respect_gitignore=false`, `backend=auto`, `fallback_search=true`, `diagnose_on_zero=true`, `report_coverage=true`, and `report_skipped_dirs=true`. Use `must_find=true` for symbols/files that prior evidence says must exist. When the user gives a concrete subtree/file, pass it through `anchor_paths` / `expected_files` instead of relying only on broad discovery.
+
+A `SEARCH_INCONSISTENCY` or `COLLECT INCOMPLETE` result is diagnostic evidence to inspect and possibly recollect; it is never proof of absence.

@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from python_patch_utils import PatchFailure, diagnose_ops, finish_failure, run_ops
 from python_patch_package_schema import PatchSchemaError, path_is_link_or_reparse, resolve_project_path, run_preflight, sha256_file
 
-VERSION = "6.17.14"
+VERSION = "6.18.0"
 _ACTIVE_TERMINATION_SIGNAL: int | None = None
 MAX_ARCHIVE_ENTRIES = 10000
 MAX_ARCHIVE_MEMBER_BYTES = 64 * 1024 * 1024
@@ -2186,9 +2186,13 @@ def main(argv: list[str] | None = None) -> int:
         print(VERSION); return 0
     if args[0] == "paths":
         root = Path.cwd().resolve(); return _paths(root)
+    if args[0] == "health-search":
+        from python_patch_health import run_search_health
+        return run_search_health(Path.cwd().resolve(), compact=False)
     if args[0] in {"help", "--help", "-h"}:
         print("Python Patch Tool self-contained core. Normal use: ./tools/run_python_patches.sh")
         print("Interactive selector supports inspect/dry-run with key i. Direct validator: validate --patch <package>. Read-only diff preview: preview --patch <package>.")
+        print("Search discovery self-test: ./tools/run_python_patches.sh health-search")
         return 0
 
     inspect_mode = False

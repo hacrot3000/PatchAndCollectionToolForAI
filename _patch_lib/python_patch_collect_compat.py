@@ -20,11 +20,15 @@ import zipfile
 
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
 
-VERSION = "6.17.14"
+VERSION = "6.18.0"
 REQUEST_RE = re.compile(r"^CODE_COLLECTION_REQUEST(?:_[A-Za-z0-9._-]+)?\.json$", re.I)
 MAX_REQUEST_JSON_BYTES = 1024 * 1024
 REGEX_SEARCH_TIMEOUT_SECONDS = 60.0
-IGNORED_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "build", "dist"}
+SEARCH_BACKEND_TIMEOUT_SECONDS = 60.0
+# Search intentionally scans the filesystem, including untracked/gitignored source.
+# Only clearly non-source/tool-internal trees are skipped by default; every skip is reported.
+SEARCH_DEFAULT_EXCLUDED_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__"}
+IGNORED_DIRS = SEARCH_DEFAULT_EXCLUDED_DIRS | {"build", "dist"}
 IGNORED_REL_PREFIXES = (
     "artifacts/patch_tool_code_collections/",
     "artifacts/patch_tool/",
@@ -289,6 +293,8 @@ class ResultBuilder:
         self.reports: list[dict[str, object]] = []
         self._added_files: set[str] = set()
         self.sensitive_warnings: list[dict[str, object]] = []
+        self.collection_warnings: list[dict[str, object]] = []
+        self.collection_status = "PASS"
         self.total_bytes = 0
         self.report_bytes = 0
         self.file_count = 0
@@ -373,10 +379,14 @@ class ResultBuilder:
         self.report_bytes += len(raw)
         self.reports.append({"action": index, "type": kind, "title": title, "archive_path": arcname, "truncated": truncated})
 
+    def mark_incomplete(self, *, action: int, kind: str, reasons: list[str]) -> None:
+        self.collection_status = "INCOMPLETE"
+        self.collection_warnings.append({"action": action, "type": kind, "reasons": list(reasons)})
+
     def finish(self) -> Path:
         manifest = {
             "format": "python-patch-tool-code-collection",
-            "format_version": 2,
+            "format_version": 3,
             "tool_version": VERSION,
             "request_id": self.request_data.get("id"),
             "title": self.request_data.get("title"),
@@ -388,6 +398,8 @@ class ResultBuilder:
             "files": self.entries,
             "reports": self.reports,
             "sensitive_warnings": self.sensitive_warnings,
+            "collection_status": self.collection_status,
+            "collection_warnings": self.collection_warnings,
         }
         self.zf.writestr("COLLECTION_MANIFEST.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
         self.zf.close()
@@ -504,108 +516,494 @@ def _looks_text(path: Path) -> bool:
     if path.suffix.lower() in TEXT_SUFFIXES or path.name in {"Makefile", "Dockerfile", "CMakeLists.txt"}:
         return True
     try:
-        sample = path.read_bytes()[:4096]
+        with path.open("rb") as fh:
+            sample = fh.read(4096)
     except OSError:
         return False
     return b"\x00" not in sample
 
 
-def _search_action_direct(root: Path, action: dict, limits: dict) -> str:
-    query = action["query"]
-    regex_mode = action.get("regex", False)
+def _resolve_search_scope(root: Path, raw: str, *, file_ok: bool = True) -> tuple[str, Path]:
+    """Search-only resolver: accepts project-relative or absolute paths contained by root."""
+    value = str(raw).strip()
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        rel = _safe_rel_path(value)
+        candidate = root if rel.as_posix() == "." else root.joinpath(*rel.parts)
     try:
-        pattern = re.compile(query) if regex_mode else None
-    except re.error as exc:
-        raise ValueError(f"invalid search regex: {exc}") from exc
-    context = action.get("context_lines", 4)
-    max_matches = action.get("max_matches", 500)
-    found = 0
-    blocks: list[str] = ["# Search results", "", f"Query: `{query}`", f"Regex: {regex_mode}", ""]
-    seen_files: set[str] = set()
-    for raw_scope in action.get("paths", ["."]):
-        _, scope = _resolve_scope(root, raw_scope, file_ok=True)
-        for path in _iter_files(root, scope, max_files=limits["max_files"]):
-            rel = _project_rel(root, path)
-            if rel in seen_files:
+        st = candidate.lstat()
+    except FileNotFoundError as exc:
+        raise ValueError(f"missing search path: {value}") from exc
+    if stat.S_ISLNK(st.st_mode):
+        raise ValueError(f"search root/anchor may not itself be a symlink: {value}")
+    if file_ok:
+        if not (stat.S_ISDIR(st.st_mode) or stat.S_ISREG(st.st_mode)):
+            raise ValueError(f"unsupported search filesystem entry: {value}")
+    elif not stat.S_ISDIR(st.st_mode):
+        raise ValueError(f"search path must be a directory: {value}")
+    resolved = candidate.resolve(strict=True)
+    try:
+        rel = resolved.relative_to(root.resolve(strict=True)).as_posix()
+    except ValueError as exc:
+        raise ValueError(f"search path escapes project root: {value}") from exc
+    return (rel or "."), candidate
+
+
+def _search_scope_list(root: Path, action: dict) -> list[tuple[str, Path, str]]:
+    scopes: list[tuple[str, Path, str]] = []
+    seen: set[str] = set()
+    for kind, values in (("anchor", action.get("anchor_paths", [])), ("requested", action.get("paths", ["."]))):
+        for raw in values:
+            rel, path = _resolve_search_scope(root, raw, file_ok=True)
+            key = path.resolve(strict=True).as_posix()
+            if key in seen:
                 continue
-            seen_files.add(rel)
-            try:
-                if path.stat().st_size > limits["max_file_bytes"] or not _looks_text(path):
-                    continue
-                text = path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            lines = text.splitlines()
-            match_lines: list[int] = []
-            for idx, line in enumerate(lines):
-                hit = bool(pattern.search(line)) if pattern else query in line
-                if hit:
-                    match_lines.append(idx)
-                    found += 1
-                    if found >= max_matches:
-                        break
-            for idx in match_lines:
-                start = max(0, idx - context)
-                end = min(len(lines), idx + context + 1)
-                blocks.append(f"## {rel}:{idx+1}")
-                blocks.append("```text")
-                for n in range(start, end):
-                    marker = ">" if n == idx else " "
-                    blocks.append(f"{marker}{n+1:6d}: {lines[n]}")
-                blocks.append("```")
-                blocks.append("")
-            if found >= max_matches:
-                break
-        if found >= max_matches:
-            break
-    blocks.insert(4, f"Matches: {found}")
-    if found >= max_matches:
-        blocks.append(f"[TRUNCATED at max_matches={max_matches}]")
-    return "\n".join(blocks) + "\n"
+            seen.add(key); scopes.append((rel, path, kind))
+    for raw in action.get("expected_files", []):
+        rel, path = _resolve_search_scope(root, raw, file_ok=True)
+        if not path.is_file():
+            raise ValueError(f"expected_files entry must be a regular file: {raw}")
+        key = path.resolve(strict=True).as_posix()
+        if key not in seen:
+            seen.add(key); scopes.insert(0, (rel, path, "expected_file"))
+    return scopes
 
 
+def _search_skip_record(diag: dict, rel: str, reason: str, *, is_dir: bool = True) -> None:
+    key = "skipped_dirs" if is_dir else "skipped_files"
+    diag[key + "_count"] = int(diag.get(key + "_count", 0)) + 1
+    rows = diag.setdefault(key, [])
+    if len(rows) < 250:
+        rows.append({"path": rel, "reason": reason})
 
-def _search_action(root: Path, action: dict, limits: dict) -> str:
-    """Run regex search out-of-process so pathological `re` cannot hang COLLECT."""
-    if not action.get("regex", False):
-        return _search_action_direct(root, action, limits)
-    worker = Path(__file__).resolve().parent / "python_patch_collect_regex_worker.py"
-    if not worker.is_file():
-        raise ValueError("regex search worker is missing")
-    with tempfile.TemporaryDirectory(prefix="ptv-collect-regex-") as td:
-        work = Path(td)
-        request_path = work / "request.json"
-        result_path = work / "result.txt"
-        request_path.write_text(
-            json.dumps({"action": action, "limits": limits}, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        env = dict(os.environ)
-        env["PYTHONDONTWRITEBYTECODE"] = "1"
-        try:
+
+def _search_rel(root: Path, path: Path) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def _gitignored_relpaths(root: Path, rels: list[str]) -> tuple[set[str], str | None]:
+    if not rels:
+        return set(), None
+    if not (root/'.git').exists():
+        return set(), "project root is not a Git working tree; respect_gitignore could not be verified"
+    ignored: set[str] = set()
+    try:
+        for offset in range(0, len(rels), 4096):
+            chunk = rels[offset:offset+4096]
+            payload = b"".join(x.encode('utf-8', errors='surrogateescape') + b"\0" for x in chunk)
             proc = subprocess.run(
-                [sys.executable, str(worker), "--project-root", str(root), "--request", str(request_path), "--result", str(result_path)],
-                cwd=root,
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                timeout=REGEX_SEARCH_TIMEOUT_SECONDS,
+                ["git", "-c", "core.fsmonitor=false", "check-ignore", "-z", "--stdin"],
+                cwd=root, input=payload, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                timeout=30,
             )
+            if proc.returncode not in {0, 1}:
+                detail=proc.stderr.decode('utf-8',errors='replace').strip().replace('\n',' ')[:500]
+                return ignored, f"git check-ignore failed rc={proc.returncode}: {detail}"
+            for raw in proc.stdout.split(b"\0"):
+                if raw:
+                    ignored.add(raw.decode('utf-8', errors='surrogateescape'))
+    except Exception as exc:
+        return ignored, f"gitignore check failed: {type(exc).__name__}: {exc}"
+    return ignored, None
+
+
+def _discover_search_files(root: Path, scopes: list[tuple[str, Path, str]], action: dict, limits: dict, *, walker: str) -> tuple[list[Path], dict]:
+    max_files=int(limits.get("max_search_files", 250000))
+    follow=bool(action.get("follow_symlinks", False))
+    diag={
+        "walker": walker, "directories_visited": 0, "files_considered": 0,
+        "files_searched": 0, "limit_reached": False, "errors": [],
+        "skipped_dirs": [], "skipped_dirs_count": 0, "skipped_files": [], "skipped_files_count": 0,
+        "top_dirs": {}, "modules": set(), "extension_counts": Counter(), "candidate_filenames": [],
+    }
+    files=[]; seen_files=set(); seen_dirs=set()
+    marker_names={"pom.xml","build.gradle","build.gradle.kts","settings.gradle","settings.gradle.kts","package.json","pyproject.toml","CMakeLists.txt"}
+    query_tokens=[x.lower() for x in re.findall(r'[A-Z]?[a-z]+|[A-Z]+(?![a-z])|\d+',str(action.get("query", ""))) if len(x)>=3]
+    query_tokens=[x for x in query_tokens if x not in {"cmd","msg","req"}]
+
+    # Explicit Git-index mode must not depend on a preceding bounded filesystem walk.
+    # It is deliberately narrower than the filesystem default and therefore uses
+    # git ls-files as its authoritative candidate inventory from the start.
+    if action.get("source_scope") == "git_tracked":
+        if not (root/'.git').exists():
+            diag["errors"].append("source_scope=git_tracked requested but project root is not a Git working tree")
+            diag["modules"]=[]; diag["extension_counts"]={}
+            return [],diag
+        requested=[]
+        for rel,path,kind in scopes:
+            if kind == "expected_file":
+                requested.append(rel)
+            elif rel != '.':
+                requested.append(rel)
+        cmd=["git","-c","core.fsmonitor=false","ls-files","-z"] + (["--",*requested] if requested else [])
+        try:
+            proc=subprocess.run(cmd,cwd=root,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
+        except Exception as exc:
+            diag["errors"].append(f"git ls-files failed: {type(exc).__name__}: {exc}")
+            diag["modules"]=[]; diag["extension_counts"]={}
+            return [],diag
+        if proc.returncode:
+            diag["errors"].append(f"git ls-files failed rc={proc.returncode}")
+            diag["modules"]=[]; diag["extension_counts"]={}
+            return [],diag
+        max_files=int(limits.get("max_search_files",250000))
+        for raw in proc.stdout.split(b'\0'):
+            if not raw: continue
+            rel=raw.decode('utf-8',errors='surrogateescape'); path=root/rel
+            try:
+                st=path.stat(); path.resolve(strict=True).relative_to(root.resolve(strict=True))
+            except Exception:
+                _search_skip_record(diag,rel,"tracked_path_missing_or_unsafe",is_dir=False); continue
+            if not stat.S_ISREG(st.st_mode): continue
+            files.append(path); diag["files_considered"] += 1; diag["extension_counts"][path.suffix.lower() or '<no-ext>'] += 1
+            parts=Path(rel).parts
+            for depth in range(1,min(3,len(parts)-1)+1): diag["modules"].add(Path(*parts[:depth]).as_posix())
+            if path.name in marker_names: diag["modules"].add(Path(rel).parent.as_posix() or '.')
+            if len(diag["candidate_filenames"])<500 and (not query_tokens or any(t in path.name.lower() for t in query_tokens)):
+                diag["candidate_filenames"].append(rel)
+            if len(files)>=max_files:
+                diag["limit_reached"]=True; break
+        diag["modules"]=sorted(diag["modules"])[:500]
+        diag["extension_counts"]={k:v for k,v in diag["extension_counts"].most_common()}
+        return files,diag
+
+    def add_file(path: Path, scope_rel: str):
+        if len(files) >= max_files:
+            diag["limit_reached"] = True; return False
+        try:
+            st=path.stat(follow_symlinks=follow)
+        except (OSError, TypeError) as exc:
+            _search_skip_record(diag, _search_rel(root,path), f"stat_error:{type(exc).__name__}", is_dir=False); return True
+        if not stat.S_ISREG(st.st_mode):
+            _search_skip_record(diag, _search_rel(root,path), "not_regular", is_dir=False); return True
+        try:
+            resolved=path.resolve(strict=True)
+            resolved.relative_to(root.resolve(strict=True))
+        except Exception:
+            _search_skip_record(diag, _search_rel(root,path), "escapes_project_root", is_dir=False); return True
+        key=(st.st_dev,st.st_ino) if getattr(st,'st_ino',0) else resolved.as_posix()
+        if key in seen_files: return True
+        seen_files.add(key); files.append(path); diag["files_considered"] += 1
+        rel=_search_rel(root,path); diag["extension_counts"][path.suffix.lower() or '<no-ext>'] += 1
+        parts=Path(rel).parts
+        if path.name in marker_names:
+            diag["modules"].add(Path(rel).parent.as_posix() or ".")
+        if len(diag["candidate_filenames"]) < 500 and (not query_tokens or any(t in path.name.lower() for t in query_tokens)):
+            diag["candidate_filenames"].append(rel)
+        return len(files) < max_files
+
+    def note_dir(path: Path, scope: Path):
+        try:
+            st=path.stat(follow_symlinks=follow)
+            key=(st.st_dev,st.st_ino) if getattr(st,'st_ino',0) else path.resolve(strict=True).as_posix()
+        except Exception as exc:
+            _search_skip_record(diag,_search_rel(root,path),f"dir_stat_error:{type(exc).__name__}"); return False
+        if key in seen_dirs:
+            _search_skip_record(diag,_search_rel(root,path),"directory_cycle_or_duplicate"); return False
+        seen_dirs.add(key); diag["directories_visited"] += 1
+        try:
+            local=path.relative_to(scope)
+            if len(local.parts) <= 3 and local.as_posix() != '.':
+                diag["modules"].add(_search_rel(root,path))
+        except ValueError: pass
+        return True
+
+    for scope_rel, scope, scope_kind in scopes:
+        if diag["limit_reached"]: break
+        if scope.is_file():
+            add_file(scope, scope_rel); continue
+        if walker == "oswalk":
+            for current, dirs, names in os.walk(scope, topdown=True, followlinks=follow):
+                cur=Path(current)
+                if not note_dir(cur, scope):
+                    dirs[:] = []; continue
+                filtered=[]
+                for name in sorted(dirs):
+                    p=cur/name; rel=_search_rel(root,p)
+                    try: islink=p.is_symlink()
+                    except OSError: islink=False
+                    if name in SEARCH_DEFAULT_EXCLUDED_DIRS or _is_internal_output_path(root,p):
+                        _search_skip_record(diag,rel,"default_exclude" if name in SEARCH_DEFAULT_EXCLUDED_DIRS else "patch_tool_internal"); continue
+                    if islink and not follow:
+                        _search_skip_record(diag,rel,"symlink_follow_disabled"); continue
+                    if islink and follow:
+                        try: p.resolve(strict=True).relative_to(root.resolve(strict=True))
+                        except Exception:
+                            _search_skip_record(diag,rel,"symlink_escapes_project_root"); continue
+                    filtered.append(name)
+                dirs[:] = filtered
+                for name in sorted(names):
+                    p=cur/name
+                    if p.is_symlink() and not follow:
+                        _search_skip_record(diag,_search_rel(root,p),"symlink_follow_disabled",is_dir=False); continue
+                    if _is_internal_output_path(root,p):
+                        _search_skip_record(diag,_search_rel(root,p),"patch_tool_internal",is_dir=False); continue
+                    if not add_file(p,scope_rel): break
+                if diag["limit_reached"]: break
+        else:
+            stack=[scope]
+            while stack and not diag["limit_reached"]:
+                current=stack.pop()
+                if current.is_file(): add_file(current,scope_rel); continue
+                if not note_dir(current,scope): continue
+                try: entries=sorted(os.scandir(current), key=lambda e:e.name.lower(), reverse=True)
+                except OSError as exc:
+                    diag["errors"].append(f"{_search_rel(root,current)}: {type(exc).__name__}: {exc}"); continue
+                for entry in entries:
+                    p=Path(entry.path); rel=_search_rel(root,p)
+                    try:
+                        islink=entry.is_symlink()
+                        if entry.is_dir(follow_symlinks=follow):
+                            if entry.name in SEARCH_DEFAULT_EXCLUDED_DIRS or _is_internal_output_path(root,p):
+                                _search_skip_record(diag,rel,"default_exclude" if entry.name in SEARCH_DEFAULT_EXCLUDED_DIRS else "patch_tool_internal"); continue
+                            if islink and not follow:
+                                _search_skip_record(diag,rel,"symlink_follow_disabled"); continue
+                            if islink and follow:
+                                try: p.resolve(strict=True).relative_to(root.resolve(strict=True))
+                                except Exception:
+                                    _search_skip_record(diag,rel,"symlink_escapes_project_root"); continue
+                            stack.append(p)
+                        elif entry.is_file(follow_symlinks=follow):
+                            if islink and not follow:
+                                _search_skip_record(diag,rel,"symlink_follow_disabled",is_dir=False); continue
+                            if _is_internal_output_path(root,p):
+                                _search_skip_record(diag,rel,"patch_tool_internal",is_dir=False); continue
+                            if not add_file(p,scope_rel): break
+                    except OSError as exc:
+                        _search_skip_record(diag,rel,f"entry_error:{type(exc).__name__}",is_dir=False)
+
+    if action.get("respect_gitignore", False):
+        rels=[_search_rel(root,p) for p in files]
+        ignored, err=_gitignored_relpaths(root,rels)
+        if err: diag["errors"].append(err)
+        if ignored:
+            kept=[]
+            for p,rel in zip(files,rels):
+                if rel in ignored: _search_skip_record(diag,rel,"gitignored",is_dir=False)
+                else: kept.append(p)
+            files=kept
+            diag["files_considered"]=len(files)
+    diag["modules"]=sorted(diag["modules"])[:500]
+    diag["extension_counts"]={k:v for k,v in diag["extension_counts"].most_common()}
+    return files,diag
+
+
+def _match_files(root: Path, files: list[Path], action: dict, limits: dict) -> dict:
+    query=action["query"]; regex_mode=bool(action.get("regex",False)); max_matches=int(action.get("max_matches",500)); context=int(action.get("context_lines",4))
+    try: pattern=re.compile(query) if regex_mode else None
+    except re.error as exc: raise ValueError(f"invalid search regex: {exc}") from exc
+    max_bytes=int(limits.get("max_search_file_bytes",64*1024*1024))
+    matches=[]; total=0; searched=0; skipped=[]; ext=Counter(); truncated=False
+    for path in files:
+        rel=_search_rel(root,path)
+        try:
+            size=path.stat().st_size
+            if size > max_bytes:
+                skipped.append((rel,f"oversize>{max_bytes}")); continue
+            if not _looks_text(path):
+                skipped.append((rel,"binary_or_nontext")); continue
+            text=path.read_text(encoding='utf-8',errors='replace')
+        except OSError as exc:
+            skipped.append((rel,f"read_error:{type(exc).__name__}")); continue
+        searched += 1; ext[path.suffix.lower() or '<no-ext>'] += 1
+        lines=text.splitlines()
+        for idx,line in enumerate(lines):
+            hit=bool(pattern.search(line)) if pattern else query in line
+            if not hit: continue
+            total += 1
+            if len(matches) < max_matches:
+                start=max(0,idx-context); end=min(len(lines),idx+context+1)
+                matches.append({"path":rel,"line":idx+1,"context":[(n+1,lines[n],n==idx) for n in range(start,end)]})
+            else:
+                truncated=True
+    return {"matches":matches,"match_count":total,"truncated":truncated,"files_searched":searched,"content_skips":skipped[:250],"content_skip_count":len(skipped),"searched_extension_counts":dict(ext.most_common())}
+
+
+def _rg_candidate_files(root: Path, scopes: list[tuple[str,Path,str]], action: dict, limits: dict) -> tuple[list[Path], dict]:
+    rg=shutil.which('rg')
+    diag={"backend":"rg","available":bool(rg),"error":None,"candidate_files":0,"truncated":False}
+    if not rg: return [],diag
+    if action.get("source_scope") == "git_tracked":
+        diag["error"]="rg primary disabled for source_scope=git_tracked"; return [],diag
+    cmd=[rg,'-l','-0','--no-messages','--hidden']
+    if not action.get('respect_gitignore',False): cmd.append('--no-ignore')
+    if action.get('follow_symlinks',False): cmd.append('--follow')
+    for name in sorted(SEARCH_DEFAULT_EXCLUDED_DIRS): cmd += ['-g',f'!**/{name}/**']
+    for prefix in IGNORED_REL_PREFIXES: cmd += ['-g',f'!{prefix}**']
+    if not action.get('regex',False): cmd.append('--fixed-strings')
+    cmd += ['-e',action['query'],'--']
+    cmd += [str(p if p.is_absolute() else root/p) for _,p,_ in scopes]
+    try:
+        proc=subprocess.run(cmd,cwd=root,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=SEARCH_BACKEND_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        diag['error']=f"rg timeout after {SEARCH_BACKEND_TIMEOUT_SECONDS:g}s"; return [],diag
+    if proc.returncode not in {0,1}:
+        detail=proc.stderr.decode('utf-8',errors='replace').strip().replace('\n',' ')[:800]
+        diag['error']=f"rg failed rc={proc.returncode}: {detail}"; return [],diag
+    max_files=int(limits.get('max_search_files',250000)); out=[]; seen=set()
+    for raw in proc.stdout.split(b'\0'):
+        if not raw: continue
+        p=Path(raw.decode('utf-8',errors='surrogateescape'))
+        if not p.is_absolute(): p=root/p
+        try: key=p.resolve(strict=True).as_posix(); p.resolve(strict=True).relative_to(root.resolve(strict=True))
+        except Exception: continue
+        if key in seen: continue
+        seen.add(key); out.append(p)
+        if len(out)>=max_files:
+            diag['truncated']=True; break
+    diag['candidate_files']=len(out)
+    return out,diag
+
+
+def _candidate_filename_hits(query: str, filenames: list[str]) -> list[str]:
+    tokens=[x.lower() for x in re.findall(r'[A-Z]?[a-z]+|[A-Z]+(?![a-z])|\d+',query) if len(x)>=3]
+    tokens=[x for x in tokens if x not in {'cmd','msg','req'}]
+    if not tokens:
+        tokens=[query.lower()] if len(query)>=3 else []
+    hits=[]
+    for rel in filenames:
+        name=Path(rel).name.lower()
+        if any(t in name for t in tokens):
+            hits.append(rel)
+            if len(hits)>=30: break
+    return hits
+
+
+def _format_search_report(root: Path, action: dict, scopes, primary: dict, fallback: dict|None, coverage: dict, canonical: dict, *, inconsistency: bool, incomplete_reasons: list[str]) -> str:
+    query=action['query']; regex_mode=bool(action.get('regex',False)); lines=["# Search results","",f"Query: `{query}`",f"Regex: {regex_mode}",f"Matches: {canonical['match_count']}",""]
+    lines += ["=== SEARCH COVERAGE ===","", "Requested:"]
+    for rel,path,kind in scopes:
+        lines.append(f"  [{kind.upper()}] {rel}")
+    lines += ["", "Resolved:"]
+    for rel,path,kind in scopes: lines.append(f"  {path.resolve(strict=True)}")
+    lines += ["",f"Source scope: {action.get('source_scope','filesystem')}",f"Backend requested: {action.get('backend','auto')}",f"Primary backend: {primary.get('backend','python')}",f"Primary matches: {primary.get('match_count',0)}"]
+    if fallback is not None:
+        lines.append(f"Fallback backend: {fallback.get('backend','python-oswalk')}")
+        lines.append(f"Fallback matches: {fallback.get('match_count',0)}")
+    else: lines.append("Fallback backend: disabled")
+    lines += [f"Directories visited: {coverage.get('directories_visited',0)}",f"Files considered: {coverage.get('files_considered',0)}",f"Files searched: {canonical.get('files_searched',0)}"]
+    ext=canonical.get('searched_extension_counts') or {}
+    if ext:
+        lines.append("Files scanned by extension:")
+        for k,v in list(ext.items())[:30]: lines.append(f"  {k}: {v}")
+    if action.get('module_discovery',True):
+        modules=coverage.get('modules') or []
+        lines += ["", "Candidate modules/directories (depth<=3 or build marker):"]
+        if modules:
+            for module in modules[:80]:
+                count=sum(1 for m in canonical['matches'] if m['path']==module or m['path'].startswith(module.rstrip('/')+'/'))
+                lines.append(f"  {module}: {count}")
+        else: lines.append("  (none discovered)")
+    if action.get('report_skipped_dirs',True):
+        lines += ["",f"Skipped directories: {coverage.get('skipped_dirs_count',0)}"]
+        for row in coverage.get('skipped_dirs',[])[:120]: lines.append(f"  {row['path']} -> {row['reason']}")
+        lines.append(f"Skipped/unreadable files: {coverage.get('skipped_files_count',0) + canonical.get('content_skip_count',0)}")
+        for row in coverage.get('skipped_files',[])[:40]: lines.append(f"  {row['path']} -> {row['reason']}")
+        for rel,reason in canonical.get('content_skips',[])[:80]: lines.append(f"  {rel} -> {reason}")
+    status='INCONSISTENT' if inconsistency else ('PARTIAL' if incomplete_reasons else 'VERIFIED')
+    lines += ["",f"Coverage status: {status}"]
+    if incomplete_reasons:
+        lines.append("Coverage/integrity notes:")
+        for reason in incomplete_reasons: lines.append(f"  - {reason}")
+    if inconsistency:
+        lines += ["", "SEARCH_INCONSISTENCY", f"primary_matches={primary.get('match_count',0)}", f"fallback_matches={fallback.get('match_count',0) if fallback else 'n/a'}"]
+    if canonical['match_count']==0 and action.get('diagnose_on_zero',True):
+        lines += ["", "=== ZERO MATCH DIAGNOSTIC ===", "", "Requested roots:"]
+        for rel,path,kind in scopes: lines.append(f"  {rel} -> {'exists' if path.exists() else 'missing'}")
+        lines.append("Candidate filename evidence:")
+        hits=_candidate_filename_hits(query,coverage.get('candidate_filenames',[]))
+        if hits:
+            for hit in hits: lines.append(f"  {hit}")
+        else: lines.append("  (no related filenames in scanned coverage)")
+        lines += [f"Symlink policy: {'follow safely' if action.get('follow_symlinks',False) else 'do not follow'}",f"Gitignore policy: {'respect' if action.get('respect_gitignore',False) else 'ignore .gitignore; scan filesystem'}",f"Search file limit reached: {bool(coverage.get('limit_reached'))}"]
+        if status == 'VERIFIED': lines.append("Zero-result interpretation: VERIFIED absence within the declared searchable filesystem scope.")
+        else: lines.append("Zero-result interpretation: UNTRUSTED; zero matches is a search result, not proof of absence.")
+    lines += ["", "=== MATCH DETAILS ===", ""]
+    for item in canonical['matches']:
+        lines.append(f"## {item['path']}:{item['line']}"); lines.append("```text")
+        for n,content,is_hit in item['context']:
+            lines.append(f"{'>' if is_hit else ' '}{n:6d}: {content}")
+        lines += ["```",""]
+    if canonical.get('truncated'): lines.append(f"[TRUNCATED at max_matches={action.get('max_matches',500)}]")
+    return "\n".join(lines)+"\n"
+
+
+def _search_action_payload(root: Path, action: dict, limits: dict) -> dict:
+    scopes=_search_scope_list(root,action)
+    backend=action.get('backend','auto')
+    fallback_enabled=bool(action.get('fallback_search',True))
+    primary_meta={"backend":"python-stack"}
+    primary_cov=None
+    if backend in {'auto','rg'}:
+        rg_files,rg_diag=_rg_candidate_files(root,scopes,action,limits)
+        if rg_diag.get('available') and not rg_diag.get('error'):
+            primary=_match_files(root,rg_files,action,limits); primary.update({"backend":"rg","backend_diag":rg_diag})
+        elif backend=='rg':
+            primary={"matches":[],"match_count":0,"truncated":False,"files_searched":0,"content_skips":[],"content_skip_count":0,"searched_extension_counts":{},"backend":"rg","backend_diag":rg_diag}
+            primary_meta['error']=rg_diag.get('error') or 'rg unavailable'
+        else:
+            pfiles,primary_cov=_discover_search_files(root,scopes,action,limits,walker='stack')
+            primary=_match_files(root,pfiles,action,limits); primary['backend']='python-stack'; primary['backend_diag']=rg_diag
+    else:
+        pfiles,primary_cov=_discover_search_files(root,scopes,action,limits,walker='stack')
+        primary=_match_files(root,pfiles,action,limits); primary['backend']='python-stack'
+    fallback=None; coverage=primary_cov or {"directories_visited":0,"files_considered":0,"errors":[],"limit_reached":False,"skipped_dirs":[],"skipped_dirs_count":0,"skipped_files":[],"skipped_files_count":0,"modules":[],"extension_counts":{},"candidate_filenames":[]}
+    if fallback_enabled:
+        ffiles,fcoverage=_discover_search_files(root,scopes,action,limits,walker='oswalk')
+        fallback=_match_files(root,ffiles,action,limits); fallback['backend']='python-oswalk'; coverage=fcoverage
+    pcount=int(primary.get('match_count',0)); fcount=int(fallback.get('match_count',0)) if fallback else None
+    canonical = fallback if fallback is not None and fcount >= pcount else primary
+    inconsistency=False
+    if fallback is not None:
+        # A zero/non-zero disagreement is always dangerous. Exact count mismatch is
+        # meaningful only when neither side hit max_matches/report truncation.
+        if (pcount==0) != (fcount==0): inconsistency=True
+        elif not primary.get('truncated') and not fallback.get('truncated') and pcount != fcount: inconsistency=True
+    reasons=[]
+    if primary_meta.get('error'): reasons.append(primary_meta['error'])
+    if coverage.get('limit_reached'): reasons.append(f"search coverage hit max_search_files={limits.get('max_search_files')}")
+    if coverage.get('errors'): reasons.extend(str(x) for x in coverage['errors'][:8])
+    if canonical.get('content_skip_count',0): reasons.append(f"{canonical['content_skip_count']} file(s) were not content-scanned (binary/oversize/read error)")
+    if not fallback_enabled: reasons.append("fallback_search=false; independent zero verification disabled")
+    if inconsistency: reasons.append("primary and fallback backends disagree")
+    must_fail=bool(action.get('must_find',False) and canonical.get('match_count',0)==0)
+    zero_unverified=bool(canonical.get('match_count',0)==0 and (inconsistency or reasons))
+    incomplete=bool(inconsistency or must_fail or zero_unverified)
+    if must_fail: reasons.append(f"must_find=true but query produced zero matches")
+    report=_format_search_report(root,action,scopes,primary,fallback,coverage,canonical,inconsistency=inconsistency,incomplete_reasons=reasons)
+    return {"report":report,"incomplete":incomplete,"inconsistency":inconsistency,"must_find_failed":must_fail,"matches":canonical.get('match_count',0),"coverage_status":"INCONSISTENT" if inconsistency else ('PARTIAL' if reasons else 'VERIFIED'),"reasons":reasons}
+
+
+def _search_action_direct(root: Path, action: dict, limits: dict) -> str:
+    """Compatibility wrapper used by tests and the isolated regex worker."""
+    return _search_action_payload(root,action,limits)["report"]
+
+
+def _search_action(root: Path, action: dict, limits: dict) -> dict:
+    """Run regex search out-of-process; literal search runs in-process."""
+    if not action.get("regex", False):
+        return _search_action_payload(root, action, limits)
+    worker = Path(__file__).resolve().parent / "python_patch_collect_regex_worker.py"
+    if not worker.is_file(): raise ValueError("regex search worker is missing")
+    with tempfile.TemporaryDirectory(prefix="ptv-collect-regex-") as td:
+        work=Path(td); request_path=work/"request.json"; result_path=work/"result.json"
+        request_path.write_text(json.dumps({"action":action,"limits":limits},ensure_ascii=False),encoding="utf-8")
+        env=dict(os.environ); env["PYTHONDONTWRITEBYTECODE"]="1"
+        try:
+            proc=subprocess.run([sys.executable,str(worker),"--project-root",str(root),"--request",str(request_path),"--result",str(result_path)],cwd=root,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=REGEX_SEARCH_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired as exc:
-            raise ValueError(
-                f"regex search exceeded hard timeout ({REGEX_SEARCH_TIMEOUT_SECONDS:g}s); narrow paths/query"
-            ) from exc
+            raise ValueError(f"regex search exceeded hard timeout ({REGEX_SEARCH_TIMEOUT_SECONDS:g}s); narrow paths/query") from exc
         if proc.returncode != 0:
-            detail = (proc.stdout or "").strip().replace("\n", " ")[:800]
-            raise ValueError(f"regex search worker failed rc={proc.returncode}: {detail}")
-        if not result_path.is_file() or result_path.is_symlink():
-            raise ValueError("regex search worker produced no safe result")
-        size = result_path.stat().st_size
-        hard_result_cap = max(int(limits.get("max_report_bytes", 0)), 1024 * 1024) * 2
-        if size > hard_result_cap:
-            raise ValueError(f"regex search worker result exceeded safety cap ({size} bytes)")
-        return result_path.read_text(encoding="utf-8")
+            detail=(proc.stdout or '').strip().replace('\n',' ')[:800]; raise ValueError(f"regex search worker failed rc={proc.returncode}: {detail}")
+        if not result_path.is_file() or result_path.is_symlink(): raise ValueError("regex search worker produced no safe result")
+        size=result_path.stat().st_size; hard=max(int(limits.get('max_report_bytes',0)),1024*1024)*2
+        if size>hard: raise ValueError(f"regex search worker result exceeded safety cap ({size} bytes)")
+        data=json.loads(result_path.read_text(encoding='utf-8'))
+        if not isinstance(data,dict) or not isinstance(data.get('report'),str): raise ValueError("regex search worker returned invalid payload")
+        return data
 
 
 def _git_action(root: Path, action: dict) -> str:
@@ -769,11 +1167,15 @@ def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
                         for rel, src in matches:
                             builder.add_exact_file(rel, src, source_action=index)
                 elif kind == "search":
-                    builder.add_report(index, kind, title, _search_action(root, action, request_data["limits"]))
+                    search_result = _search_action(root, action, request_data["limits"])
+                    builder.add_report(index, kind, title, search_result["report"])
+                    if search_result.get("incomplete"):
+                        builder.mark_incomplete(action=index, kind=kind, reasons=list(search_result.get("reasons") or []))
                 elif kind == "git":
                     builder.add_report(index, kind, title, _git_action(root, action))
                 else:
                     raise ValueError(f"unsupported action after schema validation: {kind}")
+            collection_status = builder.collection_status
             result = builder.finish()
             try:
                 archived, lifecycle = _archive_request(root, request_zip, execution_request, request_sha)
@@ -781,7 +1183,7 @@ def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
                 try: result.unlink()
                 except OSError: pass
                 raise
-            return result, archived, len(request_data["actions"]), lifecycle
+            return result, archived, len(request_data["actions"]), lifecycle, collection_status
         except Exception:
             builder.abort()
             raise
@@ -802,11 +1204,14 @@ def main(argv: list[str] | None = None) -> int:
     request_arg = Path(rest[1])
     request_zip = request_arg if request_arg.is_absolute() else root / request_arg
     try:
-        result, archived, action_count, queue_lifecycle = _run_request(root, request_zip)
+        result, archived, action_count, queue_lifecycle, collection_status = _run_request(root, request_zip)
     except Exception as exc:
         print(f"ERROR: collection failed: {exc}", file=sys.stderr)
         return 2
-    print(f"COLLECT: completed {action_count} action(s)", flush=True)
+    if collection_status == "INCOMPLETE":
+        print(f"COLLECT: INCOMPLETE | completed {action_count} action(s); inspect SEARCH COVERAGE before inference", flush=True)
+    else:
+        print(f"COLLECT: completed {action_count} action(s)", flush=True)
     if queue_lifecycle == "replacement_restored" or str(queue_lifecycle).startswith("replacement_preserved:"):
         print(
             f"[PTV v{VERSION} WARNING] request ZIP changed while COLLECT was running; "
@@ -819,7 +1224,7 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError:
         rel_archived = str(archived)
     print(f"REQUEST : {rel_archived}", flush=True)
-    return 0
+    return 3 if collection_status == "INCOMPLETE" else 0
 
 
 if __name__ == "__main__":

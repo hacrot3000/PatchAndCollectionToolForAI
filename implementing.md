@@ -1,6 +1,6 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.17.14**  
+Phiên bản mục tiêu: **v6.18.0**  
 Trạng thái: **ZERO-WORK NO-LOG + SMART RESUME GATING — COMPLETE**
 
 ## Baseline
@@ -435,3 +435,26 @@ Recipe policy override rule: `run --recipe` uses the policies stored in the reci
 - History cleanup loại IDLE unpinned cũ trước khi áp RUN_HISTORY_LIMIT=30 cho meaningful runs; pinned run vẫn được giữ.
 
 - History row chuyển `started_at` UTC sang timezone local chỉ ở presentation; persisted report timestamp không thay đổi.
+
+
+## 18. v6.18.0 — Search discovery / false-zero hardening
+
+### Nguyên nhân gốc được sửa
+
+COLLECT `search` trước v6.18.0 dùng filesystem traversal nhưng tái sử dụng `limits.max_files` của collection package (mặc định 5.000). Scanner dừng traversal khi chạm ngưỡng mà report chỉ ghi `Matches: 0`, không ghi coverage/truncation. Với source tree lớn, symbol nằm sau 5.000 file đầu tiên có thể bị báo false-zero dù file tồn tại. Ngoài ra các directory/symlink/read-error bị skip không được surface.
+
+### Contract mới
+
+- `source_scope=filesystem` là mặc định; file untracked và gitignored vẫn được nhìn thấy khi `respect_gitignore=false` (mặc định). `git_tracked` chỉ là chế độ opt-in rõ ràng.
+- `limits.max_search_files` (mặc định 250.000, hard ceiling 1.000.000) và `max_search_file_bytes` tách khỏi `max_files`/`max_file_bytes` dùng cho file được đóng gói. Search không còn bị âm thầm cắt ở 5.000 file.
+- `backend=auto`: ưu tiên `rg` nếu có; fallback filesystem Python dùng traversal độc lập. Nếu `rg` không có/lỗi trong auto mode, Python stack scanner + Python `os.walk` vẫn cung cấp hai traversal độc lập.
+- Khi primary/fallback bất đồng zero/non-zero hoặc count khác nhau khi không bị truncate, report ghi `SEARCH_INCONSISTENCY`, `primary_matches`, `fallback_matches` và collection thành `INCOMPLETE`.
+- `must_find=true` biến zero result thành `INCOMPLETE`; result ZIP vẫn được xuất/đánh dấu PRIMARY để AI đọc diagnostics, nhưng collector trả rc=3 và progress UI ghi `COLLECT INCOMPLETE`, không PASS.
+- `diagnose_on_zero=true` mặc định: xác minh root, candidate module/directories, filename evidence, symlink/gitignore policy, search limits và diễn giải zero là VERIFIED hay UNTRUSTED.
+- `anchor_paths` được ưu tiên trước requested scopes; `expected_files` được kiểm tra trực tiếp và đưa vào search scope. Search path có thể là relative hoặc absolute nhưng absolute path bắt buộc nằm trong project root.
+- Coverage report ghi requested/resolved scopes, directories visited, files considered/searched, extension counts, module inventory, skipped dirs/files, primary/fallback và `Coverage status`.
+- Nguyên tắc contract: **“Zero matches is a search result, not proof of absence.”** Zero chỉ có giá trị bằng chứng vắng mặt trong declared searchable scope khi `Coverage status: VERIFIED`.
+
+### Search health
+
+`./tools/run_python_patches.sh health-search` tạo fixture tạm và kiểm literal/regex/find, nested tree, untracked/gitignored, Unicode, symlink safety, >5.000 files, relative/absolute in-project paths, `must_find`, anchors và expected files. Fixture không sửa source project.

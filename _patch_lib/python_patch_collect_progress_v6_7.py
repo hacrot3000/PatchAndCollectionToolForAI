@@ -18,7 +18,7 @@ import time
 import unicodedata
 from typing import Iterable
 
-VERSION = "6.17.14"
+VERSION = "6.18.0"
 DEFAULT_HEARTBEAT = 0.8
 DEFAULT_MARGIN = 2
 MAX_TAIL_LINES = 120
@@ -195,6 +195,8 @@ def _collect_quality(result_zip: str) -> dict[str, object]:
                             truncated += 1
             quality["truncated_reports"] = truncated
             quality["manifest"] = "ok"
+            quality["collection_status"] = str(manifest.get("collection_status") or "PASS")
+            quality["collection_warnings"] = len(manifest.get("collection_warnings") or [])
     except Exception as exc:
         quality["manifest"] = f"error:{type(exc).__name__}"
         quality["missing"] = 1
@@ -213,6 +215,8 @@ def _print_collect_quality(result_zip: str) -> dict[str, object]:
         print("[PTV WARNING] COLLECT evidence is bounded/truncated; tell AI that some report limits were reached.")
     if int(q.get("missing", 0) or 0) > 0:
         print("[PTV WARNING] COLLECT quality metadata is incomplete.")
+    if q.get("collection_status") == "INCOMPLETE":
+        print(f"[PTV WARNING] COLLECT status=INCOMPLETE | search/coverage warnings={q.get('collection_warnings',0)}")
     return q
 
 
@@ -530,9 +534,12 @@ def main(argv: list[str] | None = None) -> int:
     tracked_result_candidates: list[str] = []
     tracked_request_zip: str | None = None
     tracked_extras: deque[str] = deque(maxlen=4)
+    collect_incomplete = False
 
     def observe_completion_metadata(line: str) -> None:
-        nonlocal tracked_request_zip
+        nonlocal tracked_request_zip, collect_incomplete
+        if "COLLECT: INCOMPLETE" in line:
+            collect_incomplete = True
         candidates, request_zip, extras = _extract_collect_candidates([line])
         for candidate in candidates:
             tracked_result_candidates[:] = [x for x in tracked_result_candidates if x != candidate]
@@ -660,8 +667,10 @@ def main(argv: list[str] | None = None) -> int:
         # has been contained above; surface a distinct failure instead of a
         # false PASS.
         final_rc = 125
+    render_state = "✓" if final_rc == 0 else ("!" if collect_incomplete and final_rc == 3 else "✗")
+    render_label = "INCOMPLETE" if collect_incomplete and final_rc == 3 else ("PASS" if final_rc == 0 else "FAIL")
     _render_one_line(
-        f"{'✓' if final_rc == 0 else '✗'} COLLECT | rc={final_rc} | {elapsed:.1f}s | phase={phase} | output={output_lines} lines",
+        f"{render_state} COLLECT {render_label} | rc={final_rc} | {elapsed:.1f}s | phase={phase} | output={output_lines} lines",
         final=True,
     )
 
@@ -669,11 +678,13 @@ def main(argv: list[str] | None = None) -> int:
     if lingering_output_tree:
         print(f"[PTV v{VERSION} WARNING] collector stdout remained open after parent exit; lingering process-group output was cleaned up")
 
-    if final_rc != 0:
+    if final_rc != 0 and not (collect_incomplete and final_rc == 3):
         print("COLLECT FAILED — recent collector output:")
         for line in list(tail)[-30:]:
             print(_sanitize_terminal_text(line))
     else:
+        if collect_incomplete and final_rc == 3:
+            print("COLLECT INCOMPLETE — result ZIP is preserved for diagnosis; zero/coverage evidence must not be treated as PASS.")
         # Canonicalize collector completion output. In particular, legacy
         # collectors may print the result archive twice (a ``ZIP:`` line plus
         # the bare path). The user should see exactly one highlighted upload
@@ -689,7 +700,7 @@ def main(argv: list[str] | None = None) -> int:
         "format": "python-patch-tool-collect-result",
         "format_version": 1,
         "tool_version": VERSION,
-        "status": "PASS" if final_rc == 0 else "FAIL",
+        "status": "INCOMPLETE" if collect_incomplete and final_rc == 3 else ("PASS" if final_rc == 0 else "FAIL"),
         "rc": final_rc,
         "phase": phase,
         "elapsed_seconds": round(elapsed, 3),

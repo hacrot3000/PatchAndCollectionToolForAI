@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "tool_version": "6.17.14",
+  "tool_version": "6.18.0",
   "request": {
     "type": "object",
     "required": [
@@ -18,13 +18,17 @@
       "max_file_bytes",
       "max_total_bytes",
       "max_files",
-      "max_report_bytes"
+      "max_report_bytes",
+      "max_search_files",
+      "max_search_file_bytes"
     ],
     "defaults": {
       "max_file_bytes": 8388608,
       "max_total_bytes": 268435456,
       "max_files": 5000,
-      "max_report_bytes": 16777216
+      "max_report_bytes": 16777216,
+      "max_search_files": 250000,
+      "max_search_file_bytes": 67108864
     }
   },
   "actions": {
@@ -71,7 +75,7 @@
       ]
     },
     "search": {
-      "description": "Bounded text or regex search with line context.",
+      "description": "Coverage-aware filesystem-first text/regex search with independent fallback verification, zero-match diagnostics, anchors, and must_find assertions.",
       "required": [
         "type",
         "query"
@@ -84,7 +88,20 @@
         "regex",
         "paths",
         "context_lines",
-        "max_matches"
+        "max_matches",
+        "backend",
+        "source_scope",
+        "filesystem",
+        "respect_gitignore",
+        "follow_symlinks",
+        "must_find",
+        "diagnose_on_zero",
+        "fallback_search",
+        "report_coverage",
+        "report_skipped_dirs",
+        "module_discovery",
+        "anchor_paths",
+        "expected_files"
       ]
     },
     "git": {

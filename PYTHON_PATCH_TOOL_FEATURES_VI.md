@@ -1,4 +1,4 @@
-# Danh sách tính năng Python Patch Tool — v6.17.14
+# Danh sách tính năng Python Patch Tool — v6.18.0
 
 ## Workflow / batch engine
 
@@ -190,3 +190,20 @@ Registry failure là **relation-aware**: PATCH độc lập vẫn chạy; depend
 - Cleanup v6.17.13 ưu tiên xóa IDLE unpinned cũ trước để chúng không chiếm quota 30 run PATCH/COLLECT hữu ích.
 
 - HISTORY hiển thị ngày giờ theo timezone local của máy chạy tool; JSON vẫn lưu UTC chuẩn.
+
+
+## v6.18.0 — Discovery/search không còn false-zero âm thầm
+
+| Tính năng | Trạng thái |
+|---|---|
+| Search mặc định `source_scope=filesystem`, thấy untracked/gitignored | **COMPLETE v6.18.0** |
+| Tách `max_search_files` khỏi collection `max_files=5000` | **COMPLETE v6.18.0** |
+| `backend=auto` + fallback traversal độc lập | **COMPLETE v6.18.0** |
+| `SEARCH_INCONSISTENCY` khi primary/fallback bất đồng | **COMPLETE v6.18.0** |
+| Coverage + skipped-dir/file + extension/module report | **COMPLETE v6.18.0** |
+| `must_find` + `COLLECT INCOMPLETE` (result ZIP vẫn được giữ cho AI) | **COMPLETE v6.18.0** |
+| `diagnose_on_zero` với root/module/filename/ignore/symlink/limit diagnostics | **COMPLETE v6.18.0** |
+| `anchor_paths` + `expected_files` + absolute in-project search path | **COMPLETE v6.18.0** |
+| `health-search` fixture suite | **COMPLETE v6.18.0** |
+
+Nguyên tắc bắt buộc: **Zero matches is a search result, not proof of absence.** AI chỉ được suy luận “không tìm thấy source” khi report ghi `Coverage status: VERIFIED`; `INCOMPLETE`, `PARTIAL` hoặc `INCONSISTENT` phải được coi là evidence chưa đủ.
