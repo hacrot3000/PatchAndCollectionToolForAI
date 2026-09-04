@@ -7,10 +7,11 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 
 from python_patch_collect_compat import _search_action_payload
 
-VERSION = "6.18.6"
+VERSION = "6.18.7"
 
 
 def _reject_duplicate_json_pairs(pairs):
@@ -55,7 +56,11 @@ def main(argv=None) -> int:
         data = json.loads(req.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_json_pairs)
         if not isinstance(data, dict) or not isinstance(data.get("action"), dict) or not isinstance(data.get("limits"), dict):
             raise ValueError("invalid regex worker request")
-        payload = _search_action_payload(root, data["action"], data["limits"])
+        soft_timeout = float(data.get("soft_timeout_seconds", 0) or 0)
+        deadline = time.monotonic() + soft_timeout if soft_timeout > 0 else None
+        def checkpoint(payload):
+            _atomic_text(result, json.dumps(payload, ensure_ascii=False))
+        payload = _search_action_payload(root, data["action"], data["limits"], deadline=deadline, checkpoint_cb=checkpoint)
         _atomic_text(result, json.dumps(payload, ensure_ascii=False))
         return 0
     except Exception as exc:

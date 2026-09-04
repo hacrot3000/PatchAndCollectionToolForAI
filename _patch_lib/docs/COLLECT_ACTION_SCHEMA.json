@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "tool_version": "6.18.6",
+  "tool_version": "6.18.7",
   "request": {
     "type": "object",
     "required": [
@@ -139,6 +139,7 @@
         "must_find",
         "diagnose_on_zero",
         "fallback_search",
+        "verify_nonzero_with_fallback",
         "report_coverage",
         "report_skipped_dirs",
         "module_discovery",
@@ -169,6 +170,7 @@
         "must_find",
         "diagnose_on_zero",
         "fallback_search",
+        "verify_nonzero_with_fallback",
         "report_coverage",
         "report_skipped_dirs",
         "module_discovery",
@@ -199,6 +201,7 @@
         "must_find",
         "diagnose_on_zero",
         "fallback_search",
+        "verify_nonzero_with_fallback",
         "report_coverage",
         "report_skipped_dirs",
         "module_discovery",
@@ -231,6 +234,7 @@
         "must_find",
         "diagnose_on_zero",
         "fallback_search",
+        "verify_nonzero_with_fallback",
         "report_coverage",
         "report_skipped_dirs",
         "module_discovery",
@@ -337,6 +341,7 @@
         "must_find",
         "diagnose_on_zero",
         "fallback_search",
+        "verify_nonzero_with_fallback",
         "report_coverage",
         "report_skipped_dirs",
         "module_discovery",

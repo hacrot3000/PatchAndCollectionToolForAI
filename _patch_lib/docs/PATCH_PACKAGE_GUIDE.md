@@ -1,4 +1,4 @@
-# PATCH PACKAGE GUIDE — v6.18.6 authoritative AI/tool contract
+# PATCH PACKAGE GUIDE — v6.18.7 authoritative AI/tool contract
 
 Machine-readable source of truth:
 

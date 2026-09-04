@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-VERSION = "6.18.6"
+VERSION = "6.18.7"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "COLLECT_ACTION_SCHEMA.json"
 DEFAULT_LIMITS = {
     "max_file_bytes": 8 * 1024 * 1024,
@@ -149,6 +149,7 @@ def _normalize_search_fields(norm: dict[str, Any], label: str) -> None:
         ("must_find", False),
         ("diagnose_on_zero", True),
         ("fallback_search", True),
+        ("verify_nonzero_with_fallback", False),
         ("report_coverage", True),
         ("report_skipped_dirs", True),
         ("module_discovery", True),

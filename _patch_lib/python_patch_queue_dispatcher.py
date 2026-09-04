@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.18.6"
+VERSION = "6.18.7"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -6684,8 +6684,25 @@ def _run_queue(
 
     if rc:
         failed_rows = [x for x in _LAST_EXECUTION_DETAILS if x.get("status") in {"FAIL", "PREFLIGHT_FAIL"}]
+        incomplete_rows = [x for x in _LAST_EXECUTION_DETAILS if x.get("status") == "INCOMPLETE"]
         failed_name = str(failed_rows[-1].get("name")) if failed_rows else (executed[-1][0] if executed else None)
         fail_count = len(failed_rows)
+        # COLLECT INCOMPLETE is a bounded-evidence result, not an execution
+        # failure.  Preserve rc=3 so automation cannot mistake it for PASS,
+        # while keeping the run/report status semantically distinct from FAIL.
+        if rc == 3 and incomplete_rows and not failed_rows:
+            incomplete_name = str(incomplete_rows[-1].get("name") or failed_name or "unknown")
+            print(
+                f"SUMMARY: INCOMPLETE | incomplete={len(incomplete_rows)} | failed=0 | "
+                f"last={_safe_display(incomplete_name)} rc={rc}",
+                file=sys.stderr,
+            )
+            if remaining:
+                print(f"NOT EXECUTED: {len(remaining)} selected item(s)", file=sys.stderr)
+                for item in remaining: print(f"  - {_safe_display(item.name)}", file=sys.stderr)
+            if session_duplicates: _print_session_duplicate_removals(session_duplicates, stream=sys.stderr)
+            finish_report("INCOMPLETE", rc, chosen=chosen, executed=executed, remaining=remaining)
+            return rc
         print(f"SUMMARY: FAIL | failed={fail_count} | policy={failure_policy} | last={_safe_display(str(failed_name or 'unknown'))} rc={rc}", file=sys.stderr)
         if remaining:
             print(f"NOT EXECUTED: {len(remaining)} selected item(s)", file=sys.stderr)

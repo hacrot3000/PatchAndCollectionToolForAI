@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.18.6
+# AI / ChatGPT usage contract — Python Patch Tool v6.18.7
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
@@ -7,6 +7,14 @@ This document overrides older Patch Tool instructions when they conflict with th
 Before AI changes Patch Tool code, it MUST read `NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, `HISTORICAL_FEATURE_BASELINE_V5_15.md`, `HISTORICAL_FEATURE_STATUS_V5_15.json`, and `CURRENT_CAPABILITY_DISPOSITION.json` in addition to the current schemas/docs. A capability previously documented as COMPLETE/PRESERVED/COMPATIBILITY_RESTORED must not be silently deleted, narrowed, renamed, or made unreachable. Historical code must not be removed merely because the current schema does not exercise it. Intentional replacement/removal requires an explicit ledger disposition and behavioral regression evidence in the same release.
 
 Current docs override old docs for runtime semantics, but they do **not** erase historical capability evidence.
+
+### v6.18.7 scalable regex / partial-timeout contract
+
+Regex search keeps the 60-second hard watchdog, but timeout is **fail-partial, not fail-destructive**. The isolated worker publishes a safe checkpoint after primary search/coverage phases and uses an earlier soft deadline for cooperative scans. If the action cannot finish before the hard watchdog, Patch Tool must preserve the newest safe checkpoint, mark the action/report `PARTIAL`, mark the COLLECT result `INCOMPLETE`, keep the result ZIP, and continue later COLLECT actions. A timeout must not discard matches already found.
+
+With `backend=auto` and `fallback_search=true`, independent Python fallback content scanning is required for **zero/error verification**, where false-zero evidence is dangerous. A positive primary result does not re-read the entire source tree by default; filesystem coverage is still inventoried. Set `verify_nonzero_with_fallback=true` only when an explicit full positive-result backend consistency check is needed.
+
+`Search execution status: COMPLETED` means the action finished without search-time/search-file/output truncation. `PARTIAL`, `Coverage status: PARTIAL`, `COLLECT: INCOMPLETE`, a timeout, or `max_matches` truncation means evidence was intentionally bounded and must not be treated as complete. Discovery-driven file collection (`find collect`, `directory`) is also fail-partial at `max_files` / `max_total_bytes` / per-file size boundaries: keep files already copied, record omitted remainder, and publish an INCOMPLETE ZIP. Explicit exact-file `pack` remains fail-closed.
 
 ### v6.18.6 upload-required visibility contract
 
@@ -348,3 +356,8 @@ A `SEARCH_INCONSISTENCY` or `COLLECT INCOMPLETE` result is diagnostic evidence t
 A zero-argument invocation with no runnable PATCH/COLLECT is still **not a run** and must not create or replace LAST_RUN/history/run-log/ledger/unresolved state. On an interactive TTY, after warnings, `AUTO STATUS: IDLE` and Tool Health, the tool opens the existing HISTORY browser. AI must not interpret this history navigation as a new run.
 
 Release compatibility rule: previously COMPLETE user workflows and schema fields are additive-preserved unless an explicit safety conflict requires a breaking change. The packaged upgrade-continuity self-test guards the established queue/history/recovery/report/batch/launcher contract together with v6.18 search additions.
+
+### v6.18.7 bounded COLLECT final status
+
+A COLLECT that preserves usable evidence but cannot prove full coverage (timeout, result/report truncation, or discovery output quota) exits with `rc=3`, writes the result ZIP, and reports `SUMMARY: INCOMPLETE` rather than `SUMMARY: FAIL`. `FAIL` remains reserved for execution/schema/integrity failures.
+

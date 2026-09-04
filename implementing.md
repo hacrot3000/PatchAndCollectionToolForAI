@@ -1,25 +1,35 @@
-# v6.18.6 mandatory continuity gate — NO SILENT REMOVAL
+# v6.18.7 mandatory continuity gate — NO SILENT REMOVAL
 
 Before modifying Patch Tool, read `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, and `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Do not delete or narrow any capability previously marked COMPLETE/PRESERVED/COMPATIBILITY_RESTORED unless the user explicitly requests it or a later documented contract supersedes it. Every intentional transition must be recorded in the ledger and protected by a behavioral test. Surface/string-only compatibility tests are not sufficient.
 
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.18.6**  
+Phiên bản mục tiêu: **v6.18.7**  
 Trạng thái: **95/95 HISTORICAL-COMPLETE DISPOSITION + SEMANTIC CONTINUITY — COMPLETE**
+
+## v6.18.7 — Regex large-tree partial preservation
+
+- Root cause của timeout trên project khoảng 30k file: mỗi regex action `fallback_search=true` trước đây chạy `rg` rồi lại đọc/regex toàn filesystem bằng Python, trong khi worker chỉ publish `result.json` sau khi hoàn tất. Hard timeout 60s vì thế xóa toàn bộ evidence của action.
+- Positive primary match: bỏ full-content fallback mặc định, chỉ inventory coverage; zero/error vẫn bắt buộc fallback độc lập để chống false-zero.
+- Thêm opt-in `verify_nonzero_with_fallback=true` để giữ khả năng cross-check positive result đầy đủ.
+- Worker dùng soft deadline + checkpoint; hard timeout đọc checkpoint gần nhất và trả `PARTIAL`, COLLECT `INCOMPLETE`, giữ ZIP, rồi tiếp tục action sau.
+- `max_matches` truncation cũng là PARTIAL/INCOMPLETE; chỉ action không timeout/limit/truncation mới báo `Search execution status: COMPLETED`.
+- `find collect` / `directory` chạm `max_files`, `max_total_bytes` hoặc per-file quota sẽ giữ phần đã copy và kết thúc INCOMPLETE; exact `pack` vẫn fail-closed. `max_report_bytes`/action report truncation cũng phải đánh dấu INCOMPLETE.
+- Release gate bắt buộc: `self_test_search_partial_timeout_v6_18_7.py`.
 
 ## v6.18.6 — Upload-required highlight, không đổi semantics
 
 - FAIL_HANDOFF và COLLECT dùng cùng quy ước hiển thị artifact cần upload.
 - Trên TTY/VT: `PRIMARY`, `ACTION REQUIRED` và đường dẫn ZIP đều nền vàng tương phản cao; path có underline.
 - `NO_COLOR`/redirect/non-TTY giữ plain text; tuyệt đối không thay đổi file được chọn, path, recovery, state hoặc logging.
-- Release gate bắt buộc: `self_test_upload_action_highlight_v6_18_6.py`.
+- Release gate bắt buộc: `self_test_upload_action_highlight_v6_18_7.py`.
 
 ## v6.18.5 — Mine COLLECT discovery/glob regression
 
 - Fix `find` path glob semantics so patterns may be relative to each requested `paths[]` scope while basename/full-project matching remain preserved.
 - Fix `**/` globstar to mean zero-or-more directories for `find` and `directory`; direct Java files must match `**/*.java`.
 - `find` discovery traversal uses `max_search_files`, never the output quota `max_files`; if discovery budget is hit, report `Coverage status: PARTIAL` and COLLECT `INCOMPLETE`.
-- Add `self_test_find_discovery_v6_18_5.py` reproducing the two Mine battle-pass request shapes and the old `max_files` false-zero boundary.
+- Add `self_test_find_discovery_v6_18_7.py` reproducing the two Mine battle-pass request shapes and the old `max_files` false-zero boundary.
 - Preserve every v6.18.4 capability/disposition gate; no historical COMPLETE capability is removed or narrowed.
 
 ## v6.18.4 — Proof-of-continuity closure
@@ -32,7 +42,7 @@ Release này đóng các khoảng trống còn lại phát hiện sau v6.18.3 m�
 - `--no-validation` tắt cả profile explicit và auto-selection theo contract.
 - Queue zero-work mở HISTORY cả TTY lẫn non-TTY task runner; read-only HISTORY tuyệt đối không tạo `artifacts/`, `LAST_RUN` hay fake history.
 - Release gate phải chạy qua public launcher/parser thật, không chỉ gọi helper nội bộ.
-- `self_test_python_patch_tool_v6_18_5.py` phải bao gồm diagnostics compatibility, validation selection, public entry và 95/95 disposition gates.
+- `self_test_python_patch_tool_v6_18_7.py` phải bao gồm diagnostics compatibility, validation selection, public entry và 95/95 disposition gates.
 
 ## Baseline
 
@@ -501,7 +511,7 @@ Mục tiêu release này là hoàn tất vòng bảo toàn tính năng sau v6.18
 - Search alias bắt buộc dùng chung filesystem-first + fallback + coverage verification của v6.18.0.
 - `pack` giữ exact-file semantics của v6.11+; subtree dùng `directory`.
 - Decompile dùng temporary SQLite index, bounded/read-only, không ghi vào source tree.
-- Thêm semantic release gate `self_test_collect_historical_actions_v6_18_3.py`.
+- Thêm semantic release gate `self_test_collect_historical_actions_v6_18_7.py`.
 
 **Stop condition:** chỉ dừng preservation audit khi mọi capability lịch sử đã biết có một disposition rõ ràng (`PRESERVED`, `COMPATIBILITY_RESTORED`, `SUPERSEDED`, `REMOVED_BY_REQUIREMENT`, hoặc fail-closed có giải thích), và không còn regression vô tình có bằng chứng.
 

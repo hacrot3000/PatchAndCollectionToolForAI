@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-VERSION = "6.18.6"
+VERSION = "6.18.7"
 
 _PRIVATE_KEY = re.compile(
     r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----.*?-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----",

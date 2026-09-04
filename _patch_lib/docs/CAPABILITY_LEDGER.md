@@ -1,6 +1,6 @@
 # Python Patch Tool — cumulative capability ledger
 
-Current release: **v6.18.6**
+Current release: **v6.18.7**
 
 This is the canonical cross-version continuity ledger. It complements the current feature-status document; it must never be replaced by a current-only checklist.
 
@@ -14,19 +14,26 @@ Status vocabulary:
 
 See `HISTORICAL_FEATURE_BASELINE_V5_15.md` for all 107 original names. Machine-readable complete-ID coverage is enforced by `CURRENT_CAPABILITY_DISPOSITION.json`.
 
+## v6.18.7 search timeout / bounded-result preservation
+
+- **PRESERVED + HARDENED:** historical/current Search collector remains coverage-aware and now preserves already found evidence across regex watchdog timeout. Timeout becomes `PARTIAL`/COLLECT `INCOMPLETE`, not destructive action failure.
+- **PERFORMANCE-PRESERVING CONTRACT:** `fallback_search=true` verifies zero/error independently; a positive primary result skips the second full content scan by default while retaining coverage inventory. `verify_nonzero_with_fallback=true` restores explicit positive-result backend cross-checking when required.
+- **BOUNDED OUTPUT IS EXPLICIT:** when `max_matches` omits match detail, search status is PARTIAL/INCOMPLETE; fully scanned/untruncated actions report `Search execution status: COMPLETED`. Discovery-driven file quotas keep the prefix already copied and mark omitted remainder INCOMPLETE; exact-file `pack` stays fail-closed.
+- Semantic evidence: `self_test_search_partial_timeout_v6_18_7.py`, `self_test_search_discovery_v6_18_7.py`, and historical COLLECT continuity gates.
+
 ## v6.18.6 upload-required highlight preservation
 
 - **PRESERVED/strengthened:** primary upload artifact labels remain authoritative in plain text.
 - **Presentation additive:** TTY/VT output highlights `[PRIMARY - UPLOAD THIS FILE]`, `ACTION REQUIRED`, and the exact ZIP path with a high-contrast yellow background; the path is underlined.
 - **Compatibility:** `NO_COLOR`, redirected output, Windows/non-VT fallback and copyable artifact paths retain plain-text semantics.
-- **Behavioral gate:** `self_test_upload_action_highlight_v6_18_6.py`.
+- **Behavioral gate:** `self_test_upload_action_highlight_v6_18_7.py`.
 
 ## v6.18.5 discovery/glob false-zero hardening
 
 - **PRESERVED + HARDENED:** historical/current `find` remains filename/path discovery but now evaluates patterns against basename, each requested scope-relative path, and the full project-relative path. This fixes false zero for `paths=[".../jdqs_server"]` with `patterns=["src/main/java/.../*.java"]` without removing any prior matching view.
 - **PRESERVED + HARDENED:** `directory` include/exclude and `find` glob patterns now implement `**/` as zero-or-more directory levels, so `**/*.java` includes direct children as well as nested files.
 - **PRESERVED + HARDENED:** `find` traversal uses `limits.max_search_files`; `limits.max_files` remains a packaging quota only. A discovery-budget truncation reports `Coverage status: PARTIAL` and marks the COLLECT result `INCOMPLETE` instead of silently claiming trustworthy zero coverage.
-- Semantic evidence: `self_test_find_discovery_v6_18_5.py` plus the existing historical COLLECT/search/continuity gates. No historical COMPLETE disposition is removed or narrowed.
+- Semantic evidence: `self_test_find_discovery_v6_18_7.py` plus the existing historical COLLECT/search/continuity gates. No historical COMPLETE disposition is removed or narrowed.
 
 ## v6.18.4 final continuity closure
 
@@ -115,7 +122,7 @@ The old direct public form `./tools/run_python_patches.sh collect <command> ...`
 | 79 | Correct public-runner placement | **PRESERVED** | `tools/run_python_patches.sh` remains the public POSIX entry point; `_patch_lib` stays private. |
 | 80 | Portable direct upgrade | **PRESERVED** | Release ZIP does not include `.python_patch_tool.json`; extraction replaces only Patch-Tool-managed package paths. |
 | 81 | Optional controlled installer | **COMPATIBILITY_RESTORED v6.18.3** | `install_python_patch_tool_v6.py` plus historical filename wrapper `install_python_patch_tool_v5.py`; fixed-list stale-file backup/removal, dry-run and create-config-without-overwrite. Normal use does not require it. |
-| 82 | Portable-layout regression test | **PRESERVED / EXPANDED** | Package/version/checksum tests plus `self_test_portable_installer_v6_18_5.py` validate direct layout and controlled migration semantics. |
+| 82 | Portable-layout regression test | **PRESERVED / EXPANDED** | Package/version/checksum tests plus `self_test_portable_installer_v6_18_7.py` validate direct layout and controlled migration semantics. |
 | 83–85 | Interactive / TTY / line multi-select | **PRESERVED** | Current selector keeps fullscreen and line-mode selection contracts. |
 | 86 | Repeated explicit `--patch` | **COMPATIBILITY_RESTORED v6.18.2** | Dispatcher-level semantic test, not launcher-string inspection. |
 | 87 | Unselected-package preservation + audit | **COMPATIBILITY_RESTORED v6.18.3** | Unselected runnable packages remain in `patchs/` and `LAST_RUN.json` records `user_not_selected`. |
@@ -153,3 +160,8 @@ The following are current-release capabilities and are protected in addition to 
 ## Release rule
 
 No future release may remove a row from this ledger. A changed capability must receive a new disposition and behavioral evidence. See `NO_SILENT_REMOVAL_POLICY.md`.
+
+### v6.18.7 bounded COLLECT final status
+
+A COLLECT that preserves usable evidence but cannot prove full coverage (timeout, result/report truncation, or discovery output quota) exits with `rc=3`, writes the result ZIP, and reports `SUMMARY: INCOMPLETE` rather than `SUMMARY: FAIL`. `FAIL` remains reserved for execution/schema/integrity failures.
+

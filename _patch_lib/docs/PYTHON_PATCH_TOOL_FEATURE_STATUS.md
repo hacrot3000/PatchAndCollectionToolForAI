@@ -1,4 +1,16 @@
-# Python Patch Tool v6.18.6 feature status
+# Python Patch Tool v6.18.7 feature status
+
+## v6.18.7 scalable regex search + partial timeout preservation
+
+- COMPLETE: positive `rg`/primary matches no longer trigger an unconditional second full-tree Python regex scan.
+- COMPLETE: zero/error still receives independent fallback verification; `verify_nonzero_with_fallback=true` preserves opt-in full non-zero backend consistency checking.
+- COMPLETE: regex worker publishes checkpoints and has a soft deadline before the hard 60s watchdog.
+- COMPLETE: hard timeout returns the latest checkpoint as `PARTIAL` / COLLECT `INCOMPLETE` instead of deleting already found evidence and failing the request.
+- COMPLETE: later COLLECT actions continue after a partial timeout and the result ZIP is preserved.
+- COMPLETE: `max_matches` truncation is an explicit PARTIAL/INCOMPLETE evidence state rather than a silent completed result.
+- COMPLETE: discovery-driven `find collect` / `directory` quota overflow keeps already collected files and publishes INCOMPLETE instead of aborting the ZIP; exact `pack` remains fail-closed.
+- COMPLETE: any report truncated by an action/report-byte bound marks the collection INCOMPLETE.
+- REQUIRED RELEASE GATE: `self_test_search_partial_timeout_v6_18_7.py`.
 
 ## v6.18.6 upload-required action highlighting
 
@@ -14,7 +26,7 @@
 - `find` traversal budget separated from collection `max_files`: **FIXED**; uses `max_search_files` and reports VERIFIED/PARTIAL coverage.
 - False-zero behavior when find discovery is truncated: **FAIL-SAFE** as COLLECT `INCOMPLETE`.
 - Historical basename and project-relative glob matching: **PRESERVED**.
-- Regression reproducing the Mine battle-pass COLLECT pattern shapes: `self_test_find_discovery_v6_18_5.py`: **REQUIRED RELEASE GATE**.
+- Regression reproducing the Mine battle-pass COLLECT pattern shapes: `self_test_find_discovery_v6_18_7.py`: **REQUIRED RELEASE GATE**.
 
 ## v6.18.4 proof-of-continuity completion
 
@@ -174,3 +186,8 @@ v6.17.6 completed the current robustness/data-integrity audit scope, aggregate/d
 - PRESERVED: v6.17.14 Smart Resume gating and cross-run predecessor safety.
 - PRESERVED: all v6.18.0 coverage-aware search/discovery additions.
 - ADDED: upgrade-continuity self-test covering established queue/history/recovery/report/batch/schema/launcher surfaces.
+
+### v6.18.7 bounded COLLECT final status
+
+A COLLECT that preserves usable evidence but cannot prove full coverage (timeout, result/report truncation, or discovery output quota) exits with `rc=3`, writes the result ZIP, and reports `SUMMARY: INCOMPLETE` rather than `SUMMARY: FAIL`. `FAIL` remains reserved for execution/schema/integrity failures.
+

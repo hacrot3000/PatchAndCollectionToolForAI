@@ -1,8 +1,23 @@
-# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.18.6
+# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.18.7
 
 Trước khi AI sửa Patch Tool, bắt buộc đọc `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md` và `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Tính năng từng PASS/COMPLETE không được tự ý xóa, thu hẹp hoặc làm mất đường gọi chỉ vì code/schema hiện tại không dùng tới. Nếu thật sự phải thay thế, phải ghi trạng thái vào ledger và thêm test hành vi chứng minh.
 
-# Danh sách tính năng Python Patch Tool — v6.18.6
+# Danh sách tính năng Python Patch Tool — v6.18.7
+
+## v6.18.7 — Regex search cây lớn: giữ partial thay vì FAIL mất dữ liệu
+
+| Tính năng | Trạng thái |
+|---|---|
+| Positive primary search không regex Python lại toàn tree | **COMPLETE** |
+| Zero/error vẫn fallback độc lập chống false-zero | **PRESERVED** |
+| `verify_nonzero_with_fallback=true` để cross-check positive khi cần | **COMPLETE** |
+| Soft deadline + checkpoint trước hard timeout | **COMPLETE** |
+| Timeout giữ match đã tìm được, COLLECT `INCOMPLETE` thay vì `FAIL` | **COMPLETE** |
+| Action sau tiếp tục và result ZIP vẫn được tạo | **COMPLETE** |
+| `max_matches` bị cắt => PARTIAL/INCOMPLETE rõ ràng | **COMPLETE** |
+| `find collect` / `directory` quá quota vẫn giữ file đã thu và trả INCOMPLETE ZIP | **COMPLETE** |
+| Report bị truncate bởi action/max_report_bytes => INCOMPLETE | **COMPLETE** |
+| `Search execution status: COMPLETED` chỉ khi tìm xong thật | **COMPLETE** |
 
 ## v6.18.6 — Làm nổi bật file bắt buộc upload
 
@@ -17,7 +32,7 @@ Trước khi AI sửa Patch Tool, bắt buộc đọc `tools/_patch_lib/docs/NO_
 - `**/*.java` khớp cả file Java nằm trực tiếp trong thư mục và file ở thư mục con.
 - `find` scan theo `max_search_files`; `max_files` chỉ còn là quota file đóng gói.
 - Nếu scan filename bị cắt vì budget, COLLECT phải `INCOMPLETE`, không được biến `Matches: 0` thành bằng chứng thiếu source.
-- Có semantic regression `self_test_find_discovery_v6_18_5.py`; toàn bộ continuity/compatibility gate v6.18.4 vẫn bắt buộc PASS.
+- Có semantic regression `self_test_find_discovery_v6_18_7.py`; toàn bộ continuity/compatibility gate v6.18.4 vẫn bắt buộc PASS.
 
 ## v6.18.4 — Gate bảo toàn 95 capability COMPLETE lịch sử
 

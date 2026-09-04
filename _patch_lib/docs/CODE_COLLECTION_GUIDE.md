@@ -1,6 +1,6 @@
-# CODE COLLECTION GUIDE — v6.18.6 AUTHORITATIVE CONTRACT
+# CODE COLLECTION GUIDE — v6.18.7 AUTHORITATIVE CONTRACT
 
-Python Patch Tool v6.18.6 ships a self-contained, read-only COLLECT runtime. The authoritative action/field list is `COLLECT_ACTION_SCHEMA.json`; this guide explains the intended semantics.
+Python Patch Tool v6.18.7 ships a self-contained, read-only COLLECT runtime. The authoritative action/field list is `COLLECT_ACTION_SCHEMA.json`; this guide explains the intended semantics.
 
 This is an **AI/tool-facing technical document**. The public user workflow remains intentionally simple: AI provides one request ZIP, the user places it in `patchs/`, then runs the normal zero-argument launcher.
 
@@ -260,7 +260,10 @@ Request-provided limits may not exceed local hard ceilings.
 - Discovery-driven `directory` collection skips obvious sensitive filename/content candidates rather than auto-ingesting them.
 - Explicit exact-file `pack` retains current v6 semantics: if the operator/AI explicitly names a sensitive file, it is preserved exactly but clearly warned in console/manifest.
 - Search-like compatibility actions (`research`, `references`, `search_files`, `content`, symbol-graph reference discovery) use the same filesystem coverage/fallback protections as `search`.
-- Regex search remains isolated in a worker with a hard timeout.
+- Regex search remains isolated in a worker with a hard timeout. v6.18.7 adds a soft deadline/checkpoint: timeout preserves the newest partial result as COLLECT `INCOMPLETE` instead of discarding evidence.
+- `fallback_search=true` means independent fallback is mandatory for zero/error verification. Positive primary matches skip a second full content scan by default; set `verify_nonzero_with_fallback=true` to request the more expensive positive-result consistency pass.
+- `Search execution status: COMPLETED` is reserved for fully finished/untruncated search actions; timeout, search-budget exhaustion, and `max_matches` truncation report `PARTIAL`.
+- Discovery-driven file actions (`find` with `collect=true`, `directory`) keep files already copied when collection quotas are reached and mark the result `INCOMPLETE`; exact `pack` still fails closed because its named files are mandatory evidence. Any action/report truncation also prevents a false `COMPLETED` result.
 - COLLECT snapshots the exact request ZIP before execution and archives the exact executed bytes after success.
 
 ## Selection/result
@@ -274,3 +277,8 @@ Upload only the result ZIP highlighted as:
 ```
 
 When `collection_status=INCOMPLETE`, upload the result for diagnostics but do not treat missing evidence as proof of absence.
+
+### v6.18.7 bounded COLLECT final status
+
+A COLLECT that preserves usable evidence but cannot prove full coverage (timeout, result/report truncation, or discovery output quota) exits with `rc=3`, writes the result ZIP, and reports `SUMMARY: INCOMPLETE` rather than `SUMMARY: FAIL`. `FAIL` remains reserved for execution/schema/integrity failures.
+
