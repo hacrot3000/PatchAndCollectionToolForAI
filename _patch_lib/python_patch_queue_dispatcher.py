@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.18.7"
+VERSION = "6.18.8"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -3257,6 +3257,63 @@ def _display_abs_path(root: Path, raw: object, *, base: str | None = None) -> tu
         return None
 
 
+_AI_UPLOAD_HISTORY_LABELS = frozenset({
+    "COLLECT result",
+    "COLLECT ZIP",
+    "FAIL handoff",
+    "Recovery COLLECT",
+})
+
+
+def _print_history_artifact_line(
+    label: str,
+    path: str,
+    exists: bool,
+    *,
+    stream=None,
+    indent: str = "      ",
+    label_width: int = 16,
+) -> None:
+    """Render report/history artifacts without changing plain-text semantics.
+
+    Artifacts that normally need to be uploaded back to AI are highlighted with
+    the same bright-yellow background used by the primary COLLECT/FAIL_HANDOFF
+    upload block.  Missing required artifacts use the existing high-visibility
+    yellow-on-red failure style.  NO_COLOR/non-TTY output remains plain and
+    exact paths are never clipped.
+    """
+    out = stream or sys.stdout
+    safe_path = _safe_display(path)
+    suffix = "" if exists else " [missing]"
+    prefix = f"{indent}{label:<{label_width}}: "
+    if label in _AI_UPLOAD_HISTORY_LABELS and _result_color_enabled(out):
+        reset = "\x1b[0m"
+        if exists:
+            label_style = "\x1b[1;30;103m"
+            path_style = "\x1b[1;4;30;103m"
+        else:
+            label_style = "\x1b[1;93;41m"
+            path_style = "\x1b[1;4;93;41m"
+        print(f"{label_style}{prefix}{reset}{path_style}{safe_path}{suffix}{reset}", file=out)
+        return
+    print(f"{prefix}{safe_path}{suffix}", file=out)
+
+
+def _report_status_style(status: str) -> tuple[str, str]:
+    """Return a concise report/history status style; plain output is unchanged."""
+    value = str(status or "UNKNOWN").upper()
+    reset = "\x1b[0m"
+    if value in {"FAIL", "FAILED", "PREFLIGHT_FAIL", "INTERRUPTED"}:
+        return "\x1b[1;93;41m", reset
+    if value in {"INCOMPLETE", "BLOCKED", "NOT_EXECUTED"}:
+        return "\x1b[1;30;103m", reset
+    if value == "PASS":
+        return "\x1b[1;96m", reset
+    if value.startswith("SKIPPED"):
+        return "\x1b[35m", reset
+    return "", reset
+
+
 def _important_row_artifacts(root: Path, row: dict[str, object]) -> list[tuple[str, str, bool]]:
     found: list[tuple[str, str, bool]] = []
     seen: set[str] = set()
@@ -3302,12 +3359,14 @@ def _print_important_artifacts(root: Path, rows: list[dict[str, object]], *, str
             groups.append((index, str(row.get("name") or "unknown"), artifacts))
     if not groups:
         return
-    print("Important files:", file=out)
+    if _result_color_enabled(out):
+        print("\x1b[1;93mImportant files:\x1b[0m", file=out)
+    else:
+        print("Important files:", file=out)
     for index, name, artifacts in groups:
         print(f"  {index:>2}. {_safe_display(name)}", file=out)
         for label, path, exists in artifacts:
-            suffix = "" if exists else " [missing]"
-            print(f"      {label:<16}: {_safe_display(path)}{suffix}", file=out)
+            _print_history_artifact_line(label, path, exists, stream=out)
 
 
 def _print_batch_overview(root: Path, report: dict[str, object], *, stream=None) -> None:
@@ -3317,10 +3376,9 @@ def _print_batch_overview(root: Path, report: dict[str, object], *, stream=None)
     print("", file=out)
     batch_status = str(report.get("status") or "UNKNOWN")
     title = f"BATCH RESULT — {batch_status}"
-    if batch_status == "FAIL" and _result_color_enabled(out):
-        print(f"\x1b[1;93;41m{title}\x1b[0m", file=out)
-    elif batch_status == "PASS" and _result_color_enabled(out):
-        print(f"\x1b[1;96m{title}\x1b[0m", file=out)
+    if _result_color_enabled(out):
+        style, reset = _report_status_style(batch_status)
+        print(f"{style}{title}{reset}" if style else title, file=out)
     else:
         print(title, file=out)
     print(
@@ -3333,7 +3391,16 @@ def _print_batch_overview(root: Path, report: dict[str, object], *, stream=None)
     if tx:
         print(f"Batch transaction: {tx.get('status','UNKNOWN')}", file=out)
     for i, row in enumerate(rows, 1):
-        print(f"  {i:>2}. [{row.get('status','UNKNOWN')}] {_safe_display(str(row.get('name','unknown')))}", file=out)
+        status = str(row.get("status") or "UNKNOWN").upper()
+        prefix = f"  {i:>2}. "
+        status_text = f"[{status}]"
+        name = _safe_display(str(row.get("name", "unknown")))
+        if _result_color_enabled(out):
+            style, reset = _report_status_style(status)
+            rendered_status = f"{style}{status_text}{reset}" if style else status_text
+            print(f"{prefix}{rendered_status} {name}", file=out)
+        else:
+            print(f"{prefix}{status_text} {name}", file=out)
         print(f"      {_safe_display(_row_summary(row))}", file=out)
     if report.get("batch_log"):
         absolute = _display_abs_path(root, report.get("batch_log"))
@@ -3465,17 +3532,20 @@ def _print_item_detail(root: Path, row: dict[str, object]) -> None:
             pass
     if row.get("fail_handoff"):
         shown = _display_abs_path(root, row.get("fail_handoff"))
-        print(f"FAIL handoff: {_safe_display(shown[0] if shown else str(row['fail_handoff']))}")
+        handoff_path = shown[0] if shown else str(row["fail_handoff"])
+        _print_history_artifact_line("FAIL handoff", handoff_path, bool(shown and shown[1]), indent="", label_width=16)
     if row.get("recovery_collect_request"):
         raw_recovery = str(row.get("recovery_collect_request"))
         base = None if Path(raw_recovery).is_absolute() or "/" in raw_recovery.replace("\\", "/") else "patchs"
         shown = _display_abs_path(root, raw_recovery, base=base)
-        print(f"Recovery COLLECT: {_safe_display(shown[0] if shown else raw_recovery)}")
+        recovery_path = shown[0] if shown else raw_recovery
+        _print_history_artifact_line("Recovery COLLECT", recovery_path, bool(shown and shown[1]), indent="", label_width=16)
     collect = row.get("collect_result") if isinstance(row.get("collect_result"), dict) else None
     if collect is not None:
         if collect.get("result_zip"):
             shown = _display_abs_path(root, collect.get("result_zip"))
-            print(f"COLLECT ZIP : {_safe_display(shown[0] if shown else str(collect.get('result_zip')))}")
+            collect_path = shown[0] if shown else str(collect.get("result_zip"))
+            _print_history_artifact_line("COLLECT ZIP", collect_path, bool(shown and shown[1]), indent="", label_width=12)
         if collect.get("request_archive"):
             shown = _display_abs_path(root, collect.get("request_archive"))
             print(f"Request ZIP : {_safe_display(shown[0] if shown else str(collect.get('request_archive')))}")

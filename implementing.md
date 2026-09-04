@@ -1,11 +1,20 @@
-# v6.18.7 mandatory continuity gate — NO SILENT REMOVAL
+# v6.18.8 mandatory continuity gate — NO SILENT REMOVAL
 
 Before modifying Patch Tool, read `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, and `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Do not delete or narrow any capability previously marked COMPLETE/PRESERVED/COMPATIBILITY_RESTORED unless the user explicitly requests it or a later documented contract supersedes it. Every intentional transition must be recorded in the ledger and protected by a behavioral test. Surface/string-only compatibility tests are not sufficient.
 
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.18.7**  
+Phiên bản mục tiêu: **v6.18.8**  
 Trạng thái: **95/95 HISTORICAL-COMPLETE DISPOSITION + SEMANTIC CONTINUITY — COMPLETE**
+
+## v6.18.8 — HISTORY/report AI-upload artifact highlighting
+
+- `report` và report mở từ HISTORY dùng cùng color contract với upload block hiện hành.
+- `COLLECT result`, `FAIL handoff` và `Recovery COLLECT` là artifact AI-facing: khi terminal hỗ trợ ANSI, label/path được tô nền vàng nổi bật; path tồn tại được underline để dễ copy.
+- Artifact AI-facing bị `[missing]` dùng nền đỏ/yellow warning để không bị hiểu nhầm là file có thể upload.
+- `BATCH RESULT — INCOMPLETE`, `[INCOMPLETE]` và `[PREFLIGHT_FAIL]` được nhấn mạnh; PASS/plain metadata không bị biến thành cảnh báo.
+- `NO_COLOR` và non-TTY phải giữ plain text không có escape sequence; path không được clip.
+- Regression bắt buộc: `self_test_history_artifact_highlight_v6_18_8.py`.
 
 ## v6.18.7 — Regex large-tree partial preservation
 

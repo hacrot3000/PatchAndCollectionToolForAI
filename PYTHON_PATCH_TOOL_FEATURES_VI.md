@@ -1,8 +1,15 @@
-# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.18.7
+# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.18.8
 
 Trước khi AI sửa Patch Tool, bắt buộc đọc `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md` và `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Tính năng từng PASS/COMPLETE không được tự ý xóa, thu hẹp hoặc làm mất đường gọi chỉ vì code/schema hiện tại không dùng tới. Nếu thật sự phải thay thế, phải ghi trạng thái vào ledger và thêm test hành vi chứng minh.
 
-# Danh sách tính năng Python Patch Tool — v6.18.7
+# Danh sách tính năng Python Patch Tool — v6.18.8
+
+## v6.18.8 — Highlight artifact quan trọng trong HISTORY/report
+
+- `COLLECT result`, `FAIL handoff`, `Recovery COLLECT`: **COMPLETE** — nền vàng + underline path trên terminal hỗ trợ màu; `[missing]` dùng warning nền đỏ.
+- `BATCH RESULT — INCOMPLETE`, `[INCOMPLETE]`, `[PREFLIGHT_FAIL]`: **COMPLETE** — status quan trọng được nhấn màu để nhìn thấy ngay khi mở lịch sử.
+- `NO_COLOR`/non-TTY: **COMPLETE** — output vẫn plain, grep/copy/IDE task không chứa ANSI.
+- Capability #100/#101 tiếp tục được bảo toàn bằng semantic regression `self_test_history_artifact_highlight_v6_18_8.py`.
 
 ## v6.18.7 — Regex search cây lớn: giữ partial thay vì FAIL mất dữ liệu
 

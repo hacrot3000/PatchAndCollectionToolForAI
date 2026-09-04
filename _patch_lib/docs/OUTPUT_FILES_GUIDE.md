@@ -1,6 +1,11 @@
-# Python Patch Tool v6.18.7 — output files and what to upload
+# Python Patch Tool v6.18.8 — output files and what to upload
 
 This guide preserves the historical “output-file role guide” capability while describing the **current** v6 artifact model. Old v5 SUMMARY/CODE/DETAIL filenames are historical and must not be inferred as current outputs.
+
+## Visual priority in HISTORY/report (v6.18.8)
+
+On an ANSI-capable terminal, the report browser highlights the files most commonly returned to AI: **COLLECT result**, **FAIL handoff**, and **Recovery COLLECT**. Existing upload paths use a bright-yellow background plus underline; a missing required artifact is shown with the failure warning palette and `[missing]`. This is display-only: plain logs, `NO_COLOR`, redirected output and machine parsing remain unchanged.
+
 
 ## Normal PATCH success
 

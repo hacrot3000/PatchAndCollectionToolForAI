@@ -1,6 +1,6 @@
 # Python Patch Tool — cumulative capability ledger
 
-Current release: **v6.18.7**
+Current release: **v6.18.8**
 
 This is the canonical cross-version continuity ledger. It complements the current feature-status document; it must never be replaced by a current-only checklist.
 
@@ -13,6 +13,13 @@ Status vocabulary:
 - **NOT_CURRENTLY_GUARANTEED** — historical capability existed but current self-contained v6 package does not claim equivalent parity; it must remain visible here rather than silently disappearing.
 
 See `HISTORICAL_FEATURE_BASELINE_V5_15.md` for all 107 original names. Machine-readable complete-ID coverage is enforced by `CURRENT_CAPABILITY_DISPOSITION.json`.
+
+## v6.18.8 report/history AI-upload highlighting
+
+- **PRESERVED + EXTENDED:** capability #100 primary handoff highlighting now also applies when the same COLLECT result / FAIL handoff / recovery COLLECT is viewed later through report/HISTORY.
+- **PRESERVED:** capability #101 accessible color roles keeps `NO_COLOR`/non-TTY plain output; ANSI is presentation only.
+- Problem states `INCOMPLETE` and `PREFLIGHT_FAIL` receive visible status emphasis without changing persisted report data.
+- Semantic gate: `self_test_history_artifact_highlight_v6_18_8.py`.
 
 ## v6.18.7 search timeout / bounded-result preservation
 

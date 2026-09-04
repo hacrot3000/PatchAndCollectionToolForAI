@@ -1,4 +1,12 @@
-# Python Patch Tool v6.18.7 feature status
+# Python Patch Tool v6.18.8 feature status
+
+## v6.18.8 HISTORY/report AI-artifact visibility
+
+- COMPLETE: `COLLECT result`, `FAIL handoff`, and `Recovery COLLECT` are highlighted in report/HISTORY on ANSI-capable terminals.
+- COMPLETE: missing AI-facing artifacts use an explicit warning palette plus `[missing]`.
+- COMPLETE: `INCOMPLETE` and `PREFLIGHT_FAIL` report states are visually emphasized.
+- COMPLETE: `NO_COLOR` and non-TTY output remain ANSI-free and copy/grep compatible.
+- Regression: `self_test_history_artifact_highlight_v6_18_8.py`.
 
 ## v6.18.7 scalable regex search + partial timeout preservation
 

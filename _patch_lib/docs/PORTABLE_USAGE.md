@@ -1,13 +1,18 @@
-# Python Patch Tool v6.18.7 portable usage
+# Python Patch Tool v6.18.8 portable usage
 
-The release is self-contained for its v6.18.7 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
+The release is self-contained for its v6.18.8 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
+
+## v6.18.8 HISTORY/report visual priority
+
+When a report is shown directly or reopened from HISTORY, AI-facing artifacts are visually prioritized on ANSI-capable terminals: `COLLECT result`, `FAIL handoff`, and `Recovery COLLECT` use the bright-yellow upload style and existing paths are underlined. Missing AI-facing artifacts use the failure warning palette. `INCOMPLETE`/`PREFLIGHT_FAIL` status is also emphasized. `NO_COLOR` and non-TTY output remain plain and exact artifact paths are never clipped.
+
 
 ## Linux / POSIX
 
 Install/update at the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.18.7.zip -d "$PWD"
+unzip -o python_patch_tool_v6.18.8.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 
@@ -21,7 +26,7 @@ Requirement: **Python 3.10+**. The launcher accepts Python Launcher (`py -3`) or
 PowerShell install/update at the project root:
 
 ```powershell
-Expand-Archive -Force .\python_patch_tool_v6.18.7.zip .
+Expand-Archive -Force .\python_patch_tool_v6.18.8.zip .
 tools\run_python_patches.bat
 ```
 
