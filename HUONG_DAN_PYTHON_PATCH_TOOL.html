@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Hướng dẫn Python Patch Tool v6.17.10</title>
+<title>Hướng dẫn Python Patch Tool v6.17.11</title>
 <style>
 :root{color-scheme:light dark}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:980px;margin:32px auto;padding:0 18px;line-height:1.55;color:#1f2328;background:#fff}
@@ -27,16 +27,16 @@ h1,h2{line-height:1.25}
 </style>
 </head>
 <body>
-<h1>Python Patch Tool v6.17.10 — hướng dẫn nhanh</h1>
+<h1>Python Patch Tool v6.17.11 — hướng dẫn nhanh</h1>
 
 <h2>1. Cài đặt / cập nhật</h2>
 <p><strong>Linux / POSIX:</strong></p>
-<pre>unzip -o python_patch_tool_v6.17.10.zip -d "$PWD"
+<pre>unzip -o python_patch_tool_v6.17.11.zip -d "$PWD"
 cat tools/_patch_lib/VERSION</pre>
 <p><strong>Windows PowerShell:</strong> cần Python <strong>3.10+</strong>.</p>
-<pre>Expand-Archive -Force .\python_patch_tool_v6.17.10.zip .
+<pre>Expand-Archive -Force .\python_patch_tool_v6.17.11.zip .
 Get-Content .\tools\_patch_lib\VERSION</pre>
-<p>Kết quả version phải là <code>6.17.8</code>.</p>
+<p>Kết quả version phải là <code>6.17.11</code>.</p>
 
 <h2>2. Chạy công cụ</h2>
 <p><strong>Linux / POSIX:</strong></p>
@@ -47,8 +47,8 @@ Get-Content .\tools\_patch_lib\VERSION</pre>
 <pre>.\tools\run_python_patches.ps1</pre>
 <p>Không cần tham số. Cả ba lệnh dùng cùng <code>patchs/</code> và cùng core. Trên Windows console phù hợp, tool hỗ trợ menu phím mũi tên/Space tương tự POSIX; nếu console không hỗ trợ an toàn thì tự dùng menu nhập số/range.</p>
 <p>Khi cần chẩn đoán PATCH mà không sửa source, dùng menu <code>v</code> hoặc lệnh <code>validate --patch</code>; kết quả phân biệt PATCH sai, source drift và lỗi tool.</p>
-<p>v6.17.9: dùng <code>p</code> để preview PATCH hiện tại trên private mirror, <code>/</code> để tìm/lọc theo tên/id/summary/target. Dùng <code>./tools/run_python_patches.sh plan</code> để xem batch plan read-only; có thể thêm <code>--export-recipe BATCH_RECIPE.json</code> rồi chạy lại chính xác bằng <code>run --recipe BATCH_RECIPE.json</code>.</p>
-<p>v6.17.9: PATCH có thể khai báo <code>on_failure.commands</code> để chạy command tự động chỉ khi execution thất bại. Command chạy sau rollback attempt, không thay thế RC/lỗi gốc của PATCH và không dùng stdin tương tác.</p>
+<p>Dùng <code>p</code> để preview PATCH hiện tại trên private mirror, <code>/</code> để tìm/lọc theo tên/id/summary/target. Dùng <code>./tools/run_python_patches.sh plan</code> để xem batch plan read-only; có thể thêm <code>--export-recipe BATCH_RECIPE.json</code> rồi chạy lại chính xác bằng <code>run --recipe BATCH_RECIPE.json</code>.</p>
+<p>PATCH có thể khai báo <code>on_failure.commands</code> để chạy command tự động chỉ khi execution thất bại. Command chạy sau rollback attempt, không thay thế RC/lỗi gốc của PATCH và không dùng stdin tương tác.</p>
 <p>Nếu PATCH khai báo <code>project.key</code> hoặc <code>validation.profiles</code>, project cần cấu hình tương ứng trong <code>.python_patch_tool.json</code>; validation command nằm ở local config, không nằm trong PATCH.</p>
 <ul>
 <li>PATCH: có thể chọn nhiều. POSIX TTY và Windows console hỗ trợ phím <code>0..9</code> để đặt priority khi fullscreen khả dụng; nếu fallback line selector thì dùng số/range.</li>
@@ -56,6 +56,7 @@ Get-Content .\tools\_patch_lib\VERSION</pre>
 <li>Tool không khóa project; bạn có thể chủ động chạy terminal khác song song.</li>
 <li>Nếu nhiều PATCH trong cùng queue có checksum giống hệt nhau, tool giữ một file và tự loại file trùng.</li>
 <li>Nếu nghi ngờ tool bị copy/cài thiếu hoặc sai checksum, nhấn <code>h</code> trong menu để kiểm tra nhanh Tool Health; thao tác này không chạy PATCH.</li>
+<li>Khi chạy launcher không tham số, selector luôn có thêm mục <strong>HISTORY</strong>; dùng <strong>↑/↓ + Enter</strong> để xem lại lịch sử rồi quay lại queue. Nếu không còn PATCH/COLLECT runnable, tool in warning, <code>AUTO STATUS: IDLE</code>, Tool Health rồi tự mở HISTORY.</li>
 </ul>
 
 <h2>3. Khi AI cần thêm source</h2>
@@ -120,6 +121,8 @@ The user runs the zero-argument launcher for the OS: Linux ./tools/run_python_pa
 <li>Khi chọn nhiều PATCH, cuối run có bảng <code>PASS / FAIL / BLOCKED / PREFLIGHT_FAIL / NOT_EXECUTED / SKIPPED</code>. Mặc định tool tiếp tục các PATCH độc lập sau một lỗi; PATCH phụ thuộc hoặc dùng chung effective target với PATCH lỗi sẽ bị <code>BLOCKED</code>. <code>fail_fast</code> vẫn có thể bật rõ ràng khi muốn dừng ở lỗi đầu tiên. Ctrl+C/rollback failure/partial-unknown vẫn safety-stop.</li>
 <li>Nếu phiên trước có PATCH lỗi, Smart Resume dùng <strong>↑/↓ + Enter</strong> và hiển thị mô tả của mục đang chọn. Có thêm <strong>COLLECT source của PATCH lỗi</strong> và <strong>Xóa PATCH lỗi khỏi hàng đợi</strong> (chuyển sang <code>patchs/ignore</code>). Nếu có nhiều PATCH lỗi, dùng selector checkbox với <code>Space</code> để chọn nhiều.</li>
 <li>Log chi tiết từng PATCH và log tổng hợp batch được lưu trong <code>artifacts/patch_tool/runs/</code>. Mở lại bằng lệnh <code>report</code>; menu hỗ trợ detail, aggregate, lọc lỗi/PASS, source diff, support ZIP và history.</li>
+<li>HISTORY mặc định trỏ tới lần <strong>PASS gần nhất có công việc thực sự</strong>. Khi mở lại, có thể xem detail/log/source diff và đường dẫn artifact còn tồn tại như archived PATCH ZIP, COLLECT result/request ZIP, FAIL_HANDOFF, recovery COLLECT và support ZIP.</li>
+<li>Khi terminal tương tác hỗ trợ an toàn, lúc chạy PATCH tool giữ một <strong>live status header</strong> cố định ở trên với trạng thái <code>WAITING / RUNNING / PASS / FAILED / BLOCKED / ...</code> và để console cuộn bên dưới. Nếu terminal không phù hợp hoặc bị resize, tool tự fallback về console thường. Có thể tắt bằng <code>PTV_DISABLE_LIVE_STATUS=1</code>; log lưu trên disk luôn giữ nguyên.</li>
 </ul>
 
 <h2>7. Quy trình thông thường khi dùng cùng Chat AI</h2>

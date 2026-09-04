@@ -1,4 +1,4 @@
-# Danh sách tính năng Python Patch Tool — v6.17.10
+# Danh sách tính năng Python Patch Tool — v6.17.11
 
 ## Workflow / batch engine
 
@@ -160,3 +160,15 @@ Registry failure là **relation-aware**: PATCH độc lập vẫn chạy; depend
 | PATCH độc lập vẫn chạy sau item-local PREFLIGHT_FAIL | **COMPLETE v6.17.9** |
 | `transaction=batch`, global preflight error, explicit `fail_fast` vẫn fail-closed | **COMPLETE v6.17.9** |
 | Report đếm đúng `PREFLIGHT_FAIL` và `failed_item`, không gán sai `NOT_EXECUTED` | **COMPLETE v6.17.9** |
+
+## v6.17.11 — Lịch sử zero-argument và live status
+
+| Tính năng | Trạng thái |
+|---|---|
+| Selector zero-argument có dòng `HISTORY`, mở bằng `↑/↓ + Enter` | **COMPLETE v6.17.11** |
+| Queue rỗng: in warning/AUTO STATUS/Tool Health rồi tự mở history ở TTY | **COMPLETE v6.17.11** |
+| History mặc định chọn lần PASS gần nhất có công việc thực sự | **COMPLETE v6.17.11** |
+| Reopen report xem archived PATCH ZIP, COLLECT result/request, FAIL_HANDOFF, recovery COLLECT, detail/aggregate log, source diff, support ZIP | **COMPLETE v6.17.11** |
+| Fixed live PATCH status header `WAITING/RUNNING/PASS/FAILED/BLOCKED/...` khi TTY hỗ trợ | **COMPLETE v6.17.11 (best-effort + fallback)** |
+| `PTV_DISABLE_LIVE_STATUS=1` tắt live header; raw log trên disk giữ nguyên | **COMPLETE v6.17.11** |
+

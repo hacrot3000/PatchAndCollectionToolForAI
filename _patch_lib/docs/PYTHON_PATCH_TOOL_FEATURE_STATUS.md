@@ -1,4 +1,4 @@
-# Python Patch Tool v6.17.10 feature status
+# Python Patch Tool v6.17.11 feature status
 
 | Capability | Status |
 |---|---|
@@ -92,3 +92,10 @@ v6.17.6 completes the current robustness/data-integrity audit scope, aggregate/d
 - `run --recipe` rejects CLI batch-policy overrides; the stored recipe policies are replay semantics.
 - `patch.version/phase/phase_under_test/summary/regression_scope` are descriptive metadata, not implicit gates.
 - `post_patch.run_when_no_changes=false` skips post commands for no-op/idempotent PATCHes; explicit `true` opts in.
+
+## v6.17.11 zero-argument history + live status
+
+- Zero-argument interactive selector/Smart Resume expose HISTORY; an idle zero-argument TTY opens history after warnings/status/health.
+- History defaults to the newest meaningful PASS and reuses the normal persisted report browser/artifacts.
+- Best-effort fixed live PATCH status header is COMPLETE for supported TTYs with automatic plain-console fallback; `PTV_DISABLE_LIVE_STATUS=1` disables it. Raw saved logs remain authoritative.
+

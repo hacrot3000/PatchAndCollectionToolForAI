@@ -1,7 +1,7 @@
 {
   "format": "python-patch-tool-package-checklist",
   "format_version": 1,
-  "tool_version": "6.17.10",
+  "tool_version": "6.17.11",
   "source_of_truth": "PATCH_PACKAGE_SCHEMA.json",
   "checks": [
     "root PATCH_TOOL_MANIFEST.json exists",

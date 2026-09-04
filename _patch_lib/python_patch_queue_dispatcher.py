@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.17.10"
+VERSION = "6.17.11"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -90,6 +90,7 @@ class SessionDuplicate:
 
 _LAST_EXECUTION_DETAILS: list[dict[str, object]] = []
 _ACTIVE_RUN_ID: str | None = None
+_ACTIVE_LIVE_STATUS_PANEL = None
 
 
 class _PatchChildSignal(BaseException):
@@ -651,6 +652,232 @@ def _write_run_report(root: Path, report: dict[str, object]) -> None:
         print(f"[PTV v{VERSION} WARNING] could not write LAST_RUN/history: {type(exc).__name__}: {exc}", file=sys.stderr)
 
 
+
+class _LivePatchStatus:
+    """Best-effort fixed PATCH status header for interactive ANSI terminals.
+
+    The child output is already proxied through the dispatcher, so a terminal
+    scroll region can keep a compact status list fixed while log lines scroll
+    below it.  The panel is deliberately conservative: redirected output,
+    dumb terminals, tiny terminals, COLLECT-only runs and explicit opt-out use
+    the historical plain console path unchanged.
+    """
+
+    def __init__(self, items: list[QueueItem]):
+        self.items = list(items)
+        self.statuses = {item.name: "WAITING" for item in self.items}
+        self.active = False
+        self.cols = 0
+        self.rows = 0
+        self.header_height = 0
+        self.max_status_rows = 0
+        self._warned_resize = False
+
+    @staticmethod
+    def _supported(items: list[QueueItem]) -> bool:
+        if not items or any(item.kind != "PATCH" for item in items):
+            return False
+        if os.environ.get("PTV_DISABLE_LIVE_STATUS", "").strip().lower() in {"1", "true", "yes", "on"}:
+            return False
+        if os.environ.get("TERM", "").strip().lower() == "dumb":
+            return False
+        if not (getattr(sys.stdout, "isatty", lambda: False)() and getattr(sys.stdin, "isatty", lambda: False)()):
+            return False
+        if os.name == "nt":
+            try:
+                if not _enable_windows_vt_stream(sys.stdout):
+                    return False
+            except Exception:
+                return False
+        return True
+
+    @classmethod
+    def start_for(cls, items: list[QueueItem]):
+        panel = cls(items)
+        if not panel._supported(items):
+            return panel
+        try:
+            size = shutil.get_terminal_size(fallback=(120, 40))
+            panel.cols, panel.rows = int(size.columns), int(size.lines)
+            if panel.cols < 40 or panel.rows < 8:
+                return panel
+            # Leave at least five rows for live console output.  Very large
+            # batches use a sliding status window rather than consuming the
+            # whole terminal with the fixed panel.
+            panel.max_status_rows = max(1, min(10, panel.rows - 6))
+            visible_rows = min(len(panel.items), panel.max_status_rows)
+            if len(panel.items) > visible_rows:
+                # One fixed row is used for the "... N more" summary.
+                visible_rows = max(1, visible_rows - 1) + 1
+            panel.header_height = visible_rows + 1  # separator row
+            if panel.header_height >= panel.rows - 3:
+                return panel
+            out = sys.stdout
+            out.write("\x1b[r\x1b[2J\x1b[H")
+            panel.active = True
+            global _ACTIVE_LIVE_STATUS_PANEL
+            _ACTIVE_LIVE_STATUS_PANEL = panel
+            panel._render(initial=True)
+            out.write(f"\x1b[{panel.header_height + 1};{panel.rows}r")
+            out.write(f"\x1b[{panel.header_height + 1};1H")
+            out.flush()
+        except Exception:
+            panel.active = False
+        return panel
+
+    def _current_index(self) -> int:
+        for index, item in enumerate(self.items):
+            if self.statuses.get(item.name) == "RUNNING":
+                return index
+        for index, item in enumerate(self.items):
+            if self.statuses.get(item.name) == "WAITING":
+                return index
+        return max(0, len(self.items) - 1)
+
+    def _visible_indexes(self) -> tuple[list[int], int]:
+        count = len(self.items)
+        capacity = max(1, self.max_status_rows)
+        if count <= capacity:
+            return list(range(count)), 0
+        item_capacity = max(1, capacity - 1)
+        current = self._current_index()
+        start = current - item_capacity // 2
+        start = max(0, min(start, count - item_capacity))
+        indexes = list(range(start, start + item_capacity))
+        return indexes, count - len(indexes)
+
+    @staticmethod
+    def _status_style(status: str) -> tuple[str, str]:
+        status = status.upper()
+        if status == "PASS":
+            return "\x1b[1;32m", "\x1b[0m"
+        if status in {"FAIL", "FAILED", "PREFLIGHT_FAIL", "INTERRUPTED"}:
+            return "\x1b[1;31m", "\x1b[0m"
+        if status == "RUNNING":
+            return "\x1b[1;36m", "\x1b[0m"
+        if status in {"BLOCKED", "NOT_EXECUTED"}:
+            return "\x1b[1;33m", "\x1b[0m"
+        if status.startswith("SKIPPED"):
+            return "\x1b[35m", "\x1b[0m"
+        return "\x1b[2m", "\x1b[0m"
+
+    def _plain_status_line(self, item: QueueItem, status: str) -> str:
+        label = {
+            "FAIL": "FAILED",
+            "PREFLIGHT_FAIL": "PREFLIGHT FAILED",
+            "NOT_EXECUTED": "NOT EXECUTED",
+            "SKIPPED_DUPLICATE_LOCAL": "SKIPPED",
+        }.get(status.upper(), status.upper())
+        # Put the name first as requested, but reserve enough width for the
+        # state so long OTA/NFC filenames cannot push RUNNING/PASS/FAIL away.
+        suffix = f"  {label}"
+        max_name_cells = max(8, self.cols - _display_cell_width(suffix) - 2)
+        name = _safe_display(item.name)
+        if _display_cell_width(name) > max_name_cells:
+            # Reuse the selector's cell-aware clipping by temporarily giving it
+            # a synthetic terminal width that leaves room for the suffix.
+            name = _clip_selector_line(name, max_name_cells + 2)
+        return f"{name}{suffix}"
+
+    def _render(self, *, initial: bool = False) -> None:
+        if not self.active:
+            return
+        try:
+            current_size = shutil.get_terminal_size(fallback=(self.cols, self.rows))
+            if int(current_size.columns) != self.cols or int(current_size.lines) != self.rows:
+                self._disable_after_resize()
+                return
+            out = sys.stdout
+            if not initial:
+                out.write("\x1b7")
+                out.write("\x1b[1;1H")
+            indexes, omitted = self._visible_indexes()
+            lines: list[tuple[str, str]] = []
+            for index in indexes:
+                item = self.items[index]
+                status = self.statuses.get(item.name, "WAITING")
+                lines.append((self._plain_status_line(item, status), status))
+            if omitted:
+                lines.append((f"… {omitted} PATCH khác (status vẫn được theo dõi)", "WAITING"))
+            # Keep the fixed height deterministic even while the sliding window
+            # changes around the currently running PATCH.
+            expected_status_rows = self.header_height - 1
+            lines = lines[:expected_status_rows]
+            while len(lines) < expected_status_rows:
+                lines.append(("", "WAITING"))
+            for row_no, (plain, status) in enumerate(lines, 1):
+                clipped = _clip_selector_line(plain, self.cols)
+                style, reset = self._status_style(status)
+                out.write(f"\x1b[{row_no};1H\x1b[2K{style}{clipped}{reset}")
+            separator = "─" * max(1, self.cols - 1)
+            out.write(f"\x1b[{self.header_height};1H\x1b[2K{separator}")
+            if not initial:
+                out.write("\x1b8")
+            out.flush()
+        except Exception:
+            self.close()
+
+    def _disable_after_resize(self) -> None:
+        if not self.active:
+            return
+        self.close()
+        if not self._warned_resize:
+            self._warned_resize = True
+            print(f"[PTV v{VERSION} WARNING] live PATCH status header disabled after terminal resize; using normal console output.")
+
+    def set_status(self, name: str, status: str) -> None:
+        if name in self.statuses:
+            self.statuses[name] = str(status).upper()
+        self._render()
+
+    def mark_not_executed(self, items: list[QueueItem]) -> None:
+        for item in items:
+            if item.name in self.statuses and self.statuses[item.name] == "WAITING":
+                self.statuses[item.name] = "NOT_EXECUTED"
+        self._render()
+
+    @staticmethod
+    def _sanitize_log_text(text: str) -> str:
+        clean = _ANSI_RE.sub("", text)
+        out: list[str] = []
+        for ch in clean:
+            if ch in "\n\r\t":
+                out.append(ch)
+            elif unicodedata.category(ch) != "Cc":
+                out.append(ch)
+        return "".join(out)
+
+    def write_log(self, text: str) -> None:
+        if not text:
+            return
+        if not self.active:
+            sys.stdout.write(text); sys.stdout.flush()
+            return
+        try:
+            sys.stdout.write(self._sanitize_log_text(text)); sys.stdout.flush()
+        except Exception:
+            self.close()
+            sys.stdout.write(text); sys.stdout.flush()
+
+    def close(self) -> None:
+        global _ACTIVE_LIVE_STATUS_PANEL
+        if _ACTIVE_LIVE_STATUS_PANEL is self:
+            _ACTIVE_LIVE_STATUS_PANEL = None
+        if not self.active:
+            return
+        self.active = False
+        try:
+            out = sys.stdout
+            out.write("\x1b[r")
+            # Continue subsequent summaries below the live viewport instead of
+            # overwriting the final fixed status rows.
+            out.write(f"\x1b[{self.rows};1H\x1b[2K")
+            out.write("\n")
+            out.flush()
+        except Exception:
+            pass
+
+
 def _run_patch_child(
     root: Path,
     cmd: list[str],
@@ -659,6 +886,7 @@ def _run_patch_child(
     full_log_path: Path | None = None,
     expected_patch_sha256: str | None = None,
     expected_targets: list[str] | None = None,
+    live_status: _LivePatchStatus | None = None,
 ) -> tuple[int, str, dict[str, object] | None]:
     runtime = _artifact_subdir(root, "runtime")
     token = f"{int(time.time()*1000000)}_{os.getpid()}_{_safe_slug(item.name,48)}"
@@ -725,7 +953,10 @@ def _run_patch_child(
         nonlocal used, truncated
         if not text:
             return
-        sys.stdout.write(text); sys.stdout.flush()
+        if live_status is not None:
+            live_status.write_log(text)
+        else:
+            sys.stdout.write(text); sys.stdout.flush()
         if log_file is not None:
             try:
                 log_file.write(text)
@@ -2985,8 +3216,30 @@ def _print_item_detail(root: Path, row: dict[str, object]) -> None:
     if diagnosis: print(f"Diagnosis  : {_safe_display(diagnosis)}")
     if row.get("batch_rolled_back") is True: print("Transaction: changes from this item were rolled back by batch policy")
     if row.get("requeued_as"): print(f"Replay pkg : patchs/{_safe_display(str(row['requeued_as']))}")
+    archived_name = row.get("name")
+    if row.get("status") == "PASS" and isinstance(archived_name, str):
+        archived_path = root / "patchs" / "patched" / archived_name
+        try:
+            if archived_path.is_file() and not archived_path.is_symlink():
+                print(f"Archived pkg: patchs/patched/{_safe_display(archived_name)}")
+        except OSError:
+            pass
     if row.get("fail_handoff"): print(f"FAIL handoff: {_safe_display(str(row['fail_handoff']))}")
     if row.get("recovery_collect_request"): print(f"Recovery COLLECT: patchs/{_safe_display(str(row['recovery_collect_request']))}")
+    collect = row.get("collect_result") if isinstance(row.get("collect_result"), dict) else None
+    if collect is not None:
+        if collect.get("result_zip"):
+            print(f"COLLECT ZIP : {_safe_display(str(collect.get('result_zip')))}")
+        if collect.get("request_archive"):
+            print(f"Request ZIP : {_safe_display(str(collect.get('request_archive')))}")
+        quality = collect.get("quality") if isinstance(collect.get("quality"), dict) else None
+        if quality is not None:
+            parts = []
+            for key in ("files", "reports", "missing", "truncated_reports"):
+                if key in quality:
+                    parts.append(f"{key}={quality.get(key)}")
+            if parts:
+                print(f"COLLECT quality: {' | '.join(parts)}")
     info = row.get("source_compare") if isinstance(row.get("source_compare"), dict) else None
     if info is not None:
         changed = info.get("changed_paths") if isinstance(info.get("changed_paths"), list) else []
@@ -3018,6 +3271,165 @@ def _list_history(root: Path) -> int:
         print(f"{i:>2}. [{mark}] {rid} | {report.get('status','UNKNOWN')} | PASS={counts['PASS']} FAIL={counts['FAIL']} BLOCKED={counts['BLOCKED']} PREFLIGHT_FAIL={counts['PREFLIGHT_FAIL']}")
     print("Manage: report --pin/--unpin/--delete/--export <run_id> | report --cleanup")
     return 0
+
+
+
+def _history_default_index(entries: list[tuple[Path, dict[str, object]]]) -> int:
+    """Prefer the newest meaningful PASS run, then any meaningful run.
+
+    Zero-argument IDLE checks are intentionally not the default history row:
+    the operator asked to review the last real PATCH/COLLECT result, not the
+    empty probe that led them into history.
+    """
+    for index, (_path, report) in enumerate(entries):
+        if str(report.get("status") or "").upper() == "PASS" and bool(report.get("selected")):
+            return index
+    for index, (_path, report) in enumerate(entries):
+        if bool(report.get("selected")):
+            return index
+    return 0
+
+
+def _history_row_text(report: dict[str, object], *, pinned: bool = False) -> str:
+    rows = _report_rows(report)
+    counts = _batch_counts(rows)
+    status = str(report.get("status") or "UNKNOWN").upper()
+    run_id = str(report.get("run_id") or "unknown")
+    started = str(report.get("started_at") or "")
+    when = started.replace("T", " ")[:19] if started else "unknown-time"
+    kinds = []
+    for row in rows:
+        kind = str(row.get("kind") or "")
+        if kind and kind not in kinds:
+            kinds.append(kind)
+    kind_text = "/".join(kinds[:3]) if kinds else "IDLE"
+    pin = " PIN" if pinned else ""
+    return (
+        f"[{status}{pin}] {when} | {kind_text} | PASS={counts['PASS']} "
+        f"FAIL={counts['FAIL']} PREFLIGHT={counts['PREFLIGHT_FAIL']} | {run_id}"
+    )
+
+
+def _render_history_selector(
+    entries: list[tuple[Path, dict[str, object]]], cursor: int, pins: set[str], prev: int, msg: str = ""
+) -> int:
+    terminal_width, terminal_height = _selector_term_size()
+    frame_budget = max(1, terminal_height - 1)
+    footer = [
+        "↑/↓: di chuyển | Enter: mở kết quả | q/Esc: quay lại",
+        _safe_display(msg) if msg else "",
+    ] if frame_budget >= 5 else ([] if frame_budget <= 2 else ["↑/↓ | Enter mở | q quay lại"])
+    header = ["LỊCH SỬ CHẠY PATCH TOOL — mặc định: lần PASS gần nhất"] if frame_budget >= 2 else []
+    item_capacity = max(1, frame_budget - len(header) - len(footer))
+    start, end = _selector_viewport(len(entries), cursor, item_capacity)
+    lines: list[tuple[str, bool]] = [(x, False) for x in header]
+    for i in range(start, end):
+        _path, report = entries[i]
+        rid = str(report.get("run_id") or "")
+        lines.append((
+            f"{'›' if i == cursor else ' '} {i + 1:>3}. {_history_row_text(report, pinned=rid in pins)}",
+            i == cursor,
+        ))
+    lines.extend((x, False) for x in footer)
+    lines = [(_clip_selector_line(line, terminal_width), current) for line, current in lines[:frame_budget]]
+    frame_height = max(prev, len(lines))
+    cursor_up = min(prev, max(0, frame_budget))
+    if cursor_up:
+        sys.stdout.write(f"\x1b[{cursor_up}F")
+    padded = lines + [("", False)] * (max(len(lines), min(frame_height, frame_budget)) - len(lines))
+    use_emphasis = bool(getattr(sys.stdout, "isatty", lambda: False)())
+    for line, current in padded:
+        rendered_line = "\x1b[1;7m" + line + "\x1b[0m" if current and use_emphasis else line
+        sys.stdout.write("\r\x1b[2K" + rendered_line + "\n")
+    sys.stdout.flush()
+    return len(padded)
+
+
+def _history_browser(root: Path) -> int:
+    """Interactive history browser backed by the same persisted run reports.
+
+    Enter opens the normal report menu, so detail logs, source diffs,
+    FAIL_HANDOFF/recovery paths and support ZIP creation behave exactly like
+    the just-finished run report.
+    """
+    entries = _history_entries(root)
+    if not entries:
+        print("No Patch Tool run history is available.")
+        return 0
+    default_index = _history_default_index(entries)
+    pins = _load_pinned_runs(root)
+    use_posix_tty = (
+        os.name != "nt" and termios is not None and tty is not None
+        and sys.stdin.isatty() and sys.stdout.isatty()
+    )
+    use_windows_tty = (
+        os.name == "nt" and msvcrt is not None
+        and sys.stdin.isatty() and sys.stdout.isatty() and _enable_windows_vt()
+    )
+    if not (use_posix_tty or use_windows_tty):
+        print("PATCH TOOL RUN HISTORY")
+        for i, (_path, report) in enumerate(entries, 1):
+            mark = "*" if i - 1 == default_index else " "
+            print(f"{mark} {i:>2}. {_history_row_text(report, pinned=str(report.get('run_id') or '') in pins)}")
+        while True:
+            try:
+                raw = input(f"History [Enter={default_index + 1}, number=open, q=back]: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print("")
+                return 0
+            if raw in {"q", "quit", "esc"}:
+                return 0
+            index = default_index if raw == "" else (int(raw) - 1 if raw.isdigit() else -1)
+            if not 0 <= index < len(entries):
+                print("Lựa chọn lịch sử không hợp lệ.")
+                continue
+            _batch_report_menu(root, entries[index][1])
+            return 0
+
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd) if use_posix_tty else None
+    if use_posix_tty:
+        tty.setcbreak(fd)
+    cursor = default_index
+    rendered = 0
+    msg = ""
+    try:
+        while True:
+            rendered = _render_history_selector(entries, cursor, pins, rendered, msg)
+            msg = ""
+            key = _read_key(fd) if use_posix_tty else _read_key_windows()
+            if key == "\x03":
+                raise KeyboardInterrupt
+            if key in {"q", "ESC"}:
+                return 0
+            if key == "UP":
+                cursor = (cursor - 1) % len(entries)
+                continue
+            if key == "DOWN":
+                cursor = (cursor + 1) % len(entries)
+                continue
+            if key == "ENTER":
+                if use_posix_tty:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old)
+                sys.stdout.write("\r\x1b[2K\n"); sys.stdout.flush()
+                _batch_report_menu(root, entries[cursor][1])
+                if use_posix_tty:
+                    tty.setcbreak(fd)
+                rendered = 0
+                entries = _history_entries(root)
+                if not entries:
+                    print("No Patch Tool run history is available.")
+                    return 0
+                cursor = min(cursor, len(entries) - 1)
+                pins = _load_pinned_runs(root)
+    finally:
+        if use_posix_tty:
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+            except Exception:
+                pass
+        sys.stdout.write("\r\x1b[2K")
+        sys.stdout.flush()
 
 
 def _pin_history(root: Path, run_id: str, pin: bool) -> int:
@@ -3241,7 +3653,7 @@ def _ordered_selection(items: list[QueueItem], selected: set[int], priorities: d
     return [items[i] for i in indexes]
 
 
-def _render(items, cursor, selected, priorities, msg, prev):
+def _render(items, cursor, selected, priorities, msg, prev, *, show_history: bool = False):
     terminal_width, terminal_height = _selector_term_size()
 
     # Keep one physical row free below the frame.  Writing a frame as tall as
@@ -3252,10 +3664,10 @@ def _render(items, cursor, selected, priorities, msg, prev):
         "",
         "Space: chọn/bỏ [x] | 0-9: gán ưu tiên | ↑/↓: di chuyển",
         "a: tất cả PATCH [x] | n: bỏ tất cả | /: tìm/lọc | d: xóa | i: inspect | p: preview | v: validate | h: health",
-        "Enter: xác nhận | q/Esc: hủy | Số nhỏ chạy trước; cùng số giữ thứ tự hiện tại",
+        "Enter: xác nhận/mở HISTORY | q/Esc: hủy | Số nhỏ chạy trước; cùng số giữ thứ tự hiện tại",
         _safe_display(msg) if msg else "",
     ]
-    compact_help = "Space/[0-9]/↑↓ | / lọc | i inspect | p preview | v validate | Enter chạy | q hủy"
+    compact_help = "Space/[0-9]/↑↓ | / lọc | i/p/v | Enter chạy/mở HISTORY | q hủy"
 
     # Scale the fixed UI down before sacrificing the cursor row. Even an
     # extremely short terminal must show the current item and must never write
@@ -3277,15 +3689,16 @@ def _render(items, cursor, selected, priorities, msg, prev):
         footer = []
 
     item_capacity = max(1, frame_budget - header_rows - len(footer))
-    start, end = _selector_viewport(len(items), cursor, item_capacity)
+    total_rows = len(items) + (1 if show_history else 0)
+    start, end = _selector_viewport(total_rows, cursor, item_capacity)
 
-    current_tag = f"CON TRỎ {cursor + 1}/{len(items)}" if items else "CON TRỎ 0/0"
+    current_tag = f"CON TRỎ {cursor + 1}/{total_rows}" if total_rows else "CON TRỎ 0/0"
     # Put the cursor identity first. On narrow terminals horizontal clipping
     # preserves the left side, so the operator must never lose i/N merely
     # because the decorative Vietnamese title is longer than the viewport.
     if header_rows == 2:
-        if len(items) > item_capacity:
-            header = [f"{current_tag} | VIEW {start + 1}-{end}/{len(items)} | CHỌN CÔNG VIỆC SẼ CHẠY", ""]
+        if total_rows > item_capacity:
+            header = [f"{current_tag} | VIEW {start + 1}-{end}/{total_rows} | CHỌN CÔNG VIỆC SẼ CHẠY", ""]
         else:
             header = [f"{current_tag} | CHỌN CÔNG VIỆC SẼ CHẠY", ""]
     elif header_rows == 1:
@@ -3295,14 +3708,20 @@ def _render(items, cursor, selected, priorities, msg, prev):
 
     lines: list[tuple[str, bool]] = [(line, False) for line in header]
     for i in range(start, end):
-        item = items[i]
-        detail = f"  [{_safe_display(item.detail)}]" if item.detail else ""
-        lines.append((
-            f"{'›' if i == cursor else ' '} "
-            f"[{_selection_mark(i, selected, priorities)}] {i + 1:>3}. "
-            f"[{_safe_display(item.kind)}] {_safe_display(item.name)}{detail}",
-            i == cursor,
-        ))
+        if i < len(items):
+            item = items[i]
+            detail = f"  [{_safe_display(item.detail)}]" if item.detail else ""
+            lines.append((
+                f"{'›' if i == cursor else ' '} "
+                f"[{_selection_mark(i, selected, priorities)}] {i + 1:>3}. "
+                f"[{_safe_display(item.kind)}] {_safe_display(item.name)}{detail}",
+                i == cursor,
+            ))
+        else:
+            lines.append((
+                f"{'›' if i == cursor else ' '}     H. [HISTORY] Xem lại lịch sử chạy gần đây",
+                i == cursor,
+            ))
     lines.extend((line, False) for line in footer)
 
     # Clip horizontally BEFORE adding ANSI emphasis. The current row is shown
@@ -3529,7 +3948,7 @@ def _filter_selector_items(root: Path, items: list[QueueItem], query: str, cache
     return [item for item in items if q in _selector_search_blob(root,item,cache)]
 
 
-def _select_items_line(root: Path, items: list[QueueItem], initial_selection: str):
+def _select_items_line(root: Path, items: list[QueueItem], initial_selection: str, *, show_history: bool = False):
     all_items = list(items)
     search_cache: dict[str,str] = {}
     selected = _initial_selected(items, initial_selection)
@@ -3538,7 +3957,9 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
         for i, item in enumerate(items, 1):
             mark = "x" if i - 1 in selected else " "
             print(f"  [{mark}] {i}. [{_safe_display(item.kind)}] {_safe_display(item.name)}")
-        print("Nhập: 1,3-5 | /text=lọc | /=bỏ lọc | a=all PATCH | n=none | d <range>=xóa | i <số>=inspect | p <số>=preview | v <số>=validate | h=health | q=quit | Enter=xác nhận")
+        if show_history:
+            print("      H. [HISTORY] Xem lại lịch sử chạy gần đây")
+        print("Nhập: 1,3-5 | /text=lọc | /=bỏ lọc | a=all PATCH | n=none | d <range>=xóa | i <số>=inspect | p <số>=preview | v <số>=validate | h=health | r=history | q=quit | Enter=xác nhận")
         raw_line, interrupted = _readline_or_interrupt()
         if interrupted:
             print("\nCancelled by Ctrl+C.")
@@ -3561,6 +3982,9 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
         if raw in {"h", "health"}:
             rc = print_health(root, compact=False)
             print(f"TOOL HEALTH rc={rc}")
+            continue
+        if show_history and raw in {"r", "history"}:
+            _history_browser(root)
             continue
         if raw in {"a", "all"}:
             patches = [item for item in items if item.kind == "PATCH"]
@@ -3668,8 +4092,10 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
     return []
 
 
-def select_items(root, items, *, initial_selection="none", selector_ui="auto"):
+def select_items(root, items, *, initial_selection="none", selector_ui="auto", show_history: bool = False):
     if not items:
+        if show_history and sys.stdin.isatty() and sys.stdout.isatty():
+            _history_browser(root)
         return []
     # Full-screen controls support POSIX termios and native Windows msvcrt.
     use_posix_tty = (
@@ -3681,7 +4107,7 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto"):
         and sys.stdin.isatty() and sys.stdout.isatty() and _enable_windows_vt()
     )
     if not (use_posix_tty or use_windows_tty):
-        return _select_items_line(root, items, initial_selection)
+        return _select_items_line(root, items, initial_selection, show_history=show_history)
 
     all_items = list(items)
     search_cache: dict[str,str] = {}
@@ -3701,8 +4127,10 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto"):
         msg = ""
     delete = False
     try:
-        while items:
-            rendered = _render(items, cursor, selected, priorities, msg, rendered)
+        while items or show_history:
+            total_rows = len(items) + (1 if show_history else 0)
+            cursor = min(cursor, max(0, total_rows - 1))
+            rendered = _render(items, cursor, selected, priorities, msg, rendered, show_history=show_history)
             msg = ""
             key = _read_key(fd) if use_posix_tty else _read_key_windows()
             if key == "\x03":
@@ -3731,10 +4159,27 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto"):
                 cursor = min(cursor, max(0, len(items) - 1))
                 continue
             if key == "UP":
-                cursor = (cursor - 1) % len(items)
+                cursor = (cursor - 1) % total_rows
+                continue
             elif key == "DOWN":
-                cursor = (cursor + 1) % len(items)
-            elif key == "SPACE":
+                cursor = (cursor + 1) % total_rows
+                continue
+            on_history = bool(show_history and cursor == len(items))
+            if on_history and key == "ENTER":
+                if use_posix_tty:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old)
+                sys.stdout.write("\r\x1b[2K\n"); sys.stdout.flush()
+                _history_browser(root)
+                if use_posix_tty:
+                    tty.setcbreak(fd)
+                rendered = 0
+                cursor = 0 if items else len(items)
+                msg = "Đã quay lại queue; HISTORY vẫn có thể mở lại bằng Enter."
+                continue
+            if on_history and (key == "SPACE" or key in {str(i) for i in range(10)} or key in {"d", "i", "p", "v"}):
+                msg = "HISTORY: nhấn Enter để xem lịch sử; mục này không phải PATCH/COLLECT."
+                continue
+            if key == "SPACE":
                 current = items[cursor]
                 if current.kind.startswith("COLLECT"):
                     if selected == {cursor}:
@@ -4350,6 +4795,17 @@ def execute_items(
     patch_status_by_id: dict[str, str] = {}
     failed_target_records: list[tuple[str, set[str]]] = []
     first_failure_rc = 0
+    live_status = _LivePatchStatus.start_for(chosen)
+
+    def _finish_execution(result):
+        try:
+            remaining_items = result[2] if isinstance(result, tuple) and len(result) >= 3 else []
+            if live_status is not None and isinstance(remaining_items, list):
+                live_status.mark_not_executed(remaining_items)
+        finally:
+            if live_status is not None:
+                live_status.close()
+        return result
 
     for index, item in enumerate(chosen):
         item_started_mono = time.monotonic()
@@ -4359,6 +4815,8 @@ def execute_items(
 
         preflight_detail = preflight_failure_details.get(item.name)
         if item.kind == "PATCH" and preflight_detail is not None:
+            if live_status is not None:
+                live_status.set_status(item.name, "PREFLIGHT_FAIL")
             detail = dict(preflight_detail)
             detail.setdefault("started_at", item_started_at)
             detail.setdefault("elapsed_seconds", round(time.monotonic() - item_started_mono, 3))
@@ -4372,7 +4830,7 @@ def execute_items(
             reason = str(diagnosis.get("kind") or "preflight_failed")
             print(f"[PREFLIGHT_FAIL] {_safe_display(item.name)} | {_safe_display(reason)}")
             if failure_policy != "continue_independent":
-                return first_failure_rc, executed, chosen[index + 1 :], late_duplicates, duplicate_warnings
+                return _finish_execution((first_failure_rc, executed, chosen[index + 1 :], late_duplicates, duplicate_warnings))
             print(f"[PTV v{VERSION}] CONTINUE AFTER PREFLIGHT FAILURE: {_safe_display(item.name)} | project unchanged")
             continue
 
@@ -4404,6 +4862,8 @@ def execute_items(
                     "diagnosis": {"kind": diagnosis_kind, "message": f"blocked by {relation}: {', '.join(blockers)}"},
                 }
                 _LAST_EXECUTION_DETAILS.append(detail)
+                if live_status is not None:
+                    live_status.set_status(item.name, "BLOCKED")
                 patch_status_by_id[meta.patch_id] = "BLOCKED"
                 failed_target_records.append((meta.patch_id, targets))
                 print(f"[BLOCKED] {_safe_display(item.name)} | {relation}: {_safe_display(', '.join(blockers))}")
@@ -4423,6 +4883,8 @@ def execute_items(
                 if now_duplicates and now_duplicates[0].ignored_name:
                     detail["ignore_path"] = f"patchs/ignore/{now_duplicates[0].ignored_name}"
                 _LAST_EXECUTION_DETAILS.append(detail)
+                if live_status is not None:
+                    live_status.set_status(item.name, "SKIPPED_DUPLICATE_LOCAL")
                 if meta is not None:
                     patch_status_by_id[meta.patch_id] = "SKIPPED_DUPLICATE_LOCAL"
                 continue
@@ -4437,8 +4899,12 @@ def execute_items(
             rc = 2
             executed.append((item.name, rc))
             _LAST_EXECUTION_DETAILS.append({"name": item.name, "kind": item.kind, "status": "FAIL", "rc": rc, "diagnosis": {"kind": "invalid_queue_item"}})
-            return rc, executed, chosen[index + 1 :], late_duplicates, duplicate_warnings
+            if live_status is not None:
+                live_status.set_status(item.name, "FAIL")
+            return _finish_execution((rc, executed, chosen[index + 1 :], late_duplicates, duplicate_warnings))
 
+        if live_status is not None:
+            live_status.set_status(item.name, "RUNNING")
         compare_before = _capture_item_compare_before(root, _ACTIVE_RUN_ID or "run", index + 1, item, meta)
         try:
             try:
@@ -4453,6 +4919,7 @@ def execute_items(
                     root, cmd, item, full_log_path=detail_log_path,
                     expected_patch_sha256=(meta.package_sha256 if meta is not None else None),
                     expected_targets=(list(meta.effective_targets) if meta is not None else None),
+                    live_status=live_status,
                 )
                 patch_result = _enrich_patch_diagnosis(patch_result, console_log)
             else:
@@ -4467,8 +4934,12 @@ def execute_items(
             rc = 130
             console_log = "INTERRUPTED by Ctrl+C\n" if item.kind == "PATCH" else ""
             patch_result = None
+            if live_status is not None:
+                live_status.set_status(item.name, "INTERRUPTED")
             print(f"[PTV v{VERSION}] INTERRUPTED by Ctrl+C", file=sys.stderr)
 
+        if live_status is not None and rc != 130:
+            live_status.set_status(item.name, "PASS" if rc == 0 else "FAIL")
         compare_info = _capture_item_compare_after(root, compare_before, meta)
         if rc == 0 and item.kind == "COLLECT":
             ok, post_detail = _collect_archive_postcondition(root, item)
@@ -4517,15 +4988,15 @@ def execute_items(
             if not first_failure_rc:
                 first_failure_rc = rc
             if failure_policy != "continue_independent" or item.kind != "PATCH":
-                return first_failure_rc, executed, chosen[index + 1 :], late_duplicates, duplicate_warnings
+                return _finish_execution((first_failure_rc, executed, chosen[index + 1 :], late_duplicates, duplicate_warnings))
             safe, reason = _safe_to_continue_after_failure(detail)
             detail["continue_decision"] = {"allowed": safe, "reason": reason}
             if not safe:
                 print(f"[PTV v{VERSION} SAFETY STOP] continue-on-failure blocked: {_safe_display(reason)}", file=sys.stderr)
-                return first_failure_rc, executed, chosen[index + 1 :], late_duplicates, duplicate_warnings
+                return _finish_execution((first_failure_rc, executed, chosen[index + 1 :], late_duplicates, duplicate_warnings))
             print(f"[PTV v{VERSION}] CONTINUE AFTER FAILURE: {_safe_display(item.name)} | {_safe_display(reason)}")
 
-    return first_failure_rc, executed, [], late_duplicates, duplicate_warnings
+    return _finish_execution((first_failure_rc, executed, [], late_duplicates, duplicate_warnings))
 
 
 def _recovery_row_queue_name(row: dict[str, object]) -> str | None:
@@ -5029,7 +5500,7 @@ def _execute_failed_patch_collects(root: Path, rows: list[dict[str, object]]):
     return first_rc, requests, executed
 
 
-def _resume_selection(root: Path, items: list[QueueItem], previous: dict[str, object] | None, *, mode: str | None = None):
+def _resume_selection(root: Path, items: list[QueueItem], previous: dict[str, object] | None, *, mode: str | None = None, show_history: bool = False):
     groups = _resume_groups(previous)
     by_name = {x.name: x for x in items}
     def available(names):
@@ -5078,6 +5549,11 @@ def _resume_selection(root: Path, items: list[QueueItem], previous: dict[str, ob
             "description": "Loại PATCH lỗi khỏi patchs/ bằng cách chuyển an toàn vào patchs/ignore. Nếu có nhiều PATCH lỗi, bạn có thể chọn nhiều PATCH cùng lúc.",
         },
         {
+            "key": "history",
+            "label": "Xem lại lịch sử chạy gần đây",
+            "description": "Mở lịch sử run đã lưu và xem lại kết quả, detail/aggregate log, source diff, FAIL_HANDOFF, recovery COLLECT và support ZIP.",
+        },
+        {
             "key": "normal",
             "label": "Bỏ qua phục hồi và mở queue bình thường",
             "description": "Không thay đổi PATCH lỗi ở bước này; quay về màn hình chọn PATCH/COLLECT thông thường.",
@@ -5090,6 +5566,8 @@ def _resume_selection(root: Path, items: list[QueueItem], previous: dict[str, ob
     )
     if action in {None, "normal"}:
         return None
+    if action == "history":
+        return {"action": "history"}
     if action == "all":
         return {"action": "run", "items": all_unresolved} if all_unresolved else None
     if action == "remaining":
@@ -5291,7 +5769,11 @@ def _plan_queue(
     return preview_rc
 
 
-def _run_queue(root: Path, *, failure_policy_override: str | None = None, transaction_policy_override: str | None = None, force_resume: bool = False, resume_mode: str | None = None, recipe_path: str | None = None):
+def _run_queue(
+    root: Path, *, failure_policy_override: str | None = None, transaction_policy_override: str | None = None,
+    force_resume: bool = False, resume_mode: str | None = None, recipe_path: str | None = None,
+    zero_argument_invocation: bool = False,
+):
     global _ACTIVE_RUN_ID, _LAST_EXECUTION_DETAILS
     started_mono = time.monotonic()
     started_at = _utc_now()
@@ -5433,15 +5915,24 @@ def _run_queue(root: Path, *, failure_policy_override: str | None = None, transa
         else:
             print("AUTO STATUS: IDLE — no runnable patch/collect package is waiting in patchs/.")
         print_health(root, compact=True)
+        if zero_argument_invocation and sys.stdin.isatty() and sys.stdout.isatty():
+            _history_browser(root)
         return finish_report("IDLE", 0)
 
     chosen = list(recipe_chosen) if recipe_chosen is not None else None
     if chosen is None and (force_resume or (isinstance(previous, dict) and previous.get("status") == "FAIL") or _unresolved_failure_rows(root)):
-        try:
-            decision = _resume_selection(root, items, previous, mode=resume_mode)
-        except KeyboardInterrupt:
-            print("\nCancelled by Ctrl+C.")
-            return finish_report("CANCELLED", 130)
+        while True:
+            try:
+                decision = _resume_selection(
+                    root, items, previous, mode=resume_mode, show_history=zero_argument_invocation,
+                )
+            except KeyboardInterrupt:
+                print("\nCancelled by Ctrl+C.")
+                return finish_report("CANCELLED", 130)
+            if isinstance(decision, dict) and str(decision.get("action") or "") == "history":
+                _history_browser(root)
+                continue
+            break
         if isinstance(decision, dict):
             action = str(decision.get("action") or "")
             if action == "run":
@@ -5475,12 +5966,17 @@ def _run_queue(root: Path, *, failure_policy_override: str | None = None, transa
                 if not items:
                     print("AUTO STATUS: IDLE — selected failed PATCHes were removed; no runnable item remains.")
                     print_health(root, compact=True)
+                    if zero_argument_invocation and sys.stdin.isatty() and sys.stdout.isatty():
+                        _history_browser(root)
                     return finish_report("IDLE", 0)
     if chosen is None:
         chosen = _configured_auto_selection(root, items, cfg)
     if chosen is None:
         try:
-            chosen = select_items(root, list(items), initial_selection=cfg.get("initial_selection", "none"), selector_ui=cfg.get("selector_ui", "auto"))
+            chosen = select_items(
+                root, list(items), initial_selection=cfg.get("initial_selection", "none"),
+                selector_ui=cfg.get("selector_ui", "auto"), show_history=zero_argument_invocation,
+            )
         except KeyboardInterrupt:
             print("\nCancelled by Ctrl+C."); return finish_report("CANCELLED", 130)
     if chosen is None:
@@ -5765,7 +6261,25 @@ def _run_queue(root: Path, *, failure_policy_override: str | None = None, transa
     return 0
 
 
+def _is_zero_argument_dispatch(raw_argv: list[str]) -> bool:
+    remaining: list[str] = []
+    skip_next = False
+    for arg in raw_argv:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg == "--project-root":
+            skip_next = True
+            continue
+        if arg.startswith("--project-root="):
+            continue
+        remaining.append(arg)
+    return not remaining
+
+
 def main(argv=None):
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    zero_argument_invocation = _is_zero_argument_dispatch(raw_argv)
     ap = argparse.ArgumentParser()
     ap.add_argument("--project-root", required=True)
     ap.add_argument("command", nargs="?", choices=["run", "resume", "report", "plan"], default="run")
@@ -5782,7 +6296,7 @@ def main(argv=None):
     ap.add_argument("--support-item", type=int)
     ap.add_argument("--recipe")
     ap.add_argument("--export-recipe", nargs="?", const="BATCH_RECIPE.json")
-    ns = ap.parse_args(argv)
+    ns = ap.parse_args(raw_argv)
     root = Path(ns.project_root).resolve()
     try:
         if ns.command in {"run", "resume", "plan"}:
@@ -5810,6 +6324,7 @@ def main(argv=None):
         return _run_queue(
             root, failure_policy_override=ns.failure_policy, transaction_policy_override=ns.transaction_policy,
             force_resume=(ns.command == "resume"), resume_mode=ns.resume_mode, recipe_path=ns.recipe,
+            zero_argument_invocation=zero_argument_invocation,
         )
     except QueueSafetyError as exc:
         # Fail closed without a Python traceback when the queue/artifact/lock
@@ -5817,6 +6332,13 @@ def main(argv=None):
         # write LAST_RUN here because its artifact root may be the unsafe object.
         print(f"[PTV v{VERSION} ERROR] FILESYSTEM SAFETY: {_safe_display(str(exc))}", file=sys.stderr)
         return 2
+    finally:
+        panel = globals().get("_ACTIVE_LIVE_STATUS_PANEL")
+        if panel is not None:
+            try:
+                panel.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

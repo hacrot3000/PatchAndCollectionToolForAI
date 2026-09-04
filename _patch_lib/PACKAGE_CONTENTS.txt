@@ -1,4 +1,4 @@
-Python Patch Tool v6.17.10 — full self-contained package
+Python Patch Tool v6.17.11 — full self-contained package
 
 Public launchers / user docs:
   tools/run_python_patches.sh
@@ -52,11 +52,11 @@ Runtime artifacts (created in project; not shipped pre-populated):
   patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip
 
 Normal use — Linux/POSIX:
-  unzip -o python_patch_tool_v6.17.10.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.17.11.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 Normal use — Windows (Python 3.10+):
-  Expand-Archive -Force .\python_patch_tool_v6.17.10.zip PROJECT_ROOT
+  Expand-Archive -Force .\python_patch_tool_v6.17.11.zip PROJECT_ROOT
   tools\run_python_patches.bat
   # or: .\tools\run_python_patches.ps1
 
@@ -122,7 +122,7 @@ v6.17.9 item-local batch preflight continuation:
 - batch reports count PREFLIGHT_FAIL as the actual failed item and reserve NOT_EXECUTED for genuinely stopped work.
 
 
-v6.17.10 contract-consistency audit:
+v6.17.11 contract-consistency audit:
 - unresolved predecessor rules are enforced per related successor across all unresolved failures, not by selected position or only the latest failure;
 - persistent failure resolution is exact package/SHA-bound, including previous_failure delete actions under patch.id reuse;
 - legacy on_dependency_failure=run_anyway is schema-readable only and cannot bypass dependency/related-target blocking;
@@ -132,3 +132,6 @@ v6.17.10 contract-consistency audit:
 - run --recipe rejects CLI failure/transaction policy overrides; replay semantics come from the recipe that plan exported.
 - patch version/phase/phase_under_test/summary/regression_scope are descriptive metadata, not implicit runtime gates.
 - post_patch.run_when_no_changes defaults false; post commands run for a no-op PATCH only when explicitly enabled.
+- v6.17.11 zero-argument interactive selector/Smart Resume expose HISTORY; idle zero-argument TTY auto-opens persisted history after status/health.
+- v6.17.11 supported interactive PATCH terminals use a best-effort fixed live status header with automatic plain-console fallback; `PTV_DISABLE_LIVE_STATUS=1` opts out and saved logs remain raw.
+
