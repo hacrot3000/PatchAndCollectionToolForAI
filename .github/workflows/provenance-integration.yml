@@ -27,7 +27,10 @@ jobs:
           PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_patch_preflight_v6_20_0.py
           PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_public_entry_v6_20_0.py
           PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_historical_compatibility_v6_20_0.py
-          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_package_checksums_v6_20_0.py
+          rm -rf /tmp/ptv-layout
+          mkdir -p /tmp/ptv-layout/tools
+          rsync -a --exclude=.git ./ /tmp/ptv-layout/tools/
+          PYTHONDONTWRITEBYTECODE=1 python3 /tmp/ptv-layout/tools/_patch_lib/self_test_package_checksums_v6_20_0.py
           rm -f .github/workflows/provenance-integration.yml .ptv_work/PROGRESS.md
           git config user.name 'Patch Tool CI'
           git config user.email 'patch-tool-ci@users.noreply.github.com'
