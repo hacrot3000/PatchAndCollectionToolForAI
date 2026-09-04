@@ -1,4 +1,4 @@
-Python Patch Tool v6.12.1 full self-contained portable package
+Python Patch Tool v6.13.0 — full self-contained package
 
 Public files:
   tools/run_python_patches.sh
@@ -10,27 +10,30 @@ Self-contained runtime:
   tools/_patch_lib/python_patch_queue_dispatcher.py
   tools/_patch_lib/python_patch_runner.py
   tools/_patch_lib/python_patch_utils.py
+  tools/_patch_lib/python_patch_package_schema.py
   tools/_patch_lib/python_patch_readonly_collector.py
   tools/_patch_lib/python_patch_collect_compat.py
   tools/_patch_lib/python_patch_collect_schema.py
   tools/_patch_lib/python_patch_collect_progress_v6_7.py
 
-Authoritative docs/schema:
+Authoritative AI/tool docs:
+  tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json
+  tools/_patch_lib/docs/PATCH_PACKAGE_GUIDE.md
+  tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json
   tools/_patch_lib/docs/AI_USAGE_CONTRACT.md
   tools/_patch_lib/docs/CODE_COLLECTION_GUIDE.md
-  tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json
   tools/_patch_lib/docs/PORTABLE_USAGE.md
   tools/_patch_lib/docs/PYTHON_PATCH_TOOL_FEATURE_STATUS.md
-  tools/_patch_lib/docs/COLLECT_PROGRESS_V6_12_1.md
+  tools/_patch_lib/docs/COLLECT_PROGRESS_V6_13_0.md
 
-Integrity/tests:
-  tools/_patch_lib/VERSION
-  tools/_patch_lib/SHA256SUMS
-  tools/_patch_lib/self_test_*.py
+Runtime audit/recovery artifacts (created in the project, not shipped pre-populated):
+  artifacts/patch_tool/LAST_RUN.json
+  artifacts/patch_tool/history/*.json              # bounded to 30
+  artifacts/patch_tool/fail_handoffs/FAIL_HANDOFF_*.zip
+  patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip  # only when source-drift/anchor recovery is prepared
 
 Normal use:
-  unzip -o python_patch_tool_v6.12.1.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.13.0.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
-v6.12.1 does not require an older private Patch Tool core for its documented contract.
-Unsupported historical PATCH/COLLECT formats fail closed rather than being guessed.
+PATCH execution remains IN-PLACE. SANDBOX/worktree transaction execution is permanently unsupported.

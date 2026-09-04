@@ -16,8 +16,10 @@ required={
  'tools/_patch_lib/VERSION','tools/_patch_lib/PACKAGE_CONTENTS.txt','tools/_patch_lib/python_patch_queue_dispatcher.py',
  'tools/_patch_lib/python_patch_runner.py','tools/_patch_lib/python_patch_utils.py','tools/_patch_lib/python_patch_readonly_collector.py',
  'tools/_patch_lib/python_patch_collect_progress_v6_7.py','tools/_patch_lib/python_patch_collect_compat.py','tools/_patch_lib/python_patch_collect_schema.py',
- 'tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json','tools/_patch_lib/docs/AI_USAGE_CONTRACT.md','tools/_patch_lib/docs/CODE_COLLECTION_GUIDE.md',
- 'tools/_patch_lib/self_test_self_contained_v6_12_1.py','tools/_patch_lib/self_test_docs_v6_12_1.py',
+ 'tools/_patch_lib/python_patch_package_schema.py',
+ 'tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json','tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json','tools/_patch_lib/docs/PATCH_PACKAGE_GUIDE.md',
+ 'tools/_patch_lib/docs/AI_USAGE_CONTRACT.md','tools/_patch_lib/docs/CODE_COLLECTION_GUIDE.md',
+ 'tools/_patch_lib/self_test_self_contained_v6_13_0.py','tools/_patch_lib/self_test_docs_v6_13_0.py',
 }
 assert required<=set(entries),sorted(required-set(entries))
 launcher=ROOT/'tools/run_python_patches.sh'; assert launcher.stat().st_mode & 0o111,oct(launcher.stat().st_mode)
@@ -30,4 +32,4 @@ assert set(entries)==actual,{'missing_from_manifest':sorted(actual-set(entries))
 for rel,wanted in sorted(entries.items()):
     path=ROOT/rel; assert path.is_file(),rel
     got=hashlib.sha256(path.read_bytes()).hexdigest(); assert got==wanted,(rel,wanted,got)
-print('PASS: v6.12.1 self-contained package SHA256SUMS exact coverage and executable launcher')
+print('PASS: v6.13.0 self-contained package SHA256SUMS exact coverage and executable launcher')

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from collections import deque
+import json
 import os
 import math
 from pathlib import Path
@@ -17,7 +18,7 @@ import time
 import unicodedata
 from typing import Iterable
 
-VERSION = "6.12.1"
+VERSION = "6.13.0"
 DEFAULT_HEARTBEAT = 0.8
 DEFAULT_MARGIN = 2
 MAX_TAIL_LINES = 120
@@ -146,7 +147,92 @@ def _validated_result_zip(root: Path, reported: str) -> tuple[str | None, str | 
         return None, f"reported result ZIP is invalid ({type(exc).__name__})"
 
 
+_LAST_COLLECT_SUCCESS_META: dict[str, object] = {}
+
+
+def _fmt_quality_bytes(value: int) -> str:
+    n = float(max(0, int(value)))
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if n < 1024.0 or unit == "GiB":
+            return f"{int(n)}B" if unit == "B" else f"{n:.1f}{unit}"
+        n /= 1024.0
+    return str(value)
+
+
+def _collect_quality(result_zip: str) -> dict[str, object]:
+    quality: dict[str, object] = {
+        "files": 0, "source_bytes": 0, "reports": 0, "report_bytes": 0,
+        "zip_bytes": 0, "truncated_reports": 0, "missing": 0,
+    }
+    try:
+        path = Path(result_zip)
+        quality["zip_bytes"] = path.stat().st_size
+        import zipfile
+        with zipfile.ZipFile(path) as zf:
+            if "COLLECTION_MANIFEST.json" not in zf.namelist():
+                quality["manifest"] = "missing"
+                quality["missing"] = 1
+                return quality
+            manifest = json.loads(zf.read("COLLECTION_MANIFEST.json").decode("utf-8"))
+            if not isinstance(manifest, dict):
+                quality["manifest"] = "invalid"
+                quality["missing"] = 1
+                return quality
+            quality["files"] = int(manifest.get("file_count", len(manifest.get("files") or [])) or 0)
+            quality["source_bytes"] = int(manifest.get("total_file_bytes", sum(int(x.get("size",0)) for x in (manifest.get("files") or []) if isinstance(x,dict))) or 0)
+            reports = [x for x in (manifest.get("reports") or []) if isinstance(x, dict)]
+            quality["reports"] = len(reports)
+            quality["report_bytes"] = int(manifest.get("report_bytes", 0) or 0)
+            truncated = sum(1 for x in reports if x.get("truncated"))
+            # Compatibility with older result manifests: inspect report text for
+            # explicit bounded-result markers when the boolean was not recorded.
+            if truncated == 0:
+                for report in reports:
+                    arc = report.get("archive_path")
+                    if isinstance(arc, str) and arc in zf.namelist():
+                        text = zf.read(arc).decode("utf-8", errors="replace")
+                        if "[TRUNCATED" in text:
+                            truncated += 1
+            quality["truncated_reports"] = truncated
+            quality["manifest"] = "ok"
+    except Exception as exc:
+        quality["manifest"] = f"error:{type(exc).__name__}"
+        quality["missing"] = 1
+    return quality
+
+
+def _print_collect_quality(result_zip: str) -> dict[str, object]:
+    q = _collect_quality(result_zip)
+    print(
+        "COLLECT QUALITY: "
+        f"files={q.get('files',0)} | source={_fmt_quality_bytes(int(q.get('source_bytes',0) or 0))} | "
+        f"reports={q.get('reports',0)} | zip={_fmt_quality_bytes(int(q.get('zip_bytes',0) or 0))} | "
+        f"truncated={q.get('truncated_reports',0)} | missing={q.get('missing',0)}"
+    )
+    if int(q.get("truncated_reports", 0) or 0) > 0:
+        print("[PTV WARNING] COLLECT evidence is bounded/truncated; tell AI that some report limits were reached.")
+    if int(q.get("missing", 0) or 0) > 0:
+        print("[PTV WARNING] COLLECT quality metadata is incomplete.")
+    return q
+
+
+def _write_collect_run_result(data: dict[str, object]) -> None:
+    raw = os.environ.get("PTV_COLLECT_RESULT_FILE", "").strip()
+    if not raw:
+        return
+    path = Path(raw)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    except Exception:
+        pass
+
+
 def _print_collect_success(root: Path, lines: Iterable[str]) -> bool:
+    global _LAST_COLLECT_SUCCESS_META
+    _LAST_COLLECT_SUCCESS_META = {}
     material = list(lines)
     candidates, request_zip, extras = _extract_collect_candidates(material)
     result_zip = None
@@ -186,10 +272,15 @@ def _print_collect_success(root: Path, lines: Iterable[str]) -> bool:
         print('Recent collector output follows so the artifact can be recovered:')
         for line in material[-8:]:
             print(_sanitize_terminal_text(line))
+    quality = None
+    if result_zip:
+        quality = _print_collect_quality(result_zip)
     if request_zip:
         print(f'[INFO] REQUEST ARCHIVED: {request_zip}')
     for line in extras[-4:]:
         print(line)
+    if result_zip:
+        _LAST_COLLECT_SUCCESS_META = {"result_zip": result_zip, "request_archive": request_zip, "quality": quality}
     return result_zip is not None
 
 def _cell_width(text: str) -> int:
@@ -340,7 +431,7 @@ def _reader(stream, q: queue.Queue[str], tail: deque[str]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Python Patch Tool v6.12.1 COLLECT one-line progress supervisor")
+    ap = argparse.ArgumentParser(description="Python Patch Tool v6.13.0 COLLECT one-line progress supervisor")
     ap.add_argument("--project-root", required=True)
     ap.add_argument("--collector", required=True)
     ap.add_argument("rest", nargs=argparse.REMAINDER)
@@ -570,6 +661,18 @@ def main(argv: list[str] | None = None) -> int:
         completion_material.extend(tracked_extras)
         if not _print_collect_success(root, completion_material):
             final_rc = 3
+    result_meta = dict(_LAST_COLLECT_SUCCESS_META)
+    result_meta.update({
+        "format": "python-patch-tool-collect-result",
+        "format_version": 1,
+        "tool_version": VERSION,
+        "status": "PASS" if final_rc == 0 else "FAIL",
+        "rc": final_rc,
+        "phase": phase,
+        "elapsed_seconds": round(elapsed, 3),
+        "output_lines": output_lines,
+    })
+    _write_collect_run_result(result_meta)
     return final_rc
 
 

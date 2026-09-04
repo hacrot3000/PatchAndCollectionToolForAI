@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "tool_version": "6.13.0",
+  "manifest_file": "PATCH_TOOL_MANIFEST.json",
+  "manifest": {
+    "type": "object",
+    "required": ["schema_version", "patch"],
+    "allowed_fields": ["schema_version", "project", "patch", "compatibility", "execution", "targets", "preflight", "resources", "validation", "post_patch", "git", "recovery"],
+    "fields": {
+      "schema_version": {"type": "integer", "const": 1},
+      "project": {
+        "type": "object",
+        "allowed_fields": ["key"],
+        "fields": {"key": {"type": "string"}}
+      },
+      "patch": {
+        "type": "object",
+        "required": ["id"],
+        "allowed_fields": ["id", "version", "phase", "phase_under_test", "summary", "regression_scope"],
+        "fields": {
+          "id": {"type": "string"},
+          "version": {"type": "string"},
+          "phase": {"type": "string"},
+          "phase_under_test": {"type": "string"},
+          "summary": {"type": "string"},
+          "regression_scope": {"type": "string"}
+        }
+      },
+      "compatibility": {
+        "type": "object",
+        "allowed_fields": ["min_tool_version", "max_tool_version", "max_tested_version"],
+        "fields": {
+          "min_tool_version": {"type": "string", "format": "semver"},
+          "max_tool_version": {"type": "string", "format": "semver"},
+          "max_tested_version": {"type": "string", "format": "semver"}
+        }
+      },
+      "execution": {
+        "type": "object",
+        "allowed_fields": ["timeout_seconds"],
+        "fields": {"timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 1800}}
+      },
+      "targets": {"type": "array", "items": {"type": "string", "format": "project_relative_path"}},
+      "preflight": {
+        "type": "object",
+        "allowed_fields": ["files", "require_clean_worktree"],
+        "fields": {
+          "require_clean_worktree": {"type": "boolean"},
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path"],
+              "allowed_fields": ["path", "exists", "sha256", "anchors"],
+              "fields": {
+                "path": {"type": "string", "format": "project_relative_path"},
+                "exists": {"type": "boolean"},
+                "sha256": {"type": "string", "format": "sha256"},
+                "anchors": {"type": "array", "items": {"type": "string"}}
+              }
+            }
+          }
+        }
+      },
+      "resources": {"type": "array", "items": {"type": "string", "format": "archive_relative_path"}},
+      "validation": {
+        "type": "object",
+        "allowed_fields": ["profiles"],
+        "fields": {"profiles": {"type": "array"}}
+      },
+      "post_patch": {
+        "type": "object",
+        "allowed_fields": ["commands", "run_when_no_changes"],
+        "fields": {
+          "run_when_no_changes": {"type": "boolean"},
+          "commands": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["argv"],
+              "allowed_fields": ["name", "argv", "cwd", "timeout_seconds"],
+              "fields": {
+                "name": {"type": "string"},
+                "argv": {"type": "array", "items": {"type": "string"}},
+                "cwd": {"type": "string", "format": "project_relative_dir"},
+                "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 1800}
+              }
+            }
+          }
+        }
+      },
+      "git": {
+        "type": "object",
+        "allowed_fields": ["add", "commit", "commit_message", "push", "fail_on_error"],
+        "fields": {
+          "add": {"type": ["string", "boolean"], "enum": ["changed", "off", false]},
+          "commit": {"type": ["string", "boolean"], "enum": ["auto", "off", false]},
+          "commit_message": {"type": "string"},
+          "push": {"type": "string", "enum": ["auto", "off"]},
+          "fail_on_error": {"type": "boolean"}
+        }
+      },
+      "recovery": {
+        "type": "object",
+        "allowed_fields": ["fail_handoff", "collect_on_source_drift"],
+        "fields": {
+          "fail_handoff": {"type": "boolean"},
+          "collect_on_source_drift": {"type": "boolean"}
+        }
+      }
+    }
+  },
+  "payload_contract": {
+    "python": "Exactly one non-resource Python entrypoint when PATCH_TOOL_OPS.json is absent.",
+    "ops": "PATCH_TOOL_OPS.json and no Python entrypoint.",
+    "ambiguous": "A package containing both OPS and a Python entrypoint, or multiple Python entrypoints, is rejected before project modification."
+  },
+  "preflight_guarantee": "Schema, compatibility, payload, declared resources, declared file hashes/anchors, post-command cwd/executable, and Git executable requirements are checked before patch payload execution."
+}

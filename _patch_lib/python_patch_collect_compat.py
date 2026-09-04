@@ -18,7 +18,7 @@ import zipfile
 
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
 
-VERSION = "6.12.1"
+VERSION = "6.13.0"
 REQUEST_RE = re.compile(r"^CODE_COLLECTION_REQUEST(?:_[A-Za-z0-9._-]+)?\.json$", re.I)
 MAX_REQUEST_JSON_BYTES = 1024 * 1024
 IGNORED_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "build", "dist"}
@@ -231,7 +231,9 @@ class ResultBuilder:
         remaining = self.limits["max_report_bytes"] - self.report_bytes
         if remaining <= 0:
             return
-        truncated = False
+        # Reports can be semantically bounded by action limits even when the
+        # byte cap is not reached. Preserve that quality signal in the manifest.
+        truncated = "[TRUNCATED" in text
         if len(raw) > remaining:
             raw = raw[:remaining]
             text = raw.decode("utf-8", errors="ignore") + "\n\n[TRUNCATED BY max_report_bytes]\n"
@@ -313,6 +315,7 @@ def _overview(root: Path, action: dict, limits: dict) -> str:
     lines += [f"- `{x}`" for x in tree_lines[:2000]]
     if len(tree_lines) > 2000:
         lines.append(f"- ... {len(tree_lines)-2000} more paths omitted")
+        lines.append("[TRUNCATED tree at 2000 entries]")
     notable = [
         "CMakeLists.txt", "Makefile", "package.json", "pyproject.toml", "requirements.txt", "Cargo.toml",
         "go.mod", "build.gradle", "settings.gradle", "pom.xml", ".gitmodules", "README.md",
@@ -342,6 +345,8 @@ def _find_action(root: Path, action: dict, limits: dict) -> tuple[str, list[tupl
             break
     lines = ["# Find results", "", f"Patterns: `{action['patterns']}`", f"Matches: {len(matches)}", ""]
     lines += [f"- `{rel}`" for rel, _ in matches]
+    if len(matches) >= max_results:
+        lines.append(f"[TRUNCATED at max_results={max_results}]")
     return "\n".join(lines) + "\n", matches
 
 

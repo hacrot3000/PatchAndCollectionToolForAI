@@ -10,6 +10,10 @@ import select
 import subprocess
 import sys
 import tarfile
+import tempfile
+import time
+import shutil
+from datetime import datetime, timezone
 import unicodedata
 import zipfile
 from dataclasses import dataclass
@@ -24,7 +28,7 @@ except Exception:
     termios = tty = None
 
 
-VERSION = "6.12.1"
+VERSION = "6.13.0"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -60,6 +64,330 @@ class SessionDuplicate:
     removed: bool
 
 
+_LAST_EXECUTION_DETAILS: list[dict[str, object]] = []
+MAX_PATCH_CAPTURE_BYTES = 8 * 1024 * 1024
+MAX_HANDOFF_SOURCE_FILE_BYTES = 2 * 1024 * 1024
+MAX_HANDOFF_SOURCE_TOTAL_BYTES = 20 * 1024 * 1024
+RUN_HISTORY_LIMIT = 30
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _safe_slug(value: str, limit: int = 80) -> str:
+    text = re.sub(r"[^A-Za-z0-9._-]+", "_", str(value)).strip("._-")
+    return text[:limit] or "run"
+
+
+def _atomic_json(path: Path, data: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix=".ptv-json-", suffix=".tmp", dir=path.parent)
+    os.close(fd)
+    temp = Path(name)
+    try:
+        temp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(temp, path)
+    finally:
+        try: temp.unlink()
+        except FileNotFoundError: pass
+
+
+def _load_json(path: Path) -> dict[str, object] | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def _artifact_run_root(root: Path) -> Path:
+    return root / "artifacts" / "patch_tool"
+
+
+def _load_previous_run(root: Path) -> dict[str, object] | None:
+    return _load_json(_artifact_run_root(root) / "LAST_RUN.json")
+
+
+def _resume_items(root: Path, previous: dict[str, object] | None) -> list[str]:
+    if not previous:
+        return []
+    if previous.get("status") == "FAIL":
+        raw = previous.get("not_executed")
+    elif previous.get("status") in {"CANCELLED", "IDLE"}:
+        raw = previous.get("previous_resume_items")
+    else:
+        return []
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for value in raw:
+        if isinstance(value, str) and (root / "patchs" / value).is_file():
+            out.append(value)
+    return out
+
+
+def _print_resume_hint(root: Path, previous: dict[str, object] | None) -> list[str]:
+    remain = _resume_items(root, previous)
+    if not remain:
+        return []
+    failed = previous.get("failed_item") or previous.get("previous_failed_item") or "unknown"
+    print(f"PREVIOUS RUN: FAIL at {_safe_display(str(failed))} | {len(remain)} selected item(s) remain unexecuted")
+    for name in remain[:10]:
+        print(f"  - {_safe_display(name)}")
+    if len(remain) > 10:
+        print(f"  ... {len(remain)-10} more")
+    print("No automatic selection was changed; choose explicitly if you want to resume.")
+    return remain
+
+
+def _write_run_report(root: Path, report: dict[str, object]) -> None:
+    out = _artifact_run_root(root)
+    try:
+        _atomic_json(out / "LAST_RUN.json", report)
+        history = out / "history"
+        history.mkdir(parents=True, exist_ok=True)
+        stamp = str(report.get("started_at", "run")).replace(":", "").replace("+", "_").replace("-", "").replace(".", "_")
+        run_id = _safe_slug(str(report.get("run_id") or "run"), 64)
+        _atomic_json(history / f"{stamp}_{run_id}.json", report)
+        entries = sorted((p for p in history.glob("*.json") if p.is_file()), key=lambda q: q.name)
+        for old in entries[:-RUN_HISTORY_LIMIT]:
+            try: old.unlink()
+            except OSError: pass
+    except Exception as exc:
+        print(f"[PTV v{VERSION} WARNING] could not write LAST_RUN/history: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+
+def _run_patch_child(root: Path, cmd: list[str], item: QueueItem) -> tuple[int, str, dict[str, object] | None]:
+    runtime = _artifact_run_root(root) / "runtime"
+    runtime.mkdir(parents=True, exist_ok=True)
+    token = f"{int(time.time()*1000000)}_{os.getpid()}_{_safe_slug(item.name,48)}"
+    result_path = runtime / f"{token}.json"
+    env = dict(os.environ)
+    env["PTV_PATCH_RESULT_FILE"] = str(result_path)
+    env["PYTHONUNBUFFERED"] = "1"
+    proc = subprocess.Popen(
+        cmd, cwd=root, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", errors="replace", bufsize=1,
+    )
+    assert proc.stdout is not None
+    chunks: list[str] = []
+    used = 0
+    truncated = False
+    try:
+        for line in iter(proc.stdout.readline, ""):
+            if not line:
+                break
+            sys.stdout.write(line); sys.stdout.flush()
+            raw = line.encode("utf-8", errors="replace")
+            if used < MAX_PATCH_CAPTURE_BYTES:
+                room = MAX_PATCH_CAPTURE_BYTES - used
+                part = raw[:room]
+                chunks.append(part.decode("utf-8", errors="replace"))
+                used += len(part)
+                if len(raw) > room: truncated = True
+            else:
+                truncated = True
+        raw_rc = proc.wait()
+    finally:
+        try: proc.stdout.close()
+        except Exception: pass
+    if truncated:
+        chunks.append("\n[PTV: console capture truncated at 8 MiB]\n")
+    result = _load_json(result_path)
+    try: result_path.unlink()
+    except OSError: pass
+    return _normalize_subprocess_rc(raw_rc), "".join(chunks), result
+
+
+def _safe_handoff_source(root: Path, rel: str) -> Path | None:
+    try:
+        if not isinstance(rel, str) or not rel or "\\" in rel:
+            return None
+        pure = Path(rel)
+        if pure.is_absolute() or ".." in pure.parts:
+            return None
+        path = root / pure
+        if path.is_symlink() or not path.is_file():
+            return None
+        resolved = path.resolve(strict=True)
+        resolved.relative_to(root.resolve())
+        if path.stat().st_size > MAX_HANDOFF_SOURCE_FILE_BYTES:
+            return None
+        return path
+    except Exception:
+        return None
+
+
+def _enrich_patch_diagnosis(patch_result: dict[str, object] | None, console_log: str) -> dict[str, object] | None:
+    if patch_result is None:
+        return None
+    diagnosis = patch_result.get("diagnosis")
+    if not isinstance(diagnosis, dict):
+        diagnosis = {"kind": "unknown", "message": "no structured diagnosis", "affected_paths": []}
+        patch_result["diagnosis"] = diagnosis
+    kind = str(diagnosis.get("kind") or "unknown")
+    text = console_log.lower()
+    if kind in {"patch_payload_failed", "unknown", "internal_error"}:
+        if any(x in text for x in ("sha-256 mismatch", "sha256 mismatch", "checksum mismatch", "source drift", "baseline mismatch")):
+            diagnosis["kind"] = "source_drift"
+        elif any(x in text for x in ("expected block not found", "anchor missing", "anchor not found", "fuzzy block not found", "match is ambiguous")):
+            diagnosis["kind"] = "anchor_mismatch"
+        elif "syntaxerror" in text or "syntax error" in text:
+            diagnosis["kind"] = "syntax_error"
+        elif "traceback (most recent call last)" in text:
+            diagnosis["kind"] = "python_exception"
+    affected = [x for x in (diagnosis.get("affected_paths") or []) if isinstance(x, str)]
+    # Backward-compatible python_patch_utils diagnostics print "ERROR: rel/path: message".
+    for match in re.finditer(r"(?m)^ERROR:\s+([^:\r\n]+):\s+", console_log):
+        rel = match.group(1).strip()
+        if rel and not rel.startswith(("http", "/")) and ".." not in Path(rel).parts and rel not in affected:
+            affected.append(rel)
+    diagnosis["affected_paths"] = affected
+    return patch_result
+
+
+def _create_recovery_collect_request(root: Path, item: QueueItem, patch_result: dict[str, object]) -> Path | None:
+    diagnosis = patch_result.get("diagnosis")
+    recovery = patch_result.get("recovery")
+    if isinstance(recovery, dict) and recovery.get("collect_on_source_drift") is False:
+        return None
+    if not isinstance(diagnosis, dict) or diagnosis.get("kind") not in {"source_drift", "anchor_mismatch"}:
+        return None
+    paths = []
+    for rel in diagnosis.get("affected_paths") or []:
+        if isinstance(rel, str) and _safe_handoff_source(root, rel) is not None and rel not in paths:
+            paths.append(rel)
+    if not paths:
+        return None
+    patch_sha = str(patch_result.get("patch_sha256") or "")
+    suffix = patch_sha[:12] if patch_sha else hashlib.sha256(item.name.encode()).hexdigest()[:12]
+    name = f"CODE_COLLECTION_REQUEST_patch_recovery_{suffix}.zip"
+    target = root / "patchs" / name
+    request = {
+        "id": f"patch-recovery-{suffix}",
+        "title": f"Exact current source for failed PATCH {item.name}",
+        "actions": [{"type": "pack", "paths": paths}],
+    }
+    inner = name[:-4] + ".json"
+
+    def existing_same() -> bool:
+        try:
+            if target.is_symlink() or not target.is_file():
+                return False
+            with zipfile.ZipFile(target) as zf:
+                existing = json.loads(zf.read(inner).decode("utf-8"))
+            return existing == request
+        except Exception:
+            return False
+
+    if target.exists() or target.is_symlink():
+        return target if existing_same() else None
+
+    fd, temp_name = tempfile.mkstemp(prefix=".ptv-recovery-", suffix=".zip", dir=root / "patchs")
+    os.close(fd)
+    temp = Path(temp_name)
+    try:
+        with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(inner, json.dumps(request, ensure_ascii=False, indent=2) + "\n")
+        with zipfile.ZipFile(temp) as zf:
+            if zf.testzip() is not None:
+                raise ValueError("generated recovery request failed CRC")
+        try:
+            # Atomic no-overwrite publish. This remains safe when the operator
+            # intentionally runs multiple Patch Tool processes without a lock.
+            os.link(temp, target)
+            return target
+        except FileExistsError:
+            return target if existing_same() else None
+    except Exception as exc:
+        print(f"[PTV v{VERSION} WARNING] could not create recovery COLLECT request: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return None
+    finally:
+        try: temp.unlink()
+        except FileNotFoundError: pass
+        except OSError: pass
+
+def _create_fail_handoff(
+    root: Path,
+    item: QueueItem,
+    rc: int,
+    console_log: str,
+    patch_result: dict[str, object] | None,
+    recovery_request: Path | None,
+) -> Path | None:
+    if isinstance(patch_result, dict):
+        recovery = patch_result.get("recovery")
+        if isinstance(recovery, dict) and recovery.get("fail_handoff") is False:
+            return None
+    out = _artifact_run_root(root) / "fail_handoffs"
+    out.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    final = out / f"FAIL_HANDOFF_{_safe_slug(item.name,70)}_{stamp}.zip"
+    temp = out / f".{final.name}.tmp"
+    summary = {
+        "format": "python-patch-tool-fail-handoff",
+        "format_version": 1,
+        "tool_version": VERSION,
+        "patch": item.name,
+        "rc": rc,
+        "patch_result": patch_result,
+        "recovery_collect_request": recovery_request.name if recovery_request else None,
+    }
+    try:
+        with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+            zf.writestr("FAIL_SUMMARY.json", json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
+            zf.writestr("console.log", console_log)
+            patch_path = root / "patchs" / item.name
+            if patch_path.is_file() and not patch_path.is_symlink():
+                zf.write(patch_path, f"patch/{item.name}")
+            for doc in [root/"tools"/"implementing.md", root/"tools"/"PYTHON_PATCH_TOOL_FEATURES_VI.md", root/"tools"/"_patch_lib"/"VERSION", root/"tools"/"_patch_lib"/"docs"/"PATCH_PACKAGE_SCHEMA.json"]:
+                if doc.is_file():
+                    zf.write(doc, f"tool_context/{doc.name}")
+            if recovery_request is not None and recovery_request.is_file():
+                zf.write(recovery_request, f"recovery/{recovery_request.name}")
+            total = 0
+            affected: list[str] = []
+            if isinstance(patch_result, dict) and isinstance(patch_result.get("diagnosis"), dict):
+                affected.extend(x for x in patch_result["diagnosis"].get("affected_paths", []) if isinstance(x, str))
+            if isinstance(patch_result, dict) and isinstance(patch_result.get("partial_modification"), dict):
+                affected.extend(x for x in patch_result["partial_modification"].get("changed_paths", []) if isinstance(x, str))
+            for rel in dict.fromkeys(affected):
+                src = _safe_handoff_source(root, rel)
+                if src is None: continue
+                size = src.stat().st_size
+                if total + size > MAX_HANDOFF_SOURCE_TOTAL_BYTES: break
+                zf.write(src, f"current_source/{rel}")
+                total += size
+        os.replace(temp, final)
+        with zipfile.ZipFile(final) as zf:
+            if zf.testzip() is not None:
+                raise ValueError("FAIL_HANDOFF ZIP CRC check failed")
+        print("")
+        print("=" * 72)
+        print("!!! [PRIMARY - UPLOAD THIS FILE] PATCH FAIL HANDOFF !!!")
+        print(">>> ACTION REQUIRED: UPLOAD TO CHATGPT / AI SERVER <<<")
+        print(str(final))
+        print("=" * 72)
+        return final
+    except Exception as exc:
+        print(f"[PTV v{VERSION} WARNING] could not create FAIL_HANDOFF: {type(exc).__name__}: {exc}", file=sys.stderr)
+        for path in (temp, final):
+            try: path.unlink()
+            except OSError: pass
+        return None
+
+
+def _inspect_item(root: Path, item: QueueItem) -> int:
+    if item.kind != "PATCH":
+        print("INSPECT: chỉ áp dụng cho PATCH; COLLECT được preflight theo schema khi discovery.")
+        return 2
+    cmd = [str(root / "tools/run_python_patches.sh"), "inspect", "--patch", f"patchs/{item.name}"]
+    try:
+        return _normalize_subprocess_rc(subprocess.run(cmd, cwd=root).returncode)
+    except KeyboardInterrupt:
+        return 130
 def _safe_display(value: str) -> str:
     value = _ANSI_RE.sub("", str(value))
     out: list[str] = []
@@ -779,11 +1107,11 @@ def _render(items, cursor, selected, priorities, msg, prev):
     full_footer = [
         "",
         "Space: chọn/bỏ [x] | 0-9: gán ưu tiên | ↑/↓: di chuyển",
-        "a: tất cả PATCH [x] | n: bỏ tất cả | d: xóa item tại con trỏ",
+        "a: tất cả PATCH [x] | n: bỏ tất cả | d: xóa | i: inspect PATCH",
         "Enter: xác nhận | q/Esc: hủy | Số nhỏ chạy trước; cùng số giữ thứ tự hiện tại",
         _safe_display(msg) if msg else "",
     ]
-    compact_help = "Space/[0-9]/↑↓ | Enter chạy | q hủy"
+    compact_help = "Space/[0-9]/↑↓ | i inspect | Enter chạy | q hủy"
 
     # Scale the fixed UI down before sacrificing the cursor row. Even an
     # extremely short terminal must show the current item and must never write
@@ -1020,7 +1348,7 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
         for i, item in enumerate(items, 1):
             mark = "x" if i - 1 in selected else " "
             print(f"  [{mark}] {i}. [{_safe_display(item.kind)}] {_safe_display(item.name)}")
-        print("Nhập: 1,3-5 | a=all PATCH | n=none | d <số/range>=xóa | q=quit | Enter=xác nhận")
+        print("Nhập: 1,3-5 | a=all PATCH | n=none | d <range>=xóa | i <số>=inspect PATCH | q=quit | Enter=xác nhận")
         raw_line, interrupted = _readline_or_interrupt()
         if interrupted:
             print("\nCancelled by Ctrl+C.")
@@ -1038,6 +1366,21 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
             continue
         if raw in {"n", "none"}:
             selected.clear()
+            continue
+        if raw.startswith("i "):
+            try:
+                indexes = _parse_index_spec(raw[2:].strip(), len(items))
+            except ValueError as exc:
+                print(f"Inspect không hợp lệ: {_safe_display(str(exc))}")
+                continue
+            if len(indexes) != 1:
+                print("Inspect yêu cầu đúng một PATCH index.")
+                continue
+            index = next(iter(indexes))
+            try: sys.stdout.flush()
+            except Exception: pass
+            rc = _inspect_item(root, items[index])
+            print(f"INSPECT rc={rc}")
             continue
         if raw.startswith("d "):
             try:
@@ -1197,6 +1540,17 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto"):
             elif key == "d":
                 delete = True
                 msg = f"Xóa {_safe_display(items[cursor].name)}? y để xác nhận"
+            elif key == "i":
+                # Temporarily restore canonical terminal mode while the inspect
+                # subprocess prints its preflight report. Inspect never changes
+                # selection and never executes the PATCH payload.
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+                sys.stdout.write("\n--- PATCH INSPECT / DRY-RUN ---\n"); sys.stdout.flush()
+                rc = _inspect_item(root, items[cursor])
+                print("--- END INSPECT ---")
+                tty.setcbreak(fd)
+                rendered = 0
+                msg = f"Inspect {'PASS' if rc == 0 else 'FAIL'} rc={rc}; selection unchanged."
             elif key == "ENTER":
                 if selected:
                     chosen = _ordered_selection(items, selected, priorities)
@@ -1278,6 +1632,8 @@ def _collect_archive_postcondition(root: Path, item: QueueItem) -> tuple[bool, s
 
 def execute_items(root: Path, chosen: list[QueueItem]):
     """Execute selected work after enforcing per-invocation COLLECT exclusivity."""
+    global _LAST_EXECUTION_DETAILS
+    _LAST_EXECUTION_DETAILS = []
     contract_error = _selection_contract_error(chosen)
     if contract_error:
         print(f"[PTV v{VERSION} ERROR] SELECTION: {_safe_display(contract_error)}", file=sys.stderr)
@@ -1287,18 +1643,17 @@ def execute_items(root: Path, chosen: list[QueueItem]):
     duplicate_warnings: list[str] = []
     for index, item in enumerate(chosen):
         if item.kind == "PATCH":
-            # Close the scan->execute race and catch duplicate packages selected
-            # together: once an earlier identical PATCH is archived locally, a
-            # later copy becomes a skip rather than a second execution.
             still_runnable, now_duplicates, now_warnings = _split_local_duplicate_patches(root, [item])
             for warning in now_warnings:
                 if warning not in duplicate_warnings:
                     duplicate_warnings.append(warning)
             if now_duplicates:
                 late_duplicates.extend(now_duplicates)
+                _LAST_EXECUTION_DETAILS.append({
+                    "name": item.name, "kind": item.kind, "status": "SKIPPED_DUPLICATE_LOCAL", "rc": 0,
+                })
                 continue
             if not still_runnable:
-                # Defensive fail-safe: an item must never silently disappear.
                 duplicate_warnings.append(
                     f"late duplicate check returned no decision for patchs/{item.name}; executing normally"
                 )
@@ -1309,37 +1664,71 @@ def execute_items(root: Path, chosen: list[QueueItem]):
             print(f"ERROR invalid collect package {_safe_display(item.name)}", file=sys.stderr)
             rc = 2
             executed.append((item.name, rc))
+            _LAST_EXECUTION_DETAILS.append({"name": item.name, "kind": item.kind, "status": "FAIL", "rc": rc, "diagnosis": {"kind": "invalid_queue_item"}})
             remaining = chosen[index + 1 :]
             return rc, executed, remaining, late_duplicates, duplicate_warnings
         try:
-            # Flush selector/status text before the child writes its own RUN
-            # SUMMARY. This keeps captured/non-TTY consoles in chronological
-            # order instead of letting Python buffering place the menu after
-            # child output.
             try:
-                sys.stdout.flush()
-                sys.stderr.flush()
+                sys.stdout.flush(); sys.stderr.flush()
             except Exception:
                 pass
-            rc = _normalize_subprocess_rc(subprocess.run(cmd, cwd=root).returncode)
+            console_log = ""
+            patch_result = None
+            collect_result = None
+            if item.kind == "PATCH":
+                rc, console_log, patch_result = _run_patch_child(root, cmd, item)
+                patch_result = _enrich_patch_diagnosis(patch_result, console_log)
+            else:
+                runtime = _artifact_run_root(root) / "runtime"
+                runtime.mkdir(parents=True, exist_ok=True)
+                collect_result_path = runtime / f"collect_{int(time.time()*1000000)}_{os.getpid()}.json"
+                env = dict(os.environ); env["PTV_COLLECT_RESULT_FILE"] = str(collect_result_path)
+                rc = _normalize_subprocess_rc(subprocess.run(cmd, cwd=root, env=env).returncode)
+                collect_result = _load_json(collect_result_path)
+                try: collect_result_path.unlink()
+                except OSError: pass
         except KeyboardInterrupt:
-            # Ctrl+C is a normal operator stop, not an internal Python error.
-            # The child receives the terminal signal too; report conventional
-            # shell status 130 and stop the selected queue immediately.
             rc = 130
+            console_log = "INTERRUPTED by Ctrl+C\n" if item.kind == "PATCH" else ""
+            patch_result = None
             print(f"[PTV v{VERSION}] INTERRUPTED by Ctrl+C", file=sys.stderr)
         if rc == 0 and item.kind == "COLLECT":
             ok, detail = _collect_archive_postcondition(root, item)
             if not ok:
                 print(f"[PTV v{VERSION} ERROR] {_safe_display(detail)}", file=sys.stderr)
                 rc = 3
+        detail: dict[str, object] = {
+            "name": item.name,
+            "kind": item.kind,
+            "status": "PASS" if rc == 0 else "FAIL",
+            "rc": rc,
+        }
+        if patch_result is not None:
+            detail["patch_result"] = patch_result
+        if item.kind == "COLLECT" and collect_result is not None:
+            detail["collect_result"] = collect_result
         executed.append((item.name, rc))
+        if rc and item.kind == "PATCH":
+            recovery_request = _create_recovery_collect_request(root, item, patch_result or {})
+            if recovery_request is not None:
+                detail["recovery_collect_request"] = recovery_request.name
+                print(f"[NEXT RUN - COLLECT REQUEST READY] patchs/{_safe_display(recovery_request.name)}")
+            handoff = _create_fail_handoff(root, item, rc, console_log, patch_result, recovery_request)
+            if handoff is not None:
+                try: detail["fail_handoff"] = handoff.relative_to(root).as_posix()
+                except ValueError: detail["fail_handoff"] = str(handoff)
+        _LAST_EXECUTION_DETAILS.append(detail)
         if rc:
             remaining = chosen[index + 1 :]
             return rc, executed, remaining, late_duplicates, duplicate_warnings
     return 0, executed, [], late_duplicates, duplicate_warnings
 
 def _run_queue(root: Path):
+    started_mono = time.monotonic()
+    started_at = _utc_now()
+    run_id = f"{int(time.time()*1000000)}_{os.getpid()}"
+    previous = _load_previous_run(root)
+    resume_items = _print_resume_hint(root, previous)
     items, warnings = discover_queue(root)
     items, session_duplicates, session_duplicate_warnings = _split_session_duplicate_patches(root, items)
     items, local_duplicates, duplicate_warnings = _split_local_duplicate_patches(root, items)
@@ -1349,6 +1738,40 @@ def _run_queue(root: Path):
             continue
         printed_warnings.add(warning)
         print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}")
+
+    def finish_report(status: str, rc: int, *, chosen: list[QueueItem] | None = None, executed=None, remaining=None, failed_item=None):
+        chosen = chosen or []
+        executed = executed or []
+        remaining = remaining or []
+        report: dict[str, object] = {
+            "format": "python-patch-tool-last-run",
+            "format_version": 1,
+            "tool_version": VERSION,
+            "run_id": run_id,
+            "started_at": started_at,
+            "finished_at": _utc_now(),
+            "elapsed_seconds": round(time.monotonic() - started_mono, 3),
+            "status": status,
+            "exit_code": int(rc),
+            "selected": [item.name for item in chosen],
+            "execution_order": [name for name, _ in executed],
+            "results": list(_LAST_EXECUTION_DETAILS),
+            "not_executed": [item.name for item in remaining],
+            "failed_item": failed_item,
+            "session_duplicates_removed": [
+                {"name": d.item.name, "canonical": d.canonical_name, "sha256": d.sha256, "removed": d.removed}
+                for d in session_duplicates
+            ],
+            "local_history_skipped": [
+                {"name": d.item.name, "history_name": d.history_name, "sha256": d.sha256}
+                for d in local_duplicates
+            ],
+            "previous_resume_items": resume_items,
+            "previous_failed_item": (previous.get("failed_item") or previous.get("previous_failed_item")) if isinstance(previous, dict) else None,
+        }
+        _write_run_report(root, report)
+        return rc
+
     if not items:
         if session_duplicates:
             print("AUTO STATUS: IDLE — no new runnable package remains after duplicate filtering.")
@@ -1359,7 +1782,7 @@ def _run_queue(root: Path):
             _print_local_duplicate_skips(local_duplicates)
         else:
             print("AUTO STATUS: IDLE — no runnable patch/collect package is waiting in patchs/.")
-        return 0
+        return finish_report("IDLE", 0)
 
     cfg, config_warnings = _load_zero_argument_config(root)
     for warning in config_warnings:
@@ -1376,19 +1799,19 @@ def _run_queue(root: Path):
             )
         except KeyboardInterrupt:
             print("\nCancelled by Ctrl+C.")
-            return 130
+            return finish_report("CANCELLED", 130)
     if chosen is None:
         print("Cancelled.")
         _print_session_duplicate_removals(session_duplicates)
         if local_duplicates:
             _print_local_duplicate_skips(local_duplicates)
-        return 0
+        return finish_report("CANCELLED", 0)
     if not chosen:
         print("AUTO STATUS: IDLE — queue is empty or no runnable item remains; nothing executed.")
         _print_session_duplicate_removals(session_duplicates)
         if local_duplicates:
             _print_local_duplicate_skips(local_duplicates)
-        return 0
+        return finish_report("IDLE", 0)
 
     rc, executed, remaining, late_duplicates, late_duplicate_warnings = execute_items(root, chosen)
     local_duplicates = [*local_duplicates, *late_duplicates]
@@ -1398,17 +1821,11 @@ def _run_queue(root: Path):
         printed_warnings.add(warning)
         print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}", file=sys.stderr if rc else sys.stdout)
     if rc:
-        if executed:
-            failed_name = executed[-1][0]
-            print(
-                f"SUMMARY: FAIL | stopped after {_safe_display(failed_name)} rc={rc}",
-                file=sys.stderr,
-            )
+        failed_name = executed[-1][0] if executed else None
+        if failed_name:
+            print(f"SUMMARY: FAIL | stopped after {_safe_display(failed_name)} rc={rc}", file=sys.stderr)
         else:
-            print(
-                f"SUMMARY: FAIL | selection rejected before execution rc={rc}",
-                file=sys.stderr,
-            )
+            print(f"SUMMARY: FAIL | selection rejected before execution rc={rc}", file=sys.stderr)
         if remaining:
             print(f"SKIPPED / NOT EXECUTED: {len(remaining)} selected item(s)", file=sys.stderr)
             for item in remaining:
@@ -1417,7 +1834,8 @@ def _run_queue(root: Path):
             _print_session_duplicate_removals(session_duplicates, stream=sys.stderr)
         if local_duplicates:
             _print_local_duplicate_skips(local_duplicates, stream=sys.stderr)
-        return rc
+        return finish_report("FAIL", rc, chosen=chosen, executed=executed, remaining=remaining, failed_item=failed_name)
+
     if session_duplicates:
         _print_session_duplicate_removals(session_duplicates)
     if local_duplicates:
@@ -1434,7 +1852,7 @@ def _run_queue(root: Path):
         )
     else:
         print(f"SUMMARY: PASS | {completed_count} item(s) completed")
-    return 0
+    return finish_report("PASS", 0, chosen=chosen, executed=executed)
 
 def main(argv=None):
     ap = argparse.ArgumentParser()

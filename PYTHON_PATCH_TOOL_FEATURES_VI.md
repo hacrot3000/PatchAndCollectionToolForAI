@@ -1,55 +1,77 @@
-# Danh sách tính năng Python Patch Tool — v6.12.1
+# Danh sách tính năng Python Patch Tool — v6.13.0
 
-> Quy tắc duy trì: file này **phải được cập nhật ở mỗi release** khi một tính năng đổi trạng thái. Không được ghi COMPLETE nếu chưa có acceptance test tương ứng.
+> Quy tắc duy trì: cập nhật file này ở **mỗi release** khi trạng thái capability thay đổi. Chỉ ghi COMPLETE khi có acceptance/regression tương ứng.
 
-## Hoàn thành
+## Workflow / queue / selector
 
-| Nhóm | Tính năng | Trạng thái |
-|---|---|---|
-| Workflow | Entry point duy nhất `./tools/run_python_patches.sh` | COMPLETE |
-| Queue | Tự phân loại PATCH / COLLECT / non-runnable evidence | COMPLETE |
-| Queue | COLLECT request phải là ZIP; raw JSON bị reject | COMPLETE |
-| Selector | Space, ↑/↓, a/n/d, Enter, q/Esc | COMPLETE |
-| Selector | Priority PATCH 0–9, số nhỏ chạy trước, cùng số giữ thứ tự | COMPLETE |
-| Selector | Clip filename + Unicode cell width + viewport terminal | COMPLETE |
-| COLLECT isolation | Mỗi invocation chỉ chọn đúng 1 COLLECT, không trộn PATCH | COMPLETE |
-| Concurrency | Không project/process lock; terminal khác được chạy độc lập | COMPLETE |
-| Duplicate local history | Exact SHA-256 so với `patchs/patched/`, local project only | COMPLETE |
-| Duplicate current session | Exact size+SHA-256; giữ 1 canonical, tự xóa file queue trùng trước selector | COMPLETE / RE-VERIFIED v6.12.1 |
-| PATCH | In-place, SANDBOX/worktree bị loại bỏ | COMPLETE |
-| PATCH | Python package/standalone Python + safe archive extraction | COMPLETE |
-| PATCH | Data-only `PATCH_TOOL_OPS.json` chuẩn | COMPLETE |
-| PATCH | Post-patch argv command + timeout | COMPLETE |
-| PATCH | Git manifest policy cơ bản `add/commit/push` fail-closed | COMPLETE |
-| COLLECT | Highlight một `[PRIMARY - UPLOAD THIS FILE]` | COMPLETE |
-| COLLECT | Verified ZIP + CRC + request archive lifecycle | COMPLETE |
-| COLLECT | `pack`, `overview`, `find`, `search`, `git` readonly | COMPLETE |
-| COLLECT schema | Không tự đoán/alias action; unsupported action/field bị reject trước execution | COMPLETE / RE-VERIFIED v6.12.1 |
-| COLLECT schema | Machine-readable `COLLECT_ACTION_SCHEMA.json` | COMPLETE / RE-VERIFIED v6.12.1 |
-| Packaging | Full self-contained runtime cho contract v6.12.1 | COMPLETE / RE-VERIFIED v6.12.1 |
-| Packaging | `SHA256SUMS`, no `.pyc`/`__pycache__`, launcher 0755 | COMPLETE |
-| Docs AI | AI contract + current collection guide + exact schema | COMPLETE |
-| Docs workflow | `implementing.md` live task tracker | COMPLETE |
-| Docs người dùng | Hướng dẫn HTML ngắn gọn + prompt VI/EN/RU | COMPLETE |
-| Docs người dùng | Prompt có Select all / Copy; không bắt người dùng hiểu Action COLLECT | COMPLETE v6.12.1 |
+| Tính năng | Trạng thái |
+|---|---|
+| Entry point duy nhất `./tools/run_python_patches.sh` | COMPLETE |
+| Tự phân loại PATCH / COLLECT / non-runnable evidence | COMPLETE |
+| COLLECT request ZIP-only; raw JSON reject | COMPLETE |
+| PATCH priority 0–9, stable order | COMPLETE |
+| TTY filename width/height/Unicode viewport safety | COMPLETE |
+| `i` inspect/dry-run PATCH không execution | **COMPLETE v6.13.0** |
+| Exactly one COLLECT / không trộn PATCH | COMPLETE |
+| Không process/project lock | COMPLETE |
 
-## Một phần / bị giới hạn có chủ đích
+## Duplicate / execution safety
 
-| Tính năng | Trạng thái | Ghi chú |
-|---|---|---|
-| Tương thích mọi private-core lịch sử | PARTIAL / FAIL-CLOSED | v6.12.1 tự chứa contract hiện hành; format cũ không có bằng chứng được reject thay vì đoán. |
-| Advanced historical COLLECT actions ngoài schema | NOT GUARANTEED | Không tự suy diễn action ngoài schema authoritative hiện hành. |
-| Phase inference nâng cao | DEFERRED | Chỉ sửa khi runtime evidence cho thấy phase telemetry sai/thiếu. |
-| LAST_RUN/private historical report parity | DEFERRED | Không phải acceptance của self-contained v6.12.1. |
+| Tính năng | Trạng thái |
+|---|---|
+| Duplicate current-session exact size+SHA-256; giữ canonical và remove redundant queue copy | COMPLETE |
+| Duplicate local-history SHA-256, current project only | COMPLETE |
+| PATCH in-place; SANDBOX/worktree removed | COMPLETE |
+| Fail-fast selected batch | COMPLETE |
+| Exact machine-readable `PATCH_PACKAGE_SCHEMA.json` | **COMPLETE v6.13.0** |
+| PATCH schema preflight trước payload | **COMPLETE v6.13.0** |
+| Required package resources preflight | **COMPLETE v6.13.0** |
+| Declared source SHA-256 / anchor preflight | **COMPLETE v6.13.0** |
+| Post command cwd/executable preflight | **COMPLETE v6.13.0** |
+| Tool version min/max/max-tested negotiation | **COMPLETE v6.13.0** |
+| Partial-modification detection khi PATCH fail | **COMPLETE v6.13.0** |
+| Automatic rollback không đủ metadata | **KHÔNG TỰ LÀM / FAIL-CLOSED** |
 
-## Exact COLLECT schema dành cho AI/tool
+## FAIL → AI recovery / audit
 
-Schema máy đọc được: `tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json`.
+| Tính năng | Trạng thái |
+|---|---|
+| Structured failure diagnosis | **COMPLETE v6.13.0** |
+| `[PRIMARY] PATCH FAIL HANDOFF` ZIP | **COMPLETE v6.13.0** |
+| Include bounded safe relevant current source trong handoff | **COMPLETE v6.13.0** |
+| Source-drift/anchor → auto-prepare `pack` COLLECT request cho next run | **COMPLETE v6.13.0** |
+| `artifacts/patch_tool/LAST_RUN.json` | **COMPLETE v6.13.0** |
+| Bounded local run history (30) | **COMPLETE v6.13.0** |
+| Resume hint cho selected item chưa chạy | **COMPLETE v6.13.0** |
 
-AI/tool phải sử dụng schema này; **người dùng cuối không cần biết hoặc chọn action COLLECT**. Hướng dẫn HTML cố ý chỉ mô tả workflow ở mức người dùng.
+## COLLECT
 
-## v6.12.1
+| Tính năng | Trạng thái |
+|---|---|
+| Exact `COLLECT_ACTION_SCHEMA.json` | COMPLETE |
+| Không tự đoán action ngoài schema | COMPLETE |
+| `pack`, `overview`, `find`, `search`, `git` readonly | COMPLETE |
+| Verified result ZIP / request archive lifecycle | COMPLETE |
+| Highlight một `[PRIMARY - UPLOAD THIS FILE]` | COMPLETE |
+| COLLECT quality summary `files/source/reports/zip/truncated/missing` | **COMPLETE v6.13.0** |
+| Truncation marker trong report manifest | **COMPLETE v6.13.0** |
 
-- Không thêm runtime capability mới.
-- Rà lại và khóa acceptance cho duplicate-in-session, exact action schema và self-contained package.
-- Đơn giản hóa HTML người dùng: bỏ phần Action COLLECT, thêm tóm tắt workflow AI và nút Select all / Copy cho prompt mẫu.
+## Packaging / docs
+
+| Tính năng | Trạng thái |
+|---|---|
+| Full self-contained runtime cho documented contract | COMPLETE |
+| `SHA256SUMS`, no pycache, launcher 0755 | COMPLETE |
+| `implementing.md` live tracker | COMPLETE |
+| AI docs: PATCH schema + COLLECT schema + recovery contract | **COMPLETE v6.13.0** |
+| HTML user guide tối giản | COMPLETE; chỉ cập nhật khi workflow người dùng thật sự thay đổi |
+
+## Bị giới hạn có chủ đích
+
+- Historical/private-core format ngoài documented current contract: **FAIL-CLOSED / NOT GUARANTEED**.
+- Automatic rollback: không thực hiện nếu package không cung cấp một recovery contract đủ an toàn; v6.13.0 chỉ **detect + diagnose + handoff**, không đoán rollback.
+- Advanced phase inference và private historical LAST_RUN parity cũ không còn là blocker của structured current `LAST_RUN.json`; chỉ tinh chỉnh nếu runtime evidence mới cho thấy thiếu.
+
+## v6.13.0 stop condition
+
+Phase A, B, C đã hoàn tất. **Dừng và hỏi người dùng hướng tiếp theo.**

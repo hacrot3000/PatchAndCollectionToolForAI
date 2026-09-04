@@ -1,43 +1,49 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.12.1**  
-Trạng thái tài liệu: **LIVE TASK TRACKER — phải cập nhật ở mỗi release khi task thay đổi trạng thái.**
+Phiên bản mục tiêu: **v6.13.0**  
+Trạng thái: **PHASE A → PHASE B → PHASE C COMPLETE — STOP và chờ người dùng xác nhận**.
 
-## Yêu cầu đang thực hiện của người dùng
+## Mục tiêu được người dùng phê duyệt
 
-> Hoàn thiện đúng các mục đã chốt rồi dừng lại:
->
-> 1. Cập nhật `implementing.md` và các tài liệu dành cho AI.
-> 2. Chỉnh hướng dẫn HTML cho người dùng:
->    - loại bỏ phần giải thích **Action COLLECT** vì người dùng không cần quan tâm;
->    - thêm phần tóm tắt công cụ làm được gì và quy trình thông thường khi dùng cùng Chat AI;
->    - nếu có thể, thêm nút **Select all** và **Copy** cho từng prompt mẫu.
-> 3. Rà lại và bảo đảm các capability đã yêu cầu trước đó vẫn hoàn chỉnh:
->    - tự phát hiện duplicate PATCH ngay trong queue hiện tại, khác tên nhưng exact checksum giống nhau thì giữ một và tự loại bản trùng;
->    - không tự đoán action như `overview`;
->    - Exact collector action schema;
->    - Full self-contained Patch Tool package.
-> 4. Sau khi hoàn tất phải dừng, không tự bắt đầu tính năng khác.
+Thực hiện đúng thứ tự đã thống nhất, ưu tiên correctness trước usability; không mở thêm scope:
 
-## Trạng thái
+### Phase A — PATCH correctness
 
 | ID | Task | Trạng thái | Acceptance |
 |---|---|---|---|
-| DOC-UX-1 | Bỏ phần Action COLLECT khỏi HTML người dùng | **COMPLETE** | HTML không hiển thị danh sách/action schema kỹ thuật; trách nhiệm thuộc AI/tool. |
-| DOC-UX-2 | Thêm tóm tắt chức năng + workflow với Chat AI | **COMPLETE** | Có phần ngắn gọn ở cuối hướng dẫn mô tả chức năng và chu trình làm việc thông thường. |
-| DOC-UX-3 | Nút Select all / Copy cho prompt VI/EN/RU | **COMPLETE** | Mỗi prompt có hai nút; Copy có Clipboard API + fallback cho `file://`. |
-| DOC-AI-1 | Đồng bộ tài liệu AI lên v6.12.1 | **COMPLETE** | AI contract/guide/schema/status vẫn là nguồn kỹ thuật authoritative; user guide cố ý ẩn chi tiết action. |
-| DUP-1 | Duplicate PATCH ngay trong queue hiện tại | **COMPLETE / RE-VERIFIED** | Exact size+SHA-256; giữ item đầu theo natural order; bản trùng khác tên bị xóa khỏi `patchs/` trước selector; acceptance 3-file PASS. |
-| COLLECT-1 | Không tự đoán action như `overview` | **COMPLETE / RE-VERIFIED** | `overview` là action có schema + implementation thực; unsupported action/field bị preflight reject. |
-| COLLECT-2 | Exact collector action schema | **COMPLETE / RE-VERIFIED** | `COLLECT_ACTION_SCHEMA.json` là source of truth machine-readable và được queue preflight enforce. |
-| CORE-1 | Full self-contained package | **COMPLETE / RE-VERIFIED** | Release chứa runner, utils, readonly collector, schema, dispatcher/progress/docs; clean project test không cần private core cũ. |
-| TEST-1 | Regression + clean-release verification | **COMPLETE** | Master suite và clean-extraction artifact tests PASS; checksum/executable/docs UX đều được kiểm tra. |
-| STOP-1 | Dừng sau phạm vi này | **COMPLETE** | Không tự bắt đầu task/tính năng tiếp theo; chờ người dùng xác nhận hướng tiếp theo. |
+| A1 | Exact machine-readable PATCH package schema | **COMPLETE** | `tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json`; manifest unknown field/type/value fail-closed. |
+| A2 | PATCH preflight trước project modification | **COMPLETE** | Kiểm tra payload/manifest/resources/declared hash+anchor/post-command/Git requirement trước payload; lỗi in `PREFLIGHT FAIL — project unchanged`. |
+| A3 | PATCH Tool version compatibility negotiation | **COMPLETE** | `compatibility.min_tool_version/max_tool_version/max_tested_version`; min/max incompatible reject trước payload. |
+| A4 | Partial-modification detection | **COMPLETE** | Khi payload/post/Git/archive fail, structured result xác định project delta bằng Git + declared targets; cảnh báo rõ `PARTIAL MODIFICATION DETECTED`, hoặc `unknown` nếu không đủ evidence. Không tự rollback suy đoán. |
 
-## Phạm vi self-contained v6.12.1
+### Phase B — FAIL → AI recovery
 
-Self-contained nghĩa là **không cần các private core file từ bản cũ để chạy contract được tài liệu v6.12.1 công bố**. Những format lịch sử không nằm trong contract hiện hành vẫn fail-closed thay vì được mô phỏng bằng suy đoán.
+| ID | Task | Trạng thái | Acceptance |
+|---|---|---|---|
+| B1 | Structured `LAST_RUN.json` | **COMPLETE** | `artifacts/patch_tool/LAST_RUN.json` chứa selection/order/results/duplicates/not-executed/rc/timing. |
+| B2 | Automatic failure diagnosis | **COMPLETE** | Structured diagnosis cho schema/version/source-drift/anchor/payload/syntax/python/post/Git/archive/interruption; legacy console được enrich có giới hạn. |
+| B3 | Automatic `FAIL_HANDOFF.zip` | **COMPLETE** | PATCH FAIL tạo một ZIP upload cho AI gồm patch, console, structured summary, tool context, relevant safe current source và recovery request nếu có. Có thể opt-out bằng manifest recovery. |
+| B4 | Source-drift/anchor mismatch → prepare COLLECT request | **COMPLETE** | Tự sinh `CODE_COLLECTION_REQUEST_patch_recovery_<sha>.zip` dùng `pack`, **không tự chạy**; người dùng chọn ở invocation kế tiếp. |
 
-## Next action
+### Phase C — usability / audit
 
-**STOP. Chờ người dùng xác nhận task/tính năng tiếp theo.**
+| ID | Task | Trạng thái | Acceptance |
+|---|---|---|---|
+| C1 | Bounded run history | **COMPLETE** | `artifacts/patch_tool/history/*.json`, local-only, giữ tối đa 30 run. |
+| C2 | Resume indication sau fail-fast | **COMPLETE** | Lần mở sau báo các selected item chưa chạy; không auto-select/auto-run. Cancel/IDLE không làm mất hint còn unresolved. |
+| C3 | Inspect / dry-run | **COMPLETE** | `i` trong TTY hoặc `i <index>` line selector; chạy exact preflight, hiển thị targets/commands/Git/compatibility nhưng không payload, không archive. |
+| C4 | COLLECT quality summary | **COMPLETE** | PASS in `files/source/reports/zip/truncated/missing`; truncation được ghi manifest và cảnh báo người dùng/AI. |
+
+## Invariants giữ nguyên
+
+- Public workflow bình thường vẫn chỉ: `./tools/run_python_patches.sh`.
+- PATCH chạy **in-place**; SANDBOX/worktree transaction bị loại bỏ vĩnh viễn.
+- Không project/process lock; terminal khác có thể chạy độc lập do người dùng chủ động.
+- Một invocation chỉ chạy tối đa 1 COLLECT và không trộn COLLECT với PATCH.
+- Duplicate trong queue hiện tại vẫn collapse/remove exact bytes; local-history duplicate vẫn local project only.
+- Không tự suy đoán action COLLECT ngoài exact schema hiện hành.
+- Full self-contained package vẫn là acceptance bắt buộc.
+
+## Release stop condition
+
+**COMPLETE. DỪNG. Không tự bắt đầu task/tính năng tiếp theo. Hỏi người dùng muốn làm gì tiếp.**

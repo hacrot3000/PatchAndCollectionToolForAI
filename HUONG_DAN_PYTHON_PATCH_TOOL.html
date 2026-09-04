@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Hướng dẫn Python Patch Tool v6.12.1</title>
+<title>Hướng dẫn Python Patch Tool v6.13.0</title>
 <style>
 :root{color-scheme:light dark}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:980px;margin:32px auto;padding:0 18px;line-height:1.55;color:#1f2328;background:#fff}
@@ -27,12 +27,12 @@ h1,h2{line-height:1.25}
 </style>
 </head>
 <body>
-<h1>Python Patch Tool v6.12.1 — hướng dẫn nhanh</h1>
+<h1>Python Patch Tool v6.13.0 — hướng dẫn nhanh</h1>
 
 <h2>1. Cài đặt / cập nhật</h2>
-<pre>unzip -o python_patch_tool_v6.12.1.zip -d "$PWD"
+<pre>unzip -o python_patch_tool_v6.13.0.zip -d "$PWD"
 cat tools/_patch_lib/VERSION</pre>
-<p>Kết quả version phải là <code>6.12.1</code>.</p>
+<p>Kết quả version phải là <code>6.13.0</code>.</p>
 
 <h2>2. Chạy công cụ</h2>
 <pre>./tools/run_python_patches.sh</pre>
@@ -111,7 +111,8 @@ The user always runs: ./tools/run_python_patches.sh</pre>
 <li>Nếu đủ thông tin, AI trả một PATCH ZIP. Chép vào <code>patchs/</code> và chạy <code>./tools/run_python_patches.sh</code>.</li>
 <li>Nếu thiếu source/evidence, AI trả một <code>CODE_COLLECTION_REQUEST_*.zip</code>. Chép vào <code>patchs/</code> và chạy cùng lệnh.</li>
 <li>Upload đúng ZIP được đánh dấu <code>[PRIMARY - UPLOAD THIS FILE]</code> cho AI.</li>
-<li>AI dùng source mới để tạo/cập nhật PATCH. Bạn chạy lại tool và gửi log FAIL nếu có; khi PASS thì tiếp tục task kế tiếp.</li>
+<li>Nếu PATCH FAIL và tool hiện <code>[PRIMARY - UPLOAD THIS FILE] PATCH FAIL HANDOFF</code>, upload ZIP đó cho AI; không cần tự gom log thủ công.</li>
+<li>AI dùng evidence/source mới để tạo/cập nhật PATCH. Bạn chạy lại tool; khi PASS thì tiếp tục task kế tiếp.</li>
 </ol>
 
 <script>

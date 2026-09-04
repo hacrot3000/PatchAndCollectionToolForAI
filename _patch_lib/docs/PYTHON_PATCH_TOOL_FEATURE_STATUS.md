@@ -1,36 +1,34 @@
-# Python Patch Tool v6.12.1 feature status
+# Python Patch Tool v6.13.0 feature status
 
 | Capability | Status |
 |---|---|
 | Public zero-argument PATCH/COLLECT queue | COMPLETE |
-| AI COLLECT request ZIP-only delivery | COMPLETE |
-| Current-session exact duplicate collapse/removal | COMPLETE / v6.12.1 |
+| Current-session exact duplicate collapse/removal | COMPLETE |
 | Local-history duplicate filtering | COMPLETE |
 | PATCH priority `0..9` | COMPLETE |
 | TTY/line selector width-height safety | COMPLETE |
-| Exactly one COLLECT per invocation / no PATCH mix | COMPLETE |
-| Project/process queue lock | REMOVED BY REQUIREMENT |
+| Exactly one COLLECT / no PATCH mix | COMPLETE |
+| Project/process lock | REMOVED BY REQUIREMENT |
 | Permanent PATCH in-place / SANDBOX removal | COMPLETE |
-| Self-contained Python PATCH runner | COMPLETE / v6.12.1 |
-| Self-contained `PATCH_TOOL_OPS.json` runner | COMPLETE / v6.12.1 |
-| Self-contained patch utility compatibility helpers | COMPLETE / v6.12.1 contract |
-| Readonly COLLECT progress/result validation | COMPLETE |
-| `pack` action | COMPLETE |
-| `overview` action | COMPLETE / v6.12.1 |
-| `find` action | COMPLETE / v6.12.1 |
-| `search` action | COMPLETE / v6.12.1 |
-| `git` readonly action | COMPLETE / v6.12.1 |
-| Exact machine-readable COLLECT schema | COMPLETE / v6.12.1 |
-| COLLECT schema preflight in queue | COMPLETE / v6.12.1 |
-| Full self-contained package for documented v6.12.1 contract | COMPLETE |
-| `tools/implementing.md` live task tracker | COMPLETE |
-| Vietnamese feature matrix | COMPLETE |
-| Vietnamese HTML guide + VI/EN/RU AI prompts | COMPLETE |
-| Historical private-core parity outside current contract | PARTIAL / FAIL-CLOSED BY DESIGN |
-| Advanced historical COLLECT actions outside schema | NOT IMPLEMENTED in v6.12.1 |
-| Exact historical LAST_RUN/private report parity | DEFERRED |
-| Phase-inference refinement | DEFERRED pending concrete runtime evidence |
+| Full self-contained runtime | COMPLETE |
+| Exact PATCH package schema | **COMPLETE v6.13.0** |
+| PATCH schema/resource/source/post-command preflight | **COMPLETE v6.13.0** |
+| PATCH tool-version negotiation | **COMPLETE v6.13.0** |
+| Partial-modification detection | **COMPLETE v6.13.0** |
+| Structured current `LAST_RUN.json` | **COMPLETE v6.13.0** |
+| Bounded local run history | **COMPLETE v6.13.0** |
+| Resume hint after fail-fast | **COMPLETE v6.13.0** |
+| Structured automatic diagnosis | **COMPLETE v6.13.0** |
+| PATCH FAIL handoff ZIP | **COMPLETE v6.13.0** |
+| Source-drift/anchor recovery COLLECT request | **COMPLETE v6.13.0** |
+| PATCH inspect/dry-run | **COMPLETE v6.13.0** |
+| Exact COLLECT action schema + preflight | COMPLETE |
+| `pack`/`overview`/`find`/`search`/`git` readonly | COMPLETE |
+| COLLECT result validation/banner | COMPLETE |
+| COLLECT quality/truncation summary | **COMPLETE v6.13.0** |
+| Generic automatic rollback | NOT IMPLEMENTED BY DESIGN — detect/diagnose rather than guess rollback |
+| Historical private-core parity outside current contract | FAIL-CLOSED / NOT GUARANTEED |
 
-## v6.12.1 development stop condition
+## Stop condition
 
-The explicitly requested v6.12.1 scope is complete. Do not automatically begin another feature. Ask the user which task should be next.
+The user-approved Phase A → B → C scope is complete. Do not automatically begin another capability; ask the user what should be next.

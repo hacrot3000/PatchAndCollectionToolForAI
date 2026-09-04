@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "tool_version": "6.12.1",
+  "tool_version": "6.13.0",
   "request": {
     "type": "object",
     "required": ["actions"],
