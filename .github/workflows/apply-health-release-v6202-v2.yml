@@ -1,0 +1,72 @@
+name: Apply v6.20.2 health release sync v2
+
+on:
+  push:
+    branches:
+      - ptv-v6.20.2-upload-helper
+    paths:
+      - .github/workflows/apply-health-release-v6202-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ptv-v6.20.2-hardening-work
+          fetch-depth: 0
+      - name: Apply release sync, regenerate metadata, test installed layout, commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=7e141b2b15de72737266431244f3353ae26c4a1a
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected" || { echo "Unexpected work branch HEAD: $actual"; exit 2; }
+          git fetch origin ptv-v6.20.2-upload-helper
+
+          decode_group() {
+            local name="$1"
+            : > "/tmp/${name}.b64"
+            while IFS= read -r part; do
+              git show "origin/ptv-v6.20.2-upload-helper:${part}" >> "/tmp/${name}.b64"
+            done < <(git ls-tree -r --name-only origin/ptv-v6.20.2-upload-helper | grep -E "^\\.ptv_upload/${name}\\.part[0-9]+$" | sort)
+            test -s "/tmp/${name}.b64"
+            base64 -d "/tmp/${name}.b64" | gzip -d > "/tmp/${name}.patch"
+            git apply --check "/tmp/${name}.patch"
+            git apply "/tmp/${name}.patch"
+          }
+
+          decode_group 04_health
+          decode_group 06_release_sync
+
+          # Recompute metadata from the exact final worktree, including all
+          # earlier cursor/manual/Git/refactor commits on this branch.
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/python_patch_release_metadata.py --tool-dir .
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/python_patch_release_metadata.py --tool-dir . --check
+
+          rm -rf /tmp/ptv-install
+          mkdir -p /tmp/ptv-install/project/tools
+          tar --exclude=.git --exclude='__pycache__' --exclude='*.pyc' -cf - . | tar -xf - -C /tmp/ptv-install/project/tools
+          cd /tmp/ptv-install/project/tools
+
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_history_live_status_v6_20_0.py
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_git_safe_v6_20_0.py
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_manual_execution_v6_20_0.py
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_tool_health_v6_20_0.py
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_package_checksums_v6_20_0.py
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_version_consistency_v6_20_0.py
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_integrity_v6_20_0.py
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_capability_disposition_v6_20_0.py
+
+          cd "$GITHUB_WORKSPACE"
+          test ! -d _patch_lib/__pycache__
+          test -z "$(find . -name '*.pyc' -print -quit)"
+
+          git config user.name "Patch Tool CI"
+          git config user.email "patch-tool-ci@users.noreply.github.com"
+          git add -A
+          git commit -m "release: synchronize v6.20.2 health metadata docs and regression gates"
+          git push origin HEAD:ptv-v6.20.2-hardening-work
