@@ -1,0 +1,59 @@
+name: Verify v6.20.2 full master
+
+on:
+  push:
+    branches:
+      - ptv-v6.20.2-upload-helper
+    paths:
+      - .github/workflows/verify-v6202-full-master.yml
+
+permissions:
+  contents: read
+
+jobs:
+  full-master:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ptv-v6.20.2-hardening-work
+          fetch-depth: 0
+
+      - name: Verify exact work-branch HEAD and installed layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=7a0721876f7a834724ac9c21546b692e2b75716d
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected" || { echo "Unexpected work branch HEAD: $actual"; exit 2; }
+
+          rm -rf /tmp/ptv-master
+          mkdir -p /tmp/ptv-master/project/tools
+          tar --exclude=.git --exclude='__pycache__' --exclude='*.pyc' -cf - . | tar -xf - -C /tmp/ptv-master/project/tools
+          test "$(cat /tmp/ptv-master/project/tools/_patch_lib/VERSION)" = "6.20.2"
+
+      - name: Run complete self-contained regression suite
+        shell: bash
+        working-directory: /tmp/ptv-master/project/tools
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          python3 _patch_lib/self_test_all_v6_20_0.py
+
+      - name: Run final release gates
+        shell: bash
+        working-directory: /tmp/ptv-master/project/tools
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          python3 _patch_lib/python_patch_release_metadata.py --tool-dir . --check
+          python3 _patch_lib/self_test_tool_health_v6_20_0.py
+          python3 _patch_lib/self_test_package_checksums_v6_20_0.py
+          python3 _patch_lib/self_test_version_consistency_v6_20_0.py
+          python3 _patch_lib/self_test_capability_disposition_v6_20_0.py
+          python3 _patch_lib/self_test_existing_capability_hardening_v6_20_2.py
+          test -z "$(find . -name '__pycache__' -o -name '*.pyc' | head -n 1)"
+          echo 'PASS: v6.20.2 final full-master and release gates'
