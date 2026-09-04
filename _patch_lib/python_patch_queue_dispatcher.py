@@ -8,6 +8,7 @@ import os
 import re
 import select
 import signal
+import stat
 import subprocess
 import sys
 import tarfile
@@ -42,7 +43,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.17.0"
+VERSION = "6.17.1"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -136,16 +137,116 @@ def _atomic_json(path: Path, data: dict[str, object]) -> None:
         except FileNotFoundError: pass
 
 
+def _reject_duplicate_json_pairs(pairs):
+    out = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError(f"duplicate JSON key: {key}")
+        out[key] = value
+    return out
+
+
 def _load_json(path: Path) -> dict[str, object] | None:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_json_pairs)
         return data if isinstance(data, dict) else None
     except Exception:
         return None
 
 
+def _project_mutation_lock_key(root: Path) -> str:
+    return hashlib.sha256(str(root.resolve()).encode("utf-8", errors="surrogateescape")).hexdigest()[:32]
+
+
+def _project_mutation_lock_path(root: Path) -> Path:
+    base = Path(tempfile.gettempdir()) / "python_patch_tool_locks" / _project_mutation_lock_key(root)
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "mutation.lock"
+
+
+def _acquire_batch_mutation_lock(root: Path):
+    """Own the same mutation lock used by runner children for an atomic batch."""
+    path = _project_mutation_lock_path(root)
+    fh = path.open("a+b")
+    try:
+        fh.seek(0, os.SEEK_END)
+        if fh.tell() == 0:
+            fh.write(b"0")
+            fh.flush()
+        fh.seek(0)
+        started = time.monotonic()
+        if os.name == "nt":
+            if msvcrt is None:
+                raise RuntimeError("native Windows file locking is unavailable")
+            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        token = os.urandom(24).hex()
+        fh.seek(0)
+        fh.truncate(0)
+        fh.write(token.encode("ascii"))
+        fh.flush()
+        try: os.fsync(fh.fileno())
+        except OSError: pass
+        waited = time.monotonic() - started
+        if waited >= 0.25:
+            print(f"BATCH MUTATION LOCK: acquired after waiting {waited:.1f}s for another PATCH process")
+        return fh, _project_mutation_lock_key(root), token
+    except Exception:
+        fh.close()
+        raise
+
+
+def _release_batch_mutation_lock(fh) -> None:
+    if fh is None:
+        return
+    try:
+        try:
+            fh.seek(0); fh.truncate(0); fh.write(b"0"); fh.flush()
+        except OSError:
+            pass
+        fh.seek(0)
+        if os.name == "nt":
+            if msvcrt is not None:
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    finally:
+        fh.close()
+
+
+def _restore_batch_mutation_env(previous: tuple[str | None, str | None]) -> None:
+    old_key, old_token = previous
+    for name, value in (("PTV_PARENT_MUTATION_LOCK_KEY", old_key), ("PTV_PARENT_MUTATION_LOCK_TOKEN", old_token)):
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+
+
 def _artifact_run_root(root: Path) -> Path:
-    return root / "artifacts" / "patch_tool"
+    cur = root.resolve(strict=True)
+    for part in ("artifacts", "patch_tool"):
+        nxt = cur / part
+        if nxt.exists() or nxt.is_symlink():
+            st = nxt.lstat()
+            attrs = getattr(st, "st_file_attributes", 0)
+            reparse = bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+            if stat.S_ISLNK(st.st_mode) or reparse or not stat.S_ISDIR(st.st_mode):
+                raise QueueSafetyError(f"unsafe artifact directory component: {nxt}")
+        else:
+            try:
+                nxt.mkdir(exist_ok=False)
+            except FileExistsError:
+                st = nxt.lstat()
+                attrs = getattr(st, "st_file_attributes", 0)
+                reparse = bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+                if stat.S_ISLNK(st.st_mode) or reparse or not stat.S_ISDIR(st.st_mode):
+                    raise ValueError(f"unsafe directory component created concurrently: {nxt}")
+        cur = nxt
+    return cur
 
 
 def _batch_run_dir(root: Path, run_id: str) -> Path:
@@ -468,12 +569,30 @@ def _create_recovery_collect_request(root: Path, item: QueueItem, patch_result: 
             if zf.testzip() is not None:
                 raise ValueError("generated recovery request failed CRC")
         try:
-            # Atomic no-overwrite publish. This remains safe when the operator
-            # intentionally runs multiple Patch Tool processes without a lock.
+            # Atomic no-overwrite publish when hard links are supported.
             os.link(temp, target)
             return target
         except FileExistsError:
             return target if existing_same() else None
+        except OSError:
+            # exFAT/FAT/network filesystems may not support hard links. Preserve
+            # no-overwrite semantics with O_EXCL and verify the generated ZIP.
+            fd = None
+            try:
+                fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "wb") as out_fh, temp.open("rb") as in_fh:
+                    fd = None
+                    shutil.copyfileobj(in_fh, out_fh, length=1024 * 1024)
+                    out_fh.flush()
+                    try: os.fsync(out_fh.fileno())
+                    except OSError: pass
+                return target if existing_same() else None
+            except FileExistsError:
+                return target if existing_same() else None
+            finally:
+                if fd is not None:
+                    try: os.close(fd)
+                    except OSError: pass
     except Exception as exc:
         print(f"[PTV v{VERSION} WARNING] could not create recovery COLLECT request: {type(exc).__name__}: {exc}", file=sys.stderr)
         return None
@@ -481,6 +600,37 @@ def _create_recovery_collect_request(root: Path, item: QueueItem, patch_result: 
         try: temp.unlink()
         except FileNotFoundError: pass
         except OSError: pass
+
+_SENSITIVE_BASENAMES = {".env", ".env.local", "id_rsa", "id_dsa", "id_ed25519", "credentials.json"}
+_SENSITIVE_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".keystore", ".jks")
+_SENSITIVE_TEXT_PATTERNS = (
+    ("private_key", re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----", re.I)),
+    ("authorization_header", re.compile(r"\bAuthorization\s*:\s*(?:Bearer|Basic)\s+\S+", re.I)),
+    ("credential_assignment", re.compile(r"\b(?:api[_-]?key|access[_-]?token|secret|password)\s*[:=]\s*[^\s,;]+", re.I)),
+)
+
+
+def _sensitive_handoff_warnings(console_log: str, sources: list[tuple[str, Path]]) -> list[str]:
+    """Return warning labels only; never copy detected secret values into metadata."""
+    warnings: list[str] = []
+    for rel, src in sources:
+        low_name = src.name.lower()
+        if low_name in _SENSITIVE_BASENAMES or low_name.endswith(_SENSITIVE_SUFFIXES):
+            warnings.append(f"sensitive filename included exactly: {rel}")
+        try:
+            if src.stat().st_size <= 4 * 1024 * 1024:
+                text = src.read_bytes()[:1024 * 1024].decode("utf-8", errors="ignore")
+                for label, pattern in _SENSITIVE_TEXT_PATTERNS:
+                    if pattern.search(text):
+                        warnings.append(f"possible {label} in exact source attachment: {rel}")
+        except OSError:
+            pass
+    sample = console_log[:4 * 1024 * 1024]
+    for label, pattern in _SENSITIVE_TEXT_PATTERNS:
+        if pattern.search(sample):
+            warnings.append(f"possible {label} in console.log")
+    return list(dict.fromkeys(warnings))
+
 
 def _create_fail_handoff(
     root: Path,
@@ -524,9 +674,34 @@ def _create_fail_handoff(
     else:
         summary["patch_attachment"] = "omitted_queue_input_missing"
     try:
+        total = 0
+        affected: list[str] = []
+        if isinstance(patch_result, dict) and isinstance(patch_result.get("diagnosis"), dict):
+            affected.extend(x for x in patch_result["diagnosis"].get("affected_paths", []) if isinstance(x, str))
+        if isinstance(patch_result, dict) and isinstance(patch_result.get("partial_modification"), dict):
+            affected.extend(x for x in patch_result["partial_modification"].get("changed_paths", []) if isinstance(x, str))
+        source_attachments: list[tuple[str, Path]] = []
+        for rel in dict.fromkeys(affected):
+            src = _safe_handoff_source(root, rel)
+            if src is None:
+                continue
+            size = src.stat().st_size
+            if total + size > MAX_HANDOFF_SOURCE_TOTAL_BYTES:
+                break
+            source_attachments.append((rel, src))
+            total += size
+        sensitive_warnings = _sensitive_handoff_warnings(console_log, source_attachments)
+        summary["sensitive_content_warnings"] = sensitive_warnings
         with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
             zf.writestr("FAIL_SUMMARY.json", json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
             zf.writestr("console.log", console_log)
+            if sensitive_warnings:
+                warning_text = (
+                    "WARNING: This diagnostic bundle intentionally preserves exact source/log bytes.\n"
+                    "Review before uploading if the destination is not trusted.\n\n- "
+                    + "\n- ".join(sensitive_warnings) + "\n"
+                )
+                zf.writestr("SENSITIVE_CONTENT_WARNING.txt", warning_text)
             if attach_patch:
                 zf.write(patch_path, f"patch/{item.name}")
             for doc in [root/"tools"/"implementing.md", root/"tools"/"PYTHON_PATCH_TOOL_FEATURES_VI.md", root/"tools"/"_patch_lib"/"VERSION", root/"tools"/"_patch_lib"/"docs"/"PATCH_PACKAGE_SCHEMA.json"]:
@@ -534,19 +709,8 @@ def _create_fail_handoff(
                     zf.write(doc, f"tool_context/{doc.name}")
             if recovery_request is not None and recovery_request.is_file():
                 zf.write(recovery_request, f"recovery/{recovery_request.name}")
-            total = 0
-            affected: list[str] = []
-            if isinstance(patch_result, dict) and isinstance(patch_result.get("diagnosis"), dict):
-                affected.extend(x for x in patch_result["diagnosis"].get("affected_paths", []) if isinstance(x, str))
-            if isinstance(patch_result, dict) and isinstance(patch_result.get("partial_modification"), dict):
-                affected.extend(x for x in patch_result["partial_modification"].get("changed_paths", []) if isinstance(x, str))
-            for rel in dict.fromkeys(affected):
-                src = _safe_handoff_source(root, rel)
-                if src is None: continue
-                size = src.stat().st_size
-                if total + size > MAX_HANDOFF_SOURCE_TOTAL_BYTES: break
+            for rel, src in source_attachments:
                 zf.write(src, f"current_source/{rel}")
-                total += size
         os.replace(temp, final)
         with zipfile.ZipFile(final) as zf:
             if zf.testzip() is not None:
@@ -746,7 +910,7 @@ def inspect_collect_zip(path: Path):
                 return False, f"request_too_large={info.file_size}"
             try:
                 raw = zf.read(req[0])
-                data = json.loads(raw.decode("utf-8"))
+                data = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_pairs)
             except Exception as exc:
                 return False, f"invalid_request_json:{type(exc).__name__}"
             try:
@@ -2157,7 +2321,7 @@ def _load_zero_argument_config(root: Path):
     if not path.is_file():
         return cfg, warnings
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_json_pairs)
         node = data.get("automation", {}).get("zero_argument", {})
     except Exception as exc:
         warnings.append(f"invalid .python_patch_tool.json; using prompt defaults ({type(exc).__name__})")
@@ -2720,7 +2884,7 @@ def _safe_to_continue_after_failure(detail: dict[str, object]) -> tuple[bool, st
     result = detail.get("patch_result") if isinstance(detail.get("patch_result"), dict) else {}
     diagnosis = result.get("diagnosis") if isinstance(result.get("diagnosis"), dict) else {}
     kind = str(diagnosis.get("kind") or "")
-    if kind in {"tool_error", "rollback_failed", "rollback_incomplete", "package_invalid", "rollback_snapshot_race"}:
+    if kind in {"tool_error", "internal_error", "rollback_failed", "rollback_incomplete", "package_invalid", "rollback_snapshot_race"}:
         return False, kind or "critical_failure"
     rollback = result.get("rollback") if isinstance(result.get("rollback"), dict) else None
     if rollback is not None and rollback.get("status") == "PASS":
@@ -2756,15 +2920,15 @@ def _apply_previous_failure_action(root: Path, action: dict[str, object] | None)
 
 
 def _declared_targets_for(meta: PatchMeta | None) -> list[str]:
-    return list(meta.targets) if meta is not None else []
+    return list(meta.effective_targets) if meta is not None else []
 
 
 def _capture_item_compare_before(root: Path, run_id: str, index: int, item: QueueItem, meta: PatchMeta | None):
-    if item.kind != "PATCH" or meta is None or not meta.targets:
+    if item.kind != "PATCH" or meta is None or not meta.effective_targets:
         return None
     base = _batch_run_dir(root, run_id) / "source_compare" / f"{index:03d}_{_safe_slug(item.name,72)}"
     before_dir = base / "before"
-    before = capture_compare_snapshot(root, meta.targets, before_dir)
+    before = capture_compare_snapshot(root, meta.effective_targets, before_dir)
     return base, before_dir, before
 
 
@@ -2773,7 +2937,7 @@ def _capture_item_compare_after(root: Path, captured, meta: PatchMeta | None):
         return None
     base, before_dir, before = captured
     after_dir = base / "after"
-    after = capture_compare_snapshot(root, meta.targets, after_dir)
+    after = capture_compare_snapshot(root, meta.effective_targets, after_dir)
     diff_path = base / "source.diff"
     info = build_diff_artifact(root, before, after, before_dir, after_dir, diff_path)
     try:
@@ -3198,8 +3362,16 @@ def _run_queue(root: Path, *, failure_policy_override: str | None = None, transa
     package_snapshot_root = None
     transaction_manifest = None
     package_map = None
+    batch_mutation_lock = None
+    batch_mutation_env_previous = (
+        os.environ.get("PTV_PARENT_MUTATION_LOCK_KEY"),
+        os.environ.get("PTV_PARENT_MUTATION_LOCK_TOKEN"),
+    )
     if transaction_policy == "batch":
         try:
+            batch_mutation_lock, batch_lock_key, batch_lock_token = _acquire_batch_mutation_lock(root)
+            os.environ["PTV_PARENT_MUTATION_LOCK_KEY"] = batch_lock_key
+            os.environ["PTV_PARENT_MUTATION_LOCK_TOKEN"] = batch_lock_token
             tx_root = _batch_run_dir(root, run_id) / "transaction"
             transaction_snapshot_root = tx_root / "source"
             package_snapshot_root = tx_root / "packages"
@@ -3214,32 +3386,46 @@ def _run_queue(root: Path, *, failure_policy_override: str | None = None, transa
                 "diagnosis": {"kind": kind, "message": str(exc)}} for x in chosen]
             batch_transaction = {"policy": "batch", "status": "FAIL", "error": str(exc)}
             print(f"BATCH TRANSACTION PREFLIGHT FAIL — project unchanged | {_safe_display(str(exc))}", file=sys.stderr)
+            _restore_batch_mutation_env(batch_mutation_env_previous)
+            _release_batch_mutation_lock(batch_mutation_lock)
+            batch_mutation_lock = None
             return finish_report("FAIL", 2, chosen=chosen, remaining=chosen)
 
-    rc, executed, remaining, late_duplicates, late_duplicate_warnings = execute_items(root, chosen, failure_policy=failure_policy, metas=metas)
-    local_duplicates = [*local_duplicates, *late_duplicates]
-    for warning in late_duplicate_warnings:
-        if warning in printed_warnings: continue
-        printed_warnings.add(warning); print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}", file=sys.stderr if rc else sys.stdout)
+    try:
+        rc, executed, remaining, late_duplicates, late_duplicate_warnings = execute_items(root, chosen, failure_policy=failure_policy, metas=metas)
+        local_duplicates = [*local_duplicates, *late_duplicates]
+        for warning in late_duplicate_warnings:
+            if warning in printed_warnings: continue
+            printed_warnings.add(warning); print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}", file=sys.stderr if rc else sys.stdout)
 
-    if transaction_policy == "batch" and transaction_snapshot_root is not None and transaction_manifest is not None:
-        if rc:
-            restored = restore_targets(root, transaction_snapshot_root, transaction_manifest)
-            requeued = requeue_packages(root, package_snapshot_root, package_map or {}) if package_snapshot_root is not None else {}
-            batch_transaction = {"policy": "batch", "status": "ROLLED_BACK" if restored.get("status") == "PASS" else "ROLLBACK_FAILED",
-                "restored_paths": restored.get("restored_paths", []), "errors": restored.get("errors", []), "requeued_packages": requeued}
-            for detail in _LAST_EXECUTION_DETAILS:
-                if detail.get("status") in {"PASS", "FAIL"}:
-                    detail["batch_rolled_back"] = True
-                    if detail.get("name") in requeued: detail["requeued_as"] = requeued[detail.get("name")]
-            if restored.get("status") != "PASS":
-                rc = rc or 70
-                print("!!! BATCH ROLLBACK FAILED — manual recovery required !!!", file=sys.stderr)
+        if transaction_policy == "batch" and transaction_snapshot_root is not None and transaction_manifest is not None:
+            if rc:
+                restored = restore_targets(root, transaction_snapshot_root, transaction_manifest)
+                requeued = requeue_packages(root, package_snapshot_root, package_map or {}) if package_snapshot_root is not None else {}
+                batch_transaction = {"policy": "batch", "status": "ROLLED_BACK" if restored.get("status") == "PASS" else "ROLLBACK_FAILED",
+                    "restored_paths": restored.get("restored_paths", []), "errors": restored.get("errors", []), "requeued_packages": requeued}
+                rollback_ok = restored.get("status") == "PASS"
+                for detail in _LAST_EXECUTION_DETAILS:
+                    if detail.get("status") in {"PASS", "FAIL"}:
+                        detail["batch_rollback_attempted"] = True
+                        detail["batch_rollback_status"] = "PASS" if rollback_ok else "FAIL"
+                        detail["batch_rolled_back"] = rollback_ok
+                        if detail.get("name") in requeued: detail["requeued_as"] = requeued[detail.get("name")]
+                if not rollback_ok:
+                    batch_transaction["original_rc"] = rc
+                    rc = 70
+                    print("!!! BATCH ROLLBACK FAILED — manual recovery required !!!", file=sys.stderr)
+                else:
+                    print(f"BATCH ROLLBACK: PASS | restored={len(restored.get('restored_paths') or [])} | replay packages requeued={len(requeued)}")
             else:
-                print(f"BATCH ROLLBACK: PASS | restored={len(restored.get('restored_paths') or [])} | replay packages requeued={len(requeued)}")
-        else:
-            batch_transaction = {"policy": "batch", "status": "COMMITTED", "targets": len(transaction_manifest.get("entries") or [])}
-            print("BATCH TRANSACTION: COMMITTED")
+                batch_transaction = {"policy": "batch", "status": "COMMITTED", "targets": len(transaction_manifest.get("entries") or [])}
+                print("BATCH TRANSACTION: COMMITTED")
+
+    finally:
+        if batch_mutation_lock is not None:
+            _restore_batch_mutation_env(batch_mutation_env_previous)
+            _release_batch_mutation_lock(batch_mutation_lock)
+            batch_mutation_lock = None
 
     if rc:
         failed_rows = [x for x in _LAST_EXECUTION_DETAILS if x.get("status") == "FAIL"]

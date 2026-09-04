@@ -5,13 +5,19 @@ import json
 from pathlib import Path
 from typing import Any
 
-VERSION = "6.17.0"
+VERSION = "6.17.1"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "COLLECT_ACTION_SCHEMA.json"
 DEFAULT_LIMITS = {
     "max_file_bytes": 8 * 1024 * 1024,
     "max_total_bytes": 256 * 1024 * 1024,
     "max_files": 5000,
     "max_report_bytes": 16 * 1024 * 1024,
+}
+HARD_LIMITS = {
+    "max_file_bytes": 64 * 1024 * 1024,
+    "max_total_bytes": 512 * 1024 * 1024,
+    "max_files": 20000,
+    "max_report_bytes": 64 * 1024 * 1024,
 }
 
 
@@ -70,6 +76,9 @@ def validate_request_data(data: Any) -> dict[str, Any]:
     for key, value in raw_limits.items():
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise CollectSchemaError(f"request.limits.{key} must be a positive integer")
+        hard = HARD_LIMITS[key]
+        if value > hard:
+            raise CollectSchemaError(f"request.limits.{key} exceeds tool hard ceiling ({hard})")
         limits[key] = value
     if limits["max_file_bytes"] > limits["max_total_bytes"]:
         raise CollectSchemaError("max_file_bytes must not exceed max_total_bytes")

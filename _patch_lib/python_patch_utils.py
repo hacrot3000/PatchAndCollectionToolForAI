@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from pathlib import Path, PurePosixPath
+import os
 import re
 import shutil
 import tempfile
@@ -11,7 +12,7 @@ import contextlib
 import io
 from typing import Any, Callable, Optional
 
-VERSION = "6.17.0"
+VERSION = "6.17.1"
 
 
 class PatchFailure(RuntimeError):
@@ -41,6 +42,8 @@ class PatchRunState:
     patch_name: str = "patch"
     stats: PatchStats = field(default_factory=PatchStats)
     failures: list[PatchFailure] = field(default_factory=list)
+    backup_generation: str = field(default_factory=lambda: f"{os.getpid()}_{__import__('time').time_ns()}")
+    backups: dict[str, Path] = field(default_factory=dict)
 
 
 def _safe_rel(rel_path: str) -> PurePosixPath:
@@ -86,34 +89,60 @@ def read_text(project_root: Path, rel_path: str) -> str:
         raise PatchFailure(rel_path, "target is not UTF-8 text") from exc
 
 
-def _backup_file(project_root: Path, rel_path: str, patch_name: str) -> Path | None:
-    src = resolve_project_path(project_root, rel_path)
+def _backup_file(state: PatchRunState, rel_path: str) -> Path | None:
+    if rel_path in state.backups:
+        return state.backups[rel_path]
+    src = resolve_project_path(state.project_root, rel_path)
     if not src.exists():
         return None
-    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", patch_name)[:96] or "patch"
-    backup = project_root / "patchs" / "backup" / safe_name / rel_path
-    if backup.exists():
-        return backup
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", state.patch_name)[:96] or "patch"
+    backup = state.project_root / "patchs" / "backup" / safe_name / state.backup_generation / rel_path
     backup.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, backup)
+    state.backups[rel_path] = backup
     return backup
 
 
 def _write_text(state: PatchRunState, rel_path: str, content: str, *, create: bool = True) -> bool:
     path = resolve_project_path(state.project_root, rel_path, may_create=create)
     existed = path.exists()
+    old_mode: int | None = None
     if existed:
         old = path.read_text(encoding="utf-8")
         if old == content:
             state.stats.unchanged += 1
             print(f"unchanged/check: {rel_path}")
             return False
-        _backup_file(state.project_root, rel_path, state.patch_name)
+        old_mode = path.stat().st_mode & 0o777
+        _backup_file(state, rel_path)
     else:
         if not create:
             raise PatchFailure(rel_path, "target file does not exist and create=false")
         path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    data = content.encode("utf-8")
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.ptv-write-", dir=path.parent)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as out:
+            out.write(data)
+            out.flush()
+            try:
+                os.fsync(out.fileno())
+            except OSError:
+                pass
+        if old_mode is not None and os.name != "nt":
+            os.chmod(tmp, old_mode)
+        os.replace(tmp, path)
+        if os.name != "nt":
+            try:
+                dfd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+                try: os.fsync(dfd)
+                finally: os.close(dfd)
+            except OSError:
+                pass
+    finally:
+        try: tmp.unlink()
+        except FileNotFoundError: pass
     if existed:
         state.stats.patched += 1
         print(f"patched: {rel_path}")
@@ -209,13 +238,13 @@ def _find_span(text: str, needle: str, rel_path: str, mode: str, op: dict[str, A
 
 
 def _already(text: str, new: str | None, already: Any) -> bool:
+    # Idempotency must be explicit. Merely finding `new` somewhere else in the
+    # file is not proof that the intended anchor/range was already patched.
     checks: list[str] = []
     if isinstance(already, str):
         checks = [already]
     elif isinstance(already, list):
         checks = [str(x) for x in already]
-    elif new:
-        checks = [new]
     return any(x and x in text for x in checks)
 
 

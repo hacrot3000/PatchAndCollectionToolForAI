@@ -1,4 +1,4 @@
-# PATCH PACKAGE GUIDE — v6.17.0 authoritative AI/tool contract
+# PATCH PACKAGE GUIDE — v6.17.1 authoritative AI/tool contract
 
 Machine-readable source of truth:
 
@@ -36,9 +36,9 @@ Optional manifest block:
 ```json
 {
   "compatibility": {
-    "min_tool_version": "6.17.0",
+    "min_tool_version": "6.17.1",
     "max_tool_version": "7.0.0",
-    "max_tested_version": "6.17.0"
+    "max_tested_version": "6.17.1"
   }
 }
 ```
@@ -175,7 +175,7 @@ INSPECT RESULT: PASS — project unchanged
 
 No PATCH payload is executed and the package is not archived.
 
-## v6.17.0 package lint / validate
+## v6.17.1 package lint / validate
 
 Before delivering a PATCH, validate the manifest against `PATCH_PACKAGE_SCHEMA.json` and `PATCH_PACKAGE_CHECKLIST.json`. **Never invent `source_baseline`** or other legacy/custom fields. Source assumptions belong only in `preflight.files` using `path`, optional `exists`, `sha256`, and/or `anchors`.
 
@@ -202,9 +202,9 @@ Validation/inspect results use one of four classes:
 - `SOURCE_DRIFT` — current source SHA/existence/anchor or OPS match assumptions do not hold; project unchanged.
 - `TOOL_ERROR` — unexpected Patch Tool internal failure; project unchanged.
 
-Schema lint reports multiple independent manifest issues in one pass. Source preflight likewise aggregates declared file mismatches and includes expected/actual SHA where applicable. For data-only OPS packages, v6.17.0 simulates the sequential operation list on a private temporary mirror before execution; a missing/ambiguous source match fails before the real payload is allowed to write.
+Schema lint reports multiple independent manifest issues in one pass. Source preflight likewise aggregates declared file mismatches and includes expected/actual SHA where applicable. For data-only OPS packages, v6.17.1 simulates the sequential operation list on a private temporary mirror before execution; a missing/ambiguous source match fails before the real payload is allowed to write.
 
-## Batch metadata (v6.17.0)
+## Batch metadata (v6.17.1)
 
 PATCH có thể khai báo:
 
@@ -244,7 +244,7 @@ PATCH có thể khai báo:
 
 `transaction_policy`:
 - `patch`: rollback theo contract từng PATCH như trước.
-- `batch`: atomic rollback theo declared targets của toàn batch. Chế độ này từ chối side effects không target-bounded (`post_patch.commands`, Git add/commit/push).
+- `batch`: atomic rollback theo effective target set của toàn batch. `manifest.targets` vẫn bắt buộc; tool mở rộng set bằng preflight/recovery/OPS targets resolve được trước execution. Dispatcher giữ project mutation lock xuyên snapshot→execution→rollback/commit; target/package snapshot có generation checks và POSIX restore dùng pinned dir-fd. Chế độ này từ chối side effects không target-bounded (`post_patch.commands`, Git add/commit/push) và verify state/SHA sau rollback.
 
 Có thể override cho một lượt chạy:
 
@@ -253,3 +253,10 @@ Có thể override cho một lượt chạy:
 ```
 
 Windows dùng cùng options qua `.bat`/`.ps1`.
+
+### v6.17.1 integrity notes
+
+- Với OPS replace/insert, `already` phải là marker/context idempotency **explicit** nếu cần. Tool không còn coi `new` xuất hiện ở nơi bất kỳ trong file là “already patched”.
+- OPS dry-run và execution chịu `execution.timeout_seconds`; write source dùng atomic replace.
+- `git.commit=auto` fail-closed nếu target đã dirty trước PATCH để tránh commit lẫn local edit của operator.
+- ZIP/TAR package bị giới hạn số entry, kích thước giải nén, compression ratio; symlink/non-regular member, duplicate/case-fold/Unicode collision và Windows drive/ADS names bị reject.

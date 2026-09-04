@@ -1,4 +1,4 @@
-Python Patch Tool v6.17.0 — full self-contained package
+Python Patch Tool v6.17.1 — full self-contained package
 
 Public launchers / user docs:
   tools/run_python_patches.sh
@@ -13,11 +13,13 @@ Self-contained runtime:
   tools/_patch_lib/python_patch_queue_dispatcher.py
   tools/_patch_lib/python_patch_batch.py
   tools/_patch_lib/python_patch_runner.py
+  tools/_patch_lib/python_patch_ops_worker.py
   tools/_patch_lib/python_patch_utils.py
   tools/_patch_lib/python_patch_package_schema.py
   tools/_patch_lib/python_patch_health.py
   tools/_patch_lib/python_patch_readonly_collector.py
   tools/_patch_lib/python_patch_collect_compat.py
+  tools/_patch_lib/python_patch_collect_regex_worker.py
   tools/_patch_lib/python_patch_collect_schema.py
   tools/_patch_lib/python_patch_collect_progress_v6_7.py
 
@@ -46,21 +48,24 @@ Runtime artifacts (created in project; not shipped pre-populated):
   patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip
 
 Normal use — Linux/POSIX:
-  unzip -o python_patch_tool_v6.17.0.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.17.1.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 Normal use — Windows (Python 3.10+):
-  Expand-Archive -Force .\python_patch_tool_v6.17.0.zip PROJECT_ROOT
+  Expand-Archive -Force .\python_patch_tool_v6.17.1.zip PROJECT_ROOT
   tools\run_python_patches.bat
   # or: .\tools\run_python_patches.ps1
 
-v6.17.0 controlled batch engine:
+v6.17.1 controlled batch engine:
 - failure_policy=fail_fast remains default; continue_independent continues only after a proven-safe failure;
 - dependency order uses existing manifest.patch.id plus batch.depends_on; failed dependencies default to BLOCKED;
 - successor after unresolved FAIL must declare batch.previous_failure action: delete/retry_before/run_after/block + reason;
 - whole-batch read-only preflight runs before first source write; dependent SOURCE_DRIFT may defer until predecessor runs;
-- transaction_policy=batch snapshots declared targets + selected package bytes and requeues replay packages after rollback;
+- transaction_policy=batch holds the project mutation lock across snapshot/execution/rollback, snapshots resolved effective targets + package bytes with generation checks, verifies rollback state/SHA, and requeues replay packages after rollback;
 - Smart Resume supports all/failed/remaining and includes PASS items rolled back by an atomic batch;
+- PATCH source mutation is serialized per project to prevent lost read-modify-write updates;
+- OPS is timeout-contained and source writes are atomic; Git auto-commit refuses pre-dirty targets;
+- COLLECT enforces local hard ceilings, excludes its own output and warns on likely sensitive exact attachments;
 - persistent report browser supports aggregate/detail logs, filtering, source diff, support ZIP and run history management;
 - native Windows runtime lane is shipped as tools/run_windows_native_tests.ps1 and must be executed on a real Windows host for a native PASS claim.
 

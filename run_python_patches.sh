@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Python Patch Tool v6.17.0 public launcher.
+# Python Patch Tool v6.17.1 public launcher.
 # SANDBOX/worktree transaction mode is permanently disabled at this boundary.
 set -euo pipefail
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,6 +10,7 @@ COLLECTOR="$LIB_DIR/python_patch_readonly_collector.py"
 COLLECT_COMPAT="$LIB_DIR/python_patch_collect_compat.py"
 DISPATCHER="$LIB_DIR/python_patch_queue_dispatcher.py"
 COLLECT_PROGRESS="$LIB_DIR/python_patch_collect_progress_v6_7.py"
+COLLECT_REGEX_WORKER="$LIB_DIR/python_patch_collect_regex_worker.py"
 
 export PYTHONPATH="$LIB_DIR${PYTHONPATH:+:$PYTHONPATH}"
 # Keep the installed tool tree immutable during normal execution so Tool Health
@@ -39,6 +40,10 @@ if [ "${1:-}" = "collect" ]; then
     echo "ERROR: Missing collect progress supervisor: $COLLECT_PROGRESS" >&2
     exit 2
   fi
+  if [ ! -f "$COLLECT_REGEX_WORKER" ]; then
+    echo "ERROR: Missing COLLECT regex worker: $COLLECT_REGEX_WORKER" >&2
+    exit 2
+  fi
   shift
   exec python3 "$COLLECT_PROGRESS" --project-root "$PROJECT_ROOT" --collector "$COLLECT_COMPAT" -- "$@"
 fi
@@ -48,7 +53,7 @@ if [ ! -f "$RUNNER" ]; then
   exit 2
 fi
 
-# v6.17.0 invariant: SANDBOX/Git-worktree transaction execution is removed.
+# v6.17.1 invariant: SANDBOX/Git-worktree transaction execution is removed.
 # The installed private core may still expose historical transaction options,
 # so every documented PATCH execution route is forced to --transaction off.
 # Utility-only routes such as paths/help remain untouched.

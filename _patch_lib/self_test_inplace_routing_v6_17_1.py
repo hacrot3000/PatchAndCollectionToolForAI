@@ -8,6 +8,7 @@ LAUNCHER=HERE.parents[1]/'run_python_patches.sh'
 PROGRESS=HERE.parent/'python_patch_collect_progress_v6_7.py'
 COMPAT=HERE.parent/'python_patch_collect_compat.py'
 SCHEMA_MOD=HERE.parent/'python_patch_collect_schema.py'
+REGEX_WORKER=HERE.parent/'python_patch_collect_regex_worker.py'
 SCHEMA_JSON=HERE.parent/'docs'/'COLLECT_ACTION_SCHEMA.json'
 
 def make_project(tmp: Path):
@@ -18,6 +19,7 @@ def make_project(tmp: Path):
     (lib/'python_patch_collect_progress_v6_7.py').write_bytes(PROGRESS.read_bytes())
     (lib/'python_patch_collect_compat.py').write_bytes(COMPAT.read_bytes())
     (lib/'python_patch_collect_schema.py').write_bytes(SCHEMA_MOD.read_bytes())
+    (lib/'python_patch_collect_regex_worker.py').write_bytes(REGEX_WORKER.read_bytes())
     docs=lib/'docs'; docs.mkdir()
     (docs/'COLLECT_ACTION_SCHEMA.json').write_bytes(SCHEMA_JSON.read_bytes())
     bindir=tmp/'bin'; bindir.mkdir()
@@ -100,4 +102,4 @@ assert 'python_patch_runtime_guard.py' not in text
 assert 'PTV_USE_RUNTIME_GUARD' not in text
 assert 'git worktree add' not in text
 assert 'exec python3 "$RUNNER" "${filtered[@]}" --transaction off' in text
-print('PASS: v6.17.0 all documented PATCH execution routes force in-place mode')
+print('PASS: v6.17.1 all documented PATCH execution routes force in-place mode')

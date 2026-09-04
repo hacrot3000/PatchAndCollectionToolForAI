@@ -1,6 +1,6 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.17.0**  
+Phiên bản mục tiêu: **v6.17.1**  
 Trạng thái: **CONTROLLED BATCH ENGINE + SMART RESUME + ADVANCED REPORTING — COMPLETE / STOP**
 
 ## Baseline
@@ -112,19 +112,32 @@ Nếu whole-batch preflight FAIL: **không PATCH payload nào được chạy**.
 `transaction_policy`:
 
 - `patch`: rollback riêng từng PATCH như trước.
-- `batch`: atomic rollback theo union của declared `targets`.
+- `batch`: atomic rollback theo union của **effective targets** đã resolve trước batch.
 
 Batch atomic mode fail-closed:
 
-- mọi PATCH phải khai báo `targets`;
+- mọi PATCH vẫn phải khai báo `manifest.targets` làm contract tối thiểu;
+- dispatcher mở rộng effective target set bằng `manifest.targets` + `preflight.files[].path` + `recovery.rollback.targets` + target suy ra trực tiếp từ OPS;
 - không cho `post_patch.commands`;
 - không cho Git add/commit/push;
-- snapshot exact source targets trước execution;
+- dispatcher giữ mutation lock xuyên suốt `snapshot -> execute children -> rollback/commit`; child runner nhận lock-owner token để không deadlock;
+- snapshot exact effective targets/package bytes bằng open-fd + generation checks (inode/size/mtime), rồi verify SHA/state sau rollback;
 - snapshot exact package bytes của selected PATCH;
-- nếu bất kỳ PATCH FAIL, declared targets restore về pre-batch state;
+- nếu bất kỳ PATCH FAIL, toàn bộ effective targets đã snapshot được restore về pre-batch state;
+- rollback FAIL có exit code riêng `70`; report phân biệt `batch_rollback_attempted`, `batch_rollback_status` và `batch_rolled_back`;
 - PATCH đã PASS nhưng thay đổi bị batch rollback được requeue để replay/resume.
 
-Không tuyên bố atomicity cho path ngoài `targets`.
+Không tuyên bố atomicity cho path mà Python payload tự ghi nhưng không khai báo/không thể resolve trước. PATCH mutation được serialize theo project để tránh lost-update giữa hai terminal; selector/COLLECT vẫn độc lập.
+
+## 5.1. Integrity hardening v6.17.1
+
+- `internal_error` luôn safety-stop; nếu exception xảy ra sau payload thì partial state được tính lại, không mặc định `detected=false`.
+- OPS idempotency chỉ dùng `already` được khai báo explicit; sự xuất hiện của `new` ở nơi khác trong file không còn được coi là bằng chứng đã patch.
+- OPS write dùng same-directory temporary + `fsync` + `os.replace`; OPS dry-run/execution chạy trong managed subprocess và chịu `execution.timeout_seconds`.
+- Git auto-commit fail nếu target đã dirty trước PATCH; `git commit` chỉ PASS khi return code bằng `0`.
+- Archive extraction có giới hạn entry/member/expanded bytes/compression ratio, reject symlink/non-regular/collision và Windows drive/ADS path.
+- COLLECT có hard ceiling cục bộ, bỏ qua output/artifact nội bộ, kiểm quota theo chunk và cảnh báo source/log có dấu hiệu secret trước upload.
+- Regex COLLECT được cô lập trong worker subprocess và có hard timeout 60s cho mỗi search action.
 
 ## 6. Smart resume
 

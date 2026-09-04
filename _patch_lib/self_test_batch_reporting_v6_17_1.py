@@ -7,7 +7,7 @@ from pathlib import Path
 HERE=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('ptv_batch_report',HERE/'python_patch_queue_dispatcher.py')
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; assert spec.loader; spec.loader.exec_module(m)
-assert m.VERSION=='6.17.0'
+assert m.VERSION=='6.17.1'
 
 with tempfile.TemporaryDirectory(prefix='ptv6160_batch_') as td:
     root=Path(td)
@@ -59,7 +59,7 @@ assert 'source_drift' in m._batch_summary_text(mixed)
 
 # Renderer is deliberately generic enough for a future explicit continue-on-
 # failure policy: multiple FAIL rows are counted/rendered correctly even though
-# v6.17.0 keeps fail-fast as the default execution contract.
+# v6.17.1 keeps fail-fast as the default execution contract.
 all_failed={
     'run_id':'future-multi-fail','status':'FAIL','selected':['a.zip','b.zip'], 'not_executed':[],
     'results':[{'name':'a.zip','kind':'PATCH','status':'FAIL','rc':2},{'name':'b.zip','kind':'PATCH','status':'FAIL','rc':3}],
@@ -133,4 +133,4 @@ with tempfile.TemporaryDirectory(prefix='ptv6160_e2e_fail_') as td:
     aggregate=(root/last['batch_log']).read_text(encoding='utf-8')
     assert 'FIRST-PASS' in aggregate and 'SECOND-FAIL' in aggregate and 'MUST-NOT-RUN' not in aggregate,aggregate
 
-print('PASS: v6.17.0 persistent batch summary, aggregate/detail logs, fail-fast status model and report browser')
+print('PASS: v6.17.1 persistent batch summary, aggregate/detail logs, fail-fast status model and report browser')

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -15,13 +16,18 @@ import tarfile
 import tempfile
 import zipfile
 import time
+import unicodedata
 from datetime import datetime, timezone
 
 from python_patch_utils import PatchFailure, diagnose_ops, finish_failure, run_ops
 from python_patch_package_schema import PatchSchemaError, path_is_link_or_reparse, run_preflight, sha256_file
 
-VERSION = "6.17.0"
+VERSION = "6.17.1"
 _ACTIVE_TERMINATION_SIGNAL: int | None = None
+MAX_ARCHIVE_ENTRIES = 10000
+MAX_ARCHIVE_MEMBER_BYTES = 64 * 1024 * 1024
+MAX_ARCHIVE_TOTAL_BYTES = 256 * 1024 * 1024
+MAX_ARCHIVE_COMPRESSION_RATIO = 200
 
 
 def _sigterm_as_interrupt(signum, _frame):
@@ -39,48 +45,111 @@ def _sha256(path: Path) -> str:
 
 
 def _safe_archive_name(name: str) -> PurePosixPath:
-    text = name.replace("\\", "/")
+    if "\\" in name:
+        raise ValueError(f"archive member must use POSIX '/' separators: {name}")
+    text = name
     rel = PurePosixPath(text)
     if rel.is_absolute() or any(part in {"", ".", ".."} for part in rel.parts):
         raise ValueError(f"unsafe archive member: {name}")
+    if any(":" in part for part in rel.parts):
+        raise ValueError(f"Windows drive/ADS syntax is not allowed in archive member: {name}")
     return rel
+
+
+def _archive_collision_key(rel: PurePosixPath) -> str:
+    return unicodedata.normalize("NFC", rel.as_posix()).casefold()
 
 
 def _safe_extract_zip(path: Path, dest: Path) -> None:
     with zipfile.ZipFile(path) as zf:
-        for info in zf.infolist():
+        infos = zf.infolist()
+        if len(infos) > MAX_ARCHIVE_ENTRIES:
+            raise ValueError(f"archive has too many entries ({len(infos)} > {MAX_ARCHIVE_ENTRIES})")
+        total = 0
+        seen: set[str] = set()
+        for info in infos:
             if info.is_dir():
                 continue
             rel = _safe_archive_name(info.filename)
+            key = _archive_collision_key(rel)
+            if key in seen:
+                raise ValueError(f"duplicate/case-fold/Unicode-colliding archive member: {info.filename}")
+            seen.add(key)
+            if info.file_size > MAX_ARCHIVE_MEMBER_BYTES:
+                raise ValueError(f"archive member too large: {info.filename} ({info.file_size})")
+            total += info.file_size
+            if total > MAX_ARCHIVE_TOTAL_BYTES:
+                raise ValueError("archive expanded size exceeds tool limit")
+            if info.file_size > 1024 * 1024 and info.compress_size == 0:
+                raise ValueError(f"archive member has impossible compression size: {info.filename}")
+            if info.compress_size > 0 and info.file_size / info.compress_size > MAX_ARCHIVE_COMPRESSION_RATIO:
+                raise ValueError(f"archive member compression ratio is too high: {info.filename}")
             mode = (info.external_attr >> 16) & 0xFFFF
             if stat.S_ISLNK(mode):
                 raise ValueError(f"archive symlink is not allowed: {info.filename}")
             target = dest.joinpath(*rel.parts)
             target.parent.mkdir(parents=True, exist_ok=True)
+            copied = 0
             with zf.open(info) as src, target.open("wb") as out:
-                shutil.copyfileobj(src, out)
+                for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                    copied += len(chunk)
+                    if copied > info.file_size or copied > MAX_ARCHIVE_MEMBER_BYTES:
+                        raise ValueError(f"archive member exceeded declared/safe size while extracting: {info.filename}")
+                    out.write(chunk)
+            if copied != info.file_size:
+                raise ValueError(f"archive member size changed while extracting: {info.filename}")
 
 
 def _safe_extract_tar(path: Path, dest: Path) -> None:
     with tarfile.open(path, "r:*") as tf:
-        for member in tf.getmembers():
+        members = tf.getmembers()
+        if len(members) > MAX_ARCHIVE_ENTRIES:
+            raise ValueError(f"archive has too many entries ({len(members)} > {MAX_ARCHIVE_ENTRIES})")
+        total = 0
+        seen: set[str] = set()
+        for member in members:
             if member.isdir():
                 continue
             rel = _safe_archive_name(member.name)
+            key = _archive_collision_key(rel)
+            if key in seen:
+                raise ValueError(f"duplicate/case-fold/Unicode-colliding archive member: {member.name}")
+            seen.add(key)
             if not member.isfile():
                 raise ValueError(f"archive non-regular member is not allowed: {member.name}")
+            if member.size > MAX_ARCHIVE_MEMBER_BYTES:
+                raise ValueError(f"archive member too large: {member.name} ({member.size})")
+            total += member.size
+            if total > MAX_ARCHIVE_TOTAL_BYTES:
+                raise ValueError("archive expanded size exceeds tool limit")
             src = tf.extractfile(member)
             if src is None:
                 raise ValueError(f"cannot read archive member: {member.name}")
             target = dest.joinpath(*rel.parts)
             target.parent.mkdir(parents=True, exist_ok=True)
+            copied = 0
             with src, target.open("wb") as out:
-                shutil.copyfileobj(src, out)
+                for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                    copied += len(chunk)
+                    if copied > member.size or copied > MAX_ARCHIVE_MEMBER_BYTES:
+                        raise ValueError(f"archive member exceeded declared/safe size while extracting: {member.name}")
+                    out.write(chunk)
+            if copied != member.size:
+                raise ValueError(f"archive member size changed while extracting: {member.name}")
+
+
+def _reject_duplicate_json_pairs(pairs):
+    out = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError(f"duplicate JSON key: {key}")
+        out[key] = value
+    return out
 
 
 def _read_json(path: Path, label: str) -> dict:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_json_pairs)
     except Exception as exc:
         raise ValueError(f"invalid {label}: {type(exc).__name__}: {exc}") from exc
     if not isinstance(data, dict):
@@ -155,8 +224,11 @@ def _dirty_paths(root: Path) -> dict[str, str]:
             continue
         status = text[:2]
         name = text[3:]
-        if status[0] in {"R", "C"} and i < len(parts):
-            name = parts[i].decode("utf-8", errors="surrogateescape"); i += 1
+        if any(code in {"R", "C"} for code in status) and i < len(parts):
+            # With porcelain=v1 -z, `name` is the destination and the next
+            # NUL field is the source/original path. Consume it but keep the
+            # destination as the dirty path used for patch/Git policy.
+            i += 1
         path = root / name
         try:
             digest = _sha256(path) if path.is_file() and not path.is_symlink() else "<nonfile>"
@@ -360,9 +432,15 @@ def _run_git_policy(root: Path, manifest: dict, before_dirty: dict[str, str], af
             message = policy.get("commit_message")
             if not isinstance(message, str) or not message.strip():
                 raise RuntimeError("git.commit=auto requires commit_message")
+            preexisting_dirty = sorted(name for name in touched if name in before_dirty)
+            if preexisting_dirty:
+                raise RuntimeError(
+                    "git.commit=auto refuses target paths that were already dirty before PATCH: "
+                    + ", ".join(preexisting_dirty)
+                )
             # --only confines the commit to paths touched by this patch run.
             proc = subprocess.run(["git", "commit", "-m", message, "--only", "--", *touched], cwd=root)
-            if proc.returncode not in {0, 1}:
+            if proc.returncode != 0:
                 raise RuntimeError(f"git commit failed rc={proc.returncode}")
         if policy.get("push") == "auto":
             proc = subprocess.run(["git", "push"], cwd=root)
@@ -372,6 +450,76 @@ def _run_git_policy(root: Path, manifest: dict, before_dirty: dict[str, str], af
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1 if fail_on_error else 0
     return 0
+
+
+
+
+def _mutation_lock_key(root: Path) -> str:
+    return hashlib.sha256(str(root.resolve()).encode("utf-8", errors="surrogateescape")).hexdigest()[:32]
+
+
+def _mutation_lock_path(root: Path) -> Path:
+    base = Path(tempfile.gettempdir()) / "python_patch_tool_locks" / _mutation_lock_key(root)
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "mutation.lock"
+
+
+def _inherited_mutation_lock_is_valid(root: Path, path: Path) -> bool:
+    token = os.environ.get("PTV_PARENT_MUTATION_LOCK_TOKEN", "").strip()
+    key = os.environ.get("PTV_PARENT_MUTATION_LOCK_KEY", "").strip()
+    if not token or key != _mutation_lock_key(root):
+        return False
+    try:
+        with path.open("rb") as fh:
+            current = fh.read(256).decode("ascii", errors="ignore").strip()
+        return current == token
+    except OSError:
+        return False
+
+
+def _acquire_project_mutation_lock(root: Path):
+    path = _mutation_lock_path(root)
+    # In batch-transaction mode the dispatcher owns this exact lock across the
+    # whole snapshot -> PATCH sequence -> rollback/commit window. Children may
+    # inherit only a matching random token written by that lock owner.
+    if _inherited_mutation_lock_is_valid(root, path):
+        return None
+    fh = path.open("a+b")
+    try:
+        fh.seek(0, os.SEEK_END)
+        if fh.tell() == 0:
+            fh.write(b"0")
+            fh.flush()
+        fh.seek(0)
+        started = time.monotonic()
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        waited = time.monotonic() - started
+        if waited >= 0.25:
+            print(f"PATCH MUTATION LOCK: acquired after waiting {waited:.1f}s for another PATCH process")
+        return fh
+    except Exception:
+        fh.close()
+        raise
+
+
+def _release_project_mutation_lock(fh) -> None:
+    if fh is None:
+        return
+    try:
+        fh.seek(0)
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    finally:
+        fh.close()
 
 
 def _snapshot_patch_input(source: Path) -> tuple[tempfile.TemporaryDirectory[str], Path, str]:
@@ -461,6 +609,31 @@ def _publish_executed_patch(snapshot: Path, dst: Path, expected_sha: str) -> Non
         except FileExistsError:
             if dst.is_symlink() or not dst.is_file() or _sha256(dst) != expected_sha:
                 raise ValueError(f"archive destination raced with different content: {dst.name}")
+        except OSError:
+            # Hard links are unavailable on some removable/network filesystems.
+            # Fall back to an exclusive copy while preserving no-overwrite
+            # semantics, then verify the published bytes before success.
+            out_fd = None
+            try:
+                out_fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(out_fd, "wb") as out, tmp.open("rb") as src:
+                    out_fd = None
+                    for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                        out.write(chunk)
+                    out.flush()
+                    try: os.fsync(out.fileno())
+                    except OSError: pass
+            except FileExistsError:
+                if dst.is_symlink() or not dst.is_file() or _sha256(dst) != expected_sha:
+                    raise ValueError(f"archive destination raced with different content: {dst.name}")
+            finally:
+                if out_fd is not None:
+                    try: os.close(out_fd)
+                    except OSError: pass
+            if dst.is_symlink() or not dst.is_file() or _sha256(dst) != expected_sha:
+                try: dst.unlink()
+                except OSError: pass
+                raise ValueError("archive fallback copy failed hash verification")
         finally:
             try: tmp.unlink()
             except FileNotFoundError: pass
@@ -594,11 +767,13 @@ def _partial_state(
     after_fp = _git_worktree_fingerprint(root)
     after_dirty = _dirty_paths(root)
     after_targets = _snapshot_declared_paths(root, target_paths)
-    changed = sorted(set(_touched_paths(before_dirty, after_dirty)) | set(_snapshot_changes(before_targets, after_targets)))
-    if before_fp is not None and after_fp is not None:
-        detected: bool | None = before_fp != after_fp
+    target_changes = _snapshot_changes(before_targets, after_targets)
+    changed = sorted(set(_touched_paths(before_dirty, after_dirty)) | set(target_changes))
+    git_changed = (before_fp != after_fp) if before_fp is not None and after_fp is not None else None
+    if git_changed is not None:
+        detected: bool | None = bool(git_changed or target_changes)
     elif target_paths:
-        detected = bool(_snapshot_changes(before_targets, after_targets))
+        detected = bool(target_changes)
     else:
         detected = None
     return {
@@ -976,13 +1151,28 @@ def _prepare_package(root: Path, source: Path):
     else:
         _safe_extract_tar(source, extracted)
     manifest_path = extracted / "PATCH_TOOL_MANIFEST.json"
-    if not manifest_path.is_file():
-        raise PatchSchemaError("archive PATCH requires root PATCH_TOOL_MANIFEST.json", kind="manifest_missing")
     manifest, kind, payload = _find_payload(extracted)
+    if not manifest_path.is_file():
+        if kind != "python":
+            raise PatchSchemaError(
+                "legacy archive without PATCH_TOOL_MANIFEST.json must contain exactly one Python patch entrypoint",
+                kind="manifest_missing",
+            )
+        preflight = {
+            "status": "PASS",
+            "tool_version": VERSION,
+            "warnings": ["legacy archive Python patch has no PATCH_TOOL_MANIFEST.json compatibility/schema metadata"],
+            "checks": [{"kind": "legacy_archive_python", "status": "PASS"}],
+            "target_paths": [],
+            "legacy_archive": True,
+        }
+        return temp_dir, extracted, {}, kind, payload, None, preflight
     ops_data = _read_json(payload, "PATCH_TOOL_OPS.json") if kind == "ops" else None
     preflight = run_preflight(root, manifest, extracted=extracted, kind=kind, payload=payload, ops_data=ops_data)
     if kind == "ops" and isinstance(ops_data, dict):
-        ops_report = diagnose_ops(root, ops_data)
+        execution = manifest.get("execution") if isinstance(manifest.get("execution"), dict) else {}
+        ops_timeout = int(execution.get("timeout_seconds", 900))
+        ops_report = _diagnose_ops_managed(root, payload, ops_timeout)
         preflight["ops_dry_run"] = ops_report
         checks = preflight.get("checks")
         if isinstance(checks, list):
@@ -1006,6 +1196,33 @@ def _prepare_package(root: Path, source: Path):
                 report=preflight,
             )
     return temp_dir, extracted, manifest, kind, payload, ops_data, preflight
+
+
+def _diagnose_ops_managed(root: Path, payload: Path, timeout: int) -> dict[str, object]:
+    worker = Path(__file__).resolve().parent / "python_patch_ops_worker.py"
+    fd, name = tempfile.mkstemp(prefix="ptv-ops-diagnose-", suffix=".json")
+    os.close(fd)
+    result_path = Path(name)
+    try:
+        try: result_path.unlink()
+        except FileNotFoundError: pass
+        rc = _run_managed_process([
+            sys.executable, str(worker), "--project-root", str(root),
+            "--ops-json", str(payload), "--mode", "diagnose", "--result", str(result_path),
+        ], cwd=root, timeout=max(1, timeout))
+        if rc == 124:
+            return {"status": "FAIL", "kind": "patch_operation_timeout", "message": f"OPS dry-run exceeded timeout_seconds={timeout}", "operations": 0}
+        if result_path.is_file():
+            try:
+                data = json.loads(result_path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return data
+            except Exception as exc:
+                return {"status": "FAIL", "kind": "tool_error", "message": f"cannot parse OPS dry-run result: {type(exc).__name__}: {exc}"}
+        return {"status": "FAIL", "kind": "tool_error", "message": f"OPS dry-run worker failed rc={rc} without result"}
+    finally:
+        try: result_path.unlink()
+        except FileNotFoundError: pass
 
 
 def _diagnostic_class(kind: str) -> str:
@@ -1175,6 +1392,7 @@ def _execute_patch(root: Path, source: Path) -> int:
     temp_dir: tempfile.TemporaryDirectory[str] | None = None
     rollback_temp: tempfile.TemporaryDirectory[str] | None = None
     rollback_snapshot: dict[str, object] | None = None
+    mutation_lock = None
     manifest: dict = {}
     preflight: dict[str, object] = {}
     target_paths: list[str] = []
@@ -1185,6 +1403,9 @@ def _execute_patch(root: Path, source: Path) -> int:
         try:
             input_temp, execution_source, input_sha = _snapshot_patch_input(source)
             result["patch_sha256"] = input_sha
+            # Selection/package snapshotting may run concurrently, but preflight +
+            # source mutation is serialized per project to prevent lost updates.
+            mutation_lock = _acquire_project_mutation_lock(root)
             temp_dir, _extracted, manifest, kind, payload, ops_data, preflight = _prepare_package(root, execution_source)
             result["preflight"] = preflight
             result["manifest_patch"] = manifest.get("patch") if isinstance(manifest, dict) else None
@@ -1235,20 +1456,41 @@ def _execute_patch(root: Path, source: Path) -> int:
             rc = _execute_python(payload, root, timeout)
             payload_diag = None
         else:
-            try:
-                if ops_data is None:
-                    ops_data = _read_json(payload, "PATCH_TOOL_OPS.json")
-                patch_name = str((manifest.get("patch") or {}).get("id") or ops_data.get("patch_name") or source.stem)
-                state = run_ops(root, ops_data, patch_name=patch_name)
-                print(f"PATCH OPS: patched={state.stats.patched} created={state.stats.created} unchanged={state.stats.unchanged}")
-                rc = 0
-                payload_diag = None
-            except PatchFailure as exc:
-                rc = finish_failure(exc)
-                payload_diag = {"kind": _failure_kind_from_patch_failure(exc), "message": str(exc), "affected_paths": [exc.rel_path] if exc.rel_path else []}
-            except Exception as exc:
-                rc = finish_failure(exc)
-                payload_diag = {"kind": "patch_operation_failed", "message": f"{type(exc).__name__}: {exc}", "affected_paths": []}
+            if ops_data is None:
+                ops_data = _read_json(payload, "PATCH_TOOL_OPS.json")
+            patch_name = str((manifest.get("patch") or {}).get("id") or ops_data.get("patch_name") or source.stem)
+            worker = Path(__file__).resolve().parent / "python_patch_ops_worker.py"
+            worker_result = Path(temp_dir.name if temp_dir is not None else tempfile.gettempdir()) / f"ptv-ops-result-{os.getpid()}-{time.time_ns()}.json"
+            rc = _run_managed_process([
+                sys.executable, str(worker), "--project-root", str(root),
+                "--ops-json", str(payload), "--patch-name", patch_name, "--result", str(worker_result),
+            ], cwd=root, timeout=timeout)
+            payload_diag = None
+            worker_data: dict[str, object] = {}
+            if worker_result.is_file():
+                try:
+                    loaded = json.loads(worker_result.read_text(encoding="utf-8"))
+                    if isinstance(loaded, dict):
+                        worker_data = loaded
+                except Exception:
+                    worker_data = {}
+                try: worker_result.unlink()
+                except OSError: pass
+            if rc == 0:
+                stats = worker_data.get("stats") if isinstance(worker_data.get("stats"), dict) else {}
+                print(f"PATCH OPS: patched={stats.get('patched',0)} created={stats.get('created',0)} unchanged={stats.get('unchanged',0)}")
+            elif rc == 124:
+                payload_diag = {"kind": "patch_operation_timeout", "message": f"OPS execution exceeded timeout_seconds={timeout}", "affected_paths": []}
+                print(f"ERROR: PATCH OPS timeout after {timeout}s", file=sys.stderr)
+            elif worker_data.get("kind") == "patch_failure":
+                rel = str(worker_data.get("path") or "")
+                msg = str(worker_data.get("message") or "OPS patch failure")
+                synthetic = PatchFailure(rel, msg, expected=worker_data.get("expected") if isinstance(worker_data.get("expected"),str) else None, strategy=worker_data.get("strategy") if isinstance(worker_data.get("strategy"),str) else None)
+                payload_diag = {"kind": _failure_kind_from_patch_failure(synthetic), "message": msg, "affected_paths": [rel] if rel else []}
+                print(f"ERROR: {rel + ': ' if rel else ''}{msg}", file=sys.stderr)
+            else:
+                payload_diag = {"kind": str(worker_data.get("kind") or "patch_operation_failed"), "message": str(worker_data.get("message") or f"OPS worker failed rc={rc}"), "affected_paths": []}
+                print(f"ERROR: {payload_diag['message']}", file=sys.stderr)
         if rc:
             partial = _partial_state(root, before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets, target_paths=target_paths)
             diagnosis = payload_diag or {"kind": "patch_payload_failed", "message": f"payload returned rc={rc}", "affected_paths": list(partial.get("changed_paths") or [])}
@@ -1271,8 +1513,11 @@ def _execute_patch(root: Path, source: Path) -> int:
             print(f"RUN SUMMARY: FAIL | {source.name} rc={rc}", file=sys.stderr)
             return _finish_result(result, status="FAIL", rc=rc, stage="payload", diagnosis=diagnosis, partial=partial)
 
-        after_payload_fp = _git_worktree_fingerprint(root)
-        changed = before_fp is None or after_payload_fp is None or before_fp != after_payload_fp
+        payload_delta = _partial_state(
+            root, before_fp=before_fp, before_dirty=before_dirty,
+            before_targets=before_targets, target_paths=target_paths,
+        )
+        changed = payload_delta.get("detected") is not False
         result["stage"] = "post_patch"
         rc = _run_post_patch(root, manifest, changed=changed)
         if rc:
@@ -1358,9 +1603,25 @@ def _execute_patch(root: Path, source: Path) -> int:
                     partial = rollback_result["remaining_project_delta"]
         return _finish_result(result, status="FAIL", rc=rc, stage=stage, diagnosis=diagnosis, partial=partial)
     except Exception as exc:
+        stage = str(result.get("stage") or "unknown")
         print(f"ERROR: PATCH execution failed: {type(exc).__name__}: {exc}", file=sys.stderr)
-        return _finish_result(result, status="FAIL", rc=2, stage=str(result.get("stage") or "unknown"), diagnosis={"kind": "internal_error", "message": f"{type(exc).__name__}: {exc}", "affected_paths": []})
+        partial: dict[str, object] = {"detected": None, "changed_paths": [], "evidence": "internal_error_state_unknown"}
+        if stage in {"payload", "post_patch", "git", "archive"} and (target_paths or before_fp is not None):
+            try:
+                partial = _partial_state(
+                    root, before_fp=before_fp, before_dirty=before_dirty,
+                    before_targets=before_targets, target_paths=target_paths,
+                )
+            except Exception:
+                partial = {"detected": None, "changed_paths": [], "evidence": "internal_error_partial_recompute_failed"}
+        diagnosis = {
+            "kind": "internal_error",
+            "message": f"{type(exc).__name__}: {exc}",
+            "affected_paths": list(partial.get("changed_paths") or []),
+        }
+        return _finish_result(result, status="FAIL", rc=2, stage=stage, diagnosis=diagnosis, partial=partial)
     finally:
+        _release_project_mutation_lock(mutation_lock)
         if rollback_temp is not None:
             rollback_temp.cleanup()
         if temp_dir is not None:

@@ -5,7 +5,7 @@ from pathlib import Path
 
 HERE=Path(__file__).resolve().parent
 LAUNCHER=HERE.parent/'run_python_patches.sh'
-FILES=['python_patch_collect_progress_v6_7.py','python_patch_collect_compat.py','python_patch_collect_schema.py']
+FILES=['python_patch_collect_progress_v6_7.py','python_patch_collect_compat.py','python_patch_collect_schema.py','python_patch_collect_regex_worker.py']
 
 def sha(data: bytes)->str: return hashlib.sha256(data).hexdigest()
 def make_request(path: Path,data: dict):
@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory(prefix='ptv612_pack_') as td:
     results=list((root/'artifacts'/'patch_tool_code_collections').glob('CODE_COLLECTION_RESULT_pack-test_*.zip')); assert len(results)==1
     with zipfile.ZipFile(results[0]) as z:
         manifest=json.loads(z.read('COLLECTION_MANIFEST.json'))
-        assert manifest['tool_version']=='6.17.0' and manifest['file_count']==2
+        assert manifest['tool_version']=='6.17.1' and manifest['file_count']==2
         by={e['path']:e for e in manifest['files']}
         for rel,content in payloads.items():
             assert by[rel]['sha256']==sha(content); assert z.read(by[rel]['archive_path'])==content
@@ -82,4 +82,4 @@ with tempfile.TemporaryDirectory(prefix='ptv612_schema_bad_') as td:
     assert 'unsupported action type: symbol_graph' in cp.stdout+cp.stderr,cp.stdout+cp.stderr
     assert req.exists()
 
-print('PASS: v6.17.0 self-contained COLLECT actions pack/overview/find/search/git and exact schema')
+print('PASS: v6.17.1 self-contained COLLECT actions pack/overview/find/search/git and exact schema')

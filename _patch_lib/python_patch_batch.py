@@ -7,16 +7,18 @@ import json
 import os
 import shutil
 import stat
+import tarfile
 import tempfile
+import time
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from python_patch_package_schema import PatchSchemaError, check_compatibility, validate_manifest, resolve_project_path
+from python_patch_package_schema import PatchSchemaError, check_compatibility, validate_manifest, resolve_project_path, _ops_target_paths
 
-VERSION = "6.17.0"
+VERSION = "6.17.1"
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_DIFF_FILE_BYTES = 512 * 1024
 MAX_SNAPSHOT_FILE_BYTES = 8 * 1024 * 1024
@@ -38,30 +40,94 @@ class PatchMeta:
     on_dependency_failure: str
     previous_failure: dict[str, Any] | None
     targets: list[str]
+    effective_targets: list[str]
 
 
-def _safe_json_zip_member(path: Path, member: str) -> dict[str, Any]:
-    if not path.is_file() or path.is_symlink():
-        raise BatchPlanError(f"PATCH package is unavailable or unsafe: {path.name}", kind="package_invalid")
+def _reject_duplicate_json_pairs(pairs):
+    out = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError(f"duplicate JSON key: {key}")
+        out[key] = value
+    return out
+
+
+def _decode_json_object(raw: bytes, *, member: str, package_name: str) -> dict[str, Any]:
     try:
-        with zipfile.ZipFile(path) as zf:
-            info = zf.getinfo(member)
-            if info.file_size > MAX_MANIFEST_BYTES:
-                raise BatchPlanError(f"{member} is too large in {path.name}", kind="package_invalid")
-            raw = zf.read(info)
-    except (KeyError, zipfile.BadZipFile, OSError) as exc:
-        raise BatchPlanError(f"cannot read {member} from {path.name}: {type(exc).__name__}: {exc}", kind="package_invalid") from exc
-    try:
-        data = json.loads(raw.decode("utf-8"))
+        data = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_pairs)
     except Exception as exc:
-        raise BatchPlanError(f"invalid {member} in {path.name}: {type(exc).__name__}: {exc}", kind="package_invalid") from exc
+        raise BatchPlanError(
+            f"invalid {member} in {package_name}: {type(exc).__name__}: {exc}",
+            kind="package_invalid",
+        ) from exc
     if not isinstance(data, dict):
-        raise BatchPlanError(f"{member} root must be an object in {path.name}", kind="package_invalid")
+        raise BatchPlanError(f"{member} root must be an object in {package_name}", kind="package_invalid")
     return data
 
 
+def _safe_json_archive_member(path: Path, member: str, *, required: bool = True, max_bytes: int = MAX_MANIFEST_BYTES) -> dict[str, Any] | None:
+    """Read one root JSON member from ZIP/TAR without extraction.
+
+    Missing root metadata is allowed only for explicitly supported legacy archive
+    routing. Duplicate member names and non-regular TAR members fail closed.
+    """
+    if not path.is_file() or path.is_symlink():
+        raise BatchPlanError(f"PATCH package is unavailable or unsafe: {path.name}", kind="package_invalid")
+    low = path.name.lower()
+    try:
+        if low.endswith(".zip"):
+            with zipfile.ZipFile(path) as zf:
+                matches = [info for info in zf.infolist() if info.filename == member]
+                if not matches:
+                    if required:
+                        raise BatchPlanError(f"cannot read {member} from {path.name}: member missing", kind="package_invalid")
+                    return None
+                if len(matches) != 1:
+                    raise BatchPlanError(f"duplicate {member} in {path.name}", kind="package_invalid")
+                info = matches[0]
+                if info.is_dir() or info.file_size > max_bytes:
+                    raise BatchPlanError(f"{member} is invalid or too large in {path.name}", kind="package_invalid")
+                raw = zf.read(info)
+        elif low.endswith((".tar.gz", ".tgz")):
+            with tarfile.open(path, "r:*") as tf:
+                matches = [m for m in tf.getmembers() if m.name == member]
+                if not matches:
+                    if required:
+                        raise BatchPlanError(f"cannot read {member} from {path.name}: member missing", kind="package_invalid")
+                    return None
+                if len(matches) != 1:
+                    raise BatchPlanError(f"duplicate {member} in {path.name}", kind="package_invalid")
+                info = matches[0]
+                if not info.isfile() or info.size > max_bytes:
+                    raise BatchPlanError(f"{member} is invalid or too large in {path.name}", kind="package_invalid")
+                fh = tf.extractfile(info)
+                if fh is None:
+                    raise BatchPlanError(f"cannot read {member} from {path.name}", kind="package_invalid")
+                raw = fh.read(max_bytes + 1)
+                if len(raw) > max_bytes:
+                    raise BatchPlanError(f"{member} is too large in {path.name}", kind="package_invalid")
+        else:
+            raise BatchPlanError(f"unsupported PATCH package extension: {path.name}", kind="package_invalid")
+    except BatchPlanError:
+        raise
+    except (zipfile.BadZipFile, tarfile.TarError, OSError, KeyError) as exc:
+        raise BatchPlanError(
+            f"cannot read {member} from {path.name}: {type(exc).__name__}: {exc}",
+            kind="package_invalid",
+        ) from exc
+    return _decode_json_object(raw, member=member, package_name=path.name)
+
+
 def load_patch_meta(root: Path, name: str) -> PatchMeta:
-    manifest = _safe_json_zip_member(root / "patchs" / name, "PATCH_TOOL_MANIFEST.json")
+    package = root / "patchs" / name
+    if package.suffix.lower() == ".py":
+        return PatchMeta(name, f"legacy:{name}", {}, [], "block", None, [], [])
+    manifest = _safe_json_archive_member(package, "PATCH_TOOL_MANIFEST.json", required=False)
+    if manifest is None:
+        # Legacy ZIP/TAR archives are still discovered intentionally. They do
+        # not participate in dependency/atomic metadata and are scheduled as a
+        # single legacy unit; the runner enforces the one-Python-entrypoint rule.
+        return PatchMeta(name, f"legacy:{name}", {}, [], "block", None, [], [])
     try:
         validate_manifest(manifest)
         check_compatibility(manifest, VERSION)
@@ -69,9 +135,9 @@ def load_patch_meta(root: Path, name: str) -> PatchMeta:
         # Preserve the established standalone legacy/self-contained PATCH route.
         # Legacy packages cannot declare v6.17 dependency/transaction metadata;
         # they receive an internal scheduling key only so ordinary one-item runs
-        # are not broken by the new batch planner.  This is not a provenance ID.
+        # are not broken by the new batch planner. This is not a provenance ID.
         if "schema_version" not in manifest and "patch" not in manifest:
-            return PatchMeta(name, f"legacy:{name}", manifest, [], "block", None, [])
+            return PatchMeta(name, f"legacy:{name}", manifest, [], "block", None, [], [])
         raise
     patch = manifest.get("patch") if isinstance(manifest.get("patch"), dict) else {}
     patch_id = str(patch.get("id") or "").strip()
@@ -84,7 +150,22 @@ def load_patch_meta(root: Path, name: str) -> PatchMeta:
     prev = batch.get("previous_failure") if isinstance(batch.get("previous_failure"), dict) else None
     targets = manifest.get("targets") if isinstance(manifest.get("targets"), list) else []
     target_list = [str(x) for x in targets if isinstance(x, str)]
-    return PatchMeta(name, patch_id, manifest, depends_on, on_fail, prev, target_list)
+    effective = set(target_list)
+    pre = manifest.get("preflight") if isinstance(manifest.get("preflight"), dict) else {}
+    for spec in pre.get("files", []) if isinstance(pre.get("files"), list) else []:
+        if isinstance(spec, dict) and isinstance(spec.get("path"), str):
+            effective.add(str(spec["path"]))
+    recovery = manifest.get("recovery") if isinstance(manifest.get("recovery"), dict) else {}
+    rollback = recovery.get("rollback") if isinstance(recovery.get("rollback"), dict) else {}
+    for rel in rollback.get("targets", []) if isinstance(rollback.get("targets"), list) else []:
+        if isinstance(rel, str):
+            effective.add(rel)
+    ops_data = _safe_json_archive_member(
+        package, "PATCH_TOOL_OPS.json", required=False, max_bytes=MAX_MANIFEST_BYTES * 8
+    )
+    if isinstance(ops_data, dict):
+        effective.update(_ops_target_paths(ops_data.get("ops")))
+    return PatchMeta(name, patch_id, manifest, depends_on, on_fail, prev, target_list, sorted(effective))
 
 
 def topo_order(metas: list[PatchMeta]) -> list[PatchMeta]:
@@ -238,62 +319,222 @@ def _safe_target_path(root: Path, rel: str) -> Path:
         raise BatchPlanError(f"batch transaction target must be a regular file or missing: {rel}", kind="batch_transaction_invalid")
     return leaf
 
+
+def _open_batch_parent_fd(root: Path, rel: str) -> tuple[int | None, Path, str]:
+    pure = PurePosixPath(rel)
+    parent_path = root.joinpath(*pure.parts[:-1]) if len(pure.parts) > 1 else root
+    leaf = pure.name
+    if os.name == "nt" or not hasattr(os, "O_DIRECTORY"):
+        return None, parent_path, leaf
+    flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(root, flags)
+    try:
+        for part in pure.parts[:-1]:
+            next_fd = os.open(part, flags, dir_fd=fd)
+            os.close(fd); fd = next_fd
+        return fd, parent_path, leaf
+    except Exception:
+        try: os.close(fd)
+        except OSError: pass
+        raise
+
+
+def _copy_fd_snapshot(fd: int, backup: Path, *, rel: str, total_before: int) -> tuple[int, str, int]:
+    before = os.fstat(fd)
+    if not stat.S_ISREG(before.st_mode):
+        raise BatchPlanError(f"batch transaction target changed type while snapshotting: {rel}", kind="batch_transaction_snapshot_race")
+    if before.st_size > MAX_SNAPSHOT_FILE_BYTES:
+        raise BatchPlanError(f"batch transaction target exceeds per-file snapshot limit: {rel}", kind="batch_transaction_invalid")
+    copied = 0
+    digest = hashlib.sha256()
+    with os.fdopen(os.dup(fd), "rb") as src, backup.open("wb") as dst:
+        for chunk in iter(lambda: src.read(1024 * 1024), b""):
+            copied += len(chunk)
+            if copied > MAX_SNAPSHOT_FILE_BYTES or total_before + copied > MAX_SNAPSHOT_TOTAL_BYTES:
+                raise BatchPlanError("batch transaction snapshot exceeds total byte limit", kind="batch_transaction_invalid")
+            dst.write(chunk); digest.update(chunk)
+        dst.flush()
+        try: os.fsync(dst.fileno())
+        except OSError: pass
+    after = os.fstat(fd)
+    ident_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+    ident_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+    if ident_before != ident_after or copied != before.st_size:
+        raise BatchPlanError(f"batch transaction target changed while snapshotting: {rel}", kind="batch_transaction_snapshot_race")
+    return copied, digest.hexdigest(), stat.S_IMODE(before.st_mode)
+
+
+def _sha256_open_target(parent_fd: int | None, parent_path: Path, leaf: str) -> tuple[str, int]:
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(leaf, flags, dir_fd=parent_fd) if parent_fd is not None else os.open(parent_path / leaf, flags)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise RuntimeError("target is not a regular file")
+        h = hashlib.sha256(); copied = 0
+        with os.fdopen(os.dup(fd), "rb") as src:
+            for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                h.update(chunk); copied += len(chunk)
+        after = os.fstat(fd)
+        if (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) or copied != st.st_size:
+            raise RuntimeError("target changed while verifying")
+        return h.hexdigest(), copied
+    finally:
+        os.close(fd)
+
+
 def snapshot_targets(root: Path, targets: list[str], snapshot_root: Path) -> dict[str, Any]:
     entries: list[dict[str, Any]] = []
     total = 0
-    for index, rel in enumerate(sorted(set(targets))):
-        path = _safe_target_path(root, rel)
-        parent = path.parent
-        if path.is_file():
-            size = path.stat().st_size
-            if size > MAX_SNAPSHOT_FILE_BYTES:
-                raise BatchPlanError(f"batch transaction target exceeds per-file snapshot limit: {rel}", kind="batch_transaction_invalid")
-            total += size
-            if total > MAX_SNAPSHOT_TOTAL_BYTES:
-                raise BatchPlanError("batch transaction snapshot exceeds total byte limit", kind="batch_transaction_invalid")
-            backup = snapshot_root / f"{index:05d}.bin"
-            backup.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, backup)
-            entries.append({"path": rel, "kind": "file", "backup": backup.name, "sha256": _sha256(backup), "mode": path.stat().st_mode & 0o777})
-        else:
-            entries.append({"path": rel, "kind": "missing"})
-    manifest = {"format": "ptv-batch-transaction-snapshot", "version": 1, "entries": entries, "total_bytes": total}
     snapshot_root.mkdir(parents=True, exist_ok=True)
-    (snapshot_root / "SNAPSHOT.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    for index, rel in enumerate(sorted(set(targets))):
+        # Validate project containment, then pin the parent directory on POSIX.
+        _safe_target_path(root, rel)
+        parent_fd = None
+        try:
+            parent_fd, parent_path, leaf = _open_batch_parent_fd(root, rel)
+            try:
+                st = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False) if parent_fd is not None else (parent_path / leaf).lstat()
+            except FileNotFoundError:
+                entries.append({"path": rel, "kind": "missing"})
+                continue
+            attrs = getattr(st, "st_file_attributes", 0)
+            reparse = bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+            if stat.S_ISLNK(st.st_mode) or reparse or not stat.S_ISREG(st.st_mode):
+                raise BatchPlanError(f"batch transaction target must remain a regular file or missing: {rel}", kind="batch_transaction_snapshot_race")
+            flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(leaf, flags, dir_fd=parent_fd) if parent_fd is not None else os.open(parent_path / leaf, flags)
+            backup = snapshot_root / f"{index:05d}.bin"
+            try:
+                copied, digest, mode = _copy_fd_snapshot(fd, backup, rel=rel, total_before=total)
+            finally:
+                os.close(fd)
+            total += copied
+            entries.append({"path": rel, "kind": "file", "backup": backup.name, "sha256": digest, "size": copied, "mode": mode})
+        except BatchPlanError:
+            raise
+        except (OSError, ValueError) as exc:
+            raise BatchPlanError(f"batch transaction target changed/unsafe while snapshotting: {rel}: {type(exc).__name__}", kind="batch_transaction_snapshot_race") from exc
+        finally:
+            if parent_fd is not None:
+                try: os.close(parent_fd)
+                except OSError: pass
+    manifest = {"format": "ptv-batch-transaction-snapshot", "version": 2, "entries": entries, "total_bytes": total}
+    fd, name = tempfile.mkstemp(prefix=".ptv-batch-snapshot-", suffix=".json", dir=snapshot_root)
+    temp = Path(name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            out.write(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"); out.flush()
+            try: os.fsync(out.fileno())
+            except OSError: pass
+        os.replace(temp, snapshot_root / "SNAPSHOT.json")
+    finally:
+        try: temp.unlink()
+        except FileNotFoundError: pass
     return manifest
 
 
 def restore_targets(root: Path, snapshot_root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
     restored: list[str] = []
     errors: list[str] = []
+    for index, entry in enumerate(manifest.get("entries", [])):
+        if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+            errors.append("invalid rollback entry")
+            continue
+        rel = entry["path"]
+        parent_fd = None
+        try:
+            _safe_target_path(root, rel)
+            parent_fd, parent_path, leaf = _open_batch_parent_fd(root, rel)
+            if entry.get("kind") == "missing":
+                try:
+                    st = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False) if parent_fd is not None else (parent_path / leaf).lstat()
+                except FileNotFoundError:
+                    restored.append(rel); continue
+                if not (stat.S_ISREG(st.st_mode) or stat.S_ISLNK(st.st_mode)):
+                    raise RuntimeError("rollback refuses to remove directory/non-file created at target")
+                if parent_fd is not None:
+                    os.unlink(leaf, dir_fd=parent_fd)
+                else:
+                    (parent_path / leaf).unlink()
+            else:
+                backup = snapshot_root / str(entry.get("backup"))
+                if not backup.is_file() or backup.is_symlink() or _sha256(backup) != entry.get("sha256"):
+                    raise RuntimeError("snapshot backup missing or corrupted")
+                if parent_fd is not None:
+                    temp_name = f".ptv-batch-restore-{os.getpid()}-{time.time_ns()}-{index}"
+                    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+                    out_fd = os.open(temp_name, flags, 0o600, dir_fd=parent_fd)
+                    try:
+                        with os.fdopen(os.dup(out_fd), "wb") as dst, backup.open("rb") as src:
+                            shutil.copyfileobj(src, dst, length=1024 * 1024); dst.flush()
+                            try: os.fsync(dst.fileno())
+                            except OSError: pass
+                        if os.name != "nt": os.fchmod(out_fd, int(entry.get("mode", 0o644)))
+                    finally:
+                        os.close(out_fd)
+                    try:
+                        os.replace(temp_name, leaf, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+                    finally:
+                        try: os.unlink(temp_name, dir_fd=parent_fd)
+                        except FileNotFoundError: pass
+                else:
+                    path = parent_path / leaf
+                    # Windows/fallback: revalidate immediately before path-based replace.
+                    _safe_target_path(root, rel)
+                    fd, tmp_name = tempfile.mkstemp(prefix=".ptv-batch-restore-", dir=path.parent)
+                    tmp = Path(tmp_name)
+                    try:
+                        with os.fdopen(fd, "wb") as dst, backup.open("rb") as src:
+                            shutil.copyfileobj(src, dst, length=1024 * 1024); dst.flush()
+                            try: os.fsync(dst.fileno())
+                            except OSError: pass
+                        if os.name != "nt": os.chmod(tmp, int(entry.get("mode", 0o644)))
+                        _safe_target_path(root, rel)
+                        os.replace(tmp, path)
+                    finally:
+                        try: tmp.unlink()
+                        except FileNotFoundError: pass
+            restored.append(rel)
+        except Exception as exc:
+            errors.append(f"{rel}: {type(exc).__name__}: {exc}")
+        finally:
+            if parent_fd is not None:
+                try: os.close(parent_fd)
+                except OSError: pass
+
+    verification_errors: list[str] = []
     for entry in manifest.get("entries", []):
         if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
             continue
         rel = entry["path"]
+        parent_fd = None
         try:
-            path = _safe_target_path(root, rel)
+            _safe_target_path(root, rel)
+            parent_fd, parent_path, leaf = _open_batch_parent_fd(root, rel)
             if entry.get("kind") == "missing":
-                if path.exists():
-                    path.unlink()
-            else:
-                backup = snapshot_root / str(entry.get("backup"))
-                if not backup.is_file() or _sha256(backup) != entry.get("sha256"):
-                    raise RuntimeError("snapshot backup missing or corrupted")
-                fd, tmp_name = tempfile.mkstemp(prefix=".ptv-batch-restore-", dir=path.parent)
-                tmp = Path(tmp_name)
                 try:
-                    with os.fdopen(fd, "wb") as dst, backup.open("rb") as src:
-                        shutil.copyfileobj(src, dst, length=1024 * 1024)
-                    if os.name != "nt":
-                        os.chmod(tmp, int(entry.get("mode", 0o644)))
-                    os.replace(tmp, path)
-                finally:
-                    try: tmp.unlink()
-                    except FileNotFoundError: pass
-            restored.append(rel)
+                    os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False) if parent_fd is not None else (parent_path / leaf).lstat()
+                except FileNotFoundError:
+                    continue
+                verification_errors.append(f"{rel}: expected missing after rollback")
+            else:
+                digest, size = _sha256_open_target(parent_fd, parent_path, leaf)
+                if digest != entry.get("sha256") or (entry.get("size") is not None and size != entry.get("size")):
+                    verification_errors.append(f"{rel}: restored bytes do not match snapshot")
         except Exception as exc:
-            errors.append(f"{rel}: {type(exc).__name__}: {exc}")
-    return {"status": "PASS" if not errors else "FAIL", "restored_paths": restored, "errors": errors}
+            verification_errors.append(f"{rel}: verify {type(exc).__name__}: {exc}")
+        finally:
+            if parent_fd is not None:
+                try: os.close(parent_fd)
+                except OSError: pass
+    errors.extend(verification_errors)
+    return {
+        "status": "PASS" if not errors else "FAIL",
+        "restored_paths": restored,
+        "errors": errors,
+        "verified": not verification_errors,
+    }
 
 
 def snapshot_package_bytes(root: Path, names: list[str], snapshot_root: Path) -> dict[str, str]:
@@ -303,9 +544,30 @@ def snapshot_package_bytes(root: Path, names: list[str], snapshot_root: Path) ->
         src = root / "patchs" / name
         if not src.is_file() or src.is_symlink():
             continue
-        dst = snapshot_root / f"{i:04d}_{Path(name).name}"
-        shutil.copy2(src, dst)
-        out[name] = dst.name
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(src, flags)
+        try:
+            before = os.fstat(fd)
+            if not stat.S_ISREG(before.st_mode):
+                raise BatchPlanError(f"batch package changed type before snapshot: {name}", kind="batch_transaction_snapshot_race")
+            dst = snapshot_root / f"{i:04d}_{Path(name).name}"
+            copied = 0; digest = hashlib.sha256()
+            with os.fdopen(os.dup(fd), "rb") as in_fh, dst.open("wb") as out_fh:
+                for chunk in iter(lambda: in_fh.read(1024 * 1024), b""):
+                    copied += len(chunk); digest.update(chunk); out_fh.write(chunk)
+                out_fh.flush()
+                try: os.fsync(out_fh.fileno())
+                except OSError: pass
+            after = os.fstat(fd)
+            if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) or copied != before.st_size:
+                try: dst.unlink()
+                except OSError: pass
+                raise BatchPlanError(f"batch package changed while snapshotting: {name}", kind="batch_transaction_snapshot_race")
+            if _sha256(dst) != digest.hexdigest():
+                raise BatchPlanError(f"batch package snapshot hash verification failed: {name}", kind="batch_transaction_snapshot_race")
+            out[name] = dst.name
+        finally:
+            os.close(fd)
     return out
 
 

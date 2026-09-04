@@ -20,16 +20,24 @@ import zipfile
 
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
 
-VERSION = "6.17.0"
+VERSION = "6.17.1"
 REQUEST_RE = re.compile(r"^CODE_COLLECTION_REQUEST(?:_[A-Za-z0-9._-]+)?\.json$", re.I)
 MAX_REQUEST_JSON_BYTES = 1024 * 1024
+REGEX_SEARCH_TIMEOUT_SECONDS = 60.0
 IGNORED_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "build", "dist"}
+IGNORED_REL_PREFIXES = (
+    "artifacts/patch_tool_code_collections/",
+    "artifacts/patch_tool/",
+    "patchs/patched/",
+)
 TEXT_SUFFIXES = {
     ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".inc", ".py", ".js", ".ts", ".tsx",
     ".java", ".kt", ".kts", ".go", ".rs", ".cs", ".php", ".rb", ".sh", ".bash", ".zsh",
     ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".properties", ".xml", ".html",
     ".css", ".scss", ".md", ".txt", ".gradle", ".cmake", ".mk", ".proto", ".sql", ".log",
 }
+SENSITIVE_NAME_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".jks", ".keystore"}
+SENSITIVE_BASENAMES = {".env", ".npmrc", ".pypirc", "id_rsa", "id_ed25519", "credentials", "credentials.json", "secrets.json"}
 SECRET_PATTERNS = [
     re.compile(r"(?i)(authorization\s*:\s*bearer\s+)[^\s'\"]+"),
     re.compile(r"(?i)((?:password|passwd|pwd|token|secret|api[_-]?key)\s*[=:]\s*)[^\s,;]+"),
@@ -53,6 +61,25 @@ def _redact_text(text: str) -> str:
         flags=re.S,
     )
     return out
+
+
+def _sensitive_file_reasons(rel: str, src: Path) -> list[str]:
+    reasons: list[str] = []
+    name = src.name.lower()
+    if name in SENSITIVE_BASENAMES or src.suffix.lower() in SENSITIVE_NAME_SUFFIXES:
+        reasons.append("sensitive filename/type")
+    try:
+        if src.stat().st_size <= 4 * 1024 * 1024:
+            raw = src.read_bytes()[:1024 * 1024]
+            if b"-----BEGIN " in raw and b"PRIVATE KEY-----" in raw:
+                reasons.append("private key marker")
+            elif b"\x00" not in raw:
+                text = raw.decode("utf-8", errors="ignore")
+                if any(p.search(text) for p in SECRET_PATTERNS):
+                    reasons.append("credential/token-like text")
+    except OSError:
+        pass
+    return sorted(set(reasons))
 
 
 def _snapshot_request_input(request_zip: Path) -> tuple[tempfile.TemporaryDirectory[str], Path, str]:
@@ -92,6 +119,15 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _reject_duplicate_json_pairs(pairs):
+    out = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError(f"duplicate JSON key: {key}")
+        out[key] = value
+    return out
+
+
 def _load_request(request_zip: Path) -> tuple[dict, str]:
     if request_zip.is_symlink() or not request_zip.is_file():
         raise ValueError("request ZIP must be a regular non-symlink file")
@@ -108,7 +144,7 @@ def _load_request(request_zip: Path) -> tuple[dict, str]:
         if info.file_size > MAX_REQUEST_JSON_BYTES:
             raise ValueError(f"request JSON is too large ({info.file_size} bytes)")
         try:
-            raw = json.loads(zf.read(request_members[0]).decode("utf-8"))
+            raw = json.loads(zf.read(request_members[0]).decode("utf-8"), object_pairs_hook=_reject_duplicate_json_pairs)
         except Exception as exc:
             raise ValueError(f"invalid request JSON ({type(exc).__name__})") from exc
     try:
@@ -171,8 +207,19 @@ def _resolve_exact_file(root: Path, raw: str) -> tuple[str, Path]:
     return rel.as_posix(), candidate
 
 
+def _is_internal_output_path(root: Path, path: Path) -> bool:
+    try:
+        rel = path.relative_to(root).as_posix()
+    except ValueError:
+        return True
+    rel_slash = rel.rstrip("/") + "/"
+    return any(rel == prefix.rstrip("/") or rel_slash.startswith(prefix) for prefix in IGNORED_REL_PREFIXES)
+
+
 def _iter_files(root: Path, scope: Path, *, max_files: int):
     count = 0
+    if _is_internal_output_path(root, scope):
+        return
     stack = [scope]
     while stack:
         current = stack.pop()
@@ -191,10 +238,12 @@ def _iter_files(root: Path, scope: Path, *, max_files: int):
                 if entry.is_symlink():
                     continue
                 if entry.is_dir():
-                    if entry.name in IGNORED_DIRS:
+                    if entry.name in IGNORED_DIRS or _is_internal_output_path(root, entry):
                         continue
                     stack.append(entry)
                 elif entry.is_file():
+                    if _is_internal_output_path(root, entry):
+                        continue
                     yield entry
                     count += 1
                     if count >= max_files:
@@ -207,6 +256,29 @@ def _project_rel(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
+def _ensure_real_dir_chain(root: Path, parts: tuple[str, ...]) -> Path:
+    cur = root.resolve(strict=True)
+    for part in parts:
+        nxt = cur / part
+        if nxt.exists() or nxt.is_symlink():
+            st = nxt.lstat()
+            attrs = getattr(st, "st_file_attributes", 0)
+            reparse = bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+            if stat.S_ISLNK(st.st_mode) or reparse or not stat.S_ISDIR(st.st_mode):
+                raise ValueError(f"unsafe Patch Tool output directory component: {nxt}")
+        else:
+            try:
+                nxt.mkdir(exist_ok=False)
+            except FileExistsError:
+                st = nxt.lstat()
+                attrs = getattr(st, "st_file_attributes", 0)
+                reparse = bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+                if stat.S_ISLNK(st.st_mode) or reparse or not stat.S_ISDIR(st.st_mode):
+                    raise ValueError(f"unsafe directory component created concurrently: {nxt}")
+        cur = nxt
+    return cur
+
+
 class ResultBuilder:
     def __init__(self, root: Path, request_data: dict, request_member: str):
         self.root = root
@@ -216,11 +288,11 @@ class ResultBuilder:
         self.entries: list[dict[str, object]] = []
         self.reports: list[dict[str, object]] = []
         self._added_files: set[str] = set()
+        self.sensitive_warnings: list[dict[str, object]] = []
         self.total_bytes = 0
         self.report_bytes = 0
         self.file_count = 0
-        self.out_dir = root / "artifacts" / "patch_tool_code_collections"
-        self.out_dir.mkdir(parents=True, exist_ok=True)
+        self.out_dir = _ensure_real_dir_chain(root, ("artifacts", "patch_tool_code_collections"))
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         self.final = self.out_dir / (
             f"CODE_COLLECTION_RESULT_{_safe_id(request_data.get('id'))}_{stamp}_{os.getpid()}.zip"
@@ -233,7 +305,20 @@ class ResultBuilder:
     def add_exact_file(self, rel: str, src: Path, *, source_action: int) -> None:
         if rel in self._added_files:
             return
+        try:
+            if src.samefile(self.temp) or (self.final.exists() and src.samefile(self.final)):
+                raise ValueError(f"refusing to collect collector output: {rel}")
+        except FileNotFoundError:
+            pass
+        if _is_internal_output_path(self.root, src):
+            raise ValueError(f"refusing to collect Patch Tool internal artifact: {rel}")
         before = src.stat()
+        reasons = _sensitive_file_reasons(rel, src)
+        if reasons:
+            warning = {"path": rel, "reasons": reasons}
+            if warning not in self.sensitive_warnings:
+                self.sensitive_warnings.append(warning)
+                print(f"[PTV v{VERSION} WARNING] sensitive exact file included in COLLECT: {rel} ({', '.join(reasons)})", file=sys.stderr, flush=True)
         if before.st_size > self.limits["max_file_bytes"]:
             raise ValueError(f"file exceeds max_file_bytes: {rel} ({before.st_size})")
         if self.file_count + 1 > self.limits["max_files"]:
@@ -245,9 +330,14 @@ class ResultBuilder:
         arcname = f"files/{rel}"
         with src.open("rb") as source, self.zf.open(arcname, "w") as target:
             for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                next_copied = copied + len(chunk)
+                if next_copied > self.limits["max_file_bytes"]:
+                    raise ValueError(f"file exceeded max_file_bytes while being collected: {rel}")
+                if self.total_bytes + next_copied > self.limits["max_total_bytes"]:
+                    raise ValueError("collection exceeded max_total_bytes while copying")
                 target.write(chunk)
                 digest.update(chunk)
-                copied += len(chunk)
+                copied = next_copied
         after = src.stat()
         identity_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
         identity_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
@@ -297,6 +387,7 @@ class ResultBuilder:
             "report_bytes": self.report_bytes,
             "files": self.entries,
             "reports": self.reports,
+            "sensitive_warnings": self.sensitive_warnings,
         }
         self.zf.writestr("COLLECTION_MANIFEST.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
         self.zf.close()
@@ -306,7 +397,27 @@ class ResultBuilder:
                 raise ValueError(f"generated result ZIP failed CRC at {bad}")
         if self.final.exists() or self.final.is_symlink():
             raise ValueError(f"result ZIP name collision: {self.final.name}")
-        os.link(self.temp, self.final)
+        try:
+            os.link(self.temp, self.final, follow_symlinks=False)
+        except OSError:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+            fd = os.open(self.final, flags, 0o600)
+            try:
+                with os.fdopen(fd, "wb") as dst, self.temp.open("rb") as src:
+                    shutil.copyfileobj(src, dst, length=1024 * 1024)
+                    dst.flush()
+                    try: os.fsync(dst.fileno())
+                    except OSError: pass
+                fd = -1
+                if _sha256_file(self.final) != _sha256_file(self.temp):
+                    raise ValueError("result ZIP fallback copy hash mismatch")
+            except Exception:
+                if fd >= 0:
+                    try: os.close(fd)
+                    except OSError: pass
+                try: self.final.unlink()
+                except OSError: pass
+                raise
         self.temp.unlink()
         return self.final
 
@@ -399,7 +510,7 @@ def _looks_text(path: Path) -> bool:
     return b"\x00" not in sample
 
 
-def _search_action(root: Path, action: dict, limits: dict) -> str:
+def _search_action_direct(root: Path, action: dict, limits: dict) -> str:
     query = action["query"]
     regex_mode = action.get("regex", False)
     try:
@@ -451,6 +562,50 @@ def _search_action(root: Path, action: dict, limits: dict) -> str:
     if found >= max_matches:
         blocks.append(f"[TRUNCATED at max_matches={max_matches}]")
     return "\n".join(blocks) + "\n"
+
+
+
+def _search_action(root: Path, action: dict, limits: dict) -> str:
+    """Run regex search out-of-process so pathological `re` cannot hang COLLECT."""
+    if not action.get("regex", False):
+        return _search_action_direct(root, action, limits)
+    worker = Path(__file__).resolve().parent / "python_patch_collect_regex_worker.py"
+    if not worker.is_file():
+        raise ValueError("regex search worker is missing")
+    with tempfile.TemporaryDirectory(prefix="ptv-collect-regex-") as td:
+        work = Path(td)
+        request_path = work / "request.json"
+        result_path = work / "result.txt"
+        request_path.write_text(
+            json.dumps({"action": action, "limits": limits}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        env = dict(os.environ)
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        try:
+            proc = subprocess.run(
+                [sys.executable, str(worker), "--project-root", str(root), "--request", str(request_path), "--result", str(result_path)],
+                cwd=root,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=REGEX_SEARCH_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ValueError(
+                f"regex search exceeded hard timeout ({REGEX_SEARCH_TIMEOUT_SECONDS:g}s); narrow paths/query"
+            ) from exc
+        if proc.returncode != 0:
+            detail = (proc.stdout or "").strip().replace("\n", " ")[:800]
+            raise ValueError(f"regex search worker failed rc={proc.returncode}: {detail}")
+        if not result_path.is_file() or result_path.is_symlink():
+            raise ValueError("regex search worker produced no safe result")
+        size = result_path.stat().st_size
+        hard_result_cap = max(int(limits.get("max_report_bytes", 0)), 1024 * 1024) * 2
+        if size > hard_result_cap:
+            raise ValueError(f"regex search worker result exceeded safety cap ({size} bytes)")
+        return result_path.read_text(encoding="utf-8")
 
 
 def _git_action(root: Path, action: dict) -> str:
@@ -507,6 +662,30 @@ def _publish_request_snapshot(snapshot: Path, dst: Path, expected_sha: str) -> N
         except FileExistsError:
             if dst.is_symlink() or not dst.is_file() or _sha256_file(dst) != expected_sha:
                 raise ValueError(f"archive destination raced with different content: {dst.name}")
+        except OSError:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+            try:
+                copy_fd = os.open(dst, flags, 0o600)
+            except FileExistsError:
+                if dst.is_symlink() or not dst.is_file() or _sha256_file(dst) != expected_sha:
+                    raise ValueError(f"archive destination raced with different content: {dst.name}")
+            else:
+                try:
+                    with os.fdopen(copy_fd, "wb") as out, tmp.open("rb") as src:
+                        copy_fd = -1
+                        shutil.copyfileobj(src, out, length=1024 * 1024)
+                        out.flush()
+                        try: os.fsync(out.fileno())
+                        except OSError: pass
+                    if _sha256_file(dst) != expected_sha:
+                        raise ValueError("archive fallback copy hash verification failed")
+                except Exception:
+                    if copy_fd >= 0:
+                        try: os.close(copy_fd)
+                        except OSError: pass
+                    try: dst.unlink()
+                    except OSError: pass
+                    raise
     finally:
         try: tmp.unlink()
         except FileNotFoundError: pass

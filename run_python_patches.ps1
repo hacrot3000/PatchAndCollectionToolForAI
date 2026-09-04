@@ -1,4 +1,4 @@
-# Python Patch Tool v6.17.0 public Windows launcher.
+# Python Patch Tool v6.17.1 public Windows launcher.
 # PowerShell 5.1+ compatible. SANDBOX/worktree transaction mode is permanently disabled.
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
@@ -12,6 +12,7 @@ $Collector = Join-Path $LibDir 'python_patch_readonly_collector.py'
 $CollectCompat = Join-Path $LibDir 'python_patch_collect_compat.py'
 $Dispatcher = Join-Path $LibDir 'python_patch_queue_dispatcher.py'
 $CollectProgress = Join-Path $LibDir 'python_patch_collect_progress_v6_7.py'
+$CollectRegexWorker = Join-Path $LibDir 'python_patch_collect_regex_worker.py'
 
 function Write-ToolError([string]$Message) {
     [Console]::Error.WriteLine($Message)
@@ -99,6 +100,10 @@ if ([string]::Equals([string]$ToolArgs[0], 'collect', [StringComparison]::Ordina
     }
     if (-not (Test-Path -LiteralPath $CollectProgress -PathType Leaf)) {
         Write-ToolError "ERROR: Missing collect progress supervisor: $CollectProgress"
+        exit 2
+    }
+    if (-not (Test-Path -LiteralPath $CollectRegexWorker -PathType Leaf)) {
+        Write-ToolError "ERROR: Missing COLLECT regex worker: $CollectRegexWorker"
         exit 2
     }
     $rest = @()
