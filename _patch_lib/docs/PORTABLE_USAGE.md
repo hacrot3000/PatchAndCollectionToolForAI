@@ -1,4 +1,12 @@
-# Python Patch Tool v6.19.3 portable usage
+# Python Patch Tool v6.19.4 portable usage
+
+## v6.19.4 failed-work grouping instead of automatic Smart Resume
+
+- A normal zero-argument run never opens the Smart Resume recovery menu merely because the immediately previous run failed.
+- Current queue entries from that immediately previous failed/incomplete run are displayed as a second visual group, `Last failed patch/collect`, below `New patch/collect`.
+- Group headers are presentation-only. Failed/replay items remain ordinary queue entries: selection, delete, inspect, preview, validate, priority, filter and execution use exactly the same code paths as new items.
+- `./tools/run_python_patches.sh resume` keeps the explicit Smart Resume workflow for Retry/replay, failed-source COLLECT and recovery Delete.
+- Persistent unresolved-predecessor planner safety is unchanged; grouping does not bypass dependency/effective-target blocking.
 
 The release is self-contained for its v6.19.2 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
 
@@ -12,7 +20,7 @@ When a report is shown directly or reopened from HISTORY, AI-facing artifacts ar
 Install/update at the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.19.2.zip -d "$PWD"
+unzip -o python_patch_tool_v6.19.4.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 
@@ -26,7 +34,7 @@ Requirement: **Python 3.10+**. The launcher accepts Python Launcher (`py -3`) or
 PowerShell install/update at the project root:
 
 ```powershell
-Expand-Archive -Force .\python_patch_tool_v6.19.2.zip .
+Expand-Archive -Force .\python_patch_tool_v6.19.4.zip .
 tools\run_python_patches.bat
 ```
 
@@ -117,11 +125,11 @@ Recipe policy override rule: `run --recipe` uses the policies stored in the reci
 
 
 
-## v6.17.13 history and resume clarification
+## v6.17.13 history and resume clarification — historical; auto-start behavior superseded by v6.19.4
 
 - Interactive history hides IDLE probes and displays package/request name first, then local run timestamp, then final status. New IDLE invocations update `LAST_RUN.json` but are not appended to `history/*.json`.
 - If duplicate filtering consumes every queued candidate, the tool prints a queue-cleanup summary and waits for Enter before opening history, so automatic removals are visible. A queue that was truly empty from the start still opens history automatically in zero-argument interactive mode.
-- Automatic SMART RESUME requires the immediately recorded `LAST_RUN` to be FAIL **and** at least one replay/failed/remaining item from that run to still be runnable in the current queue. Older unresolved failures remain persistent planner constraints for related successors, but never globally hijack unrelated new queue work.
+- Historical behavior: automatic SMART RESUME required the immediately recorded `LAST_RUN` to be FAIL and a recovery item to remain. **Superseded in v6.19.4:** normal startup shows those items in the second queue group; explicit `resume` opens Smart Resume.
 - Report item detail is selected by a numeric index (`1..N`), not the literal letter `N`.
 
 - Old unpinned IDLE probes are removed first during history cleanup, so they do not consume the 30 meaningful-run retention budget.
@@ -133,7 +141,7 @@ Recipe policy override rule: `run --recipe` uses the policies stored in the reci
 
 - **Historical v6.17.14 behavior — superseded by v6.18.1 and retained here only for chronology.** If discovery finds no runnable PATCH/COLLECT, warnings, `AUTO STATUS: IDLE` and Tool Health are printed and the zero-argument launcher exits `0` immediately. The invocation is not a run: it creates no run directory and does not write `LAST_RUN`, history, ledger or unresolved-failure state; it also does not auto-open HISTORY.
 - If runnable candidates existed but duplicate/session filtering removes all of them, `QUEUE CLEANUP SUMMARY` is shown and Enter may open HISTORY so the operator can see what was removed. This cleanup-only invocation still does not create a run report.
-- Automatic SMART RESUME requires `LAST_RUN` itself to be FAIL **and** at least one replay/failed/remaining item from that exact run to still exist in the current runnable queue. Older unresolved failures remain planner constraints only for related successors and never force the startup recovery menu in front of unrelated new PATCH/COLLECT work.
+- Historical v6.17.14 behavior: automatic SMART RESUME required `LAST_RUN` FAIL plus a concrete recovery item. **Superseded by v6.19.4 normal-queue grouping**; planner constraints remain unchanged.
 
 
 ## v6.18.0 search health

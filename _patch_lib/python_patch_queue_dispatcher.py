@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.19.3"
+VERSION = "6.19.4"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -688,6 +688,60 @@ def _automatic_resume_available(root: Path, items: list[QueueItem], previous: di
         if isinstance(name, str) and name and name not in names:
             names.append(name)
     return any(name in by_name for name in names)
+
+
+def _last_failed_queue_names(root: Path, items: list[QueueItem], previous: dict[str, object] | None) -> set[str]:
+    """Return current queue filenames belonging to the immediately previous failed run.
+
+    This is presentation metadata only.  The returned items remain ordinary
+    ``QueueItem`` objects and use exactly the same selector/delete/inspect/execute
+    paths as every other queue entry.  Exact PATCH SHA binding is preserved when
+    the previous report carries it, so a same-name replacement is never labeled
+    as the old failed package.  COLLECT rows retain filename compatibility because
+    historical COLLECT reports do not always carry a request SHA.
+    """
+    if not isinstance(previous, dict) or str(previous.get("status") or "") not in {"FAIL", "INCOMPLETE"}:
+        return set()
+    by_name = {item.name: item for item in items}
+    failed: set[str] = set()
+    rows = _report_rows(previous)
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        status = str(row.get("status") or "")
+        # A PASS row rolled back by a failed atomic batch is recovery work even
+        # though the payload itself passed; keeping it with the failed group makes
+        # the second group represent the previous run's recovery set accurately.
+        recovery_row = status in {"FAIL", "PREFLIGHT_FAIL", "INCOMPLETE"} or (
+            status == "PASS" and row.get("batch_rolled_back") is True
+        )
+        if not recovery_row:
+            continue
+        queue_name = _recovery_row_queue_name(row) or str(row.get("name") or "")
+        if queue_name not in by_name:
+            continue
+        kind = str(row.get("kind") or by_name[queue_name].kind or "PATCH")
+        if kind == "PATCH":
+            # When an exact SHA is available, bind to that immutable failed
+            # package.  Older reports without SHA keep filename compatibility.
+            expected = _recovery_row_expected_sha(row)
+            if expected is not None and _bind_recovery_queue_row(root, row) is None:
+                continue
+        failed.add(queue_name)
+    # Compatibility fallback for older single-item reports whose result rows were
+    # sparse but which did record failed_item.
+    failed_item = previous.get("failed_item")
+    if isinstance(failed_item, str) and failed_item in by_name:
+        failed.add(failed_item)
+    return failed
+
+
+def _group_selector_items(items: list[QueueItem], failed_names: set[str] | None) -> list[QueueItem]:
+    """Stable two-group presentation order: new first, previous-failed second."""
+    names = set(failed_names or ())
+    if not names:
+        return list(items)
+    return [item for item in items if item.name not in names] + [item for item in items if item.name in names]
 
 
 def _find_history_entry(root: Path, run_id: str) -> tuple[Path, dict[str, object]] | None:
@@ -4133,7 +4187,7 @@ def _ordered_selection(items: list[QueueItem], selected: set[int], priorities: d
     return [items[i] for i in indexes]
 
 
-def _render(items, cursor, selected, priorities, msg, prev, *, show_history: bool = False):
+def _render(items, cursor, selected, priorities, msg, prev, *, show_history: bool = False, failed_group_names: set[str] | None = None):
     terminal_width, terminal_height = _selector_term_size()
 
     # Keep one physical row free below the frame.  Writing a frame as tall as
@@ -4168,7 +4222,12 @@ def _render(items, cursor, selected, priorities, msg, prev, *, show_history: boo
         header_rows = 0
         footer = []
 
-    item_capacity = max(1, frame_budget - header_rows - len(footer))
+    failed_group_names = set(failed_group_names or ())
+    # Group headers are presentation-only physical rows.  They are deliberately
+    # not selectable and therefore do not change cursor numbering or operations.
+    # On pathological tiny terminals omit them rather than hiding the current item.
+    group_header_budget = 2 if failed_group_names and frame_budget >= 6 else 0
+    item_capacity = max(1, frame_budget - header_rows - len(footer) - group_header_budget)
     total_rows = len(items) + (1 if show_history else 0)
     start, end = _selector_viewport(total_rows, cursor, item_capacity)
 
@@ -4187,9 +4246,15 @@ def _render(items, cursor, selected, priorities, msg, prev, *, show_history: boo
         header = []
 
     lines: list[tuple[str, bool]] = [(line, False) for line in header]
+    last_visible_group: str | None = None
     for i in range(start, end):
         if i < len(items):
             item = items[i]
+            group = "failed" if item.name in failed_group_names else "new"
+            if group_header_budget and group != last_visible_group:
+                label = "   Last failed patch/collect:" if group == "failed" else "   New patch/collect:"
+                lines.append((label, False))
+                last_visible_group = group
             detail = f"  [{_safe_display(item.detail)}]" if item.detail else ""
             lines.append((
                 f"{'›' if i == cursor else ' '} "
@@ -4428,13 +4493,19 @@ def _filter_selector_items(root: Path, items: list[QueueItem], query: str, cache
     return [item for item in items if q in _selector_search_blob(root,item,cache)]
 
 
-def _select_items_line(root: Path, items: list[QueueItem], initial_selection: str, *, show_history: bool = False):
+def _select_items_line(root: Path, items: list[QueueItem], initial_selection: str, *, show_history: bool = False, failed_group_names: set[str] | None = None):
     all_items = list(items)
     search_cache: dict[str,str] = {}
     selected = _initial_selected(items, initial_selection)
+    failed_group_names = set(failed_group_names or ())
     while items:
         print("CHỌN CÔNG VIỆC SẼ CHẠY")
+        last_group: str | None = None
         for i, item in enumerate(items, 1):
+            group = "failed" if item.name in failed_group_names else "new"
+            if failed_group_names and group != last_group:
+                print("   last failed patch/collect:" if group == "failed" else "   New patch/collect:")
+                last_group = group
             mark = "x" if i - 1 in selected else " "
             print(f"  [{mark}] {i}. [{_safe_display(item.kind)}] {_safe_display(item.name)}")
         if show_history:
@@ -4572,7 +4643,7 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
     return []
 
 
-def select_items(root, items, *, initial_selection="none", selector_ui="auto", show_history: bool = False):
+def select_items(root, items, *, initial_selection="none", selector_ui="auto", show_history: bool = False, failed_group_names: set[str] | None = None):
     if not items:
         if show_history and sys.stdin.isatty() and sys.stdout.isatty():
             _history_browser(root)
@@ -4587,7 +4658,7 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto", s
         and sys.stdin.isatty() and sys.stdout.isatty() and _enable_windows_vt()
     )
     if not (use_posix_tty or use_windows_tty):
-        return _select_items_line(root, items, initial_selection, show_history=show_history)
+        return _select_items_line(root, items, initial_selection, show_history=show_history, failed_group_names=failed_group_names)
 
     all_items = list(items)
     search_cache: dict[str,str] = {}
@@ -4610,7 +4681,7 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto", s
         while items or show_history:
             total_rows = len(items) + (1 if show_history else 0)
             cursor = min(cursor, max(0, total_rows - 1))
-            rendered = _render(items, cursor, selected, priorities, msg, rendered, show_history=show_history)
+            rendered = _render(items, cursor, selected, priorities, msg, rendered, show_history=show_history, failed_group_names=failed_group_names)
             msg = ""
             key = _read_key(fd) if use_posix_tty else _read_key_windows()
             if key == "\x03":
@@ -6414,7 +6485,9 @@ def _run_queue(
     meaningful_previous = previous if _is_meaningful_run(previous) else None
     history_replay_sha = _unresolved_replay_identities(root)
     history_replay_sha.update(_previous_replay_identities(meaningful_previous))
-    resume_items = _print_resume_hint(root, meaningful_previous)
+    resume_items = _resume_items(root, meaningful_previous)
+    if force_resume:
+        _print_resume_hint(root, meaningful_previous)
 
     # Recipe identity is a pre-mutation contract. Parse/project-bind/SHA-check it
     # before duplicate-history cleanup can move any queue package to ignore.
@@ -6574,11 +6647,12 @@ def _run_queue(
             }]
             print(f"SELECTION FAIL — project unchanged | {_safe_display(str(exc))}", file=sys.stderr)
             return finish_report("FAIL", 2, failed_item="CLI_SELECTION")
-    # SMART RESUME is automatic only when the immediately recorded failed run
-    # still has concrete recovery work in the current queue.  Older unresolved
-    # failures remain planner constraints but do not hijack unrelated new work.
-    should_auto_resume = _automatic_resume_available(root, items, meaningful_previous)
-    if chosen is None and not explicit_selection_requested and (force_resume or should_auto_resume):
+    # v6.19.4: recovery no longer hijacks the next ordinary zero-argument run.
+    # Smart Resume remains available explicitly through the ``resume`` command;
+    # ordinary queue selection shows previous failed/replay items as a second
+    # visual group instead.  Planner safety for unresolved predecessors is
+    # unchanged and still applies after selection.
+    if chosen is None and not explicit_selection_requested and force_resume:
         while True:
             try:
                 decision = _resume_selection(
@@ -6630,10 +6704,13 @@ def _run_queue(
     if chosen is None:
         chosen = _configured_auto_selection(root, items, cfg)
     if chosen is None:
+        failed_group_names = _last_failed_queue_names(root, items, meaningful_previous)
+        selector_items = _group_selector_items(items, failed_group_names)
         try:
             chosen = select_items(
-                root, list(items), initial_selection=cfg.get("initial_selection", "none"),
+                root, selector_items, initial_selection=cfg.get("initial_selection", "none"),
                 selector_ui=cfg.get("selector_ui", "auto"), show_history=zero_argument_invocation,
+                failed_group_names=failed_group_names,
             )
         except KeyboardInterrupt:
             print("\nCancelled by Ctrl+C."); return finish_report("CANCELLED", 130)

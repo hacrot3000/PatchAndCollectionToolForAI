@@ -1,4 +1,8 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.19.3
+# AI / ChatGPT usage contract — Python Patch Tool v6.19.4
+
+## v6.19.4 queue/recovery presentation contract
+
+Normal zero-argument invocation MUST NOT be hijacked by an automatic Smart Resume prompt after a prior failure. The dispatcher presents current failed/replay packages in a second `Last failed patch/collect` group below `New patch/collect`; these are the same `QueueItem` objects and MUST retain identical selector/delete/inspect/preview/validate/priority/execution behavior. Smart Resume remains an explicit `resume` command, and unresolved predecessor safety remains planner-enforced after selection. AI changes MUST NOT reintroduce an automatic startup recovery prompt unless the user explicitly requests that behavior again.
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
@@ -373,9 +377,9 @@ Once payload execution has begun, an unexpected runner exception is treated as a
 
 
 
-### v6.17.13 history/resume semantics
+### v6.17.13 history/resume semantics — historical; startup auto-resume superseded by v6.19.4
 
-A zero-argument invocation with no runnable PATCH/COLLECT is not a run at all: it creates no LAST_RUN/history/run log/state. Persistent unresolved failures still constrain related successors through dependency/effective-target planning, but automatic SMART RESUME requires a failed LAST_RUN whose recovery item is still present in the current runnable queue; older registry entries never globally hijack unrelated new work.
+A zero-argument invocation with no runnable PATCH/COLLECT is not a run at all: it creates no LAST_RUN/history/run log/state. Historically, automatic SMART RESUME required a failed LAST_RUN whose recovery item was still present in the current runnable queue. **Current v6.19.4 behavior:** ordinary startup never auto-opens Smart Resume; previous failed/replay work is a second normal-queue group, while persistent unresolved failures still constrain related successors through dependency/effective-target planning.
 
 
 ## v6.18.0 AI rule for search evidence

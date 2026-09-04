@@ -1,5 +1,9 @@
 # Python Patch Tool — NO SILENT REMOVAL POLICY
 
+### Normal-queue failed-work grouping (v6.19.4+)
+
+A previous failure MUST NOT automatically replace the next ordinary zero-argument queue with Smart Resume. Current recovery items are a visual second group and MUST remain ordinary queue entries with identical operations. The explicit `resume` command and planner safety MUST remain available. Do not reintroduce startup hijacking, and do not fork failed items into a separate selector/execution implementation.
+
 **Mandatory for every Patch Tool modification starting with v6.18.2.**
 
 This file is a release gate, not optional guidance.

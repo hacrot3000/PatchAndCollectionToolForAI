@@ -14,7 +14,7 @@ import stat
 import uuid
 from pathlib import Path
 
-VERSION = "6.19.3"
+VERSION = "6.19.4"
 _ALIAS_PARTS = ("artifacts", "ptv_to_ai")
 _MAX_ALIAS_FILES = 64
 _PREFIXES = {"FAIL_HANDOFF": "FH", "COLLECT": "CR", "AI_SYNC": "AS"}
