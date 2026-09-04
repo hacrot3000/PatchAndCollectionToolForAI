@@ -20,7 +20,7 @@ try:
 except Exception:
     termios = tty = None
 
-VERSION = "6.7.11"
+VERSION = "6.7.12"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -39,6 +39,28 @@ class QueueItem:
     name: str
     kind: str
     detail: str = ""
+    # Snapshot captured during discovery.  Selection can stay open for an
+    # arbitrary amount of time; refuse to execute a same-named file that was
+    # replaced or modified after the user saw/selected it.
+    identity: tuple[int, int, int, int, int] | None = None
+
+
+def _queue_identity(path: Path) -> tuple[int, int, int, int, int] | None:
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return (
+        int(st.st_dev),
+        int(st.st_ino),
+        int(st.st_size),
+        int(st.st_mtime_ns),
+        int(st.st_ctime_ns),
+    )
+
+
+def _queue_item(path: Path, kind: str, detail: str = "") -> QueueItem:
+    return QueueItem(path.name, kind, detail, _queue_identity(path))
 
 
 def _safe_display(value: str) -> str:
@@ -142,6 +164,13 @@ def _support_bundle_filename_kind(name: str) -> str | None:
         return "tool_distribution"
     if low.startswith("ptv_") and any(tag in low for tag in ("_handoff", "_detail", "_summary", "_report", "_code")):
         return "ptv_support_archive"
+    # Project handoffs are not always PTV-generated (for example
+    # DATBIKE_BLE_OTA_HANDOFF_....zip).  A root PATCH manifest is checked
+    # before this filename fallback, so a modern PATCH remains authoritative;
+    # otherwise a HANDOFF-named evidence bundle must never become a runnable
+    # legacy PATCH merely because it embeds patch-looking source.
+    if re.search(r"(?:^|[_.-])handoff(?:[_.-]|$)", low):
+        return "handoff_archive"
     return None
 
 
@@ -316,7 +345,7 @@ def discover_queue(root: Path):
         # legitimately carry a collection request as a resource; do not route
         # that resource ZIP into the readonly COLLECT path.
         if path.suffix.lower() == ".zip" and _zip_has_root_patch_manifest(path):
-            items.append(QueueItem(path.name, "PATCH", "manifest"))
+            items.append(_queue_item(path, "PATCH", "manifest"))
             continue
 
         # A tool distribution or HANDOFF can embed a previous valid COLLECT
@@ -331,7 +360,7 @@ def discover_queue(root: Path):
 
         ok, detail = inspect_collect_zip(path)
         if ok:
-            items.append(QueueItem(path.name, "COLLECT", detail))
+            items.append(_queue_item(path, "COLLECT", detail))
             continue
 
         collect_invalid = (
@@ -348,7 +377,7 @@ def discover_queue(root: Path):
             )
         )
         if collect_invalid:
-            items.append(QueueItem(path.name, "COLLECT INVALID", detail))
+            items.append(_queue_item(path, "COLLECT INVALID", detail))
             continue
 
         supported = low.endswith((".zip", ".py", ".tar.gz", ".tgz"))
@@ -356,7 +385,7 @@ def discover_queue(root: Path):
             continue
         is_patch, patch_detail = inspect_patch_candidate(path)
         if is_patch:
-            items.append(QueueItem(path.name, "PATCH", patch_detail))
+            items.append(_queue_item(path, "PATCH", patch_detail))
         else:
             warnings.append(
                 f"SKIPPED non-patch candidate: patchs/{path.name} ({patch_detail})"
@@ -706,6 +735,11 @@ def _revalidate_selected_item(root: Path, item: QueueItem) -> tuple[bool, str]:
     except OSError as exc:
         return False, f"queue entry cannot be inspected ({type(exc).__name__})"
 
+    if item.identity is not None:
+        current_identity = _queue_identity(path)
+        if current_identity != item.identity:
+            return False, "queue entry was replaced or modified after selection"
+
     if item.kind == "PATCH":
         # A root patch manifest has precedence over any nested COLLECT resource.
         if path.suffix.lower() == ".zip" and _zip_has_root_patch_manifest(path):
@@ -741,7 +775,26 @@ def execute_items(root: Path, chosen: list[QueueItem]):
         if item.kind == "PATCH":
             cmd = [str(root / "tools/run_python_patches.sh"), "--patch", f"patchs/{item.name}"]
         elif item.kind == "COLLECT":
-            cmd = [str(root / "tools/run_python_patches.sh"), "collect", "request", f"patchs/{item.name}"]
+            # COLLECT subcommands are intentionally not part of the public
+            # launcher contract.  Zero-argument queue routing invokes the
+            # internal supervisor directly so users/AI have exactly one public
+            # command: ./tools/run_python_patches.sh
+            lib = root / "tools" / "_patch_lib"
+            progress = lib / "python_patch_collect_progress_v6_7.py"
+            collector = lib / "python_patch_readonly_collector.py"
+            if not progress.is_file() or not collector.is_file():
+                missing = progress if not progress.is_file() else collector
+                print(f"ERROR missing COLLECT core: {_safe_display(str(missing))}", file=sys.stderr)
+                rc = 2
+                executed.append((item.name, rc))
+                remaining = chosen[index + 1 :]
+                return rc, executed, remaining
+            cmd = [
+                sys.executable, str(progress),
+                "--project-root", str(root),
+                "--collector", str(collector),
+                "--", "request", f"patchs/{item.name}",
+            ]
         else:
             print(f"ERROR invalid collect package {_safe_display(item.name)}", file=sys.stderr)
             rc = 2

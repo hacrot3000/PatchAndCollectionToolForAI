@@ -1,4 +1,4 @@
-# Portable use — Python Patch Tool v6.7.11
+# Portable use — Python Patch Tool v6.7.12
 
 Normal user entry point is always:
 
@@ -93,17 +93,22 @@ Selected work is executed in natural order and stops on the first failure.
 Remaining selected items are reported as `SKIPPED / NOT EXECUTED` and remain in
 the queue.
 
-## v6.7.11 completion hardening
+## v6.7.12 completion hardening
 
 A zero collector exit code becomes a public PASS only when the result collection
-ZIP is detected and usable. Result/request completion metadata is retained
-independently from the bounded failure tail, so verbose post-result output cannot
-erase the upload target. Missing/non-ZIP result artifacts fail closed before
+ZIP is detected and usable. Result and request completion paths are retained independently from each other
+and independently from the bounded failure tail, so repeated request metadata or
+verbose post-result output cannot evict/erase the upload target. Missing/non-ZIP result artifacts fail closed before
 the final status row is printed. Quoted paths and paths containing spaces are
 accepted. Stop handlers are installed before collector spawn and cover common
 task/terminal-close signals so the readonly child tree is not left orphaned.
 
-Queue entries are revalidated immediately before execution. A selected entry
-that has disappeared, become a symlink, or changed from PATCH/COLLECT into a
-different artifact class fails closed rather than being executed from stale
-selector state.
+Queue entries are revalidated immediately before execution. Discovery records
+a file-identity snapshot; a selected entry that has disappeared, become a
+symlink, been replaced/modified under the same filename, or changed from
+PATCH/COLLECT into another artifact class fails closed rather than being
+executed from stale selector state.
+
+The public launcher rejects manual COLLECT subcommands. Zero-argument queue
+routing invokes the readonly COLLECT supervisor internally, enforcing the same
+workflow that the AI-facing documentation requires.

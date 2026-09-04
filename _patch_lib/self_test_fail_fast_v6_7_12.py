@@ -77,4 +77,57 @@ with tempfile.TemporaryDirectory(prefix='ptv6710_revalidate_') as td:
     assert executed==[(selected.name,2)],executed
     assert not log.exists(), 'launcher must not run a replaced/symlinked queue entry'
 
-print('PASS: v6.7.11 selected queue stops on first failure')
+
+# Replacing a selected valid PATCH with a different valid PATCH under the same
+# filename must also fail closed.  Structural reclassification alone is not
+# sufficient evidence that the user is about to run the file they selected.
+with tempfile.TemporaryDirectory(prefix='ptv6712_identity_revalidate_') as td:
+    root=Path(td); tools=root/'tools'; tools.mkdir(); patchs=root/'patchs'; patchs.mkdir(); log=root/'calls.txt'
+    launcher=tools/'run_python_patches.sh'
+    launcher.write_text('#!/usr/bin/env bash\necho called >> '+repr(str(log))+'\nexit 0\n', encoding='utf-8')
+    launcher.chmod(0o755)
+    target=patchs/'same_name.zip'
+    with zipfile.ZipFile(target,'w') as z:
+        z.writestr('PATCH_TOOL_MANIFEST.json','{"name":"first"}')
+    discovered,_warnings=m.discover_queue(root)
+    selected=next(x for x in discovered if x.name==target.name)
+    replacement=patchs/'replacement.tmp'
+    with zipfile.ZipFile(replacement,'w') as z:
+        z.writestr('PATCH_TOOL_MANIFEST.json','{"name":"second","padding":"different"}')
+    replacement.replace(target)
+    errbuf=io.StringIO()
+    with contextlib.redirect_stderr(errbuf):
+        rc,executed,remaining=m.execute_items(root,[selected])
+    assert rc==2,(rc,executed,remaining)
+    assert 'replaced or modified after selection' in errbuf.getvalue(),errbuf.getvalue()
+    assert not log.exists(), 'launcher must not run a different same-named PATCH'
+
+
+# COLLECT selected from the zero-argument queue must route internally without
+# relying on the now-rejected public `collect ...` launcher syntax.
+with tempfile.TemporaryDirectory(prefix='ptv6712_internal_collect_') as td:
+    root=Path(td); lib=root/'tools'/'_patch_lib'; lib.mkdir(parents=True); patchs=root/'patchs'; patchs.mkdir()
+    progress_src=MOD.parent/'python_patch_collect_progress_v6_7.py'
+    (lib/'python_patch_collect_progress_v6_7.py').write_bytes(progress_src.read_bytes())
+    collector=lib/'python_patch_readonly_collector.py'
+    collector.write_text(
+        "from pathlib import Path\nimport zipfile\n"
+        "out=Path('artifacts/internal-collect-result.zip')\n"
+        "out.parent.mkdir(parents=True,exist_ok=True)\n"
+        "with zipfile.ZipFile(out,'w') as z: z.writestr('ok.txt','ok')\n"
+        "print(f'ZIP: {out.resolve()}')\n",
+        encoding='utf-8',
+    )
+    request=patchs/'collect_internal.zip'
+    with zipfile.ZipFile(request,'w') as z:
+        z.writestr('CODE_COLLECTION_REQUEST_internal.json','{"id":"internal","actions":[{"type":"overview"}]}')
+    discovered,_warnings=m.discover_queue(root)
+    selected=next(x for x in discovered if x.name==request.name)
+    assert selected.kind=='COLLECT',selected
+    rc,executed,remaining=m.execute_items(root,[selected])
+    assert rc==0,(rc,executed,remaining)
+    assert executed==[(request.name,0)],executed
+    assert not remaining,remaining
+    assert (root/'artifacts'/'internal-collect-result.zip').is_file()
+
+print('PASS: v6.7.12 selected queue stops on first failure')

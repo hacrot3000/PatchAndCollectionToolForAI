@@ -22,7 +22,7 @@ m = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = m
 spec.loader.exec_module(m)
 
-assert m.VERSION == "6.7.11"
+assert m.VERSION == "6.7.12"
 assert m._cell_width("abc") == 3
 assert m._cell_width("测试") == 4
 for width in [0, 1, 2, 12, 20, 40, 80, 120]:
@@ -285,4 +285,37 @@ with tempfile.TemporaryDirectory(prefix="ptprog_long_tail_v6711_") as td:
     assert cp.stdout.count(str(result)) == 1, cp.stdout
     assert 'completion contract failed' not in cp.stderr, cp.stderr
 
-print('PASS: Python Patch Tool v6.7.11 collect progress robustness self-test')
+
+# Result and request completion metadata must not share a bounded FIFO.  A
+# result can be reported first, followed by many request/archive metadata lines
+# and then a long diagnostic tail; the valid result must remain authoritative.
+with tempfile.TemporaryDirectory(prefix="ptprog_completion_eviction_v6712_") as td:
+    root = Path(td)
+    result = root / 'artifacts' / 'early-persistent-result.zip'
+    result.parent.mkdir(parents=True)
+    import zipfile
+    with zipfile.ZipFile(result, 'w') as z:
+        z.writestr('ok.txt', 'ok')
+    patched = root / 'patchs' / 'patched'
+    patched.mkdir(parents=True)
+    request_paths=[]
+    for i in range(24):
+        req=patched / f'request_{i}.zip'
+        with zipfile.ZipFile(req,'w') as z:
+            z.writestr('CODE_COLLECTION_REQUEST_x.json','{"actions":[{"type":"overview"}]}')
+        request_paths.append(req)
+    collector = root / 'completion_eviction_collector.py'
+    lines=[f"print('ZIP: {result}')"]
+    lines.extend(f"print('REQUEST: {req}')" for req in request_paths)
+    lines.append("[print(f'diagnostic {i}') for i in range(220)]")
+    collector.write_text('\n'.join(lines)+'\n',encoding='utf-8')
+    cp=subprocess.run(
+        [sys.executable,str(p),'--project-root',str(root),'--collector',str(collector),'--','request','dummy.zip'],
+        text=True,capture_output=True,timeout=10,
+    )
+    assert cp.returncode==0,(cp.returncode,cp.stdout,cp.stderr)
+    assert '[PRIMARY - UPLOAD THIS FILE]' in cp.stdout,cp.stdout
+    assert cp.stdout.count(str(result))==1,cp.stdout
+    assert str(request_paths[-1]) in cp.stdout,cp.stdout
+
+print('PASS: Python Patch Tool v6.7.12 collect progress robustness self-test')

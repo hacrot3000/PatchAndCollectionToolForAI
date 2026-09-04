@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
-# Python Patch Tool v6.7.11 public launcher.
+# Python Patch Tool v6.7.12 public launcher.
 # SANDBOX/worktree transaction mode is permanently disabled at this boundary.
 set -euo pipefail
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$TOOLS_DIR/.." && pwd)"
 LIB_DIR="$TOOLS_DIR/_patch_lib"
 RUNNER="$LIB_DIR/python_patch_runner.py"
-COLLECTOR="$LIB_DIR/python_patch_readonly_collector.py"
 DISPATCHER="$LIB_DIR/python_patch_queue_dispatcher.py"
-COLLECT_PROGRESS="$LIB_DIR/python_patch_collect_progress_v6_7.py"
 
 export PYTHONPATH="$LIB_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
@@ -21,16 +19,9 @@ if [ "$#" -eq 0 ]; then
 fi
 
 if [ "${1:-}" = "collect" ]; then
-  if [ ! -f "$COLLECTOR" ]; then
-    echo "ERROR: Missing readonly collector: $COLLECTOR" >&2
-    exit 2
-  fi
-  if [ ! -f "$COLLECT_PROGRESS" ]; then
-    echo "ERROR: Missing collect progress supervisor: $COLLECT_PROGRESS" >&2
-    exit 2
-  fi
-  shift
-  exec python3 "$COLLECT_PROGRESS" --project-root "$PROJECT_ROOT" --collector "$COLLECTOR" -- "$@"
+  echo "ERROR: manual COLLECT subcommands are not part of the public workflow." >&2
+  echo "Place the COLLECT request ZIP in patchs/ and run ./tools/run_python_patches.sh with no arguments." >&2
+  exit 2
 fi
 
 if [ ! -f "$RUNNER" ]; then
@@ -38,7 +29,7 @@ if [ ! -f "$RUNNER" ]; then
   exit 2
 fi
 
-# v6.7.11 invariant: SANDBOX/Git-worktree transaction execution is removed.
+# v6.7.12 invariant: SANDBOX/Git-worktree transaction execution is removed.
 # The installed private core may still expose historical transaction options,
 # so every documented PATCH execution route is forced to --transaction off.
 # Utility-only routes such as paths/help remain untouched.

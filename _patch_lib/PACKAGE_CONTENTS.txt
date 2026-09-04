@@ -1,4 +1,4 @@
-Python Patch Tool v6.7.11 portable regression/document-contract repair
+Python Patch Tool v6.7.12 portable regression/document-contract repair
 
 Public entry point:
   tools/run_python_patches.sh
@@ -16,7 +16,7 @@ Managed release files:
   tools/_patch_lib/VERSION
   tools/_patch_lib/SHA256SUMS
   tools/_patch_lib/PACKAGE_CONTENTS.txt
-  tools/_patch_lib/self_test_*_v6_7_11.py
+  tools/_patch_lib/self_test_*_v6_7_12.py
   tools/_patch_lib/docs/
 
 Compatibility requirement:
@@ -29,7 +29,9 @@ Release scope:
   Bug/regression/document-contract repair only. No new feature group is started.
 
 
-v6.7.11 regression repairs:
-- Legacy execution modifiers force in-place mode.
-- COLLECT completion metadata is independent of bounded failure-tail retention.
-- Support/HANDOFF/PTV report identity wins over embedded COLLECT/legacy code evidence.
+v6.7.12 regression repairs:
+- Public/manual COLLECT subcommands are rejected; zero-argument dispatcher routes COLLECT internally.
+- Selected queue files carry an identity snapshot and fail closed if replaced/modified before execution.
+- Result and request COLLECT completion paths are retained independently, so repeated metadata cannot evict the upload ZIP.
+- Generic project `*_HANDOFF_*` archives are rejected before legacy marker scanning unless a root PATCH manifest is present.
+- All prior in-place/SANDBOX-removal, fail-fast, selector, classifier, and COLLECT output fixes remain active.

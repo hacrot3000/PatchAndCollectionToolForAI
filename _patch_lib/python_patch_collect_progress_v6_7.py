@@ -18,7 +18,7 @@ import unicodedata
 import zipfile
 from typing import Iterable
 
-VERSION = "6.7.11"
+VERSION = "6.7.12"
 DEFAULT_HEARTBEAT = 0.8
 DEFAULT_MARGIN = 2
 MAX_TAIL_LINES = 120
@@ -334,7 +334,7 @@ def _reader(stream, q: queue.Queue[str], tail: deque[str]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Python Patch Tool v6.7.11 COLLECT one-line progress supervisor")
+    ap = argparse.ArgumentParser(description="Python Patch Tool v6.7.12 COLLECT one-line progress supervisor")
     ap.add_argument("--project-root", required=True)
     ap.add_argument("--collector", required=True)
     ap.add_argument("rest", nargs=argparse.REMAINDER)
@@ -453,12 +453,19 @@ def main(argv: list[str] | None = None) -> int:
     # Result/request paths are completion metadata, not failure-tail detail.
     # Keep them independently so a verbose collector cannot push the upload ZIP
     # path out of the bounded tail before rc=0 is evaluated.
-    completion_evidence: deque[str] = deque(maxlen=16)
+    # Completion paths have different lifetimes and must not evict each other.
+    # A valid result may be printed early, followed by many REQUEST/metadata
+    # lines and a long diagnostic tail.  Keep the latest result and request
+    # independently instead of a shared bounded FIFO.
+    completion_result: list[str] = []
+    completion_request: list[str] = []
 
     def remember_completion(line: str) -> None:
         result_zip, request_zip, _ = _extract_collect_completion([line])
-        if result_zip or request_zip:
-            completion_evidence.append(line)
+        if result_zip:
+            completion_result[:] = [f"ZIP: {result_zip}"]
+        if request_zip:
+            completion_request[:] = [f"REQUEST: {request_zip}"]
 
     thread = threading.Thread(target=_reader, args=(proc.stdout, q, tail), daemon=True)
     thread.start()
@@ -537,7 +544,7 @@ def main(argv: list[str] | None = None) -> int:
     # console can never say `✓ rc=0` and then fail afterward. Completion paths
     # are combined with the tail because they may have appeared much earlier
     # than MAX_TAIL_LINES before process exit.
-    completion_material = [*completion_evidence, *tail]
+    completion_material = [*completion_result, *completion_request, *tail]
     completion_contract_failed = False
     if final_rc == 0:
         result_zip, _request_zip, _extras = _extract_collect_completion(completion_material)

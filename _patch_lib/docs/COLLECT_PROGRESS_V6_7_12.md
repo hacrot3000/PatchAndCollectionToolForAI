@@ -1,4 +1,4 @@
-# COLLECT progress v6.7.11
+# COLLECT progress v6.7.12
 
 Retains the v6.7.x one-line TTY progress supervisor with live terminal-width
 recalculation, bounded status text, replacement decoding for invalid UTF-8,
@@ -19,10 +19,11 @@ collectors that print the same result archive as both a labelled `ZIP:` line
 and a bare path are canonicalized to one highlighted
 `[PRIMARY - UPLOAD THIS FILE]` path. The archived request is shown separately.
 Completion paths are suppressed from live heartbeat detail so captured output
-does not duplicate the upload target. Result/request paths are retained in a
-small dedicated completion-metadata buffer rather than relying on the bounded
-failure tail; a collector may therefore print hundreds of later lines without
-turning a valid rc=0 into a false missing-artifact failure.
+does not duplicate the upload target. The latest result path and latest archived-request path are retained in separate
+completion slots rather than a shared FIFO or the bounded failure tail. Repeated
+request metadata therefore cannot evict an earlier valid result path, and a
+collector may print hundreds of later lines without turning a valid rc=0 into a
+false missing-artifact failure.
 
 ## Stop/terminal-close cleanup
 
@@ -39,5 +40,6 @@ The normal user command remains:
 ./tools/run_python_patches.sh
 ```
 
-Manual COLLECT subcommands are internal dispatcher details and must not be
-presented by AI-generated instructions as the normal workflow.
+Manual COLLECT subcommands are rejected by the public launcher. The
+zero-argument dispatcher invokes the readonly supervisor internally; AI-generated
+instructions must expose only the zero-argument workflow.

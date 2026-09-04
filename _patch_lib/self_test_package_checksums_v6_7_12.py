@@ -55,4 +55,4 @@ for rel, wanted in sorted(entries.items()):
     assert actual == wanted, (rel, wanted, actual)
 
 mode = "clean-release strict coverage" if not installed_overlay else "installed-overlay managed-file verification"
-print(f"PASS: v6.7.11 package SHA256SUMS ({mode})")
+print(f"PASS: v6.7.12 package SHA256SUMS ({mode})")

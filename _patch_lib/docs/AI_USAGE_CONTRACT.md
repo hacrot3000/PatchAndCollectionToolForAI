@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.7.11
+# AI / ChatGPT usage contract — Python Patch Tool v6.7.12
 
 This document is intended to be uploaded or quoted to an AI that creates PATCH
 or COLLECT artifacts for this tool. The rules below override obsolete examples
@@ -39,7 +39,8 @@ Do not tell the user to invoke any manual COLLECT subcommand or to append a
 request path/extra COLLECT arguments to the launcher. Internal routing syntax
 is intentionally omitted here so an AI cannot mistake it for user guidance.
 
-Normal user operation is zero-argument only:
+Normal user operation is zero-argument only, and the public launcher rejects
+manual COLLECT subcommands rather than merely documenting them as obsolete:
 
 ```bash
 ./tools/run_python_patches.sh
