@@ -1,0 +1,41 @@
+name: Apply v6.20.2 runner queue refactor
+
+on:
+  push:
+    branches:
+      - ptv-v6.20.2-upload-helper
+    paths:
+      - .github/workflows/apply-refactor-v6202.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ptv-v6.20.2-hardening-work
+          fetch-depth: 0
+      - name: Apply and verify refactor
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=47d6526d16ab177c90d8fcbbcebf523df2c922f3
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected" || { echo "Unexpected work branch HEAD: $actual"; exit 2; }
+          git fetch origin ptv-v6.20.2-upload-helper
+          git show origin/ptv-v6.20.2-upload-helper:.ptv_upload/05_refactor.part000 | base64 -d | gzip -d > /tmp/refactor.patch
+          git apply --check /tmp/refactor.patch
+          git apply /tmp/refactor.patch
+
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_patch_recovery_v6_20_0.py
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_failed_queue_persistence_v6_20_0.py
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_batch_reporting_v6_20_0.py
+
+          git config user.name "Patch Tool CI"
+          git config user.email "patch-tool-ci@users.noreply.github.com"
+          git add _patch_lib/python_patch_runner.py _patch_lib/python_patch_queue_dispatcher.py
+          git commit -m "refactor: consolidate rollback and queue report bookkeeping"
+          git push origin HEAD:ptv-v6.20.2-hardening-work
