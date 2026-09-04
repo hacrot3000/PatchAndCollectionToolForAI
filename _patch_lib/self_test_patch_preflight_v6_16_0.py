@@ -78,5 +78,5 @@ representative={
  'post_patch':{'commands':[{'name':'t','argv':['python3','test.py'],'cwd':'.','timeout_seconds':900}],'run_when_no_changes':False},
  'git':{'add':'changed','commit':'auto','commit_message':'New fix NFC: test','push':'off','fail_on_error':True},
 }
-validate_manifest(representative); assert check_compatibility(representative,'6.15.1')==[]
-print('PASS: v6.15.1 exact PATCH schema, preflight, compatibility and partial-modification detection')
+validate_manifest(representative); assert check_compatibility(representative,'6.16.0')==[]
+print('PASS: v6.16.0 exact PATCH schema, preflight, compatibility and partial-modification detection')

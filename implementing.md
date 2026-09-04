@@ -1,11 +1,11 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.15.1**  
-Trạng thái: **OUTPUT CLARITY + SKIP-ONCE IGNORE LIFECYCLE — COMPLETE / STOP**
+Phiên bản mục tiêu: **v6.16.0**  
+Trạng thái: **BATCH REPORT + AGGREGATE/DETAIL LOG VIEWER — COMPLETE / STOP**
 
 ## Baseline
 
-Baseline kỹ thuật: **v6.15.0**. Release này chỉ tinh gọn lifecycle/output sau chạy; giữ nguyên PATCH/COLLECT contract fail-closed, in-place execution, diagnostics, Windows parity và zero-argument workflow.
+Baseline kỹ thuật: **v6.15.1**. Release này tập trung vào kết quả khi chọn nhiều PATCH: persistent batch report, aggregate/detail logs và report browser; giữ nguyên fail-fast, PATCH/COLLECT contract fail-closed, in-place execution, diagnostics, Windows parity và zero-argument workflow.
 
 ## Acceptance / task status
 
@@ -29,7 +29,7 @@ Baseline kỹ thuật: **v6.15.0**. Release này chỉ tinh gọn lifecycle/outp
 - Normal execution always performs the same preflight again immediately before payload; a previous validate result is never trusted as an execution bypass.
 - Recovery COLLECT requests use only structured `affected_paths` that are safe readable current-source files.
 
-## v6.15.1 output clarity acceptance
+## v6.16.0 output clarity acceptance
 
 - `SKIPPED:DUPLICATE_LOCAL` được báo đúng một record trong invocation hiện tại rồi chuyển khỏi runnable queue sang `patchs/ignore/YYYY-MM-DD-<tên-file-gốc>`. Lần chạy sau `patchs/ignore/` không được discovery nên không hỏi/báo lại file đó.
 - Move-to-ignore xác minh lại exact SHA-256 sau khi isolate input; `patchs/ignore` phải là real project-local directory. Collision được xử lý bằng tên date-prefixed unique mà không ghi đè file người dùng.
@@ -37,6 +37,19 @@ Baseline kỹ thuật: **v6.15.0**. Release này chỉ tinh gọn lifecycle/outp
 - PASS kết thúc bằng banner `PATCH COMPLETED` + tên PATCH vừa chạy ở cuối output.
 - FAIL kết thúc bằng banner `PATCH FAILED` + tên PATCH/rc; khi terminal hỗ trợ ANSI/VT, banner dùng **nền đỏ + chữ vàng đậm**. Redirect/log dùng plain-text fallback để không chèn escape sequence.
 - FAIL_HANDOFF, recovery COLLECT request và các path ZIP vẫn giữ nguyên contract/đường dẫn hiện hành.
+
+## v6.16.0 batch report acceptance
+
+- Một run chọn nhiều PATCH luôn có bảng tổng hợp cuối với từng PATCH và trạng thái `PASS`, `FAIL`, `NOT_EXECUTED` hoặc `SKIPPED_*`.
+- Fail-fast **không đổi**: nếu PATCH thứ N FAIL thì các PATCH sau là `NOT_EXECUTED`, tuyệt đối không được báo như FAIL.
+- Report renderer hỗ trợ nhiều FAIL trong dữ liệu report để không khóa kiến trúc nếu sau này có policy continue-on-failure, nhưng v6.16.0 không tự bật policy đó.
+- Mỗi PATCH đã thực thi có persistent detail log tại `artifacts/patch_tool/runs/<run_id>/items/`.
+- Mỗi run có `SUMMARY.txt` và `batch.log` tổng hợp dưới `artifacts/patch_tool/runs/<run_id>/`.
+- `report` mở lại batch gần nhất có selected work; một health/IDLE run sau đó không được che mất batch report hữu ích gần nhất.
+- `report --list` liệt kê lịch sử; `report --run-id <id>` mở một run cụ thể.
+- Trên TTY, sau batch nhiều PATCH tool mở menu report: nhập số để xem detail log của PATCH đó, `a` để xem aggregate log, `q` để thoát.
+- Trên non-TTY/redirect, tool không chờ input; vẫn in bảng batch + các path log và lệnh mở lại report.
+- Lịch sử report/log được giới hạn cùng `RUN_HISTORY_LIMIT` để không tăng artifact vô hạn.
 
 ## Public commands
 
@@ -60,6 +73,16 @@ Direct validation for diagnostics/AI/debugging:
 .\tools\run_python_patches.ps1 validate --patch patchs/example.zip
 ```
 
+Open the most recent useful batch report:
+
+```bash
+./tools/run_python_patches.sh report
+```
+
+```bat
+tools\run_python_patches.bat report
+```
+
 ## Windows parity / robustness
 
 - Dispatcher no longer calls the POSIX `.sh` launcher internally. PATCH, COLLECT, inspect and validate route directly through the packaged Python runtime with `sys.executable`, so zero-argument Windows use does not require Bash/Git-Bash.
@@ -69,4 +92,4 @@ Direct validation for diagnostics/AI/debugging:
 
 ## Release stop condition
 
-**COMPLETE. DỪNG. Không tự mở task/tính năng mới sau release này.**
+**COMPLETE / STOP.** Batch report tests, old regression, clean-extract public workflow và package checksum đều phải PASS trước khi phát hành artifact; không tự mở thêm capability sau release này.

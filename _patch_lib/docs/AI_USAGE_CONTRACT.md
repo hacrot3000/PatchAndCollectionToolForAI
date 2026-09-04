@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.15.1
+# AI / ChatGPT usage contract — Python Patch Tool v6.16.0
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
@@ -39,7 +39,7 @@ Do not invent PATCH manifest fields or COLLECT action names/fields. In particula
 
 AI-generated archive PATCHes must follow `PATCH_PACKAGE_GUIDE.md` and `PATCH_PACKAGE_SCHEMA.json`.
 
-Patch Tool v6.15.1 validates/preflights before payload execution:
+Patch Tool v6.16.0 validates/preflights before payload execution:
 
 - manifest schema;
 - payload ambiguity/entrypoint;
@@ -116,7 +116,7 @@ If `truncated>0`, AI must treat evidence as bounded/incomplete and should reques
 
 ## Self-contained runtime
 
-v6.15.1 ships the documented PATCH runner, utilities, readonly collector, schemas, dispatcher, progress supervisor and Windows launchers. The documented current contract does not require an older **private core**. Historical formats outside the current schemas fail closed rather than being guessed.
+v6.16.0 ships the documented PATCH runner, utilities, readonly collector, schemas, dispatcher, progress supervisor and Windows launchers. The documented current contract does not require an older **private core**. Historical formats outside the current schemas fail closed rather than being guessed.
 
 ## Duplicate rules
 
@@ -137,7 +137,7 @@ Windows uses the line selector because the fullscreen selector relies on POSIX `
 `tools/HUONG_DAN_PYTHON_PATCH_TOOL.html` stays intentionally minimal and user-oriented. Internal schema/action/preflight details belong in `tools/_patch_lib/docs/`, not in the user guide.
 
 
-## v6.14.1 runtime robustness invariants (retained by v6.15.1)
+## v6.14.1 runtime robustness invariants (retained by v6.16.0)
 
 - The PATCH queue root `patchs/` must be a real project-local directory; a symlinked/unsafe queue root fails closed.
 - The exact PATCH package selected is snapshotted before preflight and the exact executed bytes are what PASS archival records. A same-name replacement with different bytes remains queued.
@@ -146,7 +146,7 @@ Windows uses the line selector because the fullscreen selector relies on POSIX `
 - FAIL_HANDOFF must never attach a current queue package whose SHA differs from the executed package SHA.
 - Tool Health requires checksum coverage for all required runtime files and rejects unsafe symlink ancestors.
 
-## v6.15.1 diagnostics contract
+## v6.16.0 diagnostics contract
 
 AI/package generators should also read `PATCH_PACKAGE_CHECKLIST.json`. When project source is available, use the read-only `validate --patch` route before handing a package to the user. A validate PASS is not an execution bypass: the runner repeats preflight immediately before payload.
 

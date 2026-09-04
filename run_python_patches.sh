@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Python Patch Tool v6.15.1 public launcher.
+# Python Patch Tool v6.16.0 public launcher.
 # SANDBOX/worktree transaction mode is permanently disabled at this boundary.
 set -euo pipefail
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,6 +24,11 @@ if [ "$#" -eq 0 ]; then
   exec python3 "$DISPATCHER" --project-root "$PROJECT_ROOT"
 fi
 
+if [ "${1:-}" = "report" ]; then
+  shift
+  exec python3 "$DISPATCHER" --project-root "$PROJECT_ROOT" report "$@"
+fi
+
 if [ "${1:-}" = "collect" ]; then
   if [ ! -f "$COLLECT_COMPAT" ]; then
     echo "ERROR: Missing COLLECT compatibility layer: $COLLECT_COMPAT" >&2
@@ -42,7 +47,7 @@ if [ ! -f "$RUNNER" ]; then
   exit 2
 fi
 
-# v6.15.1 invariant: SANDBOX/Git-worktree transaction execution is removed.
+# v6.16.0 invariant: SANDBOX/Git-worktree transaction execution is removed.
 # The installed private core may still expose historical transaction options,
 # so every documented PATCH execution route is forced to --transaction off.
 # Utility-only routes such as paths/help remain untouched.

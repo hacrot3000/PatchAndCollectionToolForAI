@@ -1,4 +1,4 @@
-Python Patch Tool v6.15.1 — full self-contained package
+Python Patch Tool v6.16.0 — full self-contained package
 
 Public files:
   tools/run_python_patches.sh
@@ -32,21 +32,24 @@ Authoritative AI/tool docs:
 Runtime audit/recovery artifacts (created in the project, not shipped pre-populated):
   artifacts/patch_tool/LAST_RUN.json
   artifacts/patch_tool/history/*.json              # bounded to 30
+  artifacts/patch_tool/runs/<run_id>/SUMMARY.txt   # per-run batch overview
+  artifacts/patch_tool/runs/<run_id>/batch.log     # aggregate batch log
+  artifacts/patch_tool/runs/<run_id>/items/*.log   # per-PATCH detail logs
   artifacts/patch_tool/fail_handoffs/FAIL_HANDOFF_*.zip
   patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip  # only when source-drift/anchor recovery is prepared
 
 Normal use — Linux/POSIX:
-  unzip -o python_patch_tool_v6.15.1.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.16.0.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 Normal use — Windows (Python 3.10+):
-  Expand-Archive -Force .\python_patch_tool_v6.15.1.zip PROJECT_ROOT
+  Expand-Archive -Force .\python_patch_tool_v6.16.0.zip PROJECT_ROOT
   tools\run_python_patches.bat
   # or: .\tools\run_python_patches.ps1
 
 PATCH execution remains IN-PLACE. SANDBOX/worktree transaction execution is permanently unsupported.
 
-v6.15.1 Windows portability patch:
+v6.16.0 Windows portability patch:
 - PowerShell 5.1+ launcher with Python 3.10+ discovery
 - CMD/BAT wrapper with process-local ExecutionPolicy bypass
 - exact zero-argument/PATCH/COLLECT routing parity with the POSIX launcher
@@ -56,7 +59,7 @@ v6.15.1 Windows portability patch:
 
 v6.14.1 robustness invariants remain in force.
 
-v6.15.1 diagnostics + Windows parity patch:
+v6.16.0 diagnostics + Windows parity patch:
 - multi-error manifest lint with migration hints;
 - project-aware validate/inspect result classes and aggregate source drift evidence;
 - sequential data-only OPS dry-run on a temporary mirror before payload;
@@ -66,8 +69,15 @@ v6.15.1 diagnostics + Windows parity patch:
 - native Windows fullscreen selector with safe line fallback.
 
 
-v6.15.1 output clarity patch:
+v6.16.0 output clarity patch:
 - local-history duplicate PATCH is reported once then moved to patchs/ignore/YYYY-MM-DD-<original-name>
 - final PASS output re-highlights the most recently completed PATCH name
 - final PATCH failure emits a red-background/yellow-text terminal banner with plain-text fallback
 - FAIL_HANDOFF/recovery ZIP path reporting remains unchanged
+
+v6.16.0 batch report patch:
+- multi-PATCH summary rows distinguish PASS / FAIL / NOT_EXECUTED / SKIPPED states
+- persistent per-PATCH detail logs and aggregate batch.log/SUMMARY.txt
+- interactive report menu: number = detail, a = aggregate, q = exit
+- `report`, `report --list`, and `report --run-id <id>` reopen retained reports
+- fail-fast execution remains unchanged; later selected PATCHes after the first failure are NOT_EXECUTED

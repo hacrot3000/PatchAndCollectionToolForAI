@@ -12,8 +12,10 @@ assert 'python_patch_collect_progress_v6_7.py' in D and '[sys.executable, str(pr
 assert 'def _read_key_windows' in D and 'msvcrt.getwch()' in D
 assert 'def _enable_windows_vt' in D and 'ENABLE_VIRTUAL_TERMINAL_PROCESSING' in D
 assert 'use_windows_tty' in D and 'v: validate' in D
+assert 'def _batch_report_menu' in D and 'def _report_command' in D
 assert 'CREATE_NEW_PROCESS_GROUP' in R
 assert 'taskkill' in R and '"/T"' in R and '"/F"' in R
 assert 'path_is_link_or_reparse' in S and 'FILE_ATTRIBUTE_REPARSE_POINT' in S
 assert 'Python 3.10+' in PS and 'ExecutionPolicy Bypass' in BAT
-print('PASS: v6.15.1 Windows native internal routing, fullscreen input, process-tree containment and reparse safety contracts')
+assert "'report'" in PS
+print('PASS: v6.16.0 Windows native internal routing, fullscreen input, process-tree containment and reparse safety contracts')
