@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -19,7 +20,14 @@ from datetime import datetime, timezone
 from python_patch_utils import PatchFailure, finish_failure, run_ops
 from python_patch_package_schema import PatchSchemaError, run_preflight, sha256_file
 
-VERSION = "6.14.0"
+VERSION = "6.14.1"
+_ACTIVE_TERMINATION_SIGNAL: int | None = None
+
+
+def _sigterm_as_interrupt(signum, _frame):
+    global _ACTIVE_TERMINATION_SIGNAL
+    _ACTIVE_TERMINATION_SIGNAL = int(signum)
+    raise KeyboardInterrupt
 
 
 def _sha256(path: Path) -> str:
@@ -162,6 +170,102 @@ def _touched_paths(before: dict[str, str], after: dict[str, str]) -> list[str]:
     return sorted(name for name in set(before) | set(after) if before.get(name) != after.get(name))
 
 
+def _signal_subprocess_group(proc: subprocess.Popen, signum: int) -> None:
+    try:
+        if os.name != "nt":
+            # Do not gate this on proc.poll(). The process-group leader may
+            # already have exited while descendants in the same group remain
+            # alive (or were spawned during signal delivery). The PGID remains
+            # addressable until the final member exits.
+            os.killpg(proc.pid, signum)
+        elif proc.poll() is None:
+            proc.send_signal(signum)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+
+
+def _managed_group_alive(proc: subprocess.Popen) -> bool:
+    if os.name == "nt":
+        return proc.poll() is None
+    try:
+        os.killpg(proc.pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+def _quiesce_managed_group(proc: subprocess.Popen, initial_signal: int, *, grace_seconds: float = 1.0) -> None:
+    """Terminate the complete managed process group before returning.
+
+    A one-shot signal is insufficient: the payload can be interrupted while it
+    is in the middle of spawning a child, so that child may appear after the
+    first killpg(). Keep the PGID addressable after the leader exits, re-signal
+    any late member, then escalate to SIGKILL. Rollback/result publication only
+    happens after this quiescence barrier.
+    """
+    _signal_subprocess_group(proc, initial_signal)
+    deadline = time.monotonic() + max(0.1, grace_seconds)
+    while time.monotonic() < deadline:
+        if proc.poll() is None:
+            try:
+                proc.wait(timeout=0.05)
+            except subprocess.TimeoutExpired:
+                pass
+        if not _managed_group_alive(proc):
+            return
+        time.sleep(0.03)
+
+    term = signal.SIGTERM if hasattr(signal, "SIGTERM") else initial_signal
+    _signal_subprocess_group(proc, term)
+    deadline = time.monotonic() + 0.75
+    while time.monotonic() < deadline:
+        if not _managed_group_alive(proc):
+            return
+        time.sleep(0.03)
+
+    kill_signal = signal.SIGKILL if hasattr(signal, "SIGKILL") else term
+    _signal_subprocess_group(proc, kill_signal)
+    deadline = time.monotonic() + 0.75
+    while time.monotonic() < deadline:
+        if not _managed_group_alive(proc):
+            break
+        time.sleep(0.03)
+    if proc.poll() is None:
+        try:
+            proc.wait(timeout=0.5)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def _run_managed_process(argv: list[str], *, cwd: Path, env: dict[str, str] | None = None, timeout: int) -> int:
+    """Run payload/validation in an isolated process group.
+
+    Timeout/interruption terminates descendants before control returns to the
+    rollback path. This prevents an orphaned child from modifying the project
+    after the tool has already reported FAIL or restored a snapshot.
+    """
+    kwargs: dict[str, object] = {"cwd": cwd, "env": env}
+    if os.name != "nt":
+        kwargs["start_new_session"] = True
+    elif hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    proc = subprocess.Popen(argv, **kwargs)
+    try:
+        return proc.wait(timeout=max(1, int(timeout)))
+    except subprocess.TimeoutExpired:
+        term = signal.SIGTERM if hasattr(signal, "SIGTERM") else signal.SIGINT
+        _quiesce_managed_group(proc, term, grace_seconds=1.0)
+        return 124
+    except KeyboardInterrupt:
+        signum = _ACTIVE_TERMINATION_SIGNAL or signal.SIGINT
+        _quiesce_managed_group(proc, signum, grace_seconds=1.0)
+        raise
+
+
 def _run_argv(root: Path, cmd: dict) -> int:
     argv = cmd.get("argv")
     if not isinstance(argv, list) or not argv or not all(isinstance(x, str) and x for x in argv):
@@ -178,12 +282,10 @@ def _run_argv(root: Path, cmd: dict) -> int:
     timeout = int(cmd.get("timeout_seconds", 300))
     name = cmd.get("name") or " ".join(argv)
     print(f"POST PATCH: {name}", flush=True)
-    try:
-        proc = subprocess.run(argv, cwd=cwd, timeout=max(1, timeout))
-    except subprocess.TimeoutExpired:
+    rc = _run_managed_process(argv, cwd=cwd, timeout=max(1, timeout))
+    if rc == 124:
         print(f"ERROR: post_patch command timeout after {timeout}s", file=sys.stderr)
-        return 124
-    return proc.returncode if proc.returncode >= 0 else 128 + abs(proc.returncode)
+    return rc if rc >= 0 else 128 + abs(rc)
 
 
 def _run_post_patch(root: Path, manifest: dict, *, changed: bool) -> int:
@@ -240,38 +342,161 @@ def _run_git_policy(root: Path, manifest: dict, before_dirty: dict[str, str], af
     return 0
 
 
-def _archive_success(root: Path, source: Path) -> Path:
-    patchs = (root / "patchs").resolve(strict=False)
-    src = source.resolve(strict=True)
+def _snapshot_patch_input(source: Path) -> tuple[tempfile.TemporaryDirectory[str], Path, str]:
+    """Capture the exact PATCH bytes that will be preflighted/executed.
+
+    The queue file is user-controlled and other terminals are intentionally
+    allowed to run concurrently.  Execution therefore never trusts that the
+    pathname still contains the same bytes later in the run.
+    """
+    temp_dir = tempfile.TemporaryDirectory(prefix="ptv-input-")
+    snapshot = Path(temp_dir.name) / source.name
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = None
     try:
-        src.relative_to(patchs)
-    except ValueError as exc:
-        raise ValueError("PATCH input must be under project patchs/ for zero-argument lifecycle") from exc
-    if src.parent != patchs:
-        raise ValueError("PATCH input must be a direct file under project patchs/")
-    out_dir = root / "patchs" / "patched"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    dst = out_dir / source.name
+        fd = os.open(source, flags)
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError("PATCH input must be a regular non-symlink file")
+        digest = hashlib.sha256()
+        copied = 0
+        with os.fdopen(os.dup(fd), "rb") as src, snapshot.open("wb") as dst:
+            for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                dst.write(chunk)
+                digest.update(chunk)
+                copied += len(chunk)
+            dst.flush()
+            try: os.fsync(dst.fileno())
+            except OSError: pass
+        after = os.fstat(fd)
+        identity_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+        identity_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+        if identity_before != identity_after or copied != before.st_size:
+            raise ValueError("PATCH input changed while creating execution snapshot")
+        return temp_dir, snapshot, digest.hexdigest()
+    except Exception:
+        temp_dir.cleanup()
+        raise
+    finally:
+        if fd is not None:
+            try: os.close(fd)
+            except OSError: pass
+
+
+def _queue_dirs(root: Path) -> tuple[Path, Path]:
+    resolved_root = root.resolve(strict=True)
+    queue = root / "patchs"
+    if queue.is_symlink():
+        raise ValueError("unsafe queue: project patchs/ must not be a symlink")
+    if not queue.is_dir():
+        raise ValueError("unsafe queue: project patchs/ is missing or not a directory")
+    try:
+        if queue.resolve(strict=True).parent != resolved_root:
+            raise ValueError("unsafe queue: patchs/ escapes project root")
+    except OSError as exc:
+        raise ValueError("unsafe queue: patchs/ cannot be resolved") from exc
+    history = queue / "patched"
+    if history.exists() or history.is_symlink():
+        if history.is_symlink() or not history.is_dir():
+            raise ValueError("unsafe archive destination: patchs/patched/ must be a real directory")
+    else:
+        history.mkdir(parents=False, exist_ok=False)
+    if history.resolve(strict=True).parent != queue.resolve(strict=True):
+        raise ValueError("unsafe archive destination: patchs/patched/ escapes project queue")
+    return queue, history
+
+
+def _publish_executed_patch(snapshot: Path, dst: Path, expected_sha: str) -> None:
+    """Publish exact executed bytes without overwriting a concurrent archive."""
     if dst.exists() or dst.is_symlink():
         if dst.is_symlink() or not dst.is_file():
-            raise ValueError(f"unsafe archive destination: patchs/patched/{source.name}")
-        if _sha256(dst) == _sha256(source):
-            source.unlink()
-            return dst
-        raise ValueError(f"archive destination already exists with different content: patchs/patched/{source.name}")
-    os.replace(source, dst)
-    return dst
+            raise ValueError(f"unsafe archive destination: {dst}")
+        if _sha256(dst) != expected_sha:
+            raise ValueError(f"archive destination already exists with different content: {dst.name}")
+        return
+    fd, tmp_name = tempfile.mkstemp(prefix=".ptv-archive-", suffix=".tmp", dir=dst.parent)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as out, snapshot.open("rb") as src:
+            shutil.copyfileobj(src, out, length=1024 * 1024)
+            out.flush()
+            try: os.fsync(out.fileno())
+            except OSError: pass
+        if _sha256(tmp) != expected_sha:
+            raise ValueError("executed PATCH snapshot failed archive hash verification")
+        try:
+            os.link(tmp, dst, follow_symlinks=False)
+        except FileExistsError:
+            if dst.is_symlink() or not dst.is_file() or _sha256(dst) != expected_sha:
+                raise ValueError(f"archive destination raced with different content: {dst.name}")
+        finally:
+            try: tmp.unlink()
+            except FileNotFoundError: pass
+    finally:
+        try: tmp.unlink()
+        except FileNotFoundError: pass
+
+
+def _remove_queue_input_if_executed(source: Path, expected_sha: str) -> str:
+    """Remove the queue pathname only when it still names executed bytes.
+
+    A concurrent/user replacement is restored and deliberately left queued.
+    This avoids archiving or deleting a package that was never executed.
+    """
+    if not source.exists() and not source.is_symlink():
+        return "already_absent"
+    token = f".ptv-archive-guard-{os.getpid()}-{time.time_ns()}-{source.name}"
+    guard = source.parent / token
+    try:
+        os.replace(source, guard)
+    except FileNotFoundError:
+        return "already_absent"
+    try:
+        if guard.is_symlink() or not guard.is_file():
+            current_sha = None
+        else:
+            current_sha = _sha256(guard)
+        if current_sha == expected_sha:
+            guard.unlink()
+            return "removed_executed_input"
+
+        # The queue name was replaced while the PATCH was running. Restore the
+        # replacement rather than deleting data that was never executed.
+        if not source.exists() and not source.is_symlink():
+            os.replace(guard, source)
+            return "replacement_restored"
+
+        # Another process recreated the queue name before restoration. Preserve
+        # the displaced file under a visible non-runnable guard name.
+        preserved = source.parent / f"PTV_UNEXPECTED_QUEUE_REPLACEMENT_{time.time_ns()}_{source.name}"
+        os.replace(guard, preserved)
+        return f"replacement_preserved:{preserved.name}"
+    finally:
+        if guard.exists() or guard.is_symlink():
+            # Best effort: never silently delete an unexpected replacement.
+            try:
+                if not source.exists() and not source.is_symlink():
+                    os.replace(guard, source)
+            except OSError:
+                pass
+
+
+def _archive_success(root: Path, source: Path, executed_snapshot: Path, expected_sha: str) -> tuple[Path, str]:
+    queue, out_dir = _queue_dirs(root)
+    if source.parent.resolve(strict=True) != queue.resolve(strict=True):
+        raise ValueError("PATCH input must be a direct file under project patchs/")
+    dst = out_dir / source.name
+    _publish_executed_patch(executed_snapshot, dst, expected_sha)
+    lifecycle = _remove_queue_input_if_executed(source, expected_sha)
+    return dst, lifecycle
 
 
 def _execute_python(script: Path, root: Path, timeout: int) -> int:
     env = os.environ.copy()
     lib = str(Path(__file__).resolve().parent)
     env["PYTHONPATH"] = lib + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-    try:
-        proc = subprocess.run([sys.executable, str(script)], cwd=root, env=env, timeout=max(1, timeout))
-    except subprocess.TimeoutExpired:
-        return 124
-    return proc.returncode if proc.returncode >= 0 else 128 + abs(proc.returncode)
+    rc = _run_managed_process([sys.executable, str(script)], cwd=root, env=env, timeout=max(1, timeout))
+    return rc if rc >= 0 else 128 + abs(rc)
 
 
 def _utc_now() -> str:
@@ -353,6 +578,32 @@ def _partial_state(
 
 
 
+def _open_rollback_parent_fd(root: Path, rel: str) -> tuple[int | None, Path, str]:
+    """Open the declared target parent without following symlink components.
+
+    On POSIX the returned directory fd pins the exact directory inode, so a
+    concurrent rename/symlink swap cannot redirect snapshot/restore outside the
+    project. Windows falls back to the preflight-validated path checks.
+    """
+    pure = PurePosixPath(rel)
+    parent_path = root.joinpath(*pure.parts[:-1]) if len(pure.parts) > 1 else root
+    leaf = pure.name
+    if os.name == "nt" or not hasattr(os, "O_DIRECTORY"):
+        return None, parent_path, leaf
+    flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(root, flags)
+    try:
+        for part in pure.parts[:-1]:
+            next_fd = os.open(part, flags, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+        return fd, parent_path, leaf
+    except Exception:
+        try: os.close(fd)
+        except OSError: pass
+        raise
+
+
 def _prepare_rollback_snapshot(root: Path, rollback: dict[str, object]) -> tuple[tempfile.TemporaryDirectory[str], dict[str, object]]:
     targets = rollback.get("targets")
     if not isinstance(targets, list) or not targets:
@@ -369,63 +620,91 @@ def _prepare_rollback_snapshot(root: Path, rollback: dict[str, object]) -> tuple
         for index, rel in enumerate(targets):
             if not isinstance(rel, str):
                 raise PatchSchemaError("rollback target must be a string", kind="rollback_contract_invalid")
-            path = root.joinpath(*PurePosixPath(rel).parts)
             baseline = baselines.get(rel)
             if not isinstance(baseline, dict) or "exists" not in baseline:
                 raise PatchSchemaError(f"rollback baseline missing at snapshot: {rel}", kind="rollback_contract_invalid", path=rel)
+            parent_fd = None
             try:
-                lst = path.lstat()
-            except FileNotFoundError:
-                if baseline.get("exists") is not False:
-                    raise PatchSchemaError(f"rollback baseline changed after preflight: {rel} is now missing", kind="rollback_snapshot_race", path=rel)
-                entries.append({"path": rel, "kind": "missing"})
-                continue
-            if baseline.get("exists") is False:
-                raise PatchSchemaError(f"rollback baseline changed after preflight: {rel} now exists", kind="rollback_snapshot_race", path=rel)
-            if stat.S_ISLNK(lst.st_mode) or not stat.S_ISREG(lst.st_mode):
-                raise PatchSchemaError(f"rollback target baseline must be regular file or missing: {rel}", kind="rollback_snapshot_invalid", path=rel)
-            flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
-            fd = os.open(path, flags)
-            backup = base / f"{index:05d}.bin"
-            digest = hashlib.sha256()
-            copied = 0
-            try:
-                before = os.fstat(fd)
-                if not stat.S_ISREG(before.st_mode):
-                    raise PatchSchemaError(f"rollback target changed type before snapshot: {rel}", kind="rollback_snapshot_invalid", path=rel)
-                with os.fdopen(fd, "rb", closefd=False) as src, backup.open("wb") as dst:
-                    for chunk in iter(lambda: src.read(1024 * 1024), b""):
-                        copied += len(chunk)
-                        total += len(chunk)
-                        if total > limit:
-                            raise PatchSchemaError(
-                                f"rollback snapshot exceeds max_total_bytes={limit}",
-                                kind="rollback_snapshot_too_large",
-                            )
-                        dst.write(chunk)
-                        digest.update(chunk)
-                after = os.fstat(fd)
-            finally:
-                os.close(fd)
-            identity_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
-            identity_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
-            if identity_before != identity_after or copied != before.st_size:
-                raise PatchSchemaError(f"rollback target changed while snapshotting: {rel}", kind="rollback_snapshot_race", path=rel)
-            snapshot_sha = digest.hexdigest()
-            expected_sha = str(baseline.get("sha256") or "").lower()
-            if not expected_sha or snapshot_sha.lower() != expected_sha:
+                parent_fd, parent_path, leaf = _open_rollback_parent_fd(root, rel)
+            except (OSError, ValueError) as exc:
                 raise PatchSchemaError(
-                    f"rollback baseline changed after preflight: {rel} expected={expected_sha or '<missing>'} actual={snapshot_sha}",
+                    f"rollback target parent changed/unsafe before snapshot: {rel}",
                     kind="rollback_snapshot_race", path=rel,
-                )
-            entries.append({
-                "path": rel,
-                "kind": "file",
-                "backup": backup.name,
-                "size": copied,
-                "sha256": snapshot_sha,
-                "mode": stat.S_IMODE(before.st_mode),
-            })
+                ) from exc
+            try:
+                if parent_fd is not None:
+                    try:
+                        lst = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        if baseline.get("exists") is not False:
+                            raise PatchSchemaError(f"rollback baseline changed after preflight: {rel} is now missing", kind="rollback_snapshot_race", path=rel)
+                        entries.append({"path": rel, "kind": "missing"})
+                        continue
+                    if baseline.get("exists") is False:
+                        raise PatchSchemaError(f"rollback baseline changed after preflight: {rel} now exists", kind="rollback_snapshot_race", path=rel)
+                    if stat.S_ISLNK(lst.st_mode) or not stat.S_ISREG(lst.st_mode):
+                        raise PatchSchemaError(f"rollback target baseline must be regular file or missing: {rel}", kind="rollback_snapshot_invalid", path=rel)
+                    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+                    fd = os.open(leaf, flags, dir_fd=parent_fd)
+                else:
+                    path = parent_path / leaf
+                    try:
+                        lst = path.lstat()
+                    except FileNotFoundError:
+                        if baseline.get("exists") is not False:
+                            raise PatchSchemaError(f"rollback baseline changed after preflight: {rel} is now missing", kind="rollback_snapshot_race", path=rel)
+                        entries.append({"path": rel, "kind": "missing"})
+                        continue
+                    if baseline.get("exists") is False:
+                        raise PatchSchemaError(f"rollback baseline changed after preflight: {rel} now exists", kind="rollback_snapshot_race", path=rel)
+                    if stat.S_ISLNK(lst.st_mode) or not stat.S_ISREG(lst.st_mode):
+                        raise PatchSchemaError(f"rollback target baseline must be regular file or missing: {rel}", kind="rollback_snapshot_invalid", path=rel)
+                    fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0))
+
+                backup = base / f"{index:05d}.bin"
+                digest = hashlib.sha256()
+                copied = 0
+                try:
+                    before = os.fstat(fd)
+                    if not stat.S_ISREG(before.st_mode):
+                        raise PatchSchemaError(f"rollback target changed type before snapshot: {rel}", kind="rollback_snapshot_invalid", path=rel)
+                    with os.fdopen(os.dup(fd), "rb") as src, backup.open("wb") as dst:
+                        for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                            copied += len(chunk)
+                            total += len(chunk)
+                            if total > limit:
+                                raise PatchSchemaError(
+                                    f"rollback snapshot exceeds max_total_bytes={limit}",
+                                    kind="rollback_snapshot_too_large",
+                                )
+                            dst.write(chunk)
+                            digest.update(chunk)
+                    after = os.fstat(fd)
+                finally:
+                    os.close(fd)
+                identity_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+                identity_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+                if identity_before != identity_after or copied != before.st_size:
+                    raise PatchSchemaError(f"rollback target changed while snapshotting: {rel}", kind="rollback_snapshot_race", path=rel)
+                snapshot_sha = digest.hexdigest()
+                expected_sha = str(baseline.get("sha256") or "").lower()
+                if not expected_sha or snapshot_sha.lower() != expected_sha:
+                    raise PatchSchemaError(
+                        f"rollback baseline changed after preflight: {rel} expected={expected_sha or '<missing>'} actual={snapshot_sha}",
+                        kind="rollback_snapshot_race", path=rel,
+                    )
+                entries.append({
+                    "path": rel,
+                    "kind": "file",
+                    "backup": backup.name,
+                    "size": copied,
+                    "sha256": snapshot_sha,
+                    "mode": stat.S_IMODE(before.st_mode),
+                })
+            finally:
+                if parent_fd is not None:
+                    try: os.close(parent_fd)
+                    except OSError: pass
         return temp_dir, {"targets": list(targets), "entries": entries, "total_bytes": total, "on": list(rollback.get("on") or [])}
     except Exception:
         temp_dir.cleanup()
@@ -449,18 +728,63 @@ def _restore_rollback_snapshot(
     restored: list[str] = []
     errors: list[str] = []
     base = Path(snapshot_dir.name)
-    for entry in entries:
+    for index, entry in enumerate(entries):
         if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
             errors.append("invalid rollback entry")
             continue
         rel = str(entry["path"])
-        path = root.joinpath(*PurePosixPath(rel).parts)
-        parent = path.parent
-        if not parent.is_dir() or parent.is_symlink():
-            errors.append(f"parent missing/unsafe: {rel}")
-            continue
-        kind = entry.get("kind")
+        parent_fd = None
         try:
+            parent_fd, parent_path, leaf = _open_rollback_parent_fd(root, rel)
+            kind = entry.get("kind")
+            if parent_fd is not None:
+                if kind == "missing":
+                    try:
+                        st = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        restored.append(rel)
+                        continue
+                    if stat.S_ISREG(st.st_mode) or stat.S_ISLNK(st.st_mode):
+                        os.unlink(leaf, dir_fd=parent_fd)
+                    else:
+                        raise RuntimeError("rollback refuses to remove a directory/non-file created at target path")
+                    restored.append(rel)
+                    continue
+                if kind != "file" or not isinstance(entry.get("backup"), str):
+                    raise RuntimeError("invalid file rollback entry")
+                backup = base / str(entry["backup"])
+                if not backup.is_file() or backup.is_symlink():
+                    raise RuntimeError("rollback backup missing")
+                temp_name = f".ptv-restore-{os.getpid()}-{time.time_ns()}-{index}"
+                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+                out_fd = os.open(temp_name, flags, 0o600, dir_fd=parent_fd)
+                try:
+                    digest = hashlib.sha256()
+                    with os.fdopen(os.dup(out_fd), "wb") as dst, backup.open("rb") as src:
+                        for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                            dst.write(chunk); digest.update(chunk)
+                        dst.flush()
+                        try: os.fsync(dst.fileno())
+                        except OSError: pass
+                    if digest.hexdigest() != entry.get("sha256"):
+                        raise RuntimeError("restored bytes failed snapshot hash verification")
+                    if os.name != "nt":
+                        os.fchmod(out_fd, int(entry.get("mode", 0o644)))
+                finally:
+                    os.close(out_fd)
+                try:
+                    os.replace(temp_name, leaf, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+                finally:
+                    try: os.unlink(temp_name, dir_fd=parent_fd)
+                    except FileNotFoundError: pass
+                restored.append(rel)
+                continue
+
+            # Windows/fallback path: parent chain was validated during preflight
+            # and is rechecked here before path-based replacement.
+            path = parent_path / leaf
+            if parent_path.is_symlink() or not parent_path.is_dir():
+                raise RuntimeError("rollback target parent is missing/unsafe")
             if kind == "missing":
                 if path.is_symlink() or path.is_file():
                     path.unlink()
@@ -475,7 +799,7 @@ def _restore_rollback_snapshot(
             backup = base / str(entry["backup"])
             if not backup.is_file() or backup.is_symlink():
                 raise RuntimeError("rollback backup missing")
-            fd, temp_name = tempfile.mkstemp(prefix=".ptv-restore-", dir=parent)
+            fd, temp_name = tempfile.mkstemp(prefix=".ptv-restore-", dir=parent_path)
             temp_path = Path(temp_name)
             try:
                 with os.fdopen(fd, "wb") as dst, backup.open("rb") as src:
@@ -483,8 +807,7 @@ def _restore_rollback_snapshot(
                     dst.flush()
                     try: os.fsync(dst.fileno())
                     except OSError: pass
-                if os.name != "nt":
-                    os.chmod(temp_path, int(entry.get("mode", 0o644)))
+                if os.name != "nt": os.chmod(temp_path, int(entry.get("mode", 0o644)))
                 if _sha256(temp_path) != entry.get("sha256"):
                     raise RuntimeError("restored bytes failed snapshot hash verification")
                 os.replace(temp_path, path)
@@ -494,6 +817,10 @@ def _restore_rollback_snapshot(
             restored.append(rel)
         except Exception as exc:
             errors.append(f"{rel}: {type(exc).__name__}: {exc}")
+        finally:
+            if parent_fd is not None:
+                try: os.close(parent_fd)
+                except OSError: pass
 
     after_targets = _snapshot_declared_paths(root, target_paths)
     target_changes = _snapshot_changes(before_targets, after_targets)
@@ -560,13 +887,13 @@ def _maybe_rollback(
                 print(f"  remaining change: {rel}", file=sys.stderr)
     return result
 
-def _base_result(source: Path) -> dict[str, object]:
+def _base_result(source: Path, patch_sha256: str | None = None) -> dict[str, object]:
     return {
         "format": "python-patch-tool-patch-result",
         "format_version": 1,
         "tool_version": VERSION,
         "patch_file": source.name,
-        "patch_sha256": _sha256(source) if source.is_file() and not source.is_symlink() else None,
+        "patch_sha256": patch_sha256,
         "started_at": _utc_now(),
         "finished_at": None,
         "status": "RUNNING",
@@ -658,8 +985,10 @@ def _inspect_patch(root: Path, source: Path) -> int:
         print(f"INSPECT FAIL: PATCH input is not a regular non-symlink file: {source}", file=sys.stderr)
         return 2
     temp_dir = None
+    input_temp = None
     try:
-        temp_dir, _extracted, manifest, kind, _payload, _ops_data, preflight = _prepare_package(root, source)
+        input_temp, execution_source, _input_sha = _snapshot_patch_input(source)
+        temp_dir, _extracted, manifest, kind, _payload, _ops_data, preflight = _prepare_package(root, execution_source)
         _print_preflight_report(source, manifest, kind, preflight, inspect_only=True)
         pp = manifest.get("post_patch") if isinstance(manifest, dict) else None
         if isinstance(pp, dict) and pp.get("commands"):
@@ -681,6 +1010,8 @@ def _inspect_patch(root: Path, source: Path) -> int:
     finally:
         if temp_dir is not None:
             temp_dir.cleanup()
+        if input_temp is not None:
+            input_temp.cleanup()
 
 
 def _execute_patch(root: Path, source: Path) -> int:
@@ -689,12 +1020,25 @@ def _execute_patch(root: Path, source: Path) -> int:
         print(f"ERROR: PATCH input is not a regular non-symlink file: {source}", file=sys.stderr)
         return _finish_result(result, status="FAIL", rc=2, stage="input", diagnosis={"kind": "package_invalid", "message": "input is not a regular non-symlink file", "affected_paths": []})
 
+    global _ACTIVE_TERMINATION_SIGNAL
+    _ACTIVE_TERMINATION_SIGNAL = None
+    input_temp: tempfile.TemporaryDirectory[str] | None = None
+    execution_source: Path | None = None
+    input_sha: str | None = None
     temp_dir: tempfile.TemporaryDirectory[str] | None = None
     rollback_temp: tempfile.TemporaryDirectory[str] | None = None
     rollback_snapshot: dict[str, object] | None = None
+    manifest: dict = {}
+    preflight: dict[str, object] = {}
+    target_paths: list[str] = []
+    before_fp: str | None = None
+    before_dirty: dict[str, str] = {}
+    before_targets: dict[str, dict[str, object]] = {}
     try:
         try:
-            temp_dir, _extracted, manifest, kind, payload, ops_data, preflight = _prepare_package(root, source)
+            input_temp, execution_source, input_sha = _snapshot_patch_input(source)
+            result["patch_sha256"] = input_sha
+            temp_dir, _extracted, manifest, kind, payload, ops_data, preflight = _prepare_package(root, execution_source)
             result["preflight"] = preflight
             result["manifest_patch"] = manifest.get("patch") if isinstance(manifest, dict) else None
             result["recovery"] = manifest.get("recovery") if isinstance(manifest, dict) else None
@@ -810,13 +1154,22 @@ def _execute_patch(root: Path, source: Path) -> int:
 
         result["stage"] = "archive"
         try:
-            archived = _archive_success(root, source)
+            if execution_source is None or input_sha is None:
+                raise RuntimeError("executed PATCH snapshot is unavailable")
+            archived, queue_lifecycle = _archive_success(root, source, execution_source, input_sha)
+            result["queue_lifecycle"] = queue_lifecycle
         except Exception as exc:
             partial = _partial_state(root, before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets, target_paths=target_paths)
             diagnosis = {"kind": "archive_failed", "message": str(exc), "affected_paths": list(partial.get("changed_paths") or [])}
             print(f"ERROR: PATCH succeeded but queue archive failed: {exc}", file=sys.stderr)
             return _finish_result(result, status="FAIL", rc=3, stage="archive", diagnosis=diagnosis, partial=partial)
         print(f"[INFO] PATCH ARCHIVED: {archived.relative_to(root).as_posix()}")
+        if queue_lifecycle in {"replacement_restored"} or str(queue_lifecycle).startswith("replacement_preserved:"):
+            print(
+                f"[PTV v{VERSION} WARNING] queue input changed while PATCH was running; "
+                "the exact executed package was archived and the replacement was kept for a later run.",
+                file=sys.stderr,
+            )
         print(f"RUN SUMMARY: PASS | {source.name}")
         project_delta = _partial_state(root, before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets, target_paths=target_paths)
         result["project_delta"] = project_delta
@@ -826,8 +1179,32 @@ def _execute_patch(root: Path, source: Path) -> int:
             partial={"detected": False, "changed_paths": [], "evidence": "not_applicable_on_success"},
         )
     except KeyboardInterrupt:
-        print("INTERRUPTED by Ctrl+C", file=sys.stderr)
-        return _finish_result(result, status="FAIL", rc=130, stage=str(result.get("stage") or "unknown"), diagnosis={"kind": "interrupted", "message": "Ctrl+C", "affected_paths": []})
+        signum = _ACTIVE_TERMINATION_SIGNAL or signal.SIGINT
+        rc = 143 if signum == signal.SIGTERM else 130
+        stage = str(result.get("stage") or "unknown")
+        label = "SIGTERM" if signum == signal.SIGTERM else "Ctrl+C"
+        print(f"INTERRUPTED by {label}", file=sys.stderr)
+        diagnosis: dict[str, object] = {"kind": "interrupted", "message": label, "affected_paths": []}
+        partial: dict[str, object] = {"detected": False, "changed_paths": [], "evidence": "interrupted_before_payload"}
+        if stage in {"payload", "post_patch", "git", "archive"} and (target_paths or before_fp is not None):
+            partial = _partial_state(
+                root, before_fp=before_fp, before_dirty=before_dirty,
+                before_targets=before_targets, target_paths=target_paths,
+            )
+            diagnosis["affected_paths"] = list(partial.get("changed_paths") or [])
+        trigger = "payload_failure" if stage == "payload" else ("post_patch_failure" if stage == "post_patch" else None)
+        if trigger is not None:
+            rollback_result = _maybe_rollback(
+                root, preflight=preflight, rollback_temp=rollback_temp, rollback_snapshot=rollback_snapshot,
+                before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets,
+                target_paths=target_paths, trigger=trigger,
+            )
+            if rollback_result is not None:
+                result["rollback"] = rollback_result
+                diagnosis["rollback_status"] = rollback_result.get("status")
+                if rollback_result.get("status") == "PASS" and isinstance(rollback_result.get("remaining_project_delta"), dict):
+                    partial = rollback_result["remaining_project_delta"]
+        return _finish_result(result, status="FAIL", rc=rc, stage=stage, diagnosis=diagnosis, partial=partial)
     except Exception as exc:
         print(f"ERROR: PATCH execution failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return _finish_result(result, status="FAIL", rc=2, stage=str(result.get("stage") or "unknown"), diagnosis={"kind": "internal_error", "message": f"{type(exc).__name__}: {exc}", "affected_paths": []})
@@ -836,6 +1213,8 @@ def _execute_patch(root: Path, source: Path) -> int:
             rollback_temp.cleanup()
         if temp_dir is not None:
             temp_dir.cleanup()
+        if input_temp is not None:
+            input_temp.cleanup()
 
 def _paths(root: Path) -> int:
     print(f"Project root : {root}")
@@ -847,6 +1226,8 @@ def _paths(root: Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, _sigterm_as_interrupt)
     args = list(sys.argv[1:] if argv is None else argv)
     if not args:
         print("ERROR: normal interactive use is ./tools/run_python_patches.sh with no arguments", file=sys.stderr)

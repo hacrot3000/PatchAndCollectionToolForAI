@@ -1,4 +1,4 @@
-# PATCH PACKAGE GUIDE — v6.14.0 authoritative AI/tool contract
+# PATCH PACKAGE GUIDE — v6.14.1 authoritative AI/tool contract
 
 Machine-readable source of truth:
 
@@ -36,9 +36,9 @@ Optional manifest block:
 ```json
 {
   "compatibility": {
-    "min_tool_version": "6.14.0",
+    "min_tool_version": "6.14.1",
     "max_tool_version": "7.0.0",
-    "max_tested_version": "6.14.0"
+    "max_tested_version": "6.14.1"
   }
 }
 ```
@@ -148,6 +148,22 @@ Rules:
 - Missing/ambiguous recovery metadata becomes `PREFLIGHT FAIL — project unchanged`; AI must not guess a rollback contract.
 
 `ROLLBACK: PASS` means the configured recovery scope was restored and verified according to the evidence available. `PARTIAL`/`FAIL` remains a normal PATCH failure and the generated FAIL_HANDOFF should be uploaded to AI.
+
+## Rollback path/runtime safety — v6.14.1
+
+For a rollback target declared with `exists:false`, the target's parent directory must already exist before the PATCH starts and every ancestor must be a real non-symlink directory inside the project. The tool does not invent or remove directories as part of rollback.
+
+Rollback baselines are re-checked when the pre-payload snapshot is created. If a target changes between preflight and snapshot, execution fails closed before the payload runs.
+
+On POSIX, restore pins the validated parent directory with a directory file descriptor and `O_NOFOLLOW`-style checks so an ancestor symlink swap cannot redirect the restore outside the project.
+
+Python PATCH payloads and post-patch commands run in isolated process groups. Timeout, SIGINT or SIGTERM terminates the whole managed group before rollback/return; a descendant must not continue modifying the project after Patch Tool reports failure.
+
+## Exact input lifecycle — v6.14.1
+
+Patch Tool snapshots the exact PATCH package selected from `patchs/` before preflight/execution and archives those exact executed bytes after PASS. If another process or the PATCH itself replaces the same queue filename while execution is in progress, the replacement is preserved in `patchs/` for a later run instead of being archived as though it had already executed.
+
+A FAIL_HANDOFF only embeds the current queue PATCH when its SHA-256 still equals the structured executed package SHA. A changed/replaced queue package is omitted from the handoff rather than misidentified.
 
 ## Inspect / dry-run
 

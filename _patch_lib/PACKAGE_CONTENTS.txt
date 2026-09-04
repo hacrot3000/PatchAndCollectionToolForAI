@@ -1,4 +1,4 @@
-Python Patch Tool v6.14.0 — full self-contained package
+Python Patch Tool v6.14.1 — full self-contained package
 
 Public files:
   tools/run_python_patches.sh
@@ -25,7 +25,7 @@ Authoritative AI/tool docs:
   tools/_patch_lib/docs/CODE_COLLECTION_GUIDE.md
   tools/_patch_lib/docs/PORTABLE_USAGE.md
   tools/_patch_lib/docs/PYTHON_PATCH_TOOL_FEATURE_STATUS.md
-  tools/_patch_lib/docs/COLLECT_PROGRESS_V6_14_0.md
+  tools/_patch_lib/docs/COLLECT_PROGRESS_V6_14_1.md
 
 Runtime audit/recovery artifacts (created in the project, not shipped pre-populated):
   artifacts/patch_tool/LAST_RUN.json
@@ -34,10 +34,20 @@ Runtime audit/recovery artifacts (created in the project, not shipped pre-popula
   patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip  # only when source-drift/anchor recovery is prepared
 
 Normal use:
-  unzip -o python_patch_tool_v6.14.0.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.14.1.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 PATCH execution remains IN-PLACE. SANDBOX/worktree transaction execution is permanently unsupported.
 
 Zero-argument selector key `h` performs read-only Tool Health; IDLE prints a compact health line.
 Metadata-driven rollback is opt-in and limited to exact declared targets before Git policy.
+
+
+v6.14.1 robustness patch:
+- exact PATCH/COLLECT input snapshots and archival identity
+- process-group signal/timeout containment
+- rollback path/ancestor safety
+- Tool Health checksum-coverage enforcement
+- symlinked queue-root rejection
+- duplicate-removal race hardening
+- runtime bytecode-cache suppression so Tool Health does not self-WARN

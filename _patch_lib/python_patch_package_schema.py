@@ -7,9 +7,10 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import stat
 from typing import Any
 
-VERSION = "6.14.0"
+VERSION = "6.14.1"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "PATCH_PACKAGE_SCHEMA.json"
 _HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 _SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
@@ -205,6 +206,68 @@ def _ops_target_paths(ops: Any) -> set[str]:
 
 
 
+def _validate_rollback_baseline_path(root: Path, rel: str, baseline: dict[str, Any]) -> None:
+    """Require an exact, non-symlink parent chain for rollback targets.
+
+    A missing rollback target is safe only when its parent directory already
+    exists before payload execution. Otherwise removing the created file could
+    leave newly-created directories behind while falsely reporting a complete
+    rollback. Every ancestor is checked with lstat so a symlinked component
+    cannot redirect rollback outside the project.
+    """
+    root_resolved = root.resolve(strict=True)
+    pure = PurePosixPath(rel)
+    current = root_resolved
+    for part in pure.parts[:-1]:
+        current = current / part
+        try:
+            st = current.lstat()
+        except FileNotFoundError as exc:
+            raise PatchSchemaError(
+                f"rollback target parent must already exist before payload: {rel}",
+                kind="rollback_parent_missing", path=rel,
+            ) from exc
+        if stat.S_ISLNK(st.st_mode):
+            raise PatchSchemaError(
+                f"rollback target ancestor must not be a symlink: {rel}",
+                kind="rollback_path_unsafe", path=rel,
+            )
+        if not stat.S_ISDIR(st.st_mode):
+            raise PatchSchemaError(
+                f"rollback target ancestor is not a directory: {rel}",
+                kind="rollback_path_unsafe", path=rel,
+            )
+        try:
+            current.resolve(strict=True).relative_to(root_resolved)
+        except Exception as exc:
+            raise PatchSchemaError(
+                f"rollback target ancestor escapes project root: {rel}",
+                kind="rollback_path_unsafe", path=rel,
+            ) from exc
+
+    leaf = current / pure.name
+    expected_exists = baseline.get("exists") is True
+    try:
+        st = leaf.lstat()
+    except FileNotFoundError:
+        if expected_exists:
+            raise PatchSchemaError(
+                f"rollback baseline changed before snapshot: {rel} is missing",
+                kind="rollback_snapshot_race", path=rel,
+            )
+        return
+    if not expected_exists:
+        raise PatchSchemaError(
+            f"rollback baseline changed before snapshot: {rel} now exists",
+            kind="rollback_snapshot_race", path=rel,
+        )
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+        raise PatchSchemaError(
+            f"rollback target baseline must be a regular non-symlink file: {rel}",
+            kind="rollback_path_unsafe", path=rel,
+        )
+
+
 def _rollback_contract(manifest: dict[str, Any], targets: set[str]) -> dict[str, Any] | None:
     recovery = manifest.get("recovery")
     if not isinstance(recovery, dict):
@@ -360,6 +423,8 @@ def run_preflight(
 
     rollback = _rollback_contract(manifest, targets)
     if rollback is not None:
+        for rel in rollback["targets"]:
+            _validate_rollback_baseline_path(root, rel, rollback["baselines"][rel])
         report["rollback"] = rollback
         checks.append({"kind": "rollback_contract", "status": "PASS", "targets": len(rollback["targets"]), "on": rollback["on"]})
 

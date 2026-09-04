@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib, json, os, stat
 from pathlib import Path
 
-VERSION = "6.14.0"
+VERSION = "6.14.1"
 REQUIRED_RUNTIME = [
     "tools/run_python_patches.sh",
     "tools/_patch_lib/VERSION",
@@ -31,6 +31,25 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _safe_regular(root: Path, rel: str) -> bool:
+    """Require every installed path component to be real, not a symlink."""
+    current=root.resolve(strict=True)
+    parts=Path(rel).parts
+    for i,part in enumerate(parts):
+        current=current/part
+        try:
+            st=current.lstat()
+        except OSError:
+            return False
+        if stat.S_ISLNK(st.st_mode):
+            return False
+        if i < len(parts)-1 and not stat.S_ISDIR(st.st_mode):
+            return False
+        if i == len(parts)-1 and not stat.S_ISREG(st.st_mode):
+            return False
+    return True
+
+
 def audit_tool(root: Path) -> dict[str, object]:
     root=root.resolve()
     lib=root/'tools'/'_patch_lib'
@@ -50,10 +69,10 @@ def audit_tool(root: Path) -> dict[str, object]:
 
     for rel in REQUIRED_RUNTIME:
         path=root/rel
-        ok=path.is_file() and not path.is_symlink()
+        ok=_safe_regular(root,rel)
         checks.append({'name':f'file:{rel}','status':'PASS' if ok else 'FAIL'})
         if not ok:
-            errors.append(f"missing/unsafe required file: {rel}")
+            errors.append(f"missing/unsafe required file or symlinked ancestor: {rel}")
 
     launcher=root/'tools'/'run_python_patches.sh'
     executable=True if os.name=='nt' else (launcher.is_file() and os.access(launcher,os.X_OK))
@@ -82,8 +101,8 @@ def audit_tool(root: Path) -> dict[str, object]:
                 continue
             seen.add(rel); manifest_entries+=1
             path=root/rel
-            if path.is_symlink() or not path.is_file():
-                errors.append(f"checksum target missing/unsafe: {rel}")
+            if not _safe_regular(root,rel):
+                errors.append(f"checksum target missing/unsafe or symlinked ancestor: {rel}")
                 checksum_failures+=1
                 continue
             actual=_sha256(path)
@@ -93,7 +112,15 @@ def audit_tool(root: Path) -> dict[str, object]:
     except Exception as exc:
         errors.append(f"SHA256SUMS unreadable: {type(exc).__name__}: {exc}")
         checksum_failures+=1
-    checks.append({'name':'sha256sums','status':'PASS' if checksum_failures==0 else 'FAIL','entries':manifest_entries,'failures':checksum_failures})
+    missing_coverage=sorted(set(REQUIRED_RUNTIME)-seen)
+    if missing_coverage:
+        for rel in missing_coverage:
+            errors.append(f"SHA256SUMS missing required managed path: {rel}")
+        checksum_failures+=len(missing_coverage)
+    checks.append({
+        'name':'sha256sums','status':'PASS' if checksum_failures==0 else 'FAIL',
+        'entries':manifest_entries,'failures':checksum_failures,'missing_required':len(missing_coverage),
+    })
 
     for name in ('COLLECT_ACTION_SCHEMA.json','PATCH_PACKAGE_SCHEMA.json'):
         path=lib/'docs'/name

@@ -185,8 +185,9 @@ with tempfile.TemporaryDirectory(prefix='ptv681dup_symlink_project_') as project
     assert duplicates == [], duplicates
     assert any('patchs/patched/ is a symlink' in x for x in warnings), warnings
 
-# Same invariant when patchs/ itself is a symlink: discovery may remain
-# compatible with an old layout, but duplicate history must not cross roots.
+# v6.14.1 hardens the whole queue boundary: patchs/ itself must never be a
+# symlink, because otherwise PATCH/COLLECT execution and archive lifecycle can
+# cross into another project/shared directory. Discovery fails closed.
 with tempfile.TemporaryDirectory(prefix='ptv681dup_queue_project_') as project_td, tempfile.TemporaryDirectory(prefix='ptv681dup_queue_shared_') as shared_td:
     root = Path(project_td)
     shared_queue = Path(shared_td)
@@ -196,11 +197,12 @@ with tempfile.TemporaryDirectory(prefix='ptv681dup_queue_project_') as project_t
     queued = shared_queue / 'same.zip'
     shutil.copy2(historical, queued)
     (root / 'patchs').symlink_to(shared_queue, target_is_directory=True)
-    items, _ = m.discover_queue(root)
-    runnable, duplicates, warnings = m._split_local_duplicate_patches(root, items)
-    assert [x.name for x in runnable] == ['same.zip'], runnable
-    assert duplicates == [], duplicates
-    assert any('patchs/ is a symlink' in x for x in warnings), warnings
+    try:
+        m.discover_queue(root)
+    except m.QueueSafetyError as exc:
+        assert 'patchs/' in str(exc) and 'symlink' in str(exc), exc
+    else:
+        raise AssertionError('symlinked patchs/ must fail closed')
 
 # Late duplicate recheck: if two byte-identical patches were selected before
 # history existed, the first successful PATCH archives itself and the second is
@@ -295,7 +297,7 @@ with tempfile.TemporaryDirectory(prefix='ptv612_session_three_') as td:
     assert a.is_file() and c.is_file() and not warns,warns
 
 
-# v6.14.0 deliberately has no project/process queue lock. Independent terminal
+# v6.14.1 deliberately has no project/process queue lock. Independent terminal
 # windows are operator-controlled and must not be rejected as BUSY. A stale
 # .ptv_queue.lock from an older release is ignored and is never created by this
 # dispatcher.
@@ -326,4 +328,4 @@ with tempfile.TemporaryDirectory(prefix='ptv610_no_process_lock_') as td:
     invoked=calls.read_text(encoding='utf-8').splitlines()
     assert len(invoked)==2,invoked
 
-print('PASS: v6.14.0 current-session duplicate collapse plus local-history duplicate contract')
+print('PASS: v6.14.1 current-session duplicate collapse plus local-history duplicate contract')

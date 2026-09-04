@@ -7,6 +7,7 @@ import json
 import os
 import re
 import select
+import signal
 import subprocess
 import sys
 import tarfile
@@ -29,7 +30,7 @@ except Exception:
     termios = tty = None
 
 
-VERSION = "6.14.0"
+VERSION = "6.14.1"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -50,6 +51,10 @@ class QueueItem:
     detail: str = ""
 
 
+class QueueSafetyError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class LocalDuplicate:
     item: QueueItem
@@ -66,6 +71,29 @@ class SessionDuplicate:
 
 
 _LAST_EXECUTION_DETAILS: list[dict[str, object]] = []
+
+
+class _PatchChildSignal(BaseException):
+    def __init__(self, signum: int):
+        super().__init__(signum)
+        self.signum = int(signum)
+
+
+def _raise_patch_child_signal(signum, _frame):
+    raise _PatchChildSignal(int(signum))
+
+
+def _forward_patch_signal(proc: subprocess.Popen, signum: int) -> None:
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name != "nt":
+            os.killpg(proc.pid, signum)
+        else:
+            proc.send_signal(signum)
+    except (ProcessLookupError, OSError):
+        pass
+
 MAX_PATCH_CAPTURE_BYTES = 8 * 1024 * 1024
 MAX_HANDOFF_SOURCE_FILE_BYTES = 2 * 1024 * 1024
 MAX_HANDOFF_SOURCE_TOTAL_BYTES = 20 * 1024 * 1024
@@ -171,34 +199,83 @@ def _run_patch_child(root: Path, cmd: list[str], item: QueueItem) -> tuple[int, 
         cmd, cwd=root, env=env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, encoding="utf-8", errors="replace", bufsize=1,
+        start_new_session=(os.name != "nt"),
     )
     assert proc.stdout is not None
     chunks: list[str] = []
     used = 0
     truncated = False
-    try:
-        for line in iter(proc.stdout.readline, ""):
-            if not line:
-                break
-            sys.stdout.write(line); sys.stdout.flush()
-            raw = line.encode("utf-8", errors="replace")
-            if used < MAX_PATCH_CAPTURE_BYTES:
-                room = MAX_PATCH_CAPTURE_BYTES - used
-                part = raw[:room]
-                chunks.append(part.decode("utf-8", errors="replace"))
-                used += len(part)
-                if len(raw) > room: truncated = True
-            else:
+    interrupted_sig: int | None = None
+    old_sigterm = None
+    if hasattr(signal, "SIGTERM"):
+        try:
+            old_sigterm = signal.getsignal(signal.SIGTERM)
+            signal.signal(signal.SIGTERM, _raise_patch_child_signal)
+        except Exception:
+            old_sigterm = None
+
+    def consume(text: str) -> None:
+        nonlocal used, truncated
+        if not text:
+            return
+        sys.stdout.write(text); sys.stdout.flush()
+        raw = text.encode("utf-8", errors="replace")
+        if used < MAX_PATCH_CAPTURE_BYTES:
+            room = MAX_PATCH_CAPTURE_BYTES - used
+            part = raw[:room]
+            chunks.append(part.decode("utf-8", errors="replace"))
+            used += len(part)
+            if len(raw) > room:
                 truncated = True
-        raw_rc = proc.wait()
+        else:
+            truncated = True
+
+    try:
+        try:
+            for line in iter(proc.stdout.readline, ""):
+                if not line:
+                    break
+                consume(line)
+            raw_rc = proc.wait()
+        except KeyboardInterrupt:
+            interrupted_sig = signal.SIGINT
+            _forward_patch_signal(proc, signal.SIGINT)
+            try:
+                tail, _ = proc.communicate(timeout=30)
+                consume(tail or "")
+            except subprocess.TimeoutExpired:
+                _forward_patch_signal(proc, signal.SIGKILL)
+                tail, _ = proc.communicate(timeout=5)
+                consume(tail or "")
+            raw_rc = 130
+        except _PatchChildSignal as exc:
+            interrupted_sig = exc.signum
+            _forward_patch_signal(proc, exc.signum)
+            try:
+                tail, _ = proc.communicate(timeout=30)
+                consume(tail or "")
+            except (subprocess.TimeoutExpired, KeyboardInterrupt, _PatchChildSignal):
+                _forward_patch_signal(proc, signal.SIGKILL)
+                try:
+                    tail, _ = proc.communicate(timeout=5)
+                    consume(tail or "")
+                except Exception:
+                    pass
+            raw_rc = 128 + abs(interrupted_sig)
     finally:
+        if old_sigterm is not None:
+            try: signal.signal(signal.SIGTERM, old_sigterm)
+            except Exception: pass
         try: proc.stdout.close()
         except Exception: pass
+
     if truncated:
         chunks.append("\n[PTV: console capture truncated at 8 MiB]\n")
     result = _load_json(result_path)
     try: result_path.unlink()
     except OSError: pass
+    if interrupted_sig is not None:
+        return 128 + abs(interrupted_sig), "".join(chunks), result
     return _normalize_subprocess_rc(raw_rc), "".join(chunks), result
 
 
@@ -335,13 +412,27 @@ def _create_fail_handoff(
         "rc": rc,
         "patch_result": patch_result,
         "recovery_collect_request": recovery_request.name if recovery_request else None,
+        "patch_attachment": "not_checked",
     }
+    patch_path = root / "patchs" / item.name
+    expected_patch_sha = patch_result.get("patch_sha256") if isinstance(patch_result, dict) else None
+    attach_patch = False
+    if patch_path.is_file() and not patch_path.is_symlink() and isinstance(expected_patch_sha, str):
+        try:
+            attach_patch = _sha256_file(patch_path) == expected_patch_sha
+        except OSError:
+            attach_patch = False
+    if attach_patch:
+        summary["patch_attachment"] = "exact_executed_queue_bytes"
+    elif patch_path.exists() or patch_path.is_symlink():
+        summary["patch_attachment"] = "omitted_queue_input_changed_or_unsafe"
+    else:
+        summary["patch_attachment"] = "omitted_queue_input_missing"
     try:
         with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
             zf.writestr("FAIL_SUMMARY.json", json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
             zf.writestr("console.log", console_log)
-            patch_path = root / "patchs" / item.name
-            if patch_path.is_file() and not patch_path.is_symlink():
+            if attach_patch:
                 zf.write(patch_path, f"patch/{item.name}")
             for doc in [root/"tools"/"implementing.md", root/"tools"/"PYTHON_PATCH_TOOL_FEATURES_VI.md", root/"tools"/"_patch_lib"/"VERSION", root/"tools"/"_patch_lib"/"docs"/"PATCH_PACKAGE_SCHEMA.json"]:
                 if doc.is_file():
@@ -673,6 +764,47 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _remove_session_duplicate_safely(queue_dir: Path, duplicate_name: str, canonical_name: str, expected_sha: str) -> tuple[bool, str | None]:
+    duplicate = queue_dir / duplicate_name
+    canonical = queue_dir / canonical_name
+    guard = queue_dir / f".ptv-duplicate-guard-{os.getpid()}-{time.time_ns()}-{duplicate_name}"
+    try:
+        os.replace(duplicate, guard)
+    except FileNotFoundError:
+        return False, "duplicate queue file disappeared before removal"
+    except OSError as exc:
+        return False, f"could not isolate duplicate queue file ({type(exc).__name__})"
+    try:
+        if guard.is_symlink() or not guard.is_file() or _sha256_file(guard) != expected_sha:
+            raise RuntimeError("duplicate queue file changed after hashing")
+        if canonical.is_symlink() or not canonical.is_file() or _sha256_file(canonical) != expected_sha:
+            raise RuntimeError("canonical queue file changed before duplicate removal")
+        guard.unlink()
+        return True, None
+    except Exception as exc:
+        # Never delete a file whose identity/content changed while duplicate
+        # filtering was in progress. Restore it to the queue when possible.
+        try:
+            if not duplicate.exists() and not duplicate.is_symlink():
+                os.replace(guard, duplicate)
+                return False, str(exc)
+        except OSError:
+            pass
+        try:
+            preserved = queue_dir / f"PTV_UNEXPECTED_DUPLICATE_REPLACEMENT_{time.time_ns()}_{duplicate_name}"
+            os.replace(guard, preserved)
+            return False, f"{exc}; preserved as patchs/{preserved.name}"
+        except OSError as preserve_exc:
+            return False, f"{exc}; additionally could not restore isolated file ({type(preserve_exc).__name__})"
+    finally:
+        if guard.exists() or guard.is_symlink():
+            try:
+                if not duplicate.exists() and not duplicate.is_symlink():
+                    os.replace(guard, duplicate)
+            except OSError:
+                pass
+
+
 def _split_session_duplicate_patches(root: Path, items: list[QueueItem]):
     """Collapse byte-identical PATCH files already present in the same queue.
 
@@ -729,18 +861,19 @@ def _split_session_duplicate_patches(root: Path, items: list[QueueItem]):
             canonical_by_hash[key] = item
             runnable.append(item)
             continue
-        removed = False
-        try:
-            path.unlink()
-            removed = True
-        except FileNotFoundError:
-            removed = True
-        except OSError as exc:
+        removed, remove_warning = _remove_session_duplicate_safely(
+            queue_dir, item.name, canonical.name, digest
+        )
+        if remove_warning:
             warnings.append(
-                f"duplicate PATCH was excluded from this run but could not be removed: "
-                f"patchs/{item.name} ({type(exc).__name__})"
+                f"duplicate PATCH removal aborted safely for patchs/{item.name}: {remove_warning}"
             )
-        duplicates.append(SessionDuplicate(item, canonical.name, digest, removed))
+        if removed:
+            duplicates.append(SessionDuplicate(item, canonical.name, digest, True))
+        else:
+            # If safe removal could not be proven, leave the item runnable; do
+            # not silently suppress a possibly changed package.
+            runnable.append(item)
 
     return runnable, duplicates, warnings
 
@@ -892,7 +1025,16 @@ def _print_local_duplicate_skips(duplicates: list[LocalDuplicate], *, stream=Non
 
 def discover_queue(root: Path):
     directory = root / "patchs"
-    directory.mkdir(parents=True, exist_ok=True)
+    if directory.exists() or directory.is_symlink():
+        if directory.is_symlink() or not directory.is_dir():
+            raise QueueSafetyError("project patchs/ must be a real directory, not a symlink/non-directory")
+    else:
+        directory.mkdir(parents=True, exist_ok=False)
+    try:
+        if directory.resolve(strict=True).parent != root.resolve(strict=True):
+            raise QueueSafetyError("project patchs/ escapes project root")
+    except OSError as exc:
+        raise QueueSafetyError("project patchs/ cannot be resolved safely") from exc
     items: list[QueueItem] = []
     warnings: list[str] = []
 
@@ -1635,13 +1777,21 @@ def _collect_archive_postcondition(root: Path, item: QueueItem) -> tuple[bool, s
     """
     source = root / "patchs" / item.name
     archived = root / "patchs" / "patched" / item.name
-    if source.exists() or source.is_symlink():
-        return False, f"COLLECT rc=0 but request is still queued: patchs/{item.name}"
     try:
         if archived.is_symlink() or not archived.is_file():
             return False, f"COLLECT rc=0 but archived request is missing: patchs/patched/{item.name}"
+        archived_sha = _sha256_file(archived)
     except OSError as exc:
         return False, f"COLLECT archive verification failed: {type(exc).__name__}"
+    if source.exists() or source.is_symlink():
+        try:
+            if source.is_symlink() or not source.is_file():
+                return False, f"COLLECT rc=0 but unsafe request replacement remains queued: patchs/{item.name}"
+            if _sha256_file(source) == archived_sha:
+                return False, f"COLLECT rc=0 but executed request is still queued: patchs/{item.name}"
+            return True, f"request filename was replaced during COLLECT and the replacement remains queued: patchs/{item.name}"
+        except OSError as exc:
+            return False, f"COLLECT replacement verification failed: {type(exc).__name__}"
     return True, ""
 
 
@@ -1712,6 +1862,8 @@ def execute_items(root: Path, chosen: list[QueueItem]):
             if not ok:
                 print(f"[PTV v{VERSION} ERROR] {_safe_display(detail)}", file=sys.stderr)
                 rc = 3
+            elif detail:
+                print(f"[PTV v{VERSION} WARNING] {_safe_display(detail)}")
         detail: dict[str, object] = {
             "name": item.name,
             "kind": item.kind,
@@ -1744,7 +1896,12 @@ def _run_queue(root: Path):
     run_id = f"{int(time.time()*1000000)}_{os.getpid()}"
     previous = _load_previous_run(root)
     resume_items = _print_resume_hint(root, previous)
-    items, warnings = discover_queue(root)
+    queue_safety_error: str | None = None
+    try:
+        items, warnings = discover_queue(root)
+    except QueueSafetyError as exc:
+        items, warnings = [], []
+        queue_safety_error = str(exc)
     items, session_duplicates, session_duplicate_warnings = _split_session_duplicate_patches(root, items)
     items, local_duplicates, duplicate_warnings = _split_local_duplicate_patches(root, items)
     printed_warnings = set()
@@ -1786,6 +1943,10 @@ def _run_queue(root: Path):
         }
         _write_run_report(root, report)
         return rc
+
+    if queue_safety_error is not None:
+        print(f"[PTV v{VERSION} ERROR] QUEUE SAFETY: {_safe_display(queue_safety_error)}", file=sys.stderr)
+        return finish_report("FAIL", 2)
 
     if not items:
         if session_duplicates:

@@ -10,15 +10,17 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
 
-VERSION = "6.14.0"
+VERSION = "6.14.1"
 REQUEST_RE = re.compile(r"^CODE_COLLECTION_REQUEST(?:_[A-Za-z0-9._-]+)?\.json$", re.I)
 MAX_REQUEST_JSON_BYTES = 1024 * 1024
 IGNORED_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "build", "dist"}
@@ -51,6 +53,43 @@ def _redact_text(text: str) -> str:
         flags=re.S,
     )
     return out
+
+
+def _snapshot_request_input(request_zip: Path) -> tuple[tempfile.TemporaryDirectory[str], Path, str]:
+    temp_dir = tempfile.TemporaryDirectory(prefix="ptv-collect-input-")
+    snapshot = Path(temp_dir.name) / request_zip.name
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = None
+    try:
+        fd = os.open(request_zip, flags)
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError("request ZIP must be a regular non-symlink file")
+        digest = hashlib.sha256(); copied = 0
+        with os.fdopen(os.dup(fd), "rb") as src, snapshot.open("wb") as dst:
+            for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                dst.write(chunk); digest.update(chunk); copied += len(chunk)
+            dst.flush()
+            try: os.fsync(dst.fileno())
+            except OSError: pass
+        after = os.fstat(fd)
+        if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) or copied != before.st_size:
+            raise ValueError("request ZIP changed while creating execution snapshot")
+        return temp_dir, snapshot, digest.hexdigest()
+    except Exception:
+        temp_dir.cleanup(); raise
+    finally:
+        if fd is not None:
+            try: os.close(fd)
+            except OSError: pass
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _load_request(request_zip: Path) -> tuple[dict, str]:
@@ -431,75 +470,129 @@ def _git_action(root: Path, action: dict) -> str:
     return "\n".join(blocks) + "\n"
 
 
-def _archive_request(root: Path, request_zip: Path) -> Path:
-    queued = request_zip.resolve(strict=True)
-    patchs = (root / "patchs").resolve(strict=False)
-    try:
-        queued.relative_to(patchs)
-    except ValueError as exc:
-        raise ValueError("request ZIP must be located under project patchs/") from exc
-    if queued.parent != patchs:
-        raise ValueError("request ZIP must be a direct file under project patchs/")
-    archived_dir = root / "patchs" / "patched"
-    archived_dir.mkdir(parents=True, exist_ok=True)
-    destination = archived_dir / request_zip.name
-    if destination.exists() or destination.is_symlink():
-        if destination.is_symlink() or not destination.is_file():
-            raise ValueError(f"archive destination is unsafe: patchs/patched/{request_zip.name}")
-        def sha(path: Path):
-            h=hashlib.sha256();
-            with path.open('rb') as fh:
-                for chunk in iter(lambda: fh.read(1024*1024), b''): h.update(chunk)
-            return h.hexdigest()
-        if sha(destination) == sha(request_zip):
-            request_zip.unlink()
-            return destination
-        raise ValueError(f"archive destination already exists with different content: patchs/patched/{request_zip.name}")
-    os.replace(request_zip, destination)
-    return destination
+def _collect_queue_dirs(root: Path) -> tuple[Path, Path]:
+    queue = root / "patchs"
+    if queue.is_symlink() or not queue.is_dir():
+        raise ValueError("project patchs/ must be a real directory")
+    if queue.resolve(strict=True).parent != root.resolve(strict=True):
+        raise ValueError("project patchs/ escapes project root")
+    history = queue / "patched"
+    if history.exists() or history.is_symlink():
+        if history.is_symlink() or not history.is_dir():
+            raise ValueError("patchs/patched/ must be a real directory")
+    else:
+        history.mkdir(parents=False, exist_ok=False)
+    if history.resolve(strict=True).parent != queue.resolve(strict=True):
+        raise ValueError("patchs/patched/ escapes project queue")
+    return queue, history
 
 
-def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int]:
-    request_data, request_member = _load_request(request_zip)
-    builder = ResultBuilder(root, request_data, request_member)
+def _publish_request_snapshot(snapshot: Path, dst: Path, expected_sha: str) -> None:
+    if dst.exists() or dst.is_symlink():
+        if dst.is_symlink() or not dst.is_file() or _sha256_file(dst) != expected_sha:
+            raise ValueError(f"archive destination already exists with different/unsafe content: patchs/patched/{dst.name}")
+        return
+    fd, tmp_name = tempfile.mkstemp(prefix=".ptv-collect-archive-", suffix=".tmp", dir=dst.parent)
+    tmp = Path(tmp_name)
     try:
-        for index, action in enumerate(request_data["actions"], 1):
-            kind = action["type"]
-            title = action.get("title") or action.get("id") or kind
-            if kind == "pack":
-                lines = ["# Pack", ""]
-                for raw in action["paths"]:
-                    rel, src = _resolve_exact_file(root, raw)
-                    builder.add_exact_file(rel, src, source_action=index)
-                    lines.append(f"- `{rel}`")
-                builder.add_report(index, kind, title, "\n".join(lines) + "\n")
-            elif kind == "overview":
-                builder.add_report(index, kind, title, _overview(root, action, request_data["limits"]))
-            elif kind == "find":
-                report, matches = _find_action(root, action, request_data["limits"])
-                builder.add_report(index, kind, title, report)
-                if action.get("collect"):
-                    for rel, src in matches:
-                        builder.add_exact_file(rel, src, source_action=index)
-            elif kind == "search":
-                builder.add_report(index, kind, title, _search_action(root, action, request_data["limits"]))
-            elif kind == "git":
-                builder.add_report(index, kind, title, _git_action(root, action))
-            else:
-                raise ValueError(f"unsupported action after schema validation: {kind}")
-        result = builder.finish()
+        with os.fdopen(fd, "wb") as out, snapshot.open("rb") as src:
+            shutil.copyfileobj(src, out, length=1024 * 1024)
+            out.flush()
+            try: os.fsync(out.fileno())
+            except OSError: pass
+        if _sha256_file(tmp) != expected_sha:
+            raise ValueError("executed COLLECT request snapshot failed archive hash verification")
         try:
-            archived = _archive_request(root, request_zip)
-        except Exception:
+            os.link(tmp, dst, follow_symlinks=False)
+        except FileExistsError:
+            if dst.is_symlink() or not dst.is_file() or _sha256_file(dst) != expected_sha:
+                raise ValueError(f"archive destination raced with different content: {dst.name}")
+    finally:
+        try: tmp.unlink()
+        except FileNotFoundError: pass
+
+
+def _remove_request_if_executed(request_zip: Path, expected_sha: str) -> str:
+    if not request_zip.exists() and not request_zip.is_symlink():
+        return "already_absent"
+    guard = request_zip.parent / f".ptv-collect-guard-{os.getpid()}-{time.time_ns()}-{request_zip.name}"
+    try:
+        os.replace(request_zip, guard)
+    except FileNotFoundError:
+        return "already_absent"
+    try:
+        current_sha = None if guard.is_symlink() or not guard.is_file() else _sha256_file(guard)
+        if current_sha == expected_sha:
+            guard.unlink()
+            return "removed_executed_input"
+        if not request_zip.exists() and not request_zip.is_symlink():
+            os.replace(guard, request_zip)
+            return "replacement_restored"
+        preserved = request_zip.parent / f"PTV_UNEXPECTED_COLLECT_REPLACEMENT_{time.time_ns()}_{request_zip.name}"
+        os.replace(guard, preserved)
+        return f"replacement_preserved:{preserved.name}"
+    finally:
+        if guard.exists() or guard.is_symlink():
             try:
-                result.unlink()
+                if not request_zip.exists() and not request_zip.is_symlink():
+                    os.replace(guard, request_zip)
             except OSError:
                 pass
+
+
+def _archive_request(root: Path, request_zip: Path, executed_snapshot: Path, expected_sha: str) -> tuple[Path, str]:
+    queue, history = _collect_queue_dirs(root)
+    if request_zip.parent.resolve(strict=True) != queue.resolve(strict=True):
+        raise ValueError("request ZIP must be a direct file under project patchs/")
+    destination = history / request_zip.name
+    _publish_request_snapshot(executed_snapshot, destination, expected_sha)
+    lifecycle = _remove_request_if_executed(request_zip, expected_sha)
+    return destination, lifecycle
+
+
+def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
+    input_temp, execution_request, request_sha = _snapshot_request_input(request_zip)
+    try:
+        request_data, request_member = _load_request(execution_request)
+        builder = ResultBuilder(root, request_data, request_member)
+        try:
+            for index, action in enumerate(request_data["actions"], 1):
+                kind = action["type"]
+                title = action.get("title") or action.get("id") or kind
+                if kind == "pack":
+                    lines = ["# Pack", ""]
+                    for raw in action["paths"]:
+                        rel, src = _resolve_exact_file(root, raw)
+                        builder.add_exact_file(rel, src, source_action=index)
+                        lines.append(f"- `{rel}`")
+                    builder.add_report(index, kind, title, "\n".join(lines) + "\n")
+                elif kind == "overview":
+                    builder.add_report(index, kind, title, _overview(root, action, request_data["limits"]))
+                elif kind == "find":
+                    report, matches = _find_action(root, action, request_data["limits"])
+                    builder.add_report(index, kind, title, report)
+                    if action.get("collect"):
+                        for rel, src in matches:
+                            builder.add_exact_file(rel, src, source_action=index)
+                elif kind == "search":
+                    builder.add_report(index, kind, title, _search_action(root, action, request_data["limits"]))
+                elif kind == "git":
+                    builder.add_report(index, kind, title, _git_action(root, action))
+                else:
+                    raise ValueError(f"unsupported action after schema validation: {kind}")
+            result = builder.finish()
+            try:
+                archived, lifecycle = _archive_request(root, request_zip, execution_request, request_sha)
+            except Exception:
+                try: result.unlink()
+                except OSError: pass
+                raise
+            return result, archived, len(request_data["actions"]), lifecycle
+        except Exception:
+            builder.abort()
             raise
-        return result, archived, len(request_data["actions"])
-    except Exception:
-        builder.abort()
-        raise
+    finally:
+        input_temp.cleanup()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -515,11 +608,17 @@ def main(argv: list[str] | None = None) -> int:
     request_arg = Path(rest[1])
     request_zip = request_arg if request_arg.is_absolute() else root / request_arg
     try:
-        result, archived, action_count = _run_request(root, request_zip)
+        result, archived, action_count, queue_lifecycle = _run_request(root, request_zip)
     except Exception as exc:
         print(f"ERROR: collection failed: {exc}", file=sys.stderr)
         return 2
     print(f"COLLECT: completed {action_count} action(s)", flush=True)
+    if queue_lifecycle == "replacement_restored" or str(queue_lifecycle).startswith("replacement_preserved:"):
+        print(
+            f"[PTV v{VERSION} WARNING] request ZIP changed while COLLECT was running; "
+            "the exact executed request was archived and the replacement remains queued.",
+            file=sys.stderr, flush=True,
+        )
     print(f"ZIP : {result}", flush=True)
     try:
         rel_archived = archived.relative_to(root).as_posix()

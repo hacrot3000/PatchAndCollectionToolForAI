@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.14.0
+# AI / ChatGPT usage contract — Python Patch Tool v6.14.1
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
@@ -37,7 +37,7 @@ Do not invent PATCH manifest fields or COLLECT action names/fields. `overview` i
 
 AI-generated archive PATCHes must follow `PATCH_PACKAGE_GUIDE.md` and `PATCH_PACKAGE_SCHEMA.json`.
 
-Patch Tool v6.14.0 preflights before payload execution:
+Patch Tool v6.14.1 preflights before payload execution:
 
 - manifest schema;
 - payload ambiguity/entrypoint;
@@ -114,7 +114,7 @@ If `truncated>0`, AI must treat evidence as bounded/incomplete and should reques
 
 ## Self-contained runtime
 
-v6.14.0 ships the documented PATCH runner, utilities, readonly collector, schemas, dispatcher and progress supervisor. The documented current contract does not require an older **private core**. Historical formats outside the current schemas fail closed rather than being guessed.
+v6.14.1 ships the documented PATCH runner, utilities, readonly collector, schemas, dispatcher and progress supervisor. The documented current contract does not require an older **private core**. Historical formats outside the current schemas fail closed rather than being guessed.
 
 ## Duplicate rules
 
@@ -129,3 +129,13 @@ The zero-argument selector exposes read-only Tool Health with key `h` (line sele
 ## User-guide boundary
 
 `tools/HUONG_DAN_PYTHON_PATCH_TOOL.html` stays intentionally minimal and user-oriented. Internal schema/action/preflight details belong in `tools/_patch_lib/docs/`, not in the user guide.
+
+
+## v6.14.1 runtime robustness invariants
+
+- The PATCH queue root `patchs/` must be a real project-local directory; a symlinked/unsafe queue root fails closed.
+- The exact PATCH package selected is snapshotted before preflight and the exact executed bytes are what PASS archival records. A same-name replacement with different bytes remains queued.
+- COLLECT uses the same exact-request identity rule: the executed request snapshot is archived; a same-name replacement remains queued for a later invocation.
+- Python PATCH payloads and post-patch commands are process-group managed. Timeout/SIGINT/SIGTERM must terminate descendants before rollback/result publication.
+- FAIL_HANDOFF must never attach a current queue package whose SHA differs from the executed package SHA.
+- Tool Health requires checksum coverage for all required runtime files and rejects unsafe symlink ancestors.

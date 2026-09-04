@@ -1,33 +1,42 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.14.0**  
-Trạng thái: **HOÀN TẤT CÁC HẠNG MỤC CÒN LẠI TRONG DANH SÁCH ĐÃ ĐƯỢC PHÊ DUYỆT — STOP**.
+Phiên bản mục tiêu: **v6.14.1**  
+Trạng thái: **ROBUSTNESS AUDIT — COMPLETE / STOP**
 
 ## Mục tiêu của phiên này
 
-Người dùng yêu cầu tiếp tục **đúng thứ tự danh sách tính năng đã đề xuất trước đó**, không lặp lại các mục đã COMPLETE ở v6.13.0, cập nhật `implementing.md` và `PYTHON_PATCH_TOOL_FEATURES_VI.md`, chỉ sửa HTML nếu thật sự cần, rồi tự động dừng và hỏi ý kiến.
+Người dùng yêu cầu tiếp tục **audit bug/robustness của v6.14.0**, ưu tiên sửa lỗi có bằng chứng, không mở tính năng mới. Các invariants công khai giữ nguyên: zero-argument, PATCH in-place, không SANDBOX/worktree, không project/process lock, một invocation tối đa một COLLECT và không trộn PATCH.
 
-Đối chiếu v6.13.0 với danh sách 12 mục ban đầu cho thấy các mục **2→11 đã COMPLETE**. Hai phần còn thiếu đúng nghĩa được thực hiện theo thứ tự cũ:
+## Các lỗi đã xác nhận và sửa
 
-| Thứ tự gốc | ID | Task | Trạng thái | Acceptance |
-|---|---|---|---|---|
-| 1 | D1 | Metadata-driven safe rollback cho PATCH in-place | **COMPLETE** | Chỉ opt-in khi `recovery.rollback` khai báo exact targets và mỗi target có baseline preflight đầy đủ. Snapshot bounded trước payload. Payload/post-patch FAIL có thể restore exact declared targets; Git fingerprint phát hiện thay đổi ngoài scope và downgrade thành `PARTIAL`. Không rollback Git-policy failure, không dùng `git reset`, SANDBOX hay worktree. |
-| 12 | D2 | Tool Health / self-audit trong zero-argument workflow | **COMPLETE** | `h` trong TTY/line selector chạy read-only audit; queue trống tự in health compact. Kiểm tra VERSION, managed SHA256SUMS, required runtime, executable launcher và authoritative schemas; corruption/missing file → FAIL. Không tải update và không thực thi PATCH. |
-
-## Các mục 2→11 từ danh sách gốc
-
-Giữ trạng thái **COMPLETE từ v6.13.0**: PATCH schema/preflight/version negotiation, diagnosis/FAIL_HANDOFF, source recollection, LAST_RUN/history/resume, inspect/dry-run và COLLECT quality summary. Không triển khai lại hoặc thay đổi semantics ngoài regression cần thiết cho D1/D2.
+| ID | Hạng mục audit | Trạng thái | Acceptance |
+|---|---|---|---|
+| RB-1 | Rollback target có ancestor symlink có thể thoát project | **COMPLETE** | Preflight/snapshot/restore đi từng path component, reject symlink/non-directory ancestor; restore POSIX dùng pinned directory FD + `O_NOFOLLOW`. |
+| RB-2 | `exists:false` dưới parent chưa tồn tại có thể để lại directory mới nhưng báo rollback PASS | **COMPLETE** | Parent của rollback target ban đầu phải tồn tại, là directory thật và không symlink trước payload; tool không tự đoán/xóa directory. |
+| RB-3 | TOCTOU giữa preflight và rollback snapshot | **COMPLETE** | Snapshot re-check exact baseline ngay trước payload; drift → fail-closed trước execution. |
+| SIG-1 | Chỉ signal dispatcher có thể để PATCH child/descendant tiếp tục chạy | **COMPLETE** | Dispatcher tạo process group riêng, forward SIGINT/SIGTERM; runner xử lý controlled interruption, rollback rồi trả rc130/143. |
+| PROC-1 | Payload/post-command timeout chỉ giết parent, descendant tiếp tục sửa project sau rollback | **COMPLETE** | Python payload và post command chạy trong process group riêng; timeout/interruption terminate toàn group trước rollback/return. |
+| LIFE-1 | PATCH tự thay thế chính queue ZIP có thể làm archive bytes chưa từng thực thi | **COMPLETE** | Snapshot exact input trước preflight; execute/archive đúng snapshot; same-name replacement khác bytes được giữ lại trong queue. |
+| LIFE-2 | COLLECT request có cùng identity race | **COMPLETE** | Snapshot exact request; execute/archive exact snapshot; same-name replacement khác bytes được giữ lại để lần sau chạy. |
+| HANDOFF-1 | FAIL_HANDOFF có thể attach queue ZIP mới thay vì PATCH đã thực thi | **COMPLETE** | Chỉ attach current queue package khi SHA khớp structured executed SHA; nếu khác thì omit + ghi lý do. |
+| HEALTH-1 | Xóa checksum row có thể che việc runtime file bị sửa | **COMPLETE** | Tool Health yêu cầu checksum coverage cho toàn bộ required runtime; missing row/corrupt file → FAIL. |
+| HEALTH-2 | Runtime/checksum path có symlink ancestor chưa được audit đủ chặt | **COMPLETE** | Tool Health lstat-walk và reject symlink ancestor cho required/checksummed paths. |
+| HEALTH-3 | Normal launcher tự sinh `__pycache__` khiến Tool Health WARN ngay trên install sạch | **COMPLETE** | Launcher export `PYTHONDONTWRITEBYTECODE=1`; zero-arg IDLE không tạo cache và Tool Health PASS không cần env test đặc biệt. |
+| QUEUE-1 | `patchs/` symlink có thể route queue ra ngoài project | **COMPLETE** | Discovery fail-closed `QUEUE SAFETY ERROR`; không chạy item bên ngoài project. |
+| DUP-1 | Current-session duplicate có race giữa hash và unlink trong multi-terminal mode | **COMPLETE** | Duplicate được isolate atomically rồi re-hash canonical + candidate; nếu identity đổi thì restore/preserve thay vì xóa nhầm. |
+| TEST-1 | Robustness regression + clean artifact verification | **COMPLETE** | Có `self_test_robustness_v6_14_1.py`; full regression và clean extraction bắt buộc PASS trước release. |
+| STOP-1 | Dừng sau audit | **COMPLETE** | Không tự bắt đầu feature mới; hỏi người dùng hướng tiếp theo. |
 
 ## Invariants giữ nguyên
 
-- Public workflow bình thường: `./tools/run_python_patches.sh`.
-- PATCH vẫn chạy **in-place**; SANDBOX/detached worktree bị loại bỏ vĩnh viễn.
-- Không project/process lock; người dùng có thể chủ động chạy terminal khác.
+- Public command: `./tools/run_python_patches.sh`.
+- PATCH chạy **in-place**; SANDBOX/detached worktree bị loại bỏ vĩnh viễn.
+- Không project/process lock; nhiều terminal vẫn do người dùng chủ động điều khiển.
 - Một invocation tối đa 1 COLLECT và không trộn PATCH.
-- Duplicate queue/local-history rules giữ nguyên.
-- COLLECT/PATCH exact schemas vẫn authoritative; không tự suy đoán field/action.
-- Full self-contained package là acceptance bắt buộc.
-- Rollback **không mặc định bật** và không được coi là generic transaction: chỉ chạy khi manifest cung cấp contract đủ an toàn.
+- Duplicate local-history vẫn local-project-only; không dùng global/server history.
+- PATCH/COLLECT schemas vẫn authoritative và fail-closed.
+- Full self-contained package vẫn là acceptance bắt buộc.
+- Safe rollback vẫn chỉ opt-in khi manifest cung cấp exact metadata; không trở thành generic transaction.
 
 ## Release stop condition
 

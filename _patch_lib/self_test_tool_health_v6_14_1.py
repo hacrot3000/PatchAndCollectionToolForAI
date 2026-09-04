@@ -8,7 +8,7 @@ TOOLS=HERE.parent
 
 spec=importlib.util.spec_from_file_location('ptv_health',HERE/'python_patch_health.py')
 h=importlib.util.module_from_spec(spec); sys.modules[spec.name]=h; spec.loader.exec_module(h)
-assert h.VERSION=='6.14.0'
+assert h.VERSION=='6.14.1'
 
 # The installed source tree itself must pass its managed-file/schema audit.
 root=TOOLS.parent
@@ -74,10 +74,12 @@ m.print_health=orig
 # Empty zero-argument queue automatically shows one compact health summary.
 with tempfile.TemporaryDirectory(prefix='ptv614_health_idle_') as td:
     proj=Path(td); shutil.copytree(TOOLS,proj/'tools'); (proj/'tools'/'run_python_patches.sh').chmod(0o755); (proj/'patchs').mkdir()
-    env=dict(os.environ); env['PYTHONDONTWRITEBYTECODE']='1'
+    env=dict(os.environ); env.pop('PYTHONDONTWRITEBYTECODE',None)
     cp=subprocess.run([str(proj/'tools'/'run_python_patches.sh')],cwd=proj,text=True,capture_output=True,env=env,timeout=30)
     assert cp.returncode==0,(cp.stdout,cp.stderr)
     assert 'AUTO STATUS: IDLE' in cp.stdout,cp.stdout
     assert 'TOOL HEALTH: PASS' in cp.stdout,cp.stdout
+    assert not list((proj/'tools').rglob('__pycache__')),list((proj/'tools').rglob('__pycache__'))
+    assert not list((proj/'tools').rglob('*.pyc')),list((proj/'tools').rglob('*.pyc'))
 
-print('PASS: v6.14.0 zero-argument Tool Health self-audit detects install corruption and never executes PATCH')
+print('PASS: v6.14.1 zero-argument Tool Health self-audit detects install corruption and never executes PATCH')

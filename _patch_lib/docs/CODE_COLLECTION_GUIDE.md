@@ -1,6 +1,6 @@
-# CODE COLLECTION GUIDE — v6.14.0 AUTHORITATIVE CONTRACT
+# CODE COLLECTION GUIDE — v6.14.1 AUTHORITATIVE CONTRACT
 
-Python Patch Tool v6.14.0 is self-contained for its documented COLLECT schema. The authoritative action list is not inferred from old guides; it is defined by `COLLECT_ACTION_SCHEMA.json` and enforced before execution.
+Python Patch Tool v6.14.1 is self-contained for its documented COLLECT schema. The authoritative action list is not inferred from old guides; it is defined by `COLLECT_ACTION_SCHEMA.json` and enforced before execution.
 
 This is an **AI/tool-facing technical document**. Do not copy the action table into the end-user HTML guide; the user should not need to choose or understand action types.
 
@@ -70,3 +70,8 @@ One invocation can run exactly one COLLECT request and cannot mix it with PATCH.
 ## Result
 
 Upload only the result ZIP highlighted as `[PRIMARY - UPLOAD THIS FILE]`.
+
+
+## Exact request lifecycle — v6.14.1
+
+The request ZIP is snapshotted before execution. A successful COLLECT archives the exact request bytes that were executed. If another process replaces the same queue filename with different bytes while collection is running, that replacement remains in `patchs/` for a later run and is not silently archived/deleted as though it had executed.
