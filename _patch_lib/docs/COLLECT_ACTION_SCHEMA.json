@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "tool_version": "6.18.8",
+  "tool_version": "6.19.0",
   "request": {
     "type": "object",
     "required": [
@@ -500,6 +500,40 @@
         "reference_context_lines",
         "max_reference_hits"
       ]
+    },
+    "database_select": {
+      "description": "SELECT-only database evidence collection using an active query builder. Raw SQL is not accepted. Supports SQLite read-only files and MySQL local/SSH-tunnel profiles, joins, nested AND/OR conditions, subqueries, GROUP BY/HAVING, functions, CASE, window clauses, ORDER BY and bounded streaming CSV/JSONL output.",
+      "required": [
+        "type",
+        "profile",
+        "select",
+        "from"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "profile",
+        "select",
+        "from",
+        "joins",
+        "where",
+        "group_by",
+        "having",
+        "order_by",
+        "distinct",
+        "limit",
+        "offset",
+        "format",
+        "max_rows",
+        "max_bytes",
+        "timeout_sec",
+        "chunk_rows",
+        "must_return_rows"
+      ],
+      "raw_sql_allowed": false,
+      "statement_class": "SELECT",
+      "profile_file": "tools/db_profiles.local.json (local-only; never included in a request ZIP)"
     },
     "git": {
       "description": "Collect fixed read-only Git status/log/diff sections; arbitrary commands are not accepted.",

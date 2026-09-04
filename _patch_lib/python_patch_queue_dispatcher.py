@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.18.8"
+VERSION = "6.19.0"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -150,6 +150,11 @@ MAX_HANDOFF_SCAN_FILES = 25000
 MAX_HANDOFF_REFERENCE_TEXT_BYTES = 1024 * 1024
 MAX_HANDOFF_DETAIL_LOG_BYTES = 64 * 1024 * 1024
 MAX_HANDOFF_LOG_EVIDENCE_BYTES = 32 * 1024 * 1024
+_LOCAL_DB_PROFILE_REL_PATHS = {
+    "tools/db_profiles.local.json",
+    ".python_patch_tool/db_profiles.local.json",
+}
+_DB_PROFILE_ENV = "PTV_DB_PROFILES_FILE"
 _HANDOFF_SCAN_SKIP_DIRS = {
     ".git", "node_modules", ".venv", "venv", "__pycache__", "build", "dist",
     "artifacts", "patchs", ".idea", ".vscode",
@@ -1161,6 +1166,29 @@ def _path_is_link_or_reparse(path: Path) -> bool:
     return stat.S_ISLNK(st.st_mode) or reparse
 
 
+def _is_local_db_profile_path(root: Path, rel: str) -> bool:
+    try:
+        root_real = root.resolve(strict=True)
+        pure = Path(rel)
+        if pure.is_absolute() or ".." in pure.parts or not pure.parts:
+            return False
+        candidate = (root_real / pure).resolve(strict=False)
+        normalized = candidate.relative_to(root_real).as_posix()
+    except Exception:
+        return False
+    if normalized in _LOCAL_DB_PROFILE_REL_PATHS:
+        return True
+    raw = os.environ.get(_DB_PROFILE_ENV)
+    if raw:
+        try:
+            override = Path(raw).expanduser()
+            if not override.is_absolute(): override = root_real / override
+            return override.resolve(strict=False) == candidate
+        except Exception:
+            return False
+    return False
+
+
 def _safe_handoff_source(root: Path, rel: str) -> Path | None:
     """Return a bounded real project file with no symlink/reparse ancestor.
 
@@ -1170,6 +1198,8 @@ def _safe_handoff_source(root: Path, rel: str) -> Path | None:
     """
     try:
         if not isinstance(rel, str) or not rel or "\\" in rel:
+            return None
+        if _is_local_db_profile_path(root, rel):
             return None
         pure = Path(rel)
         if pure.is_absolute() or ".." in pure.parts or not pure.parts:

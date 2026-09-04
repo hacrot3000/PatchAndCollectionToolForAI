@@ -1,6 +1,6 @@
-# Python Patch Tool v6.18.8 portable usage
+# Python Patch Tool v6.19.0 portable usage
 
-The release is self-contained for its v6.18.8 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
+The release is self-contained for its v6.19.0 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
 
 ## v6.18.8 HISTORY/report visual priority
 
@@ -12,7 +12,7 @@ When a report is shown directly or reopened from HISTORY, AI-facing artifacts ar
 Install/update at the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.18.8.zip -d "$PWD"
+unzip -o python_patch_tool_v6.19.0.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 
@@ -26,7 +26,7 @@ Requirement: **Python 3.10+**. The launcher accepts Python Launcher (`py -3`) or
 PowerShell install/update at the project root:
 
 ```powershell
-Expand-Archive -Force .\python_patch_tool_v6.18.8.zip .
+Expand-Archive -Force .\python_patch_tool_v6.19.0.zip .
 tools\run_python_patches.bat
 ```
 
@@ -182,3 +182,7 @@ python3 tools/_patch_lib/install_python_patch_tool_v6.py --project-root "$PWD" -
 ```
 
 The historical path `install_python_patch_tool_v5.py` remains as a compatibility wrapper. The helper never overwrites an existing config and only backs up/removes a fixed allowlist of obsolete Patch-Tool-managed loose files; unrelated project files under `tools/` are left untouched.
+
+## v6.19.0 database SELECT profiles
+
+Database evidence uses the normal zero-argument COLLECT workflow. AI-generated request ZIPs reference only a `database_select.profile` name and structured active-builder fields. Configure the local machine separately using `tools/db_profiles.local.json` (template: `tools/db_profiles.example.json`). Raw SQL and password fields are not supported. See `_patch_lib/docs/DATABASE_SELECT_ACTIVE_BUILDER.md`.

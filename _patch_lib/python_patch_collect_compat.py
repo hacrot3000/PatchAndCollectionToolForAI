@@ -19,8 +19,9 @@ import time
 import zipfile
 
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
+from python_patch_database_select import DatabaseSelectError, execute_database_select
 
-VERSION = "6.18.8"
+VERSION = "6.19.0"
 REQUEST_RE = re.compile(r"^CODE_COLLECTION_REQUEST(?:_[A-Za-z0-9._-]+)?\.json$", re.I)
 MAX_REQUEST_JSON_BYTES = 1024 * 1024
 REGEX_SEARCH_TIMEOUT_SECONDS = 60.0
@@ -47,6 +48,43 @@ SECRET_PATTERNS = [
     re.compile(r"(?i)(authorization\s*:\s*bearer\s+)[^\s'\"]+"),
     re.compile(r"(?i)((?:password|passwd|pwd|token|secret|api[_-]?key)\s*[=:]\s*)[^\s,;]+"),
 ]
+
+# v6.19.0 database profiles are operator-local configuration and form a hard
+# evidence boundary.  Unlike generic sensitive source (which may be included
+# exactly with an explicit warning), these profile files must never be copied
+# into COLLECT output or searched for content.
+LOCAL_DB_PROFILE_REL_PATHS = {
+    "tools/db_profiles.local.json",
+    ".python_patch_tool/db_profiles.local.json",
+}
+DB_PROFILE_ENV = "PTV_DB_PROFILES_FILE"
+
+def _protected_local_profile_rel(root: Path, path: Path | str) -> str | None:
+    try:
+        root_real = root.resolve(strict=True)
+        candidate = Path(path)
+        if not candidate.is_absolute():
+            candidate = root_real / candidate
+        candidate_abs = candidate.resolve(strict=False)
+        rel = candidate_abs.relative_to(root_real).as_posix()
+    except Exception:
+        return None
+    if rel in LOCAL_DB_PROFILE_REL_PATHS:
+        return rel
+    raw = os.environ.get(DB_PROFILE_ENV)
+    if raw:
+        try:
+            override = Path(raw).expanduser()
+            if not override.is_absolute():
+                override = root_real / override
+            if override.resolve(strict=False) == candidate_abs:
+                return rel
+        except Exception:
+            pass
+    return None
+
+def _is_protected_local_profile(root: Path, path: Path | str) -> bool:
+    return _protected_local_profile_rel(root, path) is not None
 
 
 def _safe_id(value: object) -> str:
@@ -198,6 +236,8 @@ def _resolve_scope(root: Path, raw: str, *, file_ok: bool = False) -> tuple[str,
 def _resolve_exact_file(root: Path, raw: str) -> tuple[str, Path]:
     rel = _safe_rel_path(raw, allow_dot=False)
     candidate = root.joinpath(*rel.parts)
+    if _is_protected_local_profile(root, candidate):
+        raise ValueError(f"refusing to collect local database profile: {rel.as_posix()}")
     try:
         st = candidate.lstat()
     except FileNotFoundError as exc:
@@ -247,7 +287,7 @@ def _iter_files(root: Path, scope: Path, *, max_files: int):
                         continue
                     stack.append(entry)
                 elif entry.is_file():
-                    if _is_internal_output_path(root, entry):
+                    if _is_internal_output_path(root, entry) or _is_protected_local_profile(root, entry):
                         continue
                     yield entry
                     count += 1
@@ -312,6 +352,8 @@ class ResultBuilder:
     def add_exact_file(self, rel: str, src: Path, *, source_action: int) -> None:
         if rel in self._added_files:
             return
+        if _is_protected_local_profile(self.root, src):
+            raise ValueError(f"refusing to collect local database profile: {rel}")
         try:
             if src.samefile(self.temp) or (self.final.exists() and src.samefile(self.final)):
                 raise ValueError(f"refusing to collect collector output: {rel}")
@@ -368,6 +410,8 @@ class ResultBuilder:
         files collected before a quota boundary and mark the result INCOMPLETE.
         Integrity failures while copying still raise.
         """
+        if _is_protected_local_profile(self.root, src):
+            return False, "local_database_profile_excluded"
         if rel in self._added_files:
             return True, None
         try:
@@ -381,6 +425,51 @@ class ResultBuilder:
         if self.total_bytes + size > self.limits["max_total_bytes"]:
             return False, f"discovered files truncated at max_total_bytes={self.limits['max_total_bytes']}"
         self.add_exact_file(rel,src,source_action=source_action)
+        return True, None
+
+    def add_generated_artifact(self, src: Path, arcname: str, *, source_action: int) -> tuple[bool, str | None]:
+        """Add a tool-generated evidence file under an explicit archive path.
+
+        Generated DB/query artifacts are never treated as project source and are
+        still bounded by the same global file/byte package quotas.  Hitting a
+        package quota is fail-partial for generated evidence: the caller keeps
+        earlier chunks and marks the COLLECT result INCOMPLETE.
+        """
+        if not isinstance(arcname, str) or not arcname or arcname.startswith('/') or '..' in PurePosixPath(arcname).parts:
+            raise ValueError(f"unsafe generated artifact archive path: {arcname}")
+        try:
+            st = src.lstat()
+        except OSError as exc:
+            raise ValueError(f"generated artifact missing/unreadable: {src} ({type(exc).__name__})") from exc
+        attrs = int(getattr(st, 'st_file_attributes', 0) or 0)
+        reparse = int(getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0x400))
+        if stat.S_ISLNK(st.st_mode) or (os.name == 'nt' and attrs & reparse) or not stat.S_ISREG(st.st_mode):
+            raise ValueError(f"generated artifact must be a regular non-symlink file: {src}")
+        size = st.st_size
+        if size > self.limits['max_file_bytes']:
+            return False, f"generated artifact omitted: {arcname} exceeds max_file_bytes={self.limits['max_file_bytes']}"
+        if self.file_count >= self.limits['max_files']:
+            return False, f"generated artifacts truncated at max_files={self.limits['max_files']}"
+        if self.total_bytes + size > self.limits['max_total_bytes']:
+            return False, f"generated artifacts truncated at max_total_bytes={self.limits['max_total_bytes']}"
+        digest = hashlib.sha256()
+        copied = 0
+        with src.open('rb') as source, self.zf.open(arcname, 'w') as target:
+            for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                target.write(chunk); digest.update(chunk); copied += len(chunk)
+        after = src.stat()
+        if (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
+            raise ValueError(f"generated artifact changed while being packaged: {src}")
+        self.file_count += 1
+        self.total_bytes += copied
+        self.entries.append({
+            'path': arcname,
+            'archive_path': arcname,
+            'size': copied,
+            'sha256': digest.hexdigest(),
+            'source_action': source_action,
+            'generated': True,
+        })
         return True, None
 
     def add_report(self, index: int, kind: str, title: str, text: str) -> None:
@@ -904,6 +993,8 @@ def _discover_search_files(root: Path, scopes: list[tuple[str, Path, str]], acti
                         _search_skip_record(diag,_search_rel(root,p),"symlink_follow_disabled",is_dir=False); continue
                     if _is_internal_output_path(root,p):
                         _search_skip_record(diag,_search_rel(root,p),"patch_tool_internal",is_dir=False); continue
+                    if _is_protected_local_profile(root,p):
+                        _search_skip_record(diag,_search_rel(root,p),"local_database_profile",is_dir=False); continue
                     if not add_file(p,scope_rel): break
                 if diag["limit_reached"]: break
         else:
@@ -935,6 +1026,8 @@ def _discover_search_files(root: Path, scopes: list[tuple[str, Path, str]], acti
                                 _search_skip_record(diag,rel,"symlink_follow_disabled",is_dir=False); continue
                             if _is_internal_output_path(root,p):
                                 _search_skip_record(diag,rel,"patch_tool_internal",is_dir=False); continue
+                            if _is_protected_local_profile(root,p):
+                                _search_skip_record(diag,rel,"local_database_profile",is_dir=False); continue
                             if not add_file(p,scope_rel): break
                     except OSError as exc:
                         _search_skip_record(diag,rel,f"entry_error:{type(exc).__name__}",is_dir=False)
@@ -1015,6 +1108,16 @@ def _rg_candidate_files(root: Path, scopes: list[tuple[str,Path,str]], action: d
     if action.get('follow_symlinks',False): cmd.append('--follow')
     for name in sorted(SEARCH_DEFAULT_EXCLUDED_DIRS): cmd += ['-g',f'!**/{name}/**']
     for prefix in IGNORED_REL_PREFIXES: cmd += ['-g',f'!{prefix}**']
+    for rel in sorted(LOCAL_DB_PROFILE_REL_PATHS): cmd += ['-g',f'!{rel}']
+    raw_profile = os.environ.get(DB_PROFILE_ENV)
+    if raw_profile:
+        try:
+            override = Path(raw_profile).expanduser()
+            if not override.is_absolute(): override = root / override
+            rel_override = override.resolve(strict=False).relative_to(root.resolve(strict=True)).as_posix()
+            cmd += ['-g',f'!{rel_override}']
+        except Exception:
+            pass
     if not action.get('regex',False): cmd.append('--fixed-strings')
     cmd += ['-e',action['query'],'--']
     cmd += [str(p if p.is_absolute() else root/p) for _,p,_ in scopes]
@@ -1040,6 +1143,7 @@ def _rg_candidate_files(root: Path, scopes: list[tuple[str,Path,str]], action: d
         if not p.is_absolute(): p=root/p
         try: key=p.resolve(strict=True).as_posix(); p.resolve(strict=True).relative_to(root.resolve(strict=True))
         except Exception: continue
+        if _is_protected_local_profile(root,p): continue
         if key in seen: continue
         seen.add(key); out.append(p)
         if len(out)>=max_files:
@@ -2157,6 +2261,27 @@ def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
                         builder.mark_incomplete(action=index, kind=kind, reasons=list(result.get("reasons") or []))
                 elif kind in {"decompile", "ida", "ghidra"}:
                     builder.add_report(index, kind, title, _decompile_action(root, action, request_data["limits"]))
+                elif kind == "database_select":
+                    with tempfile.TemporaryDirectory(prefix=f"ptv-db-select-{index:03d}-") as dbtmp:
+                        try:
+                            db_result = execute_database_select(root, action, request_data["limits"], Path(dbtmp))
+                        except DatabaseSelectError as exc:
+                            raise ValueError(f"database_select failed: {exc}") from exc
+                        builder.add_report(index, kind, title, db_result["report"])
+                        artifact_root = Path(db_result["artifact_root"])
+                        quota_reasons: list[str] = []
+                        for artifact in sorted(db_result["artifacts"], key=lambda p: p.relative_to(artifact_root).as_posix()):
+                            rel_art = artifact.relative_to(artifact_root).as_posix()
+                            arcname = f"database_queries/{index:03d}_{_safe_id(action.get('id') or action.get('title') or 'select')}/{rel_art}"
+                            added, reason = builder.add_generated_artifact(artifact, arcname, source_action=index)
+                            if not added:
+                                quota_reasons.append(reason or "database_select generated artifact omitted by package quota")
+                                if reason and ("max_files=" in reason or "max_total_bytes=" in reason):
+                                    break
+                        if db_result.get("incomplete"):
+                            builder.mark_incomplete(action=index, kind=kind, reasons=list(db_result.get("reasons") or ["database_select returned bounded partial evidence"]))
+                        if quota_reasons:
+                            builder.mark_incomplete(action=index, kind=kind, reasons=quota_reasons)
                 elif kind == "git":
                     builder.add_report(index, kind, title, _git_action(root, action))
                 else:

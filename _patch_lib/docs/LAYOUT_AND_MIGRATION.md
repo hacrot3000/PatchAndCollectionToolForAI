@@ -1,11 +1,11 @@
-# Python Patch Tool v6.18.8 — portable layout and migration
+# Python Patch Tool v6.19.0 — portable layout and migration
 
 ## Primary installation: extract and run
 
 From the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.18.8.zip -d "$PWD"
+unzip -o python_patch_tool_v6.19.0.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 
@@ -22,6 +22,8 @@ project/
     ├── implementing.md
     ├── PYTHON_PATCH_TOOL_FEATURES_VI.md
     ├── HUONG_DAN_PYTHON_PATCH_TOOL.html
+    ├── db_profiles.example.json              # packaged example only
+    ├── db_profiles.local.json                # optional local secret-bearing config; never packaged
     └── _patch_lib/
         ├── python_patch_queue_dispatcher.py
         ├── python_patch_runner.py
@@ -33,6 +35,8 @@ project/
 ```
 
 `tools/run_python_patches.sh` (or the Windows wrapper) is the normal public runtime entry point. Modules under `_patch_lib/` are internal/maintenance utilities.
+
+For `database_select`, copy `tools/db_profiles.example.json` to `tools/db_profiles.local.json` and edit it locally. The release ZIP deliberately never contains `db_profiles.local.json`; upgrades must not overwrite it, and COLLECT/PATCH handoffs must not package its credentials. MySQL remote access is represented by an SSH target/profile, not by embedding an SSH private key in Patch Tool configuration.
 
 ## Optional controlled migration
 

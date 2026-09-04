@@ -1,4 +1,4 @@
-# Python Patch Tool v6.18.8 — output files and what to upload
+# Python Patch Tool v6.19.0 — output files and what to upload
 
 This guide preserves the historical “output-file role guide” capability while describing the **current** v6 artifact model. Old v5 SUMMARY/CODE/DETAIL filenames are historical and must not be inferred as current outputs.
 
@@ -20,6 +20,8 @@ A failing PATCH produces structured diagnostics and a `FAIL_HANDOFF...zip` when 
 ## COLLECT
 
 A successful CODE_COLLECTION_REQUEST produces one verified result ZIP and marks it as the primary file to upload. Upload that result ZIP. Do not put the result ZIP back into `patchs/` as runnable input.
+
+`database_select` evidence is packaged inside the same COLLECT result under `database_queries/<action>/`. Query result chunks, builder metadata and the generated SELECT are therefore transferred with the normal highlighted COLLECT ZIP; database credentials and SSH private-key material are never part of that artifact. A row/byte/timeout boundary preserves completed chunks but marks the COLLECT result `INCOMPLETE`.
 
 ## HISTORY / support export
 

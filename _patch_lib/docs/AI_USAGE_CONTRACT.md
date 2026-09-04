@@ -1,6 +1,17 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.18.8
+# AI / ChatGPT usage contract — Python Patch Tool v6.19.0
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
+
+## v6.19.0 database SELECT active-builder contract
+
+`database_select` is the only database execution action. AI MUST provide structured SELECT AST fields and MUST NOT provide SQL text. There is intentionally no `database_query`, `query`, `raw_sql`, `sql`, shell command, or arbitrary-expression escape hatch. The authoritative grammar/profile/output contract is `DATABASE_SELECT_ACTIVE_BUILDER.md`.
+Local DB profile files (`tools/db_profiles.local.json`, `.python_patch_tool/db_profiles.local.json`, or the in-project `PTV_DB_PROFILES_FILE` target) are operator-local configuration and MUST be hard-excluded from COLLECT content, source attachments, and FAIL_HANDOFF evidence. Do not work around this exclusion.
+
+Database profiles are local operator configuration only. Request ZIPs reference a profile name; they never carry password, private key, SSH option arrays, host credentials, or profile contents. SQLite is opened read-only. MySQL local profiles are loopback-only; remote MySQL uses an SSH local tunnel. MySQL authentication must use a `mysql_config_editor` login path, and an independent SELECT-only DB account is strongly recommended.
+
+The action inherits COLLECT bounded-evidence semantics: output streams into the normal result ZIP; timeout/row/byte/package limits preserve completed chunks and make the collection `INCOMPLETE`. Hard connection/auth/schema/execution errors remain FAIL. `CODE_COLLECTION_RESULT_*.zip` remains the primary artifact to upload to AI, so existing history/report highlight behavior is preserved.
+
+Future AI must not weaken this contract by adding raw SQL or write-capable statement types merely for convenience. Any intentional supersession requires the no-silent-removal process plus new safety regression evidence.
 
 ## Mandatory continuity rule for modifying Patch Tool itself
 

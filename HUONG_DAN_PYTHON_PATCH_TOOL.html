@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Hướng dẫn Python Patch Tool v6.18.8</title>
+<title>Hướng dẫn Python Patch Tool v6.19.0</title>
 <style>
 :root{color-scheme:light dark}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:980px;margin:32px auto;padding:0 18px;line-height:1.55;color:#1f2328;background:#fff}
@@ -27,14 +27,14 @@ h1,h2{line-height:1.25}
 </style>
 </head>
 <body>
-<h1>Python Patch Tool v6.18.8 — hướng dẫn nhanh</h1>
+<h1>Python Patch Tool v6.19.0 — hướng dẫn nhanh</h1>
 
 <h2>1. Cài đặt / cập nhật</h2>
 <p><strong>Linux / POSIX:</strong></p>
-<pre>unzip -o python_patch_tool_v6.18.8.zip -d "$PWD"
+<pre>unzip -o python_patch_tool_v6.19.0.zip -d "$PWD"
 cat tools/_patch_lib/VERSION</pre>
 <p><strong>Windows PowerShell:</strong> cần Python <strong>3.10+</strong>.</p>
-<pre>Expand-Archive -Force .\python_patch_tool_v6.18.8.zip .
+<pre>Expand-Archive -Force .\python_patch_tool_v6.19.0.zip .
 Get-Content .\tools\_patch_lib\VERSION</pre>
 <p>Kết quả version phải là <code>6.18.4</code>.</p>
 
@@ -67,6 +67,7 @@ Get-Content .\tools\_patch_lib\VERSION</pre>
 &gt;&gt;&gt; ACTION REQUIRED: UPLOAD TO CHATGPT / AI SERVER &lt;&lt;&lt;
 /path/to/CODE_COLLECTION_RESULT_....zip</pre>
 <p>Người dùng không cần tự chọn kiểu thu thập hay chỉnh JSON; AI và Patch Tool chịu trách nhiệm phần kỹ thuật đó.</p>
+<p>Nếu AI cần đọc dữ liệu database, request có thể dùng <code>database_select</code>: Patch Tool chỉ dựng và thực thi <strong>SELECT</strong> từ active-builder có cấu trúc; không nhận raw SQL. Cấu hình SQLite/MySQL local hoặc MySQL qua SSH nằm local ở <code>tools/db_profiles.local.json</code> (tham khảo <code>tools/db_profiles.example.json</code>) và không chứa trong request/result ZIP.</p>
 
 <h2>4. Chuẩn bị AI trước mỗi phiên làm việc</h2>
 <div class="note"><strong>Gửi cho AI toàn bộ file trong <code>tools/_patch_lib/docs/</code></strong>, không chỉ một file. Nếu đang tiếp tục phát triển Patch Tool, gửi thêm <code>tools/implementing.md</code> và <code>tools/PYTHON_PATCH_TOOL_FEATURES_VI.md</code>.</div>

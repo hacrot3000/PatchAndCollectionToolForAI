@@ -1,6 +1,6 @@
-# CODE COLLECTION GUIDE — v6.18.8 AUTHORITATIVE CONTRACT
+# CODE COLLECTION GUIDE — v6.19.0 AUTHORITATIVE CONTRACT
 
-Python Patch Tool v6.18.8 ships a self-contained, read-only COLLECT runtime. The authoritative action/field list is `COLLECT_ACTION_SCHEMA.json`; this guide explains the intended semantics.
+Python Patch Tool v6.19.0 ships a self-contained, read-only COLLECT runtime. The authoritative action/field list is `COLLECT_ACTION_SCHEMA.json`; this guide explains the intended semantics.
 
 This is an **AI/tool-facing technical document**. The public user workflow remains intentionally simple: AI provides one request ZIP, the user places it in `patchs/`, then runs the normal zero-argument launcher.
 
@@ -236,6 +236,16 @@ Run the disposable discovery fixture with:
 ```bash
 ./tools/run_python_patches.sh health-search
 ```
+
+## Database SELECT evidence (v6.19.0)
+
+COLLECT supports `database_select` as a SELECT-only active builder. The request names a local profile and supplies structured arrays/objects for SELECT expressions, sources, joins, nested conditions, subqueries, GROUP BY/HAVING, ORDER BY and limits. Raw SQL is not an accepted field.
+
+Profiles live outside request ZIPs in `tools/db_profiles.local.json` (or `.python_patch_tool/db_profiles.local.json`) and may describe SQLite, loopback MySQL, or MySQL through an SSH tunnel. Start from `tools/db_profiles.example.json`. MySQL passwords are not stored in these JSON files; use `mysql_config_editor` login paths.
+
+Database result chunks are stored inside the same `CODE_COLLECTION_RESULT_*.zip` under `database_queries/`. A fully exhausted SELECT is `COMPLETED/VERIFIED`; row/byte/timeout/package truncation keeps available chunks and returns `INCOMPLETE`.
+
+See `DATABASE_SELECT_ACTIVE_BUILDER.md` for the exact AST grammar and examples.
 
 ## Limits
 

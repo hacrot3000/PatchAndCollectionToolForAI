@@ -110,3 +110,7 @@ Search absence can only be trusted when coverage is VERIFIED and the independent
 ## When uncertain
 
 Do not remove code to simplify the tool when its historical purpose is unclear. First locate its capability in the ledger/tests/docs. If still unresolved, preserve it and mark the uncertainty for audit rather than silently deleting it.
+
+## v6.19.0 database safety capability
+
+`database_select` is a protected current capability. Preservation includes its negative/safety guarantees, not only its existence: raw SQL is not accepted; generated DB statements are SELECT-only; profiles do not contain passwords; SQLite stays read-only; remote MySQL uses SSH tunneling; partial output remains usable and explicitly INCOMPLETE. AI must treat weakening any of these guarantees as a contract change requiring explicit user approval, ledger disposition, and behavioral regression updates.

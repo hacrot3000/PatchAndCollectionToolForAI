@@ -5,7 +5,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-VERSION = "6.18.8"
+from python_patch_database_select import DatabaseSelectError, validate_database_select_action
+
+VERSION = "6.19.0"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "COLLECT_ACTION_SCHEMA.json"
 DEFAULT_LIMITS = {
     "max_file_bytes": 8 * 1024 * 1024,
@@ -372,6 +374,11 @@ def validate_request_data(data: Any) -> dict[str, Any]:
             _bounded_int(norm, "max_dependency_files", label, 400, 1, 10000)
         elif action_type in {"decompile", "ida", "ghidra"}:
             _normalize_decompile(norm, label)
+        elif action_type == "database_select":
+            try:
+                norm = validate_database_select_action(norm, label)
+            except DatabaseSelectError as exc:
+                raise CollectSchemaError(str(exc)) from exc
         elif action_type == "git":
             sections = norm.get("sections")
             allowed_sections = set(schema["git_sections"])

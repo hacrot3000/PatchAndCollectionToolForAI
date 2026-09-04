@@ -17,7 +17,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "6.18.8"
+VERSION = "6.19.0"
 
 # Exact historical loose paths only.  Do not broaden this list to globs or
 # directories: projects may legitimately have unrelated tools/* files.

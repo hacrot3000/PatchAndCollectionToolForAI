@@ -1,4 +1,4 @@
-# Python Patch Tool v6.18.8 feature status
+# Python Patch Tool v6.19.0 feature status
 
 ## v6.18.8 HISTORY/report AI-artifact visibility
 
@@ -6,7 +6,7 @@
 - COMPLETE: missing AI-facing artifacts use an explicit warning palette plus `[missing]`.
 - COMPLETE: `INCOMPLETE` and `PREFLIGHT_FAIL` report states are visually emphasized.
 - COMPLETE: `NO_COLOR` and non-TTY output remain ANSI-free and copy/grep compatible.
-- Regression: `self_test_history_artifact_highlight_v6_18_8.py`.
+- Regression: `self_test_history_artifact_highlight_v6_19_0.py`.
 
 ## v6.18.7 scalable regex search + partial timeout preservation
 
@@ -199,3 +199,15 @@ v6.17.6 completed the current robustness/data-integrity audit scope, aggregate/d
 
 A COLLECT that preserves usable evidence but cannot prove full coverage (timeout, result/report truncation, or discovery output quota) exits with `rc=3`, writes the result ZIP, and reports `SUMMARY: INCOMPLETE` rather than `SUMMARY: FAIL`. `FAIL` remains reserved for execution/schema/integrity failures.
 
+
+## v6.19.0 — SELECT-only database evidence
+
+- `database_select` active builder: **COMPLETE**.
+- Raw SQL/request SQL text: **INTENTIONALLY UNSUPPORTED**.
+- SQLite read-only profile/execution: **COMPLETE**.
+- MySQL loopback + `mysql_config_editor` login path: **COMPLETE**.
+- MySQL remote through bounded SSH tunnel: **COMPLETE**.
+- JOIN/subquery/grouped AND-OR/NOT/GROUP BY/HAVING/CASE/window/ORDER BY/LIMIT active grammar: **COMPLETE**.
+- Streaming CSV/JSONL chunks inside normal COLLECT result: **COMPLETE**.
+- Timeout/row/byte truncation => retained partial evidence + COLLECT INCOMPLETE: **COMPLETE**.
+- Semantic safety gate: `self_test_database_select_v6_19_0.py`.

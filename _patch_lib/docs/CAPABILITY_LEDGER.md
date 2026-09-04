@@ -1,6 +1,6 @@
 # Python Patch Tool — cumulative capability ledger
 
-Current release: **v6.18.8**
+Current release: **v6.19.0**
 
 This is the canonical cross-version continuity ledger. It complements the current feature-status document; it must never be replaced by a current-only checklist.
 
@@ -19,7 +19,7 @@ See `HISTORICAL_FEATURE_BASELINE_V5_15.md` for all 107 original names. Machine-r
 - **PRESERVED + EXTENDED:** capability #100 primary handoff highlighting now also applies when the same COLLECT result / FAIL handoff / recovery COLLECT is viewed later through report/HISTORY.
 - **PRESERVED:** capability #101 accessible color roles keeps `NO_COLOR`/non-TTY plain output; ANSI is presentation only.
 - Problem states `INCOMPLETE` and `PREFLIGHT_FAIL` receive visible status emphasis without changing persisted report data.
-- Semantic gate: `self_test_history_artifact_highlight_v6_18_8.py`.
+- Semantic gate: `self_test_history_artifact_highlight_v6_19_0.py`.
 
 ## v6.18.7 search timeout / bounded-result preservation
 
@@ -172,3 +172,17 @@ No future release may remove a row from this ledger. A changed capability must r
 
 A COLLECT that preserves usable evidence but cannot prove full coverage (timeout, result/report truncation, or discovery output quota) exits with `rc=3`, writes the result ZIP, and reports `SUMMARY: INCOMPLETE` rather than `SUMMARY: FAIL`. `FAIL` remains reserved for execution/schema/integrity failures.
 
+
+## v6.19.0 current capability — SELECT-only database evidence
+
+| Capability | State | Behavioral evidence |
+|---|---|---|
+| `database_select` active builder; no raw SQL | PRESERVED/NEW | `self_test_database_select_v6_19_0.py` |
+| SQLite read-only DB collection | PRESERVED/NEW | `self_test_database_select_v6_19_0.py` |
+| MySQL loopback + login-path auth | PRESERVED/NEW | `self_test_database_select_v6_19_0.py` |
+| MySQL SSH-tunnel transport | PRESERVED/NEW | `self_test_database_select_v6_19_0.py` |
+| JOIN/subquery/AND-OR/GROUP BY/HAVING/CASE/window AST | PRESERVED/NEW | `self_test_database_select_v6_19_0.py` |
+| DB partial output => COLLECT INCOMPLETE, evidence retained | PRESERVED/NEW | `self_test_database_select_v6_19_0.py` |
+| Local DB profile hard exclusion from COLLECT/search/FAIL_HANDOFF evidence | PRESERVED/NEW | `self_test_database_select_v6_19_0.py` |
+
+**No-silent-removal rule:** later releases may extend the active builder additively, but must not introduce raw SQL, write-capable statements, embedded password fields, or direct remote MySQL TCP as a silent replacement for this safety boundary.

@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "profiles": {
+    "example_sqlite": {
+      "engine": "sqlite",
+      "path": "data/example.sqlite"
+    },
+    "example_mysql_local": {
+      "engine": "mysql",
+      "transport": "local",
+      "host": "127.0.0.1",
+      "port": 3306,
+      "database": "example_db",
+      "auth": {
+        "type": "login_path",
+        "login_path": "example_readonly"
+      }
+    },
+    "example_mysql_remote": {
+      "engine": "mysql",
+      "transport": "ssh_tunnel",
+      "database": "example_db",
+      "auth": {
+        "type": "login_path",
+        "login_path": "example_readonly"
+      },
+      "ssh": {
+        "target": "example-db-host",
+        "remote_host": "127.0.0.1",
+        "remote_port": 3306,
+        "connect_timeout_sec": 10
+      }
+    }
+  }
+}

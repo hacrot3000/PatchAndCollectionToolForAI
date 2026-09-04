@@ -1,10 +1,10 @@
-# v6.18.8 mandatory continuity gate — NO SILENT REMOVAL
+# v6.19.0 mandatory continuity gate — NO SILENT REMOVAL
 
 Before modifying Patch Tool, read `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, and `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Do not delete or narrow any capability previously marked COMPLETE/PRESERVED/COMPATIBILITY_RESTORED unless the user explicitly requests it or a later documented contract supersedes it. Every intentional transition must be recorded in the ledger and protected by a behavioral test. Surface/string-only compatibility tests are not sufficient.
 
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.18.8**  
+Phiên bản mục tiêu: **v6.19.0**  
 Trạng thái: **95/95 HISTORICAL-COMPLETE DISPOSITION + SEMANTIC CONTINUITY — COMPLETE**
 
 ## v6.18.8 — HISTORY/report AI-upload artifact highlighting
@@ -14,7 +14,7 @@ Trạng thái: **95/95 HISTORICAL-COMPLETE DISPOSITION + SEMANTIC CONTINUITY —
 - Artifact AI-facing bị `[missing]` dùng nền đỏ/yellow warning để không bị hiểu nhầm là file có thể upload.
 - `BATCH RESULT — INCOMPLETE`, `[INCOMPLETE]` và `[PREFLIGHT_FAIL]` được nhấn mạnh; PASS/plain metadata không bị biến thành cảnh báo.
 - `NO_COLOR` và non-TTY phải giữ plain text không có escape sequence; path không được clip.
-- Regression bắt buộc: `self_test_history_artifact_highlight_v6_18_8.py`.
+- Regression bắt buộc: `self_test_history_artifact_highlight_v6_19_0.py`.
 
 ## v6.18.7 — Regex large-tree partial preservation
 
@@ -531,3 +531,16 @@ Mục tiêu release này là hoàn tất vòng bảo toàn tính năng sau v6.18
 - Không đổi Smart Resume gating của v6.17.14: failure cũ không hijack queue mới độc lập; unresolved predecessor vẫn được planner enforce cho successor liên quan.
 - Thêm semantic upgrade-continuity gate (hiện được carry-forward theo version release) để khóa các capability đã công bố: zero-argument queue/HISTORY, Smart Resume/recovery, duplicate handling, report/support bundle, batch plan/lock, PATCH schema fields, COLLECT legacy actions, launcher Linux/Windows và toàn bộ search additions v6.18.0.
 - Audit v6.17.14 -> v6.18.0 xác nhận runtime function/class surface không bị xóa; PATCH schema không mất field; COLLECT schema chỉ mở rộng search. Regression HISTORY là thay đổi semantics từ v6.17.14, không phải code search v6.18.0 xóa chức năng.
+
+
+## 16. v6.19.0 — SELECT-only database evidence lane
+
+- Added `database_select` as an additive COLLECT action; there is deliberately no raw-SQL execution path.
+- AI supplies a validated AST. The tool alone compiles SQL identifiers/operators/functions and bound values.
+- SQLite is opened read-only and protected by a read authorizer.
+- MySQL supports loopback local connections and remote access only through an SSH local tunnel; credentials are referenced through `mysql_config_editor` login paths.
+- SELECT output streams to CSV/JSONL chunks inside the normal `CODE_COLLECTION_RESULT` ZIP. `max_rows`, `max_bytes`, timeout, and package quotas preserve collected chunks and produce `INCOMPLETE`; auth/connection/SQL errors remain FAIL.
+- DB profiles are local operator configuration (`tools/db_profiles.local.json` or `.python_patch_tool/db_profiles.local.json`) and form a hard evidence boundary: request ZIPs cannot supply them, exact COLLECT cannot pack them, search/content scan excludes them, and FAIL_HANDOFF source discovery cannot attach them.
+- Active-builder scope includes joins, correlated/nested subqueries, grouped AND/OR/NOT conditions, GROUP BY/HAVING, CASE, aggregate/function allowlist, arithmetic, CAST, window OVER, ORDER BY and LIMIT/OFFSET.
+- `database_schema` was intentionally not added because the v6.19.0 safety contract requires the executed database statement class to remain SELECT-only. Schema evidence can be queried from `information_schema` / `sqlite_master` using the same active builder.
+- Preservation rule: future AI changes must not add `query`, `raw_sql`, password-bearing profile fields, arbitrary function names, or direct remote MySQL TCP without an explicit supersession decision plus semantic safety tests.
