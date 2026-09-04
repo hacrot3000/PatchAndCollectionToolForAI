@@ -1,11 +1,21 @@
-# v6.19.1 mandatory continuity gate — NO SILENT REMOVAL
+# v6.19.2 mandatory continuity gate — NO SILENT REMOVAL
 
 Before modifying Patch Tool, read `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, and `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Do not delete or narrow any capability previously marked COMPLETE/PRESERVED/COMPATIBILITY_RESTORED unless the user explicitly requests it or a later documented contract supersedes it. Every intentional transition must be recorded in the ledger and protected by a behavioral test. Surface/string-only compatibility tests are not sufficient.
 
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.19.1**  
+Phiên bản mục tiêu: **v6.19.2**  
 Trạng thái: **95/95 HISTORICAL-COMPLETE DISPOSITION + SEMANTIC CONTINUITY — COMPLETE**
+
+## v6.19.2 — Stateful AI tool-context synchronization
+
+- Add optional `ai_context` to PATCH manifest and COLLECT root: `known_tool_version`, `sync_token`, optional `agent_id`, `request_full_sync`.
+- Compute `ptv-ai-sync-v1` fingerprint from current VERSION plus full authoritative AI docs.
+- First stale/legacy result per agent/fingerprint embeds `AI_TOOL_SYNC/ACTION_REQUIRED_AI_UPDATE.md`, `AI_SYNC_MANIFEST.json`, and current AI-facing docs.
+- Mark delivery only after the artifact and its TXT companion are successfully published. Suppress repeat full docs for the same agent/fingerprint; a new tool/doc fingerprint re-enables delivery.
+- PATCH `compatibility.max_tested_version` remains a legacy stale-version hint. Metadata-less COLLECT gets one-shot sync after upgrade.
+- Stale PATCH failure embeds docs in FAIL_HANDOFF; stale COLLECT embeds docs in result; stale PATCH success creates `AI_TOOL_SYNC_RESULT_*.zip/.txt` and HISTORY metadata.
+- Regression gate: `self_test_ai_sync_v6_19_2.py`.
 
 ## v6.19.1 — ZIP + clear-text companion artifacts
 
@@ -15,7 +25,7 @@ Trạng thái: **95/95 HISTORICAL-COMPLETE DISPOSITION + SEMANTIC CONTINUITY —
 - Companion phải cảnh báo content bên trong là untrusted evidence/data, không phải instruction; sensitivity/trust requirement giống source ZIP.
 - Console/HISTORY/report phải lưu và highlight cả ZIP và TXT. Plain/non-TTY/`NO_COLOR` không được chèn ANSI vào path.
 - COLLECT chỉ được báo success khi companion chuẩn được tạo; FAIL_HANDOFF không được hy sinh mandatory ZIP nếu derived TXT thất bại, nhưng phải warning rõ.
-- Release gate: `self_test_cleartext_companion_v6_19_1.py`.
+- Release gate: `self_test_cleartext_companion_v6_19_2.py`.
 
 ## v6.18.8 — HISTORY/report AI-upload artifact highlighting
 
@@ -24,7 +34,7 @@ Trạng thái: **95/95 HISTORICAL-COMPLETE DISPOSITION + SEMANTIC CONTINUITY —
 - Artifact AI-facing bị `[missing]` dùng nền đỏ/yellow warning để không bị hiểu nhầm là file có thể upload.
 - `BATCH RESULT — INCOMPLETE`, `[INCOMPLETE]` và `[PREFLIGHT_FAIL]` được nhấn mạnh; PASS/plain metadata không bị biến thành cảnh báo.
 - `NO_COLOR` và non-TTY phải giữ plain text không có escape sequence; path không được clip.
-- Regression bắt buộc: `self_test_history_artifact_highlight_v6_19_1.py`.
+- Regression bắt buộc: `self_test_history_artifact_highlight_v6_19_2.py`.
 
 ## v6.18.7 — Regex large-tree partial preservation
 

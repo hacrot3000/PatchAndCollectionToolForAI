@@ -18,7 +18,7 @@ import time
 import unicodedata
 from typing import Iterable
 
-VERSION = "6.19.1"
+VERSION = "6.19.2"
 DEFAULT_HEARTBEAT = 0.8
 DEFAULT_MARGIN = 2
 MAX_TAIL_LINES = 120
@@ -197,6 +197,10 @@ def _collect_quality(result_zip: str) -> dict[str, object]:
             quality["manifest"] = "ok"
             quality["collection_status"] = str(manifest.get("collection_status") or "PASS")
             quality["collection_warnings"] = len(manifest.get("collection_warnings") or [])
+            ai_sync = manifest.get("ai_tool_sync") if isinstance(manifest.get("ai_tool_sync"), dict) else {}
+            quality["ai_sync_attached"] = bool(ai_sync.get("full_update_attached"))
+            quality["ai_sync_token"] = ai_sync.get("sync_token") if isinstance(ai_sync.get("sync_token"), str) else None
+            quality["ai_sync_reason"] = ai_sync.get("reason") if isinstance(ai_sync.get("reason"), str) else None
     except Exception as exc:
         quality["manifest"] = f"error:{type(exc).__name__}"
         quality["missing"] = 1
@@ -217,6 +221,8 @@ def _print_collect_quality(result_zip: str) -> dict[str, object]:
         print("[PTV WARNING] COLLECT quality metadata is incomplete.")
     if q.get("collection_status") == "INCOMPLETE":
         print(f"[PTV WARNING] COLLECT status=INCOMPLETE | search/coverage warnings={q.get('collection_warnings',0)}")
+    if q.get("ai_sync_attached"):
+        print(f"[PTV v{VERSION}] AI TOOL UPDATE INCLUDED — upload this result to AI before the next PATCH/COLLECT request")
     return q
 
 

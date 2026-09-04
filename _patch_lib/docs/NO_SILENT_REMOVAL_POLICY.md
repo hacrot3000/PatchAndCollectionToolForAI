@@ -119,3 +119,7 @@ Do not remove code to simplify the tool when its historical purpose is unclear. 
 ## v6.19.0 database safety capability
 
 `database_select` is a protected current capability. Preservation includes its negative/safety guarantees, not only its existence: raw SQL is not accepted; generated DB statements are SELECT-only; profiles do not contain passwords; SQLite stays read-only; remote MySQL uses SSH tunneling; partial output remains usable and explicitly INCOMPLETE. AI must treat weakening any of these guarantees as a contract change requiring explicit user approval, ledger disposition, and behavioral regression updates.
+
+## v6.19.2 AI synchronization invariant
+
+The AI tool-context sync channel is a protected current capability. Future releases must preserve: additive `ai_context` fields; the version+documentation fingerprint; one-shot/per-agent suppression; legacy request fallback; `AI_TOOL_SYNC/` embedding in COLLECT and FAIL_HANDOFF; standalone sync result for successful stale PATCH; and the same-stem clear-text companion. Do not replace this with unconditional documentation on every result, because repeated payloads waste tokens. Do not remove it merely because compatible old requests still execute successfully.

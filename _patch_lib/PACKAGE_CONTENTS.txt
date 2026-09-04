@@ -1,4 +1,4 @@
-Python Patch Tool v6.19.1 portable package
+Python Patch Tool v6.19.2 portable package
 
 Release root:
   tools/
@@ -23,6 +23,7 @@ Core private runtime:
   tools/_patch_lib/python_patch_diagnostics_compat.py
   tools/_patch_lib/python_patch_database_select.py
   tools/_patch_lib/python_patch_cleartext_companion.py
+  tools/_patch_lib/python_patch_ai_sync.py
   tools/_patch_lib/python_patch_readonly_collector.py
   tools/_patch_lib/python_patch_collect_compat.py
   tools/_patch_lib/python_patch_collect_schema.py
@@ -42,6 +43,7 @@ Continuity/governance documentation:
 
 Current contract/documentation:
   tools/_patch_lib/docs/AI_USAGE_CONTRACT.md
+  tools/_patch_lib/docs/AI_TOOL_SYNC_CONTRACT.md
   tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json
   tools/_patch_lib/docs/PATCH_PACKAGE_CHECKLIST.json
   tools/_patch_lib/docs/PATCH_PACKAGE_GUIDE.md
@@ -56,23 +58,24 @@ Current contract/documentation:
   tools/HUONG_DAN_PYTHON_PATCH_TOOL.html
 
 Preservation/release gates include:
-  tools/_patch_lib/self_test_python_patch_tool_v6_19_1.py
-  tools/_patch_lib/self_test_capability_disposition_v6_19_1.py
-  tools/_patch_lib/self_test_capability_ledger_v6_19_1.py
-  tools/_patch_lib/self_test_upgrade_continuity_v6_19_1.py
-  tools/_patch_lib/self_test_historical_compatibility_v6_19_1.py
-  tools/_patch_lib/self_test_historical_diagnostics_v6_19_1.py
-  tools/_patch_lib/self_test_validation_selection_v6_19_1.py
-  tools/_patch_lib/self_test_collect_historical_actions_v6_19_1.py
-  tools/_patch_lib/self_test_public_entry_v6_19_1.py
-  tools/_patch_lib/self_test_search_discovery_v6_19_1.py
-  tools/_patch_lib/self_test_search_partial_timeout_v6_19_1.py
-  tools/_patch_lib/self_test_find_discovery_v6_19_1.py
-  tools/_patch_lib/self_test_upload_action_highlight_v6_19_1.py
-  tools/_patch_lib/self_test_history_artifact_highlight_v6_19_1.py
-  tools/_patch_lib/self_test_portable_installer_v6_19_1.py
-  tools/_patch_lib/self_test_database_select_v6_19_1.py
-  tools/_patch_lib/self_test_cleartext_companion_v6_19_1.py
+  tools/_patch_lib/self_test_python_patch_tool_v6_19_2.py
+  tools/_patch_lib/self_test_capability_disposition_v6_19_2.py
+  tools/_patch_lib/self_test_capability_ledger_v6_19_2.py
+  tools/_patch_lib/self_test_upgrade_continuity_v6_19_2.py
+  tools/_patch_lib/self_test_historical_compatibility_v6_19_2.py
+  tools/_patch_lib/self_test_historical_diagnostics_v6_19_2.py
+  tools/_patch_lib/self_test_validation_selection_v6_19_2.py
+  tools/_patch_lib/self_test_collect_historical_actions_v6_19_2.py
+  tools/_patch_lib/self_test_public_entry_v6_19_2.py
+  tools/_patch_lib/self_test_search_discovery_v6_19_2.py
+  tools/_patch_lib/self_test_search_partial_timeout_v6_19_2.py
+  tools/_patch_lib/self_test_find_discovery_v6_19_2.py
+  tools/_patch_lib/self_test_upload_action_highlight_v6_19_2.py
+  tools/_patch_lib/self_test_history_artifact_highlight_v6_19_2.py
+  tools/_patch_lib/self_test_portable_installer_v6_19_2.py
+  tools/_patch_lib/self_test_database_select_v6_19_2.py
+  tools/_patch_lib/self_test_cleartext_companion_v6_19_2.py
+  tools/_patch_lib/self_test_ai_sync_v6_19_2.py
   plus the current functional/Windows/search/recovery/batch/integrity self-tests.
 
 Integrity:
@@ -80,7 +83,7 @@ Integrity:
   tools/_patch_lib/SHA256SUMS
 
 Normal use:
-  unzip -o python_patch_tool_v6.19.1.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.19.2.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 Normal installation does not require the optional installer. Existing

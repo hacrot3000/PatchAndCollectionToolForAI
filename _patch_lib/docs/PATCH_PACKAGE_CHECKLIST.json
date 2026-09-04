@@ -1,11 +1,12 @@
 {
   "format": "python-patch-tool-package-checklist",
   "format_version": 1,
-  "tool_version": "6.19.1",
+  "tool_version": "6.19.2",
   "source_of_truth": "PATCH_PACKAGE_SCHEMA.json",
   "checks": [
     "root PATCH_TOOL_MANIFEST.json exists",
     "manifest validates with zero schema issues",
+    "after receiving AI_TOOL_SYNC, copy next_request_ai_context from AI_SYNC_MANIFEST.json into future PATCH/COLLECT requests; do not invent the sync token",
     "do not invent top-level fields; source baseline belongs in preflight.files",
     "execution.timeout_seconds, post_patch/on_failure command timeouts, and git.timeout_seconds are integers 1..1800 when present",
     "exactly one Python entrypoint OR PATCH_TOOL_OPS.json, never both",

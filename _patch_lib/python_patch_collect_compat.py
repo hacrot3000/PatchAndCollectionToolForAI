@@ -21,7 +21,7 @@ import zipfile
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
 from python_patch_database_select import DatabaseSelectError, execute_database_select
 
-VERSION = "6.19.1"
+VERSION = "6.19.2"
 REQUEST_RE = re.compile(r"^CODE_COLLECTION_REQUEST(?:_[A-Za-z0-9._-]+)?\.json$", re.I)
 MAX_REQUEST_JSON_BYTES = 1024 * 1024
 REGEX_SEARCH_TIMEOUT_SECONDS = 60.0
@@ -49,7 +49,7 @@ SECRET_PATTERNS = [
     re.compile(r"(?i)((?:password|passwd|pwd|token|secret|api[_-]?key)\s*[=:]\s*)[^\s,;]+"),
 ]
 
-# v6.19.1 database profiles are operator-local configuration and form a hard
+# v6.19.2 database profiles are operator-local configuration and form a hard
 # evidence boundary.  Unlike generic sensitive source (which may be included
 # exactly with an explicit warning), these profile files must never be copied
 # into COLLECT output or searched for content.
@@ -336,6 +336,14 @@ class ResultBuilder:
         self.sensitive_warnings: list[dict[str, object]] = []
         self.collection_warnings: list[dict[str, object]] = []
         self.collection_status = "PASS"
+        from python_patch_ai_sync import decide_sync
+        self.ai_sync_decision = decide_sync(
+            root,
+            ai_context=request_data.get("ai_context"),
+            fallback_known_tool_version=None,
+            channel="collect",
+        )
+        self.ai_sync_manifest: dict[str, object] | None = None
         self.total_bytes = 0
         self.report_bytes = 0
         self.file_count = 0
@@ -505,6 +513,8 @@ class ResultBuilder:
         self.collection_warnings.append({"action": action, "type": kind, "reasons": list(reasons)})
 
     def finish(self) -> Path:
+        from python_patch_ai_sync import write_sync_bundle_to_zip
+        self.ai_sync_manifest = write_sync_bundle_to_zip(self.zf, self.root, self.ai_sync_decision)
         manifest = {
             "format": "python-patch-tool-code-collection",
             "format_version": 3,
@@ -521,6 +531,7 @@ class ResultBuilder:
             "sensitive_warnings": self.sensitive_warnings,
             "collection_status": self.collection_status,
             "collection_warnings": self.collection_warnings,
+            "ai_tool_sync": self.ai_sync_manifest,
         }
         self.zf.writestr("COLLECTION_MANIFEST.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
         self.zf.close()
@@ -556,7 +567,7 @@ class ResultBuilder:
             from python_patch_cleartext_companion import create_zip_cleartext_companion
             create_zip_cleartext_companion(self.final, artifact_kind="COLLECT RESULT")
         except Exception:
-            # The clear-text companion is part of the v6.19.1 COLLECT deliverable.
+            # The clear-text companion is part of the v6.19.2 COLLECT deliverable.
             # Avoid publishing a ZIP-only success that would violate the output contract.
             try:
                 self.final.unlink()
@@ -2304,7 +2315,23 @@ def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
             except Exception:
                 try: result.unlink()
                 except OSError: pass
+                try: result.with_suffix(".txt").unlink()
+                except OSError: pass
                 raise
+            # Delivery is acknowledged only after ZIP + TXT + request archive
+            # all survived publication. This prevents one-shot sync state from
+            # consuming the only update when a later lifecycle step fails.
+            try:
+                from python_patch_ai_sync import mark_sync_delivered
+                companion = result.with_suffix(".txt")
+                if companion.is_file() and not companion.is_symlink():
+                    mark_sync_delivered(
+                        root,
+                        builder.ai_sync_decision,
+                        artifact=result.relative_to(root).as_posix(),
+                    )
+            except Exception:
+                pass
             return result, archived, len(request_data["actions"]), lifecycle, collection_status
         except Exception:
             builder.abort()

@@ -6,8 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from python_patch_database_select import DatabaseSelectError, validate_database_select_action
+from python_patch_ai_sync import normalize_ai_context
 
-VERSION = "6.19.1"
+VERSION = "6.19.2"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "COLLECT_ACTION_SCHEMA.json"
 DEFAULT_LIMITS = {
     "max_file_bytes": 8 * 1024 * 1024,
@@ -247,6 +248,10 @@ def validate_request_data(data: Any) -> dict[str, Any]:
         raise CollectSchemaError("request.id must be a string when present")
     if data.get("title") is not None and not isinstance(data.get("title"), str):
         raise CollectSchemaError("request.title must be a string when present")
+    try:
+        ai_context = normalize_ai_context(data.get("ai_context"), label="request.ai_context")
+    except ValueError as exc:
+        raise CollectSchemaError(str(exc)) from exc
 
     raw_limits = data.get("limits", {})
     if raw_limits is None:
@@ -399,6 +404,7 @@ def validate_request_data(data: Any) -> dict[str, Any]:
     return {
         "id": data.get("id"),
         "title": data.get("title"),
+        "ai_context": ai_context,
         "actions": normalized_actions,
         "limits": limits,
     }

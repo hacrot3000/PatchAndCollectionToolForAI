@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "tool_version": "6.19.1",
+  "tool_version": "6.19.2",
   "request": {
     "type": "object",
     "required": [
@@ -9,9 +9,19 @@
     "allowed_fields": [
       "id",
       "title",
+      "ai_context",
       "actions",
       "limits"
-    ]
+    ],
+    "ai_context": {
+      "description": "Optional AI/tool synchronization metadata. A current sync_token suppresses repeated AI_TOOL_SYNC documentation until the tool/document fingerprint changes.",
+      "allowed_fields": [
+        "known_tool_version",
+        "sync_token",
+        "agent_id",
+        "request_full_sync"
+      ]
+    }
   },
   "limits": {
     "allowed_fields": [

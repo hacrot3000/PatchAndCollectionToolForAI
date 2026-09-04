@@ -19,7 +19,7 @@ import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
 
-VERSION = "6.19.1"
+VERSION = "6.19.2"
 FORMAT_VERSION = 1
 _CHUNK = 1024 * 1024
 _NESTED_ZIP_MAX_BYTES = 64 * 1024 * 1024

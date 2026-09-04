@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "tool_version": "6.19.1",
+  "tool_version": "6.19.2",
   "manifest_file": "PATCH_TOOL_MANIFEST.json",
   "manifest": {
     "type": "object",
@@ -13,6 +13,7 @@
       "project",
       "patch",
       "compatibility",
+      "ai_context",
       "execution",
       "batch",
       "targets",
@@ -443,6 +444,32 @@
                 }
               }
             }
+          }
+        }
+      },
+      "ai_context": {
+        "type": "object",
+        "allowed_fields": [
+          "known_tool_version",
+          "sync_token",
+          "agent_id",
+          "request_full_sync"
+        ],
+        "fields": {
+          "known_tool_version": {
+            "type": "string",
+            "format": "semver"
+          },
+          "sync_token": {
+            "type": "string",
+            "format": "ai_sync_token"
+          },
+          "agent_id": {
+            "type": "string",
+            "format": "ai_agent_id"
+          },
+          "request_full_sync": {
+            "type": "boolean"
           }
         }
       }

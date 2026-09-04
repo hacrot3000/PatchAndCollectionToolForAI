@@ -1,4 +1,18 @@
-# PATCH PACKAGE GUIDE — v6.19.1 authoritative AI/tool contract
+# PATCH PACKAGE GUIDE — v6.19.2 authoritative AI/tool contract
+
+## AI context synchronization (v6.19.2)
+
+Recommended in every newly generated PATCH manifest:
+
+```json
+"ai_context": {
+  "known_tool_version": "6.19.2",
+  "sync_token": "ptv-ai-sync-v1:<64 hex from the latest AI_SYNC_MANIFEST.json>",
+  "agent_id": "default"
+}
+```
+
+The field is optional for backward compatibility. If omitted, Patch Tool may send a one-shot `AI_TOOL_SYNC` update after the local tool changes. For old PATCH packages, `compatibility.max_tested_version` is also used as a stale-context hint. After the AI reads an update artifact it should use the exact `next_request_ai_context` object from `AI_SYNC_MANIFEST.json`.
 
 Machine-readable source of truth:
 

@@ -10,7 +10,7 @@ import shutil
 import stat
 from typing import Any
 
-VERSION = "6.19.1"
+VERSION = "6.19.2"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "PATCH_PACKAGE_SCHEMA.json"
 _HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 _SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
@@ -73,6 +73,12 @@ def _validate_format(value: Any, fmt: str, label: str) -> None:
     elif fmt == "semver":
         if not isinstance(value, str) or not _SEMVER.fullmatch(value):
             raise PatchSchemaError(f"{label} must be semantic version X.Y.Z")
+    elif fmt == "ai_sync_token":
+        if not isinstance(value, str) or not re.fullmatch(r"ptv-ai-sync-v1:[0-9a-f]{64}", value):
+            raise PatchSchemaError(f"{label} must be a ptv-ai-sync-v1 SHA-256 token")
+    elif fmt == "ai_agent_id":
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_.:@+-]{1,96}", value):
+            raise PatchSchemaError(f"{label} must be a 1..96 character safe AI agent identifier")
 
 
 def _validate_node(value: Any, spec: dict[str, Any], label: str) -> None:

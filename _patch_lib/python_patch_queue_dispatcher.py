@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.19.1"
+VERSION = "6.19.2"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -1917,6 +1917,15 @@ def _create_fail_handoff(
         sensitive_warnings = _sensitive_handoff_warnings(evidence_log, frozen_sources)
         summary["sensitive_content_warnings"] = sensitive_warnings
 
+        from python_patch_ai_sync import decide_sync, patch_context_from_package
+        patch_ai_context, patch_max_tested = patch_context_from_package(root / "patchs" / item.name)
+        ai_sync_decision = decide_sync(
+            root,
+            ai_context=patch_ai_context,
+            fallback_known_tool_version=patch_max_tested,
+            channel="patch",
+        )
+
         # v6.18.5 additive historical diagnostics compatibility.  Keep the
         # exact v6 evidence untouched and add a separately redacted/normalized
         # derivative layer for the v5 COMPLETE diagnostic capabilities.
@@ -2012,6 +2021,19 @@ def _create_fail_handoff(
                 except Exception as exc:
                     attachment_warnings.append(f"recovery request attachment failed: {type(exc).__name__}")
 
+            try:
+                from python_patch_ai_sync import write_sync_bundle_to_zip
+                summary["ai_tool_sync"] = write_sync_bundle_to_zip(zf, root, ai_sync_decision)
+            except Exception as sync_exc:
+                # AI sync is additive context; never destroy the mandatory failure
+                # handoff if this derivative documentation channel malfunctions.
+                summary["ai_tool_sync"] = {
+                    "status": "UNAVAILABLE",
+                    "error": type(sync_exc).__name__,
+                    "tool_version": VERSION,
+                }
+                attachment_warnings.append(f"AI tool sync unavailable: {type(sync_exc).__name__}")
+
             summary["attachment_warnings"] = attachment_warnings
             # Write metadata after optional attachment attempts so it describes
             # what actually made it into this exact ZIP.
@@ -2043,6 +2065,14 @@ def _create_fail_handoff(
         )
         if detail_log_meta.get("truncated"):
             print("FAIL HANDOFF LOG: bounded DETAIL.log includes beginning + end of oversized log")
+        if ai_sync_decision.attach:
+            print(f"[PTV v{VERSION}] AI TOOL UPDATE INCLUDED — upload this FAIL_HANDOFF to AI before the next PATCH/COLLECT request")
+        if companion is not None:
+            try:
+                from python_patch_ai_sync import mark_sync_delivered
+                mark_sync_delivered(root, ai_sync_decision, artifact=final.relative_to(root).as_posix())
+            except Exception:
+                pass
         _print_upload_action_block(final, patch_failure=True, companion_path=companion)
         return final
     except Exception as exc:
@@ -3310,6 +3340,8 @@ _AI_UPLOAD_HISTORY_LABELS = frozenset({
     "FAIL handoff TXT",
     "COLLECT text",
     "Recovery COLLECT",
+    "AI sync result",
+    "AI sync TXT",
 })
 
 
@@ -3383,6 +3415,8 @@ def _important_row_artifacts(root: Path, row: dict[str, object]) -> list[tuple[s
         add("Request archive", collect.get("request_archive"))
     add("FAIL handoff", row.get("fail_handoff"))
     add("FAIL handoff TXT", row.get("fail_handoff_text"))
+    add("AI sync result", row.get("ai_sync_result"))
+    add("AI sync TXT", row.get("ai_sync_result_text"))
     recovery = row.get("recovery_collect_request")
     if isinstance(recovery, str) and recovery:
         rp = Path(recovery)
@@ -5454,6 +5488,37 @@ def execute_items(
             detail["source_compare"] = compare_info
         if item.kind == "COLLECT" and collect_result is not None:
             detail["collect_result"] = collect_result
+
+        # A successful PATCH has no normal handoff ZIP. If the request was made
+        # against an older/unknown AI tool context, publish a one-shot AI sync
+        # result so the next AI turn learns the current schemas/contracts too.
+        if rc == 0 and item.kind == "PATCH":
+            try:
+                from python_patch_ai_sync import decide_sync, create_standalone_sync_result
+                manifest = meta.manifest if meta is not None and isinstance(meta.manifest, dict) else {}
+                ai_context = manifest.get("ai_context") if isinstance(manifest.get("ai_context"), dict) else None
+                compat = manifest.get("compatibility") if isinstance(manifest.get("compatibility"), dict) else {}
+                max_tested = compat.get("max_tested_version") if isinstance(compat.get("max_tested_version"), str) else None
+                sync_decision = decide_sync(
+                    root,
+                    ai_context=ai_context,
+                    fallback_known_tool_version=max_tested,
+                    channel="patch",
+                )
+                sync_pair = create_standalone_sync_result(root, decision=sync_decision, source_name=item.name)
+                if sync_pair is not None:
+                    sync_zip, sync_text = sync_pair
+                    try: detail["ai_sync_result"] = sync_zip.relative_to(root).as_posix()
+                    except ValueError: detail["ai_sync_result"] = str(sync_zip)
+                    try: detail["ai_sync_result_text"] = sync_text.relative_to(root).as_posix()
+                    except ValueError: detail["ai_sync_result_text"] = str(sync_text)
+                    print(f"[PTV v{VERSION}] AI TOOL UPDATE REQUIRED: current client knowledge differs from request context")
+                    _print_upload_action_block(sync_zip, patch_failure=False, companion_path=sync_text)
+            except Exception as sync_exc:
+                # AI synchronization is additive and must never downgrade a
+                # successfully applied PATCH into a failure.
+                print(f"[PTV v{VERSION} WARNING] AI tool sync result unavailable: {type(sync_exc).__name__}: {sync_exc}", file=sys.stderr)
+
         executed.append((item.name, rc))
 
         if rc and item.kind == "PATCH":

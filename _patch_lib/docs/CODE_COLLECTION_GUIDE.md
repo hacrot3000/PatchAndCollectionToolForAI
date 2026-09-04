@@ -1,6 +1,6 @@
-# CODE COLLECTION GUIDE — v6.19.1 AUTHORITATIVE CONTRACT
+# CODE COLLECTION GUIDE — v6.19.2 AUTHORITATIVE CONTRACT
 
-Python Patch Tool v6.19.1 ships a self-contained, read-only COLLECT runtime. The authoritative action/field list is `COLLECT_ACTION_SCHEMA.json`; this guide explains the intended semantics.
+Python Patch Tool v6.19.2 ships a self-contained, read-only COLLECT runtime. The authoritative action/field list is `COLLECT_ACTION_SCHEMA.json`; this guide explains the intended semantics.
 
 This is an **AI/tool-facing technical document**. The public user workflow remains intentionally simple: AI provides one request ZIP, the user places it in `patchs/`, then runs the normal zero-argument launcher.
 
@@ -236,6 +236,20 @@ Run the disposable discovery fixture with:
 ```bash
 ./tools/run_python_patches.sh health-search
 ```
+
+## AI context synchronization (v6.19.2)
+
+Top-level COLLECT request may include:
+
+```json
+"ai_context": {
+  "known_tool_version": "6.19.2",
+  "sync_token": "ptv-ai-sync-v1:<token>",
+  "agent_id": "default"
+}
+```
+
+When the AI context is stale/unknown and the current fingerprint has not yet been delivered to that agent, the result ZIP includes `AI_TOOL_SYNC/` with the current authoritative docs. The same material automatically appears in the clear-text companion. After one successful delivery the full docs are suppressed until the tool/document fingerprint changes.
 
 ## Database SELECT evidence (v6.19.0)
 

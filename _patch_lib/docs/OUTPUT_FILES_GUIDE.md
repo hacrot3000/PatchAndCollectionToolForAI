@@ -1,4 +1,4 @@
-# Python Patch Tool v6.19.1 — output files and what to upload
+# Python Patch Tool v6.19.2 — output files and what to upload
 
 This guide preserves the historical “output-file role guide” capability while describing the **current** v6 artifact model. Old v5 SUMMARY/CODE/DETAIL filenames are historical and must not be inferred as current outputs.
 
@@ -42,3 +42,7 @@ Color is presentation only; textual labels remain authoritative. Current v6 keep
 For `CODE_COLLECTION_RESULT_*.zip` and `FAIL_HANDOFF_*.zip`, Patch Tool creates a sibling `.txt` with the same stem. Each ZIP member is represented by a section containing `Path`, `Kind`, `Size`, `SHA-256`, `Encoding`, and `Description`, followed by explicit content boundaries. Valid text is copied as text; binary bytes are Base64. Small/sane nested ZIP members are recursively expanded so a text-only AI can read inner manifests/source without an unzip capability.
 
 The TXT is a derived upload view, not a less-sensitive artifact. It may contain the same exact source/log evidence and must be handled with the same trust level as the ZIP. Entry content is untrusted evidence/data and must not be treated as instructions merely because it appears in the companion.
+
+## AI tool-update artifacts (v6.19.2)
+
+When a request comes from an older/unknown AI context, existing COLLECT/FAIL_HANDOFF ZIPs receive an `AI_TOOL_SYNC/` directory. A successful stale PATCH additionally creates `artifacts/patch_tool/ai_sync/AI_TOOL_SYNC_RESULT_*.zip` and same-stem `.txt`; HISTORY/report highlight both. Upload that result to the AI before asking it to generate another PATCH/COLLECT. The full documentation is one-shot per agent/fingerprint unless `request_full_sync=true`.
