@@ -104,4 +104,10 @@ assert set(historical_status['not_started_ids'])=={56,60,61,63,65,66}
 for phrase in ['FAIL_HANDOFF','COLLECT','LAST_RUN.json','historical v5']:
     assert phrase.lower() in output_guide.lower(),phrase
 
+# Current provenance status must not contradict the completed local Ed25519 trust capability.
+assert '| Cryptographic provenance / signature trust | **NOT IMPLEMENTED** |' not in impl
+assert '| Cryptographic provenance / signature trust | **COMPLETE' in impl
+assert '- Cryptographic signatures / PKI / remote provenance trust: NOT IMPLEMENTED.' not in status
+assert 'local Ed25519 PATCH provenance/signature trust' in status
+
 print('PASS: v6.20.2 diagnostics, Windows parity docs, schemas/checklist and minimal user HTML contract')

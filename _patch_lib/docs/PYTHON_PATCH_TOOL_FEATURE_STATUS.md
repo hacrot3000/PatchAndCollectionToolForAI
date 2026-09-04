@@ -181,7 +181,7 @@ v6.17.6 completed the current robustness/data-integrity audit scope, aggregate/d
 - SHA-bound reproducible batch recipe: COMPLETE.
 - Disk/resource preflight: COMPLETE.
 - Queue search/filter: COMPLETE.
-- Cryptographic signatures / PKI / remote provenance trust: NOT IMPLEMENTED.
+- Historical v6.17.7 state: cryptographic signatures / PKI / remote provenance trust were NOT IMPLEMENTED in that release; current local Ed25519 PATCH verification/trust is COMPLETE, while signer/PKI/remote trust remain intentionally out of scope.
 
 ## v6.17.8 execution audit
 

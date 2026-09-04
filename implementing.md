@@ -148,7 +148,7 @@ Baseline kỹ thuật: **v6.16.0**. Release này mở rộng batch report thành
 | Runtime failed-target overlap guard | **COMPLETE v6.17.5** |
 | Static target-overlap/conflict analyzer trước execution | **COMPLETE v6.17.7** |
 | Local patch ledger / ID reuse detection | **COMPLETE v6.17.7** |
-| Cryptographic provenance / signature trust | **NOT IMPLEMENTED** |
+| Cryptographic provenance / signature trust | **COMPLETE — local Ed25519 verification/trust; signer/PKI/remote registry remain out of scope** |
 
 ## 1. Controlled continue-on-failure
 
