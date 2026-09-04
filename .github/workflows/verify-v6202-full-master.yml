@@ -24,7 +24,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected=22544608a250126d386aa26574fea7a35f49f16f
+          expected=1341aa53a8c93831a18eeb74f5d362aaa19e80c8
           actual="$(git rev-parse HEAD)"
           test "$actual" = "$expected" || { echo "Unexpected work branch HEAD: $actual"; exit 2; }
 
