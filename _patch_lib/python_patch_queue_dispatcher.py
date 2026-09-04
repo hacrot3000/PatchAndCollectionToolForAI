@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.20.0"
+VERSION = "6.20.1"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -1085,11 +1085,15 @@ class _LivePatchStatus:
         self.active = False
         try:
             out = sys.stdout
-            out.write("\x1b[r")
-            # Continue subsequent summaries below the live viewport instead of
-            # overwriting the final fixed status rows.
-            out.write(f"\x1b[{self.rows};1H\x1b[2K")
-            out.write("\n")
+            # Restore the normal scroll region without moving the cursor to the
+            # physical bottom of the terminal.  The previous implementation
+            # jumped to ``self.rows`` before printing the final summary; short
+            # failures (especially PREFLIGHT_FAIL) therefore produced a large
+            # meaningless blank area and pushed FAIL_HANDOFF paths off-screen.
+            # Keeping the cursor at the current log position makes the final
+            # summary continue immediately after the last visible child/status
+            # output while still leaving the fixed status rows intact above.
+            out.write("\x1b[r\x1b[0m")
             out.flush()
         except Exception:
             pass
@@ -5511,7 +5515,17 @@ def execute_items(
     patch_status_by_id: dict[str, str] = {}
     failed_target_records: list[tuple[str, set[str]]] = []
     first_failure_rc = 0
-    live_status = _LivePatchStatus.start_for(chosen)
+    # Batch preflight may already have printed a PRIMARY FAIL_HANDOFF/action
+    # block before execution starts.  Starting the fullscreen live panel uses
+    # CSI 2J and would erase that actionable output from the visible terminal.
+    # Preflight-rejected batches are also short-lived, so use the historical
+    # plain console path for them; runtime PATCH failures can still use the live
+    # panel because their handoff is produced after the panel has started.
+    live_status = (
+        _LivePatchStatus.start_for(chosen)
+        if not preflight_failure_details
+        else _LivePatchStatus(chosen)
+    )
 
     def _finish_execution(result):
         try:
@@ -6757,7 +6771,7 @@ def _run_queue(
             }]
             print(f"SELECTION FAIL — project unchanged | {_safe_display(str(exc))}", file=sys.stderr)
             return finish_report("FAIL", 2, failed_item="CLI_SELECTION")
-    # v6.20.0: persistent failed grouping; recovery no longer hijacks the next ordinary zero-argument run.
+    # v6.20.1: persistent failed grouping; recovery no longer hijacks the next ordinary zero-argument run.
     # Smart Resume remains available explicitly through the ``resume`` command;
     # ordinary queue selection shows previous failed/replay items as a second
     # visual group instead.  Planner safety for unresolved predecessors is

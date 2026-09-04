@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 from pathlib import Path
 root=Path(__file__).resolve().parent; tools=root.parent
-version=(root/'VERSION').read_text(encoding='utf-8').strip(); assert version=='6.20.0',version
+version=(root/'VERSION').read_text(encoding='utf-8').strip(); assert version=='6.20.1',version
 for rel in ['python_patch_queue_dispatcher.py','python_patch_collect_progress_v6_7.py','python_patch_collect_compat.py','python_patch_collect_regex_worker.py','python_patch_collect_schema.py','python_patch_git_safe.py','python_patch_manual_workflow.py','python_patch_decompile_compat.py','install_python_patch_tool_v6.py','python_patch_runner.py','python_patch_utils.py','python_patch_package_schema.py','python_patch_health.py','python_patch_batch.py','python_patch_project_state.py','python_patch_diagnostics_compat.py','python_patch_database_select.py','python_patch_cleartext_companion.py','python_patch_ai_sync.py','python_patch_upload_alias.py']:
-    text=(root/rel).read_text(encoding='utf-8'); assert 'VERSION = "6.20.0"' in text,(rel,version)
-launcher=(tools/'run_python_patches.sh').read_text(encoding='utf-8'); assert 'v6.20.0' in launcher
-ps=(tools/'run_python_patches.ps1').read_text(encoding='utf-8'); assert 'v6.20.0' in ps
-bat=(tools/'run_python_patches.bat').read_text(encoding='utf-8'); assert 'v6.20.0' in bat
+    text=(root/rel).read_text(encoding='utf-8'); assert 'VERSION = "6.20.1"' in text,(rel,version)
+launcher=(tools/'run_python_patches.sh').read_text(encoding='utf-8'); assert 'v6.20.1' in launcher
+ps=(tools/'run_python_patches.ps1').read_text(encoding='utf-8'); assert 'v6.20.1' in ps
+bat=(tools/'run_python_patches.bat').read_text(encoding='utf-8'); assert 'v6.20.1' in bat
 master=(root/'self_test_python_patch_tool_v6_20_0.py').read_text(encoding='utf-8')
 for name in [
  'self_test_windows_launchers_v6_20_0.py',
@@ -46,7 +46,7 @@ assert (root/'docs'/'PATCH_PACKAGE_GUIDE.md').is_file()
 assert (root/'docs'/'GIT_SAFE_OPERATIONS.md').is_file()
 assert (root/'docs'/'MANUAL_EXECUTION_WORKFLOW.md').is_file()
 # Historical version references are allowed in changelog/task text; runtime/version/schema markers above must be current.
-print('PASS: v6.20.0 runtime/docs/version/master coverage synchronized')
+print('PASS: v6.20.1 runtime/docs/version/master coverage synchronized')
 
 assert (tools/'run_windows_native_tests.ps1').is_file()
 

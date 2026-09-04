@@ -1,7 +1,7 @@
 {
   "format": "python-patch-tool-current-capability-disposition",
   "format_version": 1,
-  "current_version": "6.20.0",
+  "current_version": "6.20.1",
   "source_baseline": "5.15.0",
   "historical_complete_count": 95,
   "entries": [

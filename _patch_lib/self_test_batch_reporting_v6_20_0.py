@@ -7,7 +7,7 @@ from pathlib import Path
 HERE=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('ptv_batch_report',HERE/'python_patch_queue_dispatcher.py')
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; assert spec.loader; spec.loader.exec_module(m)
-assert m.VERSION=='6.20.0'
+assert m.VERSION=='6.20.1'
 
 with tempfile.TemporaryDirectory(prefix='ptv6160_batch_') as td:
     root=Path(td)
@@ -42,7 +42,7 @@ with tempfile.TemporaryDirectory(prefix='ptv6160_batch_') as td:
 
 # Report rendering must distinguish PASS/FAIL/NOT_EXECUTED correctly. A run can
 # still contain NOT_EXECUTED rows under explicit fail_fast or a global safety-stop
-# even though v6.20.0 defaults to continue_independent.
+# even though v6.20.1 defaults to continue_independent.
 mixed={
     'run_id':'mixed','status':'FAIL','selected':['a.zip','b.zip','c.zip','d.zip'],
     'not_executed':['c.zip','d.zip'],
@@ -57,7 +57,7 @@ assert counts['PASS']==1 and counts['FAIL']==1 and counts['NOT_EXECUTED']==2,cou
 assert 'not executed' in m._batch_summary_text(mixed)
 assert 'source_drift' in m._batch_summary_text(mixed)
 
-# Renderer supports the v6.20.0 continue_independent default: multiple FAIL rows
+# Renderer supports the v6.20.1 continue_independent default: multiple FAIL rows
 # are counted/rendered correctly when independent PATCHes fail in one invocation.
 all_failed={
     'run_id':'future-multi-fail','status':'FAIL','selected':['a.zip','b.zip'], 'not_executed':[],
@@ -133,4 +133,4 @@ with tempfile.TemporaryDirectory(prefix='ptv6160_e2e_fail_') as td:
     aggregate=(root/last['batch_log']).read_text(encoding='utf-8')
     assert 'FIRST-PASS' in aggregate and 'SECOND-FAIL' in aggregate and 'MUST-NOT-RUN' not in aggregate,aggregate
 
-print('PASS: v6.20.0 persistent batch summary, aggregate/detail logs, continuation/safety-stop status model and report browser')
+print('PASS: v6.20.1 persistent batch summary, aggregate/detail logs, continuation/safety-stop status model and report browser')

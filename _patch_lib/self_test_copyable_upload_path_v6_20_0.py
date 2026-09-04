@@ -12,7 +12,7 @@ def load(name: str, file: str):
 
 a=load('ptv_upload_alias','python_patch_upload_alias.py')
 q=load('ptv_copy_path_dispatcher','python_patch_queue_dispatcher.py')
-assert a.VERSION==q.VERSION=='6.20.0'
+assert a.VERSION==q.VERSION=='6.20.1'
 
 class FakeTTY(io.StringIO):
     def isatty(self): return True
@@ -54,4 +54,4 @@ with tempfile.TemporaryDirectory(prefix='ptv_short_upload_unsafe_') as td:
     az,at,used=a.create_upload_aliases(root,z,None,kind='FAIL_HANDOFF')
     assert not used and az==z.absolute() and at is None
 
-print('PASS: v6.20.0 copy-friendly short hard-link upload aliases keep ACTION REQUIRED paths on dedicated rows with safe fallback')
+print('PASS: v6.20.1 copy-friendly short hard-link upload aliases keep ACTION REQUIRED paths on dedicated rows with safe fallback')

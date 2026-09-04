@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.20.0
+# AI / ChatGPT usage contract — Python Patch Tool v6.20.1
 
 ## v6.20.0 persistent failed-work queue state
 

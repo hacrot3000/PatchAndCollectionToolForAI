@@ -1,4 +1,4 @@
-Python Patch Tool v6.20.0 portable package
+Python Patch Tool v6.20.1 portable package
 
 Release root:
   tools/

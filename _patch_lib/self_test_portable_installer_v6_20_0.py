@@ -7,7 +7,7 @@ HERE = Path(__file__).resolve().parent
 MOD = HERE / 'install_python_patch_tool_v6.py'
 spec = importlib.util.spec_from_file_location('ptv_installer_v6183', MOD)
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-assert m.VERSION == '6.20.0'
+assert m.VERSION == '6.20.1'
 
 
 def make_root(base: Path) -> Path:
@@ -73,4 +73,4 @@ with tempfile.TemporaryDirectory(prefix='ptv6183_installer_symlink_') as td:
         raise AssertionError('installer must reject symlinked managed file')
     assert external.read_text() == 'keep'
 
-print('PASS: v6.20.0 optional controlled installer preserves config/unrelated tools and safely migrates fixed legacy files')
+print('PASS: v6.20.1 optional controlled installer preserves config/unrelated tools and safely migrates fixed legacy files')

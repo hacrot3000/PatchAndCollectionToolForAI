@@ -133,4 +133,4 @@ if hasattr(os,'symlink'):
         else:
             assert m._safe_handoff_source(root,'alias/x.c') is None
 
-print('PASS: v6.20.0 every PATCH failure auto-discovers and embeds related current source in FAIL_HANDOFF')
+print('PASS: v6.20.1 every PATCH failure auto-discovers and embeds related current source in FAIL_HANDOFF')

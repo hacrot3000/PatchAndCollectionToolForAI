@@ -1,8 +1,15 @@
-# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.20.0
+# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.20.1
 
 Trước khi AI sửa Patch Tool, bắt buộc đọc `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md` và `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Tính năng từng PASS/COMPLETE không được tự ý xóa, thu hẹp hoặc làm mất đường gọi chỉ vì code/schema hiện tại không dùng tới. Nếu thật sự phải thay thế, phải ghi trạng thái vào ledger và thêm test hành vi chứng minh.
 
-# Danh sách tính năng Python Patch Tool — v6.20.0
+# Danh sách tính năng Python Patch Tool — v6.20.1
+
+
+## v6.20.1 — Sửa bố cục báo cáo PATCH fail
+
+- Live status khi kết thúc không còn nhảy con trỏ xuống đáy terminal, vì vậy lỗi ngắn/PREFLIGHT_FAIL không tạo vùng trắng lớn trước `SUMMARY`.
+- Khi batch preflight đã sinh `FAIL_HANDOFF`, tool giữ đường console thường và không clear-screen sau khối `UPLOAD THIS FILE`; đường dẫn ZIP/TXT handoff tiếp tục nằm trong vùng nhìn thấy như trước.
+- PATCH runtime bình thường vẫn giữ live status; thay đổi chỉ sửa cách đóng/khởi động panel trong các failure path liên quan, không mở rộng capability.
 
 
 ## v6.20.0 — Git an toàn + hướng dẫn thực thi thủ công

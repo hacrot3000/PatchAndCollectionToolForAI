@@ -141,4 +141,4 @@ with tempfile.TemporaryDirectory(prefix='ptv6141_health_') as td:
     bad=h.audit_tool(root); assert bad['status']=='FAIL',bad
     assert any('missing required managed path' in e and victim in e for e in bad['errors']),bad
 
-print('PASS: v6.20.0 robustness audit fixes path safety, exact input lifecycle, signals/descendants, and health coverage')
+print('PASS: v6.20.1 robustness audit fixes path safety, exact input lifecycle, signals/descendants, and health coverage')

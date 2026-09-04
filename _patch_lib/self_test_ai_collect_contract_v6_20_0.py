@@ -28,4 +28,4 @@ for name in ['python_patch_runner.py','python_patch_utils.py','python_patch_read
 assert '[PRIMARY - UPLOAD THIS FILE]' in ai
 assert 'database_select' in ai and 'DATABASE_SELECT_ACTIVE_BUILDER.md' in ai
 assert 'raw sql' in ai.lower() and 'password' in ai.lower()
-print('PASS: v6.20.0 exact self-contained AI COLLECT/PATCH documentation contract')
+print('PASS: v6.20.1 exact self-contained AI COLLECT/PATCH documentation contract')

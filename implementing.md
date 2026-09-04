@@ -1,11 +1,19 @@
-# v6.20.0 mandatory continuity gate — NO SILENT REMOVAL
+# v6.20.1 mandatory continuity gate — NO SILENT REMOVAL
 
 Before modifying Patch Tool, read `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, and `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Do not delete or narrow any capability previously marked COMPLETE/PRESERVED/COMPATIBILITY_RESTORED unless the user explicitly requests it or a later documented contract supersedes it. Every intentional transition must be recorded in the ledger and protected by a behavioral test. Surface/string-only compatibility tests are not sufficient.
 
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.20.0**  
+Phiên bản mục tiêu: **v6.20.1**  
 Trạng thái: **95/95 HISTORICAL-COMPLETE DISPOSITION + SEMANTIC CONTINUITY — COMPLETE**
+
+
+## v6.20.1 — FAIL report terminal-layout regression fix
+
+- Fix `_LivePatchStatus.close()` so restoring the terminal scroll region no longer jumps the cursor to the physical last row; short failures no longer create a screenful of blank lines before `SUMMARY`.
+- If batch preflight has already materialized a `FAIL_HANDOFF`/upload-action block, execution stays on the historical plain-console path instead of starting the fullscreen live panel whose clear-screen sequence could hide that actionable output.
+- Runtime PATCH failures still retain the live status panel; closing it now preserves the current log cursor position so handoff + summary remain contiguous.
+- Regression coverage lives in the existing live-status semantic suite and explicitly checks both no-bottom-cursor jump and no post-handoff `CSI 2J` clear.
 
 
 ## v6.20.0 — Git Safe Operations + Manual Execution Workflow

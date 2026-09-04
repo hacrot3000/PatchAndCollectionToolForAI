@@ -9,9 +9,9 @@ import python_patch_batch as batch
 import python_patch_queue_dispatcher as queue
 import python_patch_runner as runner
 
-assert queue.VERSION == '6.20.0'
-assert batch.VERSION == '6.20.0'
-assert runner.VERSION == '6.20.0'
+assert queue.VERSION == '6.20.1'
+assert batch.VERSION == '6.20.1'
+assert runner.VERSION == '6.20.1'
 
 # Selected batch packages are mandatory transaction inputs: disappearance is
 # never silently omitted from the replay snapshot.
@@ -126,4 +126,4 @@ with tempfile.TemporaryDirectory(prefix='ptv6174_handoff_snapshot_') as td:
     assert [(rel, path.read_text(encoding='utf-8')) for rel, path in frozen] == [('a.c', 'A')], frozen
     assert any(row.get('path') == 'b.c' for row in skipped), skipped
 
-print('PASS: v6.20.0 package identity, replay snapshot, mutation lock and FAIL_HANDOFF artifact integrity')
+print('PASS: v6.20.1 package identity, replay snapshot, mutation lock and FAIL_HANDOFF artifact integrity')

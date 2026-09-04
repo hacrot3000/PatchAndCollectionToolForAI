@@ -13,7 +13,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import python_patch_queue_dispatcher as m
 
-assert m.VERSION == '6.20.0'
+assert m.VERSION == '6.20.1'
 
 # Zero-argument detection ignores the internal project-root handoff only.
 assert m._is_zero_argument_dispatch([])
@@ -137,12 +137,55 @@ try:
     assert '\x1b[2J' not in delta
     panel.set_status('patch_a.zip', 'PASS')
     panel.set_status('patch_b.zip', 'FAILED')
+    before_close = len(fake.getvalue())
     panel.close()
+    close_delta = fake.getvalue()[before_close:]
     assert m._ACTIVE_LIVE_STATUS_PANEL is None
+    # Closing the fixed panel must not jump to the physical terminal bottom.
+    # That historical cursor move created a screenful of blank rows on short
+    # PREFLIGHT_FAIL paths and pushed FAIL_HANDOFF/action paths off-screen.
+    assert '\x1b[24;1H' not in close_delta, repr(close_delta)
+    assert '\x1b[2K' not in close_delta, repr(close_delta)
+    assert close_delta == '\x1b[r\x1b[0m', repr(close_delta)
     visible = fake.getvalue()
     assert 'patch_a.zip' in visible and 'PASS' in visible
     assert 'patch_b.zip' in visible and 'FAILED' in visible
     assert '\x1b[r' in visible  # scroll region restored on close
+finally:
+    sys.stdin, sys.stdout = old_in, old_out
+    m.shutil.get_terminal_size = old_size
+    if old_term is None: os.environ.pop('TERM', None)
+    else: os.environ['TERM'] = old_term
+
+# If batch preflight already produced a FAIL_HANDOFF/action block, the live
+# fullscreen panel must not start afterwards: CSI 2J would erase that block
+# from the visible terminal.  Keep this short failure path plain-console.
+old_in, old_out = sys.stdin, sys.stdout
+old_term = os.environ.get('TERM')
+old_size = m.shutil.get_terminal_size
+fake = FakeOut()
+try:
+    sys.stdin = FakeIn()
+    sys.stdout = fake
+    os.environ['TERM'] = 'xterm-256color'
+    m.shutil.get_terminal_size = lambda fallback=(120, 40): os.terminal_size((100, 24))
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        (root/'patchs').mkdir(parents=True)
+        (root/'artifacts').mkdir(parents=True)
+        detail = {
+            'name': 'bad.zip', 'kind': 'PATCH', 'status': 'PREFLIGHT_FAIL', 'rc': 2,
+            'diagnosis': {'kind': 'anchor_mismatch', 'message': 'fixture'},
+        }
+        rc, executed, remaining, _dups, _warnings = m.execute_items(
+            root, [m.QueueItem('bad.zip', 'PATCH')],
+            preflight_failure_details={'bad.zip': detail},
+        )
+        assert rc == 2 and executed == [] and remaining == []
+    preflight_visible = fake.getvalue()
+    assert '\x1b[2J' not in preflight_visible, repr(preflight_visible)
+    assert '[PREFLIGHT_FAIL] bad.zip | anchor_mismatch' in preflight_visible
+    assert 'CONTINUE AFTER PREFLIGHT FAILURE' in preflight_visible
 finally:
     sys.stdin, sys.stdout = old_in, old_out
     m.shutil.get_terminal_size = old_size
@@ -226,4 +269,4 @@ for needle in [
 ]:
     assert needle in src, needle
 
-print('PASS: v6.20.0 zero-argument HISTORY browser, archived artifact detail and best-effort fixed live PATCH status header')
+print('PASS: v6.20.1 zero-argument HISTORY browser, archived artifact detail and best-effort fixed live PATCH status header')

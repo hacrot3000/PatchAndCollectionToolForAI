@@ -37,7 +37,7 @@ for phrase in [
     'Recovery multi-select', 'Recovery COLLECT source', 'effective target với PATCH lỗi'
 ]:
     assert phrase.lower() in features.lower(),phrase
-assert patch_schema['tool_version']=='6.20.0' and patch_schema['schema_version']==1
+assert patch_schema['tool_version']=='6.20.1' and patch_schema['schema_version']==1
 assert 'batch' in patch_schema['manifest']['allowed_fields']
 assert 'on_failure' in patch_schema['manifest']['allowed_fields']
 on_failure_spec=patch_schema['manifest']['fields']['on_failure']; assert 'commands' in on_failure_spec['allowed_fields']
@@ -46,8 +46,8 @@ batch_spec=patch_schema['manifest']['fields']['batch']
 assert 'depends_on' in batch_spec['allowed_fields'] and 'previous_failure' in batch_spec['allowed_fields']
 prev=batch_spec['fields']['previous_failure']
 assert set(prev['fields']['action']['enum'])=={'delete','retry_before','run_after','block'}
-assert checklist['tool_version']=='6.20.0' and 'READY_TO_APPLY' in checklist['result_classes']
-assert collect_schema['tool_version']=='6.20.0'
+assert checklist['tool_version']=='6.20.1' and 'READY_TO_APPLY' in checklist['result_classes']
+assert collect_schema['tool_version']=='6.20.1'
 for phrase in [
     'batch.previous_failure', 'retry_before', 'run_after', '`reason` là bắt buộc',
     'depends_on', 'on_dependency_failure', 'FAIL_HANDOFF',
@@ -92,7 +92,7 @@ assert 'HISTORY' in html and 'AUTO STATUS: IDLE' in html and 'PTV_DISABLE_LIVE_S
 
 protected_collect={'pack','zip','overview','ls','tree','find','search','search_files','content','research','file','range','head','tail','symbol','references','callgraph','dependencies','directory','symbol_graph','decompile','ida','ghidra','git'}
 assert protected_collect <= set(collect_schema['actions'])
-assert collect_schema['tool_version']=='6.20.0'
+assert collect_schema['tool_version']=='6.20.1'
 for token in ['NO_SILENT_REMOVAL_POLICY.md','CAPABILITY_LEDGER.md','search_files','symbol_graph','decompile']:
     assert token in ai or token in status or token in (DOCS/'CODE_COLLECTION_GUIDE.md').read_text(encoding='utf-8'),token
 
@@ -104,4 +104,4 @@ assert set(historical_status['not_started_ids'])=={56,60,61,63,65,66}
 for phrase in ['FAIL_HANDOFF','COLLECT','LAST_RUN.json','historical v5']:
     assert phrase.lower() in output_guide.lower(),phrase
 
-print('PASS: v6.20.0 diagnostics, Windows parity docs, schemas/checklist and minimal user HTML contract')
+print('PASS: v6.20.1 diagnostics, Windows parity docs, schemas/checklist and minimal user HTML contract')

@@ -5,8 +5,8 @@ import hashlib, json, subprocess, tempfile, zipfile
 import python_patch_queue_dispatcher as q
 import python_patch_runner as r
 
-assert q.VERSION == '6.20.0'
-assert r.VERSION == '6.20.0'
+assert q.VERSION == '6.20.1'
+assert r.VERSION == '6.20.1'
 
 # 1) No declared targets + unchanged Git fingerprint is not proof that ignored
 # files were untouched. A failed legacy/unbounded payload must stop fail-safe.
@@ -97,4 +97,4 @@ with tempfile.TemporaryDirectory(prefix='ptv6176_artifact_safety_') as td, tempf
     rc=q.main(['--project-root',str(root)])
     assert rc==2,rc
 
-print('PASS: v6.20.0 recovery identity, rollback replay dedupe exception, unbounded ignored-file fail-safe and clean artifact safety error')
+print('PASS: v6.20.1 recovery identity, rollback replay dedupe exception, unbounded ignored-file fail-safe and clean artifact safety error')

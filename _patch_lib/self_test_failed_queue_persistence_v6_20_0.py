@@ -2,7 +2,7 @@
 from pathlib import Path
 import json,tempfile
 import python_patch_queue_dispatcher as m
-assert m.VERSION=='6.20.0'
+assert m.VERSION=='6.20.1'
 with tempfile.TemporaryDirectory(prefix='ptv-persist-failed-') as td:
  root=Path(td); (root/'patchs').mkdir(parents=True); hist=root/'artifacts'/'patch_tool'/'history'; hist.mkdir(parents=True)
  fc='CODE_COLLECTION_REQUEST_failed_v2.zip'; nc='CODE_COLLECTION_REQUEST_new_v3.zip'; fp='patch_failed.zip'
@@ -24,4 +24,4 @@ with tempfile.TemporaryDirectory(prefix='ptv-persist-failed-') as td:
  # normal selector delete resolves exact persistent item
  mutable=[m.QueueItem(fc,'COLLECT')]; _sel,_prio,deleted,failures=m._delete_indexes(root,mutable,set(),{0},{})
  assert deleted==[fc] and not failures; reg=json.loads(regp.read_text()); assert all(e.get('resolved') is True for e in reg['entries'] if (e.get('row') or {}).get('name')==fc)
-print('PASS: v6.20.0 persistent failed PATCH/COLLECT grouping survives unrelated runs and migrates v6.19.4 history')
+print('PASS: v6.20.1 persistent failed PATCH/COLLECT grouping survives unrelated runs and migrates v6.19.4 history')

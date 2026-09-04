@@ -7,7 +7,7 @@ HERE=Path(__file__).resolve().parent
 MOD=HERE/'python_patch_queue_dispatcher.py'
 spec=importlib.util.spec_from_file_location('ptv_recovery_menu',MOD)
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; assert spec.loader; spec.loader.exec_module(m)
-assert m.VERSION=='6.20.0'
+assert m.VERSION=='6.20.1'
 
 class FakeTTYIn:
     def isatty(self): return True
@@ -121,4 +121,4 @@ with tempfile.TemporaryDirectory(prefix='ptv_explicit_fail_fast_') as td:
     assert last['not_executed']==['patch_2.zip'],last
     assert (root/'b.txt').read_text()=='B\n'
 
-print('PASS: v6.20.0 arrow recovery menu, failed-PATCH multi-select delete/COLLECT, and default dependency-aware continuation')
+print('PASS: v6.20.1 arrow recovery menu, failed-PATCH multi-select delete/COLLECT, and default dependency-aware continuation')

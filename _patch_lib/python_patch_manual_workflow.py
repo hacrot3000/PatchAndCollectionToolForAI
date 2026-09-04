@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 import zipfile
 
-VERSION = "6.20.0"
+VERSION = "6.20.1"
 _EXIT_RE = re.compile(r"(?m)^\[PTV_MANUAL_EXIT_CODE=(-?\d+)\]\s*$")
 _FORBIDDEN_INLINE = {
     "bash": {"-c"}, "sh": {"-c"}, "zsh": {"-c"},

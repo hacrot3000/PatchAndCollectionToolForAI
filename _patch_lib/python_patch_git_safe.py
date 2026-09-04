@@ -8,7 +8,7 @@ import stat
 import subprocess
 from typing import Any
 
-VERSION = "6.20.0"
+VERSION = "6.20.1"
 
 ALLOWED_OPERATIONS = frozenset({
     "status", "current_branch", "branches", "log", "show",
@@ -83,7 +83,7 @@ def validate_git_action(action: dict[str, Any], *, schema_git_sections: list[str
 
     operations = norm.get("operations")
     # Historical v6.19.x fixed-section COLLECT requests remain accepted and are
-    # normalized into the strict v6.20.0 operation model.
+    # normalized into the strict v6.20.1 operation model.
     if operations is None and norm.get("sections") is not None:
         sections = norm.get("sections")
         allowed_sections = set(schema_git_sections or ["status", "log", "diff_stat", "diff"])

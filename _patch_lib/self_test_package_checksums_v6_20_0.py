@@ -41,4 +41,4 @@ assert set(entries)==actual,{'missing_from_manifest':sorted(actual-set(entries))
 for rel,wanted in sorted(entries.items()):
     path=ROOT/rel; assert path.is_file(),rel
     got=hashlib.sha256(path.read_bytes()).hexdigest(); assert got==wanted,(rel,wanted,got)
-print('PASS: v6.20.0 self-contained package SHA256SUMS exact coverage and public launchers')
+print('PASS: v6.20.1 self-contained package SHA256SUMS exact coverage and public launchers')

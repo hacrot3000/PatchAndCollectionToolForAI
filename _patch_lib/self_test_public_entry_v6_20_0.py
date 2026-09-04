@@ -34,4 +34,4 @@ with tempfile.TemporaryDirectory(prefix='ptv_public_noval_') as td:
     last=json.loads((root/'artifacts/patch_tool/LAST_RUN.json').read_text())
     row=last['results'][0]['patch_result']; assert row['validation_selection']['status']=='DISABLED_BY_CLI',row
 
-print('PASS: v6.20.0 public entry parser/launcher, non-TTY HISTORY and --no-validation routing')
+print('PASS: v6.20.1 public entry parser/launcher, non-TTY HISTORY and --no-validation routing')

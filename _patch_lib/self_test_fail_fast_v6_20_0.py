@@ -135,4 +135,4 @@ with tempfile.TemporaryDirectory(prefix="ptv691_summary_dup_") as td:
     rc,executed,remaining,late_dups,warns=m.execute_items(root,chosen,failure_policy="fail_fast")
     assert rc==0 and len(executed)==1 and len(late_dups)==1 and not remaining and not warns
 
-print('PASS: v6.20.0 fail-fast, signal status and COLLECT archive lifecycle')
+print('PASS: v6.20.1 fail-fast, signal status and COLLECT archive lifecycle')

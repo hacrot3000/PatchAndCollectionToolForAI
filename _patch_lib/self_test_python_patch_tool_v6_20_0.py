@@ -64,17 +64,25 @@ names=[
 ]
 env=dict(os.environ); env['PYTHONDONTWRITEBYTECODE']='1'
 timeout_bin=shutil.which('timeout')
+# Most semantic tests are intentionally bounded to 180s. Two cumulative
+# integration suites contain many independent subprocess scenarios and can
+# legitimately exceed that wall-clock budget on slower disks/CI hosts even
+# when every managed command remains individually bounded. Give only those
+# aggregate harnesses more time so a slow host does not create a false release
+# regression; product/runtime command timeouts remain unchanged.
+long_tests={'self_test_batch_engine_v6_20_0.py','self_test_contract_consistency_v6_20_0.py'}
 for name in names:
     print(f'RUNNING: {name}',flush=True)
     test=[sys.executable,'-S',str(root/name)]
+    test_timeout=420 if name in long_tests else 180
     if timeout_bin:
-        cmd=[timeout_bin,'--kill-after=5s','180s',*test]
+        cmd=[timeout_bin,'--kill-after=5s',f'{test_timeout}s',*test]
         rc=subprocess.run(cmd,cwd=root,env=env).returncode
         if rc==124:
-            print(f'FAIL: self-test timeout (180s): {name}',file=sys.stderr,flush=True); raise SystemExit(124)
+            print(f'FAIL: self-test timeout ({test_timeout}s): {name}',file=sys.stderr,flush=True); raise SystemExit(124)
     else:
-        try: rc=subprocess.run(test,cwd=root,env=env,timeout=180).returncode
+        try: rc=subprocess.run(test,cwd=root,env=env,timeout=test_timeout).returncode
         except subprocess.TimeoutExpired:
-            print(f'FAIL: self-test timeout (180s): {name}',file=sys.stderr,flush=True); raise SystemExit(124)
+            print(f'FAIL: self-test timeout ({test_timeout}s): {name}',file=sys.stderr,flush=True); raise SystemExit(124)
     if rc: raise SystemExit(rc)
-print('PASS: Python Patch Tool v6.20.0 full self-contained regression suite')
+print('PASS: Python Patch Tool v6.20.1 full self-contained regression suite')

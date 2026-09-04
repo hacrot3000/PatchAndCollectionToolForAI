@@ -16,7 +16,7 @@ b=load('ptv_audit_b','python_patch_batch.py')
 c=load('ptv_audit_c','python_patch_collect_compat.py')
 cs=load('ptv_audit_cs','python_patch_collect_schema.py')
 
-# v6.20.0: even an internal/tool failure may continue independent work only when
+# v6.20.1: even an internal/tool failure may continue independent work only when
 # post-failure evidence proves the project was not modified. Unknown/changed state stops.
 ok,reason=q._safe_to_continue_after_failure({'rc':2,'patch_result':{'diagnosis':{'kind':'internal_error'},'partial_modification':{'detected':False}}})
 assert ok is True and reason=='failure_contained_project_unchanged',(ok,reason)
@@ -98,7 +98,7 @@ except cs.CollectSchemaError as exc:
 else:
     raise AssertionError('COLLECT hard ceiling was bypassed')
 
-# v6.20.0 requirement-driven retirement: PATCH Git add/commit/push is rejected
+# v6.20.1 requirement-driven retirement: PATCH Git add/commit/push is rejected
 # before execution and the old mutation executor is absent.
 from python_patch_package_schema import validate_manifest, PatchSchemaError
 assert not hasattr(r, '_run_git_policy')
@@ -216,4 +216,4 @@ assert 'tempfile.mkstemp(prefix=f".{path.name}.ptv-write-"' in source and 'os.re
 assert '_acquire_project_mutation_lock' in (HERE/'python_patch_runner.py').read_text(encoding='utf-8')
 assert 'python_patch_ops_worker.py' in (HERE/'python_patch_runner.py').read_text(encoding='utf-8')
 
-print('PASS: v6.20.0 audit regressions cover rollback completeness, contained-failure continuation, COLLECT self-output, mutation integrity, idempotency, Git, archives and limits')
+print('PASS: v6.20.1 audit regressions cover rollback completeness, contained-failure continuation, COLLECT self-output, mutation integrity, idempotency, Git, archives and limits')

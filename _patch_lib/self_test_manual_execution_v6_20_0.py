@@ -100,4 +100,4 @@ with tempfile.TemporaryDirectory(prefix='ptv620_manual_handoff_') as td:
         summary=json.loads(z.read('FAIL_SUMMARY.json'))
         assert summary['manual_execution']['status']=='FAIL',summary
 
-print('PASS: v6.20.0 manual_execution is human-only, stepwise, structured-argv, log-verified, ZIP+TXT packaged, and has no raw shell command escape hatch')
+print('PASS: v6.20.1 manual_execution is human-only, stepwise, structured-argv, log-verified, ZIP+TXT packaged, and has no raw shell command escape hatch')

@@ -117,7 +117,7 @@ if os.name != 'nt':
         assert cp.returncode==2,text
         assert 'PROJECT CONFIG' in text and 'non-symlink' in text,text
 
-print('PASS: v6.20.0 contract consistency for unresolved failures, dependency blocking, plan policy/recipe and project config parsing')
+print('PASS: v6.20.1 contract consistency for unresolved failures, dependency blocking, plan policy/recipe and project config parsing')
 
 # I. previous_failure delete resolves only the exact SHA-bound registry entry when patch.id was reused.
 import sys
@@ -138,7 +138,7 @@ with tempfile.TemporaryDirectory(prefix='ptv61710_delete_exact_') as td:
     states={e['row']['name']:e.get('resolved') for e in reg['entries']}
     assert states['old-a.zip'] is True and states['old-b.zip'] is False,states
 
-print('PASS: v6.20.0 exact-SHA previous_failure delete resolution under patch.id reuse')
+print('PASS: v6.20.1 exact-SHA previous_failure delete resolution under patch.id reuse')
 
 # J. Invalid/tampered recipe fails before duplicate-history cleanup can mutate the queue.
 with tempfile.TemporaryDirectory(prefix='ptv61710_recipe_no_mutation_') as td:
@@ -147,7 +147,7 @@ with tempfile.TemporaryDirectory(prefix='ptv61710_recipe_no_mutation_') as td:
     (r/'patchs'/'patched').mkdir()
     shutil.copy2(r/'patchs'/'p.zip',r/'patchs'/'patched'/'p.zip')
     recipe={
-        'format':'python-patch-tool-batch-recipe','format_version':1,'tool_version':'6.20.0',
+        'format':'python-patch-tool-batch-recipe','format_version':1,'tool_version':'6.20.1',
         'project_key':None,'failure_policy':'continue_independent','transaction_policy':'patch',
         'packages':[{'name':'p.zip','patch_id':'p','sha256':'0'*64}],
     }
@@ -158,7 +158,7 @@ with tempfile.TemporaryDirectory(prefix='ptv61710_recipe_no_mutation_') as td:
     assert not list((r/'patchs'/'ignore').glob('*p.zip')) if (r/'patchs'/'ignore').exists() else True
     assert 'package_input_changed' in text or 'SHA mismatch' in text,text
 
-print('PASS: v6.20.0 recipe validation precedes duplicate-history queue mutation')
+print('PASS: v6.20.1 recipe validation precedes duplicate-history queue mutation')
 
 # K. Valid recipe execution must not move unrelated queue duplicates to ignore.
 with tempfile.TemporaryDirectory(prefix='ptv61710_recipe_scope_') as td:
@@ -170,7 +170,7 @@ with tempfile.TemporaryDirectory(prefix='ptv61710_recipe_scope_') as td:
     import hashlib
     sha=hashlib.sha256((r/'patchs'/'selected.zip').read_bytes()).hexdigest()
     recipe={
-        'format':'python-patch-tool-batch-recipe','format_version':1,'tool_version':'6.20.0',
+        'format':'python-patch-tool-batch-recipe','format_version':1,'tool_version':'6.20.1',
         'project_key':None,'failure_policy':'continue_independent','transaction_policy':'patch',
         'packages':[{'name':'selected.zip','patch_id':'selected','sha256':sha}],
     }
@@ -181,7 +181,7 @@ with tempfile.TemporaryDirectory(prefix='ptv61710_recipe_scope_') as td:
     assert not list((r/'patchs'/'ignore').glob('*unrelated.zip')) if (r/'patchs'/'ignore').exists() else True
     assert (r/'patchs'/'patched'/'selected.zip').is_file(),text
 
-print('PASS: v6.20.0 recipe execution leaves unrelated queue entries untouched')
+print('PASS: v6.20.1 recipe execution leaves unrelated queue entries untouched')
 
 # L. Recipe patch_id is part of the exact identity and must match package metadata.
 with tempfile.TemporaryDirectory(prefix='ptv61710_recipe_patch_id_') as td:
@@ -190,7 +190,7 @@ with tempfile.TemporaryDirectory(prefix='ptv61710_recipe_patch_id_') as td:
     import hashlib
     sha=hashlib.sha256((r/'patchs'/'p.zip').read_bytes()).hexdigest()
     recipe={
-        'format':'python-patch-tool-batch-recipe','format_version':1,'tool_version':'6.20.0',
+        'format':'python-patch-tool-batch-recipe','format_version':1,'tool_version':'6.20.1',
         'project_key':None,'failure_policy':'continue_independent','transaction_policy':'patch',
         'packages':[{'name':'p.zip','patch_id':'wrong-id','sha256':sha}],
     }
@@ -201,7 +201,7 @@ with tempfile.TemporaryDirectory(prefix='ptv61710_recipe_patch_id_') as td:
     assert (r/'patchs'/'p.zip').is_file(),text
     assert not (r/'patchs'/'patched'/'p.zip').exists(),text
 
-print('PASS: v6.20.0 recipe patch_id is SHA-bound execution identity')
+print('PASS: v6.20.1 recipe patch_id is SHA-bound execution identity')
 
 
 # M. Recipe owns batch policies; CLI overrides would make replay non-reproducible and are rejected.
@@ -211,7 +211,7 @@ with tempfile.TemporaryDirectory(prefix='ptv61710_recipe_policy_override_') as t
     import hashlib
     sha=hashlib.sha256((r/'patchs'/'p.zip').read_bytes()).hexdigest()
     recipe={
-        'format':'python-patch-tool-batch-recipe','format_version':1,'tool_version':'6.20.0',
+        'format':'python-patch-tool-batch-recipe','format_version':1,'tool_version':'6.20.1',
         'project_key':None,'failure_policy':'fail_fast','transaction_policy':'patch',
         'packages':[{'name':'p.zip','patch_id':'p','sha256':sha}],
     }
@@ -222,4 +222,4 @@ with tempfile.TemporaryDirectory(prefix='ptv61710_recipe_policy_override_') as t
     assert (r/'patchs'/'p.zip').is_file(),text
     assert not (r/'patchs'/'patched'/'p.zip').exists(),text
 
-print('PASS: v6.20.0 recipe policies cannot be overridden during replay')
+print('PASS: v6.20.1 recipe policies cannot be overridden during replay')

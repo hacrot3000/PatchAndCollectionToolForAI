@@ -10,7 +10,7 @@ import shutil
 import stat
 from typing import Any
 
-VERSION = "6.20.0"
+VERSION = "6.20.1"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "PATCH_PACKAGE_SCHEMA.json"
 _HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 _SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
@@ -228,7 +228,7 @@ def validate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
             issues=issues,
         )
 
-    # v6.20.0 requirement-driven retirement: PATCH packages may no longer ask
+    # v6.20.1 requirement-driven retirement: PATCH packages may no longer ask
     # the tool to stage, commit or push.  Keep legacy fields in the schema only
     # so old packages receive a precise safety error instead of an ambiguous
     # unknown-field failure.  Read-only/safe Git inspection belongs to COLLECT
@@ -238,7 +238,7 @@ def validate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         requested = [k for k in ("add", "commit", "push") if git_policy.get(k) not in {None, "off", False}]
         if requested:
             raise PatchSchemaError(
-                "PATCH Git mutation is forbidden in v6.20.0: " + ", ".join(requested) +
+                "PATCH Git mutation is forbidden in v6.20.1: " + ", ".join(requested) +
                 "; use COLLECT git safe operations for inspection/safe local switch",
                 kind="git_mutation_forbidden",
             )

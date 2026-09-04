@@ -102,7 +102,7 @@ with tempfile.TemporaryDirectory(prefix='ptv6187_e2e_') as td:
 validated=cs.validate_request_data({'actions':[{'type':'search','query':'x','verify_nonzero_with_fallback':True}]})
 assert validated['actions'][0]['verify_nonzero_with_fallback'] is True,validated
 
-print('PASS: v6.20.0 regex large-tree optimization, partial-timeout checkpoint and INCOMPLETE preservation contract')
+print('PASS: v6.20.1 regex large-tree optimization, partial-timeout checkpoint and INCOMPLETE preservation contract')
 
 # Discovery-driven file quotas are fail-partial: keep what fits and mark INCOMPLETE
 # instead of aborting the whole result ZIP.  This preserves the historical
@@ -126,7 +126,7 @@ with tempfile.TemporaryDirectory(prefix='ptv6187_filequota_') as td:
         assert manifest['collection_status']=='INCOMPLETE',manifest
         assert any('max_files=2' in ' '.join(w.get('reasons',[])) for w in manifest['collection_warnings']),manifest
 
-print('PASS: v6.20.0 discovery/output quota partial-preservation contract')
+print('PASS: v6.20.1 discovery/output quota partial-preservation contract')
 
 # Exact pack remains mandatory evidence: quota conflict still fails closed rather
 # than silently returning a partial exact-file package.
@@ -143,4 +143,4 @@ with tempfile.TemporaryDirectory(prefix='ptv6187_packquota_') as td:
     else:
         raise AssertionError('exact pack quota unexpectedly degraded into partial success')
 
-print('PASS: v6.20.0 exact pack quota remains fail-closed')
+print('PASS: v6.20.1 exact pack quota remains fail-closed')
