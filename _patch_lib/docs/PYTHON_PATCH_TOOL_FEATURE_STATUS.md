@@ -1,10 +1,11 @@
-# Python Patch Tool v6.10.1 feature status
+# Python Patch Tool v6.11.0 feature status
 
 | Capability | Status |
 |---|---|
 | Public zero-argument PATCH/COLLECT queue | COMPLETE |
 | AI COLLECT request ZIP-only delivery | COMPLETE / documented |
-| Legacy v5 COLLECT action list | OBSOLETE as universal schema; current collector/template is authoritative |
+| Overlay-native exact-file `pack` action | COMPLETE / v6.11.0 |
+| Historical v5 COLLECT action list | OBSOLETE as universal schema; only `pack` is overlay-guaranteed |
 | Exactly one COLLECT per invocation | COMPLETE / enforced |
 | COLLECT + PATCH mixed selection | REJECTED |
 | Multiple COLLECT selection | REJECTED |
@@ -15,21 +16,15 @@
 | Permanent PATCH in-place / SANDBOX removal | COMPLETE |
 | Readonly COLLECT progress/result validation | COMPLETE |
 | Collection-result archive non-runnable classification | COMPLETE |
-| Exact private collector action-schema replacement | NOT CLAIMED; exact installed private collector is not shipped in this overlay |
+| Exact private collector action-schema replacement | PARTIAL: `pack` guaranteed by overlay; all other actions remain private-core specific |
 | Exact LAST_RUN/private-core audit synthesis | PRIVATE-CORE DEPENDENT |
 | Real large-project COLLECT validation | PARTIAL COMPLETE; real M3 COLLECT PASS observed |
 | Phase-inference refinement | DEFERRED until real evidence shows a concrete deficiency |
 
-## v6.10.1 completion
+## v6.11.0 completion
 
-- Replaces the stale `CODE_COLLECTION_GUIDE.md` path so direct portable extraction removes the misleading v5 action table from the active tool documentation.
-- Enforces one-COLLECT-only selection at TTY, line mode and execution boundary.
-- Does not use a process/project lock; separate terminals may run concurrently by explicit operator choice.
-- Does not invent new collector action names or reconstruct missing private collector code.
-
-
-## v6.10.1 regression repair
-
-- Line selector `a/all` now means **all PATCH only**, exactly matching the TTY selector and documentation.
-- On a COLLECT-only queue, `a/all` no longer auto-confirms or starts the request; the operator must select the specific COLLECT index.
-- No new collector action type, process lock, or unrelated capability was added.
+- Adds a compatibility collector layer that natively handles pack-only requests without reconstructing the private collector core.
+- `pack.paths` collects exact project-relative regular files, rejects path traversal/symlinks/directories/missing sources, records size + SHA-256, and emits a canonical `COLLECTION_MANIFEST.json` result ZIP.
+- Non-pack requests are delegated intact to the installed private collector, preserving existing collector behavior.
+- Retains one-COLLECT-only selection and no project/process queue lock.
+- Does not claim support for `overview` or any other private action without exact current collector evidence.

@@ -278,7 +278,7 @@ with tempfile.TemporaryDirectory(prefix='ptv681dup_late_main_') as td:
 
 
 
-# v6.10.1 deliberately has no project/process queue lock. Independent terminal
+# v6.11.0 deliberately has no project/process queue lock. Independent terminal
 # windows are operator-controlled and must not be rejected as BUSY. A stale
 # .ptv_queue.lock from an older release is ignored and is never created by this
 # dispatcher.
@@ -309,4 +309,4 @@ with tempfile.TemporaryDirectory(prefix='ptv610_no_process_lock_') as td:
     invoked=calls.read_text(encoding='utf-8').splitlines()
     assert len(invoked)==2,invoked
 
-print('PASS: v6.10.1 local-only SHA-256 duplicate PATCH skip contract')
+print('PASS: v6.11.0 local-only SHA-256 duplicate PATCH skip contract')

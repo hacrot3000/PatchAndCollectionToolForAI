@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import json, os, subprocess, tempfile, sys, shlex
+import json, os, subprocess, tempfile, sys, shlex, zipfile
 from pathlib import Path
 
 HERE=Path(__file__).resolve()
 LAUNCHER=HERE.parents[1]/'run_python_patches.sh'
 PROGRESS=HERE.parent/'python_patch_collect_progress_v6_7.py'
+COMPAT=HERE.parent/'python_patch_collect_compat.py'
 
 def make_project(tmp: Path):
     tools=tmp/'tools'; lib=tools/'_patch_lib'; lib.mkdir(parents=True)
@@ -13,6 +14,7 @@ def make_project(tmp: Path):
     (tools/'run_python_patches.sh').chmod(0o755)
     (lib/'python_patch_runner.py').write_text('import json,sys\nprint(json.dumps(sys.argv[1:]))\n', encoding='utf-8')
     (lib/'python_patch_collect_progress_v6_7.py').write_bytes(PROGRESS.read_bytes())
+    (lib/'python_patch_collect_compat.py').write_bytes(COMPAT.read_bytes())
     (lib/'python_patch_readonly_collector.py').write_text("from pathlib import Path\nimport zipfile\nroot=Path.cwd()\nout=root/'artifacts'/'patch_tool_code_collections'/'route.zip'\nout.parent.mkdir(parents=True,exist_ok=True)\nwith zipfile.ZipFile(out,'w') as zf: zf.writestr('manifest.json','{}')\nprint(f'ZIP : {out}')\nprint('PASS collect route')\n", encoding='utf-8')
     bindir=tmp/'bin'; bindir.mkdir()
     py=bindir/'python3'
@@ -79,7 +81,12 @@ with tempfile.TemporaryDirectory() as td:
         got=run(launcher,*utility)
         assert '--transaction' not in got, (utility,got)
 
-    cp=subprocess.run([str(launcher),'collect','request','dummy.zip'],cwd=launcher.parent.parent,text=True,capture_output=True,env=test_env(launcher))
+    root=launcher.parent.parent
+    (root/'patchs').mkdir(exist_ok=True)
+    request=root/'patchs'/'CODE_COLLECTION_REQUEST_delegate_route.zip'
+    with zipfile.ZipFile(request,'w') as zf:
+        zf.writestr('CODE_COLLECTION_REQUEST_delegate_route.json', json.dumps({'id':'delegate-route','actions':[{'type':'overview'}]}))
+    cp=subprocess.run([str(launcher),'collect','request','patchs/CODE_COLLECTION_REQUEST_delegate_route.zip'],cwd=root,text=True,capture_output=True,env=test_env(launcher))
     assert cp.returncode==0,(cp.returncode,cp.stdout,cp.stderr)
     assert '[PRIMARY - UPLOAD THIS FILE]' in cp.stdout,cp.stdout
     assert 'route.zip' in cp.stdout,cp.stdout
@@ -89,4 +96,4 @@ assert 'python_patch_runtime_guard.py' not in text
 assert 'PTV_USE_RUNTIME_GUARD' not in text
 assert 'git worktree add' not in text
 assert 'exec python3 "$RUNNER" "${filtered[@]}" --transaction off' in text
-print('PASS: v6.10.1 all documented PATCH execution routes force in-place mode')
+print('PASS: v6.11.0 all documented PATCH execution routes force in-place mode')

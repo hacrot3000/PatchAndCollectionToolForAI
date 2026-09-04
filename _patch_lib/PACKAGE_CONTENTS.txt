@@ -1,4 +1,4 @@
-Python Patch Tool v6.10.1 portable overlay
+Python Patch Tool v6.11.0 portable overlay
 
 Public entry point:
   tools/run_python_patches.sh
@@ -6,6 +6,7 @@ Public entry point:
 Managed overlay:
   tools/_patch_lib/python_patch_queue_dispatcher.py
   tools/_patch_lib/python_patch_collect_progress_v6_7.py
+  tools/_patch_lib/python_patch_collect_compat.py
   tools/_patch_lib/docs/AI_USAGE_CONTRACT.md
   tools/_patch_lib/docs/CODE_COLLECTION_GUIDE.md
   tools/_patch_lib/docs/PORTABLE_USAGE.md
@@ -15,10 +16,11 @@ Managed overlay:
   tools/_patch_lib/SHA256SUMS
 
 Normal use:
-  unzip -o python_patch_tool_v6.10.1.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.11.0.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
-This overlay does not replace missing/private collector or runner core modules.
-COLLECT action schema must come from the installed collector or a proven request template.
+The overlay natively supports pack-only COLLECT requests for exact current files.
+Other COLLECT actions are delegated to the installed private collector core and remain revision-specific.
+The overlay does not reconstruct or replace missing/private PATCH runner core modules.
 
 COLLECT request ZIP artifact: CODE_COLLECTION_REQUEST_<purpose>_<timestamp>.zip

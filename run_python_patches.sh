@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Python Patch Tool v6.10.1 public launcher.
+# Python Patch Tool v6.11.0 public launcher.
 # SANDBOX/worktree transaction mode is permanently disabled at this boundary.
 set -euo pipefail
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -7,6 +7,7 @@ PROJECT_ROOT="$(cd "$TOOLS_DIR/.." && pwd)"
 LIB_DIR="$TOOLS_DIR/_patch_lib"
 RUNNER="$LIB_DIR/python_patch_runner.py"
 COLLECTOR="$LIB_DIR/python_patch_readonly_collector.py"
+COLLECT_COMPAT="$LIB_DIR/python_patch_collect_compat.py"
 DISPATCHER="$LIB_DIR/python_patch_queue_dispatcher.py"
 COLLECT_PROGRESS="$LIB_DIR/python_patch_collect_progress_v6_7.py"
 
@@ -21,8 +22,8 @@ if [ "$#" -eq 0 ]; then
 fi
 
 if [ "${1:-}" = "collect" ]; then
-  if [ ! -f "$COLLECTOR" ]; then
-    echo "ERROR: Missing readonly collector: $COLLECTOR" >&2
+  if [ ! -f "$COLLECT_COMPAT" ]; then
+    echo "ERROR: Missing COLLECT compatibility layer: $COLLECT_COMPAT" >&2
     exit 2
   fi
   if [ ! -f "$COLLECT_PROGRESS" ]; then
@@ -30,7 +31,8 @@ if [ "${1:-}" = "collect" ]; then
     exit 2
   fi
   shift
-  exec python3 "$COLLECT_PROGRESS" --project-root "$PROJECT_ROOT" --collector "$COLLECTOR" -- "$@"
+  export PTV_PRIVATE_COLLECTOR="$COLLECTOR"
+  exec python3 "$COLLECT_PROGRESS" --project-root "$PROJECT_ROOT" --collector "$COLLECT_COMPAT" -- "$@"
 fi
 
 if [ ! -f "$RUNNER" ]; then
@@ -38,7 +40,7 @@ if [ ! -f "$RUNNER" ]; then
   exit 2
 fi
 
-# v6.10.1 invariant: SANDBOX/Git-worktree transaction execution is removed.
+# v6.11.0 invariant: SANDBOX/Git-worktree transaction execution is removed.
 # The installed private core may still expose historical transaction options,
 # so every documented PATCH execution route is forced to --transaction off.
 # Utility-only routes such as paths/help remain untouched.
