@@ -2,7 +2,8 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Python Patch Tool - self updater / installer
+# PatchAndCollectionToolForAI
+# Self install / update
 #
 # Source:
 #   https://github.com/hacrot3000/PatchAndCollectionToolForAI
@@ -10,36 +11,46 @@ set -Eeuo pipefail
 # Branch:
 #   main
 #
+# Có 2 chế độ:
+#
+# 1. REPOSITORY MODE
+#
+#    Nếu script đang nằm ngay tại root của chính repo:
+#
+#      hacrot3000/PatchAndCollectionToolForAI
+#
+#    và branch hiện tại là main:
+#
+#      git pull --ff-only origin main
+#
+#
+# 2. PORTABLE INSTALL/UPDATE MODE
+#
+#    Nếu:
+#      - thư mục chứa script không phải Git repo, hoặc
+#      - nó nằm bên trong Git repo khác, hoặc
+#      - chính thư mục đó là root của một repo khác
+#
+#    thì:
+#
+#      clone repo PatchAndCollectionToolForAI vào /tmp
+#      và update code vào THƯ MỤC CHỨA SCRIPT.
+#
+#
 # QUAN TRỌNG:
-#   TARGET_DIR = thư mục CHỨA SCRIPT này.
 #
-# Ví dụ:
+#   Target được xác định bằng vị trí của SCRIPT,
+#   KHÔNG phải $(pwd).
 #
-#   /home/user/project/
-#   ├── tools/
-#   │   ├── update_patch_tool.sh     <-- script này
-#   │   ├── run_python_patches.sh
-#   │   └── _patch_lib/
-#   └── .git/
-#
-# Có thể đứng ở bất kỳ đâu:
-#
-#   cd /tmp
-#   /home/user/project/tools/update_patch_tool.sh
-#
-# Patch Tool vẫn chỉ update:
-#
-#   /home/user/project/tools/
-#
-# Nó KHÔNG dùng pwd làm target.
-# Nó KHÔNG thao tác Git repo chứa project.
+# Vì vậy có thể gọi script từ bất kỳ đâu.
 # ============================================================
 
-REPO_URL="https://github.com/hacrot3000/PatchAndCollectionToolForAI.git"
+REPO_SLUG="hacrot3000/PatchAndCollectionToolForAI"
+REPO_URL="https://github.com/${REPO_SLUG}.git"
 BRANCH="main"
 
 # ------------------------------------------------------------
-# Helper
+# Helpers
 # ------------------------------------------------------------
 
 die() {
@@ -57,17 +68,7 @@ ok() {
 }
 
 # ------------------------------------------------------------
-# Resolve chính xác vị trí script.
-#
-# Dùng readlink -f để nếu gọi:
-#
-#   ./tools/update_patch_tool.sh
-#
-# hoặc:
-#
-#   /absolute/path/tools/update_patch_tool.sh
-#
-# thì kết quả vẫn giống nhau.
+# Resolve vị trí thực của script.
 # ------------------------------------------------------------
 
 SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -77,11 +78,11 @@ SCRIPT_NAME="$(basename -- "$SCRIPT_PATH")"
 TARGET_DIR="$SCRIPT_DIR"
 
 # ------------------------------------------------------------
-# Dependency
+# Dependencies
 # ------------------------------------------------------------
 
 command -v git >/dev/null 2>&1 ||
-    die "Không tìm thấy git."
+    die "Không tìm thấy lệnh git."
 
 command -v mktemp >/dev/null 2>&1 ||
     die "Không tìm thấy mktemp."
@@ -99,14 +100,16 @@ command -v cmp >/dev/null 2>&1 ||
     die "Không có quyền ghi vào: $TARGET_DIR"
 
 # ------------------------------------------------------------
-# Không để Git context của project hiện tại ảnh hưởng clone.
+# Git wrapper.
 #
-# Điều này đặc biệt hữu ích nếu script được gọi từ:
+# Xóa các biến môi trường Git có thể được inherited từ:
 #
-#   - một Git repo khác
-#   - git hook
-#   - shell có GIT_DIR/GIT_WORK_TREE
+#   hook
+#   IDE
+#   shell
+#   project khác
 #
+# để không vô tình thao tác nhầm repository.
 # ------------------------------------------------------------
 
 git_clean() {
@@ -120,14 +123,215 @@ git_clean() {
 }
 
 # ------------------------------------------------------------
-# Lock chống chạy hai updater cùng lúc
+# Kiểm tra một remote URL có phải chính xác repo của chúng ta.
+#
+# Hỗ trợ:
+#
+#   https://github.com/hacrot3000/PatchAndCollectionToolForAI.git
+#   https://github.com/hacrot3000/PatchAndCollectionToolForAI
+#   git@github.com:hacrot3000/PatchAndCollectionToolForAI.git
+#   ssh://git@github.com/hacrot3000/PatchAndCollectionToolForAI.git
+#
 # ------------------------------------------------------------
 
-LOCK_DIR="$TARGET_DIR/.patchtool-update.lock"
+is_expected_repo_url() {
+    local url="${1:-}"
 
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-    die "Có vẻ Patch Tool updater khác đang chạy: $LOCK_DIR"
+    url="${url%/}"
+    url="${url%.git}"
+
+    case "$url" in
+        "https://github.com/${REPO_SLUG}")
+            return 0
+            ;;
+
+        "http://github.com/${REPO_SLUG}")
+            return 0
+            ;;
+
+        "git@github.com:${REPO_SLUG}")
+            return 0
+            ;;
+
+        "ssh://git@github.com/${REPO_SLUG}")
+            return 0
+            ;;
+
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------
+# Read version
+# ------------------------------------------------------------
+
+get_version() {
+    local root="$1"
+
+    if [[ -f "$root/_patch_lib/VERSION" ]]; then
+        head -n 1 "$root/_patch_lib/VERSION" |
+            tr -d '\r\n'
+    else
+        printf '%s' "unknown"
+    fi
+}
+
+CURRENT_VERSION="$(get_version "$TARGET_DIR")"
+
+echo
+echo "============================================================"
+echo " PatchAndCollectionToolForAI"
+echo " Self install / update"
+echo "============================================================"
+echo
+echo "Script       : $SCRIPT_PATH"
+echo "Target       : $TARGET_DIR"
+echo "Repository   : $REPO_URL"
+echo "Branch       : $BRANCH"
+echo "Version      : $CURRENT_VERSION"
+echo
+
+# ============================================================
+# MODE DETECTION
+# ============================================================
+
+GIT_ROOT=""
+ORIGIN_URL=""
+CURRENT_BRANCH=""
+
+if GIT_ROOT="$(
+    git_clean -C "$TARGET_DIR" rev-parse --show-toplevel 2>/dev/null
+)"; then
+
+    GIT_ROOT="$(readlink -f -- "$GIT_ROOT")"
+
+    ORIGIN_URL="$(
+        git_clean -C "$GIT_ROOT" remote get-url origin 2>/dev/null || true
+    )"
+
+    CURRENT_BRANCH="$(
+        git_clean -C "$GIT_ROOT" symbolic-ref \
+            --quiet \
+            --short HEAD 2>/dev/null || true
+    )"
 fi
+
+# ============================================================
+# MODE 1:
+# Script đang nằm ngay root của chính repository.
+# ============================================================
+
+if [[ -n "$GIT_ROOT" ]] &&
+   [[ "$GIT_ROOT" == "$TARGET_DIR" ]] &&
+   is_expected_repo_url "$ORIGIN_URL"; then
+
+    echo "Mode         : GIT REPOSITORY"
+    echo "Git root     : $GIT_ROOT"
+    echo "Origin       : $ORIGIN_URL"
+    echo "Current branch: ${CURRENT_BRANCH:-DETACHED}"
+    echo
+
+    # --------------------------------------------------------
+    # Đây đúng là repo của Patch Tool.
+    #
+    # Không dùng clone/copy đè vì như vậy sẽ phá semantics
+    # của working tree.
+    # --------------------------------------------------------
+
+    if [[ "$CURRENT_BRANCH" != "$BRANCH" ]]; then
+        die "Đây là repo ${REPO_SLUG}, nhưng đang ở branch '${CURRENT_BRANCH:-DETACHED}'.
+
+Hãy chuyển sang branch '$BRANCH' trước:
+
+  git switch $BRANCH
+
+sau đó chạy lại:
+
+  ./$SCRIPT_NAME
+
+Script không tự overwrite một branch khác."
+    fi
+
+    BEFORE_COMMIT="$(
+        git_clean -C "$TARGET_DIR" rev-parse HEAD
+    )"
+
+    BEFORE_SHORT="$(
+        git_clean -C "$TARGET_DIR" rev-parse --short HEAD
+    )"
+
+    info "Đã phát hiện chính repository PatchAndCollectionToolForAI."
+    info "Update trực tiếp bằng git pull --ff-only..."
+
+    echo
+    git_clean -C "$TARGET_DIR" pull --ff-only origin "$BRANCH"
+    echo
+
+    AFTER_COMMIT="$(
+        git_clean -C "$TARGET_DIR" rev-parse HEAD
+    )"
+
+    AFTER_SHORT="$(
+        git_clean -C "$TARGET_DIR" rev-parse --short HEAD
+    )"
+
+    NEW_VERSION="$(get_version "$TARGET_DIR")"
+
+    echo "============================================================"
+    echo " UPDATE SUCCESS"
+    echo "============================================================"
+    echo
+    echo "Mode            : git pull"
+    echo "Previous commit : $BEFORE_SHORT"
+    echo "Current commit  : $AFTER_SHORT"
+    echo "Version         : $NEW_VERSION"
+    echo "Branch          : $BRANCH"
+    echo "Repository      : $TARGET_DIR"
+    echo
+
+    if [[ "$BEFORE_COMMIT" == "$AFTER_COMMIT" ]]; then
+        echo "Status          : Already up to date"
+    else
+        echo "Status          : Updated"
+    fi
+
+    echo
+    exit 0
+fi
+
+# ============================================================
+# Nếu tới đây thì KHÔNG được git pull repository hiện tại.
+# ============================================================
+
+echo "Mode         : PORTABLE INSTALL / UPDATE"
+
+if [[ -z "$GIT_ROOT" ]]; then
+
+    echo "Git context  : target không nằm trong Git repository"
+
+elif [[ "$GIT_ROOT" != "$TARGET_DIR" ]]; then
+
+    echo "Git context  : target đang nằm bên trong Git repo khác"
+    echo "Other repo   : $GIT_ROOT"
+
+else
+
+    echo "Git context  : target là root của một Git repo khác"
+    echo "Other repo   : $GIT_ROOT"
+    echo "Other origin : ${ORIGIN_URL:-<none>}"
+
+fi
+
+echo
+echo "Repository hiện tại sẽ KHÔNG bị git pull/reset/checkout."
+echo
+
+# ============================================================
+# MODE 2:
+# Portable install / update
+# ============================================================
 
 TMP_DIR=""
 
@@ -138,49 +342,22 @@ cleanup() {
         rm -rf -- "$TMP_DIR"
     fi
 
-    rm -rf -- "$LOCK_DIR"
-
-    exit "$rc"
+    return "$rc"
 }
 
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
 
-# ------------------------------------------------------------
-# Current version
-# ------------------------------------------------------------
+TMP_DIR="$(
+    mktemp -d "${TMPDIR:-/tmp}/patchtool-self-update.XXXXXXXX"
+)"
 
-CURRENT_VERSION="not-installed"
-
-if [[ -f "$TARGET_DIR/_patch_lib/VERSION" ]]; then
-    CURRENT_VERSION="$(
-        head -n 1 "$TARGET_DIR/_patch_lib/VERSION" \
-        | tr -d '\r\n'
-    )"
-fi
-
-echo
-echo "============================================================"
-echo " Python Patch Tool updater"
-echo "============================================================"
-echo
-echo "Source        : $REPO_URL"
-echo "Branch        : $BRANCH"
-echo "Script        : $SCRIPT_PATH"
-echo "Install target: $TARGET_DIR"
-echo "Current       : $CURRENT_VERSION"
-echo
-
-# ------------------------------------------------------------
-# Clone vào TEMP.
-#
-# Tuyệt đối không clone vào TARGET_DIR.
-# Tuyệt đối không git init/pull/reset project hiện tại.
-# ------------------------------------------------------------
-
-TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/patchtool-update.XXXXXXXX")"
 SOURCE_DIR="$TMP_DIR/source"
 
-info "Đang lấy branch '$BRANCH' từ GitHub..."
+# ------------------------------------------------------------
+# Clone source.
+# ------------------------------------------------------------
+
+info "Clone $REPO_SLUG branch '$BRANCH' vào thư mục tạm..."
 
 git_clean clone \
     --quiet \
@@ -198,41 +375,36 @@ REMOTE_SHORT_COMMIT="$(
     git_clean -C "$SOURCE_DIR" rev-parse --short HEAD
 )"
 
+REMOTE_VERSION="$(get_version "$SOURCE_DIR")"
+
 # ------------------------------------------------------------
-# Verify source trước khi đụng đến bản đang chạy
+# Verify repository vừa clone.
 # ------------------------------------------------------------
 
 [[ -f "$SOURCE_DIR/run_python_patches.sh" ]] ||
-    die "Source không có run_python_patches.sh"
+    die "Repository source không có run_python_patches.sh"
 
 [[ -d "$SOURCE_DIR/_patch_lib" ]] ||
-    die "Source không có _patch_lib/"
+    die "Repository source không có _patch_lib/"
 
 [[ -f "$SOURCE_DIR/_patch_lib/VERSION" ]] ||
-    die "Source không có _patch_lib/VERSION"
+    die "Repository source không có _patch_lib/VERSION"
 
-REMOTE_VERSION="$(
-    head -n 1 "$SOURCE_DIR/_patch_lib/VERSION" \
-    | tr -d '\r\n'
-)"
+ok "Clone thành công."
 
-[[ -n "$REMOTE_VERSION" ]] ||
-    die "_patch_lib/VERSION rỗng."
-
-ok "Đã tải source."
 echo
-echo "Remote version : $REMOTE_VERSION"
-echo "Remote commit  : $REMOTE_SHORT_COMMIT"
+echo "Remote version: $REMOTE_VERSION"
+echo "Remote commit : $REMOTE_SHORT_COMMIT"
 echo
 
 # ------------------------------------------------------------
-# Lấy danh sách file Git thực sự quản lý.
+# Lấy CHỈ tracked files.
 #
-# Không copy:
+# Vì vậy:
 #
-#   source/.git/
+#   .git/
 #
-# và không dựa vào `find` toàn bộ clone.
+# không bao giờ được copy.
 # ------------------------------------------------------------
 
 mapfile -d '' -t TRACKED_FILES < <(
@@ -240,21 +412,22 @@ mapfile -d '' -t TRACKED_FILES < <(
 )
 
 ((${#TRACKED_FILES[@]} > 0)) ||
-    die "Repository không có tracked file."
+    die "Repository source không có tracked file."
 
-# ------------------------------------------------------------
-# _patch_lib là private runtime của Patch Tool.
+# ============================================================
+# Update _patch_lib
+# ============================================================
 #
-# Ta thay TOÀN BỘ directory này để tránh trường hợp:
+# _patch_lib được replace nguyên directory.
 #
-# v6.x:
-#   _patch_lib/old_module.py
+# Lý do:
 #
-# v6.y:
-#   old_module.py đã bị xóa khỏi GitHub
+# Nếu version mới xóa:
 #
-# Nếu chỉ cp đè, old_module.py sẽ còn lại và có thể gây lỗi.
-# ------------------------------------------------------------
+#   _patch_lib/old_file.py
+#
+# thì copy đè thông thường sẽ khiến old_file.py vẫn còn.
+# ============================================================
 
 NEW_LIB="$TARGET_DIR/.patch_lib.new.$$"
 OLD_LIB="$TARGET_DIR/.patch_lib.old.$$"
@@ -268,17 +441,12 @@ cp -a \
     "$NEW_LIB"
 
 [[ -f "$NEW_LIB/VERSION" ]] ||
-    die "Copy _patch_lib staging thất bại."
+    die "Staging _patch_lib không hợp lệ."
 
-# ------------------------------------------------------------
-# Đổi _patch_lib theo kiểu gần-atomic.
-#
-# Bản cũ được giữ tạm để rollback nếu mv bản mới thất bại.
-# ------------------------------------------------------------
+info "Cập nhật _patch_lib..."
 
-info "Cập nhật _patch_lib/..."
-
-if [[ -e "$TARGET_DIR/_patch_lib" || -L "$TARGET_DIR/_patch_lib" ]]; then
+if [[ -e "$TARGET_DIR/_patch_lib" ||
+      -L "$TARGET_DIR/_patch_lib" ]]; then
 
     mv \
         "$TARGET_DIR/_patch_lib" \
@@ -291,7 +459,8 @@ if ! mv "$NEW_LIB" "$TARGET_DIR/_patch_lib"; then
 
     rm -rf -- "$TARGET_DIR/_patch_lib"
 
-    if [[ -e "$OLD_LIB" ]]; then
+    if [[ -e "$OLD_LIB" || -L "$OLD_LIB" ]]; then
+
         mv \
             "$OLD_LIB" \
             "$TARGET_DIR/_patch_lib"
@@ -304,60 +473,44 @@ fi
 
 rm -rf -- "$OLD_LIB"
 
-# ------------------------------------------------------------
-# Copy các tracked file còn lại.
-#
-# _patch_lib/* bỏ qua vì đã thay nguyên directory phía trên.
-#
-# Với file root:
-#
-#   run_python_patches.sh
-#   run_python_patches.ps1
-#   README.md
-#   implementing.md
-#   ...
-#
-# sẽ overwrite.
-#
-# Các file/folder KHÔNG thuộc repo:
-#
-#   patchs/
-#   patched/
-#   artifacts/
-#   logs/
-#   .python_patch_tool.json
-#   source code của project
-#   .git/
-#
-# không bị xóa.
-# ------------------------------------------------------------
+# ============================================================
+# Copy toàn bộ tracked files còn lại
+# ============================================================
 
-info "Cập nhật launcher, docs và các file public..."
+info "Cập nhật public files..."
 
 for rel in "${TRACKED_FILES[@]}"; do
 
+    # _patch_lib đã được xử lý nguyên cây ở trên.
     case "$rel" in
         _patch_lib/*)
             continue
             ;;
     esac
 
-    src="$SOURCE_DIR/$rel"
-    dst="$TARGET_DIR/$rel"
+    # --------------------------------------------------------
+    # Reject path bất thường.
+    # --------------------------------------------------------
 
-    # Safety: path từ git ls-files không được escape target.
     case "$rel" in
         /*|../*|*/../*|*/..)
             die "Repository chứa path không an toàn: $rel"
             ;;
     esac
 
+    src="$SOURCE_DIR/$rel"
+    dst="$TARGET_DIR/$rel"
+
     mkdir -p -- "$(dirname -- "$dst")"
 
-    # Nếu destination là directory nhưng source là file,
-    # không tự ý rm một directory lạ.
+    # --------------------------------------------------------
+    # Không tự xóa directory lạ để thay bằng file.
+    # --------------------------------------------------------
+
     if [[ -d "$dst" && ! -L "$dst" ]]; then
-        die "Không overwrite directory bằng file: $dst"
+        die "Không thể overwrite directory bằng file:
+
+  $dst"
     fi
 
     if [[ -L "$src" ]]; then
@@ -367,34 +520,43 @@ for rel in "${TRACKED_FILES[@]}"; do
 
     elif [[ -f "$src" ]]; then
 
-        # temp file cùng directory để rename atomic
+        # Copy tới temp file cùng filesystem,
+        # rồi rename để tránh file dở dang.
         tmp_dst="${dst}.patchtool-new.$$"
 
         rm -f -- "$tmp_dst"
 
-        cp -p -- "$src" "$tmp_dst"
+        cp -p \
+            -- "$src" "$tmp_dst"
 
-        mv -f -- "$tmp_dst" "$dst"
+        mv -f \
+            -- "$tmp_dst" "$dst"
 
     else
-        die "Tracked path không phải regular file/symlink: $rel"
+
+        die "Tracked path không phải regular file/symlink:
+
+  $rel"
     fi
 done
 
 # ------------------------------------------------------------
-# Đảm bảo shell launcher executable.
-# Git clone/cp thường giữ mode, nhưng enforce lại cho chắc.
+# Launcher phải executable.
 # ------------------------------------------------------------
 
 if [[ -f "$TARGET_DIR/run_python_patches.sh" ]]; then
     chmod +x "$TARGET_DIR/run_python_patches.sh"
 fi
 
-# ------------------------------------------------------------
-# Verify tất cả tracked files.
-# ------------------------------------------------------------
+if [[ -f "$TARGET_DIR/$SCRIPT_NAME" ]]; then
+    chmod +x "$TARGET_DIR/$SCRIPT_NAME"
+fi
 
-info "Kiểm tra kết quả..."
+# ============================================================
+# Verify sau update
+# ============================================================
+
+info "Verify installed files..."
 
 VERIFY_FAILED=0
 
@@ -415,7 +577,7 @@ for rel in "${TRACKED_FILES[@]}"; do
         dst_link="$(readlink -- "$dst")"
 
         if [[ "$src_link" != "$dst_link" ]]; then
-            echo "[VERIFY FAILED] $rel: symlink khác nhau"
+            echo "[VERIFY FAILED] $rel: symlink target khác source"
             VERIFY_FAILED=1
         fi
 
@@ -435,30 +597,22 @@ for rel in "${TRACKED_FILES[@]}"; do
 done
 
 if (( VERIFY_FAILED != 0 )); then
-    die "Một hoặc nhiều file không khớp source GitHub."
+    die "Verify thất bại."
 fi
 
-INSTALLED_VERSION="$(
-    head -n 1 "$TARGET_DIR/_patch_lib/VERSION" \
-    | tr -d '\r\n'
-)"
-
-# ------------------------------------------------------------
-# Thành công
-# ------------------------------------------------------------
+INSTALLED_VERSION="$(get_version "$TARGET_DIR")"
 
 echo
 echo "============================================================"
-echo " UPDATE SUCCESS"
+echo " INSTALL / UPDATE SUCCESS"
 echo "============================================================"
 echo
+echo "Mode             : portable clone + update"
 echo "Previous version : $CURRENT_VERSION"
 echo "Installed version: $INSTALLED_VERSION"
-echo "Branch           : $BRANCH"
-echo "Commit           : $REMOTE_COMMIT"
+echo "Source branch    : $BRANCH"
+echo "Source commit    : $REMOTE_COMMIT"
 echo "Target           : $TARGET_DIR"
 echo
-echo "Launcher:"
-echo
-echo "  $TARGET_DIR/run_python_patches.sh"
+echo "Repository chứa target, nếu có, KHÔNG bị thao tác Git."
 echo
