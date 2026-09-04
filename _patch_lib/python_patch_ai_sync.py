@@ -13,7 +13,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-VERSION = "6.20.1"  # bumped by release script
+try:
+    from python_patch_version import VERSION
+except ImportError:
+    # Standalone compatibility for historical/minimal COLLECT module sets.
+    import json as _ptv_version_json
+    from pathlib import Path as _PTVVersionPath
+    try:
+        VERSION = str(_ptv_version_json.loads((_PTVVersionPath(__file__).resolve().parent / "docs" / "COLLECT_ACTION_SCHEMA.json").read_text(encoding="utf-8")).get("tool_version") or "unknown")
+    except Exception:
+        VERSION = "unknown"  # bumped by release script
 FORMAT_VERSION = 1
 SYNC_PREFIX = "AI_TOOL_SYNC"
 STATE_REL = Path("artifacts/patch_tool/ai_sync_state.json")

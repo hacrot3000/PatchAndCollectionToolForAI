@@ -7,7 +7,7 @@ HERE=Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE))
 import python_patch_cleartext_companion as c
 import python_patch_queue_dispatcher as q
-assert c.VERSION==q.VERSION=='6.20.1'
+assert c.VERSION==q.VERSION=='6.20.2'
 
 # 1) Generic serializer: verbatim text, Base64 binary, and recursive nested ZIP.
 with tempfile.TemporaryDirectory(prefix='ptv_cleartext_generic_') as td:
@@ -78,7 +78,7 @@ import python_patch_collect_progress_v6_7 as prog
 with tempfile.TemporaryDirectory(prefix='ptv_cleartext_history_') as td:
     root=Path(td); outdir=root/'artifacts/patch_tool_code_collections'; outdir.mkdir(parents=True)
     rz=outdir/'CODE_COLLECTION_RESULT_meta.zip'
-    manifest={'format':'python-patch-tool-code-collection','format_version':3,'tool_version':'6.20.1','collection_status':'PASS','files':[],'reports':[]}
+    manifest={'format':'python-patch-tool-code-collection','format_version':3,'tool_version':'6.20.2','collection_status':'PASS','files':[],'reports':[]}
     with zipfile.ZipFile(rz,'w') as zf: zf.writestr('COLLECTION_MANIFEST.json',json.dumps(manifest))
     rt=c.create_zip_cleartext_companion(rz,artifact_kind='COLLECT RESULT')
     assert prog._print_collect_success(root,[f'ZIP : {rz}']) is True
@@ -88,4 +88,4 @@ with tempfile.TemporaryDirectory(prefix='ptv_cleartext_history_') as td:
     labels=[x[0] for x in q._important_row_artifacts(root,row)]
     assert 'COLLECT result' in labels and 'COLLECT text' in labels and 'FAIL handoff' in labels and 'FAIL handoff TXT' in labels,labels
 
-print('PASS: v6.20.1 ZIP clear-text companions for COLLECT and FAIL_HANDOFF')
+print('PASS: v6.20.2 ZIP clear-text companions for COLLECT and FAIL_HANDOFF')

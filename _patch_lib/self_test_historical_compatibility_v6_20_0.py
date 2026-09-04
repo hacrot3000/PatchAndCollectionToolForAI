@@ -72,4 +72,4 @@ with tempfile.TemporaryDirectory(prefix='ptv6182_currentcmd_') as td:
         z.writestr('PATCH_TOOL_MANIFEST.json',json.dumps(m)); z.writestr('patch_apply.py','from pathlib import Path\nPath("x.txt").write_text("new")\n')
     cp=run(r,'--patch','patchs/p.zip'); assert cp.returncode==0,(cp.stdout,cp.stderr); assert (r/'x.txt').read_text()=='new'; assert 'CURRENT_OK' in cp.stdout
 
-print('PASS: v6.20.1 behavioral historical compatibility (--all/repeated --patch/--select/v4 archive/helper API/command-only strict lane)')
+print('PASS: v6.20.2 behavioral historical compatibility (--all/repeated --patch/--select/v4 archive/helper API/command-only strict lane)')

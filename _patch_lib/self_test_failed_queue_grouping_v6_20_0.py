@@ -3,7 +3,7 @@ from pathlib import Path
 import io, tempfile
 import python_patch_queue_dispatcher as m
 
-assert m.VERSION == '6.20.1'
+assert m.VERSION == '6.20.2'
 
 class _FakeTTYOut(io.StringIO):
     def isatty(self): return True
@@ -103,4 +103,4 @@ with tempfile.TemporaryDirectory(prefix='ptv-no-auto-resume-') as td:
     finally:
         for name,value in saved.items(): setattr(m,name,value)
 
-print('PASS: v6.20.1 previous failed PATCH/COLLECT are a normal second queue group; Smart Resume is explicit-only')
+print('PASS: v6.20.2 previous failed PATCH/COLLECT are a normal second queue group; Smart Resume is explicit-only')

@@ -22,7 +22,7 @@ m = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = m
 spec.loader.exec_module(m)
 
-assert m.VERSION == "6.20.1"
+assert m.VERSION == "6.20.2"
 assert m._cell_width("abc") == 3
 assert m._cell_width("测试") == 4
 for width in [0, 1, 2, 12, 20, 40, 80, 120]:
@@ -368,4 +368,4 @@ if os.name == 'posix':
             except ProcessLookupError: pass
         assert not running,f'descendant remained alive after drain-window SIGTERM: pid={descendant}'
 
-print('PASS: Python Patch Tool v6.20.1 collect progress/artifact robustness self-test')
+print('PASS: Python Patch Tool v6.20.2 collect progress/artifact robustness self-test')

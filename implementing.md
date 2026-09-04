@@ -1,11 +1,23 @@
-# v6.20.1 mandatory continuity gate — NO SILENT REMOVAL
+# v6.20.2 mandatory continuity gate — NO SILENT REMOVAL
 
 Before modifying Patch Tool, read `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, and `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Do not delete or narrow any capability previously marked COMPLETE/PRESERVED/COMPATIBILITY_RESTORED unless the user explicitly requests it or a later documented contract supersedes it. Every intentional transition must be recorded in the ledger and protected by a behavioral test. Surface/string-only compatibility tests are not sufficient.
 
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.20.1**  
+Phiên bản mục tiêu: **v6.20.2**  
 Trạng thái: **95/95 HISTORICAL-COMPLETE DISPOSITION + SEMANTIC CONTINUITY — COMPLETE**
+
+
+## v6.20.2 — Existing-capability hardening and repository installation docs
+
+- Harden existing safe Git operations: bounded/spooled output, color/control-character-safe Markdown reports, COLLECT INCOMPLETE propagation on Git failure/truncation, and fail-closed local `switch` when checkout could invoke configured clean/smudge/process filters.
+- Harden existing `manual_execution`: reject attached/wrapped inline evaluator forms, verify only the bounded tail for exit markers, safe no-follow evidence I/O, record verified log size/SHA-256, and finalize/package available evidence consistently on Ctrl+C.
+- Tool Health now checks exact managed package coverage against `SHA256SUMS` and generated `PACKAGE_CONTENTS` inventory instead of only a required subset.
+- Runtime version identity is read from `_patch_lib/VERSION` through `python_patch_version.py`; historical/minimal COLLECT module sets retain schema-based standalone fallback rather than crashing.
+- Add deterministic release-metadata refresh helper so package inventory/checksums are regenerated from the managed tree.
+- Internal runner/queue refactor is limited to extracting existing bookkeeping/report side effects; public behavior/order remains regression-gated.
+- Repository root README is bilingual (Vietnamese/English) and documents the existing `self-install-and-update.sh` repository/portable modes.
+- No new Patch Tool capability is introduced; all changes harden, document, or maintain existing behavior.
 
 
 ## v6.20.1 — FAIL report terminal-layout regression fix

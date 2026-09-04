@@ -7,7 +7,7 @@ HERE=Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE))
 import python_patch_diagnostics_compat as d
 import python_patch_queue_dispatcher as q
-assert d.VERSION==q.VERSION=='6.20.1'
+assert d.VERSION==q.VERSION=='6.20.2'
 log='''noise\nAuthorization: Bearer SECRET_BEARER\napi_key=SECRET_KEY\nsrc/main.c:12:5: error: expected ; before }\nsrc/main.c:12:5: error: expected ; before }\nTraceback (most recent call last):\n  File "tool.py", line 7, in <module>\nValueError: bad value 123\n'''
 red,counts=d.redact_text(log)
 assert 'SECRET_BEARER' not in red and 'SECRET_KEY' not in red and sum(counts.values())>=2
@@ -35,4 +35,4 @@ with tempfile.TemporaryDirectory(prefix='ptv_diag_') as td:
         assert quality['redaction_total']>=2 and quality['normalized_diagnostics']>=3
         summary=json.loads(zf.read('FAIL_SUMMARY.json'))
         assert summary['compat_diagnostics']['status']=='AVAILABLE' and summary['compat_diagnostics']['exact_v6_evidence_preserved'] is True
-print('PASS: v6.20.1 historical diagnostics #18-28 additive compatibility evidence')
+print('PASS: v6.20.2 historical diagnostics #18-28 additive compatibility evidence')

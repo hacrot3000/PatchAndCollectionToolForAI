@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 from pathlib import Path
 root=Path(__file__).resolve().parent; tools=root.parent
-version=(root/'VERSION').read_text(encoding='utf-8').strip(); assert version=='6.20.1',version
-for rel in ['python_patch_queue_dispatcher.py','python_patch_collect_progress_v6_7.py','python_patch_collect_compat.py','python_patch_collect_regex_worker.py','python_patch_collect_schema.py','python_patch_git_safe.py','python_patch_manual_workflow.py','python_patch_decompile_compat.py','install_python_patch_tool_v6.py','python_patch_runner.py','python_patch_utils.py','python_patch_package_schema.py','python_patch_health.py','python_patch_batch.py','python_patch_project_state.py','python_patch_diagnostics_compat.py','python_patch_database_select.py','python_patch_cleartext_companion.py','python_patch_ai_sync.py','python_patch_upload_alias.py']:
-    text=(root/rel).read_text(encoding='utf-8'); assert 'VERSION = "6.20.1"' in text,(rel,version)
-launcher=(tools/'run_python_patches.sh').read_text(encoding='utf-8'); assert 'v6.20.1' in launcher
-ps=(tools/'run_python_patches.ps1').read_text(encoding='utf-8'); assert 'v6.20.1' in ps
-bat=(tools/'run_python_patches.bat').read_text(encoding='utf-8'); assert 'v6.20.1' in bat
+version=(root/'VERSION').read_text(encoding='utf-8').strip(); assert version=='6.20.2',version
+runtime_version_modules=['python_patch_queue_dispatcher.py','python_patch_collect_progress_v6_7.py','python_patch_collect_compat.py','python_patch_collect_regex_worker.py','python_patch_collect_schema.py','python_patch_git_safe.py','python_patch_manual_workflow.py','python_patch_decompile_compat.py','install_python_patch_tool_v6.py','python_patch_runner.py','python_patch_utils.py','python_patch_package_schema.py','python_patch_health.py','python_patch_batch.py','python_patch_project_state.py','python_patch_diagnostics_compat.py','python_patch_database_select.py','python_patch_cleartext_companion.py','python_patch_ai_sync.py','python_patch_upload_alias.py']
+for rel in runtime_version_modules:
+    text=(root/rel).read_text(encoding='utf-8')
+    assert 'from python_patch_version import VERSION' in text,(rel,'missing shared version loader')
+    assert 'VERSION = "6.20.2"' not in text,(rel,'release version must not be duplicated in runtime module')
+assert (root/'python_patch_version.py').is_file()
+assert (root/'python_patch_release_metadata.py').is_file()
+launcher=(tools/'run_python_patches.sh').read_text(encoding='utf-8'); assert 'v6.20.2' in launcher
+ps=(tools/'run_python_patches.ps1').read_text(encoding='utf-8'); assert 'v6.20.2' in ps
+bat=(tools/'run_python_patches.bat').read_text(encoding='utf-8'); assert 'v6.20.2' in bat
 master=(root/'self_test_python_patch_tool_v6_20_0.py').read_text(encoding='utf-8')
 for name in [
  'self_test_windows_launchers_v6_20_0.py',
@@ -33,7 +38,7 @@ for name in [
  'self_test_history_live_status_v6_20_0.py',
  'self_test_recovery_integrity_v6_20_0.py',
  'self_test_execution_audit_v6_20_0.py',
- 'self_test_git_safe_v6_20_0.py','self_test_manual_execution_v6_20_0.py',
+ 'self_test_git_safe_v6_20_0.py','self_test_manual_execution_v6_20_0.py','self_test_existing_capability_hardening_v6_20_2.py',
  'self_test_collect_pack_v6_20_0.py','self_test_self_contained_v6_20_0.py','self_test_docs_v6_20_0.py',
  'self_test_patch_preflight_v6_20_0.py','self_test_safe_rollback_v6_20_0.py','self_test_patch_recovery_v6_20_0.py','self_test_fail_handoff_sources_v6_20_0.py','self_test_inspect_quality_v6_20_0.py','self_test_tool_health_v6_20_0.py','self_test_robustness_v6_20_0.py','self_test_audit_fixes_v6_20_0.py','self_test_integrity_v6_20_0.py','self_test_planning_features_v6_20_0.py']:
     assert name in master,name
@@ -46,7 +51,7 @@ assert (root/'docs'/'PATCH_PACKAGE_GUIDE.md').is_file()
 assert (root/'docs'/'GIT_SAFE_OPERATIONS.md').is_file()
 assert (root/'docs'/'MANUAL_EXECUTION_WORKFLOW.md').is_file()
 # Historical version references are allowed in changelog/task text; runtime/version/schema markers above must be current.
-print('PASS: v6.20.1 runtime/docs/version/master coverage synchronized')
+print('PASS: v6.20.2 runtime/docs/version/master coverage synchronized')
 
 assert (tools/'run_windows_native_tests.ps1').is_file()
 

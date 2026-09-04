@@ -40,7 +40,7 @@ for token in ['Optional controlled installer','user_not_selected','Selection-awa
     assert token in ledger,token
 assert 'self_test_portable_installer_v6_20_0.py' in master
 
-# v6.20.1 additive database SELECT capability is release-gated too.
+# v6.20.2 additive database SELECT capability is release-gated too.
 assert 'database_select' in collect['actions']
 db=collect['actions']['database_select']
 assert db.get('raw_sql_allowed') is False
@@ -58,7 +58,7 @@ for token in ['clear-text companion','COLLECT result','FAIL_HANDOFF']:
     assert token.lower() in ledger.lower(), token
 
 
-# v6.20.1 additive AI tool-context synchronization capability is release-gated.
+# v6.20.2 additive AI tool-context synchronization capability is release-gated.
 assert (HERE/'python_patch_ai_sync.py').is_file()
 assert (DOC/'AI_TOOL_SYNC_CONTRACT.md').is_file()
 assert (HERE/'self_test_ai_sync_v6_20_0.py').is_file()
@@ -69,7 +69,7 @@ for token in ['AI tool-context synchronization','AI_TOOL_SYNC','sync_token','sel
 assert 'self_test_ai_sync_v6_20_0.py' in master
 
 
-# v6.20.1 copy-friendly upload-path continuity is release-gated.
+# v6.20.2 copy-friendly upload-path continuity is release-gated.
 assert (HERE/'python_patch_upload_alias.py').is_file()
 assert (HERE/'self_test_copyable_upload_path_v6_20_0.py').is_file()
 for token in ['copy-friendly','ptv_to_ai','hard-link','self_test_copyable_upload_path_v6_20_0.py']:
@@ -78,7 +78,7 @@ assert 'self_test_copyable_upload_path_v6_20_0.py' in master
 
 
 
-# v6.20.1 safe Git and manual-execution transition is explicit and behavioral.
+# v6.20.2 safe Git and manual-execution transition is explicit and behavioral.
 current=json.loads((DOC/'CURRENT_CAPABILITY_DISPOSITION.json').read_text())
 by_id={int(x['id']):x for x in current['entries']}
 assert by_id[7]['disposition']=='REMOVED_BY_REQUIREMENT'
@@ -93,4 +93,4 @@ for token in ['safe Git','manual execution','REMOVED_BY_REQUIREMENT','self_test_
 assert 'self_test_git_safe_v6_20_0.py' in master
 assert 'self_test_manual_execution_v6_20_0.py' in master
 
-print('PASS: v6.20.1 cumulative capability ledger and no-silent-removal governance are packaged and release-gated')
+print('PASS: v6.20.2 cumulative capability ledger and no-silent-removal governance are packaged and release-gated')

@@ -2,6 +2,7 @@
 from __future__ import annotations
 import hashlib
 from pathlib import Path
+from python_patch_release_metadata import managed_relpaths
 HERE=Path(__file__).resolve().parent; ROOT=HERE.parents[1]; MANIFEST=HERE/'SHA256SUMS'
 assert MANIFEST.is_file(),MANIFEST
 entries={}
@@ -32,13 +33,9 @@ required={
 }
 assert required<=set(entries),sorted(required-set(entries))
 launcher=ROOT/'tools/run_python_patches.sh'; assert launcher.stat().st_mode & 0o111,oct(launcher.stat().st_mode)
-actual=set()
-for path in (ROOT/'tools').rglob('*'):
-    if not path.is_file() or path==MANIFEST: continue
-    if '__pycache__' in path.parts or path.suffix=='.pyc': continue
-    actual.add(path.relative_to(ROOT).as_posix())
+actual=set(managed_relpaths(ROOT/'tools'))
 assert set(entries)==actual,{'missing_from_manifest':sorted(actual-set(entries)),'stale_in_manifest':sorted(set(entries)-actual)}
 for rel,wanted in sorted(entries.items()):
     path=ROOT/rel; assert path.is_file(),rel
     got=hashlib.sha256(path.read_bytes()).hexdigest(); assert got==wanted,(rel,wanted,got)
-print('PASS: v6.20.1 self-contained package SHA256SUMS exact coverage and public launchers')
+print('PASS: v6.20.2 self-contained package SHA256SUMS exact coverage and public launchers')

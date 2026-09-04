@@ -25,7 +25,7 @@
 - Grouping is presentation-only and must never create a second execution/delete/inspection implementation.
 - Behavioral gate: `self_test_failed_queue_grouping_v6_20_0.py`.
 
-Current release: **v6.20.1**
+Current release: **v6.20.2**
 
 This is the canonical cross-version continuity ledger. It complements the current feature-status document; it must never be replaced by a current-only checklist.
 

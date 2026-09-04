@@ -7,7 +7,7 @@ HERE=Path(__file__).resolve().parent; TOOLS=HERE.parent
 sys.path.insert(0,str(HERE))
 import python_patch_ai_sync as sync
 import python_patch_queue_dispatcher as q
-assert sync.VERSION==q.VERSION=='6.20.1'
+assert sync.VERSION==q.VERSION=='6.20.2'
 env=dict(os.environ); env['PYTHONDONTWRITEBYTECODE']='1'; env['NO_COLOR']='1'
 
 def copy_tools(root: Path) -> None:
@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory(prefix='ptv_ai_sync_collect_') as td:
     with zipfile.ZipFile(third) as zf: assert 'AI_TOOL_SYNC/AI_SYNC_MANIFEST.json' in zf.namelist()
 
     # A current token is an explicit acknowledgement and needs no repeated docs.
-    fourth=collect(root,'sync4',{'known_tool_version':'6.20.1','sync_token':token,'agent_id':'agent-c'})
+    fourth=collect(root,'sync4',{'known_tool_version':'6.20.2','sync_token':token,'agent_id':'agent-c'})
     with zipfile.ZipFile(fourth) as zf:
         cm=json.loads(zf.read('COLLECTION_MANIFEST.json')); assert cm['ai_tool_sync']['full_update_attached'] is False
         assert cm['ai_tool_sync']['reason']=='sync_token_current'
@@ -95,4 +95,4 @@ with tempfile.TemporaryDirectory(prefix='ptv_ai_sync_patch_pass_') as td:
 
 assert 'tools/_patch_lib/docs/GIT_SAFE_OPERATIONS.md' in sync.SYNC_DOCS
 assert 'tools/_patch_lib/docs/MANUAL_EXECUTION_WORKFLOW.md' in sync.SYNC_DOCS
-print('PASS: v6.20.1 AI tool-version/capability sync is stateful, one-shot, artifact-contained and legacy-compatible')
+print('PASS: v6.20.2 AI tool-version/capability sync is stateful, one-shot, artifact-contained and legacy-compatible')

@@ -1,4 +1,4 @@
-Python Patch Tool v6.20.1 portable package
+Python Patch Tool v6.20.2 portable package
 
 Release root:
   tools/
@@ -93,9 +93,128 @@ Integrity:
   tools/_patch_lib/SHA256SUMS
 
 Normal use:
-  unzip -o python_patch_tool_v6.20.0.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.20.2.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 Normal installation does not require the optional installer. Existing
 .python_patch_tool.json is intentionally outside the release ZIP and is not
 overwritten by direct extraction.
+
+--- BEGIN GENERATED MANAGED FILE INDEX ---
+# Generated from the managed tools tree for v6.20.2.
+tools/HUONG_DAN_PYTHON_PATCH_TOOL.html
+tools/PYTHON_PATCH_TOOL_FEATURES_VI.md
+tools/_patch_lib/PACKAGE_CONTENTS.txt
+tools/_patch_lib/VERSION
+tools/_patch_lib/docs/AI_TOOL_SYNC_CONTRACT.md
+tools/_patch_lib/docs/AI_USAGE_CONTRACT.md
+tools/_patch_lib/docs/CAPABILITY_LEDGER.md
+tools/_patch_lib/docs/CODE_COLLECTION_GUIDE.md
+tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json
+tools/_patch_lib/docs/COLLECT_PROGRESS_V6_14_2.md
+tools/_patch_lib/docs/CURRENT_CAPABILITY_DISPOSITION.json
+tools/_patch_lib/docs/DATABASE_SELECT_ACTIVE_BUILDER.md
+tools/_patch_lib/docs/GIT_SAFE_OPERATIONS.md
+tools/_patch_lib/docs/HISTORICAL_FEATURE_BASELINE_V5_15.md
+tools/_patch_lib/docs/HISTORICAL_FEATURE_STATUS_V5_15.json
+tools/_patch_lib/docs/LAYOUT_AND_MIGRATION.md
+tools/_patch_lib/docs/MANUAL_EXECUTION_WORKFLOW.md
+tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md
+tools/_patch_lib/docs/OUTPUT_FILES_GUIDE.md
+tools/_patch_lib/docs/PATCH_PACKAGE_CHECKLIST.json
+tools/_patch_lib/docs/PATCH_PACKAGE_GUIDE.md
+tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json
+tools/_patch_lib/docs/PORTABLE_USAGE.md
+tools/_patch_lib/docs/PYTHON_PATCH_TOOL_FEATURE_STATUS.md
+tools/_patch_lib/install_python_patch_tool_v5.py
+tools/_patch_lib/install_python_patch_tool_v6.py
+tools/_patch_lib/python_patch_ai_sync.py
+tools/_patch_lib/python_patch_batch.py
+tools/_patch_lib/python_patch_cleartext_companion.py
+tools/_patch_lib/python_patch_collect_compat.py
+tools/_patch_lib/python_patch_collect_progress_v6_7.py
+tools/_patch_lib/python_patch_collect_regex_worker.py
+tools/_patch_lib/python_patch_collect_schema.py
+tools/_patch_lib/python_patch_database_select.py
+tools/_patch_lib/python_patch_decompile_compat.py
+tools/_patch_lib/python_patch_diagnostics_compat.py
+tools/_patch_lib/python_patch_git_safe.py
+tools/_patch_lib/python_patch_health.py
+tools/_patch_lib/python_patch_manual_workflow.py
+tools/_patch_lib/python_patch_ops_worker.py
+tools/_patch_lib/python_patch_package_schema.py
+tools/_patch_lib/python_patch_project_state.py
+tools/_patch_lib/python_patch_queue_dispatcher.py
+tools/_patch_lib/python_patch_readonly_collector.py
+tools/_patch_lib/python_patch_release_metadata.py
+tools/_patch_lib/python_patch_runner.py
+tools/_patch_lib/python_patch_upload_alias.py
+tools/_patch_lib/python_patch_utils.py
+tools/_patch_lib/python_patch_version.py
+tools/_patch_lib/self_test_ai_collect_contract_v6_20_0.py
+tools/_patch_lib/self_test_ai_sync_v6_20_0.py
+tools/_patch_lib/self_test_audit_fixes_v6_20_0.py
+tools/_patch_lib/self_test_batch_engine_v6_20_0.py
+tools/_patch_lib/self_test_batch_reporting_v6_20_0.py
+tools/_patch_lib/self_test_capability_disposition_v6_20_0.py
+tools/_patch_lib/self_test_capability_ledger_v6_20_0.py
+tools/_patch_lib/self_test_cleartext_companion_v6_20_0.py
+tools/_patch_lib/self_test_collect_exclusivity_v6_20_0.py
+tools/_patch_lib/self_test_collect_historical_actions_v6_20_0.py
+tools/_patch_lib/self_test_collect_pack_v6_20_0.py
+tools/_patch_lib/self_test_collect_progress_v6_20_0.py
+tools/_patch_lib/self_test_contract_consistency_v6_20_0.py
+tools/_patch_lib/self_test_copyable_upload_path_v6_20_0.py
+tools/_patch_lib/self_test_database_select_v6_20_0.py
+tools/_patch_lib/self_test_diagnostics_v6_20_0.py
+tools/_patch_lib/self_test_docs_v6_20_0.py
+tools/_patch_lib/self_test_execution_audit_v6_20_0.py
+tools/_patch_lib/self_test_existing_capability_hardening_v6_20_2.py
+tools/_patch_lib/self_test_fail_fast_v6_20_0.py
+tools/_patch_lib/self_test_fail_handoff_sources_v6_20_0.py
+tools/_patch_lib/self_test_failed_queue_grouping_v6_20_0.py
+tools/_patch_lib/self_test_failed_queue_persistence_v6_20_0.py
+tools/_patch_lib/self_test_find_discovery_v6_20_0.py
+tools/_patch_lib/self_test_git_safe_v6_20_0.py
+tools/_patch_lib/self_test_historical_compatibility_v6_20_0.py
+tools/_patch_lib/self_test_historical_diagnostics_v6_20_0.py
+tools/_patch_lib/self_test_history_artifact_highlight_v6_20_0.py
+tools/_patch_lib/self_test_history_live_status_v6_20_0.py
+tools/_patch_lib/self_test_inplace_routing_v6_20_0.py
+tools/_patch_lib/self_test_inspect_quality_v6_20_0.py
+tools/_patch_lib/self_test_integrity_v6_20_0.py
+tools/_patch_lib/self_test_local_duplicate_v6_20_0.py
+tools/_patch_lib/self_test_manual_execution_v6_20_0.py
+tools/_patch_lib/self_test_package_checksums_v6_20_0.py
+tools/_patch_lib/self_test_patch_preflight_v6_20_0.py
+tools/_patch_lib/self_test_patch_recovery_v6_20_0.py
+tools/_patch_lib/self_test_planning_features_v6_20_0.py
+tools/_patch_lib/self_test_portable_installer_v6_20_0.py
+tools/_patch_lib/self_test_preflight_continuation_v6_20_0.py
+tools/_patch_lib/self_test_public_entry_v6_20_0.py
+tools/_patch_lib/self_test_python_patch_tool_v6_20_0.py
+tools/_patch_lib/self_test_queue_discovery_v6_20_0.py
+tools/_patch_lib/self_test_recovery_integrity_v6_20_0.py
+tools/_patch_lib/self_test_recovery_menu_v6_20_0.py
+tools/_patch_lib/self_test_result_clarity_v6_20_0.py
+tools/_patch_lib/self_test_robustness_v6_20_0.py
+tools/_patch_lib/self_test_safe_rollback_v6_20_0.py
+tools/_patch_lib/self_test_search_discovery_v6_20_0.py
+tools/_patch_lib/self_test_search_partial_timeout_v6_20_0.py
+tools/_patch_lib/self_test_selection_contract_v6_20_0.py
+tools/_patch_lib/self_test_self_contained_v6_20_0.py
+tools/_patch_lib/self_test_tool_health_v6_20_0.py
+tools/_patch_lib/self_test_upgrade_continuity_v6_20_0.py
+tools/_patch_lib/self_test_upload_action_highlight_v6_20_0.py
+tools/_patch_lib/self_test_validation_selection_v6_20_0.py
+tools/_patch_lib/self_test_version_consistency_v6_20_0.py
+tools/_patch_lib/self_test_windows_launchers_v6_20_0.py
+tools/_patch_lib/self_test_windows_native_lane_v6_20_0.py
+tools/_patch_lib/self_test_windows_runtime_v6_20_0.py
+tools/db_profiles.example.json
+tools/implementing.md
+tools/run_python_patches.bat
+tools/run_python_patches.ps1
+tools/run_python_patches.sh
+tools/run_windows_native_tests.ps1
+--- END GENERATED MANAGED FILE INDEX ---

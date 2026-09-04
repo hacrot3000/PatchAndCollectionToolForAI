@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory(prefix='ptv613_recovery_') as td:
     assert last['not_executed']==[]
     assert [(x.get('name'),x.get('status')) for x in last['results']]==[('patch_1_fail.zip','PREFLIGHT_FAIL'),('patch_2_later.zip','PASS')]
     assert last['results'][0]['fail_handoff'].startswith('artifacts/patch_tool/fail_handoffs/')
-    # v6.20.1 executes the unrelated later PATCH, but the failed preflight row
+    # v6.20.2 executes the unrelated later PATCH, but the failed preflight row
     # remains persistently recoverable rather than being erased by that success.
     unresolved=json.loads((root/'artifacts'/'patch_tool'/'UNRESOLVED_FAILURES.json').read_text())
     assert any(str((x.get('row') or {}).get('name'))=='patch_1_fail.zip' and x.get('resolved') is False for x in unresolved.get('entries',[])),unresolved
@@ -60,4 +60,4 @@ with tempfile.TemporaryDirectory(prefix='ptv613_recovery_publish_') as td:
     assert a is not None and a==b and a.is_file()
     assert len(list((root/'patchs').glob('CODE_COLLECTION_REQUEST_patch_recovery_*.zip')))==1
 
-print('PASS: v6.20.1 diagnosis, FAIL_HANDOFF, source-drift recollection, LAST_RUN/resume/history')
+print('PASS: v6.20.2 diagnosis, FAIL_HANDOFF, source-drift recollection, LAST_RUN/resume/history')

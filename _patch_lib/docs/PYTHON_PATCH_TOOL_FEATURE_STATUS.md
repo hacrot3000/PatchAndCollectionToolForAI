@@ -1,4 +1,4 @@
-# Python Patch Tool v6.20.1 feature status
+# Python Patch Tool v6.20.2 feature status
 
 
 ## v6.20.0 — safe Git operations + human-only manual execution

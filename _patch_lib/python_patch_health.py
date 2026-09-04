@@ -3,7 +3,18 @@ from __future__ import annotations
 import hashlib, json, os, stat, subprocess, tempfile
 from pathlib import Path
 
-VERSION = "6.20.1"
+from python_patch_release_metadata import managed_relpaths
+
+try:
+    from python_patch_version import VERSION
+except ImportError:
+    # Standalone compatibility for historical/minimal COLLECT module sets.
+    import json as _ptv_version_json
+    from pathlib import Path as _PTVVersionPath
+    try:
+        VERSION = str(_ptv_version_json.loads((_PTVVersionPath(__file__).resolve().parent / "docs" / "COLLECT_ACTION_SCHEMA.json").read_text(encoding="utf-8")).get("tool_version") or "unknown")
+    except Exception:
+        VERSION = "unknown"
 REQUIRED_RUNTIME = [
     "tools/run_python_patches.sh",
     "tools/run_python_patches.ps1",
@@ -41,6 +52,9 @@ REQUIRED_RUNTIME = [
     "tools/_patch_lib/docs/DATABASE_SELECT_ACTIVE_BUILDER.md",
     "tools/db_profiles.example.json",
     "tools/_patch_lib/python_patch_health.py",
+    "tools/_patch_lib/python_patch_version.py",
+    "tools/_patch_lib/python_patch_release_metadata.py",
+    "tools/_patch_lib/PACKAGE_CONTENTS.txt",
     "tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json",
     "tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json",
     "tools/_patch_lib/docs/PATCH_PACKAGE_CHECKLIST.json",
@@ -123,6 +137,15 @@ def audit_tool(root: Path) -> dict[str, object]:
     manifest_entries=0
     checksum_failures=0
     seen:set[str]=set()
+    # Reuse the exact same managed-file definition as release metadata so
+    # Tool Health cannot drift from packaging semantics. This intentionally
+    # excludes repository metadata (.git), repo-only helpers/README, cache
+    # artifacts and SHA256SUMS itself.
+    try:
+        actual_managed=set(managed_relpaths(root/'tools'))
+    except OSError as exc:
+        actual_managed=set()
+        errors.append(f"managed tools tree unavailable: {type(exc).__name__}: {exc}")
     try:
         lines=manifest.read_text(encoding='utf-8').splitlines()
         for lineno,line in enumerate(lines,1):
@@ -151,14 +174,68 @@ def audit_tool(root: Path) -> dict[str, object]:
     except Exception as exc:
         errors.append(f"SHA256SUMS unreadable: {type(exc).__name__}: {exc}")
         checksum_failures+=1
-    missing_coverage=sorted(set(REQUIRED_RUNTIME)-seen)
+
+    missing_coverage=sorted(actual_managed-seen)
+    stale_coverage=sorted(seen-actual_managed)
     if missing_coverage:
         for rel in missing_coverage:
-            errors.append(f"SHA256SUMS missing required managed path: {rel}")
+            errors.append(f"SHA256SUMS missing managed path: {rel}")
         checksum_failures+=len(missing_coverage)
+    if stale_coverage:
+        for rel in stale_coverage:
+            errors.append(f"SHA256SUMS stale/unmanaged path: {rel}")
+        checksum_failures+=len(stale_coverage)
+
+    # PACKAGE_CONTENTS has a generated exact index, independently checked against
+    # both the installed tree and SHA256SUMS so release metadata cannot silently drift.
+    package_contents=lib/'PACKAGE_CONTENTS.txt'
+    managed_begin='--- BEGIN GENERATED MANAGED FILE INDEX ---'
+    managed_end='--- END GENERATED MANAGED FILE INDEX ---'
+    package_index:set[str]=set()
+    package_index_ok=True
+    try:
+        package_text=package_contents.read_text(encoding='utf-8')
+        if managed_begin not in package_text or managed_end not in package_text:
+            raise ValueError('generated managed-file index markers missing')
+        block=package_text.split(managed_begin,1)[1].split(managed_end,1)[0]
+        for raw in block.splitlines():
+            line=raw.strip()
+            if not line or line.startswith('#'):
+                continue
+            if line in package_index:
+                errors.append(f"PACKAGE_CONTENTS duplicate managed path: {line}")
+                package_index_ok=False
+            package_index.add(line)
+        missing_pc=sorted(actual_managed-package_index)
+        stale_pc=sorted(package_index-actual_managed)
+        if missing_pc or stale_pc:
+            package_index_ok=False
+            if missing_pc:
+                errors.append(f"PACKAGE_CONTENTS missing managed paths: {missing_pc[:10]}" + (f" (+{len(missing_pc)-10} more)" if len(missing_pc)>10 else ''))
+            if stale_pc:
+                errors.append(f"PACKAGE_CONTENTS stale/unmanaged paths: {stale_pc[:10]}" + (f" (+{len(stale_pc)-10} more)" if len(stale_pc)>10 else ''))
+        if package_index != seen:
+            package_index_ok=False
+            errors.append('PACKAGE_CONTENTS managed index differs from SHA256SUMS coverage')
+    except Exception as exc:
+        package_index_ok=False
+        errors.append(f"PACKAGE_CONTENTS managed index unreadable/invalid: {type(exc).__name__}: {exc}")
+
+    missing_required=sorted(set(REQUIRED_RUNTIME)-actual_managed)
+    if missing_required:
+        for rel in missing_required:
+            errors.append(f"required runtime path is outside/missing from managed tree: {rel}")
+        checksum_failures+=len(missing_required)
+
     checks.append({
         'name':'sha256sums','status':'PASS' if checksum_failures==0 else 'FAIL',
-        'entries':manifest_entries,'failures':checksum_failures,'missing_required':len(missing_coverage),
+        'entries':manifest_entries,'failures':checksum_failures,
+        'missing_managed':len(missing_coverage),'stale_managed':len(stale_coverage),
+    })
+    checks.append({
+        'name':'package_contents_exact_coverage',
+        'status':'PASS' if package_index_ok else 'FAIL',
+        'entries':len(package_index),'actual':len(actual_managed),
     })
 
     for name in ('COLLECT_ACTION_SCHEMA.json','PATCH_PACKAGE_SCHEMA.json'):

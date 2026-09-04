@@ -130,15 +130,15 @@ h=importlib.util.module_from_spec(hspec); sys.modules[hspec.name]=h; hspec.loade
 with tempfile.TemporaryDirectory(prefix='ptv6141_health_') as td:
     root=Path(td); shutil.copytree(TOOLS,root/'tools'); (root/'tools'/'run_python_patches.sh').chmod(0o755)
     manifest=root/'tools'/'_patch_lib'/'SHA256SUMS'
-    rows=[]
-    for path in sorted((root/'tools').rglob('*')):
-        if path.is_file() and path!=manifest and '__pycache__' not in path.parts and path.suffix!='.pyc':
-            rows.append(f"{sha(path)}  {path.relative_to(root).as_posix()}\n")
-    manifest.write_text(''.join(rows))
+    # Build the fixture with the same managed-package semantics as production:
+    # repo metadata, repo-only helpers and cache artifacts are not checksummed.
+    rspec=importlib.util.spec_from_file_location('ptv6202release',HERE/'python_patch_release_metadata.py')
+    rm=importlib.util.module_from_spec(rspec); sys.modules[rspec.name]=rm; rspec.loader.exec_module(rm)
+    rm.refresh_all(root/'tools')
     base=h.audit_tool(root); assert base['status'] in {'PASS','WARN'},base
     victim='tools/_patch_lib/python_patch_queue_dispatcher.py'
     manifest.write_text(''.join(line for line in manifest.read_text().splitlines(True) if not line.rstrip().endswith(victim)))
     bad=h.audit_tool(root); assert bad['status']=='FAIL',bad
-    assert any('missing required managed path' in e and victim in e for e in bad['errors']),bad
+    assert any(('missing managed path' in e or 'missing required managed path' in e) and victim in e for e in bad['errors']),bad
 
-print('PASS: v6.20.1 robustness audit fixes path safety, exact input lifecycle, signals/descendants, and health coverage')
+print('PASS: v6.20.2 robustness audit fixes path safety, exact input lifecycle, signals/descendants, and health coverage')

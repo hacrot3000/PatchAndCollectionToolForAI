@@ -78,5 +78,5 @@ representative={
  'post_patch':{'commands':[{'name':'t','argv':['python3','test.py'],'cwd':'.','timeout_seconds':900}],'run_when_no_changes':False},
  'git':{'add':'off','commit':'off','push':'off','fail_on_error':True},
 }
-validate_manifest(representative); assert check_compatibility(representative,'6.20.1')==[]
-print('PASS: v6.20.1 exact PATCH schema, preflight, compatibility and partial-modification detection')
+validate_manifest(representative); assert check_compatibility(representative,'6.20.2')==[]
+print('PASS: v6.20.2 exact PATCH schema, preflight, compatibility and partial-modification detection')

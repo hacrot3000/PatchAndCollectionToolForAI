@@ -150,7 +150,7 @@ try:
 finally:
     runner._run_argv = original_run_argv
 
-# v6.20.1 removes PATCH Git mutation execution by explicit requirement.
+# v6.20.2 removes PATCH Git mutation execution by explicit requirement.
 # Safe Git inspection/switch has its own behavioral gate.
 assert not hasattr(runner, '_run_git_policy')
 from python_patch_package_schema import validate_manifest
@@ -254,4 +254,4 @@ assert "CREATE_NEW_PROCESS_GROUP" in dispatcher_text and "CTRL_BREAK_EVENT" in d
 assert "_run_foreground_child(root, cmd" in dispatcher_text and 'label="COLLECT"' in dispatcher_text
 assert "CREATE_NEW_PROCESS_GROUP" in collector_text and "taskkill" in collector_text.lower()
 
-print("PASS: v6.20.1 failure-only commands and script-execution audit regressions")
+print("PASS: v6.20.2 failure-only commands and script-execution audit regressions")

@@ -7,7 +7,7 @@ HERE=Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE))
 import python_patch_project_state as ps
 import python_patch_runner as rr
-assert ps.VERSION==rr.VERSION=='6.20.1'
+assert ps.VERSION==rr.VERSION=='6.20.2'
 RUNNER=HERE/'python_patch_runner.py'
 
 def fixture(root:Path, *, dangerous=False):
@@ -67,4 +67,4 @@ with tempfile.TemporaryDirectory(prefix='ptv_val_off_') as td:
     data=json.loads(result.read_text()); assert cp.returncode==0,(cp.returncode,cp.stdout)
     assert data['validation_selection']['status']=='DISABLED_BY_CLI' and data['status']=='PASS'
     assert not marker.exists() and (root/'src/main.c').read_text()=='NEW\n'
-print('PASS: v6.20.1 delta-based validation selection, safe diagnostic rerun and --no-validation')
+print('PASS: v6.20.2 delta-based validation selection, safe diagnostic rerun and --no-validation')

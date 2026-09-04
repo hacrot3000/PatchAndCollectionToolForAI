@@ -215,4 +215,4 @@ with tempfile.TemporaryDirectory(prefix='ptv-db-select-test-') as td:
         assert not any(n == 'files/tools/db_profiles.local.json' or n.endswith('/db_profiles.local.json') for n in f.namelist()),f.namelist()
     print('PASS: local DB profile is hard-excluded from COLLECT/search/FAIL_HANDOFF evidence')
 
-print('PASS: v6.20.1 database_select active-builder semantic contract')
+print('PASS: v6.20.2 database_select active-builder semantic contract')

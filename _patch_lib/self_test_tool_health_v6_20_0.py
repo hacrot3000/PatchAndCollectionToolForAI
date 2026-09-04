@@ -9,7 +9,7 @@ TOOLS=HERE.parent
 
 spec=importlib.util.spec_from_file_location('ptv_health',HERE/'python_patch_health.py')
 h=importlib.util.module_from_spec(spec); sys.modules[spec.name]=h; spec.loader.exec_module(h)
-assert h.VERSION=='6.20.1'
+assert h.VERSION=='6.20.2'
 
 # The installed source tree itself must pass its managed-file/schema audit.
 root=TOOLS.parent
@@ -24,6 +24,31 @@ with tempfile.TemporaryDirectory(prefix='ptv614_health_corrupt_') as td:
     bad=h.audit_tool(proj)
     assert bad['status']=='FAIL',bad
     assert any('checksum mismatch: tools/_patch_lib/python_patch_utils.py' in x for x in bad['errors']),bad
+
+# Exact coverage must reject a newly introduced managed file that is absent from
+# both SHA256SUMS and the generated PACKAGE_CONTENTS managed-file index.
+with tempfile.TemporaryDirectory(prefix='ptv6202_health_extra_') as td:
+    proj=Path(td); shutil.copytree(TOOLS,proj/'tools'); (proj/'patchs').mkdir()
+    (proj/'tools'/'_patch_lib'/'UNMANAGED_RELEASE_FILE.txt').write_text('unexpected\n',encoding='utf-8')
+    bad=h.audit_tool(proj)
+    assert bad['status']=='FAIL',bad
+    assert any('SHA256SUMS missing managed path: tools/_patch_lib/UNMANAGED_RELEASE_FILE.txt' in x for x in bad['errors']),bad
+    assert any('PACKAGE_CONTENTS missing managed paths:' in x for x in bad['errors']),bad
+
+# The generated package index is an independent release contract, not merely
+# documentation; deleting one indexed line must be reported even if checksums
+# themselves are still valid.
+with tempfile.TemporaryDirectory(prefix='ptv6202_health_package_index_') as td:
+    proj=Path(td); shutil.copytree(TOOLS,proj/'tools'); (proj/'patchs').mkdir()
+    pc=proj/'tools'/'_patch_lib'/'PACKAGE_CONTENTS.txt'
+    text=pc.read_text(encoding='utf-8')
+    victim='tools/_patch_lib/python_patch_utils.py\n'
+    assert victim in text
+    head, tail = text.rsplit(victim, 1)
+    pc.write_text(head + tail, encoding='utf-8')
+    bad=h.audit_tool(proj)
+    assert bad['status']=='FAIL',bad
+    assert any('PACKAGE_CONTENTS missing managed paths:' in x for x in bad['errors']),bad
 
 # Line selector exposes h/health without changing selection or executing work.
 spec=importlib.util.spec_from_file_location('ptv_dispatcher_health',HERE/'python_patch_queue_dispatcher.py')
@@ -83,4 +108,4 @@ with tempfile.TemporaryDirectory(prefix='ptv614_health_idle_') as td:
     assert not list((proj/'tools').rglob('__pycache__')),list((proj/'tools').rglob('__pycache__'))
     assert not list((proj/'tools').rglob('*.pyc')),list((proj/'tools').rglob('*.pyc'))
 
-print('PASS: v6.20.1 zero-argument Tool Health self-audit detects install corruption and never executes PATCH')
+print('PASS: v6.20.2 zero-argument Tool Health self-audit detects install corruption and never executes PATCH')

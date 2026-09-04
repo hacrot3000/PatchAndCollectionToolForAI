@@ -8,7 +8,7 @@ ROOT=HERE.parent.parent
 sys.path.insert(0,str(HERE))
 import python_patch_queue_dispatcher as q
 
-assert q.VERSION=='6.20.1'
+assert q.VERSION=='6.20.2'
 
 def defs(path: Path):
     tree=ast.parse(path.read_text(encoding='utf-8'))
@@ -105,16 +105,16 @@ alias_src=(HERE/'python_patch_upload_alias.py').read_text(encoding='utf-8')
 for needle in ['artifacts', 'ptv_to_ai', 'os.link', 'create_upload_aliases']:
     assert needle in alias_src, needle
 
-print('PASS: v6.20.1 upgrade continuity guard preserves current capabilities and requires historical behavioral/ledger gates')
+print('PASS: v6.20.2 upgrade continuity guard preserves current capabilities and requires historical behavioral/ledger gates')
 
-# v6.20.1 UX continuity: normal startup must group previous failures rather than auto-open Smart Resume.
+# v6.20.2 UX continuity: normal startup must group previous failures rather than auto-open Smart Resume.
 dispatcher=(HERE/'python_patch_queue_dispatcher.py').read_text(encoding='utf-8')
 assert 'failed_group_names = _last_failed_queue_names' in dispatcher
 assert 'and force_resume:' in dispatcher
 assert 'or should_auto_resume' not in dispatcher
 assert (HERE/'self_test_failed_queue_grouping_v6_20_0.py').is_file()
 
-# v6.20.1 persistent failure-state continuity.
+# v6.20.2 persistent failure-state continuity.
 assert '_persistent_failed_queue_rows' in dispatcher
 assert '_reconcile_unresolved_registry_from_history' in dispatcher
 assert 'request_sha256' in dispatcher

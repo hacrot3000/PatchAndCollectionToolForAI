@@ -77,4 +77,4 @@ with tempfile.TemporaryDirectory(prefix='ptv618_collect_incomplete_') as td:
         text=z.read('reports/001_search.md').decode('utf-8')
         assert 'ZERO MATCH DIAGNOSTIC' in text
 
-print('PASS: v6.20.1 filesystem-first search coverage, false-zero fallback, must_find, anchors/diagnostics and INCOMPLETE result contract')
+print('PASS: v6.20.2 filesystem-first search coverage, false-zero fallback, must_find, anchors/diagnostics and INCOMPLETE result contract')

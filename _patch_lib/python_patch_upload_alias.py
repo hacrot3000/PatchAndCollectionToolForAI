@@ -14,7 +14,16 @@ import stat
 import uuid
 from pathlib import Path
 
-VERSION = "6.20.1"
+try:
+    from python_patch_version import VERSION
+except ImportError:
+    # Standalone compatibility for historical/minimal COLLECT module sets.
+    import json as _ptv_version_json
+    from pathlib import Path as _PTVVersionPath
+    try:
+        VERSION = str(_ptv_version_json.loads((_PTVVersionPath(__file__).resolve().parent / "docs" / "COLLECT_ACTION_SCHEMA.json").read_text(encoding="utf-8")).get("tool_version") or "unknown")
+    except Exception:
+        VERSION = "unknown"
 _ALIAS_PARTS = ("artifacts", "ptv_to_ai")
 _MAX_ALIAS_FILES = 64
 _PREFIXES = {"FAIL_HANDOFF": "FH", "COLLECT": "CR", "AI_SYNC": "AS"}

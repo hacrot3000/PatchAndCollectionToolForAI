@@ -4,7 +4,7 @@ import json, os, shutil, subprocess, tempfile, zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-assert (HERE/'VERSION').read_text(encoding='utf-8').strip() == '6.20.1'
+assert (HERE/'VERSION').read_text(encoding='utf-8').strip() == '6.20.2'
 
 
 def install(root: Path):
@@ -71,4 +71,4 @@ with tempfile.TemporaryDirectory(prefix='ptv6179_preflight_relation_') as td:
     ], rows
     assert not (root/'related_ran').exists() and (root/'ok.txt').read_text() == 'ok'
 
-print('PASS: v6.20.1 item-local batch preflight failures continue independent PATCHes and block only related successors')
+print('PASS: v6.20.2 item-local batch preflight failures continue independent PATCHes and block only related successors')

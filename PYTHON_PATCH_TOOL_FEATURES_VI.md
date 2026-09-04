@@ -1,8 +1,19 @@
-# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.20.1
+# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.20.2
 
 Trước khi AI sửa Patch Tool, bắt buộc đọc `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md` và `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Tính năng từng PASS/COMPLETE không được tự ý xóa, thu hẹp hoặc làm mất đường gọi chỉ vì code/schema hiện tại không dùng tới. Nếu thật sự phải thay thế, phải ghi trạng thái vào ledger và thêm test hành vi chứng minh.
 
-# Danh sách tính năng Python Patch Tool — v6.20.1
+# Danh sách tính năng Python Patch Tool — v6.20.2
+
+
+## v6.20.2 — Hardening các tính năng hiện có
+
+- Git an toàn → **HARDENED** — `switch` fail-closed nếu checkout có khả năng gọi external clean/smudge/process filter; output Git được spool/bound, tắt màu và sanitize control character; lỗi/truncate làm COLLECT `INCOMPLETE` nhưng vẫn giữ partial evidence.
+- Manual execution → **HARDENED** — chặn thêm attached/wrapper inline-eval escape, đọc tail log để xác minh exit marker, evidence I/O no-follow/safe-regular, lưu size/SHA-256 log đã xác minh, Ctrl+C finalize/package evidence nhất quán.
+- Tool Health → **HARDENED** — kiểm tra exact managed package coverage của `SHA256SUMS` + generated inventory, không chỉ subset runtime bắt buộc.
+- Release/version maintenance → **HARDENED** — runtime đọc version từ `_patch_lib/VERSION`; metadata/checksum có deterministic refresh helper; minimal historical COLLECT vẫn fallback từ schema khi bị tách khỏi full package.
+- Runner/queue → **REFACTOR-ONLY** — chỉ tách helper bookkeeping/report side-effect, không đổi semantics và phải qua full master regression.
+- README repository → **DOCUMENTED** — tóm tắt project và hướng dẫn `self-install-and-update.sh` bằng tiếng Việt/English.
+- Không thêm capability mới.
 
 
 ## v6.20.1 — Sửa bố cục báo cáo PATCH fail

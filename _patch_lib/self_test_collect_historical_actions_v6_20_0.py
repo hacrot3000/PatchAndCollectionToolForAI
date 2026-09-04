@@ -158,4 +158,4 @@ int Caller(int x)
         assert "src/pkg/Foo.java" in files and "src/pkg/Caller.java" in files and "src/pkg/Bar.java" in files
         assert "src/.env" not in files
 
-print("PASS: v6.20.1 historical COLLECT actions, M3 aliases and decompile compatibility")
+print("PASS: v6.20.2 historical COLLECT actions, M3 aliases and decompile compatibility")

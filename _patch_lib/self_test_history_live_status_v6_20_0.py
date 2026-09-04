@@ -13,7 +13,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import python_patch_queue_dispatcher as m
 
-assert m.VERSION == '6.20.1'
+assert m.VERSION == '6.20.2'
 
 # Zero-argument detection ignores the internal project-root handoff only.
 assert m._is_zero_argument_dispatch([])
@@ -274,4 +274,4 @@ for needle in [
 ]:
     assert needle in src, needle
 
-print('PASS: v6.20.1 zero-argument HISTORY browser, archived artifact detail and best-effort fixed live PATCH status header')
+print('PASS: v6.20.2 zero-argument HISTORY browser, archived artifact detail and best-effort fixed live PATCH status header')

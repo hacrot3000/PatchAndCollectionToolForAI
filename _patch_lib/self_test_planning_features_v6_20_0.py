@@ -118,4 +118,4 @@ with tempfile.TemporaryDirectory(prefix='ptv6177_search_') as td:
     assert _filter_selector_items(r,items,'needle.cpp',cache)==items
     assert _filter_selector_items(r,items,'special summary',cache)==items
 
-print('PASS: v6.20.1 project identity, validation profiles, persistent failures, plan/conflicts/preview, ledger, recipe, resources and selector search')
+print('PASS: v6.20.2 project identity, validation profiles, persistent failures, plan/conflicts/preview, ledger, recipe, resources and selector search')

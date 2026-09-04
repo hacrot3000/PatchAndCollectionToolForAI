@@ -12,7 +12,7 @@ def load(name: str, file: str):
 
 q=load('ptv_upload_highlight_dispatcher','python_patch_queue_dispatcher.py')
 c=load('ptv_upload_highlight_collect','python_patch_collect_progress_v6_7.py')
-assert q.VERSION=='6.20.1' and c.VERSION=='6.20.1'
+assert q.VERSION=='6.20.2' and c.VERSION=='6.20.2'
 
 class FakeTTY(io.StringIO):
     def isatty(self): return True
@@ -59,4 +59,4 @@ with tempfile.TemporaryDirectory(prefix='ptv_upload_highlight_') as td:
     assert alias_lines and all('\x1b[1;4;30;103m' in line for line in alias_lines),cout
     assert 'ACTION REQUIRED' in cout,cout
 
-print('PASS: v6.20.1 upload-required highlight contract for FAIL_HANDOFF and COLLECT')
+print('PASS: v6.20.2 upload-required highlight contract for FAIL_HANDOFF and COLLECT')

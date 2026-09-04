@@ -41,6 +41,7 @@ names=[
  'self_test_collect_historical_actions_v6_20_0.py',
  'self_test_git_safe_v6_20_0.py',
  'self_test_manual_execution_v6_20_0.py',
+ 'self_test_existing_capability_hardening_v6_20_2.py',
  'self_test_historical_compatibility_v6_20_0.py',
  'self_test_portable_installer_v6_20_0.py',
  'self_test_capability_ledger_v6_20_0.py',
@@ -85,4 +86,4 @@ for name in names:
         except subprocess.TimeoutExpired:
             print(f'FAIL: self-test timeout ({test_timeout}s): {name}',file=sys.stderr,flush=True); raise SystemExit(124)
     if rc: raise SystemExit(rc)
-print('PASS: Python Patch Tool v6.20.1 full self-contained regression suite')
+print('PASS: Python Patch Tool v6.20.2 full self-contained regression suite')

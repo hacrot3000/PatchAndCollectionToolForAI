@@ -1,4 +1,4 @@
-# Python Patch Tool v6.20.1 — output files and what to upload
+# Python Patch Tool v6.20.2 — output files and what to upload
 
 This guide preserves the historical “output-file role guide” capability while describing the **current** v6 artifact model. Old v5 SUMMARY/CODE/DETAIL filenames are historical and must not be inferred as current outputs.
 

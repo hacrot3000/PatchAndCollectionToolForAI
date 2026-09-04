@@ -86,4 +86,4 @@ if shutil.which('git'):
         else: raise AssertionError('non-local/non-existing switch accepted')
         assert subprocess.run(['git','rev-parse','HEAD'],cwd=repo,text=True,capture_output=True).stdout.strip()==feature_sha
 
-print('PASS: v6.20.1 Git interface is strict allowlist-only; inspect/diff/log/safe local switch work, hooks are disabled, and PATCH add/commit/push execution code is absent')
+print('PASS: v6.20.2 Git interface is strict allowlist-only; inspect/diff/log/safe local switch work, hooks are disabled, and PATCH add/commit/push execution code is absent')

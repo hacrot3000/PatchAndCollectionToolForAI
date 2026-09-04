@@ -95,4 +95,4 @@ with tempfile.TemporaryDirectory(prefix="ptv-find-coverage-") as tmp:
     assert partial["coverage_status"] == "PARTIAL", partial
     assert "INCOMPLETE" in partial["report"]
 
-print("PASS: v6.20.1 scope-relative find glob, globstar and discovery-budget regression")
+print("PASS: v6.20.2 scope-relative find glob, globstar and discovery-budget regression")
