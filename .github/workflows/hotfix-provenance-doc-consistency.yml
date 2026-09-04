@@ -1,0 +1,70 @@
+name: Hotfix provenance documentation consistency
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hotfix-provenance-doc-consistency.yml'
+permissions:
+  contents: write
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Reconcile provenance status and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONDONTWRITEBYTECODE=1
+          python3 - <<'PY'
+          from pathlib import Path
+
+          impl = Path('implementing.md')
+          text = impl.read_text(encoding='utf-8')
+          old = '| Cryptographic provenance / signature trust | **NOT IMPLEMENTED** |'
+          new = '| Cryptographic provenance / signature trust | **COMPLETE — local Ed25519 verification/trust; signer/PKI/remote registry remain out of scope** |'
+          if old not in text:
+              raise SystemExit('implementing.md expected stale provenance row not found')
+          text = text.replace(old, new, 1)
+          old2 = '- Cryptographic signatures / PKI / remote provenance trust: NOT IMPLEMENTED.'
+          new2 = '- Historical v6.17.7 state: cryptographic signatures / PKI / remote provenance trust were NOT IMPLEMENTED in that release; the current local Ed25519 PATCH verification/trust is COMPLETE above, while signer/PKI/remote trust remain intentionally out of scope.'
+          if old2 not in text:
+              raise SystemExit('implementing.md expected historical stale provenance line not found')
+          text = text.replace(old2, new2, 1)
+          impl.write_text(text, encoding='utf-8')
+
+          status = Path('_patch_lib/docs/PYTHON_PATCH_TOOL_FEATURE_STATUS.md')
+          text = status.read_text(encoding='utf-8')
+          old3 = '- Cryptographic signatures / PKI / remote provenance trust: NOT IMPLEMENTED.'
+          new3 = '- Historical v6.17.7 state: cryptographic signatures / PKI / remote provenance trust were NOT IMPLEMENTED in that release; current local Ed25519 PATCH verification/trust is COMPLETE, while signer/PKI/remote trust remain intentionally out of scope.'
+          if old3 not in text:
+              raise SystemExit('feature status expected stale provenance line not found')
+          text = text.replace(old3, new3, 1)
+          status.write_text(text, encoding='utf-8')
+
+          test = Path('_patch_lib/self_test_docs_v6_20_0.py')
+          text = test.read_text(encoding='utf-8')
+          marker = "print('PASS: v6.20.2 diagnostics, Windows parity docs, schemas/checklist and minimal user HTML contract')"
+          guard = """# Current provenance status must not contradict the completed local Ed25519 trust capability.\nassert '| Cryptographic provenance / signature trust | **NOT IMPLEMENTED** |' not in impl\nassert '| Cryptographic provenance / signature trust | **COMPLETE' in impl\nassert '- Cryptographic signatures / PKI / remote provenance trust: NOT IMPLEMENTED.' not in status\nassert 'local Ed25519 PATCH provenance/signature trust' in status\n\n"""
+          if guard not in text:
+              if marker not in text:
+                  raise SystemExit('docs test insertion marker not found')
+              text = text.replace(marker, guard + marker, 1)
+              test.write_text(text, encoding='utf-8')
+          PY
+          python3 _patch_lib/python_patch_release_metadata.py --tool-dir .
+          python3 _patch_lib/self_test_docs_v6_20_0.py
+          python3 _patch_lib/self_test_tool_health_v6_20_0.py
+          python3 _patch_lib/self_test_package_checksums_v6_20_0.py
+          python3 _patch_lib/self_test_python_patch_tool_v6_20_0.py
+          rm -f .github/workflows/hotfix-provenance-doc-consistency.yml
+          rmdir .github/workflows 2>/dev/null || true
+          rmdir .github 2>/dev/null || true
+          git config user.name 'Patch Tool CI'
+          git config user.email 'patch-tool-ci@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: reconcile completed provenance status documentation'
+          git push origin HEAD:main
