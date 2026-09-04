@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.7.13
+# AI / ChatGPT usage contract — Python Patch Tool v6.8.0
 
 This document is intended to be uploaded or quoted to an AI that creates PATCH
 or COLLECT artifacts for this tool. The rules below override obsolete examples
@@ -39,8 +39,7 @@ Do not tell the user to invoke any manual COLLECT subcommand or to append a
 request path/extra COLLECT arguments to the launcher. Internal routing syntax
 is intentionally omitted here so an AI cannot mistake it for user guidance.
 
-Normal user operation is zero-argument only, and the public launcher rejects
-manual COLLECT subcommands rather than merely documenting them as obsolete:
+Normal user operation is zero-argument only:
 
 ```bash
 ./tools/run_python_patches.sh
@@ -61,6 +60,15 @@ request ZIP.
 PATCH artifacts remain packages recognized by the normal zero-argument queue.
 Do not instruct the user to re-enable SANDBOX/worktree transaction modes.
 SANDBOX is permanently removed from the supported workflow.
+
+## PATCH duplicate behavior
+
+The normal zero-argument queue performs a local-only duplicate check before the
+selector. A PATCH is skipped only when its exact package SHA-256 matches a file
+already stored in the same project's `patchs/patched/`. This is not a global or
+server-side history check, so the same PATCH may still be run on a different
+machine/project that does not have that local history. AI-generated instructions
+must not tell users to bypass this check by renaming an identical package.
 
 ## COLLECT PASS CONSOLE — RESULT ZIP IDENTIFICATION
 
@@ -84,11 +92,10 @@ Legacy collector output may internally emit both a labelled `ZIP` line and the
 same bare path. The supervisor deduplicates those variants and must not replay
 the result ZIP path twice.
 
-### Result artifact validity
 
-A collector process returning zero is not enough to claim success. The public
-COLLECT supervisor verifies that the reported result artifact exists locally, is a ZIP, and passes
-member CRC/integrity validation before showing `[PRIMARY - UPLOAD THIS FILE]`. If the artifact is
-missing/unusable, COLLECT returns non-zero and there is no primary-upload block.
-Quoted paths and paths containing spaces are valid and must not be rewritten by
-AI instructions.
+### v6.8.0 result verification note
+
+If legacy collector output mentions multiple candidate result archives, the tool
+validates them newest-first and exposes only one verified `[PRIMARY - UPLOAD THIS FILE]`.
+A zero-argument COLLECT is not considered fully successful until its request ZIP
+is archived out of the runnable queue into `patchs/patched/`.

@@ -18,6 +18,20 @@ for line in MANIFEST.read_text(encoding="utf-8").splitlines():
     assert rel not in entries, rel
     entries[rel] = digest
 
+required = {
+    "tools/run_python_patches.sh",
+    "tools/_patch_lib/VERSION",
+    "tools/_patch_lib/PACKAGE_CONTENTS.txt",
+    "tools/_patch_lib/python_patch_queue_dispatcher.py",
+    "tools/_patch_lib/python_patch_collect_progress_v6_7.py",
+    "tools/_patch_lib/docs/AI_USAGE_CONTRACT.md",
+    "tools/_patch_lib/docs/PORTABLE_USAGE.md",
+    "tools/_patch_lib/docs/PYTHON_PATCH_TOOL_FEATURE_STATUS.md",
+    "tools/_patch_lib/self_test_python_patch_tool_v6_8_0.py",
+    "tools/_patch_lib/self_test_local_duplicate_v6_8_0.py",
+}
+assert required <= set(entries), sorted(required - set(entries))
+
 actual_files: set[str] = set()
 for path in (ROOT / "tools").rglob("*"):
     if not path.is_file() or path == MANIFEST:
@@ -26,27 +40,21 @@ for path in (ROOT / "tools").rglob("*"):
         continue
     actual_files.add(path.relative_to(ROOT).as_posix())
 
-# In a clean extraction of the release ZIP there is no private installed core,
-# so enforce exact archive coverage and catch both omitted and stale manifest
-# entries. After overlay installation into a real project, private core/helper
-# files and older project-owned tools legitimately coexist under tools/. Those
-# files are outside this release's ownership and must not make the package
+# In a clean extracted release, every shipped file must be checksummed.  After
+# installation, exact private-core files and older self-tests legitimately sit
+# next to this overlay; they are not part of this release and must not make the
 # integrity self-test fail.
-private_core_markers = [
-    HERE / "python_patch_runner.py",
-    HERE / "python_patch_readonly_collector.py",
-    HERE / "python_patch_utils.py",
-]
-installed_overlay = any(path.exists() for path in private_core_markers)
-
-if not installed_overlay:
+private_core_present = any(
+    (HERE / name).is_file()
+    for name in ("python_patch_runner.py", "python_patch_readonly_collector.py", "python_patch_utils.py")
+)
+if private_core_present:
+    assert set(entries) <= actual_files, sorted(set(entries) - actual_files)
+else:
     assert set(entries) == actual_files, {
         "missing_from_manifest": sorted(actual_files - set(entries)),
         "stale_in_manifest": sorted(set(entries) - actual_files),
     }
-else:
-    missing_managed = sorted(rel for rel in entries if not (ROOT / rel).is_file())
-    assert not missing_managed, {"missing_managed_release_files": missing_managed}
 
 for rel, wanted in sorted(entries.items()):
     path = ROOT / rel
@@ -54,5 +62,4 @@ for rel, wanted in sorted(entries.items()):
     actual = hashlib.sha256(path.read_bytes()).hexdigest()
     assert actual == wanted, (rel, wanted, actual)
 
-mode = "clean-release strict coverage" if not installed_overlay else "installed-overlay managed-file verification"
-print(f"PASS: v6.7.13 package SHA256SUMS ({mode})")
+print("PASS: v6.8.0 package SHA256SUMS validates clean releases and installed overlays")

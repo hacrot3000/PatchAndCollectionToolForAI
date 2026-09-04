@@ -1,4 +1,4 @@
-# Portable use — Python Patch Tool v6.7.13
+# Portable use — Python Patch Tool v6.8.0
 
 Normal user entry point is always:
 
@@ -56,9 +56,8 @@ the queue on purpose.
 
 SANDBOX / detached-worktree execution is removed from the supported workflow.
 Every documented PATCH execution route through the public launcher (`--patch`,
-`--all`, `--select`, direct patch package paths, and historical execution
-modifiers such as `-a/-y/--zip-failed/--keep-failed-zip/--move`) strips
-historical transaction flags and forces the installed compatible core to
+`--all`, `--select`, or a direct patch package path) strips historical
+transaction flags and forces the installed compatible core to
 `--transaction off`. Transaction/SANDBOX-only invocations fail closed instead
 of falling through to a legacy zero-argument core.
 
@@ -72,8 +71,6 @@ passed through without execution-only arguments. COLLECT remains readonly.
 Zero-argument discovery recognizes v5+ PATCH ZIPs by root
 `PATCH_TOOL_MANIFEST.json`, documented legacy-v4 signatures, and COLLECT ZIPs.
 HANDOFF/report/tool-distribution archives and symlink queue entries are skipped.
-Support-bundle identity is checked before COLLECT, because HANDOFF/DETAIL archives
-may legitimately embed a previous request JSON or patch-looking source evidence.
 A root `PATCH_TOOL_MANIFEST.json` has precedence over any nested
 `CODE_COLLECTION_REQUEST_*.json` resource so a valid PATCH cannot be routed as
 COLLECT. ZIP/TAR package extension matching at the launcher is case-insensitive.
@@ -91,27 +88,38 @@ falls back to user confirmation for automatic selection.
 
 Selected work is executed in natural order and stops on the first failure.
 Remaining selected items are reported as `SKIPPED / NOT EXECUTED` and remain in
-the queue. Destructive selector deletion revalidates the same file-identity
-snapshot used by execution; a same-named artifact replaced after the menu was
-rendered is never unlinked from stale selector state.
+the queue.
 
-## v6.7.13 completion hardening
 
-A zero collector exit code becomes a public PASS only when the result collection
-ZIP is detected and usable. Result and request completion paths are retained independently from each other
-and independently from the bounded failure tail, so repeated request metadata or
-verbose post-result output cannot evict/erase the upload target. Missing/non-ZIP result artifacts fail closed before
-the final status row is printed. Quoted paths and paths containing spaces are
-accepted. Result ZIP validation includes member CRC checks, and strong ZIP-specific
-completion labels take precedence over generic `FILE:`/`ARTIFACT:` fallbacks. Stop handlers are installed before collector spawn and cover common
-task/terminal-close signals so the readonly child tree is not left orphaned.
+## Local-only duplicate PATCH handling
 
-Queue entries are revalidated immediately before execution. Discovery records
-a file-identity snapshot; a selected entry that has disappeared, become a
-symlink, been replaced/modified under the same filename, or changed from
-PATCH/COLLECT into another artifact class fails closed rather than being
-executed from stale selector state.
+Before the normal zero-argument selector is shown, PATCH candidates are compared
+only with direct regular files already present in this project's
+`patchs/patched/` directory. Exact SHA-256 package content is authoritative.
 
-The public launcher rejects manual COLLECT subcommands. Zero-argument queue
-routing invokes the readonly COLLECT supervisor internally, enforcing the same
-workflow that the AI-facing documentation requires.
+- Identical bytes under another filename are still a local duplicate.
+- The same filename with different bytes is **not** a duplicate and remains runnable.
+- No PROJECT KEY, network service, shared database, Git remote, or history from
+  another machine participates in the decision. The same PATCH can therefore be
+  run independently on multiple machines/projects.
+- A duplicate is **skip-only**: its queue file remains untouched in `patchs/`.
+- The console records the reason as:
+
+  ```text
+  PATCHES SKIPPED / NOT EXECUTED:
+  1. [SKIPPED:DUPLICATE_LOCAL] <patch-name.zip>
+     Local match: patchs/patched/<historical-name.zip>
+  ```
+
+Duplicate PATCHes are removed from the runnable selector set before selection,
+so they cannot be executed accidentally by the normal zero-argument workflow.
+
+## v6.8.0 queue/result correctness
+
+PATCH child termination by signal is reported using normal shell codes (for
+example Ctrl+C = 130 and SIGTERM = 143), not negative Python subprocess codes.
+Line-selector Ctrl+C cancels without a traceback. A normal zero-argument COLLECT
+PASS is accepted only if the request ZIP has actually moved from `patchs/` to
+`patchs/patched/`. If a legacy collector prints more than one candidate result
+ZIP, the supervisor validates candidates newest-first and highlights exactly one
+valid upload ZIP.

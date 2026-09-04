@@ -1,4 +1,4 @@
-Python Patch Tool v6.7.13 portable regression/document-contract repair
+Python Patch Tool v6.8.0 — completion of existing local duplicate filtering
 
 Public entry point:
   tools/run_python_patches.sh
@@ -6,8 +6,19 @@ Public entry point:
 MANDATORY COLLECT public contract:
   AI delivers one ZIP containing exactly one CODE_COLLECTION_REQUEST*.json.
   User puts that ZIP in patchs/ and runs only ./tools/run_python_patches.sh.
-  Loose request JSON and manual COLLECT-subcommand guidance are obsolete/invalid. See tools/_patch_lib/docs/AI_USAGE_CONTRACT.md.
-  Successful COLLECT prints exactly one highlighted [PRIMARY - UPLOAD THIS FILE] result ZIP path and validates that the reported local artifact exists and is a ZIP.
+  Loose request JSON and manual COLLECT-subcommand guidance are obsolete/invalid.
+  Successful COLLECT prints exactly one highlighted [PRIMARY - UPLOAD THIS FILE]
+  result ZIP path after existence/location/ZIP-CRC verification.
+  A COLLECT rc=0 is accepted only after the request ZIP is archived from
+  patchs/ to patchs/patched/.
+
+LOCAL DUPLICATE PATCH contract completed in v6.8.0:
+  Normal zero-argument queue compares runnable PATCH packages only with this
+  project's local patchs/patched/ files. Exact SHA-256 content identity is used.
+  No PROJECT KEY, network, remote/shared history, or other-machine state is read.
+  Identical renamed packages are skipped; same-name packages with changed bytes
+  remain runnable. Duplicate queue files are not deleted or moved. They are
+  reported as [SKIPPED:DUPLICATE_LOCAL] with the local matched history path.
 
 Managed release files:
   tools/run_python_patches.sh
@@ -16,22 +27,15 @@ Managed release files:
   tools/_patch_lib/VERSION
   tools/_patch_lib/SHA256SUMS
   tools/_patch_lib/PACKAGE_CONTENTS.txt
-  tools/_patch_lib/self_test_*_v6_7_13.py
+  tools/_patch_lib/self_test_*_v6_8_0.py
   tools/_patch_lib/docs/
 
 Compatibility requirement:
   Existing private core modules such as python_patch_runner.py and the readonly
   collector must already be installed. They are deliberately not reconstructed
-  from incomplete evidence. The public launcher forces documented PATCH
-  execution routes to the core's in-place `--transaction off` mode.
+  from incomplete evidence. The public launcher keeps PATCH execution in-place
+  with --transaction off; SANDBOX/worktree remains removed.
 
 Release scope:
-  Bug/regression/document-contract repair only. No new feature group is started.
-
-v6.7.13 regression repairs:
-- Destructive selector delete revalidates queue identity and refuses to unlink a replaced/symlinked same-name artifact.
-- HANDOFF copy filenames such as `*_HANDOFF(1).zip` are rejected while genuine legacy `patch_*handoff*.zip` packages remain runnable.
-- COLLECT result ZIP validation verifies member CRC integrity, not only the ZIP container signature.
-- ZIP-specific result labels outrank generic `FILE:`/`ARTIFACT:` fallbacks so a later unrelated ZIP cannot replace the primary collection result.
-- User-facing queue/progress sanitization removes Unicode bidi/format controls in addition to ANSI/C0/C1 controls.
-- All prior zero-argument COLLECT, in-place/SANDBOX-removal, fail-fast, selector, classifier, and result-highlight fixes remain active.
+  Completes a previously unfinished duplicate-filtering capability plus retains
+  earlier regression repairs. No unrelated feature group is started.

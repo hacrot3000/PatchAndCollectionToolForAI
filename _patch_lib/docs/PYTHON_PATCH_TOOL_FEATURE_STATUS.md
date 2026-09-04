@@ -1,35 +1,44 @@
-# Python Patch Tool v6.7.13 feature status
+# Python Patch Tool v6.8.0 feature status
 
 | Capability | Status |
 |---|---|
-| Public zero-argument PATCH/COLLECT queue | COMPLETE; COLLECT is internally routed and public manual COLLECT subcommands are rejected |
+| Public zero-argument PATCH/COLLECT queue | COMPLETE for structural unified routing |
 | AI COLLECT request delivery: ZIP containing exactly one request JSON | DOCUMENTED / ENFORCED BY QUEUE |
 | Loose COLLECT request JSON | REJECTED |
 | Filename-independent v5 PATCH discovery by package structure | COMPLETE |
 | Legacy-v4 positive patch recognition | COMPLETE |
-| Non-patch HANDOFF/report/tool archive rejection | COMPLETE; support identity precedes COLLECT, browser copy suffixes like `(1)` are recognized, while the historical `patch_*` namespace remains available to genuine legacy patches |
-| Queue TOCTOU / symlink rejection | COMPLETE; selected item identity metadata is snapshotted and revalidated before execution and destructive selector delete |
+| Non-patch HANDOFF/report/tool archive rejection | COMPLETE |
+| Symlink queue entry rejection | COMPLETE |
 | Single-item default selection | COMPLETE |
 | TTY selector | COMPLETE for documented controls |
 | Line selector numbers/lists/ranges/all/none/quit/delete | COMPLETE |
 | Config-driven zero-argument prompt/all/first/newest selection | COMPLETE |
 | Stop on first selected-item failure | COMPLETE |
+| Local-only duplicate PATCH filtering against `patchs/patched/` | COMPLETE in v6.8.0 — SHA-256 content identity, skip-only |
+| Renamed identical PATCH detection | COMPLETE in v6.8.0 |
+| Same-name/different-content PATCH remains runnable | COMPLETE in v6.8.0 |
+| Duplicate history scope | LOCAL PROJECT ONLY — no PROJECT KEY/network/shared history |
+| Duplicate queue file lifecycle | SKIP ONLY — file remains untouched in `patchs/` |
+| Duplicate summary reason | `[SKIPPED:DUPLICATE_LOCAL]` with matching local history path |
+| PATCH child signal exit-code normalization (SIGINT/SIGTERM -> 130/143) | COMPLETE / retained |
+| Line selector Ctrl+C clean cancellation / no traceback | COMPLETE / retained |
 | TTY one-line COLLECT progress / resize handling | COMPLETE |
-| Invalid UTF-8/control-character robustness | COMPLETE; ANSI/C0/C1 plus Unicode bidi/format and line-separator controls are neutralized in user-facing text |
-| COLLECT result ZIP path with quotes/spaces | FIXED in v6.7.13 |
-| COLLECT rc=0 without a usable result ZIP | FAIL-CLOSED as rc=2; result/request completion paths are retained independently, result ZIP member CRCs are verified, and ZIP-specific labels outrank generic archive labels |
-| COLLECT child-process cleanup on SIGINT/SIGTERM/SIGHUP/SIGQUIT | FIXED / hardened in v6.7.13 |
-| COLLECT spawn-vs-signal orphan race | FIXED in v6.7.13 |
+| Invalid UTF-8/control-character robustness | COMPLETE |
+| COLLECT child-process cleanup on SIGINT/SIGTERM | COMPLETE |
 | COLLECT PASS result ZIP highlighted once / duplicate path suppression | COMPLETE |
+| COLLECT upload ZIP existence/location/CRC verification | COMPLETE |
+| COLLECT result-candidate fallback when earlier reported ZIP is stale | COMPLETE |
+| COLLECT PASS request archive postcondition (`patchs/` -> `patchs/patched/`) | ENFORCED |
+| Release checksum self-test on installed overlays with private core/older files | COMPLETE |
 | Transaction worktree execution | REMOVED — PATCH routes forced in-place |
-| Transaction/SANDBOX flags without a recognized PATCH route | FAIL-CLOSED; legacy `-a/-y/--zip-failed/--keep-failed-zip/--move` execution routes also force in-place |
+| Transaction/SANDBOX-only launcher invocation | FAIL-CLOSED |
 | Readonly COLLECT | COMPLETE |
-| Package checksum self-test on a real project containing private/stale tools | FIXED in v6.7.13; verifies managed files without claiming project-owned extras |
 | Exact replacement of private installed core modules | NOT CLAIMED; exact current private-core source is not present in this release input |
-| Unified pre-selector identity/history/duplicate filtering | PRIVATE-CORE DEPENDENT; not reconstructed from incomplete source |
 | Exact LAST_RUN audit synthesis for dispatcher-only delete/cancel/not-selected events | PRIVATE-CORE DEPENDENT; not reconstructed from incomplete source |
 | Real large-project COLLECT validation | PENDING USER RUNTIME EVIDENCE |
 | Phase-inference refinement | DEFERRED unless real COLLECT output demonstrates missing/poor markers |
 
-No new feature group is started by v6.7.13. This release is bug/regression
-repair only.
+v6.8.0 completes the already-listed duplicate-filtering work. It does not start
+an unrelated feature group. The duplicate decision is intentionally machine-local:
+a PATCH that has run on one computer is still runnable on another computer unless
+that second project root has the same package content in its own `patchs/patched/`.

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -20,7 +21,7 @@ try:
 except Exception:
     termios = tty = None
 
-VERSION = "6.7.13"
+VERSION = "6.8.0"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -39,28 +40,13 @@ class QueueItem:
     name: str
     kind: str
     detail: str = ""
-    # Snapshot captured during discovery.  Selection can stay open for an
-    # arbitrary amount of time; refuse to execute a same-named file that was
-    # replaced or modified after the user saw/selected it.
-    identity: tuple[int, int, int, int, int] | None = None
 
 
-def _queue_identity(path: Path) -> tuple[int, int, int, int, int] | None:
-    try:
-        st = path.stat()
-    except OSError:
-        return None
-    return (
-        int(st.st_dev),
-        int(st.st_ino),
-        int(st.st_size),
-        int(st.st_mtime_ns),
-        int(st.st_ctime_ns),
-    )
-
-
-def _queue_item(path: Path, kind: str, detail: str = "") -> QueueItem:
-    return QueueItem(path.name, kind, detail, _queue_identity(path))
+@dataclass(frozen=True)
+class LocalDuplicate:
+    item: QueueItem
+    history_name: str
+    sha256: str
 
 
 def _safe_display(value: str) -> str:
@@ -70,11 +56,7 @@ def _safe_display(value: str) -> str:
         if ch in "\r\n\t":
             out.append(" ")
             continue
-        category = unicodedata.category(ch)
-        if category in {"Cc", "Cf"}:
-            continue
-        if category in {"Zl", "Zp"}:
-            out.append(" ")
+        if unicodedata.category(ch) == "Cc":
             continue
         out.append(ch)
     return "".join(out)
@@ -129,94 +111,6 @@ def _has_patch_markers(data: bytes) -> bool:
     return any(marker in data for marker in PATCH_MARKERS)
 
 
-def _archive_support_views(names: list[str]) -> list[list[str]]:
-    """Return archive-name views used only for support-bundle signatures.
-
-    Downloaders/repackagers often wrap an otherwise identical archive in one
-    top-level directory.  Recognize tool/HANDOFF signatures through that single
-    wrapper before scanning Python helper markers, so support bundles cannot
-    become runnable PATCH items merely because they contain self-tests.
-    """
-    clean: list[str] = []
-    for raw in names:
-        n = raw.replace("\\", "/")
-        while n.startswith("./"):
-            n = n[2:]
-        n = n.strip("/")
-        if n:
-            clean.append(n)
-    views = [clean]
-    first_parts = {n.split("/", 1)[0] for n in clean}
-    if len(first_parts) == 1 and clean and all("/" in n for n in clean):
-        prefix = next(iter(first_parts)) + "/"
-        if prefix not in {"./", "../"}:
-            stripped = [n[len(prefix):] for n in clean if n.startswith(prefix)]
-            if stripped:
-                views.append(stripped)
-    return views
-
-
-def _support_bundle_filename_kind(name: str) -> str | None:
-    """Recognize well-known generated support artifact filenames.
-
-    Root PATCH manifests still take precedence.  These filename signatures are
-    a fallback for generated HANDOFF/DETAIL/tool archives whose internal layout
-    may vary and may legitimately contain runnable-looking source evidence.
-    """
-    low = name.lower()
-    if low.startswith("python_patch_tool_"):
-        return "tool_distribution"
-    if low.startswith("ptv_") and any(tag in low for tag in ("_handoff", "_detail", "_summary", "_report", "_code")):
-        return "ptv_support_archive"
-    # Project handoffs are not always PTV-generated (for example
-    # DATBIKE_BLE_OTA_HANDOFF_....zip), and browsers commonly append copy
-    # suffixes such as ``(1)``.  A root PATCH manifest is checked before this
-    # filename fallback.  Preserve the historical ``patch_*`` namespace for
-    # genuine legacy patch archives even when the patch description itself
-    # contains the word ``handoff``.
-    if not low.startswith("patch_"):
-        stem = re.sub(r"(?i)\.(?:zip|tgz|tar\.gz)$", "", low)
-        stem = re.sub(r"\s*\(\d+\)$", "", stem)
-        if re.search(r"(?:^|[_. -])handoff(?:[_. -]|$)", stem):
-            return "handoff_archive"
-    return None
-
-
-def _is_support_bundle_names(names: list[str]) -> str | None:
-    for view in _archive_support_views(names):
-        if (
-            "tools/run_python_patches.sh" in view
-            and any(n.startswith("tools/_patch_lib/") for n in view)
-        ):
-            return "tool_distribution"
-        root_names = {n for n in view if "/" not in n}
-        if {"HANDOFF_README.md", "CURRENT_STATE.md"} <= root_names:
-            return "handoff_archive"
-    return None
-
-
-def _zip_support_kind(path: Path) -> str | None:
-    """Recognize non-runnable support bundles before COLLECT inspection.
-
-    A HANDOFF may legitimately embed a prior CODE_COLLECTION_REQUEST JSON.
-    If COLLECT inspection runs first, that unrelated nested request can turn the
-    complete HANDOFF into a runnable queue item. Support-bundle identity is
-    stronger than nested request content, while a root PATCH manifest remains
-    stronger than both and is checked by the caller first.
-    """
-    if path.suffix.lower() != ".zip" or not path.is_file():
-        return None
-    filename_kind = _support_bundle_filename_kind(path.name)
-    if filename_kind:
-        return filename_kind
-    try:
-        with zipfile.ZipFile(path) as zf:
-            names = [n for n in zf.namelist() if not n.endswith("/")]
-        return _is_support_bundle_names(names)
-    except Exception:
-        return None
-
-
 def _zip_is_patch(path: Path):
     try:
         with zipfile.ZipFile(path) as zf:
@@ -226,15 +120,18 @@ def _zip_is_patch(path: Path):
             # being mistaken for the patch itself.
             if "PATCH_TOOL_MANIFEST.json" in names:
                 return True, "manifest"
-            filename_kind = _support_bundle_filename_kind(path.name)
-            if filename_kind:
-                return False, filename_kind
             # Known distribution/support bundles are not runnable patches.
-            # Check both the archive root and a common single wrapper folder
-            # before scanning Python text for legacy helper markers.
-            support_kind = _is_support_bundle_names(names)
-            if support_kind:
-                return False, support_kind
+            # Check these signatures before scanning Python text for legacy
+            # helper markers because self-tests and diagnostic bundles may
+            # legitimately mention PATCH_NAME/run_patch as plain test data.
+            if (
+                "tools/run_python_patches.sh" in names
+                and any(n.startswith("tools/_patch_lib/") for n in names)
+            ):
+                return False, "tool_distribution"
+            root_names = {n for n in names if "/" not in n.strip("/")}
+            if {"HANDOFF_README.md", "CURRENT_STATE.md"} <= root_names:
+                return False, "handoff_archive"
 
             py_names = [n for n in names if n.lower().endswith(".py")]
             if any(PATCH_PY_RE.match(Path(n).name) for n in py_names):
@@ -273,12 +170,14 @@ def _tar_is_patch(path: Path):
             names = [m.name for m in members]
             if "PATCH_TOOL_MANIFEST.json" in names:
                 return True, "manifest"
-            filename_kind = _support_bundle_filename_kind(path.name)
-            if filename_kind:
-                return False, filename_kind
-            support_kind = _is_support_bundle_names(names)
-            if support_kind:
-                return False, support_kind
+            if (
+                "tools/run_python_patches.sh" in names
+                and any(n.startswith("tools/_patch_lib/") for n in names)
+            ):
+                return False, "tool_distribution"
+            root_names = {n for n in names if "/" not in n.strip("/")}
+            if {"HANDOFF_README.md", "CURRENT_STATE.md"} <= root_names:
+                return False, "handoff_archive"
             py_members = [m for m in members if m.name.lower().endswith(".py")]
             if any(PATCH_PY_RE.match(Path(m.name).name) for m in py_members):
                 return True, "legacy_patch_script"
@@ -327,6 +226,121 @@ def inspect_patch_candidate(path: Path):
     return False, "unsupported_extension"
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _split_local_duplicate_patches(root: Path, items: list[QueueItem]):
+    """Split runnable items from PATCHes already present in local PASS history.
+
+    Duplicate history is deliberately local-only: direct regular files under
+    ``<project>/patchs/patched``.  No project key, network state, shared cache,
+    Git history, or machine-external database participates.  Exact content
+    SHA-256 is the authority, so a renamed copy is still a duplicate while a
+    same-named package with different bytes remains runnable.
+
+    Duplicate queue files are left untouched in ``patchs/``.  This mirrors an
+    unselected item: the tool skips execution but does not delete or archive
+    user input merely because a local historical copy exists.
+    """
+    history_dir = root / "patchs" / "patched"
+    if not history_dir.is_dir():
+        return list(items), [], []
+
+    by_size: dict[int, list[Path]] = {}
+    warnings: list[str] = []
+    try:
+        history_entries = list(history_dir.iterdir())
+    except OSError as exc:
+        return list(items), [], [
+            f"local duplicate history unavailable: patchs/patched ({type(exc).__name__})"
+        ]
+
+    for path in history_entries:
+        try:
+            if path.is_symlink() or not path.is_file():
+                continue
+            size = path.stat().st_size
+        except OSError:
+            continue
+        by_size.setdefault(size, []).append(path)
+    for paths in by_size.values():
+        paths.sort(key=lambda x: natural_name_key(x.name))
+
+    history_hash_cache: dict[Path, str | None] = {}
+    runnable: list[QueueItem] = []
+    duplicates: list[LocalDuplicate] = []
+
+    for item in items:
+        if item.kind != "PATCH":
+            runnable.append(item)
+            continue
+        queued = root / "patchs" / item.name
+        try:
+            if queued.is_symlink() or not queued.is_file():
+                runnable.append(item)
+                continue
+            size = queued.stat().st_size
+        except OSError as exc:
+            warnings.append(
+                f"local duplicate check skipped for patchs/{item.name} ({type(exc).__name__})"
+            )
+            runnable.append(item)
+            continue
+
+        candidates = list(by_size.get(size, ()))
+        if not candidates:
+            runnable.append(item)
+            continue
+        # Prefer a same-name historical file in diagnostics, then natural name.
+        candidates.sort(key=lambda x: (x.name != item.name, natural_name_key(x.name)))
+        try:
+            queued_hash = _sha256_file(queued)
+        except OSError as exc:
+            warnings.append(
+                f"local duplicate check skipped for patchs/{item.name} ({type(exc).__name__})"
+            )
+            runnable.append(item)
+            continue
+
+        match: Path | None = None
+        for historical in candidates:
+            if historical not in history_hash_cache:
+                try:
+                    history_hash_cache[historical] = _sha256_file(historical)
+                except OSError:
+                    history_hash_cache[historical] = None
+            if history_hash_cache[historical] == queued_hash:
+                match = historical
+                break
+        if match is None:
+            runnable.append(item)
+            continue
+        duplicates.append(LocalDuplicate(item, match.name, queued_hash))
+
+    return runnable, duplicates, warnings
+
+
+def _print_local_duplicate_skips(duplicates: list[LocalDuplicate], *, stream=None) -> None:
+    if not duplicates:
+        return
+    out = stream or sys.stdout
+    print("PATCHES SKIPPED / NOT EXECUTED:", file=out)
+    for index, duplicate in enumerate(duplicates, 1):
+        print(
+            f"{index}. [SKIPPED:DUPLICATE_LOCAL] {_safe_display(duplicate.item.name)}",
+            file=out,
+        )
+        print(
+            f"   Local match: patchs/patched/{_safe_display(duplicate.history_name)}",
+            file=out,
+        )
+
+
 def discover_queue(root: Path):
     directory = root / "patchs"
     directory.mkdir(parents=True, exist_ok=True)
@@ -353,22 +367,12 @@ def discover_queue(root: Path):
         # legitimately carry a collection request as a resource; do not route
         # that resource ZIP into the readonly COLLECT path.
         if path.suffix.lower() == ".zip" and _zip_has_root_patch_manifest(path):
-            items.append(_queue_item(path, "PATCH", "manifest"))
-            continue
-
-        # A tool distribution or HANDOFF can embed a previous valid COLLECT
-        # request as evidence.  Never let that nested JSON override the archive's
-        # stronger support-bundle identity.
-        support_kind = _zip_support_kind(path)
-        if support_kind:
-            warnings.append(
-                f"SKIPPED non-patch candidate: patchs/{path.name} ({support_kind})"
-            )
+            items.append(QueueItem(path.name, "PATCH", "manifest"))
             continue
 
         ok, detail = inspect_collect_zip(path)
         if ok:
-            items.append(_queue_item(path, "COLLECT", detail))
+            items.append(QueueItem(path.name, "COLLECT", detail))
             continue
 
         collect_invalid = (
@@ -385,7 +389,7 @@ def discover_queue(root: Path):
             )
         )
         if collect_invalid:
-            items.append(_queue_item(path, "COLLECT INVALID", detail))
+            items.append(QueueItem(path.name, "COLLECT INVALID", detail))
             continue
 
         supported = low.endswith((".zip", ".py", ".tar.gz", ".tgz"))
@@ -393,7 +397,7 @@ def discover_queue(root: Path):
             continue
         is_patch, patch_detail = inspect_patch_candidate(path)
         if is_patch:
-            items.append(_queue_item(path, "PATCH", patch_detail))
+            items.append(QueueItem(path.name, "PATCH", patch_detail))
         else:
             warnings.append(
                 f"SKIPPED non-patch candidate: patchs/{path.name} ({patch_detail})"
@@ -443,6 +447,13 @@ def _render(items, cursor, selected, msg, prev):
         sys.stdout.write("\r\x1b[2K" + line + "\n")
     sys.stdout.flush()
     return frame_height
+
+
+def _readline_or_interrupt():
+    try:
+        return sys.stdin.readline(), False
+    except KeyboardInterrupt:
+        return "", True
 
 
 def _parse_index_spec(spec: str, count: int):
@@ -537,32 +548,11 @@ def _delete_indexes(root: Path, items: list[QueueItem], selected: set[int], inde
         victim = items[i]
         target = root / "patchs" / victim.name
         try:
-            # Deletion is a destructive action and needs the same TOCTOU guard
-            # as execution.  Never unlink a same-named file that appeared after
-            # the selector was rendered.
-            if target.is_symlink():
-                failures.append(f"{victim.name}: queue entry changed into a symlink")
-                continue
-            if victim.identity is None:
-                failures.append(f"{victim.name}: missing queue identity; refusing destructive delete")
-                continue
-            current_identity = _queue_identity(target)
-            if current_identity is None:
-                # An external process already removed it: drop the stale menu
-                # entry, but do not claim that this invocation deleted it.
-                items.pop(i)
-                selected = {j if j < i else j - 1 for j in selected if j != i}
-                continue
-            if current_identity != victim.identity:
-                failures.append(f"{victim.name}: queue entry was replaced or modified after selection")
-                continue
+            # Queue discovery rejects symlinks, and unlink never follows one.
             target.unlink()
         except FileNotFoundError:
-            # It disappeared between identity validation and unlink. Treat the
-            # selector entry as stale without deleting any replacement.
-            items.pop(i)
-            selected = {j if j < i else j - 1 for j in selected if j != i}
-            continue
+            # An external process already removed it: treat it as no longer queued.
+            pass
         except OSError as exc:
             failures.append(f"{victim.name}: {type(exc).__name__}")
             continue
@@ -582,7 +572,10 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
             mark = "x" if i - 1 in selected else " "
             print(f"  [{mark}] {i}. [{_safe_display(item.kind)}] {_safe_display(item.name)}")
         print("Nhập: 1,3-5 | a=all | n=none | d <số/range>=xóa | q=quit | Enter=xác nhận")
-        raw_line = sys.stdin.readline()
+        raw_line, interrupted = _readline_or_interrupt()
+        if interrupted:
+            print("\nCancelled by Ctrl+C.")
+            return None
         if raw_line == "":
             return None
         raw = raw_line.strip().lower()
@@ -605,7 +598,10 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
             names = ", ".join(_safe_display(items[i].name) for i in sorted(indexes))
             sys.stdout.write(f"Xóa vĩnh viễn {names}? [y/N]: ")
             sys.stdout.flush()
-            confirm = sys.stdin.readline()
+            confirm, interrupted = _readline_or_interrupt()
+            if interrupted:
+                print("\nCancelled by Ctrl+C.")
+                return None
             if confirm == "" or confirm.strip().lower() != "y":
                 print("Xóa đã hủy.")
                 continue
@@ -747,90 +743,67 @@ def _configured_auto_selection(root: Path, items: list[QueueItem], cfg: dict):
     return None
 
 
+def _normalize_subprocess_rc(rc: int) -> int:
+    """Map signal-style negative subprocess return codes to shell convention."""
+    value = int(rc)
+    return 128 + abs(value) if value < 0 else value
 
-def _revalidate_selected_item(root: Path, item: QueueItem) -> tuple[bool, str]:
-    """Fail closed if a queued file changed after selection.
 
-    Selection and execution are separate user-visible phases.  A file may be
-    deleted/replaced by another task between them; do not execute a stale
-    QueueItem classification in that case.
+def _collect_archive_postcondition(root: Path, item: QueueItem) -> tuple[bool, str]:
+    """Verify the established COLLECT PASS queue lifecycle.
+
+    A successful readonly collection must move its request ZIP from patchs/ to
+    patchs/patched/.  Reporting PASS while the request remains runnable causes
+    accidental repeated collections on the next zero-argument run.
     """
-    path = root / "patchs" / item.name
+    source = root / "patchs" / item.name
+    archived = root / "patchs" / "patched" / item.name
+    if source.exists() or source.is_symlink():
+        return False, f"COLLECT rc=0 but request is still queued: patchs/{item.name}"
     try:
-        if path.is_symlink():
-            return False, "queue entry became a symlink after selection"
-        if not path.is_file():
-            return False, "queue entry no longer exists as a regular file"
+        if archived.is_symlink() or not archived.is_file():
+            return False, f"COLLECT rc=0 but archived request is missing: patchs/patched/{item.name}"
     except OSError as exc:
-        return False, f"queue entry cannot be inspected ({type(exc).__name__})"
+        return False, f"COLLECT archive verification failed: {type(exc).__name__}"
+    return True, ""
 
-    if item.identity is not None:
-        current_identity = _queue_identity(path)
-        if current_identity != item.identity:
-            return False, "queue entry was replaced or modified after selection"
-
-    if item.kind == "PATCH":
-        # A root patch manifest has precedence over any nested COLLECT resource.
-        if path.suffix.lower() == ".zip" and _zip_has_root_patch_manifest(path):
-            return True, "manifest"
-        is_patch, detail = inspect_patch_candidate(path)
-        return (True, detail) if is_patch else (False, f"PATCH signature changed: {detail}")
-
-    if item.kind == "COLLECT":
-        if path.suffix.lower() == ".zip" and _zip_has_root_patch_manifest(path):
-            return False, "COLLECT entry changed into a PATCH package"
-        support_kind = _zip_support_kind(path)
-        if support_kind:
-            return False, f"COLLECT entry changed into a support bundle: {support_kind}"
-        ok, detail = inspect_collect_zip(path)
-        return (True, detail) if ok else (False, f"COLLECT request changed: {detail}")
-
-    return False, f"non-runnable queue kind: {item.kind}"
 
 def execute_items(root: Path, chosen: list[QueueItem]):
     """Execute in natural selected order and stop immediately on first failure."""
     executed: list[tuple[str, int]] = []
     for index, item in enumerate(chosen):
-        valid, reason = _revalidate_selected_item(root, item)
-        if not valid:
-            print(
-                f"ERROR queue item changed after selection: {_safe_display(item.name)} ({_safe_display(reason)})",
-                file=sys.stderr,
-            )
-            rc = 2
-            executed.append((item.name, rc))
-            remaining = chosen[index + 1 :]
-            return rc, executed, remaining
         if item.kind == "PATCH":
             cmd = [str(root / "tools/run_python_patches.sh"), "--patch", f"patchs/{item.name}"]
         elif item.kind == "COLLECT":
-            # COLLECT subcommands are intentionally not part of the public
-            # launcher contract.  Zero-argument queue routing invokes the
-            # internal supervisor directly so users/AI have exactly one public
-            # command: ./tools/run_python_patches.sh
-            lib = root / "tools" / "_patch_lib"
-            progress = lib / "python_patch_collect_progress_v6_7.py"
-            collector = lib / "python_patch_readonly_collector.py"
-            if not progress.is_file() or not collector.is_file():
-                missing = progress if not progress.is_file() else collector
-                print(f"ERROR missing COLLECT core: {_safe_display(str(missing))}", file=sys.stderr)
-                rc = 2
-                executed.append((item.name, rc))
-                remaining = chosen[index + 1 :]
-                return rc, executed, remaining
-            cmd = [
-                sys.executable, str(progress),
-                "--project-root", str(root),
-                "--collector", str(collector),
-                "--", "request", f"patchs/{item.name}",
-            ]
+            cmd = [str(root / "tools/run_python_patches.sh"), "collect", "request", f"patchs/{item.name}"]
         else:
             print(f"ERROR invalid collect package {_safe_display(item.name)}", file=sys.stderr)
             rc = 2
             executed.append((item.name, rc))
             remaining = chosen[index + 1 :]
             return rc, executed, remaining
-        rc = subprocess.run(cmd, cwd=root).returncode
+        try:
+            # Flush selector/status text before the child writes its own RUN
+            # SUMMARY. This keeps captured/non-TTY consoles in chronological
+            # order instead of letting Python buffering place the menu after
+            # child output.
+            try:
+                sys.stdout.flush()
+                sys.stderr.flush()
+            except Exception:
+                pass
+            rc = _normalize_subprocess_rc(subprocess.run(cmd, cwd=root).returncode)
+        except KeyboardInterrupt:
+            # Ctrl+C is a normal operator stop, not an internal Python error.
+            # The child receives the terminal signal too; report conventional
+            # shell status 130 and stop the selected queue immediately.
+            rc = 130
+            print(f"[PTV v{VERSION}] INTERRUPTED by Ctrl+C", file=sys.stderr)
+        if rc == 0 and item.kind == "COLLECT":
+            ok, detail = _collect_archive_postcondition(root, item)
+            if not ok:
+                print(f"[PTV v{VERSION} ERROR] {_safe_display(detail)}", file=sys.stderr)
+                rc = 3
         executed.append((item.name, rc))
         if rc:
             remaining = chosen[index + 1 :]
@@ -843,10 +816,15 @@ def main(argv=None):
     ns = ap.parse_args(argv)
     root = Path(ns.project_root).resolve()
     items, warnings = discover_queue(root)
-    for warning in warnings:
+    items, local_duplicates, duplicate_warnings = _split_local_duplicate_patches(root, items)
+    for warning in [*warnings, *duplicate_warnings]:
         print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}")
     if not items:
-        print("AUTO STATUS: IDLE — no runnable patch/collect package is waiting in patchs/.")
+        if local_duplicates:
+            print("AUTO STATUS: IDLE — no new runnable package; local duplicate PATCHes were skipped.")
+            _print_local_duplicate_skips(local_duplicates)
+        else:
+            print("AUTO STATUS: IDLE — no runnable patch/collect package is waiting in patchs/.")
         return 0
 
     cfg, config_warnings = _load_zero_argument_config(root)
@@ -855,17 +833,25 @@ def main(argv=None):
 
     chosen = _configured_auto_selection(root, items, cfg)
     if chosen is None:
-        chosen = select_items(
-            root,
-            list(items),
-            initial_selection=cfg.get("initial_selection", "none"),
-            selector_ui=cfg.get("selector_ui", "auto"),
-        )
+        try:
+            chosen = select_items(
+                root,
+                list(items),
+                initial_selection=cfg.get("initial_selection", "none"),
+                selector_ui=cfg.get("selector_ui", "auto"),
+            )
+        except KeyboardInterrupt:
+            print("\nCancelled by Ctrl+C.")
+            return 130
     if chosen is None:
         print("Cancelled.")
+        if local_duplicates:
+            _print_local_duplicate_skips(local_duplicates)
         return 0
     if not chosen:
         print("AUTO STATUS: IDLE — queue is empty or no runnable item remains; nothing executed.")
+        if local_duplicates:
+            _print_local_duplicate_skips(local_duplicates)
         return 0
 
     rc, executed, remaining = execute_items(root, chosen)
@@ -879,7 +865,11 @@ def main(argv=None):
             print(f"SKIPPED / NOT EXECUTED: {len(remaining)} selected item(s)", file=sys.stderr)
             for item in remaining:
                 print(f"  - {_safe_display(item.name)}", file=sys.stderr)
+        if local_duplicates:
+            _print_local_duplicate_skips(local_duplicates, stream=sys.stderr)
         return rc
+    if local_duplicates:
+        _print_local_duplicate_skips(local_duplicates)
     print(f"SUMMARY: PASS | {len(executed)} selected item(s) completed")
     return 0
 
