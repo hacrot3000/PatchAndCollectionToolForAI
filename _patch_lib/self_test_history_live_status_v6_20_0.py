@@ -146,7 +146,12 @@ try:
     # PREFLIGHT_FAIL paths and pushed FAIL_HANDOFF/action paths off-screen.
     assert '\x1b[24;1H' not in close_delta, repr(close_delta)
     assert '\x1b[2K' not in close_delta, repr(close_delta)
-    assert close_delta == '\x1b[r\x1b[0m', repr(close_delta)
+    # CSI r may home the cursor on VT/xterm.  Close must preserve the
+    # current log cursor around the scroll-region reset; otherwise SUMMARY and
+    # an outer task wrapper's "Nhấn Enter..." prompt can overwrite header/log
+    # rows after a successful PATCH.
+    assert close_delta == '\x1b7\x1b[r\x1b8\x1b[0m', repr(close_delta)
+    assert close_delta.index('\x1b7') < close_delta.index('\x1b[r') < close_delta.index('\x1b8')
     visible = fake.getvalue()
     assert 'patch_a.zip' in visible and 'PASS' in visible
     assert 'patch_b.zip' in visible and 'FAILED' in visible

@@ -1093,7 +1093,15 @@ class _LivePatchStatus:
             # Keeping the cursor at the current log position makes the final
             # summary continue immediately after the last visible child/status
             # output while still leaving the fixed status rows intact above.
-            out.write("\x1b[r\x1b[0m")
+            # DECSTBM (CSI r) is allowed to home the cursor on VT/xterm
+            # terminals.  If we reset the scroll region without preserving the
+            # current log cursor, the caller's final SUMMARY and outer task
+            # wrapper prompt can overwrite the fixed status header / earlier
+            # child output.  Preserve the cursor around the margin reset so the
+            # next normal-console line continues exactly where live logging
+            # stopped.  This also retains the v6.20.1 fix: we never jump to
+            # the physical bottom of the terminal.
+            out.write("\x1b7\x1b[r\x1b8\x1b[0m")
             out.flush()
         except Exception:
             pass
