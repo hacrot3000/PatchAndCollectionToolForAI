@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.18.5"
+VERSION = "6.18.6"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -1753,6 +1753,40 @@ def _sensitive_handoff_warnings(console_log: str, sources: list[tuple[str, Path]
     return list(dict.fromkeys(warnings))
 
 
+def _print_upload_action_block(path: Path | str, *, patch_failure: bool = False, stream=None) -> None:
+    """Print one high-visibility upload-required block without changing plain-text semantics.
+
+    TTY/VT terminals receive a bright-yellow background for the PRIMARY label,
+    ACTION REQUIRED instruction and exact artifact path.  The path remains
+    complete/copyable and is additionally underlined.  NO_COLOR/non-TTY output
+    stays byte-for-byte plain apart from the terminal-width-bounded rule rows.
+    """
+    out = stream or sys.stdout
+    banner = (
+        "!!! [PRIMARY - UPLOAD THIS FILE] PATCH FAIL HANDOFF !!!"
+        if patch_failure else "!!! [PRIMARY - UPLOAD THIS FILE] !!!"
+    )
+    action = ">>> ACTION REQUIRED: UPLOAD TO CHATGPT / AI SERVER <<<"
+    try:
+        cols = _selector_term_width()
+    except Exception:
+        cols = 120
+    width = max(1, min(72, int(cols) - 2))
+    rule = "=" * width
+    print(rule, file=out)
+    if _result_color_enabled(out):
+        block_style, path_style, reset = "\x1b[1;30;103m", "\x1b[1;4;30;103m", "\x1b[0m"
+        print(f"{block_style}{_clip_selector_line(banner, width + 2)}{reset}", file=out)
+        print(f"{block_style}{_clip_selector_line(action, width + 2)}{reset}", file=out)
+        # Do not clip the artifact path: users must be able to copy the exact ZIP.
+        print(f"{path_style}{_safe_display(path)}{reset}", file=out)
+    else:
+        print(_clip_selector_line(banner, width + 2), file=out)
+        print(_clip_selector_line(action, width + 2), file=out)
+        print(_safe_display(path), file=out)
+    print(rule, file=out)
+
+
 def _create_fail_handoff(
     root: Path,
     item: QueueItem,
@@ -1963,11 +1997,7 @@ def _create_fail_handoff(
         )
         if detail_log_meta.get("truncated"):
             print("FAIL HANDOFF LOG: bounded DETAIL.log includes beginning + end of oversized log")
-        print("=" * 72)
-        print("!!! [PRIMARY - UPLOAD THIS FILE] PATCH FAIL HANDOFF !!!")
-        print(">>> ACTION REQUIRED: UPLOAD TO CHATGPT / AI SERVER <<<")
-        print(str(final))
-        print("=" * 72)
+        _print_upload_action_block(final, patch_failure=True)
         return final
     except Exception as exc:
         print(f"[PTV v{VERSION} WARNING] could not create FAIL_HANDOFF: {type(exc).__name__}: {exc}", file=sys.stderr)

@@ -1,8 +1,15 @@
-# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.18.5
+# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.18.6
 
 Trước khi AI sửa Patch Tool, bắt buộc đọc `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md` và `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Tính năng từng PASS/COMPLETE không được tự ý xóa, thu hẹp hoặc làm mất đường gọi chỉ vì code/schema hiện tại không dùng tới. Nếu thật sự phải thay thế, phải ghi trạng thái vào ledger và thêm test hành vi chứng minh.
 
-# Danh sách tính năng Python Patch Tool — v6.18.5
+# Danh sách tính năng Python Patch Tool — v6.18.6
+
+## v6.18.6 — Làm nổi bật file bắt buộc upload
+
+- FAIL_HANDOFF giờ hiển thị cùng style nổi bật với kết quả COLLECT.
+- Dòng `[PRIMARY - UPLOAD THIS FILE]`, `ACTION REQUIRED` và đường dẫn ZIP đều nền vàng trên terminal hỗ trợ màu; đường dẫn được gạch chân.
+- Khi `NO_COLOR` hoặc output không phải TTY, tool giữ nguyên nội dung plain text, không chèn ANSI.
+- Chỉ thay đổi presentation; toàn bộ contract PATCH/COLLECT/recovery/history/batch/compatibility giữ nguyên và được khóa bởi regression hiện có.
 
 ## v6.18.5 — Sửa discovery/glob nhưng không mất tính năng cũ
 

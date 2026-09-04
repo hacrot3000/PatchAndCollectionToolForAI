@@ -1,6 +1,6 @@
 # Python Patch Tool — cumulative capability ledger
 
-Current release: **v6.18.5**
+Current release: **v6.18.6**
 
 This is the canonical cross-version continuity ledger. It complements the current feature-status document; it must never be replaced by a current-only checklist.
 
@@ -13,6 +13,13 @@ Status vocabulary:
 - **NOT_CURRENTLY_GUARANTEED** — historical capability existed but current self-contained v6 package does not claim equivalent parity; it must remain visible here rather than silently disappearing.
 
 See `HISTORICAL_FEATURE_BASELINE_V5_15.md` for all 107 original names. Machine-readable complete-ID coverage is enforced by `CURRENT_CAPABILITY_DISPOSITION.json`.
+
+## v6.18.6 upload-required highlight preservation
+
+- **PRESERVED/strengthened:** primary upload artifact labels remain authoritative in plain text.
+- **Presentation additive:** TTY/VT output highlights `[PRIMARY - UPLOAD THIS FILE]`, `ACTION REQUIRED`, and the exact ZIP path with a high-contrast yellow background; the path is underlined.
+- **Compatibility:** `NO_COLOR`, redirected output, Windows/non-VT fallback and copyable artifact paths retain plain-text semantics.
+- **Behavioral gate:** `self_test_upload_action_highlight_v6_18_6.py`.
 
 ## v6.18.5 discovery/glob false-zero hardening
 

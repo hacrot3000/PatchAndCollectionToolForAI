@@ -1,4 +1,4 @@
-# Python Patch Tool v6.18.5 — output files and what to upload
+# Python Patch Tool v6.18.6 — output files and what to upload
 
 This guide preserves the historical “output-file role guide” capability while describing the **current** v6 artifact model. Old v5 SUMMARY/CODE/DETAIL filenames are historical and must not be inferred as current outputs.
 
@@ -25,5 +25,7 @@ HISTORY can reopen prior run detail and generate/export support material. Use th
 Historical v5 documentation described `AI_HANDOFF`, `SUMMARY`, `CODE`, `DETAIL`, `REPORT`, and `LAST_RUN.md`. Current v6 uses a structured run/history/fail-handoff model instead. `CAPABILITY_LEDGER.md` records this as a deliberate supersession rather than deleting the historical feature from memory.
 
 ## Current console color/text contract
+
+From v6.18.6, every primary upload-required block uses one consistent high-visibility hierarchy on color-capable terminals: both the `[PRIMARY - UPLOAD THIS FILE]` label and `ACTION REQUIRED` line have a bright-yellow background, and the exact ZIP path has the same yellow background plus underline. Plain/non-TTY/`NO_COLOR` output keeps the same text and exact path without ANSI.
 
 Color is presentation only; textual labels remain authoritative. Current v6 keeps ANSI/VT output when supported and plain-text fallback otherwise. `NO_COLOR` disables result color. High-risk PATCH failure uses a high-contrast failure banner; successful PATCH completion uses a distinct completion banner; selector emphasis and status words remain readable without color. The exact v5 palette is historical rather than a runtime compatibility requirement.

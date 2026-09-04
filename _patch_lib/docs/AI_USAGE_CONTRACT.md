@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.18.5
+# AI / ChatGPT usage contract — Python Patch Tool v6.18.6
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
@@ -7,6 +7,10 @@ This document overrides older Patch Tool instructions when they conflict with th
 Before AI changes Patch Tool code, it MUST read `NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, `HISTORICAL_FEATURE_BASELINE_V5_15.md`, `HISTORICAL_FEATURE_STATUS_V5_15.json`, and `CURRENT_CAPABILITY_DISPOSITION.json` in addition to the current schemas/docs. A capability previously documented as COMPLETE/PRESERVED/COMPATIBILITY_RESTORED must not be silently deleted, narrowed, renamed, or made unreachable. Historical code must not be removed merely because the current schema does not exercise it. Intentional replacement/removal requires an explicit ledger disposition and behavioral regression evidence in the same release.
 
 Current docs override old docs for runtime semantics, but they do **not** erase historical capability evidence.
+
+### v6.18.6 upload-required visibility contract
+
+When Patch Tool prints a primary artifact that the user must upload, TTY/VT output MUST make the entire action block visually prominent: `[PRIMARY - UPLOAD THIS FILE]`, `ACTION REQUIRED`, and the exact ZIP path use a high-contrast yellow background; the path is additionally underlined. `NO_COLOR` and non-TTY output remain plain text with the same authoritative labels/path. This is presentation-only and MUST NOT change artifact selection, logging, recovery semantics, or copyable path content.
 
 ### v6.18.5 filename discovery / glob contract
 

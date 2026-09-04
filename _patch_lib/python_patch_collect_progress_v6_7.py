@@ -18,7 +18,7 @@ import time
 import unicodedata
 from typing import Iterable
 
-VERSION = "6.18.5"
+VERSION = "6.18.6"
 DEFAULT_HEARTBEAT = 0.8
 DEFAULT_MARGIN = 2
 MAX_TAIL_LINES = 120
@@ -248,7 +248,7 @@ def _print_collect_success(root: Path, lines: Iterable[str]) -> bool:
             break
         validation_errors.append(f"{reported}: {error or 'invalid result ZIP'}")
     if result_zip:
-        is_tty = bool(getattr(sys.stdout, 'isatty', lambda: False)())
+        is_tty = bool(getattr(sys.stdout, 'isatty', lambda: False)()) and os.environ.get("NO_COLOR") is None
         banner = '!!! [PRIMARY - UPLOAD THIS FILE] !!!'
         destination = '>>> ACTION REQUIRED: UPLOAD TO CHATGPT / AI SERVER <<<'
         # Never force a decorative minimum wider than the live terminal.
@@ -262,9 +262,12 @@ def _print_collect_success(root: Path, lines: Iterable[str]) -> bool:
         if is_tty:
             # High-contrast yellow action banner; keep ANSI outside the path so
             # the artifact itself is still easy to select/copy from a terminal.
+            # Keep the entire upload-required block visually consistent: the
+            # PRIMARY label, ACTION REQUIRED instruction and exact ZIP path all
+            # use the same high-contrast yellow background.
             print(f'\x1b[1;30;103m{_clip_cells(banner, width)}\x1b[0m')
-            print(f'\x1b[1;7m{_clip_cells(destination, width)}\x1b[0m')
-            print(f'\x1b[1;4m{result_zip}\x1b[0m')
+            print(f'\x1b[1;30;103m{_clip_cells(destination, width)}\x1b[0m')
+            print(f'\x1b[1;4;30;103m{result_zip}\x1b[0m')
         else:
             print(banner)
             print(destination)

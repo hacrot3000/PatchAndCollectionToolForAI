@@ -1,4 +1,11 @@
-# Python Patch Tool v6.18.5 feature status
+# Python Patch Tool v6.18.6 feature status
+
+## v6.18.6 upload-required action highlighting
+
+- COMPLETE: PATCH FAIL_HANDOFF now uses the same high-visibility upload block as COLLECT.
+- COMPLETE: PRIMARY label, ACTION REQUIRED instruction and exact ZIP path are all yellow-background highlighted on color-capable TTY/VT terminals; the path is also underlined.
+- COMPLETE: `NO_COLOR`/non-TTY remains plain text and exact/copyable.
+- COMPLETE: behavioral release gate protects both FAIL_HANDOFF and COLLECT presentation without changing recovery semantics.
 
 ## v6.18.5 discovery preservation fix
 

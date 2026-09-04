@@ -1,11 +1,18 @@
-# v6.18.5 mandatory continuity gate — NO SILENT REMOVAL
+# v6.18.6 mandatory continuity gate — NO SILENT REMOVAL
 
 Before modifying Patch Tool, read `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, and `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Do not delete or narrow any capability previously marked COMPLETE/PRESERVED/COMPATIBILITY_RESTORED unless the user explicitly requests it or a later documented contract supersedes it. Every intentional transition must be recorded in the ledger and protected by a behavioral test. Surface/string-only compatibility tests are not sufficient.
 
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.18.5**  
+Phiên bản mục tiêu: **v6.18.6**  
 Trạng thái: **95/95 HISTORICAL-COMPLETE DISPOSITION + SEMANTIC CONTINUITY — COMPLETE**
+
+## v6.18.6 — Upload-required highlight, không đổi semantics
+
+- FAIL_HANDOFF và COLLECT dùng cùng quy ước hiển thị artifact cần upload.
+- Trên TTY/VT: `PRIMARY`, `ACTION REQUIRED` và đường dẫn ZIP đều nền vàng tương phản cao; path có underline.
+- `NO_COLOR`/redirect/non-TTY giữ plain text; tuyệt đối không thay đổi file được chọn, path, recovery, state hoặc logging.
+- Release gate bắt buộc: `self_test_upload_action_highlight_v6_18_6.py`.
 
 ## v6.18.5 — Mine COLLECT discovery/glob regression
 
