@@ -1,0 +1,47 @@
+name: Fix manual shared version loader
+
+on:
+  push:
+    branches:
+      - ptv-v6.20.2-upload-helper
+    paths:
+      - .github/workflows/fix-manual-shared-version.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ptv-v6.20.2-hardening-work
+          fetch-depth: 0
+      - name: Restore shared version loader and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=7e141b2b15de72737266431244f3353ae26c4a1a
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected" || { echo "Unexpected work branch HEAD: $actual"; exit 2; }
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('_patch_lib/python_patch_manual_workflow.py')
+          text=p.read_text(encoding='utf-8')
+          old='VERSION = "6.20.1"\n'
+          assert old in text, 'expected legacy local VERSION literal not found'
+          text=text.replace(old, 'from python_patch_version import VERSION\n', 1)
+          p.write_text(text, encoding='utf-8')
+          PY
+
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_manual_execution_v6_20_0.py
+          grep -Fq 'from python_patch_version import VERSION' _patch_lib/python_patch_manual_workflow.py
+          ! grep -Eq '^VERSION = "[0-9]+\.[0-9]+\.[0-9]+"' _patch_lib/python_patch_manual_workflow.py
+
+          git config user.name "Patch Tool CI"
+          git config user.email "patch-tool-ci@users.noreply.github.com"
+          git add _patch_lib/python_patch_manual_workflow.py
+          git commit -m "fix: keep manual workflow on shared version source"
+          git push origin HEAD:ptv-v6.20.2-hardening-work
