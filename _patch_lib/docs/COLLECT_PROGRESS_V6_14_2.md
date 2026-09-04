@@ -1,4 +1,4 @@
-# COLLECT progress / self-contained collector v6.17.6
+# COLLECT progress / self-contained collector v6.17.8
 
 The normal command remains:
 

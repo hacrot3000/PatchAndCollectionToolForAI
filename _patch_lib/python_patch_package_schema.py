@@ -10,7 +10,7 @@ import shutil
 import stat
 from typing import Any
 
-VERSION = "6.17.7"
+VERSION = "6.17.8"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "PATCH_PACKAGE_SCHEMA.json"
 _HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 _SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
@@ -57,6 +57,10 @@ def _safe_rel(value: str, *, label: str) -> str:
     rel = PurePosixPath(value.strip())
     if rel.is_absolute() or any(part in {"", ".", ".."} for part in rel.parts):
         raise PatchSchemaError(f"unsafe {label}: {value}", path=value)
+    # Keep project-relative paths portable on Windows too.  Drive-relative
+    # forms such as C:foo and ADS syntax can replace/retarget a joined path.
+    if any(":" in part for part in rel.parts):
+        raise PatchSchemaError(f"Windows drive/ADS syntax is not allowed in {label}: {value}", path=value)
     return rel.as_posix()
 
 
@@ -118,6 +122,12 @@ _FIELD_SUGGESTIONS = {
     "manifest.post_patch.commands[].timeout_seconds": (
         "Set an integer from 1 to 1800."
     ),
+    "manifest.on_failure.commands[].timeout_seconds": (
+        "Set an integer from 1 to 1800."
+    ),
+    "manifest.git.timeout_seconds": (
+        "Set an integer from 1 to 1800."
+    ),
     "manifest.git.push": "Use exactly 'auto' or 'off'.",
 }
 
@@ -128,6 +138,8 @@ def _suggestion_for(field: str, message: str) -> str | None:
         return direct
     if ".post_patch.commands[" in field and field.endswith("].timeout_seconds"):
         return _FIELD_SUGGESTIONS["manifest.post_patch.commands[].timeout_seconds"]
+    if ".on_failure.commands[" in field and field.endswith("].timeout_seconds"):
+        return _FIELD_SUGGESTIONS["manifest.on_failure.commands[].timeout_seconds"]
     if "unsupported field" in message:
         return "Remove the field or migrate it to an allowed field defined by PATCH_PACKAGE_SCHEMA.json."
     return None
@@ -281,28 +293,29 @@ def resolve_project_path(root: Path, rel_text: str, *, allow_missing: bool = Fal
     return path
 
 
-def _check_command(root: Path, command: dict[str, Any], index: int) -> None:
+def _check_command(root: Path, command: dict[str, Any], index: int, *, field: str = "post_patch.commands") -> None:
+    label = f"{field}[{index}]"
     argv = command.get("argv")
     if not isinstance(argv, list) or not argv or not all(isinstance(x, str) and x for x in argv):
-        raise PatchSchemaError(f"post_patch.commands[{index}].argv must be a non-empty string array")
+        raise PatchSchemaError(f"{label}.argv must be a non-empty string array")
     cwd_raw = str(command.get("cwd", "."))
     if cwd_raw == ".":
         cwd = root
     else:
         cwd = resolve_project_path(root, cwd_raw)
         if not cwd.is_dir():
-            raise PatchSchemaError(f"post_patch.commands[{index}].cwd is not a directory: {cwd_raw}", path=cwd_raw)
+            raise PatchSchemaError(f"{label}.cwd is not a directory: {cwd_raw}", path=cwd_raw)
     exe = argv[0]
     if "/" in exe or "\\" in exe:
         exe_path = Path(exe)
         if not exe_path.is_absolute():
             exe_path = cwd / exe_path
         if not exe_path.is_file():
-            raise PatchSchemaError(f"post_patch.commands[{index}] executable not found: {exe}", kind="command_missing")
+            raise PatchSchemaError(f"{label} executable not found: {exe}", kind="command_missing")
         if os.name != "nt" and not os.access(exe_path, os.X_OK):
-            raise PatchSchemaError(f"post_patch.commands[{index}] executable is not executable: {exe}", kind="command_missing")
+            raise PatchSchemaError(f"{label} executable is not executable: {exe}", kind="command_missing")
     elif shutil.which(exe) is None:
-        raise PatchSchemaError(f"post_patch.commands[{index}] executable not found in PATH: {exe}", kind="command_missing")
+        raise PatchSchemaError(f"{label} executable not found in PATH: {exe}", kind="command_missing")
 
 
 def _ops_target_paths(ops: Any) -> set[str]:
@@ -488,13 +501,7 @@ def run_preflight(
         resolved_profiles = resolve_validation_profiles(root, manifest)
         if resolved_profiles:
             for profile_index, profile in enumerate(resolved_profiles):
-                try:
-                    _check_command(root, profile, profile_index)
-                except PatchSchemaError as exc:
-                    raise PatchSchemaError(
-                        str(exc).replace(f"post_patch.commands[{profile_index}]", f"validation profile {profile.get('name','?')}"),
-                        kind=exc.kind, path=exc.path, issues=exc.issues, report=exc.report,
-                    ) from exc
+                _check_command(root, profile, profile_index, field=f"validation profile {profile.get('name','?')}")
             report["validation_profiles"] = [{"name": str(x.get("name"))} for x in resolved_profiles]
             report["_resolved_validation_profiles"] = resolved_profiles
             checks.append({
@@ -529,8 +536,17 @@ def run_preflight(
         if not git.exists():
             raise PatchSchemaError("preflight.require_clean_worktree requires a Git worktree", kind="worktree_requirement")
         import subprocess
-        cp = subprocess.run(["git", "status", "--porcelain=v1"], cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
-        if cp.returncode != 0 or cp.stdout.strip():
+        try:
+            cp = subprocess.run(["git", "-c", "core.fsmonitor=false", "status", "--porcelain=v1"], cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+        except subprocess.TimeoutExpired as exc:
+            raise PatchSchemaError("preflight git status timed out after 30s", kind="command_timeout") from exc
+        if cp.returncode != 0:
+            detail = (cp.stderr or "").strip().replace("\n", " ")[:500]
+            raise PatchSchemaError(
+                f"preflight git status failed rc={cp.returncode}" + (f": {detail}" if detail else ""),
+                kind="command_failed",
+            )
+        if cp.stdout.strip():
             raise PatchSchemaError("preflight requires a clean Git worktree", kind="worktree_dirty")
         checks.append({"kind": "clean_worktree", "status": "PASS"})
 
@@ -634,9 +650,16 @@ def run_preflight(
     pp = manifest.get("post_patch")
     if isinstance(pp, dict):
         for i, cmd in enumerate(pp.get("commands") or []):
-            _check_command(root, cmd, i)
+            _check_command(root, cmd, i, field="post_patch.commands")
         if pp.get("commands"):
             checks.append({"kind": "post_patch_commands", "status": "PASS", "count": len(pp.get("commands") or [])})
+
+    on_failure = manifest.get("on_failure")
+    if isinstance(on_failure, dict):
+        for i, cmd in enumerate(on_failure.get("commands") or []):
+            _check_command(root, cmd, i, field="on_failure.commands")
+        if on_failure.get("commands"):
+            checks.append({"kind": "on_failure_commands", "status": "PASS", "count": len(on_failure.get("commands") or [])})
 
     git_policy = manifest.get("git")
     if isinstance(git_policy, dict) and any(git_policy.get(k) not in {None, "off", False} for k in ("add", "commit", "push")):

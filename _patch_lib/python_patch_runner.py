@@ -19,16 +19,34 @@ import zipfile
 import time
 import unicodedata
 from datetime import datetime, timezone
+from dataclasses import dataclass
 
 from python_patch_utils import PatchFailure, diagnose_ops, finish_failure, run_ops
-from python_patch_package_schema import PatchSchemaError, path_is_link_or_reparse, run_preflight, sha256_file
+from python_patch_package_schema import PatchSchemaError, path_is_link_or_reparse, resolve_project_path, run_preflight, sha256_file
 
-VERSION = "6.17.7"
+VERSION = "6.17.8"
 _ACTIVE_TERMINATION_SIGNAL: int | None = None
 MAX_ARCHIVE_ENTRIES = 10000
 MAX_ARCHIVE_MEMBER_BYTES = 64 * 1024 * 1024
 MAX_ARCHIVE_TOTAL_BYTES = 256 * 1024 * 1024
 MAX_ARCHIVE_COMPRESSION_RATIO = 200
+
+
+@dataclass(frozen=True)
+class ManagedProcessResult:
+    rc: int
+    timed_out: bool = False
+    lingering_descendants: bool = False
+
+    @property
+    def normalized_rc(self) -> int:
+        value = int(self.rc)
+        return 128 + abs(value) if value < 0 else value
+
+    @property
+    def effective_rc(self) -> int:
+        rc = self.normalized_rc
+        return 125 if self.lingering_descendants and rc == 0 else rc
 
 
 def _sigterm_as_interrupt(signum, _frame):
@@ -177,19 +195,29 @@ def _find_payload(extracted: Path) -> tuple[dict, str, Path]:
     return manifest, "python", py_files[0]
 
 
-def _git_bytes(root: Path, args: list[str], *, timeout: int = 30) -> bytes:
-    proc = subprocess.run(["git", *args], cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
+def _git_bytes(root: Path, args: list[str], *, timeout: int = 30) -> bytes | None:
+    try:
+        proc = subprocess.run(["git", *args], cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
     if proc.returncode != 0:
-        return b""
+        return None
     return proc.stdout
 
 
 def _git_worktree_fingerprint(root: Path) -> str | None:
     if not (root / ".git").exists():
         return None
+    # Disable repository-configured external diff/textconv/fsmonitor hooks for
+    # state observation.  Fingerprinting must be read-only and bounded rather
+    # than execute arbitrary helper programs merely to decide whether a PATCH
+    # changed the project.
+    diff = _git_bytes(root, ["-c", "core.fsmonitor=false", "diff", "--no-ext-diff", "--no-textconv", "--binary", "HEAD", "--", "."], timeout=60)
+    raw = _git_bytes(root, ["-c", "core.fsmonitor=false", "ls-files", "--others", "--exclude-standard", "-z"], timeout=30)
+    if diff is None or raw is None:
+        return None
     h = hashlib.sha256()
-    h.update(_git_bytes(root, ["diff", "--binary", "HEAD", "--", "."], timeout=60))
-    raw = _git_bytes(root, ["ls-files", "--others", "--exclude-standard", "-z"], timeout=30)
+    h.update(diff)
     for name in raw.split(b"\0"):
         if not name:
             continue
@@ -206,12 +234,18 @@ def _git_worktree_fingerprint(root: Path) -> str | None:
 def _dirty_paths(root: Path) -> dict[str, str]:
     if not (root / ".git").exists():
         return {}
-    proc = subprocess.run(
-        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-        cwd=root, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=30,
-    )
+    try:
+        proc = subprocess.run(
+            ["git", "-c", "core.fsmonitor=false", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+            cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("git status timed out while determining dirty paths") from exc
+    except OSError as exc:
+        raise RuntimeError(f"git status could not start: {type(exc).__name__}: {exc}") from exc
     if proc.returncode != 0:
-        return {}
+        detail = proc.stderr.decode("utf-8", errors="replace").strip().replace("\n", " ")[:500]
+        raise RuntimeError(f"git status failed rc={proc.returncode}" + (f": {detail}" if detail else ""))
     out: dict[str, str] = {}
     parts = proc.stdout.split(b"\0")
     i = 0
@@ -250,7 +284,9 @@ def _windows_taskkill(proc: subprocess.Popen, *, force: bool) -> None:
         argv = ["taskkill", "/PID", str(proc.pid), "/T"]
         if force:
             argv.append("/F")
-        subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, check=False)
+        cp = subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, check=False)
+        if cp.returncode != 0 and proc.poll() is None:
+            proc.kill() if force else proc.terminate()
     except Exception:
         try:
             if proc.poll() is None:
@@ -297,14 +333,18 @@ def _managed_group_alive(proc: subprocess.Popen) -> bool:
 def _quiesce_managed_group(proc: subprocess.Popen, initial_signal: int, *, grace_seconds: float = 1.0) -> None:
     """Terminate the managed payload tree before rollback/result publication."""
     if os.name == "nt":
-        _signal_subprocess_group(proc, initial_signal)
+        # Enumerate/terminate the tree while the group leader is still known.
+        # Signalling only the leader first can let it exit before `taskkill /T`
+        # discovers descendants, leaving a child alive after timeout/rollback.
+        _windows_taskkill(proc, force=False)
+        if proc.poll() is None:
+            _signal_subprocess_group(proc, initial_signal)
         deadline = time.monotonic() + max(0.1, grace_seconds)
         while time.monotonic() < deadline:
             if proc.poll() is not None:
                 break
             time.sleep(0.05)
-        # taskkill /T closes descendants as well as the leader. /F is the final
-        # containment barrier before rollback or returning timeout/Ctrl+C.
+        # /F is the final containment barrier before rollback or result publish.
         _windows_taskkill(proc, force=True)
         try:
             proc.wait(timeout=1.0)
@@ -346,110 +386,248 @@ def _quiesce_managed_group(proc: subprocess.Popen, initial_signal: int, *, grace
             pass
 
 
-def _run_managed_process(argv: list[str], *, cwd: Path, env: dict[str, str] | None = None, timeout: int) -> int:
-    """Run payload/validation in an isolated process group.
+_INTERNAL_CONTROL_ENV_VARS = frozenset({
+    "PTV_PATCH_RESULT_FILE",
+    "PTV_COLLECT_RESULT_FILE",
+    "PTV_PARENT_MUTATION_LOCK_KEY",
+    "PTV_PARENT_MUTATION_LOCK_TOKEN",
+})
+
+
+def _external_command_env(*, base: dict[str, str] | None = None) -> dict[str, str]:
+    """Environment for untrusted/project commands, without Patch Tool control channels."""
+    env = dict(os.environ if base is None else base)
+    for name in _INTERNAL_CONTROL_ENV_VARS:
+        env.pop(name, None)
+    return env
+
+
+def _run_managed_process(argv: list[str], *, cwd: Path, env: dict[str, str] | None = None, timeout: int) -> ManagedProcessResult:
+    """Run one executable in an isolated process group and distinguish timeout from rc=124.
 
     Timeout/interruption terminates descendants before control returns to the
-    rollback path. This prevents an orphaned child from modifying the project
-    after the tool has already reported FAIL or restored a snapshot.
+    rollback path. Returning an explicit ``timed_out`` bit avoids conflating a
+    program that deliberately exits 124 with a tool-enforced timeout.
     """
-    kwargs: dict[str, object] = {"cwd": cwd, "env": env}
+    # Managed PATCH commands are deliberately non-interactive.  Keeping stdin
+    # attached to the selector terminal lets an accidental input()/prompt steal
+    # keystrokes or hang until the command timeout.
+    kwargs: dict[str, object] = {"cwd": cwd, "env": env, "stdin": subprocess.DEVNULL}
     if os.name != "nt":
         kwargs["start_new_session"] = True
     elif hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     proc = subprocess.Popen(argv, **kwargs)
     try:
-        return proc.wait(timeout=max(1, int(timeout)))
+        rc = proc.wait(timeout=max(1, int(timeout)))
+        lingering = False
+        if os.name != "nt" and _managed_group_alive(proc):
+            # Give very short-lived helpers a small bounded drain window.  A
+            # process tree that remains alive beyond this point is asynchronous
+            # work escaping the command contract and must be contained.
+            drain_deadline = time.monotonic() + 0.25
+            while time.monotonic() < drain_deadline and _managed_group_alive(proc):
+                time.sleep(0.02)
+            if _managed_group_alive(proc):
+                lingering = True
+                term = signal.SIGTERM if hasattr(signal, "SIGTERM") else signal.SIGINT
+                _quiesce_managed_group(proc, term, grace_seconds=0.75)
+        return ManagedProcessResult(rc, False, lingering)
     except subprocess.TimeoutExpired:
         term = signal.SIGTERM if hasattr(signal, "SIGTERM") else signal.SIGINT
         _quiesce_managed_group(proc, term, grace_seconds=1.0)
-        return 124
+        return ManagedProcessResult(124, True)
     except KeyboardInterrupt:
         signum = _ACTIVE_TERMINATION_SIGNAL or signal.SIGINT
         _quiesce_managed_group(proc, signum, grace_seconds=1.0)
         raise
 
 
-def _run_argv(root: Path, cmd: dict) -> int:
-    argv = cmd.get("argv")
-    if not isinstance(argv, list) or not argv or not all(isinstance(x, str) and x for x in argv):
-        raise ValueError("post_patch command argv must be a non-empty string array")
-    cwd_raw = cmd.get("cwd", ".")
+def _resolve_command_cwd(root: Path, cwd_raw: str, *, label: str) -> Path:
     if not isinstance(cwd_raw, str) or not cwd_raw:
-        raise ValueError("post_patch cwd must be a string")
-    rel = PurePosixPath(cwd_raw)
-    if rel.is_absolute() or any(p == ".." for p in rel.parts):
-        raise ValueError(f"unsafe post_patch cwd: {cwd_raw}")
-    cwd = root if cwd_raw == "." else root.joinpath(*rel.parts)
+        raise ValueError(f"{label} cwd must be a string")
+    if cwd_raw == ".":
+        return root
+    try:
+        cwd = resolve_project_path(root, cwd_raw)
+    except PatchSchemaError as exc:
+        raise ValueError(f"unsafe {label} cwd: {cwd_raw}: {exc}") from exc
     if not cwd.is_dir():
-        raise ValueError(f"post_patch cwd not found: {cwd_raw}")
+        raise ValueError(f"{label} cwd not found: {cwd_raw}")
+    return cwd
+
+
+def _run_argv(root: Path, cmd: dict, *, label: str = "POST PATCH") -> ManagedProcessResult:
+    argv = cmd.get("argv")
+    label_lower = label.lower().replace(" ", "_")
+    if not isinstance(argv, list) or not argv or not all(isinstance(x, str) and x for x in argv):
+        raise ValueError(f"{label_lower} command argv must be a non-empty string array")
+    cwd_raw = cmd.get("cwd", ".")
+    cwd = _resolve_command_cwd(root, cwd_raw, label=label_lower)
     timeout = int(cmd.get("timeout_seconds", 300))
     name = cmd.get("name") or " ".join(argv)
-    print(f"POST PATCH: {name}", flush=True)
-    rc = _run_managed_process(argv, cwd=cwd, timeout=max(1, timeout))
-    if rc == 124:
-        print(f"ERROR: post_patch command timeout after {timeout}s", file=sys.stderr)
-    return rc if rc >= 0 else 128 + abs(rc)
+    print(f"{label}: {name}", flush=True)
+    outcome = _run_managed_process(argv, cwd=cwd, env=_external_command_env(), timeout=max(1, timeout))
+    if outcome.timed_out:
+        print(f"ERROR: {label_lower} command timeout after {timeout}s", file=sys.stderr)
+    return outcome
 
 
-def _run_post_patch(root: Path, manifest: dict, *, changed: bool) -> int:
-    pp = manifest.get("post_patch")
-    if not isinstance(pp, dict):
-        return 0
-    commands = pp.get("commands")
+def _run_command_sequence(root: Path, commands: object, *, label: str) -> dict[str, object]:
+    result: dict[str, object] = {"status": "PASS", "rc": 0, "commands": []}
     if not isinstance(commands, list) or not commands:
-        return 0
-    if not changed and not bool(pp.get("run_when_no_changes", False)):
-        print("POST PATCH: skipped because payload produced no detected project delta")
-        return 0
+        return result
+    rows: list[dict[str, object]] = []
+    result["commands"] = rows
     for cmd in commands:
         if not isinstance(cmd, dict):
-            print("ERROR: invalid post_patch command object", file=sys.stderr)
-            return 2
+            rows.append({"name": "<invalid>", "status": "FAIL", "rc": 2, "timed_out": False})
+            result.update({"status": "FAIL", "rc": 2})
+            print(f"ERROR: invalid {label.lower()} command object", file=sys.stderr)
+            break
+        name = str(cmd.get("name") or " ".join(cmd.get("argv") or []) or "<unnamed>")
         try:
-            rc = _run_argv(root, cmd)
+            outcome = _run_argv(root, cmd, label=label)
+            rc = outcome.effective_rc
+            if outcome.lingering_descendants:
+                print(f"ERROR: {label.lower()} command left descendant processes after its leader exited; descendants were terminated", file=sys.stderr)
+            rows.append({"name": name, "status": "PASS" if rc == 0 else "FAIL", "rc": rc, "timed_out": bool(outcome.timed_out), "lingering_descendants": bool(outcome.lingering_descendants)})
+        except KeyboardInterrupt:
+            rc = 143 if _ACTIVE_TERMINATION_SIGNAL == getattr(signal, "SIGTERM", None) else 130
+            rows.append({"name": name, "status": "INTERRUPTED", "rc": rc, "timed_out": False})
+            result.update({"status": "INTERRUPTED", "rc": rc})
+            print(f"{label}: interrupted by user/termination signal", file=sys.stderr, flush=True)
+            # User termination is a control-flow event, not an ordinary command
+            # failure.  Propagate it so the runner/dispatcher globally stops the
+            # batch after the managed process tree has been quiesced.
+            raise
         except Exception as exc:
-            print(f"ERROR: post_patch command invalid: {exc}", file=sys.stderr)
-            return 2
+            print(f"ERROR: {label.lower()} command invalid: {exc}", file=sys.stderr)
+            rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": f"{type(exc).__name__}: {exc}"})
+            result.update({"status": "FAIL", "rc": 2})
+            break
         if rc:
-            return rc
-    return 0
+            result.update({"status": "FAIL", "rc": rc})
+            break
+    return result
 
 
-def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> int:
+def _run_post_patch(root: Path, manifest: dict, *, changed: bool) -> dict[str, object] | None:
+    pp = manifest.get("post_patch")
+    if not isinstance(pp, dict):
+        return None
+    commands = pp.get("commands")
+    if not isinstance(commands, list) or not commands:
+        return None
+    if not changed and not bool(pp.get("run_when_no_changes", False)):
+        print("POST PATCH: skipped because payload produced no detected project delta")
+        return {"status": "SKIPPED", "rc": 0, "commands": [], "reason": "no_detected_project_delta"}
+    return _run_command_sequence(root, commands, label="POST PATCH")
+
+
+def _run_on_failure(root: Path, manifest: dict) -> dict[str, object] | None:
+    node = manifest.get("on_failure")
+    commands = node.get("commands") if isinstance(node, dict) else None
+    if not isinstance(commands, list) or not commands:
+        return None
+    print("ON FAILURE: running failure-only command sequence after rollback/failure containment", flush=True)
+    report = _run_command_sequence(root, commands, label="ON FAILURE")
+    print(f"ON FAILURE SUMMARY: {report.get('status')} | rc={report.get('rc')}", flush=True)
+    return report
+
+
+def _apply_on_failure_commands(
+    root: Path, manifest: dict, result: dict[str, object], *,
+    before_fp: str | None, before_dirty: dict[str, str],
+    before_targets: dict[str, dict[str, object]], target_paths: list[str],
+    current_partial: dict[str, object],
+) -> dict[str, object]:
+    report = _run_on_failure(root, manifest)
+    if report is None:
+        return current_partial
+    result["on_failure"] = report
+    try:
+        final_partial = _partial_state(
+            root, before_fp=before_fp, before_dirty=before_dirty,
+            before_targets=before_targets, target_paths=target_paths,
+        )
+    except Exception as exc:
+        final_partial = {
+            "detected": None, "changed_paths": [],
+            "evidence": f"on_failure_final_state_unknown:{type(exc).__name__}",
+        }
+    report["final_project_delta"] = final_partial
+    return final_partial
+
+
+def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[str, object] | None:
     profiles = preflight.get("_resolved_validation_profiles") if isinstance(preflight, dict) else None
     if not isinstance(profiles, list) or not profiles:
-        return 0
+        return None
+    report: dict[str, object] = {"status": "PASS", "rc": 0, "profiles": []}
+    rows: list[dict[str, object]] = report["profiles"]  # type: ignore[assignment]
     for profile in profiles:
         if not isinstance(profile, dict):
             print("ERROR: invalid resolved validation profile", file=sys.stderr)
-            return 2
+            rows.append({"name": "<invalid>", "status": "FAIL", "rc": 2, "timed_out": False})
+            report.update({"status": "FAIL", "rc": 2})
+            return report
         name = str(profile.get("name") or "unnamed")
         argv = profile.get("argv")
         cwd_raw = str(profile.get("cwd") or ".")
         timeout = int(profile.get("timeout_seconds") or 900)
         if not isinstance(argv, list) or not argv or any(not isinstance(x, str) or not x for x in argv):
             print(f"ERROR: validation profile {name} has invalid argv", file=sys.stderr)
-            return 2
-        rel = PurePosixPath(cwd_raw)
-        if rel.is_absolute() or any(part == ".." for part in rel.parts):
-            print(f"ERROR: validation profile {name} has unsafe cwd", file=sys.stderr)
-            return 2
-        cwd = root if cwd_raw == "." else root.joinpath(*rel.parts)
-        if not cwd.is_dir():
-            print(f"ERROR: validation profile {name} cwd not found: {cwd_raw}", file=sys.stderr)
-            return 2
-        print(f"VALIDATION PROFILE: {name} | {' '.join(argv)}", flush=True)
-        rc = _run_managed_process(argv, cwd=cwd, timeout=max(1, timeout))
-        if rc == 124:
+            rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": "invalid_argv"})
+            report.update({"status": "FAIL", "rc": 2})
+            return report
+        try:
+            cwd = _resolve_command_cwd(root, cwd_raw, label=f"validation_profile_{name}")
+        except ValueError as exc:
+            print(f"ERROR: validation profile {name} has unsafe cwd: {exc}", file=sys.stderr)
+            rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": "unsafe_cwd"})
+            report.update({"status": "FAIL", "rc": 2})
+            return report
+        print(f"VALIDATION PROFILE: {name}", flush=True)
+        try:
+            outcome = _run_managed_process(argv, cwd=cwd, env=_external_command_env(), timeout=max(1, timeout))
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
+            print(f"ERROR: validation profile {name} could not start: {type(exc).__name__}: {exc}", file=sys.stderr)
+            rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": type(exc).__name__})
+            report.update({"status": "FAIL", "rc": 2})
+            return report
+        rc = outcome.effective_rc
+        row = {
+            "name": name,
+            "status": "PASS" if rc == 0 else "FAIL",
+            "rc": rc,
+            "timed_out": bool(outcome.timed_out),
+            "lingering_descendants": bool(outcome.lingering_descendants),
+        }
+        rows.append(row)
+        if outcome.lingering_descendants:
+            print(f"ERROR: validation profile {name} left descendant processes; descendants were terminated", file=sys.stderr)
+            report.update({"status": "FAIL", "rc": rc})
+            return report
+        if outcome.timed_out:
             print(f"ERROR: validation profile {name} timeout after {timeout}s", file=sys.stderr)
-            return 124
+            report.update({"status": "FAIL", "rc": rc})
+            return report
         if rc:
             print(f"ERROR: validation profile {name} failed rc={rc}", file=sys.stderr)
-            return rc if rc >= 0 else 128 + abs(rc)
+            report.update({"status": "FAIL", "rc": rc})
+            return report
         print(f"VALIDATION PROFILE: {name} PASS")
-    return 0
+    return report
+
+
+def _run_git_command(root: Path, args: list[str], *, timeout: int) -> ManagedProcessResult:
+    env = _external_command_env()
+    # Automated Git policy must never block waiting for credentials/input.
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return _run_managed_process(["git", *args], cwd=root, env=env, timeout=max(1, timeout))
 
 
 def _run_git_policy(root: Path, manifest: dict, before_dirty: dict[str, str], after_dirty: dict[str, str]) -> int:
@@ -458,10 +636,23 @@ def _run_git_policy(root: Path, manifest: dict, before_dirty: dict[str, str], af
         return 0
     touched = _touched_paths(before_dirty, after_dirty)
     fail_on_error = bool(policy.get("fail_on_error", True))
+    timeout = int(policy.get("timeout_seconds", 300))
     commit_mode = policy.get("commit")
     auto_commit = commit_mode == "auto" and bool(touched)
     staged_for_auto_commit = False
     commit_completed = False
+
+    def run_git(args: list[str], label: str, *, command_timeout: int | None = None) -> int:
+        outcome = _run_git_command(root, args, timeout=command_timeout or timeout)
+        if outcome.timed_out:
+            raise RuntimeError(f"{label} timeout after {command_timeout or timeout}s")
+        rc = outcome.effective_rc
+        if outcome.lingering_descendants:
+            raise RuntimeError(f"{label} left descendant processes after leader exit; descendants were terminated")
+        if rc:
+            raise RuntimeError(f"{label} failed rc={rc}")
+        return rc
+
     try:
         if auto_commit:
             message = policy.get("commit_message")
@@ -480,21 +671,15 @@ def _run_git_policy(root: Path, manifest: dict, before_dirty: dict[str, str], af
             # Mark ownership before invoking Git: a failing `git add` may have
             # updated part of the index before returning non-zero.
             staged_for_auto_commit = auto_commit
-            proc = subprocess.run(["git", "add", "--", *touched], cwd=root)
-            if proc.returncode:
-                raise RuntimeError(f"git add failed rc={proc.returncode}")
+            run_git(["add", "--", *touched], "git add")
         if auto_commit:
-            message = policy.get("commit_message")
+            message = str(policy.get("commit_message"))
             # --only confines the commit to paths touched by this patch run.
-            proc = subprocess.run(["git", "commit", "-m", message, "--only", "--", *touched], cwd=root)
-            if proc.returncode != 0:
-                raise RuntimeError(f"git commit failed rc={proc.returncode}")
+            run_git(["commit", "-m", message, "--only", "--", *touched], "git commit")
             commit_completed = True
             staged_for_auto_commit = False
         if policy.get("push") == "auto":
-            proc = subprocess.run(["git", "push"], cwd=root)
-            if proc.returncode:
-                raise RuntimeError(f"git push failed rc={proc.returncode}")
+            run_git(["push"], "git push")
     except Exception as exc:
         # For auto-commit, touched paths are required to have been clean before
         # PATCH. Therefore any staged entries on them after our `git add` were
@@ -503,12 +688,13 @@ def _run_git_policy(root: Path, manifest: dict, before_dirty: dict[str, str], af
         cleanup_error = None
         if staged_for_auto_commit and not commit_completed and touched:
             try:
-                reset = subprocess.run(
-                    ["git", "reset", "--quiet", "HEAD", "--", *touched],
-                    cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                )
-                if reset.returncode:
-                    cleanup_error = f"git index cleanup failed rc={reset.returncode}"
+                reset = _run_git_command(root, ["reset", "--quiet", "HEAD", "--", *touched], timeout=min(timeout, 30))
+                if reset.timed_out:
+                    cleanup_error = f"git index cleanup timeout after {min(timeout, 30)}s"
+                elif reset.lingering_descendants:
+                    cleanup_error = "git index cleanup left descendant processes; descendants were terminated"
+                elif reset.effective_rc:
+                    cleanup_error = f"git index cleanup failed rc={reset.effective_rc}"
             except Exception as cleanup_exc:
                 cleanup_error = f"git index cleanup failed: {type(cleanup_exc).__name__}: {cleanup_exc}"
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -799,12 +985,11 @@ def _archive_success(root: Path, source: Path, executed_snapshot: Path, expected
     return dst, lifecycle
 
 
-def _execute_python(script: Path, root: Path, timeout: int) -> int:
-    env = os.environ.copy()
+def _execute_python(script: Path, root: Path, timeout: int) -> ManagedProcessResult:
+    env = _external_command_env()
     lib = str(Path(__file__).resolve().parent)
     env["PYTHONPATH"] = lib + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-    rc = _run_managed_process([sys.executable, str(script)], cwd=root, env=env, timeout=max(1, timeout))
-    return rc if rc >= 0 else 128 + abs(rc)
+    return _run_managed_process([sys.executable, str(script)], cwd=root, env=env, timeout=max(1, timeout))
 
 
 def _utc_now() -> str:
@@ -1330,11 +1515,14 @@ def _diagnose_ops_managed(root: Path, payload: Path, timeout: int) -> dict[str, 
     try:
         try: result_path.unlink()
         except FileNotFoundError: pass
-        rc = _run_managed_process([
+        outcome = _run_managed_process([
             sys.executable, str(worker), "--project-root", str(root),
             "--ops-json", str(payload), "--mode", "diagnose", "--result", str(result_path),
         ], cwd=root, timeout=max(1, timeout))
-        if rc == 124:
+        rc = outcome.effective_rc
+        if outcome.lingering_descendants:
+            return {"status": "FAIL", "kind": "tool_error", "message": "OPS dry-run worker left descendant processes; descendants were terminated", "operations": 0}
+        if outcome.timed_out:
             return {"status": "FAIL", "kind": "patch_operation_timeout", "message": f"OPS dry-run exceeded timeout_seconds={timeout}", "operations": 0}
         if result_path.is_file():
             try:
@@ -1468,6 +1656,12 @@ def _inspect_patch(root: Path, source: Path, *, verb: str = "INSPECT") -> int:
             for cmd in pp.get("commands"):
                 name = cmd.get("name") or " ".join(cmd.get("argv") or [])
                 print(f"    - {name}")
+        on_failure = manifest.get("on_failure") if isinstance(manifest, dict) else None
+        if isinstance(on_failure, dict) and on_failure.get("commands"):
+            print("  Failure-only commands (run only after execution failure):")
+            for cmd in on_failure.get("commands"):
+                name = cmd.get("name") or " ".join(cmd.get("argv") or [])
+                print(f"    - {name}")
         profiles = preflight.get("validation_profiles") if isinstance(preflight, dict) else None
         if isinstance(profiles, list) and profiles:
             print("  Trusted validation profiles:")
@@ -1547,10 +1741,15 @@ def _preview_patch(root: Path, source: Path) -> int:
         timeout = int(execution.get("timeout_seconds", 900))
         worker = Path(__file__).resolve().parent / "python_patch_ops_worker.py"
         result_path = mirror / ".ptv-preview-result.json"
-        rc = _run_managed_process([
+        outcome = _run_managed_process([
             sys.executable, str(worker), "--project-root", str(mirror), "--ops-json", str(payload),
             "--patch-name", str((manifest.get("patch") or {}).get("id") or source.stem), "--result", str(result_path),
         ], cwd=mirror, timeout=timeout)
+        rc = outcome.effective_rc
+        if outcome.lingering_descendants:
+            raise PatchSchemaError("OPS preview worker left descendant processes; descendants were terminated", kind="tool_error")
+        if outcome.timed_out:
+            raise PatchSchemaError(f"OPS preview worker exceeded timeout_seconds={timeout}", kind="patch_operation_timeout")
         if rc:
             raise PatchSchemaError(f"OPS preview worker failed rc={rc}", kind="patch_operation_failed")
         print("PREVIEW DIFF (private mirror):")
@@ -1670,19 +1869,30 @@ def _execute_patch(root: Path, source: Path) -> int:
         print("Execution: IN-PLACE (SANDBOX/worktree disabled)")
         result["stage"] = "payload"
         if kind == "python":
-            rc = _execute_python(payload, root, timeout)
+            outcome = _execute_python(payload, root, timeout)
+            rc = outcome.effective_rc
             payload_diag = None
+            if outcome.lingering_descendants:
+                payload_diag = {"kind": "patch_payload_lingering_descendants", "message": "Python PATCH left descendant processes after leader exit; descendants were terminated", "affected_paths": []}
+                print("ERROR: Python PATCH left descendant processes after leader exit; descendants were terminated", file=sys.stderr)
+            elif outcome.timed_out:
+                payload_diag = {"kind": "patch_payload_timeout", "message": f"Python PATCH execution exceeded timeout_seconds={timeout}", "affected_paths": []}
+                print(f"ERROR: Python PATCH timeout after {timeout}s", file=sys.stderr)
         else:
             if ops_data is None:
                 ops_data = _read_json(payload, "PATCH_TOOL_OPS.json")
             patch_name = str((manifest.get("patch") or {}).get("id") or ops_data.get("patch_name") or source.stem)
             worker = Path(__file__).resolve().parent / "python_patch_ops_worker.py"
             worker_result = Path(temp_dir.name if temp_dir is not None else tempfile.gettempdir()) / f"ptv-ops-result-{os.getpid()}-{time.time_ns()}.json"
-            rc = _run_managed_process([
+            outcome = _run_managed_process([
                 sys.executable, str(worker), "--project-root", str(root),
                 "--ops-json", str(payload), "--patch-name", patch_name, "--result", str(worker_result),
             ], cwd=root, timeout=timeout)
+            rc = outcome.effective_rc
             payload_diag = None
+            if outcome.lingering_descendants:
+                payload_diag = {"kind": "patch_operation_lingering_descendants", "message": "OPS worker left descendant processes after leader exit; descendants were terminated", "affected_paths": []}
+                print("ERROR: PATCH OPS worker left descendant processes; descendants were terminated", file=sys.stderr)
             worker_data: dict[str, object] = {}
             if worker_result.is_file():
                 try:
@@ -1693,10 +1903,12 @@ def _execute_patch(root: Path, source: Path) -> int:
                     worker_data = {}
                 try: worker_result.unlink()
                 except OSError: pass
-            if rc == 0:
+            if outcome.lingering_descendants:
+                pass  # payload_diag already records the containment failure above.
+            elif rc == 0:
                 stats = worker_data.get("stats") if isinstance(worker_data.get("stats"), dict) else {}
                 print(f"PATCH OPS: patched={stats.get('patched',0)} created={stats.get('created',0)} unchanged={stats.get('unchanged',0)}")
-            elif rc == 124:
+            elif outcome.timed_out:
                 payload_diag = {"kind": "patch_operation_timeout", "message": f"OPS execution exceeded timeout_seconds={timeout}", "affected_paths": []}
                 print(f"ERROR: PATCH OPS timeout after {timeout}s", file=sys.stderr)
             elif worker_data.get("kind") == "patch_failure":
@@ -1727,6 +1939,10 @@ def _execute_patch(root: Path, source: Path) -> int:
                 diagnosis["rollback_status"] = rollback_result.get("status")
                 if rollback_result.get("status") == "PASS":
                     partial = rollback_result.get("remaining_project_delta") if isinstance(rollback_result.get("remaining_project_delta"), dict) else partial
+            partial = _apply_on_failure_commands(
+                root, manifest, result, before_fp=before_fp, before_dirty=before_dirty,
+                before_targets=before_targets, target_paths=target_paths, current_partial=partial,
+            )
             print(f"RUN SUMMARY: FAIL | {source.name} rc={rc}", file=sys.stderr)
             return _finish_result(result, status="FAIL", rc=rc, stage="payload", diagnosis=diagnosis, partial=partial)
 
@@ -1736,10 +1952,26 @@ def _execute_patch(root: Path, source: Path) -> int:
         )
         changed = payload_delta.get("detected") is not False
         result["stage"] = "post_patch"
-        rc = _run_post_patch(root, manifest, changed=changed)
+        post_report = _run_post_patch(root, manifest, changed=changed)
+        if post_report is not None:
+            result["post_patch"] = post_report
+        rc = int((post_report or {}).get("rc") or 0)
         if rc:
             partial = _partial_state(root, before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets, target_paths=target_paths)
-            diagnosis = {"kind": "post_patch_failed", "message": f"post_patch returned rc={rc}", "affected_paths": list(partial.get("changed_paths") or [])}
+            post_rows = post_report.get("commands") if isinstance(post_report, dict) else None
+            failed_row = None
+            if isinstance(post_rows, list):
+                failed_row = next((row for row in reversed(post_rows) if isinstance(row, dict) and row.get("status") != "PASS"), None)
+            if isinstance(failed_row, dict) and failed_row.get("timed_out") is True:
+                post_kind = "post_patch_timeout"
+                post_message = f"post_patch command timed out (rc={rc})"
+            elif isinstance(failed_row, dict) and failed_row.get("lingering_descendants") is True:
+                post_kind = "post_patch_lingering_descendants"
+                post_message = f"post_patch command left descendant processes (rc={rc})"
+            else:
+                post_kind = "post_patch_failed"
+                post_message = f"post_patch returned rc={rc}"
+            diagnosis = {"kind": post_kind, "message": post_message, "affected_paths": list(partial.get("changed_paths") or [])}
             if partial.get("detected") is True:
                 print("!!! PARTIAL MODIFICATION DETECTED: patch payload changed project before validation failed !!!", file=sys.stderr)
             rollback_result = _maybe_rollback(
@@ -1752,14 +1984,34 @@ def _execute_patch(root: Path, source: Path) -> int:
                 diagnosis["rollback_status"] = rollback_result.get("status")
                 if rollback_result.get("status") == "PASS":
                     partial = rollback_result.get("remaining_project_delta") if isinstance(rollback_result.get("remaining_project_delta"), dict) else partial
+            partial = _apply_on_failure_commands(
+                root, manifest, result, before_fp=before_fp, before_dirty=before_dirty,
+                before_targets=before_targets, target_paths=target_paths, current_partial=partial,
+            )
             print(f"RUN SUMMARY: FAIL | post_patch rc={rc}", file=sys.stderr)
             return _finish_result(result, status="FAIL", rc=rc, stage="post_patch", diagnosis=diagnosis, partial=partial)
 
         result["stage"] = "validation"
-        rc = _run_validation_profiles(root, preflight)
+        validation_report = _run_validation_profiles(root, preflight)
+        if validation_report is not None:
+            result["validation"] = validation_report
+        rc = int((validation_report or {}).get("rc") or 0)
         if rc:
             partial = _partial_state(root, before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets, target_paths=target_paths)
-            diagnosis = {"kind": "validation_profile_failed", "message": f"trusted validation profile returned rc={rc}", "affected_paths": list(partial.get("changed_paths") or [])}
+            validation_rows = validation_report.get("profiles") if isinstance(validation_report, dict) else None
+            failed_profile = None
+            if isinstance(validation_rows, list):
+                failed_profile = next((row for row in reversed(validation_rows) if isinstance(row, dict) and row.get("status") != "PASS"), None)
+            if isinstance(failed_profile, dict) and failed_profile.get("timed_out") is True:
+                validation_kind = "validation_profile_timeout"
+                validation_message = f"trusted validation profile timed out (rc={rc})"
+            elif isinstance(failed_profile, dict) and failed_profile.get("lingering_descendants") is True:
+                validation_kind = "validation_profile_lingering_descendants"
+                validation_message = f"trusted validation profile left descendant processes (rc={rc})"
+            else:
+                validation_kind = "validation_profile_failed"
+                validation_message = f"trusted validation profile returned rc={rc}"
+            diagnosis = {"kind": validation_kind, "message": validation_message, "affected_paths": list(partial.get("changed_paths") or [])}
             rollback_result = _maybe_rollback(
                 root, preflight=preflight, rollback_temp=rollback_temp, rollback_snapshot=rollback_snapshot,
                 before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets,
@@ -1770,6 +2022,10 @@ def _execute_patch(root: Path, source: Path) -> int:
                 diagnosis["rollback_status"] = rollback_result.get("status")
                 if rollback_result.get("status") == "PASS" and isinstance(rollback_result.get("remaining_project_delta"), dict):
                     partial = rollback_result["remaining_project_delta"]
+            partial = _apply_on_failure_commands(
+                root, manifest, result, before_fp=before_fp, before_dirty=before_dirty,
+                before_targets=before_targets, target_paths=target_paths, current_partial=partial,
+            )
             print(f"RUN SUMMARY: FAIL | validation profile rc={rc}", file=sys.stderr)
             return _finish_result(result, status="FAIL", rc=rc, stage="validation", diagnosis=diagnosis, partial=partial)
 
@@ -1781,6 +2037,10 @@ def _execute_patch(root: Path, source: Path) -> int:
             diagnosis = {"kind": "git_policy_failed", "message": f"git policy returned rc={rc}", "affected_paths": list(partial.get("changed_paths") or [])}
             if partial.get("detected") is True:
                 print("!!! PARTIAL MODIFICATION DETECTED: project changed before Git policy failed !!!", file=sys.stderr)
+            partial = _apply_on_failure_commands(
+                root, manifest, result, before_fp=before_fp, before_dirty=before_dirty,
+                before_targets=before_targets, target_paths=target_paths, current_partial=partial,
+            )
             print(f"RUN SUMMARY: FAIL | git policy rc={rc}", file=sys.stderr)
             return _finish_result(result, status="FAIL", rc=rc, stage="git", diagnosis=diagnosis, partial=partial)
 
@@ -1794,6 +2054,10 @@ def _execute_patch(root: Path, source: Path) -> int:
             partial = _partial_state(root, before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets, target_paths=target_paths)
             diagnosis = {"kind": "archive_failed", "message": str(exc), "affected_paths": list(partial.get("changed_paths") or [])}
             print(f"ERROR: PATCH succeeded but queue archive failed: {exc}", file=sys.stderr)
+            partial = _apply_on_failure_commands(
+                root, manifest, result, before_fp=before_fp, before_dirty=before_dirty,
+                before_targets=before_targets, target_paths=target_paths, current_partial=partial,
+            )
             return _finish_result(result, status="FAIL", rc=3, stage="archive", diagnosis=diagnosis, partial=partial)
         print(f"[INFO] PATCH ARCHIVED: {archived.relative_to(root).as_posix()}")
         if queue_lifecycle in {"replacement_restored"} or str(queue_lifecycle).startswith("replacement_preserved:"):
@@ -1841,7 +2105,8 @@ def _execute_patch(root: Path, source: Path) -> int:
         stage = str(result.get("stage") or "unknown")
         print(f"ERROR: PATCH execution failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         partial: dict[str, object] = {"detected": None, "changed_paths": [], "evidence": "internal_error_state_unknown"}
-        if stage in {"payload", "post_patch", "validation", "git", "archive"} and (target_paths or before_fp is not None):
+        execution_started = stage in {"payload", "post_patch", "validation", "git", "archive"}
+        if execution_started and (target_paths or before_fp is not None):
             try:
                 partial = _partial_state(
                     root, before_fp=before_fp, before_dirty=before_dirty,
@@ -1854,6 +2119,38 @@ def _execute_patch(root: Path, source: Path) -> int:
             "message": f"{type(exc).__name__}: {exc}",
             "affected_paths": list(partial.get("changed_paths") or []),
         }
+        # An unexpected exception after source execution began is still a PATCH
+        # failure. Preserve the same recovery semantics as an ordinary payload /
+        # post-validation failure, then run failure-only commands. Preflight and
+        # package errors deliberately never reach this branch with execution_started.
+        trigger = "payload_failure" if stage == "payload" else ("post_patch_failure" if stage in {"post_patch", "validation"} else None)
+        if trigger is not None:
+            try:
+                rollback_result = _maybe_rollback(
+                    root, preflight=preflight, rollback_temp=rollback_temp, rollback_snapshot=rollback_snapshot,
+                    before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets,
+                    target_paths=target_paths, trigger=trigger,
+                )
+                if rollback_result is not None:
+                    result["rollback"] = rollback_result
+                    diagnosis["rollback_status"] = rollback_result.get("status")
+                    if rollback_result.get("status") == "PASS" and isinstance(rollback_result.get("remaining_project_delta"), dict):
+                        partial = rollback_result["remaining_project_delta"]
+            except Exception as rollback_exc:
+                result["rollback"] = {"status": "FAIL", "error": f"{type(rollback_exc).__name__}: {rollback_exc}"}
+                diagnosis["rollback_status"] = "FAIL"
+                partial = {"detected": None, "changed_paths": list(partial.get("changed_paths") or []), "evidence": "internal_error_rollback_failed_state_unknown"}
+        if execution_started:
+            try:
+                partial = _apply_on_failure_commands(
+                    root, manifest, result, before_fp=before_fp, before_dirty=before_dirty,
+                    before_targets=before_targets, target_paths=target_paths, current_partial=partial,
+                )
+            except KeyboardInterrupt:
+                raise
+            except Exception as failure_exc:
+                result["on_failure"] = {"status": "FAIL", "rc": 2, "error": f"{type(failure_exc).__name__}: {failure_exc}"}
+                partial = {"detected": None, "changed_paths": list(partial.get("changed_paths") or []), "evidence": "internal_error_on_failure_failed_state_unknown"}
         return _finish_result(result, status="FAIL", rc=2, stage=stage, diagnosis=diagnosis, partial=partial)
     finally:
         _release_project_mutation_lock(mutation_lock)
@@ -1874,8 +2171,13 @@ def _paths(root: Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    if hasattr(signal, "SIGTERM"):
-        signal.signal(signal.SIGTERM, _sigterm_as_interrupt)
+    for managed_signal in (getattr(signal, "SIGTERM", None), getattr(signal, "SIGBREAK", None)):
+        if managed_signal is None:
+            continue
+        try:
+            signal.signal(managed_signal, _sigterm_as_interrupt)
+        except (ValueError, OSError):
+            pass
     args = list(sys.argv[1:] if argv is None else argv)
     if not args:
         print("ERROR: normal interactive use is ./tools/run_python_patches.sh with no arguments", file=sys.stderr)

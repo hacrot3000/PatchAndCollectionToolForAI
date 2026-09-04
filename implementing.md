@@ -1,6 +1,6 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.17.7**  
+Phiên bản mục tiêu: **v6.17.8**  
 Trạng thái: **PROJECT POLICY + PRE-EXECUTION PLAN + PERSISTENT RECOVERY STATE — COMPLETE / STOP**
 
 ## Baseline
@@ -357,3 +357,31 @@ Fullscreen selector: `/` nhập filter; line selector: `/text`. Filter tìm tron
 ### Phạm vi identity
 
 v6.17.7 đã có project identity + local ledger + recipe SHA binding. **Cryptographic provenance, signature/PKI, remote trust registry vẫn không được triển khai**.
+
+## 14. v6.17.8 — failure-only commands + script execution correctness
+
+### `manifest.on_failure.commands`
+
+PATCH package có thể khai báo command chỉ chạy khi PATCH đã qua preflight, thực sự bước vào execution và sau đó FAIL. Command object dùng cùng contract với `post_patch.commands`: `name`, `argv[]`, `cwd`, `timeout_seconds` (`1..1800`).
+
+Thứ tự failure path: classify lỗi → rollback attempt nếu trigger được bật → chạy `on_failure.commands` → snapshot lại final project delta → ghi structured result / FAIL_HANDOFF. RC/lỗi gốc của PATCH luôn là primary; lỗi/timeout của `on_failure` được ghi riêng và không che nguyên nhân gốc. Nếu failure-command không PASS thì continuation safety-stop; chỉ khi toàn sequence PASS và final project delta proven unchanged mới cho PATCH độc lập tiếp tục. Ctrl+C/SIGTERM propagate để dừng batch, không bị biến thành rc command bình thường. Batch transaction atomic reject `on_failure.commands` vì side effect không target-bounded.
+
+### Script/process execution hardening
+
+- managed commands đóng stdin (`DEVNULL`), không được chiếm input của selector;
+- timeout có cờ riêng, không suy timeout từ `rc == 124`;
+- POSIX: leader exit nhưng process-group descendant còn sống sau drain grace => terminate tree + execution failure (`effective rc=125` khi leader rc=0); Windows timeout/interrupt tree termination có contract riêng, còn normal-exit descendant detection chưa được tuyên bố native PASS;
+- Git add/commit/push/reset dùng managed process tree, `git.timeout_seconds` mặc định 300, `GIT_TERMINAL_PROMPT=0`; commit hook timeout không được để child orphan/staging leak;
+- Git fingerprint/status observation tắt fsmonitor/external diff/textconv helper và Git command failure trở thành unknown/error, không được coi là clean;
+- batch read-only validate timeout gửi signal cho runner để runner cleanup nested OPS worker trước force-kill;
+- payload/post/validation/on-failure/Git command không được inherit `PTV_PATCH_RESULT_FILE`, COLLECT result channel hoặc parent mutation-lock token/key;
+- COLLECT Git context đánh dấu section Git command FAIL rõ ràng thay vì đóng stderr như dữ liệu thành công;
+- collector parent exit nhưng descendant vẫn giữ stdout/process tree => cleanup và không báo false PASS.
+
+Windows vẫn có packaged process-group/taskkill/CTRL_BREAK contract; native PASS chỉ được tuyên bố sau khi chạy lane trên Windows thật.
+
+### 14.1 Dispatcher foreground lifecycle + internal-error recovery
+
+- `inspect` / `preview` / `validate` no longer use bare `subprocess.run`; dispatcher owns a new process group, applies a bounded outer guard, and forwards Ctrl+C/SIGTERM before force-kill fallback.
+- COLLECT remains intentionally without a global wall-clock timeout because its request already has bounded file/byte/action limits and may be long-running, but dispatcher now owns/forwards its foreground process-tree lifecycle.
+- `internal_error` after execution begins now follows the same recovery boundary as an ordinary execution failure: rollback when the configured stage supports it, then `on_failure`; preflight/internal package failures still never run failure commands.

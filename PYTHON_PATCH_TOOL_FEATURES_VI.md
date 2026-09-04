@@ -1,4 +1,4 @@
-# Danh sách tính năng Python Patch Tool — v6.17.7
+# Danh sách tính năng Python Patch Tool — v6.17.8
 
 ## Workflow / batch engine
 
@@ -116,3 +116,30 @@ Registry failure là **relation-aware**: PATCH độc lập vẫn chạy; depend
 | Disk/resource preflight trước source write | **COMPLETE v6.17.7** |
 | Selector `/` search/filter theo name/id/summary/target | **COMPLETE v6.17.7** |
 | Cryptographic provenance/signature/PKI | **NOT IMPLEMENTED** |
+
+## Bổ sung v6.17.8 — command khi FAIL và execution robustness
+
+| Tính năng | Trạng thái |
+|---|---|
+| `manifest.on_failure.commands` — chỉ chạy sau execution failure | **COMPLETE v6.17.8** |
+| Failure command chạy sau rollback attempt; giữ nguyên RC/lỗi PATCH gốc | **COMPLETE v6.17.8** |
+| `on_failure` FAIL/timeout/lingering => safety-stop continuation | **COMPLETE v6.17.8** |
+| Structured `on_failure` / `post_patch` / validation timeout-vs-exit-code evidence | **COMPLETE v6.17.8** |
+| `git.timeout_seconds` + managed Git hook/push process-tree containment | **COMPLETE v6.17.8** |
+| `exit 124` không còn bị nhận nhầm là timeout | **COMPLETE v6.17.8** |
+| POSIX leader exit nhưng child nền còn sống => cleanup + không false PASS; Windows native normal-exit detection chưa được tuyên bố PASS | **COMPLETE POSIX v6.17.8 / WINDOWS NATIVE VERIFY PENDING** |
+| Ctrl+C trong post/on-failure command propagate thành global interruption | **COMPLETE v6.17.8** |
+| Managed commands non-interactive (`stdin=DEVNULL`) | **COMPLETE v6.17.8** |
+| Internal `PTV_*` result/lock channels không leak vào project commands | **COMPLETE v6.17.8** |
+| Batch preflight timeout cleanup nested runner/OPS process tree | **COMPLETE v6.17.8** |
+| COLLECT Git context fail-visible + fsmonitor/external-diff/textconv disabled | **COMPLETE v6.17.8** |
+
+`on_failure.commands` không chạy cho package/schema/preflight rejection hoặc user interruption. `transaction_policy=batch` reject failure commands do side effect không target-bounded.
+
+### Bổ sung audit cuối v6.17.8
+
+| Tính năng | Trạng thái |
+|---|---|
+| Dispatcher `inspect/preview/validate` có outer timeout + process-tree/signal containment | **COMPLETE v6.17.8** |
+| Dispatcher COLLECT foreground không còn dùng bare `subprocess.run`; Ctrl+C/SIGTERM forward theo tree | **COMPLETE v6.17.8** |
+| `internal_error` sau khi execution bắt đầu => rollback phù hợp → `on_failure`, giữ lỗi gốc primary | **COMPLETE v6.17.8** |

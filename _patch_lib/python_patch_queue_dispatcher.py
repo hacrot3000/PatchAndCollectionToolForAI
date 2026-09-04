@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.17.7"
+VERSION = "6.17.8"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -102,6 +102,24 @@ def _raise_patch_child_signal(signum, _frame):
     raise _PatchChildSignal(int(signum))
 
 
+def _windows_taskkill_tree(proc: subprocess.Popen, *, force: bool) -> None:
+    if os.name != "nt":
+        return
+    try:
+        argv = ["taskkill", "/PID", str(proc.pid), "/T"]
+        if force:
+            argv.append("/F")
+        cp = subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, check=False)
+        if cp.returncode != 0 and proc.poll() is None:
+            proc.kill() if force else proc.terminate()
+    except Exception:
+        try:
+            if proc.poll() is None:
+                proc.kill() if force else proc.terminate()
+        except Exception:
+            pass
+
+
 def _forward_patch_signal(proc: subprocess.Popen, signum: int) -> None:
     if proc.poll() is not None:
         return
@@ -109,7 +127,17 @@ def _forward_patch_signal(proc: subprocess.Popen, signum: int) -> None:
         if os.name != "nt":
             os.killpg(proc.pid, signum)
         else:
-            proc.send_signal(signum)
+            if signum == getattr(signal, "SIGKILL", -999):
+                _windows_taskkill_tree(proc, force=True)
+                return
+            ctrl_break = getattr(signal, "CTRL_BREAK_EVENT", None)
+            if ctrl_break is not None and signum in {getattr(signal, "SIGINT", 2), getattr(signal, "SIGTERM", 15)}:
+                try:
+                    proc.send_signal(ctrl_break)
+                    return
+                except Exception:
+                    pass
+            _windows_taskkill_tree(proc, force=False)
     except (ProcessLookupError, OSError):
         pass
 
@@ -649,12 +677,15 @@ def _run_patch_child(
             except Exception:
                 pass
         return 2, text, result
-    proc = subprocess.Popen(
-        cmd, cwd=root, env=env,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, encoding="utf-8", errors="replace", bufsize=1,
-        start_new_session=(os.name != "nt"),
-    )
+    child_kwargs: dict[str, object] = {
+        "cwd": root, "env": env, "stdout": subprocess.PIPE, "stderr": subprocess.STDOUT,
+        "text": True, "encoding": "utf-8", "errors": "replace", "bufsize": 1,
+    }
+    if os.name != "nt":
+        child_kwargs["start_new_session"] = True
+    elif hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+        child_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    proc = subprocess.Popen(cmd, **child_kwargs)
     assert proc.stdout is not None
     chunks: list[str] = []
     used = 0
@@ -1575,6 +1606,72 @@ def _create_fail_handoff(
             shutil.rmtree(snapshot_dir, ignore_errors=True)
 
 
+def _run_foreground_child(
+    root: Path, cmd: list[str], *, env: dict[str, str] | None = None, timeout: int | None = None, label: str = "child"
+) -> int:
+    """Run a foreground tool child with signal/tree containment.
+
+    Unlike ``subprocess.run()``, this keeps the dispatcher in control of the
+    whole child process group when Ctrl+C/SIGTERM arrives.  ``timeout=None``
+    is intentional for COLLECT: collection is resource-bounded by its request
+    contract and may legitimately be long-running, but it must still terminate
+    cleanly when the user stops it.
+    """
+    kwargs: dict[str, object] = {"cwd": root, "env": env}
+    if os.name != "nt":
+        kwargs["start_new_session"] = True
+    elif hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    proc = subprocess.Popen(cmd, **kwargs)
+    old_sigterm = None
+    if hasattr(signal, "SIGTERM"):
+        try:
+            old_sigterm = signal.getsignal(signal.SIGTERM)
+            signal.signal(signal.SIGTERM, _raise_patch_child_signal)
+        except Exception:
+            old_sigterm = None
+    started = time.monotonic()
+    try:
+        while True:
+            try:
+                raw = proc.wait(timeout=0.2)
+                return _normalize_subprocess_rc(raw)
+            except subprocess.TimeoutExpired:
+                if timeout is not None and time.monotonic() - started >= max(1, int(timeout)):
+                    term = getattr(signal, "SIGTERM", signal.SIGINT)
+                    _forward_patch_signal(proc, term)
+                    try:
+                        proc.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        _forward_patch_signal(proc, getattr(signal, "SIGKILL", term))
+                        try: proc.wait(timeout=5)
+                        except subprocess.TimeoutExpired: pass
+                    print(f"[PTV v{VERSION} TIMEOUT] {label} exceeded {int(timeout)}s; process tree contained", file=sys.stderr)
+                    return 124
+    except KeyboardInterrupt:
+        _forward_patch_signal(proc, signal.SIGINT)
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            _forward_patch_signal(proc, getattr(signal, "SIGKILL", signal.SIGTERM))
+            try: proc.wait(timeout=5)
+            except subprocess.TimeoutExpired: pass
+        raise
+    except _PatchChildSignal as exc:
+        _forward_patch_signal(proc, exc.signum)
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            _forward_patch_signal(proc, getattr(signal, "SIGKILL", exc.signum))
+            try: proc.wait(timeout=5)
+            except subprocess.TimeoutExpired: pass
+        return 128 + abs(int(exc.signum))
+    finally:
+        if old_sigterm is not None:
+            try: signal.signal(signal.SIGTERM, old_sigterm)
+            except Exception: pass
+
+
 def _runner_command(root: Path, action: str, item: QueueItem) -> list[str]:
     runner = root / "tools" / "_patch_lib" / "python_patch_runner.py"
     cmd = [sys.executable, str(runner)]
@@ -1584,12 +1681,58 @@ def _runner_command(root: Path, action: str, item: QueueItem) -> list[str]:
     return cmd
 
 
+def _run_runner_captured(
+    root: Path, cmd: list[str], *, env: dict[str, str] | None = None, timeout: int = 120
+) -> tuple[int, str, bool]:
+    """Run a read-only runner child with timeout-aware tree containment.
+
+    `subprocess.run(..., timeout=...)` force-kills only the direct child.  The
+    runner can itself own a managed OPS/helper process group, so on timeout we
+    first deliver a termination signal to the runner and let its cleanup path
+    quiesce descendants before using a hard-kill fallback.
+    """
+    kwargs: dict[str, object] = {
+        "cwd": root, "env": env, "stdout": subprocess.PIPE, "stderr": subprocess.STDOUT,
+        "text": True, "encoding": "utf-8", "errors": "replace",
+    }
+    if os.name != "nt":
+        kwargs["start_new_session"] = True
+    elif hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    proc = subprocess.Popen(cmd, **kwargs)
+    try:
+        text, _ = proc.communicate(timeout=max(1, int(timeout)))
+        return _normalize_subprocess_rc(proc.returncode or 0), text or "", False
+    except subprocess.TimeoutExpired as exc:
+        partial = exc.output if isinstance(exc.output, str) else ""
+        term = getattr(signal, "SIGTERM", signal.SIGINT)
+        _forward_patch_signal(proc, term)
+        try:
+            tail, _ = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            _forward_patch_signal(proc, getattr(signal, "SIGKILL", term))
+            try:
+                tail, _ = proc.communicate(timeout=5)
+            except Exception:
+                tail = ""
+        text = (partial or "") + (tail or "")
+        text += f"\n[PTV v{VERSION} TIMEOUT] runner exceeded {int(timeout)}s; process tree contained\n"
+        return 124, text, True
+    except KeyboardInterrupt:
+        _forward_patch_signal(proc, signal.SIGINT)
+        try:
+            proc.communicate(timeout=10)
+        except Exception:
+            _forward_patch_signal(proc, getattr(signal, "SIGKILL", signal.SIGTERM))
+        raise
+
+
 def _inspect_item(root: Path, item: QueueItem) -> int:
     if item.kind != "PATCH":
         print("INSPECT: chỉ áp dụng cho PATCH; COLLECT được preflight theo schema khi discovery.")
         return 2
     try:
-        return _normalize_subprocess_rc(subprocess.run(_runner_command(root, "inspect", item), cwd=root).returncode)
+        return _run_foreground_child(root, _runner_command(root, "inspect", item), timeout=1830, label="PATCH inspect")
     except KeyboardInterrupt:
         return 130
 
@@ -1599,7 +1742,7 @@ def _preview_item(root: Path, item: QueueItem) -> int:
         print("PREVIEW: chỉ áp dụng cho PATCH.")
         return 2
     try:
-        return _normalize_subprocess_rc(subprocess.run(_runner_command(root, "preview", item), cwd=root).returncode)
+        return _run_foreground_child(root, _runner_command(root, "preview", item), timeout=1830, label="PATCH preview")
     except KeyboardInterrupt:
         return 130
 
@@ -1609,7 +1752,7 @@ def _validate_item(root: Path, item: QueueItem) -> int:
         print("VALIDATE: chỉ áp dụng cho PATCH.")
         return 2
     try:
-        return _normalize_subprocess_rc(subprocess.run(_runner_command(root, "validate", item), cwd=root).returncode)
+        return _run_foreground_child(root, _runner_command(root, "validate", item), timeout=1830, label="PATCH validate")
     except KeyboardInterrupt:
         return 130
 
@@ -3878,13 +4021,14 @@ def _batch_preflight(root: Path, chosen: list[QueueItem], metas: dict[str, Patch
         env["PTV_PATCH_RESULT_FILE"] = str(result_path)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         try:
-            cp = subprocess.run(
-                _runner_command(root, "validate", item), cwd=root, text=True, env=env,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace", timeout=120,
+            validate_rc, text, validate_timed_out = _run_runner_captured(
+                root, _runner_command(root, "validate", item), env=env, timeout=120
             )
-            text = cp.stdout or ""
+            cp = object()  # sentinel: the runner started and returned a classified result
         except Exception as exc:
             cp = None
+            validate_rc = 2
+            validate_timed_out = False
             text = f"TOOL_ERROR: {type(exc).__name__}: {exc}\n"
         log_path.write_text(text, encoding="utf-8", errors="replace")
         patch_result = None
@@ -3894,8 +4038,8 @@ def _batch_preflight(root: Path, chosen: list[QueueItem], metas: dict[str, Patch
                 if isinstance(value, dict): patch_result = value
             except Exception:
                 patch_result = None
-        rc = 2 if cp is None else _normalize_subprocess_rc(cp.returncode)
-        classification = "READY_TO_APPLY" if rc == 0 else "UNKNOWN"
+        rc = 2 if cp is None else int(validate_rc)
+        classification = "READY_TO_APPLY" if rc == 0 else ("TOOL_ERROR" if validate_timed_out else "UNKNOWN")
         for candidate in ("PATCH_INVALID", "SOURCE_DRIFT", "TOOL_ERROR", "READY_TO_APPLY"):
             if candidate in text:
                 classification = candidate
@@ -3934,11 +4078,21 @@ def _safe_to_continue_after_failure(detail: dict[str, object]) -> tuple[bool, st
     diagnosis = result.get("diagnosis") if isinstance(result.get("diagnosis"), dict) else {}
     kind = str(diagnosis.get("kind") or "")
     rollback = result.get("rollback") if isinstance(result.get("rollback"), dict) else None
+    partial = result.get("partial_modification") if isinstance(result.get("partial_modification"), dict) else {}
+    on_failure = result.get("on_failure") if isinstance(result.get("on_failure"), dict) else None
+    # Failure-only commands run after rollback and may themselves modify the
+    # project.  Their final state therefore has precedence over an earlier
+    # rollback PASS when deciding whether unrelated PATCHes may continue.
+    if on_failure is not None:
+        if str(on_failure.get("status") or "") != "PASS" or int(on_failure.get("rc") or 0) != 0:
+            return False, "on_failure_commands_failed_or_incomplete"
+        if partial.get("detected") is False:
+            return True, "on_failure_commands_passed_project_unchanged"
+        return False, "on_failure_commands_left_partial_or_unknown_state"
     if rollback is not None and rollback.get("status") == "PASS":
         return True, "per_patch_rollback_restored"
     if kind in {"rollback_failed", "rollback_incomplete", "rollback_snapshot_race"}:
         return False, kind
-    partial = result.get("partial_modification") if isinstance(result.get("partial_modification"), dict) else {}
     if partial.get("detected") is False:
         return True, "failure_contained_project_unchanged"
     return False, "unsafe_partial_or_unknown_state"
@@ -4143,7 +4297,7 @@ def execute_items(
                 runtime = _artifact_subdir(root, "runtime")
                 collect_result_path = runtime / f"collect_{int(time.time()*1000000)}_{os.getpid()}.json"
                 env = dict(os.environ); env["PTV_COLLECT_RESULT_FILE"] = str(collect_result_path)
-                rc = _normalize_subprocess_rc(subprocess.run(cmd, cwd=root, env=env).returncode)
+                rc = _run_foreground_child(root, cmd, env=env, timeout=None, label="COLLECT")
                 collect_result = _load_json(collect_result_path)
                 try: collect_result_path.unlink()
                 except OSError: pass

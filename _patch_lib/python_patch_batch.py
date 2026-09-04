@@ -18,7 +18,7 @@ from typing import Any
 
 from python_patch_package_schema import PatchSchemaError, check_compatibility, validate_manifest, resolve_project_path, _ops_target_paths
 
-VERSION = "6.17.7"
+VERSION = "6.17.8"
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_DIFF_FILE_BYTES = 512 * 1024
 MAX_SNAPSHOT_FILE_BYTES = 8 * 1024 * 1024
@@ -290,6 +290,9 @@ def transaction_compatibility(metas: list[PatchMeta], policy: str) -> list[str]:
         post = meta.manifest.get("post_patch") if isinstance(meta.manifest.get("post_patch"), dict) else {}
         if isinstance(post.get("commands"), list) and post.get("commands"):
             issues.append(f"{meta.name}: batch transaction rejects post_patch.commands because side effects are not target-bounded")
+        on_failure = meta.manifest.get("on_failure") if isinstance(meta.manifest.get("on_failure"), dict) else {}
+        if isinstance(on_failure.get("commands"), list) and on_failure.get("commands"):
+            issues.append(f"{meta.name}: batch transaction rejects on_failure.commands because failure-command side effects are not target-bounded")
         git = meta.manifest.get("git") if isinstance(meta.manifest.get("git"), dict) else {}
         if (git.get("add") not in {None, False, "off"} or
                 git.get("commit") not in {None, False, "off"} or git.get("push") not in {None, "off"}):

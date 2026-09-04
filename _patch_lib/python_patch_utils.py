@@ -12,7 +12,7 @@ import contextlib
 import io
 from typing import Any, Callable, Optional
 
-VERSION = "6.17.7"
+VERSION = "6.17.8"
 
 
 class PatchFailure(RuntimeError):

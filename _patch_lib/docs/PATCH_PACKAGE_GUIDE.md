@@ -1,4 +1,4 @@
-# PATCH PACKAGE GUIDE — v6.17.6 authoritative AI/tool contract
+# PATCH PACKAGE GUIDE — v6.17.8 authoritative AI/tool contract
 
 Machine-readable source of truth:
 
@@ -36,9 +36,9 @@ Optional manifest block:
 ```json
 {
   "compatibility": {
-    "min_tool_version": "6.17.6",
+    "min_tool_version": "6.17.8",
     "max_tool_version": "7.0.0",
-    "max_tested_version": "6.17.6"
+    "max_tested_version": "6.17.8"
   }
 }
 ```
@@ -288,3 +288,42 @@ Validation profiles are named local policies:
 ```
 
 The package does not define the commands. The project operator defines `validation_profiles.<name>.argv/cwd/timeout_seconds` locally. Missing/invalid profiles fail preflight. Profiles execute after payload/post-patch and before Git/archive. Batch-transaction mode rejects validation profiles because their side effects are not necessarily target-bounded.
+
+## v6.17.8 failure-only commands and managed script execution
+
+A PATCH may declare commands that run **only after a valid PATCH entered execution and then failed**:
+
+```json
+"on_failure": {
+  "commands": [
+    {
+      "name": "capture failing build state",
+      "argv": ["python3", "tools/capture_failure.py"],
+      "cwd": ".",
+      "timeout_seconds": 300
+    }
+  ]
+}
+```
+
+`on_failure.commands` uses the same command object contract as `post_patch.commands`: argv is an argument array (never a shell string), `cwd` is project-relative, and `timeout_seconds` is an integer `1..1800` when present. Commands are non-interactive: stdin is closed, so automation must pass inputs through argv/files/environment rather than `input()`/terminal prompts.
+
+Execution order on a PATCH failure is:
+
+1. detect/classify the PATCH/post-validation failure;
+2. attempt metadata-driven rollback when that failure trigger is configured;
+3. run `on_failure.commands` sequentially;
+4. recompute final project-delta evidence;
+5. publish structured failure result / FAIL_HANDOFF.
+
+The **original PATCH failure remains authoritative**. A failure-only command that exits non-zero, times out, or leaves descendants is recorded under `result.on_failure`, but does not replace the original PATCH rc. Such a failed/incomplete failure-handler is a global continuation safety-stop; unrelated PATCHes resume automatically only when the complete `on_failure` sequence PASSes and the final project state is proven unchanged. User interruption is different: Ctrl+C/SIGTERM is control flow and propagates to stop the run/batch; it is not converted into an ordinary command failure. `on_failure` is not executed for invalid package/schema/preflight rejection, nor for a user interruption before/while execution.
+
+`transaction_policy=batch` rejects `on_failure.commands`, just as it rejects target-unbounded post commands / validation profiles / Git side effects.
+
+Managed payload/post/validation/failure/Git-policy execution is process-tree contained for timeout/interruption on supported platforms. On POSIX, a leader that exits while descendants remain is also detected: descendants are terminated and the command is reported failed. Windows normal-exit descendant detection still requires native verification; timeout/interrupt tree termination is covered by the packaged Windows contract. A program that deliberately returns exit code `124` is distinct from a Patch Tool timeout (`timed_out=true`). Git auto-policy accepts `git.timeout_seconds` (`1..1800`, default 300) and disables terminal credential prompts. Patch Tool internal result/lock environment variables are removed before untrusted/project commands are spawned.
+
+### v6.17.8 dispatcher / internal-error execution boundary
+
+- `inspect`, `preview`, `validate` and the COLLECT progress supervisor are launched by the dispatcher through a process-group-aware foreground runner; Ctrl+C/SIGTERM is forwarded to the child tree instead of leaving a detached helper behind.
+- If an unexpected Patch Tool exception occurs **after payload execution has begun**, it is still an execution failure: configured rollback is attempted for payload/post-validation stages, then `on_failure.commands` runs. The internal-error rc/diagnosis remains primary.
+- Internal exceptions before execution (package/schema/preflight) remain project-unchanged failures and do not run `on_failure`.

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-VERSION = "6.17.7"
+VERSION = "6.17.8"
 CONFIG_NAME = ".python_patch_tool.json"
 MAX_CONFIG_BYTES = 1024 * 1024
 MAX_PROFILE_TIMEOUT = 1800
@@ -39,6 +39,8 @@ def _safe_rel_dir(value: str) -> str:
     rel = PurePosixPath(value)
     if rel.is_absolute() or any(part in {"", ".", ".."} for part in rel.parts):
         raise ProjectStateError(f"unsafe validation profile cwd: {value}")
+    if any(":" in part for part in rel.parts):
+        raise ProjectStateError(f"Windows drive/ADS syntax is not allowed in validation profile cwd: {value}")
     return rel.as_posix()
 
 

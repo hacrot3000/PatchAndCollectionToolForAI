@@ -1,4 +1,4 @@
-# Python Patch Tool v6.17.7 feature status
+# Python Patch Tool v6.17.8 feature status
 
 | Capability | Status |
 |---|---|
@@ -68,3 +68,16 @@ v6.17.6 completes the current robustness/data-integrity audit scope, aggregate/d
 - Disk/resource preflight: COMPLETE.
 - Queue search/filter: COMPLETE.
 - Cryptographic signatures / PKI / remote provenance trust: NOT IMPLEMENTED.
+
+## v6.17.8 execution audit
+
+- Failure-only `manifest.on_failure.commands`: COMPLETE.
+- Original PATCH failure rc remains authoritative; failure-command result is secondary evidence: COMPLETE.
+- Managed timeout vs explicit exit 124 separation: COMPLETE.
+- Post-exit descendant detection/cleanup on POSIX: COMPLETE.
+- Git auto-policy timeout/process-tree containment and no-prompt mode: COMPLETE.
+- Ctrl+C propagation through post/on-failure command sequences: COMPLETE.
+- Non-interactive managed stdin and internal `PTV_*` control-env isolation: COMPLETE.
+- Batch validate timeout graceful child cleanup: COMPLETE.
+- COLLECT Git-context failure visibility/helper suppression: COMPLETE.
+- Windows native runtime execution evidence for these changes: REQUIRES REAL WINDOWS HOST.

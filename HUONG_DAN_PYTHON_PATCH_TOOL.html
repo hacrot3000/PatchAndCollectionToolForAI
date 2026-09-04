@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Hướng dẫn Python Patch Tool v6.17.7</title>
+<title>Hướng dẫn Python Patch Tool v6.17.8</title>
 <style>
 :root{color-scheme:light dark}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:980px;margin:32px auto;padding:0 18px;line-height:1.55;color:#1f2328;background:#fff}
@@ -27,16 +27,16 @@ h1,h2{line-height:1.25}
 </style>
 </head>
 <body>
-<h1>Python Patch Tool v6.17.7 — hướng dẫn nhanh</h1>
+<h1>Python Patch Tool v6.17.8 — hướng dẫn nhanh</h1>
 
 <h2>1. Cài đặt / cập nhật</h2>
 <p><strong>Linux / POSIX:</strong></p>
-<pre>unzip -o python_patch_tool_v6.17.6.zip -d "$PWD"
+<pre>unzip -o python_patch_tool_v6.17.8.zip -d "$PWD"
 cat tools/_patch_lib/VERSION</pre>
 <p><strong>Windows PowerShell:</strong> cần Python <strong>3.10+</strong>.</p>
-<pre>Expand-Archive -Force .\python_patch_tool_v6.17.6.zip .
+<pre>Expand-Archive -Force .\python_patch_tool_v6.17.8.zip .
 Get-Content .\tools\_patch_lib\VERSION</pre>
-<p>Kết quả version phải là <code>6.17.6</code>.</p>
+<p>Kết quả version phải là <code>6.17.8</code>.</p>
 
 <h2>2. Chạy công cụ</h2>
 <p><strong>Linux / POSIX:</strong></p>
@@ -47,7 +47,8 @@ Get-Content .\tools\_patch_lib\VERSION</pre>
 <pre>.\tools\run_python_patches.ps1</pre>
 <p>Không cần tham số. Cả ba lệnh dùng cùng <code>patchs/</code> và cùng core. Trên Windows console phù hợp, tool hỗ trợ menu phím mũi tên/Space tương tự POSIX; nếu console không hỗ trợ an toàn thì tự dùng menu nhập số/range.</p>
 <p>Khi cần chẩn đoán PATCH mà không sửa source, dùng menu <code>v</code> hoặc lệnh <code>validate --patch</code>; kết quả phân biệt PATCH sai, source drift và lỗi tool.</p>
-<p>v6.17.7: dùng <code>p</code> để preview PATCH hiện tại trên private mirror, <code>/</code> để tìm/lọc theo tên/id/summary/target. Dùng <code>./tools/run_python_patches.sh plan</code> để xem batch plan read-only; có thể thêm <code>--export-recipe BATCH_RECIPE.json</code> rồi chạy lại chính xác bằng <code>run --recipe BATCH_RECIPE.json</code>.</p>
+<p>v6.17.8: dùng <code>p</code> để preview PATCH hiện tại trên private mirror, <code>/</code> để tìm/lọc theo tên/id/summary/target. Dùng <code>./tools/run_python_patches.sh plan</code> để xem batch plan read-only; có thể thêm <code>--export-recipe BATCH_RECIPE.json</code> rồi chạy lại chính xác bằng <code>run --recipe BATCH_RECIPE.json</code>.</p>
+<p>v6.17.8: PATCH có thể khai báo <code>on_failure.commands</code> để chạy command tự động chỉ khi execution thất bại. Command chạy sau rollback attempt, không thay thế RC/lỗi gốc của PATCH và không dùng stdin tương tác.</p>
 <p>Nếu PATCH khai báo <code>project.key</code> hoặc <code>validation.profiles</code>, project cần cấu hình tương ứng trong <code>.python_patch_tool.json</code>; validation command nằm ở local config, không nằm trong PATCH.</p>
 <ul>
 <li>PATCH: có thể chọn nhiều. POSIX TTY và Windows console hỗ trợ phím <code>0..9</code> để đặt priority khi fullscreen khả dụng; nếu fallback line selector thì dùng số/range.</li>

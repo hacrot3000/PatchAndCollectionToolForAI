@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Python Patch Tool v6.17.7 public launcher.
+# Python Patch Tool v6.17.8 public launcher.
 # SANDBOX/worktree transaction mode is permanently disabled at this boundary.
 set -euo pipefail
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,6 +16,15 @@ export PYTHONPATH="$LIB_DIR${PYTHONPATH:+:$PYTHONPATH}"
 # Keep the installed tool tree immutable during normal execution so Tool Health
 # does not warn about bytecode caches created by the tool itself.
 export PYTHONDONTWRITEBYTECODE=1
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "ERROR: Python 3.10+ is required but python3 was not found in PATH." >&2
+  exit 2
+fi
+if ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 3)' >/dev/null 2>&1; then
+  echo "ERROR: Python 3.10+ is required. Current python3 is too old." >&2
+  exit 2
+fi
 
 if [ "$#" -eq 0 ]; then
   if [ ! -f "$DISPATCHER" ]; then
@@ -53,7 +62,7 @@ if [ ! -f "$RUNNER" ]; then
   exit 2
 fi
 
-# v6.17.7 invariant: SANDBOX/Git-worktree transaction execution is removed.
+# v6.17.8 invariant: SANDBOX/Git-worktree transaction execution is removed.
 # The installed private core may still expose historical transaction options,
 # so every documented PATCH execution route is forced to --transaction off.
 # Utility-only routes such as paths/help remain untouched.

@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.17.7
+# AI / ChatGPT usage contract — Python Patch Tool v6.17.8
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
@@ -246,3 +246,15 @@ When `manifest.project.key` is present, it is an enforced runtime identity guard
 The tool now maintains a local `PATCH_LEDGER.json` (`patch.id + SHA-256`) and warns when the same patch id is reused for different package bytes. This is provenance-light evidence only, not a signature or trust assertion.
 
 For reproducible multi-PATCH replay, `plan --export-recipe` can export exact package filenames + SHA-256. A recipe mismatch must be fixed/rebased; do not bypass the SHA binding.
+
+## v6.17.8 — failure-only command contract
+
+AI may declare `manifest.on_failure.commands` when a valid PATCH needs a deterministic cleanup/diagnostic command **only if execution fails**. Use the exact same command-object rules as `post_patch.commands` (`name`, argv array, project-relative `cwd`, bounded `timeout_seconds`). Do not use a shell-string wrapper merely for sequencing; put each command in the ordered `commands` array.
+
+Failure-only commands run after the configured rollback attempt. The PATCH's original failure/rc is primary; an `on_failure` error is secondary structured evidence. A failed/timeout/lingering `on_failure` command safety-stops automatic continuation; do not rely on later independent PATCHes running after cleanup failure. They are not a mechanism for handling an invalid manifest, preflight/source-drift rejection, or user Ctrl+C. Whole-batch atomic transaction mode rejects them because their side effects cannot be proven target-bounded.
+
+All AI-declared commands are non-interactive. Do not depend on stdin/password/confirmation prompts. Managed command completion requires the full contained process tree to finish; detached/background work is invalid. `git.timeout_seconds` may be declared for automated Git policy and must remain in `1..1800`.
+
+### v6.17.8 internal-error rule
+
+Once payload execution has begun, an unexpected runner exception is treated as a PATCH execution failure for recovery purposes: applicable rollback first, then `on_failure.commands`. AI must not assume failure-only commands run for package/schema/preflight rejection or for user interruption. Dispatcher foreground routes (`inspect`/`preview`/`validate`/COLLECT supervisor) are signal/tree-contained as well. POSIX normal-exit orphan detection is runtime-tested; Windows native normal-exit orphan detection is not claimed by the Linux release lane.

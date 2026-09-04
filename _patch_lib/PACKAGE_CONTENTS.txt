@@ -1,4 +1,4 @@
-Python Patch Tool v6.17.7 — full self-contained package
+Python Patch Tool v6.17.8 — full self-contained package
 
 Public launchers / user docs:
   tools/run_python_patches.sh
@@ -52,11 +52,11 @@ Runtime artifacts (created in project; not shipped pre-populated):
   patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip
 
 Normal use — Linux/POSIX:
-  unzip -o python_patch_tool_v6.17.7.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.17.8.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 Normal use — Windows (Python 3.10+):
-  Expand-Archive -Force .\python_patch_tool_v6.17.7.zip PROJECT_ROOT
+  Expand-Archive -Force .\python_patch_tool_v6.17.8.zip PROJECT_ROOT
   tools\run_python_patches.bat
   # or: .\tools\run_python_patches.ps1
 
@@ -85,9 +85,9 @@ v6.17.6 controlled batch engine:
 - persistent report browser supports aggregate/detail logs, filtering, source diff, support ZIP and run history management;
 - native Windows runtime lane is shipped as tools/run_windows_native_tests.ps1 and must be executed on a real Windows host for a native PASS claim.
 
-Explicitly NOT IMPLEMENTED by requirement:
-- Static target-overlap/conflict analyzer before execution (runtime failed-target overlap guard is implemented).
-- Patch provenance / identity subsystem. Dependency uses the existing manifest.patch.id only.
+Current scope boundaries:
+- Static effective-target conflict analysis is implemented from v6.17.7; arbitrary Python side effects outside declared/effective targets are intentionally not guessed.
+- Project identity + local patch ledger + recipe SHA binding are implemented; cryptographic signature/PKI/remote provenance trust remains NOT IMPLEMENTED.
 
 PATCH execution remains IN-PLACE. SANDBOX/worktree transaction execution is permanently unsupported.
 
@@ -100,3 +100,15 @@ v6.17.7 project/planning state:
 - plan --export-recipe / run --recipe provide exact SHA-bound batch replay.
 - resource preflight checks project/temp free space before PATCH source write.
 - selector '/' filters by filename/id/summary/effective target; 'p' previews current PATCH.
+
+
+v6.17.8 failure-only commands / script execution audit:
+- manifest.on_failure.commands uses the post_patch argv/cwd/timeout contract and runs only after a valid PATCH entered execution and then failed; configured rollback is attempted first.
+- the original PATCH rc/diagnosis remains primary; failure-command status is secondary structured evidence and cannot mask the initial failure.
+- managed commands are non-interactive (stdin closed), explicit exit 124 is distinct from a tool timeout, and user Ctrl+C propagates as global interruption.
+- POSIX managed execution detects a leader that exits while descendants remain, contains the tree and fails instead of publishing a false PASS.
+- Git add/commit/push/reset use managed process containment with git.timeout_seconds (default 300) and terminal credential prompting disabled.
+- Git state observation disables fsmonitor/external-diff/textconv helpers and Git command errors are not treated as a clean worktree.
+- batch read-only validation timeouts signal the runner first so nested OPS workers are cleaned before hard-kill fallback.
+- Patch Tool internal result/lock control environment variables are removed before project/payload commands are spawned.
+- COLLECT Git context marks failed Git sections explicitly and collector lingering-process completion cannot report false PASS.

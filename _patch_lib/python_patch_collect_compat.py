@@ -20,7 +20,7 @@ import zipfile
 
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
 
-VERSION = "6.17.7"
+VERSION = "6.17.8"
 REQUEST_RE = re.compile(r"^CODE_COLLECTION_REQUEST(?:_[A-Za-z0-9._-]+)?\.json$", re.I)
 MAX_REQUEST_JSON_BYTES = 1024 * 1024
 REGEX_SEARCH_TIMEOUT_SECONDS = 60.0
@@ -612,16 +612,31 @@ def _git_action(root: Path, action: dict) -> str:
     if not (root / ".git").exists():
         return "# Git context\n\nNot a Git working tree at the project root.\n"
     commands = {
-        "status": ["git", "status", "--short", "--branch"],
+        "status": ["git", "-c", "core.fsmonitor=false", "status", "--short", "--branch"],
         "log": ["git", "log", "--oneline", "--decorate", "-n", str(action.get("log_entries", 20))],
-        "diff_stat": ["git", "diff", "--stat", "--no-ext-diff"],
-        "diff": ["git", "diff", "--no-ext-diff", "--unified=3"],
+        "diff_stat": ["git", "-c", "core.fsmonitor=false", "diff", "--stat", "--no-ext-diff", "--no-textconv"],
+        "diff": ["git", "-c", "core.fsmonitor=false", "diff", "--no-ext-diff", "--no-textconv", "--unified=3"],
     }
     blocks = ["# Git context", ""]
     for section in action["sections"]:
         cmd = commands[section]
-        proc = subprocess.run(cmd, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", timeout=30)
-        blocks += [f"## {section}", "```text", proc.stdout.rstrip(), "```", ""]
+        try:
+            proc = subprocess.run(
+                cmd, cwd=root, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, errors="replace", timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            blocks += [f"## {section}", "```text", "[GIT COMMAND FAILED: timeout after 30s]", "```", ""]
+            continue
+        text = (proc.stdout or "").rstrip()
+        if proc.returncode != 0:
+            detail = (proc.stderr or "").strip().replace("\n", " ")[:800]
+            text = f"[GIT COMMAND FAILED rc={proc.returncode}]" + (f" {detail}" if detail else "")
+        elif proc.stderr:
+            warning = proc.stderr.strip().replace("\n", " ")[:800]
+            if warning:
+                text = (text + "\n" if text else "") + f"[git warning] {warning}"
+        blocks += [f"## {section}", "```text", text, "```", ""]
     return "\n".join(blocks) + "\n"
 
 

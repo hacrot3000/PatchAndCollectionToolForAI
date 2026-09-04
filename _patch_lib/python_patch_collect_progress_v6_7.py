@@ -18,7 +18,7 @@ import time
 import unicodedata
 from typing import Iterable
 
-VERSION = "6.17.7"
+VERSION = "6.17.8"
 DEFAULT_HEARTBEAT = 0.8
 DEFAULT_MARGIN = 2
 MAX_TAIL_LINES = 120
@@ -430,8 +430,26 @@ def _reader(stream, q: queue.Queue[str], tail: deque[str]) -> None:
             pass
 
 
+def _windows_taskkill_tree(proc: subprocess.Popen, *, force: bool) -> None:
+    if os.name != "nt":
+        return
+    try:
+        argv = ["taskkill", "/PID", str(proc.pid), "/T"]
+        if force:
+            argv.append("/F")
+        cp = subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, check=False)
+        if cp.returncode != 0 and proc.poll() is None:
+            proc.kill() if force else proc.terminate()
+    except Exception:
+        try:
+            if proc.poll() is None:
+                proc.kill() if force else proc.terminate()
+        except Exception:
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Python Patch Tool v6.17.6 COLLECT one-line progress supervisor")
+    ap = argparse.ArgumentParser(description="Python Patch Tool v6.17.8 COLLECT one-line progress supervisor")
     ap.add_argument("--project-root", required=True)
     ap.add_argument("--collector", required=True)
     ap.add_argument("rest", nargs=argparse.REMAINDER)
@@ -453,22 +471,15 @@ def main(argv: list[str] | None = None) -> int:
     cmd = [sys.executable, str(collector), "--project-root", str(root), *rest]
     env = dict(os.environ)
     env["PYTHONUNBUFFERED"] = "1"
-    proc = subprocess.Popen(
-        cmd,
-        cwd=str(root),
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        bufsize=1,
-        # Put the collector in its own process group.  If the supervisor is
-        # stopped by an IDE/task runner that signals only the parent PID, we
-        # can terminate the complete collector tree instead of leaving a
-        # readonly collection process running in the background.
-        start_new_session=(os.name == "posix"),
+    popen_kwargs = dict(
+        cwd=str(root), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", errors="replace", bufsize=1,
     )
+    if os.name == "posix":
+        popen_kwargs["start_new_session"] = True
+    elif os.name == "nt" and hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+        popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    proc = subprocess.Popen(cmd, **popen_kwargs)
     assert proc.stdout is not None
 
     received_signal: list[int] = []
@@ -486,7 +497,9 @@ def main(argv: list[str] | None = None) -> int:
                 # correct cleanup target even after proc.poll() is non-None.
                 os.killpg(proc.pid, signum)
             elif proc.poll() is None:
-                proc.send_signal(signum)
+                # COLLECT is read-only, so on Windows prefer terminating the
+                # complete tree instead of signalling only the supervisor PID.
+                _windows_taskkill_tree(proc, force=False)
         except (ProcessLookupError, PermissionError, OSError):
             pass
 
@@ -560,7 +573,7 @@ def main(argv: list[str] | None = None) -> int:
                 if os.name == "posix":
                     os.killpg(proc.pid, signal.SIGKILL)
                 else:
-                    proc.kill()
+                    _windows_taskkill_tree(proc, force=True)
             except (ProcessLookupError, PermissionError, OSError):
                 pass
             signal_deadline[0] = None
@@ -591,8 +604,8 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 if os.name == "posix":
                     os.killpg(proc.pid, signal.SIGKILL)
-                elif proc.poll() is None:
-                    proc.kill()
+                elif os.name == "nt":
+                    _windows_taskkill_tree(proc, force=True)
             except (ProcessLookupError, PermissionError, OSError):
                 pass
             signal_deadline[0] = None
@@ -607,6 +620,8 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if os.name == "posix":
                 os.killpg(proc.pid, signal.SIGTERM)
+            elif os.name == "nt":
+                _windows_taskkill_tree(proc, force=False)
         except (ProcessLookupError, PermissionError, OSError):
             pass
         thread.join(timeout=POST_EXIT_KILL_GRACE_SECONDS)
@@ -614,6 +629,8 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 if os.name == "posix":
                     os.killpg(proc.pid, signal.SIGKILL)
+                elif os.name == "nt":
+                    _windows_taskkill_tree(proc, force=True)
             except (ProcessLookupError, PermissionError, OSError):
                 pass
             thread.join(timeout=POST_EXIT_KILL_GRACE_SECONDS)
@@ -637,6 +654,12 @@ def main(argv: list[str] | None = None) -> int:
         final_rc = 128 + abs(raw_rc)
     else:
         final_rc = raw_rc
+    if lingering_output_tree and final_rc == 0:
+        # A collector that reports success while a descendant still owns its
+        # stdout/process tree is not a cleanly completed execution.  The tree
+        # has been contained above; surface a distinct failure instead of a
+        # false PASS.
+        final_rc = 125
     _render_one_line(
         f"{'✓' if final_rc == 0 else '✗'} COLLECT | rc={final_rc} | {elapsed:.1f}s | phase={phase} | output={output_lines} lines",
         final=True,
