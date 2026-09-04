@@ -1,4 +1,4 @@
-# Python Patch Tool v6.9.0 feature status
+# Python Patch Tool v6.9.1 feature status
 
 | Capability | Status |
 |---|---|
@@ -38,11 +38,11 @@
 | Real large-project COLLECT validation | PENDING USER RUNTIME EVIDENCE |
 | Phase-inference refinement | DEFERRED unless real COLLECT output demonstrates missing/poor markers |
 
-v6.9.0 adds only the explicitly requested priority ordering to the existing TTY
-selector. It does not start an unrelated feature group. Duplicate-local behavior
-remains machine-local: a PATCH that ran on one computer is still runnable on
-another unless that second project root contains the same package bytes in its
-own `patchs/patched/`.
+v6.9.1 is a regression-only PATCH over the v6.9.0 selector-priority baseline.
+It does not start an unrelated feature group. Duplicate-local behavior remains
+project-local: a PATCH that ran on one computer is still runnable on another
+unless that second project root contains the same package bytes in its own
+`patchs/patched/`.
 
 ## Retained duplicate-local hardening
 
@@ -55,7 +55,7 @@ own `patchs/patched/`.
 - These changes only harden the existing local duplicate feature; no global,
   PROJECT KEY, network, or cross-machine history was added.
 
-## v6.9.0 selector priority completion
+## Retained v6.9.0 selector priority completion
 
 - On the TTY selector, `0`..`9` assigns an execution priority to the current
   selected row. Lower numbers execute first. Equal numbers preserve the exact
@@ -66,3 +66,21 @@ own `patchs/patched/`.
   `1 -> 4 -> 2 -> 5 -> 3`.
 - This extends the existing selector only; the non-TTY line selector retains
   its historical numeric item-index grammar to avoid a breaking ambiguity.
+
+## v6.9.1 regression repair
+
+- PASS summary counts executed items separately from `[SKIPPED:DUPLICATE_LOCAL]` items.
+- HANDOFF/tool-distribution ZIP identity is resolved before COLLECT request
+  discovery, so preserved request JSON inside support evidence cannot rerun.
+- COLLECT drains buffered stdout for a bounded post-exit grace period so a
+  final result ZIP line is not lost merely because the reader thread lags the
+  already-exited collector process.
+- Result/request metadata is tracked independently of the 120-line failure tail,
+  so long trailing logs cannot erase an already-reported valid upload ZIP.
+- No new capability was added.
+
+
+V6.9.1 in-place boundary hardening:
+  Historical/short PATCH execution flags such as `-a -y --move` are treated as
+  execution-capable and receive `--transaction off`. Only documented read-only
+  utility routes (`paths`, help, version) bypass the execution-only argument.

@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix='ptv678ffmain_') as td:
         with zipfile.ZipFile(root/'patchs'/name,'w') as z:
             z.writestr('PATCH_TOOL_MANIFEST.json','{}')
     cp=subprocess.run(
-        [sys.executable,str(MOD),'--project-root',str(root)],
+        [sys.executable,'-S',str(MOD),'--project-root',str(root)],
         input='a\n', text=True, capture_output=True,
     )
     assert cp.returncode==9,(cp.returncode,cp.stdout,cp.stderr)
@@ -86,4 +86,33 @@ with tempfile.TemporaryDirectory(prefix='ptv6711collectarchiveok_') as td:
     assert (q/'patched'/request.name).is_file()
     assert not request.exists()
 
-print('PASS: v6.9.0 fail-fast, signal status and COLLECT archive lifecycle')
+
+# PASS summary must distinguish completed work from local duplicate skips.
+# A late duplicate was selected by the operator but not executed; it must not
+# be counted as a completed selected item.
+with tempfile.TemporaryDirectory(prefix="ptv691_summary_dup_") as td:
+    root = Path(td)
+    (root / "tools").mkdir()
+    (root / "patchs" / "patched").mkdir(parents=True)
+    first = root / "patchs" / "first.zip"
+    second = root / "patchs" / "second.zip"
+    import zipfile, shutil
+    with zipfile.ZipFile(first, "w") as zf:
+        zf.writestr("PATCH_TOOL_MANIFEST.json", "{}")
+        zf.writestr("payload.txt", "same")
+    shutil.copy2(first, second)
+    calls = root / "calls.txt"
+    launcher = root / "tools" / "run_python_patches.sh"
+    launcher.write_text(
+        "#!/usr/bin/env bash\n"
+        f"echo \"$*\" >> {str(calls)!r}\n"
+        "src=\"${2#patchs/}\"\n"
+        "mv \"patchs/$src\" \"patchs/patched/$src\"\n",
+        encoding="utf-8",
+    )
+    launcher.chmod(0o755)
+    chosen=[m.QueueItem("first.zip","PATCH"),m.QueueItem("second.zip","PATCH")]
+    rc,executed,remaining,late_dups,warns=m.execute_items(root,chosen)
+    assert rc==0 and len(executed)==1 and len(late_dups)==1 and not remaining and not warns
+
+print('PASS: v6.9.1 fail-fast, signal status and COLLECT archive lifecycle')

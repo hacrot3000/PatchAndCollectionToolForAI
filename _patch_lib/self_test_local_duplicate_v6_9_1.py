@@ -92,7 +92,7 @@ with tempfile.TemporaryDirectory(prefix='ptv680dup_e2e_only_') as td:
     launcher.chmod(0o755)
 
     cp = subprocess.run(
-        [sys.executable, str(MOD), '--project-root', str(root)],
+        [sys.executable, '-S', str(MOD), '--project-root', str(root)],
         text=True,
         capture_output=True,
         timeout=15,
@@ -131,7 +131,7 @@ with tempfile.TemporaryDirectory(prefix='ptv680dup_e2e_mixed_') as td:
     launcher.chmod(0o755)
 
     cp = subprocess.run(
-        [sys.executable, str(MOD), '--project-root', str(root)],
+        [sys.executable, '-S', str(MOD), '--project-root', str(root)],
         input='\n',
         text=True,
         capture_output=True,
@@ -265,15 +265,15 @@ with tempfile.TemporaryDirectory(prefix='ptv681dup_late_main_') as td:
     )
     launcher.chmod(0o755)
     cp = subprocess.run(
-        [sys.executable, str(MOD), '--project-root', str(root)],
+        [sys.executable, '-S', str(MOD), '--project-root', str(root)],
         input='a\n', text=True, capture_output=True, timeout=15,
     )
     assert cp.returncode == 0, (cp.returncode, cp.stdout, cp.stderr)
     invoked = calls.read_text(encoding='utf-8').splitlines()
     assert len(invoked) == 1 and 'copy_1.zip' in invoked[0], invoked
     assert '[SKIPPED:DUPLICATE_LOCAL] copy_2.zip' in cp.stdout, cp.stdout
-    assert 'SUMMARY: PASS | 1 selected item(s) completed' in cp.stdout, cp.stdout
+    assert 'SUMMARY: PASS | 1 item(s) completed | 1 item(s) skipped as local duplicate' in cp.stdout, cp.stdout
     assert second.is_file(), second
 
 
-print('PASS: v6.9.0 local-only SHA-256 duplicate PATCH skip contract')
+print('PASS: v6.9.1 local-only SHA-256 duplicate PATCH skip contract')

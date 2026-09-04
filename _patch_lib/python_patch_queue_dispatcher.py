@@ -21,7 +21,7 @@ try:
 except Exception:
     termios = tty = None
 
-VERSION = "6.9.0"
+VERSION = "6.9.1"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -76,6 +76,64 @@ def _zip_has_root_patch_manifest(path: Path) -> bool:
     except Exception:
         return False
 
+
+
+def _archive_nonrunnable_reason(names: list[str]) -> str | None:
+    """Return a structural support/distribution reason for archive members.
+
+    Supports both root archives and one-or-more-folder wrappers by matching
+    marker paths relative to their common prefix.
+    """
+    normalized = [n.replace("\\", "/").strip("/") for n in names]
+
+    # Tool distribution: launcher and _patch_lib under the same prefix.
+    launcher_suffix = "tools/run_python_patches.sh"
+    for name in normalized:
+        if name == launcher_suffix:
+            prefix = ""
+        elif name.endswith("/" + launcher_suffix):
+            prefix = name[: -len(launcher_suffix)]
+        else:
+            continue
+        lib_prefix = prefix + "tools/_patch_lib/"
+        if any(n.startswith(lib_prefix) for n in normalized):
+            return "tool_distribution"
+
+    # Handoff: the canonical marker pair shares the same archive parent.
+    handoff_parents = {
+        str(Path(n).parent).replace("\\", "/")
+        for n in normalized
+        if Path(n).name == "HANDOFF_README.md"
+    }
+    state_parents = {
+        str(Path(n).parent).replace("\\", "/")
+        for n in normalized
+        if Path(n).name == "CURRENT_STATE.md"
+    }
+    if handoff_parents & state_parents:
+        return "handoff_archive"
+    return None
+
+
+def _zip_known_nonrunnable(path: Path) -> tuple[bool, str]:
+    """Recognize support/distribution ZIPs before COLLECT routing.
+
+    A HANDOFF may legitimately preserve the original CODE_COLLECTION_REQUEST
+    JSON as evidence. That must never make the handoff itself runnable as a
+    new readonly collection request. Root PATCH manifest precedence is handled
+    by discover_queue() before this helper.
+    """
+    if path.suffix.lower() != ".zip" or not path.is_file():
+        return False, ""
+    try:
+        with zipfile.ZipFile(path) as zf:
+            names = [n for n in zf.namelist() if not n.endswith("/")]
+        reason = _archive_nonrunnable_reason(names)
+        return (reason is not None, reason or "")
+    except Exception:
+        # Invalid ZIP handling remains with the normal classifier below.
+        return False, ""
+
 def inspect_collect_zip(path: Path):
     if path.suffix.lower() != ".zip" or not path.is_file():
         return False, ""
@@ -121,17 +179,11 @@ def _zip_is_patch(path: Path):
             if "PATCH_TOOL_MANIFEST.json" in names:
                 return True, "manifest"
             # Known distribution/support bundles are not runnable patches.
-            # Check these signatures before scanning Python text for legacy
-            # helper markers because self-tests and diagnostic bundles may
-            # legitimately mention PATCH_NAME/run_patch as plain test data.
-            if (
-                "tools/run_python_patches.sh" in names
-                and any(n.startswith("tools/_patch_lib/") for n in names)
-            ):
-                return False, "tool_distribution"
-            root_names = {n for n in names if "/" not in n.strip("/")}
-            if {"HANDOFF_README.md", "CURRENT_STATE.md"} <= root_names:
-                return False, "handoff_archive"
+            # Resolve these signatures before scanning Python text for legacy
+            # helper markers because support evidence may mention PATCH_NAME.
+            nonrunnable_reason = _archive_nonrunnable_reason(names)
+            if nonrunnable_reason:
+                return False, nonrunnable_reason
 
             py_names = [n for n in names if n.lower().endswith(".py")]
             if any(PATCH_PY_RE.match(Path(n).name) for n in py_names):
@@ -170,14 +222,9 @@ def _tar_is_patch(path: Path):
             names = [m.name for m in members]
             if "PATCH_TOOL_MANIFEST.json" in names:
                 return True, "manifest"
-            if (
-                "tools/run_python_patches.sh" in names
-                and any(n.startswith("tools/_patch_lib/") for n in names)
-            ):
-                return False, "tool_distribution"
-            root_names = {n for n in names if "/" not in n.strip("/")}
-            if {"HANDOFF_README.md", "CURRENT_STATE.md"} <= root_names:
-                return False, "handoff_archive"
+            nonrunnable_reason = _archive_nonrunnable_reason(names)
+            if nonrunnable_reason:
+                return False, nonrunnable_reason
             py_members = [m for m in members if m.name.lower().endswith(".py")]
             if any(PATCH_PY_RE.match(Path(m.name).name) for m in py_members):
                 return True, "legacy_patch_script"
@@ -396,6 +443,14 @@ def discover_queue(root: Path):
         if path.suffix.lower() == ".zip" and _zip_has_root_patch_manifest(path):
             items.append(QueueItem(path.name, "PATCH", "manifest"))
             continue
+
+        if path.suffix.lower() == ".zip":
+            nonrunnable, reason = _zip_known_nonrunnable(path)
+            if nonrunnable:
+                warnings.append(
+                    f"SKIPPED non-patch candidate: patchs/{path.name} ({reason})"
+                )
+                continue
 
         ok, detail = inspect_collect_zip(path)
         if ok:
@@ -641,7 +696,7 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
         raw_line, interrupted = _readline_or_interrupt()
         if interrupted:
             print("\nCancelled by Ctrl+C.")
-            return None
+            raise KeyboardInterrupt
         if raw_line == "":
             return None
         raw = raw_line.strip().lower()
@@ -667,7 +722,7 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
             confirm, interrupted = _readline_or_interrupt()
             if interrupted:
                 print("\nCancelled by Ctrl+C.")
-                return None
+                raise KeyboardInterrupt
             if confirm == "" or confirm.strip().lower() != "y":
                 print("Xóa đã hủy.")
                 continue
@@ -729,7 +784,9 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto"):
             rendered = _render(items, cursor, selected, priorities, msg, rendered)
             msg = ""
             key = _read_key(fd)
-            if key in {"q", "ESC", "\x03"}:
+            if key == "\x03":
+                raise KeyboardInterrupt
+            if key in {"q", "ESC"}:
                 return None
             if delete:
                 delete = False
@@ -981,7 +1038,15 @@ def main(argv=None):
         return rc
     if local_duplicates:
         _print_local_duplicate_skips(local_duplicates)
-    print(f"SUMMARY: PASS | {len(executed)} selected item(s) completed")
+    completed_count = len(executed)
+    duplicate_count = len(local_duplicates)
+    if duplicate_count:
+        print(
+            f"SUMMARY: PASS | {completed_count} item(s) completed | "
+            f"{duplicate_count} item(s) skipped as local duplicate"
+        )
+    else:
+        print(f"SUMMARY: PASS | {completed_count} item(s) completed")
     return 0
 
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import json, os, subprocess, tempfile
+import json, os, subprocess, tempfile, sys, shlex
 from pathlib import Path
 
 HERE=Path(__file__).resolve()
@@ -14,10 +14,20 @@ def make_project(tmp: Path):
     (lib/'python_patch_runner.py').write_text('import json,sys\nprint(json.dumps(sys.argv[1:]))\n', encoding='utf-8')
     (lib/'python_patch_collect_progress_v6_7.py').write_bytes(PROGRESS.read_bytes())
     (lib/'python_patch_readonly_collector.py').write_text("from pathlib import Path\nimport zipfile\nroot=Path.cwd()\nout=root/'artifacts'/'patch_tool_code_collections'/'route.zip'\nout.parent.mkdir(parents=True,exist_ok=True)\nwith zipfile.ZipFile(out,'w') as zf: zf.writestr('manifest.json','{}')\nprint(f'ZIP : {out}')\nprint('PASS collect route')\n", encoding='utf-8')
+    bindir=tmp/'bin'; bindir.mkdir()
+    py=bindir/'python3'
+    py.write_text('#!/usr/bin/env bash\nexec '+shlex.quote(sys.executable)+' -S "$@"\n',encoding='utf-8')
+    py.chmod(0o755)
     return tools/'run_python_patches.sh'
 
+def test_env(launcher: Path, extra=None):
+    result=os.environ.copy()
+    if extra: result.update(extra)
+    result['PATH']=str(launcher.parent.parent/'bin')+os.pathsep+result.get('PATH','')
+    return result
+
 def run(launcher: Path, *args: str, env=None):
-    cp=subprocess.run([str(launcher),*args], cwd=launcher.parent.parent, text=True, capture_output=True, env=env)
+    cp=subprocess.run([str(launcher),*args], cwd=launcher.parent.parent, text=True, capture_output=True, env=test_env(launcher,env))
     assert cp.returncode==0, (cp.returncode,cp.stdout,cp.stderr)
     return json.loads(cp.stdout.strip().splitlines()[-1])
 
@@ -36,6 +46,8 @@ with tempfile.TemporaryDirectory() as td:
         ('--transaction','--patch','patchs/demo.zip'),
         ('--select','--transaction','required','--keep-failed-sandbox'),
         ('--transaction=auto','--patch','patchs/a.zip'),
+        ('-a','-y','--zip-failed','--keep-failed-zip','--move'),
+        ('-y','--move'),
     ]:
         got=run(launcher,*args)
         assert got[-2:]==['--transaction','off'], (args,got)
@@ -54,7 +66,7 @@ with tempfile.TemporaryDirectory() as td:
         ('--keep-failed-sandbox',),
         ('--transaction',),
     ]:
-        cp=subprocess.run([str(launcher),*args],cwd=launcher.parent.parent,text=True,capture_output=True)
+        cp=subprocess.run([str(launcher),*args],cwd=launcher.parent.parent,text=True,capture_output=True,env=test_env(launcher))
         assert cp.returncode==2,(args,cp.returncode,cp.stdout,cp.stderr)
         assert 'obsolete transaction/SANDBOX flags' in cp.stderr,(args,cp.stderr)
         assert cp.stdout.strip()=='',(args,cp.stdout)
@@ -63,11 +75,11 @@ with tempfile.TemporaryDirectory() as td:
     got=run(launcher,'--patch','patchs/a.zip',env=env)
     assert got[-2:]==['--transaction','off'], got
 
-    for utility in [('paths',),('--help',)]:
+    for utility in [('paths',),('help',),('--help',),('-h',),('version',),('--version',)]:
         got=run(launcher,*utility)
         assert '--transaction' not in got, (utility,got)
 
-    cp=subprocess.run([str(launcher),'collect','request','dummy.zip'],cwd=launcher.parent.parent,text=True,capture_output=True)
+    cp=subprocess.run([str(launcher),'collect','request','dummy.zip'],cwd=launcher.parent.parent,text=True,capture_output=True,env=test_env(launcher))
     assert cp.returncode==0,(cp.returncode,cp.stdout,cp.stderr)
     assert '[PRIMARY - UPLOAD THIS FILE]' in cp.stdout,cp.stdout
     assert 'route.zip' in cp.stdout,cp.stdout
@@ -77,4 +89,4 @@ assert 'python_patch_runtime_guard.py' not in text
 assert 'PTV_USE_RUNTIME_GUARD' not in text
 assert 'git worktree add' not in text
 assert 'exec python3 "$RUNNER" "${filtered[@]}" --transaction off' in text
-print('PASS: v6.9.0 all documented PATCH execution routes force in-place mode')
+print('PASS: v6.9.1 all documented PATCH execution routes force in-place mode')

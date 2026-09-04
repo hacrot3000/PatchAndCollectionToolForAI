@@ -17,10 +17,13 @@ import time
 import unicodedata
 from typing import Iterable
 
-VERSION = "6.9.0"
+VERSION = "6.9.1"
 DEFAULT_HEARTBEAT = 0.8
 DEFAULT_MARGIN = 2
 MAX_TAIL_LINES = 120
+POST_EXIT_DRAIN_SECONDS = 3.0
+POST_EXIT_KILL_GRACE_SECONDS = 0.5
+MAX_TRACKED_RESULT_CANDIDATES = 16
 
 # Collector output is untrusted terminal text. Strip common ANSI escape/control
 # sequences before using it in the one-line status or bounded completion tail.
@@ -327,7 +330,7 @@ def _reader(stream, q: queue.Queue[str], tail: deque[str]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Python Patch Tool v6.9.0 COLLECT one-line progress supervisor")
+    ap = argparse.ArgumentParser(description="Python Patch Tool v6.9.1 COLLECT one-line progress supervisor")
     ap.add_argument("--project-root", required=True)
     ap.add_argument("--collector", required=True)
     ap.add_argument("rest", nargs=argparse.REMAINDER)
@@ -406,6 +409,26 @@ def main(argv: list[str] | None = None) -> int:
     last_detail = "starting collector"
     is_tty = bool(getattr(sys.stdout, "isatty", lambda: False)())
 
+    # Completion metadata must outlive the bounded diagnostic tail. A valid ZIP
+    # may be reported and followed by hundreds of ordinary log lines; using
+    # only tail[-120:] would then lose the upload target and create a false FAIL.
+    tracked_result_candidates: list[str] = []
+    tracked_request_zip: str | None = None
+    tracked_extras: deque[str] = deque(maxlen=4)
+
+    def observe_completion_metadata(line: str) -> None:
+        nonlocal tracked_request_zip
+        candidates, request_zip, extras = _extract_collect_candidates([line])
+        for candidate in candidates:
+            tracked_result_candidates[:] = [x for x in tracked_result_candidates if x != candidate]
+            tracked_result_candidates.append(candidate)
+            if len(tracked_result_candidates) > MAX_TRACKED_RESULT_CANDIDATES:
+                del tracked_result_candidates[:-MAX_TRACKED_RESULT_CANDIDATES]
+        if request_zip:
+            tracked_request_zip = request_zip
+        for extra in extras:
+            tracked_extras.append(extra)
+
     while True:
         while True:
             try:
@@ -414,6 +437,7 @@ def main(argv: list[str] | None = None) -> int:
                 break
             output_lines += 1
             phase = _infer_phase(line, phase)
+            observe_completion_metadata(line)
             if line.strip():
                 last_detail = _completion_progress_detail(line)
         rc = proc.poll()
@@ -446,16 +470,48 @@ def main(argv: list[str] | None = None) -> int:
         except (ValueError, OSError):
             pass
 
-    thread.join(timeout=1.0)
-    while True:
+    def consume_pending_output() -> None:
+        nonlocal output_lines, phase, last_detail
+        while True:
+            try:
+                line = q.get_nowait()
+            except queue.Empty:
+                break
+            output_lines += 1
+            phase = _infer_phase(line, phase)
+            observe_completion_metadata(line)
+            if line.strip():
+                last_detail = _completion_progress_detail(line)
+
+    # The child can exit before the reader thread has drained the final bytes
+    # already buffered in the stdout pipe.  Waiting only one second can lose
+    # the final ZIP line on large/noisy collections and turn a real PASS into
+    # a false rc=3.  Drain until EOF for a bounded grace period.
+    drain_deadline = time.monotonic() + POST_EXIT_DRAIN_SECONDS
+    while thread.is_alive() and time.monotonic() < drain_deadline:
+        consume_pending_output()
+        thread.join(timeout=0.05)
+    consume_pending_output()
+
+    lingering_output_tree = thread.is_alive()
+    if lingering_output_tree:
+        # A normal exited collector closes stdout.  If the pipe is still held
+        # open, a descendant most likely inherited it.  Clean that process
+        # group so a finished COLLECT cannot leave a writer/process behind.
         try:
-            line = q.get_nowait()
-        except queue.Empty:
-            break
-        output_lines += 1
-        phase = _infer_phase(line, phase)
-        if line.strip():
-            last_detail = _completion_progress_detail(line)
+            if os.name == "posix":
+                os.killpg(proc.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+        thread.join(timeout=POST_EXIT_KILL_GRACE_SECONDS)
+        if thread.is_alive():
+            try:
+                if os.name == "posix":
+                    os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+            thread.join(timeout=POST_EXIT_KILL_GRACE_SECONDS)
+        consume_pending_output()
 
     elapsed = time.monotonic() - started
     raw_rc = int(rc)
@@ -471,6 +527,9 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     # Keep the terminal compact on PASS. On FAIL, surface a bounded tail so the user has useful evidence.
+    if lingering_output_tree:
+        print(f"[PTV v{VERSION} WARNING] collector stdout remained open after parent exit; lingering process-group output was cleaned up")
+
     if final_rc != 0:
         print("COLLECT FAILED — recent collector output:")
         for line in list(tail)[-30:]:
@@ -480,7 +539,11 @@ def main(argv: list[str] | None = None) -> int:
         # collectors may print the result archive twice (a ``ZIP:`` line plus
         # the bare path). The user should see exactly one highlighted upload
         # target and must not confuse it with the archived request ZIP.
-        if not _print_collect_success(root, tail):
+        completion_material = [f"ZIP : {x}" for x in tracked_result_candidates]
+        if tracked_request_zip:
+            completion_material.append(f"REQUEST : {tracked_request_zip}")
+        completion_material.extend(tracked_extras)
+        if not _print_collect_success(root, completion_material):
             final_rc = 3
     return final_rc
 

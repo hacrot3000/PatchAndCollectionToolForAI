@@ -36,17 +36,30 @@ with tempfile.TemporaryDirectory() as td:
     with tarfile.open(p/'handoff_archive.tgz','w:gz') as tf:
         for name,data in [('HANDOFF_README.md',b'handoff'),('CURRENT_STATE.md',b'state'),('sample.py',b'PATCH_NAME="x"')]:
             info=tarfile.TarInfo(name); info.size=len(data); tf.addfile(info,io.BytesIO(data))
+    with tarfile.open(p/'wrapped_handoff_archive.tgz','w:gz') as tf:
+        for name,data in [('bundle/HANDOFF_README.md',b'handoff'),('bundle/CURRENT_STATE.md',b'state'),('bundle/sample.py',b'PATCH_NAME="x"')]:
+            info=tarfile.TarInfo(name); info.size=len(data); tf.addfile(info,io.BytesIO(data))
 
     # Non-patch artifacts must NOT pollute the runnable queue.
     with zipfile.ZipFile(p/'PTV_PASS_HANDOFF.zip','w') as z:
         z.writestr('CURRENT_STATE.md','handoff only')
-    with zipfile.ZipFile(p/'python_patch_tool_v6.9.0.zip','w') as z:
+    with zipfile.ZipFile(p/'python_patch_tool_v6.9.1.zip','w') as z:
         z.writestr('tools/run_python_patches.sh','#!/bin/sh\n')
         z.writestr('tools/_patch_lib/self_test.py','PATCH_NAME=\"test literal only\"\n')
+    with zipfile.ZipFile(p/'wrapped_python_patch_tool.zip','w') as z:
+        z.writestr('release/tools/run_python_patches.sh','#!/bin/sh\n')
+        z.writestr('release/tools/_patch_lib/self_test.py','PATCH_NAME=\"test literal only\"\n')
+        z.writestr('release/evidence/CODE_COLLECTION_REQUEST_old.json',json.dumps({'actions':[{'type':'overview'}]}))
     with zipfile.ZipFile(p/'PTV_REALISTIC_HANDOFF.zip','w') as z:
         z.writestr('HANDOFF_README.md','handoff')
         z.writestr('CURRENT_STATE.md','state')
         z.writestr('samples/example.py','PATCH_NAME=\"example only\"\n')
+    # A handoff may preserve the original request JSON as evidence. Handoff
+    # identity must win over COLLECT discovery or an old request can rerun.
+    with zipfile.ZipFile(p/'PTV_HANDOFF_WITH_COLLECT_REQUEST.zip','w') as z:
+        z.writestr('bundle/HANDOFF_README.md','handoff')
+        z.writestr('bundle/CURRENT_STATE.md','state')
+        z.writestr('bundle/evidence/CODE_COLLECTION_REQUEST_old.json',json.dumps({'id':'old','actions':[{'type':'overview'}]}))
     (p/'notes.py').write_text('print("not a patch")\n',encoding='utf-8')
     (p/'broken.zip').write_bytes(b'not-a-zip')
     outside=root/'outside_patch.py'; outside.write_text('PATCH_NAME=\"outside\"\n',encoding='utf-8')
@@ -71,13 +84,14 @@ with tempfile.TemporaryDirectory() as td:
     assert all(by_name[n].kind=='PATCH' for n in expected_patch)
     assert by_name['collect_good.zip'].kind=='COLLECT'
     assert by_name['CODE_COLLECTION_REQUEST_bad.zip'].kind=='COLLECT INVALID'
-    for rejected in ['PTV_PASS_HANDOFF.zip','PTV_REALISTIC_HANDOFF.zip','python_patch_tool_v6.9.0.zip','notes.py','broken.zip','linked_patch.py','tool_distribution.tgz','handoff_archive.tgz','CODE_COLLECTION_REQUEST_loose.json']:
+    for rejected in ['PTV_PASS_HANDOFF.zip','PTV_REALISTIC_HANDOFF.zip','PTV_HANDOFF_WITH_COLLECT_REQUEST.zip','python_patch_tool_v6.9.1.zip','wrapped_python_patch_tool.zip','notes.py','broken.zip','linked_patch.py','tool_distribution.tgz','handoff_archive.tgz','wrapped_handoff_archive.tgz','CODE_COLLECTION_REQUEST_loose.json']:
         assert rejected not in by_name, (rejected,items,w)
     joined='\n'.join(w)
     assert 'RAW JSON REJECTED' in joined
     assert 'PTV_PASS_HANDOFF.zip' in joined
-    assert 'python_patch_tool_v6.9.0.zip' in joined
+    assert 'PTV_HANDOFF_WITH_COLLECT_REQUEST.zip' in joined
+    assert 'python_patch_tool_v6.9.1.zip' in joined
     assert 'broken.zip' in joined
     assert 'SKIPPED symlink queue entry: patchs/linked_patch.py' in joined
 
-print('PASS: v6.9.0 queue recognizes PATCH/COLLECT structurally and skips non-patch artifacts')
+print('PASS: v6.9.1 queue recognizes PATCH/COLLECT structurally and skips non-patch artifacts')

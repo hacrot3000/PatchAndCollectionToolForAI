@@ -22,7 +22,7 @@ m = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = m
 spec.loader.exec_module(m)
 
-assert m.VERSION == "6.9.0"
+assert m.VERSION == "6.9.1"
 assert m._cell_width("abc") == 3
 assert m._cell_width("测试") == 4
 for width in [0, 1, 2, 12, 20, 40, 80, 120]:
@@ -216,4 +216,75 @@ with tempfile.TemporaryDirectory(prefix="ptprog_invalid_result_v6711_") as td:
     assert "[PRIMARY - UPLOAD THIS FILE]" not in out, out
     assert "no valid upload ZIP was verified" in out, out
 
-print('PASS: Python Patch Tool v6.9.0 collect progress/artifact robustness self-test')
+
+
+# Completion metadata is tracked independently from the bounded diagnostic tail.
+# A result ZIP followed by >MAX_TAIL_LINES ordinary lines must remain uploadable.
+with tempfile.TemporaryDirectory(prefix="ptprog_result_before_long_tail_v691_") as td:
+    root = Path(td)
+    result = root / "artifacts" / "patch_tool_code_collections" / "before-long-tail.zip"
+    collector = root / "long_tail_collector.py"
+    collector.write_text(
+        "from pathlib import Path\n"
+        "import zipfile\n"
+        f"out=Path({str(result)!r})\n"
+        "out.parent.mkdir(parents=True,exist_ok=True)\n"
+        "with zipfile.ZipFile(out,'w') as zf: zf.writestr('manifest.json','{}')\n"
+        "print(f'ZIP : {out}', flush=True)\n"
+        "for i in range(200): print(f'after-result {i}', flush=True)\n",
+        encoding="utf-8",
+    )
+    cp = subprocess.run(
+        [sys.executable, '-S', str(p), '--project-root', str(root), '--collector', str(collector), '--'],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=15,
+    )
+    assert cp.returncode == 0, (cp.returncode, cp.stdout, cp.stderr)
+    assert '[PRIMARY - UPLOAD THIS FILE]' in cp.stdout, cp.stdout
+    assert cp.stdout.count(str(result)) == 1, cp.stdout
+
+# The collector process may exit before the reader thread drains bytes already
+# buffered in stdout. A bounded post-exit drain must preserve the final ZIP
+# line instead of turning a real PASS into rc=3.
+with tempfile.TemporaryDirectory(prefix="ptprog_postexit_drain_v691_") as td:
+    root = Path(td)
+    result = root / "artifacts" / "patch_tool_code_collections" / "late-final.zip"
+    collector = root / "noisy_collector.py"
+    collector.write_text(
+        "from pathlib import Path\n"
+        "import zipfile\n"
+        "root=Path.cwd()\n"
+        "for i in range(600): print(f'noise {i}', flush=True)\n"
+        f"out=Path({str(result)!r})\n"
+        "out.parent.mkdir(parents=True,exist_ok=True)\n"
+        "with zipfile.ZipFile(out,'w') as zf: zf.writestr('manifest.json','{}')\n"
+        "print(f'ZIP : {out}', flush=True)\n",
+        encoding="utf-8",
+    )
+    original_reader = m._reader
+    def slow_reader(stream, q, tail):
+        try:
+            for raw in iter(stream.readline, ""):
+                time.sleep(0.004)
+                line = raw.rstrip("\r\n")
+                tail.append(line)
+                q.put(line)
+        finally:
+            try:
+                stream.close()
+            except Exception:
+                pass
+    old_stdout = m.sys.stdout
+    try:
+        import io
+        m._reader = slow_reader
+        capture = io.StringIO(); m.sys.stdout = capture
+        rc = m.main(["--project-root", str(root), "--collector", str(collector), "--"])
+    finally:
+        m._reader = original_reader
+        m.sys.stdout = old_stdout
+    out = capture.getvalue()
+    assert rc == 0, out
+    assert "[PRIMARY - UPLOAD THIS FILE]" in out, out
+    assert out.count(str(result)) == 1, out
+
+print('PASS: Python Patch Tool v6.9.1 collect progress/artifact robustness self-test')

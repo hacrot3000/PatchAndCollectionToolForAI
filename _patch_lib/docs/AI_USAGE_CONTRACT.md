@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.9.0
+# AI / ChatGPT usage contract — Python Patch Tool v6.9.1
 
 This document is intended to be uploaded or quoted to an AI that creates PATCH
 or COLLECT artifacts for this tool. The rules below override obsolete examples
@@ -93,15 +93,23 @@ same bare path. The supervisor deduplicates those variants and must not replay
 the result ZIP path twice.
 
 
-### v6.9.0 result verification note
+### v6.9.1 result verification note
 
 If legacy collector output mentions multiple candidate result archives, the tool
 validates them newest-first and exposes only one verified `[PRIMARY - UPLOAD THIS FILE]`.
 A zero-argument COLLECT is not considered fully successful until its request ZIP
 is archived out of the runnable queue into `patchs/patched/`.
 
-### Duplicate-local boundary (v6.9.0)
+### Duplicate-local boundary (v6.9.1)
 
 Treat duplicate history as machine/project-local only. Symlinked or shared
 `patchs/patched/` history must not cause a PATCH to be skipped. A PATCH can run
 on another machine/project even when identical bytes have run elsewhere.
+
+
+## Preserved COLLECT requests inside HANDOFF evidence
+
+A HANDOFF/support ZIP may preserve an old `CODE_COLLECTION_REQUEST*.json` for
+diagnosis. The ZIP itself is **not** a new COLLECT request and must not be placed
+into the runnable queue for collection merely because that evidence file exists.
+The dispatcher resolves structural HANDOFF identity before COLLECT routing.

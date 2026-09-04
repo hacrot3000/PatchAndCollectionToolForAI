@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import importlib.util, io, json, os, stat, sys, tempfile
+import importlib.util, io, json, os, stat, sys, tempfile, subprocess, signal, time, zipfile
 from pathlib import Path
 
 HERE=Path(__file__).resolve().parent
 MOD=HERE/'python_patch_queue_dispatcher.py'
 spec=importlib.util.spec_from_file_location('ptv_queue_v677_selection',MOD)
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; spec.loader.exec_module(m)
-assert m.VERSION=='6.9.0'
+assert m.VERSION=='6.9.1'
 
 # Historical line grammar: lists, ranges (including reversed), bounds failure.
 assert m._parse_index_spec('1,3-5',6)=={0,2,3,4}
@@ -82,11 +82,31 @@ with tempfile.TemporaryDirectory(prefix='ptv6711ctrlc_') as td:
     old_in,old_out=m.sys.stdin,m.sys.stdout
     try:
         m.sys.stdin=InterruptingInput(); capture=io.StringIO(); m.sys.stdout=capture
-        chosen=m._select_items_line(root,[m.QueueItem('patch_1.zip','PATCH')],'none')
+        try:
+            m._select_items_line(root,[m.QueueItem('patch_1.zip','PATCH')],'none')
+        except KeyboardInterrupt:
+            pass
+        else:
+            raise AssertionError('line Ctrl+C must propagate to main for rc=130')
     finally:
         m.sys.stdin,m.sys.stdout=old_in,old_out
-    assert chosen is None,chosen
     assert 'Cancelled by Ctrl+C.' in capture.getvalue(),capture.getvalue()
+
+# End-to-end non-TTY Ctrl+C must be visible to task runners as shell rc=130.
+with tempfile.TemporaryDirectory(prefix='ptv691_line_sigint_') as td:
+    root=Path(td); pdir=root/'patchs'; pdir.mkdir()
+    with zipfile.ZipFile(pdir/'patch_1.zip','w') as zf:
+        zf.writestr('PATCH_TOOL_MANIFEST.json','{}')
+    proc=subprocess.Popen(
+        [sys.executable,'-S',str(MOD),'--project-root',str(root)],
+        stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,
+    )
+    time.sleep(0.25)
+    os.kill(proc.pid, signal.SIGINT)
+    out,err=proc.communicate(timeout=5)
+    assert proc.returncode==130,(proc.returncode,out,err)
+    assert 'Traceback' not in out+err,(out,err)
+    assert 'Cancelled by Ctrl+C.' in out,(out,err)
 
 
 # TTY priority contract: digit 0..9 assigns an explicit execution priority to
@@ -189,4 +209,4 @@ with tempfile.TemporaryDirectory(prefix='ptv690priority_delete_') as td:
     assert priorities=={0:4,1:1},priorities
     assert [x.name for x in m._ordered_selection(delete_items,selected,priorities)]==['patch_3.zip','patch_2.zip']
 
-print('PASS: v6.9.0 selector/config/priority contracts and clean Ctrl+C handling')
+print('PASS: v6.9.1 selector/config/priority contracts and clean Ctrl+C handling')
