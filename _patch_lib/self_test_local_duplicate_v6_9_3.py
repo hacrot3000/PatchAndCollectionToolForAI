@@ -6,6 +6,7 @@ import io
 import os
 import shutil
 import subprocess
+import stat
 import sys
 import tempfile
 import zipfile
@@ -325,4 +326,58 @@ with tempfile.TemporaryDirectory(prefix='ptv692dup_concurrent_') as td:
     invoked = calls.read_text(encoding='utf-8').splitlines()
     assert len(invoked) == 1 and 'concurrent.zip' in invoked[0], invoked
 
-print('PASS: v6.9.2 local-only SHA-256 duplicate PATCH skip contract')
+
+# Queue-lock path safety: project-local serialization must never follow a
+# symlink/hardlink and must never modify an external inode merely to record
+# lock diagnostics.
+if m.fcntl is not None:
+    with tempfile.TemporaryDirectory(prefix='ptv693lock_symlink_') as td:
+        root=Path(td); queue=root/'patchs'; queue.mkdir()
+        sentinel=root/'sentinel.txt'; sentinel.write_text('DO NOT MODIFY',encoding='utf-8')
+        (queue/'.ptv_queue.lock').symlink_to(sentinel)
+        handle,error=m._acquire_project_queue_lock(root)
+        assert handle is None,(handle,error)
+        assert error and 'lock unavailable' in error,error
+        assert sentinel.read_text(encoding='utf-8')=='DO NOT MODIFY'
+
+    with tempfile.TemporaryDirectory(prefix='ptv693lock_hardlink_') as td:
+        root=Path(td); queue=root/'patchs'; queue.mkdir()
+        sentinel=root/'sentinel.txt'; sentinel.write_text('HARDLINK SAFE',encoding='utf-8')
+        os.link(sentinel,queue/'.ptv_queue.lock')
+        handle,error=m._acquire_project_queue_lock(root)
+        assert handle is None,(handle,error)
+        assert error and 'lock unavailable' in error,error
+        assert sentinel.read_text(encoding='utf-8')=='HARDLINK SAFE'
+
+    with tempfile.TemporaryDirectory(prefix='ptv693lock_queue_symlink_') as td, tempfile.TemporaryDirectory(prefix='ptv693lock_external_') as ext:
+        root=Path(td); external=Path(ext)
+        (root/'patchs').symlink_to(external,target_is_directory=True)
+        handle,error=m._acquire_project_queue_lock(root)
+        assert handle is None,(handle,error)
+        assert error and 'patchs/ is a symlink' in error,error
+        assert not (external/'.ptv_queue.lock').exists()
+
+    with tempfile.TemporaryDirectory(prefix='ptv693lock_mode_') as td:
+        root=Path(td); (root/'patchs').mkdir()
+        handle,error=m._acquire_project_queue_lock(root)
+        assert handle is not None,error
+        try:
+            lock=root/'patchs'/'.ptv_queue.lock'
+            assert lock.is_file() and not lock.is_symlink(),lock
+            assert stat.S_IMODE(lock.stat().st_mode) & 0o077 == 0, oct(stat.S_IMODE(lock.stat().st_mode))
+        finally:
+            m._release_project_queue_lock(handle)
+
+    # Main output distinguishes true contention from unsafe lock-path state.
+    with tempfile.TemporaryDirectory(prefix='ptv693lock_main_symlink_') as td, tempfile.TemporaryDirectory(prefix='ptv693lock_main_ext_') as ext:
+        root=Path(td); external=Path(ext)
+        (root/'patchs').symlink_to(external,target_is_directory=True)
+        cp=subprocess.run(
+            [sys.executable,'-S',str(MOD),'--project-root',str(root)],
+            input='\n',text=True,capture_output=True,timeout=5,
+        )
+        assert cp.returncode==getattr(os,'EX_TEMPFAIL',75),(cp.returncode,cp.stdout,cp.stderr)
+        assert 'QUEUE LOCK:' in cp.stderr and 'BUSY:' not in cp.stderr,cp.stderr
+        assert not (external/'.ptv_queue.lock').exists()
+
+print('PASS: v6.9.3 local-only SHA-256 duplicate PATCH skip contract')

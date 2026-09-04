@@ -10,6 +10,7 @@ import select
 import subprocess
 import sys
 import tarfile
+import stat
 import unicodedata
 import zipfile
 from dataclasses import dataclass
@@ -26,7 +27,7 @@ try:
 except Exception:
     fcntl = None
 
-VERSION = "6.9.2"
+VERSION = "6.9.3"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -510,30 +511,58 @@ def _read_key(fd):
     return raw.decode(errors="ignore").lower()
 
 
-def _selector_term_width() -> int:
-    """Return the live terminal width for the fullscreen selector.
+def _selector_term_size() -> tuple[int, int]:
+    """Return live terminal (columns, rows) for fullscreen selector redraw.
 
-    A TTY query wins over COLUMNS because environment values can be stale after
-    a resize. The renderer leaves a two-cell safety margin so terminals with
-    delayed-wrap semantics do not turn one logical selector row into two
-    physical rows.
+    A direct TTY query wins over COLUMNS/LINES because environment values can
+    become stale after resize. Width protects against physical line wrapping;
+    height protects against a frame scrolling beyond the visible screen, which
+    would make cursor-up redraw accounting incorrect for long queues.
     """
     try:
         fd = sys.stdout.fileno()
-        cols = os.get_terminal_size(fd).columns
-        if cols > 0:
-            return cols
+        size = os.get_terminal_size(fd)
+        if size.columns > 0 and size.lines > 0:
+            return size.columns, size.lines
     except Exception:
         pass
-    raw = os.environ.get("COLUMNS")
-    if raw:
-        try:
-            cols = int(raw)
-            if cols > 0:
-                return cols
-        except (TypeError, ValueError):
-            pass
-    return 120
+
+    def _positive_env(name: str, fallback: int) -> int:
+        raw = os.environ.get(name)
+        if raw:
+            try:
+                value = int(raw)
+                if value > 0:
+                    return value
+            except (TypeError, ValueError):
+                pass
+        return fallback
+
+    return _positive_env("COLUMNS", 120), _positive_env("LINES", 24)
+
+
+def _selector_term_width() -> int:
+    return _selector_term_size()[0]
+
+
+def _selector_term_height() -> int:
+    return _selector_term_size()[1]
+
+
+def _selector_viewport(count: int, cursor: int, capacity: int) -> tuple[int, int]:
+    """Return a stable visible item slice that always contains cursor.
+
+    Keeping the frame at most terminal-height minus one physical row prevents
+    scrolling from invalidating the next ``CSI n F`` redraw.  The slice is
+    centered when practical and remains stable at the beginning/end.
+    """
+    if count <= 0:
+        return 0, 0
+    capacity = max(1, min(int(capacity), count))
+    cursor = min(max(int(cursor), 0), count - 1)
+    start = cursor - capacity // 2
+    start = max(0, min(start, count - capacity))
+    return start, start + capacity
 
 
 def _display_cell_width(text: str) -> int:
@@ -590,35 +619,80 @@ def _ordered_selection(items: list[QueueItem], selected: set[int], priorities: d
 
 
 def _render(items, cursor, selected, priorities, msg, prev):
-    lines = ["CHỌN CÔNG VIỆC SẼ CHẠY", ""]
-    for i, item in enumerate(items):
+    terminal_width, terminal_height = _selector_term_size()
+
+    # Keep one physical row free below the frame.  Writing a frame as tall as
+    # the terminal can itself trigger a scroll on the final newline, after
+    # which cursor-up no longer returns to the frame's true first row.
+    frame_budget = max(1, terminal_height - 1)
+    full_footer = [
+        "",
+        "Space: chọn/bỏ [x] | 0-9: gán ưu tiên | ↑/↓: di chuyển",
+        "a: tất cả [x] | n: bỏ tất cả | d: xóa item tại con trỏ",
+        "Enter: xác nhận | q/Esc: hủy | Số nhỏ chạy trước; cùng số giữ thứ tự hiện tại",
+        _safe_display(msg) if msg else "",
+    ]
+    compact_help = "Space/[0-9]/↑↓ | Enter chạy | q hủy"
+
+    # Scale the fixed UI down before sacrificing the cursor row. Even an
+    # extremely short terminal must show the current item and must never write
+    # more physical rows than terminal_height-1.
+    if frame_budget >= 10:
+        header_rows = 2
+        footer = full_footer
+    elif frame_budget >= 5:
+        header_rows = 1
+        footer = [compact_help, _safe_display(msg) if msg else ""]
+    elif frame_budget == 4:
+        header_rows = 1
+        footer = [_safe_display(msg) if msg else compact_help]
+    elif frame_budget >= 2:
+        header_rows = 1
+        footer = []
+    else:
+        header_rows = 0
+        footer = []
+
+    item_capacity = max(1, frame_budget - header_rows - len(footer))
+    start, end = _selector_viewport(len(items), cursor, item_capacity)
+
+    if header_rows == 2:
+        if len(items) > item_capacity:
+            header = [f"CHỌN CÔNG VIỆC SẼ CHẠY  [{start + 1}-{end}/{len(items)}]", ""]
+        else:
+            header = ["CHỌN CÔNG VIỆC SẼ CHẠY", ""]
+    elif header_rows == 1:
+        header = [f"CHỌN CÔNG VIỆC SẼ CHẠY [{start + 1}-{end}/{len(items)}]"]
+    else:
+        header = []
+
+    lines = list(header)
+    for i in range(start, end):
+        item = items[i]
         detail = f"  [{_safe_display(item.detail)}]" if item.detail else ""
         lines.append(
             f"{'›' if i == cursor else ' '} "
             f"[{_selection_mark(i, selected, priorities)}] {i + 1:>3}. "
             f"[{_safe_display(item.kind)}] {_safe_display(item.name)}{detail}"
         )
-    lines += [
-        "",
-        "Space: chọn/bỏ [x] | 0-9: gán ưu tiên | ↑/↓: di chuyển",
-        "a: tất cả [x] | n: bỏ tất cả | d: xóa item tại con trỏ",
-        "Enter: xác nhận | q/Esc: hủy | Số nhỏ chạy trước; cùng số giữ thứ tự hiện tại",
-    ]
-    if msg:
-        lines.append(_safe_display(msg))
-    # Fullscreen redraw counts logical rows. If a long filename wraps, the next
-    # cursor-up would land on the wrong physical row and duplicate/corrupt the
-    # selector. Clip every row to the live terminal width before rendering.
-    terminal_width = _selector_term_width()
-    lines = [_clip_selector_line(line, terminal_width) for line in lines]
+    lines.extend(footer)
+
+    # Clip horizontally after choosing the vertical viewport: every logical row
+    # is exactly one physical row, and the full frame never exceeds the live
+    # terminal height. Both dimensions are re-read on every redraw/resize.
+    lines = [_clip_selector_line(line, terminal_width) for line in lines[:frame_budget]]
     frame_height = max(prev, len(lines))
-    if prev:
-        sys.stdout.write(f"\x1b[{prev}F")
-    padded = lines + [""] * (frame_height - len(lines))
+    # If the terminal shrank vertically, never attempt to cursor-up more rows
+    # than are now physically addressable. Clearing the visible budget is safer
+    # than letting an old oversized frame corrupt the new viewport.
+    cursor_up = min(prev, max(0, frame_budget))
+    if cursor_up:
+        sys.stdout.write(f"\x1b[{cursor_up}F")
+    padded = lines + [""] * (max(len(lines), min(frame_height, frame_budget)) - len(lines))
     for line in padded:
         sys.stdout.write("\r\x1b[2K" + line + "\n")
     sys.stdout.flush()
-    return frame_height
+    return len(padded)
 
 
 def _readline_or_interrupt():
@@ -1035,43 +1109,73 @@ def execute_items(root: Path, chosen: list[QueueItem]):
     return 0, executed, [], late_duplicates, duplicate_warnings
 
 def _acquire_project_queue_lock(root: Path):
-    """Acquire one exclusive zero-argument queue session per project.
+    """Acquire one exclusive zero-argument queue session per real project.
 
-    Duplicate-local correctness depends on discovery and launch being serialized:
-    without a project-local lock, two task invocations can both scan before the
-    first PATCH is archived and execute the same package concurrently.
+    The lock path itself is untrusted local filesystem state.  Never follow a
+    symlinked ``patchs/`` directory or lock file, and never write/truncate the
+    lock inode: a symlink/hardlink must not let queue startup modify a file
+    outside the project.  ``flock`` ownership is kernel state, so PID text is
+    unnecessary for correctness.
     """
     if fcntl is None:
         return None, "project queue locking is unavailable on this platform"
-    lock_path = root / "patchs" / ".ptv_queue.lock"
-    handle = None
+
+    queue_dir = root / "patchs"
     try:
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        handle = lock_path.open("a+", encoding="utf-8")
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        try:
-            handle.seek(0)
-            handle.truncate()
-            handle.write(f"pid={os.getpid()}\n")
-            handle.flush()
-        except OSError:
-            pass
-        return handle, None
-    except BlockingIOError:
-        try:
-            if handle is not None:
-                handle.close()
-        except Exception:
-            pass
-        return None, "another local Patch Tool queue session is already running"
+        if queue_dir.exists() or queue_dir.is_symlink():
+            if queue_dir.is_symlink():
+                return None, "project queue lock refused: patchs/ is a symlink"
+            if not queue_dir.is_dir():
+                return None, "project queue lock refused: patchs/ is not a directory"
+        else:
+            queue_dir.mkdir(parents=True, exist_ok=True)
+
+        dir_flags = os.O_RDONLY
+        if hasattr(os, "O_DIRECTORY"):
+            dir_flags |= os.O_DIRECTORY
+        if hasattr(os, "O_CLOEXEC"):
+            dir_flags |= os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            dir_flags |= os.O_NOFOLLOW
+        dir_fd = os.open(queue_dir, dir_flags)
     except OSError as exc:
-        try:
-            if handle is not None:
-                handle.close()
-        except Exception:
-            pass
         return None, f"project queue lock unavailable ({type(exc).__name__})"
 
+    fd = None
+    try:
+        flags = os.O_RDONLY | os.O_CREAT
+        if hasattr(os, "O_NONBLOCK"):
+            flags |= os.O_NONBLOCK
+        if hasattr(os, "O_CLOEXEC"):
+            flags |= os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(".ptv_queue.lock", flags, 0o600, dir_fd=dir_fd)
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise OSError("queue lock is not a regular file")
+        # Multiple hardlinks would make the lock shared with another path and
+        # violate project-local ownership even though no symlink is involved.
+        if st.st_nlink != 1:
+            raise OSError("queue lock has multiple hardlinks")
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        handle = os.fdopen(fd, "r", encoding="utf-8", closefd=True)
+        fd = None
+        return handle, None
+    except BlockingIOError:
+        return None, "another local Patch Tool queue session is already running"
+    except OSError as exc:
+        return None, f"project queue lock unavailable ({type(exc).__name__})"
+    finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            os.close(dir_fd)
+        except OSError:
+            pass
 
 def _release_project_queue_lock(handle) -> None:
     if handle is None:
@@ -1171,10 +1275,17 @@ def main(argv=None):
     root = Path(ns.project_root).resolve()
     lock_handle, lock_error = _acquire_project_queue_lock(root)
     if lock_handle is None:
-        print(
-            f"[PTV v{VERSION} WARNING] BUSY: {_safe_display(lock_error or 'project queue lock unavailable')}; nothing executed.",
-            file=sys.stderr,
-        )
+        detail = _safe_display(lock_error or "project queue lock unavailable")
+        if detail.startswith("another local Patch Tool queue session"):
+            print(
+                f"[PTV v{VERSION} WARNING] BUSY: {detail}; nothing executed.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"[PTV v{VERSION} ERROR] QUEUE LOCK: {detail}; nothing executed.",
+                file=sys.stderr,
+            )
         return getattr(os, "EX_TEMPFAIL", 75)
     try:
         return _run_locked_queue(root)

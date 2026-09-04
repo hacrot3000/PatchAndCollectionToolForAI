@@ -22,7 +22,7 @@ m = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = m
 spec.loader.exec_module(m)
 
-assert m.VERSION == "6.9.2"
+assert m.VERSION == "6.9.3"
 assert m._cell_width("abc") == 3
 assert m._cell_width("测试") == 4
 for width in [0, 1, 2, 12, 20, 40, 80, 120]:
@@ -287,4 +287,55 @@ with tempfile.TemporaryDirectory(prefix="ptprog_postexit_drain_v691_") as td:
     assert "[PRIMARY - UPLOAD THIS FILE]" in out, out
     assert out.count(str(result)) == 1, out
 
-print('PASS: Python Patch Tool v6.9.2 collect progress/artifact robustness self-test')
+
+# Signal during the post-exit drain window: the collector parent can exit while
+# a descendant still owns stdout. Signalling only the supervisor must still be
+# forwarded to that process group; otherwise the descendant becomes orphaned.
+if os.name == 'posix':
+    with tempfile.TemporaryDirectory(prefix='ptprog_postexit_signal_v693_') as td:
+        root=Path(td); (root/'artifacts').mkdir()
+        childpid=root/'descendant.pid'
+        collector=root/'parent_exits.py'
+        collector.write_text(
+            "import subprocess,sys\n"
+            "from pathlib import Path\n"
+            "root=Path(sys.argv[sys.argv.index('--project-root')+1])\n"
+            "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'],stdout=sys.stdout,stderr=sys.stdout)\n"
+            "(root/'descendant.pid').write_text(str(p.pid))\n"
+            "print('parent exits now',flush=True)\n",
+            encoding='utf-8',
+        )
+        sup=subprocess.Popen(
+            [sys.executable,'-S',str(p),'--project-root',str(root),'--collector',str(collector),'--'],
+            stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,
+        )
+        deadline=time.monotonic()+5
+        while not childpid.exists() and time.monotonic()<deadline:
+            time.sleep(0.03)
+        assert childpid.exists(),'descendant did not start'
+        descendant=int(childpid.read_text())
+        # Give the parent collector time to exit so this signal lands during
+        # supervisor post-exit drain rather than its main poll loop.
+        time.sleep(0.35)
+        os.kill(sup.pid,signal.SIGTERM)
+        out,err=sup.communicate(timeout=7)
+        assert sup.returncode==143,(sup.returncode,out,err)
+        procdir=Path('/proc')/str(descendant)
+        end=time.monotonic()+2
+        running=procdir.exists()
+        while running and time.monotonic()<end:
+            try:
+                status=(procdir/'status').read_text(errors='replace')
+                state=next((x for x in status.splitlines() if x.startswith('State:')),'')
+                if '\tZ' in state or ' Z ' in state:
+                    running=False; break
+            except FileNotFoundError:
+                running=False; break
+            time.sleep(0.04)
+            running=procdir.exists()
+        if running:
+            try: os.kill(descendant,signal.SIGKILL)
+            except ProcessLookupError: pass
+        assert not running,f'descendant remained alive after drain-window SIGTERM: pid={descendant}'
+
+print('PASS: Python Patch Tool v6.9.3 collect progress/artifact robustness self-test')

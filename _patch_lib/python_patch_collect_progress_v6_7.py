@@ -17,7 +17,7 @@ import time
 import unicodedata
 from typing import Iterable
 
-VERSION = "6.9.2"
+VERSION = "6.9.3"
 DEFAULT_HEARTBEAT = 0.8
 DEFAULT_MARGIN = 2
 MAX_TAIL_LINES = 120
@@ -330,7 +330,7 @@ def _reader(stream, q: queue.Queue[str], tail: deque[str]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Python Patch Tool v6.9.2 COLLECT one-line progress supervisor")
+    ap = argparse.ArgumentParser(description="Python Patch Tool v6.9.3 COLLECT one-line progress supervisor")
     ap.add_argument("--project-root", required=True)
     ap.add_argument("--collector", required=True)
     ap.add_argument("rest", nargs=argparse.REMAINDER)
@@ -378,12 +378,13 @@ def main(argv: list[str] | None = None) -> int:
         if not received_signal:
             received_signal.append(int(signum))
             signal_deadline[0] = time.monotonic() + 2.0
-        if proc.poll() is not None:
-            return
         try:
             if os.name == "posix":
+                # The process-group leader may already have exited while one of
+                # its descendants still owns stdout.  killpg(pgid) remains the
+                # correct cleanup target even after proc.poll() is non-None.
                 os.killpg(proc.pid, signum)
-            else:
+            elif proc.poll() is None:
                 proc.send_signal(signum)
         except (ProcessLookupError, PermissionError, OSError):
             pass
@@ -464,12 +465,6 @@ def main(argv: list[str] | None = None) -> int:
             signal_deadline[0] = None
         time.sleep(0.08)
 
-    for sig_num, old_handler in old_handlers.items():
-        try:
-            signal.signal(sig_num, old_handler)
-        except (ValueError, OSError):
-            pass
-
     def consume_pending_output() -> None:
         nonlocal output_lines, phase, last_detail
         while True:
@@ -490,6 +485,16 @@ def main(argv: list[str] | None = None) -> int:
     drain_deadline = time.monotonic() + POST_EXIT_DRAIN_SECONDS
     while thread.is_alive() and time.monotonic() < drain_deadline:
         consume_pending_output()
+        now = time.monotonic()
+        if received_signal and signal_deadline[0] is not None and now >= signal_deadline[0]:
+            try:
+                if os.name == "posix":
+                    os.killpg(proc.pid, signal.SIGKILL)
+                elif proc.poll() is None:
+                    proc.kill()
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+            signal_deadline[0] = None
         thread.join(timeout=0.05)
     consume_pending_output()
 
@@ -512,6 +517,16 @@ def main(argv: list[str] | None = None) -> int:
                 pass
             thread.join(timeout=POST_EXIT_KILL_GRACE_SECONDS)
         consume_pending_output()
+
+    # Keep our forwarding handlers installed through the complete post-exit
+    # drain/descendant cleanup window.  Restoring them immediately when the
+    # parent collector exits can let an IDE SIGTERM kill only the supervisor
+    # and leave a stdout-holding descendant orphaned.
+    for sig_num, old_handler in old_handlers.items():
+        try:
+            signal.signal(sig_num, old_handler)
+        except (ValueError, OSError):
+            pass
 
     elapsed = time.monotonic() - started
     raw_rc = int(rc)

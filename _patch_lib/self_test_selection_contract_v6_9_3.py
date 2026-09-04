@@ -7,7 +7,7 @@ HERE=Path(__file__).resolve().parent
 MOD=HERE/'python_patch_queue_dispatcher.py'
 spec=importlib.util.spec_from_file_location('ptv_queue_v677_selection',MOD)
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; spec.loader.exec_module(m)
-assert m.VERSION=='6.9.2'
+assert m.VERSION=='6.9.3'
 
 # Historical line grammar: lists, ranges (including reversed), bounds failure.
 assert m._parse_index_spec('1,3-5',6)=={0,2,3,4}
@@ -223,16 +223,51 @@ long_item=m.QueueItem(
     'manifest',
 )
 old_out=m.sys.stdout
-old_width=m._selector_term_width
+old_size=m._selector_term_size
 try:
     capture=_FakeTTYOut(); m.sys.stdout=capture
-    m._selector_term_width=lambda: 42
+    m._selector_term_size=lambda: (42,24)
     rendered=m._render([long_item],0,{0},{0:3},'Ưu tiên 3: '+'补丁'*40,0)
 finally:
-    m.sys.stdout=old_out; m._selector_term_width=old_width
+    m.sys.stdout=old_out; m._selector_term_size=old_size
 assert rendered > 0
 for physical in capture.getvalue().splitlines():
     clean=m._ANSI_RE.sub('',physical).replace('\r','')
     assert m._display_cell_width(clean) <= 40,(m._display_cell_width(clean),clean)
 
-print('PASS: v6.9.2 selector/config/priority contracts and clean Ctrl+C handling')
+# Vertical viewport regression: a queue longer than the terminal must render
+# only a bounded visible slice containing the cursor. Rendering all rows would
+# scroll the frame and make the next cursor-up redraw land on the wrong row.
+long_queue=[m.QueueItem(f'patch_{i:03d}_'+('very_long_name_'*4)+'.zip','PATCH','manifest') for i in range(1,41)]
+old_out=m.sys.stdout; old_size=m._selector_term_size
+try:
+    capture=_FakeTTYOut(); m.sys.stdout=capture
+    m._selector_term_size=lambda: (54,12)
+    rendered=m._render(long_queue,24,{24},{24:2},'priority 2',0)
+finally:
+    m.sys.stdout=old_out; m._selector_term_size=old_size
+physical_lines=[x for x in capture.getvalue().split('\n') if x!='']
+assert rendered <= 11, rendered
+assert len(physical_lines) <= 11, len(physical_lines)
+plain='\n'.join(m._ANSI_RE.sub('',x).replace('\r','') for x in physical_lines)
+assert 'patch_025_' in plain, plain
+assert 'patch_001_' not in plain and 'patch_040_' not in plain, plain
+assert '[2]' in plain, plain
+
+# Resize down to pathological heights must still keep the cursor row visible
+# and never emit more than terminal_height-1 physical rows.
+for height in (6,4,3,2):
+    old_out=m.sys.stdout; old_size=m._selector_term_size
+    try:
+        capture=_FakeTTYOut(); m.sys.stdout=capture
+        m._selector_term_size=lambda h=height: (30,h)
+        rendered=m._render(long_queue,17,{17},{17:0},'tiny',0)
+    finally:
+        m.sys.stdout=old_out; m._selector_term_size=old_size
+    lines=[x for x in capture.getvalue().split('\n') if x!='']
+    assert rendered <= max(1,height-1),(height,rendered)
+    assert len(lines) <= max(1,height-1),(height,len(lines),lines)
+    plain='\n'.join(m._ANSI_RE.sub('',x).replace('\r','') for x in lines)
+    assert '18.' in plain or height==2,(height,plain)
+
+print('PASS: v6.9.3 selector/config/priority contracts and clean Ctrl+C handling')
