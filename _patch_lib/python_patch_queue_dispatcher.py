@@ -20,7 +20,7 @@ try:
 except Exception:
     termios = tty = None
 
-VERSION = "6.7.12"
+VERSION = "6.7.13"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -70,7 +70,11 @@ def _safe_display(value: str) -> str:
         if ch in "\r\n\t":
             out.append(" ")
             continue
-        if unicodedata.category(ch) == "Cc":
+        category = unicodedata.category(ch)
+        if category in {"Cc", "Cf"}:
+            continue
+        if category in {"Zl", "Zp"}:
+            out.append(" ")
             continue
         out.append(ch)
     return "".join(out)
@@ -165,12 +169,16 @@ def _support_bundle_filename_kind(name: str) -> str | None:
     if low.startswith("ptv_") and any(tag in low for tag in ("_handoff", "_detail", "_summary", "_report", "_code")):
         return "ptv_support_archive"
     # Project handoffs are not always PTV-generated (for example
-    # DATBIKE_BLE_OTA_HANDOFF_....zip).  A root PATCH manifest is checked
-    # before this filename fallback, so a modern PATCH remains authoritative;
-    # otherwise a HANDOFF-named evidence bundle must never become a runnable
-    # legacy PATCH merely because it embeds patch-looking source.
-    if re.search(r"(?:^|[_.-])handoff(?:[_.-]|$)", low):
-        return "handoff_archive"
+    # DATBIKE_BLE_OTA_HANDOFF_....zip), and browsers commonly append copy
+    # suffixes such as ``(1)``.  A root PATCH manifest is checked before this
+    # filename fallback.  Preserve the historical ``patch_*`` namespace for
+    # genuine legacy patch archives even when the patch description itself
+    # contains the word ``handoff``.
+    if not low.startswith("patch_"):
+        stem = re.sub(r"(?i)\.(?:zip|tgz|tar\.gz)$", "", low)
+        stem = re.sub(r"\s*\(\d+\)$", "", stem)
+        if re.search(r"(?:^|[_. -])handoff(?:[_. -]|$)", stem):
+            return "handoff_archive"
     return None
 
 
@@ -529,11 +537,32 @@ def _delete_indexes(root: Path, items: list[QueueItem], selected: set[int], inde
         victim = items[i]
         target = root / "patchs" / victim.name
         try:
-            # Queue discovery rejects symlinks, and unlink never follows one.
+            # Deletion is a destructive action and needs the same TOCTOU guard
+            # as execution.  Never unlink a same-named file that appeared after
+            # the selector was rendered.
+            if target.is_symlink():
+                failures.append(f"{victim.name}: queue entry changed into a symlink")
+                continue
+            if victim.identity is None:
+                failures.append(f"{victim.name}: missing queue identity; refusing destructive delete")
+                continue
+            current_identity = _queue_identity(target)
+            if current_identity is None:
+                # An external process already removed it: drop the stale menu
+                # entry, but do not claim that this invocation deleted it.
+                items.pop(i)
+                selected = {j if j < i else j - 1 for j in selected if j != i}
+                continue
+            if current_identity != victim.identity:
+                failures.append(f"{victim.name}: queue entry was replaced or modified after selection")
+                continue
             target.unlink()
         except FileNotFoundError:
-            # An external process already removed it: treat it as no longer queued.
-            pass
+            # It disappeared between identity validation and unlink. Treat the
+            # selector entry as stale without deleting any replacement.
+            items.pop(i)
+            selected = {j if j < i else j - 1 for j in selected if j != i}
+            continue
         except OSError as exc:
             failures.append(f"{victim.name}: {type(exc).__name__}")
             continue

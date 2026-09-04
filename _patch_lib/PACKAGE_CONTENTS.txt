@@ -1,4 +1,4 @@
-Python Patch Tool v6.7.12 portable regression/document-contract repair
+Python Patch Tool v6.7.13 portable regression/document-contract repair
 
 Public entry point:
   tools/run_python_patches.sh
@@ -16,7 +16,7 @@ Managed release files:
   tools/_patch_lib/VERSION
   tools/_patch_lib/SHA256SUMS
   tools/_patch_lib/PACKAGE_CONTENTS.txt
-  tools/_patch_lib/self_test_*_v6_7_12.py
+  tools/_patch_lib/self_test_*_v6_7_13.py
   tools/_patch_lib/docs/
 
 Compatibility requirement:
@@ -28,10 +28,10 @@ Compatibility requirement:
 Release scope:
   Bug/regression/document-contract repair only. No new feature group is started.
 
-
-v6.7.12 regression repairs:
-- Public/manual COLLECT subcommands are rejected; zero-argument dispatcher routes COLLECT internally.
-- Selected queue files carry an identity snapshot and fail closed if replaced/modified before execution.
-- Result and request COLLECT completion paths are retained independently, so repeated metadata cannot evict the upload ZIP.
-- Generic project `*_HANDOFF_*` archives are rejected before legacy marker scanning unless a root PATCH manifest is present.
-- All prior in-place/SANDBOX-removal, fail-fast, selector, classifier, and COLLECT output fixes remain active.
+v6.7.13 regression repairs:
+- Destructive selector delete revalidates queue identity and refuses to unlink a replaced/symlinked same-name artifact.
+- HANDOFF copy filenames such as `*_HANDOFF(1).zip` are rejected while genuine legacy `patch_*handoff*.zip` packages remain runnable.
+- COLLECT result ZIP validation verifies member CRC integrity, not only the ZIP container signature.
+- ZIP-specific result labels outrank generic `FILE:`/`ARTIFACT:` fallbacks so a later unrelated ZIP cannot replace the primary collection result.
+- User-facing queue/progress sanitization removes Unicode bidi/format controls in addition to ANSI/C0/C1 controls.
+- All prior zero-argument COLLECT, in-place/SANDBOX-removal, fail-fast, selector, classifier, and result-highlight fixes remain active.

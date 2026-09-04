@@ -18,7 +18,7 @@ import unicodedata
 import zipfile
 from typing import Iterable
 
-VERSION = "6.7.12"
+VERSION = "6.7.13"
 DEFAULT_HEARTBEAT = 0.8
 DEFAULT_MARGIN = 2
 MAX_TAIL_LINES = 120
@@ -41,7 +41,11 @@ def _sanitize_terminal_text(text: str) -> str:
             continue
         # C0/C1 controls (including ESC/DEL) can move the cursor, erase rows,
         # ring the bell, etc. Drop them so a collector cannot break one-row UI.
-        if unicodedata.category(ch) == "Cc":
+        category = unicodedata.category(ch)
+        if category in {"Cc", "Cf"}:
+            continue
+        if category in {"Zl", "Zp"}:
+            out.append(" ")
             continue
         out.append(ch)
     return "".join(out)
@@ -50,8 +54,12 @@ def _sanitize_terminal_text(text: str) -> str:
 # same result ZIP both as a labelled line (``ZIP: ...``) and as a bare path.
 # The supervisor owns the user-facing PASS summary, so it canonicalizes those
 # variants into one highlighted upload target.
-_RESULT_ZIP_RE = re.compile(
-    r"^\s*(?:ZIP|RESULT(?:\s+ZIP)?|OUTPUT(?:\s+ZIP)?|ARTIFACT(?:\s+ZIP)?|FILE)\s*:\s*([\"']?)(.+?\.zip)\1\s*$",
+_RESULT_ZIP_STRONG_RE = re.compile(
+    r"^\s*(?:ZIP|RESULT\s+ZIP|OUTPUT\s+ZIP|ARTIFACT\s+ZIP)\s*:\s*([\"']?)(.+?\.zip)\1\s*$",
+    re.I,
+)
+_RESULT_ZIP_FALLBACK_RE = re.compile(
+    r"^\s*(?:RESULT|OUTPUT|ARTIFACT|FILE)\s*:\s*([\"']?)(.+?\.zip)\1\s*$",
     re.I,
 )
 _REQUEST_ZIP_RE = re.compile(r"^\s*REQUEST\s*:\s*([\"']?)(.+?\.zip)\1\s*$", re.I)
@@ -99,13 +107,22 @@ def _validate_result_zip(root: Path, value: str) -> tuple[bool, str]:
             return False, f'result ZIP does not exist: {value}'
         if not zipfile.is_zipfile(resolved):
             return False, f'result artifact is not a valid ZIP: {value}'
-    except OSError as exc:
+        # ``is_zipfile`` validates only the container signature/central
+        # directory.  A truncated/corrupted member can still pass it and would
+        # then be highlighted as the primary upload artifact.  Verify member
+        # CRCs before claiming public PASS.
+        with zipfile.ZipFile(resolved) as zf:
+            bad_member = zf.testzip()
+            if bad_member is not None:
+                return False, f'result ZIP contains a corrupt member {bad_member!r}: {value}'
+    except Exception as exc:
         return False, f'result ZIP validation failed ({type(exc).__name__}): {value}'
     return True, str(resolved)
 
 
 def _extract_collect_completion(lines: Iterable[str]) -> tuple[str | None, str | None, list[str]]:
-    result_explicit: list[str] = []
+    result_strong: list[str] = []
+    result_fallback: list[str] = []
     result_bare: list[str] = []
     request_paths: list[str] = []
     extras: list[str] = []
@@ -117,11 +134,17 @@ def _extract_collect_completion(lines: Iterable[str]) -> tuple[str | None, str |
         if m:
             request_paths.append(_clean_reported_path(m.group(2)))
             continue
-        m = _RESULT_ZIP_RE.match(line)
+        m = _RESULT_ZIP_STRONG_RE.match(line)
         if m:
             candidate = _clean_reported_path(m.group(2))
             if candidate and not _is_request_archive_path(candidate):
-                result_explicit.append(candidate)
+                result_strong.append(candidate)
+            continue
+        m = _RESULT_ZIP_FALLBACK_RE.match(line)
+        if m:
+            candidate = _clean_reported_path(m.group(2))
+            if candidate and not _is_request_archive_path(candidate):
+                result_fallback.append(candidate)
             continue
         m = _BARE_ZIP_RE.match(line)
         if m:
@@ -133,7 +156,11 @@ def _extract_collect_completion(lines: Iterable[str]) -> tuple[str | None, str |
         # only meaningful warnings/notes instead of replaying the collector log.
         if re.search(r"(^|\b)(WARNING|WARN|ERROR|NOTICE)(\b|:)", line, re.I):
             extras.append(line)
-    result = result_explicit[-1] if result_explicit else (result_bare[-1] if result_bare else None)
+    result = (
+        result_strong[-1]
+        if result_strong
+        else (result_fallback[-1] if result_fallback else (result_bare[-1] if result_bare else None))
+    )
     request = request_paths[-1] if request_paths else None
     return result, request, extras
 
@@ -334,7 +361,7 @@ def _reader(stream, q: queue.Queue[str], tail: deque[str]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Python Patch Tool v6.7.12 COLLECT one-line progress supervisor")
+    ap = argparse.ArgumentParser(description="Python Patch Tool v6.7.13 COLLECT one-line progress supervisor")
     ap.add_argument("--project-root", required=True)
     ap.add_argument("--collector", required=True)
     ap.add_argument("rest", nargs=argparse.REMAINDER)

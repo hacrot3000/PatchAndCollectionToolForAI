@@ -22,7 +22,7 @@ m = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = m
 spec.loader.exec_module(m)
 
-assert m.VERSION == "6.7.12"
+assert m.VERSION == "6.7.13"
 assert m._cell_width("abc") == 3
 assert m._cell_width("测试") == 4
 for width in [0, 1, 2, 12, 20, 40, 80, 120]:
@@ -47,6 +47,16 @@ assert parsed[0] == quoted_result, parsed
 assert parsed[1] == quoted_request, parsed
 parsed_single = m._extract_collect_completion([f"ZIP: '{quoted_result}'"])
 assert parsed_single[0] == quoted_result, parsed_single
+
+# Unicode bidi/format controls must not be allowed to spoof selector/progress text.
+bidi = "safe\u202eevil"
+assert "\u202e" not in m._sanitize_terminal_text(bidi)
+
+# A strong ZIP-specific completion line must outrank a later generic FILE line.
+strong = '/tmp/real-collection.zip'
+generic = '/tmp/unrelated-debug.zip'
+parsed_priority = m._extract_collect_completion([f'ZIP: {strong}', f'FILE: {generic}'])
+assert parsed_priority[0] == strong, parsed_priority
 
 # Live PTY size must override stale COLUMNS and reflect resize.
 master, slave = pty.openpty()
@@ -104,6 +114,25 @@ with tempfile.TemporaryDirectory(prefix="ptprog_v678_") as td:
     assert "[PRIMARY - UPLOAD THIS FILE]" in cp.stdout, cp.stdout
 
 
+
+# zipfile.is_zipfile() alone is not sufficient: a member CRC can be corrupt
+# while the central directory remains parseable. Such an artifact must not be
+# highlighted as the primary upload file.
+with tempfile.TemporaryDirectory(prefix="ptprog_crc_v6713_") as td:
+    root = Path(td)
+    corrupt = root / "corrupt_result.zip"
+    import zipfile
+    with zipfile.ZipFile(corrupt, 'w', zipfile.ZIP_STORED) as z:
+        z.writestr('payload.txt', b'hello world')
+    blob = bytearray(corrupt.read_bytes())
+    pos = blob.find(b'hello world')
+    assert pos >= 0
+    blob[pos] ^= 0x20
+    corrupt.write_bytes(blob)
+    assert zipfile.is_zipfile(corrupt)
+    ok, detail = m._validate_result_zip(root, str(corrupt))
+    assert not ok and 'corrupt member' in detail, (ok, detail)
+
 # If an external task runner signals only the supervisor PID, the collector
 # process group must be terminated too instead of becoming an orphan. Cover
 # terminal/task-close signals in addition to Ctrl+C/SIGTERM.
@@ -113,7 +142,7 @@ if os.name == "posix":
     # Static ordering assertions below lock the additional handlers/mapping.
     stop_signals = [signal.SIGTERM]
     for stop_signal in stop_signals:
-        with tempfile.TemporaryDirectory(prefix=f"ptprog_signal_v6710_{stop_signal}_") as td:
+        with tempfile.TemporaryDirectory(prefix=f"ptprog_signal_v6713_{stop_signal}_") as td:
             root = Path(td)
             pidfile = root / "collector.pid"
             collector = root / "sleep_collector.py"
@@ -135,6 +164,10 @@ if os.name == "posix":
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                # Keep this signal-integration fixture in its own session so
+                # nested test runners/IDEs cannot accidentally share terminal
+                # process-group signals with the supervisor under test.
+                start_new_session=True,
             )
             deadline = time.monotonic() + 5.0
             while not pidfile.exists() and time.monotonic() < deadline:
@@ -289,7 +322,7 @@ with tempfile.TemporaryDirectory(prefix="ptprog_long_tail_v6711_") as td:
 # Result and request completion metadata must not share a bounded FIFO.  A
 # result can be reported first, followed by many request/archive metadata lines
 # and then a long diagnostic tail; the valid result must remain authoritative.
-with tempfile.TemporaryDirectory(prefix="ptprog_completion_eviction_v6712_") as td:
+with tempfile.TemporaryDirectory(prefix="ptprog_completion_eviction_v6713_") as td:
     root = Path(td)
     result = root / 'artifacts' / 'early-persistent-result.zip'
     result.parent.mkdir(parents=True)
@@ -318,4 +351,4 @@ with tempfile.TemporaryDirectory(prefix="ptprog_completion_eviction_v6712_") as 
     assert cp.stdout.count(str(result))==1,cp.stdout
     assert str(request_paths[-1]) in cp.stdout,cp.stdout
 
-print('PASS: Python Patch Tool v6.7.12 collect progress robustness self-test')
+print('PASS: Python Patch Tool v6.7.13 collect progress robustness self-test')

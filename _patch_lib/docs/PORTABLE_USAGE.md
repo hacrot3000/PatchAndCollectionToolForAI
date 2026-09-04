@@ -1,4 +1,4 @@
-# Portable use — Python Patch Tool v6.7.12
+# Portable use — Python Patch Tool v6.7.13
 
 Normal user entry point is always:
 
@@ -91,16 +91,19 @@ falls back to user confirmation for automatic selection.
 
 Selected work is executed in natural order and stops on the first failure.
 Remaining selected items are reported as `SKIPPED / NOT EXECUTED` and remain in
-the queue.
+the queue. Destructive selector deletion revalidates the same file-identity
+snapshot used by execution; a same-named artifact replaced after the menu was
+rendered is never unlinked from stale selector state.
 
-## v6.7.12 completion hardening
+## v6.7.13 completion hardening
 
 A zero collector exit code becomes a public PASS only when the result collection
 ZIP is detected and usable. Result and request completion paths are retained independently from each other
 and independently from the bounded failure tail, so repeated request metadata or
 verbose post-result output cannot evict/erase the upload target. Missing/non-ZIP result artifacts fail closed before
 the final status row is printed. Quoted paths and paths containing spaces are
-accepted. Stop handlers are installed before collector spawn and cover common
+accepted. Result ZIP validation includes member CRC checks, and strong ZIP-specific
+completion labels take precedence over generic `FILE:`/`ARTIFACT:` fallbacks. Stop handlers are installed before collector spawn and cover common
 task/terminal-close signals so the readonly child tree is not left orphaned.
 
 Queue entries are revalidated immediately before execution. Discovery records

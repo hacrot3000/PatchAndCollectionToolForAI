@@ -81,7 +81,7 @@ with tempfile.TemporaryDirectory(prefix='ptv6710_revalidate_') as td:
 # Replacing a selected valid PATCH with a different valid PATCH under the same
 # filename must also fail closed.  Structural reclassification alone is not
 # sufficient evidence that the user is about to run the file they selected.
-with tempfile.TemporaryDirectory(prefix='ptv6712_identity_revalidate_') as td:
+with tempfile.TemporaryDirectory(prefix='ptv6713_identity_revalidate_') as td:
     root=Path(td); tools=root/'tools'; tools.mkdir(); patchs=root/'patchs'; patchs.mkdir(); log=root/'calls.txt'
     launcher=tools/'run_python_patches.sh'
     launcher.write_text('#!/usr/bin/env bash\necho called >> '+repr(str(log))+'\nexit 0\n', encoding='utf-8')
@@ -105,7 +105,7 @@ with tempfile.TemporaryDirectory(prefix='ptv6712_identity_revalidate_') as td:
 
 # COLLECT selected from the zero-argument queue must route internally without
 # relying on the now-rejected public `collect ...` launcher syntax.
-with tempfile.TemporaryDirectory(prefix='ptv6712_internal_collect_') as td:
+with tempfile.TemporaryDirectory(prefix='ptv6713_internal_collect_') as td:
     root=Path(td); lib=root/'tools'/'_patch_lib'; lib.mkdir(parents=True); patchs=root/'patchs'; patchs.mkdir()
     progress_src=MOD.parent/'python_patch_collect_progress_v6_7.py'
     (lib/'python_patch_collect_progress_v6_7.py').write_bytes(progress_src.read_bytes())
@@ -130,4 +130,4 @@ with tempfile.TemporaryDirectory(prefix='ptv6712_internal_collect_') as td:
     assert not remaining,remaining
     assert (root/'artifacts'/'internal-collect-result.zip').is_file()
 
-print('PASS: v6.7.12 selected queue stops on first failure')
+print('PASS: v6.7.13 selected queue stops on first failure')

@@ -4,6 +4,9 @@ import importlib.util, io, json, sys, tarfile, tempfile, zipfile
 from pathlib import Path
 HERE=Path(__file__).resolve(); MOD=HERE.parent/'python_patch_queue_dispatcher.py'
 spec=importlib.util.spec_from_file_location('ptv_queue_v678',MOD); m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; spec.loader.exec_module(m)
+assert m.VERSION=='6.7.13'
+bidi_display=m._safe_display('safe\u202eevil')
+assert '\u202e' not in bidi_display, repr(bidi_display)
 
 with tempfile.TemporaryDirectory() as td:
     root=Path(td); p=root/'patchs'; p.mkdir()
@@ -49,7 +52,7 @@ with tempfile.TemporaryDirectory() as td:
     with zipfile.ZipFile(p/'PTV_260808_120000_deadbeef_PASS_DETAIL.zip','w') as z:
         z.writestr('raw/source.py','PATCH_NAME="embedded evidence only"\n')
         z.writestr('raw/CODE_COLLECTION_REQUEST_prior.json',json.dumps({'id':'prior','actions':[{'type':'overview'}]}))
-    with zipfile.ZipFile(p/'python_patch_tool_v6.7.12.zip','w') as z:
+    with zipfile.ZipFile(p/'python_patch_tool_v6.7.13.zip','w') as z:
         z.writestr('tools/run_python_patches.sh','#!/bin/sh\n')
         z.writestr('tools/_patch_lib/self_test.py','PATCH_NAME=\"test literal only\"\n')
     with zipfile.ZipFile(p/'PTV_REALISTIC_HANDOFF.zip','w') as z:
@@ -57,8 +60,14 @@ with tempfile.TemporaryDirectory() as td:
         z.writestr('CURRENT_STATE.md','state')
         z.writestr('samples/example.py','PATCH_NAME=\"example only\"\n')
     with zipfile.ZipFile(p/'DATBIKE_BLE_OTA_HANDOFF_20260808.zip','w') as z:
-        z.writestr('evidence/patch_embedded.py','PATCH_NAME=\"embedded evidence only\"\n')
+        z.writestr('evidence/patch_embedded.py','PATCH_NAME="embedded evidence only"\n')
         z.writestr('evidence/CODE_COLLECTION_REQUEST_prior.json',json.dumps({'id':'prior','actions':[{'type':'overview'}]}))
+    with zipfile.ZipFile(p/'DATBIKE_BLE_OTA_HANDOFF(1).zip','w') as z:
+        z.writestr('evidence/patch_embedded.py','PATCH_NAME="embedded evidence only"\n')
+    # The word handoff may legitimately appear in a legacy patch description.
+    # The historical patch_* namespace remains authoritative for that case.
+    with zipfile.ZipFile(p/'patch_fix_handoff_cleanup.zip','w') as z:
+        z.writestr('patch_fix_handoff_cleanup.py','PATCH_NAME="legacy real patch"\n')
     with zipfile.ZipFile(p/'WRAPPED_TOOL_DISTRIBUTION.zip','w') as z:
         z.writestr('python_patch_tool/tools/run_python_patches.sh','#!/bin/sh\n')
         z.writestr('python_patch_tool/tools/_patch_lib/self_test.py','PATCH_NAME="test literal only"\n')
@@ -90,18 +99,18 @@ with tempfile.TemporaryDirectory() as td:
     by_name={i.name:i for i in items}
     expected_patch={
         'NFC_implement_201_example.zip','OTA_FIX_example.zip','patch_example.zip','other_valid_name.zip',
-        'legacy_bundle.zip','patch_standalone.py','marker_standalone.py','legacy_tar.tgz','patch_with_collect_resource.zip'
+        'legacy_bundle.zip','patch_standalone.py','marker_standalone.py','legacy_tar.tgz','patch_with_collect_resource.zip','patch_fix_handoff_cleanup.zip'
     }
     assert expected_patch <= set(by_name), (expected_patch-set(by_name),items,w)
     assert all(by_name[n].kind=='PATCH' for n in expected_patch)
     assert by_name['collect_good.zip'].kind=='COLLECT'
     assert by_name['CODE_COLLECTION_REQUEST_bad.zip'].kind=='COLLECT INVALID'
-    for rejected in ['PTV_PASS_HANDOFF.zip','PTV_260808_120000_deadbeef_PASS_DETAIL.zip','PTV_REALISTIC_HANDOFF.zip','DATBIKE_BLE_OTA_HANDOFF_20260808.zip','WRAPPED_TOOL_DISTRIBUTION.zip','WRAPPED_HANDOFF.zip','WRAPPED_HANDOFF_WITH_COLLECT.zip','python_patch_tool_v6.7.12.zip','notes.py','broken.zip','linked_patch.py','tool_distribution.tgz','dot_wrapped_tool_distribution.tgz','handoff_archive.tgz','CODE_COLLECTION_REQUEST_loose.json']:
+    for rejected in ['PTV_PASS_HANDOFF.zip','PTV_260808_120000_deadbeef_PASS_DETAIL.zip','PTV_REALISTIC_HANDOFF.zip','DATBIKE_BLE_OTA_HANDOFF_20260808.zip','DATBIKE_BLE_OTA_HANDOFF(1).zip','WRAPPED_TOOL_DISTRIBUTION.zip','WRAPPED_HANDOFF.zip','WRAPPED_HANDOFF_WITH_COLLECT.zip','python_patch_tool_v6.7.13.zip','notes.py','broken.zip','linked_patch.py','tool_distribution.tgz','dot_wrapped_tool_distribution.tgz','handoff_archive.tgz','CODE_COLLECTION_REQUEST_loose.json']:
         assert rejected not in by_name, (rejected,items,w)
     joined='\n'.join(w)
     assert 'RAW JSON REJECTED' in joined
     assert 'PTV_PASS_HANDOFF.zip' in joined
-    assert 'python_patch_tool_v6.7.12.zip' in joined
+    assert 'python_patch_tool_v6.7.13.zip' in joined
     assert 'broken.zip' in joined
     assert 'SKIPPED symlink queue entry: patchs/linked_patch.py' in joined
 
@@ -116,4 +125,4 @@ with tempfile.TemporaryDirectory() as td:
     valid, reason = m._revalidate_selected_item(root, selected_collect)
     assert not valid and ('support bundle' in reason or 'replaced or modified' in reason), (valid, reason)
 
-print('PASS: v6.7.12 queue recognizes PATCH/COLLECT structurally and skips non-patch artifacts')
+print('PASS: v6.7.13 queue recognizes PATCH/COLLECT structurally and skips non-patch artifacts')
