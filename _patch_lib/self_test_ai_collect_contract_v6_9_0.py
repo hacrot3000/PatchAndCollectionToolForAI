@@ -25,4 +25,4 @@ assert '[PRIMARY - UPLOAD THIS FILE]' in ai
 assert 'Destination: ChatGPT / AI server' in ai
 assert 'must not replay' in ai
 
-print('PASS: v6.8.1 AI COLLECT ZIP-only documentation contract')
+print('PASS: v6.9.0 AI COLLECT ZIP-only documentation contract')

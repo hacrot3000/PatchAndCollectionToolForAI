@@ -22,7 +22,7 @@ m = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = m
 spec.loader.exec_module(m)
 
-assert m.VERSION == "6.8.1"
+assert m.VERSION == "6.9.0"
 assert m._cell_width("abc") == 3
 assert m._cell_width("测试") == 4
 for width in [0, 1, 2, 12, 20, 40, 80, 120]:
@@ -216,4 +216,4 @@ with tempfile.TemporaryDirectory(prefix="ptprog_invalid_result_v6711_") as td:
     assert "[PRIMARY - UPLOAD THIS FILE]" not in out, out
     assert "no valid upload ZIP was verified" in out, out
 
-print('PASS: Python Patch Tool v6.8.1 collect progress/artifact robustness self-test')
+print('PASS: Python Patch Tool v6.9.0 collect progress/artifact robustness self-test')

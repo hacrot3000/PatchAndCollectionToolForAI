@@ -17,7 +17,7 @@ import time
 import unicodedata
 from typing import Iterable
 
-VERSION = "6.8.1"
+VERSION = "6.9.0"
 DEFAULT_HEARTBEAT = 0.8
 DEFAULT_MARGIN = 2
 MAX_TAIL_LINES = 120
@@ -327,7 +327,7 @@ def _reader(stream, q: queue.Queue[str], tail: deque[str]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Python Patch Tool v6.8.1 COLLECT one-line progress supervisor")
+    ap = argparse.ArgumentParser(description="Python Patch Tool v6.9.0 COLLECT one-line progress supervisor")
     ap.add_argument("--project-root", required=True)
     ap.add_argument("--collector", required=True)
     ap.add_argument("rest", nargs=argparse.REMAINDER)

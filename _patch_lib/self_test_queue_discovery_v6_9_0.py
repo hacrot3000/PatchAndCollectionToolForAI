@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory() as td:
     # Non-patch artifacts must NOT pollute the runnable queue.
     with zipfile.ZipFile(p/'PTV_PASS_HANDOFF.zip','w') as z:
         z.writestr('CURRENT_STATE.md','handoff only')
-    with zipfile.ZipFile(p/'python_patch_tool_v6.8.1.zip','w') as z:
+    with zipfile.ZipFile(p/'python_patch_tool_v6.9.0.zip','w') as z:
         z.writestr('tools/run_python_patches.sh','#!/bin/sh\n')
         z.writestr('tools/_patch_lib/self_test.py','PATCH_NAME=\"test literal only\"\n')
     with zipfile.ZipFile(p/'PTV_REALISTIC_HANDOFF.zip','w') as z:
@@ -71,13 +71,13 @@ with tempfile.TemporaryDirectory() as td:
     assert all(by_name[n].kind=='PATCH' for n in expected_patch)
     assert by_name['collect_good.zip'].kind=='COLLECT'
     assert by_name['CODE_COLLECTION_REQUEST_bad.zip'].kind=='COLLECT INVALID'
-    for rejected in ['PTV_PASS_HANDOFF.zip','PTV_REALISTIC_HANDOFF.zip','python_patch_tool_v6.8.1.zip','notes.py','broken.zip','linked_patch.py','tool_distribution.tgz','handoff_archive.tgz','CODE_COLLECTION_REQUEST_loose.json']:
+    for rejected in ['PTV_PASS_HANDOFF.zip','PTV_REALISTIC_HANDOFF.zip','python_patch_tool_v6.9.0.zip','notes.py','broken.zip','linked_patch.py','tool_distribution.tgz','handoff_archive.tgz','CODE_COLLECTION_REQUEST_loose.json']:
         assert rejected not in by_name, (rejected,items,w)
     joined='\n'.join(w)
     assert 'RAW JSON REJECTED' in joined
     assert 'PTV_PASS_HANDOFF.zip' in joined
-    assert 'python_patch_tool_v6.8.1.zip' in joined
+    assert 'python_patch_tool_v6.9.0.zip' in joined
     assert 'broken.zip' in joined
     assert 'SKIPPED symlink queue entry: patchs/linked_patch.py' in joined
 
-print('PASS: v6.8.1 queue recognizes PATCH/COLLECT structurally and skips non-patch artifacts')
+print('PASS: v6.9.0 queue recognizes PATCH/COLLECT structurally and skips non-patch artifacts')

@@ -1,4 +1,4 @@
-# Portable use — Python Patch Tool v6.8.1
+# Portable use — Python Patch Tool v6.9.0
 
 Normal user entry point is always:
 
@@ -75,11 +75,22 @@ A root `PATCH_TOOL_MANIFEST.json` has precedence over any nested
 `CODE_COLLECTION_REQUEST_*.json` resource so a valid PATCH cannot be routed as
 COLLECT. ZIP/TAR package extension matching at the launcher is case-insensitive.
 
-TTY selector keeps Space, arrows, `a`, `n`, `d`, Enter and q/Esc. The line
-fallback is used whenever either stdin or stdout is not a TTY, or when
-`automation.zero_argument.selector_ui` is `line`. It accepts numbers, lists,
-ranges, all/none/quit and confirmed deletion. A single remaining item is
-selected by default so Enter is enough to run it.
+TTY selector keeps Space, arrows, `a`, `n`, `d`, Enter and q/Esc, and adds
+explicit execution priority digits `0` through `9` for the current row. Pressing
+a digit selects that row and displays `[0]`..`[9]`. Lower priorities execute
+first; equal priorities preserve the queue order already shown by the tool.
+Rows selected normally with Space display `[x]` and, when mixed with numbered
+rows, execute after all explicit priorities while preserving their existing
+queue order. Space on a numbered row first returns it to plain `[x]`; another
+Space deselects it. `a` selects all rows as `[x]`; `n` clears both selection
+and priority. Deleting a row reindexes its selection/priority metadata with the
+remaining rows.
+
+The line fallback is used whenever either stdin or stdout is not a TTY, or when
+`automation.zero_argument.selector_ui` is `line`. It keeps the historical
+number/list/range item-selection grammar, plus all/none/quit and confirmed
+deletion. A single remaining item is selected by default so Enter is enough to
+run it.
 
 Previously documented zero-argument `selection=prompt|all|first|newest`,
 `non_interactive_confirmed`, `initial_selection=none|all`, and
@@ -114,7 +125,7 @@ only with direct regular files already present in this project's
 Duplicate PATCHes are removed from the runnable selector set before selection,
 so they cannot be executed accidentally by the normal zero-argument workflow.
 
-## v6.8.1 queue/result correctness
+## v6.9.0 queue/result correctness
 
 PATCH child termination by signal is reported using normal shell codes (for
 example Ctrl+C = 130 and SIGTERM = 143), not negative Python subprocess codes.
@@ -124,7 +135,7 @@ PASS is accepted only if the request ZIP has actually moved from `patchs/` to
 ZIP, the supervisor validates candidates newest-first and highlights exactly one
 valid upload ZIP.
 
-### v6.8.1 local-history boundary
+### v6.9.0 local-history boundary
 
 Duplicate suppression never follows a symlinked `patchs/` or
 `patchs/patched/`. Shared/external history is ignored with a warning, because

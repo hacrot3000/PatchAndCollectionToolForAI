@@ -86,4 +86,4 @@ with tempfile.TemporaryDirectory(prefix='ptv6711collectarchiveok_') as td:
     assert (q/'patched'/request.name).is_file()
     assert not request.exists()
 
-print('PASS: v6.8.1 fail-fast, signal status and COLLECT archive lifecycle')
+print('PASS: v6.9.0 fail-fast, signal status and COLLECT archive lifecycle')

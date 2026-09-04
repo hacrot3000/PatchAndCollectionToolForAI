@@ -275,4 +275,5 @@ with tempfile.TemporaryDirectory(prefix='ptv681dup_late_main_') as td:
     assert 'SUMMARY: PASS | 1 selected item(s) completed' in cp.stdout, cp.stdout
     assert second.is_file(), second
 
-print('PASS: v6.8.1 local-only SHA-256 duplicate PATCH skip contract')
+
+print('PASS: v6.9.0 local-only SHA-256 duplicate PATCH skip contract')

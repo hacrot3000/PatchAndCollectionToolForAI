@@ -21,7 +21,7 @@ try:
 except Exception:
     termios = tty = None
 
-VERSION = "6.8.1"
+VERSION = "6.9.0"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -450,19 +450,43 @@ def _read_key(fd):
     return raw.decode(errors="ignore").lower()
 
 
-def _render(items, cursor, selected, msg, prev):
+def _selection_mark(index: int, selected: set[int], priorities: dict[int, int]) -> str:
+    if index not in selected:
+        return " "
+    if index in priorities:
+        return str(priorities[index])
+    return "x"
+
+
+def _ordered_selection(items: list[QueueItem], selected: set[int], priorities: dict[int, int]):
+    """Return selected items in requested execution order.
+
+    Explicit 0..9 priorities run first from low to high. Items selected with
+    plain [x] have no explicit priority and run afterwards in the tool's
+    existing natural queue order. Stable original indexes break ties so equal
+    priorities never disturb the queue ordering already shown to the user.
+    """
+    indexes = sorted(
+        selected,
+        key=lambda i: (priorities.get(i, 10), i),
+    )
+    return [items[i] for i in indexes]
+
+
+def _render(items, cursor, selected, priorities, msg, prev):
     lines = ["CHỌN CÔNG VIỆC SẼ CHẠY", ""]
     for i, item in enumerate(items):
         detail = f"  [{_safe_display(item.detail)}]" if item.detail else ""
         lines.append(
             f"{'›' if i == cursor else ' '} "
-            f"[{'x' if i in selected else ' '}] {i + 1:>3}. "
+            f"[{_selection_mark(i, selected, priorities)}] {i + 1:>3}. "
             f"[{_safe_display(item.kind)}] {_safe_display(item.name)}{detail}"
         )
     lines += [
         "",
-        "Space: chọn/bỏ | ↑/↓: di chuyển | a: tất cả | n: bỏ tất cả",
-        "d: xóa item tại con trỏ | Enter: xác nhận | q/Esc: hủy",
+        "Space: chọn/bỏ [x] | 0-9: gán ưu tiên | ↑/↓: di chuyển",
+        "a: tất cả [x] | n: bỏ tất cả | d: xóa item tại con trỏ",
+        "Enter: xác nhận | q/Esc: hủy | Số nhỏ chạy trước; cùng số giữ thứ tự hiện tại",
     ]
     if msg:
         lines.append(_safe_display(msg))
@@ -567,8 +591,15 @@ def _initial_selected(items, initial_selection: str):
     return set()
 
 
-def _delete_indexes(root: Path, items: list[QueueItem], selected: set[int], indexes: set[int]):
-    """Delete only queue files selected by index, preserving selection mapping."""
+def _delete_indexes(
+    root: Path,
+    items: list[QueueItem],
+    selected: set[int],
+    indexes: set[int],
+    priorities: dict[int, int] | None = None,
+):
+    """Delete queue files while preserving selection/priority index mapping."""
+    priorities = dict(priorities or {})
     deleted: list[str] = []
     failures: list[str] = []
     for i in sorted(indexes, reverse=True):
@@ -586,9 +617,17 @@ def _delete_indexes(root: Path, items: list[QueueItem], selected: set[int], inde
         deleted.append(victim.name)
         items.pop(i)
         selected = {j if j < i else j - 1 for j in selected if j != i}
+        priorities = {
+            (j if j < i else j - 1): value
+            for j, value in priorities.items()
+            if j != i
+        }
     if len(items) == 1:
         selected = {0}
-    return selected, list(reversed(deleted)), list(reversed(failures))
+        # Auto-selected sole item follows normal tool order unless the surviving
+        # item already had an explicit priority.
+    priorities = {j: value for j, value in priorities.items() if j in selected}
+    return selected, priorities, list(reversed(deleted)), list(reversed(failures))
 
 
 def _select_items_line(root: Path, items: list[QueueItem], initial_selection: str):
@@ -632,7 +671,7 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
             if confirm == "" or confirm.strip().lower() != "y":
                 print("Xóa đã hủy.")
                 continue
-            selected, deleted, failures = _delete_indexes(root, items, selected, indexes)
+            selected, _priorities, deleted, failures = _delete_indexes(root, items, selected, indexes)
             for name in deleted:
                 print(f"DELETED: patchs/{_safe_display(name)}")
             for detail in failures:
@@ -676,6 +715,7 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto"):
     tty.setcbreak(fd)
     cursor = 0
     selected = _initial_selected(items, initial_selection)
+    priorities: dict[int, int] = {}
     rendered = 0
     if len(items) == 1:
         msg = "Một item duy nhất đã chọn sẵn; Enter để chạy."
@@ -686,7 +726,7 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto"):
     delete = False
     try:
         while items:
-            rendered = _render(items, cursor, selected, msg, rendered)
+            rendered = _render(items, cursor, selected, priorities, msg, rendered)
             msg = ""
             key = _read_key(fd)
             if key in {"q", "ESC", "\x03"}:
@@ -697,7 +737,9 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto"):
                     msg = "Xóa đã hủy."
                     continue
                 victim = items[cursor]
-                selected, deleted, failures = _delete_indexes(root, items, selected, {cursor})
+                selected, priorities, deleted, failures = _delete_indexes(
+                    root, items, selected, {cursor}, priorities
+                )
                 if failures:
                     msg = f"Xóa thất bại: {failures[0]}"
                 elif deleted and len(items) == 1:
@@ -713,17 +755,32 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto"):
             elif key == "DOWN":
                 cursor = (cursor + 1) % len(items)
             elif key == "SPACE":
-                selected.remove(cursor) if cursor in selected else selected.add(cursor)
+                if cursor in priorities:
+                    # A numbered selection becomes a normal [x] selection first;
+                    # a second Space can then deselect it. This makes Space the
+                    # explicit way to return a row to default tool ordering.
+                    priorities.pop(cursor, None)
+                    selected.add(cursor)
+                elif cursor in selected:
+                    selected.remove(cursor)
+                else:
+                    selected.add(cursor)
+            elif key in {str(i) for i in range(10)}:
+                selected.add(cursor)
+                priorities[cursor] = int(key)
+                msg = f"Ưu tiên {key}: {_safe_display(items[cursor].name)}"
             elif key == "a":
                 selected = set(range(len(items)))
+                priorities.clear()
             elif key == "n":
                 selected.clear()
+                priorities.clear()
             elif key == "d":
                 delete = True
                 msg = f"Xóa {_safe_display(items[cursor].name)}? y để xác nhận"
             elif key == "ENTER":
                 if selected:
-                    return [items[i] for i in sorted(selected)]
+                    return _ordered_selection(items, selected, priorities)
                 msg = "Chưa chọn item nào."
     finally:
         try:
