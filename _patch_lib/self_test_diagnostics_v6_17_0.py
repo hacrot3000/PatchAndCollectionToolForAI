@@ -64,4 +64,4 @@ with tempfile.TemporaryDirectory() as td:
     assert 'SOURCE_DRIFT' in out and 'need-current-source' in out and 'a.txt' in out,out
     assert (root/'a.txt').read_text()=='alpha\n'
 
-print('PASS: v6.16.0 multi-error lint, classified validate, aggregate source drift and sequential OPS dry-run')
+print('PASS: v6.17.0 multi-error lint, classified validate, aggregate source drift and sequential OPS dry-run')

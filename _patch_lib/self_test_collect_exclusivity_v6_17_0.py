@@ -7,7 +7,7 @@ HERE=Path(__file__).resolve().parent
 MOD=HERE/'python_patch_queue_dispatcher.py'
 spec=importlib.util.spec_from_file_location('ptv610_collect_exclusive',MOD)
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; spec.loader.exec_module(m)
-assert m.VERSION=='6.16.0'
+assert m.VERSION=='6.17.0'
 
 p1=m.QueueItem('patch_1.zip','PATCH')
 p2=m.QueueItem('patch_2.zip','PATCH')
@@ -106,4 +106,4 @@ with tempfile.TemporaryDirectory(prefix='ptv610_exec_guard_') as td:
     rc,executed,remaining,dups,warnings=m.execute_items(root,[c1,c2])
     assert rc==2 and executed==[] and len(remaining)==2,(rc,executed,remaining)
 
-print('PASS: v6.16.0 exactly-one-COLLECT per invocation and no mixed PATCH/COLLECT selection')
+print('PASS: v6.17.0 exactly-one-COLLECT per invocation and no mixed PATCH/COLLECT selection')

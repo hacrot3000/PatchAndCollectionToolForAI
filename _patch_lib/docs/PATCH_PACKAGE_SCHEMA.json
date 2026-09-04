@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "tool_version": "6.16.0",
+  "tool_version": "6.17.0",
   "manifest_file": "PATCH_TOOL_MANIFEST.json",
   "manifest": {
     "type": "object",
@@ -14,6 +14,7 @@
       "patch",
       "compatibility",
       "execution",
+      "batch",
       "targets",
       "preflight",
       "resources",
@@ -322,6 +323,62 @@
             }
           }
         }
+      },
+      "batch": {
+        "type": "object",
+        "allowed_fields": [
+          "depends_on",
+          "on_dependency_failure",
+          "previous_failure"
+        ],
+        "fields": {
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "on_dependency_failure": {
+            "type": "string",
+            "enum": [
+              "block",
+              "run_anyway"
+            ]
+          },
+          "previous_failure": {
+            "type": "object",
+            "required": [
+              "action",
+              "reason"
+            ],
+            "allowed_fields": [
+              "patch_id",
+              "patch_file",
+              "action",
+              "reason"
+            ],
+            "fields": {
+              "patch_id": {
+                "type": "string"
+              },
+              "patch_file": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "delete",
+                  "retry_before",
+                  "run_after",
+                  "block"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
       }
     }
   },
@@ -331,5 +388,7 @@
     "ambiguous": "A package containing both OPS and a Python entrypoint, or multiple Python entrypoints, is rejected before project modification."
   },
   "preflight_guarantee": "Schema, compatibility, payload, declared resources, declared file hashes/anchors, data-only OPS sequential dry-run, post-command cwd/executable, and Git executable requirements are checked before patch payload execution.",
-  "rollback_contract": "Optional recovery.rollback is fail-closed and metadata-driven. rollback.targets must exactly cover the PATCH target set and every rollback target must have an explicit preflight.files baseline (exists=false for initially missing paths, or exists=true plus sha256 for existing files). The runner snapshots only those declared regular-file targets before payload execution. Automatic rollback may run only for configured payload_failure/post_patch_failure stages, before Git policy. For exists=false targets, the parent directory must already exist as a real non-symlink directory inside the project before payload execution; rollback does not invent/remove parent directories. Rollback snapshot creation revalidates the declared baseline to close preflight-to-snapshot TOCTOU."
+  "rollback_contract": "Optional recovery.rollback is fail-closed and metadata-driven. rollback.targets must exactly cover the PATCH target set and every rollback target must have an explicit preflight.files baseline (exists=false for initially missing paths, or exists=true plus sha256 for existing files). The runner snapshots only those declared regular-file targets before payload execution. Automatic rollback may run only for configured payload_failure/post_patch_failure stages, before Git policy. For exists=false targets, the parent directory must already exist as a real non-symlink directory inside the project before payload execution; rollback does not invent/remove parent directories. Rollback snapshot creation revalidates the declared baseline to close preflight-to-snapshot TOCTOU.",
+  "batch_execution_contract": "Selected PATCH manifests may declare batch.depends_on by existing manifest.patch.id. Default on_dependency_failure is block; run_anyway is explicit. When the immediately previous run left a failed PATCH unresolved, a successor PATCH must declare batch.previous_failure with an explicit delete/retry_before/run_after/block action and reason.",
+  "batch_transaction_contract": "Batch transaction policy is target-bounded atomic rollback. Every selected PATCH must declare targets; post_patch.commands and Git commit/push are rejected in batch-atomic mode."
 }

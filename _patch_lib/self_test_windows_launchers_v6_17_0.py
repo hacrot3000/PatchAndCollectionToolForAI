@@ -13,7 +13,7 @@ for p in (ps,bat,sh):
 
 pst=ps.read_text(encoding='utf-8')
 bt=bat.read_text(encoding='utf-8')
-assert 'v6.16.0' in pst and 'v6.16.0' in bt
+assert 'v6.17.0' in pst and 'v6.17.0' in bt
 for phrase in [
     "Join-Path $LibDir 'python_patch_queue_dispatcher.py'",
     "Join-Path $LibDir 'python_patch_runner.py'",
@@ -35,7 +35,7 @@ assert '%*' in bt
 # than inventing a separate queue or project-root convention.
 assert "if ($ToolArgs.Count -eq 0)" in pst
 assert "if ([string]::Equals([string]$ToolArgs[0], 'collect'" in pst
-assert "if ([string]::Equals([string]$ToolArgs[0], 'report'" in pst
+assert "if ([string]$ToolArgs[0] -in @('report', 'run', 'resume'))" in pst
 assert "Use tools\\run_python_patches.bat (or .ps1) with no arguments" in pst
 
 # When PowerShell is available in CI, parse the script with PowerShell's own
@@ -53,6 +53,6 @@ if pwsh:
     assert cp.returncode==0,(cp.stdout,cp.stderr)
     cp=subprocess.run([pwsh,'-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',str(ps),'--version'],cwd=TOOLS.parent,text=True,capture_output=True,timeout=30)
     assert cp.returncode==0,(cp.stdout,cp.stderr)
-    assert '6.16.0' in cp.stdout+cp.stderr,(cp.stdout,cp.stderr)
+    assert '6.17.0' in cp.stdout+cp.stderr,(cp.stdout,cp.stderr)
 
-print('PASS: v6.16.0 Windows BAT/PowerShell launcher contract and optional native PowerShell smoke test')
+print('PASS: v6.17.0 Windows BAT/PowerShell launcher contract and optional native PowerShell smoke test')

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Hướng dẫn Python Patch Tool v6.16.0</title>
+<title>Hướng dẫn Python Patch Tool v6.17.0</title>
 <style>
 :root{color-scheme:light dark}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:980px;margin:32px auto;padding:0 18px;line-height:1.55;color:#1f2328;background:#fff}
@@ -27,16 +27,16 @@ h1,h2{line-height:1.25}
 </style>
 </head>
 <body>
-<h1>Python Patch Tool v6.16.0 — hướng dẫn nhanh</h1>
+<h1>Python Patch Tool v6.17.0 — hướng dẫn nhanh</h1>
 
 <h2>1. Cài đặt / cập nhật</h2>
 <p><strong>Linux / POSIX:</strong></p>
-<pre>unzip -o python_patch_tool_v6.16.0.zip -d "$PWD"
+<pre>unzip -o python_patch_tool_v6.17.0.zip -d "$PWD"
 cat tools/_patch_lib/VERSION</pre>
 <p><strong>Windows PowerShell:</strong> cần Python <strong>3.10+</strong>.</p>
-<pre>Expand-Archive -Force .\python_patch_tool_v6.16.0.zip .
+<pre>Expand-Archive -Force .\python_patch_tool_v6.17.0.zip .
 Get-Content .\tools\_patch_lib\VERSION</pre>
-<p>Kết quả version phải là <code>6.16.0</code>.</p>
+<p>Kết quả version phải là <code>6.17.0</code>.</p>
 
 <h2>2. Chạy công cụ</h2>
 <p><strong>Linux / POSIX:</strong></p>
@@ -77,7 +77,7 @@ Get-Content .\tools\_patch_lib\VERSION</pre>
   <pre id="prompt-vi">Tôi đang dùng Python Patch Tool hiện hành. Hãy đọc TOÀN BỘ các file tôi gửi từ tools/_patch_lib/docs/ trước khi làm việc; nếu có tools/implementing.md và tools/PYTHON_PATCH_TOOL_FEATURES_VI.md thì đọc cả hai.
 Tuân thủ contract hiện tại, không dùng hướng dẫn/version cũ để suy đoán. Ưu tiên sửa lỗi trước, sau đó mới hoàn thiện task đang dở; không tự start tính năng mới.
 Nếu cần source/evidence, hãy tự chuẩn bị đúng MỘT CODE_COLLECTION_REQUEST_*.zip theo tài liệu hiện hành; không trả JSON rời và không yêu cầu tôi chạy lệnh collect thủ công. Nếu cần patch code, trả đúng MỘT ZIP patch tương thích tool hiện hành.
-Người dùng chạy zero-argument launcher theo OS: Linux ./tools/run_python_patches.sh; Windows tools\run_python_patches.bat (hoặc .\tools\run_python_patches.ps1).</pre>
+Người dùng chạy zero-argument launcher theo OS: Linux ./tools/run_python_patches.sh; Windows tools\run_python_patches.bat (hoặc .\tools\run_python_patches.ps1). Sau FAIL_HANDOFF, PATCH successor phải khai báo rõ xử lý predecessor lỗi (delete/retry_before/run_after/block), không để PATCH mồ côi.</pre>
 </div>
 
 <h3>English</h3>
@@ -89,7 +89,7 @@ Người dùng chạy zero-argument launcher theo OS: Linux ./tools/run_python_p
   <pre id="prompt-en">I am using the current Python Patch Tool. Read ALL files I provide from tools/_patch_lib/docs/ before doing any work; also read tools/implementing.md and tools/PYTHON_PATCH_TOOL_FEATURES_VI.md when provided.
 Follow the current contract and do not infer behavior from obsolete versions. Fix bugs first, then finish already in-progress tasks; do not start new features on your own.
 If source/evidence is required, prepare exactly ONE CODE_COLLECTION_REQUEST_*.zip according to the current documentation; never return loose JSON and never ask me to run a manual collect command. If a code patch is required, return exactly ONE patch ZIP compatible with the current tool.
-The user runs the zero-argument launcher for the OS: Linux ./tools/run_python_patches.sh; Windows tools\run_python_patches.bat (or .\tools\run_python_patches.ps1).</pre>
+The user runs the zero-argument launcher for the OS: Linux ./tools/run_python_patches.sh; Windows tools\run_python_patches.bat (or .\tools\run_python_patches.ps1). After a FAIL_HANDOFF, any successor PATCH must explicitly handle the unresolved predecessor (delete/retry_before/run_after/block) instead of orphaning it.</pre>
 </div>
 
 <h3>Русский</h3>
@@ -114,8 +114,8 @@ The user runs the zero-argument launcher for the OS: Linux ./tools/run_python_pa
 <li>Fail-closed với package/request không đúng contract để tránh chạy nhầm.</li>
 <li>Release tự chứa runtime cần thiết cho contract hiện hành; không cần private core cũ.</li>
 <li>Cuối mỗi PATCH, tên file vừa chạy được highlight lại; nếu FAIL sẽ có banner cảnh báo nổi bật, terminal hỗ trợ màu sẽ dùng nền đỏ/chữ vàng. Đường dẫn FAIL_HANDOFF/ZIP vẫn hiển thị như trước.</li>
-<li>Khi chọn nhiều PATCH, cuối run có bảng <code>PASS / FAIL / NOT_EXECUTED / SKIPPED</code> theo từng file. Tool vẫn fail-fast: PATCH sau lỗi đầu tiên được ghi là <code>NOT_EXECUTED</code>, không bị báo nhầm thành FAIL.</li>
-<li>Log chi tiết từng PATCH và log tổng hợp batch được lưu trong <code>artifacts/patch_tool/runs/</code>. Mở lại batch gần nhất bằng <code>./tools/run_python_patches.sh report</code> hoặc <code>tools\run_python_patches.bat report</code>; trong menu chọn số PATCH để xem log chi tiết hoặc <code>a</code> để xem log tổng hợp.</li>
+<li>Khi chọn nhiều PATCH, cuối run có bảng <code>PASS / FAIL / BLOCKED / PREFLIGHT_FAIL / NOT_EXECUTED / SKIPPED</code>. Mặc định vẫn fail-fast; có thể bật <code>continue_independent</code>, nhưng tool sẽ safety-stop nếu lỗi để source partial/unknown.</li>
+<li>Log chi tiết từng PATCH và log tổng hợp batch được lưu trong <code>artifacts/patch_tool/runs/</code>. Mở lại bằng lệnh <code>report</code>; menu hỗ trợ detail, aggregate, lọc lỗi/PASS, source diff, support ZIP và history.</li>
 </ul>
 
 <h2>7. Quy trình thông thường khi dùng cùng Chat AI</h2>
@@ -125,7 +125,7 @@ The user runs the zero-argument launcher for the OS: Linux ./tools/run_python_pa
 <li>Nếu đủ thông tin, AI trả một PATCH ZIP. Chép vào <code>patchs/</code> và chạy launcher zero-argument của hệ điều hành.</li>
 <li>Nếu thiếu source/evidence, AI trả một <code>CODE_COLLECTION_REQUEST_*.zip</code>. Chép vào <code>patchs/</code> và chạy cùng lệnh.</li>
 <li>Upload đúng ZIP được đánh dấu <code>[PRIMARY - UPLOAD THIS FILE]</code> cho AI.</li>
-<li>Nếu PATCH FAIL và tool hiện <code>[PRIMARY - UPLOAD THIS FILE] PATCH FAIL HANDOFF</code>, upload ZIP đó cho AI; không cần tự gom log thủ công.</li>
+<li>Nếu PATCH FAIL và tool hiện <code>[PRIMARY - UPLOAD THIS FILE] PATCH FAIL HANDOFF</code>, upload ZIP đó cho AI. PATCH successor do AI tạo phải nói rõ xử lý PATCH lỗi liền trước bằng <code>delete</code>, <code>retry_before</code>, <code>run_after</code> hoặc <code>block</code>; không để PATCH lỗi mồ côi trong queue.</li>
 <li>AI dùng evidence/source mới để tạo/cập nhật PATCH. Bạn chạy lại tool; khi PASS thì tiếp tục task kế tiếp.</li>
 </ol>
 

@@ -1,80 +1,76 @@
-# Danh sách tính năng Python Patch Tool — v6.16.0
+# Danh sách tính năng Python Patch Tool — v6.17.0
 
-> Chỉ ghi COMPLETE khi có acceptance/regression tương ứng.
-
-## Workflow / selector
+## Workflow / batch engine
 
 | Tính năng | Trạng thái |
 |---|---|
-| Linux `./tools/run_python_patches.sh` | COMPLETE |
-| Windows `tools\run_python_patches.bat` / `.ps1` | COMPLETE |
-| Internal dispatch không phụ thuộc Bash trên Windows | **COMPLETE v6.16.0** |
-| Fullscreen POSIX selector | COMPLETE |
-| Fullscreen Windows selector `msvcrt` + VT, safe line fallback | **COMPLETE v6.16.0** |
-| Arrow/Space, priority 0–9, delete, inspect, validate, health | **COMPLETE v6.16.0** |
-| Exactly one COLLECT / không trộn PATCH | COMPLETE |
-| Không process/project lock | COMPLETE / BY REQUIREMENT |
-| Local-history duplicate: báo 1 lần rồi move `patchs/ignore/YYYY-MM-DD-*` | **COMPLETE v6.16.0** |
-| `patchs/ignore/` không tham gia queue discovery | **COMPLETE v6.16.0** |
-| Final PASS banner highlight tên PATCH vừa chạy | **COMPLETE v6.16.0** |
-| Final FAIL banner nền đỏ/chữ vàng trên TTY + plain fallback | **COMPLETE v6.16.0** |
-| Batch result table: PASS/FAIL/NOT_EXECUTED/SKIPPED theo từng PATCH | **COMPLETE v6.16.0** |
-| Persistent per-PATCH detail logs | **COMPLETE v6.16.0** |
-| Persistent aggregate `batch.log` + `SUMMARY.txt` | **COMPLETE v6.16.0** |
-| Interactive batch report menu + reopen `report` | **COMPLETE v6.16.0** |
-| `report --list` / `report --run-id` history navigation | **COMPLETE v6.16.0** |
+| Linux `.sh`, Windows `.bat` / `.ps1` | COMPLETE |
+| PATCH in-place, SANDBOX/worktree removed | COMPLETE |
+| COLLECT độc lập, không trộn PATCH | COMPLETE |
+| Duplicate-local báo 1 lần → `patchs/ignore/YYYY-MM-DD-*` | COMPLETE |
+| `fail_fast` mặc định | COMPLETE |
+| `continue_independent` có safety-stop | **COMPLETE v6.17.0** |
+| Dependency `batch.depends_on` + stable topological order | **COMPLETE v6.17.0** |
+| Dependency runtime FAIL → `BLOCKED` mặc định | **COMPLETE v6.17.0** |
+| Successor bắt buộc xử lý predecessor FAIL | **COMPLETE v6.17.0** |
+| `previous_failure`: delete/retry_before/run_after/block | **COMPLETE v6.17.0** |
+| Whole-batch preflight trước payload đầu tiên | **COMPLETE v6.17.0** |
+| `transaction_policy=patch` | COMPLETE |
+| `transaction_policy=batch` atomic declared-target rollback | **COMPLETE v6.17.0** |
+| Batch rollback requeue exact package để replay | **COMPLETE v6.17.0** |
+| Smart Resume all/failed/remaining | **COMPLETE v6.17.0** |
 
-## PATCH diagnostics / validation
+## Report / diagnostics
 
 | Tính năng | Trạng thái |
 |---|---|
-| Exact `PATCH_PACKAGE_SCHEMA.json` | COMPLETE |
-| Multi-error schema lint | **COMPLETE v6.16.0** |
-| Migration hint `source_baseline` → `preflight.files` | **COMPLETE v6.16.0** |
-| Báo cùng lượt invalid timeout/schema fields | **COMPLETE v6.16.0** |
-| `validate --patch` read-only | **COMPLETE v6.16.0** |
-| Inspect/validate classification: READY/PATCH_INVALID/SOURCE_DRIFT/TOOL_ERROR | **COMPLETE v6.16.0** |
-| Aggregate existence/SHA/anchor mismatch theo nhiều file | **COMPLETE v6.16.0** |
-| expected/actual SHA trong diagnostics | **COMPLETE v6.16.0** |
-| Data-only OPS sequential dry-run trên temporary mirror | **COMPLETE v6.16.0** |
-| OPS anchor/source mismatch fail trước payload | **COMPLETE v6.16.0** |
-| Recovery COLLECT chỉ pack affected source paths | **COMPLETE v6.16.0** |
-| Normal execution re-preflight trước payload | COMPLETE |
+| Batch statuses PASS/FAIL/BLOCKED/PREFLIGHT_FAIL/NOT_EXECUTED/SKIPPED | **COMPLETE v6.17.0** |
+| Full per-PATCH logs | COMPLETE |
+| Aggregate `batch.log` + `SUMMARY.txt` | COMPLETE |
+| Report browser reopen `report` | COMPLETE |
+| Filter PASS / problems / changed | **COMPLETE v6.17.0** |
+| Source before/after unified diff | **COMPLETE v6.17.0** |
+| Support bundle ZIP từ từng report item | **COMPLETE v6.17.0** |
+| History list/pin/unpin/export/delete/cleanup | **COMPLETE v6.17.0** |
+| Pinned run được retention bảo vệ | **COMPLETE v6.17.0** |
+| FAIL banner nền đỏ/chữ vàng | COMPLETE |
+| PASS banner highlight PATCH cuối | COMPLETE |
 
-## Execution / recovery / safety
-
-| Tính năng | Trạng thái |
-|---|---|
-| PATCH in-place; SANDBOX/worktree removed | COMPLETE |
-| Exact PATCH/COLLECT input snapshot lifecycle | COMPLETE |
-| Fail-fast selected batch | COMPLETE |
-| POSIX child process-group containment | COMPLETE |
-| Windows `CREATE_NEW_PROCESS_GROUP` + `taskkill /T /F` containment | **COMPLETE v6.16.0** |
-| Reparse/junction-aware project path rejection on Windows | **COMPLETE v6.16.0** |
-| Metadata-driven rollback opt-in/fail-closed | COMPLETE |
-| Structured FAIL_HANDOFF | COMPLETE |
-| LAST_RUN/history/resume | COMPLETE |
-| Batch report history/log retention bounded by RUN_HISTORY_LIMIT | **COMPLETE v6.16.0** |
-
-## Docs / package / health
+## PATCH package / AI contract
 
 | Tính năng | Trạng thái |
 |---|---|
-| `PATCH_PACKAGE_CHECKLIST.json` machine-readable AI checklist | **COMPLETE v6.16.0** |
-| PATCH/COLLECT schemas + AI guides | COMPLETE |
-| Windows portable guide | COMPLETE |
-| `SHA256SUMS` exact coverage + no pycache | COMPLETE |
-| Tool Health version/checksum/runtime/launcher/schema audit | COMPLETE |
-| HTML user guide tối giản | UPDATED chỉ cho Windows selector/validate cần thiết |
+| Exact PATCH schema + multi-error lint | COMPLETE |
+| `validate --patch` read-only | COMPLETE |
+| READY/PATCH_INVALID/SOURCE_DRIFT/TOOL_ERROR | COMPLETE |
+| Expected/actual SHA + anchor diagnostics | COMPLETE |
+| OPS sequential dry-run | COMPLETE |
+| `batch` manifest metadata | **COMPLETE v6.17.0** |
+| AI bắt buộc khai báo predecessor failure action | **COMPLETE v6.17.0** |
+| Machine-readable checklist cập nhật batch contract | **COMPLETE v6.17.0** |
 
-## Giới hạn có chủ đích
+## Windows
 
-- Python PATCH tùy ý không thể được mô phỏng an toàn như OPS; inspect vẫn kiểm schema/preflight/resources/post-command/Git, còn payload Python chỉ chạy khi người dùng thực thi PATCH.
-- External `post_patch.commands[].argv` phải tồn tại trên OS hiện tại; tool không tự chuyển Bash thành PowerShell.
-- Windows fullscreen cần console TTY + VT; nếu không đáp ứng sẽ dùng line selector.
-- Rollback không được suy đoán khi thiếu exact metadata.
-- Batch execution vẫn fail-fast. Vì vậy trong run thật v6.16.0, một mixed-result batch có dạng `PASS... → FAIL → NOT_EXECUTED`; nhiều FAIL trong cùng run chỉ là capability của report renderer cho policy tương lai, không phải execution policy hiện tại.
+| Tính năng | Trạng thái |
+|---|---|
+| Native fullscreen selector + line fallback | COMPLETE |
+| Process-tree containment `taskkill /T /F` | COMPLETE |
+| Reparse/junction safety | COMPLETE |
+| Native Windows runtime test lane packaged | **COMPLETE v6.17.0** |
+| Native lane đã chạy trên host phát hành Linux | **N/A — cần Windows host thật** |
 
-## v6.16.0 stop condition
+## Không thực hiện theo yêu cầu
 
-Batch report, aggregate/detail log viewer, output clarity và regression hoàn tất. **Dừng.**
+- **Target-overlap/conflict analyzer: NOT IMPLEMENTED.** Tool không phân tích hai PATCH có cùng target/anchor để quyết định conflict.
+- **Patch provenance / identity: NOT IMPLEMENTED.** Dependency chỉ dùng `manifest.patch.id` đã tồn tại; không thêm fingerprint/provenance subsystem.
+
+## Giới hạn an toàn
+
+- `continue_independent` không tiếp tục nếu source partial/unknown hoặc rollback/tool integrity không an toàn.
+- Whole-batch source validation của PATCH phụ thuộc có thể defer source check tới sau dependency; runner vẫn re-preflight ngay trước execution.
+- Batch atomicity chỉ bao phủ declared `targets`; do đó atomic mode từ chối post-command và Git side effects.
+- Arbitrary Python payload không được chạy trong preflight/sandbox để “đoán” post-dependency state.
+
+## Stop condition
+
+Sau full regression + clean package integrity: **COMPLETE / STOP**.

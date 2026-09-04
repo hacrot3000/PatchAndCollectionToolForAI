@@ -14,7 +14,7 @@ def run(root: Path, text: str):
 # line-mode inspect/dry-run never executes or archives the PATCH.
 with tempfile.TemporaryDirectory(prefix='ptv613_inspect_') as td:
     root=Path(td); install(root); (root/'target.txt').write_text('old')
-    manifest={'schema_version':1,'patch':{'id':'inspect'},'targets':['target.txt'],'compatibility':{'min_tool_version':'6.12.0','max_tested_version':'6.16.0'}}
+    manifest={'schema_version':1,'patch':{'id':'inspect'},'targets':['target.txt'],'compatibility':{'min_tool_version':'6.12.0','max_tested_version':'6.17.0'}}
     package=root/'patchs'/'p.zip'
     with zipfile.ZipFile(package,'w') as z:
         z.writestr('PATCH_TOOL_MANIFEST.json',json.dumps(manifest)); z.writestr('p.py','from pathlib import Path\nPath("target.txt").write_text("new")')
@@ -33,4 +33,4 @@ with tempfile.TemporaryDirectory(prefix='ptv613_quality_') as td:
     assert 'evidence is bounded/truncated' in cp.stdout
     last=json.loads((root/'artifacts'/'patch_tool'/'LAST_RUN.json').read_text())
     quality=last['results'][0]['collect_result']['quality']; assert quality['truncated_reports']==1 and quality['missing']==0
-print('PASS: v6.16.0 inspect/dry-run and COLLECT quality summary')
+print('PASS: v6.17.0 inspect/dry-run and COLLECT quality summary')

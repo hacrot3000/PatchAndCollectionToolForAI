@@ -64,7 +64,7 @@ with tempfile.TemporaryDirectory(prefix='ptv680dup_split_') as td:
     runnable_names = {x.name for x in runnable}
     assert 'same_name.zip' in runnable_names, runnable_names
     assert 'renamed_duplicate.zip' not in runnable_names, runnable_names
-    # v6.16.0 retires confirmed local duplicates into patchs/ignore immediately.
+    # v6.17.0 retires confirmed local duplicates into patchs/ignore immediately.
     moved, move_warnings = m._move_local_duplicates_to_ignore(root, duplicates)
     assert move_warnings == [], move_warnings
     assert not duplicate.exists(), duplicate
@@ -209,7 +209,7 @@ with tempfile.TemporaryDirectory(prefix='ptv681dup_symlink_project_') as project
     assert duplicates == [], duplicates
     assert any('patchs/patched/ is a symlink' in x for x in warnings), warnings
 
-# v6.16.0 hardens the whole queue boundary: patchs/ itself must never be a
+# v6.17.0 hardens the whole queue boundary: patchs/ itself must never be a
 # symlink, because otherwise PATCH/COLLECT execution and archive lifecycle can
 # cross into another project/shared directory. Discovery fails closed.
 with tempfile.TemporaryDirectory(prefix='ptv681dup_queue_project_') as project_td, tempfile.TemporaryDirectory(prefix='ptv681dup_queue_shared_') as shared_td:
@@ -325,7 +325,7 @@ with tempfile.TemporaryDirectory(prefix='ptv612_session_three_') as td:
     assert a.is_file() and c.is_file() and not warns,warns
 
 
-# v6.16.0 deliberately has no project/process queue lock. Independent terminal
+# v6.17.0 deliberately has no project/process queue lock. Independent terminal
 # windows are operator-controlled and must not be rejected as BUSY. A stale
 # .ptv_queue.lock from an older release is ignored and is never created by this
 # dispatcher.
@@ -357,4 +357,4 @@ with tempfile.TemporaryDirectory(prefix='ptv610_no_process_lock_') as td:
     invoked=calls.read_text(encoding='utf-8').splitlines()
     assert len(invoked)==2,invoked
 
-print('PASS: v6.16.0 current-session duplicate collapse plus local-history duplicate contract')
+print('PASS: v6.17.0 current-session duplicate collapse plus local-history duplicate contract')

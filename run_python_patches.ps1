@@ -1,4 +1,4 @@
-# Python Patch Tool v6.16.0 public Windows launcher.
+# Python Patch Tool v6.17.0 public Windows launcher.
 # PowerShell 5.1+ compatible. SANDBOX/worktree transaction mode is permanently disabled.
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
@@ -85,10 +85,11 @@ if ($ToolArgs.Count -eq 0) {
     exit (Invoke-PatchPython @($Dispatcher, '--project-root', $ProjectRoot))
 }
 
-if ([string]::Equals([string]$ToolArgs[0], 'report', [StringComparison]::OrdinalIgnoreCase)) {
+if ([string]$ToolArgs[0] -in @('report', 'run', 'resume')) {
+    $command = [string]$ToolArgs[0]
     $rest = @()
     if ($ToolArgs.Count -gt 1) { $rest = @($ToolArgs[1..($ToolArgs.Count - 1)]) }
-    exit (Invoke-PatchPython (@($Dispatcher, '--project-root', $ProjectRoot, 'report') + $rest))
+    exit (Invoke-PatchPython (@($Dispatcher, '--project-root', $ProjectRoot, $command) + $rest))
 }
 
 if ([string]::Equals([string]$ToolArgs[0], 'collect', [StringComparison]::OrdinalIgnoreCase)) {

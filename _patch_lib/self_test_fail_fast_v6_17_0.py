@@ -20,6 +20,7 @@ with tempfile.TemporaryDirectory(prefix='ptv678ff_') as td:
     launcher.write_text(
         '#!/usr/bin/env bash\n'
         + "printf '%s\\n' \"$*\" >> " + repr(str(log)) + '\n'
+        + 'if [ "$1" = validate ]; then exit 0; fi\n'
         + 'case "$*" in *patch_1.zip*) exit 9;; *) exit 0;; esac\n',
         encoding='utf-8',
     )
@@ -40,6 +41,7 @@ with tempfile.TemporaryDirectory(prefix='ptv678ffmain_') as td:
     launcher.write_text(
         '#!/usr/bin/env bash\n'
         + "printf '%s\\n' \"$*\" >> " + repr(str(log)) + '\n'
+        + 'if [ "$1" = validate ]; then exit 0; fi\n'
         + 'case "$*" in *patch_1.zip*) exit 9;; *) exit 0;; esac\n',
         encoding='utf-8',
     )
@@ -47,16 +49,18 @@ with tempfile.TemporaryDirectory(prefix='ptv678ffmain_') as td:
     install_shims(root)
     for name in ['patch_1.zip','patch_2.zip','patch_3.zip']:
         with zipfile.ZipFile(root/'patchs'/name,'w') as z:
-            z.writestr('PATCH_TOOL_MANIFEST.json','{}')
+            z.writestr('PATCH_TOOL_MANIFEST.json', '{"schema_version":1,"patch":{"id":"%s"}}' % name)
             z.writestr('identity.txt', name)
     cp=subprocess.run(
         [sys.executable,'-S',str(MOD),'--project-root',str(root)],
         input='a\n', text=True, capture_output=True,
     )
     assert cp.returncode==9,(cp.returncode,cp.stdout,cp.stderr)
-    assert len(log.read_text(encoding='utf-8').splitlines())==1
-    assert 'SKIPPED / NOT EXECUTED: 2 selected item(s)' in cp.stderr,cp.stderr
-    assert 'patch_2.zip' in cp.stderr and 'patch_3.zip' in cp.stderr,cp.stderr
+    calls=log.read_text(encoding='utf-8').splitlines()
+    assert len(calls)==4,calls
+    assert sum(line.startswith('validate ') for line in calls)==3,calls
+    assert sum((not line.startswith('validate ')) and 'patch_1.zip' in line for line in calls)==1,calls
+    assert '[NOT_EXECUTED] patch_2.zip' in cp.stderr and '[NOT_EXECUTED] patch_3.zip' in cp.stderr,cp.stderr
 
 
 # Signal return codes from a child PATCH must use shell convention (128+signal),
@@ -130,4 +134,4 @@ with tempfile.TemporaryDirectory(prefix="ptv691_summary_dup_") as td:
     rc,executed,remaining,late_dups,warns=m.execute_items(root,chosen)
     assert rc==0 and len(executed)==1 and len(late_dups)==1 and not remaining and not warns
 
-print('PASS: v6.16.0 fail-fast, signal status and COLLECT archive lifecycle')
+print('PASS: v6.17.0 fail-fast, signal status and COLLECT archive lifecycle')

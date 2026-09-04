@@ -3,13 +3,15 @@ from __future__ import annotations
 import hashlib, json, os, stat
 from pathlib import Path
 
-VERSION = "6.16.0"
+VERSION = "6.17.0"
 REQUIRED_RUNTIME = [
     "tools/run_python_patches.sh",
     "tools/run_python_patches.ps1",
     "tools/run_python_patches.bat",
+    "tools/run_windows_native_tests.ps1",
     "tools/_patch_lib/VERSION",
     "tools/_patch_lib/python_patch_queue_dispatcher.py",
+    "tools/_patch_lib/python_patch_batch.py",
     "tools/_patch_lib/python_patch_runner.py",
     "tools/_patch_lib/python_patch_utils.py",
     "tools/_patch_lib/python_patch_readonly_collector.py",

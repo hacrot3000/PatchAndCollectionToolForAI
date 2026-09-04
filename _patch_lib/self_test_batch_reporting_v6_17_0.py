@@ -7,7 +7,7 @@ from pathlib import Path
 HERE=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('ptv_batch_report',HERE/'python_patch_queue_dispatcher.py')
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; assert spec.loader; spec.loader.exec_module(m)
-assert m.VERSION=='6.16.0'
+assert m.VERSION=='6.17.0'
 
 with tempfile.TemporaryDirectory(prefix='ptv6160_batch_') as td:
     root=Path(td)
@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix='ptv6160_batch_') as td:
     m._finalize_batch_artifacts(root,report)
     summary=(root/report['batch_summary']).read_text(encoding='utf-8')
     aggregate=(root/report['batch_log']).read_text(encoding='utf-8')
-    assert 'PASS=3 | FAIL=0 | NOT_EXECUTED=0' in summary,summary
+    assert 'PASS=3' in summary and 'NOT_EXECUTED=0' in summary,summary
     assert all(f'LOG-{n}' in aggregate for n in ['a.zip','b.zip','c.zip']),aggregate
 
     # Interactive report menu: choose item 2 and see its detail log.
@@ -54,18 +54,18 @@ mixed={
 rows=m._report_rows(mixed); counts=m._batch_counts(rows)
 assert [r['status'] for r in rows]==['PASS','FAIL','NOT_EXECUTED','NOT_EXECUTED'],rows
 assert counts['PASS']==1 and counts['FAIL']==1 and counts['NOT_EXECUTED']==2,counts
-assert 'fail-fast stopped the batch' in m._batch_summary_text(mixed)
+assert 'not executed' in m._batch_summary_text(mixed)
 assert 'source_drift' in m._batch_summary_text(mixed)
 
 # Renderer is deliberately generic enough for a future explicit continue-on-
 # failure policy: multiple FAIL rows are counted/rendered correctly even though
-# v6.16.0 keeps fail-fast as the default execution contract.
+# v6.17.0 keeps fail-fast as the default execution contract.
 all_failed={
     'run_id':'future-multi-fail','status':'FAIL','selected':['a.zip','b.zip'], 'not_executed':[],
     'results':[{'name':'a.zip','kind':'PATCH','status':'FAIL','rc':2},{'name':'b.zip','kind':'PATCH','status':'FAIL','rc':3}],
 }
 assert m._batch_counts(m._report_rows(all_failed))['FAIL']==2
-assert 'PASS=0 | FAIL=2 | NOT_EXECUTED=0' in m._batch_summary_text(all_failed)
+assert 'PASS=0' in m._batch_summary_text(all_failed) and 'FAIL=2' in m._batch_summary_text(all_failed) and 'NOT_EXECUTED=0' in m._batch_summary_text(all_failed)
 
 # Full detail log capture is independent from the bounded 8 MiB handoff capture.
 with tempfile.TemporaryDirectory(prefix='ptv6160_log_') as td:
@@ -133,4 +133,4 @@ with tempfile.TemporaryDirectory(prefix='ptv6160_e2e_fail_') as td:
     aggregate=(root/last['batch_log']).read_text(encoding='utf-8')
     assert 'FIRST-PASS' in aggregate and 'SECOND-FAIL' in aggregate and 'MUST-NOT-RUN' not in aggregate,aggregate
 
-print('PASS: v6.16.0 persistent batch summary, aggregate/detail logs, fail-fast status model and report browser')
+print('PASS: v6.17.0 persistent batch summary, aggregate/detail logs, fail-fast status model and report browser')

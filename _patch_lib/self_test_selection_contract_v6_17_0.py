@@ -7,7 +7,7 @@ HERE=Path(__file__).resolve().parent
 MOD=HERE/'python_patch_queue_dispatcher.py'
 spec=importlib.util.spec_from_file_location('ptv_queue_v677_selection',MOD)
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; spec.loader.exec_module(m)
-assert m.VERSION=='6.16.0'
+assert m.VERSION=='6.17.0'
 
 # Historical line grammar: lists, ranges (including reversed), bounds failure.
 assert m._parse_index_spec('1,3-5',6)=={0,2,3,4}
@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix='ptv678cfg_') as td:
         'initial_selection':'all','selector_ui':'line'}}}),encoding='utf-8')
     cfg,w=m._load_zero_argument_config(root)
     assert not w,w
-    assert cfg=={'selection':'first','non_interactive_confirmed':True,'initial_selection':'all','selector_ui':'line'},cfg
+    assert cfg=={'selection':'first','non_interactive_confirmed':True,'initial_selection':'all','selector_ui':'line','failure_policy':'fail_fast','transaction_policy':'patch'},cfg
     items=[m.QueueItem('patch_2.zip','PATCH'),m.QueueItem('patch_10.zip','PATCH')]
     assert [x.name for x in m._configured_auto_selection(root,items,cfg)]==['patch_2.zip']
     # Mixed PATCH/COLLECT never inherits old PATCH auto-selection implicitly.
@@ -314,4 +314,4 @@ for physical in raw.splitlines():
     clean=m._ANSI_RE.sub('',physical).replace('\r','')
     assert m._display_cell_width(clean) <= 82,(m._display_cell_width(clean),clean)
 
-print('PASS: v6.16.0 selector/config/priority contracts and clean Ctrl+C handling')
+print('PASS: v6.17.0 selector/config/priority contracts and clean Ctrl+C handling')

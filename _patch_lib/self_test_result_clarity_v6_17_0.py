@@ -7,12 +7,12 @@ from pathlib import Path
 HERE=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('ptv_result_clarity',HERE/'python_patch_queue_dispatcher.py')
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; assert spec.loader; spec.loader.exec_module(m)
-assert m.VERSION=='6.16.0'
+assert m.VERSION=='6.17.0'
 
 def make_patch(path: Path) -> None:
     path.parent.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(path,'w') as zf:
-        zf.writestr('PATCH_TOOL_MANIFEST.json','{"schema_version":1,"project":{"id":"x"},"patch":{"id":"x"}}')
+        zf.writestr('PATCH_TOOL_MANIFEST.json','{"schema_version":1,"project":{"key":"x"},"patch":{"id":"x"}}')
         zf.writestr('patch_dummy.py','print("unused")\n')
 
 # PASS: final summary is followed by a visually prominent patch banner near the end.
@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory(prefix='ptv6151_result_pass_') as td:
     root=Path(td); patch=root/'patchs'/'patch_visual_pass.zip'; make_patch(patch)
     original_execute=m.execute_items; original_select=m.select_items
     try:
-        def fake_execute(_root, chosen):
+        def fake_execute(_root, chosen, **kwargs):
             m._LAST_EXECUTION_DETAILS=[{'name':chosen[0].name,'kind':'PATCH','status':'PASS','rc':0}]
             return 0,[(chosen[0].name,0)],[],[],[]
         m.execute_items=fake_execute; m.select_items=lambda root,items,**kwargs: list(items)
@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory(prefix='ptv6151_result_fail_') as td:
     root=Path(td); patch=root/'patchs'/'patch_visual_fail.zip'; make_patch(patch)
     original_execute=m.execute_items; original_select=m.select_items
     try:
-        def fake_execute(_root, chosen):
+        def fake_execute(_root, chosen, **kwargs):
             m._LAST_EXECUTION_DETAILS=[{'name':chosen[0].name,'kind':'PATCH','status':'FAIL','rc':7}]
             return 7,[(chosen[0].name,7)],[],[],[]
         m.execute_items=fake_execute; m.select_items=lambda root,items,**kwargs: list(items)
@@ -50,7 +50,7 @@ with tempfile.TemporaryDirectory(prefix='ptv6151_result_fail_') as td:
     finally:
         m.execute_items=original_execute; m.select_items=original_select
     text=err.getvalue(); assert rc==7,(out.getvalue(),text)
-    assert 'SUMMARY: FAIL | stopped after patch_visual_fail.zip rc=7' in text,text
+    assert 'SUMMARY: FAIL | failed=1 | policy=fail_fast | last=patch_visual_fail.zip rc=7' in text,text
     assert '!!! PATCH FAILED !!!' in text,text
     assert 'PATCH: patch_visual_fail.zip | rc=7' in text,text
     assert text.rfind('PATCH: patch_visual_fail.zip | rc=7') > text.rfind('SUMMARY: FAIL'),text
@@ -78,4 +78,4 @@ finally:
     m.sys.stdout=old_stdout
 assert probe.flushed
 
-print('PASS: v6.16.0 final result clarity, patch highlighting and red/yellow FAIL banner contract')
+print('PASS: v6.17.0 final result clarity, patch highlighting and red/yellow FAIL banner contract')

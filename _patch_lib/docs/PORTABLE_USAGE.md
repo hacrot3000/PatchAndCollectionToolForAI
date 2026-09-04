@@ -1,13 +1,13 @@
-# Python Patch Tool v6.16.0 portable usage
+# Python Patch Tool v6.17.0 portable usage
 
-The release is self-contained for its v6.16.0 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
+The release is self-contained for its v6.17.0 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
 
 ## Linux / POSIX
 
 Install/update at the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.16.0.zip -d "$PWD"
+unzip -o python_patch_tool_v6.17.0.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 
@@ -18,7 +18,7 @@ Requirement: **Python 3.10+**. The launcher accepts Python Launcher (`py -3`) or
 PowerShell install/update at the project root:
 
 ```powershell
-Expand-Archive -Force .\python_patch_tool_v6.16.0.zip .
+Expand-Archive -Force .\python_patch_tool_v6.17.0.zip .
 tools\run_python_patches.bat
 ```
 
@@ -36,7 +36,7 @@ Direct PowerShell alternative:
 
 The BAT wrapper starts the packaged PowerShell launcher with process-local `-ExecutionPolicy Bypass`; it does **not** change the machine/user ExecutionPolicy setting.
 
-On a native Windows console, v6.16.0 uses the fullscreen selector when `msvcrt` input and VT output are available: ↑/↓, Space, priorities 0–9, `a`, `n`, `d`, `i`, `v`, `h`, Enter, q/Esc. Unsupported/non-TTY consoles automatically fall back to the stable line selector (`1`, `1,3-5`, `a`, `d 2`, `i 1`, `v 1`, `h`, `q`). PATCH/COLLECT rules are otherwise unchanged.
+On a native Windows console, v6.17.0 uses the fullscreen selector when `msvcrt` input and VT output are available: ↑/↓, Space, priorities 0–9, `a`, `n`, `d`, `i`, `v`, `h`, Enter, q/Esc. Unsupported/non-TTY consoles automatically fall back to the stable line selector (`1`, `1,3-5`, `a`, `d 2`, `i 1`, `v 1`, `h`, `q`). PATCH/COLLECT rules are otherwise unchanged.
 
 ## AI workflow
 
@@ -50,4 +50,10 @@ PATCH package construction must follow `PATCH_PACKAGE_SCHEMA.json` and `PATCH_PA
 
 Failed PATCH runs write `artifacts/patch_tool/LAST_RUN.json` and normally a `fail_handoffs/FAIL_HANDOFF_*.zip`; source drift can prepare a next-run COLLECT request. Interactive PATCH inspect is `i` (line selector: `i <index>`), read-only validate is `v` (line selector: `v <index>`), and Tool Health is `h`. Direct validation is `tools\run_python_patches.bat validate --patch patchs\example.zip` on Windows or `./tools/run_python_patches.sh validate --patch patchs/example.zip` on POSIX.
 
-When multiple PATCHes are selected, the final batch report distinguishes `PASS`, the first fail-fast `FAIL`, and later `NOT_EXECUTED` items. Per-PATCH detail logs plus `SUMMARY.txt` and aggregate `batch.log` are retained under `artifacts/patch_tool/runs/<run_id>/` (bounded with run history). Reopen the most recent useful batch with `./tools/run_python_patches.sh report` or `tools\run_python_patches.bat report`; use `report --list` for history and `report --run-id <id>` for a specific run.
+When multiple PATCHes are selected, whole-batch preflight validates the selected set before the first source write. The default failure policy remains `fail_fast`; `run --failure-policy continue_independent` may continue independent PATCHes only after a failure proven safe (no partial/unknown source state, or successful per-PATCH rollback). Dependency failures are reported as `BLOCKED`; batch-preflight failures as `PREFLIGHT_FAIL`; untouched later work remains `NOT_EXECUTED`.
+
+If the previous run left a failed PATCH in `patchs/`, a successor generated from its FAIL_HANDOFF must declare `batch.previous_failure` with an explicit `delete`, `retry_before`, `run_after`, or `block` action and a reason. This prevents orphan failed PATCHes. Smart Resume is available with `resume --resume-mode all|failed|remaining`.
+
+Per-PATCH detail logs plus `SUMMARY.txt`, aggregate `batch.log`, and declared-target source diffs are retained under `artifacts/patch_tool/runs/<run_id>/`. Reopen a run with `report`; use `report --list`, `--pin`, `--unpin`, `--export`, `--delete`, or `--cleanup` to manage history. `report --run-id <id> --support-item <N>` exports a focused support ZIP for one report item.
+
+For native Windows verification of the actual BAT/PowerShell runtime, run `.\tools\run_windows_native_tests.ps1` on a Windows host. The release host must not claim this lane passed natively unless it was actually executed on Windows.

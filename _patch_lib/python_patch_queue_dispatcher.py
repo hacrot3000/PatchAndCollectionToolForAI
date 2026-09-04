@@ -23,6 +23,12 @@ from pathlib import Path
 
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
 from python_patch_health import print_health
+from python_patch_batch import (
+    BatchPlanError, PatchMeta, load_patch_meta, topo_order, previous_failed_identity,
+    validate_previous_failure_declaration, transaction_compatibility, snapshot_targets,
+    restore_targets, snapshot_package_bytes, requeue_packages, capture_compare_snapshot,
+    build_diff_artifact,
+)
 
 try:
     import termios
@@ -36,7 +42,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.16.0"
+VERSION = "6.17.0"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -188,28 +194,63 @@ def _print_resume_hint(root: Path, previous: dict[str, object] | None) -> list[s
     return remain
 
 
+def _pins_path(root: Path) -> Path:
+    return _artifact_run_root(root) / "PINNED_RUNS.json"
+
+
+def _load_pinned_runs(root: Path) -> set[str]:
+    data = _load_json(_pins_path(root))
+    values = data.get("run_ids") if isinstance(data, dict) else None
+    return {str(x) for x in values if isinstance(x, str) and x} if isinstance(values, list) else set()
+
+
+def _save_pinned_runs(root: Path, pins: set[str]) -> None:
+    _atomic_json(_pins_path(root), {"format": "ptv-pinned-runs", "version": 1, "run_ids": sorted(pins)})
+
+
+def _history_entries(root: Path) -> list[tuple[Path, dict[str, object]]]:
+    history = _artifact_run_root(root) / "history"
+    out: list[tuple[Path, dict[str, object]]] = []
+    if history.is_dir():
+        for path in sorted(history.glob("*.json"), reverse=True):
+            data = _load_json(path)
+            if isinstance(data, dict): out.append((path, data))
+    return out
+
+
+def _find_history_entry(root: Path, run_id: str) -> tuple[Path, dict[str, object]] | None:
+    for path, data in _history_entries(root):
+        if str(data.get("run_id")) == str(run_id): return path, data
+    return None
+
+
+def _cleanup_history(root: Path) -> dict[str, int]:
+    pins = _load_pinned_runs(root)
+    entries = list(reversed(_history_entries(root)))  # oldest -> newest
+    unpinned = [(p, d) for p, d in entries if str(d.get("run_id")) not in pins]
+    remove_count = max(0, len(entries) - RUN_HISTORY_LIMIT)
+    removed = 0
+    for path, data in unpinned:
+        if removed >= remove_count: break
+        run_id = str(data.get("run_id") or "")
+        try: path.unlink(); removed += 1
+        except OSError: pass
+        run_dir = _batch_run_dir(root, run_id)
+        if run_dir.is_dir() and not run_dir.is_symlink():
+            try: shutil.rmtree(run_dir)
+            except OSError: pass
+    return {"removed": removed, "pinned": len(pins), "remaining": len(_history_entries(root))}
+
+
 def _write_run_report(root: Path, report: dict[str, object]) -> None:
     out = _artifact_run_root(root)
     try:
         _atomic_json(out / "LAST_RUN.json", report)
-        history = out / "history"
-        history.mkdir(parents=True, exist_ok=True)
+        history = out / "history"; history.mkdir(parents=True, exist_ok=True)
         stamp = str(report.get("started_at", "run")).replace(":", "").replace("+", "_").replace("-", "").replace(".", "_")
         run_id = _safe_slug(str(report.get("run_id") or "run"), 64)
         _atomic_json(history / f"{stamp}_{run_id}.json", report)
-        entries = sorted((p for p in history.glob("*.json") if p.is_file()), key=lambda q: q.name)
-        for old in entries[:-RUN_HISTORY_LIMIT]:
-            try: old.unlink()
-            except OSError: pass
-        runs = out / "runs"
-        if runs.is_dir():
-            run_dirs = sorted(
-                (p for p in runs.iterdir() if p.is_dir() and not p.is_symlink()),
-                key=lambda q: q.stat().st_mtime_ns,
-            )
-            for old in run_dirs[:-RUN_HISTORY_LIMIT]:
-                try: shutil.rmtree(old)
-                except OSError: pass
+        _cleanup_history(root)
     except Exception as exc:
         print(f"[PTV v{VERSION} WARNING] could not write LAST_RUN/history: {type(exc).__name__}: {exc}", file=sys.stderr)
 
@@ -1483,6 +1524,8 @@ def _row_summary(row: dict[str, object]) -> str:
     if status == "PASS":
         changed = _row_changed_count(row)
         parts = ["completed"]
+        if row.get("batch_rolled_back") is True:
+            parts.append("BATCH-ROLLED-BACK")
         if changed is not None:
             parts.append(f"changed={changed}")
         elapsed = row.get("elapsed_seconds")
@@ -1503,17 +1546,25 @@ def _row_summary(row: dict[str, object]) -> str:
             parts.append(f"{elapsed:.2f}s")
         return " | ".join(parts) or "failed"
     if status == "NOT_EXECUTED":
-        return "not executed (fail-fast stopped the batch)"
+        diagnosis = row.get("diagnosis") if isinstance(row.get("diagnosis"), dict) else {}
+        message = diagnosis.get("message") if isinstance(diagnosis, dict) else None
+        return str(message or "not executed")
+    if status == "BLOCKED":
+        blocked = row.get("blocked_by") if isinstance(row.get("blocked_by"), list) else []
+        return "blocked by dependency failure" + (f": {','.join(str(x) for x in blocked)}" if blocked else "")
+    if status == "PREFLIGHT_FAIL":
+        diagnosis = row.get("diagnosis") if isinstance(row.get("diagnosis"), dict) else {}
+        return f"batch preflight failed: {diagnosis.get('kind','unknown')}"
     if status == "SKIPPED_DUPLICATE_LOCAL":
         return f"duplicate -> {row.get('ignore_path') or 'ignore'}"
     return status.lower()
 
 
 def _batch_counts(rows: list[dict[str, object]]) -> dict[str, int]:
-    counts = {"PASS": 0, "FAIL": 0, "NOT_EXECUTED": 0, "SKIPPED": 0, "OTHER": 0}
+    counts = {"PASS": 0, "FAIL": 0, "BLOCKED": 0, "PREFLIGHT_FAIL": 0, "NOT_EXECUTED": 0, "SKIPPED": 0, "OTHER": 0}
     for row in rows:
         status = str(row.get("status") or "UNKNOWN")
-        if status in {"PASS", "FAIL", "NOT_EXECUTED"}:
+        if status in {"PASS", "FAIL", "BLOCKED", "PREFLIGHT_FAIL", "NOT_EXECUTED"}:
             counts[status] += 1
         elif status.startswith("SKIPPED"):
             counts["SKIPPED"] += 1
@@ -1529,7 +1580,7 @@ def _batch_summary_text(report: dict[str, object]) -> str:
         f"BATCH REPORT | run={report.get('run_id','unknown')} | status={report.get('status','UNKNOWN')}",
         (
             f"SELECTED={len(rows)} | PASS={counts['PASS']} | FAIL={counts['FAIL']} | "
-            f"NOT_EXECUTED={counts['NOT_EXECUTED']} | SKIPPED={counts['SKIPPED']}"
+            f"BLOCKED={counts['BLOCKED']} | PREFLIGHT_FAIL={counts['PREFLIGHT_FAIL']} | NOT_EXECUTED={counts['NOT_EXECUTED']} | SKIPPED={counts['SKIPPED']}"
         ),
         "",
     ]
@@ -1584,9 +1635,13 @@ def _print_batch_overview(root: Path, report: dict[str, object], *, stream=None)
         print(title, file=out)
     print(
         f"Selected={len(rows)} | PASS={counts['PASS']} | FAIL={counts['FAIL']} | "
-        f"NOT EXECUTED={counts['NOT_EXECUTED']} | SKIPPED={counts['SKIPPED']}",
+        f"BLOCKED={counts['BLOCKED']} | PREFLIGHT FAIL={counts['PREFLIGHT_FAIL']} | NOT EXECUTED={counts['NOT_EXECUTED']} | SKIPPED={counts['SKIPPED']}",
         file=out,
     )
+    print(f"Policy: failure={report.get('failure_policy','fail_fast')} | transaction={report.get('transaction_policy','patch')}", file=out)
+    tx = report.get("batch_transaction") if isinstance(report.get("batch_transaction"), dict) else None
+    if tx:
+        print(f"Batch transaction: {tx.get('status','UNKNOWN')}", file=out)
     for i, row in enumerate(rows, 1):
         print(f"  {i:>2}. [{row.get('status','UNKNOWN')}] {_safe_display(str(row.get('name','unknown')))}", file=out)
         print(f"      {_safe_display(_row_summary(row))}", file=out)
@@ -1633,104 +1688,223 @@ def _show_file_paged(path: Path, title: str) -> None:
             sys.stdout.write(probe)
 
 
+def _source_compare_path(root: Path, row: dict[str, object]) -> Path | None:
+    info = row.get("source_compare") if isinstance(row.get("source_compare"), dict) else None
+    rel = info.get("diff_path") if isinstance(info, dict) else None
+    if isinstance(rel, str):
+        path = root / rel
+        if path.is_file(): return path
+    return None
+
+
+def _show_source_compare(root: Path, row: dict[str, object]) -> None:
+    info = row.get("source_compare") if isinstance(row.get("source_compare"), dict) else None
+    if not isinstance(info, dict):
+        print("Source compare: unavailable (PATCH declared no targets or item did not execute).")
+        return
+    changed = info.get("changed_paths") if isinstance(info.get("changed_paths"), list) else []
+    print(f"SOURCE BEFORE/AFTER — changed declared targets: {len(changed)}")
+    for rel in changed:
+        print(f"  ~ {_safe_display(str(rel))}")
+    path = _source_compare_path(root, row)
+    if path is not None:
+        _show_file_paged(path, f"SOURCE DIFF — {row.get('name','unknown')}")
+
+
+def _create_report_support_bundle(root: Path, report: dict[str, object], row_index: int) -> Path | None:
+    rows = _report_rows(report)
+    if not (0 <= row_index < len(rows)):
+        return None
+    row = rows[row_index]
+    run_id = _safe_slug(str(report.get("run_id") or "run"), 64)
+    out_dir = _artifact_run_root(root) / "support"; out_dir.mkdir(parents=True, exist_ok=True)
+    final = out_dir / f"PTV_SUPPORT_{run_id}_{row_index+1:03d}_{_safe_slug(str(row.get('name') or 'item'),60)}.zip"
+    temp = final.with_suffix(".zip.tmp")
+    try:
+        with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("REPORT_ITEM.json", json.dumps({"run": {k: report.get(k) for k in ("run_id","status","tool_version","failure_policy","transaction_policy","batch_transaction")}, "item": row}, ensure_ascii=False, indent=2) + "\n")
+            summary = report.get("batch_summary")
+            if isinstance(summary, str) and (root / summary).is_file(): zf.write(root / summary, "RUN_SUMMARY.txt")
+            for key, arc in (("log_path","DETAIL.log"),("preflight_log_path","PREFLIGHT.log")):
+                rel = row.get(key)
+                if isinstance(rel, str) and (root / rel).is_file(): zf.write(root / rel, arc)
+            diff = _source_compare_path(root, row)
+            if diff is not None: zf.write(diff, "SOURCE.diff")
+            handoff = row.get("fail_handoff")
+            if isinstance(handoff, str) and (root / handoff).is_file(): zf.write(root / handoff, f"artifacts/{Path(handoff).name}")
+            recovery = row.get("recovery_collect_request")
+            if isinstance(recovery, str) and (root / "patchs" / recovery).is_file(): zf.write(root / "patchs" / recovery, f"artifacts/{Path(recovery).name}")
+        os.replace(temp, final)
+        with zipfile.ZipFile(final) as zf:
+            if zf.testzip() is not None: raise RuntimeError("support bundle CRC failed")
+        print(f"SUPPORT BUNDLE: {final}")
+        return final
+    except Exception as exc:
+        print(f"[PTV v{VERSION} WARNING] support bundle failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        try: temp.unlink()
+        except OSError: pass
+        return None
+
+
 def _print_item_detail(root: Path, row: dict[str, object]) -> None:
     print("\nPATCH DETAIL")
-    print(f"Name      : {_safe_display(str(row.get('name','unknown')))}")
-    print(f"Status    : {row.get('status','UNKNOWN')}")
-    if row.get("rc") is not None:
-        print(f"Return code: {row.get('rc')}")
-    if isinstance(row.get("elapsed_seconds"), (int, float)):
-        print(f"Elapsed   : {float(row['elapsed_seconds']):.3f}s")
+    print(f"Name       : {_safe_display(str(row.get('name','unknown')))}")
+    print(f"Status     : {row.get('status','UNKNOWN')}")
+    if row.get("patch_id"): print(f"Patch ID   : {_safe_display(str(row.get('patch_id')))}")
+    deps = row.get("depends_on") if isinstance(row.get("depends_on"), list) else []
+    if deps: print(f"Depends on : {_safe_display(', '.join(str(x) for x in deps))}")
+    if row.get("rc") is not None: print(f"Return code: {row.get('rc')}")
+    if isinstance(row.get("elapsed_seconds"), (int, float)): print(f"Elapsed    : {float(row['elapsed_seconds']):.3f}s")
     diagnosis = _row_diagnosis(row)
-    if diagnosis:
-        print(f"Diagnosis : {_safe_display(diagnosis)}")
-    if row.get("fail_handoff"):
-        print(f"FAIL handoff: {_safe_display(str(row['fail_handoff']))}")
-    if row.get("recovery_collect_request"):
-        print(f"Recovery COLLECT: patchs/{_safe_display(str(row['recovery_collect_request']))}")
+    if diagnosis: print(f"Diagnosis  : {_safe_display(diagnosis)}")
+    if row.get("batch_rolled_back") is True: print("Transaction: changes from this item were rolled back by batch policy")
+    if row.get("requeued_as"): print(f"Replay pkg : patchs/{_safe_display(str(row['requeued_as']))}")
+    if row.get("fail_handoff"): print(f"FAIL handoff: {_safe_display(str(row['fail_handoff']))}")
+    if row.get("recovery_collect_request"): print(f"Recovery COLLECT: patchs/{_safe_display(str(row['recovery_collect_request']))}")
+    info = row.get("source_compare") if isinstance(row.get("source_compare"), dict) else None
+    if info is not None:
+        changed = info.get("changed_paths") if isinstance(info.get("changed_paths"), list) else []
+        print(f"Source diff : {len(changed)} declared target(s) changed")
+        path = _source_compare_path(root, row)
+        if path is not None: print(f"              {path.relative_to(root).as_posix()}")
     rel = row.get("log_path")
-    if isinstance(rel, str):
-        _show_file_paged(root / rel, f"DETAIL LOG — {row.get('name','unknown')}")
-    else:
-        print("Execution log: unavailable (item was not executed).")
+    if isinstance(rel, str): _show_file_paged(root / rel, f"DETAIL LOG — {row.get('name','unknown')}")
+    else: print("Execution log: unavailable (item was not executed).")
+
+
+def _print_row_subset(rows: list[dict[str, object]], title: str) -> None:
+    print(f"\n{title}")
+    if not rows:
+        print("  [none]"); return
+    for i, row in rows:
+        print(f"  {i:>2}. [{row.get('status','UNKNOWN')}] {_safe_display(str(row.get('name','unknown')))}")
+        print(f"      {_safe_display(_row_summary(row))}")
+
+
+def _list_history(root: Path) -> int:
+    entries = _history_entries(root); pins = _load_pinned_runs(root)
+    if not entries:
+        print("No Patch Tool run history is available."); return 0
+    print("PATCH TOOL RUN HISTORY")
+    for i, (_path, report) in enumerate(entries[:max(RUN_HISTORY_LIMIT, len(pins)+10)], 1):
+        rows = _report_rows(report); counts = _batch_counts(rows); rid = str(report.get("run_id") or "unknown")
+        mark = "PIN" if rid in pins else "   "
+        print(f"{i:>2}. [{mark}] {rid} | {report.get('status','UNKNOWN')} | PASS={counts['PASS']} FAIL={counts['FAIL']} BLOCKED={counts['BLOCKED']} PREFLIGHT_FAIL={counts['PREFLIGHT_FAIL']}")
+    print("Manage: report --pin/--unpin/--delete/--export <run_id> | report --cleanup")
+    return 0
+
+
+def _pin_history(root: Path, run_id: str, pin: bool) -> int:
+    if _find_history_entry(root, run_id) is None:
+        print(f"Run not found: {run_id}", file=sys.stderr); return 2
+    pins = _load_pinned_runs(root)
+    if pin: pins.add(run_id)
+    else: pins.discard(run_id)
+    _save_pinned_runs(root, pins)
+    print(f"RUN {'PINNED' if pin else 'UNPINNED'}: {run_id}")
+    return 0
+
+
+def _delete_history(root: Path, run_id: str) -> int:
+    found = _find_history_entry(root, run_id)
+    if found is None:
+        print(f"Run not found: {run_id}", file=sys.stderr); return 2
+    path, _report = found
+    try: path.unlink()
+    except OSError as exc:
+        print(f"Cannot delete history record: {exc}", file=sys.stderr); return 2
+    run_dir = _batch_run_dir(root, run_id)
+    if run_dir.is_dir() and not run_dir.is_symlink(): shutil.rmtree(run_dir, ignore_errors=True)
+    pins = _load_pinned_runs(root); pins.discard(run_id); _save_pinned_runs(root, pins)
+    last = _load_previous_run(root)
+    if isinstance(last, dict) and str(last.get("run_id")) == run_id:
+        try: (_artifact_run_root(root) / "LAST_RUN.json").unlink()
+        except OSError: pass
+    print(f"RUN DELETED: {run_id}")
+    return 0
+
+
+def _export_history(root: Path, run_id: str) -> int:
+    found = _find_history_entry(root, run_id)
+    if found is None:
+        print(f"Run not found: {run_id}", file=sys.stderr); return 2
+    history_path, report = found
+    out_dir = _artifact_run_root(root) / "exports"; out_dir.mkdir(parents=True, exist_ok=True)
+    final = out_dir / f"PTV_RUN_{_safe_slug(run_id,64)}.zip"; temp = final.with_suffix(".zip.tmp")
+    run_dir = _batch_run_dir(root, run_id)
+    with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.write(history_path, "RUN.json")
+        if run_dir.is_dir():
+            for path in sorted(run_dir.rglob("*")):
+                if path.is_file() and not path.is_symlink(): zf.write(path, f"run/{path.relative_to(run_dir).as_posix()}")
+    os.replace(temp, final)
+    print(f"RUN EXPORT: {final}")
+    return 0
 
 
 def _batch_report_menu(root: Path, report: dict[str, object]) -> None:
     rows = _report_rows(report)
     while True:
         _print_batch_overview(root, report)
-        print("Menu: nhập số để xem chi tiết | a = log tổng hợp | q = thoát")
-        try:
-            raw = input("report> ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print("")
-            return
-        if raw in {"", "q", "quit", "esc"}:
-            return
-        if raw in {"a", "all", "aggregate"}:
+        print("Menu: N=detail | a=aggregate | p=PASS | x=problems | c=changed | d N=diff | s N=support ZIP | h=history | q=exit")
+        try: raw = input("report> ").strip()
+        except (EOFError, KeyboardInterrupt): print(""); return
+        low = raw.lower()
+        if low in {"", "q", "quit", "esc"}: return
+        if low in {"a", "all", "aggregate"}:
             rel = report.get("batch_log")
-            if isinstance(rel, str):
-                _show_file_paged(root / rel, "AGGREGATE BATCH LOG")
-            else:
-                print("Aggregate log is unavailable.")
+            if isinstance(rel, str): _show_file_paged(root / rel, "AGGREGATE BATCH LOG")
+            else: print("Aggregate log is unavailable.")
             continue
-        if raw.isdigit() and 1 <= int(raw) <= len(rows):
-            _print_item_detail(root, rows[int(raw) - 1])
+        if low == "p":
+            _print_row_subset([(i,r) for i,r in enumerate(rows,1) if r.get("status")=="PASS"], "PASS ITEMS"); continue
+        if low == "x":
+            _print_row_subset([(i,r) for i,r in enumerate(rows,1) if r.get("status") in {"FAIL","BLOCKED","PREFLIGHT_FAIL"}], "PROBLEM ITEMS"); continue
+        if low == "c":
+            _print_row_subset([(i,r) for i,r in enumerate(rows,1) if isinstance(r.get("source_compare"),dict) and (r["source_compare"].get("changed_paths") or [])], "ITEMS WITH SOURCE CHANGES"); continue
+        if low == "h": _list_history(root); continue
+        m = re.fullmatch(r"([ds])\s+(\d+)", low)
+        if m and 1 <= int(m.group(2)) <= len(rows):
+            idx = int(m.group(2))-1
+            if m.group(1) == "d": _show_source_compare(root, rows[idx])
+            else: _create_report_support_bundle(root, report, idx)
             continue
+        if low.isdigit() and 1 <= int(low) <= len(rows):
+            _print_item_detail(root, rows[int(low)-1]); continue
         print("Lựa chọn không hợp lệ.")
 
 
 def _load_report_by_run_id(root: Path, run_id: str | None) -> dict[str, object] | None:
     if not run_id:
         latest = _load_previous_run(root)
-        if isinstance(latest, dict) and latest.get("selected"):
-            return latest
-        # A later zero-work health/IDLE invocation must not hide the most
-        # recent useful batch report from `report`.
-        history = _artifact_run_root(root) / "history"
-        if history.is_dir():
-            for path in sorted(history.glob("*.json"), reverse=True):
-                data = _load_json(path)
-                if isinstance(data, dict) and data.get("selected"):
-                    return data
+        if isinstance(latest, dict) and latest.get("selected"): return latest
+        for _path, data in _history_entries(root):
+            if data.get("selected"): return data
         return latest
-    history = _artifact_run_root(root) / "history"
-    if not history.is_dir():
-        return None
-    for path in sorted(history.glob("*.json"), reverse=True):
-        data = _load_json(path)
-        if isinstance(data, dict) and str(data.get("run_id")) == run_id:
-            return data
-    return None
+    found = _find_history_entry(root, run_id)
+    return found[1] if found else None
 
 
-def _report_command(root: Path, run_id: str | None = None, *, list_runs: bool = False) -> int:
-    if list_runs:
-        history = _artifact_run_root(root) / "history"
-        reports: list[dict[str, object]] = []
-        if history.is_dir():
-            for path in sorted(history.glob("*.json"), reverse=True)[:RUN_HISTORY_LIMIT]:
-                data = _load_json(path)
-                if isinstance(data, dict): reports.append(data)
-        if not reports:
-            print("No Patch Tool run history is available.")
-            return 0
-        print("PATCH TOOL RUN HISTORY")
-        for i, report in enumerate(reports, 1):
-            rows = _report_rows(report); counts = _batch_counts(rows)
-            print(
-                f"{i:>2}. {report.get('run_id','unknown')} | {report.get('status','UNKNOWN')} | "
-                f"PASS={counts['PASS']} FAIL={counts['FAIL']} NOT_EXECUTED={counts['NOT_EXECUTED']}"
-            )
-        print("Open one with: report --run-id <run_id>")
-        return 0
+def _report_command(
+    root: Path, run_id: str | None = None, *, list_runs: bool = False,
+    pin_run: str | None = None, unpin_run: str | None = None,
+    delete_run: str | None = None, export_run: str | None = None,
+    cleanup: bool = False, support_item: int | None = None,
+) -> int:
+    if list_runs: return _list_history(root)
+    if pin_run: return _pin_history(root, pin_run, True)
+    if unpin_run: return _pin_history(root, unpin_run, False)
+    if delete_run: return _delete_history(root, delete_run)
+    if export_run: return _export_history(root, export_run)
+    if cleanup:
+        result = _cleanup_history(root); print(f"HISTORY CLEANUP: removed={result['removed']} pinned={result['pinned']} remaining={result['remaining']}"); return 0
     report = _load_report_by_run_id(root, run_id)
     if not report:
-        print("No matching Patch Tool run report is available.", file=sys.stderr)
-        return 2
+        print("No matching Patch Tool run report is available.", file=sys.stderr); return 2
+    if support_item is not None:
+        return 0 if _create_report_support_bundle(root, report, support_item-1) is not None else 2
     _print_batch_overview(root, report)
-    if sys.stdin.isatty() and sys.stdout.isatty():
-        _batch_report_menu(root, report)
+    if sys.stdin.isatty() and sys.stdout.isatty(): _batch_report_menu(root, report)
     return 0
 
 
@@ -1975,6 +2149,8 @@ def _load_zero_argument_config(root: Path):
         "non_interactive_confirmed": False,
         "initial_selection": "none",
         "selector_ui": "auto",
+        "failure_policy": "fail_fast",
+        "transaction_policy": "patch",
     }
     warnings: list[str] = []
     path = root / ".python_patch_tool.json"
@@ -2009,6 +2185,21 @@ def _load_zero_argument_config(root: Path):
         cfg["selector_ui"] = selector_ui
     else:
         warnings.append(f"unsupported selector_ui={selector_ui!r}; using auto")
+
+    batch = data.get("batch", {}) if isinstance(data, dict) else {}
+    if isinstance(batch, dict):
+        failure_policy = str(batch.get("failure_policy", cfg["failure_policy"])).lower()
+        if failure_policy in {"fail_fast", "continue_independent"}:
+            cfg["failure_policy"] = failure_policy
+        else:
+            warnings.append(f"unsupported batch.failure_policy={failure_policy!r}; using fail_fast")
+        transaction_policy = str(batch.get("transaction_policy", cfg["transaction_policy"])).lower()
+        if transaction_policy in {"patch", "batch"}:
+            cfg["transaction_policy"] = transaction_policy
+        else:
+            warnings.append(f"unsupported batch.transaction_policy={transaction_policy!r}; using patch")
+    elif batch not in ({}, None):
+        warnings.append("batch config is not an object; using safe defaults")
     return cfg, warnings
 
 
@@ -2399,6 +2590,199 @@ def _normalize_subprocess_rc(rc: int) -> int:
     return 128 + abs(value) if value < 0 else value
 
 
+def _build_batch_plan(root: Path, chosen: list[QueueItem], available: list[QueueItem], previous: dict[str, object] | None):
+    """Resolve explicit dependencies and the unresolved-predecessor action.
+
+    This is intentionally filename/manifest-id based only; it does not perform
+    target overlap/conflict analysis or add any new provenance identity layer.
+    """
+    if any(item.kind != "PATCH" for item in chosen):
+        return list(chosen), {}, None
+    work = list(chosen)
+    by_name = {item.name: item for item in available if item.kind == "PATCH"}
+    failed_name, failed_id = previous_failed_identity(previous if isinstance(previous, dict) else None)
+    previous_action = None
+    selected_names = {x.name for x in work}
+    if failed_name and (root / "patchs" / failed_name).is_file() and failed_name not in selected_names and work:
+        first_meta = load_patch_meta(root, work[0].name)
+        previous_action = validate_previous_failure_declaration(first_meta, failed_name, failed_id)
+        action = str(previous_action.get("action"))
+        if action == "block":
+            raise BatchPlanError(
+                f"{work[0].name} explicitly blocks while failed predecessor {failed_name} is unresolved",
+                kind="previous_failure_blocked",
+            )
+        if action in {"retry_before", "run_after"}:
+            failed_item = by_name.get(failed_name) or QueueItem(failed_name, "PATCH")
+            if not (root / "patchs" / failed_name).is_file():
+                raise BatchPlanError(f"previous failed PATCH is unavailable for {action}: {failed_name}", kind="previous_failure_missing")
+            if action == "retry_before":
+                work.insert(0, failed_item)
+            else:
+                work.append(failed_item)
+
+    metas = [load_patch_meta(root, item.name) for item in work]
+    ordered_metas = topo_order(metas)
+    item_by_name = {item.name: item for item in work}
+    ordered = [item_by_name[m.name] for m in ordered_metas]
+
+    # Explicit run_after is stronger than ordinary stable order. It is only
+    # allowed when dependency declarations do not force the opposite order.
+    if previous_action and previous_action.get("action") == "run_after" and failed_name:
+        failed_meta = next((m for m in ordered_metas if m.name == failed_name), None)
+        if failed_meta:
+            for m in ordered_metas:
+                if failed_meta.patch_id in m.depends_on:
+                    raise BatchPlanError(
+                        f"run_after conflicts with depends_on: {m.name} depends on {failed_meta.patch_id}",
+                        kind="previous_failure_action_conflict",
+                    )
+            ordered = [x for x in ordered if x.name != failed_name] + [item_by_name[failed_name]]
+            ordered_metas = [m for m in ordered_metas if m.name != failed_name] + [failed_meta]
+    meta_map = {m.name: m for m in ordered_metas}
+    return ordered, meta_map, previous_action
+
+
+def _batch_preflight(root: Path, chosen: list[QueueItem], metas: dict[str, PatchMeta], *, run_id: str, transaction_policy: str):
+    """Validate every selected package before the first source write.
+
+    Dependent PATCHes may legitimately describe the post-dependency source.
+    For those only, SOURCE_DRIFT is recorded as DEFERRED_AFTER_DEPENDENCY; the
+    normal runner still performs the full source preflight immediately before
+    execution. Schema/package/tool failures are never deferred.
+    """
+    run_dir = _batch_run_dir(root, run_id)
+    out_dir = run_dir / "preflight"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    rows: list[dict[str, object]] = []
+    tx_issues = transaction_compatibility([metas[x.name] for x in chosen if x.name in metas], transaction_policy)
+    if tx_issues:
+        for issue in tx_issues:
+            rows.append({"status": "FAIL", "classification": "BATCH_TRANSACTION_INVALID", "message": issue})
+        return False, rows
+    ok = True
+    for index, item in enumerate(chosen, 1):
+        if item.kind != "PATCH":
+            continue
+        meta = metas[item.name]
+        log_path = out_dir / f"{index:03d}_{_safe_slug(item.name,96)}.log"
+        result_path = out_dir / f"{index:03d}_{_safe_slug(item.name,96)}.result.json"
+        env = os.environ.copy()
+        env["PTV_PATCH_RESULT_FILE"] = str(result_path)
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        try:
+            cp = subprocess.run(
+                _runner_command(root, "validate", item), cwd=root, text=True, env=env,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace", timeout=120,
+            )
+            text = cp.stdout or ""
+        except Exception as exc:
+            cp = None
+            text = f"TOOL_ERROR: {type(exc).__name__}: {exc}\n"
+        log_path.write_text(text, encoding="utf-8", errors="replace")
+        patch_result = None
+        if result_path.is_file() and not result_path.is_symlink():
+            try:
+                value = json.loads(result_path.read_text(encoding="utf-8"))
+                if isinstance(value, dict): patch_result = value
+            except Exception:
+                patch_result = None
+        rc = 2 if cp is None else _normalize_subprocess_rc(cp.returncode)
+        classification = "READY_TO_APPLY" if rc == 0 else "UNKNOWN"
+        for candidate in ("PATCH_INVALID", "SOURCE_DRIFT", "TOOL_ERROR", "READY_TO_APPLY"):
+            if candidate in text:
+                classification = candidate
+                break
+        deferred = bool(rc != 0 and classification == "SOURCE_DRIFT" and meta.depends_on)
+        status = "DEFERRED_AFTER_DEPENDENCY" if deferred else ("PASS" if rc == 0 else "FAIL")
+        if status == "FAIL": ok = False
+        if isinstance(patch_result, dict):
+            # The planner already parsed the manifest, so preserve its PATCH/recovery
+            # metadata even when read-only preflight fails before runner returns it.
+            if not isinstance(patch_result.get("manifest_patch"), dict):
+                patch_result["manifest_patch"] = meta.manifest.get("patch") if isinstance(meta.manifest.get("patch"), dict) else None
+            if patch_result.get("recovery") is None and isinstance(meta.manifest.get("recovery"), dict):
+                patch_result["recovery"] = meta.manifest.get("recovery")
+        rows.append({
+            "name": item.name, "patch_id": meta.patch_id, "status": status,
+            "classification": classification, "rc": rc,
+            "log_path": log_path.relative_to(root).as_posix(),
+            "result_path": result_path.relative_to(root).as_posix() if result_path.is_file() else None,
+            "patch_result": patch_result,
+            "depends_on": list(meta.depends_on),
+        })
+    return ok, rows
+
+
+def _safe_to_continue_after_failure(detail: dict[str, object]) -> tuple[bool, str]:
+    if int(detail.get("rc") or 0) == 130:
+        return False, "interrupted"
+    result = detail.get("patch_result") if isinstance(detail.get("patch_result"), dict) else {}
+    diagnosis = result.get("diagnosis") if isinstance(result.get("diagnosis"), dict) else {}
+    kind = str(diagnosis.get("kind") or "")
+    if kind in {"tool_error", "rollback_failed", "rollback_incomplete", "package_invalid", "rollback_snapshot_race"}:
+        return False, kind or "critical_failure"
+    rollback = result.get("rollback") if isinstance(result.get("rollback"), dict) else None
+    if rollback is not None and rollback.get("status") == "PASS":
+        return True, "per_patch_rollback_restored"
+    partial = result.get("partial_modification") if isinstance(result.get("partial_modification"), dict) else {}
+    if partial.get("detected") is False:
+        return True, "no_partial_modification"
+    return False, "unsafe_partial_or_unknown_state"
+
+
+def _apply_previous_failure_action(root: Path, action: dict[str, object] | None) -> dict[str, object] | None:
+    if not action or action.get("action") != "delete":
+        return action
+    name = str(action.get("patch_file") or "")
+    if not name:
+        return action
+    src = root / "patchs" / name
+    if not src.is_file() or src.is_symlink():
+        action["result"] = "already_absent"
+        return action
+    ignore = root / "patchs" / "ignore"
+    ignore.mkdir(parents=True, exist_ok=True)
+    date = datetime.now().strftime("%Y-%m-%d")
+    dst = ignore / f"{date}-{name}"
+    n = 2
+    while dst.exists():
+        dst = ignore / f"{date}-{n}-{name}"; n += 1
+    os.replace(src, dst)
+    action["result"] = "moved_to_ignore"
+    action["ignore_path"] = dst.relative_to(root).as_posix()
+    print(f"PREVIOUS FAILED PATCH ACTION: DELETE -> {action['ignore_path']}")
+    return action
+
+
+def _declared_targets_for(meta: PatchMeta | None) -> list[str]:
+    return list(meta.targets) if meta is not None else []
+
+
+def _capture_item_compare_before(root: Path, run_id: str, index: int, item: QueueItem, meta: PatchMeta | None):
+    if item.kind != "PATCH" or meta is None or not meta.targets:
+        return None
+    base = _batch_run_dir(root, run_id) / "source_compare" / f"{index:03d}_{_safe_slug(item.name,72)}"
+    before_dir = base / "before"
+    before = capture_compare_snapshot(root, meta.targets, before_dir)
+    return base, before_dir, before
+
+
+def _capture_item_compare_after(root: Path, captured, meta: PatchMeta | None):
+    if captured is None or meta is None:
+        return None
+    base, before_dir, before = captured
+    after_dir = base / "after"
+    after = capture_compare_snapshot(root, meta.targets, after_dir)
+    diff_path = base / "source.diff"
+    info = build_diff_artifact(root, before, after, before_dir, after_dir, diff_path)
+    try:
+        info["diff_path"] = diff_path.relative_to(root).as_posix()
+    except ValueError:
+        pass
+    return info
+
+
 def _collect_archive_postcondition(root: Path, item: QueueItem) -> tuple[bool, str]:
     """Verify the established COLLECT PASS queue lifecycle.
 
@@ -2426,10 +2810,17 @@ def _collect_archive_postcondition(root: Path, item: QueueItem) -> tuple[bool, s
     return True, ""
 
 
-def execute_items(root: Path, chosen: list[QueueItem]):
-    """Execute selected work after enforcing per-invocation COLLECT exclusivity."""
+def execute_items(
+    root: Path,
+    chosen: list[QueueItem],
+    *,
+    failure_policy: str = "fail_fast",
+    metas: dict[str, PatchMeta] | None = None,
+):
+    """Execute a validated batch with controlled continuation and dependency blocking."""
     global _LAST_EXECUTION_DETAILS
     _LAST_EXECUTION_DETAILS = []
+    metas = metas or {}
     contract_error = _selection_contract_error(chosen)
     if contract_error:
         print(f"[PTV v{VERSION} ERROR] SELECTION: {_safe_display(contract_error)}", file=sys.stderr)
@@ -2437,10 +2828,30 @@ def execute_items(root: Path, chosen: list[QueueItem]):
     executed: list[tuple[str, int]] = []
     late_duplicates: list[LocalDuplicate] = []
     duplicate_warnings: list[str] = []
+    patch_status_by_id: dict[str, str] = {}
+    first_failure_rc = 0
+
     for index, item in enumerate(chosen):
         item_started_mono = time.monotonic()
         item_started_at = _utc_now()
         detail_log_path = _batch_item_log_path(root, _ACTIVE_RUN_ID, index + 1, item)
+        meta = metas.get(item.name)
+
+        if item.kind == "PATCH" and meta is not None and meta.depends_on:
+            failed_deps = [dep for dep in meta.depends_on if patch_status_by_id.get(dep) not in {"PASS", "SKIPPED_DUPLICATE_LOCAL"}]
+            if failed_deps and meta.on_dependency_failure != "run_anyway":
+                detail = {
+                    "name": item.name, "kind": item.kind, "status": "BLOCKED", "rc": None,
+                    "started_at": item_started_at,
+                    "elapsed_seconds": round(time.monotonic() - item_started_mono, 3),
+                    "blocked_by": failed_deps,
+                    "diagnosis": {"kind": "dependency_failed", "message": f"blocked by failed dependency: {', '.join(failed_deps)}"},
+                }
+                _LAST_EXECUTION_DETAILS.append(detail)
+                patch_status_by_id[meta.patch_id] = "BLOCKED"
+                print(f"[BLOCKED] {_safe_display(item.name)} | dependency failure: {_safe_display(', '.join(failed_deps))}")
+                continue
+
         if item.kind == "PATCH":
             still_runnable, now_duplicates, now_warnings = _split_local_duplicate_patches(root, [item])
             for warning in now_warnings:
@@ -2451,29 +2862,27 @@ def execute_items(root: Path, chosen: list[QueueItem]):
                 late_duplicates.extend(now_duplicates)
                 duplicate_warnings.extend(x for x in ignore_warnings if x not in duplicate_warnings)
                 _print_local_duplicate_skips(now_duplicates)
-                detail = {
-                    "name": item.name, "kind": item.kind, "status": "SKIPPED_DUPLICATE_LOCAL", "rc": 0,
-                }
+                detail = {"name": item.name, "kind": item.kind, "status": "SKIPPED_DUPLICATE_LOCAL", "rc": 0}
                 if now_duplicates and now_duplicates[0].ignored_name:
                     detail["ignore_path"] = f"patchs/ignore/{now_duplicates[0].ignored_name}"
                 _LAST_EXECUTION_DETAILS.append(detail)
+                if meta is not None:
+                    patch_status_by_id[meta.patch_id] = "SKIPPED_DUPLICATE_LOCAL"
                 continue
             if not still_runnable:
-                duplicate_warnings.append(
-                    f"late duplicate check returned no decision for patchs/{item.name}; executing normally"
-                )
+                duplicate_warnings.append(f"late duplicate check returned no decision for patchs/{item.name}; executing normally")
             cmd = _runner_command(root, "execute", item)
         elif item.kind == "COLLECT":
             progress = root / "tools" / "_patch_lib" / "python_patch_collect_progress_v6_7.py"
             compat = root / "tools" / "_patch_lib" / "python_patch_collect_compat.py"
             cmd = [sys.executable, str(progress), "--project-root", str(root), "--collector", str(compat), "--", "request", f"patchs/{item.name}"]
         else:
-            print(f"ERROR invalid collect package {_safe_display(item.name)}", file=sys.stderr)
             rc = 2
             executed.append((item.name, rc))
             _LAST_EXECUTION_DETAILS.append({"name": item.name, "kind": item.kind, "status": "FAIL", "rc": rc, "diagnosis": {"kind": "invalid_queue_item"}})
-            remaining = chosen[index + 1 :]
-            return rc, executed, remaining, late_duplicates, duplicate_warnings
+            return rc, executed, chosen[index + 1 :], late_duplicates, duplicate_warnings
+
+        compare_before = _capture_item_compare_before(root, _ACTIVE_RUN_ID or "run", index + 1, item, meta)
         try:
             try:
                 sys.stdout.flush(); sys.stderr.flush()
@@ -2483,9 +2892,7 @@ def execute_items(root: Path, chosen: list[QueueItem]):
             patch_result = None
             collect_result = None
             if item.kind == "PATCH":
-                rc, console_log, patch_result = _run_patch_child(
-                    root, cmd, item, full_log_path=detail_log_path
-                )
+                rc, console_log, patch_result = _run_patch_child(root, cmd, item, full_log_path=detail_log_path)
                 patch_result = _enrich_patch_diagnosis(patch_result, console_log)
             else:
                 runtime = _artifact_run_root(root) / "runtime"
@@ -2501,31 +2908,36 @@ def execute_items(root: Path, chosen: list[QueueItem]):
             console_log = "INTERRUPTED by Ctrl+C\n" if item.kind == "PATCH" else ""
             patch_result = None
             print(f"[PTV v{VERSION}] INTERRUPTED by Ctrl+C", file=sys.stderr)
+
+        compare_info = _capture_item_compare_after(root, compare_before, meta)
         if rc == 0 and item.kind == "COLLECT":
-            ok, detail = _collect_archive_postcondition(root, item)
+            ok, post_detail = _collect_archive_postcondition(root, item)
             if not ok:
-                print(f"[PTV v{VERSION} ERROR] {_safe_display(detail)}", file=sys.stderr)
+                print(f"[PTV v{VERSION} ERROR] {_safe_display(post_detail)}", file=sys.stderr)
                 rc = 3
-            elif detail:
-                print(f"[PTV v{VERSION} WARNING] {_safe_display(detail)}")
+            elif post_detail:
+                print(f"[PTV v{VERSION} WARNING] {_safe_display(post_detail)}")
+
         detail: dict[str, object] = {
-            "name": item.name,
-            "kind": item.kind,
-            "status": "PASS" if rc == 0 else "FAIL",
-            "rc": rc,
+            "name": item.name, "kind": item.kind,
+            "status": "PASS" if rc == 0 else "FAIL", "rc": rc,
             "started_at": item_started_at,
             "elapsed_seconds": round(time.monotonic() - item_started_mono, 3),
         }
+        if meta is not None:
+            detail["patch_id"] = meta.patch_id
+            detail["depends_on"] = list(meta.depends_on)
         if detail_log_path is not None and detail_log_path.is_file():
-            try:
-                detail["log_path"] = detail_log_path.relative_to(root).as_posix()
-            except ValueError:
-                detail["log_path"] = str(detail_log_path)
+            try: detail["log_path"] = detail_log_path.relative_to(root).as_posix()
+            except ValueError: detail["log_path"] = str(detail_log_path)
         if patch_result is not None:
             detail["patch_result"] = patch_result
+        if compare_info is not None:
+            detail["source_compare"] = compare_info
         if item.kind == "COLLECT" and collect_result is not None:
             detail["collect_result"] = collect_result
         executed.append((item.name, rc))
+
         if rc and item.kind == "PATCH":
             recovery_request = _create_recovery_collect_request(root, item, patch_result or {})
             if recovery_request is not None:
@@ -2536,13 +2948,74 @@ def execute_items(root: Path, chosen: list[QueueItem]):
                 try: detail["fail_handoff"] = handoff.relative_to(root).as_posix()
                 except ValueError: detail["fail_handoff"] = str(handoff)
         _LAST_EXECUTION_DETAILS.append(detail)
-        if rc:
-            remaining = chosen[index + 1 :]
-            return rc, executed, remaining, late_duplicates, duplicate_warnings
-    return 0, executed, [], late_duplicates, duplicate_warnings
+        if meta is not None:
+            patch_status_by_id[meta.patch_id] = str(detail["status"])
 
-def _run_queue(root: Path):
-    global _ACTIVE_RUN_ID
+        if rc:
+            if not first_failure_rc:
+                first_failure_rc = rc
+            if failure_policy != "continue_independent" or item.kind != "PATCH":
+                return first_failure_rc, executed, chosen[index + 1 :], late_duplicates, duplicate_warnings
+            safe, reason = _safe_to_continue_after_failure(detail)
+            detail["continue_decision"] = {"allowed": safe, "reason": reason}
+            if not safe:
+                print(f"[PTV v{VERSION} SAFETY STOP] continue-on-failure blocked: {_safe_display(reason)}", file=sys.stderr)
+                return first_failure_rc, executed, chosen[index + 1 :], late_duplicates, duplicate_warnings
+            print(f"[PTV v{VERSION}] CONTINUE AFTER FAILURE: {_safe_display(item.name)} | {_safe_display(reason)}")
+
+    return first_failure_rc, executed, [], late_duplicates, duplicate_warnings
+
+
+def _resume_groups(previous: dict[str, object] | None) -> dict[str, list[str]]:
+    groups = {"replay": [], "failed": [], "remaining": []}
+    if not isinstance(previous, dict) or previous.get("status") != "FAIL":
+        return groups
+    rows = _report_rows(previous)
+    for row in rows:
+        name = row.get("name")
+        if not isinstance(name, str):
+            continue
+        status = str(row.get("status") or "")
+        if row.get("batch_rolled_back") is True and status == "PASS":
+            groups["replay"].append(name)
+        elif status == "FAIL":
+            groups["failed"].append(name)
+        elif status in {"BLOCKED", "NOT_EXECUTED", "PREFLIGHT_FAIL"}:
+            groups["remaining"].append(name)
+    return groups
+
+
+def _resume_selection(root: Path, items: list[QueueItem], previous: dict[str, object] | None, *, mode: str | None = None):
+    groups = _resume_groups(previous)
+    by_name = {x.name: x for x in items}
+    def available(names): return [by_name[n] for n in names if n in by_name]
+    all_unresolved = available(groups["replay"] + groups["failed"] + groups["remaining"])
+    failed_only = available(groups["failed"])
+    remaining_only = available(groups["remaining"])
+    if not all_unresolved:
+        return None
+    if mode in {"all", "failed", "remaining"}:
+        return {"all": all_unresolved, "failed": failed_only, "remaining": remaining_only}[mode]
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return None
+    print("\nSMART RESUME — previous batch is incomplete")
+    print(f"Replay after batch rollback: {len(groups['replay'])} | Failed: {len(groups['failed'])} | Remaining/blocked: {len(groups['remaining'])}")
+    print("  1. Retry/replay all unresolved items in original order")
+    print("  2. Retry failed PATCHes only")
+    print("  3. Run remaining/blocked items only (dependency/predecessor rules still apply)")
+    print("  4. Ignore resume suggestion and open normal queue selector")
+    try:
+        answer = input("resume> ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return None
+    if answer == "1": return all_unresolved
+    if answer == "2": return failed_only
+    if answer == "3": return remaining_only
+    return None
+
+
+def _run_queue(root: Path, *, failure_policy_override: str | None = None, transaction_policy_override: str | None = None, force_resume: bool = False, resume_mode: str | None = None):
+    global _ACTIVE_RUN_ID, _LAST_EXECUTION_DETAILS
     started_mono = time.monotonic()
     started_at = _utc_now()
     run_id = f"{int(time.time()*1000000)}_{os.getpid()}"
@@ -2561,41 +3034,41 @@ def _run_queue(root: Path):
     duplicate_warnings = [*duplicate_warnings, *ignore_warnings]
     printed_warnings = set()
     for warning in [*warnings, *session_duplicate_warnings, *duplicate_warnings]:
-        if warning in printed_warnings:
-            continue
+        if warning in printed_warnings: continue
         printed_warnings.add(warning)
         print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}")
     if local_duplicates:
         _print_local_duplicate_skips(local_duplicates)
 
+    cfg, config_warnings = _load_zero_argument_config(root)
+    for warning in config_warnings:
+        print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}")
+    failure_policy = failure_policy_override or str(cfg.get("failure_policy") or "fail_fast")
+    transaction_policy = transaction_policy_override or str(cfg.get("transaction_policy") or "patch")
+    if failure_policy not in {"fail_fast", "continue_independent"}: failure_policy = "fail_fast"
+    if transaction_policy not in {"patch", "batch"}: transaction_policy = "patch"
+    batch_preflight_rows: list[dict[str, object]] = []
+    previous_action: dict[str, object] | None = None
+    batch_transaction: dict[str, object] | None = None
+
     def finish_report(status: str, rc: int, *, chosen: list[QueueItem] | None = None, executed=None, remaining=None, failed_item=None):
-        chosen = chosen or []
-        executed = executed or []
-        remaining = remaining or []
+        chosen = chosen or []; executed = executed or []; remaining = remaining or []
         report: dict[str, object] = {
-            "format": "python-patch-tool-last-run",
-            "format_version": 1,
-            "tool_version": VERSION,
-            "run_id": run_id,
-            "started_at": started_at,
-            "finished_at": _utc_now(),
-            "elapsed_seconds": round(time.monotonic() - started_mono, 3),
-            "status": status,
-            "exit_code": int(rc),
-            "selected": [item.name for item in chosen],
-            "execution_order": [name for name, _ in executed],
-            "results": list(_LAST_EXECUTION_DETAILS),
-            "not_executed": [item.name for item in remaining],
-            "failed_item": failed_item,
+            "format": "python-patch-tool-last-run", "format_version": 2, "tool_version": VERSION,
+            "run_id": run_id, "started_at": started_at, "finished_at": _utc_now(),
+            "elapsed_seconds": round(time.monotonic() - started_mono, 3), "status": status, "exit_code": int(rc),
+            "selected": [item.name for item in chosen], "execution_order": [name for name, _ in executed],
+            "results": list(_LAST_EXECUTION_DETAILS), "not_executed": [item.name for item in remaining],
+            "failed_item": failed_item, "failure_policy": failure_policy, "transaction_policy": transaction_policy,
+            "batch_preflight": list(batch_preflight_rows), "previous_failure_action": previous_action,
+            "batch_transaction": batch_transaction,
             "session_duplicates_removed": [
                 {"name": d.item.name, "canonical": d.canonical_name, "sha256": d.sha256, "removed": d.removed}
                 for d in session_duplicates
             ],
             "local_history_skipped": [
-                {
-                    "name": d.item.name, "history_name": d.history_name, "sha256": d.sha256,
-                    "ignore_path": f"patchs/ignore/{d.ignored_name}" if d.ignored_name else None,
-                }
+                {"name": d.item.name, "history_name": d.history_name, "sha256": d.sha256,
+                 "ignore_path": f"patchs/ignore/{d.ignored_name}" if d.ignored_name else None}
                 for d in local_duplicates
             ],
             "previous_resume_items": resume_items,
@@ -2604,20 +3077,16 @@ def _run_queue(root: Path):
         _finalize_batch_artifacts(root, report)
         _write_run_report(root, report)
         if len(report.get("selected") or []) > 1:
-            if sys.stdin.isatty() and sys.stdout.isatty():
-                _batch_report_menu(root, report)
-            else:
-                _print_batch_overview(root, report, stream=sys.stderr if status == "FAIL" else sys.stdout)
+            if sys.stdin.isatty() and sys.stdout.isatty(): _batch_report_menu(root, report)
+            else: _print_batch_overview(root, report, stream=sys.stderr if status == "FAIL" else sys.stdout)
         return rc
 
     if queue_safety_error is not None:
         print(f"[PTV v{VERSION} ERROR] QUEUE SAFETY: {_safe_display(queue_safety_error)}", file=sys.stderr)
         return finish_report("FAIL", 2)
-
     if not items:
         if session_duplicates:
-            print("AUTO STATUS: IDLE — no new runnable package remains after duplicate filtering.")
-            _print_session_duplicate_removals(session_duplicates)
+            print("AUTO STATUS: IDLE — no new runnable package remains after duplicate filtering."); _print_session_duplicate_removals(session_duplicates)
         elif local_duplicates:
             print("AUTO STATUS: IDLE — local duplicate PATCHes were moved to patchs/ignore; no runnable package remains.")
         else:
@@ -2625,92 +3094,211 @@ def _run_queue(root: Path):
         print_health(root, compact=True)
         return finish_report("IDLE", 0)
 
-    cfg, config_warnings = _load_zero_argument_config(root)
-    for warning in config_warnings:
-        print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}")
-
-    chosen = _configured_auto_selection(root, items, cfg)
+    chosen = None
+    if force_resume or (isinstance(previous, dict) and previous.get("status") == "FAIL"):
+        chosen = _resume_selection(root, items, previous, mode=resume_mode)
+        if chosen:
+            print(f"SMART RESUME SELECTED: {len(chosen)} item(s)")
+    if chosen is None:
+        chosen = _configured_auto_selection(root, items, cfg)
     if chosen is None:
         try:
-            chosen = select_items(
-                root,
-                list(items),
-                initial_selection=cfg.get("initial_selection", "none"),
-                selector_ui=cfg.get("selector_ui", "auto"),
-            )
+            chosen = select_items(root, list(items), initial_selection=cfg.get("initial_selection", "none"), selector_ui=cfg.get("selector_ui", "auto"))
         except KeyboardInterrupt:
-            print("\nCancelled by Ctrl+C.")
-            return finish_report("CANCELLED", 130)
+            print("\nCancelled by Ctrl+C."); return finish_report("CANCELLED", 130)
     if chosen is None:
-        print("Cancelled.")
-        _print_session_duplicate_removals(session_duplicates)
-        return finish_report("CANCELLED", 0)
+        print("Cancelled."); _print_session_duplicate_removals(session_duplicates); return finish_report("CANCELLED", 0)
     if not chosen:
         print("AUTO STATUS: IDLE — queue is empty or no runnable item remains; nothing executed.")
-        _print_session_duplicate_removals(session_duplicates)
-        return finish_report("IDLE", 0)
+        _print_session_duplicate_removals(session_duplicates); return finish_report("IDLE", 0)
 
-    rc, executed, remaining, late_duplicates, late_duplicate_warnings = execute_items(root, chosen)
+    # Resolve dependency order and enforce unresolved-predecessor handling before source changes.
+    try:
+        chosen, metas, previous_action = _build_batch_plan(root, chosen, items, previous)
+    except Exception as exc:
+        kind = getattr(exc, "kind", "batch_plan_invalid")
+        _LAST_EXECUTION_DETAILS = [{
+            "name": x.name, "kind": x.kind, "status": "PREFLIGHT_FAIL" if i == 0 else "NOT_EXECUTED", "rc": 2 if i == 0 else None,
+            "diagnosis": {"kind": kind, "message": str(exc)},
+        } for i, x in enumerate(chosen)]
+        print(f"BATCH PREFLIGHT FAIL — project unchanged | {kind}: {_safe_display(str(exc))}", file=sys.stderr)
+        return finish_report("FAIL", 2, chosen=chosen, remaining=chosen, failed_item=chosen[0].name if chosen else None)
+
+    print(f"BATCH POLICY: failure={failure_policy} | transaction={transaction_policy}")
+    if len(chosen) > 1:
+        print("BATCH ORDER:")
+        for i, item in enumerate(chosen, 1):
+            meta = metas.get(item.name)
+            dep = f" | depends_on={','.join(meta.depends_on)}" if meta and meta.depends_on else ""
+            print(f"  {i}. {_safe_display(item.name)}{dep}")
+
+    # Whole-batch preflight is a multi-PATCH/dependency/transaction gate. A
+    # standalone ordinary PATCH keeps the established runner preflight/result
+    # contract, while successor-action handling still preflights before moving
+    # an unresolved predecessor out of the queue.
+    needs_batch_preflight = (len(chosen) > 1 or transaction_policy == "batch" or previous_action is not None or any(m.depends_on for m in metas.values()))
+    if needs_batch_preflight:
+        preflight_ok, batch_preflight_rows = _batch_preflight(root, chosen, metas, run_id=run_id, transaction_policy=transaction_policy)
+    else:
+        preflight_ok, batch_preflight_rows = True, []
+    if not preflight_ok:
+        _LAST_EXECUTION_DETAILS = []
+        fail_names = {str(r.get("name")) for r in batch_preflight_rows if r.get("status") == "FAIL" and r.get("name")}
+        not_executed_items: list[QueueItem] = []
+        for item in chosen:
+            row = next((r for r in batch_preflight_rows if r.get("name") == item.name), None)
+            if item.name in fail_names:
+                patch_result = row.get("patch_result") if isinstance(row, dict) and isinstance(row.get("patch_result"), dict) else None
+                if patch_result is None:
+                    kind = str(row.get("classification") if row else "batch_preflight_failed").lower()
+                    patch_result = {
+                        "format": "python-patch-tool-patch-result", "format_version": 1, "tool_version": VERSION,
+                        "patch_file": item.name, "patch_sha256": _sha256_file(root / "patchs" / item.name) if (root / "patchs" / item.name).is_file() else None,
+                        "status": "FAIL", "rc": 2, "stage": "preflight",
+                        "diagnosis": {"kind": kind, "message": "batch preflight rejected PATCH", "affected_paths": []},
+                        "partial_modification": {"detected": False, "changed_paths": [], "evidence": "read_only_batch_preflight"},
+                    }
+                diagnosis = patch_result.get("diagnosis") if isinstance(patch_result.get("diagnosis"), dict) else {"kind": str(row.get("classification") if row else "batch_preflight_failed"), "message": "batch preflight rejected PATCH", "affected_paths": []}
+                recovery_request = _create_recovery_collect_request(root, item, patch_result)
+                log_text = ""
+                if isinstance(row, dict) and isinstance(row.get("log_path"), str):
+                    try: log_text = (root / str(row["log_path"])).read_text(encoding="utf-8", errors="replace")
+                    except OSError: log_text = ""
+                fail_handoff = _create_fail_handoff(root, item, 2, log_text, patch_result, recovery_request)
+                detail = {
+                    "name": item.name, "kind": item.kind, "status": "PREFLIGHT_FAIL", "rc": 2,
+                    "diagnosis": diagnosis, "patch_result": patch_result,
+                    "preflight_log_path": row.get("log_path") if row else None,
+                    "recovery_collect_request": recovery_request.relative_to(root).as_posix() if recovery_request is not None else None,
+                    "fail_handoff": fail_handoff.relative_to(root).as_posix() if fail_handoff is not None else None,
+                }
+                _LAST_EXECUTION_DETAILS.append(detail)
+                if isinstance(row, dict):
+                    row["recovery_collect_request"] = detail["recovery_collect_request"]
+                    row["fail_handoff"] = detail["fail_handoff"]
+            else:
+                not_executed_items.append(item)
+                _LAST_EXECUTION_DETAILS.append({"name": item.name, "kind": item.kind, "status": "NOT_EXECUTED", "rc": None,
+                    "diagnosis": {"kind": "batch_preflight_failed_elsewhere", "message": "no payload executed because whole-batch preflight failed"},
+                    "preflight_log_path": row.get("log_path") if row else None})
+        print("BATCH PREFLIGHT: FAIL — no selected PATCH modified source", file=sys.stderr)
+        for row in batch_preflight_rows:
+            if row.get("status") == "FAIL": print(f"  - {_safe_display(str(row.get('name') or 'batch'))}: {_safe_display(str(row.get('classification')))}", file=sys.stderr)
+        failed = next((x.name for x in chosen if x.name in fail_names), chosen[0].name if chosen else None)
+        return finish_report("FAIL", 2, chosen=chosen, remaining=not_executed_items, failed_item=failed)
+    if needs_batch_preflight:
+        print("BATCH PREFLIGHT: PASS — all packages validated before first source write")
+    deferred = [r for r in batch_preflight_rows if r.get("status") == "DEFERRED_AFTER_DEPENDENCY"]
+    if deferred:
+        print(f"  Deferred source checks after declared dependencies: {len(deferred)} (runner revalidates immediately before execution)")
+
+    previous_action = _apply_previous_failure_action(root, previous_action)
+
+    transaction_snapshot_root = None
+    package_snapshot_root = None
+    transaction_manifest = None
+    package_map = None
+    if transaction_policy == "batch":
+        try:
+            tx_root = _batch_run_dir(root, run_id) / "transaction"
+            transaction_snapshot_root = tx_root / "source"
+            package_snapshot_root = tx_root / "packages"
+            all_targets = [rel for item in chosen for rel in _declared_targets_for(metas.get(item.name))]
+            transaction_manifest = snapshot_targets(root, all_targets, transaction_snapshot_root)
+            package_map = snapshot_package_bytes(root, [x.name for x in chosen if x.kind == "PATCH"], package_snapshot_root)
+            batch_transaction = {"policy": "batch", "status": "READY", "targets": len(set(all_targets)), "packages": len(package_map)}
+            print(f"BATCH TRANSACTION SNAPSHOT: READY | targets={len(set(all_targets))} | packages={len(package_map)}")
+        except Exception as exc:
+            kind = getattr(exc, "kind", "batch_transaction_snapshot_failed")
+            _LAST_EXECUTION_DETAILS = [{"name": x.name, "kind": x.kind, "status": "NOT_EXECUTED", "rc": None,
+                "diagnosis": {"kind": kind, "message": str(exc)}} for x in chosen]
+            batch_transaction = {"policy": "batch", "status": "FAIL", "error": str(exc)}
+            print(f"BATCH TRANSACTION PREFLIGHT FAIL — project unchanged | {_safe_display(str(exc))}", file=sys.stderr)
+            return finish_report("FAIL", 2, chosen=chosen, remaining=chosen)
+
+    rc, executed, remaining, late_duplicates, late_duplicate_warnings = execute_items(root, chosen, failure_policy=failure_policy, metas=metas)
     local_duplicates = [*local_duplicates, *late_duplicates]
     for warning in late_duplicate_warnings:
-        if warning in printed_warnings:
-            continue
-        printed_warnings.add(warning)
-        print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}", file=sys.stderr if rc else sys.stdout)
-    if rc:
-        failed_name = executed[-1][0] if executed else None
-        if failed_name:
-            print(f"SUMMARY: FAIL | stopped after {_safe_display(failed_name)} rc={rc}", file=sys.stderr)
+        if warning in printed_warnings: continue
+        printed_warnings.add(warning); print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}", file=sys.stderr if rc else sys.stdout)
+
+    if transaction_policy == "batch" and transaction_snapshot_root is not None and transaction_manifest is not None:
+        if rc:
+            restored = restore_targets(root, transaction_snapshot_root, transaction_manifest)
+            requeued = requeue_packages(root, package_snapshot_root, package_map or {}) if package_snapshot_root is not None else {}
+            batch_transaction = {"policy": "batch", "status": "ROLLED_BACK" if restored.get("status") == "PASS" else "ROLLBACK_FAILED",
+                "restored_paths": restored.get("restored_paths", []), "errors": restored.get("errors", []), "requeued_packages": requeued}
+            for detail in _LAST_EXECUTION_DETAILS:
+                if detail.get("status") in {"PASS", "FAIL"}:
+                    detail["batch_rolled_back"] = True
+                    if detail.get("name") in requeued: detail["requeued_as"] = requeued[detail.get("name")]
+            if restored.get("status") != "PASS":
+                rc = rc or 70
+                print("!!! BATCH ROLLBACK FAILED — manual recovery required !!!", file=sys.stderr)
+            else:
+                print(f"BATCH ROLLBACK: PASS | restored={len(restored.get('restored_paths') or [])} | replay packages requeued={len(requeued)}")
         else:
-            print(f"SUMMARY: FAIL | selection rejected before execution rc={rc}", file=sys.stderr)
+            batch_transaction = {"policy": "batch", "status": "COMMITTED", "targets": len(transaction_manifest.get("entries") or [])}
+            print("BATCH TRANSACTION: COMMITTED")
+
+    if rc:
+        failed_rows = [x for x in _LAST_EXECUTION_DETAILS if x.get("status") == "FAIL"]
+        failed_name = str(failed_rows[-1].get("name")) if failed_rows else (executed[-1][0] if executed else None)
+        fail_count = len(failed_rows)
+        print(f"SUMMARY: FAIL | failed={fail_count} | policy={failure_policy} | last={_safe_display(str(failed_name or 'unknown'))} rc={rc}", file=sys.stderr)
         if remaining:
-            print(f"SKIPPED / NOT EXECUTED: {len(remaining)} selected item(s)", file=sys.stderr)
-            for item in remaining:
-                print(f"  - {_safe_display(item.name)}", file=sys.stderr)
-        if session_duplicates:
-            _print_session_duplicate_removals(session_duplicates, stream=sys.stderr)
+            print(f"NOT EXECUTED: {len(remaining)} selected item(s)", file=sys.stderr)
+            for item in remaining: print(f"  - {_safe_display(item.name)}", file=sys.stderr)
+        if session_duplicates: _print_session_duplicate_removals(session_duplicates, stream=sys.stderr)
         finish_report("FAIL", rc, chosen=chosen, executed=executed, remaining=remaining, failed_item=failed_name)
         _print_patch_result_banner("FAIL", _last_patch_name(status="FAIL"), rc=rc, stream=sys.stderr)
         return rc
 
-    if session_duplicates:
-        _print_session_duplicate_removals(session_duplicates)
-    completed_count = len(executed)
-    session_duplicate_count = len(session_duplicates)
-    local_duplicate_count = len(local_duplicates)
+    if session_duplicates: _print_session_duplicate_removals(session_duplicates)
+    completed_count = len([x for x in _LAST_EXECUTION_DETAILS if x.get("status") == "PASS"])
+    session_duplicate_count = len(session_duplicates); local_duplicate_count = len(local_duplicates)
     local_duplicate_moved = sum(1 for d in local_duplicates if d.ignored_name)
     local_duplicate_move_failed = local_duplicate_count - local_duplicate_moved
     duplicate_count = session_duplicate_count + local_duplicate_count
     if duplicate_count:
-        suffix = (
-            f" | {local_duplicate_move_failed} ignore move failure(s)"
-            if local_duplicate_move_failed else ""
-        )
-        print(
-            f"SUMMARY: PASS | {completed_count} item(s) completed | "
-            f"{session_duplicate_count} duplicate file(s) collapsed in-session | "
-            f"{local_duplicate_moved} local duplicate(s) moved to ignore{suffix}"
-        )
+        suffix = f" | {local_duplicate_move_failed} ignore move failure(s)" if local_duplicate_move_failed else ""
+        print(f"SUMMARY: PASS | {completed_count} item(s) completed | {session_duplicate_count} duplicate file(s) collapsed in-session | {local_duplicate_moved} local duplicate(s) moved to ignore{suffix}")
     else:
         print(f"SUMMARY: PASS | {completed_count} item(s) completed")
     finish_report("PASS", 0, chosen=chosen, executed=executed)
     _print_patch_result_banner("PASS", _last_patch_name(status="PASS"))
     return 0
 
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--project-root", required=True)
-    ap.add_argument("command", nargs="?", choices=["run", "report"], default="run")
+    ap.add_argument("command", nargs="?", choices=["run", "resume", "report"], default="run")
+    ap.add_argument("--failure-policy", choices=["fail_fast", "continue_independent"])
+    ap.add_argument("--transaction-policy", choices=["patch", "batch"])
+    ap.add_argument("--resume-mode", choices=["all", "failed", "remaining"])
     ap.add_argument("--run-id")
     ap.add_argument("--list", action="store_true", dest="list_runs")
+    ap.add_argument("--pin")
+    ap.add_argument("--unpin")
+    ap.add_argument("--delete")
+    ap.add_argument("--export")
+    ap.add_argument("--cleanup", action="store_true")
+    ap.add_argument("--support-item", type=int)
     ns = ap.parse_args(argv)
     root = Path(ns.project_root).resolve()
     if ns.command == "report":
-        return _report_command(root, ns.run_id, list_runs=ns.list_runs)
+        return _report_command(
+            root, ns.run_id, list_runs=ns.list_runs, pin_run=ns.pin, unpin_run=ns.unpin,
+            delete_run=ns.delete, export_run=ns.export, cleanup=ns.cleanup, support_item=ns.support_item,
+        )
     # Deliberately NO process-wide/project-wide queue lock. Selection isolation
     # is per invocation only; operators may run other Patch Tool processes in
     # separate terminals when they intentionally choose to do so.
-    return _run_queue(root)
+    return _run_queue(
+        root, failure_policy_override=ns.failure_policy, transaction_policy_override=ns.transaction_policy,
+        force_resume=(ns.command == "resume"), resume_mode=ns.resume_mode,
+    )
 
 
 if __name__ == "__main__":

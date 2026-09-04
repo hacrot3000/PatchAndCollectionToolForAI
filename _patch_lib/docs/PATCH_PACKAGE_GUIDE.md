@@ -1,4 +1,4 @@
-# PATCH PACKAGE GUIDE — v6.16.0 authoritative AI/tool contract
+# PATCH PACKAGE GUIDE — v6.17.0 authoritative AI/tool contract
 
 Machine-readable source of truth:
 
@@ -36,9 +36,9 @@ Optional manifest block:
 ```json
 {
   "compatibility": {
-    "min_tool_version": "6.16.0",
+    "min_tool_version": "6.17.0",
     "max_tool_version": "7.0.0",
-    "max_tested_version": "6.16.0"
+    "max_tested_version": "6.17.0"
   }
 }
 ```
@@ -175,7 +175,7 @@ INSPECT RESULT: PASS — project unchanged
 
 No PATCH payload is executed and the package is not archived.
 
-## v6.16.0 package lint / validate
+## v6.17.0 package lint / validate
 
 Before delivering a PATCH, validate the manifest against `PATCH_PACKAGE_SCHEMA.json` and `PATCH_PACKAGE_CHECKLIST.json`. **Never invent `source_baseline`** or other legacy/custom fields. Source assumptions belong only in `preflight.files` using `path`, optional `exists`, `sha256`, and/or `anchors`.
 
@@ -202,4 +202,54 @@ Validation/inspect results use one of four classes:
 - `SOURCE_DRIFT` — current source SHA/existence/anchor or OPS match assumptions do not hold; project unchanged.
 - `TOOL_ERROR` — unexpected Patch Tool internal failure; project unchanged.
 
-Schema lint reports multiple independent manifest issues in one pass. Source preflight likewise aggregates declared file mismatches and includes expected/actual SHA where applicable. For data-only OPS packages, v6.16.0 simulates the sequential operation list on a private temporary mirror before execution; a missing/ambiguous source match fails before the real payload is allowed to write.
+Schema lint reports multiple independent manifest issues in one pass. Source preflight likewise aggregates declared file mismatches and includes expected/actual SHA where applicable. For data-only OPS packages, v6.17.0 simulates the sequential operation list on a private temporary mirror before execution; a missing/ambiguous source match fails before the real payload is allowed to write.
+
+## Batch metadata (v6.17.0)
+
+PATCH có thể khai báo:
+
+```json
+"batch": {
+  "depends_on": ["patch-id-before"],
+  "on_dependency_failure": "block",
+  "previous_failure": {
+    "patch_id": "failed-patch-id",
+    "patch_file": "failed_patch.zip",
+    "action": "retry_before",
+    "reason": "successor requires predecessor state"
+  }
+}
+```
+
+`depends_on` sử dụng `patch.id` hiện hữu. Tool stable-topological-sort batch theo dependency, fail closed nếu thiếu dependency hoặc cycle. `on_dependency_failure` là `block` (mặc định) hoặc `run_anyway`.
+
+`previous_failure` là contract phục hồi queue giữa hai lần chạy. Khi predecessor của lần chạy trước vẫn FAIL và còn trong `patchs/`, successor không được chạy nếu không chỉ rõ một trong `delete`, `retry_before`, `run_after`, `block`. Xem `AI_USAGE_CONTRACT.md` để biết quy tắc bắt buộc dành cho AI tạo PATCH.
+
+### Batch policies
+
+`.python_patch_tool.json`:
+
+```json
+{
+  "batch": {
+    "failure_policy": "continue_independent",
+    "transaction_policy": "patch"
+  }
+}
+```
+
+`failure_policy`:
+- `fail_fast`: mặc định an toàn.
+- `continue_independent`: tiếp tục PATCH độc lập sau FAIL chỉ khi runner chứng minh lỗi không để source partial/unknown, hoặc per-PATCH rollback đã PASS. Integrity/tool/rollback failure vẫn safety-stop.
+
+`transaction_policy`:
+- `patch`: rollback theo contract từng PATCH như trước.
+- `batch`: atomic rollback theo declared targets của toàn batch. Chế độ này từ chối side effects không target-bounded (`post_patch.commands`, Git add/commit/push).
+
+Có thể override cho một lượt chạy:
+
+```bash
+./tools/run_python_patches.sh run --failure-policy continue_independent --transaction-policy batch
+```
+
+Windows dùng cùng options qua `.bat`/`.ps1`.

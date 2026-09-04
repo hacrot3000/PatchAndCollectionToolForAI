@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from python_patch_utils import PatchFailure, diagnose_ops, finish_failure, run_ops
 from python_patch_package_schema import PatchSchemaError, path_is_link_or_reparse, run_preflight, sha256_file
 
-VERSION = "6.16.0"
+VERSION = "6.17.0"
 _ACTIVE_TERMINATION_SIGNAL: int | None = None
 
 
@@ -1099,14 +1099,19 @@ def _print_preflight_report(source: Path, manifest: dict, kind: str, preflight: 
 
 
 def _inspect_patch(root: Path, source: Path, *, verb: str = "INSPECT") -> int:
+    result = _base_result(source)
     if path_is_link_or_reparse(source) or not source.is_file():
         print(f"{verb} RESULT: PATCH_INVALID — project unchanged | input is not a regular non-symlink file: {source}", file=sys.stderr)
-        return 2
+        return _finish_result(result, status="FAIL", rc=2, stage="input", diagnosis={"kind": "package_invalid", "message": "input is not a regular non-symlink file", "affected_paths": []})
     temp_dir = None
     input_temp = None
     try:
-        input_temp, execution_source, _input_sha = _snapshot_patch_input(source)
+        input_temp, execution_source, input_sha = _snapshot_patch_input(source)
+        result["patch_sha256"] = input_sha
         temp_dir, _extracted, manifest, kind, _payload, ops_data, preflight = _prepare_package(root, execution_source)
+        result["preflight"] = preflight
+        result["manifest_patch"] = manifest.get("patch") if isinstance(manifest, dict) else None
+        result["recovery"] = manifest.get("recovery") if isinstance(manifest, dict) else None
         _print_preflight_report(source, manifest, kind, preflight, inspect_only=True)
         if kind == "ops" and isinstance(preflight.get("ops_dry_run"), dict):
             ops_report = preflight["ops_dry_run"]
@@ -1124,7 +1129,7 @@ def _inspect_patch(root: Path, source: Path, *, verb: str = "INSPECT") -> int:
         if isinstance(git, dict) and git:
             print(f"  Git policy: add={git.get('add','off')} commit={git.get('commit','off')} push={git.get('push','off')}")
         print(f"{verb} RESULT: READY_TO_APPLY — project unchanged")
-        return 0
+        return _finish_result(result, status="PASS", rc=0, stage="validate", diagnosis={"kind": "ready_to_apply", "message": "project unchanged", "affected_paths": []}, partial={"detected": False, "changed_paths": [], "evidence": "read_only_validate"})
     except PatchSchemaError as exc:
         classification = _diagnostic_class(exc.kind)
         report = getattr(exc, "report", None)
@@ -1140,12 +1145,15 @@ def _inspect_patch(root: Path, source: Path, *, verb: str = "INSPECT") -> int:
                 if isinstance(anchors, list):
                     missing = [a for a in anchors if isinstance(a, dict) and a.get("status") != "PASS"]
                     print(f"      anchors pass={len(anchors)-len(missing)} missing={len(missing)}")
+        failure = _preflight_failure_payload(exc)
+        result["preflight"] = failure
+        diagnosis = {"kind": exc.kind, "message": str(exc), "affected_paths": list(failure.get("affected_paths") or [])}
         _print_issues(getattr(exc, "issues", None))
         print(f"{verb} RESULT: {classification} — project unchanged | {exc.kind}: {exc}", file=sys.stderr)
-        return 2
+        return _finish_result(result, status="FAIL", rc=2, stage="preflight", diagnosis=diagnosis, partial={"detected": False, "changed_paths": [], "evidence": "read_only_validate"})
     except Exception as exc:
         print(f"{verb} RESULT: TOOL_ERROR — project unchanged | {type(exc).__name__}: {exc}", file=sys.stderr)
-        return 2
+        return _finish_result(result, status="FAIL", rc=2, stage="validate", diagnosis={"kind": "tool_error", "message": f"{type(exc).__name__}: {exc}", "affected_paths": []}, partial={"detected": False, "changed_paths": [], "evidence": "read_only_validate"})
     finally:
         if temp_dir is not None:
             temp_dir.cleanup()

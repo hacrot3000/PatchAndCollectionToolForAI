@@ -1,7 +1,7 @@
 {
   "format": "python-patch-tool-package-checklist",
   "format_version": 1,
-  "tool_version": "6.16.0",
+  "tool_version": "6.17.0",
   "source_of_truth": "PATCH_PACKAGE_SCHEMA.json",
   "checks": [
     "root PATCH_TOOL_MANIFEST.json exists",
@@ -15,11 +15,21 @@
     "post_patch command executable/cwd must exist on target OS",
     "rollback only with complete exact target baseline",
     "run read-only validate before delivery when the project/source is available",
-    "normal execution must re-run preflight before payload"
+    "normal execution must re-run preflight before payload",
+    "batch.depends_on uses existing manifest.patch.id values and all required dependencies are selected",
+    "after a FAIL_HANDOFF, any successor PATCH explicitly declares batch.previous_failure with patch_id/patch_file, action and reason unless retrying the failed PATCH itself",
+    "previous_failure.action is exactly delete, retry_before, run_after or block; never leave the failed predecessor orphaned",
+    "continue_independent is used only when independent continuation is safe; unsafe partial/rollback/tool failures must safety-stop",
+    "batch transaction mode declares complete targets and has no post_patch commands or Git add/commit/push side effects"
   ],
   "known_migrations": {
     "source_baseline.files[].file": "preflight.files[].path",
     "source_baseline.files[].sha256": "preflight.files[].sha256"
   },
-  "result_classes": ["READY_TO_APPLY", "PATCH_INVALID", "SOURCE_DRIFT", "TOOL_ERROR"]
+  "result_classes": [
+    "READY_TO_APPLY",
+    "PATCH_INVALID",
+    "SOURCE_DRIFT",
+    "TOOL_ERROR"
+  ]
 }

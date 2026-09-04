@@ -1,95 +1,224 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.16.0**  
-Trạng thái: **BATCH REPORT + AGGREGATE/DETAIL LOG VIEWER — COMPLETE / STOP**
+Phiên bản mục tiêu: **v6.17.0**  
+Trạng thái: **CONTROLLED BATCH ENGINE + SMART RESUME + ADVANCED REPORTING — COMPLETE / STOP**
 
 ## Baseline
 
-Baseline kỹ thuật: **v6.15.1**. Release này tập trung vào kết quả khi chọn nhiều PATCH: persistent batch report, aggregate/detail logs và report browser; giữ nguyên fail-fast, PATCH/COLLECT contract fail-closed, in-place execution, diagnostics, Windows parity và zero-argument workflow.
+Baseline kỹ thuật: **v6.16.0**. Release này mở rộng batch report thành batch execution engine có policy rõ ràng nhưng vẫn giữ các invariant cũ: PATCH chạy in-place, SANDBOX/worktree không quay lại, schema/preflight fail-closed, COLLECT chạy độc lập, duplicate-local skip-once → `patchs/ignore/`.
 
-## Acceptance / task status
+## Scope được chấp thuận
 
-| Phase | Hạng mục | Trạng thái |
-|---|---|---|
-| 1 | Multi-error PATCH manifest lint + migration hints | **COMPLETE** |
-| 2 | Project-aware inspect/preflight: `PATCH_INVALID` / `SOURCE_DRIFT` / `READY_TO_APPLY` / `TOOL_ERROR` | **COMPLETE** |
-| 3 | Source-drift diagnostics expected/actual SHA, anchors, affected-path-only recovery COLLECT | **COMPLETE** |
-| 4 | AI PATCH contract + machine-readable checklist | **COMPLETE** |
-| 5 | `validate --patch` read-only validator; same gate re-runs before payload | **COMPLETE** |
-| 6 | Windows internal routing/process containment/reparse robustness | **COMPLETE** |
-| 7 | Native Windows fullscreen selector with arrows/Space/priority/inspect/validate/health | **COMPLETE** with safe line-selector fallback |
-| 8 | Full regression, package integrity, docs/version synchronization | **COMPLETE** |
+| Hạng mục | Trạng thái |
+|---|---|
+| Continue-on-failure có kiểm soát | COMPLETE |
+| Dependency giữa các PATCH | COMPLETE |
+| Bắt buộc successor xử lý predecessor FAIL | COMPLETE |
+| Whole-batch preflight trước source write đầu tiên | COMPLETE |
+| Batch transaction / rollback policy | COMPLETE |
+| Smart resume | COMPLETE |
+| Report browser nâng cao | COMPLETE |
+| Source before/after trong report | COMPLETE |
+| Run history management | COMPLETE |
+| Support bundle từ report | COMPLETE |
+| Native Windows runtime test lane | COMPLETE — packaged; native execution cần host Windows |
+| Target-overlap/conflict analyzer | **NOT IMPLEMENTED — BY REQUIREMENT** |
+| Patch provenance / identity | **NOT IMPLEMENTED — BY REQUIREMENT** |
 
-## Key behavior
+## 1. Controlled continue-on-failure
 
-- Invalid manifests report multiple independent schema errors in one pass. Known bad legacy/custom `source_baseline` is explicitly mapped to `preflight.files`; invalid timeout values are reported in the same result.
-- Source preflight aggregates mismatches across files instead of stopping at the first SHA/anchor mismatch. Structured evidence records expected/actual values and all affected paths.
-- Data-only `PATCH_TOOL_OPS.json` is simulated against a private temporary mirror before real payload execution. Sequential OPS semantics are preserved while the project remains unchanged. Anchor/source mismatch therefore fails during preflight.
-- `inspect` and `validate` are read-only. Result classes are `READY_TO_APPLY`, `PATCH_INVALID`, `SOURCE_DRIFT`, or `TOOL_ERROR`.
-- Normal execution always performs the same preflight again immediately before payload; a previous validate result is never trusted as an execution bypass.
-- Recovery COLLECT requests use only structured `affected_paths` that are safe readable current-source files.
+Batch có hai policy:
 
-## v6.16.0 output clarity acceptance
+- `fail_fast` — mặc định.
+- `continue_independent` — PATCH độc lập sau một FAIL chỉ được chạy tiếp khi runner chứng minh project không bị partial modification, hoặc per-PATCH rollback đã PASS.
 
-- `SKIPPED:DUPLICATE_LOCAL` được báo đúng một record trong invocation hiện tại rồi chuyển khỏi runnable queue sang `patchs/ignore/YYYY-MM-DD-<tên-file-gốc>`. Lần chạy sau `patchs/ignore/` không được discovery nên không hỏi/báo lại file đó.
-- Move-to-ignore xác minh lại exact SHA-256 sau khi isolate input; `patchs/ignore` phải là real project-local directory. Collision được xử lý bằng tên date-prefixed unique mà không ghi đè file người dùng.
-- Các item **chưa chạy do fail-fast** không phải duplicate skip và vẫn nằm trong `patchs/` để resume.
-- PASS kết thúc bằng banner `PATCH COMPLETED` + tên PATCH vừa chạy ở cuối output.
-- FAIL kết thúc bằng banner `PATCH FAILED` + tên PATCH/rc; khi terminal hỗ trợ ANSI/VT, banner dùng **nền đỏ + chữ vàng đậm**. Redirect/log dùng plain-text fallback để không chèn escape sequence.
-- FAIL_HANDOFF, recovery COLLECT request và các path ZIP vẫn giữ nguyên contract/đường dẫn hiện hành.
+Các lỗi integrity/tool/rollback, Ctrl+C, hoặc partial/unknown project state tạo **SAFETY STOP** dù policy đang là continue. Tool không đánh đổi source integrity để cố chạy hết batch.
 
-## v6.16.0 batch report acceptance
+Config:
 
-- Một run chọn nhiều PATCH luôn có bảng tổng hợp cuối với từng PATCH và trạng thái `PASS`, `FAIL`, `NOT_EXECUTED` hoặc `SKIPPED_*`.
-- Fail-fast **không đổi**: nếu PATCH thứ N FAIL thì các PATCH sau là `NOT_EXECUTED`, tuyệt đối không được báo như FAIL.
-- Report renderer hỗ trợ nhiều FAIL trong dữ liệu report để không khóa kiến trúc nếu sau này có policy continue-on-failure, nhưng v6.16.0 không tự bật policy đó.
-- Mỗi PATCH đã thực thi có persistent detail log tại `artifacts/patch_tool/runs/<run_id>/items/`.
-- Mỗi run có `SUMMARY.txt` và `batch.log` tổng hợp dưới `artifacts/patch_tool/runs/<run_id>/`.
-- `report` mở lại batch gần nhất có selected work; một health/IDLE run sau đó không được che mất batch report hữu ích gần nhất.
-- `report --list` liệt kê lịch sử; `report --run-id <id>` mở một run cụ thể.
-- Trên TTY, sau batch nhiều PATCH tool mở menu report: nhập số để xem detail log của PATCH đó, `a` để xem aggregate log, `q` để thoát.
-- Trên non-TTY/redirect, tool không chờ input; vẫn in bảng batch + các path log và lệnh mở lại report.
-- Lịch sử report/log được giới hạn cùng `RUN_HISTORY_LIMIT` để không tăng artifact vô hạn.
+```json
+{
+  "batch": {
+    "failure_policy": "continue_independent",
+    "transaction_policy": "patch"
+  }
+}
+```
 
-## Public commands
-
-Normal use remains zero-argument:
+Per-run override:
 
 ```bash
-./tools/run_python_patches.sh
+./tools/run_python_patches.sh run --failure-policy continue_independent
 ```
 
-```bat
-tools\run_python_patches.bat
+## 2. PATCH dependency
+
+Manifest mới cho phép:
+
+```json
+"batch": {
+  "depends_on": ["phase-1-patch-id"],
+  "on_dependency_failure": "block"
+}
 ```
 
-Direct validation for diagnostics/AI/debugging:
+- Dependency dùng `manifest.patch.id` hiện hữu; không thêm hệ provenance/identity mới.
+- Tool stable-topological-sort batch theo dependency.
+- Missing dependency hoặc cycle FAIL trước payload đầu tiên.
+- Nếu dependency runtime FAIL:
+  - mặc định successor = `BLOCKED`;
+  - `run_anyway` chỉ chạy khi manifest chủ động cho phép.
+
+## 3. Không để PATCH predecessor FAIL bị mồ côi
+
+Nếu `LAST_RUN` còn predecessor FAIL trong `patchs/` và người dùng chọn successor thay vì retry predecessor, successor bắt buộc có:
+
+```json
+"batch": {
+  "previous_failure": {
+    "patch_id": "failed-id",
+    "patch_file": "failed_patch.zip",
+    "action": "delete",
+    "reason": "successor supersedes predecessor after rebase"
+  }
+}
+```
+
+Action hợp lệ:
+
+- `delete`: move package predecessor sang `patchs/ignore/YYYY-MM-DD-*` sau whole-batch preflight PASS.
+- `retry_before`: tự đưa predecessor chạy trước successor.
+- `run_after`: tự đưa predecessor chạy sau successor.
+- `block`: chặn batch trước source write.
+
+`reason` bắt buộc. `AI_USAGE_CONTRACT.md` ghi rõ đây là yêu cầu bắt buộc khi AI tạo successor từ FAIL_HANDOFF.
+
+## 4. Whole-batch preflight
+
+Trước payload đầu tiên:
+
+1. validate schema/package/compatibility cho toàn bộ selected PATCH;
+2. resolve dependency order/cycle/missing dependency;
+3. enforce `previous_failure` action;
+4. validate transaction compatibility;
+5. chạy `validate` read-only cho từng PATCH.
+
+PATCH phụ thuộc có thể được ghi `DEFERRED_AFTER_DEPENDENCY` nếu source mismatch hiện tại là do nó mô tả post-dependency state. Runner vẫn bắt buộc full preflight ngay trước PATCH đó. Schema/package/tool error không bao giờ được defer.
+
+Nếu whole-batch preflight FAIL: **không PATCH payload nào được chạy**.
+
+## 5. Batch transaction
+
+`transaction_policy`:
+
+- `patch`: rollback riêng từng PATCH như trước.
+- `batch`: atomic rollback theo union của declared `targets`.
+
+Batch atomic mode fail-closed:
+
+- mọi PATCH phải khai báo `targets`;
+- không cho `post_patch.commands`;
+- không cho Git add/commit/push;
+- snapshot exact source targets trước execution;
+- snapshot exact package bytes của selected PATCH;
+- nếu bất kỳ PATCH FAIL, declared targets restore về pre-batch state;
+- PATCH đã PASS nhưng thay đổi bị batch rollback được requeue để replay/resume.
+
+Không tuyên bố atomicity cho path ngoài `targets`.
+
+## 6. Smart resume
+
+Sau batch FAIL, interactive run hiển thị Smart Resume:
+
+1. replay/retry toàn bộ unresolved items theo order cũ;
+2. retry failed PATCHes;
+3. chạy remaining/blocked items;
+4. bỏ resume suggestion và dùng selector bình thường.
+
+Nếu atomic batch rollback, PATCH từng PASS trước đó được đánh dấu `batch_rolled_back` và nằm trong nhóm cần replay.
+
+CLI:
 
 ```bash
-./tools/run_python_patches.sh validate --patch patchs/example.zip
+./tools/run_python_patches.sh resume --resume-mode all
+./tools/run_python_patches.sh resume --resume-mode failed
+./tools/run_python_patches.sh resume --resume-mode remaining
 ```
+
+Dependency và predecessor-action rules vẫn áp dụng khi resume.
+
+## 7. Advanced report browser
+
+Report table hỗ trợ:
+
+- `PASS`
+- `FAIL`
+- `BLOCKED`
+- `PREFLIGHT_FAIL`
+- `NOT_EXECUTED`
+- `SKIPPED_*`
+
+Menu:
+
+- `N`: detail + full PATCH log;
+- `a`: aggregate batch log;
+- `p`: chỉ PASS;
+- `x`: chỉ problem items;
+- `c`: item có source changes;
+- `d N`: source before/after diff;
+- `s N`: tạo support bundle ZIP;
+- `h`: history;
+- `q`: exit.
+
+## 8. Source before/after
+
+Với PATCH có declared `targets`, dispatcher snapshot metadata/source text nhỏ trước và sau execution. Report ghi changed declared targets và tạo `source.diff` dạng unified diff khi file là UTF-8/text đủ nhỏ; binary/large file vẫn có size/SHA metadata.
+
+Snapshot này dùng cho reporting, không thay thế transaction snapshot.
+
+## 9. Run history management
+
+```bash
+./tools/run_python_patches.sh report --list
+./tools/run_python_patches.sh report --pin <run_id>
+./tools/run_python_patches.sh report --unpin <run_id>
+./tools/run_python_patches.sh report --export <run_id>
+./tools/run_python_patches.sh report --delete <run_id>
+./tools/run_python_patches.sh report --cleanup
+```
+
+Pinned run không bị automatic retention cleanup. Export tạo ZIP chứa run JSON + persistent logs/report artifacts.
+
+## 10. Support bundle từ report
+
+Trong menu dùng `s N`, hoặc:
+
+```bash
+./tools/run_python_patches.sh report --run-id <run_id> --support-item 2
+```
+
+Support ZIP chỉ gom evidence liên quan item: report row, batch summary, detail/preflight log, source diff, FAIL_HANDOFF và recovery COLLECT nếu có. Không tự gom toàn repo.
+
+## 11. Native Windows runtime lane
+
+Package có:
 
 ```powershell
-.\tools\run_python_patches.ps1 validate --patch patchs/example.zip
+.\tools\run_windows_native_tests.ps1
 ```
 
-Open the most recent useful batch report:
+Lane chạy thực trên Windows và kiểm tra BAT + PowerShell launcher, project path có space/Unicode, controlled continue batch, persistent report và Windows runtime contracts. Host build Linux không được phép giả vờ đây là native PASS; release chỉ ghi native lane **packaged** nếu chưa chạy trên máy Windows thật.
 
-```bash
-./tools/run_python_patches.sh report
-```
+## Regression/stop condition
 
-```bat
-tools\run_python_patches.bat report
-```
+Release chỉ chuyển sang COMPLETE khi:
 
-## Windows parity / robustness
+- new batch-engine E2E PASS;
+- old v6.16 regression PASS hoặc được cập nhật đúng contract mới;
+- Windows lane packaging contract PASS;
+- Tool Health PASS;
+- exact `SHA256SUMS` coverage PASS;
+- clean-extract public launcher smoke PASS;
+- docs/version/checksum đồng bộ.
 
-- Dispatcher no longer calls the POSIX `.sh` launcher internally. PATCH, COLLECT, inspect and validate route directly through the packaged Python runtime with `sys.executable`, so zero-argument Windows use does not require Bash/Git-Bash.
-- Payload/post-command subprocesses use `CREATE_NEW_PROCESS_GROUP`; timeout/Ctrl+C containment escalates to Windows `taskkill /T /F` before rollback/result publication.
-- Windows project safety rejects reparse-point paths where a symlink/junction-like redirection could escape the validated project path.
-- Native Windows console selector uses `msvcrt` and VT output when available: ↑/↓, Space, 0–9 priority, `a`, `n`, `d`, `i`, `v`, `h`, Enter, q/Esc. If a console cannot support the safe fullscreen path, tool automatically falls back to the stable line selector.
-
-## Release stop condition
-
-**COMPLETE / STOP.** Batch report tests, old regression, clean-extract public workflow và package checksum đều phải PASS trước khi phát hành artifact; không tự mở thêm capability sau release này.
+Sau khi đạt các điều kiện trên: **STOP**, không tự mở Target-overlap analyzer hoặc provenance/identity.
