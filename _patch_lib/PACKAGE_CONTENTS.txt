@@ -102,9 +102,6 @@ overwritten by direct extraction.
 
 --- BEGIN GENERATED MANAGED FILE INDEX ---
 # Generated from the managed tools tree for v6.20.2.
-tools/.github/workflows/provenance-completion.yml
-tools/.ptv_work/PROGRESS.md
-tools/.ptv_work/provenance_completion.py
 tools/HUONG_DAN_PYTHON_PATCH_TOOL.html
 tools/PYTHON_PATCH_TOOL_FEATURES_VI.md
 tools/_patch_lib/PACKAGE_CONTENTS.txt

@@ -14,6 +14,7 @@ except ImportError:
 MANAGED_BEGIN = "--- BEGIN GENERATED MANAGED FILE INDEX ---"
 MANAGED_END = "--- END GENERATED MANAGED FILE INDEX ---"
 REPO_ONLY_REL = frozenset({"README.md", "self-install-and-update.sh"})
+REPO_ONLY_TOP_LEVEL = frozenset({".github", ".ptv_work"})
 
 
 def _is_cache(path: Path) -> bool:
@@ -25,7 +26,7 @@ def _is_repo_metadata(path: Path, tool_dir: Path) -> bool:
         rel_parts = path.relative_to(tool_dir).parts
     except ValueError:
         return True
-    return ".git" in rel_parts
+    return ".git" in rel_parts or bool(rel_parts and rel_parts[0] in REPO_ONLY_TOP_LEVEL)
 
 
 def collect_managed_files(tool_dir: Path) -> list[Path]:
