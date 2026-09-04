@@ -17,7 +17,7 @@ import time
 import unicodedata
 from typing import Iterable
 
-VERSION = "6.9.3"
+VERSION = "6.9.4"
 DEFAULT_HEARTBEAT = 0.8
 DEFAULT_MARGIN = 2
 MAX_TAIL_LINES = 120
@@ -158,18 +158,24 @@ def _print_collect_success(root: Path, lines: Iterable[str]) -> bool:
             break
         validation_errors.append(f"{reported}: {error or 'invalid result ZIP'}")
     if result_zip:
-        title = '[PRIMARY - UPLOAD THIS FILE]'
         is_tty = bool(getattr(sys.stdout, 'isatty', lambda: False)())
+        banner = '!!! [PRIMARY - UPLOAD THIS FILE] !!!'
+        destination = '>>> ACTION REQUIRED: UPLOAD TO CHATGPT / AI SERVER <<<'
+        width = max(24, min(72, max(24, _term_width() - 2)))
+        rule = '=' * width
         print('')
-        print('================ COLLECT RESULT ================')
+        print(rule)
         if is_tty:
-            print(f'\x1b[1;7m{title}\x1b[0m')
-            print(f'\x1b[1m{result_zip}\x1b[0m')
+            # High-contrast yellow action banner; keep ANSI outside the path so
+            # the artifact itself is still easy to select/copy from a terminal.
+            print(f'\x1b[1;30;103m{_clip_cells(banner, width)}\x1b[0m')
+            print(f'\x1b[1;7m{_clip_cells(destination, width)}\x1b[0m')
+            print(f'\x1b[1;4m{result_zip}\x1b[0m')
         else:
-            print(title)
+            print(banner)
+            print(destination)
             print(result_zip)
-        print('Destination: ChatGPT / AI server')
-        print('================================================')
+        print(rule)
     else:
         reason = f" ({validation_errors[0]})" if validation_errors else ''
         print(f'[PTV v{VERSION} ERROR] COLLECT process returned success but no valid upload ZIP was verified{reason}.')
@@ -330,7 +336,7 @@ def _reader(stream, q: queue.Queue[str], tail: deque[str]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Python Patch Tool v6.9.3 COLLECT one-line progress supervisor")
+    ap = argparse.ArgumentParser(description="Python Patch Tool v6.9.4 COLLECT one-line progress supervisor")
     ap.add_argument("--project-root", required=True)
     ap.add_argument("--collector", required=True)
     ap.add_argument("rest", nargs=argparse.REMAINDER)

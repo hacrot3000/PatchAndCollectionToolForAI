@@ -27,7 +27,7 @@ try:
 except Exception:
     fcntl = None
 
-VERSION = "6.9.3"
+VERSION = "6.9.4"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -656,31 +656,34 @@ def _render(items, cursor, selected, priorities, msg, prev):
     item_capacity = max(1, frame_budget - header_rows - len(footer))
     start, end = _selector_viewport(len(items), cursor, item_capacity)
 
+    current_tag = f"CON TRỎ {cursor + 1}/{len(items)}" if items else "CON TRỎ 0/0"
     if header_rows == 2:
         if len(items) > item_capacity:
-            header = [f"CHỌN CÔNG VIỆC SẼ CHẠY  [{start + 1}-{end}/{len(items)}]", ""]
+            header = [f"CHỌN CÔNG VIỆC SẼ CHẠY | {current_tag} | VIEW {start + 1}-{end}/{len(items)}", ""]
         else:
-            header = ["CHỌN CÔNG VIỆC SẼ CHẠY", ""]
+            header = [f"CHỌN CÔNG VIỆC SẼ CHẠY | {current_tag}", ""]
     elif header_rows == 1:
-        header = [f"CHỌN CÔNG VIỆC SẼ CHẠY [{start + 1}-{end}/{len(items)}]"]
+        header = [f"CHỌN CÔNG VIỆC SẼ CHẠY | {current_tag}"]
     else:
         header = []
 
-    lines = list(header)
+    lines: list[tuple[str, bool]] = [(line, False) for line in header]
     for i in range(start, end):
         item = items[i]
         detail = f"  [{_safe_display(item.detail)}]" if item.detail else ""
-        lines.append(
+        lines.append((
             f"{'›' if i == cursor else ' '} "
             f"[{_selection_mark(i, selected, priorities)}] {i + 1:>3}. "
-            f"[{_safe_display(item.kind)}] {_safe_display(item.name)}{detail}"
-        )
-    lines.extend(footer)
+            f"[{_safe_display(item.kind)}] {_safe_display(item.name)}{detail}",
+            i == cursor,
+        ))
+    lines.extend((line, False) for line in footer)
 
-    # Clip horizontally after choosing the vertical viewport: every logical row
-    # is exactly one physical row, and the full frame never exceeds the live
-    # terminal height. Both dimensions are re-read on every redraw/resize.
-    lines = [_clip_selector_line(line, terminal_width) for line in lines[:frame_budget]]
+    # Clip horizontally BEFORE adding ANSI emphasis. The current row is shown
+    # in bold reverse video so a long filename can never make the user lose the
+    # cursor position after Space/priority/navigation redraws. Every logical
+    # row remains exactly one physical row.
+    lines = [(_clip_selector_line(line, terminal_width), current) for line, current in lines[:frame_budget]]
     frame_height = max(prev, len(lines))
     # If the terminal shrank vertically, never attempt to cursor-up more rows
     # than are now physically addressable. Clearing the visible budget is safer
@@ -688,9 +691,14 @@ def _render(items, cursor, selected, priorities, msg, prev):
     cursor_up = min(prev, max(0, frame_budget))
     if cursor_up:
         sys.stdout.write(f"\x1b[{cursor_up}F")
-    padded = lines + [""] * (max(len(lines), min(frame_height, frame_budget)) - len(lines))
-    for line in padded:
-        sys.stdout.write("\r\x1b[2K" + line + "\n")
+    padded = lines + [("", False)] * (max(len(lines), min(frame_height, frame_budget)) - len(lines))
+    use_emphasis = bool(getattr(sys.stdout, "isatty", lambda: False)())
+    for line, current in padded:
+        if current and use_emphasis:
+            rendered_line = "\x1b[1;7m" + line + "\x1b[0m"
+        else:
+            rendered_line = line
+        sys.stdout.write("\r\x1b[2K" + rendered_line + "\n")
     sys.stdout.flush()
     return len(padded)
 

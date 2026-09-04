@@ -89,4 +89,4 @@ assert 'python_patch_runtime_guard.py' not in text
 assert 'PTV_USE_RUNTIME_GUARD' not in text
 assert 'git worktree add' not in text
 assert 'exec python3 "$RUNNER" "${filtered[@]}" --transaction off' in text
-print('PASS: v6.9.3 all documented PATCH execution routes force in-place mode')
+print('PASS: v6.9.4 all documented PATCH execution routes force in-place mode')

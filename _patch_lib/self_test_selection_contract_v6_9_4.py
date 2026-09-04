@@ -7,7 +7,7 @@ HERE=Path(__file__).resolve().parent
 MOD=HERE/'python_patch_queue_dispatcher.py'
 spec=importlib.util.spec_from_file_location('ptv_queue_v677_selection',MOD)
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; spec.loader.exec_module(m)
-assert m.VERSION=='6.9.3'
+assert m.VERSION=='6.9.4'
 
 # Historical line grammar: lists, ranges (including reversed), bounds failure.
 assert m._parse_index_spec('1,3-5',6)=={0,2,3,4}
@@ -231,7 +231,11 @@ try:
 finally:
     m.sys.stdout=old_out; m._selector_term_size=old_size
 assert rendered > 0
-for physical in capture.getvalue().splitlines():
+selector_raw=capture.getvalue()
+selector_plain=m._ANSI_RE.sub('',selector_raw).replace('\r','')
+assert 'CON TRỎ 1/1' in selector_plain, selector_plain
+assert '\x1b[1;7m' in selector_raw, selector_raw  # current row is high-contrast
+for physical in selector_raw.splitlines():
     clean=m._ANSI_RE.sub('',physical).replace('\r','')
     assert m._display_cell_width(clean) <= 40,(m._display_cell_width(clean),clean)
 
@@ -270,4 +274,26 @@ for height in (6,4,3,2):
     plain='\n'.join(m._ANSI_RE.sub('',x).replace('\r','') for x in lines)
     assert '18.' in plain or height==2,(height,plain)
 
-print('PASS: v6.9.3 selector/config/priority contracts and clean Ctrl+C handling')
+# Exact long-name style from the M3 report: two redraws (cursor 1 -> cursor 2)
+# must each remain one physical row per logical item, with an unambiguous cursor.
+m3_items=[
+    m.QueueItem('CODE_COLLECTION_REQUEST_m3_memory_phase3_event_async_resource_audit_v4_20260808_2037.zip','COLLECT','id=m3_memory_phase3_event_async_resource_audit_v4 actions=2'),
+    m.QueueItem('patch_m3_client_englishize_logs_phase2c_log1_v6_7_5_20260808_2040.zip','PATCH','manifest'),
+]
+old_out=m.sys.stdout; old_size=m._selector_term_size
+try:
+    capture=_FakeTTYOut(); m.sys.stdout=capture
+    m._selector_term_size=lambda: (84,18)
+    prev=m._render(m3_items,0,set(),{},'',0)
+    prev=m._render(m3_items,1,{1},{},'',prev)
+finally:
+    m.sys.stdout=old_out; m._selector_term_size=old_size
+raw=capture.getvalue()
+plain=m._ANSI_RE.sub('',raw).replace('\r','')
+assert 'CON TRỎ 1/2' in plain and 'CON TRỎ 2/2' in plain, plain
+assert '\x1b[1;7m' in raw, raw
+for physical in raw.splitlines():
+    clean=m._ANSI_RE.sub('',physical).replace('\r','')
+    assert m._display_cell_width(clean) <= 82,(m._display_cell_width(clean),clean)
+
+print('PASS: v6.9.4 selector/config/priority contracts and clean Ctrl+C handling')

@@ -22,7 +22,7 @@ m = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = m
 spec.loader.exec_module(m)
 
-assert m.VERSION == "6.9.3"
+assert m.VERSION == "6.9.4"
 assert m._cell_width("abc") == 3
 assert m._cell_width("测试") == 4
 for width in [0, 1, 2, 12, 20, 40, 80, 120]:
@@ -176,7 +176,8 @@ with tempfile.TemporaryDirectory(prefix="ptprog_result_v6711_") as td:
     out = capture.getvalue()
     assert ok is True, out
     assert "[PRIMARY - UPLOAD THIS FILE]" in out, out
-    assert "Destination: ChatGPT / AI server" in out, out
+    assert "!!! [PRIMARY - UPLOAD THIS FILE] !!!" in out, out
+    assert ">>> ACTION REQUIRED: UPLOAD TO CHATGPT / AI SERVER <<<" in out, out
     assert out.count(str(result)) == 1, out
     assert "ZIP        :" not in out, out
     assert out.count(str(request)) == 1, out
@@ -338,4 +339,4 @@ if os.name == 'posix':
             except ProcessLookupError: pass
         assert not running,f'descendant remained alive after drain-window SIGTERM: pid={descendant}'
 
-print('PASS: Python Patch Tool v6.9.3 collect progress/artifact robustness self-test')
+print('PASS: Python Patch Tool v6.9.4 collect progress/artifact robustness self-test')

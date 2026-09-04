@@ -1,4 +1,4 @@
-# Python Patch Tool v6.9.3 feature status
+# Python Patch Tool v6.9.4 feature status
 
 | Capability | Status |
 |---|---|
@@ -39,7 +39,7 @@
 | Real large-project COLLECT validation | PARTIAL COMPLETE — real M3 COLLECT PASS observed; phase-quality evidence still limited |
 | Phase-inference refinement | DEFERRED unless real COLLECT output demonstrates missing/poor markers |
 
-v6.9.3 is a regression-only PATCH over the v6.9.0 selector-priority baseline.
+v6.9.4 is a regression-only PATCH over the v6.9.0 selector-priority baseline.
 It does not start an unrelated feature group. Duplicate-local behavior remains
 project-local: a PATCH that ran on one computer is still runnable on another
 unless that second project root contains the same package bytes in its own
@@ -68,7 +68,7 @@ unless that second project root contains the same package bytes in its own
 - This extends the existing selector only; the non-TTY line selector retains
   its historical numeric item-index grammar to avoid a breaking ambiguity.
 
-## v6.9.3 regression repair
+## v6.9.4 regression repair
 
 - PASS summary counts executed items separately from `[SKIPPED:DUPLICATE_LOCAL]` items.
 - HANDOFF/tool-distribution ZIP identity is resolved before COLLECT request
@@ -81,12 +81,12 @@ unless that second project root contains the same package bytes in its own
 - No new capability was added.
 
 
-V6.9.3 in-place boundary hardening:
+V6.9.4 in-place boundary hardening:
   Historical/short PATCH execution flags such as `-a -y --move` are treated as
   execution-capable and receive `--transaction off`. Only documented read-only
   utility routes (`paths`, help, version) bypass the execution-only argument.
 
-## v6.9.3 regression repair
+## v6.9.4 regression repair
 
 - Fullscreen selector rows are clipped by live terminal **cell width** with a
   two-cell safety margin. Long OTA/NFC filenames and CJK/full-width text can no
@@ -101,7 +101,7 @@ V6.9.3 in-place boundary hardening:
 
 - Release packaging preserves executable mode on `tools/run_python_patches.sh`; clean extraction is tested before release.
 
-## v6.9.3 regression repair
+## v6.9.4 regression repair
 
 - Fullscreen selector rendering is bounded by live terminal height as well as
   width. A long queue uses a stable cursor-centered viewport, preventing frame
@@ -116,3 +116,8 @@ V6.9.3 in-place boundary hardening:
   orphan a child after the collector parent has already exited.
 - No new feature family is started; selector priority, duplicate-local,
   PATCH/COLLECT routing and permanent in-place/SANDBOX removal are unchanged.
+
+
+## v6.9.4 UI regression repair
+- Fullscreen selector rows are clipped to terminal cell width before ANSI styling; the current row is bold/reverse highlighted and the header always shows `CON TRỎ i/N`, preventing loss of position with very long filenames.
+- Successful COLLECT uses a high-contrast `ACTION REQUIRED` upload banner. The verified result ZIP path is printed exactly once; the archived request remains informational.

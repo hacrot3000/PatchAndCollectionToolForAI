@@ -380,4 +380,4 @@ if m.fcntl is not None:
         assert 'QUEUE LOCK:' in cp.stderr and 'BUSY:' not in cp.stderr,cp.stderr
         assert not (external/'.ptv_queue.lock').exists()
 
-print('PASS: v6.9.3 local-only SHA-256 duplicate PATCH skip contract')
+print('PASS: v6.9.4 local-only SHA-256 duplicate PATCH skip contract')
