@@ -1,4 +1,4 @@
-# Portable use — Python Patch Tool v6.10.0
+# Portable use — Python Patch Tool v6.10.1
 
 Normal entry point:
 
@@ -23,7 +23,11 @@ Each invocation may select either:
 
 Never both. Never two COLLECT requests. `a` selects PATCHes only and priority `0..9` is PATCH-only. This rule is enforced by TTY selection, line selection, initial/config selection normalization, and a final execution guard.
 
-There is **no project/process queue lock** in v6.10.0. Other terminals may run other Patch Tool processes manually if the operator wants concurrent work.
+Line-mode `a/all` has the same PATCH-only meaning as the TTY `a` key. On a
+COLLECT-only queue it does not start the request; select the specific COLLECT
+index explicitly.
+
+There is **no project/process queue lock** in v6.10.1. Other terminals may run other Patch Tool processes manually if the operator wants concurrent work.
 
 ## Permanent PATCH in-place contract
 

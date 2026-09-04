@@ -1,4 +1,4 @@
-# Python Patch Tool v6.10.0 feature status
+# Python Patch Tool v6.10.1 feature status
 
 | Capability | Status |
 |---|---|
@@ -20,9 +20,16 @@
 | Real large-project COLLECT validation | PARTIAL COMPLETE; real M3 COLLECT PASS observed |
 | Phase-inference refinement | DEFERRED until real evidence shows a concrete deficiency |
 
-## v6.10.0 completion
+## v6.10.1 completion
 
 - Replaces the stale `CODE_COLLECTION_GUIDE.md` path so direct portable extraction removes the misleading v5 action table from the active tool documentation.
 - Enforces one-COLLECT-only selection at TTY, line mode and execution boundary.
 - Does not use a process/project lock; separate terminals may run concurrently by explicit operator choice.
 - Does not invent new collector action names or reconstruct missing private collector code.
+
+
+## v6.10.1 regression repair
+
+- Line selector `a/all` now means **all PATCH only**, exactly matching the TTY selector and documentation.
+- On a COLLECT-only queue, `a/all` no longer auto-confirms or starts the request; the operator must select the specific COLLECT index.
+- No new collector action type, process lock, or unrelated capability was added.

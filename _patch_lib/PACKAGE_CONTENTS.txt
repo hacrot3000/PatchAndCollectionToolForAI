@@ -1,4 +1,4 @@
-Python Patch Tool v6.10.0 portable overlay
+Python Patch Tool v6.10.1 portable overlay
 
 Public entry point:
   tools/run_python_patches.sh
@@ -15,7 +15,7 @@ Managed overlay:
   tools/_patch_lib/SHA256SUMS
 
 Normal use:
-  unzip -o python_patch_tool_v6.10.0.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.10.1.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 This overlay does not replace missing/private collector or runner core modules.

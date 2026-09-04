@@ -22,7 +22,7 @@ except Exception:
     termios = tty = None
 
 
-VERSION = "6.10.0"
+VERSION = "6.10.1"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -942,10 +942,7 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
             patches = [item for item in items if item.kind == "PATCH"]
             if patches:
                 return patches
-            collects = [item for item in items if item.kind.startswith("COLLECT")]
-            if len(collects) == 1:
-                return collects
-            print("COLLECT chỉ được chọn đúng 1 request; hãy nhập số của một COLLECT cụ thể.")
+            print("Không có PATCH để chọn tất cả; COLLECT phải chọn từng request một.")
             continue
         if raw in {"n", "none"}:
             selected.clear()

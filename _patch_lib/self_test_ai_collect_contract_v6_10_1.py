@@ -20,4 +20,4 @@ assert 'not authoritative' in guide.lower()
 assert 'unknown action type: overview' in guide.lower()
 assert 'never guess an action type' in ai.lower()
 assert '[PRIMARY - UPLOAD THIS FILE]' in ai
-print('PASS: v6.10.0 AI COLLECT ZIP/schema/exclusive-selection documentation contract')
+print('PASS: v6.10.1 AI COLLECT ZIP/schema/exclusive-selection documentation contract')

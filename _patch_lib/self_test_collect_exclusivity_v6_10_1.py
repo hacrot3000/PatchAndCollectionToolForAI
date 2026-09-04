@@ -7,7 +7,7 @@ HERE=Path(__file__).resolve().parent
 MOD=HERE/'python_patch_queue_dispatcher.py'
 spec=importlib.util.spec_from_file_location('ptv610_collect_exclusive',MOD)
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; spec.loader.exec_module(m)
-assert m.VERSION=='6.10.0'
+assert m.VERSION=='6.10.1'
 
 p1=m.QueueItem('patch_1.zip','PATCH')
 p2=m.QueueItem('patch_2.zip','PATCH')
@@ -48,6 +48,21 @@ with tempfile.TemporaryDirectory(prefix='ptv610_line_all_') as td:
     finally:
         m.sys.stdin,m.sys.stdout=old_in,old_out
     assert [x.name for x in chosen]==[p1.name,p2.name],chosen
+
+# Line-mode "a/all" is PATCH-only. With COLLECT-only queue it must not
+# auto-run the request; the operator must explicitly choose the COLLECT index.
+with tempfile.TemporaryDirectory(prefix='ptv6101_line_all_collect_only_') as td:
+    root=Path(td); (root/'patchs').mkdir()
+    old_in,old_out=m.sys.stdin,m.sys.stdout
+    capture=io.StringIO()
+    try:
+        m.sys.stdin=io.StringIO('a\n1\n'); m.sys.stdout=capture
+        chosen=m._select_items_line(root,[c1],'none')
+    finally:
+        m.sys.stdin,m.sys.stdout=old_in,old_out
+    assert [x.name for x in chosen]==[c1.name],chosen
+    text=capture.getvalue()
+    assert 'Không có PATCH để chọn tất cả' in text,text
 
 # TTY: selecting a COLLECT clears other selections; selecting PATCH afterwards
 # switches back to PATCH mode. Two COLLECT Space selections leave only the last.
@@ -91,4 +106,4 @@ with tempfile.TemporaryDirectory(prefix='ptv610_exec_guard_') as td:
     rc,executed,remaining,dups,warnings=m.execute_items(root,[c1,c2])
     assert rc==2 and executed==[] and len(remaining)==2,(rc,executed,remaining)
 
-print('PASS: v6.10.0 exactly-one-COLLECT per invocation and no mixed PATCH/COLLECT selection')
+print('PASS: v6.10.1 exactly-one-COLLECT per invocation and no mixed PATCH/COLLECT selection')

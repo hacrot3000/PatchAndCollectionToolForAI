@@ -1,4 +1,4 @@
-# CODE COLLECTION GUIDE — CURRENT COMPATIBILITY CONTRACT (v6.10.0)
+# CODE COLLECTION GUIDE — CURRENT COMPATIBILITY CONTRACT (v6.10.1)
 
 This file intentionally replaces obsolete v5 guides at the same path.
 

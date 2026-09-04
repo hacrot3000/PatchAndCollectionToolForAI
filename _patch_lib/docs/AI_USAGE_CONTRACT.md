@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.10.0
+# AI / ChatGPT usage contract — Python Patch Tool v6.10.1
 
 This document overrides obsolete v5 COLLECT examples and older chat instructions.
 
@@ -24,7 +24,7 @@ The user runs the zero-argument launcher and later uploads only the verified res
 
 **Do not use the historical v5 action list as an authoritative schema.** The legacy guide listed names such as `overview`, `research`, `ls`, `tree`, `find`, `file`, `search`, `references`, `pack`, and `git`, but an observed installed collector used with Patch Tool v6.9.1 rejected `overview` at runtime with `Unknown action type: overview`. Therefore those old examples are not portable across installed collector revisions.
 
-The v6.10.0 overlay intentionally does not invent a universal action whitelist because it does not ship the exact private collector core used by every project. AI must do one of the following before creating the inner JSON:
+The v6.10.1 overlay intentionally does not invent a universal action whitelist because it does not ship the exact private collector core used by every project. AI must do one of the following before creating the inner JSON:
 
 1. Use the exact action names and fields defined by the **current installed collector/schema** supplied for that project; or
 2. Reuse/adapt an action object from a `CODE_COLLECTION_REQUEST` that is known to have **PASSed with the same installed collector revision**.
@@ -42,7 +42,7 @@ A `CODE_COLLECTION_REQUEST` is a standalone job within one invocation:
 - `a` means **all PATCHes**, not all COLLECT requests;
 - priority `0..9` applies to PATCH only; COLLECT has no priority.
 
-This is **selection isolation only**. Patch Tool v6.10.0 deliberately does **not** hold a project/process lock. The operator may open other terminal windows and run other Patch Tool processes manually/concurrently. Concurrent execution is operator-controlled and does not create global/shared history.
+This is **selection isolation only**. Patch Tool v6.10.1 deliberately does **not** hold a project/process lock. The operator may open other terminal windows and run other Patch Tool processes manually/concurrently. Concurrent execution is operator-controlled and does not create global/shared history.
 
 ## Result ZIP
 
