@@ -34,6 +34,7 @@ SYNC_DOCS: tuple[str, ...] = (
     "tools/_patch_lib/docs/AI_USAGE_CONTRACT.md",
     "tools/_patch_lib/docs/GIT_SAFE_OPERATIONS.md",
     "tools/_patch_lib/docs/MANUAL_EXECUTION_WORKFLOW.md",
+    "tools/_patch_lib/docs/PROVENANCE_SIGNATURE_TRUST.md",
     "tools/_patch_lib/docs/AI_TOOL_SYNC_CONTRACT.md",
     "tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json",
     "tools/_patch_lib/docs/PATCH_PACKAGE_CHECKLIST.json",

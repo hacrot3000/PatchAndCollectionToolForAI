@@ -102,6 +102,9 @@ overwritten by direct extraction.
 
 --- BEGIN GENERATED MANAGED FILE INDEX ---
 # Generated from the managed tools tree for v6.20.2.
+tools/.github/workflows/provenance-completion.yml
+tools/.ptv_work/PROGRESS.md
+tools/.ptv_work/provenance_completion.py
 tools/HUONG_DAN_PYTHON_PATCH_TOOL.html
 tools/PYTHON_PATCH_TOOL_FEATURES_VI.md
 tools/_patch_lib/PACKAGE_CONTENTS.txt
@@ -125,6 +128,7 @@ tools/_patch_lib/docs/PATCH_PACKAGE_CHECKLIST.json
 tools/_patch_lib/docs/PATCH_PACKAGE_GUIDE.md
 tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json
 tools/_patch_lib/docs/PORTABLE_USAGE.md
+tools/_patch_lib/docs/PROVENANCE_SIGNATURE_TRUST.md
 tools/_patch_lib/docs/PYTHON_PATCH_TOOL_FEATURE_STATUS.md
 tools/_patch_lib/install_python_patch_tool_v5.py
 tools/_patch_lib/install_python_patch_tool_v6.py
@@ -144,6 +148,7 @@ tools/_patch_lib/python_patch_manual_workflow.py
 tools/_patch_lib/python_patch_ops_worker.py
 tools/_patch_lib/python_patch_package_schema.py
 tools/_patch_lib/python_patch_project_state.py
+tools/_patch_lib/python_patch_provenance.py
 tools/_patch_lib/python_patch_queue_dispatcher.py
 tools/_patch_lib/python_patch_readonly_collector.py
 tools/_patch_lib/python_patch_release_metadata.py
@@ -191,6 +196,7 @@ tools/_patch_lib/self_test_patch_recovery_v6_20_0.py
 tools/_patch_lib/self_test_planning_features_v6_20_0.py
 tools/_patch_lib/self_test_portable_installer_v6_20_0.py
 tools/_patch_lib/self_test_preflight_continuation_v6_20_0.py
+tools/_patch_lib/self_test_provenance_signature_v6_21_0.py
 tools/_patch_lib/self_test_public_entry_v6_20_0.py
 tools/_patch_lib/self_test_python_patch_tool_v6_20_0.py
 tools/_patch_lib/self_test_queue_discovery_v6_20_0.py

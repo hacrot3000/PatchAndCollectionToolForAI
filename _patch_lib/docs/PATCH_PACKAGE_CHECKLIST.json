@@ -37,7 +37,8 @@
     "manual_execution steps use structured argv/cwd/expected_exit_codes only; raw command and inline shell/interpreter evaluator forms are forbidden",
     "manual_execution is human-only: Patch Tool must only print instructions/verify evidence, never execute the declared step argv",
     "use payload=manual_only only with manual_execution; non-TTY manual workflow must fail before payload mutation",
-    "when package_result is enabled, preserve MANUAL_EXECUTION_RESULT ZIP+TXT and step logs as AI-facing evidence"
+    "when package_result is enabled, preserve MANUAL_EXECUTION_RESULT ZIP+TXT and step logs as AI-facing evidence",
+    "if manifest.provenance is present, use exactly ptv-patch-signature-v1 + ed25519 + a locally trusted key_id; never invent a signature or trust key; local require_signature policy may reject unsigned PATCHes"
   ],
   "known_migrations": {
     "source_baseline.files[].file": "preflight.files[].path",

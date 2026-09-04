@@ -13,6 +13,7 @@
       "project",
       "patch",
       "compatibility",
+      "provenance",
       "ai_context",
       "execution",
       "batch",
@@ -544,6 +545,38 @@
             }
           }
         }
+      },
+      "provenance": {
+        "type": "object",
+        "required": [
+          "format",
+          "algorithm",
+          "key_id",
+          "signature"
+        ],
+        "allowed_fields": [
+          "format",
+          "algorithm",
+          "key_id",
+          "signature"
+        ],
+        "fields": {
+          "format": {
+            "type": "string",
+            "const": "ptv-patch-signature-v1"
+          },
+          "algorithm": {
+            "type": "string",
+            "const": "ed25519"
+          },
+          "key_id": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          }
+        },
+        "description": "Optional Ed25519 provenance signature. Trust is resolved only from local .python_patch_tool.json policy."
       }
     }
   },
@@ -552,7 +585,7 @@
     "ops": "PATCH_TOOL_OPS.json and no Python entrypoint.",
     "ambiguous": "A package containing both OPS and a Python entrypoint, or multiple Python entrypoints, is rejected before project modification."
   },
-  "preflight_guarantee": "Schema, compatibility, payload, declared resources, declared file hashes/anchors, data-only OPS sequential dry-run, post-command cwd/executable, and Git executable requirements are checked before patch payload execution.",
+  "preflight_guarantee": "Schema, compatibility, optional/required Ed25519 provenance trust, payload, declared resources, declared file hashes/anchors, data-only OPS sequential dry-run, post-command cwd/executable, and Git executable requirements are checked before patch payload execution.",
   "rollback_contract": "Optional recovery.rollback is fail-closed and metadata-driven. rollback.targets must exactly cover the PATCH target set and every rollback target must have an explicit preflight.files baseline (exists=false for initially missing paths, or exists=true plus sha256 for existing files). The runner snapshots only those declared regular-file targets before payload execution. Automatic rollback may run only for configured payload_failure/post_patch_failure stages, before Git policy. For exists=false targets, the parent directory must already exist as a real non-symlink directory inside the project before payload execution; rollback does not invent/remove parent directories. Rollback snapshot creation revalidates the declared baseline to close preflight-to-snapshot TOCTOU.",
   "batch_execution_contract": "Selected PATCH manifests may declare batch.depends_on by existing manifest.patch.id. Dependency/related-target failures are always BLOCKED; legacy on_dependency_failure=run_anyway remains schema-readable only for compatibility and is ignored at runtime. Cross-run unresolved predecessor enforcement is relation-based per selected successor; multiple related unresolved predecessors require Smart Resume before a singular batch.previous_failure successor batch can proceed.",
   "batch_transaction_contract": "Batch transaction policy is target-bounded atomic rollback. Every selected PATCH must declare targets; validation.profiles, post_patch.commands, on_failure.commands and Git add/commit/push are rejected in batch-atomic mode."
