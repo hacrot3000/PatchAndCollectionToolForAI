@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.13.0
+# AI / ChatGPT usage contract — Python Patch Tool v6.14.0
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
@@ -37,7 +37,7 @@ Do not invent PATCH manifest fields or COLLECT action names/fields. `overview` i
 
 AI-generated archive PATCHes must follow `PATCH_PACKAGE_GUIDE.md` and `PATCH_PACKAGE_SCHEMA.json`.
 
-Patch Tool v6.13.0 preflights before payload execution:
+Patch Tool v6.14.0 preflights before payload execution:
 
 - manifest schema;
 - payload ambiguity/entrypoint;
@@ -52,6 +52,10 @@ A preflight failure is a **project-unchanged failure** and is reported as `PREFL
 AI should declare `targets` for Python PATCHes whenever known. This makes partial-modification diagnosis reliable even outside Git.
 
 PATCH remains **in-place**. SANDBOX/detached worktree transaction execution is permanently removed.
+
+### Optional safe rollback
+
+Rollback is never inferred. AI may add `recovery.rollback` only when it can declare the complete target set and exact baseline metadata required by `PATCH_PACKAGE_SCHEMA.json` / `PATCH_PACKAGE_GUIDE.md`. It is limited to payload/post-patch failures before Git policy. A rollback result is recorded as `PASS`, `PARTIAL`, `FAIL`, or `SKIPPED` in structured PATCH evidence. If the contract is incomplete, preflight rejects the package before project modification.
 
 ## PATCH failure recovery
 
@@ -110,13 +114,17 @@ If `truncated>0`, AI must treat evidence as bounded/incomplete and should reques
 
 ## Self-contained runtime
 
-v6.13.0 ships the documented PATCH runner, utilities, readonly collector, schemas, dispatcher and progress supervisor. The documented current contract does not require an older **private core**. Historical formats outside the current schemas fail closed rather than being guessed.
+v6.14.0 ships the documented PATCH runner, utilities, readonly collector, schemas, dispatcher and progress supervisor. The documented current contract does not require an older **private core**. Historical formats outside the current schemas fail closed rather than being guessed.
 
 ## Duplicate rules
 
 - Current queue: same size + exact SHA-256 → keep first natural-order PATCH and remove redundant queue copies before selector.
 - Local successful history: exact SHA-256 against direct `patchs/patched/` in this project → skip locally.
 - No global/server/project-key/cross-machine duplicate database.
+
+## Tool Health / install self-audit
+
+The zero-argument selector exposes read-only Tool Health with key `h` (line selector: `h`). When the queue is empty, a compact health line is printed automatically. Health verifies the installed VERSION, `SHA256SUMS`, required self-contained runtime files, executable launcher and authoritative PATCH/COLLECT schemas. It never executes PATCH or downloads updates.
 
 ## User-guide boundary
 

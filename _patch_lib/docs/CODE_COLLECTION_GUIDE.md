@@ -1,6 +1,6 @@
-# CODE COLLECTION GUIDE — v6.13.0 AUTHORITATIVE CONTRACT
+# CODE COLLECTION GUIDE — v6.14.0 AUTHORITATIVE CONTRACT
 
-Python Patch Tool v6.13.0 is self-contained for its documented COLLECT schema. The authoritative action list is not inferred from old guides; it is defined by `COLLECT_ACTION_SCHEMA.json` and enforced before execution.
+Python Patch Tool v6.14.0 is self-contained for its documented COLLECT schema. The authoritative action list is not inferred from old guides; it is defined by `COLLECT_ACTION_SCHEMA.json` and enforced before execution.
 
 This is an **AI/tool-facing technical document**. Do not copy the action table into the end-user HTML guide; the user should not need to choose or understand action types.
 

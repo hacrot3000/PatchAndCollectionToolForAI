@@ -1,4 +1,4 @@
-Python Patch Tool v6.13.0 — full self-contained package
+Python Patch Tool v6.14.0 — full self-contained package
 
 Public files:
   tools/run_python_patches.sh
@@ -11,6 +11,7 @@ Self-contained runtime:
   tools/_patch_lib/python_patch_runner.py
   tools/_patch_lib/python_patch_utils.py
   tools/_patch_lib/python_patch_package_schema.py
+  tools/_patch_lib/python_patch_health.py
   tools/_patch_lib/python_patch_readonly_collector.py
   tools/_patch_lib/python_patch_collect_compat.py
   tools/_patch_lib/python_patch_collect_schema.py
@@ -24,7 +25,7 @@ Authoritative AI/tool docs:
   tools/_patch_lib/docs/CODE_COLLECTION_GUIDE.md
   tools/_patch_lib/docs/PORTABLE_USAGE.md
   tools/_patch_lib/docs/PYTHON_PATCH_TOOL_FEATURE_STATUS.md
-  tools/_patch_lib/docs/COLLECT_PROGRESS_V6_13_0.md
+  tools/_patch_lib/docs/COLLECT_PROGRESS_V6_14_0.md
 
 Runtime audit/recovery artifacts (created in the project, not shipped pre-populated):
   artifacts/patch_tool/LAST_RUN.json
@@ -33,7 +34,10 @@ Runtime audit/recovery artifacts (created in the project, not shipped pre-popula
   patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip  # only when source-drift/anchor recovery is prepared
 
 Normal use:
-  unzip -o python_patch_tool_v6.13.0.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.14.0.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 PATCH execution remains IN-PLACE. SANDBOX/worktree transaction execution is permanently unsupported.
+
+Zero-argument selector key `h` performs read-only Tool Health; IDLE prints a compact health line.
+Metadata-driven rollback is opt-in and limited to exact declared targets before Git policy.

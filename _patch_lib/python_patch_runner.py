@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from python_patch_utils import PatchFailure, finish_failure, run_ops
 from python_patch_package_schema import PatchSchemaError, run_preflight, sha256_file
 
-VERSION = "6.13.0"
+VERSION = "6.14.0"
 
 
 def _sha256(path: Path) -> str:
@@ -351,6 +351,215 @@ def _partial_state(
     }
 
 
+
+
+def _prepare_rollback_snapshot(root: Path, rollback: dict[str, object]) -> tuple[tempfile.TemporaryDirectory[str], dict[str, object]]:
+    targets = rollback.get("targets")
+    if not isinstance(targets, list) or not targets:
+        raise PatchSchemaError("rollback snapshot requires targets", kind="rollback_contract_invalid")
+    limit = int(rollback.get("max_total_bytes", 268435456))
+    baselines = rollback.get("baselines")
+    if not isinstance(baselines, dict):
+        raise PatchSchemaError("rollback snapshot requires exact baselines", kind="rollback_contract_invalid")
+    temp_dir = tempfile.TemporaryDirectory(prefix="ptv-rollback-")
+    base = Path(temp_dir.name)
+    entries: list[dict[str, object]] = []
+    total = 0
+    try:
+        for index, rel in enumerate(targets):
+            if not isinstance(rel, str):
+                raise PatchSchemaError("rollback target must be a string", kind="rollback_contract_invalid")
+            path = root.joinpath(*PurePosixPath(rel).parts)
+            baseline = baselines.get(rel)
+            if not isinstance(baseline, dict) or "exists" not in baseline:
+                raise PatchSchemaError(f"rollback baseline missing at snapshot: {rel}", kind="rollback_contract_invalid", path=rel)
+            try:
+                lst = path.lstat()
+            except FileNotFoundError:
+                if baseline.get("exists") is not False:
+                    raise PatchSchemaError(f"rollback baseline changed after preflight: {rel} is now missing", kind="rollback_snapshot_race", path=rel)
+                entries.append({"path": rel, "kind": "missing"})
+                continue
+            if baseline.get("exists") is False:
+                raise PatchSchemaError(f"rollback baseline changed after preflight: {rel} now exists", kind="rollback_snapshot_race", path=rel)
+            if stat.S_ISLNK(lst.st_mode) or not stat.S_ISREG(lst.st_mode):
+                raise PatchSchemaError(f"rollback target baseline must be regular file or missing: {rel}", kind="rollback_snapshot_invalid", path=rel)
+            flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(path, flags)
+            backup = base / f"{index:05d}.bin"
+            digest = hashlib.sha256()
+            copied = 0
+            try:
+                before = os.fstat(fd)
+                if not stat.S_ISREG(before.st_mode):
+                    raise PatchSchemaError(f"rollback target changed type before snapshot: {rel}", kind="rollback_snapshot_invalid", path=rel)
+                with os.fdopen(fd, "rb", closefd=False) as src, backup.open("wb") as dst:
+                    for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                        copied += len(chunk)
+                        total += len(chunk)
+                        if total > limit:
+                            raise PatchSchemaError(
+                                f"rollback snapshot exceeds max_total_bytes={limit}",
+                                kind="rollback_snapshot_too_large",
+                            )
+                        dst.write(chunk)
+                        digest.update(chunk)
+                after = os.fstat(fd)
+            finally:
+                os.close(fd)
+            identity_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+            identity_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+            if identity_before != identity_after or copied != before.st_size:
+                raise PatchSchemaError(f"rollback target changed while snapshotting: {rel}", kind="rollback_snapshot_race", path=rel)
+            snapshot_sha = digest.hexdigest()
+            expected_sha = str(baseline.get("sha256") or "").lower()
+            if not expected_sha or snapshot_sha.lower() != expected_sha:
+                raise PatchSchemaError(
+                    f"rollback baseline changed after preflight: {rel} expected={expected_sha or '<missing>'} actual={snapshot_sha}",
+                    kind="rollback_snapshot_race", path=rel,
+                )
+            entries.append({
+                "path": rel,
+                "kind": "file",
+                "backup": backup.name,
+                "size": copied,
+                "sha256": snapshot_sha,
+                "mode": stat.S_IMODE(before.st_mode),
+            })
+        return temp_dir, {"targets": list(targets), "entries": entries, "total_bytes": total, "on": list(rollback.get("on") or [])}
+    except Exception:
+        temp_dir.cleanup()
+        raise
+
+
+def _restore_rollback_snapshot(
+    root: Path,
+    snapshot_dir: tempfile.TemporaryDirectory[str],
+    snapshot: dict[str, object],
+    *,
+    before_fp: str | None,
+    before_dirty: dict[str, str],
+    before_targets: dict[str, dict[str, object]],
+    target_paths: list[str],
+    trigger: str,
+) -> dict[str, object]:
+    entries = snapshot.get("entries")
+    if not isinstance(entries, list):
+        return {"status": "FAIL", "trigger": trigger, "message": "rollback snapshot is invalid", "restored_paths": [], "errors": ["missing entries"]}
+    restored: list[str] = []
+    errors: list[str] = []
+    base = Path(snapshot_dir.name)
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+            errors.append("invalid rollback entry")
+            continue
+        rel = str(entry["path"])
+        path = root.joinpath(*PurePosixPath(rel).parts)
+        parent = path.parent
+        if not parent.is_dir() or parent.is_symlink():
+            errors.append(f"parent missing/unsafe: {rel}")
+            continue
+        kind = entry.get("kind")
+        try:
+            if kind == "missing":
+                if path.is_symlink() or path.is_file():
+                    path.unlink()
+                elif path.exists():
+                    raise RuntimeError("rollback refuses to remove a directory/non-file created at target path")
+                restored.append(rel)
+                continue
+            if kind != "file" or not isinstance(entry.get("backup"), str):
+                raise RuntimeError("invalid file rollback entry")
+            if path.exists() and not path.is_symlink() and not path.is_file():
+                raise RuntimeError("rollback refuses to replace a directory/non-file target")
+            backup = base / str(entry["backup"])
+            if not backup.is_file() or backup.is_symlink():
+                raise RuntimeError("rollback backup missing")
+            fd, temp_name = tempfile.mkstemp(prefix=".ptv-restore-", dir=parent)
+            temp_path = Path(temp_name)
+            try:
+                with os.fdopen(fd, "wb") as dst, backup.open("rb") as src:
+                    shutil.copyfileobj(src, dst, length=1024 * 1024)
+                    dst.flush()
+                    try: os.fsync(dst.fileno())
+                    except OSError: pass
+                if os.name != "nt":
+                    os.chmod(temp_path, int(entry.get("mode", 0o644)))
+                if _sha256(temp_path) != entry.get("sha256"):
+                    raise RuntimeError("restored bytes failed snapshot hash verification")
+                os.replace(temp_path, path)
+            finally:
+                try: temp_path.unlink()
+                except FileNotFoundError: pass
+            restored.append(rel)
+        except Exception as exc:
+            errors.append(f"{rel}: {type(exc).__name__}: {exc}")
+
+    after_targets = _snapshot_declared_paths(root, target_paths)
+    target_changes = _snapshot_changes(before_targets, after_targets)
+    after_fp = _git_worktree_fingerprint(root)
+    git_restored = None if before_fp is None or after_fp is None else before_fp == after_fp
+    if errors:
+        status = "FAIL"
+    elif target_changes:
+        status = "PARTIAL"
+    elif git_restored is False:
+        status = "PARTIAL"
+    else:
+        status = "PASS"
+    remaining = _partial_state(
+        root,
+        before_fp=before_fp,
+        before_dirty=before_dirty,
+        before_targets=before_targets,
+        target_paths=target_paths,
+    )
+    return {
+        "status": status,
+        "trigger": trigger,
+        "restored_paths": sorted(restored),
+        "errors": errors,
+        "remaining_project_delta": remaining,
+        "verification": "git_worktree+declared_targets" if git_restored is not None else "declared_targets_only",
+    }
+
+
+def _maybe_rollback(
+    root: Path,
+    *,
+    preflight: dict[str, object],
+    rollback_temp: tempfile.TemporaryDirectory[str] | None,
+    rollback_snapshot: dict[str, object] | None,
+    before_fp: str | None,
+    before_dirty: dict[str, str],
+    before_targets: dict[str, dict[str, object]],
+    target_paths: list[str],
+    trigger: str,
+) -> dict[str, object] | None:
+    config = preflight.get("rollback") if isinstance(preflight, dict) else None
+    if not isinstance(config, dict) or rollback_temp is None or rollback_snapshot is None:
+        return None
+    allowed = config.get("on")
+    if not isinstance(allowed, list) or trigger not in allowed:
+        return {"status": "SKIPPED", "trigger": trigger, "reason": "trigger_not_enabled"}
+    result = _restore_rollback_snapshot(
+        root, rollback_temp, rollback_snapshot,
+        before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets,
+        target_paths=target_paths, trigger=trigger,
+    )
+    status = result.get("status")
+    if status == "PASS":
+        print(f"ROLLBACK: PASS | restored {len(result.get('restored_paths') or [])} declared target(s) to pre-patch state")
+    else:
+        print(f"ROLLBACK: {status} | automatic restore could not fully return the project to its pre-patch state", file=sys.stderr)
+        for err in result.get("errors") or []:
+            print(f"  rollback error: {err}", file=sys.stderr)
+        remaining = result.get("remaining_project_delta")
+        if isinstance(remaining, dict):
+            for rel in remaining.get("changed_paths") or []:
+                print(f"  remaining change: {rel}", file=sys.stderr)
+    return result
+
 def _base_result(source: Path) -> dict[str, object]:
     return {
         "format": "python-patch-tool-patch-result",
@@ -366,6 +575,7 @@ def _base_result(source: Path) -> dict[str, object]:
         "preflight": None,
         "diagnosis": None,
         "partial_modification": {"detected": False, "changed_paths": [], "evidence": "preflight_not_started"},
+        "rollback": None,
     }
 
 
@@ -433,6 +643,12 @@ def _print_preflight_report(source: Path, manifest: dict, kind: str, preflight: 
             print(f"    - {rel}")
         if len(targets) > 40:
             print(f"    ... {len(targets)-40} more")
+    rollback = preflight.get("rollback")
+    if isinstance(rollback, dict):
+        print(
+            f"  Rollback: opt-in | targets={len(rollback.get('targets') or [])} "
+            f"on={','.join(rollback.get('on') or [])} max_bytes={rollback.get('max_total_bytes')}"
+        )
     for warning in preflight.get("warnings") or []:
         print(f"  WARNING: {warning}")
 
@@ -474,6 +690,8 @@ def _execute_patch(root: Path, source: Path) -> int:
         return _finish_result(result, status="FAIL", rc=2, stage="input", diagnosis={"kind": "package_invalid", "message": "input is not a regular non-symlink file", "affected_paths": []})
 
     temp_dir: tempfile.TemporaryDirectory[str] | None = None
+    rollback_temp: tempfile.TemporaryDirectory[str] | None = None
+    rollback_snapshot: dict[str, object] | None = None
     try:
         try:
             temp_dir, _extracted, manifest, kind, payload, ops_data, preflight = _prepare_package(root, source)
@@ -496,6 +714,20 @@ def _execute_patch(root: Path, source: Path) -> int:
         before_fp = _git_worktree_fingerprint(root)
         before_dirty = _dirty_paths(root)
         before_targets = _snapshot_declared_paths(root, target_paths)
+        rollback_cfg = preflight.get("rollback") if isinstance(preflight, dict) else None
+        if isinstance(rollback_cfg, dict):
+            try:
+                rollback_temp, rollback_snapshot = _prepare_rollback_snapshot(root, rollback_cfg)
+                print(f"ROLLBACK SNAPSHOT: READY | targets={len(rollback_cfg.get('targets') or [])} | bytes={rollback_snapshot.get('total_bytes',0)}")
+            except PatchSchemaError as exc:
+                diagnosis = {"kind": exc.kind, "message": str(exc), "affected_paths": [exc.path] if exc.path else []}
+                result["preflight"] = {
+                    **(preflight if isinstance(preflight, dict) else {}),
+                    "status": "FAIL", "kind": exc.kind, "message": str(exc),
+                    "affected_paths": diagnosis["affected_paths"],
+                }
+                print(f"PREFLIGHT FAIL — project unchanged | {exc.kind}: {exc}", file=sys.stderr)
+                return _finish_result(result, status="FAIL", rc=2, stage="preflight", diagnosis=diagnosis, partial={"detected": False, "changed_paths": [], "evidence": "rollback_snapshot_failed_before_payload"})
 
         timeout = 900
         if isinstance(manifest.get("execution"), dict):
@@ -530,6 +762,16 @@ def _execute_patch(root: Path, source: Path) -> int:
                     print(f"  changed: {rel}", file=sys.stderr)
             elif partial.get("detected") is None:
                 print("[PTV WARNING] PATCH failed but partial-modification state is unknown outside Git because no targets were declared.", file=sys.stderr)
+            rollback_result = _maybe_rollback(
+                root, preflight=preflight, rollback_temp=rollback_temp, rollback_snapshot=rollback_snapshot,
+                before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets,
+                target_paths=target_paths, trigger="payload_failure",
+            )
+            if rollback_result is not None:
+                result["rollback"] = rollback_result
+                diagnosis["rollback_status"] = rollback_result.get("status")
+                if rollback_result.get("status") == "PASS":
+                    partial = rollback_result.get("remaining_project_delta") if isinstance(rollback_result.get("remaining_project_delta"), dict) else partial
             print(f"RUN SUMMARY: FAIL | {source.name} rc={rc}", file=sys.stderr)
             return _finish_result(result, status="FAIL", rc=rc, stage="payload", diagnosis=diagnosis, partial=partial)
 
@@ -542,6 +784,16 @@ def _execute_patch(root: Path, source: Path) -> int:
             diagnosis = {"kind": "post_patch_failed", "message": f"post_patch returned rc={rc}", "affected_paths": list(partial.get("changed_paths") or [])}
             if partial.get("detected") is True:
                 print("!!! PARTIAL MODIFICATION DETECTED: patch payload changed project before validation failed !!!", file=sys.stderr)
+            rollback_result = _maybe_rollback(
+                root, preflight=preflight, rollback_temp=rollback_temp, rollback_snapshot=rollback_snapshot,
+                before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets,
+                target_paths=target_paths, trigger="post_patch_failure",
+            )
+            if rollback_result is not None:
+                result["rollback"] = rollback_result
+                diagnosis["rollback_status"] = rollback_result.get("status")
+                if rollback_result.get("status") == "PASS":
+                    partial = rollback_result.get("remaining_project_delta") if isinstance(rollback_result.get("remaining_project_delta"), dict) else partial
             print(f"RUN SUMMARY: FAIL | post_patch rc={rc}", file=sys.stderr)
             return _finish_result(result, status="FAIL", rc=rc, stage="post_patch", diagnosis=diagnosis, partial=partial)
 
@@ -580,6 +832,8 @@ def _execute_patch(root: Path, source: Path) -> int:
         print(f"ERROR: PATCH execution failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return _finish_result(result, status="FAIL", rc=2, stage=str(result.get("stage") or "unknown"), diagnosis={"kind": "internal_error", "message": f"{type(exc).__name__}: {exc}", "affected_paths": []})
     finally:
+        if rollback_temp is not None:
+            rollback_temp.cleanup()
         if temp_dir is not None:
             temp_dir.cleanup()
 

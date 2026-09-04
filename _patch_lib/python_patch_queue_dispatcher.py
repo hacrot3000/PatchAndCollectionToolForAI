@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
+from python_patch_health import print_health
 
 try:
     import termios
@@ -28,7 +29,7 @@ except Exception:
     termios = tty = None
 
 
-VERSION = "6.13.0"
+VERSION = "6.14.0"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -1107,11 +1108,11 @@ def _render(items, cursor, selected, priorities, msg, prev):
     full_footer = [
         "",
         "Space: chọn/bỏ [x] | 0-9: gán ưu tiên | ↑/↓: di chuyển",
-        "a: tất cả PATCH [x] | n: bỏ tất cả | d: xóa | i: inspect PATCH",
+        "a: tất cả PATCH [x] | n: bỏ tất cả | d: xóa | i: inspect PATCH | h: health",
         "Enter: xác nhận | q/Esc: hủy | Số nhỏ chạy trước; cùng số giữ thứ tự hiện tại",
         _safe_display(msg) if msg else "",
     ]
-    compact_help = "Space/[0-9]/↑↓ | i inspect | Enter chạy | q hủy"
+    compact_help = "Space/[0-9]/↑↓ | i inspect | h health | Enter chạy | q hủy"
 
     # Scale the fixed UI down before sacrificing the cursor row. Even an
     # extremely short terminal must show the current item and must never write
@@ -1348,7 +1349,7 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
         for i, item in enumerate(items, 1):
             mark = "x" if i - 1 in selected else " "
             print(f"  [{mark}] {i}. [{_safe_display(item.kind)}] {_safe_display(item.name)}")
-        print("Nhập: 1,3-5 | a=all PATCH | n=none | d <range>=xóa | i <số>=inspect PATCH | q=quit | Enter=xác nhận")
+        print("Nhập: 1,3-5 | a=all PATCH | n=none | d <range>=xóa | i <số>=inspect PATCH | h=health | q=quit | Enter=xác nhận")
         raw_line, interrupted = _readline_or_interrupt()
         if interrupted:
             print("\nCancelled by Ctrl+C.")
@@ -1358,6 +1359,10 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
         raw = raw_line.strip().lower()
         if raw in {"q", "quit"}:
             return None
+        if raw in {"h", "health"}:
+            rc = print_health(root, compact=False)
+            print(f"TOOL HEALTH rc={rc}")
+            continue
         if raw in {"a", "all"}:
             patches = [item for item in items if item.kind == "PATCH"]
             if patches:
@@ -1551,6 +1556,16 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto"):
                 tty.setcbreak(fd)
                 rendered = 0
                 msg = f"Inspect {'PASS' if rc == 0 else 'FAIL'} rc={rc}; selection unchanged."
+            elif key == "h":
+                # Health is a read-only self-audit of the installed tool. It
+                # never changes queue selection or project source.
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+                sys.stdout.write("\n--- TOOL HEALTH / SELF-AUDIT ---\n"); sys.stdout.flush()
+                rc = print_health(root, compact=False)
+                print("--- END TOOL HEALTH ---")
+                tty.setcbreak(fd)
+                rendered = 0
+                msg = f"Tool health {'PASS' if rc == 0 else 'FAIL'} rc={rc}; selection unchanged."
             elif key == "ENTER":
                 if selected:
                     chosen = _ordered_selection(items, selected, priorities)
@@ -1782,6 +1797,7 @@ def _run_queue(root: Path):
             _print_local_duplicate_skips(local_duplicates)
         else:
             print("AUTO STATUS: IDLE — no runnable patch/collect package is waiting in patchs/.")
+        print_health(root, compact=True)
         return finish_report("IDLE", 0)
 
     cfg, config_warnings = _load_zero_argument_config(root)

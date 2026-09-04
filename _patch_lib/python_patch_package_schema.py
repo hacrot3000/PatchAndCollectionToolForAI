@@ -9,7 +9,7 @@ import re
 import shutil
 from typing import Any
 
-VERSION = "6.13.0"
+VERSION = "6.14.0"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "PATCH_PACKAGE_SCHEMA.json"
 _HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 _SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
@@ -203,6 +203,75 @@ def _ops_target_paths(ops: Any) -> set[str]:
     return result
 
 
+
+
+def _rollback_contract(manifest: dict[str, Any], targets: set[str]) -> dict[str, Any] | None:
+    recovery = manifest.get("recovery")
+    if not isinstance(recovery, dict):
+        return None
+    rollback = recovery.get("rollback")
+    if rollback is None:
+        return None
+    if not isinstance(rollback, dict):
+        raise PatchSchemaError("recovery.rollback must be an object", kind="rollback_contract_invalid")
+    raw_targets = rollback.get("targets")
+    if not isinstance(raw_targets, list) or not raw_targets:
+        raise PatchSchemaError("recovery.rollback.targets must be a non-empty array", kind="rollback_contract_invalid")
+    rollback_targets = [_safe_rel(x, label="rollback target") for x in raw_targets]
+    if len(set(rollback_targets)) != len(rollback_targets):
+        raise PatchSchemaError("recovery.rollback.targets contains duplicate paths", kind="rollback_contract_invalid")
+    if set(rollback_targets) != set(targets):
+        missing = sorted(set(targets) - set(rollback_targets))
+        extra = sorted(set(rollback_targets) - set(targets))
+        raise PatchSchemaError(
+            f"rollback targets must exactly cover PATCH targets; missing={missing} extra={extra}",
+            kind="rollback_contract_invalid",
+        )
+    pre = manifest.get("preflight")
+    specs = pre.get("files") if isinstance(pre, dict) else None
+    if not isinstance(specs, list):
+        raise PatchSchemaError(
+            "recovery.rollback requires preflight.files baseline metadata for every target",
+            kind="rollback_contract_invalid",
+        )
+    by_path: dict[str, dict[str, Any]] = {}
+    for spec in specs:
+        if not isinstance(spec, dict) or not isinstance(spec.get("path"), str):
+            continue
+        rel = _safe_rel(spec["path"], label="preflight file")
+        if rel in by_path:
+            raise PatchSchemaError(f"duplicate preflight baseline for rollback target: {rel}", kind="rollback_contract_invalid", path=rel)
+        by_path[rel] = spec
+    baselines: dict[str, dict[str, Any]] = {}
+    for rel in rollback_targets:
+        spec = by_path.get(rel)
+        if spec is None or "exists" not in spec:
+            raise PatchSchemaError(
+                f"rollback target requires explicit preflight exists baseline: {rel}",
+                kind="rollback_contract_invalid", path=rel,
+            )
+        exists = spec.get("exists")
+        if exists is True and not isinstance(spec.get("sha256"), str):
+            raise PatchSchemaError(
+                f"existing rollback target requires preflight sha256 baseline: {rel}",
+                kind="rollback_contract_invalid", path=rel,
+            )
+        baselines[rel] = {"exists": bool(exists)}
+        if exists is True:
+            baselines[rel]["sha256"] = str(spec.get("sha256")).lower()
+    on = rollback.get("on", ["payload_failure", "post_patch_failure"])
+    if not isinstance(on, list) or not on or not all(isinstance(x, str) for x in on):
+        raise PatchSchemaError("recovery.rollback.on must be a non-empty array", kind="rollback_contract_invalid")
+    allowed = {"payload_failure", "post_patch_failure"}
+    if any(x not in allowed for x in on) or len(set(on)) != len(on):
+        raise PatchSchemaError("recovery.rollback.on contains unsupported/duplicate stage", kind="rollback_contract_invalid")
+    return {
+        "targets": sorted(rollback_targets),
+        "on": list(on),
+        "max_total_bytes": int(rollback.get("max_total_bytes", 268435456)),
+        "baselines": baselines,
+    }
+
 def run_preflight(
     root: Path,
     manifest: dict[str, Any],
@@ -288,6 +357,11 @@ def run_preflight(
                     raise PatchSchemaError(f"preflight anchor missing: {rel}", kind="anchor_mismatch", path=rel)
         checks.append({"kind": "file", "path": rel, "status": "PASS", "sha256": actual_sha})
         targets.add(rel)
+
+    rollback = _rollback_contract(manifest, targets)
+    if rollback is not None:
+        report["rollback"] = rollback
+        checks.append({"kind": "rollback_contract", "status": "PASS", "targets": len(rollback["targets"]), "on": rollback["on"]})
 
     pp = manifest.get("post_patch")
     if isinstance(pp, dict):

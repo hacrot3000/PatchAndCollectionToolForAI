@@ -1,4 +1,4 @@
-# Danh sách tính năng Python Patch Tool — v6.13.0
+# Danh sách tính năng Python Patch Tool — v6.14.0
 
 > Quy tắc duy trì: cập nhật file này ở **mỗi release** khi trạng thái capability thay đổi. Chỉ ghi COMPLETE khi có acceptance/regression tương ứng.
 
@@ -11,7 +11,8 @@
 | COLLECT request ZIP-only; raw JSON reject | COMPLETE |
 | PATCH priority 0–9, stable order | COMPLETE |
 | TTY filename width/height/Unicode viewport safety | COMPLETE |
-| `i` inspect/dry-run PATCH không execution | **COMPLETE v6.13.0** |
+| `i` inspect/dry-run PATCH không execution | COMPLETE |
+| `h` Tool Health/self-audit read-only; line mode hỗ trợ `h`; IDLE in compact health | **COMPLETE v6.14.0** |
 | Exactly one COLLECT / không trộn PATCH | COMPLETE |
 | Không process/project lock | COMPLETE |
 
@@ -23,26 +24,27 @@
 | Duplicate local-history SHA-256, current project only | COMPLETE |
 | PATCH in-place; SANDBOX/worktree removed | COMPLETE |
 | Fail-fast selected batch | COMPLETE |
-| Exact machine-readable `PATCH_PACKAGE_SCHEMA.json` | **COMPLETE v6.13.0** |
-| PATCH schema preflight trước payload | **COMPLETE v6.13.0** |
-| Required package resources preflight | **COMPLETE v6.13.0** |
-| Declared source SHA-256 / anchor preflight | **COMPLETE v6.13.0** |
-| Post command cwd/executable preflight | **COMPLETE v6.13.0** |
-| Tool version min/max/max-tested negotiation | **COMPLETE v6.13.0** |
-| Partial-modification detection khi PATCH fail | **COMPLETE v6.13.0** |
-| Automatic rollback không đủ metadata | **KHÔNG TỰ LÀM / FAIL-CLOSED** |
+| Exact machine-readable `PATCH_PACKAGE_SCHEMA.json` | COMPLETE |
+| PATCH schema/resource/source/post-command preflight | COMPLETE |
+| Tool version min/max/max-tested negotiation | COMPLETE |
+| Partial-modification detection khi PATCH fail | COMPLETE |
+| Metadata-driven rollback opt-in cho exact declared targets | **COMPLETE v6.14.0** |
+| Rollback payload/post-patch failure bằng bounded exact-byte snapshot | **COMPLETE v6.14.0** |
+| Rollback phát hiện thay đổi ngoài declared scope và không false-PASS | **COMPLETE v6.14.0** |
+| Generic rollback khi thiếu metadata / Git-policy rollback | **KHÔNG TỰ LÀM / FAIL-CLOSED** |
 
 ## FAIL → AI recovery / audit
 
 | Tính năng | Trạng thái |
 |---|---|
-| Structured failure diagnosis | **COMPLETE v6.13.0** |
-| `[PRIMARY] PATCH FAIL HANDOFF` ZIP | **COMPLETE v6.13.0** |
-| Include bounded safe relevant current source trong handoff | **COMPLETE v6.13.0** |
-| Source-drift/anchor → auto-prepare `pack` COLLECT request cho next run | **COMPLETE v6.13.0** |
-| `artifacts/patch_tool/LAST_RUN.json` | **COMPLETE v6.13.0** |
-| Bounded local run history (30) | **COMPLETE v6.13.0** |
-| Resume hint cho selected item chưa chạy | **COMPLETE v6.13.0** |
+| Structured failure diagnosis | COMPLETE |
+| `[PRIMARY] PATCH FAIL HANDOFF` ZIP | COMPLETE |
+| Include bounded safe relevant current source trong handoff | COMPLETE |
+| Source-drift/anchor → auto-prepare `pack` COLLECT request cho next run | COMPLETE |
+| `artifacts/patch_tool/LAST_RUN.json` | COMPLETE |
+| Bounded local run history (30) | COMPLETE |
+| Resume hint cho selected item chưa chạy | COMPLETE |
+| Rollback result (`PASS/PARTIAL/FAIL/SKIPPED`) nằm trong structured PATCH result/handoff | **COMPLETE v6.14.0** |
 
 ## COLLECT
 
@@ -53,25 +55,28 @@
 | `pack`, `overview`, `find`, `search`, `git` readonly | COMPLETE |
 | Verified result ZIP / request archive lifecycle | COMPLETE |
 | Highlight một `[PRIMARY - UPLOAD THIS FILE]` | COMPLETE |
-| COLLECT quality summary `files/source/reports/zip/truncated/missing` | **COMPLETE v6.13.0** |
-| Truncation marker trong report manifest | **COMPLETE v6.13.0** |
+| COLLECT quality summary `files/source/reports/zip/truncated/missing` | COMPLETE |
+| Truncation marker trong report manifest | COMPLETE |
 
-## Packaging / docs
+## Packaging / docs / health
 
 | Tính năng | Trạng thái |
 |---|---|
 | Full self-contained runtime cho documented contract | COMPLETE |
 | `SHA256SUMS`, no pycache, launcher 0755 | COMPLETE |
+| Tool Health kiểm tra VERSION / checksum / runtime / launcher / schemas | **COMPLETE v6.14.0** |
 | `implementing.md` live tracker | COMPLETE |
-| AI docs: PATCH schema + COLLECT schema + recovery contract | **COMPLETE v6.13.0** |
-| HTML user guide tối giản | COMPLETE; chỉ cập nhật khi workflow người dùng thật sự thay đổi |
+| AI docs: PATCH schema + COLLECT schema + recovery/rollback contract | **COMPLETE v6.14.0** |
+| HTML user guide tối giản | COMPLETE; v6.14.0 chỉ thêm một dòng về phím `h` vì đây là thao tác trực tiếp của người dùng |
 
 ## Bị giới hạn có chủ đích
 
 - Historical/private-core format ngoài documented current contract: **FAIL-CLOSED / NOT GUARANTEED**.
-- Automatic rollback: không thực hiện nếu package không cung cấp một recovery contract đủ an toàn; v6.13.0 chỉ **detect + diagnose + handoff**, không đoán rollback.
-- Advanced phase inference và private historical LAST_RUN parity cũ không còn là blocker của structured current `LAST_RUN.json`; chỉ tinh chỉnh nếu runtime evidence mới cho thấy thiếu.
+- Auto rollback chỉ được phép khi manifest có exact recovery metadata. Thiếu metadata → preflight reject; tool không đoán.
+- Rollback chỉ dành cho `payload_failure` / `post_patch_failure`, trước Git policy. Git commit/push failure không được tự rollback bằng cách giả lập transaction.
+- Trên Git project, fingerprint toàn worktree được dùng để phát hiện rollback chưa hoàn chỉnh do thay đổi ngoài scope. Ngoài Git, verification chỉ cam kết các declared rollback targets.
+- Advanced phase inference chỉ tinh chỉnh nếu runtime evidence mới cho thấy thiếu.
 
-## v6.13.0 stop condition
+## v6.14.0 stop condition
 
-Phase A, B, C đã hoàn tất. **Dừng và hỏi người dùng hướng tiếp theo.**
+Hai phần còn thiếu theo danh sách đã phê duyệt (#1 rollback an toàn có metadata và #12 Tool Health) đã hoàn tất. **Dừng và hỏi người dùng hướng tiếp theo.**

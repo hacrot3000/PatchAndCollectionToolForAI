@@ -1,4 +1,4 @@
-# PATCH PACKAGE GUIDE — v6.13.0 authoritative AI/tool contract
+# PATCH PACKAGE GUIDE — v6.14.0 authoritative AI/tool contract
 
 Machine-readable source of truth:
 
@@ -36,9 +36,9 @@ Optional manifest block:
 ```json
 {
   "compatibility": {
-    "min_tool_version": "6.13.0",
+    "min_tool_version": "6.14.0",
     "max_tool_version": "7.0.0",
-    "max_tested_version": "6.13.0"
+    "max_tested_version": "6.14.0"
   }
 }
 ```
@@ -112,9 +112,42 @@ A package may explicitly disable either behavior:
 
 Do not disable them without a concrete reason.
 
-## No guessed rollback
+## Metadata-driven safe rollback
 
-v6.13.0 detects whether a failed PATCH already changed the project and records affected paths when evidence is available. It does **not** invent an automatic rollback strategy. Existing OPS helpers may create their documented backups, but a generic Python patch is not silently reversed.
+Automatic rollback is **opt-in and fail-closed**. It is not a replacement for SANDBOX/worktree transactions. AI may request rollback only when every mutable target is known and has an exact preflight baseline.
+
+Example:
+
+```json
+{
+  "targets": ["src/a.c", "generated/new.h"],
+  "preflight": {
+    "files": [
+      {"path": "src/a.c", "exists": true, "sha256": "<64 hex>"},
+      {"path": "generated/new.h", "exists": false}
+    ]
+  },
+  "recovery": {
+    "rollback": {
+      "targets": ["src/a.c", "generated/new.h"],
+      "on": ["payload_failure", "post_patch_failure"],
+      "max_total_bytes": 268435456
+    }
+  }
+}
+```
+
+Rules:
+
+- `recovery.rollback.targets` must exactly cover the PATCH target set resolved by preflight.
+- Every rollback target needs an explicit `preflight.files` baseline. Existing files require `exists:true` plus exact SHA-256; initially absent files require `exists:false`.
+- The runner snapshots only those declared regular-file targets, with a bounded total byte limit, after preflight PASS and before payload execution.
+- Rollback may run only for `payload_failure` and/or `post_patch_failure`, before Git policy. It never attempts to undo a Git commit/push failure.
+- Existing files are restored from exact snapshot bytes; files that were initially absent are removed only if they became a regular file/symlink at the exact declared target path. Directories/non-file objects are never recursively removed.
+- On a Git project the pre/post worktree fingerprint verifies whether the whole project returned to baseline. If an undeclared file changed, status becomes `PARTIAL` even if declared targets were restored. Outside Git, verification is explicitly limited to declared targets.
+- Missing/ambiguous recovery metadata becomes `PREFLIGHT FAIL — project unchanged`; AI must not guess a rollback contract.
+
+`ROLLBACK: PASS` means the configured recovery scope was restored and verified according to the evidence available. `PARTIAL`/`FAIL` remains a normal PATCH failure and the generated FAIL_HANDOFF should be uploaded to AI.
 
 ## Inspect / dry-run
 
