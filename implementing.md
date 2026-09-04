@@ -1,6 +1,6 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.17.2**  
+Phiên bản mục tiêu: **v6.17.3**  
 Trạng thái: **CONTROLLED BATCH ENGINE + SMART RESUME + ADVANCED REPORTING — COMPLETE / STOP**
 
 ## Baseline
@@ -125,16 +125,16 @@ Batch atomic mode fail-closed:
 - snapshot exact package bytes của selected PATCH;
 - nếu bất kỳ PATCH FAIL, toàn bộ effective targets đã snapshot được restore về pre-batch state;
 - rollback FAIL có exit code riêng `70`; report phân biệt `batch_rollback_attempted`, `batch_rollback_status` và `batch_rolled_back`;
-- PATCH đã PASS nhưng thay đổi bị batch rollback được requeue để replay/resume.
+- PATCH đã PASS nhưng thay đổi bị batch rollback được requeue để replay/resume bằng publish **atomic no-overwrite**; concurrent queue replacement không bị ghi đè. Nếu source rollback PASS nhưng requeue replay package FAIL, transaction báo `REQUEUE_FAILED` và exit code `71` thay vì thoát exception/mất report.
 
 Không tuyên bố atomicity cho path mà Python payload tự ghi nhưng không khai báo/không thể resolve trước. PATCH mutation được serialize theo project để tránh lost-update giữa hai terminal; selector/COLLECT vẫn độc lập.
 
-## 5.1. Integrity hardening v6.17.2
+## 5.1. Integrity hardening v6.17.3
 
 - `internal_error` luôn safety-stop; nếu exception xảy ra sau payload thì partial state được tính lại, không mặc định `detected=false`.
 - OPS idempotency chỉ dùng `already` được khai báo explicit; sự xuất hiện của `new` ở nơi khác trong file không còn được coi là bằng chứng đã patch.
 - OPS write dùng same-directory temporary + `fsync` + `os.replace`; OPS dry-run/execution chạy trong managed subprocess và chịu `execution.timeout_seconds`.
-- Git auto-commit fail nếu target đã dirty trước PATCH; `git commit` chỉ PASS khi return code bằng `0`.
+- Git auto-commit fail nếu target đã dirty trước PATCH; guard chạy **trước `git add`**. Nếu staging do tool đã xảy ra nhưng commit không hoàn tất, tool reset chính touched paths để không làm bẩn Git index; `git commit` chỉ PASS khi return code bằng `0`.
 - Archive extraction có giới hạn entry/member/expanded bytes/compression ratio, reject symlink/non-regular/collision và Windows drive/ADS path.
 - COLLECT có hard ceiling cục bộ, bỏ qua output/artifact nội bộ, kiểm quota theo chunk và cảnh báo source/log có dấu hiệu secret trước upload.
 - Regex COLLECT được cô lập trong worker subprocess và có hard timeout 60s cho mỗi search action.
@@ -222,7 +222,7 @@ Package có:
 
 Lane chạy thực trên Windows và kiểm tra BAT + PowerShell launcher, project path có space/Unicode, controlled continue batch, persistent report và Windows runtime contracts. Host build Linux không được phép giả vờ đây là native PASS; release chỉ ghi native lane **packaged** nếu chưa chạy trên máy Windows thật.
 
-## 12. Mandatory FAIL_HANDOFF source collection — v6.17.2
+## 12. Mandatory FAIL_HANDOFF source collection — v6.17.3
 
 Mọi **PATCH FAIL** đều phải tạo `FAIL_HANDOFF_*.zip` và tự thu source liên quan; không phụ thuộc diagnosis có `affected_paths` hay không. `recovery.fail_handoff=false` được giữ parser-compatible cho package cũ nhưng dispatcher cảnh báo và **không cho tắt** handoff nữa.
 
@@ -236,8 +236,9 @@ Thứ tự discovery fail-closed/bounded:
 
 Bundle ghi:
 
-- `current_source/<relative-path>` — exact current bytes của source tìm được;
-- `SOURCE_DISCOVERY.json` — evidence/reason cho từng file, số file scan, truncation, included/skipped và limits;
+- `current_source/<relative-path>` — source được **snapshot ổn định theo generation** trước khi tạo ZIP; SHA-256 của từng attachment được ghi trong `SOURCE_DISCOVERY.json`. File biến mất/đổi trong lúc snapshot chỉ bị skip, không làm hỏng toàn bộ FAIL_HANDOFF;
+- `SOURCE_DISCOVERY.json` — evidence/reason cho từng file, SHA-256 snapshot, số file scan, truncation, included/skipped và limits;
+- `DETAIL.log` — full per-item log khi <=64 MiB; log quá lớn giữ phần đầu + cuối trong giới hạn 64 MiB để lỗi xuất hiện muộn vẫn có evidence; source-path scan dùng tối đa 32 MiB evidence đầu/cuối thay vì chỉ console capture 8 MiB;
 - `FAIL_SUMMARY.json.source_discovery` — summary ngắn;
 - sensitive-content warning vẫn hoạt động, không âm thầm redact source.
 

@@ -58,4 +58,4 @@ with tempfile.TemporaryDirectory(prefix='ptv613_recovery_publish_') as td:
     assert a is not None and a==b and a.is_file()
     assert len(list((root/'patchs').glob('CODE_COLLECTION_REQUEST_patch_recovery_*.zip')))==1
 
-print('PASS: v6.17.2 diagnosis, FAIL_HANDOFF, source-drift recollection, LAST_RUN/resume/history')
+print('PASS: v6.17.3 diagnosis, FAIL_HANDOFF, source-drift recollection, LAST_RUN/resume/history')

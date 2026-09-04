@@ -43,7 +43,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.17.2"
+VERSION = "6.17.3"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -115,6 +115,8 @@ MAX_HANDOFF_SOURCE_TOTAL_BYTES = 128 * 1024 * 1024
 MAX_HANDOFF_SOURCE_FILES = 256
 MAX_HANDOFF_SCAN_FILES = 25000
 MAX_HANDOFF_REFERENCE_TEXT_BYTES = 1024 * 1024
+MAX_HANDOFF_DETAIL_LOG_BYTES = 64 * 1024 * 1024
+MAX_HANDOFF_LOG_EVIDENCE_BYTES = 32 * 1024 * 1024
 _HANDOFF_SCAN_SKIP_DIRS = {
     ".git", "node_modules", ".venv", "venv", "__pycache__", "build", "dist",
     "artifacts", "patchs", ".idea", ".vscode",
@@ -523,18 +525,40 @@ def _run_patch_child(
     return rc, "".join(chunks), result
 
 
+def _path_is_link_or_reparse(path: Path) -> bool:
+    try:
+        st = path.lstat()
+    except OSError:
+        return True
+    attrs = getattr(st, "st_file_attributes", 0)
+    reparse = bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+    return stat.S_ISLNK(st.st_mode) or reparse
+
+
 def _safe_handoff_source(root: Path, rel: str) -> Path | None:
+    """Return a bounded real project file with no symlink/reparse ancestor.
+
+    FAIL_HANDOFF is a diagnostic integrity boundary: source bytes should come
+    from the named project path, not from a redirecting ancestor that may be
+    swapped independently while the bundle is being assembled.
+    """
     try:
         if not isinstance(rel, str) or not rel or "\\" in rel:
             return None
         pure = Path(rel)
-        if pure.is_absolute() or ".." in pure.parts:
+        if pure.is_absolute() or ".." in pure.parts or not pure.parts:
             return None
-        path = root / pure
-        if path.is_symlink() or not path.is_file():
+        root_real = root.resolve(strict=True)
+        cur = root_real
+        for part in pure.parts[:-1]:
+            cur = cur / part
+            if _path_is_link_or_reparse(cur) or not cur.is_dir():
+                return None
+        path = root_real / pure
+        if _path_is_link_or_reparse(path) or not path.is_file():
             return None
         resolved = path.resolve(strict=True)
-        resolved.relative_to(root.resolve())
+        resolved.relative_to(root_real)
         if path.stat().st_size > MAX_HANDOFF_SOURCE_FILE_BYTES:
             return None
         return path
@@ -662,7 +686,7 @@ def _handoff_console_path_evidence(root: Path, console_log: str) -> tuple[list[t
         re.compile(rf'''(?<![A-Za-z0-9_])((?:[A-Za-z]:[\\/])?[^\s"'<>|]+?\.(?:{suffix_alt}))(?::\d+(?::\d+)?)?''', re.I),
     ]
     for pattern in patterns:
-        for match in pattern.finditer(console_log[:MAX_PATCH_CAPTURE_BYTES]):
+        for match in pattern.finditer(console_log[:MAX_HANDOFF_LOG_EVIDENCE_BYTES]):
             raw = match.group(1)
             rel = _normalize_handoff_candidate(root, raw)
             if rel is not None:
@@ -761,6 +785,125 @@ def _related_source_references(root: Path, seeds: list[tuple[str, str]]) -> list
                 break
     return out
 
+
+
+def _read_handoff_detail_log(path: Path | None, fallback: str) -> tuple[str, bytes | None, dict[str, object]]:
+    """Read bounded first+last detail-log bytes for evidence and attachment.
+
+    The regular console capture is intentionally capped at 8 MiB. A compiler
+    or traceback path may appear later, so FAIL_HANDOFF independently samples
+    the persisted per-item log. The bundle remains bounded even for runaway
+    commands.
+    """
+    meta: dict[str, object] = {"available": False, "truncated": False, "bytes": 0}
+    if path is None:
+        return fallback, None, meta
+    try:
+        if _path_is_link_or_reparse(path) or not path.is_file():
+            return fallback, None, meta
+        size = path.stat().st_size
+        meta["available"] = True
+        meta["original_bytes"] = size
+        with path.open("rb") as fh:
+            if size <= MAX_HANDOFF_DETAIL_LOG_BYTES:
+                raw = fh.read(MAX_HANDOFF_DETAIL_LOG_BYTES + 1)
+                if len(raw) > MAX_HANDOFF_DETAIL_LOG_BYTES:
+                    raw = raw[:MAX_HANDOFF_DETAIL_LOG_BYTES]
+                    meta["truncated"] = True
+            else:
+                half = MAX_HANDOFF_DETAIL_LOG_BYTES // 2
+                head = fh.read(half)
+                fh.seek(max(0, size - half))
+                tail = fh.read(half)
+                marker = b"\n[PTV: middle of DETAIL.log omitted by 64 MiB FAIL_HANDOFF limit]\n"
+                raw = head + marker + tail
+                meta["truncated"] = True
+        meta["bytes"] = len(raw)
+        # Use at most the evidence budget, split across beginning/end so a late
+        # compiler error is not hidden behind verbose build output.
+        if len(raw) <= MAX_HANDOFF_LOG_EVIDENCE_BYTES:
+            evidence_raw = raw
+        else:
+            half = MAX_HANDOFF_LOG_EVIDENCE_BYTES // 2
+            evidence_raw = raw[:half] + b"\n[PTV: log evidence middle omitted]\n" + raw[-half:]
+        evidence = evidence_raw.decode("utf-8", errors="replace")
+        return evidence, raw, meta
+    except OSError as exc:
+        meta["error"] = f"{type(exc).__name__}: {exc}"
+        return fallback, None, meta
+
+
+def _snapshot_handoff_sources(
+    root: Path,
+    attachments: list[tuple[str, Path]],
+    snapshot_root: Path,
+) -> tuple[list[tuple[str, Path]], list[dict[str, object]]]:
+    """Freeze discovered source bytes before creating the ZIP.
+
+    Each source is copied independently with generation checks. A disappearing
+    or concurrently modified optional attachment is skipped instead of causing
+    the entire mandatory FAIL_HANDOFF to fail.
+    """
+    frozen: list[tuple[str, Path]] = []
+    skipped: list[dict[str, object]] = []
+    frozen_total = 0
+    root_real = root.resolve(strict=True)
+    for rel, _src_hint in attachments:
+        if len(frozen) >= MAX_HANDOFF_SOURCE_FILES:
+            skipped.append({"path": rel, "reason": "max_source_files_during_snapshot"})
+            continue
+        src = _safe_handoff_source(root, rel)
+        if src is None:
+            skipped.append({"path": rel, "reason": "source_unavailable_before_snapshot"})
+            continue
+        try:
+            before = src.stat()
+            if before.st_size > MAX_HANDOFF_SOURCE_FILE_BYTES:
+                skipped.append({"path": rel, "reason": "source_over_per_file_limit"})
+                continue
+            if frozen_total + before.st_size > MAX_HANDOFF_SOURCE_TOTAL_BYTES:
+                skipped.append({"path": rel, "reason": "max_total_source_bytes_during_snapshot"})
+                continue
+            dst = snapshot_root.joinpath(*Path(rel).parts)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            h = hashlib.sha256()
+            copied = 0
+            with src.open("rb") as in_fh, dst.open("xb") as out_fh:
+                while True:
+                    chunk = in_fh.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    copied += len(chunk)
+                    if copied > MAX_HANDOFF_SOURCE_FILE_BYTES:
+                        raise ValueError("source exceeded per-file limit during snapshot")
+                    if frozen_total + copied > MAX_HANDOFF_SOURCE_TOTAL_BYTES:
+                        raise ValueError("source set exceeded total limit during snapshot")
+                    out_fh.write(chunk)
+                    h.update(chunk)
+                out_fh.flush()
+                try: os.fsync(out_fh.fileno())
+                except OSError: pass
+            after = src.stat()
+            same_generation = (
+                before.st_dev == after.st_dev and before.st_ino == after.st_ino
+                and before.st_size == after.st_size
+                and getattr(before, "st_mtime_ns", int(before.st_mtime * 1e9))
+                    == getattr(after, "st_mtime_ns", int(after.st_mtime * 1e9))
+            )
+            if not same_generation or copied != after.st_size:
+                try: dst.unlink()
+                except OSError: pass
+                skipped.append({"path": rel, "reason": "source_changed_during_snapshot"})
+                continue
+            frozen.append((rel, dst))
+            frozen_total += copied
+        except Exception as exc:
+            try:
+                dst.unlink()
+            except Exception:
+                pass
+            skipped.append({"path": rel, "reason": "snapshot_failed", "error": type(exc).__name__})
+    return frozen, skipped
 
 def _discover_fail_handoff_sources(
     root: Path,
@@ -981,6 +1124,8 @@ def _create_fail_handoff(
     console_log: str,
     patch_result: dict[str, object] | None,
     recovery_request: Path | None,
+    *,
+    detail_log_path: Path | None = None,
 ) -> Path | None:
     if isinstance(patch_result, dict):
         recovery_cfg = patch_result.get("recovery")
@@ -995,15 +1140,16 @@ def _create_fail_handoff(
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     final = out / f"FAIL_HANDOFF_{_safe_slug(item.name,70)}_{stamp}.zip"
     temp = out / f".{final.name}.tmp"
-    summary = {
+    summary: dict[str, object] = {
         "format": "python-patch-tool-fail-handoff",
-        "format_version": 1,
+        "format_version": 2,
         "tool_version": VERSION,
         "patch": item.name,
         "rc": rc,
         "patch_result": patch_result,
         "recovery_collect_request": recovery_request.name if recovery_request else None,
         "patch_attachment": "not_checked",
+        "attachment_warnings": [],
     }
     patch_path = root / "patchs" / item.name
     expected_patch_sha = patch_result.get("patch_sha256") if isinstance(patch_result, dict) else None
@@ -1019,23 +1165,54 @@ def _create_fail_handoff(
         summary["patch_attachment"] = "omitted_queue_input_changed_or_unsafe"
     else:
         summary["patch_attachment"] = "omitted_queue_input_missing"
+
+    snapshot_dir: Path | None = None
     try:
+        evidence_log, detail_log_bytes, detail_log_meta = _read_handoff_detail_log(detail_log_path, console_log)
+        summary["detail_log"] = detail_log_meta
         source_attachments, source_discovery = _discover_fail_handoff_sources(
-            root, item, patch_result, console_log
+            root, item, patch_result, evidence_log
         )
-        sensitive_warnings = _sensitive_handoff_warnings(console_log, source_attachments)
+
+        snapshot_dir = Path(tempfile.mkdtemp(prefix=".ptv-handoff-sources-", dir=out))
+        frozen_sources, snapshot_skips = _snapshot_handoff_sources(root, source_attachments, snapshot_dir)
+        if snapshot_skips:
+            source_discovery.setdefault("skipped_files", []).extend(snapshot_skips)
+        frozen_paths = {rel for rel, _ in frozen_sources}
+        included_rows = []
+        included_total = 0
+        for row in source_discovery.get("included_files") or []:
+            if not isinstance(row, dict) or row.get("path") not in frozen_paths:
+                continue
+            rel = str(row["path"])
+            snap = next(src for name, src in frozen_sources if name == rel)
+            size = snap.stat().st_size
+            item_row = dict(row)
+            item_row["size"] = size
+            item_row["sha256"] = _sha256_file(snap)
+            item_row["snapshot"] = "stable_generation_copy"
+            included_rows.append(item_row)
+            included_total += size
+        source_discovery["included_files"] = included_rows
+        source_discovery["included_total_bytes"] = included_total
+        source_discovery["snapshot_integrity"] = "generation_checked_per_file; failed files skipped without aborting handoff"
+
+        sensitive_warnings = _sensitive_handoff_warnings(evidence_log, frozen_sources)
         summary["sensitive_content_warnings"] = sensitive_warnings
         summary["source_discovery"] = {
             "mode": source_discovery.get("mode"),
             "discovered_paths": source_discovery.get("discovered_paths"),
-            "included_files": len(source_discovery.get("included_files") or []),
-            "included_total_bytes": source_discovery.get("included_total_bytes"),
+            "included_files": len(included_rows),
+            "included_total_bytes": included_total,
             "skipped_files": len(source_discovery.get("skipped_files") or []),
         }
+
+        attachment_warnings: list[str] = []
         with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
-            zf.writestr("FAIL_SUMMARY.json", json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
+            # Required diagnostic core is written from immutable in-memory data.
             zf.writestr("console.log", console_log)
-            zf.writestr("SOURCE_DISCOVERY.json", json.dumps(source_discovery, ensure_ascii=False, indent=2) + "\n")
+            if detail_log_bytes is not None:
+                zf.writestr("DETAIL.log", detail_log_bytes)
             if sensitive_warnings:
                 warning_text = (
                     "WARNING: This diagnostic bundle intentionally preserves exact source/log bytes.\n"
@@ -1043,15 +1220,51 @@ def _create_fail_handoff(
                     + "\n- ".join(sensitive_warnings) + "\n"
                 )
                 zf.writestr("SENSITIVE_CONTENT_WARNING.txt", warning_text)
+
+            # Every source is written from the stable snapshot, never directly
+            # from a concurrently changing working tree.
+            for rel, src in frozen_sources:
+                try:
+                    zf.write(src, f"current_source/{rel}")
+                except Exception as exc:
+                    attachment_warnings.append(f"source attachment write failed: {rel}: {type(exc).__name__}")
+
+            # Optional context must never be allowed to destroy the mandatory
+            # failure bundle if a file disappears during cleanup/concurrency.
             if attach_patch:
-                zf.write(patch_path, f"patch/{item.name}")
-            for doc in [root/"tools"/"implementing.md", root/"tools"/"PYTHON_PATCH_TOOL_FEATURES_VI.md", root/"tools"/"_patch_lib"/"VERSION", root/"tools"/"_patch_lib"/"docs"/"PATCH_PACKAGE_SCHEMA.json"]:
-                if doc.is_file():
-                    zf.write(doc, f"tool_context/{doc.name}")
-            if recovery_request is not None and recovery_request.is_file():
-                zf.write(recovery_request, f"recovery/{recovery_request.name}")
-            for rel, src in source_attachments:
-                zf.write(src, f"current_source/{rel}")
+                try:
+                    if patch_path.is_file() and not patch_path.is_symlink() and _sha256_file(patch_path) == expected_patch_sha:
+                        zf.write(patch_path, f"patch/{item.name}")
+                    else:
+                        summary["patch_attachment"] = "omitted_queue_input_changed_during_handoff"
+                except Exception as exc:
+                    summary["patch_attachment"] = "omitted_queue_input_attachment_failed"
+                    attachment_warnings.append(f"patch attachment failed: {type(exc).__name__}")
+            docs = [
+                root/"tools"/"implementing.md",
+                root/"tools"/"PYTHON_PATCH_TOOL_FEATURES_VI.md",
+                root/"tools"/"_patch_lib"/"VERSION",
+                root/"tools"/"_patch_lib"/"docs"/"PATCH_PACKAGE_SCHEMA.json",
+            ]
+            for doc in docs:
+                try:
+                    if doc.is_file() and not doc.is_symlink():
+                        zf.write(doc, f"tool_context/{doc.name}")
+                except Exception as exc:
+                    attachment_warnings.append(f"tool context attachment failed: {doc.name}: {type(exc).__name__}")
+            if recovery_request is not None:
+                try:
+                    if recovery_request.is_file() and not recovery_request.is_symlink():
+                        zf.write(recovery_request, f"recovery/{recovery_request.name}")
+                except Exception as exc:
+                    attachment_warnings.append(f"recovery request attachment failed: {type(exc).__name__}")
+
+            summary["attachment_warnings"] = attachment_warnings
+            # Write metadata after optional attachment attempts so it describes
+            # what actually made it into this exact ZIP.
+            zf.writestr("SOURCE_DISCOVERY.json", json.dumps(source_discovery, ensure_ascii=False, indent=2) + "\n")
+            zf.writestr("FAIL_SUMMARY.json", json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
+
         os.replace(temp, final)
         with zipfile.ZipFile(final) as zf:
             if zf.testzip() is not None:
@@ -1059,10 +1272,12 @@ def _create_fail_handoff(
         print("")
         print(
             "FAIL HANDOFF SOURCES: "
-            f"included={len(source_discovery.get('included_files') or [])} | "
-            f"bytes={source_discovery.get('included_total_bytes', 0)} | "
+            f"included={len(included_rows)} | "
+            f"bytes={included_total} | "
             f"skipped={len(source_discovery.get('skipped_files') or [])}"
         )
+        if detail_log_meta.get("truncated"):
+            print("FAIL HANDOFF LOG: bounded DETAIL.log includes beginning + end of oversized log")
         print("=" * 72)
         print("!!! [PRIMARY - UPLOAD THIS FILE] PATCH FAIL HANDOFF !!!")
         print(">>> ACTION REQUIRED: UPLOAD TO CHATGPT / AI SERVER <<<")
@@ -1075,6 +1290,9 @@ def _create_fail_handoff(
             try: path.unlink()
             except OSError: pass
         return None
+    finally:
+        if snapshot_dir is not None:
+            shutil.rmtree(snapshot_dir, ignore_errors=True)
 
 
 def _runner_command(root: Path, action: str, item: QueueItem) -> list[str]:
@@ -3454,7 +3672,7 @@ def execute_items(
             if recovery_request is not None:
                 detail["recovery_collect_request"] = recovery_request.name
                 print(f"[NEXT RUN - COLLECT REQUEST READY] patchs/{_safe_display(recovery_request.name)}")
-            handoff = _create_fail_handoff(root, item, rc, console_log, patch_result, recovery_request)
+            handoff = _create_fail_handoff(root, item, rc, console_log, patch_result, recovery_request, detail_log_path=detail_log_path)
             if handoff is not None:
                 try: detail["fail_handoff"] = handoff.relative_to(root).as_posix()
                 except ValueError: detail["fail_handoff"] = str(handoff)
@@ -3675,7 +3893,7 @@ def _run_queue(root: Path, *, failure_policy_override: str | None = None, transa
                 if isinstance(row, dict) and isinstance(row.get("log_path"), str):
                     try: log_text = (root / str(row["log_path"])).read_text(encoding="utf-8", errors="replace")
                     except OSError: log_text = ""
-                fail_handoff = _create_fail_handoff(root, item, 2, log_text, patch_result, recovery_request)
+                fail_handoff = _create_fail_handoff(root, item, 2, log_text, patch_result, recovery_request, detail_log_path=(root / str(row["log_path"])) if isinstance(row, dict) and isinstance(row.get("log_path"), str) else None)
                 detail = {
                     "name": item.name, "kind": item.kind, "status": "PREFLIGHT_FAIL", "rc": 2,
                     "diagnosis": diagnosis, "patch_result": patch_result,
@@ -3748,20 +3966,44 @@ def _run_queue(root: Path, *, failure_policy_override: str | None = None, transa
         if transaction_policy == "batch" and transaction_snapshot_root is not None and transaction_manifest is not None:
             if rc:
                 restored = restore_targets(root, transaction_snapshot_root, transaction_manifest)
-                requeued = requeue_packages(root, package_snapshot_root, package_map or {}) if package_snapshot_root is not None else {}
-                batch_transaction = {"policy": "batch", "status": "ROLLED_BACK" if restored.get("status") == "PASS" else "ROLLBACK_FAILED",
-                    "restored_paths": restored.get("restored_paths", []), "errors": restored.get("errors", []), "requeued_packages": requeued}
                 rollback_ok = restored.get("status") == "PASS"
+                requeued: dict[str, str] = {}
+                requeue_error: str | None = None
+                if package_snapshot_root is not None:
+                    try:
+                        requeued = requeue_packages(root, package_snapshot_root, package_map or {})
+                    except Exception as exc:
+                        requeue_error = f"{type(exc).__name__}: {exc}"
+                tx_status = "ROLLED_BACK" if rollback_ok and requeue_error is None else (
+                    "ROLLBACK_FAILED" if not rollback_ok else "REQUEUE_FAILED"
+                )
+                batch_transaction = {
+                    "policy": "batch", "status": tx_status,
+                    "restored_paths": restored.get("restored_paths", []),
+                    "errors": restored.get("errors", []),
+                    "requeued_packages": requeued,
+                }
+                if requeue_error is not None:
+                    batch_transaction["requeue_error"] = requeue_error
+                    batch_transaction["package_snapshot_dir"] = package_snapshot_root.relative_to(root).as_posix() if package_snapshot_root.is_relative_to(root) else str(package_snapshot_root)
                 for detail in _LAST_EXECUTION_DETAILS:
                     if detail.get("status") in {"PASS", "FAIL"}:
                         detail["batch_rollback_attempted"] = True
                         detail["batch_rollback_status"] = "PASS" if rollback_ok else "FAIL"
                         detail["batch_rolled_back"] = rollback_ok
+                        detail["batch_requeue_status"] = "FAIL" if requeue_error is not None else "PASS"
                         if detail.get("name") in requeued: detail["requeued_as"] = requeued[detail.get("name")]
                 if not rollback_ok:
                     batch_transaction["original_rc"] = rc
                     rc = 70
                     print("!!! BATCH ROLLBACK FAILED — manual recovery required !!!", file=sys.stderr)
+                    if requeue_error is not None:
+                        print(f"!!! BATCH REQUEUE ALSO FAILED — {_safe_display(requeue_error)} !!!", file=sys.stderr)
+                elif requeue_error is not None:
+                    batch_transaction["original_rc"] = rc
+                    rc = 71
+                    print("BATCH ROLLBACK: PASS — source restored", file=sys.stderr)
+                    print(f"!!! BATCH REQUEUE FAILED — exact replay package remains in transaction snapshot | {_safe_display(requeue_error)} !!!", file=sys.stderr)
                 else:
                     print(f"BATCH ROLLBACK: PASS | restored={len(restored.get('restored_paths') or [])} | replay packages requeued={len(requeued)}")
             else:

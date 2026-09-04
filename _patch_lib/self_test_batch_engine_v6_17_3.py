@@ -6,7 +6,7 @@ from pathlib import Path
 HERE=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('ptv617_batch',HERE/'python_patch_queue_dispatcher.py')
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; assert spec.loader; spec.loader.exec_module(m)
-assert m.VERSION=='6.17.2'
+assert m.VERSION=='6.17.3'
 
 
 def install(root: Path):
@@ -79,6 +79,26 @@ with tempfile.TemporaryDirectory(prefix='ptv617_tx_') as td:
     rows=m._report_rows(last); assert rows[0].get('batch_rolled_back') is True,rows
     assert (r/'patchs'/'patch_1.zip').is_file(), 'PASS package was not requeued for atomic replay'
 
+# Source rollback PASS + replay requeue failure is contained/reported as rc=71,
+# never allowed to escape as an unstructured dispatcher exception.
+with tempfile.TemporaryDirectory(prefix='ptv617_requeue_fail_') as td:
+    r=Path(td); install(r); (r/'state.txt').write_text('A\n'); config(r,transaction='batch')
+    make_patch(r,'patch_1.zip','rq1','from pathlib import Path\nPath("state.txt").write_text("B\\n")\n',targets=['state.txt'])
+    make_patch(r,'patch_2.zip','rq2','raise SystemExit(5)\n',targets=['state.txt'])
+    real_requeue=m.requeue_packages
+    def fail_requeue(*_args,**_kwargs): raise OSError('simulated requeue failure')
+    m.requeue_packages=fail_requeue
+    try:
+        rc=m._run_queue(r)
+    finally:
+        m.requeue_packages=real_requeue
+    assert rc==71,rc
+    assert (r/'state.txt').read_text()=='A\n'
+    last=json.loads((r/'artifacts/patch_tool/LAST_RUN.json').read_text())
+    assert last['batch_transaction']['status']=='REQUEUE_FAILED',last
+    assert last['batch_transaction']['original_rc']==5,last
+    assert 'simulated requeue failure' in last['batch_transaction']['requeue_error'],last
+
 # Unresolved predecessor action is mandatory for a successor; explicit delete resolves it and moves predecessor to ignore.
 with tempfile.TemporaryDirectory(prefix='ptv617_prev_required_') as td:
     r=Path(td); install(r); (r/'sentinel.txt').write_text('stable\n')
@@ -134,4 +154,4 @@ with tempfile.TemporaryDirectory(prefix='ptv617_history_cleanup_') as td:
 synthetic={'status':'FAIL','selected':['a','b','c'],'not_executed':['c'],'results':[{'name':'a','status':'PASS','batch_rolled_back':True},{'name':'b','status':'FAIL'}]}
 g=m._resume_groups(synthetic); assert g=={'replay':['a'],'failed':['b'],'remaining':['c']},g
 
-print('PASS: v6.17.2 controlled continue, dependencies, whole-batch preflight, atomic rollback/requeue, predecessor action, smart resume, source diff, support bundle and history management')
+print('PASS: v6.17.3 controlled continue, dependencies, whole-batch preflight, atomic rollback/requeue, predecessor action, smart resume, source diff, support bundle and history management')

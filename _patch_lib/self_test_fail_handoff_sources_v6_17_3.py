@@ -77,4 +77,60 @@ with tempfile.TemporaryDirectory(prefix='ptv_handoff_traceback_') as td:
     (root/'.env').write_text('X=1\n')
     assert m._normalize_handoff_candidate(root,'.env')=='.env'
 
-print('PASS: v6.17.2 every PATCH failure auto-discovers and embeds related current source in FAIL_HANDOFF')
+
+# A source path appearing only after the normal 8 MiB console capture must
+# still be discovered from the persisted per-item DETAIL log and included.
+with tempfile.TemporaryDirectory(prefix='ptv_handoff_detail_log_') as td:
+    root=Path(td); (root/'src').mkdir(); late=root/'src'/'Late.c'; late.write_text('int late_value = 7;\n')
+    detail=root/'late.log'; detail.write_bytes(b'X'*(9*1024*1024)+f'\n{late}:77:3: error: late failure\n'.encode())
+    result={
+      'patch_sha256':None,
+      'diagnosis':{'kind':'python_exception','message':'late compiler failure','affected_paths':[]},
+      'partial_modification':{'detected':None,'changed_paths':[]},
+    }
+    handoff=m._create_fail_handoff(root,m.QueueItem('missing.zip','PATCH'),9,'short console\n',result,None,detail_log_path=detail)
+    assert handoff is not None and handoff.is_file(),handoff
+    with zipfile.ZipFile(handoff) as z:
+        names=set(z.namelist()); assert 'DETAIL.log' in names,names
+        assert 'current_source/src/Late.c' in names,names
+        discovery=json.loads(z.read('SOURCE_DISCOVERY.json'))
+        row=next(x for x in discovery['included_files'] if x['path']=='src/Late.c')
+        assert len(row['sha256'])==64 and row['snapshot']=='stable_generation_copy',row
+        summary=json.loads(z.read('FAIL_SUMMARY.json'))
+        assert summary['format_version']==2 and summary['detail_log']['bytes']>8*1024*1024,summary
+
+# Optional source attachment loss must degrade to a skipped-file record, never
+# destroy the mandatory FAIL_HANDOFF core bundle.
+with tempfile.TemporaryDirectory(prefix='ptv_handoff_source_loss_') as td:
+    root=Path(td)
+    original=m._discover_fail_handoff_sources
+    try:
+        m._discover_fail_handoff_sources=lambda *_args,**_kw: (
+            [('gone.c',root/'gone.c')],
+            {'format':'python-patch-tool-fail-source-discovery','format_version':1,
+             'mode':'automatic_on_every_patch_failure','discovered_paths':1,
+             'included_files':[{'path':'gone.c','size':1,'reasons':['test']}],
+             'skipped_files':[],'included_total_bytes':1}
+        )
+        handoff=m._create_fail_handoff(root,m.QueueItem('missing.zip','PATCH'),5,'boom\n',None,None)
+        assert handoff is not None and handoff.is_file(),handoff
+        with zipfile.ZipFile(handoff) as z:
+            discovery=json.loads(z.read('SOURCE_DISCOVERY.json'))
+            assert discovery['included_files']==[],discovery
+            assert any(x.get('path')=='gone.c' and x.get('reason')=='source_unavailable_before_snapshot' for x in discovery['skipped_files']),discovery
+    finally:
+        m._discover_fail_handoff_sources=original
+
+# A symlink/reparse ancestor is not an acceptable exact-source attachment even
+# when it resolves back inside the project.
+if hasattr(os,'symlink'):
+    with tempfile.TemporaryDirectory(prefix='ptv_handoff_symlink_') as td:
+        root=Path(td); (root/'real').mkdir(); (root/'real'/'x.c').write_text('int x;\n')
+        try:
+            os.symlink(root/'real',root/'alias',target_is_directory=True)
+        except (OSError,NotImplementedError):
+            pass
+        else:
+            assert m._safe_handoff_source(root,'alias/x.c') is None
+
+print('PASS: v6.17.3 every PATCH failure auto-discovers and embeds related current source in FAIL_HANDOFF')

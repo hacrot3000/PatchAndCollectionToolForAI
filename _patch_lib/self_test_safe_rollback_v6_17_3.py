@@ -154,4 +154,4 @@ with tempfile.TemporaryDirectory(prefix='ptv614_rollback_toctou_') as td:
     else:
         raise AssertionError('TOCTOU baseline change must fail before payload')
 
-print('PASS: v6.17.2 metadata-driven in-place rollback is opt-in, bounded and fail-closed')
+print('PASS: v6.17.3 metadata-driven in-place rollback is opt-in, bounded and fail-closed')

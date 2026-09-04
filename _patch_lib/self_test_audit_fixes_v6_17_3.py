@@ -99,11 +99,15 @@ with tempfile.TemporaryDirectory(prefix='ptv6171_git_') as td:
     (root/'a.txt').write_text('A\n'); subprocess.run(['git','add','a.txt'],cwd=root,check=True); subprocess.run(['git','commit','-qm','base'],cwd=root,check=True)
     before=r._dirty_paths(root); (root/'a.txt').write_text('B\n'); after=r._dirty_paths(root)
     hook=root/'.git'/'hooks'/'pre-commit'; hook.write_text('#!/bin/sh\nexit 1\n'); hook.chmod(0o755)
-    rc=r._run_git_policy(root,{'git':{'commit':'auto','commit_message':'audit','fail_on_error':True}},before,after)
+    rc=r._run_git_policy(root,{'git':{'add':'auto','commit':'auto','commit_message':'audit','fail_on_error':True}},before,after)
     assert rc==1,rc
+    staged=subprocess.run(['git','diff','--cached','--name-only'],cwd=root,text=True,capture_output=True).stdout.strip()
+    assert staged=='',f'failed auto-commit leaked staged paths: {staged}'
     hook.unlink(); (root/'a.txt').write_text('USER\n'); before=r._dirty_paths(root); (root/'a.txt').write_text('USER+PATCH\n'); after=r._dirty_paths(root)
-    rc=r._run_git_policy(root,{'git':{'commit':'auto','commit_message':'audit','fail_on_error':True}},before,after)
+    rc=r._run_git_policy(root,{'git':{'add':'auto','commit':'auto','commit_message':'audit','fail_on_error':True}},before,after)
     assert rc==1,rc
+    staged=subprocess.run(['git','diff','--cached','--name-only'],cwd=root,text=True,capture_output=True).stdout.strip()
+    assert staged=='',f'dirty-target guard changed index: {staged}'
 
 # Archive hardening: Windows drive/ADS path and case-fold collisions are rejected.
 for bad in ['D:evil.txt','dir/file.txt:ads']:
@@ -131,6 +135,36 @@ with tempfile.TemporaryDirectory(prefix='ptv6171_legacy_') as td:
         assert kind=='python' and preflight.get('legacy_archive') is True and payload.name=='patch_legacy.py',preflight
     finally:
         if tmp is not None: tmp.cleanup()
+
+
+# Batch replay requeue never overwrites a concurrent queue replacement.
+with tempfile.TemporaryDirectory(prefix='ptv6173_requeue_') as td:
+    root=Path(td); (root/'patchs').mkdir(); snap=root/'snap'; snap.mkdir(); (snap/'pkg.bin').write_bytes(b'EXECUTED')
+    (root/'patchs'/'patch_x.zip').write_bytes(b'NEW-QUEUE')
+    replay=b.requeue_packages(root,snap,{'patch_x.zip':'pkg.bin'})
+    assert (root/'patchs'/'patch_x.zip').read_bytes()==b'NEW-QUEUE'
+    assert replay['patch_x.zip']!='patch_x.zip' and (root/'patchs'/replay['patch_x.zip']).read_bytes()==b'EXECUTED'
+    for child in (root/'patchs').iterdir(): child.unlink()
+    real_link=b.os.link; first={'v':True}
+    def race_link(src,dst,*args,**kwargs):
+        if first['v']:
+            first['v']=False; Path(dst).write_bytes(b'RACE-WINNER'); raise FileExistsError()
+        return real_link(src,dst,*args,**kwargs)
+    b.os.link=race_link
+    try: replay=b.requeue_packages(root,snap,{'patch_x.zip':'pkg.bin'})
+    finally: b.os.link=real_link
+    assert (root/'patchs'/'patch_x.zip').read_bytes()==b'RACE-WINNER'
+    assert (root/'patchs'/replay['patch_x.zip']).read_bytes()==b'EXECUTED'
+
+# A transaction may never report replay success when its exact package snapshot vanished.
+with tempfile.TemporaryDirectory(prefix='ptv6173_requeue_missing_') as td:
+    root=Path(td); (root/'patchs').mkdir(); snap=root/'snap'; snap.mkdir()
+    try:
+        b.requeue_packages(root,snap,{'patch_missing.zip':'missing.bin'})
+    except b.BatchPlanError as exc:
+        assert exc.kind=='batch_requeue_failed' and 'missing or unsafe' in str(exc),exc
+    else:
+        raise AssertionError('missing replay package snapshot was silently accepted')
 
 # Hard-link publication has an exclusive-copy fallback and still verifies bytes.
 with tempfile.TemporaryDirectory(prefix='ptv6171_publish_') as td:
@@ -181,4 +215,4 @@ assert 'tempfile.mkstemp(prefix=f".{path.name}.ptv-write-"' in source and 'os.re
 assert '_acquire_project_mutation_lock' in (HERE/'python_patch_runner.py').read_text(encoding='utf-8')
 assert 'python_patch_ops_worker.py' in (HERE/'python_patch_runner.py').read_text(encoding='utf-8')
 
-print('PASS: v6.17.2 audit regressions cover rollback completeness, failure stop, COLLECT self-output, mutation integrity, idempotency, Git, archives and limits')
+print('PASS: v6.17.3 audit regressions cover rollback completeness, failure stop, COLLECT self-output, mutation integrity, idempotency, Git, archives and limits')

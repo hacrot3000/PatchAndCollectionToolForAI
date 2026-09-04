@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from python_patch_utils import PatchFailure, diagnose_ops, finish_failure, run_ops
 from python_patch_package_schema import PatchSchemaError, path_is_link_or_reparse, run_preflight, sha256_file
 
-VERSION = "6.17.2"
+VERSION = "6.17.3"
 _ACTIVE_TERMINATION_SIGNAL: int | None = None
 MAX_ARCHIVE_ENTRIES = 10000
 MAX_ARCHIVE_MEMBER_BYTES = 64 * 1024 * 1024
@@ -422,35 +422,65 @@ def _run_git_policy(root: Path, manifest: dict, before_dirty: dict[str, str], af
         return 0
     touched = _touched_paths(before_dirty, after_dirty)
     fail_on_error = bool(policy.get("fail_on_error", True))
+    commit_mode = policy.get("commit")
+    auto_commit = commit_mode == "auto" and bool(touched)
+    staged_for_auto_commit = False
+    commit_completed = False
     try:
-        if policy.get("add") not in {None, "off", False} and touched:
-            proc = subprocess.run(["git", "add", "--", *touched], cwd=root)
-            if proc.returncode:
-                raise RuntimeError(f"git add failed rc={proc.returncode}")
-        commit_mode = policy.get("commit")
-        if commit_mode == "auto" and touched:
+        if auto_commit:
             message = policy.get("commit_message")
             if not isinstance(message, str) or not message.strip():
                 raise RuntimeError("git.commit=auto requires commit_message")
             preexisting_dirty = sorted(name for name in touched if name in before_dirty)
             if preexisting_dirty:
+                # This guard must run BEFORE git add. Otherwise a rejected
+                # auto-commit silently changes the user's index by staging
+                # pre-existing local edits on the same target path.
                 raise RuntimeError(
                     "git.commit=auto refuses target paths that were already dirty before PATCH: "
                     + ", ".join(preexisting_dirty)
                 )
+        if policy.get("add") not in {None, "off", False} and touched:
+            # Mark ownership before invoking Git: a failing `git add` may have
+            # updated part of the index before returning non-zero.
+            staged_for_auto_commit = auto_commit
+            proc = subprocess.run(["git", "add", "--", *touched], cwd=root)
+            if proc.returncode:
+                raise RuntimeError(f"git add failed rc={proc.returncode}")
+        if auto_commit:
+            message = policy.get("commit_message")
             # --only confines the commit to paths touched by this patch run.
             proc = subprocess.run(["git", "commit", "-m", message, "--only", "--", *touched], cwd=root)
             if proc.returncode != 0:
                 raise RuntimeError(f"git commit failed rc={proc.returncode}")
+            commit_completed = True
+            staged_for_auto_commit = False
         if policy.get("push") == "auto":
             proc = subprocess.run(["git", "push"], cwd=root)
             if proc.returncode:
                 raise RuntimeError(f"git push failed rc={proc.returncode}")
     except Exception as exc:
+        # For auto-commit, touched paths are required to have been clean before
+        # PATCH. Therefore any staged entries on them after our `git add` were
+        # created by this policy and can be safely reset if commit never
+        # completed. This restores the user's pre-policy Git index on failure.
+        cleanup_error = None
+        if staged_for_auto_commit and not commit_completed and touched:
+            try:
+                reset = subprocess.run(
+                    ["git", "reset", "--quiet", "HEAD", "--", *touched],
+                    cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                if reset.returncode:
+                    cleanup_error = f"git index cleanup failed rc={reset.returncode}"
+            except Exception as cleanup_exc:
+                cleanup_error = f"git index cleanup failed: {type(cleanup_exc).__name__}: {cleanup_exc}"
         print(f"ERROR: {exc}", file=sys.stderr)
+        if cleanup_error:
+            print(f"ERROR: {cleanup_error}", file=sys.stderr)
+            return 1
         return 1 if fail_on_error else 0
     return 0
-
 
 
 

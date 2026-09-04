@@ -18,7 +18,7 @@ from typing import Any
 
 from python_patch_package_schema import PatchSchemaError, check_compatibility, validate_manifest, resolve_project_path, _ops_target_paths
 
-VERSION = "6.17.2"
+VERSION = "6.17.3"
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_DIFF_FILE_BYTES = 512 * 1024
 MAX_SNAPSHOT_FILE_BYTES = 8 * 1024 * 1024
@@ -571,30 +571,93 @@ def snapshot_package_bytes(root: Path, names: list[str], snapshot_root: Path) ->
     return out
 
 
+def _publish_requeue_no_overwrite(src: Path, target: Path, expected_sha: str) -> str:
+    """Publish exact replay bytes without ever replacing a concurrent file.
+
+    Returns ``published``, ``same`` or ``exists``. Any target created by this
+    helper is hash-verified before success is reported.
+    """
+    def classify_existing() -> str:
+        try:
+            if target.is_symlink() or not target.is_file():
+                return "exists"
+            return "same" if _sha256(target) == expected_sha else "exists"
+        except OSError:
+            return "exists"
+
+    try:
+        os.link(src, target, follow_symlinks=False)
+    except FileExistsError:
+        return classify_existing()
+    except OSError:
+        # Filesystems such as exFAT/FAT/network shares may not support links.
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+        fd = -1
+        created = False
+        try:
+            fd = os.open(target, flags, 0o600)
+            created = True
+            digest = hashlib.sha256()
+            with os.fdopen(fd, "wb") as out_fh, src.open("rb") as in_fh:
+                fd = -1
+                for chunk in iter(lambda: in_fh.read(1024 * 1024), b""):
+                    out_fh.write(chunk); digest.update(chunk)
+                out_fh.flush()
+                try: os.fsync(out_fh.fileno())
+                except OSError: pass
+            if digest.hexdigest() != expected_sha or _sha256(target) != expected_sha:
+                raise BatchPlanError("requeued package fallback copy hash verification failed", kind="batch_requeue_failed")
+            return "published"
+        except FileExistsError:
+            return classify_existing()
+        except Exception:
+            if created:
+                try: target.unlink()
+                except OSError: pass
+            raise
+        finally:
+            if fd >= 0:
+                try: os.close(fd)
+                except OSError: pass
+    if _sha256(target) != expected_sha:
+        try: target.unlink()
+        except OSError: pass
+        raise BatchPlanError("requeued package hardlink hash verification failed", kind="batch_requeue_failed")
+    return "published"
+
+
 def requeue_packages(root: Path, package_snapshot_root: Path, package_map: dict[str, str]) -> dict[str, str]:
     out: dict[str, str] = {}
     queue = root / "patchs"
-    queue.mkdir(parents=True, exist_ok=True)
+    if queue.exists() or queue.is_symlink():
+        if queue.is_symlink() or not queue.is_dir():
+            raise BatchPlanError("batch requeue requires a real patchs/ directory", kind="batch_requeue_failed")
+    else:
+        queue.mkdir(parents=True, exist_ok=False)
     for original, stored in package_map.items():
         src = package_snapshot_root / stored
-        if not src.is_file():
-            continue
-        target = queue / original
-        if target.exists():
-            try:
-                if target.is_file() and not target.is_symlink() and _sha256(target) == _sha256(src):
-                    out[original] = target.name
-                    continue
-            except OSError:
-                pass
-            # Preserve a concurrent replacement. Republish the executed bytes under a deterministic retry name.
-            date = datetime.now().strftime("%Y-%m-%d")
-            target = queue / f"RETRY-{date}-{original}"
-            n = 2
-            while target.exists():
-                target = queue / f"RETRY-{date}-{n}-{original}"; n += 1
-        shutil.copy2(src, target)
-        out[original] = target.name
+        if not src.is_file() or src.is_symlink():
+            raise BatchPlanError(
+                f"replay package snapshot is missing or unsafe: {stored}",
+                kind="batch_requeue_failed",
+            )
+        expected_sha = _sha256(src)
+        date = datetime.now().strftime("%Y-%m-%d")
+        candidate_index = 1
+        while True:
+            if candidate_index == 1:
+                target = queue / original
+            elif candidate_index == 2:
+                target = queue / f"RETRY-{date}-{original}"
+            else:
+                target = queue / f"RETRY-{date}-{candidate_index-1}-{original}"
+            status = _publish_requeue_no_overwrite(src, target, expected_sha)
+            if status in {"published", "same"}:
+                out[original] = target.name
+                break
+            candidate_index += 1
+            if candidate_index > 10000:
+                raise BatchPlanError(f"could not allocate replay package name for {original}", kind="batch_requeue_failed")
     return out
 
 
