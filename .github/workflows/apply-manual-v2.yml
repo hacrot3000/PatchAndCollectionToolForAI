@@ -1,0 +1,37 @@
+name: Apply manual hardening v2
+
+on:
+  push:
+    branches:
+      - ptv-v6.20.2-upload-helper
+    paths:
+      - .github/workflows/apply-manual-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ptv-v6.20.2-hardening-work
+          fetch-depth: 0
+      - name: Apply and verify manual hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=047229908551670146590d9d3697bb6e38b83657
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected" || { echo "Unexpected work branch HEAD: $actual"; exit 2; }
+          git fetch origin ptv-v6.20.2-upload-helper
+          git show origin/ptv-v6.20.2-upload-helper:.ptv_upload/03_manual_v2.b64 | base64 -d | gzip -d > /tmp/manual-v2.patch
+          git apply --check /tmp/manual-v2.patch
+          git apply /tmp/manual-v2.patch
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_manual_execution_v6_20_0.py
+          git config user.name "Patch Tool CI"
+          git config user.email "patch-tool-ci@users.noreply.github.com"
+          git add _patch_lib/python_patch_manual_workflow.py _patch_lib/self_test_manual_execution_v6_20_0.py
+          git commit -m "harden: validate manual execution evidence and argv"
+          git push origin HEAD:ptv-v6.20.2-hardening-work
