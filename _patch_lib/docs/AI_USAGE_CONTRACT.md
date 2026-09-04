@@ -420,3 +420,7 @@ A COLLECT that preserves usable evidence but cannot prove full coverage (timeout
 ## v6.19.3 upload-path presentation note
 
 When an ACTION REQUIRED block shows `artifacts/ptv_to_ai/{FH,CR,AS}_<token>.zip/.txt`, that short path is a hard-link to the canonical artifact shown in HISTORY/report and is equally valid for upload. Do not infer that the canonical artifact was renamed or moved. The alias exists only to prevent terminal hard wrapping from breaking copyability.
+
+## PATCH provenance / signature trust
+
+When a client requests a signed PATCH, follow `PROVENANCE_SIGNATURE_TRUST.md` exactly. Do not invent trust roots, key IDs, public keys, signatures, or signing commands. `manifest.provenance` is optional unless the operator's local project policy requires it; if present it is verified before payload/source mutation and any invalid/untrusted signature is a hard preflight failure. The AI must not assume access to private signing keys or remote trust services.

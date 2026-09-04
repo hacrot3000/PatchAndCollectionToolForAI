@@ -95,4 +95,5 @@ with tempfile.TemporaryDirectory(prefix='ptv_ai_sync_patch_pass_') as td:
 
 assert 'tools/_patch_lib/docs/GIT_SAFE_OPERATIONS.md' in sync.SYNC_DOCS
 assert 'tools/_patch_lib/docs/MANUAL_EXECUTION_WORKFLOW.md' in sync.SYNC_DOCS
+assert 'tools/_patch_lib/docs/PROVENANCE_SIGNATURE_TRUST.md' in sync.SYNC_DOCS
 print('PASS: v6.20.2 AI tool-version/capability sync is stateful, one-shot, artifact-contained and legacy-compatible')

@@ -432,3 +432,11 @@ A manifest-only command package is accepted when `post_patch.run_when_no_changes
 `manifest.validation.profiles` remains names-only and AI must not define trusted argv. The operator may configure `validation.selection.mode=off|append|replace`, `fallback_profiles`, and bounded rules with `include`/`exclude` globs plus profile names. Rule matching uses the actual project delta after payload and post-patch commands. The structured PATCH result records changed paths, matched rules, requested/auto/final profiles.
 
 A local profile may declare `diagnostic_rerun` with `enabled`, `safe`, `name`, `append_args`, `timeout_seconds`, and `on_timeout`. Only `safe=true` reruns are eligible. Global `validation.diagnostic_rerun.max_commands` bounds reruns. Flash/OTA/deploy/push/publish/release/provision/erase-like commands are rejected. The primary validation rc/status is immutable even if the rerun passes.
+
+## Cryptographic provenance / signed PATCH trust
+
+PATCH packages may optionally declare `manifest.provenance` using the documented `ptv-patch-signature-v1` / `ed25519` contract. Verification covers canonical manifest semantics plus every regular package file and runs during preflight before payload/source mutation.
+
+Trust is operator-local only. Configure `provenance.trusted_ed25519_keys` in `.python_patch_tool.json`; set `provenance.require_signature=true` only when the project must reject every unsigned PATCH, including recognized legacy PATCHes. A present but invalid signature, an unknown signer, malformed trust data, or a required-but-missing signature fails closed.
+
+The tool verifies signatures only. Private-key generation/storage, signing services, PKI, remote key lookup/registry, COLLECT signing, and reproducible raw ZIP-byte signing are outside this contract. See `PROVENANCE_SIGNATURE_TRUST.md`.

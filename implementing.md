@@ -1,5 +1,10 @@
 # v6.20.2 mandatory continuity gate — NO SILENT REMOVAL
 
+## COMPLETE — Cryptographic provenance / signature trust
+
+The accepted provenance/signature task is complete: self-contained strict Ed25519 verification, canonical manifest+package-file binding, operator-local trust store, optional fail-closed `require_signature` policy (including legacy PATCH), pre-payload enforcement, AI-sync/documentation coverage, Tool Health/package-required coverage, and permanent master regression. Scope intentionally stops at verification/trust; no private-key manager, signer, PKI, remote registry, COLLECT signing, or reproducible ZIP-byte feature was introduced.
+
+
 Before modifying Patch Tool, read `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, and `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Do not delete or narrow any capability previously marked COMPLETE/PRESERVED/COMPATIBILITY_RESTORED unless the user explicitly requests it or a later documented contract supersedes it. Every intentional transition must be recorded in the ledger and protected by a behavioral test. Surface/string-only compatibility tests are not sufficient.
 
 # Python Patch Tool — implementing.md

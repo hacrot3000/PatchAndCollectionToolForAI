@@ -1,5 +1,15 @@
 # Python Patch Tool v6.20.2 feature status
 
+## COMPLETE — local Ed25519 PATCH provenance/signature trust
+
+- Optional `manifest.provenance` contract: `ptv-patch-signature-v1`, `ed25519`, `key_id`, `signature`.
+- Canonical signature input binds manifest semantics (excluding the signature value itself) plus path/size/SHA-256 for every regular package file.
+- Trust comes only from local `.python_patch_tool.json`; optional `require_signature` can reject all unsigned PATCHes, including legacy PATCHes.
+- Invalid/tampered/untrusted signatures fail before payload/source mutation. Existing unsigned PATCH compatibility remains the default.
+- No signing/private-key/PKI/remote registry/COLLECT-signing/reproducible-ZIP feature is added.
+- Gate: `self_test_provenance_signature_v6_21_0.py`.
+
+
 
 ## v6.20.0 — safe Git operations + human-only manual execution
 

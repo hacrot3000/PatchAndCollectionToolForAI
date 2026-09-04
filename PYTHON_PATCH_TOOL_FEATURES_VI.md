@@ -1,5 +1,14 @@
 # Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.20.2
 
+## HOÀN THÀNH — Xác minh provenance/chữ ký PATCH Ed25519
+
+- PATCH có thể khai báo `manifest.provenance` theo contract `ptv-patch-signature-v1` / `ed25519`.
+- Chữ ký ràng buộc manifest canonical và toàn bộ file thường trong package bằng path/size/SHA-256; kiểm tra diễn ra trước khi payload sửa source.
+- Trust store chỉ lấy từ cấu hình local `.python_patch_tool.json`. Có thể bật `provenance.require_signature=true` để từ chối cả PATCH legacy không ký.
+- Chữ ký sai, package/manifest bị sửa hoặc signer không được trust đều fail-closed. Mặc định vẫn tương thích PATCH cũ không ký.
+- Phạm vi chỉ là verify/trust; không thêm quản lý private key, signer, PKI, registry/network lookup, ký COLLECT hay reproducible ZIP bytes.
+
+
 Trước khi AI sửa Patch Tool, bắt buộc đọc `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md` và `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Tính năng từng PASS/COMPLETE không được tự ý xóa, thu hẹp hoặc làm mất đường gọi chỉ vì code/schema hiện tại không dùng tới. Nếu thật sự phải thay thế, phải ghi trạng thái vào ledger và thêm test hành vi chứng minh.
 
 # Danh sách tính năng Python Patch Tool — v6.20.2

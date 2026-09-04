@@ -1,5 +1,15 @@
 # Python Patch Tool — cumulative capability ledger
 
+## Current additive capability — cryptographic provenance / signature trust
+
+- **COMPLETE (current capability; historical #65 was NOT STARTED):** PATCH manifests may carry a strict Ed25519 provenance signature (`ptv-patch-signature-v1`).
+- **FAIL-CLOSED:** a present signature is verified against operator-local trusted public keys before payload/source mutation; tampered manifest/package content, malformed signature data, or an untrusted signer is rejected.
+- **LOCAL POLICY:** `.python_patch_tool.json` may set `provenance.require_signature=true`, which also rejects unsigned recognized legacy PATCHes. Default remains compatible with existing unsigned PATCHes.
+- **SCOPE BOUNDARY:** verifier/trust policy only. Private-key generation/management, PKI, remote trust registry/network lookup, COLLECT signing and reproducible raw ZIP-byte signing remain out of scope.
+- Behavioral gate: `self_test_provenance_signature_v6_21_0.py`. Contract: `PROVENANCE_SIGNATURE_TRUST.md`.
+- Historical `CURRENT_CAPABILITY_DISPOSITION.json` remains 95/95 COMPLETE coverage; historical #65 is not rewritten as if it had been COMPLETE in v5.
+
+
 ## v6.20.0 safe Git + human-only manual execution
 
 - **PRESERVED + HARDENED (#43):** COLLECT Git context now uses a strict operation allowlist only: `status`, `current_branch`, `branches`, `log`, `show`, `diff_worktree`, `diff_staged`, `diff_refs`, `diff_ref_worktree`, and safe `switch`. Nested repositories are supported through an explicit project-relative `repo`. There is no raw command/argv Git escape hatch.

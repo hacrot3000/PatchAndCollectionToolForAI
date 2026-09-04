@@ -49,6 +49,7 @@ names=[
  'self_test_docs_v6_20_0.py',
  'self_test_self_contained_v6_20_0.py',
  'self_test_patch_preflight_v6_20_0.py',
+ 'self_test_provenance_signature_v6_21_0.py',
  'self_test_safe_rollback_v6_20_0.py',
  'self_test_patch_recovery_v6_20_0.py',
  'self_test_fail_handoff_sources_v6_20_0.py',
