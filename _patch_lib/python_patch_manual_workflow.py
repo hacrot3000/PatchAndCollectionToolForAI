@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 import zipfile
 
-VERSION = "6.20.1"
+from python_patch_version import VERSION
 _EXIT_RE = re.compile(r"(?m)^\[PTV_MANUAL_EXIT_CODE=(-?\d+)\]\s*$")
 _EXIT_TAIL_BYTES = 64 * 1024
 _FORBIDDEN_INLINE = {
