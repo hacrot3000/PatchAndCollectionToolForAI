@@ -1,0 +1,45 @@
+name: Diagnose v6.20.2 health release patches
+
+on:
+  push:
+    branches:
+      - ptv-v6.20.2-upload-helper
+    paths:
+      - .github/workflows/diagnose-health-release-v6202.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ptv-v6.20.2-hardening-work
+          fetch-depth: 0
+      - name: Diagnose patches
+        shell: bash
+        run: |
+          set -u
+          git fetch origin ptv-v6.20.2-upload-helper
+          decode() {
+            local n="$1"
+            : > "/tmp/${n}.b64"
+            while IFS= read -r p; do git show "origin/ptv-v6.20.2-upload-helper:${p}" >> "/tmp/${n}.b64"; done < <(git ls-tree -r --name-only origin/ptv-v6.20.2-upload-helper | grep -E "^\\.ptv_upload/${n}\\.part[0-9]+$" | sort)
+            base64 -d "/tmp/${n}.b64" | gzip -d > "/tmp/${n}.patch"
+          }
+          decode 04_health
+          decode 06_release_sync
+          echo '=== HEALTH FILES ==='
+          grep '^diff --git ' /tmp/04_health.patch || true
+          echo '=== RELEASE FILES ==='
+          grep '^diff --git ' /tmp/06_release_sync.patch || true
+          echo '=== HEALTH CHECK ==='
+          git apply --check --verbose /tmp/04_health.patch; echo "health_rc=$?"
+          git apply /tmp/04_health.patch || exit $?
+          echo '=== RELEASE CHECK AFTER HEALTH ==='
+          git apply --check --verbose /tmp/06_release_sync.patch; echo "release_after_health_rc=$?"
+          git reset --hard HEAD
+          echo '=== RELEASE CHECK ALONE ==='
+          git apply --check --verbose /tmp/06_release_sync.patch; echo "release_alone_rc=$?"
