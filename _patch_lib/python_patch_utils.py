@@ -8,7 +8,7 @@ import re
 import shutil
 from typing import Any, Callable, Optional
 
-VERSION = "6.14.1"
+VERSION = "6.14.2"
 
 
 class PatchFailure(RuntimeError):

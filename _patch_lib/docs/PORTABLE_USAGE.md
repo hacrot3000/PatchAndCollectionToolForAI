@@ -1,31 +1,51 @@
-# Python Patch Tool v6.14.1 portable usage
+# Python Patch Tool v6.14.2 portable usage
 
-Install/update directly at project root:
+The release is self-contained for its v6.14.2 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
+
+## Linux / POSIX
+
+Install/update at the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.14.1.zip -d "$PWD"
+unzip -o python_patch_tool_v6.14.2.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 
-The release is self-contained for its v6.14.1 documented PATCH/COLLECT contract. It ships the PATCH runner, patch utilities and readonly collector; no older private core is required.
+## Windows
 
-Public workflow remains zero-argument. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` under `patchs/`, then run the command above.
+Requirement: **Python 3.10+**. The launcher accepts Python Launcher (`py -3`) or a `python` / `python3` command on PATH.
+
+PowerShell install/update at the project root:
+
+```powershell
+Expand-Archive -Force .\python_patch_tool_v6.14.2.zip .
+tools\run_python_patches.bat
+```
+
+Recommended normal command from either CMD or PowerShell:
+
+```bat
+tools\run_python_patches.bat
+```
+
+Direct PowerShell alternative:
+
+```powershell
+.\tools\run_python_patches.ps1
+```
+
+The BAT wrapper starts the packaged PowerShell launcher with process-local `-ExecutionPolicy Bypass`; it does **not** change the machine/user ExecutionPolicy setting.
+
+Windows uses the line selector because the fullscreen selector is POSIX/`termios` based. Typical inputs are `1`, `1,3-5`, `a`, `d 2`, `i 1`, `h`, `q`, and Enter to confirm an existing selection. PATCH/COLLECT rules are otherwise unchanged.
+
+## AI workflow
 
 Before working with AI, send all current `tools/_patch_lib/docs/`. For Patch Tool development also send `tools/implementing.md` and `tools/PYTHON_PATCH_TOOL_FEATURES_VI.md`.
 
 COLLECT actions are defined exclusively by `docs/COLLECT_ACTION_SCHEMA.json`: `pack`, `overview`, `find`, `search`, `git`.
 
-The end-user HTML guide intentionally hides internal COLLECT action details. AI/tool integrations use `docs/COLLECT_ACTION_SCHEMA.json` directly.
+PATCH package construction must follow `PATCH_PACKAGE_SCHEMA.json` and `PATCH_PACKAGE_GUIDE.md`. External `post_patch.commands[].argv` executables must exist on the current OS; a Linux-only `bash`/`sh` command is not automatically translated on Windows.
 
-## v6.14.1 PATCH preflight / recovery / audit
+## Recovery / audit
 
-Normal operation remains zero-argument. PATCH package construction must follow `PATCH_PACKAGE_SCHEMA.json` and `PATCH_PACKAGE_GUIDE.md`. Failed PATCH runs write `artifacts/patch_tool/LAST_RUN.json` and normally a `fail_handoffs/FAIL_HANDOFF_*.zip`; source drift can prepare a next-run COLLECT request. Run history is local/bounded and never used as cross-machine duplicate state. Interactive PATCH inspect is available with `i` without executing or archiving the package.
-
-## v6.14.1 safe rollback / Tool Health
-
-PATCH rollback is opt-in and requires the exact metadata contract in `PATCH_PACKAGE_GUIDE.md`; it never reintroduces SANDBOX/worktree transactions and never guesses a Git rollback. In the zero-argument selector press `h` for read-only Tool Health; an empty queue prints a compact health summary automatically.
-
-
-## v6.14.1 robustness notes
-
-Normal use is unchanged. The tool now fail-closes unsafe symlinked queue/rollback paths, process-group manages PATCH/post-command descendants for timeout and signals, and preserves exact PATCH/COLLECT input identity when same-name files are replaced concurrently.
+Failed PATCH runs write `artifacts/patch_tool/LAST_RUN.json` and normally a `fail_handoffs/FAIL_HANDOFF_*.zip`; source drift can prepare a next-run COLLECT request. Interactive PATCH inspect is `i` (line selector: `i <index>`), and Tool Health is `h`.

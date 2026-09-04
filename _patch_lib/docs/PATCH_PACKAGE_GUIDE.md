@@ -1,4 +1,4 @@
-# PATCH PACKAGE GUIDE — v6.14.1 authoritative AI/tool contract
+# PATCH PACKAGE GUIDE — v6.14.2 authoritative AI/tool contract
 
 Machine-readable source of truth:
 
@@ -36,9 +36,9 @@ Optional manifest block:
 ```json
 {
   "compatibility": {
-    "min_tool_version": "6.14.1",
+    "min_tool_version": "6.14.2",
     "max_tool_version": "7.0.0",
-    "max_tested_version": "6.14.1"
+    "max_tested_version": "6.14.2"
   }
 }
 ```
@@ -157,7 +157,7 @@ Rollback baselines are re-checked when the pre-payload snapshot is created. If a
 
 On POSIX, restore pins the validated parent directory with a directory file descriptor and `O_NOFOLLOW`-style checks so an ancestor symlink swap cannot redirect the restore outside the project.
 
-Python PATCH payloads and post-patch commands run in isolated process groups. Timeout, SIGINT or SIGTERM terminates the whole managed group before rollback/return; a descendant must not continue modifying the project after Patch Tool reports failure.
+On POSIX, Python PATCH payloads and post-patch commands run in isolated process groups. Timeout, SIGINT or SIGTERM terminates the managed group before rollback/return. Windows uses the platform-specific subprocess branch; PATCH authors must not assume POSIX signal/process-group semantics there.
 
 ## Exact input lifecycle — v6.14.1
 

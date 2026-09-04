@@ -1,16 +1,18 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.14.1
+# AI / ChatGPT usage contract — Python Patch Tool v6.14.2
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
 ## Public workflow
 
-The user normally runs only:
+The user normally runs one zero-argument public launcher:
 
-```bash
-./tools/run_python_patches.sh
+```text
+Linux/POSIX: ./tools/run_python_patches.sh
+Windows:     tools\run_python_patches.bat
+PowerShell:   .\tools\run_python_patches.ps1
 ```
 
-PATCH and COLLECT ZIPs are placed directly under `<project>/patchs/`.
+All launchers resolve the same project root and call the same dispatcher/runner/collector. PATCH and COLLECT ZIPs are placed directly under `<project>/patchs/`. Windows requires Python 3.10+; the packaged PowerShell launcher probes `py -3`, `python`, then `python3`.
 
 Before creating artifacts, AI should read **all files under `tools/_patch_lib/docs/`**. When Patch Tool itself is being developed, also read:
 
@@ -37,7 +39,7 @@ Do not invent PATCH manifest fields or COLLECT action names/fields. `overview` i
 
 AI-generated archive PATCHes must follow `PATCH_PACKAGE_GUIDE.md` and `PATCH_PACKAGE_SCHEMA.json`.
 
-Patch Tool v6.14.1 preflights before payload execution:
+Patch Tool v6.14.2 preflights before payload execution:
 
 - manifest schema;
 - payload ambiguity/entrypoint;
@@ -114,7 +116,7 @@ If `truncated>0`, AI must treat evidence as bounded/incomplete and should reques
 
 ## Self-contained runtime
 
-v6.14.1 ships the documented PATCH runner, utilities, readonly collector, schemas, dispatcher and progress supervisor. The documented current contract does not require an older **private core**. Historical formats outside the current schemas fail closed rather than being guessed.
+v6.14.2 ships the documented PATCH runner, utilities, readonly collector, schemas, dispatcher, progress supervisor and Windows launchers. The documented current contract does not require an older **private core**. Historical formats outside the current schemas fail closed rather than being guessed.
 
 ## Duplicate rules
 
@@ -126,12 +128,16 @@ v6.14.1 ships the documented PATCH runner, utilities, readonly collector, schema
 
 The zero-argument selector exposes read-only Tool Health with key `h` (line selector: `h`). When the queue is empty, a compact health line is printed automatically. Health verifies the installed VERSION, `SHA256SUMS`, required self-contained runtime files, executable launcher and authoritative PATCH/COLLECT schemas. It never executes PATCH or downloads updates.
 
+## Windows portability boundary
+
+Windows uses the line selector because the fullscreen selector relies on POSIX `termios`. AI must not assume arrow/Space/priority-key UI is available on Windows; line selection still supports indexes/ranges, `a`, delete, inspect and health. Any `post_patch.commands[].argv` executable must exist on the target OS. Do not hard-code `bash`/`sh` for a Windows-targeted PATCH unless the project explicitly provides it.
+
 ## User-guide boundary
 
 `tools/HUONG_DAN_PYTHON_PATCH_TOOL.html` stays intentionally minimal and user-oriented. Internal schema/action/preflight details belong in `tools/_patch_lib/docs/`, not in the user guide.
 
 
-## v6.14.1 runtime robustness invariants
+## v6.14.1 runtime robustness invariants (retained by v6.14.2)
 
 - The PATCH queue root `patchs/` must be a real project-local directory; a symlinked/unsafe queue root fails closed.
 - The exact PATCH package selected is snapshotted before preflight and the exact executed bytes are what PASS archival records. A same-name replacement with different bytes remains queued.

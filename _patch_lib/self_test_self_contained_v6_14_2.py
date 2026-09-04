@@ -68,4 +68,4 @@ with tempfile.TemporaryDirectory(prefix='ptv612_self_ambig_') as td:
     assert package.is_file() and not (root/'patchs'/'patched'/package.name).exists()
     assert 'exactly one Python patch entrypoint' in cp.stdout+cp.stderr
 
-print('PASS: v6.14.1 full self-contained clean-project PATCH runner for Python/OPS/resources')
+print('PASS: v6.14.2 full self-contained clean-project PATCH runner for Python/OPS/resources')

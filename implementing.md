@@ -1,42 +1,57 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.14.1**  
-Trạng thái: **ROBUSTNESS AUDIT — COMPLETE / STOP**
+Phiên bản mục tiêu: **v6.14.2**  
+Trạng thái: **WINDOWS LAUNCHER SUPPORT — COMPLETE / STOP**
+
+## Baseline
+
+Baseline kỹ thuật của release này là **v6.14.1**, trong đó robustness audit đã COMPLETE. Release v6.14.2 không thay đổi contract PATCH/COLLECT, không đưa SANDBOX/worktree trở lại và không đổi zero-argument workflow.
 
 ## Mục tiêu của phiên này
 
-Người dùng yêu cầu tiếp tục **audit bug/robustness của v6.14.0**, ưu tiên sửa lỗi có bằng chứng, không mở tính năng mới. Các invariants công khai giữ nguyên: zero-argument, PATCH in-place, không SANDBOX/worktree, không project/process lock, một invocation tối đa một COLLECT và không trộn PATCH.
+Bổ sung cách chạy native trên Windows tương tự `./tools/run_python_patches.sh` trên Linux, với tài liệu tối thiểu đủ dùng và không tạo một workflow riêng cho Windows.
 
-## Các lỗi đã xác nhận và sửa
+## Acceptance / task status
 
-| ID | Hạng mục audit | Trạng thái | Acceptance |
+| ID | Hạng mục | Trạng thái | Acceptance |
 |---|---|---|---|
-| RB-1 | Rollback target có ancestor symlink có thể thoát project | **COMPLETE** | Preflight/snapshot/restore đi từng path component, reject symlink/non-directory ancestor; restore POSIX dùng pinned directory FD + `O_NOFOLLOW`. |
-| RB-2 | `exists:false` dưới parent chưa tồn tại có thể để lại directory mới nhưng báo rollback PASS | **COMPLETE** | Parent của rollback target ban đầu phải tồn tại, là directory thật và không symlink trước payload; tool không tự đoán/xóa directory. |
-| RB-3 | TOCTOU giữa preflight và rollback snapshot | **COMPLETE** | Snapshot re-check exact baseline ngay trước payload; drift → fail-closed trước execution. |
-| SIG-1 | Chỉ signal dispatcher có thể để PATCH child/descendant tiếp tục chạy | **COMPLETE** | Dispatcher tạo process group riêng, forward SIGINT/SIGTERM; runner xử lý controlled interruption, rollback rồi trả rc130/143. |
-| PROC-1 | Payload/post-command timeout chỉ giết parent, descendant tiếp tục sửa project sau rollback | **COMPLETE** | Python payload và post command chạy trong process group riêng; timeout/interruption terminate toàn group trước rollback/return. |
-| LIFE-1 | PATCH tự thay thế chính queue ZIP có thể làm archive bytes chưa từng thực thi | **COMPLETE** | Snapshot exact input trước preflight; execute/archive đúng snapshot; same-name replacement khác bytes được giữ lại trong queue. |
-| LIFE-2 | COLLECT request có cùng identity race | **COMPLETE** | Snapshot exact request; execute/archive exact snapshot; same-name replacement khác bytes được giữ lại để lần sau chạy. |
-| HANDOFF-1 | FAIL_HANDOFF có thể attach queue ZIP mới thay vì PATCH đã thực thi | **COMPLETE** | Chỉ attach current queue package khi SHA khớp structured executed SHA; nếu khác thì omit + ghi lý do. |
-| HEALTH-1 | Xóa checksum row có thể che việc runtime file bị sửa | **COMPLETE** | Tool Health yêu cầu checksum coverage cho toàn bộ required runtime; missing row/corrupt file → FAIL. |
-| HEALTH-2 | Runtime/checksum path có symlink ancestor chưa được audit đủ chặt | **COMPLETE** | Tool Health lstat-walk và reject symlink ancestor cho required/checksummed paths. |
-| HEALTH-3 | Normal launcher tự sinh `__pycache__` khiến Tool Health WARN ngay trên install sạch | **COMPLETE** | Launcher export `PYTHONDONTWRITEBYTECODE=1`; zero-arg IDLE không tạo cache và Tool Health PASS không cần env test đặc biệt. |
-| QUEUE-1 | `patchs/` symlink có thể route queue ra ngoài project | **COMPLETE** | Discovery fail-closed `QUEUE SAFETY ERROR`; không chạy item bên ngoài project. |
-| DUP-1 | Current-session duplicate có race giữa hash và unlink trong multi-terminal mode | **COMPLETE** | Duplicate được isolate atomically rồi re-hash canonical + candidate; nếu identity đổi thì restore/preserve thay vì xóa nhầm. |
-| TEST-1 | Robustness regression + clean artifact verification | **COMPLETE** | Có `self_test_robustness_v6_14_1.py`; full regression và clean extraction bắt buộc PASS trước release. |
-| STOP-1 | Dừng sau audit | **COMPLETE** | Không tự bắt đầu feature mới; hỏi người dùng hướng tiếp theo. |
+| WIN-1 | PowerShell public launcher | **COMPLETE** | Có `tools/run_python_patches.ps1`, PowerShell 5.1+, tự xác định project root, zero-argument route vào cùng dispatcher. |
+| WIN-2 | CMD/BAT public launcher | **COMPLETE** | Có `tools/run_python_patches.bat`; gọi PowerShell launcher và giữ exit code; không cần sửa ExecutionPolicy toàn máy. |
+| WIN-3 | Python discovery trên Windows | **COMPLETE** | Thử `py -3`, `python`, `python3`; chỉ chấp nhận Python **3.10+**; lỗi có hướng dẫn rõ. |
+| WIN-4 | Routing parity | **COMPLETE** | Zero-argument, legacy `collect`, utility command và PATCH route dùng cùng core; PATCH vẫn bị ép `--transaction off` như launcher Linux. |
+| WIN-5 | Install/Tool Health/package integrity | **COMPLETE** | `.ps1` + `.bat` là managed runtime, bắt buộc có trong checksum coverage và Tool Health. |
+| WIN-6 | Windows user/AI documentation | **COMPLETE** | Cập nhật HTML guide tối thiểu, `PORTABLE_USAGE.md`, `AI_USAGE_CONTRACT.md`, feature docs và package contents. |
+| WIN-7 | Regression | **COMPLETE** | Thêm `self_test_windows_launchers_v6_14_2.py`; PowerShell native parse/smoke chạy tự động nếu test host có PowerShell; full existing regression vẫn bắt buộc PASS. |
+| STOP-1 | Dừng sau task | **COMPLETE** | Không tự mở feature khác sau khi hoàn tất. |
 
-## Invariants giữ nguyên
+## Public commands
 
-- Public command: `./tools/run_python_patches.sh`.
-- PATCH chạy **in-place**; SANDBOX/detached worktree bị loại bỏ vĩnh viễn.
-- Không project/process lock; nhiều terminal vẫn do người dùng chủ động điều khiển.
-- Một invocation tối đa 1 COLLECT và không trộn PATCH.
-- Duplicate local-history vẫn local-project-only; không dùng global/server history.
-- PATCH/COLLECT schemas vẫn authoritative và fail-closed.
-- Full self-contained package vẫn là acceptance bắt buộc.
-- Safe rollback vẫn chỉ opt-in khi manifest cung cấp exact metadata; không trở thành generic transaction.
+Linux / POSIX:
+
+```bash
+./tools/run_python_patches.sh
+```
+
+Windows CMD (khuyến nghị vì không vướng script ExecutionPolicy):
+
+```bat
+tools\run_python_patches.bat
+```
+
+Windows PowerShell:
+
+```powershell
+.\tools\run_python_patches.ps1
+```
+
+Cả ba đều dùng **cùng project root, cùng `patchs/`, cùng dispatcher/runner/collector và cùng contract**.
+
+## Windows behavior cần biết
+
+- Yêu cầu Python **3.10+**. Launcher ưu tiên Python Launcher `py -3`, sau đó `python` / `python3` trên PATH.
+- Vì fullscreen selector hiện dựa trên POSIX `termios`, Windows dùng **line selector**: nhập `1`, `1,3-5`, `a`, `d <range>`, `i <index>`, `h`, `q`; khi một item đã được chọn sẵn, Enter xác nhận như bình thường.
+- PATCH package có `post_patch.commands[].argv` vẫn phải dùng executable có thật trên máy hiện tại. Một command hard-code `bash`, `sh` hoặc tool chỉ có trên Linux không tự trở thành portable chỉ vì launcher Windows đã tồn tại.
+- In-place/SANDBOX removal, PATCH/COLLECT exclusivity, local-history, checksum, recovery evidence và schemas giữ nguyên.
 
 ## Release stop condition
 

@@ -21,4 +21,4 @@ assert 'self-contained' in ai.lower() and 'private core' in ai.lower()
 for name in ['python_patch_runner.py','python_patch_utils.py','python_patch_readonly_collector.py']:
     assert name in package,name
 assert '[PRIMARY - UPLOAD THIS FILE]' in ai
-print('PASS: v6.14.1 exact self-contained AI COLLECT/PATCH documentation contract')
+print('PASS: v6.14.2 exact self-contained AI COLLECT/PATCH documentation contract')

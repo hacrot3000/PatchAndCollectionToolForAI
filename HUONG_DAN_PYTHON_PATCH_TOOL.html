@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Hướng dẫn Python Patch Tool v6.14.1</title>
+<title>Hướng dẫn Python Patch Tool v6.14.2</title>
 <style>
 :root{color-scheme:light dark}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:980px;margin:32px auto;padding:0 18px;line-height:1.55;color:#1f2328;background:#fff}
@@ -27,18 +27,27 @@ h1,h2{line-height:1.25}
 </style>
 </head>
 <body>
-<h1>Python Patch Tool v6.14.1 — hướng dẫn nhanh</h1>
+<h1>Python Patch Tool v6.14.2 — hướng dẫn nhanh</h1>
 
 <h2>1. Cài đặt / cập nhật</h2>
-<pre>unzip -o python_patch_tool_v6.14.1.zip -d "$PWD"
+<p><strong>Linux / POSIX:</strong></p>
+<pre>unzip -o python_patch_tool_v6.14.2.zip -d "$PWD"
 cat tools/_patch_lib/VERSION</pre>
-<p>Kết quả version phải là <code>6.14.1</code>.</p>
+<p><strong>Windows PowerShell:</strong> cần Python <strong>3.10+</strong>.</p>
+<pre>Expand-Archive -Force .\python_patch_tool_v6.14.2.zip .
+Get-Content .\tools\_patch_lib\VERSION</pre>
+<p>Kết quả version phải là <code>6.14.2</code>.</p>
 
 <h2>2. Chạy công cụ</h2>
+<p><strong>Linux / POSIX:</strong></p>
 <pre>./tools/run_python_patches.sh</pre>
-<p>Không cần tham số. Tool tự nhận các công việc phù hợp trong <code>patchs/</code>.</p>
+<p><strong>Windows CMD hoặc PowerShell (khuyến nghị):</strong></p>
+<pre>tools\run_python_patches.bat</pre>
+<p><strong>Windows PowerShell trực tiếp:</strong></p>
+<pre>.\tools\run_python_patches.ps1</pre>
+<p>Không cần tham số. Cả ba lệnh dùng cùng <code>patchs/</code> và cùng core. Trên Windows, tool dùng menu nhập số/range thay cho giao diện phím mũi tên của POSIX.</p>
 <ul>
-<li>PATCH: có thể chọn nhiều; phím <code>0..9</code> đặt priority, số nhỏ chạy trước.</li>
+<li>PATCH: có thể chọn nhiều. POSIX TTY hỗ trợ phím <code>0..9</code> để đặt priority; Windows dùng line selector bằng số/range.</li>
 <li>Yêu cầu lấy source cho AI: mỗi lần chỉ chọn <strong>1 request</strong>, không chạy chung với PATCH.</li>
 <li>Tool không khóa project; bạn có thể chủ động chạy terminal khác song song.</li>
 <li>Nếu nhiều PATCH trong cùng queue có checksum giống hệt nhau, tool giữ một file và tự loại file trùng.</li>
@@ -67,7 +76,7 @@ cat tools/_patch_lib/VERSION</pre>
   <pre id="prompt-vi">Tôi đang dùng Python Patch Tool hiện hành. Hãy đọc TOÀN BỘ các file tôi gửi từ tools/_patch_lib/docs/ trước khi làm việc; nếu có tools/implementing.md và tools/PYTHON_PATCH_TOOL_FEATURES_VI.md thì đọc cả hai.
 Tuân thủ contract hiện tại, không dùng hướng dẫn/version cũ để suy đoán. Ưu tiên sửa lỗi trước, sau đó mới hoàn thiện task đang dở; không tự start tính năng mới.
 Nếu cần source/evidence, hãy tự chuẩn bị đúng MỘT CODE_COLLECTION_REQUEST_*.zip theo tài liệu hiện hành; không trả JSON rời và không yêu cầu tôi chạy lệnh collect thủ công. Nếu cần patch code, trả đúng MỘT ZIP patch tương thích tool hiện hành.
-Người dùng luôn chạy: ./tools/run_python_patches.sh</pre>
+Người dùng chạy zero-argument launcher theo OS: Linux ./tools/run_python_patches.sh; Windows tools\run_python_patches.bat (hoặc .\tools\run_python_patches.ps1).</pre>
 </div>
 
 <h3>English</h3>
@@ -79,7 +88,7 @@ Người dùng luôn chạy: ./tools/run_python_patches.sh</pre>
   <pre id="prompt-en">I am using the current Python Patch Tool. Read ALL files I provide from tools/_patch_lib/docs/ before doing any work; also read tools/implementing.md and tools/PYTHON_PATCH_TOOL_FEATURES_VI.md when provided.
 Follow the current contract and do not infer behavior from obsolete versions. Fix bugs first, then finish already in-progress tasks; do not start new features on your own.
 If source/evidence is required, prepare exactly ONE CODE_COLLECTION_REQUEST_*.zip according to the current documentation; never return loose JSON and never ask me to run a manual collect command. If a code patch is required, return exactly ONE patch ZIP compatible with the current tool.
-The user always runs: ./tools/run_python_patches.sh</pre>
+The user runs the zero-argument launcher for the OS: Linux ./tools/run_python_patches.sh; Windows tools\run_python_patches.bat (or .\tools\run_python_patches.ps1).</pre>
 </div>
 
 <h3>Русский</h3>
@@ -91,7 +100,7 @@ The user always runs: ./tools/run_python_patches.sh</pre>
   <pre id="prompt-ru">Я использую актуальную версию Python Patch Tool. Перед началом работы прочитайте ВСЕ файлы, которые я отправляю из tools/_patch_lib/docs/; если приложены tools/implementing.md и tools/PYTHON_PATCH_TOOL_FEATURES_VI.md, прочитайте и их.
 Следуйте только текущему контракту и не делайте выводы по устаревшим версиям. Сначала исправляйте ошибки, затем завершайте уже начатые задачи; не начинайте новые функции самостоятельно.
 Если нужны исходники/доказательства, подготовьте ровно ОДИН архив CODE_COLLECTION_REQUEST_*.zip согласно актуальной документации; не возвращайте отдельный JSON и не просите запускать collect вручную. Если нужен патч кода, верните ровно ОДИН ZIP-патч, совместимый с текущей версией инструмента.
-Пользователь всегда запускает: ./tools/run_python_patches.sh</pre>
+Пользователь запускает zero-argument launcher своей ОС: Linux ./tools/run_python_patches.sh; Windows tools\run_python_patches.bat (или .\tools\run_python_patches.ps1).</pre>
 </div>
 
 <h2>6. Công cụ này làm được gì?</h2>
@@ -109,7 +118,7 @@ The user always runs: ./tools/run_python_patches.sh</pre>
 <ol class="steps">
 <li>Đầu phiên, gửi cho AI toàn bộ <code>tools/_patch_lib/docs/</code> và dùng một prompt mẫu ở trên.</li>
 <li>Mô tả lỗi, mục tiêu hoặc task cần làm. AI đọc docs rồi phân tích.</li>
-<li>Nếu đủ thông tin, AI trả một PATCH ZIP. Chép vào <code>patchs/</code> và chạy <code>./tools/run_python_patches.sh</code>.</li>
+<li>Nếu đủ thông tin, AI trả một PATCH ZIP. Chép vào <code>patchs/</code> và chạy launcher zero-argument của hệ điều hành.</li>
 <li>Nếu thiếu source/evidence, AI trả một <code>CODE_COLLECTION_REQUEST_*.zip</code>. Chép vào <code>patchs/</code> và chạy cùng lệnh.</li>
 <li>Upload đúng ZIP được đánh dấu <code>[PRIMARY - UPLOAD THIS FILE]</code> cho AI.</li>
 <li>Nếu PATCH FAIL và tool hiện <code>[PRIMARY - UPLOAD THIS FILE] PATCH FAIL HANDOFF</code>, upload ZIP đó cho AI; không cần tự gom log thủ công.</li>

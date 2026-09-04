@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib, json, os, stat
 from pathlib import Path
 
-VERSION = "6.14.1"
+VERSION = "6.14.2"
 REQUIRED_RUNTIME = [
     "tools/run_python_patches.sh",
+    "tools/run_python_patches.ps1",
+    "tools/run_python_patches.bat",
     "tools/_patch_lib/VERSION",
     "tools/_patch_lib/python_patch_queue_dispatcher.py",
     "tools/_patch_lib/python_patch_runner.py",
@@ -74,11 +76,18 @@ def audit_tool(root: Path) -> dict[str, object]:
         if not ok:
             errors.append(f"missing/unsafe required file or symlinked ancestor: {rel}")
 
-    launcher=root/'tools'/'run_python_patches.sh'
-    executable=True if os.name=='nt' else (launcher.is_file() and os.access(launcher,os.X_OK))
-    checks.append({'name':'launcher_executable','status':'PASS' if executable else 'FAIL'})
+    sh_launcher=root/'tools'/'run_python_patches.sh'
+    ps_launcher=root/'tools'/'run_python_patches.ps1'
+    bat_launcher=root/'tools'/'run_python_patches.bat'
+    if os.name=='nt':
+        executable=ps_launcher.is_file() and bat_launcher.is_file()
+        launcher_detail='windows:.bat+.ps1'
+    else:
+        executable=sh_launcher.is_file() and os.access(sh_launcher,os.X_OK)
+        launcher_detail='posix:.sh+0755'
+    checks.append({'name':'launcher_executable','status':'PASS' if executable else 'FAIL','detail':launcher_detail})
     if not executable:
-        errors.append('tools/run_python_patches.sh is not executable')
+        errors.append('public launcher is missing or not executable for this platform')
 
     manifest=lib/'SHA256SUMS'
     manifest_entries=0

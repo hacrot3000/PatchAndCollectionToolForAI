@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from python_patch_utils import PatchFailure, finish_failure, run_ops
 from python_patch_package_schema import PatchSchemaError, run_preflight, sha256_file
 
-VERSION = "6.14.1"
+VERSION = "6.14.2"
 _ACTIVE_TERMINATION_SIGNAL: int | None = None
 
 

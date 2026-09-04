@@ -1,7 +1,9 @@
-Python Patch Tool v6.14.1 — full self-contained package
+Python Patch Tool v6.14.2 — full self-contained package
 
 Public files:
   tools/run_python_patches.sh
+  tools/run_python_patches.ps1
+  tools/run_python_patches.bat
   tools/implementing.md
   tools/PYTHON_PATCH_TOOL_FEATURES_VI.md
   tools/HUONG_DAN_PYTHON_PATCH_TOOL.html
@@ -25,7 +27,7 @@ Authoritative AI/tool docs:
   tools/_patch_lib/docs/CODE_COLLECTION_GUIDE.md
   tools/_patch_lib/docs/PORTABLE_USAGE.md
   tools/_patch_lib/docs/PYTHON_PATCH_TOOL_FEATURE_STATUS.md
-  tools/_patch_lib/docs/COLLECT_PROGRESS_V6_14_1.md
+  tools/_patch_lib/docs/COLLECT_PROGRESS_V6_14_2.md
 
 Runtime audit/recovery artifacts (created in the project, not shipped pre-populated):
   artifacts/patch_tool/LAST_RUN.json
@@ -33,21 +35,23 @@ Runtime audit/recovery artifacts (created in the project, not shipped pre-popula
   artifacts/patch_tool/fail_handoffs/FAIL_HANDOFF_*.zip
   patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip  # only when source-drift/anchor recovery is prepared
 
-Normal use:
-  unzip -o python_patch_tool_v6.14.1.zip -d PROJECT_ROOT
+Normal use — Linux/POSIX:
+  unzip -o python_patch_tool_v6.14.2.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
+
+Normal use — Windows (Python 3.10+):
+  Expand-Archive -Force .\python_patch_tool_v6.14.2.zip PROJECT_ROOT
+  tools\run_python_patches.bat
+  # or: .\tools\run_python_patches.ps1
 
 PATCH execution remains IN-PLACE. SANDBOX/worktree transaction execution is permanently unsupported.
 
-Zero-argument selector key `h` performs read-only Tool Health; IDLE prints a compact health line.
-Metadata-driven rollback is opt-in and limited to exact declared targets before Git policy.
+v6.14.2 Windows portability patch:
+- PowerShell 5.1+ launcher with Python 3.10+ discovery
+- CMD/BAT wrapper with process-local ExecutionPolicy bypass
+- exact zero-argument/PATCH/COLLECT routing parity with the POSIX launcher
+- Windows launchers included in Tool Health and SHA256 package coverage
+- minimal Windows install/run documentation
+- explicit line-selector behavior on Windows/non-POSIX terminals
 
-
-v6.14.1 robustness patch:
-- exact PATCH/COLLECT input snapshots and archival identity
-- process-group signal/timeout containment
-- rollback path/ancestor safety
-- Tool Health checksum-coverage enforcement
-- symlinked queue-root rejection
-- duplicate-removal race hardening
-- runtime bytecode-cache suppression so Tool Health does not self-WARN
+v6.14.1 robustness invariants remain in force.
