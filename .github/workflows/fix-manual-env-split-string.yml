@@ -1,0 +1,77 @@
+name: Fix manual env split-string wrappers
+
+on:
+  push:
+    branches:
+      - ptv-v6.20.2-upload-helper
+    paths:
+      - .github/workflows/fix-manual-env-split-string.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ptv-v6.20.2-hardening-work
+          fetch-depth: 0
+      - name: Reject env split-string wrappers
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=cdbbff1aa96168af2bdf59925e9b16f66d7b6395
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected" || { echo "Unexpected work branch HEAD: $actual"; exit 2; }
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('_patch_lib/python_patch_manual_workflow.py')
+          text=p.read_text(encoding='utf-8')
+          anchor='''            if low in {"-i", "--ignore-environment", "-0", "--null"}:\n                i += 1\n                continue\n'''
+          replacement='''            if token == "-S" or low == "--split-string" or low.startswith("--split-string="):\n                # GNU env -S/--split-string reparses one string into argv and\n                # can therefore hide bash -c/python -c style evaluators from\n                # the structured-argv policy.  Do not attempt to emulate that\n                # parser here; reject this wrapper fail-closed.\n                return "__ptv_forbidden_inline_wrapper__", []\n            if low in {"-i", "--ignore-environment", "-0", "--null"}:\n                i += 1\n                continue\n'''
+          assert anchor in text, 'env unwrap anchor not found'
+          text=text.replace(anchor,replacement,1)
+          anchor2='''def _has_forbidden_inline_eval(exe: str, args: list[str]) -> bool:\n    kind = _FORBIDDEN_INLINE.get(exe)\n'''
+          replacement2='''def _has_forbidden_inline_eval(exe: str, args: list[str]) -> bool:\n    if exe == "__ptv_forbidden_inline_wrapper__":\n        return True\n    kind = _FORBIDDEN_INLINE.get(exe)\n'''
+          assert anchor2 in text, 'inline eval anchor not found'
+          text=text.replace(anchor2,replacement2,1)
+          p.write_text(text,encoding='utf-8')
+
+          t=Path('_patch_lib/self_test_manual_execution_v6_20_0.py')
+          text=t.read_text(encoding='utf-8')
+          anchor="    {'steps':[{'id':'x','argv':['env','bash','-c','echo x']}]},\n"
+          insert=(anchor+
+                  "    {'steps':[{'id':'x','argv':['env','-S','bash -c echo x']}]},\n"+
+                  "    {'steps':[{'id':'x','argv':['env','--split-string','python3 -c print(1)']}]},\n"+
+                  "    {'steps':[{'id':'x','argv':['env','--split-string=bash -lc echo x']}]},\n")
+          assert anchor in text, 'manual env regression anchor not found'
+          t.write_text(text.replace(anchor,insert,1),encoding='utf-8')
+          PY
+
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_manual_execution_v6_20_0.py
+          PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
+          import sys
+          sys.path.insert(0,'_patch_lib')
+          from python_patch_manual_workflow import validate_manual_execution, ManualWorkflowError
+          bad=[
+              ['env','-S','bash -c echo x'],
+              ['env','--split-string','python3 -c print(1)'],
+              ['env','--split-string=bash -lc echo x'],
+          ]
+          for argv in bad:
+              try:
+                  validate_manual_execution({'steps':[{'id':'x','argv':argv}]})
+              except ManualWorkflowError:
+                  continue
+              raise SystemExit(f'FAIL accepted {argv!r}')
+          print('PASS: env split-string wrappers rejected')
+          PY
+
+          git config user.name "Patch Tool CI"
+          git config user.email "patch-tool-ci@users.noreply.github.com"
+          git add _patch_lib/python_patch_manual_workflow.py _patch_lib/self_test_manual_execution_v6_20_0.py
+          git commit -m "fix: reject env split-string evaluator wrappers"
+          git push origin HEAD:ptv-v6.20.2-hardening-work
