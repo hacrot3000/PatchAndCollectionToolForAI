@@ -22,6 +22,15 @@ assert spec.loader is not None
 spec.loader.exec_module(m)
 
 
+
+
+def install_runner_shim(root: Path):
+    lib=root/'tools'/'_patch_lib'; lib.mkdir(parents=True,exist_ok=True)
+    shim=lib/'python_patch_runner.py'
+    shim.write_text(
+        '#!/usr/bin/env python3\nimport subprocess,sys\nfrom pathlib import Path\nroot=Path(__file__).resolve().parents[2]\nlauncher=root/"tools"/"run_python_patches.sh"\nraise SystemExit(subprocess.run([str(launcher),*sys.argv[1:]],cwd=root).returncode)\n',
+        encoding='utf-8')
+
 def make_patch(path: Path, marker: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, 'w') as zf:
@@ -91,6 +100,7 @@ with tempfile.TemporaryDirectory(prefix='ptv680dup_e2e_only_') as td:
         encoding='utf-8',
     )
     launcher.chmod(0o755)
+    install_runner_shim(root)
 
     cp = subprocess.run(
         [sys.executable, '-S', str(MOD), '--project-root', str(root)],
@@ -130,6 +140,7 @@ with tempfile.TemporaryDirectory(prefix='ptv680dup_e2e_mixed_') as td:
         encoding='utf-8',
     )
     launcher.chmod(0o755)
+    install_runner_shim(root)
 
     cp = subprocess.run(
         [sys.executable, '-S', str(MOD), '--project-root', str(root)],
@@ -185,7 +196,7 @@ with tempfile.TemporaryDirectory(prefix='ptv681dup_symlink_project_') as project
     assert duplicates == [], duplicates
     assert any('patchs/patched/ is a symlink' in x for x in warnings), warnings
 
-# v6.14.2 hardens the whole queue boundary: patchs/ itself must never be a
+# v6.15.0 hardens the whole queue boundary: patchs/ itself must never be a
 # symlink, because otherwise PATCH/COLLECT execution and archive lifecycle can
 # cross into another project/shared directory. Discovery fails closed.
 with tempfile.TemporaryDirectory(prefix='ptv681dup_queue_project_') as project_td, tempfile.TemporaryDirectory(prefix='ptv681dup_queue_shared_') as shared_td:
@@ -230,6 +241,7 @@ with tempfile.TemporaryDirectory(prefix='ptv681dup_late_') as td:
         encoding='utf-8',
     )
     launcher.chmod(0o755)
+    install_runner_shim(root)
     chosen = [m.QueueItem(first.name, 'PATCH'), m.QueueItem(second.name, 'PATCH')]
     rc, executed, remaining, late_duplicates, warnings = m.execute_items(root, chosen)
     assert rc == 0, rc
@@ -268,6 +280,7 @@ with tempfile.TemporaryDirectory(prefix='ptv681dup_late_main_') as td:
         encoding='utf-8',
     )
     launcher.chmod(0o755)
+    install_runner_shim(root)
     cp = subprocess.run(
         [sys.executable, '-S', str(MOD), '--project-root', str(root)],
         input='a\n', text=True, capture_output=True, timeout=15,
@@ -297,7 +310,7 @@ with tempfile.TemporaryDirectory(prefix='ptv612_session_three_') as td:
     assert a.is_file() and c.is_file() and not warns,warns
 
 
-# v6.14.2 deliberately has no project/process queue lock. Independent terminal
+# v6.15.0 deliberately has no project/process queue lock. Independent terminal
 # windows are operator-controlled and must not be rejected as BUSY. A stale
 # .ptv_queue.lock from an older release is ignored and is never created by this
 # dispatcher.
@@ -315,6 +328,7 @@ with tempfile.TemporaryDirectory(prefix='ptv610_no_process_lock_') as td:
         'sleep 0.35\n'
         'exit 0\n', encoding='utf-8')
     launcher.chmod(0o755)
+    install_runner_shim(root)
     p1=subprocess.Popen([sys.executable,'-S',str(MOD),'--project-root',str(root)],
                         stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     p2=subprocess.Popen([sys.executable,'-S',str(MOD),'--project-root',str(root)],
@@ -328,4 +342,4 @@ with tempfile.TemporaryDirectory(prefix='ptv610_no_process_lock_') as td:
     invoked=calls.read_text(encoding='utf-8').splitlines()
     assert len(invoked)==2,invoked
 
-print('PASS: v6.14.2 current-session duplicate collapse plus local-history duplicate contract')
+print('PASS: v6.15.0 current-session duplicate collapse plus local-history duplicate contract')

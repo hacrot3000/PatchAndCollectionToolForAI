@@ -29,8 +29,13 @@ try:
 except Exception:
     termios = tty = None
 
+try:
+    import msvcrt
+except Exception:
+    msvcrt = None
 
-VERSION = "6.14.2"
+
+VERSION = "6.15.0"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -471,15 +476,35 @@ def _create_fail_handoff(
         return None
 
 
+def _runner_command(root: Path, action: str, item: QueueItem) -> list[str]:
+    runner = root / "tools" / "_patch_lib" / "python_patch_runner.py"
+    cmd = [sys.executable, str(runner)]
+    if action in {"inspect", "validate"}:
+        cmd.append(action)
+    cmd += ["--patch", f"patchs/{item.name}", "--transaction", "off"]
+    return cmd
+
+
 def _inspect_item(root: Path, item: QueueItem) -> int:
     if item.kind != "PATCH":
         print("INSPECT: chỉ áp dụng cho PATCH; COLLECT được preflight theo schema khi discovery.")
         return 2
-    cmd = [str(root / "tools/run_python_patches.sh"), "inspect", "--patch", f"patchs/{item.name}"]
     try:
-        return _normalize_subprocess_rc(subprocess.run(cmd, cwd=root).returncode)
+        return _normalize_subprocess_rc(subprocess.run(_runner_command(root, "inspect", item), cwd=root).returncode)
     except KeyboardInterrupt:
         return 130
+
+
+def _validate_item(root: Path, item: QueueItem) -> int:
+    if item.kind != "PATCH":
+        print("VALIDATE: chỉ áp dụng cho PATCH.")
+        return 2
+    try:
+        return _normalize_subprocess_rc(subprocess.run(_runner_command(root, "validate", item), cwd=root).returncode)
+    except KeyboardInterrupt:
+        return 130
+
+
 def _safe_display(value: str) -> str:
     value = _ANSI_RE.sub("", str(value))
     out: list[str] = []
@@ -1117,7 +1142,7 @@ def discover_queue(root: Path):
     return items, warnings
 
 
-def _read_key(fd):
+def _read_key_posix(fd):
     raw = os.read(fd, 1)
     if raw in {b"\r", b"\n"}:
         return "ENTER"
@@ -1131,6 +1156,46 @@ def _read_key(fd):
                 seq += os.read(fd, 1)
         return {b"[A": "UP", b"[B": "DOWN"}.get(seq, "ESC")
     return raw.decode(errors="ignore").lower()
+
+
+# Backward-compatible internal alias retained for existing selector tests/helpers.
+_read_key = _read_key_posix
+
+
+def _read_key_windows():
+    if msvcrt is None:
+        return ""
+    ch = msvcrt.getwch()
+    if ch in {"\x00", "\xe0"}:
+        code = msvcrt.getwch()
+        return {"H": "UP", "P": "DOWN"}.get(code, "")
+    if ch in {"\r", "\n"}:
+        return "ENTER"
+    if ch == " ":
+        return "SPACE"
+    if ch == "\x1b":
+        return "ESC"
+    if ch == "\x03":
+        return "\x03"
+    return ch.lower()
+
+
+def _enable_windows_vt() -> bool:
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        mode = ctypes.c_uint()
+        if handle in (0, -1) or not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+        if not kernel32.SetConsoleMode(handle, mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING):
+            return False
+        return True
+    except Exception:
+        return False
 
 
 def _selector_term_size() -> tuple[int, int]:
@@ -1250,11 +1315,11 @@ def _render(items, cursor, selected, priorities, msg, prev):
     full_footer = [
         "",
         "Space: chọn/bỏ [x] | 0-9: gán ưu tiên | ↑/↓: di chuyển",
-        "a: tất cả PATCH [x] | n: bỏ tất cả | d: xóa | i: inspect PATCH | h: health",
+        "a: tất cả PATCH [x] | n: bỏ tất cả | d: xóa | i: inspect PATCH | v: validate | h: health",
         "Enter: xác nhận | q/Esc: hủy | Số nhỏ chạy trước; cùng số giữ thứ tự hiện tại",
         _safe_display(msg) if msg else "",
     ]
-    compact_help = "Space/[0-9]/↑↓ | i inspect | h health | Enter chạy | q hủy"
+    compact_help = "Space/[0-9]/↑↓ | i inspect | v validate | h health | Enter chạy | q hủy"
 
     # Scale the fixed UI down before sacrificing the cursor row. Even an
     # extremely short terminal must show the current item and must never write
@@ -1491,7 +1556,7 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
         for i, item in enumerate(items, 1):
             mark = "x" if i - 1 in selected else " "
             print(f"  [{mark}] {i}. [{_safe_display(item.kind)}] {_safe_display(item.name)}")
-        print("Nhập: 1,3-5 | a=all PATCH | n=none | d <range>=xóa | i <số>=inspect PATCH | h=health | q=quit | Enter=xác nhận")
+        print("Nhập: 1,3-5 | a=all PATCH | n=none | d <range>=xóa | i <số>=inspect PATCH | v <số>=validate PATCH | h=health | q=quit | Enter=xác nhận")
         raw_line, interrupted = _readline_or_interrupt()
         if interrupted:
             print("\nCancelled by Ctrl+C.")
@@ -1528,6 +1593,19 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
             except Exception: pass
             rc = _inspect_item(root, items[index])
             print(f"INSPECT rc={rc}")
+            continue
+        if raw.startswith("v "):
+            try:
+                indexes = _parse_index_spec(raw[2:].strip(), len(items))
+            except ValueError as exc:
+                print(f"Validate không hợp lệ: {_safe_display(str(exc))}")
+                continue
+            if len(indexes) != 1:
+                print("Validate yêu cầu đúng một PATCH index.")
+                continue
+            index = next(iter(indexes))
+            rc = _validate_item(root, items[index])
+            print(f"VALIDATE rc={rc}")
             continue
         if raw.startswith("d "):
             try:
@@ -1586,20 +1664,22 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
 def select_items(root, items, *, initial_selection="none", selector_ui="auto"):
     if not items:
         return []
-    # Full-screen controls are safe only when both sides are attached to a TTY.
-    use_tty = (
-        selector_ui != "line"
-        and termios is not None
-        and tty is not None
-        and sys.stdin.isatty()
-        and sys.stdout.isatty()
+    # Full-screen controls support POSIX termios and native Windows msvcrt.
+    use_posix_tty = (
+        selector_ui != "line" and os.name != "nt" and termios is not None and tty is not None
+        and sys.stdin.isatty() and sys.stdout.isatty()
     )
-    if not use_tty:
+    use_windows_tty = (
+        selector_ui != "line" and os.name == "nt" and msvcrt is not None
+        and sys.stdin.isatty() and sys.stdout.isatty() and _enable_windows_vt()
+    )
+    if not (use_posix_tty or use_windows_tty):
         return _select_items_line(root, items, initial_selection)
 
     fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    tty.setcbreak(fd)
+    old = termios.tcgetattr(fd) if use_posix_tty else None
+    if use_posix_tty:
+        tty.setcbreak(fd)
     cursor = 0
     selected = _initial_selected(items, initial_selection)
     priorities: dict[int, int] = {}
@@ -1615,7 +1695,7 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto"):
         while items:
             rendered = _render(items, cursor, selected, priorities, msg, rendered)
             msg = ""
-            key = _read_key(fd)
+            key = _read_key(fd) if use_posix_tty else _read_key_windows()
             if key == "\x03":
                 raise KeyboardInterrupt
             if key in {"q", "ESC"}:
@@ -1691,21 +1771,35 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto"):
                 # Temporarily restore canonical terminal mode while the inspect
                 # subprocess prints its preflight report. Inspect never changes
                 # selection and never executes the PATCH payload.
-                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+                if use_posix_tty:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old)
                 sys.stdout.write("\n--- PATCH INSPECT / DRY-RUN ---\n"); sys.stdout.flush()
                 rc = _inspect_item(root, items[cursor])
                 print("--- END INSPECT ---")
-                tty.setcbreak(fd)
+                if use_posix_tty:
+                    tty.setcbreak(fd)
                 rendered = 0
                 msg = f"Inspect {'PASS' if rc == 0 else 'FAIL'} rc={rc}; selection unchanged."
+            elif key == "v":
+                if use_posix_tty:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old)
+                sys.stdout.write("\n--- PATCH VALIDATE ---\n"); sys.stdout.flush()
+                rc = _validate_item(root, items[cursor])
+                print("--- END VALIDATE ---")
+                if use_posix_tty:
+                    tty.setcbreak(fd)
+                rendered = 0
+                msg = f"Validate {'PASS' if rc == 0 else 'FAIL'} rc={rc}; selection unchanged."
             elif key == "h":
                 # Health is a read-only self-audit of the installed tool. It
                 # never changes queue selection or project source.
-                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+                if use_posix_tty:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old)
                 sys.stdout.write("\n--- TOOL HEALTH / SELF-AUDIT ---\n"); sys.stdout.flush()
                 rc = print_health(root, compact=False)
                 print("--- END TOOL HEALTH ---")
-                tty.setcbreak(fd)
+                if use_posix_tty:
+                    tty.setcbreak(fd)
                 rendered = 0
                 msg = f"Tool health {'PASS' if rc == 0 else 'FAIL'} rc={rc}; selection unchanged."
             elif key == "ENTER":
@@ -1718,10 +1812,11 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto"):
                     return chosen
                 msg = "Chưa chọn item nào."
     finally:
-        try:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old)
-        except Exception:
-            pass
+        if use_posix_tty:
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+            except Exception:
+                pass
         sys.stdout.write("\r\x1b[2K")
         sys.stdout.flush()
     return []
@@ -1822,9 +1917,11 @@ def execute_items(root: Path, chosen: list[QueueItem]):
                 duplicate_warnings.append(
                     f"late duplicate check returned no decision for patchs/{item.name}; executing normally"
                 )
-            cmd = [str(root / "tools/run_python_patches.sh"), "--patch", f"patchs/{item.name}"]
+            cmd = _runner_command(root, "execute", item)
         elif item.kind == "COLLECT":
-            cmd = [str(root / "tools/run_python_patches.sh"), "collect", "request", f"patchs/{item.name}"]
+            progress = root / "tools" / "_patch_lib" / "python_patch_collect_progress_v6_7.py"
+            compat = root / "tools" / "_patch_lib" / "python_patch_collect_compat.py"
+            cmd = [sys.executable, str(progress), "--project-root", str(root), "--collector", str(compat), "--", "request", f"patchs/{item.name}"]
         else:
             print(f"ERROR invalid collect package {_safe_display(item.name)}", file=sys.stderr)
             rc = 2

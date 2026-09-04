@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "tool_version": "6.14.2",
+  "tool_version": "6.15.0",
   "manifest_file": "PATCH_TOOL_MANIFEST.json",
   "manifest": {
     "type": "object",
@@ -330,6 +330,6 @@
     "ops": "PATCH_TOOL_OPS.json and no Python entrypoint.",
     "ambiguous": "A package containing both OPS and a Python entrypoint, or multiple Python entrypoints, is rejected before project modification."
   },
-  "preflight_guarantee": "Schema, compatibility, payload, declared resources, declared file hashes/anchors, post-command cwd/executable, and Git executable requirements are checked before patch payload execution.",
+  "preflight_guarantee": "Schema, compatibility, payload, declared resources, declared file hashes/anchors, data-only OPS sequential dry-run, post-command cwd/executable, and Git executable requirements are checked before patch payload execution.",
   "rollback_contract": "Optional recovery.rollback is fail-closed and metadata-driven. rollback.targets must exactly cover the PATCH target set and every rollback target must have an explicit preflight.files baseline (exists=false for initially missing paths, or exists=true plus sha256 for existing files). The runner snapshots only those declared regular-file targets before payload execution. Automatic rollback may run only for configured payload_failure/post_patch_failure stages, before Git policy. For exists=false targets, the parent directory must already exist as a real non-symlink directory inside the project before payload execution; rollback does not invent/remove parent directories. Rollback snapshot creation revalidates the declared baseline to close preflight-to-snapshot TOCTOU."
 }

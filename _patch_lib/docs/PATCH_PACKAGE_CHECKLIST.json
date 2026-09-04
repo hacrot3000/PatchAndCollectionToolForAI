@@ -1,0 +1,25 @@
+{
+  "format": "python-patch-tool-package-checklist",
+  "format_version": 1,
+  "tool_version": "6.15.0",
+  "source_of_truth": "PATCH_PACKAGE_SCHEMA.json",
+  "checks": [
+    "root PATCH_TOOL_MANIFEST.json exists",
+    "manifest validates with zero schema issues",
+    "do not invent top-level fields; source baseline belongs in preflight.files",
+    "execution.timeout_seconds and post_patch command timeouts are integers 1..1800 when present",
+    "exactly one Python entrypoint OR PATCH_TOOL_OPS.json, never both",
+    "declare targets whenever mutable files are known",
+    "declare exact preflight.files path/exists/sha256/anchors for source assumptions",
+    "declare package resources explicitly",
+    "post_patch command executable/cwd must exist on target OS",
+    "rollback only with complete exact target baseline",
+    "run read-only validate before delivery when the project/source is available",
+    "normal execution must re-run preflight before payload"
+  ],
+  "known_migrations": {
+    "source_baseline.files[].file": "preflight.files[].path",
+    "source_baseline.files[].sha256": "preflight.files[].sha256"
+  },
+  "result_classes": ["READY_TO_APPLY", "PATCH_INVALID", "SOURCE_DRIFT", "TOOL_ERROR"]
+}

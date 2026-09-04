@@ -13,7 +13,7 @@ for p in (ps,bat,sh):
 
 pst=ps.read_text(encoding='utf-8')
 bt=bat.read_text(encoding='utf-8')
-assert 'v6.14.2' in pst and 'v6.14.2' in bt
+assert 'v6.15.0' in pst and 'v6.15.0' in bt
 for phrase in [
     "Join-Path $LibDir 'python_patch_queue_dispatcher.py'",
     "Join-Path $LibDir 'python_patch_runner.py'",
@@ -52,6 +52,6 @@ if pwsh:
     assert cp.returncode==0,(cp.stdout,cp.stderr)
     cp=subprocess.run([pwsh,'-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',str(ps),'--version'],cwd=TOOLS.parent,text=True,capture_output=True,timeout=30)
     assert cp.returncode==0,(cp.stdout,cp.stderr)
-    assert '6.14.2' in cp.stdout+cp.stderr,(cp.stdout,cp.stderr)
+    assert '6.15.0' in cp.stdout+cp.stderr,(cp.stdout,cp.stderr)
 
-print('PASS: v6.14.2 Windows BAT/PowerShell launcher contract and optional native PowerShell smoke test')
+print('PASS: v6.15.0 Windows BAT/PowerShell launcher contract and optional native PowerShell smoke test')

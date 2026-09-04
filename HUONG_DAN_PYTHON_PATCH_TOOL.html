@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Hướng dẫn Python Patch Tool v6.14.2</title>
+<title>Hướng dẫn Python Patch Tool v6.15.0</title>
 <style>
 :root{color-scheme:light dark}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:980px;margin:32px auto;padding:0 18px;line-height:1.55;color:#1f2328;background:#fff}
@@ -27,16 +27,16 @@ h1,h2{line-height:1.25}
 </style>
 </head>
 <body>
-<h1>Python Patch Tool v6.14.2 — hướng dẫn nhanh</h1>
+<h1>Python Patch Tool v6.15.0 — hướng dẫn nhanh</h1>
 
 <h2>1. Cài đặt / cập nhật</h2>
 <p><strong>Linux / POSIX:</strong></p>
-<pre>unzip -o python_patch_tool_v6.14.2.zip -d "$PWD"
+<pre>unzip -o python_patch_tool_v6.15.0.zip -d "$PWD"
 cat tools/_patch_lib/VERSION</pre>
 <p><strong>Windows PowerShell:</strong> cần Python <strong>3.10+</strong>.</p>
-<pre>Expand-Archive -Force .\python_patch_tool_v6.14.2.zip .
+<pre>Expand-Archive -Force .\python_patch_tool_v6.15.0.zip .
 Get-Content .\tools\_patch_lib\VERSION</pre>
-<p>Kết quả version phải là <code>6.14.2</code>.</p>
+<p>Kết quả version phải là <code>6.15.0</code>.</p>
 
 <h2>2. Chạy công cụ</h2>
 <p><strong>Linux / POSIX:</strong></p>
@@ -45,9 +45,10 @@ Get-Content .\tools\_patch_lib\VERSION</pre>
 <pre>tools\run_python_patches.bat</pre>
 <p><strong>Windows PowerShell trực tiếp:</strong></p>
 <pre>.\tools\run_python_patches.ps1</pre>
-<p>Không cần tham số. Cả ba lệnh dùng cùng <code>patchs/</code> và cùng core. Trên Windows, tool dùng menu nhập số/range thay cho giao diện phím mũi tên của POSIX.</p>
+<p>Không cần tham số. Cả ba lệnh dùng cùng <code>patchs/</code> và cùng core. Trên Windows console phù hợp, tool hỗ trợ menu phím mũi tên/Space tương tự POSIX; nếu console không hỗ trợ an toàn thì tự dùng menu nhập số/range.</p>
+<p>Khi cần chẩn đoán PATCH mà không sửa source, dùng menu <code>v</code> hoặc lệnh <code>validate --patch</code>; kết quả phân biệt PATCH sai, source drift và lỗi tool.</p>
 <ul>
-<li>PATCH: có thể chọn nhiều. POSIX TTY hỗ trợ phím <code>0..9</code> để đặt priority; Windows dùng line selector bằng số/range.</li>
+<li>PATCH: có thể chọn nhiều. POSIX TTY và Windows console hỗ trợ phím <code>0..9</code> để đặt priority khi fullscreen khả dụng; nếu fallback line selector thì dùng số/range.</li>
 <li>Yêu cầu lấy source cho AI: mỗi lần chỉ chọn <strong>1 request</strong>, không chạy chung với PATCH.</li>
 <li>Tool không khóa project; bạn có thể chủ động chạy terminal khác song song.</li>
 <li>Nếu nhiều PATCH trong cùng queue có checksum giống hệt nhau, tool giữ một file và tự loại file trùng.</li>

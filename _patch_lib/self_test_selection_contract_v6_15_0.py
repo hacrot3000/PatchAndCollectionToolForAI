@@ -7,7 +7,7 @@ HERE=Path(__file__).resolve().parent
 MOD=HERE/'python_patch_queue_dispatcher.py'
 spec=importlib.util.spec_from_file_location('ptv_queue_v677_selection',MOD)
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; spec.loader.exec_module(m)
-assert m.VERSION=='6.14.2'
+assert m.VERSION=='6.15.0'
 
 # Historical line grammar: lists, ranges (including reversed), bounds failure.
 assert m._parse_index_spec('1,3-5',6)=={0,2,3,4}
@@ -179,6 +179,9 @@ with tempfile.TemporaryDirectory(prefix='ptv690priority_exec_') as td:
         encoding='utf-8',
     )
     launcher.chmod(0o755)
+    lib=tools/'_patch_lib'; lib.mkdir()
+    (lib/'python_patch_runner.py').write_text(
+        '#!/usr/bin/env python3\nimport subprocess,sys\nfrom pathlib import Path\nroot=Path(__file__).resolve().parents[2]\nraise SystemExit(subprocess.run([str(root/"tools"/"run_python_patches.sh"),*sys.argv[1:]],cwd=root).returncode)\n', encoding='utf-8')
     for item in priority_items:
         (root/'patchs'/item.name).write_bytes(b'not-identical-'+item.name.encode())
     priority_order=m._ordered_selection(priority_items,set(range(5)),{0:0,1:1,2:3,3:0,4:2})
@@ -311,4 +314,4 @@ for physical in raw.splitlines():
     clean=m._ANSI_RE.sub('',physical).replace('\r','')
     assert m._display_cell_width(clean) <= 82,(m._display_cell_width(clean),clean)
 
-print('PASS: v6.14.2 selector/config/priority contracts and clean Ctrl+C handling')
+print('PASS: v6.15.0 selector/config/priority contracts and clean Ctrl+C handling')

@@ -10,17 +10,27 @@ import shutil
 import stat
 from typing import Any
 
-VERSION = "6.14.2"
+VERSION = "6.15.0"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "PATCH_PACKAGE_SCHEMA.json"
 _HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 _SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
 
 class PatchSchemaError(ValueError):
-    def __init__(self, message: str, *, kind: str = "schema_invalid", path: str | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: str = "schema_invalid",
+        path: str | None = None,
+        issues: list[dict[str, Any]] | None = None,
+        report: dict[str, Any] | None = None,
+    ):
         super().__init__(message)
         self.kind = kind
         self.path = path
+        self.issues = list(issues or [])
+        self.report = report
 
 
 def _load_schema() -> dict[str, Any]:
@@ -97,12 +107,108 @@ def _validate_node(value: Any, spec: dict[str, Any], label: str) -> None:
             _validate_node(item, spec["items"], f"{label}[{i}]")
 
 
-def validate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+_FIELD_SUGGESTIONS = {
+    "manifest.source_baseline": (
+        "Unsupported legacy/custom field. Move baseline assumptions to "
+        "manifest.preflight.files using path/exists/sha256/anchors."
+    ),
+    "manifest.execution.timeout_seconds": (
+        "Remove timeout_seconds to use the default, or set an integer from 1 to 1800."
+    ),
+    "manifest.post_patch.commands[].timeout_seconds": (
+        "Set an integer from 1 to 1800."
+    ),
+    "manifest.git.push": "Use exactly 'auto' or 'off'.",
+}
+
+
+def _suggestion_for(field: str, message: str) -> str | None:
+    direct = _FIELD_SUGGESTIONS.get(field)
+    if direct:
+        return direct
+    if ".post_patch.commands[" in field and field.endswith("].timeout_seconds"):
+        return _FIELD_SUGGESTIONS["manifest.post_patch.commands[].timeout_seconds"]
+    if "unsupported field" in message:
+        return "Remove the field or migrate it to an allowed field defined by PATCH_PACKAGE_SCHEMA.json."
+    return None
+
+
+def _schema_issue(field: str, message: str, *, value: Any = None) -> dict[str, Any]:
+    issue: dict[str, Any] = {"kind": "schema_invalid", "field": field, "message": message}
+    suggestion = _suggestion_for(field, message)
+    if suggestion:
+        issue["suggestion"] = suggestion
+    if value is not None and isinstance(value, (str, int, bool, float)):
+        issue["actual"] = value
+    return issue
+
+
+def _validate_format_collect(value: Any, fmt: str, label: str, issues: list[dict[str, Any]]) -> None:
+    try:
+        _validate_format(value, fmt, label)
+    except PatchSchemaError as exc:
+        issues.append(_schema_issue(label, str(exc), value=value))
+
+
+def _validate_node_collect(value: Any, spec: dict[str, Any], label: str, issues: list[dict[str, Any]]) -> None:
+    expected = spec.get("type")
+    if expected is not None and not _type_ok(value, expected):
+        issues.append(_schema_issue(label, f"{label} has invalid type; expected {expected}", value=value))
+        return
+    if "const" in spec and value != spec["const"]:
+        issues.append(_schema_issue(label, f"{label} must equal {spec['const']!r}", value=value))
+    if "enum" in spec and value not in spec["enum"]:
+        issues.append(_schema_issue(label, f"{label} has unsupported value {value!r}", value=value))
+    if isinstance(value, int) and not isinstance(value, bool):
+        if "minimum" in spec and value < int(spec["minimum"]):
+            issues.append(_schema_issue(label, f"{label} must be >= {spec['minimum']}", value=value))
+        if "maximum" in spec and value > int(spec["maximum"]):
+            issues.append(_schema_issue(label, f"{label} must be <= {spec['maximum']}", value=value))
+    fmt = spec.get("format")
+    if fmt:
+        _validate_format_collect(value, str(fmt), label, issues)
+    if isinstance(value, dict):
+        for field in spec.get("required", []):
+            if field not in value:
+                field_path = f"{label}.{field}"
+                issues.append(_schema_issue(field_path, f"{label} missing required field: {field}"))
+        allowed = spec.get("allowed_fields")
+        if isinstance(allowed, list):
+            for extra in sorted(set(value) - set(allowed)):
+                field_path = f"{label}.{extra}"
+                issues.append(_schema_issue(field_path, f"{label} contains unsupported field: {extra}", value=value.get(extra)))
+        fields = spec.get("fields", {})
+        if isinstance(fields, dict):
+            for key, child in fields.items():
+                if key in value and isinstance(child, dict):
+                    _validate_node_collect(value[key], child, f"{label}.{key}", issues)
+    if isinstance(value, list) and isinstance(spec.get("items"), dict):
+        for i, item in enumerate(value):
+            _validate_node_collect(item, spec["items"], f"{label}[{i}]", issues)
+
+
+def collect_manifest_issues(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     schema = _load_schema()
     spec = schema.get("manifest")
     if not isinstance(spec, dict):
-        raise PatchSchemaError("PATCH package schema is missing manifest definition")
-    _validate_node(manifest, spec, "manifest")
+        return [_schema_issue("manifest", "PATCH package schema is missing manifest definition")]
+    issues: list[dict[str, Any]] = []
+    _validate_node_collect(manifest, spec, "manifest", issues)
+    return issues
+
+
+def validate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+    schema = _load_schema()
+    issues = collect_manifest_issues(manifest)
+    if issues:
+        summary = "; ".join(f"{x.get('field')}: {x.get('message')}" for x in issues[:8])
+        if len(issues) > 8:
+            summary += f"; ... {len(issues)-8} more"
+        raise PatchSchemaError(
+            f"manifest schema validation found {len(issues)} issue(s): {summary}",
+            kind="schema_invalid",
+            issues=issues,
+        )
     return schema
 
 
@@ -145,11 +251,26 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _stat_is_link_or_reparse(st: os.stat_result) -> bool:
+    if stat.S_ISLNK(st.st_mode):
+        return True
+    attrs = int(getattr(st, "st_file_attributes", 0) or 0)
+    reparse = int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+    return bool(os.name == "nt" and attrs & reparse)
+
+
+def path_is_link_or_reparse(path: Path) -> bool:
+    try:
+        return _stat_is_link_or_reparse(path.lstat())
+    except FileNotFoundError:
+        return False
+
+
 def resolve_project_path(root: Path, rel_text: str, *, allow_missing: bool = False) -> Path:
     canonical = _safe_rel(rel_text, label="project path")
     path = root.joinpath(*PurePosixPath(canonical).parts)
-    if path.is_symlink():
-        raise PatchSchemaError(f"project path must not be a symlink: {canonical}", path=canonical)
+    if path_is_link_or_reparse(path):
+        raise PatchSchemaError(f"project path must not be a symlink/reparse point: {canonical}", path=canonical)
     if path.exists():
         try:
             path.resolve(strict=True).relative_to(root.resolve())
@@ -227,9 +348,9 @@ def _validate_rollback_baseline_path(root: Path, rel: str, baseline: dict[str, A
                 f"rollback target parent must already exist before payload: {rel}",
                 kind="rollback_parent_missing", path=rel,
             ) from exc
-        if stat.S_ISLNK(st.st_mode):
+        if _stat_is_link_or_reparse(st):
             raise PatchSchemaError(
-                f"rollback target ancestor must not be a symlink: {rel}",
+                f"rollback target ancestor must not be a symlink/reparse point: {rel}",
                 kind="rollback_path_unsafe", path=rel,
             )
         if not stat.S_ISDIR(st.st_mode):
@@ -261,9 +382,9 @@ def _validate_rollback_baseline_path(root: Path, rel: str, baseline: dict[str, A
             f"rollback baseline changed before snapshot: {rel} now exists",
             kind="rollback_snapshot_race", path=rel,
         )
-    if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+    if _stat_is_link_or_reparse(st) or not stat.S_ISREG(st.st_mode):
         raise PatchSchemaError(
-            f"rollback target baseline must be a regular non-symlink file: {rel}",
+            f"rollback target baseline must be a regular non-link/reparse file: {rel}",
             kind="rollback_path_unsafe", path=rel,
         )
 
@@ -385,41 +506,95 @@ def run_preflight(
             raise PatchSchemaError("preflight requires a clean Git worktree", kind="worktree_dirty")
         checks.append({"kind": "clean_worktree", "status": "PASS"})
 
-    for spec in pre.get("files", []) if isinstance(pre, dict) else []:
+    source_issues: list[dict[str, Any]] = []
+    for file_index, spec in enumerate(pre.get("files", []) if isinstance(pre, dict) else []):
         rel = _safe_rel(spec["path"], label="preflight file")
+        targets.add(rel)
         expected_exists = bool(spec.get("exists", True))
         path = resolve_project_path(root, rel, allow_missing=True)
         exists = path.exists()
+        check: dict[str, Any] = {
+            "kind": "file", "path": rel, "status": "PASS",
+            "expected_exists": expected_exists, "actual_exists": exists,
+        }
         if exists != expected_exists:
-            raise PatchSchemaError(
-                f"preflight existence mismatch: {rel} expected exists={expected_exists}, actual={exists}",
-                kind="source_drift",
-                path=rel,
-            )
-        if not exists:
-            checks.append({"kind": "file", "path": rel, "status": "PASS", "exists": False})
-            targets.add(rel)
+            check["status"] = "MISMATCH"
+            issue = {
+                "kind": "source_drift", "path": rel,
+                "field": f"manifest.preflight.files[{file_index}].exists",
+                "message": f"preflight existence mismatch: {rel} expected exists={expected_exists}, actual={exists}",
+                "expected": expected_exists, "actual": exists,
+            }
+            source_issues.append(issue); checks.append(check)
             continue
-        if path.is_symlink() or not path.is_file():
-            raise PatchSchemaError(f"preflight path must be a regular file: {rel}", kind="source_drift", path=rel)
+        if not exists:
+            checks.append(check)
+            continue
+        if path_is_link_or_reparse(path) or not path.is_file():
+            check["status"] = "MISMATCH"
+            source_issues.append({
+                "kind": "source_drift", "path": rel,
+                "field": f"manifest.preflight.files[{file_index}].path",
+                "message": f"preflight path must be a regular non-symlink file: {rel}",
+                "expected": "regular_file", "actual": "non_regular_or_symlink",
+            })
+            checks.append(check)
+            continue
         actual_sha = sha256_file(path)
+        check["actual_sha256"] = actual_sha
         expected_sha = spec.get("sha256")
-        if isinstance(expected_sha, str) and actual_sha.lower() != expected_sha.lower():
-            raise PatchSchemaError(
-                f"preflight SHA-256 mismatch: {rel} expected={expected_sha.lower()} actual={actual_sha}",
-                kind="source_drift",
-                path=rel,
-            )
+        if isinstance(expected_sha, str):
+            check["expected_sha256"] = expected_sha.lower()
+            if actual_sha.lower() != expected_sha.lower():
+                check["status"] = "MISMATCH"
+                source_issues.append({
+                    "kind": "source_drift", "path": rel,
+                    "field": f"manifest.preflight.files[{file_index}].sha256",
+                    "message": f"preflight SHA-256 mismatch: {rel} expected={expected_sha.lower()} actual={actual_sha}",
+                    "expected": expected_sha.lower(), "actual": actual_sha,
+                })
         anchors = spec.get("anchors") or []
         if anchors:
-            try: text = path.read_text(encoding="utf-8")
-            except UnicodeDecodeError as exc:
-                raise PatchSchemaError(f"preflight anchors require UTF-8 text file: {rel}", kind="anchor_mismatch", path=rel) from exc
-            for anchor in anchors:
-                if anchor not in text:
-                    raise PatchSchemaError(f"preflight anchor missing: {rel}", kind="anchor_mismatch", path=rel)
-        checks.append({"kind": "file", "path": rel, "status": "PASS", "sha256": actual_sha})
-        targets.add(rel)
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                check["status"] = "MISMATCH"
+                source_issues.append({
+                    "kind": "anchor_mismatch", "path": rel,
+                    "field": f"manifest.preflight.files[{file_index}].anchors",
+                    "message": f"preflight anchors require UTF-8 text file: {rel}",
+                })
+                checks.append(check)
+                continue
+            anchor_results: list[dict[str, Any]] = []
+            for anchor_index, anchor in enumerate(anchors):
+                present = anchor in text
+                anchor_results.append({"index": anchor_index, "status": "PASS" if present else "MISSING", "anchor": anchor})
+                if not present:
+                    check["status"] = "MISMATCH"
+                    source_issues.append({
+                        "kind": "anchor_mismatch", "path": rel,
+                        "field": f"manifest.preflight.files[{file_index}].anchors[{anchor_index}]",
+                        "message": f"preflight anchor missing: {rel}",
+                        "expected_anchor": anchor,
+                    })
+            check["anchors"] = anchor_results
+        checks.append(check)
+
+    report["target_paths"] = sorted(targets)
+    if source_issues:
+        report["status"] = "FAIL"
+        report["issues"] = source_issues
+        kinds = {str(x.get("kind")) for x in source_issues}
+        primary = "source_drift" if "source_drift" in kinds else "anchor_mismatch"
+        affected = sorted({str(x.get("path")) for x in source_issues if x.get("path")})
+        raise PatchSchemaError(
+            f"preflight source assumptions found {len(source_issues)} mismatch(es) across {len(affected)} file(s)",
+            kind=primary,
+            path=affected[0] if len(affected) == 1 else None,
+            issues=source_issues,
+            report=report,
+        )
 
     rollback = _rollback_contract(manifest, targets)
     if rollback is not None:

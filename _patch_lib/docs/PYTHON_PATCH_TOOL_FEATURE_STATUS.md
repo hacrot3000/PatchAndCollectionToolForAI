@@ -1,35 +1,39 @@
-# Python Patch Tool v6.14.2 feature status
+# Python Patch Tool v6.15.0 feature status
 
 | Capability | Status |
 |---|---|
 | Public zero-argument PATCH/COLLECT queue | COMPLETE |
 | POSIX `.sh` launcher | COMPLETE |
-| Windows `.bat` + PowerShell launcher | **COMPLETE v6.14.2** |
-| Windows Python 3.10+ discovery | **COMPLETE v6.14.2** |
-| Windows/non-TTY line selector | **COMPLETE v6.14.2** |
-| Current-session/local-history duplicate handling | COMPLETE |
-| PATCH priority / terminal-safe selector | COMPLETE; priority fullscreen UI is POSIX TTY only |
+| Windows `.bat` + PowerShell launcher | COMPLETE |
+| Windows Python 3.10+ discovery | COMPLETE |
+| Windows internal PATCH/COLLECT routing without Bash | **COMPLETE v6.15.0** |
+| POSIX fullscreen selector | COMPLETE |
+| Windows fullscreen selector (`msvcrt` + VT) + line fallback | **COMPLETE v6.15.0** |
+| PATCH priority / inspect / validate / health controls | COMPLETE |
 | Exactly one COLLECT / no PATCH mix / no process lock | COMPLETE |
 | Permanent PATCH in-place / SANDBOX removal | COMPLETE |
-| Full self-contained runtime | COMPLETE |
-| Exact PATCH package schema + preflight + compatibility | COMPLETE |
+| Exact PATCH package schema + compatibility | COMPLETE |
+| Multi-error manifest lint + migration hints | **COMPLETE v6.15.0** |
+| Read-only `validate --patch` result classification | **COMPLETE v6.15.0** |
+| Aggregate source SHA/existence/anchor diagnostics | **COMPLETE v6.15.0** |
+| Sequential data-only OPS dry-run before payload | **COMPLETE v6.15.0** |
 | Partial-modification detection | COMPLETE |
-| Metadata-driven exact-target rollback for payload/post-patch failure | COMPLETE v6.14.1 |
+| Metadata-driven exact-target rollback | COMPLETE |
+| Windows process-tree timeout/Ctrl+C containment | **COMPLETE v6.15.0** |
+| Windows reparse/junction-aware project safety | **COMPLETE v6.15.0** |
 | Generic rollback without recovery metadata / Git-policy rollback | FAIL-CLOSED BY DESIGN |
 | LAST_RUN / bounded history / resume / inspect | COMPLETE |
-| Structured diagnosis / FAIL_HANDOFF / source-drift COLLECT recovery | COMPLETE |
+| Structured diagnosis / FAIL_HANDOFF / narrowed source-drift COLLECT recovery | COMPLETE |
 | Exact COLLECT schema + readonly actions | COMPLETE |
-| COLLECT result validation / quality summary | COMPLETE |
 | Tool Health self-audit (`h`; compact on IDLE) | COMPLETE |
-| Windows launchers included in Tool Health/SHA256 coverage | **COMPLETE v6.14.2** |
+| Windows launchers included in Tool Health/SHA256 coverage | COMPLETE |
+| Machine-readable `PATCH_PACKAGE_CHECKLIST.json` | **COMPLETE v6.15.0** |
 | Historical private-core parity outside current contract | FAIL-CLOSED / NOT GUARANTEED |
 
-## v6.14.2 Windows portability notes
+## Windows portability notes
 
-All public launchers resolve the same project root and call the same Python dispatcher/runner/collector. Windows PowerShell launcher probes `py -3`, `python`, then `python3` and requires Python 3.10+. The `.bat` wrapper is the recommended Windows entry point when local PowerShell script execution policy would otherwise block a direct `.ps1` launch.
-
-Windows uses the line selector because the fullscreen selector depends on POSIX `termios`. This is a UI difference, not a different queue/schema. External post-patch executables remain OS-dependent and must exist on the machine running the PATCH.
+The dispatcher routes PATCH/COLLECT/inspect/validate directly through the packaged Python runtime, so native Windows zero-argument use does not require Bash. A native console gets fullscreen arrow/Space/priority controls when `msvcrt` input and VT output are available; non-TTY/unsupported consoles fall back to the stable line selector. External post-patch executables remain OS-dependent.
 
 ## Stop condition
 
-v6.14.2 completes the requested Windows launcher/usage support. No new capability is started automatically after this release.
+v6.15.0 completes diagnostics, Windows robustness/fullscreen parity and final audit scope. No new capability is started automatically after this release.

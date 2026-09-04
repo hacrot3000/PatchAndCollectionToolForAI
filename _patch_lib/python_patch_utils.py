@@ -6,9 +6,12 @@ from difflib import SequenceMatcher
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import tempfile
+import contextlib
+import io
 from typing import Any, Callable, Optional
 
-VERSION = "6.14.2"
+VERSION = "6.15.0"
 
 
 class PatchFailure(RuntimeError):
@@ -398,6 +401,8 @@ def apply_ops(state: PatchRunState, ops: list[dict[str, Any]], *, inherited_on_e
         try:
             handler(state, op)
         except PatchFailure as exc:
+            if not exc.op_id:
+                exc.op_id = str(op.get("id") or op.get("op_id") or f"#{index}:{kind}")
             state.stats.failed += 1
             state.failures.append(exc)
             if on_error == "ignore":
@@ -418,6 +423,94 @@ def run_ops(project_root: Path, payload: dict[str, Any], *, patch_name: str | No
     state = PatchRunState(project_root=project_root.resolve(), patch_name=patch_name or str(payload.get("patch_name") or "patch"))
     apply_ops(state, ops, inherited_on_error=str(payload.get("default_on_error", "stop")))
     return state
+
+
+def _diagnostic_reference_paths(ops: Any) -> set[str]:
+    paths: set[str] = set()
+    if not isinstance(ops, list):
+        return paths
+    for op in ops:
+        if not isinstance(op, dict):
+            continue
+        for raw in (op.get("file"),):
+            if isinstance(raw, str) and raw.strip():
+                try: paths.add(_safe_rel(raw).as_posix())
+                except PatchFailure: pass
+        cond = op.get("condition")
+        if isinstance(cond, dict):
+            for raw in (cond.get("file"), cond.get("path_exists")):
+                if isinstance(raw, str) and raw.strip():
+                    try: paths.add(_safe_rel(raw).as_posix())
+                    except PatchFailure: pass
+        for key in ("then", "else"):
+            paths.update(_diagnostic_reference_paths(op.get(key)))
+        alts = op.get("alternatives")
+        if isinstance(alts, list):
+            for alt in alts:
+                if isinstance(alt, list): paths.update(_diagnostic_reference_paths(alt))
+                elif isinstance(alt, dict): paths.update(_diagnostic_reference_paths([alt]))
+    return paths
+
+
+def diagnose_ops(project_root: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    """Simulate a data-only OPS patch against a private temporary mirror.
+
+    This is intentionally read-only with respect to the real project while still
+    preserving sequential operation semantics, so an operation that depends on
+    an earlier operation is evaluated after that virtual change.
+    """
+    ops = payload.get("ops") if isinstance(payload, dict) else None
+    if not isinstance(ops, list):
+        return {"status": "FAIL", "kind": "ops_invalid", "message": "PATCH_TOOL_OPS.json requires ops[]"}
+    root = project_root.resolve()
+    refs = _diagnostic_reference_paths(ops)
+    with tempfile.TemporaryDirectory(prefix="ptv-ops-dryrun-") as name:
+        mirror = Path(name)
+        (mirror / "patchs").mkdir(parents=True, exist_ok=True)
+        for rel in sorted(refs):
+            pure = _safe_rel(rel)
+            src = root.joinpath(*pure.parts)
+            dst = mirror.joinpath(*pure.parts)
+            try:
+                if src.is_symlink():
+                    return {"status": "FAIL", "kind": "source_drift", "path": rel, "message": "OPS diagnostic refuses symlink source"}
+                if src.is_file():
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dst)
+                elif src.is_dir():
+                    dst.mkdir(parents=True, exist_ok=True)
+                else:
+                    # Preserve existing parent-directory topology for create/write ops.
+                    parent = src.parent
+                    chain: list[Path] = []
+                    while parent != root and parent != parent.parent:
+                        chain.append(parent)
+                        parent = parent.parent
+                    for original in reversed(chain):
+                        if original.is_dir() and not original.is_symlink():
+                            rel_parent = original.relative_to(root)
+                            mirror.joinpath(*rel_parent.parts).mkdir(parents=True, exist_ok=True)
+            except (OSError, ValueError) as exc:
+                return {"status": "FAIL", "kind": "source_drift", "path": rel, "message": f"OPS diagnostic could not mirror source: {type(exc).__name__}: {exc}"}
+        capture = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(capture):
+                state = run_ops(mirror, payload, patch_name="inspect-dry-run")
+            return {
+                "status": "PASS", "kind": "ops_ready", "operations": len(ops),
+                "patched": state.stats.patched, "created": state.stats.created,
+                "unchanged": state.stats.unchanged,
+            }
+        except PatchFailure as exc:
+            return {
+                "status": "FAIL", "kind": (
+                    "anchor_mismatch" if exc.expected or "not found" in exc.message.lower() or "ambiguous" in exc.message.lower()
+                    else "source_drift" if "does not exist" in exc.message.lower() or "target" in exc.message.lower()
+                    else "patch_operation_failed"
+                ),
+                "path": exc.rel_path, "operation": exc.op_id, "message": exc.message,
+                "expected": exc.expected, "anchor": exc.anchor, "strategy": exc.strategy,
+            }
 
 
 # Backward-compatible helpers used by existing Python patches.

@@ -3,6 +3,14 @@ from __future__ import annotations
 import importlib.util, subprocess, sys, tempfile, zipfile
 from pathlib import Path
 HERE=Path(__file__).resolve().parent; MOD=HERE/'python_patch_queue_dispatcher.py'
+def install_shims(root: Path):
+    lib=root/'tools'/'_patch_lib'; lib.mkdir(parents=True,exist_ok=True)
+    (lib/'python_patch_runner.py').write_text(
+        '#!/usr/bin/env python3\nimport os,signal,subprocess,sys\nfrom pathlib import Path\nroot=Path(__file__).resolve().parents[2]\nif any("patch_signal.zip" in x for x in sys.argv): os.kill(os.getpid(), signal.SIGTERM)\nraise SystemExit(subprocess.run([str(root/"tools"/"run_python_patches.sh"),*sys.argv[1:]],cwd=root).returncode)\n', encoding='utf-8')
+    (lib/'python_patch_collect_progress_v6_7.py').write_text(
+        '#!/usr/bin/env python3\nimport subprocess,sys\nfrom pathlib import Path\nroot=Path(__file__).resolve().parents[2]\na=sys.argv[1:]; rest=a[a.index("--")+1:] if "--" in a else a\nraise SystemExit(subprocess.run([str(root/"tools"/"run_python_patches.sh"),"collect",*rest],cwd=root).returncode)\n', encoding='utf-8')
+    (lib/'python_patch_collect_compat.py').write_text('# test shim\n',encoding='utf-8')
+
 spec=importlib.util.spec_from_file_location('ptv_queue_v677_failfast',MOD)
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; spec.loader.exec_module(m)
 
@@ -16,6 +24,7 @@ with tempfile.TemporaryDirectory(prefix='ptv678ff_') as td:
         encoding='utf-8',
     )
     launcher.chmod(0o755)
+    install_shims(root)
     chosen=[m.QueueItem('patch_1.zip','PATCH'),m.QueueItem('patch_2.zip','PATCH'),m.QueueItem('patch_3.zip','PATCH')]
     rc,executed,remaining,late_duplicates,duplicate_warnings=m.execute_items(root,chosen)
     assert rc==9,rc
@@ -35,6 +44,7 @@ with tempfile.TemporaryDirectory(prefix='ptv678ffmain_') as td:
         encoding='utf-8',
     )
     launcher.chmod(0o755)
+    install_shims(root)
     for name in ['patch_1.zip','patch_2.zip','patch_3.zip']:
         with zipfile.ZipFile(root/'patchs'/name,'w') as z:
             z.writestr('PATCH_TOOL_MANIFEST.json','{}')
@@ -56,6 +66,7 @@ with tempfile.TemporaryDirectory(prefix='ptv6711sig_') as td:
     launcher=tools/'run_python_patches.sh'
     launcher.write_text('#!/usr/bin/env bash\nkill -TERM $$\n', encoding='utf-8')
     launcher.chmod(0o755)
+    install_shims(root)
     rc,executed,remaining,late_duplicates,duplicate_warnings=m.execute_items(root,[m.QueueItem('patch_signal.zip','PATCH')])
     assert rc==143,(rc,executed,remaining)
     assert executed==[('patch_signal.zip',143)],executed
@@ -68,6 +79,7 @@ with tempfile.TemporaryDirectory(prefix='ptv6711collectarchive_') as td:
     request=q/'collect_request.zip'; request.write_bytes(b'request')
     launcher=tools/'run_python_patches.sh'
     launcher.write_text('#!/usr/bin/env bash\nexit 0\n', encoding='utf-8'); launcher.chmod(0o755)
+    install_shims(root)
     rc,executed,remaining,late_duplicates,duplicate_warnings=m.execute_items(root,[m.QueueItem(request.name,'COLLECT')])
     assert rc==3,(rc,executed,remaining)
     assert request.exists(),request
@@ -82,6 +94,7 @@ with tempfile.TemporaryDirectory(prefix='ptv6711collectarchiveok_') as td:
         'mv patchs/collect_request.zip patchs/patched/collect_request.zip\n'
         'exit 0\n', encoding='utf-8')
     launcher.chmod(0o755)
+    install_shims(root)
     rc,executed,remaining,late_duplicates,duplicate_warnings=m.execute_items(root,[m.QueueItem(request.name,'COLLECT')])
     assert rc==0,(rc,executed,remaining)
     assert (q/'patched'/request.name).is_file()
@@ -112,8 +125,9 @@ with tempfile.TemporaryDirectory(prefix="ptv691_summary_dup_") as td:
         encoding="utf-8",
     )
     launcher.chmod(0o755)
+    install_shims(root)
     chosen=[m.QueueItem("first.zip","PATCH"),m.QueueItem("second.zip","PATCH")]
     rc,executed,remaining,late_dups,warns=m.execute_items(root,chosen)
     assert rc==0 and len(executed)==1 and len(late_dups)==1 and not remaining and not warns
 
-print('PASS: v6.14.2 fail-fast, signal status and COLLECT archive lifecycle')
+print('PASS: v6.15.0 fail-fast, signal status and COLLECT archive lifecycle')

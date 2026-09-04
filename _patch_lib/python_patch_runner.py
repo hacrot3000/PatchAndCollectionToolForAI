@@ -17,10 +17,10 @@ import zipfile
 import time
 from datetime import datetime, timezone
 
-from python_patch_utils import PatchFailure, finish_failure, run_ops
-from python_patch_package_schema import PatchSchemaError, run_preflight, sha256_file
+from python_patch_utils import PatchFailure, diagnose_ops, finish_failure, run_ops
+from python_patch_package_schema import PatchSchemaError, path_is_link_or_reparse, run_preflight, sha256_file
 
-VERSION = "6.14.2"
+VERSION = "6.15.0"
 _ACTIVE_TERMINATION_SIGNAL: int | None = None
 
 
@@ -170,16 +170,39 @@ def _touched_paths(before: dict[str, str], after: dict[str, str]) -> list[str]:
     return sorted(name for name in set(before) | set(after) if before.get(name) != after.get(name))
 
 
+def _windows_taskkill(proc: subprocess.Popen, *, force: bool) -> None:
+    if os.name != "nt":
+        return
+    try:
+        argv = ["taskkill", "/PID", str(proc.pid), "/T"]
+        if force:
+            argv.append("/F")
+        subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, check=False)
+    except Exception:
+        try:
+            if proc.poll() is None:
+                proc.kill() if force else proc.terminate()
+        except Exception:
+            pass
+
+
 def _signal_subprocess_group(proc: subprocess.Popen, signum: int) -> None:
     try:
         if os.name != "nt":
             # Do not gate this on proc.poll(). The process-group leader may
-            # already have exited while descendants in the same group remain
-            # alive (or were spawned during signal delivery). The PGID remains
-            # addressable until the final member exits.
+            # already have exited while descendants in the same group remain.
             os.killpg(proc.pid, signum)
         elif proc.poll() is None:
-            proc.send_signal(signum)
+            # CREATE_NEW_PROCESS_GROUP enables CTRL_BREAK delivery when the
+            # child shares a console. Fall back to terminate on unsupported hosts.
+            ctrl_break = getattr(signal, "CTRL_BREAK_EVENT", None)
+            if signum in {getattr(signal, "SIGINT", 2), getattr(signal, "SIGTERM", 15)} and ctrl_break is not None:
+                try:
+                    proc.send_signal(ctrl_break)
+                    return
+                except Exception:
+                    pass
+            proc.terminate()
     except (ProcessLookupError, PermissionError, OSError):
         pass
 
@@ -199,14 +222,23 @@ def _managed_group_alive(proc: subprocess.Popen) -> bool:
 
 
 def _quiesce_managed_group(proc: subprocess.Popen, initial_signal: int, *, grace_seconds: float = 1.0) -> None:
-    """Terminate the complete managed process group before returning.
+    """Terminate the managed payload tree before rollback/result publication."""
+    if os.name == "nt":
+        _signal_subprocess_group(proc, initial_signal)
+        deadline = time.monotonic() + max(0.1, grace_seconds)
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                break
+            time.sleep(0.05)
+        # taskkill /T closes descendants as well as the leader. /F is the final
+        # containment barrier before rollback or returning timeout/Ctrl+C.
+        _windows_taskkill(proc, force=True)
+        try:
+            proc.wait(timeout=1.0)
+        except Exception:
+            pass
+        return
 
-    A one-shot signal is insufficient: the payload can be interrupted while it
-    is in the middle of spawning a child, so that child may appear after the
-    first killpg(). Keep the PGID addressable after the leader exits, re-signal
-    any late member, then escalate to SIGKILL. Rollback/result publication only
-    happens after this quiescence barrier.
-    """
     _signal_subprocess_group(proc, initial_signal)
     deadline = time.monotonic() + max(0.1, grace_seconds)
     while time.monotonic() < deadline:
@@ -657,8 +689,8 @@ def _prepare_rollback_snapshot(root: Path, rollback: dict[str, object]) -> tuple
                         continue
                     if baseline.get("exists") is False:
                         raise PatchSchemaError(f"rollback baseline changed after preflight: {rel} now exists", kind="rollback_snapshot_race", path=rel)
-                    if stat.S_ISLNK(lst.st_mode) or not stat.S_ISREG(lst.st_mode):
-                        raise PatchSchemaError(f"rollback target baseline must be regular file or missing: {rel}", kind="rollback_snapshot_invalid", path=rel)
+                    if path_is_link_or_reparse(path) or not stat.S_ISREG(lst.st_mode):
+                        raise PatchSchemaError(f"rollback target baseline must be regular non-reparse file or missing: {rel}", kind="rollback_snapshot_invalid", path=rel)
                     fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0))
 
                 backup = base / f"{index:05d}.bin"
@@ -753,7 +785,7 @@ def _restore_rollback_snapshot(
                 if kind != "file" or not isinstance(entry.get("backup"), str):
                     raise RuntimeError("invalid file rollback entry")
                 backup = base / str(entry["backup"])
-                if not backup.is_file() or backup.is_symlink():
+                if not backup.is_file() or path_is_link_or_reparse(backup):
                     raise RuntimeError("rollback backup missing")
                 temp_name = f".ptv-restore-{os.getpid()}-{time.time_ns()}-{index}"
                 flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
@@ -783,10 +815,10 @@ def _restore_rollback_snapshot(
             # Windows/fallback path: parent chain was validated during preflight
             # and is rechecked here before path-based replacement.
             path = parent_path / leaf
-            if parent_path.is_symlink() or not parent_path.is_dir():
+            if path_is_link_or_reparse(parent_path) or not parent_path.is_dir():
                 raise RuntimeError("rollback target parent is missing/unsafe")
             if kind == "missing":
-                if path.is_symlink() or path.is_file():
+                if path_is_link_or_reparse(path) or path.is_file():
                     path.unlink()
                 elif path.exists():
                     raise RuntimeError("rollback refuses to remove a directory/non-file created at target path")
@@ -794,10 +826,10 @@ def _restore_rollback_snapshot(
                 continue
             if kind != "file" or not isinstance(entry.get("backup"), str):
                 raise RuntimeError("invalid file rollback entry")
-            if path.exists() and not path.is_symlink() and not path.is_file():
+            if path.exists() and not path_is_link_or_reparse(path) and not path.is_file():
                 raise RuntimeError("rollback refuses to replace a directory/non-file target")
             backup = base / str(entry["backup"])
-            if not backup.is_file() or backup.is_symlink():
+            if not backup.is_file() or path_is_link_or_reparse(backup):
                 raise RuntimeError("rollback backup missing")
             fd, temp_name = tempfile.mkstemp(prefix=".ptv-restore-", dir=parent_path)
             temp_path = Path(temp_name)
@@ -949,7 +981,79 @@ def _prepare_package(root: Path, source: Path):
     manifest, kind, payload = _find_payload(extracted)
     ops_data = _read_json(payload, "PATCH_TOOL_OPS.json") if kind == "ops" else None
     preflight = run_preflight(root, manifest, extracted=extracted, kind=kind, payload=payload, ops_data=ops_data)
+    if kind == "ops" and isinstance(ops_data, dict):
+        ops_report = diagnose_ops(root, ops_data)
+        preflight["ops_dry_run"] = ops_report
+        checks = preflight.get("checks")
+        if isinstance(checks, list):
+            checks.append({"kind": "ops_dry_run", **ops_report})
+        if ops_report.get("status") != "PASS":
+            issue = {
+                "kind": str(ops_report.get("kind") or "patch_operation_failed"),
+                "path": ops_report.get("path"),
+                "field": f"PATCH_TOOL_OPS.json:{ops_report.get('operation') or '-'}",
+                "message": str(ops_report.get("message") or "OPS dry-run failed"),
+            }
+            if ops_report.get("expected") is not None:
+                issue["expected"] = ops_report.get("expected")
+            preflight["status"] = "FAIL"
+            preflight["issues"] = [issue]
+            raise PatchSchemaError(
+                f"OPS dry-run failed before payload: operation={ops_report.get('operation','-')} path={ops_report.get('path','-')}: {ops_report.get('message','')}",
+                kind=str(ops_report.get("kind") or "patch_operation_failed"),
+                path=str(ops_report.get("path")) if ops_report.get("path") else None,
+                issues=[issue],
+                report=preflight,
+            )
     return temp_dir, extracted, manifest, kind, payload, ops_data, preflight
+
+
+def _diagnostic_class(kind: str) -> str:
+    kind = str(kind or "unknown")
+    if kind in {"source_drift", "anchor_mismatch"}:
+        return "SOURCE_DRIFT"
+    if kind in {
+        "schema_invalid", "manifest_missing", "package_invalid", "ops_invalid",
+        "resource_missing", "tool_version_incompatible", "rollback_contract_invalid",
+        "rollback_parent_missing", "rollback_path_unsafe", "command_missing",
+        "worktree_requirement", "worktree_dirty", "patch_operation_failed",
+    }:
+        return "PATCH_INVALID"
+    return "TOOL_ERROR"
+
+
+def _print_issues(issues: object, *, indent: str = "  ") -> None:
+    if not isinstance(issues, list) or not issues:
+        return
+    print(f"{indent}Issues ({len(issues)}):")
+    for issue in issues[:80]:
+        if not isinstance(issue, dict):
+            continue
+        field = issue.get("field") or issue.get("path") or "-"
+        kind = issue.get("kind") or "issue"
+        print(f"{indent}  - [{kind}] {field}: {issue.get('message','')}")
+        if "expected" in issue or "actual" in issue:
+            print(f"{indent}      expected={issue.get('expected','-')} actual={issue.get('actual','-')}")
+        suggestion = issue.get("suggestion")
+        if suggestion:
+            print(f"{indent}      suggestion: {suggestion}")
+    if len(issues) > 80:
+        print(f"{indent}  ... {len(issues)-80} more")
+
+
+def _preflight_failure_payload(exc: PatchSchemaError) -> dict[str, object]:
+    affected = sorted({
+        str(x.get("path")) for x in getattr(exc, "issues", [])
+        if isinstance(x, dict) and x.get("path")
+    })
+    if not affected and exc.path:
+        affected = [exc.path]
+    report = getattr(exc, "report", None)
+    preflight: dict[str, object] = dict(report) if isinstance(report, dict) else {}
+    preflight.update({"status": "FAIL", "kind": exc.kind, "message": str(exc), "affected_paths": affected})
+    if getattr(exc, "issues", None):
+        preflight["issues"] = exc.issues
+    return preflight
 
 
 def _print_preflight_report(source: Path, manifest: dict, kind: str, preflight: dict[str, object], *, inspect_only: bool = False) -> None:
@@ -964,6 +1068,20 @@ def _print_preflight_report(source: Path, manifest: dict, kind: str, preflight: 
             f"  Compatibility: min={compat.get('min_tool_version','-')} "
             f"max={compat.get('max_tool_version','-')} tested={compat.get('max_tested_version','-')}"
         )
+    file_checks = [x for x in (preflight.get("checks") or []) if isinstance(x, dict) and x.get("kind") == "file"]
+    if file_checks:
+        print("  Source assumptions:")
+        for check in file_checks[:80]:
+            status = check.get("status", "PASS")
+            rel = check.get("path", "-")
+            print(f"    - [{status}] {rel} | exists expected={check.get('expected_exists','-')} actual={check.get('actual_exists','-')}")
+            if check.get("expected_sha256") is not None:
+                print(f"      sha256 expected={check.get('expected_sha256')} actual={check.get('actual_sha256','-')}")
+            anchors = check.get("anchors")
+            if isinstance(anchors, list):
+                passed = sum(1 for a in anchors if isinstance(a, dict) and a.get("status") == "PASS")
+                missing = sum(1 for a in anchors if isinstance(a, dict) and a.get("status") != "PASS")
+                print(f"      anchors pass={passed} missing={missing}")
     if targets:
         print("  Targets:")
         for rel in targets[:40]:
@@ -980,16 +1098,22 @@ def _print_preflight_report(source: Path, manifest: dict, kind: str, preflight: 
         print(f"  WARNING: {warning}")
 
 
-def _inspect_patch(root: Path, source: Path) -> int:
-    if source.is_symlink() or not source.is_file():
-        print(f"INSPECT FAIL: PATCH input is not a regular non-symlink file: {source}", file=sys.stderr)
+def _inspect_patch(root: Path, source: Path, *, verb: str = "INSPECT") -> int:
+    if path_is_link_or_reparse(source) or not source.is_file():
+        print(f"{verb} RESULT: PATCH_INVALID — project unchanged | input is not a regular non-symlink file: {source}", file=sys.stderr)
         return 2
     temp_dir = None
     input_temp = None
     try:
         input_temp, execution_source, _input_sha = _snapshot_patch_input(source)
-        temp_dir, _extracted, manifest, kind, _payload, _ops_data, preflight = _prepare_package(root, execution_source)
+        temp_dir, _extracted, manifest, kind, _payload, ops_data, preflight = _prepare_package(root, execution_source)
         _print_preflight_report(source, manifest, kind, preflight, inspect_only=True)
+        if kind == "ops" and isinstance(preflight.get("ops_dry_run"), dict):
+            ops_report = preflight["ops_dry_run"]
+            print(
+                f"  OPS dry-run: PASS | operations={ops_report.get('operations',0)} "
+                f"patched={ops_report.get('patched',0)} created={ops_report.get('created',0)} unchanged={ops_report.get('unchanged',0)}"
+            )
         pp = manifest.get("post_patch") if isinstance(manifest, dict) else None
         if isinstance(pp, dict) and pp.get("commands"):
             print("  Post-patch commands:")
@@ -999,13 +1123,28 @@ def _inspect_patch(root: Path, source: Path) -> int:
         git = manifest.get("git") if isinstance(manifest, dict) else None
         if isinstance(git, dict) and git:
             print(f"  Git policy: add={git.get('add','off')} commit={git.get('commit','off')} push={git.get('push','off')}")
-        print("INSPECT RESULT: PASS — project unchanged")
+        print(f"{verb} RESULT: READY_TO_APPLY — project unchanged")
         return 0
     except PatchSchemaError as exc:
-        print(f"INSPECT RESULT: FAIL — project unchanged | {exc.kind}: {exc}", file=sys.stderr)
+        classification = _diagnostic_class(exc.kind)
+        report = getattr(exc, "report", None)
+        if isinstance(report, dict):
+            print(f"{verb}: preflight diagnostics for {source.name}")
+            for check in report.get("checks") or []:
+                if not isinstance(check, dict) or check.get("kind") != "file":
+                    continue
+                print(f"  - [{check.get('status','-')}] {check.get('path','-')}")
+                if check.get("expected_sha256") is not None:
+                    print(f"      sha256 expected={check.get('expected_sha256')} actual={check.get('actual_sha256','-')}")
+                anchors = check.get("anchors")
+                if isinstance(anchors, list):
+                    missing = [a for a in anchors if isinstance(a, dict) and a.get("status") != "PASS"]
+                    print(f"      anchors pass={len(anchors)-len(missing)} missing={len(missing)}")
+        _print_issues(getattr(exc, "issues", None))
+        print(f"{verb} RESULT: {classification} — project unchanged | {exc.kind}: {exc}", file=sys.stderr)
         return 2
     except Exception as exc:
-        print(f"INSPECT RESULT: FAIL — project unchanged | {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"{verb} RESULT: TOOL_ERROR — project unchanged | {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
     finally:
         if temp_dir is not None:
@@ -1016,7 +1155,7 @@ def _inspect_patch(root: Path, source: Path) -> int:
 
 def _execute_patch(root: Path, source: Path) -> int:
     result = _base_result(source)
-    if source.is_symlink() or not source.is_file():
+    if path_is_link_or_reparse(source) or not source.is_file():
         print(f"ERROR: PATCH input is not a regular non-symlink file: {source}", file=sys.stderr)
         return _finish_result(result, status="FAIL", rc=2, stage="input", diagnosis={"kind": "package_invalid", "message": "input is not a regular non-symlink file", "affected_paths": []})
 
@@ -1044,9 +1183,14 @@ def _execute_patch(root: Path, source: Path) -> int:
             result["recovery"] = manifest.get("recovery") if isinstance(manifest, dict) else None
             _print_preflight_report(source, manifest, kind, preflight)
         except PatchSchemaError as exc:
-            diagnosis = {"kind": exc.kind, "message": str(exc), "affected_paths": [exc.path] if exc.path else []}
-            result["preflight"] = {"status": "FAIL", "kind": exc.kind, "message": str(exc), "affected_paths": diagnosis["affected_paths"]}
-            print(f"PREFLIGHT FAIL — project unchanged | {exc.kind}: {exc}", file=sys.stderr)
+            preflight_failure = _preflight_failure_payload(exc)
+            affected_paths = list(preflight_failure.get("affected_paths") or [])
+            diagnosis = {"kind": exc.kind, "message": str(exc), "affected_paths": affected_paths}
+            if getattr(exc, "issues", None):
+                diagnosis["issues"] = exc.issues
+            result["preflight"] = preflight_failure
+            print(f"PREFLIGHT FAIL — project unchanged | {_diagnostic_class(exc.kind)} | {exc.kind}: {exc}", file=sys.stderr)
+            _print_issues(getattr(exc, "issues", None))
             return _finish_result(result, status="FAIL", rc=2, stage="preflight", diagnosis=diagnosis, partial={"detected": False, "changed_paths": [], "evidence": "preflight_failed_before_payload"})
         except Exception as exc:
             diagnosis = {"kind": "package_invalid", "message": f"{type(exc).__name__}: {exc}", "affected_paths": []}
@@ -1238,12 +1382,14 @@ def main(argv: list[str] | None = None) -> int:
         root = Path.cwd().resolve(); return _paths(root)
     if args[0] in {"help", "--help", "-h"}:
         print("Python Patch Tool self-contained core. Normal use: ./tools/run_python_patches.sh")
-        print("Interactive selector supports inspect/dry-run with key i.")
+        print("Interactive selector supports inspect/dry-run with key i. Direct validator: validate --patch <package>.")
         return 0
 
     inspect_mode = False
-    if args and args[0] == "inspect":
-        inspect_mode = True
+    validate_mode = False
+    if args and args[0] in {"inspect", "validate"}:
+        inspect_mode = args[0] == "inspect"
+        validate_mode = args[0] == "validate"
         args = args[1:]
 
     ap = argparse.ArgumentParser(add_help=False)
@@ -1257,13 +1403,15 @@ def main(argv: list[str] | None = None) -> int:
         print("ERROR: SANDBOX/worktree transaction modes are permanently unsupported; use --transaction off", file=sys.stderr)
         return 2
     if not ns.patch:
-        print("ERROR: --patch is required for PATCH execution/inspect", file=sys.stderr)
+        print("ERROR: --patch is required for PATCH execution/inspect/validate", file=sys.stderr)
         return 2
     root = Path.cwd().resolve()
     raw = Path(ns.patch)
     source = raw if raw.is_absolute() else root / raw
     if inspect_mode:
-        return _inspect_patch(root, source)
+        return _inspect_patch(root, source, verb="INSPECT")
+    if validate_mode:
+        return _inspect_patch(root, source, verb="VALIDATE")
     return _execute_patch(root, source)
 
 

@@ -1,58 +1,63 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.14.2**  
-Trạng thái: **WINDOWS LAUNCHER SUPPORT — COMPLETE / STOP**
+Phiên bản mục tiêu: **v6.15.0**  
+Trạng thái: **DIAGNOSTICS + WINDOWS ROBUSTNESS + WINDOWS FULLSCREEN SELECTOR — COMPLETE / STOP**
 
 ## Baseline
 
-Baseline kỹ thuật của release này là **v6.14.1**, trong đó robustness audit đã COMPLETE. Release v6.14.2 không thay đổi contract PATCH/COLLECT, không đưa SANDBOX/worktree trở lại và không đổi zero-argument workflow.
-
-## Mục tiêu của phiên này
-
-Bổ sung cách chạy native trên Windows tương tự `./tools/run_python_patches.sh` trên Linux, với tài liệu tối thiểu đủ dùng và không tạo một workflow riêng cho Windows.
+Baseline kỹ thuật: **v6.14.2**. Release này giữ nguyên PATCH/COLLECT contract fail-closed, in-place execution và zero-argument workflow; không đưa SANDBOX/worktree trở lại.
 
 ## Acceptance / task status
 
-| ID | Hạng mục | Trạng thái | Acceptance |
-|---|---|---|---|
-| WIN-1 | PowerShell public launcher | **COMPLETE** | Có `tools/run_python_patches.ps1`, PowerShell 5.1+, tự xác định project root, zero-argument route vào cùng dispatcher. |
-| WIN-2 | CMD/BAT public launcher | **COMPLETE** | Có `tools/run_python_patches.bat`; gọi PowerShell launcher và giữ exit code; không cần sửa ExecutionPolicy toàn máy. |
-| WIN-3 | Python discovery trên Windows | **COMPLETE** | Thử `py -3`, `python`, `python3`; chỉ chấp nhận Python **3.10+**; lỗi có hướng dẫn rõ. |
-| WIN-4 | Routing parity | **COMPLETE** | Zero-argument, legacy `collect`, utility command và PATCH route dùng cùng core; PATCH vẫn bị ép `--transaction off` như launcher Linux. |
-| WIN-5 | Install/Tool Health/package integrity | **COMPLETE** | `.ps1` + `.bat` là managed runtime, bắt buộc có trong checksum coverage và Tool Health. |
-| WIN-6 | Windows user/AI documentation | **COMPLETE** | Cập nhật HTML guide tối thiểu, `PORTABLE_USAGE.md`, `AI_USAGE_CONTRACT.md`, feature docs và package contents. |
-| WIN-7 | Regression | **COMPLETE** | Thêm `self_test_windows_launchers_v6_14_2.py`; PowerShell native parse/smoke chạy tự động nếu test host có PowerShell; full existing regression vẫn bắt buộc PASS. |
-| STOP-1 | Dừng sau task | **COMPLETE** | Không tự mở feature khác sau khi hoàn tất. |
+| Phase | Hạng mục | Trạng thái |
+|---|---|---|
+| 1 | Multi-error PATCH manifest lint + migration hints | **COMPLETE** |
+| 2 | Project-aware inspect/preflight: `PATCH_INVALID` / `SOURCE_DRIFT` / `READY_TO_APPLY` / `TOOL_ERROR` | **COMPLETE** |
+| 3 | Source-drift diagnostics expected/actual SHA, anchors, affected-path-only recovery COLLECT | **COMPLETE** |
+| 4 | AI PATCH contract + machine-readable checklist | **COMPLETE** |
+| 5 | `validate --patch` read-only validator; same gate re-runs before payload | **COMPLETE** |
+| 6 | Windows internal routing/process containment/reparse robustness | **COMPLETE** |
+| 7 | Native Windows fullscreen selector with arrows/Space/priority/inspect/validate/health | **COMPLETE** with safe line-selector fallback |
+| 8 | Full regression, package integrity, docs/version synchronization | **COMPLETE** |
+
+## Key behavior
+
+- Invalid manifests report multiple independent schema errors in one pass. Known bad legacy/custom `source_baseline` is explicitly mapped to `preflight.files`; invalid timeout values are reported in the same result.
+- Source preflight aggregates mismatches across files instead of stopping at the first SHA/anchor mismatch. Structured evidence records expected/actual values and all affected paths.
+- Data-only `PATCH_TOOL_OPS.json` is simulated against a private temporary mirror before real payload execution. Sequential OPS semantics are preserved while the project remains unchanged. Anchor/source mismatch therefore fails during preflight.
+- `inspect` and `validate` are read-only. Result classes are `READY_TO_APPLY`, `PATCH_INVALID`, `SOURCE_DRIFT`, or `TOOL_ERROR`.
+- Normal execution always performs the same preflight again immediately before payload; a previous validate result is never trusted as an execution bypass.
+- Recovery COLLECT requests use only structured `affected_paths` that are safe readable current-source files.
 
 ## Public commands
 
-Linux / POSIX:
+Normal use remains zero-argument:
 
 ```bash
 ./tools/run_python_patches.sh
 ```
 
-Windows CMD (khuyến nghị vì không vướng script ExecutionPolicy):
-
 ```bat
 tools\run_python_patches.bat
 ```
 
-Windows PowerShell:
+Direct validation for diagnostics/AI/debugging:
 
-```powershell
-.\tools\run_python_patches.ps1
+```bash
+./tools/run_python_patches.sh validate --patch patchs/example.zip
 ```
 
-Cả ba đều dùng **cùng project root, cùng `patchs/`, cùng dispatcher/runner/collector và cùng contract**.
+```powershell
+.\tools\run_python_patches.ps1 validate --patch patchs/example.zip
+```
 
-## Windows behavior cần biết
+## Windows parity / robustness
 
-- Yêu cầu Python **3.10+**. Launcher ưu tiên Python Launcher `py -3`, sau đó `python` / `python3` trên PATH.
-- Vì fullscreen selector hiện dựa trên POSIX `termios`, Windows dùng **line selector**: nhập `1`, `1,3-5`, `a`, `d <range>`, `i <index>`, `h`, `q`; khi một item đã được chọn sẵn, Enter xác nhận như bình thường.
-- PATCH package có `post_patch.commands[].argv` vẫn phải dùng executable có thật trên máy hiện tại. Một command hard-code `bash`, `sh` hoặc tool chỉ có trên Linux không tự trở thành portable chỉ vì launcher Windows đã tồn tại.
-- In-place/SANDBOX removal, PATCH/COLLECT exclusivity, local-history, checksum, recovery evidence và schemas giữ nguyên.
+- Dispatcher no longer calls the POSIX `.sh` launcher internally. PATCH, COLLECT, inspect and validate route directly through the packaged Python runtime with `sys.executable`, so zero-argument Windows use does not require Bash/Git-Bash.
+- Payload/post-command subprocesses use `CREATE_NEW_PROCESS_GROUP`; timeout/Ctrl+C containment escalates to Windows `taskkill /T /F` before rollback/result publication.
+- Windows project safety rejects reparse-point paths where a symlink/junction-like redirection could escape the validated project path.
+- Native Windows console selector uses `msvcrt` and VT output when available: ↑/↓, Space, 0–9 priority, `a`, `n`, `d`, `i`, `v`, `h`, Enter, q/Esc. If a console cannot support the safe fullscreen path, tool automatically falls back to the stable line selector.
 
 ## Release stop condition
 
-**COMPLETE. DỪNG. Không tự bắt đầu task/tính năng tiếp theo. Hỏi người dùng muốn làm gì tiếp.**
+**COMPLETE. DỪNG. Không tự mở task/tính năng mới sau release này.**

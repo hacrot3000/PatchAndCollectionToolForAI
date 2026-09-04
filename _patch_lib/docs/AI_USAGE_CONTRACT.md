@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.14.2
+# AI / ChatGPT usage contract — Python Patch Tool v6.15.0
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
@@ -33,13 +33,13 @@ COLLECT source of truth:
 tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json
 ```
 
-Do not invent PATCH manifest fields or COLLECT action names/fields. `overview` is valid because it has an exact current schema and implementation, not because an old document once mentioned it.
+Do not invent PATCH manifest fields or COLLECT action names/fields. In particular, never create `source_baseline`; exact source assumptions belong in `preflight.files`. `overview` is valid because it has an exact current schema and implementation, not because an old document once mentioned it.
 
 ## PATCH correctness contract
 
 AI-generated archive PATCHes must follow `PATCH_PACKAGE_GUIDE.md` and `PATCH_PACKAGE_SCHEMA.json`.
 
-Patch Tool v6.14.2 preflights before payload execution:
+Patch Tool v6.15.0 validates/preflights before payload execution:
 
 - manifest schema;
 - payload ambiguity/entrypoint;
@@ -116,7 +116,7 @@ If `truncated>0`, AI must treat evidence as bounded/incomplete and should reques
 
 ## Self-contained runtime
 
-v6.14.2 ships the documented PATCH runner, utilities, readonly collector, schemas, dispatcher, progress supervisor and Windows launchers. The documented current contract does not require an older **private core**. Historical formats outside the current schemas fail closed rather than being guessed.
+v6.15.0 ships the documented PATCH runner, utilities, readonly collector, schemas, dispatcher, progress supervisor and Windows launchers. The documented current contract does not require an older **private core**. Historical formats outside the current schemas fail closed rather than being guessed.
 
 ## Duplicate rules
 
@@ -137,7 +137,7 @@ Windows uses the line selector because the fullscreen selector relies on POSIX `
 `tools/HUONG_DAN_PYTHON_PATCH_TOOL.html` stays intentionally minimal and user-oriented. Internal schema/action/preflight details belong in `tools/_patch_lib/docs/`, not in the user guide.
 
 
-## v6.14.1 runtime robustness invariants (retained by v6.14.2)
+## v6.14.1 runtime robustness invariants (retained by v6.15.0)
 
 - The PATCH queue root `patchs/` must be a real project-local directory; a symlinked/unsafe queue root fails closed.
 - The exact PATCH package selected is snapshotted before preflight and the exact executed bytes are what PASS archival records. A same-name replacement with different bytes remains queued.
@@ -145,3 +145,13 @@ Windows uses the line selector because the fullscreen selector relies on POSIX `
 - Python PATCH payloads and post-patch commands are process-group managed. Timeout/SIGINT/SIGTERM must terminate descendants before rollback/result publication.
 - FAIL_HANDOFF must never attach a current queue package whose SHA differs from the executed package SHA.
 - Tool Health requires checksum coverage for all required runtime files and rejects unsafe symlink ancestors.
+
+## v6.15.0 diagnostics contract
+
+AI/package generators should also read `PATCH_PACKAGE_CHECKLIST.json`. When project source is available, use the read-only `validate --patch` route before handing a package to the user. A validate PASS is not an execution bypass: the runner repeats preflight immediately before payload.
+
+Manifest lint reports all discoverable schema issues in the same pass, including unsupported fields and invalid timeout bounds. Source preflight reports all declared affected files, expected/actual SHA-256 and missing anchors. Recovery COLLECT requests are narrowed to those safe affected source paths.
+
+Data-only OPS is sequentially dry-run against a temporary mirror before execution. This makes an OPS source/anchor mismatch a project-unchanged preflight failure. Arbitrary Python payload code is never executed during inspect/validate.
+
+Windows zero-argument dispatch does not use the POSIX `.sh` internally. Native console fullscreen selection uses `msvcrt` + VT when available and falls back to line selection when safe fullscreen operation is unavailable.

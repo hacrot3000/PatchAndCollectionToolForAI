@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib, json, os, stat
 from pathlib import Path
 
-VERSION = "6.14.2"
+VERSION = "6.15.0"
 REQUIRED_RUNTIME = [
     "tools/run_python_patches.sh",
     "tools/run_python_patches.ps1",
@@ -19,6 +19,7 @@ REQUIRED_RUNTIME = [
     "tools/_patch_lib/python_patch_health.py",
     "tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json",
     "tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json",
+    "tools/_patch_lib/docs/PATCH_PACKAGE_CHECKLIST.json",
     "tools/_patch_lib/docs/AI_USAGE_CONTRACT.md",
     "tools/implementing.md",
     "tools/PYTHON_PATCH_TOOL_FEATURES_VI.md",
@@ -43,7 +44,9 @@ def _safe_regular(root: Path, rel: str) -> bool:
             st=current.lstat()
         except OSError:
             return False
-        if stat.S_ISLNK(st.st_mode):
+        attrs=int(getattr(st,'st_file_attributes',0) or 0)
+        reparse=int(getattr(stat,'FILE_ATTRIBUTE_REPARSE_POINT',0x400))
+        if stat.S_ISLNK(st.st_mode) or (os.name=='nt' and attrs & reparse):
             return False
         if i < len(parts)-1 and not stat.S_ISDIR(st.st_mode):
             return False
