@@ -1,12 +1,21 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.18.3
+# AI / ChatGPT usage contract — Python Patch Tool v6.18.4
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
 ## Mandatory continuity rule for modifying Patch Tool itself
 
-Before AI changes Patch Tool code, it MUST read `NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, `HISTORICAL_FEATURE_BASELINE_V5_15.md`, and `HISTORICAL_FEATURE_STATUS_V5_15.json` in addition to the current schemas/docs. A capability previously documented as COMPLETE/PRESERVED/COMPATIBILITY_RESTORED must not be silently deleted, narrowed, renamed, or made unreachable. Historical code must not be removed merely because the current schema does not exercise it. Intentional replacement/removal requires an explicit ledger disposition and behavioral regression evidence in the same release.
+Before AI changes Patch Tool code, it MUST read `NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, `HISTORICAL_FEATURE_BASELINE_V5_15.md`, `HISTORICAL_FEATURE_STATUS_V5_15.json`, and `CURRENT_CAPABILITY_DISPOSITION.json` in addition to the current schemas/docs. A capability previously documented as COMPLETE/PRESERVED/COMPATIBILITY_RESTORED must not be silently deleted, narrowed, renamed, or made unreachable. Historical code must not be removed merely because the current schema does not exercise it. Intentional replacement/removal requires an explicit ledger disposition and behavioral regression evidence in the same release.
 
 Current docs override old docs for runtime semantics, but they do **not** erase historical capability evidence.
+
+### v6.18.4 proof-of-continuity gate
+
+
+> **Zero-work HISTORY safety:** HISTORY landing is optional/read-only. If an existing artifact/history path is unsafe (for example symlink/reparse), zero-work must warn and skip HISTORY rather than fail the no-work invocation; operations that actually consume or mutate recovery artifacts remain fail-closed.
+
+`CURRENT_CAPABILITY_DISPOSITION.json` MUST contain exactly one disposition for every historical v5.15 capability whose status was COMPLETE. A release fails continuity if any COMPLETE ID is omitted. `PRESERVED`/`COMPATIBILITY_RESTORED` require behavioral evidence; `SUPERSEDED`/`REMOVED_BY_REQUIREMENT` require an explicit reason/replacement record. A PARTIAL/NOT-STARTED historical row must not be silently promoted to a current requirement.
+
+The zero-argument no-work landing page is HISTORY on every launcher environment: an interactive terminal gets the browser; captured/non-TTY IDE tasks print the bounded history list and return without blocking for stdin. No fake IDLE run/LAST_RUN/history entry is created.
 
 ## Optional controlled installer
 
@@ -188,6 +197,14 @@ The dispatcher also binds planned dependency/effective-target metadata to the qu
 Regex COLLECT search is isolated in a managed worker with a 60-second hard timeout per search action, so pathological Python `re` patterns fail rather than hang indefinitely.
 
 FAIL_HANDOFF auto-discovered source and exact COLLECT source attachments intentionally preserve diagnostic bytes. If likely credentials/private keys are detected, v6.17.5 emits a sensitive-content warning so the operator can review the bundle before upload; it does not silently redact source needed for diagnosis.
+
+### v6.18.4 additive historical diagnostics compatibility
+
+The exact-evidence rule above remains current. In addition, every generated PATCH FAIL handoff attempts to add `compat_diagnostics/` containing a **redacted derivative**: `AI_SUMMARY.md`, `REDACTED_DETAIL.log`, `SMART_LOG.txt`, normalized `DIAGNOSTICS.json`, `ROOT_CAUSE_CLUSTERS.json`, minimal `ENVIRONMENT_FINGERPRINT.json`, `DIAGNOSTIC_QUALITY.json`, and `FAILURE_DELTA.json`. This restores the useful v5 diagnostics layers without silently modifying exact source/log bytes. Historical #23 "redact before all persistence" is explicitly superseded by the later exact-evidence contract; the redacted derivative is the safe sharing/analysis layer, not a claim that the ZIP contains no exact secrets.
+
+### v6.18.4 trusted validation continuity
+
+Local `.python_patch_tool.json` may define `validation.selection` (`off|append|replace`, fallback profiles, include/exclude rules) and per-profile `diagnostic_rerun`. Selection is computed from the **actual post-payload/post-command changed paths**, never from AI-declared filenames alone. Diagnostic rerun is evidence-only: it can run only after a primary validation failure, requires `safe=true`, is globally bounded, does not run after timeout unless enabled, rejects flash/OTA/deploy/push/publish/release/provision/erase-like commands, and can never turn the primary FAIL into PASS. `--no-validation` explicitly disables both requested profiles and delta auto-selection for that invocation.
 
 Windows zero-argument dispatch does not use the POSIX `.sh` internally. Native console fullscreen selection uses `msvcrt` + VT when available and falls back to line selection when safe fullscreen operation is unavailable.
 

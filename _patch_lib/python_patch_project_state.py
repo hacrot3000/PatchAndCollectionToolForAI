@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import fnmatch
 import json
 import os
 import shutil
@@ -10,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-VERSION = "6.18.3"
+VERSION = "6.18.4"
 CONFIG_NAME = ".python_patch_tool.json"
 MAX_CONFIG_BYTES = 1024 * 1024
 MAX_PROFILE_TIMEOUT = 1800
@@ -115,6 +116,69 @@ def _validation_profile_table(root: Path) -> dict[str, Any]:
     return table
 
 
+def _normalize_diagnostic_rerun(raw: Any, *, profile_name: str) -> dict[str, Any] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ProjectStateError(f"validation profile {profile_name}.diagnostic_rerun must be an object", kind="validation_profile_invalid")
+    allowed = {"enabled", "safe", "name", "append_args", "timeout_seconds", "on_timeout"}
+    extra = sorted(set(raw) - allowed)
+    if extra:
+        raise ProjectStateError(f"validation profile {profile_name}.diagnostic_rerun contains unsupported field(s): {', '.join(extra)}", kind="validation_profile_invalid")
+    enabled = raw.get("enabled", True)
+    safe = raw.get("safe", False)
+    on_timeout = raw.get("on_timeout", False)
+    if not isinstance(enabled, bool) or not isinstance(safe, bool) or not isinstance(on_timeout, bool):
+        raise ProjectStateError(f"validation profile {profile_name}.diagnostic_rerun enabled/safe/on_timeout must be boolean", kind="validation_profile_invalid")
+    name = raw.get("name", f"{profile_name} diagnostic rerun")
+    if not isinstance(name, str) or not name.strip() or len(name) > 200:
+        raise ProjectStateError(f"validation profile {profile_name}.diagnostic_rerun.name must be 1..200 characters", kind="validation_profile_invalid")
+    append_args = raw.get("append_args", [])
+    if not isinstance(append_args, list) or len(append_args) > 32 or any(not isinstance(x, str) or not x or len(x) > 1000 for x in append_args):
+        raise ProjectStateError(f"validation profile {profile_name}.diagnostic_rerun.append_args must be a bounded string array", kind="validation_profile_invalid")
+    timeout = raw.get("timeout_seconds", 600)
+    if not isinstance(timeout, int) or isinstance(timeout, bool) or not 1 <= timeout <= MAX_PROFILE_TIMEOUT:
+        raise ProjectStateError(f"validation profile {profile_name}.diagnostic_rerun.timeout_seconds must be 1..{MAX_PROFILE_TIMEOUT}", kind="validation_profile_invalid")
+    return {"enabled": enabled, "safe": safe, "name": name.strip(), "append_args": list(append_args), "timeout_seconds": timeout, "on_timeout": on_timeout}
+
+
+def _resolve_named_profiles(root: Path, names: list[str]) -> list[dict[str, Any]]:
+    table = _validation_profile_table(root)
+    resolved: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for name in names:
+        if name in seen:
+            continue
+        seen.add(name)
+        raw = table.get(name)
+        if not isinstance(raw, dict):
+            raise ProjectStateError(f"validation profile is not configured locally: {name}", kind="validation_profile_missing")
+        allowed = {"argv", "cwd", "timeout_seconds", "description", "diagnostic_rerun"}
+        extra = sorted(set(raw) - allowed)
+        if extra:
+            raise ProjectStateError(f"validation profile {name} contains unsupported field(s): {', '.join(extra)}", kind="validation_profile_invalid")
+        argv = raw.get("argv")
+        if not isinstance(argv, list) or not argv or any(not isinstance(x, str) or not x for x in argv):
+            raise ProjectStateError(f"validation profile {name}.argv must be a non-empty string array", kind="validation_profile_invalid")
+        timeout = raw.get("timeout_seconds", 900)
+        if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout < 1 or timeout > MAX_PROFILE_TIMEOUT:
+            raise ProjectStateError(f"validation profile {name}.timeout_seconds must be 1..{MAX_PROFILE_TIMEOUT}", kind="validation_profile_invalid")
+        cwd = _safe_rel_dir(str(raw.get("cwd", ".")))
+        desc = raw.get("description")
+        if desc is not None and not isinstance(desc, str):
+            raise ProjectStateError(f"validation profile {name}.description must be a string", kind="validation_profile_invalid")
+        rerun = _normalize_diagnostic_rerun(raw.get("diagnostic_rerun"), profile_name=name)
+        row = {"name": name, "argv": list(argv), "cwd": cwd, "timeout_seconds": timeout, "description": desc or ""}
+        if rerun is not None:
+            row["diagnostic_rerun"] = rerun
+        resolved.append(row)
+    return resolved
+
+
+def resolve_validation_profile_names(root: Path, names: list[str]) -> list[dict[str, Any]]:
+    return _resolve_named_profiles(root, names)
+
+
 def resolve_validation_profiles(root: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
     validation = manifest.get("validation")
     requested = validation.get("profiles") if isinstance(validation, dict) else None
@@ -130,29 +194,144 @@ def resolve_validation_profiles(root: Path, manifest: dict[str, Any]) -> list[di
         if name in names:
             raise ProjectStateError(f"duplicate validation profile requested: {name}", kind="validation_profile_invalid")
         names.append(name)
-    table = _validation_profile_table(root)
-    resolved: list[dict[str, Any]] = []
-    for name in names:
-        raw = table.get(name)
-        if not isinstance(raw, dict):
-            raise ProjectStateError(f"validation profile is not configured locally: {name}", kind="validation_profile_missing")
-        allowed = {"argv", "cwd", "timeout_seconds", "description"}
-        extra = sorted(set(raw) - allowed)
-        if extra:
-            raise ProjectStateError(f"validation profile {name} contains unsupported field(s): {', '.join(extra)}", kind="validation_profile_invalid")
-        argv = raw.get("argv")
-        if not isinstance(argv, list) or not argv or any(not isinstance(x, str) or not x for x in argv):
-            raise ProjectStateError(f"validation profile {name}.argv must be a non-empty string array", kind="validation_profile_invalid")
-        timeout = raw.get("timeout_seconds", 900)
-        if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout < 1 or timeout > MAX_PROFILE_TIMEOUT:
-            raise ProjectStateError(f"validation profile {name}.timeout_seconds must be 1..{MAX_PROFILE_TIMEOUT}", kind="validation_profile_invalid")
-        cwd = _safe_rel_dir(str(raw.get("cwd", ".")))
-        desc = raw.get("description")
-        if desc is not None and not isinstance(desc, str):
-            raise ProjectStateError(f"validation profile {name}.description must be a string", kind="validation_profile_invalid")
-        resolved.append({"name": name, "argv": list(argv), "cwd": cwd, "timeout_seconds": timeout, "description": desc or ""})
-    return resolved
+    return _resolve_named_profiles(root, names)
 
+
+def _safe_glob(value: Any, *, field: str) -> str:
+    if not isinstance(value, str) or not value.strip() or "\\" in value:
+        raise ProjectStateError(f"{field} must be a non-empty POSIX project-relative glob", kind="validation_selection_invalid")
+    text = value.strip()
+    rel = PurePosixPath(text)
+    if rel.is_absolute() or any(part == ".." for part in rel.parts) or any(":" in part for part in rel.parts):
+        raise ProjectStateError(f"unsafe {field}: {text}", kind="validation_selection_invalid")
+    return text
+
+
+def validation_selection_policy(root: Path) -> dict[str, Any]:
+    data = load_project_config(root)
+    validation = data.get("validation", {})
+    if validation is None:
+        validation = {}
+    if not isinstance(validation, dict):
+        raise ProjectStateError("validation in local config must be an object", kind="validation_selection_invalid")
+    allowed_validation = {"selection", "diagnostic_rerun"}
+    extra_validation = sorted(set(validation) - allowed_validation)
+    if extra_validation:
+        raise ProjectStateError(f"validation local config contains unsupported field(s): {', '.join(extra_validation)}", kind="validation_selection_invalid")
+
+    global_rerun = validation.get("diagnostic_rerun", {})
+    if global_rerun is None:
+        global_rerun = {}
+    if not isinstance(global_rerun, dict):
+        raise ProjectStateError("validation.diagnostic_rerun must be an object", kind="validation_selection_invalid")
+    extra_rerun = sorted(set(global_rerun) - {"max_commands", "on_timeout"})
+    if extra_rerun:
+        raise ProjectStateError(f"validation.diagnostic_rerun contains unsupported field(s): {', '.join(extra_rerun)}", kind="validation_selection_invalid")
+    max_commands = global_rerun.get("max_commands", 1)
+    on_timeout = global_rerun.get("on_timeout", False)
+    if not isinstance(max_commands, int) or isinstance(max_commands, bool) or not 0 <= max_commands <= 10:
+        raise ProjectStateError("validation.diagnostic_rerun.max_commands must be 0..10", kind="validation_selection_invalid")
+    if not isinstance(on_timeout, bool):
+        raise ProjectStateError("validation.diagnostic_rerun.on_timeout must be boolean", kind="validation_selection_invalid")
+
+    selection = validation.get("selection", {})
+    if selection is None:
+        selection = {}
+    if not isinstance(selection, dict):
+        raise ProjectStateError("validation.selection must be an object", kind="validation_selection_invalid")
+    extra = sorted(set(selection) - {"mode", "fallback_profiles", "rules"})
+    if extra:
+        raise ProjectStateError(f"validation.selection contains unsupported field(s): {', '.join(extra)}", kind="validation_selection_invalid")
+    mode = selection.get("mode", "off")
+    if mode not in {"off", "append", "replace"}:
+        raise ProjectStateError("validation.selection.mode must be off/append/replace", kind="validation_selection_invalid")
+    fallback = selection.get("fallback_profiles", [])
+    if not isinstance(fallback, list) or any(not isinstance(x, str) or not x.strip() for x in fallback):
+        raise ProjectStateError("validation.selection.fallback_profiles must be a string array", kind="validation_selection_invalid")
+    fallback_names = list(dict.fromkeys(x.strip() for x in fallback))
+    rules_raw = selection.get("rules", [])
+    if not isinstance(rules_raw, list) or len(rules_raw) > 200:
+        raise ProjectStateError("validation.selection.rules must be an array of at most 200 rules", kind="validation_selection_invalid")
+    rules: list[dict[str, Any]] = []
+    referenced = list(fallback_names)
+    for i, raw in enumerate(rules_raw):
+        if not isinstance(raw, dict):
+            raise ProjectStateError(f"validation.selection.rules[{i}] must be an object", kind="validation_selection_invalid")
+        extra_rule = sorted(set(raw) - {"name", "include", "exclude", "profiles"})
+        if extra_rule:
+            raise ProjectStateError(f"validation.selection.rules[{i}] unsupported field(s): {', '.join(extra_rule)}", kind="validation_selection_invalid")
+        name = raw.get("name", f"rule-{i+1}")
+        if not isinstance(name, str) or not name.strip() or len(name) > 200:
+            raise ProjectStateError(f"validation.selection.rules[{i}].name must be 1..200 characters", kind="validation_selection_invalid")
+        include = raw.get("include", [])
+        exclude = raw.get("exclude", [])
+        profiles = raw.get("profiles", [])
+        if not isinstance(include, list) or not include:
+            raise ProjectStateError(f"validation.selection.rules[{i}].include must be a non-empty array", kind="validation_selection_invalid")
+        if not isinstance(exclude, list) or not isinstance(profiles, list) or not profiles:
+            raise ProjectStateError(f"validation.selection.rules[{i}] exclude/profiles must be arrays and profiles non-empty", kind="validation_selection_invalid")
+        includes = [_safe_glob(x, field=f"validation.selection.rules[{i}].include") for x in include]
+        excludes = [_safe_glob(x, field=f"validation.selection.rules[{i}].exclude") for x in exclude]
+        names: list[str] = []
+        for raw_name in profiles:
+            if not isinstance(raw_name, str) or not raw_name.strip():
+                raise ProjectStateError(f"validation.selection.rules[{i}].profiles must contain non-empty strings", kind="validation_selection_invalid")
+            n = raw_name.strip()
+            if n not in names: names.append(n)
+            if n not in referenced: referenced.append(n)
+        rules.append({"name": name.strip(), "include": includes, "exclude": excludes, "profiles": names})
+    if referenced:
+        _resolve_named_profiles(root, referenced)  # validate references/config before mutation
+    return {
+        "mode": mode,
+        "fallback_profiles": fallback_names,
+        "rules": rules,
+        "referenced_profiles": referenced,
+        "diagnostic_rerun": {"max_commands": max_commands, "on_timeout": on_timeout},
+    }
+
+
+def _glob_match(path: str, pattern: str) -> bool:
+    return fnmatch.fnmatchcase(path, pattern) or PurePosixPath(path).match(pattern)
+
+
+def resolve_effective_validation_profiles(root: Path, manifest: dict[str, Any], changed_paths: list[str], *, disabled: bool = False) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    requested_rows = resolve_validation_profiles(root, manifest)
+    requested = [str(x["name"]) for x in requested_rows]
+    policy = validation_selection_policy(root)
+    if disabled:
+        return [], {"status": "DISABLED_BY_CLI", "mode": policy["mode"], "changed_paths": sorted(set(changed_paths)), "requested_profiles": requested, "auto_profiles": [], "final_profiles": [], "matched_rules": []}
+    auto: list[str] = []
+    matched_rules: list[dict[str, Any]] = []
+    paths = sorted(set(str(x) for x in changed_paths if isinstance(x, str) and x))
+    if policy["mode"] != "off":
+        for rule in policy["rules"]:
+            matched_paths = [p for p in paths if any(_glob_match(p, pat) for pat in rule["include"]) and not any(_glob_match(p, pat) for pat in rule["exclude"])]
+            if matched_paths:
+                matched_rules.append({"name": rule["name"], "paths": matched_paths, "profiles": list(rule["profiles"])})
+                for name in rule["profiles"]:
+                    if name not in auto: auto.append(name)
+        if not auto:
+            auto.extend(policy["fallback_profiles"])
+    if policy["mode"] == "replace":
+        final_names = list(auto)
+    else:
+        final_names = list(requested)
+        for name in auto:
+            if name not in final_names: final_names.append(name)
+    final_rows = _resolve_named_profiles(root, final_names) if final_names else []
+    report = {
+        "status": "PASS",
+        "mode": policy["mode"],
+        "changed_paths": paths,
+        "requested_profiles": requested,
+        "auto_profiles": auto,
+        "final_profiles": final_names,
+        "matched_rules": matched_rules,
+        "fallback_used": bool(policy["mode"] != "off" and not matched_rules and auto),
+        "diagnostic_rerun": policy["diagnostic_rerun"],
+    }
+    return final_rows, report
 
 def artifact_state_file(root: Path, name: str) -> Path:
     return root / "artifacts" / "patch_tool" / name

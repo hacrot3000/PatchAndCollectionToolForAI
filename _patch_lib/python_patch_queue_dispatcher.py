@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.18.3"
+VERSION = "6.18.4"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -339,6 +339,29 @@ def _artifact_run_root(root: Path) -> Path:
     return cur
 
 
+def _existing_artifact_subdir_readonly(root: Path, *parts: str) -> Path | None:
+    """Return an existing artifact directory without creating any state.
+
+    Read-only views such as HISTORY must not materialize artifacts/patch_tool on
+    an otherwise untouched project.  The traversal keeps the same symlink /
+    reparse / non-directory fail-closed policy as the mutating helpers.
+    """
+    cur = root.resolve(strict=True)
+    for part in ("artifacts", "patch_tool", *parts):
+        if not part or part in {".", ".."} or "/" in part or "\\" in part:
+            raise QueueSafetyError(f"unsafe artifact subdirectory name: {part!r}")
+        nxt = cur / part
+        if not (nxt.exists() or nxt.is_symlink()):
+            return None
+        st = nxt.lstat()
+        attrs = getattr(st, "st_file_attributes", 0)
+        reparse = bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+        if stat.S_ISLNK(st.st_mode) or reparse or not stat.S_ISDIR(st.st_mode):
+            raise QueueSafetyError(f"unsafe artifact subdirectory component: {nxt}")
+        cur = nxt
+    return cur
+
+
 def _artifact_subdir(root: Path, *parts: str) -> Path:
     cur = _artifact_run_root(root)
     for part in parts:
@@ -606,9 +629,9 @@ def _save_pinned_runs(root: Path, pins: set[str]) -> None:
 
 
 def _history_entries(root: Path) -> list[tuple[Path, dict[str, object]]]:
-    history = _artifact_subdir(root, "history")
+    history = _existing_artifact_subdir_readonly(root, "history")
     out: list[tuple[Path, dict[str, object]]] = []
-    if history.is_dir():
+    if history is not None and history.is_dir():
         for path in sorted(history.glob("*.json"), reverse=True):
             data = _load_json(path)
             if isinstance(data, dict): out.append((path, data))
@@ -1825,6 +1848,34 @@ def _create_fail_handoff(
 
         sensitive_warnings = _sensitive_handoff_warnings(evidence_log, frozen_sources)
         summary["sensitive_content_warnings"] = sensitive_warnings
+
+        # v6.18.4 additive historical diagnostics compatibility.  Keep the
+        # exact v6 evidence untouched and add a separately redacted/normalized
+        # derivative layer for the v5 COMPLETE diagnostic capabilities.
+        compat_diagnostics = None
+        try:
+            from python_patch_diagnostics_compat import build_compat_evidence
+            diagnosis = patch_result.get("diagnosis") if isinstance(patch_result, dict) else None
+            compat_diagnostics = build_compat_evidence(
+                root,
+                patch_name=item.name,
+                exact_log=evidence_log,
+                diagnosis=diagnosis if isinstance(diagnosis, dict) else None,
+                detail_truncated=bool(detail_log_meta.get("truncated")),
+                source_count=len(included_rows),
+            )
+            summary["compat_diagnostics"] = {
+                "status": "AVAILABLE",
+                "path": "compat_diagnostics/",
+                "redacted_derivative": True,
+                "exact_v6_evidence_preserved": True,
+            }
+        except Exception as diag_exc:
+            summary["compat_diagnostics"] = {"status": "UNAVAILABLE", "error": type(diag_exc).__name__}
+            summary.setdefault("attachment_warnings", []).append(
+                f"compat diagnostics unavailable: {type(diag_exc).__name__}"
+            )
+
         summary["source_discovery"] = {
             "mode": source_discovery.get("mode"),
             "discovered_paths": source_discovery.get("discovered_paths"),
@@ -1842,10 +1893,18 @@ def _create_fail_handoff(
             if sensitive_warnings:
                 warning_text = (
                     "WARNING: This diagnostic bundle intentionally preserves exact source/log bytes.\n"
-                    "Review before uploading if the destination is not trusted.\n\n- "
+                    "Review before uploading if the destination is not trusted.\n"
+                    "A redacted compatibility derivative is available under compat_diagnostics/ when generated.\n\n- "
                     + "\n- ".join(sensitive_warnings) + "\n"
                 )
                 zf.writestr("SENSITIVE_CONTENT_WARNING.txt", warning_text)
+
+            if compat_diagnostics is not None:
+                try:
+                    from python_patch_diagnostics_compat import write_zip_evidence
+                    write_zip_evidence(zf, compat_diagnostics)
+                except Exception as diag_write_exc:
+                    attachment_warnings.append(f"compat diagnostics write failed: {type(diag_write_exc).__name__}")
 
             # Every source is written from the stable snapshot, never directly
             # from a concurrently changing working tree.
@@ -1989,12 +2048,14 @@ def _run_foreground_child(
             except Exception: pass
 
 
-def _runner_command(root: Path, action: str, item: QueueItem) -> list[str]:
+def _runner_command(root: Path, action: str, item: QueueItem, *, no_validation: bool = False) -> list[str]:
     runner = root / "tools" / "_patch_lib" / "python_patch_runner.py"
     cmd = [sys.executable, str(runner)]
     if action in {"inspect", "validate", "preview"}:
         cmd.append(action)
     cmd += ["--patch", f"patchs/{item.name}", "--transaction", "off"]
+    if no_validation and action == "execute":
+        cmd.append("--no-validation")
     return cmd
 
 
@@ -3522,6 +3583,21 @@ def _render_history_selector(
     return len(padded)
 
 
+def _zero_work_history_landing(root: Path) -> int:
+    """Best-effort read-only HISTORY landing for an invocation with no work.
+
+    Artifact safety remains fail-closed for actual report/recovery operations.
+    Merely having no runnable package must not become a failed run because an
+    optional historical artifact tree is unavailable/unsafe; emit a warning
+    and leave project state untouched instead.
+    """
+    try:
+        return _history_browser(root)
+    except QueueSafetyError as exc:
+        print(f"[PTV v{VERSION} WARNING] HISTORY unavailable: {_safe_display(str(exc))}", file=sys.stderr)
+        return 0
+
+
 def _history_browser(root: Path) -> int:
     """Interactive history browser backed by the same persisted run reports.
 
@@ -3548,6 +3624,10 @@ def _history_browser(root: Path) -> int:
         for i, (_path, report) in enumerate(entries, 1):
             mark = "*" if i - 1 == default_index else " "
             print(f"{mark} {i:>2}. {_history_row_text(report, pinned=str(report.get('run_id') or '') in pins)}")
+        # Captured IDE/task runners are non-interactive.  Showing HISTORY must
+        # never block on input from a pipe that may stay open indefinitely.
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            return 0
         while True:
             try:
                 raw = input(f"History [Enter={default_index + 1}, number=open, q=back]: ").strip().lower()
@@ -5026,6 +5106,7 @@ def execute_items(
     metas: dict[str, PatchMeta] | None = None,
     history_replay_sha: dict[str, str] | None = None,
     preflight_failure_details: dict[str, dict[str, object]] | None = None,
+    no_validation: bool = False,
 ):
     """Execute a validated batch with controlled continuation and dependency blocking."""
     global _LAST_EXECUTION_DETAILS
@@ -5137,7 +5218,7 @@ def execute_items(
                 continue
             if not still_runnable:
                 duplicate_warnings.append(f"late duplicate check returned no decision for patchs/{item.name}; executing normally")
-            cmd = _runner_command(root, "execute", item)
+            cmd = _runner_command(root, "execute", item, no_validation=no_validation)
         elif item.kind == "COLLECT":
             progress = root / "tools" / "_patch_lib" / "python_patch_collect_progress_v6_7.py"
             compat = root / "tools" / "_patch_lib" / "python_patch_collect_compat.py"
@@ -6043,7 +6124,7 @@ def _run_queue(
     root: Path, *, failure_policy_override: str | None = None, transaction_policy_override: str | None = None,
     force_resume: bool = False, resume_mode: str | None = None, recipe_path: str | None = None,
     zero_argument_invocation: bool = False, explicit_patch_specs: list[str] | None = None,
-    select_all: bool = False, select_spec: str | None = None,
+    select_all: bool = False, select_spec: str | None = None, no_validation: bool = False,
 ):
     global _ACTIVE_RUN_ID, _LAST_EXECUTION_DETAILS
     started_mono = time.monotonic()
@@ -6073,8 +6154,10 @@ def _run_queue(
             print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}")
         print("AUTO STATUS: IDLE — no runnable patch/collect package is waiting in patchs/.")
         print_health(root, compact=True)
-        if sys.stdin.isatty() and sys.stdout.isatty():
-            _history_browser(root)
+        # HISTORY is the zero-work landing page even when a task runner is
+        # non-TTY.  In non-interactive mode the browser prints the history list
+        # and exits cleanly on EOF; in a terminal it remains interactive.
+        _zero_work_history_landing(root)
         _ACTIVE_RUN_ID = None
         _LAST_EXECUTION_DETAILS = []
         return 0
@@ -6215,19 +6298,14 @@ def _run_queue(
         else:
             print("AUTO STATUS: IDLE — no runnable patch/collect package is waiting in patchs/.")
         print_health(root, compact=True)
-        if zero_argument_invocation and sys.stdin.isatty() and sys.stdout.isatty() and (session_duplicates or local_duplicates):
-            print("\nQUEUE CLEANUP SUMMARY — queue ban đầu có package nhưng tất cả đã bị duplicate/auto-filter.")
-            if session_duplicates:
-                print(f"  Session duplicates removed : {len(session_duplicates)}")
-            if local_duplicates:
-                print(f"  Local-history duplicates   : {len(local_duplicates)} (đã chuyển vào patchs/ignore khi có thể)")
-            try:
-                answer = input("Nhấn Enter để mở HISTORY (q để thoát): ").strip().lower()
-            except (EOFError, KeyboardInterrupt):
-                print("")
-                answer = "q"
-            if answer not in {"q", "quit", "esc"}:
-                _history_browser(root)
+        if zero_argument_invocation:
+            if session_duplicates or local_duplicates:
+                print("\nQUEUE CLEANUP SUMMARY — queue ban đầu có package nhưng tất cả đã bị duplicate/auto-filter.")
+                if session_duplicates:
+                    print(f"  Session duplicates removed : {len(session_duplicates)}")
+                if local_duplicates:
+                    print(f"  Local-history duplicates   : {len(local_duplicates)} (đã chuyển vào patchs/ignore khi có thể)")
+            _zero_work_history_landing(root)
         # Zero-work invocations are not runs: do not create a run directory,
         # LAST_RUN/history entry, ledger update or unresolved-failure update.
         # Old history/registry remain intact for explicit review and planner
@@ -6514,6 +6592,7 @@ def _run_queue(
         rc, executed, remaining, late_duplicates, late_duplicate_warnings = execute_items(
             root, chosen, failure_policy=failure_policy, metas=metas, history_replay_sha=history_replay_sha,
             preflight_failure_details=preflight_failure_details,
+            no_validation=no_validation,
         )
         local_duplicates = [*local_duplicates, *late_duplicates]
         for warning in late_duplicate_warnings:
@@ -6646,6 +6725,7 @@ def main(argv=None):
     ap.add_argument("--zip-failed", action="store_true")
     ap.add_argument("--keep-failed-zip", action="store_true")
     ap.add_argument("--move", action="store_true")
+    ap.add_argument("--no-validation", action="store_true", help="Disable trusted validation profiles and delta auto-selection for this run")
     ns = ap.parse_args(raw_argv)
     root = Path(ns.project_root).resolve()
     try:
@@ -6683,7 +6763,7 @@ def main(argv=None):
             root, failure_policy_override=ns.failure_policy, transaction_policy_override=ns.transaction_policy,
             force_resume=(ns.command == "resume"), resume_mode=ns.resume_mode, recipe_path=ns.recipe,
             zero_argument_invocation=zero_argument_invocation, explicit_patch_specs=ns.patch_specs,
-            select_all=ns.select_all, select_spec=ns.select,
+            select_all=ns.select_all, select_spec=ns.select, no_validation=ns.no_validation,
         )
     except QueueSafetyError as exc:
         # Fail closed without a Python traceback when the queue/artifact/lock

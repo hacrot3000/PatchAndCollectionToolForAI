@@ -1,4 +1,16 @@
-# Python Patch Tool v6.18.3 feature status
+# Python Patch Tool v6.18.4 feature status
+
+## v6.18.4 proof-of-continuity completion
+
+- Historical diagnostics #18–22/#24–25/#28: **COMPATIBILITY RESTORED** as additive redacted/normalized evidence under `compat_diagnostics/` inside FAIL_HANDOFF.
+- Historical secret-redact-before-all-persistence #23: **SUPERSEDED explicitly** by the current exact-evidence + sensitive-warning contract; a redacted derivative is still emitted for safe analysis.
+- Historical split summary/code/detail #26: **SUPERSEDED physically / logical evidence layers restored** inside the unified FAIL_HANDOFF.
+- Delta-based validation selection #58: **COMPATIBILITY RESTORED** from actual changed paths using trusted local config.
+- Safe diagnostic rerun #59: **COMPATIBILITY RESTORED**; bounded, safe=true, dangerous-action blocked, primary FAIL immutable.
+- `--no-validation`: restored for explicit per-run disable of requested + auto-selected validation.
+- Zero-work HISTORY: **PRESERVED across TTY and non-TTY task runners**; non-TTY prints history without waiting on stdin.
+- `CURRENT_CAPABILITY_DISPOSITION.json`: **NEW REQUIRED RELEASE GATE**, exactly 95/95 historical COMPLETE IDs mapped to current dispositions.
+
 
 ## v6.18.3 final preservation audit additions
 

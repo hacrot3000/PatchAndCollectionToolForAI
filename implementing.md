@@ -1,11 +1,23 @@
-# v6.18.3 mandatory continuity gate — NO SILENT REMOVAL
+# v6.18.4 mandatory continuity gate — NO SILENT REMOVAL
 
 Before modifying Patch Tool, read `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, and `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Do not delete or narrow any capability previously marked COMPLETE/PRESERVED/COMPATIBILITY_RESTORED unless the user explicitly requests it or a later documented contract supersedes it. Every intentional transition must be recorded in the ledger and protected by a behavioral test. Surface/string-only compatibility tests are not sufficient.
 
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.18.3**  
-Trạng thái: **UPGRADE CONTINUITY + RESTORED EMPTY-QUEUE HISTORY — COMPLETE**
+Phiên bản mục tiêu: **v6.18.4**  
+Trạng thái: **95/95 HISTORICAL-COMPLETE DISPOSITION + SEMANTIC CONTINUITY — COMPLETE**
+
+## v6.18.4 — Proof-of-continuity closure
+
+Release này đóng các khoảng trống còn lại phát hiện sau v6.18.3 mà **không xóa lịch sử v6.18.3 bên dưới**:
+
+- `CURRENT_CAPABILITY_DISPOSITION.json` phải phủ đúng **95/95** capability từng `COMPLETE` ở snapshot v5.15; mỗi mục phải là `PRESERVED`, `COMPATIBILITY_RESTORED`, `SUPERSEDED` hoặc `REMOVED_BY_REQUIREMENT`, có lý do và evidence.
+- Khôi phục lớp diagnostics lịch sử #18–28 dưới `compat_diagnostics/` trong FAIL_HANDOFF: syntax hints, normalized diagnostics, root-cause clusters, smart log, redacted derivative, environment fingerprint, quality report và failure delta. Exact evidence v6 vẫn được giữ; policy redaction-before-all-persistence cũ (#23) được ghi `SUPERSEDED`, không âm thầm tuyên bố tương đương.
+- Khôi phục #58 delta-based validation selection từ **actual post-patch delta** và #59 safe diagnostic rerun từ local trusted config; rerun không được đổi primary FAIL thành PASS và chặn flash/OTA/deploy/push/publish/release/provision/erase.
+- `--no-validation` tắt cả profile explicit và auto-selection theo contract.
+- Queue zero-work mở HISTORY cả TTY lẫn non-TTY task runner; read-only HISTORY tuyệt đối không tạo `artifacts/`, `LAST_RUN` hay fake history.
+- Release gate phải chạy qua public launcher/parser thật, không chỉ gọi helper nội bộ.
+- `self_test_python_patch_tool_v6_18_4.py` phải bao gồm diagnostics compatibility, validation selection, public entry và 95/95 disposition gates.
 
 ## Baseline
 

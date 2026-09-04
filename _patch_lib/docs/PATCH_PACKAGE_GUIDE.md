@@ -1,4 +1,4 @@
-# PATCH PACKAGE GUIDE — v6.18.3 authoritative AI/tool contract
+# PATCH PACKAGE GUIDE — v6.18.4 authoritative AI/tool contract
 
 Machine-readable source of truth:
 
@@ -345,7 +345,18 @@ Managed payload/post/validation/failure/Git-policy execution is process-tree con
 {
   "project": {"key": "my-project"},
   "validation_profiles": {
-    "unit": {"argv": ["./tools/test.sh"], "cwd": ".", "timeout_seconds": 900}
+    "unit": {
+      "argv": ["./tools/test.sh"], "cwd": ".", "timeout_seconds": 900,
+      "diagnostic_rerun": {"enabled": true, "safe": true, "append_args": ["--verbose"], "timeout_seconds": 300}
+    }
+  },
+  "validation": {
+    "selection": {
+      "mode": "append",
+      "fallback_profiles": [],
+      "rules": [{"name": "source", "include": ["src/**"], "exclude": ["src/generated/**"], "profiles": ["unit"]}]
+    },
+    "diagnostic_rerun": {"max_commands": 1, "on_timeout": false}
   },
   "automation": {
     "zero_argument": {
@@ -374,3 +385,9 @@ Recipe policy override rule: `run --recipe` uses the policies stored in the reci
 ## v6.18.2 command-only / strict compatibility lane
 
 A manifest-only command package is accepted when `post_patch.run_when_no_changes=true`, `no_change_reason` is 20–500 non-whitespace characters, and exactly one command is declared. Command-only packages automatically use the `legacy_strict` safety profile. A source-changing PATCH keeps the current v6 post-patch command contract unless `post_patch.safety_profile=legacy_strict` is explicitly requested. This additive split restores historical compatibility without silently narrowing modern v6 build/test workflows.
+
+### v6.18.4 delta validation selection / diagnostic rerun
+
+`manifest.validation.profiles` remains names-only and AI must not define trusted argv. The operator may configure `validation.selection.mode=off|append|replace`, `fallback_profiles`, and bounded rules with `include`/`exclude` globs plus profile names. Rule matching uses the actual project delta after payload and post-patch commands. The structured PATCH result records changed paths, matched rules, requested/auto/final profiles.
+
+A local profile may declare `diagnostic_rerun` with `enabled`, `safe`, `name`, `append_args`, `timeout_seconds`, and `on_timeout`. Only `safe=true` reruns are eligible. Global `validation.diagnostic_rerun.max_commands` bounds reruns. Flash/OTA/deploy/push/publish/release/provision/erase-like commands are rejected. The primary validation rc/status is immutable even if the rerun passes.

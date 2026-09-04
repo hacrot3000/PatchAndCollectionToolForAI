@@ -1,4 +1,4 @@
-Python Patch Tool v6.18.3 portable package
+Python Patch Tool v6.18.4 portable package
 
 Release root:
   tools/
@@ -20,6 +20,7 @@ Core private runtime:
   tools/_patch_lib/python_patch_package_schema.py
   tools/_patch_lib/python_patch_project_state.py
   tools/_patch_lib/python_patch_health.py
+  tools/_patch_lib/python_patch_diagnostics_compat.py
   tools/_patch_lib/python_patch_readonly_collector.py
   tools/_patch_lib/python_patch_collect_compat.py
   tools/_patch_lib/python_patch_collect_schema.py
@@ -31,6 +32,7 @@ Core private runtime:
 Continuity/governance documentation:
   tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md
   tools/_patch_lib/docs/CAPABILITY_LEDGER.md
+  tools/_patch_lib/docs/CURRENT_CAPABILITY_DISPOSITION.json
   tools/_patch_lib/docs/HISTORICAL_FEATURE_BASELINE_V5_15.md
   tools/_patch_lib/docs/HISTORICAL_FEATURE_STATUS_V5_15.json
   tools/_patch_lib/docs/LAYOUT_AND_MIGRATION.md
@@ -49,21 +51,26 @@ Current contract/documentation:
   tools/PYTHON_PATCH_TOOL_FEATURES_VI.md
   tools/HUONG_DAN_PYTHON_PATCH_TOOL.html
 
-Regression gates:
-  tools/_patch_lib/self_test_python_patch_tool_v6_18_3.py
-  tools/_patch_lib/self_test_historical_compatibility_v6_18_3.py
-  tools/_patch_lib/self_test_collect_historical_actions_v6_18_3.py
-  tools/_patch_lib/self_test_portable_installer_v6_18_3.py
-  tools/_patch_lib/self_test_capability_ledger_v6_18_3.py
-  tools/_patch_lib/self_test_upgrade_continuity_v6_18_3.py
-  plus the current v6.18.3 functional/Windows/search/recovery/batch/integrity self-tests.
+Preservation/release gates include:
+  tools/_patch_lib/self_test_python_patch_tool_v6_18_4.py
+  tools/_patch_lib/self_test_capability_disposition_v6_18_4.py
+  tools/_patch_lib/self_test_capability_ledger_v6_18_4.py
+  tools/_patch_lib/self_test_upgrade_continuity_v6_18_4.py
+  tools/_patch_lib/self_test_historical_compatibility_v6_18_4.py
+  tools/_patch_lib/self_test_historical_diagnostics_v6_18_4.py
+  tools/_patch_lib/self_test_validation_selection_v6_18_4.py
+  tools/_patch_lib/self_test_collect_historical_actions_v6_18_4.py
+  tools/_patch_lib/self_test_public_entry_v6_18_4.py
+  tools/_patch_lib/self_test_search_discovery_v6_18_4.py
+  tools/_patch_lib/self_test_portable_installer_v6_18_4.py
+  plus the current functional/Windows/search/recovery/batch/integrity self-tests.
 
 Integrity:
   tools/_patch_lib/VERSION
   tools/_patch_lib/SHA256SUMS
 
 Normal use:
-  unzip -o python_patch_tool_v6.18.3.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.18.4.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 Normal installation does not require the optional installer. Existing

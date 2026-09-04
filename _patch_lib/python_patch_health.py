@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib, json, os, stat, subprocess, tempfile
 from pathlib import Path
 
-VERSION = "6.18.3"
+VERSION = "6.18.4"
 REQUIRED_RUNTIME = [
     "tools/run_python_patches.sh",
     "tools/run_python_patches.ps1",
@@ -24,12 +24,14 @@ REQUIRED_RUNTIME = [
     "tools/_patch_lib/install_python_patch_tool_v5.py",
     "tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md",
     "tools/_patch_lib/docs/CAPABILITY_LEDGER.md",
+    "tools/_patch_lib/docs/CURRENT_CAPABILITY_DISPOSITION.json",
     "tools/_patch_lib/docs/HISTORICAL_FEATURE_BASELINE_V5_15.md",
     "tools/_patch_lib/docs/HISTORICAL_FEATURE_STATUS_V5_15.json",
     "tools/_patch_lib/docs/LAYOUT_AND_MIGRATION.md",
     "tools/_patch_lib/docs/OUTPUT_FILES_GUIDE.md",
     "tools/_patch_lib/python_patch_package_schema.py",
     "tools/_patch_lib/python_patch_project_state.py",
+    "tools/_patch_lib/python_patch_diagnostics_compat.py",
     "tools/_patch_lib/python_patch_health.py",
     "tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json",
     "tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json",

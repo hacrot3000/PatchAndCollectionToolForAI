@@ -7,6 +7,7 @@ import difflib
 import hashlib
 import json
 import os
+import re
 from pathlib import Path, PurePosixPath
 import shutil
 import signal
@@ -24,7 +25,7 @@ from dataclasses import dataclass
 from python_patch_utils import PatchFailure, diagnose_ops, finish_failure, run_ops
 from python_patch_package_schema import PatchSchemaError, path_is_link_or_reparse, resolve_project_path, run_preflight, sha256_file
 
-VERSION = "6.18.3"
+VERSION = "6.18.4"
 _ACTIVE_TERMINATION_SIGNAL: int | None = None
 MAX_ARCHIVE_ENTRIES = 10000
 MAX_ARCHIVE_MEMBER_BYTES = 64 * 1024 * 1024
@@ -626,11 +627,28 @@ def _apply_on_failure_commands(
     return final_partial
 
 
+def _diagnostic_rerun_is_safe(argv: list[str]) -> tuple[bool, str | None]:
+    joined = " ".join(argv).lower()
+    match = re.search(
+        r"(?:^|[^a-z0-9_])(flash|ota|deploy|push|publish|release|provision(?:ing)?|erase|esptool|dfu)(?:[^a-z0-9_]|$)",
+        joined,
+    )
+    if match:
+        return False, f"dangerous_action_hint:{match.group(1)}"
+    return True, None
+
+
 def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[str, object] | None:
     profiles = preflight.get("_resolved_validation_profiles") if isinstance(preflight, dict) else None
     if not isinstance(profiles, list) or not profiles:
         return None
-    report: dict[str, object] = {"status": "PASS", "rc": 0, "profiles": []}
+    global_rerun = preflight.get("_resolved_validation_rerun_policy") if isinstance(preflight, dict) else None
+    if not isinstance(global_rerun, dict):
+        global_rerun = {"max_commands": 1, "on_timeout": False}
+    max_reruns = int(global_rerun.get("max_commands") or 0)
+    global_on_timeout = bool(global_rerun.get("on_timeout", False))
+    reruns_used = 0
+    report: dict[str, object] = {"status": "PASS", "rc": 0, "profiles": [], "diagnostic_reruns_used": 0}
     rows: list[dict[str, object]] = report["profiles"]  # type: ignore[assignment]
     for profile in profiles:
         if not isinstance(profile, dict):
@@ -665,7 +683,7 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
             report.update({"status": "FAIL", "rc": 2})
             return report
         rc = outcome.effective_rc
-        row = {
+        row: dict[str, object] = {
             "name": name,
             "status": "PASS" if rc == 0 else "FAIL",
             "rc": rc,
@@ -673,6 +691,42 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
             "lingering_descendants": bool(outcome.lingering_descendants),
         }
         rows.append(row)
+        if rc != 0:
+            rerun_cfg = profile.get("diagnostic_rerun")
+            if isinstance(rerun_cfg, dict) and bool(rerun_cfg.get("enabled", True)):
+                rerun_row: dict[str, object] = {"status": "SKIPPED"}
+                row["diagnostic_rerun"] = rerun_row
+                if not bool(rerun_cfg.get("safe", False)):
+                    rerun_row["reason"] = "safe_true_required"
+                elif reruns_used >= max_reruns:
+                    rerun_row["reason"] = "global_max_commands_reached"
+                elif outcome.timed_out and not (bool(rerun_cfg.get("on_timeout", False)) or global_on_timeout):
+                    rerun_row["reason"] = "primary_timeout_rerun_disabled"
+                else:
+                    rerun_argv = [*argv, *list(rerun_cfg.get("append_args") or [])]
+                    safe, reason = _diagnostic_rerun_is_safe(rerun_argv)
+                    if not safe:
+                        rerun_row["reason"] = reason or "dangerous_action"
+                    else:
+                        reruns_used += 1
+                        report["diagnostic_reruns_used"] = reruns_used
+                        rerun_name = str(rerun_cfg.get("name") or f"{name} diagnostic rerun")
+                        rerun_timeout = int(rerun_cfg.get("timeout_seconds") or min(timeout, 600))
+                        print(f"DIAGNOSTIC RERUN: {rerun_name}", flush=True)
+                        try:
+                            rerun_outcome = _run_managed_process(rerun_argv, cwd=cwd, env=_external_command_env(), timeout=max(1, rerun_timeout))
+                            rerun_row.update({
+                                "status": "PASS" if rerun_outcome.effective_rc == 0 else "FAIL",
+                                "rc": rerun_outcome.effective_rc,
+                                "timed_out": bool(rerun_outcome.timed_out),
+                                "lingering_descendants": bool(rerun_outcome.lingering_descendants),
+                                "name": rerun_name,
+                            })
+                        except Exception as exc:
+                            rerun_row.update({"status": "FAIL", "rc": 2, "error": type(exc).__name__, "name": rerun_name})
+                        # Historical contract: diagnostic rerun is evidence only.
+                        # It never changes the primary validation failure result.
+                        print(f"DIAGNOSTIC RERUN COMPLETE: {rerun_name} | primary validation remains FAIL", flush=True)
         if outcome.lingering_descendants:
             print(f"ERROR: validation profile {name} left descendant processes; descendants were terminated", file=sys.stderr)
             report.update({"status": "FAIL", "rc": rc})
@@ -687,7 +741,6 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
             return report
         print(f"VALIDATION PROFILE: {name} PASS")
     return report
-
 
 def _run_git_command(root: Path, args: list[str], *, timeout: int) -> ManagedProcessResult:
     env = _external_command_env()
@@ -1501,7 +1554,7 @@ def _finish_result(result: dict[str, object], *, status: str, rc: int, stage: st
     return int(rc)
 
 
-def _prepare_package(root: Path, source: Path):
+def _prepare_package(root: Path, source: Path, *, skip_validation: bool = False):
     temp_dir: tempfile.TemporaryDirectory[str] | None = None
     manifest: dict = {}
     extracted: Path | None = None
@@ -1548,7 +1601,7 @@ def _prepare_package(root: Path, source: Path):
         }
         return temp_dir, extracted, {}, kind, payload, None, preflight
     ops_data = _read_json(payload, "PATCH_TOOL_OPS.json") if kind == "ops" else None
-    preflight = run_preflight(root, manifest, extracted=extracted, kind=kind, payload=payload, ops_data=ops_data)
+    preflight = run_preflight(root, manifest, extracted=extracted, kind=kind, payload=payload, ops_data=ops_data, skip_validation=skip_validation)
     if kind == "ops" and isinstance(ops_data, dict):
         execution = manifest.get("execution") if isinstance(manifest.get("execution"), dict) else {}
         ops_timeout = int(execution.get("timeout_seconds", 900))
@@ -1865,7 +1918,7 @@ def _preview_patch(root: Path, source: Path) -> int:
         if input_temp is not None: input_temp.cleanup()
 
 
-def _execute_patch(root: Path, source: Path) -> int:
+def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> int:
     result = _base_result(source)
     if path_is_link_or_reparse(source) or not source.is_file():
         print(f"ERROR: PATCH input is not a regular non-symlink file: {source}", file=sys.stderr)
@@ -1893,7 +1946,7 @@ def _execute_patch(root: Path, source: Path) -> int:
             # Selection/package snapshotting may run concurrently, but preflight +
             # source mutation is serialized per project to prevent lost updates.
             mutation_lock = _acquire_project_mutation_lock(root)
-            temp_dir, _extracted, manifest, kind, payload, ops_data, preflight = _prepare_package(root, execution_source)
+            temp_dir, _extracted, manifest, kind, payload, ops_data, preflight = _prepare_package(root, execution_source, skip_validation=no_validation)
             result["preflight"] = preflight
             result["manifest_patch"] = manifest.get("patch") if isinstance(manifest, dict) else None
             result["recovery"] = manifest.get("recovery") if isinstance(manifest, dict) else None
@@ -2076,6 +2129,51 @@ def _execute_patch(root: Path, source: Path) -> int:
             return _finish_result(result, status="FAIL", rc=rc, stage="post_patch", diagnosis=diagnosis, partial=partial)
 
         result["stage"] = "validation"
+        if no_validation:
+            preflight["_resolved_validation_profiles"] = []
+            preflight["_resolved_validation_rerun_policy"] = {"max_commands": 0, "on_timeout": False}
+            result["validation_selection"] = {
+                "status": "DISABLED_BY_CLI", "mode": "off",
+                "changed_paths": [], "requested_profiles": [],
+                "auto_profiles": [], "final_profiles": [], "matched_rules": [],
+            }
+        else:
+            try:
+                from python_patch_project_state import resolve_effective_validation_profiles
+                validation_delta = _partial_state(
+                    root, before_fp=before_fp, before_dirty=before_dirty,
+                    before_targets=before_targets, target_paths=target_paths,
+                )
+                validation_profiles, selection_report = resolve_effective_validation_profiles(
+                    root, manifest, list(validation_delta.get("changed_paths") or []), disabled=False
+                )
+                preflight["_resolved_validation_profiles"] = validation_profiles
+                rerun_policy = selection_report.get("diagnostic_rerun") if isinstance(selection_report, dict) else None
+                preflight["_resolved_validation_rerun_policy"] = rerun_policy if isinstance(rerun_policy, dict) else {"max_commands": 1, "on_timeout": False}
+                result["validation_selection"] = selection_report
+            except Exception as exc:
+                partial = _partial_state(root, before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets, target_paths=target_paths)
+                diagnosis = {
+                    "kind": getattr(exc, "kind", "validation_selection_invalid"),
+                    "message": f"validation selection failed after payload: {type(exc).__name__}: {exc}",
+                    "affected_paths": list(partial.get("changed_paths") or []),
+                }
+                rollback_result = _maybe_rollback(
+                    root, preflight=preflight, rollback_temp=rollback_temp, rollback_snapshot=rollback_snapshot,
+                    before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets,
+                    target_paths=target_paths, trigger="post_patch_failure",
+                )
+                if rollback_result is not None:
+                    result["rollback"] = rollback_result
+                    diagnosis["rollback_status"] = rollback_result.get("status")
+                    if rollback_result.get("status") == "PASS" and isinstance(rollback_result.get("remaining_project_delta"), dict):
+                        partial = rollback_result["remaining_project_delta"]
+                partial = _apply_on_failure_commands(
+                    root, manifest, result, before_fp=before_fp, before_dirty=before_dirty,
+                    before_targets=before_targets, target_paths=target_paths, current_partial=partial,
+                )
+                print(f"RUN SUMMARY: FAIL | validation selection: {exc}", file=sys.stderr)
+                return _finish_result(result, status="FAIL", rc=2, stage="validation", diagnosis=diagnosis, partial=partial)
         validation_report = _run_validation_profiles(root, preflight)
         if validation_report is not None:
             result["validation"] = validation_report
@@ -2291,6 +2389,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument("--patch")
     ap.add_argument("--transaction", default="off")
+    ap.add_argument("--no-validation", action="store_true")
     ns, unknown = ap.parse_known_args(args)
     if unknown:
         print(f"ERROR: unsupported self-contained runner argument(s): {' '.join(unknown)}", file=sys.stderr)
@@ -2310,7 +2409,7 @@ def main(argv: list[str] | None = None) -> int:
         return _inspect_patch(root, source, verb="VALIDATE")
     if preview_mode:
         return _preview_patch(root, source)
-    return _execute_patch(root, source)
+    return _execute_patch(root, source, no_validation=bool(ns.no_validation))
 
 
 if __name__ == "__main__":

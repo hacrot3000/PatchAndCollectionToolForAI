@@ -1,8 +1,24 @@
-# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.18.3
+# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.18.4
 
 Trước khi AI sửa Patch Tool, bắt buộc đọc `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md` và `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Tính năng từng PASS/COMPLETE không được tự ý xóa, thu hẹp hoặc làm mất đường gọi chỉ vì code/schema hiện tại không dùng tới. Nếu thật sự phải thay thế, phải ghi trạng thái vào ledger và thêm test hành vi chứng minh.
 
-# Danh sách tính năng Python Patch Tool — v6.18.3
+# Danh sách tính năng Python Patch Tool — v6.18.4
+
+## v6.18.4 — Gate bảo toàn 95 capability COMPLETE lịch sử
+
+| Hạng mục | Trạng thái |
+|---|---|
+| Disposition machine-readable đúng 95/95 capability COMPLETE của v5.15 | **COMPLETE** |
+| Diagnostics #18–28 dưới `compat_diagnostics/` trong FAIL_HANDOFF | **COMPATIBILITY RESTORED / EXPLICIT SUPERSESSION** |
+| Delta-based validation selection #58 từ actual delta | **COMPATIBILITY RESTORED** |
+| Safe diagnostic rerun #59 | **COMPATIBILITY RESTORED** |
+| `--no-validation` cho explicit + auto validation | **COMPLETE** |
+| Queue thật sự rỗng → HISTORY trên TTY và non-TTY task runner | **RESTORED + REGRESSION LOCKED** |
+| Read-only HISTORY không tạo artifact state | **COMPLETE** |
+| Public launcher/parser smoke test | **COMPLETE** |
+| No-silent-removal docs + semantic evidence requirement | **COMPLETE** |
+
+Lưu ý: 107 mục v5.15 là inventory lịch sử; chỉ **95 mục từng COMPLETE** bắt buộc có disposition bảo toàn/supersession rõ ràng. 6 mục PARTIAL và 6 mục NOT STARTED được giữ làm evidence lịch sử, không tự động biến thành requirement hiện hành.
 
 ## Workflow / batch engine
 

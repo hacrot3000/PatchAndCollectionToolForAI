@@ -13,9 +13,10 @@ Before changing Patch Tool itself, AI/developer MUST read:
 1. `AI_USAGE_CONTRACT.md`
 2. `CAPABILITY_LEDGER.md`
 3. `HISTORICAL_FEATURE_BASELINE_V5_15.md` and `HISTORICAL_FEATURE_STATUS_V5_15.json`
-4. `PYTHON_PATCH_TOOL_FEATURE_STATUS.md`
-5. `../../implementing.md`
-6. `../../PYTHON_PATCH_TOOL_FEATURES_VI.md`
+4. `CURRENT_CAPABILITY_DISPOSITION.json`
+5. `PYTHON_PATCH_TOOL_FEATURE_STATUS.md`
+6. `../../implementing.md`
+7. `../../PYTHON_PATCH_TOOL_FEATURES_VI.md`
 
 ## Removal / replacement protocol
 
@@ -93,6 +94,12 @@ Before packaging a Patch Tool upgrade:
 9. Extract the final ZIP and run the release gates from the extracted bytes.
 
 A release MUST NOT claim full feature continuity while an unexplained historical regression remains.
+
+## Complete-ID coverage gate (v6.18.4+)
+
+Before packaging, compare `HISTORICAL_FEATURE_STATUS_V5_15.json.complete_ids` with `CURRENT_CAPABILITY_DISPOSITION.json.entries[].id`. The sets MUST be identical. No historical COMPLETE capability may be left as an unexplained gap. The disposition file is machine-readable release evidence; `CAPABILITY_LEDGER.md` remains the human explanation.
+
+A test that imports a private function is not sufficient for a public-entry contract when the launcher/parser is part of the feature. Public CLI/zero-argument behavior must also have a smoke/semantic test through the real entry path.
 
 ## Search-specific invariant
 

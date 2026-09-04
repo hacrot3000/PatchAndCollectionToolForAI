@@ -1,6 +1,6 @@
 # Python Patch Tool — cumulative capability ledger
 
-Current release: **v6.18.3**
+Current release: **v6.18.4**
 
 This is the canonical cross-version continuity ledger. It complements the current feature-status document; it must never be replaced by a current-only checklist.
 
@@ -12,7 +12,23 @@ Status vocabulary:
 - **REMOVED_BY_REQUIREMENT** — explicitly removed by a later requirement/architecture decision.
 - **NOT_CURRENTLY_GUARANTEED** — historical capability existed but current self-contained v6 package does not claim equivalent parity; it must remain visible here rather than silently disappearing.
 
-See `HISTORICAL_FEATURE_BASELINE_V5_15.md` for all 107 original names.
+See `HISTORICAL_FEATURE_BASELINE_V5_15.md` for all 107 original names. Machine-readable complete-ID coverage is enforced by `CURRENT_CAPABILITY_DISPOSITION.json`.
+
+## v6.18.4 final continuity closure
+
+Diagnostics/validation items marked below are **COMPATIBILITY_RESTORED v6.18.4** unless a row explicitly records a supersession.
+
+| Historical IDs | v6.18.4 disposition | Evidence / notes |
+|---|---|---|
+| 18–22, 24–25, 28 | **COMPATIBILITY_RESTORED** | FAIL_HANDOFF now adds redacted detail, normalized diagnostics, root-cause clustering, smart filtering, environment fingerprint, quality metrics and failure delta under `compat_diagnostics/`. |
+| 23 | **SUPERSEDED + redacted derivative retained** | v5 redact-before-persistence conflicts with the later exact-evidence requirement. Exact bytes remain with warning; redacted derivative supports safe sharing/analysis. |
+| 26 | **SUPERSEDED physically / logical layers preserved** | Separate SUMMARY/CODE/DETAIL ZIPs are not resurrected; compact/deep evidence lives inside unified FAIL_HANDOFF. |
+| 27 | **PRESERVED** | Unified FAIL_HANDOFF remains the primary PATCH-failure upload artifact. |
+| 58 | **COMPATIBILITY_RESTORED** | Trusted local `validation.selection` computes profiles from actual changed paths after payload/post commands. |
+| 59 | **COMPATIBILITY_RESTORED** | Safe bounded diagnostic rerun after primary validation failure; never converts FAIL to PASS. |
+| 1 / HISTORY landing behavior | **PRESERVED / hardened** | Zero-work zero-argument invocation opens HISTORY in TTY and prints HISTORY without blocking in captured/non-TTY task runners; no fake run state. |
+
+Every one of the 95 historical COMPLETE IDs now has exactly one explicit current disposition in `CURRENT_CAPABILITY_DISPOSITION.json`; omission is a release-gate failure.
 
 ## v6.18.2 compatibility restoration
 
@@ -85,7 +101,7 @@ The old direct public form `./tools/run_python_patches.sh collect <command> ...`
 | 79 | Correct public-runner placement | **PRESERVED** | `tools/run_python_patches.sh` remains the public POSIX entry point; `_patch_lib` stays private. |
 | 80 | Portable direct upgrade | **PRESERVED** | Release ZIP does not include `.python_patch_tool.json`; extraction replaces only Patch-Tool-managed package paths. |
 | 81 | Optional controlled installer | **COMPATIBILITY_RESTORED v6.18.3** | `install_python_patch_tool_v6.py` plus historical filename wrapper `install_python_patch_tool_v5.py`; fixed-list stale-file backup/removal, dry-run and create-config-without-overwrite. Normal use does not require it. |
-| 82 | Portable-layout regression test | **PRESERVED / EXPANDED** | Package/version/checksum tests plus `self_test_portable_installer_v6_18_3.py` validate direct layout and controlled migration semantics. |
+| 82 | Portable-layout regression test | **PRESERVED / EXPANDED** | Package/version/checksum tests plus `self_test_portable_installer_v6_18_4.py` validate direct layout and controlled migration semantics. |
 | 83–85 | Interactive / TTY / line multi-select | **PRESERVED** | Current selector keeps fullscreen and line-mode selection contracts. |
 | 86 | Repeated explicit `--patch` | **COMPATIBILITY_RESTORED v6.18.2** | Dispatcher-level semantic test, not launcher-string inspection. |
 | 87 | Unselected-package preservation + audit | **COMPATIBILITY_RESTORED v6.18.3** | Unselected runnable packages remain in `patchs/` and `LAST_RUN.json` records `user_not_selected`. |
@@ -112,7 +128,7 @@ The v6 report/history model superseded the exact v5 split-bundle naming model. P
 The following are current-release capabilities and are protected in addition to the historical v5 baseline:
 
 - zero-argument PATCH/COLLECT queue and single-item default;
-- empty runnable queue opens HISTORY in a TTY but creates no fake run/LAST_RUN/history/ledger entry;
+- empty runnable queue lands on HISTORY in TTY and prints HISTORY in non-TTY task runners, while creating no fake run/LAST_RUN/history/ledger entry;
 - Smart Resume, unresolved-failure registry, recovery menu and FAIL_HANDOFF;
 - duplicate filtering and `patchs/ignore` behavior;
 - current PATCH schema/preflight/rollback/batch mutation protections;

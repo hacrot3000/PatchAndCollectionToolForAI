@@ -1,15 +1,18 @@
-# Python Patch Tool v6.18.3 portable usage
+# Python Patch Tool v6.18.4 portable usage
 
-The release is self-contained for its v6.18.3 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
+The release is self-contained for its v6.18.4 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
 
 ## Linux / POSIX
 
 Install/update at the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.18.3.zip -d "$PWD"
+unzip -o python_patch_tool_v6.18.4.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
+
+> **Zero-work HISTORY safety:** HISTORY landing is optional/read-only. If an existing artifact/history path is unsafe (for example symlink/reparse), zero-work must warn and skip HISTORY rather than fail the no-work invocation; operations that actually consume or mutate recovery artifacts remain fail-closed.
+
 
 ## Windows
 
@@ -18,7 +21,7 @@ Requirement: **Python 3.10+**. The launcher accepts Python Launcher (`py -3`) or
 PowerShell install/update at the project root:
 
 ```powershell
-Expand-Archive -Force .\python_patch_tool_v6.18.3.zip .
+Expand-Archive -Force .\python_patch_tool_v6.18.4.zip .
 tools\run_python_patches.bat
 ```
 
@@ -42,9 +45,15 @@ On a native Windows console, v6.17.5 uses the fullscreen selector when `msvcrt` 
 
 Before working with AI, send all current `tools/_patch_lib/docs/`. For Patch Tool development also send `tools/implementing.md` and `tools/PYTHON_PATCH_TOOL_FEATURES_VI.md`.
 
-COLLECT actions are defined exclusively by `docs/COLLECT_ACTION_SCHEMA.json`: `pack`, `overview`, `find`, `search`, `git`.
+COLLECT actions are defined exclusively by `docs/COLLECT_ACTION_SCHEMA.json`: the authoritative current/restored set in the schema, including `pack`, `overview`, `find`, `search`, `git`, historical read-only actions, and the compatibility aliases `search_files`, `content`, `symbol_graph`.
 
 PATCH package construction must follow `PATCH_PACKAGE_SCHEMA.json` and `PATCH_PACKAGE_GUIDE.md`. External `post_patch.commands[].argv` executables must exist on the current OS; a Linux-only `bash`/`sh` command is not automatically translated on Windows.
+
+## v6.18.4 zero-work HISTORY and validation compatibility
+
+Running the zero-argument launcher with no runnable PATCH/COLLECT lands on HISTORY. Native interactive terminals get the browser; captured IDE/task output prints the bounded HISTORY list and returns immediately instead of blocking on stdin. This is not a run and does not create/overwrite LAST_RUN/history/ledger state.
+
+Trusted local validation may auto-select profiles from actual changed paths via `.python_patch_tool.json` `validation.selection`. Per-profile `diagnostic_rerun` is bounded diagnostic evidence only. Use `run --no-validation` or direct `--patch ... --no-validation` only when explicitly disabling both requested and auto-selected validation for that invocation.
 
 ## Recovery / audit
 

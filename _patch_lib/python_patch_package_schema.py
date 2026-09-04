@@ -10,7 +10,7 @@ import shutil
 import stat
 from typing import Any
 
-VERSION = "6.18.3"
+VERSION = "6.18.4"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "PATCH_PACKAGE_SCHEMA.json"
 _HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 _SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
@@ -547,6 +547,7 @@ def run_preflight(
     kind: str,
     payload: Path,
     ops_data: dict[str, Any] | None = None,
+    skip_validation: bool = False,
 ) -> dict[str, Any]:
     validate_manifest(manifest)
     warnings = check_compatibility(manifest, VERSION)
@@ -564,20 +565,43 @@ def run_preflight(
     try:
         from python_patch_project_state import (
             ProjectStateError, enforce_project_identity, resolve_validation_profiles,
+            validation_selection_policy, resolve_validation_profile_names,
         )
         project_check = enforce_project_identity(root, manifest)
         if project_check is not None:
             checks.append(project_check)
-        resolved_profiles = resolve_validation_profiles(root, manifest)
-        if resolved_profiles:
-            for profile_index, profile in enumerate(resolved_profiles):
-                _check_command(root, profile, profile_index, field=f"validation profile {profile.get('name','?')}")
-            report["validation_profiles"] = [{"name": str(x.get("name"))} for x in resolved_profiles]
-            report["_resolved_validation_profiles"] = resolved_profiles
-            checks.append({
-                "kind": "validation_profiles", "status": "PASS",
-                "profiles": [str(x.get("name")) for x in resolved_profiles],
-            })
+        if skip_validation:
+            report["validation_selection"] = {"status": "DISABLED_BY_CLI", "mode": "off", "candidate_profiles": []}
+            checks.append({"kind": "validation", "status": "SKIPPED", "reason": "--no-validation"})
+        else:
+            resolved_profiles = resolve_validation_profiles(root, manifest)
+            if resolved_profiles:
+                for profile_index, profile in enumerate(resolved_profiles):
+                    _check_command(root, profile, profile_index, field=f"validation profile {profile.get('name','?')}")
+                report["validation_profiles"] = [{"name": str(x.get("name"))} for x in resolved_profiles]
+                report["_resolved_validation_profiles"] = resolved_profiles
+                checks.append({
+                    "kind": "validation_profiles", "status": "PASS",
+                    "profiles": [str(x.get("name")) for x in resolved_profiles],
+                })
+            selection_policy = validation_selection_policy(root)
+            candidate_names = list(selection_policy.get("referenced_profiles") or [])
+            if candidate_names:
+                candidate_profiles = resolve_validation_profile_names(root, candidate_names)
+                for profile_index, profile in enumerate(candidate_profiles):
+                    _check_command(root, profile, profile_index, field=f"validation selection profile {profile.get('name','?')}")
+            report["_resolved_validation_rerun_policy"] = dict(selection_policy.get("diagnostic_rerun") or {})
+            if selection_policy.get("mode") != "off" or candidate_names:
+                report["validation_selection"] = {
+                    "status": "DEFERRED_UNTIL_PATCH_DELTA",
+                    "mode": selection_policy.get("mode"),
+                    "candidate_profiles": candidate_names,
+                }
+                report["_resolved_validation_selection"] = selection_policy
+                checks.append({
+                    "kind": "validation_selection", "status": "PASS",
+                    "mode": selection_policy.get("mode"), "candidate_profiles": candidate_names,
+                })
     except ProjectStateError as exc:
         raise PatchSchemaError(str(exc), kind=exc.kind) from exc
 

@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-VERSION = "6.18.3"
+VERSION = "6.18.4"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "COLLECT_ACTION_SCHEMA.json"
 DEFAULT_LIMITS = {
     "max_file_bytes": 8 * 1024 * 1024,
