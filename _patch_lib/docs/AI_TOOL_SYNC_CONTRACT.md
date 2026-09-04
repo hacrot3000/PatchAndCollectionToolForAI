@@ -1,4 +1,4 @@
-# Python Patch Tool v6.19.2 — AI tool-context synchronization contract
+# Python Patch Tool v6.19.3 — AI tool-context synchronization contract
 
 ## Goal
 

@@ -1,4 +1,4 @@
-# Python Patch Tool v6.19.2 portable usage
+# Python Patch Tool v6.19.3 portable usage
 
 The release is self-contained for its v6.19.2 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
 

@@ -123,3 +123,7 @@ Do not remove code to simplify the tool when its historical purpose is unclear. 
 ## v6.19.2 AI synchronization invariant
 
 The AI tool-context sync channel is a protected current capability. Future releases must preserve: additive `ai_context` fields; the version+documentation fingerprint; one-shot/per-agent suppression; legacy request fallback; `AI_TOOL_SYNC/` embedding in COLLECT and FAIL_HANDOFF; standalone sync result for successful stale PATCH; and the same-stem clear-text companion. Do not replace this with unconditional documentation on every result, because repeated payloads waste tokens. Do not remove it merely because compatible old requests still execute successfully.
+
+### Copy-friendly ACTION REQUIRED paths (v6.19.3+)
+
+Long canonical artifact names remain authoritative, but ACTION REQUIRED has a protected copyability contract: when possible the tool creates a short hard-link under `artifacts/ptv_to_ai/` and prints the path on a dedicated physical output row. Do not replace this with manual `textwrap`, clipping, or insertion of newline characters into the pathname. If short-alias creation fails, fall back to the exact canonical path without changing PATCH/COLLECT status.

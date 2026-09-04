@@ -1,4 +1,4 @@
-# Python Patch Tool v6.19.2 — portable layout and migration
+# Python Patch Tool v6.19.3 — portable layout and migration
 
 ## Primary installation: extract and run
 

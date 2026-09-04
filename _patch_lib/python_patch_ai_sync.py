@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-VERSION = "6.19.2"  # bumped by release script
+VERSION = "6.19.3"  # bumped by release script
 FORMAT_VERSION = 1
 SYNC_PREFIX = "AI_TOOL_SYNC"
 STATE_REL = Path("artifacts/patch_tool/ai_sync_state.json")

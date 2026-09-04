@@ -18,7 +18,7 @@ import time
 import unicodedata
 from typing import Iterable
 
-VERSION = "6.19.2"
+VERSION = "6.19.3"
 DEFAULT_HEARTBEAT = 0.8
 DEFAULT_MARGIN = 2
 MAX_TAIL_LINES = 120
@@ -261,13 +261,23 @@ def _print_collect_success(root: Path, lines: Iterable[str]) -> bool:
                 result_text = str(candidate_text)
         except OSError:
             result_text = None
+        display_zip = Path(result_zip).absolute()
+        display_text = Path(result_text).absolute() if result_text else None
+        try:
+            from python_patch_upload_alias import create_upload_aliases
+            display_zip, display_text, _ = create_upload_aliases(
+                root, display_zip, display_text, kind="COLLECT"
+            )
+        except Exception:
+            display_zip = Path(result_zip).absolute()
+            display_text = Path(result_text).absolute() if result_text else None
         is_tty = bool(getattr(sys.stdout, 'isatty', lambda: False)()) and os.environ.get("NO_COLOR") is None
         banner = '!!! [PRIMARY - UPLOAD THIS FILE] !!!'
         destination = '>>> ACTION REQUIRED: UPLOAD TO CHATGPT / AI SERVER <<<'
         # Never force a decorative minimum wider than the live terminal.
-        # The final artifact path may naturally wrap because it must remain
-        # complete/copyable, but banner/rule rows themselves must not create
-        # avoidable physical-line wrapping on very narrow terminals.
+        # Canonical artifact paths are never clipped. ACTION REQUIRED prefers a
+        # short hard-link alias and prints the pathname on its own row so task
+        # renderers are much less likely to hard-wrap it physically.
         width = max(1, min(72, _term_width() - 2))
         rule = '=' * width
         print('')
@@ -280,15 +290,19 @@ def _print_collect_success(root: Path, lines: Iterable[str]) -> bool:
             # use the same high-contrast yellow background.
             print(f'\x1b[1;30;103m{_clip_cells(banner, width)}\x1b[0m')
             print(f'\x1b[1;30;103m{_clip_cells(destination, width)}\x1b[0m')
-            print(f'\x1b[1;30;103mZIP (preferred):\x1b[0m \x1b[1;4;30;103m{result_zip}\x1b[0m')
-            if result_text:
-                print(f'\x1b[1;30;103mClear-text TXT:\x1b[0m \x1b[1;4;30;103m{result_text}\x1b[0m')
+            print('\x1b[1;30;103mZIP (preferred) — copy path below:\x1b[0m')
+            print(f'\x1b[1;4;30;103m{display_zip}\x1b[0m')
+            if display_text:
+                print('\x1b[1;30;103mClear-text TXT — copy path below:\x1b[0m')
+                print(f'\x1b[1;4;30;103m{display_text}\x1b[0m')
         else:
             print(banner)
             print(destination)
-            print(f'ZIP (preferred): {result_zip}')
-            if result_text:
-                print(f'Clear-text TXT: {result_text}')
+            print('ZIP (preferred) — copy path below:')
+            print(display_zip)
+            if display_text:
+                print('Clear-text TXT — copy path below:')
+                print(display_text)
         print(rule)
     else:
         reason = f" ({validation_errors[0]})" if validation_errors else ''

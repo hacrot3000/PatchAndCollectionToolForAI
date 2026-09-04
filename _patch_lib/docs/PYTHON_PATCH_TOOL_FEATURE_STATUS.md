@@ -1,4 +1,4 @@
-# Python Patch Tool v6.19.2 feature status
+# Python Patch Tool v6.19.3 feature status
 
 ## v6.18.8 HISTORY/report AI-artifact visibility
 
@@ -6,7 +6,7 @@
 - COMPLETE: missing AI-facing artifacts use an explicit warning palette plus `[missing]`.
 - COMPLETE: `INCOMPLETE` and `PREFLIGHT_FAIL` report states are visually emphasized.
 - COMPLETE: `NO_COLOR` and non-TTY output remain ANSI-free and copy/grep compatible.
-- Regression: `self_test_history_artifact_highlight_v6_19_2.py`.
+- Regression: `self_test_history_artifact_highlight_v6_19_3.py`.
 
 ## v6.18.7 scalable regex search + partial timeout preservation
 
@@ -208,7 +208,7 @@ A COLLECT that preserves usable evidence but cannot prove full coverage (timeout
 - Successful stale PATCH standalone ZIP+TXT sync result: **COMPLETE**.
 - Per-agent token-saving suppression until fingerprint changes: **COMPLETE**.
 - Legacy compatibility through PATCH `max_tested_version` and metadata-less COLLECT: **COMPLETE**.
-- Regression gate: `self_test_ai_sync_v6_19_2.py`.
+- Regression gate: `self_test_ai_sync_v6_19_3.py`.
 
 ## v6.19.1 — AI-readable clear-text result companions
 
@@ -216,7 +216,7 @@ A COLLECT that preserves usable evidence but cannot prove full coverage (timeout
 - FAIL_HANDOFF: ZIP + same-stem TXT — COMPLETE.
 - Text verbatim, binary Base64, bounded nested-ZIP recursive expansion — COMPLETE.
 - HISTORY/report dual-path publication/highlight — COMPLETE.
-- Semantic gate: `self_test_cleartext_companion_v6_19_2.py`.
+- Semantic gate: `self_test_cleartext_companion_v6_19_3.py`.
 
 
 ## v6.19.0 — SELECT-only database evidence
@@ -229,4 +229,8 @@ A COLLECT that preserves usable evidence but cannot prove full coverage (timeout
 - JOIN/subquery/grouped AND-OR/NOT/GROUP BY/HAVING/CASE/window/ORDER BY/LIMIT active grammar: **COMPLETE**.
 - Streaming CSV/JSONL chunks inside normal COLLECT result: **COMPLETE**.
 - Timeout/row/byte truncation => retained partial evidence + COLLECT INCOMPLETE: **COMPLETE**.
-- Semantic safety gate: `self_test_database_select_v6_19_2.py`.
+- Semantic safety gate: `self_test_database_select_v6_19_3.py`.
+
+## v6.19.3 — copy-friendly upload artifact aliases
+
+COMPLETE: ACTION REQUIRED uses a short hard-link alias under `artifacts/ptv_to_ai/` when safe, prints each ZIP/TXT pathname on its own row, preserves canonical HISTORY identity, and falls back without changing execution status when alias creation is unavailable. Gate: `self_test_copyable_upload_path_v6_19_3.py`.

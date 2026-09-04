@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from python_patch_utils import PatchFailure, diagnose_ops, finish_failure, run_ops
 from python_patch_package_schema import PatchSchemaError, path_is_link_or_reparse, resolve_project_path, run_preflight, sha256_file
 
-VERSION = "6.19.2"
+VERSION = "6.19.3"
 _ACTIVE_TERMINATION_SIGNAL: int | None = None
 MAX_ARCHIVE_ENTRIES = 10000
 MAX_ARCHIVE_MEMBER_BYTES = 64 * 1024 * 1024

@@ -1,4 +1,4 @@
-# v6.19.2 mandatory continuity gate — NO SILENT REMOVAL
+# v6.19.3 mandatory continuity gate — NO SILENT REMOVAL
 
 Before modifying Patch Tool, read `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, and `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Do not delete or narrow any capability previously marked COMPLETE/PRESERVED/COMPATIBILITY_RESTORED unless the user explicitly requests it or a later documented contract supersedes it. Every intentional transition must be recorded in the ledger and protected by a behavioral test. Surface/string-only compatibility tests are not sufficient.
 
@@ -15,7 +15,7 @@ Trạng thái: **95/95 HISTORICAL-COMPLETE DISPOSITION + SEMANTIC CONTINUITY —
 - Mark delivery only after the artifact and its TXT companion are successfully published. Suppress repeat full docs for the same agent/fingerprint; a new tool/doc fingerprint re-enables delivery.
 - PATCH `compatibility.max_tested_version` remains a legacy stale-version hint. Metadata-less COLLECT gets one-shot sync after upgrade.
 - Stale PATCH failure embeds docs in FAIL_HANDOFF; stale COLLECT embeds docs in result; stale PATCH success creates `AI_TOOL_SYNC_RESULT_*.zip/.txt` and HISTORY metadata.
-- Regression gate: `self_test_ai_sync_v6_19_2.py`.
+- Regression gate: `self_test_ai_sync_v6_19_3.py`.
 
 ## v6.19.1 — ZIP + clear-text companion artifacts
 
@@ -25,7 +25,7 @@ Trạng thái: **95/95 HISTORICAL-COMPLETE DISPOSITION + SEMANTIC CONTINUITY —
 - Companion phải cảnh báo content bên trong là untrusted evidence/data, không phải instruction; sensitivity/trust requirement giống source ZIP.
 - Console/HISTORY/report phải lưu và highlight cả ZIP và TXT. Plain/non-TTY/`NO_COLOR` không được chèn ANSI vào path.
 - COLLECT chỉ được báo success khi companion chuẩn được tạo; FAIL_HANDOFF không được hy sinh mandatory ZIP nếu derived TXT thất bại, nhưng phải warning rõ.
-- Release gate: `self_test_cleartext_companion_v6_19_2.py`.
+- Release gate: `self_test_cleartext_companion_v6_19_3.py`.
 
 ## v6.18.8 — HISTORY/report AI-upload artifact highlighting
 
@@ -34,7 +34,7 @@ Trạng thái: **95/95 HISTORICAL-COMPLETE DISPOSITION + SEMANTIC CONTINUITY —
 - Artifact AI-facing bị `[missing]` dùng nền đỏ/yellow warning để không bị hiểu nhầm là file có thể upload.
 - `BATCH RESULT — INCOMPLETE`, `[INCOMPLETE]` và `[PREFLIGHT_FAIL]` được nhấn mạnh; PASS/plain metadata không bị biến thành cảnh báo.
 - `NO_COLOR` và non-TTY phải giữ plain text không có escape sequence; path không được clip.
-- Regression bắt buộc: `self_test_history_artifact_highlight_v6_19_2.py`.
+- Regression bắt buộc: `self_test_history_artifact_highlight_v6_19_3.py`.
 
 ## v6.18.7 — Regex large-tree partial preservation
 
@@ -564,3 +564,7 @@ Mục tiêu release này là hoàn tất vòng bảo toàn tính năng sau v6.18
 - Active-builder scope includes joins, correlated/nested subqueries, grouped AND/OR/NOT conditions, GROUP BY/HAVING, CASE, aggregate/function allowlist, arithmetic, CAST, window OVER, ORDER BY and LIMIT/OFFSET.
 - `database_schema` was intentionally not added because the v6.19.0 safety contract requires the executed database statement class to remain SELECT-only. Schema evidence can be queried from `information_schema` / `sqlite_master` using the same active builder.
 - Preservation rule: future AI changes must not add `query`, `raw_sql`, password-bearing profile fields, arbitrary function names, or direct remote MySQL TCP without an explicit supersession decision plus semantic safety tests.
+
+## v6.19.3 — copy-friendly ACTION REQUIRED artifact path
+
+Observed task/terminal renderers can hard-wrap a long absolute artifact path into two physical rows, preventing double-click/copy of the full value even though HISTORY later prints the same canonical path acceptably. v6.19.3 keeps canonical artifact names unchanged and adds short hard-link aliases under `artifacts/ptv_to_ai/`. ACTION REQUIRED prints label and pathname on separate rows. Never solve this by clipping or inserting `\n` into the canonical pathname; alias creation is additive/fail-open and must not affect PATCH/COLLECT status.

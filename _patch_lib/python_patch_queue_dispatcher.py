@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.19.2"
+VERSION = "6.19.3"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -1783,7 +1783,7 @@ def _sensitive_handoff_warnings(console_log: str, sources: list[tuple[str, Path]
     return list(dict.fromkeys(warnings))
 
 
-def _print_upload_action_block(path: Path | str, *, patch_failure: bool = False, companion_path: Path | str | None = None, stream=None) -> None:
+def _print_upload_action_block(path: Path | str, *, patch_failure: bool = False, companion_path: Path | str | None = None, root: Path | None = None, stream=None) -> None:
     """Print one high-visibility upload-required block without changing plain-text semantics.
 
     TTY/VT terminals receive a bright-yellow background for the PRIMARY label,
@@ -1792,6 +1792,18 @@ def _print_upload_action_block(path: Path | str, *, patch_failure: bool = False,
     stays byte-for-byte plain apart from the terminal-width-bounded rule rows.
     """
     out = stream if stream is not None else sys.stdout
+    display_zip = Path(path).absolute()
+    display_text = Path(companion_path).absolute() if companion_path is not None else None
+    alias_used = False
+    if root is not None:
+        try:
+            from python_patch_upload_alias import create_upload_aliases
+            display_zip, display_text, alias_used = create_upload_aliases(
+                root, display_zip, display_text, kind=("FAIL_HANDOFF" if patch_failure else "AI_SYNC")
+            )
+        except Exception:
+            display_zip = Path(path).absolute()
+            display_text = Path(companion_path).absolute() if companion_path is not None else None
     banner = (
         "!!! [PRIMARY - UPLOAD THIS FILE] PATCH FAIL HANDOFF !!!"
         if patch_failure else "!!! [PRIMARY - UPLOAD THIS FILE] !!!"
@@ -1808,16 +1820,22 @@ def _print_upload_action_block(path: Path | str, *, patch_failure: bool = False,
         block_style, path_style, reset = "\x1b[1;30;103m", "\x1b[1;4;30;103m", "\x1b[0m"
         print(f"{block_style}{_clip_selector_line(banner, width + 2)}{reset}", file=out)
         print(f"{block_style}{_clip_selector_line(action, width + 2)}{reset}", file=out)
-        # Do not clip artifact paths: users must be able to copy the exact ZIP/TXT.
-        print(f"{block_style}ZIP (preferred):{reset} {path_style}{_safe_display(path)}{reset}", file=out)
-        if companion_path is not None:
-            print(f"{block_style}Clear-text TXT:{reset} {path_style}{_safe_display(companion_path)}{reset}", file=out)
+        # Keep the pathname on its own physical output row.  A short hard-link
+        # alias is preferred when available so terminals/task renderers that
+        # hard-wrap long rows do not split the copyable path into two lines.
+        print(f"{block_style}ZIP (preferred) — copy path below:{reset}", file=out)
+        print(f"{path_style}{_safe_display(display_zip)}{reset}", file=out)
+        if display_text is not None:
+            print(f"{block_style}Clear-text TXT — copy path below:{reset}", file=out)
+            print(f"{path_style}{_safe_display(display_text)}{reset}", file=out)
     else:
         print(_clip_selector_line(banner, width + 2), file=out)
         print(_clip_selector_line(action, width + 2), file=out)
-        print(f"ZIP (preferred): {_safe_display(path)}", file=out)
-        if companion_path is not None:
-            print(f"Clear-text TXT: {_safe_display(companion_path)}", file=out)
+        print("ZIP (preferred) — copy path below:", file=out)
+        print(_safe_display(display_zip), file=out)
+        if display_text is not None:
+            print("Clear-text TXT — copy path below:", file=out)
+            print(_safe_display(display_text), file=out)
     print(rule, file=out)
 
 
@@ -2073,7 +2091,7 @@ def _create_fail_handoff(
                 mark_sync_delivered(root, ai_sync_decision, artifact=final.relative_to(root).as_posix())
             except Exception:
                 pass
-        _print_upload_action_block(final, patch_failure=True, companion_path=companion)
+        _print_upload_action_block(final, patch_failure=True, companion_path=companion, root=root)
         return final
     except Exception as exc:
         print(f"[PTV v{VERSION} WARNING] could not create FAIL_HANDOFF: {type(exc).__name__}: {exc}", file=sys.stderr)
@@ -5513,7 +5531,7 @@ def execute_items(
                     try: detail["ai_sync_result_text"] = sync_text.relative_to(root).as_posix()
                     except ValueError: detail["ai_sync_result_text"] = str(sync_text)
                     print(f"[PTV v{VERSION}] AI TOOL UPDATE REQUIRED: current client knowledge differs from request context")
-                    _print_upload_action_block(sync_zip, patch_failure=False, companion_path=sync_text)
+                    _print_upload_action_block(sync_zip, patch_failure=False, companion_path=sync_text, root=root)
             except Exception as sync_exc:
                 # AI synchronization is additive and must never downgrade a
                 # successfully applied PATCH into a failure.

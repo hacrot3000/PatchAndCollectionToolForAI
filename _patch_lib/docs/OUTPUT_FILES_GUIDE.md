@@ -1,4 +1,4 @@
-# Python Patch Tool v6.19.2 — output files and what to upload
+# Python Patch Tool v6.19.3 — output files and what to upload
 
 This guide preserves the historical “output-file role guide” capability while describing the **current** v6 artifact model. Old v5 SUMMARY/CODE/DETAIL filenames are historical and must not be inferred as current outputs.
 
@@ -46,3 +46,7 @@ The TXT is a derived upload view, not a less-sensitive artifact. It may contain 
 ## AI tool-update artifacts (v6.19.2)
 
 When a request comes from an older/unknown AI context, existing COLLECT/FAIL_HANDOFF ZIPs receive an `AI_TOOL_SYNC/` directory. A successful stale PATCH additionally creates `artifacts/patch_tool/ai_sync/AI_TOOL_SYNC_RESULT_*.zip` and same-stem `.txt`; HISTORY/report highlight both. Upload that result to the AI before asking it to generate another PATCH/COLLECT. The full documentation is one-shot per agent/fingerprint unless `request_full_sync=true`.
+
+## v6.19.3 copy-friendly ACTION REQUIRED path
+
+The canonical artifact continues to live at its descriptive HISTORY path. To avoid terminals/task renderers turning very long upload paths into two separately copyable rows, ACTION REQUIRED may display a short hard-link alias such as `artifacts/ptv_to_ai/FH_ab12cd34.zip`. The alias contains the exact same bytes/inode as the canonical artifact and is safe to upload instead. HISTORY/report keeps the canonical long path. Alias creation is optional presentation: if unavailable, the tool falls back to the canonical path. `artifacts/ptv_to_ai/` is bounded/pruned and must not be treated as long-term history storage.
