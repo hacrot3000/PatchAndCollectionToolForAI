@@ -50,11 +50,35 @@ jobs:
               text = text.replace(marker, guard + marker, 1)
               test.write_text(text, encoding='utf-8')
           PY
+
           python3 _patch_lib/python_patch_release_metadata.py --tool-dir .
+          python3 _patch_lib/self_test_docs_v6_20_0.py
+
+          rm -rf /tmp/ptv-provenance-doc-hotfix
+          mkdir -p /tmp/ptv-provenance-doc-hotfix/tools
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil, sys
+          sys.path.insert(0, str(Path('_patch_lib').resolve()))
+          from python_patch_release_metadata import managed_relpaths
+          src = Path('.').resolve()
+          project = Path('/tmp/ptv-provenance-doc-hotfix')
+          for rel in managed_relpaths(src):
+              source = src / Path(rel).relative_to('tools')
+              dest = project / rel
+              dest.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(source, dest)
+          shutil.copy2(src / '_patch_lib/SHA256SUMS', project / 'tools/_patch_lib/SHA256SUMS')
+          (project / 'tools/run_python_patches.sh').chmod(0o755)
+          PY
+
+          cd /tmp/ptv-provenance-doc-hotfix/tools
           python3 _patch_lib/self_test_docs_v6_20_0.py
           python3 _patch_lib/self_test_tool_health_v6_20_0.py
           python3 _patch_lib/self_test_package_checksums_v6_20_0.py
           python3 _patch_lib/self_test_python_patch_tool_v6_20_0.py
+          cd "$GITHUB_WORKSPACE"
+
           rm -f .github/workflows/hotfix-provenance-doc-consistency.yml
           rmdir .github/workflows 2>/dev/null || true
           rmdir .github 2>/dev/null || true
