@@ -1,0 +1,208 @@
+name: Complete provenance signature trust
+on:
+  push:
+    branches: [ptv-provenance-signature-trust]
+    paths: [.github/workflows/provenance-completion.yml]
+permissions:
+  contents: write
+jobs:
+  complete:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ptv-provenance-signature-trust
+          fetch-depth: 0
+      - name: Complete gates, run full regression, commit and merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          def insert_after(path, needle, addition):
+              p=Path(path); text=p.read_text(encoding='utf-8')
+              if addition.strip() in text:
+                  return
+              if needle not in text:
+                  raise SystemExit(f'missing insertion anchor in {path}: {needle!r}')
+              text=text.replace(needle, needle+addition, 1)
+              p.write_text(text, encoding='utf-8')
+
+          def prepend_section(path, marker, section):
+              p=Path(path); text=p.read_text(encoding='utf-8')
+              if marker in text:
+                  return
+              lines=text.splitlines(True)
+              if not lines:
+                  raise SystemExit(f'empty doc: {path}')
+              text=lines[0]+'\n'+section.strip()+'\n\n'+''.join(lines[1:])
+              p.write_text(text, encoding='utf-8')
+
+          def append_section(path, marker, section):
+              p=Path(path); text=p.read_text(encoding='utf-8')
+              if marker in text:
+                  return
+              p.write_text(text.rstrip()+'\n\n'+section.strip()+'\n', encoding='utf-8')
+
+          # Runtime/package gates: provenance verifier and its authoritative contract
+          # are mandatory managed artifacts, not optional documentation.
+          insert_after(
+              '_patch_lib/python_patch_health.py',
+              '    "tools/_patch_lib/python_patch_package_schema.py",\n',
+              '    "tools/_patch_lib/python_patch_provenance.py",\n',
+          )
+          insert_after(
+              '_patch_lib/python_patch_health.py',
+              '    "tools/_patch_lib/docs/MANUAL_EXECUTION_WORKFLOW.md",\n',
+              '    "tools/_patch_lib/docs/PROVENANCE_SIGNATURE_TRUST.md",\n',
+          )
+
+          # Full master regression must exercise the new trust contract on every
+          # future release, not only in an ad-hoc feature test.
+          insert_after(
+              '_patch_lib/self_test_python_patch_tool_v6_20_0.py',
+              " 'self_test_patch_preflight_v6_20_0.py',\n",
+              " 'self_test_provenance_signature_v6_21_0.py',\n",
+          )
+
+          # AI sync must teach older AI contexts the exact signature/trust contract.
+          insert_after(
+              '_patch_lib/python_patch_ai_sync.py',
+              '    "tools/_patch_lib/docs/MANUAL_EXECUTION_WORKFLOW.md",\n',
+              '    "tools/_patch_lib/docs/PROVENANCE_SIGNATURE_TRUST.md",\n',
+          )
+          insert_after(
+              '_patch_lib/self_test_ai_sync_v6_20_0.py',
+              "assert 'tools/_patch_lib/docs/MANUAL_EXECUTION_WORKFLOW.md' in sync.SYNC_DOCS\n",
+              "assert 'tools/_patch_lib/docs/PROVENANCE_SIGNATURE_TRUST.md' in sync.SYNC_DOCS\n",
+          )
+
+          checklist=Path('_patch_lib/docs/PATCH_PACKAGE_CHECKLIST.json')
+          data=json.loads(checklist.read_text(encoding='utf-8'))
+          check='if manifest.provenance is present, use exactly ptv-patch-signature-v1 + ed25519 + a locally trusted key_id; never invent a signature or trust key; local require_signature policy may reject unsigned PATCHes'
+          if check not in data['checks']:
+              data['checks'].append(check)
+          checklist.write_text(json.dumps(data, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+
+          append_section(
+              '_patch_lib/docs/PATCH_PACKAGE_GUIDE.md',
+              '## Cryptographic provenance / signed PATCH trust',
+              '''## Cryptographic provenance / signed PATCH trust
+
+PATCH packages may optionally declare `manifest.provenance` using the documented `ptv-patch-signature-v1` / `ed25519` contract. Verification covers canonical manifest semantics plus every regular package file and runs during preflight before payload/source mutation.
+
+Trust is operator-local only. Configure `provenance.trusted_ed25519_keys` in `.python_patch_tool.json`; set `provenance.require_signature=true` only when the project must reject every unsigned PATCH, including recognized legacy PATCHes. A present but invalid signature, an unknown signer, malformed trust data, or a required-but-missing signature fails closed.
+
+The tool verifies signatures only. Private-key generation/storage, signing services, PKI, remote key lookup/registry, COLLECT signing, and reproducible raw ZIP-byte signing are outside this contract. See `PROVENANCE_SIGNATURE_TRUST.md`.''',
+          )
+          append_section(
+              '_patch_lib/docs/AI_USAGE_CONTRACT.md',
+              '## PATCH provenance / signature trust',
+              '''## PATCH provenance / signature trust
+
+When a client requests a signed PATCH, follow `PROVENANCE_SIGNATURE_TRUST.md` exactly. Do not invent trust roots, key IDs, public keys, signatures, or signing commands. `manifest.provenance` is optional unless the operator's local project policy requires it; if present it is verified before payload/source mutation and any invalid/untrusted signature is a hard preflight failure. The AI must not assume access to private signing keys or remote trust services.''',
+          )
+
+          prepend_section(
+              '_patch_lib/docs/CAPABILITY_LEDGER.md',
+              '## Current additive capability — cryptographic provenance / signature trust',
+              '''## Current additive capability — cryptographic provenance / signature trust
+
+- **COMPLETE (current capability; historical #65 was NOT STARTED):** PATCH manifests may carry a strict Ed25519 provenance signature (`ptv-patch-signature-v1`).
+- **FAIL-CLOSED:** a present signature is verified against operator-local trusted public keys before payload/source mutation; tampered manifest/package content, malformed signature data, or an untrusted signer is rejected.
+- **LOCAL POLICY:** `.python_patch_tool.json` may set `provenance.require_signature=true`, which also rejects unsigned recognized legacy PATCHes. Default remains compatible with existing unsigned PATCHes.
+- **SCOPE BOUNDARY:** verifier/trust policy only. Private-key generation/management, PKI, remote trust registry/network lookup, COLLECT signing and reproducible raw ZIP-byte signing remain out of scope.
+- Behavioral gate: `self_test_provenance_signature_v6_21_0.py`. Contract: `PROVENANCE_SIGNATURE_TRUST.md`.
+- Historical `CURRENT_CAPABILITY_DISPOSITION.json` remains 95/95 COMPLETE coverage; historical #65 is not rewritten as if it had been COMPLETE in v5.''',
+          )
+          prepend_section(
+              '_patch_lib/docs/PYTHON_PATCH_TOOL_FEATURE_STATUS.md',
+              '## COMPLETE — local Ed25519 PATCH provenance/signature trust',
+              '''## COMPLETE — local Ed25519 PATCH provenance/signature trust
+
+- Optional `manifest.provenance` contract: `ptv-patch-signature-v1`, `ed25519`, `key_id`, `signature`.
+- Canonical signature input binds manifest semantics (excluding the signature value itself) plus path/size/SHA-256 for every regular package file.
+- Trust comes only from local `.python_patch_tool.json`; optional `require_signature` can reject all unsigned PATCHes, including legacy PATCHes.
+- Invalid/tampered/untrusted signatures fail before payload/source mutation. Existing unsigned PATCH compatibility remains the default.
+- No signing/private-key/PKI/remote registry/COLLECT-signing/reproducible-ZIP feature is added.
+- Gate: `self_test_provenance_signature_v6_21_0.py`.''',
+          )
+          prepend_section(
+              'implementing.md',
+              '## COMPLETE — Cryptographic provenance / signature trust',
+              '''## COMPLETE — Cryptographic provenance / signature trust
+
+The accepted provenance/signature task is complete: self-contained strict Ed25519 verification, canonical manifest+package-file binding, operator-local trust store, optional fail-closed `require_signature` policy (including legacy PATCH), pre-payload enforcement, AI-sync/documentation coverage, Tool Health/package-required coverage, and permanent master regression. Scope intentionally stops at verification/trust; no private-key manager, signer, PKI, remote registry, COLLECT signing, or reproducible ZIP-byte feature was introduced.''',
+          )
+          prepend_section(
+              'PYTHON_PATCH_TOOL_FEATURES_VI.md',
+              '## HOÀN THÀNH — Xác minh provenance/chữ ký PATCH Ed25519',
+              '''## HOÀN THÀNH — Xác minh provenance/chữ ký PATCH Ed25519
+
+- PATCH có thể khai báo `manifest.provenance` theo contract `ptv-patch-signature-v1` / `ed25519`.
+- Chữ ký ràng buộc manifest canonical và toàn bộ file thường trong package bằng path/size/SHA-256; kiểm tra diễn ra trước khi payload sửa source.
+- Trust store chỉ lấy từ cấu hình local `.python_patch_tool.json`. Có thể bật `provenance.require_signature=true` để từ chối cả PATCH legacy không ký.
+- Chữ ký sai, package/manifest bị sửa hoặc signer không được trust đều fail-closed. Mặc định vẫn tương thích PATCH cũ không ký.
+- Phạm vi chỉ là verify/trust; không thêm quản lý private key, signer, PKI, registry/network lookup, ký COLLECT hay reproducible ZIP bytes.''',
+          )
+          PY
+
+          # Regenerate deterministic package metadata after every managed-file edit.
+          python3 _patch_lib/python_patch_release_metadata.py --tool-dir .
+
+          # Build the exact installed PROJECT_ROOT/tools layout from managed files.
+          rm -rf /tmp/ptv-provenance-final
+          mkdir -p /tmp/ptv-provenance-final/tools
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil, sys
+          sys.path.insert(0, str(Path('_patch_lib').resolve()))
+          from python_patch_release_metadata import managed_relpaths
+          src=Path('.').resolve(); dst=Path('/tmp/ptv-provenance-final/tools')
+          for rel in managed_relpaths(src):
+              s=src/rel; d=dst/rel; d.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(s,d)
+          shutil.copy2(src/'_patch_lib/SHA256SUMS', dst/'_patch_lib/SHA256SUMS')
+          (dst/'run_python_patches.sh').chmod(0o755)
+          PY
+
+          export PYTHONDONTWRITEBYTECODE=1
+          export NO_COLOR=1
+          cd /tmp/ptv-provenance-final/tools
+          python3 _patch_lib/self_test_provenance_signature_v6_21_0.py
+          python3 _patch_lib/self_test_ai_sync_v6_20_0.py
+          python3 _patch_lib/self_test_docs_v6_20_0.py
+          python3 _patch_lib/self_test_capability_ledger_v6_20_0.py
+          python3 _patch_lib/self_test_self_contained_v6_20_0.py
+          python3 _patch_lib/self_test_tool_health_v6_20_0.py
+          python3 _patch_lib/self_test_package_checksums_v6_20_0.py
+          python3 _patch_lib/self_test_python_patch_tool_v6_20_0.py
+          cd "$GITHUB_WORKSPACE"
+
+          # Repo-only WIP/workflow artifacts must not enter the completed feature tree.
+          rm -f .ptv_work/PROGRESS.md .github/workflows/provenance-completion.yml
+          rmdir .ptv_work 2>/dev/null || true
+          rmdir .github/workflows 2>/dev/null || true
+          rmdir .github 2>/dev/null || true
+
+          git config user.name 'Patch Tool CI'
+          git config user.email 'patch-tool-ci@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: complete local Ed25519 PATCH provenance trust'
+          git push origin HEAD:ptv-provenance-signature-trust
+          FEATURE_HEAD=$(git rev-parse HEAD)
+
+          # Merge only if main has not changed since this feature branch started.
+          git fetch origin main
+          EXPECTED_MAIN=1341aa53a8c93831a18eeb74f5d362aaa19e80c8
+          ACTUAL_MAIN=$(git rev-parse origin/main)
+          test "$ACTUAL_MAIN" = "$EXPECTED_MAIN" || { echo "main diverged: $ACTUAL_MAIN" >&2; exit 31; }
+
+          # Squash-merge keeps WIP/checkpoint commits out of main while preserving
+          # the fully tested feature branch history.
+          git checkout -B main origin/main
+          git merge --squash "$FEATURE_HEAD"
+          git commit -m 'feat: add local Ed25519 PATCH provenance trust'
+          git push origin HEAD:main
