@@ -22,7 +22,7 @@ jobs:
           python3 _patch_lib/python_patch_release_metadata.py --tool-dir .
           rm -rf /tmp/ptv-provenance-final
           mkdir -p /tmp/ptv-provenance-final/tools
-          python3 -c 'from pathlib import Path; import shutil,sys; sys.path.insert(0,str(Path("_patch_lib").resolve())); from python_patch_release_metadata import managed_relpaths; src=Path(".").resolve(); dst=Path("/tmp/ptv-provenance-final/tools"); [(lambda s,d:(d.parent.mkdir(parents=True,exist_ok=True),shutil.copy2(s,d)))(src/rel,dst/rel) for rel in managed_relpaths(src)]; shutil.copy2(src/"_patch_lib/SHA256SUMS",dst/"_patch_lib/SHA256SUMS"); (dst/"run_python_patches.sh").chmod(0o755)'
+          python3 -c 'from pathlib import Path; import shutil,sys; sys.path.insert(0,str(Path("_patch_lib").resolve())); from python_patch_release_metadata import managed_relpaths; src=Path(".").resolve(); project=Path("/tmp/ptv-provenance-final"); rows=managed_relpaths(src); [(lambda rel,s,d:(d.parent.mkdir(parents=True,exist_ok=True),shutil.copy2(s,d)))(rel,src/Path(rel).relative_to("tools"),project/rel) for rel in rows]; shutil.copy2(src/"_patch_lib/SHA256SUMS",project/"tools/_patch_lib/SHA256SUMS"); (project/"tools/run_python_patches.sh").chmod(0o755)'
           export PYTHONDONTWRITEBYTECODE=1
           export NO_COLOR=1
           cd /tmp/ptv-provenance-final/tools
