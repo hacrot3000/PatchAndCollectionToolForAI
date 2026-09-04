@@ -17,7 +17,7 @@ import time
 import unicodedata
 from typing import Iterable
 
-VERSION = "6.9.4"
+VERSION = "6.9.5"
 DEFAULT_HEARTBEAT = 0.8
 DEFAULT_MARGIN = 2
 MAX_TAIL_LINES = 120
@@ -161,7 +161,11 @@ def _print_collect_success(root: Path, lines: Iterable[str]) -> bool:
         is_tty = bool(getattr(sys.stdout, 'isatty', lambda: False)())
         banner = '!!! [PRIMARY - UPLOAD THIS FILE] !!!'
         destination = '>>> ACTION REQUIRED: UPLOAD TO CHATGPT / AI SERVER <<<'
-        width = max(24, min(72, max(24, _term_width() - 2)))
+        # Never force a decorative minimum wider than the live terminal.
+        # The final artifact path may naturally wrap because it must remain
+        # complete/copyable, but banner/rule rows themselves must not create
+        # avoidable physical-line wrapping on very narrow terminals.
+        width = max(1, min(72, _term_width() - 2))
         rule = '=' * width
         print('')
         print(rule)
@@ -336,7 +340,7 @@ def _reader(stream, q: queue.Queue[str], tail: deque[str]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Python Patch Tool v6.9.4 COLLECT one-line progress supervisor")
+    ap = argparse.ArgumentParser(description="Python Patch Tool v6.9.5 COLLECT one-line progress supervisor")
     ap.add_argument("--project-root", required=True)
     ap.add_argument("--collector", required=True)
     ap.add_argument("rest", nargs=argparse.REMAINDER)

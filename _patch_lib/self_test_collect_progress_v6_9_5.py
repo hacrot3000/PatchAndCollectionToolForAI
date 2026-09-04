@@ -22,7 +22,7 @@ m = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = m
 spec.loader.exec_module(m)
 
-assert m.VERSION == "6.9.4"
+assert m.VERSION == "6.9.5"
 assert m._cell_width("abc") == 3
 assert m._cell_width("测试") == 4
 for width in [0, 1, 2, 12, 20, 40, 80, 120]:
@@ -183,6 +183,33 @@ with tempfile.TemporaryDirectory(prefix="ptprog_result_v6711_") as td:
     assert out.count(str(request)) == 1, out
     assert "[INFO] REQUEST ARCHIVED:" in out, out
 
+# Narrow-terminal banner regression: decorative banner/rule rows must never
+# impose a historical 24-column minimum wider than the live terminal. The full
+# artifact path remains complete/copyable and may naturally wrap.
+class _NarrowTTY(io.StringIO):
+    def isatty(self): return True
+with tempfile.TemporaryDirectory(prefix="ptprog_narrow_banner_v695_") as td:
+    narrow_root = Path(td)
+    narrow_result = narrow_root / "artifacts" / "patch_tool_code_collections" / "result.zip"
+    narrow_request = narrow_root / "patchs" / "patched" / "request.zip"
+    narrow_result.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(narrow_result, "w") as zf:
+        zf.writestr("COLLECTION_MANIFEST.json", "{}")
+    narrow_lines = [f"ZIP : {narrow_result}", f"REQUEST : {narrow_request}"]
+    old_stdout = m.sys.stdout
+    old_term_width = m._term_width
+    try:
+        narrow = _NarrowTTY(); m.sys.stdout = narrow; m._term_width = lambda: 18
+        ok = m._print_collect_success(narrow_root, narrow_lines)
+    finally:
+        m.sys.stdout = old_stdout; m._term_width = old_term_width
+    narrow_out = narrow.getvalue()
+    assert ok is True, narrow_out
+    for line in narrow_out.splitlines():
+        clean = m._ANSI_RE.sub('', line)
+        if clean and (set(clean) == {'='} or 'PRIMARY - UPLOAD' in clean or 'ACTION REQUIRED' in clean):
+            assert m._cell_width(clean) <= 16, (m._cell_width(clean), clean)
+
 # A stale earlier candidate must not mask a later valid result.
 with tempfile.TemporaryDirectory(prefix="ptprog_fallback_v6711_") as td:
     root = Path(td)
@@ -339,4 +366,4 @@ if os.name == 'posix':
             except ProcessLookupError: pass
         assert not running,f'descendant remained alive after drain-window SIGTERM: pid={descendant}'
 
-print('PASS: Python Patch Tool v6.9.4 collect progress/artifact robustness self-test')
+print('PASS: Python Patch Tool v6.9.5 collect progress/artifact robustness self-test')

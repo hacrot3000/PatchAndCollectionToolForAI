@@ -7,7 +7,7 @@ HERE=Path(__file__).resolve().parent
 MOD=HERE/'python_patch_queue_dispatcher.py'
 spec=importlib.util.spec_from_file_location('ptv_queue_v677_selection',MOD)
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; spec.loader.exec_module(m)
-assert m.VERSION=='6.9.4'
+assert m.VERSION=='6.9.5'
 
 # Historical line grammar: lists, ranges (including reversed), bounds failure.
 assert m._parse_index_spec('1,3-5',6)=={0,2,3,4}
@@ -239,6 +239,21 @@ for physical in selector_raw.splitlines():
     clean=m._ANSI_RE.sub('',physical).replace('\r','')
     assert m._display_cell_width(clean) <= 40,(m._display_cell_width(clean),clean)
 
+# Narrow-width regression: v6.9.4 put CON TRỎ at the end of a long
+# decorative header, so clipping could remove the only explicit i/N position
+# indicator. Cursor identity is now left-most and must survive clipping.
+for width in (18,20,24,30):
+    old_out=m.sys.stdout; old_size=m._selector_term_size
+    try:
+        capture=_FakeTTYOut(); m.sys.stdout=capture
+        m._selector_term_size=lambda w=width: (w,8)
+        m._render([long_item,long_item,long_item],1,{1},{},'',0)
+    finally:
+        m.sys.stdout=old_out; m._selector_term_size=old_size
+    first=m._ANSI_RE.sub('',capture.getvalue()).replace('\r','').splitlines()[0]
+    assert 'CON TRỎ 2/3' in first,(width,first)
+    assert m._display_cell_width(first) <= max(1,width-2),(width,first)
+
 # Vertical viewport regression: a queue longer than the terminal must render
 # only a bounded visible slice containing the cursor. Rendering all rows would
 # scroll the frame and make the next cursor-up redraw land on the wrong row.
@@ -296,4 +311,4 @@ for physical in raw.splitlines():
     clean=m._ANSI_RE.sub('',physical).replace('\r','')
     assert m._display_cell_width(clean) <= 82,(m._display_cell_width(clean),clean)
 
-print('PASS: v6.9.4 selector/config/priority contracts and clean Ctrl+C handling')
+print('PASS: v6.9.5 selector/config/priority contracts and clean Ctrl+C handling')

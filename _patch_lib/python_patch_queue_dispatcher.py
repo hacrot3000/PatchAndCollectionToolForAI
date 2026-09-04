@@ -27,7 +27,7 @@ try:
 except Exception:
     fcntl = None
 
-VERSION = "6.9.4"
+VERSION = "6.9.5"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -83,6 +83,23 @@ def _zip_has_root_patch_manifest(path: Path) -> bool:
         return False
 
 
+def _zip_has_root_collection_manifest(path: Path) -> bool:
+    """Return True for the canonical readonly COLLECT result marker.
+
+    A result archive is evidence, never executable queue input.  This marker is
+    intentionally checked before PATCH routing so an ambiguous archive carrying
+    both root manifests fails closed as a collection result instead of running
+    collected evidence as a PATCH.
+    """
+    if path.suffix.lower() != ".zip" or not path.is_file():
+        return False
+    try:
+        with zipfile.ZipFile(path) as zf:
+            return "COLLECTION_MANIFEST.json" in {n for n in zf.namelist() if not n.endswith("/")}
+    except Exception:
+        return False
+
+
 
 def _archive_nonrunnable_reason(names: list[str]) -> str | None:
     """Return a structural support/distribution reason for archive members.
@@ -104,6 +121,24 @@ def _archive_nonrunnable_reason(names: list[str]) -> str | None:
         lib_prefix = prefix + "tools/_patch_lib/"
         if any(n.startswith(lib_prefix) for n in normalized):
             return "tool_distribution"
+
+    # Readonly COLLECT result archive: the canonical COLLECTION_MANIFEST.json
+    # lives at the archive root. Accept one wrapper directory as well, because
+    # users may re-zip an extracted collection folder before placing it in
+    # patchs/. A valid root PATCH_TOOL_MANIFEST.json is resolved earlier and
+    # therefore still has stronger precedence than this non-runnable marker.
+    collection_manifest = "COLLECTION_MANIFEST.json"
+    if collection_manifest in normalized:
+        return "collection_result_archive"
+    for name in normalized:
+        if Path(name).name != collection_manifest:
+            continue
+        parent = str(Path(name).parent).replace("\\", "/")
+        if parent in {"", "."}:
+            return "collection_result_archive"
+        prefix = parent.rstrip("/") + "/"
+        if normalized and all(n == parent or n.startswith(prefix) for n in normalized):
+            return "collection_result_archive"
 
     # Handoff: the canonical marker pair shares the same archive parent.
     handoff_parents = {
@@ -179,6 +214,11 @@ def _zip_is_patch(path: Path):
     try:
         with zipfile.ZipFile(path) as zf:
             names = [n for n in zf.namelist() if not n.endswith("/")]
+            # A canonical readonly collection result is evidence, never a
+            # runnable PATCH. Fail closed even if collected content also leaves
+            # a PATCH_TOOL_MANIFEST.json at archive root.
+            if "COLLECTION_MANIFEST.json" in names:
+                return False, "collection_result_archive"
             # v5+ standard package: manifest must be at package root. Requiring
             # the root prevents a HANDOFF that merely embeds a patch tree from
             # being mistaken for the patch itself.
@@ -443,9 +483,19 @@ def discover_queue(root: Path):
             warnings.append(f"RAW JSON REJECTED: patchs/{path.name}")
             continue
 
-        # A root PATCH manifest is the strongest package signature. A PATCH may
-        # legitimately carry a collection request as a resource; do not route
-        # that resource ZIP into the readonly COLLECT path.
+        # Canonical result archives produced by readonly COLLECT are evidence,
+        # not executable queue input. This fail-closed marker wins even in an
+        # ambiguous ZIP that also carries a root PATCH manifest.
+        if path.suffix.lower() == ".zip" and _zip_has_root_collection_manifest(path):
+            warnings.append(
+                f"SKIPPED non-patch candidate: patchs/{path.name} (collection_result_archive)"
+            )
+            continue
+
+        # A root PATCH manifest is the strongest PATCH request signature after
+        # excluding canonical collection results. A PATCH may legitimately
+        # carry a collection REQUEST JSON as a nested resource; do not route
+        # that request resource into readonly COLLECT.
         if path.suffix.lower() == ".zip" and _zip_has_root_patch_manifest(path):
             items.append(QueueItem(path.name, "PATCH", "manifest"))
             continue
@@ -657,13 +707,16 @@ def _render(items, cursor, selected, priorities, msg, prev):
     start, end = _selector_viewport(len(items), cursor, item_capacity)
 
     current_tag = f"CON TRỎ {cursor + 1}/{len(items)}" if items else "CON TRỎ 0/0"
+    # Put the cursor identity first. On narrow terminals horizontal clipping
+    # preserves the left side, so the operator must never lose i/N merely
+    # because the decorative Vietnamese title is longer than the viewport.
     if header_rows == 2:
         if len(items) > item_capacity:
-            header = [f"CHỌN CÔNG VIỆC SẼ CHẠY | {current_tag} | VIEW {start + 1}-{end}/{len(items)}", ""]
+            header = [f"{current_tag} | VIEW {start + 1}-{end}/{len(items)} | CHỌN CÔNG VIỆC SẼ CHẠY", ""]
         else:
-            header = [f"CHỌN CÔNG VIỆC SẼ CHẠY | {current_tag}", ""]
+            header = [f"{current_tag} | CHỌN CÔNG VIỆC SẼ CHẠY", ""]
     elif header_rows == 1:
-        header = [f"CHỌN CÔNG VIỆC SẼ CHẠY | {current_tag}"]
+        header = [f"{current_tag} | CHỌN CÔNG VIỆC SẼ CHẠY"]
     else:
         header = []
 

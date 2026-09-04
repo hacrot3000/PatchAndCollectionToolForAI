@@ -1,4 +1,4 @@
-# Portable use — Python Patch Tool v6.9.4
+# Portable use — Python Patch Tool v6.9.5
 
 Normal user entry point is always:
 
@@ -125,7 +125,7 @@ only with direct regular files already present in this project's
 Duplicate PATCHes are removed from the runnable selector set before selection,
 so they cannot be executed accidentally by the normal zero-argument workflow.
 
-## v6.9.4 queue/result correctness
+## v6.9.5 queue/result correctness
 
 PATCH child termination by signal is reported using normal shell codes (for
 example Ctrl+C = 130 and SIGTERM = 143), not negative Python subprocess codes.
@@ -135,7 +135,7 @@ PASS is accepted only if the request ZIP has actually moved from `patchs/` to
 ZIP, the supervisor validates candidates newest-first and highlights exactly one
 valid upload ZIP.
 
-### v6.9.4 local-history boundary
+### v6.9.5 local-history boundary
 
 Duplicate suppression never follows a symlinked `patchs/` or
 `patchs/patched/`. Shared/external history is ignored with a warning, because
@@ -145,7 +145,7 @@ PATCH launch so a just-completed identical local PATCH can suppress a later
 copy in the same run.
 
 
-## v6.9.4 regression notes
+## v6.9.5 regression notes
 
 - A support HANDOFF may contain the original `CODE_COLLECTION_REQUEST*.json` as
   evidence. Structural HANDOFF identity wins over COLLECT discovery, so such a
@@ -156,12 +156,12 @@ copy in the same run.
   from the bounded diagnostic tail, so long trailing logs do not hide it.
 
 
-V6.9.4 in-place boundary hardening:
+V6.9.5 in-place boundary hardening:
   Historical/short PATCH execution flags such as `-a -y --move` are treated as
   execution-capable and receive `--transaction off`. Only documented read-only
   utility routes (`paths`, help, version) bypass the execution-only argument.
 
-## v6.9.4 selector width and concurrent-run safety
+## v6.9.5 selector width and concurrent-run safety
 
 The fullscreen selector clips every rendered row to the current terminal cell
 width (including double-width CJK glyphs). This prevents long package names from
@@ -175,7 +175,7 @@ cross-machine or cross-project duplicate history.
 
 - Release packaging preserves executable mode on `tools/run_python_patches.sh`; clean extraction is tested before release.
 
-## v6.9.4 selector viewport and lock-path repair
+## v6.9.5 selector viewport and lock-path repair
 
 Fullscreen selection is bounded in both terminal dimensions. Long names are
 clipped by live cell width, and long queues are rendered through a cursor-centered
@@ -195,6 +195,18 @@ A signal delivered after the collector parent exits is still forwarded to any
 stdout-holding descendant process group, preventing orphan collectors.
 
 
-## v6.9.4 UI regression repair
+## v6.9.5 UI regression repair
 - Fullscreen selector rows are clipped to terminal cell width before ANSI styling; the current row is bold/reverse highlighted and the header always shows `CON TRỎ i/N`, preventing loss of position with very long filenames.
 - Successful COLLECT uses a high-contrast `ACTION REQUIRED` upload banner. The verified result ZIP path is printed exactly once; the archived request remains informational.
+
+## v6.9.5 collection-result queue safety
+
+The ZIP shown under `[PRIMARY - UPLOAD THIS FILE]` is output evidence for the
+next AI/ChatGPT analysis step. It is **not** a request package and must not be
+used as runnable queue input. If a canonical result ZIP is accidentally copied
+into `patchs/`, the dispatcher recognizes its root `COLLECTION_MANIFEST.json`
+and skips it as `collection_result_archive`, even when the collected evidence
+contains Python named `patch_*.py` or text such as `PATCH_NAME`.
+
+The fullscreen selector also keeps `CON TRỎ i/N` at the left side of its header
+so the current position remains visible after clipping on a narrow terminal.
