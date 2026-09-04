@@ -1,0 +1,74 @@
+name: Hotfix release metadata hygiene
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/hotfix-release-metadata-hygiene.yml]
+permissions:
+  contents: write
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Exclude repo-only state, regenerate and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONDONTWRITEBYTECODE=1
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('_patch_lib/python_patch_release_metadata.py')
+          text=p.read_text(encoding='utf-8')
+          old='REPO_ONLY_REL = frozenset({"README.md", "self-install-and-update.sh"})\n'
+          new=old+'REPO_ONLY_TOP_LEVEL = frozenset({".github", ".ptv_work"})\n'
+          if 'REPO_ONLY_TOP_LEVEL' not in text:
+              if old not in text:
+                  raise SystemExit('release metadata repo-only anchor missing')
+              text=text.replace(old,new,1)
+          old_return='    return ".git" in rel_parts\n'
+          new_return='    return ".git" in rel_parts or bool(rel_parts and rel_parts[0] in REPO_ONLY_TOP_LEVEL)\n'
+          if new_return not in text:
+              if old_return not in text:
+                  raise SystemExit('release metadata repo-metadata anchor missing')
+              text=text.replace(old_return,new_return,1)
+          p.write_text(text,encoding='utf-8')
+          PY
+          python3 _patch_lib/python_patch_release_metadata.py --tool-dir .
+          python3 _patch_lib/python_patch_release_metadata.py --tool-dir . --check
+          ! grep -q '^tools/\.github/' _patch_lib/PACKAGE_CONTENTS.txt
+          ! grep -q '^tools/\.ptv_work/' _patch_lib/PACKAGE_CONTENTS.txt
+          ! grep -q 'tools/\.github/' _patch_lib/SHA256SUMS
+          ! grep -q 'tools/\.ptv_work/' _patch_lib/SHA256SUMS
+          test -z "$(find . -type f -name '*.pyc' -o -type d -name '__pycache__')"
+
+          rm -rf /tmp/ptv-main-health
+          mkdir -p /tmp/ptv-main-health/tools
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil,sys
+          sys.path.insert(0,str(Path('_patch_lib').resolve()))
+          from python_patch_release_metadata import managed_relpaths
+          src=Path('.').resolve(); project=Path('/tmp/ptv-main-health')
+          for rel in managed_relpaths(src):
+              s=src/Path(rel).relative_to('tools'); d=project/rel
+              d.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(s,d)
+          shutil.copy2(src/'_patch_lib/SHA256SUMS',project/'tools/_patch_lib/SHA256SUMS')
+          (project/'tools/run_python_patches.sh').chmod(0o755)
+          PY
+          cd /tmp/ptv-main-health/tools
+          python3 _patch_lib/self_test_tool_health_v6_20_0.py
+          python3 _patch_lib/self_test_package_checksums_v6_20_0.py
+          cd "$GITHUB_WORKSPACE"
+
+          rm -f .github/workflows/hotfix-release-metadata-hygiene.yml
+          rmdir .github/workflows 2>/dev/null || true
+          rmdir .github 2>/dev/null || true
+          test -z "$(find . -type f -name '*.pyc' -o -type d -name '__pycache__')"
+          git config user.name 'Patch Tool CI'
+          git config user.email 'patch-tool-ci@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: exclude repo-only state from release metadata'
+          git push origin HEAD:main
