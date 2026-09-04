@@ -20,7 +20,7 @@ import time
 from typing import Any, Iterable
 from urllib.parse import quote
 
-VERSION = "6.19.4"
+VERSION = "6.19.5"
 
 PROFILE_ENV = "PTV_DB_PROFILES_FILE"
 PROFILE_CANDIDATES = (

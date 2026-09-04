@@ -1,5 +1,9 @@
 # Python Patch Tool — NO SILENT REMOVAL POLICY
 
+### Persistent failed-work state (v6.19.5+)
+
+Do not derive the second failed queue group only from LAST_RUN. PATCH/COLLECT failures that remain queued must survive unrelated later runs through `UNRESOLVED_FAILURES.json`. Do not clear them except on exact identity PASS or explicit queue deletion; do not let COLLECT failures enter PATCH predecessor planning. The migration from v6.19.4 HISTORY is part of compatibility.
+
 ### Normal-queue failed-work grouping (v6.19.4+)
 
 A previous failure MUST NOT automatically replace the next ordinary zero-argument queue with Smart Resume. Current recovery items are a visual second group and MUST remain ordinary queue entries with identical operations. The explicit `resume` command and planner safety MUST remain available. Do not reintroduce startup hijacking, and do not fork failed items into a separate selector/execution implementation.

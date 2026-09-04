@@ -21,7 +21,7 @@ import zipfile
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
 from python_patch_database_select import DatabaseSelectError, execute_database_select
 
-VERSION = "6.19.4"
+VERSION = "6.19.5"
 REQUEST_RE = re.compile(r"^CODE_COLLECTION_REQUEST(?:_[A-Za-z0-9._-]+)?\.json$", re.I)
 MAX_REQUEST_JSON_BYTES = 1024 * 1024
 REGEX_SEARCH_TIMEOUT_SECONDS = 60.0

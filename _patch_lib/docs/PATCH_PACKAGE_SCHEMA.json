@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "tool_version": "6.19.4",
+  "tool_version": "6.19.5",
   "manifest_file": "PATCH_TOOL_MANIFEST.json",
   "manifest": {
     "type": "object",

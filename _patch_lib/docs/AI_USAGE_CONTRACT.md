@@ -1,4 +1,9 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.19.4
+# AI / ChatGPT usage contract — Python Patch Tool v6.19.5
+
+## v6.19.5 persistent failed-work queue state
+
+Failed/PREFLIGHT_FAIL/INCOMPLETE PATCH and COLLECT queue items MUST be persisted in `artifacts/patch_tool/UNRESOLVED_FAILURES.json`; grouping MUST NOT depend on LAST_RUN. An unrelated PASS/IDLE/history view must never clear this state. The normal queue renders all current unresolved items in `Failed patch/collect (unresolved)` below `New patch/collect`, using the same QueueItem operations. A failure resolves only when the exact SHA-bound package/request later PASSes or the operator deletes that exact queue item. v6.19.5 migrates still-queued v6.19.4 failures from HISTORY on first use. Persistent COLLECT failures are presentation state only and MUST NOT become PATCH dependency predecessors. Explicit `resume` remains PATCH-recovery oriented.
+
 
 ## v6.19.4 queue/recovery presentation contract
 

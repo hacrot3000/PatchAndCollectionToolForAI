@@ -1,8 +1,16 @@
-# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.19.4
+# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.19.5
 
 Trước khi AI sửa Patch Tool, bắt buộc đọc `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md` và `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Tính năng từng PASS/COMPLETE không được tự ý xóa, thu hẹp hoặc làm mất đường gọi chỉ vì code/schema hiện tại không dùng tới. Nếu thật sự phải thay thế, phải ghi trạng thái vào ledger và thêm test hành vi chứng minh.
 
-# Danh sách tính năng Python Patch Tool — v6.19.4
+# Danh sách tính năng Python Patch Tool — v6.19.5
+
+## v6.19.5 — Trạng thái failed được lưu bền vững
+
+- `Failed patch/collect (unresolved)` đọc từ `UNRESOLVED_FAILURES.json`, không phụ thuộc lần chạy gần nhất.
+- Chạy item khác PASS không làm mất failed cũ.
+- PATCH và COLLECT đều được persist; COLLECT ghi SHA request trước khi chạy.
+- Chỉ PASS đúng bytes hoặc xóa item mới resolve; v6.19.4 failure còn trong queue được migrate từ HISTORY.
+- Regression: `self_test_failed_queue_persistence_v6_19_5.py`.
 
 ## v6.19.4 — Nhóm failed nằm ngay trong queue bình thường
 

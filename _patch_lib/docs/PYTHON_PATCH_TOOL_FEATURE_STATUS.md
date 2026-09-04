@@ -1,4 +1,14 @@
-# Python Patch Tool v6.19.4 feature status
+# Python Patch Tool v6.19.5 feature status
+
+## v6.19.5 — persistent unresolved failed PATCH/COLLECT group
+
+- COMPLETE: failed PATCH and COLLECT state survives unrelated later PASS runs.
+- COMPLETE: `UNRESOLVED_FAILURES.json` stores both PATCH and COLLECT identities; COLLECT request SHA is captured before execution/archive.
+- COMPLETE: exact same item PASS or normal selector delete resolves the persistent entry.
+- COMPLETE: v6.19.4 still-queued failures migrate from HISTORY.
+- PRESERVED: COLLECT failures never become PATCH predecessor/dependency constraints.
+- Regression: `self_test_failed_queue_persistence_v6_19_5.py`.
+
 
 ## v6.19.4 — failed PATCH/COLLECT integrated into the normal queue
 

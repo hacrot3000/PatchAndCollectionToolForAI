@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.19.4"
+VERSION = "6.19.5"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -410,13 +410,24 @@ def _unresolved_registry_path(root: Path) -> Path:
     return _artifact_run_root(root) / "UNRESOLVED_FAILURES.json"
 
 
-def _failure_identity(row: dict[str, object]) -> tuple[str, str, str]:
+def _failure_identity(row: dict[str, object]) -> tuple[str, str, str, str]:
+    """Stable unresolved-work identity for PATCH and COLLECT rows.
+
+    PATCH keeps patch.id + immutable package SHA. COLLECT uses the immutable
+    request SHA captured before the collector may archive the request. Older
+    COLLECT history without SHA is filename-compatible only during migration.
+    """
+    kind = str(row.get("kind") or "PATCH").upper()
     result = row.get("patch_result") if isinstance(row.get("patch_result"), dict) else {}
     mp = result.get("manifest_patch") if isinstance(result.get("manifest_patch"), dict) else {}
     patch_id = row.get("patch_id") or mp.get("id") or ""
-    sha = result.get("patch_sha256") or ""
+    if kind == "COLLECT":
+        sha = row.get("request_sha256") or ""
+        patch_id = ""
+    else:
+        sha = result.get("patch_sha256") or ""
     name = row.get("name") or ""
-    return str(patch_id), str(sha).lower(), str(name)
+    return kind, str(patch_id), str(sha).lower(), str(name)
 
 
 def _load_unresolved_registry(root: Path) -> dict[str, object]:
@@ -452,7 +463,7 @@ def _planning_previous(root: Path, previous: dict[str, object] | None) -> dict[s
     """
     if isinstance(previous, dict) and previous.get("status") == "FAIL":
         return previous
-    rows = _unresolved_failure_rows(root)
+    rows = [row for row in _unresolved_failure_rows(root) if str(row.get("kind") or "PATCH").upper() == "PATCH"]
     if not rows:
         return previous
     row = dict(rows[-1])
@@ -501,7 +512,9 @@ def _resolve_registry_previous_action(root: Path, action: dict[str, object] | No
         if not isinstance(entry, dict) or entry.get("resolved") is True:
             continue
         row = entry.get("row") if isinstance(entry.get("row"), dict) else {}
-        pid, sha, name = _failure_identity(row)
+        kind, pid, sha, name = _failure_identity(row)
+        if kind != "PATCH":
+            continue
         if expected_sha:
             identity_match = sha == expected_sha and (
                 (patch_id and pid == patch_id)
@@ -520,31 +533,37 @@ def _update_unresolved_registry(root: Path, report: dict[str, object]) -> None:
     data = _load_unresolved_registry(root)
     entries = [x for x in (data.get("entries") or []) if isinstance(x, dict)]
     now = _utc_now()
-    current_rows = [x for x in (report.get("results") or []) if isinstance(x, dict) and str(x.get("kind") or "PATCH") == "PATCH"]
+    current_rows = [
+        x for x in (report.get("results") or [])
+        if isinstance(x, dict) and str(x.get("kind") or "PATCH").upper() in {"PATCH", "COLLECT"}
+    ]
 
     # A successful run resolves an older failure only for the exact same
     # logical package bytes (SHA-bound identity), not patch.id reuse alone.
     for row in current_rows:
         if str(row.get("status") or "") != "PASS":
             continue
-        pid, sha, name = _failure_identity(row)
+        kind, pid, sha, name = _failure_identity(row)
         for entry in entries:
             if entry.get("resolved") is True:
                 continue
             old = entry.get("row") if isinstance(entry.get("row"), dict) else {}
-            opid, osha, oname = _failure_identity(old)
+            okind, opid, osha, oname = _failure_identity(old)
             # A later PASS resolves an unresolved failure only when it is the
             # exact same logical package bytes.  patch.id reuse with different
             # SHA is warning-worthy provenance, not proof that the old failure
             # has been repaired/superseded.
-            match = bool(sha and osha and sha == osha and ((pid and opid == pid) or (not pid and name == oname)))
+            match = bool(
+                kind == okind and sha and osha and sha == osha
+                and ((pid and opid == pid) or (not pid and name == oname))
+            )
             if match:
                 entry["resolved"] = True
                 entry["resolved_at"] = now
                 entry["resolution"] = f"PASS in run {report.get('run_id','')}"
 
     for row in current_rows:
-        if str(row.get("status") or "") not in {"FAIL", "PREFLIGHT_FAIL"}:
+        if str(row.get("status") or "") not in {"FAIL", "PREFLIGHT_FAIL", "INCOMPLETE"}:
             continue
         ident = _failure_identity(row)
         existing = None
@@ -575,7 +594,8 @@ def _update_unresolved_registry(root: Path, report: dict[str, object]) -> None:
 
 
 def _merged_failed_recovery_rows(root: Path, previous: dict[str, object] | None) -> list[dict[str, object]]:
-    rows = [*_failed_recovery_rows(previous), *_unresolved_failure_rows(root)]
+    unresolved_patches = [row for row in _unresolved_failure_rows(root) if str(row.get("kind") or "PATCH").upper() == "PATCH"]
+    rows = [*_failed_recovery_rows(previous), *unresolved_patches]
     out: list[dict[str, object]] = []
     seen: set[tuple[str,str,str]] = set()
     for row in rows:
@@ -690,49 +710,92 @@ def _automatic_resume_available(root: Path, items: list[QueueItem], previous: di
     return any(name in by_name for name in names)
 
 
-def _last_failed_queue_names(root: Path, items: list[QueueItem], previous: dict[str, object] | None) -> set[str]:
-    """Return current queue filenames belonging to the immediately previous failed run.
+def _queue_item_sha256(root: Path, item: QueueItem) -> str | None:
+    path = root / "patchs" / item.name
+    try:
+        if path.is_symlink() or not path.is_file(): return None
+        return _sha256_file(path).lower()
+    except Exception:
+        return None
 
-    This is presentation metadata only.  The returned items remain ordinary
-    ``QueueItem`` objects and use exactly the same selector/delete/inspect/execute
-    paths as every other queue entry.  Exact PATCH SHA binding is preserved when
-    the previous report carries it, so a same-name replacement is never labeled
-    as the old failed package.  COLLECT rows retain filename compatibility because
-    historical COLLECT reports do not always carry a request SHA.
-    """
-    if not isinstance(previous, dict) or str(previous.get("status") or "") not in {"FAIL", "INCOMPLETE"}:
-        return set()
-    by_name = {item.name: item for item in items}
-    failed: set[str] = set()
-    rows = _report_rows(previous)
+
+def _failure_row_matches_queue_item(root: Path, row: dict[str, object], item: QueueItem) -> bool:
+    row_kind = str(row.get("kind") or "PATCH").upper()
+    if row_kind != str(item.kind or "PATCH").upper(): return False
+    queue_name = _recovery_row_queue_name(row) or str(row.get("name") or "")
+    if queue_name != item.name: return False
+    _kind, _pid, expected_sha, _name = _failure_identity(row)
+    if not expected_sha: return True
+    actual_sha = _queue_item_sha256(root, item)
+    return bool(actual_sha and actual_sha == expected_sha)
+
+
+def _freeze_legacy_failure_row(root: Path, row: dict[str, object], item: QueueItem) -> dict[str, object]:
+    frozen = dict(row); current_sha = _queue_item_sha256(root, item)
+    if not current_sha: return frozen
+    if str(item.kind or "PATCH").upper() == "COLLECT": frozen.setdefault("request_sha256", current_sha)
+    else:
+        result = dict(frozen.get("patch_result") or {}) if isinstance(frozen.get("patch_result"), dict) else {}
+        result.setdefault("patch_sha256", current_sha); frozen["patch_result"] = result
+    return frozen
+
+
+def _reconcile_unresolved_registry_from_history(root: Path, items: list[QueueItem], previous: dict[str, object] | None) -> None:
+    """Migrate queued failures created before persistent PATCH+COLLECT state."""
+    if not items: return
+    data = _load_unresolved_registry(root); entries=[x for x in (data.get("entries") or []) if isinstance(x,dict)]
+    unresolved_ids={_failure_identity(x.get("row") if isinstance(x.get("row"),dict) else {}) for x in entries if x.get("resolved") is not True}
+    reports=[]; seen_runs=set()
+    if _is_meaningful_run(previous):
+        reports.append(previous); rid=str(previous.get("run_id") or ""); seen_runs.add(rid) if rid else None
+    for _path, report in _visible_history_entries(root):
+        rid=str(report.get("run_id") or "")
+        if rid and rid in seen_runs: continue
+        reports.append(report); seen_runs.add(rid) if rid else None
+    changed=False; now=_utc_now()
+    for item in items:
+        if any(isinstance(e.get("row"),dict) and e.get("resolved") is not True and _failure_row_matches_queue_item(root,e["row"],item) for e in entries): continue
+        latest=None; latest_run=None
+        for report in reports:
+            for row in _report_rows(report):
+                if isinstance(row,dict) and _failure_row_matches_queue_item(root,row,item): latest=row; latest_run=report.get("run_id"); break
+            if latest is not None: break
+        if latest is None: continue
+        status=str(latest.get("status") or "")
+        recovery=status in {"FAIL","PREFLIGHT_FAIL","INCOMPLETE"} or (status=="PASS" and latest.get("batch_rolled_back") is True)
+        if not recovery: continue
+        frozen=_freeze_legacy_failure_row(root,latest,item); ident=_failure_identity(frozen)
+        if ident in unresolved_ids: continue
+        entries.append({"first_failed_at":now,"last_failed_at":now,"first_run_id":latest_run,"last_run_id":latest_run,"resolved":False,"migration":"history_reconcile_v6_19_5","row":frozen})
+        unresolved_ids.add(ident); changed=True
+    if changed:
+        _atomic_json(_unresolved_registry_path(root),{"format":"python-patch-tool-unresolved-failures","format_version":1,"tool_version":VERSION,"updated_at":now,"entries":entries})
+
+
+def _persistent_failed_queue_rows(root: Path, items: list[QueueItem], previous: dict[str, object] | None) -> list[dict[str, object]]:
+    _reconcile_unresolved_registry_from_history(root,items,previous)
+    rows=list(_unresolved_failure_rows(root))
+    if isinstance(previous,dict):
+        for row in _report_rows(previous):
+            if not isinstance(row,dict): continue
+            status=str(row.get("status") or "")
+            if status not in {"FAIL","PREFLIGHT_FAIL","INCOMPLETE"} and not (status=="PASS" and row.get("batch_rolled_back") is True): continue
+            rows.append(dict(row))
+    out=[]; seen=set()
     for row in rows:
-        if not isinstance(row, dict):
-            continue
-        status = str(row.get("status") or "")
-        # A PASS row rolled back by a failed atomic batch is recovery work even
-        # though the payload itself passed; keeping it with the failed group makes
-        # the second group represent the previous run's recovery set accurately.
-        recovery_row = status in {"FAIL", "PREFLIGHT_FAIL", "INCOMPLETE"} or (
-            status == "PASS" and row.get("batch_rolled_back") is True
-        )
-        if not recovery_row:
-            continue
-        queue_name = _recovery_row_queue_name(row) or str(row.get("name") or "")
-        if queue_name not in by_name:
-            continue
-        kind = str(row.get("kind") or by_name[queue_name].kind or "PATCH")
-        if kind == "PATCH":
-            # When an exact SHA is available, bind to that immutable failed
-            # package.  Older reports without SHA keep filename compatibility.
-            expected = _recovery_row_expected_sha(row)
-            if expected is not None and _bind_recovery_queue_row(root, row) is None:
-                continue
-        failed.add(queue_name)
-    # Compatibility fallback for older single-item reports whose result rows were
-    # sparse but which did record failed_item.
-    failed_item = previous.get("failed_item")
-    if isinstance(failed_item, str) and failed_item in by_name:
-        failed.add(failed_item)
+        ident=_failure_identity(row)
+        if ident in seen: continue
+        seen.add(ident); out.append(row)
+    return out
+
+
+def _last_failed_queue_names(root: Path, items: list[QueueItem], previous: dict[str, object] | None) -> set[str]:
+    """Return queued PATCH/COLLECT names with persistent unresolved state."""
+    by_name={item.name:item for item in items}; failed=set()
+    for row in _persistent_failed_queue_rows(root,items,previous):
+        queue_name=_recovery_row_queue_name(row) or str(row.get("name") or "")
+        item=by_name.get(queue_name)
+        if item is not None and _failure_row_matches_queue_item(root,row,item): failed.add(queue_name)
     return failed
 
 
@@ -4252,7 +4315,7 @@ def _render(items, cursor, selected, priorities, msg, prev, *, show_history: boo
             item = items[i]
             group = "failed" if item.name in failed_group_names else "new"
             if group_header_budget and group != last_visible_group:
-                label = "   Last failed patch/collect:" if group == "failed" else "   New patch/collect:"
+                label = "   Failed patch/collect (unresolved):" if group == "failed" else "   New patch/collect:"
                 lines.append((label, False))
                 last_visible_group = group
             detail = f"  [{_safe_display(item.detail)}]" if item.detail else ""
@@ -4444,6 +4507,7 @@ def _delete_indexes(
     for i in sorted(indexes, reverse=True):
         victim = items[i]
         target = root / "patchs" / victim.name
+        registry_rows = [row for row in _unresolved_failure_rows(root) if _failure_row_matches_queue_item(root, row, victim)]
         try:
             # Queue discovery rejects symlinks, and unlink never follows one.
             target.unlink()
@@ -4454,6 +4518,7 @@ def _delete_indexes(
             failures.append(f"{victim.name}: {type(exc).__name__}")
             continue
         deleted.append(victim.name)
+        _resolve_registry_rows(root, registry_rows, "deleted_from_normal_queue")
         items.pop(i)
         selected = {j if j < i else j - 1 for j in selected if j != i}
         priorities = {
@@ -5002,7 +5067,7 @@ def _build_batch_plan(root: Path, chosen: list[QueueItem], available: list[Queue
     initial_meta = {item.name: load_patch_meta(root, item.name) for item in work}
     related_contexts: list[dict[str, object]] = []
     for failed_row in _merged_failed_recovery_rows(root, previous):
-        failed_id, _failed_sha, failed_name = _failure_identity(failed_row)
+        _failed_kind, failed_id, _failed_sha, failed_name = _failure_identity(failed_row)
         if not failed_name:
             continue
         bound_failed = _bind_recovery_queue_row(root, failed_row)
@@ -5478,6 +5543,8 @@ def execute_items(
                 print(f"[BLOCKED] {_safe_display(item.name)} | {relation}: {_safe_display(', '.join(blockers))}")
                 continue
 
+        collect_request_sha256 = _queue_item_sha256(root, item) if item.kind == "COLLECT" else None
+
         if item.kind == "PATCH":
             still_runnable, now_duplicates, now_warnings = _split_local_duplicate_patches(root, [item], history_replay_sha=history_replay_sha)
             for warning in now_warnings:
@@ -5575,8 +5642,9 @@ def execute_items(
             detail["patch_result"] = patch_result
         if compare_info is not None:
             detail["source_compare"] = compare_info
-        if item.kind == "COLLECT" and collect_result is not None:
-            detail["collect_result"] = collect_result
+        if item.kind == "COLLECT":
+            if collect_request_sha256: detail["request_sha256"] = collect_request_sha256
+            if collect_result is not None: detail["collect_result"] = collect_result
 
         # A successful PATCH has no normal handoff ZIP. If the request was made
         # against an older/unknown AI tool context, publish a one-shot AI sync
@@ -6647,7 +6715,7 @@ def _run_queue(
             }]
             print(f"SELECTION FAIL — project unchanged | {_safe_display(str(exc))}", file=sys.stderr)
             return finish_report("FAIL", 2, failed_item="CLI_SELECTION")
-    # v6.19.4: recovery no longer hijacks the next ordinary zero-argument run.
+    # v6.19.5: persistent failed grouping; recovery no longer hijacks the next ordinary zero-argument run.
     # Smart Resume remains available explicitly through the ``resume`` command;
     # ordinary queue selection shows previous failed/replay items as a second
     # visual group instead.  Planner safety for unresolved predecessors is

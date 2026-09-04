@@ -1,4 +1,4 @@
-# PATCH PACKAGE GUIDE — v6.19.4 authoritative AI/tool contract
+# PATCH PACKAGE GUIDE — v6.19.5 authoritative AI/tool contract
 
 ## AI context synchronization (v6.19.2)
 

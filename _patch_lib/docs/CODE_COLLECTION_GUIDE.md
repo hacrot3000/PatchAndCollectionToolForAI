@@ -1,4 +1,4 @@
-# CODE COLLECTION GUIDE — v6.19.4 AUTHORITATIVE CONTRACT
+# CODE COLLECTION GUIDE — v6.19.5 AUTHORITATIVE CONTRACT
 
 Python Patch Tool v6.19.3 ships a self-contained, read-only COLLECT runtime. The authoritative action/field list is `COLLECT_ACTION_SCHEMA.json`; this guide explains the intended semantics.
 
