@@ -7,7 +7,7 @@ HERE=Path(__file__).resolve().parent
 MOD=HERE/'python_patch_queue_dispatcher.py'
 spec=importlib.util.spec_from_file_location('ptv_queue_v677_selection',MOD)
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; spec.loader.exec_module(m)
-assert m.VERSION=='6.9.1'
+assert m.VERSION=='6.9.2'
 
 # Historical line grammar: lists, ranges (including reversed), bounds failure.
 assert m._parse_index_spec('1,3-5',6)=={0,2,3,4}
@@ -209,4 +209,30 @@ with tempfile.TemporaryDirectory(prefix='ptv690priority_delete_') as td:
     assert priorities=={0:4,1:1},priorities
     assert [x.name for x in m._ordered_selection(delete_items,selected,priorities)]==['patch_3.zip','patch_2.zip']
 
-print('PASS: v6.9.1 selector/config/priority contracts and clean Ctrl+C handling')
+
+# Fullscreen rows must never wrap. Long OTA/NFC filenames are common and a
+# wrapped physical row breaks the cursor-up accounting used by the selector,
+# causing duplicated/overwritten rows after the next keypress. Cell width (not
+# Python len) matters because CJK/full-width glyphs occupy two terminal cells.
+assert m._clip_selector_line('x' * 200, 40).endswith('…')
+assert m._display_cell_width(m._clip_selector_line('x' * 200, 40)) <= 38
+assert m._display_cell_width(m._clip_selector_line('补丁' * 80, 40)) <= 38
+long_item=m.QueueItem(
+    'OTA_FIX_bletonfc_ble_ota_v10b_26_999_extremely_long_selector_filename_for_wrap_regression.zip',
+    'PATCH',
+    'manifest',
+)
+old_out=m.sys.stdout
+old_width=m._selector_term_width
+try:
+    capture=_FakeTTYOut(); m.sys.stdout=capture
+    m._selector_term_width=lambda: 42
+    rendered=m._render([long_item],0,{0},{0:3},'Ưu tiên 3: '+'补丁'*40,0)
+finally:
+    m.sys.stdout=old_out; m._selector_term_width=old_width
+assert rendered > 0
+for physical in capture.getvalue().splitlines():
+    clean=m._ANSI_RE.sub('',physical).replace('\r','')
+    assert m._display_cell_width(clean) <= 40,(m._display_cell_width(clean),clean)
+
+print('PASS: v6.9.2 selector/config/priority contracts and clean Ctrl+C handling')

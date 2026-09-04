@@ -22,7 +22,7 @@ m = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = m
 spec.loader.exec_module(m)
 
-assert m.VERSION == "6.9.1"
+assert m.VERSION == "6.9.2"
 assert m._cell_width("abc") == 3
 assert m._cell_width("测试") == 4
 for width in [0, 1, 2, 12, 20, 40, 80, 120]:
@@ -287,4 +287,4 @@ with tempfile.TemporaryDirectory(prefix="ptprog_postexit_drain_v691_") as td:
     assert "[PRIMARY - UPLOAD THIS FILE]" in out, out
     assert out.count(str(result)) == 1, out
 
-print('PASS: Python Patch Tool v6.9.1 collect progress/artifact robustness self-test')
+print('PASS: Python Patch Tool v6.9.2 collect progress/artifact robustness self-test')

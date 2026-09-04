@@ -21,7 +21,12 @@ try:
 except Exception:
     termios = tty = None
 
-VERSION = "6.9.1"
+try:
+    import fcntl
+except Exception:
+    fcntl = None
+
+VERSION = "6.9.2"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -505,6 +510,62 @@ def _read_key(fd):
     return raw.decode(errors="ignore").lower()
 
 
+def _selector_term_width() -> int:
+    """Return the live terminal width for the fullscreen selector.
+
+    A TTY query wins over COLUMNS because environment values can be stale after
+    a resize. The renderer leaves a two-cell safety margin so terminals with
+    delayed-wrap semantics do not turn one logical selector row into two
+    physical rows.
+    """
+    try:
+        fd = sys.stdout.fileno()
+        cols = os.get_terminal_size(fd).columns
+        if cols > 0:
+            return cols
+    except Exception:
+        pass
+    raw = os.environ.get("COLUMNS")
+    if raw:
+        try:
+            cols = int(raw)
+            if cols > 0:
+                return cols
+        except (TypeError, ValueError):
+            pass
+    return 120
+
+
+def _display_cell_width(text: str) -> int:
+    width = 0
+    for ch in _safe_display(text):
+        if unicodedata.combining(ch):
+            continue
+        width += 2 if unicodedata.east_asian_width(ch) in {"W", "F"} else 1
+    return width
+
+
+def _clip_selector_line(text: str, terminal_width: int | None = None) -> str:
+    """Clip one fullscreen row so cursor-up redraw accounting stays exact."""
+    clean = _safe_display(text)
+    cols = _selector_term_width() if terminal_width is None else int(terminal_width)
+    limit = max(1, cols - 2)
+    if _display_cell_width(clean) <= limit:
+        return clean
+    if limit == 1:
+        return "…"
+    out: list[str] = []
+    used = 0
+    target = limit - 1
+    for ch in clean:
+        w = 0 if unicodedata.combining(ch) else (2 if unicodedata.east_asian_width(ch) in {"W", "F"} else 1)
+        if used + w > target:
+            break
+        out.append(ch)
+        used += w
+    return "".join(out) + "…"
+
+
 def _selection_mark(index: int, selected: set[int], priorities: dict[int, int]) -> str:
     if index not in selected:
         return " "
@@ -545,6 +606,11 @@ def _render(items, cursor, selected, priorities, msg, prev):
     ]
     if msg:
         lines.append(_safe_display(msg))
+    # Fullscreen redraw counts logical rows. If a long filename wraps, the next
+    # cursor-up would land on the wrong physical row and duplicate/corrupt the
+    # selector. Clip every row to the live terminal width before rendering.
+    terminal_width = _selector_term_width()
+    lines = [_clip_selector_line(line, terminal_width) for line in lines]
     frame_height = max(prev, len(lines))
     if prev:
         sys.stdout.write(f"\x1b[{prev}F")
@@ -968,11 +1034,60 @@ def execute_items(root: Path, chosen: list[QueueItem]):
             return rc, executed, remaining, late_duplicates, duplicate_warnings
     return 0, executed, [], late_duplicates, duplicate_warnings
 
-def main(argv=None):
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--project-root", required=True)
-    ns = ap.parse_args(argv)
-    root = Path(ns.project_root).resolve()
+def _acquire_project_queue_lock(root: Path):
+    """Acquire one exclusive zero-argument queue session per project.
+
+    Duplicate-local correctness depends on discovery and launch being serialized:
+    without a project-local lock, two task invocations can both scan before the
+    first PATCH is archived and execute the same package concurrently.
+    """
+    if fcntl is None:
+        return None, "project queue locking is unavailable on this platform"
+    lock_path = root / "patchs" / ".ptv_queue.lock"
+    handle = None
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = lock_path.open("a+", encoding="utf-8")
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            handle.seek(0)
+            handle.truncate()
+            handle.write(f"pid={os.getpid()}\n")
+            handle.flush()
+        except OSError:
+            pass
+        return handle, None
+    except BlockingIOError:
+        try:
+            if handle is not None:
+                handle.close()
+        except Exception:
+            pass
+        return None, "another local Patch Tool queue session is already running"
+    except OSError as exc:
+        try:
+            if handle is not None:
+                handle.close()
+        except Exception:
+            pass
+        return None, f"project queue lock unavailable ({type(exc).__name__})"
+
+
+def _release_project_queue_lock(handle) -> None:
+    if handle is None:
+        return
+    try:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except Exception:
+        pass
+    try:
+        handle.close()
+    except Exception:
+        pass
+
+
+def _run_locked_queue(root: Path):
     items, warnings = discover_queue(root)
     items, local_duplicates, duplicate_warnings = _split_local_duplicate_patches(root, items)
     printed_warnings = set()
@@ -1048,6 +1163,23 @@ def main(argv=None):
     else:
         print(f"SUMMARY: PASS | {completed_count} item(s) completed")
     return 0
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--project-root", required=True)
+    ns = ap.parse_args(argv)
+    root = Path(ns.project_root).resolve()
+    lock_handle, lock_error = _acquire_project_queue_lock(root)
+    if lock_handle is None:
+        print(
+            f"[PTV v{VERSION} WARNING] BUSY: {_safe_display(lock_error or 'project queue lock unavailable')}; nothing executed.",
+            file=sys.stderr,
+        )
+        return getattr(os, "EX_TEMPFAIL", 75)
+    try:
+        return _run_locked_queue(root)
+    finally:
+        _release_project_queue_lock(lock_handle)
 
 
 if __name__ == "__main__":

@@ -27,10 +27,16 @@ required = {
     "tools/_patch_lib/docs/AI_USAGE_CONTRACT.md",
     "tools/_patch_lib/docs/PORTABLE_USAGE.md",
     "tools/_patch_lib/docs/PYTHON_PATCH_TOOL_FEATURE_STATUS.md",
-    "tools/_patch_lib/self_test_python_patch_tool_v6_9_1.py",
-    "tools/_patch_lib/self_test_local_duplicate_v6_9_1.py",
+    "tools/_patch_lib/self_test_python_patch_tool_v6_9_2.py",
+    "tools/_patch_lib/self_test_local_duplicate_v6_9_2.py",
 }
 assert required <= set(entries), sorted(required - set(entries))
+
+# The public entry point must stay directly executable after a clean unzip.
+# v6.9.1 accidentally shipped the launcher as 0644, which can turn the normal
+# ./tools/run_python_patches.sh workflow into Permission denied on a clean install.
+launcher = ROOT / "tools/run_python_patches.sh"
+assert launcher.stat().st_mode & 0o111, oct(launcher.stat().st_mode)
 
 actual_files: set[str] = set()
 for path in (ROOT / "tools").rglob("*"):
@@ -62,4 +68,4 @@ for rel, wanted in sorted(entries.items()):
     actual = hashlib.sha256(path.read_bytes()).hexdigest()
     assert actual == wanted, (rel, wanted, actual)
 
-print("PASS: v6.9.1 package SHA256SUMS validates clean releases and installed overlays")
+print("PASS: v6.9.2 package SHA256SUMS validates clean releases and installed overlays")

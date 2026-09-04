@@ -276,4 +276,53 @@ with tempfile.TemporaryDirectory(prefix='ptv681dup_late_main_') as td:
     assert second.is_file(), second
 
 
-print('PASS: v6.9.1 local-only SHA-256 duplicate PATCH skip contract')
+
+# Concurrent zero-argument sessions for the same project must never execute the
+# same PATCH twice. The project-local queue lock is acquired before discovery,
+# so a second session fails temporarily while the first one owns the queue.
+with tempfile.TemporaryDirectory(prefix='ptv692dup_concurrent_') as td:
+    root = Path(td)
+    tools = root / 'tools'
+    queue = root / 'patchs'
+    history = queue / 'patched'
+    tools.mkdir(parents=True)
+    history.mkdir(parents=True)
+    patch = queue / 'concurrent.zip'
+    make_patch(patch, 'concurrent-payload')
+    calls = root / 'calls.txt'
+    started = root / 'started.txt'
+    launcher = tools / 'run_python_patches.sh'
+    launcher.write_text(
+        '#!/usr/bin/env bash\n'
+        f'echo "$*" >> {str(calls)!r}\n'
+        f'echo started > {str(started)!r}\n'
+        'sleep 1\n'
+        'src="${2#patchs/}"\n'
+        'if [ -f "patchs/$src" ]; then mv "patchs/$src" "patchs/patched/$src"; fi\n'
+        'exit 0\n',
+        encoding='utf-8',
+    )
+    launcher.chmod(0o755)
+    p1 = subprocess.Popen(
+        [sys.executable, '-S', str(MOD), '--project-root', str(root)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    assert p1.stdin is not None
+    p1.stdin.write('\n'); p1.stdin.flush()
+    import time
+    deadline=time.monotonic()+3
+    while not started.exists() and time.monotonic() < deadline:
+        time.sleep(0.03)
+    assert started.exists(), 'first queue session never launched patch'
+    p2 = subprocess.run(
+        [sys.executable, '-S', str(MOD), '--project-root', str(root)],
+        input='\n', text=True, capture_output=True, timeout=5,
+    )
+    out1, err1 = p1.communicate(timeout=5)
+    assert p1.returncode == 0, (p1.returncode, out1, err1)
+    assert p2.returncode == getattr(os, 'EX_TEMPFAIL', 75), (p2.returncode,p2.stdout,p2.stderr)
+    assert 'BUSY:' in p2.stderr and 'nothing executed' in p2.stderr, p2.stderr
+    invoked = calls.read_text(encoding='utf-8').splitlines()
+    assert len(invoked) == 1 and 'concurrent.zip' in invoked[0], invoked
+
+print('PASS: v6.9.2 local-only SHA-256 duplicate PATCH skip contract')

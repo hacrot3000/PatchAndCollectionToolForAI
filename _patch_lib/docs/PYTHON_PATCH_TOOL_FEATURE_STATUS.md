@@ -1,4 +1,4 @@
-# Python Patch Tool v6.9.1 feature status
+# Python Patch Tool v6.9.2 feature status
 
 | Capability | Status |
 |---|---|
@@ -38,7 +38,7 @@
 | Real large-project COLLECT validation | PENDING USER RUNTIME EVIDENCE |
 | Phase-inference refinement | DEFERRED unless real COLLECT output demonstrates missing/poor markers |
 
-v6.9.1 is a regression-only PATCH over the v6.9.0 selector-priority baseline.
+v6.9.2 is a regression-only PATCH over the v6.9.0 selector-priority baseline.
 It does not start an unrelated feature group. Duplicate-local behavior remains
 project-local: a PATCH that ran on one computer is still runnable on another
 unless that second project root contains the same package bytes in its own
@@ -67,7 +67,7 @@ unless that second project root contains the same package bytes in its own
 - This extends the existing selector only; the non-TTY line selector retains
   its historical numeric item-index grammar to avoid a breaking ambiguity.
 
-## v6.9.1 regression repair
+## v6.9.2 regression repair
 
 - PASS summary counts executed items separately from `[SKIPPED:DUPLICATE_LOCAL]` items.
 - HANDOFF/tool-distribution ZIP identity is resolved before COLLECT request
@@ -80,7 +80,22 @@ unless that second project root contains the same package bytes in its own
 - No new capability was added.
 
 
-V6.9.1 in-place boundary hardening:
+V6.9.2 in-place boundary hardening:
   Historical/short PATCH execution flags such as `-a -y --move` are treated as
   execution-capable and receive `--transaction off`. Only documented read-only
   utility routes (`paths`, help, version) bypass the execution-only argument.
+
+## v6.9.2 regression repair
+
+- Fullscreen selector rows are clipped by live terminal **cell width** with a
+  two-cell safety margin. Long OTA/NFC filenames and CJK/full-width text can no
+  longer wrap into extra physical rows and corrupt cursor-up redraw accounting.
+- Zero-argument queue discovery/execution is protected by a project-local
+  advisory lock. Two simultaneous tool sessions in the same project cannot
+  both scan and execute the same PATCH before local history is updated.
+- Lock contention is fail-closed as `BUSY` / temporary failure; the lock is
+  project-local only, so another project or another machine remains independent.
+- Selector priority `0..9`, local SHA-256 duplicate semantics, COLLECT routing,
+  and all v6.9.1 in-place/SANDBOX guards are otherwise unchanged.
+
+- Release packaging preserves executable mode on `tools/run_python_patches.sh`; clean extraction is tested before release.
