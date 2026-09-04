@@ -1,0 +1,44 @@
+name: Apply live status cursor hotfix
+
+on:
+  push:
+    branches:
+      - ptv-v6.20.2-upload-helper
+    paths:
+      - .github/workflows/apply-live-status-hotfix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout work branch
+        uses: actions/checkout@v4
+        with:
+          ref: ptv-v6.20.2-hardening-work
+          fetch-depth: 0
+
+      - name: Apply tested hotfix and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=6a17d86b2ca5426989480312102f2a5bd87f503c
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected" || { echo "Unexpected work branch HEAD: $actual"; exit 2; }
+
+          git fetch origin ptv-v6.20.2-upload-helper
+          git show origin/ptv-v6.20.2-upload-helper:.ptv_upload/07_live_status_cursor.patch > /tmp/live-status.patch
+          git apply --check /tmp/live-status.patch
+          git apply /tmp/live-status.patch
+
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_history_live_status_v6_20_0.py
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_result_clarity_v6_20_0.py
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/self_test_batch_reporting_v6_20_0.py
+
+          git config user.name "Patch Tool CI"
+          git config user.email "patch-tool-ci@users.noreply.github.com"
+          git add _patch_lib/python_patch_queue_dispatcher.py _patch_lib/self_test_history_live_status_v6_20_0.py
+          git commit -m "fix: preserve cursor when closing live status panel"
+          git push origin HEAD:ptv-v6.20.2-hardening-work
