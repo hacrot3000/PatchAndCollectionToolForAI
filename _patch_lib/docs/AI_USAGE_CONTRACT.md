@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.12.0
+# AI / ChatGPT usage contract — Python Patch Tool v6.12.1
 
 This document overrides obsolete v5/v6.11 COLLECT examples and older chat instructions.
 
@@ -21,6 +21,10 @@ The user should send AI **all files under `tools/_patch_lib/docs/`**. When Patch
 
 AI must read the current docs before creating PATCH/COLLECT artifacts.
 
+### User-guide boundary
+
+`tools/HUONG_DAN_PYTHON_PATCH_TOOL.html` is intentionally user-oriented and must **not** expose or require the user to understand the internal COLLECT action list/schema. Keep action names, validation fields, and request construction rules in the AI-facing docs under `tools/_patch_lib/docs/`. The AI chooses/constructs the request; the user only places the returned request ZIP in `patchs/`, runs the normal launcher, and uploads the highlighted result ZIP.
+
 ## Authoritative COLLECT action schema
 
 The machine-readable source of truth is:
@@ -29,7 +33,7 @@ The machine-readable source of truth is:
 tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json
 ```
 
-v6.12.0 is self-contained and guarantees exactly these readonly actions:
+v6.12.1 is self-contained and guarantees exactly these readonly actions:
 
 - `pack`
 - `overview`
@@ -37,7 +41,7 @@ v6.12.0 is self-contained and guarantees exactly these readonly actions:
 - `search`
 - `git`
 
-Do not invent or alias an unsupported action. Historical names such as `research`, `content`, `search_files`, `symbol_graph`, `references`, `callgraph`, `dependencies`, or `decompile` are **not part of the v6.12.0 contract** unless a future schema explicitly adds them.
+Do not invent or alias an unsupported action. Historical names such as `research`, `content`, `search_files`, `symbol_graph`, `references`, `callgraph`, `dependencies`, or `decompile` are **not part of the v6.12.1 contract** unless a future schema explicitly adds them.
 
 ### `pack`
 
@@ -53,7 +57,7 @@ Exact regular files only; no absolute paths, `..`, globs, directories or symlink
 {"type":"overview","path":".","tree_depth":3}
 ```
 
-Produces a bounded project/file-type/tree overview. This is a real supported action in v6.12.0; it is no longer guessed/delegated to an unknown private collector.
+Produces a bounded project/file-type/tree overview. This is a real supported action in v6.12.1; it is no longer guessed/delegated to an unknown private collector.
 
 ### `find`
 
@@ -109,7 +113,7 @@ No cross-machine/server/project-key duplicate database is used.
 
 ## Self-contained package contract
 
-v6.12.0 ships its own:
+v6.12.1 ships its own:
 
 - `python_patch_runner.py`
 - `python_patch_utils.py`
@@ -117,7 +121,7 @@ v6.12.0 ships its own:
 - `python_patch_collect_compat.py`
 - dispatcher/progress/schema/docs
 
-The package therefore does not require an older private core for the documented v6.12.0 contract. Historical/ambiguous formats outside this contract fail closed instead of being guessed.
+The package therefore does not require an older private core for the documented v6.12.1 contract. Historical/ambiguous formats outside this contract fail closed instead of being guessed.
 
 ## Result ZIP
 

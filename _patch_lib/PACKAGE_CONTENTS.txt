@@ -1,4 +1,4 @@
-Python Patch Tool v6.12.0 full self-contained portable package
+Python Patch Tool v6.12.1 full self-contained portable package
 
 Public files:
   tools/run_python_patches.sh
@@ -21,7 +21,7 @@ Authoritative docs/schema:
   tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json
   tools/_patch_lib/docs/PORTABLE_USAGE.md
   tools/_patch_lib/docs/PYTHON_PATCH_TOOL_FEATURE_STATUS.md
-  tools/_patch_lib/docs/COLLECT_PROGRESS_V6_12_0.md
+  tools/_patch_lib/docs/COLLECT_PROGRESS_V6_12_1.md
 
 Integrity/tests:
   tools/_patch_lib/VERSION
@@ -29,8 +29,8 @@ Integrity/tests:
   tools/_patch_lib/self_test_*.py
 
 Normal use:
-  unzip -o python_patch_tool_v6.12.0.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.12.1.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
-v6.12.0 does not require an older private Patch Tool core for its documented contract.
+v6.12.1 does not require an older private Patch Tool core for its documented contract.
 Unsupported historical PATCH/COLLECT formats fail closed rather than being guessed.

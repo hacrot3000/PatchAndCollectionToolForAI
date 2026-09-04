@@ -16,7 +16,7 @@ import zipfile
 
 from python_patch_utils import PatchFailure, finish_failure, run_ops
 
-VERSION = "6.12.0"
+VERSION = "6.12.1"
 
 
 def _sha256(path: Path) -> str:
