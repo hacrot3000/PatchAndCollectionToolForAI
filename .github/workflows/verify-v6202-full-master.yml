@@ -32,6 +32,7 @@ jobs:
           mkdir -p /tmp/ptv-master/project/tools
           tar --exclude=.git --exclude='__pycache__' --exclude='*.pyc' -cf - . | tar -xf - -C /tmp/ptv-master/project/tools
           test "$(cat /tmp/ptv-master/project/tools/_patch_lib/VERSION)" = "6.20.2"
+          test -f /tmp/ptv-master/project/tools/_patch_lib/self_test_python_patch_tool_v6_20_0.py
 
       - name: Run complete self-contained regression suite
         shell: bash
@@ -40,7 +41,7 @@ jobs:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
           set -euo pipefail
-          python3 _patch_lib/self_test_all_v6_20_0.py
+          python3 _patch_lib/self_test_python_patch_tool_v6_20_0.py
 
       - name: Run final release gates
         shell: bash
