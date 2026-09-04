@@ -1,4 +1,4 @@
-Python Patch Tool v6.15.0 — full self-contained package
+Python Patch Tool v6.15.1 — full self-contained package
 
 Public files:
   tools/run_python_patches.sh
@@ -36,17 +36,17 @@ Runtime audit/recovery artifacts (created in the project, not shipped pre-popula
   patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip  # only when source-drift/anchor recovery is prepared
 
 Normal use — Linux/POSIX:
-  unzip -o python_patch_tool_v6.15.0.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.15.1.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 Normal use — Windows (Python 3.10+):
-  Expand-Archive -Force .\python_patch_tool_v6.15.0.zip PROJECT_ROOT
+  Expand-Archive -Force .\python_patch_tool_v6.15.1.zip PROJECT_ROOT
   tools\run_python_patches.bat
   # or: .\tools\run_python_patches.ps1
 
 PATCH execution remains IN-PLACE. SANDBOX/worktree transaction execution is permanently unsupported.
 
-v6.15.0 Windows portability patch:
+v6.15.1 Windows portability patch:
 - PowerShell 5.1+ launcher with Python 3.10+ discovery
 - CMD/BAT wrapper with process-local ExecutionPolicy bypass
 - exact zero-argument/PATCH/COLLECT routing parity with the POSIX launcher
@@ -56,7 +56,7 @@ v6.15.0 Windows portability patch:
 
 v6.14.1 robustness invariants remain in force.
 
-v6.15.0 diagnostics + Windows parity patch:
+v6.15.1 diagnostics + Windows parity patch:
 - multi-error manifest lint with migration hints;
 - project-aware validate/inspect result classes and aggregate source drift evidence;
 - sequential data-only OPS dry-run on a temporary mirror before payload;
@@ -64,3 +64,10 @@ v6.15.0 diagnostics + Windows parity patch:
 - internal Windows dispatch uses sys.executable instead of the POSIX shell launcher;
 - Windows process-tree timeout/Ctrl+C containment and reparse-point safety;
 - native Windows fullscreen selector with safe line fallback.
+
+
+v6.15.1 output clarity patch:
+- local-history duplicate PATCH is reported once then moved to patchs/ignore/YYYY-MM-DD-<original-name>
+- final PASS output re-highlights the most recently completed PATCH name
+- final PATCH failure emits a red-background/yellow-text terminal banner with plain-text fallback
+- FAIL_HANDOFF/recovery ZIP path reporting remains unchanged

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Hướng dẫn Python Patch Tool v6.15.0</title>
+<title>Hướng dẫn Python Patch Tool v6.15.1</title>
 <style>
 :root{color-scheme:light dark}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:980px;margin:32px auto;padding:0 18px;line-height:1.55;color:#1f2328;background:#fff}
@@ -27,16 +27,16 @@ h1,h2{line-height:1.25}
 </style>
 </head>
 <body>
-<h1>Python Patch Tool v6.15.0 — hướng dẫn nhanh</h1>
+<h1>Python Patch Tool v6.15.1 — hướng dẫn nhanh</h1>
 
 <h2>1. Cài đặt / cập nhật</h2>
 <p><strong>Linux / POSIX:</strong></p>
-<pre>unzip -o python_patch_tool_v6.15.0.zip -d "$PWD"
+<pre>unzip -o python_patch_tool_v6.15.1.zip -d "$PWD"
 cat tools/_patch_lib/VERSION</pre>
 <p><strong>Windows PowerShell:</strong> cần Python <strong>3.10+</strong>.</p>
-<pre>Expand-Archive -Force .\python_patch_tool_v6.15.0.zip .
+<pre>Expand-Archive -Force .\python_patch_tool_v6.15.1.zip .
 Get-Content .\tools\_patch_lib\VERSION</pre>
-<p>Kết quả version phải là <code>6.15.0</code>.</p>
+<p>Kết quả version phải là <code>6.15.1</code>.</p>
 
 <h2>2. Chạy công cụ</h2>
 <p><strong>Linux / POSIX:</strong></p>
@@ -109,10 +109,11 @@ The user runs the zero-argument launcher for the OS: Linux ./tools/run_python_pa
 <li>Nhận và chạy PATCH theo một quy trình thống nhất, in-place, không dùng SANDBOX/worktree.</li>
 <li>Cho phép chọn nhiều PATCH và đặt thứ tự ưu tiên bằng số <code>0..9</code>.</li>
 <li>Tự phát hiện PATCH trùng bytes/checksum trong cùng queue, giữ một bản và loại bản dư.</li>
-<li>Tự bỏ qua PATCH đã có exact checksum trong lịch sử local của project.</li>
+<li>PATCH đã có exact checksum trong lịch sử local chỉ được báo bỏ qua <strong>một lần</strong>, sau đó chuyển sang <code>patchs/ignore/YYYY-MM-DD-&lt;tên file gốc&gt;</code> nên lần chạy sau không hỏi lại.</li>
 <li>Khi AI cần thêm source, tool thu thập dữ liệu read-only và chỉ rõ một ZIP cần upload lại cho AI.</li>
 <li>Fail-closed với package/request không đúng contract để tránh chạy nhầm.</li>
 <li>Release tự chứa runtime cần thiết cho contract hiện hành; không cần private core cũ.</li>
+<li>Cuối mỗi PATCH, tên file vừa chạy được highlight lại; nếu FAIL sẽ có banner cảnh báo nổi bật, terminal hỗ trợ màu sẽ dùng nền đỏ/chữ vàng. Đường dẫn FAIL_HANDOFF/ZIP vẫn hiển thị như trước.</li>
 </ul>
 
 <h2>7. Quy trình thông thường khi dùng cùng Chat AI</h2>

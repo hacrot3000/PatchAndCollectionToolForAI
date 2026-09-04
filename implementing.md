@@ -1,11 +1,11 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.15.0**  
-Trạng thái: **DIAGNOSTICS + WINDOWS ROBUSTNESS + WINDOWS FULLSCREEN SELECTOR — COMPLETE / STOP**
+Phiên bản mục tiêu: **v6.15.1**  
+Trạng thái: **OUTPUT CLARITY + SKIP-ONCE IGNORE LIFECYCLE — COMPLETE / STOP**
 
 ## Baseline
 
-Baseline kỹ thuật: **v6.14.2**. Release này giữ nguyên PATCH/COLLECT contract fail-closed, in-place execution và zero-argument workflow; không đưa SANDBOX/worktree trở lại.
+Baseline kỹ thuật: **v6.15.0**. Release này chỉ tinh gọn lifecycle/output sau chạy; giữ nguyên PATCH/COLLECT contract fail-closed, in-place execution, diagnostics, Windows parity và zero-argument workflow.
 
 ## Acceptance / task status
 
@@ -28,6 +28,15 @@ Baseline kỹ thuật: **v6.14.2**. Release này giữ nguyên PATCH/COLLECT con
 - `inspect` and `validate` are read-only. Result classes are `READY_TO_APPLY`, `PATCH_INVALID`, `SOURCE_DRIFT`, or `TOOL_ERROR`.
 - Normal execution always performs the same preflight again immediately before payload; a previous validate result is never trusted as an execution bypass.
 - Recovery COLLECT requests use only structured `affected_paths` that are safe readable current-source files.
+
+## v6.15.1 output clarity acceptance
+
+- `SKIPPED:DUPLICATE_LOCAL` được báo đúng một record trong invocation hiện tại rồi chuyển khỏi runnable queue sang `patchs/ignore/YYYY-MM-DD-<tên-file-gốc>`. Lần chạy sau `patchs/ignore/` không được discovery nên không hỏi/báo lại file đó.
+- Move-to-ignore xác minh lại exact SHA-256 sau khi isolate input; `patchs/ignore` phải là real project-local directory. Collision được xử lý bằng tên date-prefixed unique mà không ghi đè file người dùng.
+- Các item **chưa chạy do fail-fast** không phải duplicate skip và vẫn nằm trong `patchs/` để resume.
+- PASS kết thúc bằng banner `PATCH COMPLETED` + tên PATCH vừa chạy ở cuối output.
+- FAIL kết thúc bằng banner `PATCH FAILED` + tên PATCH/rc; khi terminal hỗ trợ ANSI/VT, banner dùng **nền đỏ + chữ vàng đậm**. Redirect/log dùng plain-text fallback để không chèn escape sequence.
+- FAIL_HANDOFF, recovery COLLECT request và các path ZIP vẫn giữ nguyên contract/đường dẫn hiện hành.
 
 ## Public commands
 

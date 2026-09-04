@@ -16,4 +16,4 @@ assert 'CREATE_NEW_PROCESS_GROUP' in R
 assert 'taskkill' in R and '"/T"' in R and '"/F"' in R
 assert 'path_is_link_or_reparse' in S and 'FILE_ATTRIBUTE_REPARSE_POINT' in S
 assert 'Python 3.10+' in PS and 'ExecutionPolicy Bypass' in BAT
-print('PASS: v6.15.0 Windows native internal routing, fullscreen input, process-tree containment and reparse safety contracts')
+print('PASS: v6.15.1 Windows native internal routing, fullscreen input, process-tree containment and reparse safety contracts')

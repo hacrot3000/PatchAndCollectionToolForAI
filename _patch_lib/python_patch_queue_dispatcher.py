@@ -35,7 +35,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.15.0"
+VERSION = "6.15.1"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -65,6 +65,7 @@ class LocalDuplicate:
     item: QueueItem
     history_name: str
     sha256: str
+    ignored_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -923,9 +924,10 @@ def _split_local_duplicate_patches(root: Path, items: list[QueueItem]):
     SHA-256 is the authority, so a renamed copy is still a duplicate while a
     same-named package with different bytes remains runnable.
 
-    Duplicate queue files are left untouched in ``patchs/``.  This mirrors an
-    unselected item: the tool skips execution but does not delete or archive
-    user input merely because a local historical copy exists.
+    Exact local-history duplicates are excluded from execution.  The caller
+    immediately moves each confirmed duplicate into ``patchs/ignore`` so the
+    same skipped input is reported once and cannot be offered again on the
+    next zero-argument run.
     """
     queue_dir = root / "patchs"
     history_dir = queue_dir / "patched"
@@ -1032,6 +1034,105 @@ def _split_local_duplicate_patches(root: Path, items: list[QueueItem]):
     return runnable, duplicates, warnings
 
 
+
+def _restore_ignore_guard(queue_dir: Path, source: Path, guard: Path) -> str | None:
+    if not guard.exists() and not guard.is_symlink():
+        return None
+    try:
+        if not source.exists() and not source.is_symlink():
+            os.replace(guard, source)
+            return None
+        preserved = queue_dir / f"PTV_UNEXPECTED_IGNORE_REPLACEMENT_{time.time_ns()}_{source.name}"
+        os.replace(guard, preserved)
+        return f"original duplicate preserved as patchs/{preserved.name} because patchs/{source.name} changed concurrently"
+    except OSError as exc:
+        return f"could not restore isolated duplicate patchs/{source.name} ({type(exc).__name__})"
+
+
+def _reserve_ignore_target(ignore_dir: Path, original_name: str, digest: str) -> tuple[Path, bool]:
+    """Return a collision-safe ignore target and whether identical content already exists."""
+    date_prefix = datetime.now().strftime("%Y-%m-%d")
+    for index in range(1, 10000):
+        prefix = date_prefix if index == 1 else f"{date_prefix}-{index}"
+        target = ignore_dir / f"{prefix}-{original_name}"
+        try:
+            if target.is_symlink():
+                continue
+            if target.is_file():
+                try:
+                    if _sha256_file(target) == digest:
+                        return target, True
+                except OSError:
+                    pass
+                continue
+            fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(fd)
+            return target, False
+        except FileExistsError:
+            continue
+    raise RuntimeError("could not reserve a unique patchs/ignore filename")
+
+
+def _move_local_duplicates_to_ignore(root: Path, duplicates: list[LocalDuplicate]):
+    """Atomically retire confirmed local-history duplicates from the runnable queue."""
+    if not duplicates:
+        return [], []
+    queue_dir = root / "patchs"
+    ignore_dir = queue_dir / "ignore"
+    warnings: list[str] = []
+    moved: list[LocalDuplicate] = []
+    try:
+        if queue_dir.is_symlink() or not queue_dir.is_dir():
+            raise RuntimeError("patchs/ is not a real directory")
+        if ignore_dir.exists() or ignore_dir.is_symlink():
+            if ignore_dir.is_symlink() or not ignore_dir.is_dir():
+                raise RuntimeError("patchs/ignore is a symlink/non-directory")
+        else:
+            ignore_dir.mkdir(parents=False, exist_ok=False)
+        resolved_root = root.resolve(strict=True)
+        resolved_queue = queue_dir.resolve(strict=True)
+        resolved_ignore = ignore_dir.resolve(strict=True)
+        if resolved_queue.parent != resolved_root or resolved_ignore.parent != resolved_queue:
+            raise RuntimeError("patchs/ignore escapes project-local patchs/")
+    except (OSError, RuntimeError) as exc:
+        return list(duplicates), [f"could not initialize patchs/ignore: {exc}"]
+
+    for duplicate in duplicates:
+        source = queue_dir / duplicate.item.name
+        guard = queue_dir / f".ptv-ignore-guard-{os.getpid()}-{time.time_ns()}-{duplicate.item.name}"
+        target: Path | None = None
+        identical_existing = False
+        try:
+            if source.is_symlink() or not source.is_file():
+                raise RuntimeError("queue duplicate disappeared or became unsafe before ignore move")
+            os.replace(source, guard)
+            if guard.is_symlink() or not guard.is_file():
+                raise RuntimeError("isolated duplicate is not a regular file")
+            if _sha256_file(guard) != duplicate.sha256:
+                raise RuntimeError("queue duplicate changed after duplicate detection")
+            target, identical_existing = _reserve_ignore_target(ignore_dir, duplicate.item.name, duplicate.sha256)
+            if identical_existing:
+                guard.unlink()
+            else:
+                # target is our exclusive zero-byte reservation; replacing it cannot overwrite user content.
+                os.replace(guard, target)
+            moved.append(LocalDuplicate(duplicate.item, duplicate.history_name, duplicate.sha256, target.name))
+        except Exception as exc:
+            if target is not None and not identical_existing:
+                try:
+                    if target.is_file() and target.stat().st_size == 0:
+                        target.unlink()
+                except OSError:
+                    pass
+            restore_warning = _restore_ignore_guard(queue_dir, source, guard)
+            detail = f"could not move skipped duplicate patchs/{duplicate.item.name} into patchs/ignore ({type(exc).__name__}: {exc})"
+            if restore_warning:
+                detail += f"; {restore_warning}"
+            warnings.append(detail)
+            moved.append(duplicate)
+    return moved, warnings
+
+
 def _print_local_duplicate_skips(duplicates: list[LocalDuplicate], *, stream=None) -> None:
     if not duplicates:
         return
@@ -1046,6 +1147,13 @@ def _print_local_duplicate_skips(duplicates: list[LocalDuplicate], *, stream=Non
             f"   Local match: patchs/patched/{_safe_display(duplicate.history_name)}",
             file=out,
         )
+        if duplicate.ignored_name:
+            print(
+                f"   Moved to ignore: patchs/ignore/{_safe_display(duplicate.ignored_name)}",
+                file=out,
+            )
+        else:
+            print("   Ignore move: FAILED — file remains in patchs/", file=out)
 
 
 def discover_queue(root: Path):
@@ -1196,6 +1304,78 @@ def _enable_windows_vt() -> bool:
         return True
     except Exception:
         return False
+
+
+
+def _enable_windows_vt_stream(stream) -> bool:
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+        handle_id = -12 if stream is sys.stderr else -11
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(handle_id)
+        mode = ctypes.c_uint()
+        if handle in (0, -1) or not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+        return bool(kernel32.SetConsoleMode(handle, mode.value | 0x0004))
+    except Exception:
+        return False
+
+
+def _result_color_enabled(stream) -> bool:
+    if os.environ.get("NO_COLOR") is not None:
+        return False
+    if not bool(getattr(stream, "isatty", lambda: False)()):
+        return False
+    return _enable_windows_vt_stream(stream)
+
+
+def _print_patch_result_banner(status: str, patch_name: str | None, *, rc: int | None = None, stream=None) -> None:
+    if not patch_name:
+        return
+    out = stream or (sys.stderr if status == "FAIL" else sys.stdout)
+    # Handoff/recovery paths may have been written to stdout while FAIL summary
+    # uses stderr. Flush both streams so redirected combined logs preserve the
+    # intended order: paths first, high-visibility final banner last.
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+    safe_name = _safe_display(patch_name)
+    if status == "FAIL":
+        title = "!!! PATCH FAILED !!!"
+        detail = f"PATCH: {safe_name}" + (f" | rc={rc}" if rc is not None else "")
+        if _result_color_enabled(out):
+            style, reset = "\x1b[1;93;41m", "\x1b[0m"  # bold yellow on red background
+            print(f"{style}{title}{reset}", file=out)
+            print(f"{style}{detail}{reset}", file=out)
+        else:
+            print(title, file=out)
+            print(detail, file=out)
+        return
+    title = "=== PATCH COMPLETED ==="
+    detail = f"PATCH: {safe_name}"
+    if _result_color_enabled(out):
+        style, reset = "\x1b[1;96m", "\x1b[0m"  # bold bright cyan
+        print(f"{style}{title}{reset}", file=out)
+        print(f"{style}{detail}{reset}", file=out)
+    else:
+        print(title, file=out)
+        print(detail, file=out)
+
+
+def _last_patch_name(*, status: str | None = None) -> str | None:
+    for detail in reversed(_LAST_EXECUTION_DETAILS):
+        if detail.get("kind") != "PATCH":
+            continue
+        if status is not None and detail.get("status") != status:
+            continue
+        name = detail.get("name")
+        if isinstance(name, str) and name:
+            return name
+    return None
 
 
 def _selector_term_size() -> tuple[int, int]:
@@ -1908,10 +2088,16 @@ def execute_items(root: Path, chosen: list[QueueItem]):
                 if warning not in duplicate_warnings:
                     duplicate_warnings.append(warning)
             if now_duplicates:
+                now_duplicates, ignore_warnings = _move_local_duplicates_to_ignore(root, now_duplicates)
                 late_duplicates.extend(now_duplicates)
-                _LAST_EXECUTION_DETAILS.append({
+                duplicate_warnings.extend(x for x in ignore_warnings if x not in duplicate_warnings)
+                _print_local_duplicate_skips(now_duplicates)
+                detail = {
                     "name": item.name, "kind": item.kind, "status": "SKIPPED_DUPLICATE_LOCAL", "rc": 0,
-                })
+                }
+                if now_duplicates and now_duplicates[0].ignored_name:
+                    detail["ignore_path"] = f"patchs/ignore/{now_duplicates[0].ignored_name}"
+                _LAST_EXECUTION_DETAILS.append(detail)
                 continue
             if not still_runnable:
                 duplicate_warnings.append(
@@ -2001,12 +2187,16 @@ def _run_queue(root: Path):
         queue_safety_error = str(exc)
     items, session_duplicates, session_duplicate_warnings = _split_session_duplicate_patches(root, items)
     items, local_duplicates, duplicate_warnings = _split_local_duplicate_patches(root, items)
+    local_duplicates, ignore_warnings = _move_local_duplicates_to_ignore(root, local_duplicates)
+    duplicate_warnings = [*duplicate_warnings, *ignore_warnings]
     printed_warnings = set()
     for warning in [*warnings, *session_duplicate_warnings, *duplicate_warnings]:
         if warning in printed_warnings:
             continue
         printed_warnings.add(warning)
         print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}")
+    if local_duplicates:
+        _print_local_duplicate_skips(local_duplicates)
 
     def finish_report(status: str, rc: int, *, chosen: list[QueueItem] | None = None, executed=None, remaining=None, failed_item=None):
         chosen = chosen or []
@@ -2032,7 +2222,10 @@ def _run_queue(root: Path):
                 for d in session_duplicates
             ],
             "local_history_skipped": [
-                {"name": d.item.name, "history_name": d.history_name, "sha256": d.sha256}
+                {
+                    "name": d.item.name, "history_name": d.history_name, "sha256": d.sha256,
+                    "ignore_path": f"patchs/ignore/{d.ignored_name}" if d.ignored_name else None,
+                }
                 for d in local_duplicates
             ],
             "previous_resume_items": resume_items,
@@ -2049,10 +2242,8 @@ def _run_queue(root: Path):
         if session_duplicates:
             print("AUTO STATUS: IDLE — no new runnable package remains after duplicate filtering.")
             _print_session_duplicate_removals(session_duplicates)
-            _print_local_duplicate_skips(local_duplicates)
         elif local_duplicates:
-            print("AUTO STATUS: IDLE — no new runnable package; local duplicate PATCHes were skipped.")
-            _print_local_duplicate_skips(local_duplicates)
+            print("AUTO STATUS: IDLE — local duplicate PATCHes were moved to patchs/ignore; no runnable package remains.")
         else:
             print("AUTO STATUS: IDLE — no runnable patch/collect package is waiting in patchs/.")
         print_health(root, compact=True)
@@ -2077,14 +2268,10 @@ def _run_queue(root: Path):
     if chosen is None:
         print("Cancelled.")
         _print_session_duplicate_removals(session_duplicates)
-        if local_duplicates:
-            _print_local_duplicate_skips(local_duplicates)
         return finish_report("CANCELLED", 0)
     if not chosen:
         print("AUTO STATUS: IDLE — queue is empty or no runnable item remains; nothing executed.")
         _print_session_duplicate_removals(session_duplicates)
-        if local_duplicates:
-            _print_local_duplicate_skips(local_duplicates)
         return finish_report("IDLE", 0)
 
     rc, executed, remaining, late_duplicates, late_duplicate_warnings = execute_items(root, chosen)
@@ -2106,26 +2293,30 @@ def _run_queue(root: Path):
                 print(f"  - {_safe_display(item.name)}", file=sys.stderr)
         if session_duplicates:
             _print_session_duplicate_removals(session_duplicates, stream=sys.stderr)
-        if local_duplicates:
-            _print_local_duplicate_skips(local_duplicates, stream=sys.stderr)
+        _print_patch_result_banner("FAIL", _last_patch_name(status="FAIL"), rc=rc, stream=sys.stderr)
         return finish_report("FAIL", rc, chosen=chosen, executed=executed, remaining=remaining, failed_item=failed_name)
 
     if session_duplicates:
         _print_session_duplicate_removals(session_duplicates)
-    if local_duplicates:
-        _print_local_duplicate_skips(local_duplicates)
     completed_count = len(executed)
     session_duplicate_count = len(session_duplicates)
     local_duplicate_count = len(local_duplicates)
+    local_duplicate_moved = sum(1 for d in local_duplicates if d.ignored_name)
+    local_duplicate_move_failed = local_duplicate_count - local_duplicate_moved
     duplicate_count = session_duplicate_count + local_duplicate_count
     if duplicate_count:
+        suffix = (
+            f" | {local_duplicate_move_failed} ignore move failure(s)"
+            if local_duplicate_move_failed else ""
+        )
         print(
             f"SUMMARY: PASS | {completed_count} item(s) completed | "
             f"{session_duplicate_count} duplicate file(s) collapsed in-session | "
-            f"{local_duplicate_count} item(s) skipped from local history"
+            f"{local_duplicate_moved} local duplicate(s) moved to ignore{suffix}"
         )
     else:
         print(f"SUMMARY: PASS | {completed_count} item(s) completed")
+    _print_patch_result_banner("PASS", _last_patch_name(status="PASS"))
     return finish_report("PASS", 0, chosen=chosen, executed=executed)
 
 def main(argv=None):

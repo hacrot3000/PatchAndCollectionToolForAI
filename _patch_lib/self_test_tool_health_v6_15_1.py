@@ -8,7 +8,7 @@ TOOLS=HERE.parent
 
 spec=importlib.util.spec_from_file_location('ptv_health',HERE/'python_patch_health.py')
 h=importlib.util.module_from_spec(spec); sys.modules[spec.name]=h; spec.loader.exec_module(h)
-assert h.VERSION=='6.15.0'
+assert h.VERSION=='6.15.1'
 
 # The installed source tree itself must pass its managed-file/schema audit.
 root=TOOLS.parent
@@ -82,4 +82,4 @@ with tempfile.TemporaryDirectory(prefix='ptv614_health_idle_') as td:
     assert not list((proj/'tools').rglob('__pycache__')),list((proj/'tools').rglob('__pycache__'))
     assert not list((proj/'tools').rglob('*.pyc')),list((proj/'tools').rglob('*.pyc'))
 
-print('PASS: v6.15.0 zero-argument Tool Health self-audit detects install corruption and never executes PATCH')
+print('PASS: v6.15.1 zero-argument Tool Health self-audit detects install corruption and never executes PATCH')

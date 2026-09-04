@@ -16,20 +16,20 @@ for path in [TOOLS/'implementing.md',TOOLS/'PYTHON_PATCH_TOOL_FEATURES_VI.md',TO
     assert path.is_file(),path
 for phase in map(str,range(1,9)):
     assert f'| {phase} |' in impl,phase
-for phrase in ['DIAGNOSTICS + WINDOWS ROBUSTNESS','COMPLETE. DỪNG.','Multi-error','SOURCE_DRIFT','Windows fullscreen']:
+for phrase in ['OUTPUT CLARITY + SKIP-ONCE IGNORE LIFECYCLE','COMPLETE. DỪNG.','Multi-error','SOURCE_DRIFT','Windows fullscreen','patchs/ignore/YYYY-MM-DD','nền đỏ + chữ vàng']:
     assert phrase in impl,phrase
-for phrase in ['Fullscreen Windows selector','Multi-error schema lint','validate --patch','OPS sequential dry-run','taskkill /T /F','PATCH_PACKAGE_CHECKLIST.json']:
+for phrase in ['Fullscreen Windows selector','Multi-error schema lint','validate --patch','OPS sequential dry-run','taskkill /T /F','PATCH_PACKAGE_CHECKLIST.json','báo 1 lần rồi move','FAIL banner nền đỏ/chữ vàng']:
     assert phrase in features,phrase
-assert patch_schema['tool_version']=='6.15.0' and patch_schema['schema_version']==1
-assert checklist['tool_version']=='6.15.0' and 'READY_TO_APPLY' in checklist['result_classes']
-assert collect_schema['tool_version']=='6.15.0'
-for phrase in ['tools\\run_python_patches.bat','.\\tools\\run_python_patches.ps1','Python 3.10+','PATCH_PACKAGE_SCHEMA.json','PATCH_PACKAGE_CHECKLIST.json','source_baseline','FAIL_HANDOFF','v6.15.0 diagnostics contract']:
+assert patch_schema['tool_version']=='6.15.1' and patch_schema['schema_version']==1
+assert checklist['tool_version']=='6.15.1' and 'READY_TO_APPLY' in checklist['result_classes']
+assert collect_schema['tool_version']=='6.15.1'
+for phrase in ['tools\\run_python_patches.bat','.\\tools\\run_python_patches.ps1','Python 3.10+','PATCH_PACKAGE_SCHEMA.json','PATCH_PACKAGE_CHECKLIST.json','source_baseline','FAIL_HANDOFF','v6.15.1 diagnostics contract']:
     assert phrase in ai,phrase
 for phrase in ['tools\\run_python_patches.bat','.\\tools\\run_python_patches.ps1','Expand-Archive','Python 3.10+','fullscreen selector','validate --patch']:
     assert phrase in portable,phrase
 for phrase in ['Windows internal PATCH/COLLECT routing without Bash','Windows fullscreen selector','Multi-error manifest lint','Sequential data-only OPS dry-run']:
     assert phrase in status,phrase
-for phrase in ['Metadata-driven safe rollback','recovery.rollback.targets','Rollback path/runtime safety','Exact input lifecycle','v6.15.0 package lint / validate','source_baseline','READY_TO_APPLY']:
+for phrase in ['Metadata-driven safe rollback','recovery.rollback.targets','Rollback path/runtime safety','Exact input lifecycle','v6.15.1 package lint / validate','source_baseline','READY_TO_APPLY']:
     assert phrase in patch_guide,phrase
 # User HTML stays minimal; only user-facing launcher/selector/validate guidance is added.
 assert 'Action COLLECT' not in html and '<table' not in html.lower()
@@ -40,7 +40,8 @@ assert 'Tool Health' in html and '<code>h</code>' in html
 assert 'Python <strong>3.10+</strong>' in html
 assert 'tools\\run_python_patches.bat' in html and '.\\tools\\run_python_patches.ps1' in html
 assert 'validate --patch' in html and 'phím mũi tên/Space' in html
+assert 'patchs/ignore/YYYY-MM-DD-' in html and 'nền đỏ/chữ vàng' in html
 for prompt_id in ['prompt-vi','prompt-en','prompt-ru']:
     assert f'id="{prompt_id}"' in html and f"selectPrompt('{prompt_id}')" in html and f"copyPrompt('{prompt_id}',this)" in html
 assert html.count('>Select all</button>')==3 and html.count('>Copy</button>')==3
-print('PASS: v6.15.0 diagnostics, Windows parity docs, schemas/checklist and minimal user HTML contract')
+print('PASS: v6.15.1 diagnostics, Windows parity docs, schemas/checklist and minimal user HTML contract')

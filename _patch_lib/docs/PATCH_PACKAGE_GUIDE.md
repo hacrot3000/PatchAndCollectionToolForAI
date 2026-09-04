@@ -1,4 +1,4 @@
-# PATCH PACKAGE GUIDE — v6.15.0 authoritative AI/tool contract
+# PATCH PACKAGE GUIDE — v6.15.1 authoritative AI/tool contract
 
 Machine-readable source of truth:
 
@@ -36,9 +36,9 @@ Optional manifest block:
 ```json
 {
   "compatibility": {
-    "min_tool_version": "6.15.0",
+    "min_tool_version": "6.15.1",
     "max_tool_version": "7.0.0",
-    "max_tested_version": "6.15.0"
+    "max_tested_version": "6.15.1"
   }
 }
 ```
@@ -175,7 +175,7 @@ INSPECT RESULT: PASS — project unchanged
 
 No PATCH payload is executed and the package is not archived.
 
-## v6.15.0 package lint / validate
+## v6.15.1 package lint / validate
 
 Before delivering a PATCH, validate the manifest against `PATCH_PACKAGE_SCHEMA.json` and `PATCH_PACKAGE_CHECKLIST.json`. **Never invent `source_baseline`** or other legacy/custom fields. Source assumptions belong only in `preflight.files` using `path`, optional `exists`, `sha256`, and/or `anchors`.
 
@@ -202,4 +202,4 @@ Validation/inspect results use one of four classes:
 - `SOURCE_DRIFT` — current source SHA/existence/anchor or OPS match assumptions do not hold; project unchanged.
 - `TOOL_ERROR` — unexpected Patch Tool internal failure; project unchanged.
 
-Schema lint reports multiple independent manifest issues in one pass. Source preflight likewise aggregates declared file mismatches and includes expected/actual SHA where applicable. For data-only OPS packages, v6.15.0 simulates the sequential operation list on a private temporary mirror before execution; a missing/ambiguous source match fails before the real payload is allowed to write.
+Schema lint reports multiple independent manifest issues in one pass. Source preflight likewise aggregates declared file mismatches and includes expected/actual SHA where applicable. For data-only OPS packages, v6.15.1 simulates the sequential operation list on a private temporary mirror before execution; a missing/ambiguous source match fails before the real payload is allowed to write.

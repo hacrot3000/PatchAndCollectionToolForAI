@@ -64,14 +64,18 @@ with tempfile.TemporaryDirectory(prefix='ptv680dup_split_') as td:
     runnable_names = {x.name for x in runnable}
     assert 'same_name.zip' in runnable_names, runnable_names
     assert 'renamed_duplicate.zip' not in runnable_names, runnable_names
-    # Skip-only means the user's duplicate queue file is not moved/deleted.
-    assert duplicate.is_file(), duplicate
+    # v6.15.1 retires confirmed local duplicates into patchs/ignore immediately.
+    moved, move_warnings = m._move_local_duplicates_to_ignore(root, duplicates)
+    assert move_warnings == [], move_warnings
+    assert not duplicate.exists(), duplicate
+    assert moved[0].ignored_name.startswith('20') and moved[0].ignored_name.endswith('-renamed_duplicate.zip'), moved[0]
+    assert (queued / 'ignore' / moved[0].ignored_name).is_file(), moved[0]
 
     buf = io.StringIO()
     with redirect_stdout(buf):
-        m._print_local_duplicate_skips(duplicates)
+        m._print_local_duplicate_skips(moved)
     out = buf.getvalue()
-    assert out.count('renamed_duplicate.zip') == 1, out
+    assert out.count('[SKIPPED:DUPLICATE_LOCAL] renamed_duplicate.zip') == 1, out
     assert '[SKIPPED:DUPLICATE_LOCAL]' in out, out
     assert 'patchs/patched/historical_name.zip' in out, out
     assert 'SHA-256:' not in out, out
@@ -110,10 +114,16 @@ with tempfile.TemporaryDirectory(prefix='ptv680dup_e2e_only_') as td:
     )
     assert cp.returncode == 0, (cp.returncode, cp.stdout, cp.stderr)
     assert not calls.exists(), calls.read_text() if calls.exists() else ''
-    assert 'no new runnable package; local duplicate PATCHes were skipped' in cp.stdout, cp.stdout
+    assert 'local duplicate PATCHes were moved to patchs/ignore' in cp.stdout, cp.stdout
     assert '[SKIPPED:DUPLICATE_LOCAL] patch_again.zip' in cp.stdout, cp.stdout
-    assert cp.stdout.count('patch_again.zip') == 1, cp.stdout
-    assert duplicate.is_file(), duplicate
+    assert '[SKIPPED:DUPLICATE_LOCAL] patch_again.zip' in cp.stdout, cp.stdout
+    ignored = list((queue / 'ignore').glob('*-patch_again.zip'))
+    assert len(ignored) == 1, ignored
+    assert not duplicate.exists(), duplicate
+    # A second zero-argument run must not report/offer the retired duplicate again.
+    cp2 = subprocess.run([sys.executable, '-S', str(MOD), '--project-root', str(root)], text=True, capture_output=True, timeout=15)
+    assert cp2.returncode == 0, (cp2.stdout, cp2.stderr)
+    assert 'patch_again.zip' not in cp2.stdout + cp2.stderr, (cp2.stdout, cp2.stderr)
 
 
 # Mixed queue: the duplicate is excluded before selection; the sole new PATCH
@@ -155,7 +165,10 @@ with tempfile.TemporaryDirectory(prefix='ptv680dup_e2e_mixed_') as td:
     assert 'new_patch.zip' in invoked[0], invoked
     assert 'duplicate.zip' not in invoked[0], invoked
     assert '[SKIPPED:DUPLICATE_LOCAL] duplicate.zip' in cp.stdout, cp.stdout
-    assert duplicate.is_file(), duplicate
+    assert not duplicate.exists(), duplicate
+    ignored = list((queue / 'ignore').glob('*-duplicate.zip'))
+    assert len(ignored) == 1, ignored
+    assert cp.stdout.count('[SKIPPED:DUPLICATE_LOCAL] duplicate.zip') == 1, cp.stdout
 
 
 # Local-only invariant: the same bytes in another project/machine-like root are
@@ -196,7 +209,7 @@ with tempfile.TemporaryDirectory(prefix='ptv681dup_symlink_project_') as project
     assert duplicates == [], duplicates
     assert any('patchs/patched/ is a symlink' in x for x in warnings), warnings
 
-# v6.15.0 hardens the whole queue boundary: patchs/ itself must never be a
+# v6.15.1 hardens the whole queue boundary: patchs/ itself must never be a
 # symlink, because otherwise PATCH/COLLECT execution and archive lifecycle can
 # cross into another project/shared directory. Discovery fails closed.
 with tempfile.TemporaryDirectory(prefix='ptv681dup_queue_project_') as project_td, tempfile.TemporaryDirectory(prefix='ptv681dup_queue_shared_') as shared_td:
@@ -251,7 +264,9 @@ with tempfile.TemporaryDirectory(prefix='ptv681dup_late_') as td:
     assert warnings == [], warnings
     invoked = calls.read_text(encoding='utf-8').splitlines()
     assert len(invoked) == 1 and 'first.zip' in invoked[0], invoked
-    assert second.is_file(), second
+    assert not second.exists(), second
+    ignored = list((queue / 'ignore').glob('*-second.zip'))
+    assert len(ignored) == 1, ignored
 
 
 # End-to-end current-session duplicate collapse: byte-identical queue files
@@ -310,7 +325,7 @@ with tempfile.TemporaryDirectory(prefix='ptv612_session_three_') as td:
     assert a.is_file() and c.is_file() and not warns,warns
 
 
-# v6.15.0 deliberately has no project/process queue lock. Independent terminal
+# v6.15.1 deliberately has no project/process queue lock. Independent terminal
 # windows are operator-controlled and must not be rejected as BUSY. A stale
 # .ptv_queue.lock from an older release is ignored and is never created by this
 # dispatcher.
@@ -342,4 +357,4 @@ with tempfile.TemporaryDirectory(prefix='ptv610_no_process_lock_') as td:
     invoked=calls.read_text(encoding='utf-8').splitlines()
     assert len(invoked)==2,invoked
 
-print('PASS: v6.15.0 current-session duplicate collapse plus local-history duplicate contract')
+print('PASS: v6.15.1 current-session duplicate collapse plus local-history duplicate contract')
