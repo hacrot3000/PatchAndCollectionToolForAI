@@ -1,4 +1,4 @@
-Python Patch Tool v6.17.4 — full self-contained package
+Python Patch Tool v6.17.7 — full self-contained package
 
 Public launchers / user docs:
   tools/run_python_patches.sh
@@ -12,6 +12,7 @@ Public launchers / user docs:
 Self-contained runtime:
   tools/_patch_lib/python_patch_queue_dispatcher.py
   tools/_patch_lib/python_patch_batch.py
+  tools/_patch_lib/python_patch_project_state.py
   tools/_patch_lib/python_patch_runner.py
   tools/_patch_lib/python_patch_ops_worker.py
   tools/_patch_lib/python_patch_utils.py
@@ -38,6 +39,8 @@ Runtime artifacts (created in project; not shipped pre-populated):
   artifacts/patch_tool/LAST_RUN.json
   artifacts/patch_tool/history/*.json
   artifacts/patch_tool/PINNED_RUNS.json
+  artifacts/patch_tool/UNRESOLVED_FAILURES.json
+  artifacts/patch_tool/PATCH_LEDGER.json
   artifacts/patch_tool/runs/<run_id>/SUMMARY.txt
   artifacts/patch_tool/runs/<run_id>/batch.log
   artifacts/patch_tool/runs/<run_id>/items/*.log
@@ -49,16 +52,22 @@ Runtime artifacts (created in project; not shipped pre-populated):
   patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip
 
 Normal use — Linux/POSIX:
-  unzip -o python_patch_tool_v6.17.4.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.17.7.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 Normal use — Windows (Python 3.10+):
-  Expand-Archive -Force .\python_patch_tool_v6.17.4.zip PROJECT_ROOT
+  Expand-Archive -Force .\python_patch_tool_v6.17.7.zip PROJECT_ROOT
   tools\run_python_patches.bat
   # or: .\tools\run_python_patches.ps1
 
-v6.17.4 controlled batch engine:
-- failure_policy=fail_fast remains default; continue_independent continues only after a proven-safe failure;
+v6.17.6 recovery/data-integrity hardening:
+- cross-run retry/delete/run-after binds exact `requeued_as` + recorded package SHA instead of trusting a reused historical filename;
+- exact rollback replay survives duplicate-history/session suppression only when LAST_RUN proves the same replay filename + SHA;
+- failed unbounded/no-target PATCHes do not treat a Git-clean fingerprint as proof of no modification; ignored-file changes remain safety-unknown;
+- unsafe queue/artifact/lock filesystem boundaries fail closed with a concise rc=2 instead of escaping as an unhandled traceback.
+
+v6.17.6 controlled batch engine:
+- failure_policy=continue_independent is default; fail_fast remains explicit opt-in; contained independent PATCHes continue after FAIL;
 - dependency order uses existing manifest.patch.id plus batch.depends_on; failed dependencies default to BLOCKED;
 - successor after unresolved FAIL must declare batch.previous_failure action: delete/retry_before/run_after/block + reason;
 - whole-batch read-only preflight runs before first source write; dependent SOURCE_DRIFT may defer until predecessor runs;
@@ -66,7 +75,8 @@ v6.17.4 controlled batch engine:
 - planned package metadata is SHA-bound to exact queue bytes and reverified at batch snapshot + immediately before child spawn; changed/missing packages fail before payload;
 - replay package snapshots carry SHA/size metadata and are reverified before atomic no-overwrite requeue;
 - mutation locks reject symlink/reparse redirection; Patch Tool artifact subdirectories are real-dir checked and FAIL_HANDOFF can fall back to the hardened artifact root;
-- Smart Resume supports all/failed/remaining and includes PASS items rolled back by an atomic batch;
+- Smart Resume uses Up/Down + live descriptions; supports all/failed/remaining plus failed-PATCH multi-select Retry/COLLECT/Delete;
+- runtime failed-target overlap blocks related successors while independent PATCHes continue; static preflight conflict analyzer remains out of scope;
 - PATCH source mutation is serialized per project to prevent lost read-modify-write updates;
 - batch replay requeue is atomic no-overwrite; source-rollback PASS + replay requeue failure is reported as REQUEUE_FAILED (rc=71);
 - OPS is timeout-contained and source writes are atomic; Git auto-commit refuses pre-dirty targets before staging and restores tool-owned staging if commit fails;
@@ -76,7 +86,17 @@ v6.17.4 controlled batch engine:
 - native Windows runtime lane is shipped as tools/run_windows_native_tests.ps1 and must be executed on a real Windows host for a native PASS claim.
 
 Explicitly NOT IMPLEMENTED by requirement:
-- Target-overlap/conflict analyzer.
+- Static target-overlap/conflict analyzer before execution (runtime failed-target overlap guard is implemented).
 - Patch provenance / identity subsystem. Dependency uses the existing manifest.patch.id only.
 
 PATCH execution remains IN-PLACE. SANDBOX/worktree transaction execution is permanently unsupported.
+
+v6.17.7 project/planning state:
+- .python_patch_tool.json project.key is enforced when a PATCH declares manifest.project.key.
+- validation.profiles resolve only trusted local validation_profiles commands.
+- UNRESOLVED_FAILURES.json persists unresolved PATCH failures across LAST_RUN replacement.
+- PATCH_LEDGER.json records local patch.id + SHA history and detects ID reuse.
+- plan is read-only, analyzes effective-target conflicts and previews OPS on a private mirror.
+- plan --export-recipe / run --recipe provide exact SHA-bound batch replay.
+- resource preflight checks project/temp free space before PATCH source write.
+- selector '/' filters by filename/id/summary/effective target; 'p' previews current PATCH.

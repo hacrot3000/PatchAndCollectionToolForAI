@@ -10,7 +10,7 @@ import shutil
 import stat
 from typing import Any
 
-VERSION = "6.17.4"
+VERSION = "6.17.7"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "PATCH_PACKAGE_SCHEMA.json"
 _HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 _SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
@@ -475,6 +475,34 @@ def run_preflight(
         "target_paths": [],
     }
     checks: list[dict[str, Any]] = report["checks"]
+
+    # Project identity and named validation profiles are local-policy contracts.
+    # PATCH packages may request them, but may not define the executable command.
+    try:
+        from python_patch_project_state import (
+            ProjectStateError, enforce_project_identity, resolve_validation_profiles,
+        )
+        project_check = enforce_project_identity(root, manifest)
+        if project_check is not None:
+            checks.append(project_check)
+        resolved_profiles = resolve_validation_profiles(root, manifest)
+        if resolved_profiles:
+            for profile_index, profile in enumerate(resolved_profiles):
+                try:
+                    _check_command(root, profile, profile_index)
+                except PatchSchemaError as exc:
+                    raise PatchSchemaError(
+                        str(exc).replace(f"post_patch.commands[{profile_index}]", f"validation profile {profile.get('name','?')}"),
+                        kind=exc.kind, path=exc.path, issues=exc.issues, report=exc.report,
+                    ) from exc
+            report["validation_profiles"] = [{"name": str(x.get("name"))} for x in resolved_profiles]
+            report["_resolved_validation_profiles"] = resolved_profiles
+            checks.append({
+                "kind": "validation_profiles", "status": "PASS",
+                "profiles": [str(x.get("name")) for x in resolved_profiles],
+            })
+    except ProjectStateError as exc:
+        raise PatchSchemaError(str(exc), kind=exc.kind) from exc
 
     resources = manifest.get("resources") or []
     if resources and extracted is None:

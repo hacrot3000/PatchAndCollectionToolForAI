@@ -1,4 +1,4 @@
-# PATCH PACKAGE GUIDE — v6.17.4 authoritative AI/tool contract
+# PATCH PACKAGE GUIDE — v6.17.6 authoritative AI/tool contract
 
 Machine-readable source of truth:
 
@@ -36,9 +36,9 @@ Optional manifest block:
 ```json
 {
   "compatibility": {
-    "min_tool_version": "6.17.4",
+    "min_tool_version": "6.17.6",
     "max_tool_version": "7.0.0",
-    "max_tested_version": "6.17.4"
+    "max_tested_version": "6.17.6"
   }
 }
 ```
@@ -97,7 +97,7 @@ Missing/non-regular required resources are rejected before the payload runs.
 
 ## Recovery policy
 
-Every PATCH failure generates a structured FAIL handoff and automatically discovers/bundles related current source. This is mandatory in v6.17.4. The legacy `recovery.fail_handoff` boolean remains schema-accepted for package compatibility, but `false` is deprecated and ignored with a warning.
+Every PATCH failure generates a structured FAIL handoff and automatically discovers/bundles related current source. This is mandatory since v6.17.5. The legacy `recovery.fail_handoff` boolean remains schema-accepted for package compatibility, but `false` is deprecated and ignored with a warning.
 
 Source drift/anchor mismatch may additionally prepare a read-only `pack` COLLECT request. That secondary next-run request may still be disabled independently:
 
@@ -174,7 +174,13 @@ INSPECT RESULT: PASS — project unchanged
 
 No PATCH payload is executed and the package is not archived.
 
-## v6.17.4 package lint / validate
+## v6.17.6 recovery integrity
+
+Cross-run recovery binds filesystem actions to the exact replay package recorded by the failed run (`requeued_as` plus recorded patch SHA-256). Historical `patch_file` / `patch_id` remain logical predecessor declarations only; a different package later occupying the old filename is not eligible for Retry/Delete/Run-after. Exact rollback replay may bypass duplicate-history suppression only when the failed-run report proves the same queue filename and SHA-256.
+
+For a failed PATCH with no declared/effective target paths, an unchanged Git worktree fingerprint is insufficient to prove no modification because ignored files are outside that observation boundary. The partial state is therefore `unknown` and continuation safety-stops.
+
+## v6.17.5 package lint / validate
 
 Before delivering a PATCH, validate the manifest against `PATCH_PACKAGE_SCHEMA.json` and `PATCH_PACKAGE_CHECKLIST.json`. **Never invent `source_baseline`** or other legacy/custom fields. Source assumptions belong only in `preflight.files` using `path`, optional `exists`, `sha256`, and/or `anchors`.
 
@@ -201,9 +207,9 @@ Validation/inspect results use one of four classes:
 - `SOURCE_DRIFT` — current source SHA/existence/anchor or OPS match assumptions do not hold; project unchanged.
 - `TOOL_ERROR` — unexpected Patch Tool internal failure; project unchanged.
 
-Schema lint reports multiple independent manifest issues in one pass. Source preflight likewise aggregates declared file mismatches and includes expected/actual SHA where applicable. For data-only OPS packages, v6.17.4 simulates the sequential operation list on a private temporary mirror before execution; a missing/ambiguous source match fails before the real payload is allowed to write.
+Schema lint reports multiple independent manifest issues in one pass. Source preflight likewise aggregates declared file mismatches and includes expected/actual SHA where applicable. For data-only OPS packages, v6.17.5 simulates the sequential operation list on a private temporary mirror before execution; a missing/ambiguous source match fails before the real payload is allowed to write.
 
-## Batch metadata (v6.17.4)
+## Batch metadata (v6.17.5)
 
 PATCH có thể khai báo:
 
@@ -238,8 +244,9 @@ PATCH có thể khai báo:
 ```
 
 `failure_policy`:
-- `fail_fast`: mặc định an toàn.
-- `continue_independent`: tiếp tục PATCH độc lập sau FAIL chỉ khi runner chứng minh lỗi không để source partial/unknown, hoặc per-PATCH rollback đã PASS. Integrity/tool/rollback failure vẫn safety-stop.
+- `continue_independent`: **mặc định từ v6.17.5**. Sau failure đã được containment chứng minh an toàn, PATCH không phụ thuộc và không overlap effective target sẽ tự chạy tiếp.
+- `fail_fast`: explicit opt-in để dừng ngay tại lỗi đầu tiên.
+- Dependency FAIL hoặc runtime effective-target overlap với PATCH FAIL/BLOCKED làm successor `BLOCKED` mặc định; Ctrl+C/rollback failure/partial-unknown vẫn safety-stop.
 
 `transaction_policy`:
 - `patch`: rollback theo contract từng PATCH như trước.
@@ -253,7 +260,7 @@ Có thể override cho một lượt chạy:
 
 Windows dùng cùng options qua `.bat`/`.ps1`.
 
-### v6.17.4 integrity notes
+### v6.17.5 integrity notes
 
 - Với OPS replace/insert, `already` phải là marker/context idempotency **explicit** nếu cần. Tool không còn coi `new` xuất hiện ở nơi bất kỳ trong file là “already patched”.
 - OPS dry-run và execution chịu `execution.timeout_seconds`; write source dùng atomic replace.
@@ -263,3 +270,21 @@ Windows dùng cùng options qua `.bat`/`.ps1`.
 - Batch replay snapshots record exact SHA-256 + size and are reverified before requeue; corrupted/missing replay bytes become `batch_requeue_failed`.
 - Mutation lock files reject symlink/reparse paths and POSIX uses no-follow opens; artifact runtime/report/handoff subdirectories are real-directory checked.
 - FAIL_HANDOFF source freezing is per-file isolated: a source that vanishes or changes cannot delete an already frozen sibling attachment.
+
+## v6.17.7 project identity and trusted validation profiles
+
+Optional project binding:
+
+```json
+"project": {"key": "my-project"}
+```
+
+If present, the target project must configure the same key in `.python_patch_tool.json`; otherwise preflight fails before payload.
+
+Validation profiles are named local policies:
+
+```json
+"validation": {"profiles": ["unit", "build"]}
+```
+
+The package does not define the commands. The project operator defines `validation_profiles.<name>.argv/cwd/timeout_seconds` locally. Missing/invalid profiles fail preflight. Profiles execute after payload/post-patch and before Git/archive. Batch-transaction mode rejects validation profiles because their side effects are not necessarily target-bounded.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Python Patch Tool v6.17.4 public launcher.
+# Python Patch Tool v6.17.7 public launcher.
 # SANDBOX/worktree transaction mode is permanently disabled at this boundary.
 set -euo pipefail
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,7 +25,7 @@ if [ "$#" -eq 0 ]; then
   exec python3 "$DISPATCHER" --project-root "$PROJECT_ROOT"
 fi
 
-if [ "${1:-}" = "report" ] || [ "${1:-}" = "run" ] || [ "${1:-}" = "resume" ]; then
+if [ "${1:-}" = "report" ] || [ "${1:-}" = "run" ] || [ "${1:-}" = "resume" ] || [ "${1:-}" = "plan" ]; then
   command="$1"
   shift
   exec python3 "$DISPATCHER" --project-root "$PROJECT_ROOT" "$command" "$@"
@@ -53,7 +53,7 @@ if [ ! -f "$RUNNER" ]; then
   exit 2
 fi
 
-# v6.17.4 invariant: SANDBOX/Git-worktree transaction execution is removed.
+# v6.17.7 invariant: SANDBOX/Git-worktree transaction execution is removed.
 # The installed private core may still expose historical transaction options,
 # so every documented PATCH execution route is forced to --transaction off.
 # Utility-only routes such as paths/help remain untouched.

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import difflib
 import hashlib
 import json
 import os
@@ -22,7 +23,7 @@ from datetime import datetime, timezone
 from python_patch_utils import PatchFailure, diagnose_ops, finish_failure, run_ops
 from python_patch_package_schema import PatchSchemaError, path_is_link_or_reparse, run_preflight, sha256_file
 
-VERSION = "6.17.4"
+VERSION = "6.17.7"
 _ACTIVE_TERMINATION_SIGNAL: int | None = None
 MAX_ARCHIVE_ENTRIES = 10000
 MAX_ARCHIVE_MEMBER_BYTES = 64 * 1024 * 1024
@@ -413,6 +414,41 @@ def _run_post_patch(root: Path, manifest: dict, *, changed: bool) -> int:
             return 2
         if rc:
             return rc
+    return 0
+
+
+def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> int:
+    profiles = preflight.get("_resolved_validation_profiles") if isinstance(preflight, dict) else None
+    if not isinstance(profiles, list) or not profiles:
+        return 0
+    for profile in profiles:
+        if not isinstance(profile, dict):
+            print("ERROR: invalid resolved validation profile", file=sys.stderr)
+            return 2
+        name = str(profile.get("name") or "unnamed")
+        argv = profile.get("argv")
+        cwd_raw = str(profile.get("cwd") or ".")
+        timeout = int(profile.get("timeout_seconds") or 900)
+        if not isinstance(argv, list) or not argv or any(not isinstance(x, str) or not x for x in argv):
+            print(f"ERROR: validation profile {name} has invalid argv", file=sys.stderr)
+            return 2
+        rel = PurePosixPath(cwd_raw)
+        if rel.is_absolute() or any(part == ".." for part in rel.parts):
+            print(f"ERROR: validation profile {name} has unsafe cwd", file=sys.stderr)
+            return 2
+        cwd = root if cwd_raw == "." else root.joinpath(*rel.parts)
+        if not cwd.is_dir():
+            print(f"ERROR: validation profile {name} cwd not found: {cwd_raw}", file=sys.stderr)
+            return 2
+        print(f"VALIDATION PROFILE: {name} | {' '.join(argv)}", flush=True)
+        rc = _run_managed_process(argv, cwd=cwd, timeout=max(1, timeout))
+        if rc == 124:
+            print(f"ERROR: validation profile {name} timeout after {timeout}s", file=sys.stderr)
+            return 124
+        if rc:
+            print(f"ERROR: validation profile {name} failed rc={rc}", file=sys.stderr)
+            return rc if rc >= 0 else 128 + abs(rc)
+        print(f"VALIDATION PROFILE: {name} PASS")
     return 0
 
 
@@ -837,16 +873,34 @@ def _partial_state(
     target_changes = _snapshot_changes(before_targets, after_targets)
     changed = sorted(set(_touched_paths(before_dirty, after_dirty)) | set(target_changes))
     git_changed = (before_fp != after_fp) if before_fp is not None and after_fp is not None else None
-    if git_changed is not None:
-        detected: bool | None = bool(git_changed or target_changes)
-    elif target_paths:
-        detected = bool(target_changes)
+    # A clean Git worktree fingerprint is not proof that the project is
+    # unchanged when the PATCH declared no targets: Git intentionally omits
+    # ignored files, so an unbounded/legacy Python payload could have changed
+    # ignored source while leaving the fingerprint identical.  Treat that case
+    # as unknown and force fail-safe continuation logic.
+    if target_paths:
+        if git_changed is not None:
+            detected: bool | None = bool(git_changed or target_changes)
+        else:
+            detected = bool(target_changes)
+    elif git_changed is True:
+        detected = True
     else:
         detected = None
+    if before_fp is not None and target_paths:
+        evidence = "git_worktree+declared_targets"
+    elif target_paths:
+        evidence = "declared_targets"
+    elif git_changed is True:
+        evidence = "git_worktree_without_declared_targets"
+    elif before_fp is not None:
+        evidence = "git_clean_but_ignored_paths_unbounded_without_declared_targets"
+    else:
+        evidence = "insufficient_non_git_target_declaration"
     return {
         "detected": detected,
         "changed_paths": changed,
-        "evidence": "git_worktree+declared_targets" if before_fp is not None else ("declared_targets" if target_paths else "insufficient_non_git_target_declaration"),
+        "evidence": evidence,
     }
 
 
@@ -1181,6 +1235,9 @@ def _base_result(source: Path, patch_sha256: str | None = None) -> dict[str, obj
 
 
 def _finish_result(result: dict[str, object], *, status: str, rc: int, stage: str, diagnosis: dict[str, object] | None = None, partial: dict[str, object] | None = None) -> int:
+    pf = result.get("preflight")
+    if isinstance(pf, dict) and "_resolved_validation_profiles" in pf:
+        result["preflight"] = {k:v for k,v in pf.items() if not str(k).startswith("_")}
     result["status"] = status
     result["rc"] = int(rc)
     result["stage"] = stage
@@ -1301,6 +1358,8 @@ def _diagnostic_class(kind: str) -> str:
         "resource_missing", "tool_version_incompatible", "rollback_contract_invalid",
         "rollback_parent_missing", "rollback_path_unsafe", "command_missing",
         "worktree_requirement", "worktree_dirty", "patch_operation_failed",
+        "project_identity_invalid", "project_identity_unconfigured", "project_mismatch",
+        "project_config_invalid", "validation_profile_invalid", "validation_profile_missing",
     }:
         return "PATCH_INVALID"
     return "TOOL_ERROR"
@@ -1409,6 +1468,12 @@ def _inspect_patch(root: Path, source: Path, *, verb: str = "INSPECT") -> int:
             for cmd in pp.get("commands"):
                 name = cmd.get("name") or " ".join(cmd.get("argv") or [])
                 print(f"    - {name}")
+        profiles = preflight.get("validation_profiles") if isinstance(preflight, dict) else None
+        if isinstance(profiles, list) and profiles:
+            print("  Trusted validation profiles:")
+            for profile in profiles:
+                if isinstance(profile, dict):
+                    print(f"    - {profile.get('name')} (local trusted command)")
         git = manifest.get("git") if isinstance(manifest, dict) else None
         if isinstance(git, dict) and git:
             print(f"  Git policy: add={git.get('add','off')} commit={git.get('commit','off')} push={git.get('push','off')}")
@@ -1443,6 +1508,91 @@ def _inspect_patch(root: Path, source: Path, *, verb: str = "INSPECT") -> int:
             temp_dir.cleanup()
         if input_temp is not None:
             input_temp.cleanup()
+
+
+def _preview_patch(root: Path, source: Path) -> int:
+    """Read-only preflight plus deterministic OPS diff preview on a private mirror."""
+    result = _base_result(source)
+    temp_dir = None
+    input_temp = None
+    mirror_temp = None
+    try:
+        input_temp, execution_source, input_sha = _snapshot_patch_input(source)
+        result["patch_sha256"] = input_sha
+        temp_dir, _extracted, manifest, kind, payload, ops_data, preflight = _prepare_package(root, execution_source)
+        result["preflight"] = preflight
+        result["manifest_patch"] = manifest.get("patch") if isinstance(manifest, dict) else None
+        _print_preflight_report(source, manifest, kind, preflight, inspect_only=True)
+        if kind != "ops" or not isinstance(ops_data, dict):
+            print("PREVIEW DIFF: unavailable for arbitrary Python payload; preflight is read-only and project is unchanged")
+            print("PREVIEW RESULT: READY_TO_APPLY — project unchanged")
+            return _finish_result(result, status="PASS", rc=0, stage="preview", diagnosis={"kind":"ready_to_apply","message":"project unchanged; deterministic diff unavailable for Python payload","affected_paths":[]}, partial={"detected":False,"changed_paths":[],"evidence":"read_only_preview"})
+        mirror_temp = tempfile.TemporaryDirectory(prefix="ptv-ops-preview-")
+        mirror = Path(mirror_temp.name)
+        targets = [x for x in preflight.get("target_paths") or [] if isinstance(x, str)]
+        before: dict[str, bytes | None] = {}
+        for rel in targets:
+            src = root.joinpath(*PurePosixPath(rel).parts)
+            dst = mirror.joinpath(*PurePosixPath(rel).parts)
+            if src.exists():
+                if path_is_link_or_reparse(src) or not src.is_file():
+                    raise PatchSchemaError(f"preview target is not a regular non-symlink file: {rel}", kind="rollback_path_unsafe", path=rel)
+                raw = src.read_bytes()
+                before[rel] = raw
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_bytes(raw)
+            else:
+                before[rel] = None
+        execution = manifest.get("execution") if isinstance(manifest.get("execution"), dict) else {}
+        timeout = int(execution.get("timeout_seconds", 900))
+        worker = Path(__file__).resolve().parent / "python_patch_ops_worker.py"
+        result_path = mirror / ".ptv-preview-result.json"
+        rc = _run_managed_process([
+            sys.executable, str(worker), "--project-root", str(mirror), "--ops-json", str(payload),
+            "--patch-name", str((manifest.get("patch") or {}).get("id") or source.stem), "--result", str(result_path),
+        ], cwd=mirror, timeout=timeout)
+        if rc:
+            raise PatchSchemaError(f"OPS preview worker failed rc={rc}", kind="patch_operation_failed")
+        print("PREVIEW DIFF (private mirror):")
+        changed = 0
+        for rel in targets:
+            dst = mirror.joinpath(*PurePosixPath(rel).parts)
+            after = dst.read_bytes() if dst.is_file() and not dst.is_symlink() else None
+            old = before.get(rel)
+            if old == after:
+                continue
+            changed += 1
+            print(f"--- {rel}")
+            if old is None:
+                print(f"+++ {rel} (new file)")
+            elif after is None:
+                print(f"+++ {rel} (deleted)")
+            if (old is None or len(old) <= 512*1024) and (after is None or len(after) <= 512*1024):
+                try:
+                    old_lines = [] if old is None else old.decode("utf-8").splitlines(keepends=True)
+                    new_lines = [] if after is None else after.decode("utf-8").splitlines(keepends=True)
+                    for line in difflib.unified_diff(old_lines, new_lines, fromfile=f"a/{rel}", tofile=f"b/{rel}", n=3):
+                        sys.stdout.write(line)
+                    if new_lines and not new_lines[-1].endswith("\n"):
+                        sys.stdout.write("\n")
+                    continue
+                except UnicodeDecodeError:
+                    pass
+            print("  [binary/large file changed; unified text diff omitted]")
+        if changed == 0:
+            print("  [no target byte changes predicted]")
+        print(f"PREVIEW RESULT: READY_TO_APPLY — project unchanged | predicted_changed={changed}")
+        return _finish_result(result, status="PASS", rc=0, stage="preview", diagnosis={"kind":"ready_to_apply","message":f"project unchanged; predicted_changed={changed}","affected_paths":[]}, partial={"detected":False,"changed_paths":[],"evidence":"private_mirror_preview"})
+    except PatchSchemaError as exc:
+        print(f"PREVIEW RESULT: {_diagnostic_class(exc.kind)} — project unchanged | {exc.kind}: {exc}", file=sys.stderr)
+        return _finish_result(result, status="FAIL", rc=2, stage="preview", diagnosis={"kind":exc.kind,"message":str(exc),"affected_paths":[exc.path] if exc.path else []}, partial={"detected":False,"changed_paths":[],"evidence":"read_only_preview"})
+    except Exception as exc:
+        print(f"PREVIEW RESULT: TOOL_ERROR — project unchanged | {type(exc).__name__}: {exc}", file=sys.stderr)
+        return _finish_result(result, status="FAIL", rc=2, stage="preview", diagnosis={"kind":"tool_error","message":f"{type(exc).__name__}: {exc}","affected_paths":[]}, partial={"detected":False,"changed_paths":[],"evidence":"read_only_preview"})
+    finally:
+        if mirror_temp is not None: mirror_temp.cleanup()
+        if temp_dir is not None: temp_dir.cleanup()
+        if input_temp is not None: input_temp.cleanup()
 
 
 def _execute_patch(root: Path, source: Path) -> int:
@@ -1605,6 +1755,24 @@ def _execute_patch(root: Path, source: Path) -> int:
             print(f"RUN SUMMARY: FAIL | post_patch rc={rc}", file=sys.stderr)
             return _finish_result(result, status="FAIL", rc=rc, stage="post_patch", diagnosis=diagnosis, partial=partial)
 
+        result["stage"] = "validation"
+        rc = _run_validation_profiles(root, preflight)
+        if rc:
+            partial = _partial_state(root, before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets, target_paths=target_paths)
+            diagnosis = {"kind": "validation_profile_failed", "message": f"trusted validation profile returned rc={rc}", "affected_paths": list(partial.get("changed_paths") or [])}
+            rollback_result = _maybe_rollback(
+                root, preflight=preflight, rollback_temp=rollback_temp, rollback_snapshot=rollback_snapshot,
+                before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets,
+                target_paths=target_paths, trigger="post_patch_failure",
+            )
+            if rollback_result is not None:
+                result["rollback"] = rollback_result
+                diagnosis["rollback_status"] = rollback_result.get("status")
+                if rollback_result.get("status") == "PASS" and isinstance(rollback_result.get("remaining_project_delta"), dict):
+                    partial = rollback_result["remaining_project_delta"]
+            print(f"RUN SUMMARY: FAIL | validation profile rc={rc}", file=sys.stderr)
+            return _finish_result(result, status="FAIL", rc=rc, stage="validation", diagnosis=diagnosis, partial=partial)
+
         after_dirty = _dirty_paths(root)
         result["stage"] = "git"
         rc = _run_git_policy(root, manifest, before_dirty, after_dirty)
@@ -1650,13 +1818,13 @@ def _execute_patch(root: Path, source: Path) -> int:
         print(f"INTERRUPTED by {label}", file=sys.stderr)
         diagnosis: dict[str, object] = {"kind": "interrupted", "message": label, "affected_paths": []}
         partial: dict[str, object] = {"detected": False, "changed_paths": [], "evidence": "interrupted_before_payload"}
-        if stage in {"payload", "post_patch", "git", "archive"} and (target_paths or before_fp is not None):
+        if stage in {"payload", "post_patch", "validation", "git", "archive"} and (target_paths or before_fp is not None):
             partial = _partial_state(
                 root, before_fp=before_fp, before_dirty=before_dirty,
                 before_targets=before_targets, target_paths=target_paths,
             )
             diagnosis["affected_paths"] = list(partial.get("changed_paths") or [])
-        trigger = "payload_failure" if stage == "payload" else ("post_patch_failure" if stage == "post_patch" else None)
+        trigger = "payload_failure" if stage == "payload" else ("post_patch_failure" if stage in {"post_patch", "validation"} else None)
         if trigger is not None:
             rollback_result = _maybe_rollback(
                 root, preflight=preflight, rollback_temp=rollback_temp, rollback_snapshot=rollback_snapshot,
@@ -1673,7 +1841,7 @@ def _execute_patch(root: Path, source: Path) -> int:
         stage = str(result.get("stage") or "unknown")
         print(f"ERROR: PATCH execution failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         partial: dict[str, object] = {"detected": None, "changed_paths": [], "evidence": "internal_error_state_unknown"}
-        if stage in {"payload", "post_patch", "git", "archive"} and (target_paths or before_fp is not None):
+        if stage in {"payload", "post_patch", "validation", "git", "archive"} and (target_paths or before_fp is not None):
             try:
                 partial = _partial_state(
                     root, before_fp=before_fp, before_dirty=before_dirty,
@@ -1718,14 +1886,16 @@ def main(argv: list[str] | None = None) -> int:
         root = Path.cwd().resolve(); return _paths(root)
     if args[0] in {"help", "--help", "-h"}:
         print("Python Patch Tool self-contained core. Normal use: ./tools/run_python_patches.sh")
-        print("Interactive selector supports inspect/dry-run with key i. Direct validator: validate --patch <package>.")
+        print("Interactive selector supports inspect/dry-run with key i. Direct validator: validate --patch <package>. Read-only diff preview: preview --patch <package>.")
         return 0
 
     inspect_mode = False
     validate_mode = False
-    if args and args[0] in {"inspect", "validate"}:
+    preview_mode = False
+    if args and args[0] in {"inspect", "validate", "preview"}:
         inspect_mode = args[0] == "inspect"
         validate_mode = args[0] == "validate"
+        preview_mode = args[0] == "preview"
         args = args[1:]
 
     ap = argparse.ArgumentParser(add_help=False)
@@ -1739,7 +1909,7 @@ def main(argv: list[str] | None = None) -> int:
         print("ERROR: SANDBOX/worktree transaction modes are permanently unsupported; use --transaction off", file=sys.stderr)
         return 2
     if not ns.patch:
-        print("ERROR: --patch is required for PATCH execution/inspect/validate", file=sys.stderr)
+        print("ERROR: --patch is required for PATCH execution/inspect/validate/preview", file=sys.stderr)
         return 2
     root = Path.cwd().resolve()
     raw = Path(ns.patch)
@@ -1748,6 +1918,8 @@ def main(argv: list[str] | None = None) -> int:
         return _inspect_patch(root, source, verb="INSPECT")
     if validate_mode:
         return _inspect_patch(root, source, verb="VALIDATE")
+    if preview_mode:
+        return _preview_patch(root, source)
     return _execute_patch(root, source)
 
 

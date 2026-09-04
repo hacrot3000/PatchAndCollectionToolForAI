@@ -1,7 +1,7 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.17.4**  
-Trạng thái: **CONTROLLED BATCH ENGINE + SMART RESUME + ADVANCED REPORTING — COMPLETE / STOP**
+Phiên bản mục tiêu: **v6.17.7**  
+Trạng thái: **PROJECT POLICY + PRE-EXECUTION PLAN + PERSISTENT RECOVERY STATE — COMPLETE / STOP**
 
 ## Baseline
 
@@ -22,15 +22,17 @@ Baseline kỹ thuật: **v6.16.0**. Release này mở rộng batch report thành
 | Run history management | COMPLETE |
 | Support bundle từ report | COMPLETE |
 | Native Windows runtime test lane | COMPLETE — packaged; native execution cần host Windows |
-| Target-overlap/conflict analyzer | **NOT IMPLEMENTED — BY REQUIREMENT** |
-| Patch provenance / identity | **NOT IMPLEMENTED — BY REQUIREMENT** |
+| Runtime failed-target overlap guard | **COMPLETE v6.17.5** |
+| Static target-overlap/conflict analyzer trước execution | **COMPLETE v6.17.7** |
+| Local patch ledger / ID reuse detection | **COMPLETE v6.17.7** |
+| Cryptographic provenance / signature trust | **NOT IMPLEMENTED** |
 
 ## 1. Controlled continue-on-failure
 
 Batch có hai policy:
 
-- `fail_fast` — mặc định.
-- `continue_independent` — PATCH độc lập sau một FAIL chỉ được chạy tiếp khi runner chứng minh project không bị partial modification, hoặc per-PATCH rollback đã PASS.
+- `continue_independent` — **mặc định từ v6.17.5**. PATCH độc lập sau một FAIL tiếp tục tự động khi failure đã được containment chứng minh an toàn.
+- `fail_fast` — vẫn hỗ trợ như explicit opt-in khi muốn dừng ngay ở lỗi đầu tiên.
 
 Các lỗi integrity/tool/rollback, Ctrl+C, hoặc partial/unknown project state tạo **SAFETY STOP** dù policy đang là continue. Tool không đánh đổi source integrity để cố chạy hết batch.
 
@@ -50,6 +52,8 @@ Per-run override:
 ```bash
 ./tools/run_python_patches.sh run --failure-policy continue_independent
 ```
+
+Ngoài dependency khai báo, v6.17.5 dùng **runtime failed-target overlap guard**: PATCH sau có effective target trùng với PATCH đã FAIL/BLOCKED sẽ bị `BLOCKED` mặc định; PATCH target độc lập vẫn chạy. Đây không phải static target/conflict analyzer giữa mọi PATCH.
 
 ## 2. PATCH dependency
 
@@ -129,33 +133,43 @@ Batch atomic mode fail-closed:
 
 Không tuyên bố atomicity cho path mà Python payload tự ghi nhưng không khai báo/không thể resolve trước. PATCH mutation được serialize theo project để tránh lost-update giữa hai terminal; selector/COLLECT vẫn độc lập.
 
-## 5.1. Integrity hardening v6.17.4
+## 5.1. Integrity hardening v6.17.5
 
-- `internal_error` luôn safety-stop; nếu exception xảy ra sau payload thì partial state được tính lại, không mặc định `detected=false`.
+- `internal_error`/tool failure chỉ cho phép continuation khi post-failure evidence chứng minh project không đổi; partial/unknown state vẫn safety-stop. Exception sau payload phải recompute partial state, không mặc định `detected=false`.
 - OPS idempotency chỉ dùng `already` được khai báo explicit; sự xuất hiện của `new` ở nơi khác trong file không còn được coi là bằng chứng đã patch.
 - OPS write dùng same-directory temporary + `fsync` + `os.replace`; OPS dry-run/execution chạy trong managed subprocess và chịu `execution.timeout_seconds`.
 - Git auto-commit fail nếu target đã dirty trước PATCH; guard chạy **trước `git add`**. Nếu staging do tool đã xảy ra nhưng commit không hoàn tất, tool reset chính touched paths để không làm bẩn Git index; `git commit` chỉ PASS khi return code bằng `0`.
 - Archive extraction có giới hạn entry/member/expanded bytes/compression ratio, reject symlink/non-regular/collision và Windows drive/ADS path.
 - COLLECT có hard ceiling cục bộ, bỏ qua output/artifact nội bộ, kiểm quota theo chunk và cảnh báo source/log có dấu hiệu secret trước upload.
 - Regex COLLECT được cô lập trong worker subprocess và có hard timeout 60s cho mỗi search action.
-- **Execution-byte binding v6.17.4:** metadata/dependency/effective-targets được bind với SHA-256 của đúng queue package khi plan. Batch transaction bắt buộc snapshot đủ mọi selected PATCH và SHA phải còn khớp planned bytes; ngay trước child spawn dispatcher verify lại SHA. Package biến mất/thay byte sau plan = `package_input_changed`, payload không được chạy. Đây là execution-integrity guard, **không phải** provenance/identity subsystem.
+- **Execution-byte binding v6.17.5:** metadata/dependency/effective-targets được bind với SHA-256 của đúng queue package khi plan. Batch transaction bắt buộc snapshot đủ mọi selected PATCH và SHA phải còn khớp planned bytes; ngay trước child spawn dispatcher verify lại SHA. Package biến mất/thay byte sau plan = `package_input_changed`, payload không được chạy. Đây là execution-integrity guard, **không phải** provenance/identity subsystem.
 - Batch replay snapshot lưu `stored + sha256 + size`; nếu exact replay snapshot bị sửa/hỏng sau transaction snapshot, requeue fail-closed với `batch_requeue_failed`, không requeue byte đã bị thay.
 - Mutation lock directory/file reject symlink/reparse; POSIX mở lock leaf bằng `O_NOFOLLOW`. Lock path bất thường không được phép truncate/write xuyên symlink.
 - Artifact subdirectories quan trọng (`runs`, `history`, `runtime`, `fail_handoffs`, `support`, `exports`) phải là real directories. FAIL_HANDOFF có fallback về hardened `artifacts/patch_tool/` nếu riêng `fail_handoffs/` bị hỏng/không an toàn.
 - FAIL_HANDOFF source snapshot dùng per-file independent state + no-follow descriptor; lỗi/disappearance của source N không được xóa snapshot source N-1 hoặc làm mất toàn bộ handoff.
 
+## 5.2. Recovery integrity hardening v6.17.6
+
+- SMART RESUME và `batch.previous_failure` tách **logical predecessor identity** khỏi **filesystem package identity**: tên/id lịch sử chỉ dùng để validate manifest; thao tác Retry/Delete/Run bind tới exact `requeued_as` và SHA-256 đã ghi trong failure report. File mới chiếm lại tên cũ không được phép bị coi là predecessor lỗi.
+- Exact replay package do batch rollback tạo được phép vượt session/history duplicate filtering **chỉ** khi `LAST_RUN` failure report xác nhận chính xác `requeued_as + patch_sha256`. Duplicate thông thường vẫn giữ hành vi skip/move-to-ignore cũ.
+- Với PATCH không có declared/effective target, Git fingerprint không thấy delta **không còn là bằng chứng project sạch** vì `.gitignore` có thể che thay đổi. Trạng thái này là `partial_modification.detected=null/unknown` và gây safety-stop sau failure.
+- Queue/artifact/lock filesystem safety violation được trả về lỗi gọn `rc=2`; riêng artifact root không an toàn thì tool không cố ghi `LAST_RUN` qua chính path không an toàn và không văng traceback ngoài ý muốn.
+
 ## 6. Smart resume
 
-Sau batch FAIL, interactive run hiển thị Smart Resume:
+Sau batch/PATCH FAIL, interactive run dùng **menu mũi tên** thay cho nhập số:
 
-1. replay/retry toàn bộ unresolved items theo order cũ;
-2. retry failed PATCHes;
-3. chạy remaining/blocked items;
-4. bỏ resume suggestion và dùng selector bình thường.
+- `↑/↓`: di chuyển; `Enter`: chọn; bên dưới luôn có **MÔ TẢ MỤC ĐANG CHỌN**.
+- Retry/replay toàn bộ unresolved.
+- Retry PATCH lỗi.
+- Chạy remaining/blocked.
+- **COLLECT source của PATCH lỗi**: tự dựng CODE_COLLECTION_REQUEST từ source/evidence của failure; nhiều PATCH lỗi được chọn bằng checkbox và chạy COLLECT tuần tự từng request.
+- **Xóa PATCH lỗi khỏi hàng đợi**: chuyển an toàn sang `patchs/ignore/` (không unlink vĩnh viễn).
+- Bỏ Smart Resume và mở selector queue bình thường.
 
-Nếu atomic batch rollback, PATCH từng PASS trước đó được đánh dấu `batch_rolled_back` và nằm trong nhóm cần replay.
+Nếu có nhiều PATCH lỗi, các thao tác Retry/COLLECT/Delete mở selector giống queue: `↑/↓`, `Space`, `a`, `n`, `Enter`. Nếu atomic batch rollback, PATCH từng PASS trước đó được đánh dấu `batch_rolled_back` và nằm trong nhóm cần replay.
 
-CLI:
+CLI non-interactive vẫn hỗ trợ:
 
 ```bash
 ./tools/run_python_patches.sh resume --resume-mode all
@@ -163,7 +177,7 @@ CLI:
 ./tools/run_python_patches.sh resume --resume-mode remaining
 ```
 
-Dependency và predecessor-action rules vẫn áp dụng khi resume.
+Dependency, runtime failed-target overlap và predecessor-action rules vẫn áp dụng khi resume.
 
 ## 7. Advanced report browser
 
@@ -227,7 +241,7 @@ Package có:
 
 Lane chạy thực trên Windows và kiểm tra BAT + PowerShell launcher, project path có space/Unicode, controlled continue batch, persistent report và Windows runtime contracts. Host build Linux không được phép giả vờ đây là native PASS; release chỉ ghi native lane **packaged** nếu chưa chạy trên máy Windows thật.
 
-## 12. Mandatory FAIL_HANDOFF source collection — v6.17.4
+## 12. Mandatory FAIL_HANDOFF source collection — v6.17.5
 
 Mọi **PATCH FAIL** đều phải tạo `FAIL_HANDOFF_*.zip` và tự thu source liên quan; không phụ thuộc diagnosis có `affected_paths` hay không. `recovery.fail_handoff=false` được giữ parser-compatible cho package cũ nhưng dispatcher cảnh báo và **không cho tắt** handoff nữa.
 
@@ -262,3 +276,84 @@ Release chỉ chuyển sang COMPLETE khi:
 - docs/version/checksum đồng bộ.
 
 Sau khi đạt các điều kiện trên: **STOP**, không tự mở Target-overlap analyzer hoặc provenance/identity.
+
+## 13. v6.17.7 — project policy, planning và persistent state
+
+### Project Identity Guard
+
+`manifest.project.key` nay là runtime contract thật. Nếu PATCH khai báo project key, project phải cấu hình cùng key trong `.python_patch_tool.json`:
+
+```json
+{
+  "project": {"key": "bletonfc"}
+}
+```
+
+Thiếu key local => `project_identity_unconfigured`; key khác => `project_mismatch`. Cả hai fail trước payload và project unchanged.
+
+### Trusted Validation Profiles
+
+`manifest.validation.profiles` chỉ chứa tên profile. Command được định nghĩa local trong project, PATCH/AI không được nhét command vào field này:
+
+```json
+{
+  "validation_profiles": {
+    "unit": {
+      "argv": ["./tools/test.sh"],
+      "cwd": ".",
+      "timeout_seconds": 900,
+      "description": "Focused regression"
+    }
+  }
+}
+```
+
+Profile thiếu/invalid/executable thiếu fail ở preflight. Profile được chạy bằng managed subprocess sau payload/post-patch và trước Git/archive. Chỉ tên profile được persist vào result; resolved argv local không được ghi vào FAIL/report metadata. `transaction_policy=batch` reject validation profiles vì command có thể tạo side-effect ngoài effective targets.
+
+### Persistent Unresolved-Failure Registry
+
+`artifacts/patch_tool/UNRESOLVED_FAILURES.json` giữ PATCH FAIL/PREFLIGHT_FAIL qua nhiều phiên, không phụ thuộc `LAST_RUN.json`. Failure được resolve khi cùng logical patch PASS, khi user Delete trong Smart Resume, hoặc khi predecessor được successor xử lý bằng `previous_failure.action=delete` thành công. Registry không chặn PATCH độc lập: sau khi `LAST_RUN` đã đổi, planner chỉ tái áp `batch.previous_failure` khi PATCH mới phụ thuộc vào failed patch id hoặc overlap effective target của failure; như vậy continuation độc lập vẫn giữ nguyên nhưng successor liên quan không thể lách recovery contract.
+
+### Static Batch Conflict Analyzer
+
+Trước execution, selected PATCHes được phân tích theo effective target + dependency closure:
+
+- `ORDER-DEPENDENT`: overlap nhưng không có dependency ordering;
+- `DEPENDENCY-ORDERED`: overlap đã được dependency chain sắp thứ tự.
+
+Analyzer chỉ cảnh báo/report; không tự đổi thứ tự và không suy đoán arbitrary Python side effects ngoài declared/effective targets.
+
+### `plan` + OPS diff preview
+
+```bash
+./tools/run_python_patches.sh plan
+./tools/run_python_patches.sh plan --export-recipe BATCH_RECIPE.json
+```
+
+`plan` là read-only: resolve order/dependency, project/profile preflight, static overlap, package SHA, ledger warning, disk/resource estimate và preview từng PATCH. OPS được chạy trên private mirror để tạo unified diff; arbitrary Python payload chỉ báo deterministic diff unavailable và không được execute để “đoán”. Selector thường có phím `p` để preview PATCH hiện tại.
+
+### Patch Ledger / ID reuse detection
+
+`artifacts/patch_tool/PATCH_LEDGER.json` lưu `patch.id + package SHA-256 + status/run metadata`. Nếu cùng `patch.id` xuất hiện với SHA khác, run/plan cảnh báo `PATCH ID REUSE`. Đây là provenance-light cục bộ, không phải chữ ký/PKI/trust subsystem.
+
+### Reproducible Batch Recipe
+
+`plan --export-recipe` ghi exact filename + SHA + patch id + batch policies + project key. Chạy lại:
+
+```bash
+./tools/run_python_patches.sh run --recipe BATCH_RECIPE.json
+```
+
+Thiếu package, SHA khác hoặc project key khác => fail trước payload. Exact recipe package được bảo vệ khỏi duplicate-history suppression trong invocation đó, nhưng byte vẫn phải đúng SHA recipe.
+
+### Disk/resource preflight
+
+Trước PATCH batch, dispatcher ước lượng package snapshot + target snapshot/rollback overhead và kiểm free space trên project volume + temp volume. Không đủ dung lượng => `insufficient_disk_space` trước source write. COLLECT/FAIL_HANDOFF vẫn giữ quota riêng đã có.
+
+### Queue search/filter
+
+Fullscreen selector: `/` nhập filter; line selector: `/text`. Filter tìm trong filename, kind/detail, `patch.id`, summary và effective targets. Enter trống sau `/` bỏ filter. Search không thay execution semantics.
+
+### Phạm vi identity
+
+v6.17.7 đã có project identity + local ledger + recipe SHA binding. **Cryptographic provenance, signature/PKI, remote trust registry vẫn không được triển khai**.

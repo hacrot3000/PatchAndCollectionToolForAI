@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.17.4
+# AI / ChatGPT usage contract — Python Patch Tool v6.17.7
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
@@ -39,7 +39,7 @@ Do not invent PATCH manifest fields or COLLECT action names/fields. In particula
 
 AI-generated archive PATCHes must follow `PATCH_PACKAGE_GUIDE.md` and `PATCH_PACKAGE_SCHEMA.json`.
 
-Patch Tool v6.17.4 validates/preflights before payload execution:
+Patch Tool v6.17.6 validates/preflights before payload execution:
 
 - manifest schema;
 - payload ambiguity/entrypoint;
@@ -85,7 +85,7 @@ If the tool prints:
 
 AI should ask the user to upload that ZIP rather than reconstructing failure state from copied console fragments.
 
-From v6.17.4, FAIL_HANDOFF source collection is mandatory on every PATCH failure. Discovery starts from structured target/preflight/rollback evidence, then paths printed in traceback/compiler logs; a bare source basename may trigger a bounded project scan, followed by one-hop local reference/same-stem expansion. `recovery.fail_handoff=false` is backward-compatible syntax only and is ignored with a warning. The tool never performs an unbounded whole-repository dependency crawl; `SOURCE_DISCOVERY.json` records limits and omissions.
+From v6.17.5, FAIL_HANDOFF source collection is mandatory on every PATCH failure. Discovery starts from structured target/preflight/rollback evidence, then paths printed in traceback/compiler logs; a bare source basename may trigger a bounded project scan, followed by one-hop local reference/same-stem expansion. `recovery.fail_handoff=false` is backward-compatible syntax only and is ignored with a warning. The tool never performs an unbounded whole-repository dependency crawl; `SOURCE_DISCOVERY.json` records limits and omissions.
 
 For `source_drift` / `anchor_mismatch`, Patch Tool may create:
 
@@ -106,7 +106,7 @@ CODE_COLLECTION_REQUEST_<purpose>_<timestamp>.zip
 
 The inner request must validate against `COLLECT_ACTION_SCHEMA.json`.
 
-Select at most one `[COLLECT]` per invocation. **Never mix COLLECT and PATCH.** This is selection isolation: there is no global queue/selector lock, so separate terminals and COLLECT remain usable independently. v6.17.4 serializes only the PATCH source-mutation lane per project to prevent two PATCH processes from losing each other's read-modify-write changes. Unsupported actions/fields become `COLLECT INVALID` before collector execution.
+Select at most one `[COLLECT]` per invocation. **Never mix COLLECT and PATCH.** This is selection isolation: there is no global queue/selector lock, so separate terminals and COLLECT remain usable independently. v6.17.5 serializes only the PATCH source-mutation lane per project to prevent two PATCH processes from losing each other's read-modify-write changes. Unsupported actions/fields become `COLLECT INVALID` before collector execution.
 
 On COLLECT PASS, the tool prints one result ZIP and a quality summary:
 
@@ -119,13 +119,13 @@ If `truncated>0`, AI must treat evidence as bounded/incomplete and should reques
 
 ## Self-contained runtime
 
-v6.17.4 ships the documented PATCH runner, utilities, readonly collector, schemas, dispatcher, progress supervisor and Windows launchers. The documented current contract does not require an older **private core**. Historical formats outside the current schemas fail closed rather than being guessed.
+v6.17.6 ships the documented PATCH runner, utilities, readonly collector, schemas, dispatcher, progress supervisor and Windows launchers. The documented current contract does not require an older **private core**. Historical formats outside the current schemas fail closed rather than being guessed.
 
 ## Duplicate rules
 
 - Current queue: same size + exact SHA-256 → keep first natural-order PATCH and remove redundant queue copies before selector.
 - Local successful history: exact SHA-256 against direct `patchs/patched/` in this project → skip locally.
-- No global/server/project-key/cross-machine duplicate database.
+- No global/server/cross-machine duplicate database. `project.key` is a local project identity guard, not a shared duplicate database.
 
 ## Tool Health / install self-audit
 
@@ -140,7 +140,7 @@ Windows uses the line selector because the fullscreen selector relies on POSIX `
 `tools/HUONG_DAN_PYTHON_PATCH_TOOL.html` stays intentionally minimal and user-oriented. Internal schema/action/preflight details belong in `tools/_patch_lib/docs/`, not in the user guide.
 
 
-## v6.14.1 runtime robustness invariants (retained by v6.17.4)
+## v6.14.1 runtime robustness invariants (retained by v6.17.5)
 
 - The PATCH queue root `patchs/` must be a real project-local directory; a symlinked/unsafe queue root fails closed.
 - The exact PATCH package selected is snapshotted before preflight and the exact executed bytes are what PASS archival records. A same-name replacement with different bytes remains queued.
@@ -149,7 +149,11 @@ Windows uses the line selector because the fullscreen selector relies on POSIX `
 - FAIL_HANDOFF must never attach a current queue package whose SHA differs from the executed package SHA.
 - Tool Health requires checksum coverage for all required runtime files and rejects unsafe symlink ancestors.
 
-## v6.17.4 diagnostics contract
+## v6.17.6 recovery integrity contract
+
+Recovery filesystem actions MUST bind to the exact package identity recorded by the failed run (`requeued_as` plus patch SHA-256 where present); historical predecessor filenames/IDs are declarations, not authority to operate on a newly replaced file. Exact rollback replay may bypass duplicate suppression only for that report-proven identity. A failed PATCH without declared/effective targets is not allowed to infer “unchanged” merely from a Git-clean fingerprint; the state is unknown and safety-stops. Unsafe queue/artifact/lock paths fail closed with a concise tool error.
+
+## v6.17.5 diagnostics contract
 
 AI/package generators should also read `PATCH_PACKAGE_CHECKLIST.json`. When project source is available, use the read-only `validate --patch` route before handing a package to the user. A validate PASS is not an execution bypass: the runner repeats preflight immediately before payload.
 
@@ -157,17 +161,17 @@ Manifest lint reports all discoverable schema issues in the same pass, including
 
 Data-only OPS is sequentially dry-run against a temporary mirror before execution. This makes an OPS source/anchor mismatch a project-unchanged preflight failure. Arbitrary Python payload code is never executed during inspect/validate.
 
-v6.17.4 integrity rules: OPS `already` is explicit-only (never inferred merely because `new` occurs elsewhere); OPS diagnose/execution is a managed subprocess bounded by `execution.timeout_seconds`; source replacement is atomic. `git.commit=auto` refuses target files already dirty before PATCH, and commit return code must be exactly zero. `internal_error` is always a safety stop.
+v6.17.5 integrity rules: OPS `already` is explicit-only (never inferred merely because `new` occurs elsewhere); OPS diagnose/execution is a managed subprocess bounded by `execution.timeout_seconds`; source replacement is atomic. `git.commit=auto` refuses target files already dirty before PATCH, and commit return code must be exactly zero. `internal_error` is always a safety stop.
 
 The dispatcher also binds planned dependency/effective-target metadata to the queue package SHA-256. The selected package must still match that SHA when a batch snapshot is taken and immediately before child execution; otherwise execution stops as `package_input_changed` before payload. Batch replay snapshots carry their own SHA-256 and size and are verified again before requeue. This is a transient execution-integrity check only; it does not introduce a provenance/trust identity system. Mutation lock files and Patch Tool artifact subdirectories reject symlink/reparse redirection.
 
 Regex COLLECT search is isolated in a managed worker with a 60-second hard timeout per search action, so pathological Python `re` patterns fail rather than hang indefinitely.
 
-FAIL_HANDOFF auto-discovered source and exact COLLECT source attachments intentionally preserve diagnostic bytes. If likely credentials/private keys are detected, v6.17.4 emits a sensitive-content warning so the operator can review the bundle before upload; it does not silently redact source needed for diagnosis.
+FAIL_HANDOFF auto-discovered source and exact COLLECT source attachments intentionally preserve diagnostic bytes. If likely credentials/private keys are detected, v6.17.5 emits a sensitive-content warning so the operator can review the bundle before upload; it does not silently redact source needed for diagnosis.
 
 Windows zero-argument dispatch does not use the POSIX `.sh` internally. Native console fullscreen selection uses `msvcrt` + VT when available and falls back to line selection when safe fullscreen operation is unavailable.
 
-## v6.17.4 — Bắt buộc xử lý PATCH liền trước đã FAIL
+## v6.17.5 — Bắt buộc xử lý PATCH liền trước đã FAIL
 
 Khi AI nhận một `FAIL_HANDOFF` và tạo PATCH kế tiếp để tiếp tục cùng luồng công việc, **không được bỏ mặc PATCH đã FAIL trong queue**. Nếu lần chạy gần nhất còn một PATCH lỗi chưa được giải quyết và người dùng chuẩn bị chạy một PATCH kế tiếp thay vì retry chính PATCH lỗi đó, PATCH kế tiếp **bắt buộc** khai báo `manifest.batch.previous_failure`.
 
@@ -197,7 +201,7 @@ Ví dụ:
 
 **Quy tắc chống PATCH mồ côi:** sau khi nhận FAIL_HANDOFF, mọi PATCH successor phải chủ động quyết định số phận predecessor. Không được tạo PATCH mới rồi mặc định để người dùng tự đoán nên xóa PATCH cũ, retry trước hay chạy lại sau.
 
-## v6.17.4 — Dependency và failure policy
+## v6.17.5 — Dependency và failure policy
 
 Dependency dùng `manifest.batch.depends_on` với `manifest.patch.id` đã tồn tại trong schema; đây không phải cơ chế provenance mới.
 
@@ -216,7 +220,7 @@ Dependency dùng `manifest.batch.depends_on` với `manifest.patch.id` đã tồ
 - Chỉ dùng `run_anyway` khi PATCH thật sự độc lập với kết quả runtime của dependency và AI có bằng chứng source assumptions vẫn hợp lệ.
 - Không dùng dependency để thay thế source preflight. Runner vẫn preflight lại ngay trước từng PATCH.
 
-## v6.17.4 — Whole-batch preflight và transaction
+## v6.17.5 — Whole-batch preflight và transaction
 
 Trước PATCH đầu tiên, dispatcher kiểm tra schema/package/compatibility/dependency/predecessor-action cho cả batch và chạy validate read-only cho từng PATCH. PATCH phụ thuộc có thể được ghi `DEFERRED_AFTER_DEPENDENCY` nếu source hiện tại chỉ mismatch vì nó mô tả trạng thái sau dependency; runner vẫn bắt buộc preflight đầy đủ ngay trước execution.
 
@@ -232,3 +236,13 @@ Trước PATCH đầu tiên, dispatcher kiểm tra schema/package/compatibility/
 - nếu batch FAIL, effective targets được restore và package đã PASS nhưng bị rollback được requeue để smart resume có thể replay.
 
 Không suy diễn atomicity cho side effect mà Python payload tạo ra ngoài mọi target đã khai báo/resolve trước.
+
+## v6.17.7 local project policy
+
+When `manifest.project.key` is present, it is an enforced runtime identity guard. The PATCH must use the exact project key configured by the operator in `.python_patch_tool.json`; never invent a project key if it is unknown.
+
+`manifest.validation.profiles` contains **profile names only**. Validation commands are trusted local project configuration under `validation_profiles`; AI-generated PATCH packages must not assume or redefine their argv. If a required profile is unknown, request/collect the current project config or omit the profile rather than inventing it.
+
+The tool now maintains a local `PATCH_LEDGER.json` (`patch.id + SHA-256`) and warns when the same patch id is reused for different package bytes. This is provenance-light evidence only, not a signature or trust assertion.
+
+For reproducible multi-PATCH replay, `plan --export-recipe` can export exact package filenames + SHA-256. A recipe mismatch must be fixed/rebased; do not bypass the SHA binding.

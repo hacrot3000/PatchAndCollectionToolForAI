@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib, json, os, stat
 from pathlib import Path
 
-VERSION = "6.17.4"
+VERSION = "6.17.7"
 REQUIRED_RUNTIME = [
     "tools/run_python_patches.sh",
     "tools/run_python_patches.ps1",
@@ -20,6 +20,7 @@ REQUIRED_RUNTIME = [
     "tools/_patch_lib/python_patch_collect_regex_worker.py",
     "tools/_patch_lib/python_patch_collect_schema.py",
     "tools/_patch_lib/python_patch_package_schema.py",
+    "tools/_patch_lib/python_patch_project_state.py",
     "tools/_patch_lib/python_patch_health.py",
     "tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json",
     "tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json",

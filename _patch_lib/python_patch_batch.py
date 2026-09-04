@@ -18,7 +18,7 @@ from typing import Any
 
 from python_patch_package_schema import PatchSchemaError, check_compatibility, validate_manifest, resolve_project_path, _ops_target_paths
 
-VERSION = "6.17.4"
+VERSION = "6.17.7"
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_DIFF_FILE_BYTES = 512 * 1024
 MAX_SNAPSHOT_FILE_BYTES = 8 * 1024 * 1024
@@ -284,6 +284,9 @@ def transaction_compatibility(metas: list[PatchMeta], policy: str) -> list[str]:
     for meta in metas:
         if not meta.targets:
             issues.append(f"{meta.name}: batch transaction requires manifest.targets")
+        validation = meta.manifest.get("validation") if isinstance(meta.manifest.get("validation"), dict) else {}
+        if isinstance(validation.get("profiles"), list) and validation.get("profiles"):
+            issues.append(f"{meta.name}: batch transaction rejects validation.profiles because validation commands may have target-external side effects")
         post = meta.manifest.get("post_patch") if isinstance(meta.manifest.get("post_patch"), dict) else {}
         if isinstance(post.get("commands"), list) and post.get("commands"):
             issues.append(f"{meta.name}: batch transaction rejects post_patch.commands because side effects are not target-bounded")
@@ -707,7 +710,7 @@ def requeue_packages(root: Path, package_snapshot_root: Path, package_map: dict[
             recorded_sha = raw_entry.get("sha256")
             recorded_size = raw_entry.get("size")
         else:
-            # Compatibility for direct callers/tests using the pre-v6.17.4 map.
+            # Compatibility for direct callers/tests using the pre-v6.17.5 map.
             stored = raw_entry
             recorded_sha = None
             recorded_size = None
@@ -796,3 +799,42 @@ def build_diff_artifact(root: Path, before: dict[str, Any], after: dict[str, Any
     diff_path.parent.mkdir(parents=True, exist_ok=True)
     diff_path.write_text("".join(lines) if lines else "[no declared-target difference]\n", encoding="utf-8")
     return {"changed_paths": [x["path"] for x in changed], "changes": changed, "diff_path": diff_path.as_posix()}
+
+
+def analyze_static_conflicts(metas: list[PatchMeta]) -> list[dict[str, Any]]:
+    """Read-only target/dependency relation analysis before execution.
+
+    This is intentionally conservative: it reports target overlap and whether
+    a dependency path already orders the pair. It never guesses Python-payload
+    behavior outside declared/effective targets.
+    """
+    by_id = {m.patch_id: m for m in metas}
+    ancestors: dict[str, set[str]] = {m.patch_id: set() for m in metas}
+    changed = True
+    while changed:
+        changed = False
+        for m in metas:
+            before = set(ancestors[m.patch_id])
+            for dep in m.depends_on:
+                ancestors[m.patch_id].add(dep)
+                ancestors[m.patch_id].update(ancestors.get(dep, set()))
+            if ancestors[m.patch_id] != before:
+                changed = True
+    rows: list[dict[str, Any]] = []
+    for i, left in enumerate(metas):
+        lt = set(left.effective_targets)
+        for right in metas[i+1:]:
+            overlap = sorted(lt.intersection(right.effective_targets))
+            if not overlap:
+                continue
+            dependency_ordered = left.patch_id in ancestors.get(right.patch_id, set()) or right.patch_id in ancestors.get(left.patch_id, set())
+            rows.append({
+                "left": left.name,
+                "left_patch_id": left.patch_id,
+                "right": right.name,
+                "right_patch_id": right.patch_id,
+                "overlap": overlap,
+                "relation": "dependency_ordered_overlap" if dependency_ordered else "order_dependent_overlap",
+                "dependency_ordered": dependency_ordered,
+            })
+    return rows
