@@ -1,4 +1,4 @@
-# Portable use — Python Patch Tool v6.7.9
+# Portable use — Python Patch Tool v6.7.10
 
 Normal user entry point is always:
 
@@ -89,3 +89,16 @@ falls back to user confirmation for automatic selection.
 Selected work is executed in natural order and stops on the first failure.
 Remaining selected items are reported as `SKIPPED / NOT EXECUTED` and remain in
 the queue.
+
+## v6.7.10 completion hardening
+
+A zero collector exit code becomes a public PASS only when the result collection
+ZIP is detected and usable. Missing/non-ZIP result artifacts fail closed before
+the final status row is printed. Quoted paths and paths containing spaces are
+accepted. Stop handlers are installed before collector spawn and cover common
+task/terminal-close signals so the readonly child tree is not left orphaned.
+
+Queue entries are revalidated immediately before execution. A selected entry
+that has disappeared, become a symlink, or changed from PATCH/COLLECT into a
+different artifact class fails closed rather than being executed from stale
+selector state.

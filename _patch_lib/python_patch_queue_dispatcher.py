@@ -20,7 +20,7 @@ try:
 except Exception:
     termios = tty = None
 
-VERSION = "6.7.9"
+VERSION = "6.7.10"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -103,6 +103,46 @@ def _has_patch_markers(data: bytes) -> bool:
     return any(marker in data for marker in PATCH_MARKERS)
 
 
+def _archive_support_views(names: list[str]) -> list[list[str]]:
+    """Return archive-name views used only for support-bundle signatures.
+
+    Downloaders/repackagers often wrap an otherwise identical archive in one
+    top-level directory.  Recognize tool/HANDOFF signatures through that single
+    wrapper before scanning Python helper markers, so support bundles cannot
+    become runnable PATCH items merely because they contain self-tests.
+    """
+    clean: list[str] = []
+    for raw in names:
+        n = raw.replace("\\", "/")
+        while n.startswith("./"):
+            n = n[2:]
+        n = n.strip("/")
+        if n:
+            clean.append(n)
+    views = [clean]
+    first_parts = {n.split("/", 1)[0] for n in clean}
+    if len(first_parts) == 1 and clean and all("/" in n for n in clean):
+        prefix = next(iter(first_parts)) + "/"
+        if prefix not in {"./", "../"}:
+            stripped = [n[len(prefix):] for n in clean if n.startswith(prefix)]
+            if stripped:
+                views.append(stripped)
+    return views
+
+
+def _is_support_bundle_names(names: list[str]) -> str | None:
+    for view in _archive_support_views(names):
+        if (
+            "tools/run_python_patches.sh" in view
+            and any(n.startswith("tools/_patch_lib/") for n in view)
+        ):
+            return "tool_distribution"
+        root_names = {n for n in view if "/" not in n}
+        if {"HANDOFF_README.md", "CURRENT_STATE.md"} <= root_names:
+            return "handoff_archive"
+    return None
+
+
 def _zip_is_patch(path: Path):
     try:
         with zipfile.ZipFile(path) as zf:
@@ -113,17 +153,11 @@ def _zip_is_patch(path: Path):
             if "PATCH_TOOL_MANIFEST.json" in names:
                 return True, "manifest"
             # Known distribution/support bundles are not runnable patches.
-            # Check these signatures before scanning Python text for legacy
-            # helper markers because self-tests and diagnostic bundles may
-            # legitimately mention PATCH_NAME/run_patch as plain test data.
-            if (
-                "tools/run_python_patches.sh" in names
-                and any(n.startswith("tools/_patch_lib/") for n in names)
-            ):
-                return False, "tool_distribution"
-            root_names = {n for n in names if "/" not in n.strip("/")}
-            if {"HANDOFF_README.md", "CURRENT_STATE.md"} <= root_names:
-                return False, "handoff_archive"
+            # Check both the archive root and a common single wrapper folder
+            # before scanning Python text for legacy helper markers.
+            support_kind = _is_support_bundle_names(names)
+            if support_kind:
+                return False, support_kind
 
             py_names = [n for n in names if n.lower().endswith(".py")]
             if any(PATCH_PY_RE.match(Path(n).name) for n in py_names):
@@ -162,14 +196,9 @@ def _tar_is_patch(path: Path):
             names = [m.name for m in members]
             if "PATCH_TOOL_MANIFEST.json" in names:
                 return True, "manifest"
-            if (
-                "tools/run_python_patches.sh" in names
-                and any(n.startswith("tools/_patch_lib/") for n in names)
-            ):
-                return False, "tool_distribution"
-            root_names = {n for n in names if "/" not in n.strip("/")}
-            if {"HANDOFF_README.md", "CURRENT_STATE.md"} <= root_names:
-                return False, "handoff_archive"
+            support_kind = _is_support_bundle_names(names)
+            if support_kind:
+                return False, support_kind
             py_members = [m for m in members if m.name.lower().endswith(".py")]
             if any(PATCH_PY_RE.match(Path(m.name).name) for m in py_members):
                 return True, "legacy_patch_script"
@@ -607,10 +636,52 @@ def _configured_auto_selection(root: Path, items: list[QueueItem], cfg: dict):
     return None
 
 
+
+def _revalidate_selected_item(root: Path, item: QueueItem) -> tuple[bool, str]:
+    """Fail closed if a queued file changed after selection.
+
+    Selection and execution are separate user-visible phases.  A file may be
+    deleted/replaced by another task between them; do not execute a stale
+    QueueItem classification in that case.
+    """
+    path = root / "patchs" / item.name
+    try:
+        if path.is_symlink():
+            return False, "queue entry became a symlink after selection"
+        if not path.is_file():
+            return False, "queue entry no longer exists as a regular file"
+    except OSError as exc:
+        return False, f"queue entry cannot be inspected ({type(exc).__name__})"
+
+    if item.kind == "PATCH":
+        # A root patch manifest has precedence over any nested COLLECT resource.
+        if path.suffix.lower() == ".zip" and _zip_has_root_patch_manifest(path):
+            return True, "manifest"
+        is_patch, detail = inspect_patch_candidate(path)
+        return (True, detail) if is_patch else (False, f"PATCH signature changed: {detail}")
+
+    if item.kind == "COLLECT":
+        if path.suffix.lower() == ".zip" and _zip_has_root_patch_manifest(path):
+            return False, "COLLECT entry changed into a PATCH package"
+        ok, detail = inspect_collect_zip(path)
+        return (True, detail) if ok else (False, f"COLLECT request changed: {detail}")
+
+    return False, f"non-runnable queue kind: {item.kind}"
+
 def execute_items(root: Path, chosen: list[QueueItem]):
     """Execute in natural selected order and stop immediately on first failure."""
     executed: list[tuple[str, int]] = []
     for index, item in enumerate(chosen):
+        valid, reason = _revalidate_selected_item(root, item)
+        if not valid:
+            print(
+                f"ERROR queue item changed after selection: {_safe_display(item.name)} ({_safe_display(reason)})",
+                file=sys.stderr,
+            )
+            rc = 2
+            executed.append((item.name, rc))
+            remaining = chosen[index + 1 :]
+            return rc, executed, remaining
         if item.kind == "PATCH":
             cmd = [str(root / "tools/run_python_patches.sh"), "--patch", f"patchs/{item.name}"]
         elif item.kind == "COLLECT":

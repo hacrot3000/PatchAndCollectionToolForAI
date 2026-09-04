@@ -15,9 +15,10 @@ import sys
 import threading
 import time
 import unicodedata
+import zipfile
 from typing import Iterable
 
-VERSION = "6.7.9"
+VERSION = "6.7.10"
 DEFAULT_HEARTBEAT = 0.8
 DEFAULT_MARGIN = 2
 MAX_TAIL_LINES = 120
@@ -50,11 +51,11 @@ def _sanitize_terminal_text(text: str) -> str:
 # The supervisor owns the user-facing PASS summary, so it canonicalizes those
 # variants into one highlighted upload target.
 _RESULT_ZIP_RE = re.compile(
-    r"^\s*(?:ZIP|RESULT(?:\s+ZIP)?|OUTPUT(?:\s+ZIP)?|ARTIFACT(?:\s+ZIP)?|FILE)\s*:\s*(.+?\.zip)\s*$",
+    r"^\s*(?:ZIP|RESULT(?:\s+ZIP)?|OUTPUT(?:\s+ZIP)?|ARTIFACT(?:\s+ZIP)?|FILE)\s*:\s*([\"']?)(.+?\.zip)\1\s*$",
     re.I,
 )
-_REQUEST_ZIP_RE = re.compile(r"^\s*REQUEST\s*:\s*(.+?\.zip)\s*$", re.I)
-_BARE_ZIP_RE = re.compile(r"^\s*((?:/|\.{1,2}/|~[/\\]|[A-Za-z]:[/\\]|artifacts[/\\]).+?\.zip)\s*$", re.I)
+_REQUEST_ZIP_RE = re.compile(r"^\s*REQUEST\s*:\s*([\"']?)(.+?\.zip)\1\s*$", re.I)
+_BARE_ZIP_RE = re.compile(r"^\s*([\"']?)((?:/|\.{1,2}/|~[/\\]|[A-Za-z]:[/\\]|artifacts[/\\]).+?\.zip)\1\s*$", re.I)
 
 
 def _clean_reported_path(value: str) -> str:
@@ -64,7 +65,43 @@ def _clean_reported_path(value: str) -> str:
 
 def _is_request_archive_path(value: str) -> bool:
     low = value.replace('\\', '/').lower()
-    return '/patchs/patched/' in f'/{low.lstrip("/")}' or Path(value).name.lower().startswith('code_collection_request')
+    basename = low.rsplit('/', 1)[-1]
+    return '/patchs/patched/' in f'/{low.lstrip("/")}' or basename.startswith('code_collection_request')
+
+
+def _resolve_reported_zip(root: Path, value: str) -> Path | None:
+    """Resolve a collector-reported path when it is local to this platform.
+
+    The collector normally reports an absolute or project-relative local path.
+    Cross-platform-looking paths are left unverifiable rather than being joined
+    to the current project incorrectly.
+    """
+    value = _clean_reported_path(value)
+    if not value:
+        return None
+    if os.name != 'nt' and re.match(r'^[A-Za-z]:[/\\]', value):
+        return None
+    if os.name == 'nt' and value.startswith('\\\\'):
+        return Path(value)
+    expanded = Path(os.path.expanduser(value))
+    return expanded if expanded.is_absolute() else (root / expanded)
+
+
+def _validate_result_zip(root: Path, value: str) -> tuple[bool, str]:
+    resolved = _resolve_reported_zip(root, value)
+    if resolved is None:
+        # A path native to another platform cannot be verified here; this case
+        # is kept detectable for portability but should not occur for a local
+        # collector invocation.
+        return False, f'cannot verify result ZIP path on this platform: {value}'
+    try:
+        if not resolved.is_file():
+            return False, f'result ZIP does not exist: {value}'
+        if not zipfile.is_zipfile(resolved):
+            return False, f'result artifact is not a valid ZIP: {value}'
+    except OSError as exc:
+        return False, f'result ZIP validation failed ({type(exc).__name__}): {value}'
+    return True, str(resolved)
 
 
 def _extract_collect_completion(lines: Iterable[str]) -> tuple[str | None, str | None, list[str]]:
@@ -78,17 +115,17 @@ def _extract_collect_completion(lines: Iterable[str]) -> tuple[str | None, str |
             continue
         m = _REQUEST_ZIP_RE.match(line)
         if m:
-            request_paths.append(_clean_reported_path(m.group(1)))
+            request_paths.append(_clean_reported_path(m.group(2)))
             continue
         m = _RESULT_ZIP_RE.match(line)
         if m:
-            candidate = _clean_reported_path(m.group(1))
+            candidate = _clean_reported_path(m.group(2))
             if candidate and not _is_request_archive_path(candidate):
                 result_explicit.append(candidate)
             continue
         m = _BARE_ZIP_RE.match(line)
         if m:
-            candidate = _clean_reported_path(m.group(1))
+            candidate = _clean_reported_path(m.group(2))
             if candidate and not _is_request_archive_path(candidate):
                 result_bare.append(candidate)
             continue
@@ -110,10 +147,18 @@ def _completion_progress_detail(line: str) -> str:
     return _sanitize_terminal_text(line.strip())
 
 
-def _print_collect_success(lines: Iterable[str]) -> None:
+def _print_collect_success(root: Path, lines: Iterable[str]) -> bool:
     material = list(lines)
     result_zip, request_zip, extras = _extract_collect_completion(material)
+    valid_result = False
+    validation_error = None
     if result_zip:
+        valid_result, normalized = _validate_result_zip(root, result_zip)
+        if valid_result:
+            result_zip = normalized
+        else:
+            validation_error = normalized
+    if result_zip and valid_result:
         title = '[PRIMARY - UPLOAD THIS FILE]'
         is_tty = bool(getattr(sys.stdout, 'isatty', lambda: False)())
         print('')
@@ -127,7 +172,10 @@ def _print_collect_success(lines: Iterable[str]) -> None:
         print('Destination: ChatGPT / AI server')
         print('================================================')
     else:
-        print(f'[PTV v{VERSION} WARNING] COLLECT passed but the result ZIP path was not detected.')
+        if validation_error:
+            print(f'[PTV v{VERSION} ERROR] COLLECT reported an unusable result artifact: {validation_error}')
+        else:
+            print(f'[PTV v{VERSION} ERROR] COLLECT returned rc=0 but the result ZIP path was not detected.')
         print('Recent collector output follows so the artifact can be recovered:')
         for line in material[-8:]:
             print(_sanitize_terminal_text(line))
@@ -135,6 +183,7 @@ def _print_collect_success(lines: Iterable[str]) -> None:
         print(f'[INFO] REQUEST ARCHIVED: {request_zip}')
     for line in extras[-4:]:
         print(line)
+    return bool(result_zip and valid_result)
 
 
 def _cell_width(text: str) -> int:
@@ -285,7 +334,7 @@ def _reader(stream, q: queue.Queue[str], tail: deque[str]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Python Patch Tool v6.7.9 COLLECT one-line progress supervisor")
+    ap = argparse.ArgumentParser(description="Python Patch Tool v6.7.10 COLLECT one-line progress supervisor")
     ap.add_argument("--project-root", required=True)
     ap.add_argument("--collector", required=True)
     ap.add_argument("rest", nargs=argparse.REMAINDER)
@@ -307,43 +356,51 @@ def main(argv: list[str] | None = None) -> int:
     cmd = [sys.executable, str(collector), "--project-root", str(root), *rest]
     env = dict(os.environ)
     env["PYTHONUNBUFFERED"] = "1"
-    proc = subprocess.Popen(
-        cmd,
-        cwd=str(root),
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        bufsize=1,
-        # Put the collector in its own process group.  If the supervisor is
-        # stopped by an IDE/task runner that signals only the parent PID, we
-        # can terminate the complete collector tree instead of leaving a
-        # readonly collection process running in the background.
-        start_new_session=(os.name == "posix"),
-    )
-    assert proc.stdout is not None
 
+    # Install stop handlers *before* spawning the collector.  Earlier releases
+    # had a small race between Popen() and signal.signal(): a task runner could
+    # terminate the supervisor in that window and leave the newly-created
+    # collector session orphaned.
     received_signal: list[int] = []
     signal_deadline: list[float | None] = [None]
     old_handlers: dict[int, object] = {}
+    proc_holder: list[subprocess.Popen | None] = [None]
+
+    def _signal_collector(active_proc: subprocess.Popen, signum: int) -> None:
+        if active_proc.poll() is not None:
+            return
+        try:
+            if os.name == "posix":
+                os.killpg(active_proc.pid, signum)
+            else:
+                active_proc.send_signal(signum)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
 
     def _forward_stop(signum, _frame):
         if not received_signal:
             received_signal.append(int(signum))
             signal_deadline[0] = time.monotonic() + 2.0
-        if proc.poll() is not None:
-            return
-        try:
-            if os.name == "posix":
-                os.killpg(proc.pid, signum)
-            else:
-                proc.send_signal(signum)
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
+        active_proc = proc_holder[0]
+        if active_proc is not None:
+            # SIGQUIT commonly triggers a core dump in Python/native helpers,
+            # which can make task cancellation appear hung while a large core
+            # is written/processed. Preserve the supervisor's original 131
+            # status, but terminate the readonly collector tree with SIGTERM.
+            child_signum = (
+                int(signal.SIGTERM)
+                if getattr(signal, "SIGQUIT", None) is not None and int(signum) == int(signal.SIGQUIT)
+                else int(signum)
+            )
+            _signal_collector(active_proc, child_signum)
 
-    for sig in (getattr(signal, "SIGINT", None), getattr(signal, "SIGTERM", None)):
+    stop_signals = (
+        getattr(signal, "SIGINT", None),
+        getattr(signal, "SIGTERM", None),
+        getattr(signal, "SIGHUP", None),
+        getattr(signal, "SIGQUIT", None),
+    )
+    for sig in stop_signals:
         if sig is None:
             continue
         try:
@@ -351,6 +408,45 @@ def main(argv: list[str] | None = None) -> int:
             signal.signal(sig, _forward_stop)
         except (ValueError, OSError):
             pass
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(root),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            # Put the collector in its own process group. If the supervisor is
+            # stopped by an IDE/task runner that signals only the parent PID,
+            # terminate the complete collector tree instead of leaving a
+            # readonly collection process running in the background.
+            start_new_session=(os.name == "posix"),
+        )
+    except BaseException:
+        for sig_num, old_handler in old_handlers.items():
+            try:
+                signal.signal(sig_num, old_handler)
+            except (ValueError, OSError):
+                pass
+        raise
+    proc_holder[0] = proc
+    assert proc.stdout is not None
+
+    # A stop signal may have arrived during Popen(). The pre-installed handler
+    # recorded it while proc_holder was empty; forward it now that the child
+    # session exists.
+    if received_signal:
+        pending = received_signal[0]
+        child_signum = (
+            int(signal.SIGTERM)
+            if getattr(signal, "SIGQUIT", None) is not None and pending == int(signal.SIGQUIT)
+            else pending
+        )
+        _signal_collector(proc, child_signum)
 
     q: queue.Queue[str] = queue.Queue()
     tail: deque[str] = deque(maxlen=MAX_TAIL_LINES)
@@ -423,13 +519,33 @@ def main(argv: list[str] | None = None) -> int:
         final_rc = 128 + abs(raw_rc)
     else:
         final_rc = raw_rc
+
+    # A zero collector exit code is only a PASS when there is a usable result
+    # ZIP to upload. Decide that before rendering the final status so the
+    # console can never say `✓ rc=0` and then fail afterward.
+    completion_contract_failed = False
+    if final_rc == 0:
+        result_zip, _request_zip, _extras = _extract_collect_completion(tail)
+        if not result_zip:
+            completion_contract_failed = True
+        else:
+            valid_result, _validation_detail = _validate_result_zip(root, result_zip)
+            completion_contract_failed = not valid_result
+        if completion_contract_failed:
+            final_rc = 2
+
     _render_one_line(
         f"{'✓' if final_rc == 0 else '✗'} COLLECT | rc={final_rc} | {elapsed:.1f}s | phase={phase} | output={output_lines} lines",
         final=True,
     )
 
-    # Keep the terminal compact on PASS. On FAIL, surface a bounded tail so the user has useful evidence.
-    if final_rc != 0:
+    # Keep the terminal compact on PASS. On a collector failure, surface a
+    # bounded tail. A completion-contract failure gets its canonical artifact
+    # diagnostic instead of a contradictory PASS block.
+    if completion_contract_failed:
+        _print_collect_success(root, tail)
+        print(f'[PTV v{VERSION} ERROR] COLLECT completion contract failed; returning rc=2.', file=sys.stderr)
+    elif final_rc != 0:
         print("COLLECT FAILED — recent collector output:")
         for line in list(tail)[-30:]:
             print(_sanitize_terminal_text(line))
@@ -438,7 +554,7 @@ def main(argv: list[str] | None = None) -> int:
         # collectors may print the result archive twice (a ``ZIP:`` line plus
         # the bare path). The user should see exactly one highlighted upload
         # target and must not confuse it with the archived request ZIP.
-        _print_collect_success(tail)
+        _print_collect_success(root, tail)
     return final_rc
 
 

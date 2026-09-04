@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.7.9
+# AI / ChatGPT usage contract — Python Patch Tool v6.7.10
 
 This document is intended to be uploaded or quoted to an AI that creates PATCH
 or COLLECT artifacts for this tool. The rules below override obsolete examples
@@ -82,3 +82,12 @@ informational and must not be mistaken for the collection result.
 Legacy collector output may internally emit both a labelled `ZIP` line and the
 same bare path. The supervisor deduplicates those variants and must not replay
 the result ZIP path twice.
+
+### Result artifact validity
+
+A collector process returning zero is not enough to claim success. The public
+COLLECT supervisor verifies that the reported result artifact exists locally
+and is a ZIP before showing `[PRIMARY - UPLOAD THIS FILE]`. If the artifact is
+missing/unusable, COLLECT returns non-zero and there is no primary-upload block.
+Quoted paths and paths containing spaces are valid and must not be rewritten by
+AI instructions.

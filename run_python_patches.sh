@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Python Patch Tool v6.7.9 public launcher.
+# Python Patch Tool v6.7.10 public launcher.
 # SANDBOX/worktree transaction mode is permanently disabled at this boundary.
 set -euo pipefail
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,7 +38,7 @@ if [ ! -f "$RUNNER" ]; then
   exit 2
 fi
 
-# v6.7.9 invariant: SANDBOX/Git-worktree transaction execution is removed.
+# v6.7.10 invariant: SANDBOX/Git-worktree transaction execution is removed.
 # The installed private core may still expose historical transaction options,
 # so every documented PATCH execution route is forced to --transaction off.
 # Utility-only routes such as paths/help remain untouched.
@@ -88,11 +88,12 @@ if [ "$force_inplace" -eq 1 ]; then
   exec python3 "$RUNNER" "${filtered[@]}" --transaction off
 fi
 
-# Fail closed if an invocation contained only obsolete transaction/SANDBOX
-# switches.  Never strip them and then fall through to the legacy core with
-# zero arguments, because that core may consult an old transaction default.
-if [ "$stripped_legacy_transaction" -eq 1 ] && [ "${#filtered[@]}" -eq 0 ]; then
-  echo "ERROR: obsolete transaction/SANDBOX flags cannot be used as a standalone command." >&2
+# Fail closed whenever obsolete transaction/SANDBOX flags were supplied but no
+# PATCH execution route was positively identified.  Do not pass leftovers to
+# the legacy core: an unknown positional/utility-shaped argument could be
+# interpreted differently by an older core and consult a stale worktree default.
+if [ "$stripped_legacy_transaction" -eq 1 ] && [ "$force_inplace" -eq 0 ]; then
+  echo "ERROR: obsolete transaction/SANDBOX flags are not accepted without a recognized PATCH route." >&2
   echo "Use ./tools/run_python_patches.sh with no arguments for the normal queue." >&2
   exit 2
 fi

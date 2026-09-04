@@ -13,7 +13,16 @@ def make_project(tmp: Path):
     (tools/'run_python_patches.sh').chmod(0o755)
     (lib/'python_patch_runner.py').write_text('import json,sys\nprint(json.dumps(sys.argv[1:]))\n', encoding='utf-8')
     (lib/'python_patch_collect_progress_v6_7.py').write_bytes(PROGRESS.read_bytes())
-    (lib/'python_patch_readonly_collector.py').write_text('print("PASS collect route")\n', encoding='utf-8')
+    (lib/'python_patch_readonly_collector.py').write_text(
+        "from pathlib import Path\n"
+        "import zipfile\n"
+        "out=Path('artifacts/collect-route.zip')\n"
+        "out.parent.mkdir(parents=True,exist_ok=True)\n"
+        "with zipfile.ZipFile(out,'w') as z: z.writestr('ok.txt','ok')\n"
+        "print(f'ZIP: {out.resolve()}')\n"
+        "print('NOTICE: PASS collect route')\n",
+        encoding='utf-8',
+    )
     return tools/'run_python_patches.sh'
 
 def run(launcher: Path, *args: str, env=None):
@@ -53,6 +62,9 @@ with tempfile.TemporaryDirectory() as td:
         ('--transaction=required',),
         ('--keep-failed-sandbox',),
         ('--transaction',),
+        ('--transaction','unexpected-value'),
+        ('--transaction=unexpected-value','paths'),
+        ('--keep-failed-sandbox','--help'),
     ]:
         cp=subprocess.run([str(launcher),*args],cwd=launcher.parent.parent,text=True,capture_output=True)
         assert cp.returncode==2,(args,cp.returncode,cp.stdout,cp.stderr)
@@ -70,10 +82,11 @@ with tempfile.TemporaryDirectory() as td:
     cp=subprocess.run([str(launcher),'collect','request','dummy.zip'],cwd=launcher.parent.parent,text=True,capture_output=True)
     assert cp.returncode==0,(cp.returncode,cp.stdout,cp.stderr)
     assert 'PASS collect route' in cp.stdout,cp.stdout
+    assert '[PRIMARY - UPLOAD THIS FILE]' in cp.stdout,cp.stdout
 
 text=LAUNCHER.read_text(encoding='utf-8')
 assert 'python_patch_runtime_guard.py' not in text
 assert 'PTV_USE_RUNTIME_GUARD' not in text
 assert 'git worktree add' not in text
 assert 'exec python3 "$RUNNER" "${filtered[@]}" --transaction off' in text
-print('PASS: v6.7.9 all documented PATCH execution routes force in-place mode')
+print('PASS: v6.7.10 all documented PATCH execution routes force in-place mode')
