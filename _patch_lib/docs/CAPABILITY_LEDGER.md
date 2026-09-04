@@ -1,6 +1,6 @@
 # Python Patch Tool — cumulative capability ledger
 
-Current release: **v6.18.2**
+Current release: **v6.18.3**
 
 This is the canonical cross-version continuity ledger. It complements the current feature-status document; it must never be replaced by a current-only checklist.
 
@@ -46,31 +46,62 @@ See `HISTORICAL_FEATURE_BASELINE_V5_15.md` for all 107 original names.
 | #52 automatic project-key adoption | **SUPERSEDED** | Current Project Identity Guard is stricter; project identity must agree with local configuration when used. |
 | historical global queue/process lock | **REMOVED_BY_REQUIREMENT** | Per-project PATCH mutation serialization replaced global locking; selector/COLLECT remain independent. |
 
-## Historical COLLECT capability mapping (#29–46)
+## Historical COLLECT capability mapping (#29–46) — restored in v6.18.3
 
-The v5 collector was broader than the later self-contained v6 contract. v6.10 explicitly stopped claiming the old action table as a universal schema. These rows remain here so an AI cannot erase their existence.
+The v5 collector was broader than the later self-contained v6 contract. v6.10 intentionally stopped treating the v5 action table as authoritative because the then-installed private collector did not implement it. v6.18.3 restores the useful read-only capabilities into the packaged self-contained collector **without restoring the old public `collect <command>` CLI**; delivery remains request-ZIP + zero-argument queue.
 
-| Historical capability | v6.18.2 disposition / closest current action |
+| Historical capability | v6.18.3 disposition / current behavior |
 |---|---|
-| `ls`, `tree` (#29–30) | **NOT_CURRENTLY_GUARANTEED** as standalone actions; `overview` supplies bounded project structure. |
+| `ls`, `tree` (#29–30) | **COMPATIBILITY_RESTORED v6.18.3** as bounded standalone actions. |
 | Project overview (#31) | **PRESERVED** as `overview`. |
-| Research (#32) | **SUPERSEDED/PARTIAL**; compose `overview` + verified `search`. |
+| Research (#32) | **COMPATIBILITY_RESTORED v6.18.3** as `overview` + coverage-aware verified search. |
 | Find/glob (#33) | **PRESERVED** as `find`. |
-| File/range, head/tail (#34–35) | **NOT_CURRENTLY_GUARANTEED** as named actions; `pack` can collect files but is not declared exact parity. |
-| Symbol/reference/callgraph/dependency (#36, #38–40) | **NOT_CURRENTLY_GUARANTEED**; historical M3 workflows used them, so they must not disappear from the ledger. |
+| File/range, head/tail (#34–35) | **COMPATIBILITY_RESTORED v6.18.3** as bounded line/content readers. |
+| Symbol extraction (#36) | **COMPATIBILITY_RESTORED v6.18.3** with function/class/struct-like block extraction from an exact source file. |
 | Search (#37) | **PRESERVED and hardened**; v6.18 adds filesystem-first coverage, independent fallback, `must_find`, zero diagnostics and health-search. |
-| Directory/multi-path pack (#41–42) | **PRESERVED/PARTIAL** through `pack`. |
+| References (#38) | **COMPATIBILITY_RESTORED v6.18.3** through the current coverage-aware filesystem search engine. |
+| Callgraph (#39) | **COMPATIBILITY_RESTORED v6.18.3** as bounded source-level references/callers plus heuristic callees. |
+| Dependencies (#40) | **COMPATIBILITY_RESTORED v6.18.3** as bounded include/import/use/require inventory. |
+| Directory collector (#41) | **COMPATIBILITY_RESTORED v6.18.3** with include/exclude globs and automatic sensitive-file avoidance. |
+| Multi-path pack (#42) | **PRESERVED for exact files / intentionally narrowed for directories**. v6.11 explicitly made guaranteed `pack` exact-file evidence; use restored `directory` for recursive subtrees. Historical `zip` is accepted as an exact-file alias. |
 | Git context (#43) | **PRESERVED** as `git`. |
-| Large decompile (#44) | **NOT_CURRENTLY_GUARANTEED**. |
-| JSON multi-action (#45) | **PRESERVED** for current five action types. |
-| Collector path/security policy (#46) | **PRESERVED / strengthened** by project-relative path enforcement, bounded collection and search coverage diagnostics. |
+| Large decompile (#44) | **COMPATIBILITY_RESTORED v6.18.3** using a temporary SQLite index, address/name/regex lookup, neighbors and optional text references. |
+| JSON multi-action (#45) | **PRESERVED / EXPANDED** across the current and restored action set. |
+| Collector path/security policy (#46) | **PRESERVED / strengthened** by project-relative containment, no arbitrary request shell, bounded collection, sensitive auto-collection avoidance and search coverage diagnostics. |
+
+### Additional historical/private request aliases
+
+Real historical request ZIPs used `search_files`, `content`, and `symbol_graph`. v6.18.3 marks these **COMPATIBILITY_RESTORED** and protects them with semantic regression tests. `search_files`/`content` route through the hardened search engine; `symbol_graph` preserves the multi-symbol reference/caller/callee/dependency investigation shape.
+
+### Public CLI disposition
+
+The old direct public form `./tools/run_python_patches.sh collect <command> ...` remains **SUPERSEDED** by the later queue contract. This is deliberate and is not a missing capability: the research/collection *actions* are restored inside request ZIPs while the user continues to run the zero-argument launcher.
+
+## Portable install and selection continuity (#78–89)
+
+| Historical ID | Capability | Current disposition | Evidence / notes |
+|---:|---|---|---|
+| 78 | Extract-and-run installation | **PRESERVED** | Primary install/upgrade remains direct extraction of the portable `tools/` tree. |
+| 79 | Correct public-runner placement | **PRESERVED** | `tools/run_python_patches.sh` remains the public POSIX entry point; `_patch_lib` stays private. |
+| 80 | Portable direct upgrade | **PRESERVED** | Release ZIP does not include `.python_patch_tool.json`; extraction replaces only Patch-Tool-managed package paths. |
+| 81 | Optional controlled installer | **COMPATIBILITY_RESTORED v6.18.3** | `install_python_patch_tool_v6.py` plus historical filename wrapper `install_python_patch_tool_v5.py`; fixed-list stale-file backup/removal, dry-run and create-config-without-overwrite. Normal use does not require it. |
+| 82 | Portable-layout regression test | **PRESERVED / EXPANDED** | Package/version/checksum tests plus `self_test_portable_installer_v6_18_3.py` validate direct layout and controlled migration semantics. |
+| 83–85 | Interactive / TTY / line multi-select | **PRESERVED** | Current selector keeps fullscreen and line-mode selection contracts. |
+| 86 | Repeated explicit `--patch` | **COMPATIBILITY_RESTORED v6.18.2** | Dispatcher-level semantic test, not launcher-string inspection. |
+| 87 | Unselected-package preservation + audit | **COMPATIBILITY_RESTORED v6.18.3** | Unselected runnable packages remain in `patchs/` and `LAST_RUN.json` records `user_not_selected`. |
+| 88 | Selection-aware automatic identity adoption | **SUPERSEDED** | Current Project Identity Guard intentionally does not auto-adopt identity from a selected PATCH; configured local identity must already agree. |
+| 89 | Explicit non-interactive automation | **COMPATIBILITY_RESTORED v6.18.2** | `--all`/`-a` and current config automation both remain available. |
 
 ## Output/UI historical capabilities (#98–107)
 
 The v6 report/history model superseded the exact v5 split-bundle naming model. Preserve current equivalents but do not claim byte/name parity with v5.
 
-- #98 absolute critical local paths — **PRESERVED where artifacts are printed**.
-- #99–103 old AI_HANDOFF/SUMMARY/CODE/DETAIL/LAST_RUN.md role model — **SUPERSEDED** by current structured run/report/fail-handoff model.
+- #98 absolute critical local paths — **PRESERVED where actionable artifacts are printed**.
+- #99 output-file role guide — **COMPATIBILITY_RESTORED v6.18.3** as `OUTPUT_FILES_GUIDE.md`, describing the current v6 artifacts instead of resurrecting obsolete bundle names.
+- #100 primary upload highlighting — **PRESERVED** for COLLECT results and PATCH FAIL handoff paths.
+- #101 ANSI color roles — **PRESERVED as current accessible equivalents / exact v5 palette SUPERSEDED**; `NO_COLOR` and text fallback remain supported.
+- #102 REPORT/DETAIL alias clarification — **SUPERSEDED** because current v6 no longer exposes that split-bundle alias model; `OUTPUT_FILES_GUIDE.md` explicitly records the historical distinction.
+- #103 persistent LAST_RUN file guide — **PRESERVED as a current equivalent** for `LAST_RUN.json`/HISTORY; the exact `LAST_RUN.md` artifact is **SUPERSEDED**.
 - #104 color/text run states — **PRESERVED current equivalents**.
 - #105 executed-package traceability — **PRESERVED in run/history evidence**.
 - #106 old short handoff naming — **SUPERSEDED** by current FAIL_HANDOFF/report naming.
@@ -86,7 +117,7 @@ The following are current-release capabilities and are protected in addition to 
 - duplicate filtering and `patchs/ignore` behavior;
 - current PATCH schema/preflight/rollback/batch mutation protections;
 - POSIX and native-Windows launcher routing;
-- current COLLECT actions (`pack`, `overview`, `find`, `search`, `git`);
+- current/restored COLLECT actions and aliases defined by `COLLECT_ACTION_SCHEMA.json`, including `pack`, `overview`, `find`, `search`, `git`, historical read-only actions, and protected `search_files`/`content`/`symbol_graph`;
 - filesystem-first verified search, independent fallback, coverage/skipped-dir reporting, `must_find`, `diagnose_on_zero`, anchors/expected-files and `health-search`.
 
 ## Release rule

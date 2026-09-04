@@ -115,3 +115,13 @@ Source basis: `PYTHON_PATCH_TOOL_FEATURE_STATUS.md` from v5.15.0.
 | 107 | Selector patch deletion |
 
 Historical status values and priorities remain in the original v5.15 status document. Current disposition is authoritative only in `CAPABILITY_LEDGER.md`.
+
+## Historical completion-status snapshot
+
+The 107 rows are an **inventory**, not a claim that all 107 were complete. The immutable v5.15 status classification is machine-readable in `HISTORICAL_FEATURE_STATUS_V5_15.json`.
+
+- **COMPLETE at v5.15:** IDs `1–46`, `51–55`, `57–59`, `67–107`.
+- **PARTIAL at v5.15:** #47 about 75%, #48 about 50%, #49 about 25%, #50 about 70%, #62 about 50%, #64 about 30%.
+- **NOT STARTED at v5.15:** #56, #60, #61, #63, #65, #66.
+
+Preservation governance applies automatically to rows that were COMPLETE (plus capabilities later marked `PRESERVED` or `COMPATIBILITY_RESTORED`). PARTIAL/NOT STARTED rows must remain visible as history but must **not** be silently promoted into current requirements. Likewise, an explicit later `SUPERSEDED` or `REMOVED_BY_REQUIREMENT` disposition must not be reversed without a new requirement.

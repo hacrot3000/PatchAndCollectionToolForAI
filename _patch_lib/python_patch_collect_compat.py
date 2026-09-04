@@ -20,7 +20,7 @@ import zipfile
 
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
 
-VERSION = "6.18.2"
+VERSION = "6.18.3"
 REQUEST_RE = re.compile(r"^CODE_COLLECTION_REQUEST(?:_[A-Za-z0-9._-]+)?\.json$", re.I)
 MAX_REQUEST_JSON_BYTES = 1024 * 1024
 REGEX_SEARCH_TIMEOUT_SECONDS = 60.0
@@ -974,7 +974,7 @@ def _search_action_payload(root: Path, action: dict, limits: dict) -> dict:
     incomplete=bool(inconsistency or must_fail or zero_unverified)
     if must_fail: reasons.append(f"must_find=true but query produced zero matches")
     report=_format_search_report(root,action,scopes,primary,fallback,coverage,canonical,inconsistency=inconsistency,incomplete_reasons=reasons)
-    return {"report":report,"incomplete":incomplete,"inconsistency":inconsistency,"must_find_failed":must_fail,"matches":canonical.get('match_count',0),"coverage_status":"INCONSISTENT" if inconsistency else ('PARTIAL' if reasons else 'VERIFIED'),"reasons":reasons}
+    return {"report":report,"incomplete":incomplete,"inconsistency":inconsistency,"must_find_failed":must_fail,"matches":canonical.get('match_count',0),"match_details":canonical.get('matches',[]),"coverage":coverage,"coverage_status":"INCONSISTENT" if inconsistency else ('PARTIAL' if reasons else 'VERIFIED'),"reasons":reasons}
 
 
 def _search_action_direct(root: Path, action: dict, limits: dict) -> str:
@@ -1004,6 +1004,535 @@ def _search_action(root: Path, action: dict, limits: dict) -> dict:
         data=json.loads(result_path.read_text(encoding='utf-8'))
         if not isinstance(data,dict) or not isinstance(data.get('report'),str): raise ValueError("regex search worker returned invalid payload")
         return data
+
+
+# ---------------------------------------------------------------------------
+# Historical COLLECT action compatibility (v6.18.3)
+# ---------------------------------------------------------------------------
+
+
+def _compat_search_spec(action: dict, *, query: str | None = None, paths: list[str] | None = None, max_matches: int | None = None) -> dict:
+    """Map historical search-like actions onto the coverage-aware v6.18 engine."""
+    source_scope = action.get("source_scope", "filesystem")
+    spec = {
+        "type": "search",
+        "query": str(query if query is not None else action.get("query", "")),
+        "regex": bool(action.get("regex", False)),
+        "paths": list(paths if paths is not None else action.get("paths", ["."])),
+        "context_lines": int(action.get("context_lines", 4)),
+        "max_matches": int(max_matches if max_matches is not None else action.get("max_matches", 500)),
+        "backend": action.get("backend", "auto"),
+        "source_scope": source_scope,
+        "filesystem": source_scope == "filesystem",
+        "respect_gitignore": bool(action.get("respect_gitignore", False)),
+        "follow_symlinks": bool(action.get("follow_symlinks", False)),
+        "must_find": bool(action.get("must_find", False)),
+        "diagnose_on_zero": bool(action.get("diagnose_on_zero", True)),
+        "fallback_search": bool(action.get("fallback_search", True)),
+        "report_coverage": bool(action.get("report_coverage", True)),
+        "report_skipped_dirs": bool(action.get("report_skipped_dirs", True)),
+        "module_discovery": bool(action.get("module_discovery", True)),
+        "anchor_paths": list(action.get("anchor_paths", [])),
+        "expected_files": list(action.get("expected_files", [])),
+    }
+    return spec
+
+
+def _ls_action(root: Path, action: dict) -> str:
+    rel, scope = _resolve_scope(root, action.get("path", "."), file_ok=False)
+    max_entries = int(action.get("max_entries", 1000))
+    lines = ["# Directory listing", "", f"Path: `{rel}`", f"Max entries: {max_entries}", ""]
+    rows: list[tuple[str, str, int | None]] = []
+    try:
+        entries = sorted(scope.iterdir(), key=lambda p: (p.name.lower(), p.name))
+    except OSError as exc:
+        return "\n".join(lines + [f"[READ ERROR: {type(exc).__name__}: {exc}]", ""]) + "\n"
+    for entry in entries[:max_entries]:
+        try:
+            st = entry.lstat()
+            if stat.S_ISLNK(st.st_mode):
+                kind = "symlink (not followed)"
+                size = None
+            elif stat.S_ISDIR(st.st_mode):
+                kind = "dir"
+                size = None
+            elif stat.S_ISREG(st.st_mode):
+                kind = "file"
+                size = st.st_size
+            else:
+                kind = "other"
+                size = None
+        except OSError:
+            kind = "unreadable"
+            size = None
+        rows.append((entry.name, kind, size))
+    for name, kind, size in rows:
+        suffix = "" if size is None else f"  {size} bytes"
+        lines.append(f"- [{kind}] `{name}`{suffix}")
+    if len(entries) > max_entries:
+        lines += ["", f"[TRUNCATED at max_entries={max_entries}; total immediate entries={len(entries)}]"]
+    return "\n".join(lines) + "\n"
+
+
+def _tree_action(root: Path, action: dict) -> str:
+    rel, scope = _resolve_scope(root, action.get("path", "."), file_ok=False)
+    max_depth = int(action.get("max_depth", 4))
+    max_entries = int(action.get("max_entries", 5000))
+    lines = ["# Directory tree", "", f"Path: `{rel}`", f"Max depth: {max_depth}", f"Max entries: {max_entries}", "", f"{rel}/"]
+    emitted = 0
+    skipped = 0
+    stack: list[tuple[Path, int, str]] = [(scope, 0, "")]
+    while stack and emitted < max_entries:
+        current, depth, prefix = stack.pop()
+        if depth >= max_depth:
+            continue
+        try:
+            entries = sorted(current.iterdir(), key=lambda p: (p.name.lower(), p.name), reverse=True)
+        except OSError:
+            skipped += 1
+            continue
+        pending: list[tuple[Path, int, str]] = []
+        for entry in reversed(entries):
+            if emitted >= max_entries:
+                break
+            try:
+                st = entry.lstat()
+            except OSError:
+                skipped += 1
+                continue
+            marker = ""
+            is_dir = stat.S_ISDIR(st.st_mode)
+            if stat.S_ISLNK(st.st_mode):
+                marker = " -> [symlink not followed]"
+                is_dir = False
+            elif is_dir and (entry.name in IGNORED_DIRS or _is_internal_output_path(root, entry)):
+                marker = " [default-excluded]"
+            lines.append(f"{prefix}├── {entry.name}{'/' if is_dir else ''}{marker}")
+            emitted += 1
+            if is_dir and not marker and depth + 1 < max_depth:
+                pending.append((entry, depth + 1, prefix + "│   "))
+        # Stack is LIFO: reverse so lexical order remains stable.
+        stack.extend(reversed(pending))
+    if stack:
+        lines += ["", f"[TRUNCATED at max_entries={max_entries}]"]
+    if skipped:
+        lines += ["", f"Unreadable entries/directories skipped: {skipped}"]
+    return "\n".join(lines) + "\n"
+
+
+def _read_text_file_bounded(root: Path, raw: str, limits: dict) -> tuple[str, Path, str]:
+    rel, src = _resolve_exact_file(root, raw)
+    size = src.stat().st_size
+    cap = int(limits.get("max_search_file_bytes", 64 * 1024 * 1024))
+    if size > cap:
+        raise ValueError(f"text reader source exceeds max_search_file_bytes: {rel} ({size}>{cap})")
+    raw_bytes = src.read_bytes()
+    if b"\x00" in raw_bytes[:65536]:
+        raise ValueError(f"text reader refuses binary/NUL-containing file: {rel}")
+    return rel, src, raw_bytes.decode("utf-8", errors="replace")
+
+
+def _line_reader_action(root: Path, action: dict, limits: dict) -> str:
+    rel, _src, text = _read_text_file_bounded(root, action["path"], limits)
+    rows = text.splitlines()
+    kind = action["type"]
+    total = len(rows)
+    if kind == "head":
+        start, end = 1, min(total, int(action.get("lines", 100)))
+    elif kind == "tail":
+        count = int(action.get("lines", 100))
+        start, end = max(1, total - count + 1), total
+    else:
+        start = int(action.get("start_line", 1))
+        end = int(action.get("end_line", total if total else 1))
+        start = min(max(1, start), max(1, total))
+        end = min(max(start, end), total) if total else 0
+    lines = [f"# {kind} reader", "", f"Path: `{rel}`", f"Total lines: {total}", f"Selected: {start}-{end}", "", "```text"]
+    if total and end >= start:
+        width = len(str(end))
+        for number in range(start, end + 1):
+            lines.append(f"{number:>{width}}: {rows[number - 1]}")
+    lines += ["```", ""]
+    return "\n".join(lines) + "\n"
+
+
+def _brace_end(text: str, brace_pos: int) -> int | None:
+    depth = 0
+    i = brace_pos
+    in_string: str | None = None
+    escaped = False
+    line_comment = False
+    block_comment = False
+    while i < len(text):
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < len(text) else ""
+        if line_comment:
+            if ch == "\n":
+                line_comment = False
+            i += 1
+            continue
+        if block_comment:
+            if ch == "*" and nxt == "/":
+                block_comment = False
+                i += 2
+            else:
+                i += 1
+            continue
+        if in_string is not None:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == in_string:
+                in_string = None
+            i += 1
+            continue
+        if ch in {"'", '"', '`'}:
+            in_string = ch
+            i += 1
+            continue
+        if ch == "/" and nxt == "/":
+            line_comment = True
+            i += 2
+            continue
+        if ch == "/" and nxt == "*":
+            block_comment = True
+            i += 2
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return None
+
+
+def _line_start_offsets(text: str) -> list[int]:
+    offsets = [0]
+    for match in re.finditer("\n", text):
+        offsets.append(match.end())
+    return offsets
+
+
+def _offset_to_line(offsets: list[int], pos: int) -> int:
+    import bisect
+    return bisect.bisect_right(offsets, pos)
+
+
+def _extract_symbol_blocks(text: str, symbol: str, *, context_lines: int, max_blocks: int) -> list[dict]:
+    offsets = _line_start_offsets(text)
+    lines = text.splitlines()
+    occurrences = [m.start() for m in re.finditer(re.escape(symbol), text)]
+    blocks: list[dict] = []
+    seen: set[tuple[int, int]] = set()
+    for pos in occurrences:
+        if len(blocks) >= max_blocks:
+            break
+        line_no = _offset_to_line(offsets, pos)
+        line_idx = max(0, line_no - 1)
+        # Prefer declaration-like occurrences (symbol followed by '(' or class-ish token).
+        tail = text[pos:pos + len(symbol) + 32]
+        declaration_hint = bool(re.match(re.escape(symbol) + r"\s*\(", tail))
+        start_line = line_idx
+        if declaration_hint:
+            # Preserve annotations/modifiers/signature continuations directly above declaration.
+            for prev in range(line_idx - 1, max(-1, line_idx - 10), -1):
+                stripped = lines[prev].strip()
+                if not stripped:
+                    break
+                if stripped.endswith(";") or stripped.endswith("}"):
+                    break
+                start_line = prev
+        search_from = offsets[line_idx]
+        brace_pos = text.find("{", search_from, min(len(text), search_from + 4096))
+        if declaration_hint and brace_pos >= 0:
+            end_pos = _brace_end(text, brace_pos)
+        else:
+            end_pos = None
+        if end_pos is not None:
+            start_pos = offsets[start_line]
+            end_line = _offset_to_line(offsets, end_pos)
+            end_slice = offsets[end_line] if end_line < len(offsets) else len(text)
+        else:
+            start_line = max(0, line_idx - context_lines)
+            end_line_idx = min(len(lines), line_idx + context_lines + 1)
+            start_pos = offsets[start_line] if offsets else 0
+            end_slice = offsets[end_line_idx] if end_line_idx < len(offsets) else len(text)
+            end_line = end_line_idx
+        key = (start_pos, end_slice)
+        if key in seen:
+            continue
+        seen.add(key)
+        blocks.append({
+            "line": line_no,
+            "start_line": start_line + 1,
+            "end_line": max(start_line + 1, end_line),
+            "declaration_hint": declaration_hint,
+            "text": text[start_pos:end_slice].rstrip(),
+        })
+    return blocks
+
+
+def _symbol_action(root: Path, action: dict, limits: dict) -> str:
+    rel, _src, text = _read_text_file_bounded(root, action["path"], limits)
+    symbol = action["symbol"]
+    blocks = _extract_symbol_blocks(
+        text,
+        symbol,
+        context_lines=int(action.get("context_lines", 8)),
+        max_blocks=int(action.get("max_blocks", 20)),
+    )
+    lines = ["# Symbol extraction", "", f"Path: `{rel}`", f"Symbol: `{symbol}`", f"Blocks: {len(blocks)}", ""]
+    for idx, block in enumerate(blocks, 1):
+        lines += [
+            f"## Block {idx} lines {block['start_line']}-{block['end_line']}",
+            f"Declaration-like occurrence: {block['declaration_hint']}",
+            "```text",
+            block["text"],
+            "```",
+            "",
+        ]
+    if not blocks:
+        lines += ["NO SYMBOL OCCURRENCES IN REQUESTED FILE", ""]
+    return "\n".join(lines) + "\n"
+
+
+_DEP_PATTERNS = [
+    ("c_include", re.compile(r'^\s*#\s*include\s*[<\"]([^>\"]+)[>\"]')),
+    ("java_import", re.compile(r'^\s*import\s+(?:static\s+)?([A-Za-z0-9_.*]+)\s*;?')),
+    ("python_from", re.compile(r'^\s*from\s+([A-Za-z0-9_\.]+)\s+import\s+')),
+    ("python_import", re.compile(r'^\s*import\s+([A-Za-z0-9_\.]+)')),
+    ("js_from", re.compile(r'\bfrom\s+[\"\']([^\"\']+)[\"\']')),
+    ("js_require", re.compile(r'\brequire\s*\(\s*[\"\']([^\"\']+)[\"\']\s*\)')),
+    ("rust_use", re.compile(r'^\s*use\s+([^;]+);')),
+    ("go_import", re.compile(r'^\s*[\"`]([^\"`]+)[\"`]\s*$')),
+]
+
+
+def _dependency_rows_for_file(root: Path, path: Path, limits: dict) -> list[dict]:
+    rel = _project_rel(root, path)
+    try:
+        if path.stat().st_size > int(limits.get("max_search_file_bytes", 64 * 1024 * 1024)):
+            return []
+        if not _looks_text(path):
+            return []
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    rows: list[dict] = []
+    for line_no, line in enumerate(text.splitlines(), 1):
+        for kind, pattern in _DEP_PATTERNS:
+            match = pattern.search(line)
+            if match:
+                rows.append({"path": rel, "line": line_no, "kind": kind, "target": match.group(1).strip(), "source": line.strip()})
+                break
+    return rows
+
+
+def _dependency_action(root: Path, action: dict, limits: dict) -> tuple[str, list[dict]]:
+    max_results = int(action.get("max_results", action.get("max_dependency_files", 2000)))
+    paths = action.get("paths", [action.get("path", ".")])
+    rows: list[dict] = []
+    seen_files: set[str] = set()
+    for raw in paths:
+        _rel, scope = _resolve_scope(root, raw, file_ok=True)
+        candidates = [scope] if scope.is_file() else _iter_files(root, scope, max_files=limits["max_search_files"])
+        for src in candidates:
+            rel = _project_rel(root, src)
+            if rel in seen_files:
+                continue
+            seen_files.add(rel)
+            for row in _dependency_rows_for_file(root, src, limits):
+                rows.append(row)
+                if len(rows) >= max_results:
+                    break
+            if len(rows) >= max_results:
+                break
+        if len(rows) >= max_results:
+            break
+    lines = ["# Dependency inventory", "", f"Requested paths: {', '.join(f'`{p}`' for p in paths)}", f"Dependency records: {len(rows)}", f"Files inspected: {len(seen_files)}", "Semantics: bounded source-level include/import/use/require discovery; no arbitrary command execution.", ""]
+    for row in rows:
+        lines.append(f"- `{row['path']}:{row['line']}` [{row['kind']}] `{row['target']}`")
+    if len(rows) >= max_results:
+        lines += ["", f"[TRUNCATED at max_results={max_results}]"]
+    return "\n".join(lines) + "\n", rows
+
+
+def _directory_action(root: Path, action: dict, limits: dict) -> tuple[str, list[tuple[str, Path]]]:
+    rel, scope = _resolve_scope(root, action["path"], file_ok=False)
+    includes = action.get("include", ["*"])
+    excludes = action.get("exclude", [])
+    max_results = int(action.get("max_results", 5000))
+    matches: list[tuple[str, Path]] = []
+    for src in _iter_files(root, scope, max_files=limits["max_search_files"]):
+        file_rel = _project_rel(root, src)
+        local = src.relative_to(scope).as_posix()
+        include = any(fnmatch.fnmatch(local, pat) or fnmatch.fnmatch(src.name, pat) for pat in includes)
+        exclude = any(fnmatch.fnmatch(local, pat) or fnmatch.fnmatch(src.name, pat) for pat in excludes)
+        if include and not exclude:
+            # Historical directory collection was discovery-driven, so unlike an
+            # explicit exact-file pack it must not automatically ingest obvious
+            # credential/private-key files.
+            if _sensitive_file_reasons(file_rel, src):
+                continue
+            matches.append((file_rel, src))
+            if len(matches) >= max_results:
+                break
+    lines = ["# Directory collection", "", f"Path: `{rel}`", f"Include: {includes}", f"Exclude: {excludes}", f"Matches: {len(matches)}", ""]
+    lines.extend(f"- `{item_rel}`" for item_rel, _ in matches)
+    if len(matches) >= max_results:
+        lines += ["", f"[TRUNCATED at max_results={max_results}]"]
+    return "\n".join(lines) + "\n", matches
+
+
+def _call_tokens(block_text: str, own_symbol: str, max_callees: int) -> list[str]:
+    keywords = {
+        "if", "for", "while", "switch", "return", "sizeof", "catch", "new", "delete",
+        "typeof", "require", "assert", "print", "printf", "log", "lambda",
+    }
+    tokens: list[str] = []
+    for match in re.finditer(r"\b([A-Za-z_~][A-Za-z0-9_:~<>.]*)\s*\(", block_text):
+        token = match.group(1)
+        base = token.split("::")[-1].split(".")[-1]
+        if token == own_symbol or base == own_symbol or base.lower() in keywords:
+            continue
+        if token not in tokens:
+            tokens.append(token)
+            if len(tokens) >= max_callees:
+                break
+    return tokens
+
+
+def _candidate_symbol_blocks(root: Path, details: list[dict], symbol: str, limits: dict, *, context_lines: int, max_files: int = 40) -> list[dict]:
+    out: list[dict] = []
+    seen: set[str] = set()
+    for hit in details:
+        rel = str(hit.get("path", ""))
+        if not rel or rel in seen:
+            continue
+        seen.add(rel)
+        if len(seen) > max_files:
+            break
+        try:
+            _resolved_rel, _src, text = _read_text_file_bounded(root, rel, limits)
+        except Exception:
+            continue
+        blocks = _extract_symbol_blocks(text, symbol, context_lines=context_lines, max_blocks=4)
+        for block in blocks:
+            out.append({"path": rel, **block})
+    return out
+
+
+def _symbol_graph_action(root: Path, action: dict, limits: dict) -> dict:
+    paths = list(action.get("paths", ["."]))
+    symbols = list(action.get("symbols", [action.get("symbol")]))
+    symbols = [s for s in symbols if s]
+    context_lines = int(action.get("context_lines", 8))
+    max_occurrences = int(action.get("max_occurrences", action.get("max_callers", 1000)))
+    max_callers = int(action.get("max_callers", 300))
+    max_callees = int(action.get("max_callees", 100))
+    include_refs = bool(action.get("include_references", True))
+    include_callers = bool(action.get("include_callers", True))
+    include_callees = bool(action.get("include_callees", True))
+    include_deps = bool(action.get("include_dependencies", True))
+    incomplete_reasons: list[str] = []
+    lines = ["# Symbol graph compatibility report", "", f"Paths: {paths}", f"Symbols: {symbols}", "Semantics: filesystem-verified references plus bounded source heuristics for declaration blocks/callees/dependencies.", ""]
+    for symbol in symbols:
+        search_spec = _compat_search_spec(
+            action,
+            query=symbol,
+            paths=paths,
+            max_matches=max_occurrences,
+        )
+        search_spec["regex"] = False
+        search_spec["must_find"] = False
+        payload = _search_action(root, search_spec, limits)
+        if payload.get("incomplete"):
+            incomplete_reasons.extend(f"{symbol}: {x}" for x in payload.get("reasons", []))
+        details = list(payload.get("match_details", []))[:max_occurrences]
+        blocks = _candidate_symbol_blocks(root, details, symbol, limits, context_lines=context_lines)
+        lines += [
+            f"## Symbol `{symbol}`",
+            f"Coverage status: {payload.get('coverage_status')}",
+            f"Occurrences: {payload.get('matches', 0)}",
+            f"Candidate declaration/context blocks: {len(blocks)}",
+            "",
+        ]
+        if include_refs or include_callers:
+            lines.append("### References/callers")
+            for hit in details[:max_callers]:
+                lines.append(f"- `{hit.get('path')}:{hit.get('line')}`")
+                for n, content, is_hit in hit.get("context", []):
+                    if is_hit:
+                        lines.append(f"  `{n}: {content.strip()[:600]}`")
+            if not details:
+                lines.append("- (none)")
+            lines.append("")
+        if blocks:
+            lines.append("### Candidate symbol bodies")
+            for block in blocks[:20]:
+                lines += [
+                    f"#### `{block['path']}:{block['start_line']}-{block['end_line']}`",
+                    "```text",
+                    block["text"],
+                    "```",
+                    "",
+                ]
+        if include_callees:
+            callees: list[str] = []
+            for block in blocks:
+                for token in _call_tokens(block["text"], symbol, max_callees):
+                    if token not in callees:
+                        callees.append(token)
+                        if len(callees) >= max_callees:
+                            break
+                if len(callees) >= max_callees:
+                    break
+            lines += ["### Heuristic callees"]
+            lines.extend(f"- `{token}`" for token in callees)
+            if not callees:
+                lines.append("- (none identified)")
+            lines.append("")
+        if include_deps:
+            candidate_paths = sorted({block["path"] for block in blocks})[: int(action.get("max_dependency_files", 400))]
+            dep_rows: list[dict] = []
+            for rel in candidate_paths:
+                try:
+                    _r, src = _resolve_exact_file(root, rel)
+                except Exception:
+                    continue
+                dep_rows.extend(_dependency_rows_for_file(root, src, limits))
+            lines += ["### Dependencies of candidate definition files"]
+            for row in dep_rows[: int(action.get("max_dependency_files", 400))]:
+                lines.append(f"- `{row['path']}:{row['line']}` [{row['kind']}] `{row['target']}`")
+            if not dep_rows:
+                lines.append("- (none identified)")
+            lines.append("")
+    reasons = list(dict.fromkeys(incomplete_reasons))
+    return {"report": "\n".join(lines) + "\n", "incomplete": bool(reasons), "reasons": reasons}
+
+
+def _research_action(root: Path, action: dict, limits: dict) -> dict:
+    overview_action = {"path": action.get("path", action.get("paths", ["."])[0]), "tree_depth": int(action.get("tree_depth", 2))}
+    overview = _overview(root, overview_action, limits)
+    search_spec = _compat_search_spec(action)
+    search = _search_action(root, search_spec, limits)
+    report = "# Research bundle\n\n" + overview + "\n---\n\n" + search["report"]
+    return {"report": report, "incomplete": bool(search.get("incomplete")), "reasons": list(search.get("reasons", []))}
+
+
+def _decompile_action(root: Path, action: dict, limits: dict) -> str:
+    from python_patch_decompile_compat import extract_decompile_report
+    source_raw = action.get("source") or action.get("path")
+    rel, src = _resolve_exact_file(root, source_raw)
+    report = extract_decompile_report(
+        src,
+        action,
+        max_file_bytes=int(limits.get("max_decompile_file_bytes", 512 * 1024 * 1024)),
+    )
+    return report.replace(f"Source: `{src.name}`", f"Source: `{rel}`", 1)
 
 
 def _git_action(root: Path, action: dict) -> str:
@@ -1151,8 +1680,8 @@ def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
             for index, action in enumerate(request_data["actions"], 1):
                 kind = action["type"]
                 title = action.get("title") or action.get("id") or kind
-                if kind == "pack":
-                    lines = ["# Pack", ""]
+                if kind in {"pack", "zip"}:
+                    lines = ["# Pack" if kind == "pack" else "# Historical ZIP/pack compatibility", ""]
                     for raw in action["paths"]:
                         rel, src = _resolve_exact_file(root, raw)
                         builder.add_exact_file(rel, src, source_action=index)
@@ -1160,17 +1689,71 @@ def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
                     builder.add_report(index, kind, title, "\n".join(lines) + "\n")
                 elif kind == "overview":
                     builder.add_report(index, kind, title, _overview(root, action, request_data["limits"]))
+                elif kind == "ls":
+                    builder.add_report(index, kind, title, _ls_action(root, action))
+                elif kind == "tree":
+                    builder.add_report(index, kind, title, _tree_action(root, action))
                 elif kind == "find":
                     report, matches = _find_action(root, action, request_data["limits"])
                     builder.add_report(index, kind, title, report)
                     if action.get("collect"):
                         for rel, src in matches:
                             builder.add_exact_file(rel, src, source_action=index)
-                elif kind == "search":
-                    search_result = _search_action(root, action, request_data["limits"])
+                elif kind in {"search", "search_files", "content"}:
+                    search_action = action if kind == "search" else _compat_search_spec(action)
+                    search_result = _search_action(root, search_action, request_data["limits"])
                     builder.add_report(index, kind, title, search_result["report"])
                     if search_result.get("incomplete"):
                         builder.mark_incomplete(action=index, kind=kind, reasons=list(search_result.get("reasons") or []))
+                elif kind == "research":
+                    result = _research_action(root, action, request_data["limits"])
+                    builder.add_report(index, kind, title, result["report"])
+                    if result.get("incomplete"):
+                        builder.mark_incomplete(action=index, kind=kind, reasons=list(result.get("reasons") or []))
+                elif kind in {"file", "range", "head", "tail"}:
+                    builder.add_report(index, kind, title, _line_reader_action(root, action, request_data["limits"]))
+                elif kind == "symbol":
+                    builder.add_report(index, kind, title, _symbol_action(root, action, request_data["limits"]))
+                elif kind == "references":
+                    search_action = _compat_search_spec(
+                        action,
+                        query=action["symbol"],
+                        paths=action.get("paths", ["."]),
+                        max_matches=int(action.get("max_matches", 500)),
+                    )
+                    search_action["regex"] = False
+                    result = _search_action(root, search_action, request_data["limits"])
+                    builder.add_report(index, kind, title, result["report"])
+                    if result.get("incomplete"):
+                        builder.mark_incomplete(action=index, kind=kind, reasons=list(result.get("reasons") or []))
+                elif kind == "callgraph":
+                    graph_action = {
+                        **action,
+                        "symbols": [action["symbol"]],
+                        "include_references": True,
+                        "include_callers": True,
+                        "include_callees": True,
+                        "include_dependencies": False,
+                    }
+                    result = _symbol_graph_action(root, graph_action, request_data["limits"])
+                    builder.add_report(index, kind, title, result["report"])
+                    if result.get("incomplete"):
+                        builder.mark_incomplete(action=index, kind=kind, reasons=list(result.get("reasons") or []))
+                elif kind == "dependencies":
+                    report, _rows = _dependency_action(root, action, request_data["limits"])
+                    builder.add_report(index, kind, title, report)
+                elif kind == "directory":
+                    report, matches = _directory_action(root, action, request_data["limits"])
+                    builder.add_report(index, kind, title, report)
+                    for rel, src in matches:
+                        builder.add_exact_file(rel, src, source_action=index)
+                elif kind == "symbol_graph":
+                    result = _symbol_graph_action(root, action, request_data["limits"])
+                    builder.add_report(index, kind, title, result["report"])
+                    if result.get("incomplete"):
+                        builder.mark_incomplete(action=index, kind=kind, reasons=list(result.get("reasons") or []))
+                elif kind in {"decompile", "ida", "ghidra"}:
+                    builder.add_report(index, kind, title, _decompile_action(root, action, request_data["limits"]))
                 elif kind == "git":
                     builder.add_report(index, kind, title, _git_action(root, action))
                 else:

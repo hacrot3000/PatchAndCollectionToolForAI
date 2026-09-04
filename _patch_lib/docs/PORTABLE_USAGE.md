@@ -1,13 +1,13 @@
-# Python Patch Tool v6.18.2 portable usage
+# Python Patch Tool v6.18.3 portable usage
 
-The release is self-contained for its v6.18.2 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
+The release is self-contained for its v6.18.3 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
 
 ## Linux / POSIX
 
 Install/update at the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.18.2.zip -d "$PWD"
+unzip -o python_patch_tool_v6.18.3.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 
@@ -18,7 +18,7 @@ Requirement: **Python 3.10+**. The launcher accepts Python Launcher (`py -3`) or
 PowerShell install/update at the project root:
 
 ```powershell
-Expand-Archive -Force .\python_patch_tool_v6.18.2.zip .
+Expand-Archive -Force .\python_patch_tool_v6.18.3.zip .
 tools\run_python_patches.bat
 ```
 
@@ -142,3 +142,29 @@ Non-interactive historical automation is supported again by the public launcher:
 ```
 
 The last form preserves historical automation flags; `--move` is compatibility syntax because successful current queue runs already archive their inputs. Before modifying Patch Tool itself, read `NO_SILENT_REMOVAL_POLICY.md` and `CAPABILITY_LEDGER.md`.
+
+
+## v6.18.3 COLLECT capability restoration
+
+The public workflow is unchanged: put one `CODE_COLLECTION_REQUEST_*.zip` in `patchs/` and run the zero-argument launcher. The old direct `collect <command>` CLI remains superseded.
+
+The request schema again supports the historical read-only action families (`ls`, `tree`, `research`, file/range/head/tail, symbol/references, callgraph/dependencies, directory and bounded decompile aliases) plus the M3 compatibility aliases `search_files`, `content`, and `symbol_graph`. `search_files` and `content` use the same coverage-aware search implementation as `search`; a zero match is not evidence of absence unless coverage is VERIFIED.
+
+`pack` intentionally remains exact-file evidence; use `directory` when a bounded subtree is required. See `CODE_COLLECTION_GUIDE.md` and `COLLECT_ACTION_SCHEMA.json` for the exact current fields.
+
+## Optional controlled migration helper
+
+Normal use does **not** require an installer. If an old project still has obsolete loose Patch Tool files under `tools/`, use the bounded helper:
+
+```bash
+python3 tools/_patch_lib/install_python_patch_tool_v6.py --project-root "$PWD" --dry-run
+python3 tools/_patch_lib/install_python_patch_tool_v6.py --project-root "$PWD"
+```
+
+To create a safe current `.python_patch_tool.json` only when none exists:
+
+```bash
+python3 tools/_patch_lib/install_python_patch_tool_v6.py --project-root "$PWD" --create-config
+```
+
+The historical path `install_python_patch_tool_v5.py` remains as a compatibility wrapper. The helper never overwrites an existing config and only backs up/removes a fixed allowlist of obsolete Patch-Tool-managed loose files; unrelated project files under `tools/` are left untouched.

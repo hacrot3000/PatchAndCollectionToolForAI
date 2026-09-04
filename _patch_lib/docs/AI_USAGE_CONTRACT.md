@@ -1,12 +1,16 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.18.2
+# AI / ChatGPT usage contract — Python Patch Tool v6.18.3
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
 ## Mandatory continuity rule for modifying Patch Tool itself
 
-Before AI changes Patch Tool code, it MUST read `NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, and `HISTORICAL_FEATURE_BASELINE_V5_15.md` in addition to the current schemas/docs. A capability previously documented as COMPLETE/PRESERVED/COMPATIBILITY_RESTORED must not be silently deleted, narrowed, renamed, or made unreachable. Historical code must not be removed merely because the current schema does not exercise it. Intentional replacement/removal requires an explicit ledger disposition and behavioral regression evidence in the same release.
+Before AI changes Patch Tool code, it MUST read `NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, `HISTORICAL_FEATURE_BASELINE_V5_15.md`, and `HISTORICAL_FEATURE_STATUS_V5_15.json` in addition to the current schemas/docs. A capability previously documented as COMPLETE/PRESERVED/COMPATIBILITY_RESTORED must not be silently deleted, narrowed, renamed, or made unreachable. Historical code must not be removed merely because the current schema does not exercise it. Intentional replacement/removal requires an explicit ledger disposition and behavioral regression evidence in the same release.
 
 Current docs override old docs for runtime semantics, but they do **not** erase historical capability evidence.
+
+## Optional controlled installer
+
+Normal installation/upgrade remains direct extraction over the project root. Historical capability #81 is restored by `tools/_patch_lib/install_python_patch_tool_v6.py`; `install_python_patch_tool_v5.py` is a filename-compatibility wrapper. AI must not make this helper mandatory. It may only back up/remove the fixed list of obsolete Patch-Tool-managed loose files, preserve an existing `.python_patch_tool.json`, and create a safe config only when explicitly requested and absent.
 
 ## Public workflow
 
@@ -38,6 +42,8 @@ COLLECT source of truth:
 ```text
 tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json
 ```
+
+The packaged read-only compatibility implementation includes `python_patch_decompile_compat.py`; it is private runtime support, not a second public entry point.
 
 Do not invent PATCH manifest fields or COLLECT action names/fields. In particular, never create `source_baseline`; exact source assumptions belong in `preflight.files`. `overview` is valid because it has an exact current schema and implementation, not because an old document once mentioned it.
 
@@ -111,6 +117,14 @@ CODE_COLLECTION_REQUEST_<purpose>_<timestamp>.zip
 ```
 
 The inner request must validate against `COLLECT_ACTION_SCHEMA.json`.
+
+The public workflow remains **ZIP request + zero-argument launcher**. The historical direct `collect <command>` CLI is superseded and MUST NOT be reintroduced merely for compatibility. This workflow change does not remove COLLECT capability: v6.18.3 restores the historical read-only action surface inside request ZIPs, including `ls`, `tree`, `research`, `file`/`range`, `head`/`tail`, `symbol`, `references`, `callgraph`, `dependencies`, `directory`, and bounded `decompile`/`ida`/`ghidra`. Compatibility aliases `search_files` and `content` map to the hardened `search` engine; `symbol_graph` is also accepted for historical M3 requests.
+
+Canonical search plus `search_files`/`content`/reference-style discovery inherit filesystem-first coverage accounting, independent fallback verification, `SEARCH_INCONSISTENCY`, `must_find`, and zero-diagnostic semantics. Do not implement an alias with a weaker search backend.
+
+Current `pack` remains exact-file evidence. Historical directory-pack semantics are intentionally represented by the restored `directory` action instead of broadening `pack` again.
+
+`decompile`/`ida`/`ghidra` are read-only bounded compatibility actions. They may build a temporary SQLite index outside project source, extract functions by name/address with bounded neighbors/references, and must not modify the project.
 
 Select at most one `[COLLECT]` per invocation. **Never mix COLLECT and PATCH.** This is selection isolation: there is no global queue/selector lock, so separate terminals and COLLECT remain usable independently. v6.17.5 serializes only the PATCH source-mutation lane per project to prevent two PATCH processes from losing each other's read-modify-write changes. Unsupported actions/fields become `COLLECT INVALID` before collector execution.
 

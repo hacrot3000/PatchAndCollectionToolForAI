@@ -1,20 +1,79 @@
-# CODE COLLECTION GUIDE — v6.18.2 AUTHORITATIVE CONTRACT
+# CODE COLLECTION GUIDE — v6.18.3 AUTHORITATIVE CONTRACT
 
-Python Patch Tool v6.18.2 is self-contained for its documented COLLECT schema. The authoritative action list is not inferred from old guides; it is defined by `COLLECT_ACTION_SCHEMA.json` and enforced before execution.
+Python Patch Tool v6.18.3 ships a self-contained, read-only COLLECT runtime. The authoritative action/field list is `COLLECT_ACTION_SCHEMA.json`; this guide explains the intended semantics.
 
-This is an **AI/tool-facing technical document**. Do not copy the action table into the end-user HTML guide; the user should not need to choose or understand action types.
+This is an **AI/tool-facing technical document**. The public user workflow remains intentionally simple: AI provides one request ZIP, the user places it in `patchs/`, then runs the normal zero-argument launcher.
 
-## Supported actions
+## Public workflow — historical direct COLLECT CLI remains superseded
+
+Do **not** tell the user to run historical commands such as:
+
+```text
+./tools/run_python_patches.sh collect search ...
+```
+
+That direct subcommand workflow was intentionally superseded by the queue workflow. Current delivery is:
+
+```text
+CODE_COLLECTION_REQUEST_<purpose>_<timestamp>.zip
+└── CODE_COLLECTION_REQUEST_<purpose>_<timestamp>.json
+```
+
+Then the user runs only:
+
+```bash
+./tools/run_python_patches.sh
+```
+
+Raw request JSON is not the public delivery artifact.
+
+## Current actions
+
+### Core/current actions
 
 | Action | Purpose |
 |---|---|
-| `pack` | Exact current bytes for known project-relative files. |
+| `pack` | Exact current bytes for known project-relative regular files. |
 | `overview` | Bounded project/tree/file-type overview. |
 | `find` | Find path/name globs, optionally collect matched files. |
-| `search` | Bounded literal/regex search with line context. |
+| `search` | Coverage-aware literal/regex source search. |
 | `git` | Fixed read-only Git status/log/diff sections. |
 
-Any other action type or unsupported field is rejected as `COLLECT INVALID` before the collector runs.
+### Restored historical COLLECT capabilities
+
+| Action | Purpose / compatibility semantics |
+|---|---|
+| `ls` | Immediate bounded directory listing. |
+| `tree` | Bounded Python directory tree; symlinks are not followed by default. |
+| `research` | `overview` + the current coverage-aware `search` engine. |
+| `file` / `range` | Whole text file or selected line interval. |
+| `head` / `tail` | First/last bounded line count. |
+| `symbol` | Function/class/struct-like symbol block extraction from an exact file. |
+| `references` | Symbol reference search through the current verified filesystem search backend. |
+| `callgraph` | Bounded caller/reference discovery plus heuristic source-level callees. |
+| `dependencies` | Bounded include/import/use/require inventory. |
+| `directory` | Recursive source collection with include/exclude globs. Obvious credential/private-key files are not auto-collected. |
+| `zip` | Historical alias for current exact-file `pack`. |
+| `decompile` / `ida` / `ghidra` | Large IDA/Ghidra-like text dump extraction by address/name/regex using a temporary SQLite index, with neighbors/references. |
+
+### Historical/private request aliases restored for real existing workflows
+
+| Alias | Current behavior |
+|---|---|
+| `search_files` | Alias to coverage-aware `search`. |
+| `content` | Alias to coverage-aware `search`. |
+| `symbol_graph` | Multi-symbol references/callers/callees/dependency investigation. |
+
+These aliases exist because historical request ZIPs used them. They are protected compatibility surface and must not be silently removed.
+
+## Important compatibility boundary: `pack`
+
+Old v5 documentation allowed directory-style packing. v6.11 intentionally redefined guaranteed `pack` as **exact regular-file evidence**, and v6.18.3 keeps that safer/current semantics rather than silently changing it again.
+
+Use:
+
+- `pack` / `zip` for exact known files;
+- `directory` for a recursive subtree selected by include/exclude patterns.
 
 ## Examples
 
@@ -29,61 +88,98 @@ Any other action type or unsupported field is rejected as `COLLECT INVALID` befo
 }
 ```
 
-### Overview
+### Historical source inspection restored
 
 ```json
 {
-  "id": "project-overview",
+  "id": "runtime-investigation",
   "actions": [
-    {"type": "overview", "path": ".", "tree_depth": 3}
+    {"type": "tree", "path": "src", "max_depth": 4},
+    {"type": "symbol", "path": "src/runtime.c", "symbol": "runtime_start"},
+    {"type": "references", "symbol": "runtime_start", "paths": ["src", "include"]},
+    {"type": "dependencies", "paths": ["src"]}
   ]
 }
 ```
 
-### Find + search + Git
+### M3-compatible aliases
 
 ```json
 {
-  "id": "root-cause-source",
+  "id": "m3-symbol-graph",
   "actions": [
-    {"type": "find", "paths": ["."], "patterns": ["*.java", "*.properties"], "collect": true},
-    {"type": "search", "paths": ["."], "query": "getPassword\\(|saveBatch", "regex": true, "context_lines": 8},
-    {"type": "git", "sections": ["status", "log", "diff_stat", "diff"]}
+    {
+      "type": "symbol_graph",
+      "paths": ["projects/m3-server"],
+      "symbols": ["CmdMineInfoCSReqMsg"],
+      "context_lines": 8,
+      "include_references": true,
+      "include_callers": true,
+      "include_callees": true,
+      "include_dependencies": true,
+      "max_occurrences": 1200,
+      "max_callers": 300,
+      "max_callees": 50,
+      "max_dependency_files": 400
+    },
+    {
+      "type": "content",
+      "paths": ["projects/m3-server"],
+      "query": "CmdMineInfoCSReqMsg",
+      "regex": false,
+      "context_lines": 8
+    }
   ]
 }
 ```
 
-## Request delivery
+### Directory collector
 
-AI returns **one ZIP containing exactly one `CODE_COLLECTION_REQUEST*.json`**. The user copies the ZIP to `patchs/` and runs only:
-
-```bash
-./tools/run_python_patches.sh
+```json
+{
+  "type": "directory",
+  "path": "gate-rp2040",
+  "include": ["**/*.c", "**/*.h"],
+  "exclude": ["build/**"]
+}
 ```
 
-Raw JSON is rejected.
+### Large decompile dump
 
-## Selection
+```json
+{
+  "type": "decompile",
+  "source": "docs/GM_52_76.c",
+  "name": "sub_140123456",
+  "match": "exact",
+  "neighbors_before": 2,
+  "neighbors_after": 2,
+  "include_references": true
+}
+```
 
-One invocation can run exactly one COLLECT request and cannot mix it with PATCH. This is not a global queue lock; separate COLLECT/selector terminals may run independently. PATCH source mutation is serialized per project only while mutating source, to prevent lost updates.
+Address lookup is also supported:
 
-## v6.17.6 safety bounds
+```json
+{
+  "type": "ida",
+  "source": "docs/GM_52_76.c",
+  "address": "0x21E551A",
+  "include_references": true
+}
+```
 
-Request limits cannot exceed the tool's local hard ceilings. Internal result/output folders are excluded from discovery so a COLLECT can never recursively collect the ZIP it is currently writing. Exact-file packing checks byte quotas during copying, not only before copying. Regex search executes in an isolated worker with a 60-second hard timeout per regex action. Likely credential/private-key files are still preserved exactly when explicitly requested, but the result manifest/console warns the operator before upload.
+The temporary SQLite index is created outside the project source tree and deleted when the action finishes.
 
-## Result
+## Search/discovery contract — v6.18.0+ preserved
 
-Upload only the result ZIP highlighted as `[PRIMARY - UPLOAD THIS FILE]`.
+> **Zero matches is a search result, not proof of absence.**
 
+A zero result may be interpreted as absence only when the report says:
 
-## Exact request lifecycle — v6.14.1
-
-The request ZIP is snapshotted before execution. A successful COLLECT archives the exact request bytes that were executed. If another process replaces the same queue filename with different bytes while collection is running, that replacement remains in `patchs/` for a later run and is not silently archived/deleted as though it had executed.
-
-
-## v6.18.0 search/discovery contract
-
-**Zero matches is a search result, not proof of absence.** A zero result may be interpreted as absence only when the search report says `Coverage status: VERIFIED`.
+```text
+Coverage status: VERIFIED
+```
 
 Recommended investigation request:
 
@@ -111,23 +207,15 @@ Recommended investigation request:
 }
 ```
 
-Defaults are deliberately investigation-safe: `source_scope=filesystem`, `backend=auto`, `respect_gitignore=false`, `fallback_search=true`, `diagnose_on_zero=true`, coverage/skipped-dir reporting enabled, and symlink following disabled. `source_scope=git_tracked` is available only when the caller explicitly wants Git-index scope.
+Defaults are investigation-safe:
 
-Search budgets are separate from collection-pack budgets. `limits.max_files` remains the bound for files collected/iterated by legacy pack/find/overview behavior; search uses `limits.max_search_files` (default 250,000; hard ceiling 1,000,000) and `max_search_file_bytes` (default 64 MiB). Hitting a search bound is surfaced as partial/untrusted coverage, never a silent zero.
+- `source_scope=filesystem`;
+- untracked/gitignored files are visible unless `respect_gitignore=true` is explicitly requested;
+- `backend=auto` uses a primary backend plus an independent Python traversal;
+- symlink following is disabled by default;
+- search budgets are separate from collection budgets.
 
-`backend=auto` prefers ripgrep discovery when available and verifies it with a Python filesystem traversal. A primary/fallback disagreement emits:
-
-```text
-SEARCH_INCONSISTENCY
-primary_matches=0
-fallback_matches=17
-```
-
-and the collection result is `INCOMPLETE`. If ripgrep is unavailable, the tool uses two independent Python traversal strategies.
-
-`must_find=true` is an assertion. Zero matches creates a valid diagnostic result ZIP with `collection_status=INCOMPLETE`, prints it as the PRIMARY upload artifact, and returns rc=3 instead of PASS. This intentionally gives AI the diagnostics without allowing a false absence conclusion.
-
-Every search report includes `=== SEARCH COVERAGE ===` with requested/resolved scopes, directories visited, files considered/searched, extension counts, candidate modules/directories, skipped directories/files, backend results and final coverage status. With `diagnose_on_zero=true`, a `ZERO MATCH DIAGNOSTIC` section also reports candidate filename evidence, symlink/gitignore policy and whether a search limit was reached.
+Primary/fallback disagreement emits `SEARCH_INCONSISTENCY` and makes the result `INCOMPLETE`. `must_find=true` with zero matches also creates an `INCOMPLETE` diagnostic ZIP instead of a false PASS.
 
 Run the disposable discovery fixture with:
 
@@ -135,4 +223,40 @@ Run the disposable discovery fixture with:
 ./tools/run_python_patches.sh health-search
 ```
 
-It covers literal/regex search, filename find, nested directories, untracked and gitignored files, Unicode names/content, symlink policy, source trees larger than the old 5,000-file boundary, relative/absolute in-project paths, `must_find`, `anchor_paths` and `expected_files`.
+## Limits
+
+Current request limits include:
+
+- `max_file_bytes` — exact files added to the result ZIP;
+- `max_total_bytes` — aggregate collected file bytes;
+- `max_files` — collected-file quota;
+- `max_report_bytes` — aggregate report quota;
+- `max_search_files` — source discovery/search budget;
+- `max_search_file_bytes` — per-file content-search/read budget;
+- `max_decompile_file_bytes` — large decompile source budget.
+
+Request-provided limits may not exceed local hard ceilings.
+
+## Safety invariants
+
+- Only project-contained relative paths are accepted for file/subtree actions.
+- `..` traversal, unsafe absolute file collection paths, and symlink file targets fail closed.
+- Request data cannot provide arbitrary shell commands.
+- Internal Patch Tool output folders are excluded from source discovery/automatic collection.
+- Discovery-driven `directory` collection skips obvious sensitive filename/content candidates rather than auto-ingesting them.
+- Explicit exact-file `pack` retains current v6 semantics: if the operator/AI explicitly names a sensitive file, it is preserved exactly but clearly warned in console/manifest.
+- Search-like compatibility actions (`research`, `references`, `search_files`, `content`, symbol-graph reference discovery) use the same filesystem coverage/fallback protections as `search`.
+- Regex search remains isolated in a worker with a hard timeout.
+- COLLECT snapshots the exact request ZIP before execution and archives the exact executed bytes after success.
+
+## Selection/result
+
+Exactly one COLLECT may run in an invocation and it cannot be mixed with PATCH. This is selection isolation, not a global process lock.
+
+Upload only the result ZIP highlighted as:
+
+```text
+[PRIMARY - UPLOAD THIS FILE]
+```
+
+When `collection_status=INCOMPLETE`, upload the result for diagnostics but do not treat missing evidence as proof of absence.

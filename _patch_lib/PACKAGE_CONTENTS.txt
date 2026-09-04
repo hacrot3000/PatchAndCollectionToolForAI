@@ -1,168 +1,71 @@
-Python Patch Tool v6.18.2 — full self-contained package
+Python Patch Tool v6.18.3 portable package
 
-Public launchers / user docs:
+Release root:
+  tools/
+
+Public runtime entry points:
   tools/run_python_patches.sh
   tools/run_python_patches.ps1
   tools/run_python_patches.bat
-  tools/run_windows_native_tests.ps1
-  tools/implementing.md
-  tools/PYTHON_PATCH_TOOL_FEATURES_VI.md
-  tools/HUONG_DAN_PYTHON_PATCH_TOOL.html
 
-Self-contained runtime:
+Optional maintenance entry point:
+  tools/_patch_lib/install_python_patch_tool_v6.py
+  tools/_patch_lib/install_python_patch_tool_v5.py   (historical filename wrapper)
+
+Core private runtime:
   tools/_patch_lib/python_patch_queue_dispatcher.py
-  tools/_patch_lib/python_patch_batch.py
-  tools/_patch_lib/python_patch_project_state.py
   tools/_patch_lib/python_patch_runner.py
-  tools/_patch_lib/python_patch_ops_worker.py
+  tools/_patch_lib/python_patch_batch.py
   tools/_patch_lib/python_patch_utils.py
   tools/_patch_lib/python_patch_package_schema.py
+  tools/_patch_lib/python_patch_project_state.py
   tools/_patch_lib/python_patch_health.py
   tools/_patch_lib/python_patch_readonly_collector.py
   tools/_patch_lib/python_patch_collect_compat.py
-  tools/_patch_lib/python_patch_collect_regex_worker.py
   tools/_patch_lib/python_patch_collect_schema.py
   tools/_patch_lib/python_patch_collect_progress_v6_7.py
+  tools/_patch_lib/python_patch_collect_regex_worker.py
+  tools/_patch_lib/python_patch_decompile_compat.py
+  tools/_patch_lib/python_patch_ops_worker.py
 
-Authoritative AI/tool docs:
+Continuity/governance documentation:
+  tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md
+  tools/_patch_lib/docs/CAPABILITY_LEDGER.md
+  tools/_patch_lib/docs/HISTORICAL_FEATURE_BASELINE_V5_15.md
+  tools/_patch_lib/docs/HISTORICAL_FEATURE_STATUS_V5_15.json
+  tools/_patch_lib/docs/LAYOUT_AND_MIGRATION.md
+  tools/_patch_lib/docs/OUTPUT_FILES_GUIDE.md
+
+Current contract/documentation:
+  tools/_patch_lib/docs/AI_USAGE_CONTRACT.md
   tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json
   tools/_patch_lib/docs/PATCH_PACKAGE_CHECKLIST.json
   tools/_patch_lib/docs/PATCH_PACKAGE_GUIDE.md
   tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json
-  tools/_patch_lib/docs/AI_USAGE_CONTRACT.md
   tools/_patch_lib/docs/CODE_COLLECTION_GUIDE.md
   tools/_patch_lib/docs/PORTABLE_USAGE.md
   tools/_patch_lib/docs/PYTHON_PATCH_TOOL_FEATURE_STATUS.md
-  tools/_patch_lib/docs/COLLECT_PROGRESS_V6_14_2.md
-  tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md
-  tools/_patch_lib/docs/CAPABILITY_LEDGER.md
-  tools/_patch_lib/docs/HISTORICAL_FEATURE_BASELINE_V5_15.md
+  tools/implementing.md
+  tools/PYTHON_PATCH_TOOL_FEATURES_VI.md
+  tools/HUONG_DAN_PYTHON_PATCH_TOOL.html
 
-Runtime artifacts (created in project; not shipped pre-populated):
-  artifacts/patch_tool/LAST_RUN.json
-  artifacts/patch_tool/history/*.json
-  artifacts/patch_tool/PINNED_RUNS.json
-  artifacts/patch_tool/UNRESOLVED_FAILURES.json
-  artifacts/patch_tool/PATCH_LEDGER.json
-  artifacts/patch_tool/runs/<run_id>/SUMMARY.txt
-  artifacts/patch_tool/runs/<run_id>/batch.log
-  artifacts/patch_tool/runs/<run_id>/items/*.log
-  artifacts/patch_tool/runs/<run_id>/source_compare/*/source.diff
-  artifacts/patch_tool/fail_handoffs/FAIL_HANDOFF_*.zip
-  FAIL_HANDOFF contains SOURCE_DISCOVERY.json + stable-snapshot current_source/** + bounded DETAIL.log on every PATCH failure
-  artifacts/patch_tool/support/*.zip
-  artifacts/patch_tool/exports/*.zip
-  patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip
+Regression gates:
+  tools/_patch_lib/self_test_python_patch_tool_v6_18_3.py
+  tools/_patch_lib/self_test_historical_compatibility_v6_18_3.py
+  tools/_patch_lib/self_test_collect_historical_actions_v6_18_3.py
+  tools/_patch_lib/self_test_portable_installer_v6_18_3.py
+  tools/_patch_lib/self_test_capability_ledger_v6_18_3.py
+  tools/_patch_lib/self_test_upgrade_continuity_v6_18_3.py
+  plus the current v6.18.3 functional/Windows/search/recovery/batch/integrity self-tests.
 
-Normal use — Linux/POSIX:
-  unzip -o python_patch_tool_v6.18.2.zip -d PROJECT_ROOT
+Integrity:
+  tools/_patch_lib/VERSION
+  tools/_patch_lib/SHA256SUMS
+
+Normal use:
+  unzip -o python_patch_tool_v6.18.3.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
-Normal use — Windows (Python 3.10+):
-  Expand-Archive -Force .\python_patch_tool_v6.18.2.zip PROJECT_ROOT
-  tools\run_python_patches.bat
-  # or: .\tools\run_python_patches.ps1
-
-v6.17.6 recovery/data-integrity hardening:
-- cross-run retry/delete/run-after binds exact `requeued_as` + recorded package SHA instead of trusting a reused historical filename;
-- exact rollback replay survives duplicate-history/session suppression only when LAST_RUN proves the same replay filename + SHA;
-- failed unbounded/no-target PATCHes do not treat a Git-clean fingerprint as proof of no modification; ignored-file changes remain safety-unknown;
-- unsafe queue/artifact/lock filesystem boundaries fail closed with a concise rc=2 instead of escaping as an unhandled traceback.
-
-v6.17.6 controlled batch engine:
-- failure_policy=continue_independent is default; fail_fast remains explicit opt-in; contained independent PATCHes continue after FAIL;
-- dependency order uses existing manifest.patch.id plus batch.depends_on; failed dependencies default to BLOCKED;
-- successor after unresolved FAIL must declare batch.previous_failure action: delete/retry_before/run_after/block + reason;
-- whole-batch read-only preflight runs before first source write; dependent SOURCE_DRIFT may defer until predecessor runs;
-- transaction_policy=batch holds the project mutation lock across snapshot/execution/rollback, snapshots resolved effective targets + package bytes with generation checks, verifies rollback state/SHA, and requeues replay packages after rollback;
-- planned package metadata is SHA-bound to exact queue bytes and reverified at batch snapshot + immediately before child spawn; changed/missing packages fail before payload;
-- replay package snapshots carry SHA/size metadata and are reverified before atomic no-overwrite requeue;
-- mutation locks reject symlink/reparse redirection; Patch Tool artifact subdirectories are real-dir checked and FAIL_HANDOFF can fall back to the hardened artifact root;
-- Smart Resume uses Up/Down + live descriptions; supports all/failed/remaining plus failed-PATCH multi-select Retry/COLLECT/Delete;
-- runtime failed-target overlap blocks related successors while independent PATCHes continue; static preflight conflict analyzer remains out of scope;
-- PATCH source mutation is serialized per project to prevent lost read-modify-write updates;
-- batch replay requeue is atomic no-overwrite; source-rollback PASS + replay requeue failure is reported as REQUEUE_FAILED (rc=71);
-- OPS is timeout-contained and source writes are atomic; Git auto-commit refuses pre-dirty targets before staging and restores tool-owned staging if commit fails;
-- COLLECT enforces local hard ceilings, excludes its own output and warns on likely sensitive exact attachments;
-- FAIL_HANDOFF freezes source generations before ZIP and scans bounded full DETAIL log so late compiler/traceback paths are not lost;
-- persistent report browser supports aggregate/detail logs, filtering, source diff, support ZIP and run history management;
-- native Windows runtime lane is shipped as tools/run_windows_native_tests.ps1 and must be executed on a real Windows host for a native PASS claim.
-
-Current scope boundaries:
-- Static effective-target conflict analysis is implemented from v6.17.7; arbitrary Python side effects outside declared/effective targets are intentionally not guessed.
-- Project identity + local patch ledger + recipe SHA binding are implemented; cryptographic signature/PKI/remote provenance trust remains NOT IMPLEMENTED.
-
-PATCH execution remains IN-PLACE. SANDBOX/worktree transaction execution is permanently unsupported.
-
-v6.17.7 project/planning state:
-- .python_patch_tool.json project.key is enforced when a PATCH declares manifest.project.key.
-- validation.profiles resolve only trusted local validation_profiles commands.
-- UNRESOLVED_FAILURES.json persists unresolved PATCH failures across LAST_RUN replacement.
-- PATCH_LEDGER.json records local patch.id + SHA history and detects ID reuse.
-- plan is read-only, analyzes effective-target conflicts and previews OPS on a private mirror.
-- plan --export-recipe / run --recipe provide exact SHA-bound batch replay.
-- resource preflight checks project/temp free space before PATCH source write.
-- selector '/' filters by filename/id/summary/effective target; 'p' previews current PATCH.
-
-
-v6.17.8 failure-only commands / script execution audit:
-- manifest.on_failure.commands uses the post_patch argv/cwd/timeout contract and runs only after a valid PATCH entered execution and then failed; configured rollback is attempted first.
-- the original PATCH rc/diagnosis remains primary; failure-command status is secondary structured evidence and cannot mask the initial failure.
-- managed commands are non-interactive (stdin closed), explicit exit 124 is distinct from a tool timeout, and user Ctrl+C propagates as global interruption.
-- POSIX managed execution detects a leader that exits while descendants remain, contains the tree and fails instead of publishing a false PASS.
-- Git add/commit/push/reset use managed process containment with git.timeout_seconds (default 300) and terminal credential prompting disabled.
-- Git state observation disables fsmonitor/external-diff/textconv helpers and Git command errors are not treated as a clean worktree.
-- batch read-only validation timeouts signal the runner first so nested OPS workers are cleaned before hard-kill fallback.
-- Patch Tool internal result/lock control environment variables are removed before project/payload commands are spawned.
-- COLLECT Git context marks failed Git sections explicitly and collector lingering-process completion cannot report false PASS.
-
-
-v6.17.9 item-local batch preflight continuation:
-- under failure_policy=continue_independent + transaction_policy=patch, a read-only PREFLIGHT_FAIL belongs to that PATCH instead of aborting the whole selected batch;
-- dependency/effective-target-related successors become BLOCKED, while unrelated PATCHes continue automatically;
-- transaction_policy=batch, global planning/resource/transaction failures and explicit fail_fast remain whole-batch fail-closed;
-- recovery COLLECT/FAIL_HANDOFF for a preflight-failed PATCH is captured before independent source writes;
-- batch reports count PREFLIGHT_FAIL as the actual failed item and reserve NOT_EXECUTED for genuinely stopped work.
-
-
-v6.17.12 contract-consistency audit:
-- unresolved predecessor rules are enforced per related successor across all unresolved failures, not by selected position or only the latest failure;
-- persistent failure resolution is exact package/SHA-bound, including previous_failure delete actions under patch.id reuse;
-- legacy on_dependency_failure=run_anyway is schema-readable only and cannot bypass dependency/related-target blocking;
-- plan/exported recipes preserve effective failure/transaction policies and reject incompatible batch transactions before preview;
-- recipe execution validates name + SHA-256 + patch_id before queue side effects and does not mutate unrelated queue duplicates;
-- .python_patch_tool.json uses one strict parser and run/resume/plan fail closed when an existing config is malformed or unsafe.
-- run --recipe rejects CLI failure/transaction policy overrides; replay semantics come from the recipe that plan exported.
-- patch version/phase/phase_under_test/summary/regression_scope are descriptive metadata, not implicit runtime gates.
-- post_patch.run_when_no_changes defaults false; post commands run for a no-op PATCH only when explicitly enabled.
-- v6.17.12 zero-argument interactive selector/Smart Resume expose HISTORY; idle zero-argument TTY auto-opens persisted history after status/health.
-- v6.17.12 supported interactive PATCH terminals use a best-effort fixed live status header with automatic plain-console fallback; `PTV_DISABLE_LIVE_STATUS=1` opts out and saved logs remain raw.
-
-
-- v6.17.13 history hides IDLE, uses package-first rows, pauses after duplicate-only cleanup, and SMART RESUME follows the latest meaningful failed execution while unresolved predecessor safety persists.
-
-- v6.17.14 zero-work zero-argument discovery exits without run/log/LAST_RUN/history state; SMART RESUME auto-opens only for a failed LAST_RUN that still has concrete recovery work in the current queue.
-
-
-v6.18.0 search/discovery hardening:
-- filesystem-first search defaults; git-tracked scope is explicit opt-in;
-- independent primary/fallback verification prevents silent false-zero;
-- search coverage uses dedicated max_search_files/max_search_file_bytes budgets;
-- coverage/skipped/module diagnostics + SEARCH_INCONSISTENCY + must_find/INCOMPLETE semantics;
-- anchor_paths/expected_files and in-project absolute search paths;
-- ./tools/run_python_patches.sh health-search disposable fixture suite.
-
-
-v6.18.1 upgrade continuity / history restoration:
-- zero-argument interactive empty queue opens existing HISTORY after warning/IDLE/Tool Health;
-- zero-work remains non-run state: no new LAST_RUN/history/run log/ledger/unresolved mutation;
-- v6.17.14 Smart Resume gating remains intact;
-- upgrade-continuity regression guards established queue/history/recovery/report/batch/schema/launcher capabilities plus v6.18 search additions.
-
-
-v6.18.2 compatibility restoration / release governance:
-- restores executable --all/-a, repeated --patch and --select queue automation;
-- restores positively recognized legacy-v4 multi-script archive execution and public helper compatibility API;
-- restores command-only + no_change_reason through a bounded legacy_strict safety lane without narrowing normal source-changing v6 post-patch commands;
-- ships an immutable 107-capability historical baseline, cumulative capability ledger and mandatory NO SILENT REMOVAL policy;
-- behavioral compatibility tests are release gates; surface/string-only continuity checks are insufficient.
+Normal installation does not require the optional installer. Existing
+.python_patch_tool.json is intentionally outside the release ZIP and is not
+overwritten by direct extraction.

@@ -1,8 +1,8 @@
-# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2
+# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.18.3
 
 Trước khi AI sửa Patch Tool, bắt buộc đọc `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md` và `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Tính năng từng PASS/COMPLETE không được tự ý xóa, thu hẹp hoặc làm mất đường gọi chỉ vì code/schema hiện tại không dùng tới. Nếu thật sự phải thay thế, phải ghi trạng thái vào ledger và thêm test hành vi chứng minh.
 
-# Danh sách tính năng Python Patch Tool — v6.18.2
+# Danh sách tính năng Python Patch Tool — v6.18.3
 
 ## Workflow / batch engine
 
@@ -212,11 +212,28 @@ Registry failure là **relation-aware**: PATCH độc lập vẫn chạy; depend
 
 Nguyên tắc bắt buộc: **Zero matches is a search result, not proof of absence.** AI chỉ được suy luận “không tìm thấy source” khi report ghi `Coverage status: VERIFIED`; `INCOMPLETE`, `PARTIAL` hoặc `INCONSISTENT` phải được coi là evidence chưa đủ.
 
+
+## v6.18.3 — Khôi phục năng lực COLLECT lịch sử
+
+| Tính năng | Trạng thái |
+|---|---|
+| ZIP request + zero-argument launcher | **PRESERVED** |
+| `ls`, `tree`, `research` | **COMPATIBILITY RESTORED** |
+| `file/range`, `head/tail` | **COMPATIBILITY RESTORED** |
+| `symbol`, `references`, `callgraph`, `dependencies` | **COMPATIBILITY RESTORED** |
+| `directory` bounded subtree collection | **COMPATIBILITY RESTORED** |
+| `decompile/ida/ghidra` bounded SQLite-index extraction | **COMPATIBILITY RESTORED** |
+| M3 aliases `search_files`, `content`, `symbol_graph` | **COMPATIBILITY RESTORED** |
+| Search coverage/fallback/must_find/zero diagnostic | **PRESERVED** |
+| `pack` exact-file semantics | **PRESERVED**; không nới lại thành directory pack |
+| Direct CLI `collect <command>` cũ | **SUPERSEDED**; không khôi phục vì workflow ZIP đã thay thế có chủ đích |
+| Semantic historical-COLLECT release test | **COMPLETE v6.18.3** |
+
 ## v6.18.2 — Bảo toàn tính năng khi nâng cấp
 
 | Tính năng | Trạng thái |
 |---|---|
-| Queue rỗng + zero-argument + TTY → mở HISTORY sau status/health | **RESTORED v6.18.2** |
+| Queue rỗng + zero-argument + TTY → mở HISTORY sau status/health | **RESTORED v6.18.1; PRESERVED v6.18.3** |
 | Queue rỗng không tạo fake IDLE run/LAST_RUN/history/log | **PRESERVED v6.17.14+** |
 | Smart Resume chỉ tự bật khi recovery item của LAST_RUN FAIL còn trong queue | **PRESERVED** |
 | HISTORY ẩn IDLE, package-first rows, report/detail/support artifacts | **PRESERVED** |
@@ -226,6 +243,6 @@ Nguyên tắc bắt buộc: **Zero matches is a search result, not proof of abse
 | PATCH manifest fields v6.17.x | **NO REMOVAL** |
 | COLLECT actions `pack/overview/find/search/git` | **NO REMOVAL** |
 | Search coverage/fallback/must_find/anchors/health-search v6.18.0 | **PRESERVED** |
-| Upgrade continuity self-test | **COMPLETE v6.18.2** |
+| Upgrade continuity self-test | **COMPLETE v6.18.2; EXPANDED v6.18.3** |
 
 Nguyên tắc release mới: tính năng đã ở trạng thái COMPLETE không được đổi semantics theo hướng mất workflow người dùng nếu chưa có regression test thể hiện rõ tính tương thích. Thay đổi safety semantics phải bảo toàn UI/workflow cũ khi hai mục tiêu không xung đột.

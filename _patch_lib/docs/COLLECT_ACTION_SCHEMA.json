@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "tool_version": "6.18.2",
+  "tool_version": "6.18.3",
   "request": {
     "type": "object",
     "required": [
@@ -20,7 +20,8 @@
       "max_files",
       "max_report_bytes",
       "max_search_files",
-      "max_search_file_bytes"
+      "max_search_file_bytes",
+      "max_decompile_file_bytes"
     ],
     "defaults": {
       "max_file_bytes": 8388608,
@@ -28,12 +29,26 @@
       "max_files": 5000,
       "max_report_bytes": 16777216,
       "max_search_files": 250000,
-      "max_search_file_bytes": 67108864
+      "max_search_file_bytes": 67108864,
+      "max_decompile_file_bytes": 536870912
     }
   },
   "actions": {
     "pack": {
       "description": "Collect exact current bytes for known project-relative regular files.",
+      "required": [
+        "type",
+        "paths"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "paths"
+      ]
+    },
+    "zip": {
+      "description": "Historical alias for pack; collect exact current bytes for known project-relative regular files.",
       "required": [
         "type",
         "paths"
@@ -56,6 +71,33 @@
         "type",
         "path",
         "tree_depth"
+      ]
+    },
+    "ls": {
+      "description": "Historical bounded directory listing.",
+      "required": [
+        "type"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "path",
+        "max_entries"
+      ]
+    },
+    "tree": {
+      "description": "Historical bounded recursive tree listing.",
+      "required": [
+        "type"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "path",
+        "max_depth",
+        "max_entries"
       ]
     },
     "find": {
@@ -104,6 +146,356 @@
         "expected_files"
       ]
     },
+    "search_files": {
+      "description": "Compatibility alias for coverage-aware search used by historical request ZIPs.",
+      "required": [
+        "type",
+        "query"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "query",
+        "regex",
+        "paths",
+        "context_lines",
+        "max_matches",
+        "backend",
+        "source_scope",
+        "filesystem",
+        "respect_gitignore",
+        "follow_symlinks",
+        "must_find",
+        "diagnose_on_zero",
+        "fallback_search",
+        "report_coverage",
+        "report_skipped_dirs",
+        "module_discovery",
+        "anchor_paths",
+        "expected_files"
+      ]
+    },
+    "content": {
+      "description": "Compatibility alias for coverage-aware source-content search used by historical request ZIPs.",
+      "required": [
+        "type",
+        "query"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "query",
+        "regex",
+        "paths",
+        "context_lines",
+        "max_matches",
+        "backend",
+        "source_scope",
+        "filesystem",
+        "respect_gitignore",
+        "follow_symlinks",
+        "must_find",
+        "diagnose_on_zero",
+        "fallback_search",
+        "report_coverage",
+        "report_skipped_dirs",
+        "module_discovery",
+        "anchor_paths",
+        "expected_files"
+      ]
+    },
+    "research": {
+      "description": "Historical combined research action: overview plus coverage-aware search.",
+      "required": [
+        "type",
+        "query"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "query",
+        "regex",
+        "path",
+        "paths",
+        "context_lines",
+        "max_matches",
+        "tree_depth",
+        "backend",
+        "source_scope",
+        "filesystem",
+        "respect_gitignore",
+        "follow_symlinks",
+        "must_find",
+        "diagnose_on_zero",
+        "fallback_search",
+        "report_coverage",
+        "report_skipped_dirs",
+        "module_discovery",
+        "anchor_paths",
+        "expected_files"
+      ]
+    },
+    "file": {
+      "description": "Read a project-relative text file or selected line range.",
+      "required": [
+        "type",
+        "path"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "path",
+        "start_line",
+        "end_line"
+      ]
+    },
+    "range": {
+      "description": "Historical line-range reader for one project-relative text file.",
+      "required": [
+        "type",
+        "path",
+        "start_line",
+        "end_line"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "path",
+        "start_line",
+        "end_line"
+      ]
+    },
+    "head": {
+      "description": "Historical bounded first-lines reader.",
+      "required": [
+        "type",
+        "path"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "path",
+        "lines"
+      ]
+    },
+    "tail": {
+      "description": "Historical bounded last-lines reader.",
+      "required": [
+        "type",
+        "path"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "path",
+        "lines"
+      ]
+    },
+    "symbol": {
+      "description": "Historical generic symbol/body extraction from one project-relative source file.",
+      "required": [
+        "type",
+        "path",
+        "symbol"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "path",
+        "symbol",
+        "context_lines",
+        "max_blocks"
+      ]
+    },
+    "references": {
+      "description": "Historical reference search, implemented through the current coverage-aware filesystem search backend.",
+      "required": [
+        "type",
+        "symbol"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "symbol",
+        "paths",
+        "context_lines",
+        "max_matches",
+        "backend",
+        "source_scope",
+        "filesystem",
+        "respect_gitignore",
+        "follow_symlinks",
+        "must_find",
+        "diagnose_on_zero",
+        "fallback_search",
+        "report_coverage",
+        "report_skipped_dirs",
+        "module_discovery",
+        "anchor_paths",
+        "expected_files"
+      ]
+    },
+    "callgraph": {
+      "description": "Historical heuristic caller/callee graph around a symbol with coverage-aware caller discovery.",
+      "required": [
+        "type",
+        "symbol"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "symbol",
+        "paths",
+        "path",
+        "context_lines",
+        "max_callers",
+        "max_callees",
+        "max_occurrences"
+      ]
+    },
+    "dependencies": {
+      "description": "Historical bounded source dependency/import/include inventory.",
+      "required": [
+        "type"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "paths",
+        "path",
+        "max_results",
+        "dependency_depth"
+      ]
+    },
+    "directory": {
+      "description": "Historical bounded recursive directory collector with include/exclude glob filters.",
+      "required": [
+        "type",
+        "path"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "path",
+        "include",
+        "exclude",
+        "max_results"
+      ]
+    },
+    "symbol_graph": {
+      "description": "Compatibility source symbol/reference/caller/callee/dependency investigation action used by historical M3 requests.",
+      "required": [
+        "type",
+        "symbols"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "paths",
+        "symbols",
+        "context_lines",
+        "include_references",
+        "include_callers",
+        "include_callees",
+        "include_dependencies",
+        "dependency_depth",
+        "max_occurrences",
+        "max_callers",
+        "max_callees",
+        "max_dependency_files"
+      ]
+    },
+    "decompile": {
+      "description": "Historical large IDA/Ghidra-style decompile extractor by address/name/regex with neighboring functions and optional text references.",
+      "required": [
+        "type"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "path",
+        "source",
+        "address",
+        "name",
+        "symbol",
+        "match",
+        "case_sensitive",
+        "neighbors_before",
+        "neighbors_after",
+        "max_matches",
+        "include_references",
+        "references",
+        "reference_term",
+        "reference_context_lines",
+        "max_reference_hits"
+      ]
+    },
+    "ida": {
+      "description": "Historical alias for decompile.",
+      "required": [
+        "type"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "path",
+        "source",
+        "address",
+        "name",
+        "symbol",
+        "match",
+        "case_sensitive",
+        "neighbors_before",
+        "neighbors_after",
+        "max_matches",
+        "include_references",
+        "references",
+        "reference_term",
+        "reference_context_lines",
+        "max_reference_hits"
+      ]
+    },
+    "ghidra": {
+      "description": "Historical alias for decompile.",
+      "required": [
+        "type"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "path",
+        "source",
+        "address",
+        "name",
+        "symbol",
+        "match",
+        "case_sensitive",
+        "neighbors_before",
+        "neighbors_after",
+        "max_matches",
+        "include_references",
+        "references",
+        "reference_term",
+        "reference_context_lines",
+        "max_reference_hits"
+      ]
+    },
     "git": {
       "description": "Collect fixed read-only Git status/log/diff sections; arbitrary commands are not accepted.",
       "required": [
@@ -124,5 +516,15 @@
     "log",
     "diff_stat",
     "diff"
-  ]
+  ],
+  "compatibility": {
+    "public_collect_cli": "SUPERSEDED_BY_ZERO_ARGUMENT_ZIP_QUEUE",
+    "historical_action_aliases": {
+      "zip": "pack",
+      "search_files": "search",
+      "content": "search",
+      "ida": "decompile",
+      "ghidra": "decompile"
+    }
+  }
 }

@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.18.2"
+VERSION = "6.18.3"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -6144,6 +6144,10 @@ def _run_queue(
     batch_transaction: dict[str, object] | None = None
     static_conflicts: list[dict[str, object]] = []
     resource_preflight_report: dict[str, object] | None = None
+    # Historical v5.12 audit contract: runnable packages that the operator did
+    # not select remain in patchs/ and are recorded explicitly.  Keep this as
+    # report metadata only; it must never change execution or duplicate logic.
+    user_not_selected_names: list[str] = []
     if recipe_path is not None and recipe_error is None:
         if failure_policy_override is None and recipe_failure:
             failure_policy = str(recipe_failure)
@@ -6157,6 +6161,7 @@ def _run_queue(
             "run_id": run_id, "started_at": started_at, "finished_at": _utc_now(),
             "elapsed_seconds": round(time.monotonic() - started_mono, 3), "status": status, "exit_code": int(rc),
             "selected": [item.name for item in chosen], "execution_order": [name for name, _ in executed],
+            "user_not_selected": list(user_not_selected_names),
             "results": list(_LAST_EXECUTION_DETAILS), "not_executed": [item.name for item in remaining],
             "failed_item": failed_item, "failure_policy": failure_policy, "transaction_policy": transaction_policy,
             "batch_preflight": list(batch_preflight_rows), "previous_failure_action": previous_action,
@@ -6314,6 +6319,12 @@ def _run_queue(
     if not chosen:
         print("AUTO STATUS: IDLE — queue is empty or no runnable item remains; nothing executed.")
         _print_session_duplicate_removals(session_duplicates); return finish_report("IDLE", 0)
+
+    if recipe_chosen is None:
+        chosen_names_for_audit = {item.name for item in chosen}
+        user_not_selected_names[:] = [item.name for item in items if item.name not in chosen_names_for_audit]
+        if user_not_selected_names:
+            print(f"USER NOT SELECTED: {len(user_not_selected_names)} runnable package(s) preserved in patchs/")
 
     # Resolve dependency order and enforce unresolved-predecessor handling before source changes.
     try:

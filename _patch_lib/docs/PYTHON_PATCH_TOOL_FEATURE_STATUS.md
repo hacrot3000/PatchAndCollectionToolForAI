@@ -1,4 +1,21 @@
-# Python Patch Tool v6.18.2 feature status
+# Python Patch Tool v6.18.3 feature status
+
+## v6.18.3 final preservation audit additions
+
+- Historical optional controlled installer (#81): **COMPATIBILITY RESTORED** as a bounded fixed-list migration helper; direct extraction remains the normal workflow.
+- Historical unselected-package audit (#87): **COMPATIBILITY RESTORED**; unselected runnable packages remain queued and `LAST_RUN.json` records `user_not_selected`.
+- Historical output-file role guide (#99): **COMPATIBILITY RESTORED** for the current v6 artifact model.
+- Historical v5.15 status is now machine-readable: 95 COMPLETE, 6 PARTIAL, 6 NOT STARTED; only COMPLETE rows are automatic historical preservation obligations unless later explicitly superseded/removed.
+
+## v6.18.3 COLLECT preservation completion
+
+- Historical read-only COLLECT actions `ls/tree/research/file/range/head/tail/symbol/references/callgraph/dependencies/directory/decompile` and `ida`/`ghidra` aliases: **COMPATIBILITY RESTORED** inside ZIP requests.
+- Historical M3 aliases `search_files`, `content`, and `symbol_graph`: **COMPATIBILITY RESTORED** and protected by semantic regression.
+- `search_files`/`content` reuse the v6.18 filesystem-first, fallback-verified search backend: **PRESERVED**.
+- Old direct `collect <command>` public CLI remains **SUPERSEDED** by request ZIP + zero-argument queue; capability restoration does not roll back that workflow.
+- Current exact-file `pack` semantics remain **PRESERVED**; directory/subtree collection is restored through `directory`.
+- Bounded decompile compatibility uses a temporary SQLite index outside project source: **READ-ONLY / RESTORED**.
+- v6.18.2 CLI/v4/command-only restorations and no-silent-removal governance remain **PRESERVED**.
 
 ## v6.18.2 compatibility restoration and continuity gate
 
@@ -55,7 +72,7 @@ The current table below describes the v6 runtime. Historical capabilities that w
 | Windows launchers included in Tool Health/SHA256 coverage | COMPLETE |
 | Mandatory every-FAIL FAIL_HANDOFF + bounded related-source discovery | **COMPLETE v6.17.5** |
 | Machine-readable `PATCH_PACKAGE_CHECKLIST.json` | **COMPLETE v6.17.5** |
-| Historical private-core parity outside current contract | FAIL-CLOSED / NOT GUARANTEED |
+| Historical/private-core behaviors not represented by the current ledger/schema | FAIL-CLOSED; protected historical capabilities use explicit per-capability dispositions |
 
 ## Windows portability notes
 
@@ -111,7 +128,7 @@ v6.17.6 completed the current robustness/data-integrity audit scope, aggregate/d
 - Best-effort fixed live PATCH status header is COMPLETE for supported TTYs with automatic plain-console fallback; `PTV_DISABLE_LIVE_STATUS=1` disables it. Raw saved logs remain authoritative.
 
 
-- v6.17.13 history browser hides IDLE, renders package-first rows and pauses after duplicate-only queue cleanup. v6.17.14 corrects zero-work semantics: a genuinely empty zero-argument queue creates no run/log/state and does not auto-open HISTORY; automatic SMART RESUME requires a failed LAST_RUN with concrete recovery work still present in the current queue, while persistent predecessor safety remains enforced for related successors.
+- v6.17.13 history browser hides IDLE, renders package-first rows and pauses after duplicate-only queue cleanup. **Historical v6.17.14 behavior, superseded by v6.18.1:** a genuinely empty zero-argument queue creates no run/log/state and did not auto-open HISTORY; automatic SMART RESUME requires a failed LAST_RUN with concrete recovery work still present in the current queue, while persistent predecessor safety remains enforced for related successors.
 
 
 ## v6.18.0 search discovery

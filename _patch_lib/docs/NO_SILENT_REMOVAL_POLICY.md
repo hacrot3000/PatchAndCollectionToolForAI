@@ -12,7 +12,7 @@ Before changing Patch Tool itself, AI/developer MUST read:
 
 1. `AI_USAGE_CONTRACT.md`
 2. `CAPABILITY_LEDGER.md`
-3. `HISTORICAL_FEATURE_BASELINE_V5_15.md`
+3. `HISTORICAL_FEATURE_BASELINE_V5_15.md` and `HISTORICAL_FEATURE_STATUS_V5_15.json`
 4. `PYTHON_PATCH_TOOL_FEATURE_STATUS.md`
 5. `../../implementing.md`
 6. `../../PYTHON_PATCH_TOOL_FEATURES_VI.md`
@@ -56,6 +56,22 @@ For user-visible/public behavior, regression tests MUST execute the path and ass
 - a forbidden strict-compatibility command must actually fail preflight;
 - empty zero-argument queue must actually open HISTORY in an interactive TTY without creating fake run state.
 
+## Historical status is not binary
+
+The v5.15 107-row list is an inventory, not 107 completed requirements. Before restoring/removing a historical row, read `HISTORICAL_FEATURE_STATUS_V5_15.json`:
+
+- historical `COMPLETE` rows are preservation obligations unless later explicitly `SUPERSEDED` or `REMOVED_BY_REQUIREMENT`;
+- historical `PARTIAL` and `NOT STARTED` rows remain evidence only and must not be silently promoted to current requirements;
+- a later `PRESERVED` or `COMPATIBILITY_RESTORED` capability becomes a current preservation obligation even if it was not part of v5.15.
+
+## COLLECT capability continuity
+
+COLLECT capability and public invocation syntax are separate compatibility dimensions. A later workflow may supersede a direct CLI such as `collect <command>` while the read-only action semantics remain protected. Therefore a CLI/workflow supersession is **not** permission to delete an action, alias, schema field, report contract, or evidence behavior.
+
+Starting with v6.18.3, the authoritative protected COLLECT action/alias surface includes the action names in `COLLECT_ACTION_SCHEMA.json`, including restored historical actions and compatibility aliases such as `search_files`, `content`, and `symbol_graph`. Search-like aliases MUST retain the coverage/false-zero safeguards of the canonical `search` action. Decompile compatibility MUST remain read-only and bounded.
+
+If an action is intentionally replaced, `CAPABILITY_LEDGER.md` must name the replacement and a semantic test must demonstrate either the preserved equivalent or the deliberate fail-closed disposition.
+
 ## Documentation preservation
 
 Historical documentation must not be silently rewritten as if old behavior never existed. When text is no longer current, mark it `Historical — superseded by ...` instead of deleting evidence needed for future audits.
@@ -69,11 +85,12 @@ Before packaging a Patch Tool upgrade:
 1. Compare public CLI routes with the previous release and historical ledger.
 2. Compare PATCH and COLLECT schema fields additively.
 3. Compare public helper APIs and recognized legacy package forms.
-4. Run behavioral historical-compatibility regression.
-5. Run current v6 regression (queue, HISTORY, recovery, batch, search, Windows routing, integrity).
-6. Verify documentation chronology and capability ledger.
-7. Rebuild exact `SHA256SUMS` and package-content inventory.
-8. Extract the final ZIP and run the release gates from the extracted bytes.
+4. Compare the complete protected COLLECT action/alias set with `COLLECT_ACTION_SCHEMA.json` and run its behavioral fixture.
+5. Run behavioral historical-compatibility regression.
+6. Run current v6 regression (queue, HISTORY, recovery, batch, search, Windows routing, integrity).
+7. Verify documentation chronology and capability ledger.
+8. Rebuild exact `SHA256SUMS` and package-content inventory.
+9. Extract the final ZIP and run the release gates from the extracted bytes.
 
 A release MUST NOT claim full feature continuity while an unexplained historical regression remains.
 

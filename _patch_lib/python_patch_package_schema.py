@@ -10,7 +10,7 @@ import shutil
 import stat
 from typing import Any
 
-VERSION = "6.18.2"
+VERSION = "6.18.3"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "PATCH_PACKAGE_SCHEMA.json"
 _HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 _SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")

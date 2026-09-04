@@ -1,10 +1,10 @@
-# v6.18.2 mandatory continuity gate — NO SILENT REMOVAL
+# v6.18.3 mandatory continuity gate — NO SILENT REMOVAL
 
 Before modifying Patch Tool, read `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, and `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Do not delete or narrow any capability previously marked COMPLETE/PRESERVED/COMPATIBILITY_RESTORED unless the user explicitly requests it or a later documented contract supersedes it. Every intentional transition must be recorded in the ledger and protected by a behavioral test. Surface/string-only compatibility tests are not sufficient.
 
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.18.2**  
+Phiên bản mục tiêu: **v6.18.3**  
 Trạng thái: **UPGRADE CONTINUITY + RESTORED EMPTY-QUEUE HISTORY — COMPLETE**
 
 ## Baseline
@@ -463,10 +463,25 @@ COLLECT `search` trước v6.18.0 dùng filesystem traversal nhưng tái sử d�
 
 `./tools/run_python_patches.sh health-search` tạo fixture tạm và kiểm literal/regex/find, nested tree, untracked/gitignored, Unicode, symlink safety, >5.000 files, relative/absolute in-project paths, `must_find`, anchors và expected files. Fixture không sửa source project.
 
-## v6.18.2 — Upgrade continuity + restored empty-queue HISTORY
+
+## v6.18.3 — Historical COLLECT capability restoration
+
+Mục tiêu release này là hoàn tất vòng bảo toàn tính năng sau v6.18.2 mà không rollback workflow v6.
+
+- Giữ public workflow: `CODE_COLLECTION_REQUEST_*.zip` trong `patchs/` + `./tools/run_python_patches.sh` không tham số. Direct CLI `collect <command>` cũ vẫn SUPERSEDED.
+- Khôi phục action request: `ls`, `tree`, `research`, `file/range`, `head/tail`, `symbol`, `references`, `callgraph`, `dependencies`, `directory`, `decompile/ida/ghidra`.
+- Khôi phục alias từng dùng thực tế: `search_files`, `content`, `symbol_graph`.
+- Search alias bắt buộc dùng chung filesystem-first + fallback + coverage verification của v6.18.0.
+- `pack` giữ exact-file semantics của v6.11+; subtree dùng `directory`.
+- Decompile dùng temporary SQLite index, bounded/read-only, không ghi vào source tree.
+- Thêm semantic release gate `self_test_collect_historical_actions_v6_18_3.py`.
+
+**Stop condition:** chỉ dừng preservation audit khi mọi capability lịch sử đã biết có một disposition rõ ràng (`PRESERVED`, `COMPATIBILITY_RESTORED`, `SUPERSEDED`, `REMOVED_BY_REQUIREMENT`, hoặc fail-closed có giải thích), và không còn regression vô tình có bằng chứng.
+
+## v6.18.1 — Upgrade continuity + restored empty-queue HISTORY
 
 - Khôi phục workflow đã được yêu cầu ở v6.17.12: chạy public launcher không tham số trong TTY, nếu discovery không có PATCH/COLLECT runnable thì sau warning, `AUTO STATUS: IDLE` và Tool Health sẽ mở HISTORY hiện có.
 - Giữ nguyên hardening đúng của v6.17.14: invocation rỗng **không** tạo run mới, không ghi `LAST_RUN.json`, không thêm `history/*.json`, không tạo run log và không cập nhật unresolved/ledger. HISTORY chỉ là read-only navigation tới state đã tồn tại.
 - Không đổi Smart Resume gating của v6.17.14: failure cũ không hijack queue mới độc lập; unresolved predecessor vẫn được planner enforce cho successor liên quan.
-- Thêm `self_test_upgrade_continuity_v6_18_1.py` để khóa các capability đã công bố: zero-argument queue/HISTORY, Smart Resume/recovery, duplicate handling, report/support bundle, batch plan/lock, PATCH schema fields, COLLECT legacy actions, launcher Linux/Windows và toàn bộ search additions v6.18.0.
+- Thêm semantic upgrade-continuity gate (hiện được carry-forward theo version release) để khóa các capability đã công bố: zero-argument queue/HISTORY, Smart Resume/recovery, duplicate handling, report/support bundle, batch plan/lock, PATCH schema fields, COLLECT legacy actions, launcher Linux/Windows và toàn bộ search additions v6.18.0.
 - Audit v6.17.14 -> v6.18.0 xác nhận runtime function/class surface không bị xóa; PATCH schema không mất field; COLLECT schema chỉ mở rộng search. Regression HISTORY là thay đổi semantics từ v6.17.14, không phải code search v6.18.0 xóa chức năng.
