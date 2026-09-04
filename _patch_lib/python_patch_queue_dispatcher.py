@@ -27,7 +27,7 @@ try:
 except Exception:
     fcntl = None
 
-VERSION = "6.9.5"
+VERSION = "6.9.6"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -105,9 +105,22 @@ def _archive_nonrunnable_reason(names: list[str]) -> str | None:
     """Return a structural support/distribution reason for archive members.
 
     Supports both root archives and one-or-more-folder wrappers by matching
-    marker paths relative to their common prefix.
+    marker paths relative to their common prefix.  Re-zipping a valid COLLECT
+    result on macOS commonly injects ``__MACOSX``/``.DS_Store`` metadata outside
+    that wrapper.  Those metadata entries must not make collected ``patch_*.py``
+    evidence executable again.
     """
     normalized = [n.replace("\\", "/").strip("/") for n in names]
+
+    def _archive_metadata(name: str) -> bool:
+        parts = [part for part in name.split("/") if part]
+        if not parts:
+            return True
+        if parts[0] == "__MACOSX":
+            return True
+        return parts[-1] in {".DS_Store", "Thumbs.db", "desktop.ini"}
+
+    semantic = [n for n in normalized if not _archive_metadata(n)]
 
     # Tool distribution: launcher and _patch_lib under the same prefix.
     launcher_suffix = "tools/run_python_patches.sh"
@@ -125,19 +138,20 @@ def _archive_nonrunnable_reason(names: list[str]) -> str | None:
     # Readonly COLLECT result archive: the canonical COLLECTION_MANIFEST.json
     # lives at the archive root. Accept one wrapper directory as well, because
     # users may re-zip an extracted collection folder before placing it in
-    # patchs/. A valid root PATCH_TOOL_MANIFEST.json is resolved earlier and
-    # therefore still has stronger precedence than this non-runnable marker.
+    # patchs/. Canonical collection-result identity is fail-closed and wins
+    # over patch-looking evidence; a normal v5 PATCH without that result marker
+    # still routes by its root PATCH_TOOL_MANIFEST.json.
     collection_manifest = "COLLECTION_MANIFEST.json"
-    if collection_manifest in normalized:
+    if collection_manifest in semantic:
         return "collection_result_archive"
-    for name in normalized:
+    for name in semantic:
         if Path(name).name != collection_manifest:
             continue
         parent = str(Path(name).parent).replace("\\", "/")
         if parent in {"", "."}:
             return "collection_result_archive"
         prefix = parent.rstrip("/") + "/"
-        if normalized and all(n == parent or n.startswith(prefix) for n in normalized):
+        if semantic and all(n == parent or n.startswith(prefix) for n in semantic):
             return "collection_result_archive"
 
     # Handoff: the canonical marker pair shares the same archive parent.

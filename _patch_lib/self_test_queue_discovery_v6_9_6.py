@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory() as td:
     # Non-patch artifacts must NOT pollute the runnable queue.
     with zipfile.ZipFile(p/'PTV_PASS_HANDOFF.zip','w') as z:
         z.writestr('CURRENT_STATE.md','handoff only')
-    with zipfile.ZipFile(p/'python_patch_tool_v6.9.5.zip','w') as z:
+    with zipfile.ZipFile(p/'python_patch_tool_v6.9.6.zip','w') as z:
         z.writestr('tools/run_python_patches.sh','#!/bin/sh\n')
         z.writestr('tools/_patch_lib/self_test.py','PATCH_NAME=\"test literal only\"\n')
     with zipfile.ZipFile(p/'wrapped_python_patch_tool.zip','w') as z:
@@ -71,6 +71,14 @@ with tempfile.TemporaryDirectory() as td:
     with zipfile.ZipFile(p/'wrapped_collection_result.zip','w') as z:
         z.writestr('bundle/COLLECTION_MANIFEST.json','{}')
         z.writestr('bundle/collected/patch_nested.py','PATCH_NAME="evidence only"\n')
+    # Re-zipping the collection folder on macOS can add __MACOSX/.DS_Store
+    # entries outside the wrapper. Metadata must not break result identity and
+    # expose collected patch-looking evidence as a runnable legacy PATCH.
+    with zipfile.ZipFile(p/'wrapped_collection_result_macos.zip','w') as z:
+        z.writestr('bundle/COLLECTION_MANIFEST.json','{}')
+        z.writestr('bundle/collected/patch_nested.py','PATCH_NAME="evidence only"\n')
+        z.writestr('__MACOSX/._COLLECTION_MANIFEST.json','appledouble')
+        z.writestr('bundle/.DS_Store','metadata')
     with zipfile.ZipFile(p/'ambiguous_collection_with_patch_manifest.zip','w') as z:
         z.writestr('COLLECTION_MANIFEST.json','{}')
         z.writestr('PATCH_TOOL_MANIFEST.json','{}')
@@ -104,17 +112,18 @@ with tempfile.TemporaryDirectory() as td:
     assert all(by_name[n].kind=='PATCH' for n in expected_patch)
     assert by_name['collect_good.zip'].kind=='COLLECT'
     assert by_name['CODE_COLLECTION_REQUEST_bad.zip'].kind=='COLLECT INVALID'
-    for rejected in ['PTV_PASS_HANDOFF.zip','PTV_REALISTIC_HANDOFF.zip','PTV_HANDOFF_WITH_COLLECT_REQUEST.zip','python_patch_tool_v6.9.5.zip','wrapped_python_patch_tool.zip','notes.py','broken.zip','linked_patch.py','tool_distribution.tgz','handoff_archive.tgz','wrapped_handoff_archive.tgz','m3_collection_result.zip','wrapped_collection_result.zip','ambiguous_collection_with_patch_manifest.zip','CODE_COLLECTION_REQUEST_loose.json']:
+    for rejected in ['PTV_PASS_HANDOFF.zip','PTV_REALISTIC_HANDOFF.zip','PTV_HANDOFF_WITH_COLLECT_REQUEST.zip','python_patch_tool_v6.9.6.zip','wrapped_python_patch_tool.zip','notes.py','broken.zip','linked_patch.py','tool_distribution.tgz','handoff_archive.tgz','wrapped_handoff_archive.tgz','m3_collection_result.zip','wrapped_collection_result.zip','wrapped_collection_result_macos.zip','ambiguous_collection_with_patch_manifest.zip','CODE_COLLECTION_REQUEST_loose.json']:
         assert rejected not in by_name, (rejected,items,w)
     joined='\n'.join(w)
     assert 'RAW JSON REJECTED' in joined
     assert 'PTV_PASS_HANDOFF.zip' in joined
     assert 'PTV_HANDOFF_WITH_COLLECT_REQUEST.zip' in joined
-    assert 'python_patch_tool_v6.9.5.zip' in joined
+    assert 'python_patch_tool_v6.9.6.zip' in joined
     assert 'broken.zip' in joined
     assert 'm3_collection_result.zip' in joined and 'collection_result_archive' in joined
     assert 'wrapped_collection_result.zip' in joined
+    assert 'wrapped_collection_result_macos.zip' in joined
     assert 'ambiguous_collection_with_patch_manifest.zip' in joined
     assert 'SKIPPED symlink queue entry: patchs/linked_patch.py' in joined
 
-print('PASS: v6.9.5 queue recognizes PATCH/COLLECT structurally and skips non-patch artifacts')
+print('PASS: v6.9.6 queue recognizes PATCH/COLLECT structurally and skips non-patch artifacts')
