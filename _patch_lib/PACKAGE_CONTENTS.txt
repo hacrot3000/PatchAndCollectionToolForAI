@@ -1,4 +1,4 @@
-Python Patch Tool v6.17.3 — full self-contained package
+Python Patch Tool v6.17.4 — full self-contained package
 
 Public launchers / user docs:
   tools/run_python_patches.sh
@@ -49,20 +49,23 @@ Runtime artifacts (created in project; not shipped pre-populated):
   patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip
 
 Normal use — Linux/POSIX:
-  unzip -o python_patch_tool_v6.17.3.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.17.4.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 Normal use — Windows (Python 3.10+):
-  Expand-Archive -Force .\python_patch_tool_v6.17.3.zip PROJECT_ROOT
+  Expand-Archive -Force .\python_patch_tool_v6.17.4.zip PROJECT_ROOT
   tools\run_python_patches.bat
   # or: .\tools\run_python_patches.ps1
 
-v6.17.3 controlled batch engine:
+v6.17.4 controlled batch engine:
 - failure_policy=fail_fast remains default; continue_independent continues only after a proven-safe failure;
 - dependency order uses existing manifest.patch.id plus batch.depends_on; failed dependencies default to BLOCKED;
 - successor after unresolved FAIL must declare batch.previous_failure action: delete/retry_before/run_after/block + reason;
 - whole-batch read-only preflight runs before first source write; dependent SOURCE_DRIFT may defer until predecessor runs;
 - transaction_policy=batch holds the project mutation lock across snapshot/execution/rollback, snapshots resolved effective targets + package bytes with generation checks, verifies rollback state/SHA, and requeues replay packages after rollback;
+- planned package metadata is SHA-bound to exact queue bytes and reverified at batch snapshot + immediately before child spawn; changed/missing packages fail before payload;
+- replay package snapshots carry SHA/size metadata and are reverified before atomic no-overwrite requeue;
+- mutation locks reject symlink/reparse redirection; Patch Tool artifact subdirectories are real-dir checked and FAIL_HANDOFF can fall back to the hardened artifact root;
 - Smart Resume supports all/failed/remaining and includes PASS items rolled back by an atomic batch;
 - PATCH source mutation is serialized per project to prevent lost read-modify-write updates;
 - batch replay requeue is atomic no-overwrite; source-rollback PASS + replay requeue failure is reported as REQUEUE_FAILED (rc=71);

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "tool_version": "6.17.3",
+  "tool_version": "6.17.4",
   "manifest_file": "PATCH_TOOL_MANIFEST.json",
   "manifest": {
     "type": "object",
@@ -283,7 +283,7 @@
         "fields": {
           "fail_handoff": {
             "type": "boolean",
-            "description": "Deprecated compatibility field. Every PATCH failure creates FAIL_HANDOFF in v6.17.3; false is accepted but ignored with a warning."
+            "description": "Deprecated compatibility field. Every PATCH failure creates FAIL_HANDOFF in v6.17.4; false is accepted but ignored with a warning."
           },
           "collect_on_source_drift": {
             "type": "boolean"

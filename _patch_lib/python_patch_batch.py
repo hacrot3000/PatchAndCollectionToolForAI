@@ -18,7 +18,7 @@ from typing import Any
 
 from python_patch_package_schema import PatchSchemaError, check_compatibility, validate_manifest, resolve_project_path, _ops_target_paths
 
-VERSION = "6.17.3"
+VERSION = "6.17.4"
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_DIFF_FILE_BYTES = 512 * 1024
 MAX_SNAPSHOT_FILE_BYTES = 8 * 1024 * 1024
@@ -41,6 +41,7 @@ class PatchMeta:
     previous_failure: dict[str, Any] | None
     targets: list[str]
     effective_targets: list[str]
+    package_sha256: str | None = None
 
 
 def _reject_duplicate_json_pairs(pairs):
@@ -120,14 +121,21 @@ def _safe_json_archive_member(path: Path, member: str, *, required: bool = True,
 
 def load_patch_meta(root: Path, name: str) -> PatchMeta:
     package = root / "patchs" / name
+    package_sha_before = stable_package_sha256(package)
     if package.suffix.lower() == ".py":
-        return PatchMeta(name, f"legacy:{name}", {}, [], "block", None, [], [])
+        package_sha_after = stable_package_sha256(package)
+        if package_sha_before != package_sha_after:
+            raise BatchPlanError(f"PATCH package changed while loading metadata: {name}", kind="package_input_changed")
+        return PatchMeta(name, f"legacy:{name}", {}, [], "block", None, [], [], package_sha_before)
     manifest = _safe_json_archive_member(package, "PATCH_TOOL_MANIFEST.json", required=False)
     if manifest is None:
         # Legacy ZIP/TAR archives are still discovered intentionally. They do
         # not participate in dependency/atomic metadata and are scheduled as a
         # single legacy unit; the runner enforces the one-Python-entrypoint rule.
-        return PatchMeta(name, f"legacy:{name}", {}, [], "block", None, [], [])
+        package_sha_after = stable_package_sha256(package)
+        if package_sha_before != package_sha_after:
+            raise BatchPlanError(f"PATCH package changed while loading metadata: {name}", kind="package_input_changed")
+        return PatchMeta(name, f"legacy:{name}", {}, [], "block", None, [], [], package_sha_before)
     try:
         validate_manifest(manifest)
         check_compatibility(manifest, VERSION)
@@ -137,7 +145,10 @@ def load_patch_meta(root: Path, name: str) -> PatchMeta:
         # they receive an internal scheduling key only so ordinary one-item runs
         # are not broken by the new batch planner. This is not a provenance ID.
         if "schema_version" not in manifest and "patch" not in manifest:
-            return PatchMeta(name, f"legacy:{name}", manifest, [], "block", None, [], [])
+            package_sha_after = stable_package_sha256(package)
+            if package_sha_before != package_sha_after:
+                raise BatchPlanError(f"PATCH package changed while loading metadata: {name}", kind="package_input_changed")
+            return PatchMeta(name, f"legacy:{name}", manifest, [], "block", None, [], [], package_sha_before)
         raise
     patch = manifest.get("patch") if isinstance(manifest.get("patch"), dict) else {}
     patch_id = str(patch.get("id") or "").strip()
@@ -165,7 +176,10 @@ def load_patch_meta(root: Path, name: str) -> PatchMeta:
     )
     if isinstance(ops_data, dict):
         effective.update(_ops_target_paths(ops_data.get("ops")))
-    return PatchMeta(name, patch_id, manifest, depends_on, on_fail, prev, target_list, sorted(effective))
+    package_sha_after = stable_package_sha256(package)
+    if package_sha_before != package_sha_after:
+        raise BatchPlanError(f"PATCH package changed while loading metadata: {name}", kind="package_input_changed")
+    return PatchMeta(name, patch_id, manifest, depends_on, on_fail, prev, target_list, sorted(effective), package_sha_before)
 
 
 def topo_order(metas: list[PatchMeta]) -> list[PatchMeta]:
@@ -286,6 +300,40 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: src.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def stable_package_sha256(path: Path) -> str:
+    """Hash one queue package without following a replacement/symlink leaf.
+
+    The descriptor generation is checked before/after hashing so planning and
+    execution can bind dependency/target metadata to the exact package bytes.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise BatchPlanError(
+            f"PATCH package is unavailable or unsafe: {path.name}: {type(exc).__name__}",
+            kind="package_input_changed",
+        ) from exc
+    try:
+        before = os.fstat(fd)
+        attrs = getattr(before, "st_file_attributes", 0)
+        reparse = bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+        if not stat.S_ISREG(before.st_mode) or reparse:
+            raise BatchPlanError(f"PATCH package is not a regular file: {path.name}", kind="package_input_changed")
+        h = hashlib.sha256(); copied = 0
+        with os.fdopen(os.dup(fd), "rb") as src:
+            for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                h.update(chunk); copied += len(chunk)
+        after = os.fstat(fd)
+        ident_before = (before.st_dev, before.st_ino, before.st_size, getattr(before, "st_mtime_ns", int(before.st_mtime * 1e9)))
+        ident_after = (after.st_dev, after.st_ino, after.st_size, getattr(after, "st_mtime_ns", int(after.st_mtime * 1e9)))
+        if ident_before != ident_after or copied != before.st_size:
+            raise BatchPlanError(f"PATCH package changed while hashing: {path.name}", kind="package_input_changed")
+        return h.hexdigest()
+    finally:
+        os.close(fd)
 
 
 
@@ -537,13 +585,26 @@ def restore_targets(root: Path, snapshot_root: Path, manifest: dict[str, Any]) -
     }
 
 
-def snapshot_package_bytes(root: Path, names: list[str], snapshot_root: Path) -> dict[str, str]:
+def snapshot_package_bytes(
+    root: Path,
+    names: list[str],
+    snapshot_root: Path,
+    *,
+    expected_sha256: dict[str, str] | None = None,
+) -> dict[str, dict[str, object]]:
+    """Freeze every selected PATCH package and bind it to planned bytes.
+
+    Missing/unsafe packages are transaction-preflight failures, never silently
+    omitted. The returned in-memory map carries the original SHA/size so replay
+    later rejects a corrupted transaction snapshot instead of blessing it.
+    """
     snapshot_root.mkdir(parents=True, exist_ok=True)
-    out: dict[str, str] = {}
+    out: dict[str, dict[str, object]] = {}
+    expected_sha256 = expected_sha256 or {}
     for i, name in enumerate(names):
         src = root / "patchs" / name
         if not src.is_file() or src.is_symlink():
-            continue
+            raise BatchPlanError(f"selected PATCH package disappeared or became unsafe before snapshot: {name}", kind="batch_transaction_snapshot_race")
         flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
         fd = os.open(src, flags)
         try:
@@ -552,20 +613,26 @@ def snapshot_package_bytes(root: Path, names: list[str], snapshot_root: Path) ->
                 raise BatchPlanError(f"batch package changed type before snapshot: {name}", kind="batch_transaction_snapshot_race")
             dst = snapshot_root / f"{i:04d}_{Path(name).name}"
             copied = 0; digest = hashlib.sha256()
-            with os.fdopen(os.dup(fd), "rb") as in_fh, dst.open("wb") as out_fh:
+            with os.fdopen(os.dup(fd), "rb") as in_fh, dst.open("xb") as out_fh:
                 for chunk in iter(lambda: in_fh.read(1024 * 1024), b""):
                     copied += len(chunk); digest.update(chunk); out_fh.write(chunk)
                 out_fh.flush()
                 try: os.fsync(out_fh.fileno())
                 except OSError: pass
             after = os.fstat(fd)
-            if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) or copied != before.st_size:
+            if (before.st_dev, before.st_ino, before.st_size, getattr(before, "st_mtime_ns", int(before.st_mtime * 1e9))) != (after.st_dev, after.st_ino, after.st_size, getattr(after, "st_mtime_ns", int(after.st_mtime * 1e9))) or copied != before.st_size:
                 try: dst.unlink()
                 except OSError: pass
                 raise BatchPlanError(f"batch package changed while snapshotting: {name}", kind="batch_transaction_snapshot_race")
-            if _sha256(dst) != digest.hexdigest():
+            actual_sha = digest.hexdigest()
+            planned_sha = expected_sha256.get(name)
+            if planned_sha and actual_sha != planned_sha:
+                try: dst.unlink()
+                except OSError: pass
+                raise BatchPlanError(f"PATCH package bytes changed after planning/preflight: {name}", kind="package_input_changed")
+            if _sha256(dst) != actual_sha:
                 raise BatchPlanError(f"batch package snapshot hash verification failed: {name}", kind="batch_transaction_snapshot_race")
-            out[name] = dst.name
+            out[name] = {"stored": dst.name, "sha256": actual_sha, "size": copied}
         finally:
             os.close(fd)
     return out
@@ -626,7 +693,7 @@ def _publish_requeue_no_overwrite(src: Path, target: Path, expected_sha: str) ->
     return "published"
 
 
-def requeue_packages(root: Path, package_snapshot_root: Path, package_map: dict[str, str]) -> dict[str, str]:
+def requeue_packages(root: Path, package_snapshot_root: Path, package_map: dict[str, object]) -> dict[str, str]:
     out: dict[str, str] = {}
     queue = root / "patchs"
     if queue.exists() or queue.is_symlink():
@@ -634,14 +701,32 @@ def requeue_packages(root: Path, package_snapshot_root: Path, package_map: dict[
             raise BatchPlanError("batch requeue requires a real patchs/ directory", kind="batch_requeue_failed")
     else:
         queue.mkdir(parents=True, exist_ok=False)
-    for original, stored in package_map.items():
+    for original, raw_entry in package_map.items():
+        if isinstance(raw_entry, dict):
+            stored = raw_entry.get("stored")
+            recorded_sha = raw_entry.get("sha256")
+            recorded_size = raw_entry.get("size")
+        else:
+            # Compatibility for direct callers/tests using the pre-v6.17.4 map.
+            stored = raw_entry
+            recorded_sha = None
+            recorded_size = None
+        if not isinstance(stored, str) or not stored:
+            raise BatchPlanError(f"invalid replay package snapshot metadata for {original}", kind="batch_requeue_failed")
         src = package_snapshot_root / stored
         if not src.is_file() or src.is_symlink():
             raise BatchPlanError(
                 f"replay package snapshot is missing or unsafe: {stored}",
                 kind="batch_requeue_failed",
             )
-        expected_sha = _sha256(src)
+        expected_sha = str(recorded_sha) if isinstance(recorded_sha, str) and recorded_sha else _sha256(src)
+        try:
+            actual_size = src.stat().st_size
+            actual_sha = _sha256(src)
+        except OSError as exc:
+            raise BatchPlanError(f"cannot verify replay package snapshot {stored}: {type(exc).__name__}", kind="batch_requeue_failed") from exc
+        if actual_sha != expected_sha or (isinstance(recorded_size, int) and actual_size != recorded_size):
+            raise BatchPlanError(f"replay package snapshot was modified/corrupted: {stored}", kind="batch_requeue_failed")
         date = datetime.now().strftime("%Y-%m-%d")
         candidate_index = 1
         while True:

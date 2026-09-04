@@ -1,6 +1,6 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.17.3**  
+Phiên bản mục tiêu: **v6.17.4**  
 Trạng thái: **CONTROLLED BATCH ENGINE + SMART RESUME + ADVANCED REPORTING — COMPLETE / STOP**
 
 ## Baseline
@@ -129,7 +129,7 @@ Batch atomic mode fail-closed:
 
 Không tuyên bố atomicity cho path mà Python payload tự ghi nhưng không khai báo/không thể resolve trước. PATCH mutation được serialize theo project để tránh lost-update giữa hai terminal; selector/COLLECT vẫn độc lập.
 
-## 5.1. Integrity hardening v6.17.3
+## 5.1. Integrity hardening v6.17.4
 
 - `internal_error` luôn safety-stop; nếu exception xảy ra sau payload thì partial state được tính lại, không mặc định `detected=false`.
 - OPS idempotency chỉ dùng `already` được khai báo explicit; sự xuất hiện của `new` ở nơi khác trong file không còn được coi là bằng chứng đã patch.
@@ -138,6 +138,11 @@ Không tuyên bố atomicity cho path mà Python payload tự ghi nhưng không 
 - Archive extraction có giới hạn entry/member/expanded bytes/compression ratio, reject symlink/non-regular/collision và Windows drive/ADS path.
 - COLLECT có hard ceiling cục bộ, bỏ qua output/artifact nội bộ, kiểm quota theo chunk và cảnh báo source/log có dấu hiệu secret trước upload.
 - Regex COLLECT được cô lập trong worker subprocess và có hard timeout 60s cho mỗi search action.
+- **Execution-byte binding v6.17.4:** metadata/dependency/effective-targets được bind với SHA-256 của đúng queue package khi plan. Batch transaction bắt buộc snapshot đủ mọi selected PATCH và SHA phải còn khớp planned bytes; ngay trước child spawn dispatcher verify lại SHA. Package biến mất/thay byte sau plan = `package_input_changed`, payload không được chạy. Đây là execution-integrity guard, **không phải** provenance/identity subsystem.
+- Batch replay snapshot lưu `stored + sha256 + size`; nếu exact replay snapshot bị sửa/hỏng sau transaction snapshot, requeue fail-closed với `batch_requeue_failed`, không requeue byte đã bị thay.
+- Mutation lock directory/file reject symlink/reparse; POSIX mở lock leaf bằng `O_NOFOLLOW`. Lock path bất thường không được phép truncate/write xuyên symlink.
+- Artifact subdirectories quan trọng (`runs`, `history`, `runtime`, `fail_handoffs`, `support`, `exports`) phải là real directories. FAIL_HANDOFF có fallback về hardened `artifacts/patch_tool/` nếu riêng `fail_handoffs/` bị hỏng/không an toàn.
+- FAIL_HANDOFF source snapshot dùng per-file independent state + no-follow descriptor; lỗi/disappearance của source N không được xóa snapshot source N-1 hoặc làm mất toàn bộ handoff.
 
 ## 6. Smart resume
 
@@ -222,7 +227,7 @@ Package có:
 
 Lane chạy thực trên Windows và kiểm tra BAT + PowerShell launcher, project path có space/Unicode, controlled continue batch, persistent report và Windows runtime contracts. Host build Linux không được phép giả vờ đây là native PASS; release chỉ ghi native lane **packaged** nếu chưa chạy trên máy Windows thật.
 
-## 12. Mandatory FAIL_HANDOFF source collection — v6.17.3
+## 12. Mandatory FAIL_HANDOFF source collection — v6.17.4
 
 Mọi **PATCH FAIL** đều phải tạo `FAIL_HANDOFF_*.zip` và tự thu source liên quan; không phụ thuộc diagnosis có `affected_paths` hay không. `recovery.fail_handoff=false` được giữ parser-compatible cho package cũ nhưng dispatcher cảnh báo và **không cho tắt** handoff nữa.
 

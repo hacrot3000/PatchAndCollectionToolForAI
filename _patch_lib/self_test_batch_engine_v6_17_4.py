@@ -6,7 +6,7 @@ from pathlib import Path
 HERE=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('ptv617_batch',HERE/'python_patch_queue_dispatcher.py')
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; assert spec.loader; spec.loader.exec_module(m)
-assert m.VERSION=='6.17.3'
+assert m.VERSION=='6.17.4'
 
 
 def install(root: Path):
@@ -154,4 +154,4 @@ with tempfile.TemporaryDirectory(prefix='ptv617_history_cleanup_') as td:
 synthetic={'status':'FAIL','selected':['a','b','c'],'not_executed':['c'],'results':[{'name':'a','status':'PASS','batch_rolled_back':True},{'name':'b','status':'FAIL'}]}
 g=m._resume_groups(synthetic); assert g=={'replay':['a'],'failed':['b'],'remaining':['c']},g
 
-print('PASS: v6.17.3 controlled continue, dependencies, whole-batch preflight, atomic rollback/requeue, predecessor action, smart resume, source diff, support bundle and history management')
+print('PASS: v6.17.4 controlled continue, dependencies, whole-batch preflight, atomic rollback/requeue, predecessor action, smart resume, source diff, support bundle and history management')

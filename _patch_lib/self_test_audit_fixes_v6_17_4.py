@@ -215,4 +215,4 @@ assert 'tempfile.mkstemp(prefix=f".{path.name}.ptv-write-"' in source and 'os.re
 assert '_acquire_project_mutation_lock' in (HERE/'python_patch_runner.py').read_text(encoding='utf-8')
 assert 'python_patch_ops_worker.py' in (HERE/'python_patch_runner.py').read_text(encoding='utf-8')
 
-print('PASS: v6.17.3 audit regressions cover rollback completeness, failure stop, COLLECT self-output, mutation integrity, idempotency, Git, archives and limits')
+print('PASS: v6.17.4 audit regressions cover rollback completeness, failure stop, COLLECT self-output, mutation integrity, idempotency, Git, archives and limits')

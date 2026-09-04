@@ -21,34 +21,36 @@ for phrase in [
     'Source before/after', 'Run history management', 'Support bundle từ report',
     'Native Windows runtime test lane', 'NOT IMPLEMENTED — BY REQUIREMENT',
     'continue_independent', 'previous_failure', 'retry_before', 'run_after', 'BLOCKED',
-    'DEFERRED_AFTER_DEPENDENCY', 'transaction_policy', 'report --pin', 'support-item'
+    'DEFERRED_AFTER_DEPENDENCY', 'transaction_policy', 'report --pin', 'support-item',
+    'package_input_changed', 'Execution-byte binding v6.17.4', 'O_NOFOLLOW'
 ]:
     assert phrase in impl,phrase
 for phrase in [
     'continue_independent', 'Dependency', 'Smart Resume', 'BLOCKED', 'PREFLIGHT_FAIL',
     'Source before/after unified diff', 'Support bundle ZIP', 'History list/pin/unpin/export/delete/cleanup', 'Native Windows',
-    'Target-overlap', 'Patch provenance'
+    'Target-overlap', 'Patch provenance', 'Planned package SHA binding', 'Batch replay snapshot SHA/size'
 ]:
     assert phrase.lower() in features.lower(),phrase
-assert patch_schema['tool_version']=='6.17.3' and patch_schema['schema_version']==1
+assert patch_schema['tool_version']=='6.17.4' and patch_schema['schema_version']==1
 assert 'batch' in patch_schema['manifest']['allowed_fields']
 batch_spec=patch_schema['manifest']['fields']['batch']
 assert 'depends_on' in batch_spec['allowed_fields'] and 'previous_failure' in batch_spec['allowed_fields']
 prev=batch_spec['fields']['previous_failure']
 assert set(prev['fields']['action']['enum'])=={'delete','retry_before','run_after','block'}
-assert checklist['tool_version']=='6.17.3' and 'READY_TO_APPLY' in checklist['result_classes']
-assert collect_schema['tool_version']=='6.17.3'
+assert checklist['tool_version']=='6.17.4' and 'READY_TO_APPLY' in checklist['result_classes']
+assert collect_schema['tool_version']=='6.17.4'
 for phrase in [
     'batch.previous_failure', 'retry_before', 'run_after', '`reason` là bắt buộc',
     'depends_on', 'on_dependency_failure', 'FAIL_HANDOFF',
-    'tools\\run_python_patches.bat', '.\\tools\\run_python_patches.ps1'
+    'tools\\run_python_patches.bat', '.\\tools\\run_python_patches.ps1',
+    'package_input_changed', 'execution-integrity check only'
 ]:
     assert phrase in ai,phrase
 for phrase in ['tools\\run_python_patches.bat','.\\tools\\run_python_patches.ps1','Python 3.10+','report --list','batch.log','NOT_EXECUTED']:
     assert phrase in portable,phrase
 for phrase in ['Per-run batch summary','Interactive/reopenable `report`']:
     assert phrase in status,phrase
-for phrase in ['Metadata-driven safe rollback','recovery.rollback.targets','Rollback path/runtime safety']:
+for phrase in ['Metadata-driven safe rollback','recovery.rollback.targets','Rollback path/runtime safety','package_input_changed','SHA-256 + size']:
     assert phrase in patch_guide,phrase
 # User HTML stays minimal; only user-facing launcher/selector/validate guidance is added.
 assert 'Action COLLECT' not in html and '<table' not in html.lower()
@@ -64,4 +66,4 @@ assert 'PASS / FAIL / BLOCKED / PREFLIGHT_FAIL / NOT_EXECUTED / SKIPPED' in html
 for prompt_id in ['prompt-vi','prompt-en','prompt-ru']:
     assert f'id="{prompt_id}"' in html and f"selectPrompt('{prompt_id}')" in html and f"copyPrompt('{prompt_id}',this)" in html
 assert html.count('>Select all</button>')==3 and html.count('>Copy</button>')==3
-print('PASS: v6.17.3 diagnostics, Windows parity docs, schemas/checklist and minimal user HTML contract')
+print('PASS: v6.17.4 diagnostics, Windows parity docs, schemas/checklist and minimal user HTML contract')

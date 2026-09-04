@@ -7,7 +7,7 @@ from pathlib import Path
 HERE=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('ptv_result_clarity',HERE/'python_patch_queue_dispatcher.py')
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; assert spec.loader; spec.loader.exec_module(m)
-assert m.VERSION=='6.17.3'
+assert m.VERSION=='6.17.4'
 
 def make_patch(path: Path) -> None:
     path.parent.mkdir(parents=True,exist_ok=True)
@@ -78,4 +78,4 @@ finally:
     m.sys.stdout=old_stdout
 assert probe.flushed
 
-print('PASS: v6.17.3 final result clarity, patch highlighting and red/yellow FAIL banner contract')
+print('PASS: v6.17.4 final result clarity, patch highlighting and red/yellow FAIL banner contract')

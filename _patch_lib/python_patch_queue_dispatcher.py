@@ -28,7 +28,7 @@ from python_patch_batch import (
     BatchPlanError, PatchMeta, load_patch_meta, topo_order, previous_failed_identity,
     validate_previous_failure_declaration, transaction_compatibility, snapshot_targets,
     restore_targets, snapshot_package_bytes, requeue_packages, capture_compare_snapshot,
-    build_diff_artifact,
+    build_diff_artifact, stable_package_sha256,
 )
 
 try:
@@ -43,7 +43,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.17.3"
+VERSION = "6.17.4"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -175,16 +175,56 @@ def _project_mutation_lock_key(root: Path) -> str:
     return hashlib.sha256(str(root.resolve()).encode("utf-8", errors="surrogateescape")).hexdigest()[:32]
 
 
+def _safe_lock_directory(path: Path) -> Path:
+    """Create/validate a real private lock directory without accepting links."""
+    if path.exists() or path.is_symlink():
+        st = path.lstat()
+        attrs = getattr(st, "st_file_attributes", 0)
+        reparse = bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+        if stat.S_ISLNK(st.st_mode) or reparse or not stat.S_ISDIR(st.st_mode):
+            raise QueueSafetyError(f"unsafe mutation lock directory: {path}")
+    else:
+        try:
+            path.mkdir(mode=0o700, exist_ok=False)
+        except FileExistsError:
+            return _safe_lock_directory(path)
+    return path
+
+
 def _project_mutation_lock_path(root: Path) -> Path:
-    base = Path(tempfile.gettempdir()) / "python_patch_tool_locks" / _project_mutation_lock_key(root)
-    base.mkdir(parents=True, exist_ok=True)
+    top = _safe_lock_directory(Path(tempfile.gettempdir()) / "python_patch_tool_locks")
+    base = _safe_lock_directory(top / _project_mutation_lock_key(root))
     return base / "mutation.lock"
+
+
+def _open_mutation_lock_file(path: Path):
+    if path.exists() or path.is_symlink():
+        st = path.lstat()
+        attrs = getattr(st, "st_file_attributes", 0)
+        reparse = bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+        if stat.S_ISLNK(st.st_mode) or reparse or not stat.S_ISREG(st.st_mode):
+            raise QueueSafetyError(f"unsafe mutation lock file: {path}")
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags, 0o600)
+    except OSError as exc:
+        raise QueueSafetyError(f"cannot safely open mutation lock file: {path}: {type(exc).__name__}") from exc
+    try:
+        st = os.fstat(fd)
+        attrs = getattr(st, "st_file_attributes", 0)
+        reparse = bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+        if not stat.S_ISREG(st.st_mode) or reparse:
+            raise QueueSafetyError(f"mutation lock descriptor is not a regular file: {path}")
+        return os.fdopen(fd, "r+b")
+    except Exception:
+        os.close(fd)
+        raise
 
 
 def _acquire_batch_mutation_lock(root: Path):
     """Own the same mutation lock used by runner children for an atomic batch."""
     path = _project_mutation_lock_path(root)
-    fh = path.open("a+b")
+    fh = _open_mutation_lock_file(path)
     try:
         fh.seek(0, os.SEEK_END)
         if fh.tell() == 0:
@@ -266,8 +306,33 @@ def _artifact_run_root(root: Path) -> Path:
     return cur
 
 
+def _artifact_subdir(root: Path, *parts: str) -> Path:
+    cur = _artifact_run_root(root)
+    for part in parts:
+        if not part or part in {".", ".."} or "/" in part or "\\" in part:
+            raise QueueSafetyError(f"unsafe artifact subdirectory name: {part!r}")
+        nxt = cur / part
+        if nxt.exists() or nxt.is_symlink():
+            st = nxt.lstat()
+            attrs = getattr(st, "st_file_attributes", 0)
+            reparse = bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+            if stat.S_ISLNK(st.st_mode) or reparse or not stat.S_ISDIR(st.st_mode):
+                raise QueueSafetyError(f"unsafe artifact subdirectory component: {nxt}")
+        else:
+            try:
+                nxt.mkdir(exist_ok=False)
+            except FileExistsError:
+                st = nxt.lstat()
+                attrs = getattr(st, "st_file_attributes", 0)
+                reparse = bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+                if stat.S_ISLNK(st.st_mode) or reparse or not stat.S_ISDIR(st.st_mode):
+                    raise QueueSafetyError(f"unsafe artifact subdirectory created concurrently: {nxt}")
+        cur = nxt
+    return cur
+
+
 def _batch_run_dir(root: Path, run_id: str) -> Path:
-    return _artifact_run_root(root) / "runs" / _safe_slug(run_id, 96)
+    return _artifact_subdir(root, "runs", _safe_slug(run_id, 96))
 
 
 def _batch_item_log_path(root: Path, run_id: str | None, index: int, item: QueueItem) -> Path | None:
@@ -327,7 +392,7 @@ def _save_pinned_runs(root: Path, pins: set[str]) -> None:
 
 
 def _history_entries(root: Path) -> list[tuple[Path, dict[str, object]]]:
-    history = _artifact_run_root(root) / "history"
+    history = _artifact_subdir(root, "history")
     out: list[tuple[Path, dict[str, object]]] = []
     if history.is_dir():
         for path in sorted(history.glob("*.json"), reverse=True):
@@ -364,7 +429,7 @@ def _write_run_report(root: Path, report: dict[str, object]) -> None:
     out = _artifact_run_root(root)
     try:
         _atomic_json(out / "LAST_RUN.json", report)
-        history = out / "history"; history.mkdir(parents=True, exist_ok=True)
+        history = _artifact_subdir(root, "history")
         stamp = str(report.get("started_at", "run")).replace(":", "").replace("+", "_").replace("-", "").replace(".", "_")
         run_id = _safe_slug(str(report.get("run_id") or "run"), 64)
         _atomic_json(history / f"{stamp}_{run_id}.json", report)
@@ -379,9 +444,10 @@ def _run_patch_child(
     item: QueueItem,
     *,
     full_log_path: Path | None = None,
+    expected_patch_sha256: str | None = None,
+    expected_targets: list[str] | None = None,
 ) -> tuple[int, str, dict[str, object] | None]:
-    runtime = _artifact_run_root(root) / "runtime"
-    runtime.mkdir(parents=True, exist_ok=True)
+    runtime = _artifact_subdir(root, "runtime")
     token = f"{int(time.time()*1000000)}_{os.getpid()}_{_safe_slug(item.name,48)}"
     result_path = runtime / f"{token}.json"
     env = dict(os.environ)
@@ -390,10 +456,28 @@ def _run_patch_child(
     spawn_patch_sha: str | None = None
     spawn_patch_path = root / "patchs" / item.name
     try:
-        if spawn_patch_path.is_file() and not spawn_patch_path.is_symlink():
-            spawn_patch_sha = _sha256_file(spawn_patch_path)
-    except OSError:
+        spawn_patch_sha = stable_package_sha256(spawn_patch_path)
+    except Exception:
         spawn_patch_sha = None
+    if expected_patch_sha256 and spawn_patch_sha != expected_patch_sha256:
+        message = f"PATCH package bytes changed after planning/preflight: {item.name}"
+        result = {
+            "format": "python-patch-tool-patch-result", "format_version": 1, "tool_version": VERSION,
+            "patch_file": item.name, "patch_sha256": expected_patch_sha256, "status": "FAIL", "rc": 2,
+            "stage": "package_identity",
+            "preflight": {"target_paths": list(expected_targets or [])},
+            "diagnosis": {"kind": "package_input_changed", "message": message, "affected_paths": list(expected_targets or [])},
+            "partial_modification": {"detected": False, "changed_paths": [], "evidence": "package_identity_checked_before_child_spawn"},
+        }
+        text = f"[PTV v{VERSION} SAFETY STOP] {message}\n"
+        sys.stderr.write(text); sys.stderr.flush()
+        if full_log_path is not None:
+            try:
+                full_log_path.parent.mkdir(parents=True, exist_ok=True)
+                full_log_path.write_text(text, encoding="utf-8")
+            except Exception:
+                pass
+        return 2, text, result
     proc = subprocess.Popen(
         cmd, cwd=root, env=env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -840,15 +924,16 @@ def _snapshot_handoff_sources(
 ) -> tuple[list[tuple[str, Path]], list[dict[str, object]]]:
     """Freeze discovered source bytes before creating the ZIP.
 
-    Each source is copied independently with generation checks. A disappearing
-    or concurrently modified optional attachment is skipped instead of causing
-    the entire mandatory FAIL_HANDOFF to fail.
+    Each source is copied independently from a no-follow descriptor with
+    generation checks. A disappearing/replaced optional attachment is skipped
+    without touching snapshots that were already frozen successfully.
     """
     frozen: list[tuple[str, Path]] = []
     skipped: list[dict[str, object]] = []
     frozen_total = 0
-    root_real = root.resolve(strict=True)
     for rel, _src_hint in attachments:
+        dst: Path | None = None
+        fd = -1
         if len(frozen) >= MAX_HANDOFF_SOURCE_FILES:
             skipped.append({"path": rel, "reason": "max_source_files_during_snapshot"})
             continue
@@ -857,7 +942,13 @@ def _snapshot_handoff_sources(
             skipped.append({"path": rel, "reason": "source_unavailable_before_snapshot"})
             continue
         try:
-            before = src.stat()
+            flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(src, flags)
+            before = os.fstat(fd)
+            attrs = getattr(before, "st_file_attributes", 0)
+            reparse = bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+            if not stat.S_ISREG(before.st_mode) or reparse:
+                raise ValueError("source is no longer a regular non-reparse file")
             if before.st_size > MAX_HANDOFF_SOURCE_FILE_BYTES:
                 skipped.append({"path": rel, "reason": "source_over_per_file_limit"})
                 continue
@@ -866,9 +957,8 @@ def _snapshot_handoff_sources(
                 continue
             dst = snapshot_root.joinpath(*Path(rel).parts)
             dst.parent.mkdir(parents=True, exist_ok=True)
-            h = hashlib.sha256()
             copied = 0
-            with src.open("rb") as in_fh, dst.open("xb") as out_fh:
+            with os.fdopen(os.dup(fd), "rb") as in_fh, dst.open("xb") as out_fh:
                 while True:
                     chunk = in_fh.read(1024 * 1024)
                     if not chunk:
@@ -879,11 +969,10 @@ def _snapshot_handoff_sources(
                     if frozen_total + copied > MAX_HANDOFF_SOURCE_TOTAL_BYTES:
                         raise ValueError("source set exceeded total limit during snapshot")
                     out_fh.write(chunk)
-                    h.update(chunk)
                 out_fh.flush()
                 try: os.fsync(out_fh.fileno())
                 except OSError: pass
-            after = src.stat()
+            after = os.fstat(fd)
             same_generation = (
                 before.st_dev == after.st_dev and before.st_ino == after.st_ino
                 and before.st_size == after.st_size
@@ -893,17 +982,22 @@ def _snapshot_handoff_sources(
             if not same_generation or copied != after.st_size:
                 try: dst.unlink()
                 except OSError: pass
+                dst = None
                 skipped.append({"path": rel, "reason": "source_changed_during_snapshot"})
                 continue
             frozen.append((rel, dst))
             frozen_total += copied
         except Exception as exc:
-            try:
-                dst.unlink()
-            except Exception:
-                pass
+            if dst is not None:
+                try: dst.unlink()
+                except OSError: pass
             skipped.append({"path": rel, "reason": "snapshot_failed", "error": type(exc).__name__})
+        finally:
+            if fd >= 0:
+                try: os.close(fd)
+                except OSError: pass
     return frozen, skipped
+
 
 def _discover_fail_handoff_sources(
     root: Path,
@@ -1135,11 +1229,10 @@ def _create_fail_handoff(
                 "every PATCH failure now creates a FAIL_HANDOFF with automatic source collection.",
                 file=sys.stderr,
             )
-    out = _artifact_run_root(root) / "fail_handoffs"
-    out.mkdir(parents=True, exist_ok=True)
+    out: Path | None = None
+    final: Path | None = None
+    temp: Path | None = None
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    final = out / f"FAIL_HANDOFF_{_safe_slug(item.name,70)}_{stamp}.zip"
-    temp = out / f".{final.name}.tmp"
     summary: dict[str, object] = {
         "format": "python-patch-tool-fail-handoff",
         "format_version": 2,
@@ -1168,6 +1261,20 @@ def _create_fail_handoff(
 
     snapshot_dir: Path | None = None
     try:
+        try:
+            out = _artifact_subdir(root, "fail_handoffs")
+        except Exception as dir_exc:
+            # A broken/symlinked optional subdirectory must not crash the PATCH
+            # failure path. Fall back to the already-hardened artifact root.
+            out = _artifact_run_root(root)
+            summary.setdefault("attachment_warnings", []).append(
+                f"fail_handoffs directory unavailable; used artifact-root fallback: {type(dir_exc).__name__}"
+            )
+            print(f"[PTV v{VERSION} WARNING] fail_handoffs directory unsafe/unavailable; using artifact-root fallback", file=sys.stderr)
+        final = out / f"FAIL_HANDOFF_{_safe_slug(item.name,70)}_{stamp}.zip"
+        fd, temp_name = tempfile.mkstemp(prefix=f".{final.name}.", suffix=".tmp", dir=out)
+        os.close(fd)
+        temp = Path(temp_name)
         evidence_log, detail_log_bytes, detail_log_meta = _read_handoff_detail_log(detail_log_path, console_log)
         summary["detail_log"] = detail_log_meta
         source_attachments, source_discovery = _discover_fail_handoff_sources(
@@ -1207,7 +1314,7 @@ def _create_fail_handoff(
             "skipped_files": len(source_discovery.get("skipped_files") or []),
         }
 
-        attachment_warnings: list[str] = []
+        attachment_warnings: list[str] = [str(x) for x in (summary.get("attachment_warnings") or [])]
         with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
             # Required diagnostic core is written from immutable in-memory data.
             zf.writestr("console.log", console_log)
@@ -1287,6 +1394,8 @@ def _create_fail_handoff(
     except Exception as exc:
         print(f"[PTV v{VERSION} WARNING] could not create FAIL_HANDOFF: {type(exc).__name__}: {exc}", file=sys.stderr)
         for path in (temp, final):
+            if path is None:
+                continue
             try: path.unlink()
             except OSError: pass
         return None
@@ -2446,7 +2555,7 @@ def _create_report_support_bundle(root: Path, report: dict[str, object], row_ind
         return None
     row = rows[row_index]
     run_id = _safe_slug(str(report.get("run_id") or "run"), 64)
-    out_dir = _artifact_run_root(root) / "support"; out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = _artifact_subdir(root, "support")
     final = out_dir / f"PTV_SUPPORT_{run_id}_{row_index+1:03d}_{_safe_slug(str(row.get('name') or 'item'),60)}.zip"
     temp = final.with_suffix(".zip.tmp")
     try:
@@ -2558,7 +2667,7 @@ def _export_history(root: Path, run_id: str) -> int:
     if found is None:
         print(f"Run not found: {run_id}", file=sys.stderr); return 2
     history_path, report = found
-    out_dir = _artifact_run_root(root) / "exports"; out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = _artifact_subdir(root, "exports")
     final = out_dir / f"PTV_RUN_{_safe_slug(run_id,64)}.zip"; temp = final.with_suffix(".zip.tmp")
     run_dir = _batch_run_dir(root, run_id)
     with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -3621,11 +3730,14 @@ def execute_items(
             patch_result = None
             collect_result = None
             if item.kind == "PATCH":
-                rc, console_log, patch_result = _run_patch_child(root, cmd, item, full_log_path=detail_log_path)
+                rc, console_log, patch_result = _run_patch_child(
+                    root, cmd, item, full_log_path=detail_log_path,
+                    expected_patch_sha256=(meta.package_sha256 if meta is not None else None),
+                    expected_targets=(list(meta.effective_targets) if meta is not None else None),
+                )
                 patch_result = _enrich_patch_diagnosis(patch_result, console_log)
             else:
-                runtime = _artifact_run_root(root) / "runtime"
-                runtime.mkdir(parents=True, exist_ok=True)
+                runtime = _artifact_subdir(root, "runtime")
                 collect_result_path = runtime / f"collect_{int(time.time()*1000000)}_{os.getpid()}.json"
                 env = dict(os.environ); env["PTV_COLLECT_RESULT_FILE"] = str(collect_result_path)
                 rc = _normalize_subprocess_rc(subprocess.run(cmd, cwd=root, env=env).returncode)
@@ -3942,7 +4054,14 @@ def _run_queue(root: Path, *, failure_policy_override: str | None = None, transa
             package_snapshot_root = tx_root / "packages"
             all_targets = [rel for item in chosen for rel in _declared_targets_for(metas.get(item.name))]
             transaction_manifest = snapshot_targets(root, all_targets, transaction_snapshot_root)
-            package_map = snapshot_package_bytes(root, [x.name for x in chosen if x.kind == "PATCH"], package_snapshot_root)
+            expected_package_sha = {
+                x.name: metas[x.name].package_sha256
+                for x in chosen if x.kind == "PATCH" and x.name in metas and metas[x.name].package_sha256
+            }
+            package_map = snapshot_package_bytes(
+                root, [x.name for x in chosen if x.kind == "PATCH"], package_snapshot_root,
+                expected_sha256=expected_package_sha,
+            )
             batch_transaction = {"policy": "batch", "status": "READY", "targets": len(set(all_targets)), "packages": len(package_map)}
             print(f"BATCH TRANSACTION SNAPSHOT: READY | targets={len(set(all_targets))} | packages={len(package_map)}")
         except Exception as exc:

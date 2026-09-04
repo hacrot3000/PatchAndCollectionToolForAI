@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from python_patch_utils import PatchFailure, diagnose_ops, finish_failure, run_ops
 from python_patch_package_schema import PatchSchemaError, path_is_link_or_reparse, run_preflight, sha256_file
 
-VERSION = "6.17.3"
+VERSION = "6.17.4"
 _ACTIVE_TERMINATION_SIGNAL: int | None = None
 MAX_ARCHIVE_ENTRIES = 10000
 MAX_ARCHIVE_MEMBER_BYTES = 64 * 1024 * 1024
@@ -488,10 +488,46 @@ def _mutation_lock_key(root: Path) -> str:
     return hashlib.sha256(str(root.resolve()).encode("utf-8", errors="surrogateescape")).hexdigest()[:32]
 
 
+def _safe_lock_directory(path: Path) -> Path:
+    if path.exists() or path.is_symlink():
+        st = path.lstat()
+        attrs = getattr(st, "st_file_attributes", 0)
+        reparse = bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+        if stat.S_ISLNK(st.st_mode) or reparse or not stat.S_ISDIR(st.st_mode):
+            raise RuntimeError(f"unsafe mutation lock directory: {path}")
+    else:
+        try:
+            path.mkdir(mode=0o700, exist_ok=False)
+        except FileExistsError:
+            return _safe_lock_directory(path)
+    return path
+
+
 def _mutation_lock_path(root: Path) -> Path:
-    base = Path(tempfile.gettempdir()) / "python_patch_tool_locks" / _mutation_lock_key(root)
-    base.mkdir(parents=True, exist_ok=True)
+    top = _safe_lock_directory(Path(tempfile.gettempdir()) / "python_patch_tool_locks")
+    base = _safe_lock_directory(top / _mutation_lock_key(root))
     return base / "mutation.lock"
+
+
+def _open_mutation_lock_file(path: Path):
+    if path.exists() or path.is_symlink():
+        st = path.lstat()
+        attrs = getattr(st, "st_file_attributes", 0)
+        reparse = bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+        if stat.S_ISLNK(st.st_mode) or reparse or not stat.S_ISREG(st.st_mode):
+            raise RuntimeError(f"unsafe mutation lock file: {path}")
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
+    try:
+        st = os.fstat(fd)
+        attrs = getattr(st, "st_file_attributes", 0)
+        reparse = bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+        if not stat.S_ISREG(st.st_mode) or reparse:
+            raise RuntimeError(f"mutation lock descriptor is not a regular file: {path}")
+        return os.fdopen(fd, "r+b")
+    except Exception:
+        os.close(fd)
+        raise
 
 
 def _inherited_mutation_lock_is_valid(root: Path, path: Path) -> bool:
@@ -500,7 +536,8 @@ def _inherited_mutation_lock_is_valid(root: Path, path: Path) -> bool:
     if not token or key != _mutation_lock_key(root):
         return False
     try:
-        with path.open("rb") as fh:
+        with _open_mutation_lock_file(path) as fh:
+            fh.seek(0)
             current = fh.read(256).decode("ascii", errors="ignore").strip()
         return current == token
     except OSError:
@@ -514,7 +551,7 @@ def _acquire_project_mutation_lock(root: Path):
     # inherit only a matching random token written by that lock owner.
     if _inherited_mutation_lock_is_valid(root, path):
         return None
-    fh = path.open("a+b")
+    fh = _open_mutation_lock_file(path)
     try:
         fh.seek(0, os.SEEK_END)
         if fh.tell() == 0:
