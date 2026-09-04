@@ -46,7 +46,10 @@ with tempfile.TemporaryDirectory() as td:
     # Non-patch artifacts must NOT pollute the runnable queue.
     with zipfile.ZipFile(p/'PTV_PASS_HANDOFF.zip','w') as z:
         z.writestr('CURRENT_STATE.md','handoff only')
-    with zipfile.ZipFile(p/'python_patch_tool_v6.7.10.zip','w') as z:
+    with zipfile.ZipFile(p/'PTV_260808_120000_deadbeef_PASS_DETAIL.zip','w') as z:
+        z.writestr('raw/source.py','PATCH_NAME="embedded evidence only"\n')
+        z.writestr('raw/CODE_COLLECTION_REQUEST_prior.json',json.dumps({'id':'prior','actions':[{'type':'overview'}]}))
+    with zipfile.ZipFile(p/'python_patch_tool_v6.7.11.zip','w') as z:
         z.writestr('tools/run_python_patches.sh','#!/bin/sh\n')
         z.writestr('tools/_patch_lib/self_test.py','PATCH_NAME=\"test literal only\"\n')
     with zipfile.ZipFile(p/'PTV_REALISTIC_HANDOFF.zip','w') as z:
@@ -60,6 +63,12 @@ with tempfile.TemporaryDirectory() as td:
         z.writestr('handoff/HANDOFF_README.md','handoff')
         z.writestr('handoff/CURRENT_STATE.md','state')
         z.writestr('handoff/samples/example.py','PATCH_NAME="example only"\n')
+    # A HANDOFF may contain a previous valid COLLECT request as evidence. The
+    # support-bundle identity must win; it must never become a runnable COLLECT.
+    with zipfile.ZipFile(p/'WRAPPED_HANDOFF_WITH_COLLECT.zip','w') as z:
+        z.writestr('handoff/HANDOFF_README.md','handoff')
+        z.writestr('handoff/CURRENT_STATE.md','state')
+        z.writestr('handoff/evidence/CODE_COLLECTION_REQUEST_prior.json',json.dumps({'id':'prior','actions':[{'type':'overview'}]}))
     (p/'notes.py').write_text('print("not a patch")\n',encoding='utf-8')
     (p/'broken.zip').write_bytes(b'not-a-zip')
     outside=root/'outside_patch.py'; outside.write_text('PATCH_NAME=\"outside\"\n',encoding='utf-8')
@@ -84,13 +93,24 @@ with tempfile.TemporaryDirectory() as td:
     assert all(by_name[n].kind=='PATCH' for n in expected_patch)
     assert by_name['collect_good.zip'].kind=='COLLECT'
     assert by_name['CODE_COLLECTION_REQUEST_bad.zip'].kind=='COLLECT INVALID'
-    for rejected in ['PTV_PASS_HANDOFF.zip','PTV_REALISTIC_HANDOFF.zip','WRAPPED_TOOL_DISTRIBUTION.zip','WRAPPED_HANDOFF.zip','python_patch_tool_v6.7.10.zip','notes.py','broken.zip','linked_patch.py','tool_distribution.tgz','dot_wrapped_tool_distribution.tgz','handoff_archive.tgz','CODE_COLLECTION_REQUEST_loose.json']:
+    for rejected in ['PTV_PASS_HANDOFF.zip','PTV_260808_120000_deadbeef_PASS_DETAIL.zip','PTV_REALISTIC_HANDOFF.zip','WRAPPED_TOOL_DISTRIBUTION.zip','WRAPPED_HANDOFF.zip','WRAPPED_HANDOFF_WITH_COLLECT.zip','python_patch_tool_v6.7.11.zip','notes.py','broken.zip','linked_patch.py','tool_distribution.tgz','dot_wrapped_tool_distribution.tgz','handoff_archive.tgz','CODE_COLLECTION_REQUEST_loose.json']:
         assert rejected not in by_name, (rejected,items,w)
     joined='\n'.join(w)
     assert 'RAW JSON REJECTED' in joined
     assert 'PTV_PASS_HANDOFF.zip' in joined
-    assert 'python_patch_tool_v6.7.10.zip' in joined
+    assert 'python_patch_tool_v6.7.11.zip' in joined
     assert 'broken.zip' in joined
     assert 'SKIPPED symlink queue entry: patchs/linked_patch.py' in joined
 
-print('PASS: v6.7.10 queue recognizes PATCH/COLLECT structurally and skips non-patch artifacts')
+    # Revalidation must use the same support-bundle precedence. A selected
+    # COLLECT replaced after selection by a HANDOFF containing a valid request
+    # must fail closed rather than execute the embedded historical request.
+    selected_collect = by_name['collect_good.zip']
+    with zipfile.ZipFile(p/'collect_good.zip','w') as z:
+        z.writestr('handoff/HANDOFF_README.md','handoff')
+        z.writestr('handoff/CURRENT_STATE.md','state')
+        z.writestr('handoff/CODE_COLLECTION_REQUEST_prior.json',json.dumps({'id':'prior','actions':[{'type':'overview'}]}))
+    valid, reason = m._revalidate_selected_item(root, selected_collect)
+    assert not valid and 'support bundle' in reason, (valid, reason)
+
+print('PASS: v6.7.11 queue recognizes PATCH/COLLECT structurally and skips non-patch artifacts')

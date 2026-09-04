@@ -1,4 +1,4 @@
-# Portable use — Python Patch Tool v6.7.10
+# Portable use — Python Patch Tool v6.7.11
 
 Normal user entry point is always:
 
@@ -56,8 +56,9 @@ the queue on purpose.
 
 SANDBOX / detached-worktree execution is removed from the supported workflow.
 Every documented PATCH execution route through the public launcher (`--patch`,
-`--all`, `--select`, or a direct patch package path) strips historical
-transaction flags and forces the installed compatible core to
+`--all`, `--select`, direct patch package paths, and historical execution
+modifiers such as `-a/-y/--zip-failed/--keep-failed-zip/--move`) strips
+historical transaction flags and forces the installed compatible core to
 `--transaction off`. Transaction/SANDBOX-only invocations fail closed instead
 of falling through to a legacy zero-argument core.
 
@@ -71,6 +72,8 @@ passed through without execution-only arguments. COLLECT remains readonly.
 Zero-argument discovery recognizes v5+ PATCH ZIPs by root
 `PATCH_TOOL_MANIFEST.json`, documented legacy-v4 signatures, and COLLECT ZIPs.
 HANDOFF/report/tool-distribution archives and symlink queue entries are skipped.
+Support-bundle identity is checked before COLLECT, because HANDOFF/DETAIL archives
+may legitimately embed a previous request JSON or patch-looking source evidence.
 A root `PATCH_TOOL_MANIFEST.json` has precedence over any nested
 `CODE_COLLECTION_REQUEST_*.json` resource so a valid PATCH cannot be routed as
 COLLECT. ZIP/TAR package extension matching at the launcher is case-insensitive.
@@ -90,10 +93,12 @@ Selected work is executed in natural order and stops on the first failure.
 Remaining selected items are reported as `SKIPPED / NOT EXECUTED` and remain in
 the queue.
 
-## v6.7.10 completion hardening
+## v6.7.11 completion hardening
 
 A zero collector exit code becomes a public PASS only when the result collection
-ZIP is detected and usable. Missing/non-ZIP result artifacts fail closed before
+ZIP is detected and usable. Result/request completion metadata is retained
+independently from the bounded failure tail, so verbose post-result output cannot
+erase the upload target. Missing/non-ZIP result artifacts fail closed before
 the final status row is printed. Quoted paths and paths containing spaces are
 accepted. Stop handlers are installed before collector spawn and cover common
 task/terminal-close signals so the readonly child tree is not left orphaned.

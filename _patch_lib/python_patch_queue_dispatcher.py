@@ -20,7 +20,7 @@ try:
 except Exception:
     termios = tty = None
 
-VERSION = "6.7.10"
+VERSION = "6.7.11"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -130,6 +130,21 @@ def _archive_support_views(names: list[str]) -> list[list[str]]:
     return views
 
 
+def _support_bundle_filename_kind(name: str) -> str | None:
+    """Recognize well-known generated support artifact filenames.
+
+    Root PATCH manifests still take precedence.  These filename signatures are
+    a fallback for generated HANDOFF/DETAIL/tool archives whose internal layout
+    may vary and may legitimately contain runnable-looking source evidence.
+    """
+    low = name.lower()
+    if low.startswith("python_patch_tool_"):
+        return "tool_distribution"
+    if low.startswith("ptv_") and any(tag in low for tag in ("_handoff", "_detail", "_summary", "_report", "_code")):
+        return "ptv_support_archive"
+    return None
+
+
 def _is_support_bundle_names(names: list[str]) -> str | None:
     for view in _archive_support_views(names):
         if (
@@ -143,6 +158,28 @@ def _is_support_bundle_names(names: list[str]) -> str | None:
     return None
 
 
+def _zip_support_kind(path: Path) -> str | None:
+    """Recognize non-runnable support bundles before COLLECT inspection.
+
+    A HANDOFF may legitimately embed a prior CODE_COLLECTION_REQUEST JSON.
+    If COLLECT inspection runs first, that unrelated nested request can turn the
+    complete HANDOFF into a runnable queue item. Support-bundle identity is
+    stronger than nested request content, while a root PATCH manifest remains
+    stronger than both and is checked by the caller first.
+    """
+    if path.suffix.lower() != ".zip" or not path.is_file():
+        return None
+    filename_kind = _support_bundle_filename_kind(path.name)
+    if filename_kind:
+        return filename_kind
+    try:
+        with zipfile.ZipFile(path) as zf:
+            names = [n for n in zf.namelist() if not n.endswith("/")]
+        return _is_support_bundle_names(names)
+    except Exception:
+        return None
+
+
 def _zip_is_patch(path: Path):
     try:
         with zipfile.ZipFile(path) as zf:
@@ -152,6 +189,9 @@ def _zip_is_patch(path: Path):
             # being mistaken for the patch itself.
             if "PATCH_TOOL_MANIFEST.json" in names:
                 return True, "manifest"
+            filename_kind = _support_bundle_filename_kind(path.name)
+            if filename_kind:
+                return False, filename_kind
             # Known distribution/support bundles are not runnable patches.
             # Check both the archive root and a common single wrapper folder
             # before scanning Python text for legacy helper markers.
@@ -196,6 +236,9 @@ def _tar_is_patch(path: Path):
             names = [m.name for m in members]
             if "PATCH_TOOL_MANIFEST.json" in names:
                 return True, "manifest"
+            filename_kind = _support_bundle_filename_kind(path.name)
+            if filename_kind:
+                return False, filename_kind
             support_kind = _is_support_bundle_names(names)
             if support_kind:
                 return False, support_kind
@@ -274,6 +317,16 @@ def discover_queue(root: Path):
         # that resource ZIP into the readonly COLLECT path.
         if path.suffix.lower() == ".zip" and _zip_has_root_patch_manifest(path):
             items.append(QueueItem(path.name, "PATCH", "manifest"))
+            continue
+
+        # A tool distribution or HANDOFF can embed a previous valid COLLECT
+        # request as evidence.  Never let that nested JSON override the archive's
+        # stronger support-bundle identity.
+        support_kind = _zip_support_kind(path)
+        if support_kind:
+            warnings.append(
+                f"SKIPPED non-patch candidate: patchs/{path.name} ({support_kind})"
+            )
             continue
 
         ok, detail = inspect_collect_zip(path)
@@ -663,6 +716,9 @@ def _revalidate_selected_item(root: Path, item: QueueItem) -> tuple[bool, str]:
     if item.kind == "COLLECT":
         if path.suffix.lower() == ".zip" and _zip_has_root_patch_manifest(path):
             return False, "COLLECT entry changed into a PATCH package"
+        support_kind = _zip_support_kind(path)
+        if support_kind:
+            return False, f"COLLECT entry changed into a support bundle: {support_kind}"
         ok, detail = inspect_collect_zip(path)
         return (True, detail) if ok else (False, f"COLLECT request changed: {detail}")
 

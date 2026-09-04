@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.7.10
+# AI / ChatGPT usage contract — Python Patch Tool v6.7.11
 
 This document is intended to be uploaded or quoted to an AI that creates PATCH
 or COLLECT artifacts for this tool. The rules below override obsolete examples

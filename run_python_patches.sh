@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Python Patch Tool v6.7.10 public launcher.
+# Python Patch Tool v6.7.11 public launcher.
 # SANDBOX/worktree transaction mode is permanently disabled at this boundary.
 set -euo pipefail
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,7 +38,7 @@ if [ ! -f "$RUNNER" ]; then
   exit 2
 fi
 
-# v6.7.10 invariant: SANDBOX/Git-worktree transaction execution is removed.
+# v6.7.11 invariant: SANDBOX/Git-worktree transaction execution is removed.
 # The installed private core may still expose historical transaction options,
 # so every documented PATCH execution route is forced to --transaction off.
 # Utility-only routes such as paths/help remain untouched.
@@ -70,7 +70,15 @@ for arg in "$@"; do
     --keep-failed-sandbox|--keep-failed-sandbox=*)
       stripped_legacy_transaction=1
       ;;
-    --patch|--all|--select)
+    --patch|--all|--select|-a)
+      filtered+=("$arg")
+      force_inplace=1
+      ;;
+    -y|--yes|--zip-failed|--keep-failed-zip|--move)
+      # Historical execution modifiers are commonly combined with -a/selection
+      # and may also cause an old core to enter its execution path. Treat them
+      # as PATCH-route evidence so the removed transaction/worktree default can
+      # never be consulted even when the caller omits the primary selector flag.
       filtered+=("$arg")
       force_inplace=1
       ;;

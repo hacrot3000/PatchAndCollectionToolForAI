@@ -77,4 +77,4 @@ with tempfile.TemporaryDirectory(prefix='ptv6710_revalidate_') as td:
     assert executed==[(selected.name,2)],executed
     assert not log.exists(), 'launcher must not run a replaced/symlinked queue entry'
 
-print('PASS: v6.7.10 selected queue stops on first failure')
+print('PASS: v6.7.11 selected queue stops on first failure')

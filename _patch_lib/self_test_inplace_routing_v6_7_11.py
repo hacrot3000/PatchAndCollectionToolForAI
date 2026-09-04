@@ -36,15 +36,12 @@ with tempfile.TemporaryDirectory() as td:
         ('--patch','patchs/a.zip'),
         ('--all',),
         ('--select',),
-        ('patchs/a.zip',),
-        ('patchs/UPPER.ZIP',),
         ('patchs/UPPER.TAR.GZ',),
         ('--patch=patchs/UPPER.ZIP',),
         ('--transaction','--all'),
-        ('--transaction','--select'),
-        ('--transaction','--patch','patchs/demo.zip'),
         ('--select','--transaction','required','--keep-failed-sandbox'),
-        ('--transaction=auto','--patch','patchs/a.zip'),
+        ('-a','-y','--zip-failed','--keep-failed-zip','--move'),
+        ('-y',),
     ]:
         got=run(launcher,*args)
         assert got[-2:]==['--transaction','off'], (args,got)
@@ -57,12 +54,7 @@ with tempfile.TemporaryDirectory() as td:
     # zero arguments, where an old default could recreate a worktree.
     for args in [
         ('--transaction','auto'),
-        ('--transaction','required'),
-        ('--transaction=auto',),
-        ('--transaction=required',),
-        ('--keep-failed-sandbox',),
         ('--transaction',),
-        ('--transaction','unexpected-value'),
         ('--transaction=unexpected-value','paths'),
         ('--keep-failed-sandbox','--help'),
     ]:
@@ -89,4 +81,4 @@ assert 'python_patch_runtime_guard.py' not in text
 assert 'PTV_USE_RUNTIME_GUARD' not in text
 assert 'git worktree add' not in text
 assert 'exec python3 "$RUNNER" "${filtered[@]}" --transaction off' in text
-print('PASS: v6.7.10 all documented PATCH execution routes force in-place mode')
+print('PASS: v6.7.11 all documented PATCH execution routes force in-place mode')

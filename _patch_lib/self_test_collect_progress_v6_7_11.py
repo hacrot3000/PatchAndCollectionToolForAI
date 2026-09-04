@@ -22,7 +22,7 @@ m = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = m
 spec.loader.exec_module(m)
 
-assert m.VERSION == "6.7.10"
+assert m.VERSION == "6.7.11"
 assert m._cell_width("abc") == 3
 assert m._cell_width("测试") == 4
 for width in [0, 1, 2, 12, 20, 40, 80, 120]:
@@ -259,4 +259,30 @@ with tempfile.TemporaryDirectory(prefix="ptprog_missing_artifact_v6710_") as td:
     assert '✗ COLLECT | rc=2' in cp.stdout, cp.stdout
     assert '✓ COLLECT | rc=0' not in cp.stdout, cp.stdout
 
-print('PASS: Python Patch Tool v6.7.10 collect progress robustness self-test')
+
+# Result metadata must not depend on the bounded failure tail. A verbose
+# collector may report the ZIP and then print hundreds of later diagnostic
+# lines; rc=0 still has a valid upload artifact and must remain PASS.
+with tempfile.TemporaryDirectory(prefix="ptprog_long_tail_v6711_") as td:
+    root = Path(td)
+    result = root / 'artifacts' / 'early-result.zip'
+    result.parent.mkdir(parents=True)
+    import zipfile
+    with zipfile.ZipFile(result, 'w') as z:
+        z.writestr('ok.txt', 'ok')
+    collector = root / 'long_tail_collector.py'
+    collector.write_text(
+        f"print('ZIP: {result}')\n"
+        "for i in range(220): print(f'diagnostic line {i}')\n",
+        encoding='utf-8',
+    )
+    cp = subprocess.run(
+        [sys.executable, str(p), '--project-root', str(root), '--collector', str(collector), '--', 'request', 'dummy.zip'],
+        text=True, capture_output=True, timeout=10,
+    )
+    assert cp.returncode == 0, (cp.returncode, cp.stdout, cp.stderr)
+    assert '[PRIMARY - UPLOAD THIS FILE]' in cp.stdout, cp.stdout
+    assert cp.stdout.count(str(result)) == 1, cp.stdout
+    assert 'completion contract failed' not in cp.stderr, cp.stderr
+
+print('PASS: Python Patch Tool v6.7.11 collect progress robustness self-test')

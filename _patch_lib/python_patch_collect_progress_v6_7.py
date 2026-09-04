@@ -18,7 +18,7 @@ import unicodedata
 import zipfile
 from typing import Iterable
 
-VERSION = "6.7.10"
+VERSION = "6.7.11"
 DEFAULT_HEARTBEAT = 0.8
 DEFAULT_MARGIN = 2
 MAX_TAIL_LINES = 120
@@ -334,7 +334,7 @@ def _reader(stream, q: queue.Queue[str], tail: deque[str]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Python Patch Tool v6.7.10 COLLECT one-line progress supervisor")
+    ap = argparse.ArgumentParser(description="Python Patch Tool v6.7.11 COLLECT one-line progress supervisor")
     ap.add_argument("--project-root", required=True)
     ap.add_argument("--collector", required=True)
     ap.add_argument("rest", nargs=argparse.REMAINDER)
@@ -450,6 +450,16 @@ def main(argv: list[str] | None = None) -> int:
 
     q: queue.Queue[str] = queue.Queue()
     tail: deque[str] = deque(maxlen=MAX_TAIL_LINES)
+    # Result/request paths are completion metadata, not failure-tail detail.
+    # Keep them independently so a verbose collector cannot push the upload ZIP
+    # path out of the bounded tail before rc=0 is evaluated.
+    completion_evidence: deque[str] = deque(maxlen=16)
+
+    def remember_completion(line: str) -> None:
+        result_zip, request_zip, _ = _extract_collect_completion([line])
+        if result_zip or request_zip:
+            completion_evidence.append(line)
+
     thread = threading.Thread(target=_reader, args=(proc.stdout, q, tail), daemon=True)
     thread.start()
 
@@ -468,6 +478,7 @@ def main(argv: list[str] | None = None) -> int:
                 break
             output_lines += 1
             phase = _infer_phase(line, phase)
+            remember_completion(line)
             if line.strip():
                 last_detail = _completion_progress_detail(line)
         rc = proc.poll()
@@ -508,6 +519,7 @@ def main(argv: list[str] | None = None) -> int:
             break
         output_lines += 1
         phase = _infer_phase(line, phase)
+        remember_completion(line)
         if line.strip():
             last_detail = _completion_progress_detail(line)
 
@@ -522,10 +534,13 @@ def main(argv: list[str] | None = None) -> int:
 
     # A zero collector exit code is only a PASS when there is a usable result
     # ZIP to upload. Decide that before rendering the final status so the
-    # console can never say `✓ rc=0` and then fail afterward.
+    # console can never say `✓ rc=0` and then fail afterward. Completion paths
+    # are combined with the tail because they may have appeared much earlier
+    # than MAX_TAIL_LINES before process exit.
+    completion_material = [*completion_evidence, *tail]
     completion_contract_failed = False
     if final_rc == 0:
-        result_zip, _request_zip, _extras = _extract_collect_completion(tail)
+        result_zip, _request_zip, _extras = _extract_collect_completion(completion_material)
         if not result_zip:
             completion_contract_failed = True
         else:
@@ -543,7 +558,7 @@ def main(argv: list[str] | None = None) -> int:
     # bounded tail. A completion-contract failure gets its canonical artifact
     # diagnostic instead of a contradictory PASS block.
     if completion_contract_failed:
-        _print_collect_success(root, tail)
+        _print_collect_success(root, completion_material)
         print(f'[PTV v{VERSION} ERROR] COLLECT completion contract failed; returning rc=2.', file=sys.stderr)
     elif final_rc != 0:
         print("COLLECT FAILED — recent collector output:")
@@ -554,7 +569,7 @@ def main(argv: list[str] | None = None) -> int:
         # collectors may print the result archive twice (a ``ZIP:`` line plus
         # the bare path). The user should see exactly one highlighted upload
         # target and must not confuse it with the archived request ZIP.
-        _print_collect_success(root, tail)
+        _print_collect_success(root, completion_material)
     return final_rc
 
 
