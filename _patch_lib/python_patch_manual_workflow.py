@@ -80,7 +80,13 @@ def _has_forbidden_inline_eval(exe: str, args: list[str]) -> bool:
         return False
     for raw in args:
         token = str(raw).strip().lower()
-        if kind in {"shell", "python"}:
+        if kind == "shell":
+            # POSIX shells accept short options as clusters: -lc, -xc,
+            # -ec, etc.  Any short-option cluster containing c enables an
+            # inline command string and must be rejected fail-closed.
+            if token.startswith("-") and not token.startswith("--") and "c" in token[1:]:
+                return True
+        elif kind == "python":
             if token == "-c" or token.startswith("-c"):
                 return True
         elif kind == "node":
