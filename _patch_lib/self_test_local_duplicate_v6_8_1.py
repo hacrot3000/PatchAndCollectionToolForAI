@@ -163,4 +163,116 @@ with tempfile.TemporaryDirectory(prefix='ptv680dup_localonly_a_') as a, tempfile
     assert duplicates_b == [], duplicates_b
     assert [x.name for x in runnable_b] == ['shared_patch.zip'], runnable_b
 
-print('PASS: v6.8.0 local-only SHA-256 duplicate PATCH skip contract')
+
+# A symlinked local-history directory must never suppress a patch.  This keeps
+# the duplicate decision physically project-local even when users have shared
+# folders or copied legacy symlink layouts.
+with tempfile.TemporaryDirectory(prefix='ptv681dup_symlink_project_') as project_td, tempfile.TemporaryDirectory(prefix='ptv681dup_symlink_shared_') as shared_td:
+    root = Path(project_td)
+    shared = Path(shared_td)
+    queue = root / 'patchs'
+    queue.mkdir(parents=True)
+    shared.mkdir(parents=True, exist_ok=True)
+    historical = shared / 'old.zip'
+    make_patch(historical, 'shared-history')
+    queued = queue / 'same.zip'
+    shutil.copy2(historical, queued)
+    (queue / 'patched').symlink_to(shared, target_is_directory=True)
+    items, _ = m.discover_queue(root)
+    runnable, duplicates, warnings = m._split_local_duplicate_patches(root, items)
+    assert [x.name for x in runnable] == ['same.zip'], runnable
+    assert duplicates == [], duplicates
+    assert any('patchs/patched/ is a symlink' in x for x in warnings), warnings
+
+# Same invariant when patchs/ itself is a symlink: discovery may remain
+# compatible with an old layout, but duplicate history must not cross roots.
+with tempfile.TemporaryDirectory(prefix='ptv681dup_queue_project_') as project_td, tempfile.TemporaryDirectory(prefix='ptv681dup_queue_shared_') as shared_td:
+    root = Path(project_td)
+    shared_queue = Path(shared_td)
+    (shared_queue / 'patched').mkdir(parents=True)
+    historical = shared_queue / 'patched' / 'old.zip'
+    make_patch(historical, 'shared-root')
+    queued = shared_queue / 'same.zip'
+    shutil.copy2(historical, queued)
+    (root / 'patchs').symlink_to(shared_queue, target_is_directory=True)
+    items, _ = m.discover_queue(root)
+    runnable, duplicates, warnings = m._split_local_duplicate_patches(root, items)
+    assert [x.name for x in runnable] == ['same.zip'], runnable
+    assert duplicates == [], duplicates
+    assert any('patchs/ is a symlink' in x for x in warnings), warnings
+
+# Late duplicate recheck: if two byte-identical patches were selected before
+# history existed, the first successful PATCH archives itself and the second is
+# skipped without a second launcher execution.
+with tempfile.TemporaryDirectory(prefix='ptv681dup_late_') as td:
+    root = Path(td)
+    tools = root / 'tools'
+    queue = root / 'patchs'
+    history = queue / 'patched'
+    tools.mkdir(parents=True)
+    history.mkdir(parents=True)
+    first = queue / 'first.zip'
+    second = queue / 'second.zip'
+    make_patch(first, 'same-late-payload')
+    shutil.copy2(first, second)
+    calls = root / 'calls.txt'
+    launcher = tools / 'run_python_patches.sh'
+    launcher.write_text(
+        '#!/usr/bin/env bash\n'
+        'set -e\n'
+        f'echo "$*" >> {str(calls)!r}\n'
+        'src="${2#patchs/}"\n'
+        'mv "patchs/$src" "patchs/patched/$src"\n'
+        'exit 0\n',
+        encoding='utf-8',
+    )
+    launcher.chmod(0o755)
+    chosen = [m.QueueItem(first.name, 'PATCH'), m.QueueItem(second.name, 'PATCH')]
+    rc, executed, remaining, late_duplicates, warnings = m.execute_items(root, chosen)
+    assert rc == 0, rc
+    assert [x[0] for x in executed] == ['first.zip'], executed
+    assert remaining == [], remaining
+    assert [x.item.name for x in late_duplicates] == ['second.zip'], late_duplicates
+    assert warnings == [], warnings
+    invoked = calls.read_text(encoding='utf-8').splitlines()
+    assert len(invoked) == 1 and 'first.zip' in invoked[0], invoked
+    assert second.is_file(), second
+
+
+# End-to-end late duplicate reporting: both copies are initially selectable,
+# but after the first archives itself the second is reported as a local skip.
+with tempfile.TemporaryDirectory(prefix='ptv681dup_late_main_') as td:
+    root = Path(td)
+    tools = root / 'tools'
+    queue = root / 'patchs'
+    history = queue / 'patched'
+    tools.mkdir(parents=True)
+    history.mkdir(parents=True)
+    first = queue / 'copy_1.zip'
+    second = queue / 'copy_2.zip'
+    make_patch(first, 'late-main')
+    shutil.copy2(first, second)
+    calls = root / 'calls.txt'
+    launcher = tools / 'run_python_patches.sh'
+    launcher.write_text(
+        '#!/usr/bin/env bash\n'
+        'set -e\n'
+        f'echo "$*" >> {str(calls)!r}\n'
+        'src="${2#patchs/}"\n'
+        'mv "patchs/$src" "patchs/patched/$src"\n'
+        'exit 0\n',
+        encoding='utf-8',
+    )
+    launcher.chmod(0o755)
+    cp = subprocess.run(
+        [sys.executable, str(MOD), '--project-root', str(root)],
+        input='a\n', text=True, capture_output=True, timeout=15,
+    )
+    assert cp.returncode == 0, (cp.returncode, cp.stdout, cp.stderr)
+    invoked = calls.read_text(encoding='utf-8').splitlines()
+    assert len(invoked) == 1 and 'copy_1.zip' in invoked[0], invoked
+    assert '[SKIPPED:DUPLICATE_LOCAL] copy_2.zip' in cp.stdout, cp.stdout
+    assert 'SUMMARY: PASS | 1 selected item(s) completed' in cp.stdout, cp.stdout
+    assert second.is_file(), second
+
+print('PASS: v6.8.1 local-only SHA-256 duplicate PATCH skip contract')

@@ -1,4 +1,4 @@
-# Portable use — Python Patch Tool v6.8.0
+# Portable use — Python Patch Tool v6.8.1
 
 Normal user entry point is always:
 
@@ -114,7 +114,7 @@ only with direct regular files already present in this project's
 Duplicate PATCHes are removed from the runnable selector set before selection,
 so they cannot be executed accidentally by the normal zero-argument workflow.
 
-## v6.8.0 queue/result correctness
+## v6.8.1 queue/result correctness
 
 PATCH child termination by signal is reported using normal shell codes (for
 example Ctrl+C = 130 and SIGTERM = 143), not negative Python subprocess codes.
@@ -123,3 +123,12 @@ PASS is accepted only if the request ZIP has actually moved from `patchs/` to
 `patchs/patched/`. If a legacy collector prints more than one candidate result
 ZIP, the supervisor validates candidates newest-first and highlights exactly one
 valid upload ZIP.
+
+### v6.8.1 local-history boundary
+
+Duplicate suppression never follows a symlinked `patchs/` or
+`patchs/patched/`. Shared/external history is ignored with a warning, because
+local-only means the physical history directory belongs to this project root.
+The dispatcher also rechecks duplicate status immediately before each selected
+PATCH launch so a just-completed identical local PATCH can suppress a later
+copy in the same run.

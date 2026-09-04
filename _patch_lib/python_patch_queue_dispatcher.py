@@ -21,7 +21,7 @@ try:
 except Exception:
     termios = tty = None
 
-VERSION = "6.8.0"
+VERSION = "6.8.1"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -247,9 +247,36 @@ def _split_local_duplicate_patches(root: Path, items: list[QueueItem]):
     unselected item: the tool skips execution but does not delete or archive
     user input merely because a local historical copy exists.
     """
-    history_dir = root / "patchs" / "patched"
-    if not history_dir.is_dir():
-        return list(items), [], []
+    queue_dir = root / "patchs"
+    history_dir = queue_dir / "patched"
+
+    # LOCAL means physically inside this resolved project tree.  Never follow
+    # a symlinked patchs/ or patchs/patched/ into another project/shared cache:
+    # doing so would make a patch executed elsewhere suppress this project.
+    try:
+        if queue_dir.is_symlink():
+            return list(items), [], [
+                "local duplicate check disabled: patchs/ is a symlink"
+            ]
+        if not queue_dir.is_dir():
+            return list(items), [], []
+        if history_dir.is_symlink():
+            return list(items), [], [
+                "local duplicate check disabled: patchs/patched/ is a symlink"
+            ]
+        if not history_dir.is_dir():
+            return list(items), [], []
+        resolved_root = root.resolve(strict=True)
+        resolved_queue = queue_dir.resolve(strict=True)
+        resolved_history = history_dir.resolve(strict=True)
+        if resolved_queue.parent != resolved_root or resolved_history.parent != resolved_queue:
+            return list(items), [], [
+                "local duplicate check disabled: history escapes project-local patchs/"
+            ]
+    except OSError as exc:
+        return list(items), [], [
+            f"local duplicate history unavailable: patchs/patched ({type(exc).__name__})"
+        ]
 
     by_size: dict[int, list[Path]] = {}
     warnings: list[str] = []
@@ -769,10 +796,27 @@ def _collect_archive_postcondition(root: Path, item: QueueItem) -> tuple[bool, s
 
 
 def execute_items(root: Path, chosen: list[QueueItem]):
-    """Execute in natural selected order and stop immediately on first failure."""
+    """Execute in natural order, rechecking local duplicates immediately before PATCH launch."""
     executed: list[tuple[str, int]] = []
+    late_duplicates: list[LocalDuplicate] = []
+    duplicate_warnings: list[str] = []
     for index, item in enumerate(chosen):
         if item.kind == "PATCH":
+            # Close the scan->execute race and catch duplicate packages selected
+            # together: once an earlier identical PATCH is archived locally, a
+            # later copy becomes a skip rather than a second execution.
+            still_runnable, now_duplicates, now_warnings = _split_local_duplicate_patches(root, [item])
+            for warning in now_warnings:
+                if warning not in duplicate_warnings:
+                    duplicate_warnings.append(warning)
+            if now_duplicates:
+                late_duplicates.extend(now_duplicates)
+                continue
+            if not still_runnable:
+                # Defensive fail-safe: an item must never silently disappear.
+                duplicate_warnings.append(
+                    f"late duplicate check returned no decision for patchs/{item.name}; executing normally"
+                )
             cmd = [str(root / "tools/run_python_patches.sh"), "--patch", f"patchs/{item.name}"]
         elif item.kind == "COLLECT":
             cmd = [str(root / "tools/run_python_patches.sh"), "collect", "request", f"patchs/{item.name}"]
@@ -781,7 +825,7 @@ def execute_items(root: Path, chosen: list[QueueItem]):
             rc = 2
             executed.append((item.name, rc))
             remaining = chosen[index + 1 :]
-            return rc, executed, remaining
+            return rc, executed, remaining, late_duplicates, duplicate_warnings
         try:
             # Flush selector/status text before the child writes its own RUN
             # SUMMARY. This keeps captured/non-TTY consoles in chronological
@@ -807,8 +851,8 @@ def execute_items(root: Path, chosen: list[QueueItem]):
         executed.append((item.name, rc))
         if rc:
             remaining = chosen[index + 1 :]
-            return rc, executed, remaining
-    return 0, executed, []
+            return rc, executed, remaining, late_duplicates, duplicate_warnings
+    return 0, executed, [], late_duplicates, duplicate_warnings
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
@@ -817,7 +861,11 @@ def main(argv=None):
     root = Path(ns.project_root).resolve()
     items, warnings = discover_queue(root)
     items, local_duplicates, duplicate_warnings = _split_local_duplicate_patches(root, items)
+    printed_warnings = set()
     for warning in [*warnings, *duplicate_warnings]:
+        if warning in printed_warnings:
+            continue
+        printed_warnings.add(warning)
         print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}")
     if not items:
         if local_duplicates:
@@ -854,7 +902,13 @@ def main(argv=None):
             _print_local_duplicate_skips(local_duplicates)
         return 0
 
-    rc, executed, remaining = execute_items(root, chosen)
+    rc, executed, remaining, late_duplicates, late_duplicate_warnings = execute_items(root, chosen)
+    local_duplicates = [*local_duplicates, *late_duplicates]
+    for warning in late_duplicate_warnings:
+        if warning in printed_warnings:
+            continue
+        printed_warnings.add(warning)
+        print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}", file=sys.stderr if rc else sys.stdout)
     if rc:
         failed_name = executed[-1][0]
         print(

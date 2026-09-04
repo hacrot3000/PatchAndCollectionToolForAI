@@ -17,7 +17,7 @@ with tempfile.TemporaryDirectory(prefix='ptv678ff_') as td:
     )
     launcher.chmod(0o755)
     chosen=[m.QueueItem('patch_1.zip','PATCH'),m.QueueItem('patch_2.zip','PATCH'),m.QueueItem('patch_3.zip','PATCH')]
-    rc,executed,remaining=m.execute_items(root,chosen)
+    rc,executed,remaining,late_duplicates,duplicate_warnings=m.execute_items(root,chosen)
     assert rc==9,rc
     assert executed==[('patch_1.zip',9)],executed
     assert [x.name for x in remaining]==['patch_2.zip','patch_3.zip'],remaining
@@ -55,7 +55,7 @@ with tempfile.TemporaryDirectory(prefix='ptv6711sig_') as td:
     launcher=tools/'run_python_patches.sh'
     launcher.write_text('#!/usr/bin/env bash\nkill -TERM $$\n', encoding='utf-8')
     launcher.chmod(0o755)
-    rc,executed,remaining=m.execute_items(root,[m.QueueItem('patch_signal.zip','PATCH')])
+    rc,executed,remaining,late_duplicates,duplicate_warnings=m.execute_items(root,[m.QueueItem('patch_signal.zip','PATCH')])
     assert rc==143,(rc,executed,remaining)
     assert executed==[('patch_signal.zip',143)],executed
     assert remaining==[],remaining
@@ -67,7 +67,7 @@ with tempfile.TemporaryDirectory(prefix='ptv6711collectarchive_') as td:
     request=q/'collect_request.zip'; request.write_bytes(b'request')
     launcher=tools/'run_python_patches.sh'
     launcher.write_text('#!/usr/bin/env bash\nexit 0\n', encoding='utf-8'); launcher.chmod(0o755)
-    rc,executed,remaining=m.execute_items(root,[m.QueueItem(request.name,'COLLECT')])
+    rc,executed,remaining,late_duplicates,duplicate_warnings=m.execute_items(root,[m.QueueItem(request.name,'COLLECT')])
     assert rc==3,(rc,executed,remaining)
     assert request.exists(),request
 
@@ -81,9 +81,9 @@ with tempfile.TemporaryDirectory(prefix='ptv6711collectarchiveok_') as td:
         'mv patchs/collect_request.zip patchs/patched/collect_request.zip\n'
         'exit 0\n', encoding='utf-8')
     launcher.chmod(0o755)
-    rc,executed,remaining=m.execute_items(root,[m.QueueItem(request.name,'COLLECT')])
+    rc,executed,remaining,late_duplicates,duplicate_warnings=m.execute_items(root,[m.QueueItem(request.name,'COLLECT')])
     assert rc==0,(rc,executed,remaining)
     assert (q/'patched'/request.name).is_file()
     assert not request.exists()
 
-print('PASS: v6.8.0 fail-fast, signal status and COLLECT archive lifecycle')
+print('PASS: v6.8.1 fail-fast, signal status and COLLECT archive lifecycle')

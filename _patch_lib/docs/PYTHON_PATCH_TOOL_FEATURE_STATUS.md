@@ -1,4 +1,4 @@
-# Python Patch Tool v6.8.0 feature status
+# Python Patch Tool v6.8.1 feature status
 
 | Capability | Status |
 |---|---|
@@ -14,9 +14,9 @@
 | Line selector numbers/lists/ranges/all/none/quit/delete | COMPLETE |
 | Config-driven zero-argument prompt/all/first/newest selection | COMPLETE |
 | Stop on first selected-item failure | COMPLETE |
-| Local-only duplicate PATCH filtering against `patchs/patched/` | COMPLETE in v6.8.0 — SHA-256 content identity, skip-only |
-| Renamed identical PATCH detection | COMPLETE in v6.8.0 |
-| Same-name/different-content PATCH remains runnable | COMPLETE in v6.8.0 |
+| Local-only duplicate PATCH filtering against `patchs/patched/` | COMPLETE in v6.8.1 — SHA-256 content identity, skip-only |
+| Renamed identical PATCH detection | COMPLETE in v6.8.1 |
+| Same-name/different-content PATCH remains runnable | COMPLETE in v6.8.1 |
 | Duplicate history scope | LOCAL PROJECT ONLY — no PROJECT KEY/network/shared history |
 | Duplicate queue file lifecycle | SKIP ONLY — file remains untouched in `patchs/` |
 | Duplicate summary reason | `[SKIPPED:DUPLICATE_LOCAL]` with matching local history path |
@@ -38,7 +38,18 @@
 | Real large-project COLLECT validation | PENDING USER RUNTIME EVIDENCE |
 | Phase-inference refinement | DEFERRED unless real COLLECT output demonstrates missing/poor markers |
 
-v6.8.0 completes the already-listed duplicate-filtering work. It does not start
+v6.8.1 completes the already-listed duplicate-filtering work. It does not start
 an unrelated feature group. The duplicate decision is intentionally machine-local:
 a PATCH that has run on one computer is still runnable on another computer unless
 that second project root has the same package content in its own `patchs/patched/`.
+
+## v6.8.1 duplicate-local hardening
+
+- `patchs/` and `patchs/patched/` must be real project-local directories for
+  duplicate suppression. A symlinked/shared history never suppresses a PATCH;
+  the tool warns and leaves the PATCH runnable.
+- Selected PATCHes are rechecked immediately before launch. If an earlier
+  identical PATCH in the same batch has just been archived locally, the later
+  copy becomes `[SKIPPED:DUPLICATE_LOCAL]` instead of executing again.
+- These changes only harden the existing local duplicate feature; no global,
+  PROJECT KEY, network, or cross-machine history was added.
