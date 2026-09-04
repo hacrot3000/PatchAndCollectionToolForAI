@@ -3139,6 +3139,13 @@ def discover_queue(root: Path):
                 continue
             if not path.is_file():
                 continue
+            if path.name.startswith("CODE_COLLECTION_REQUEST_patch_recovery_") and path.suffix.lower() == ".zip":
+                try:
+                    path.unlink()
+                    warnings.append(f"REMOVED stale auto recovery COLLECT: patchs/{path.name}")
+                except OSError as exc:
+                    warnings.append(f"COULD NOT REMOVE stale auto recovery COLLECT: patchs/{path.name}: {type(exc).__name__}")
+                continue
         except OSError as exc:
             warnings.append(f"SKIPPED unreadable entry: patchs/{path.name} ({type(exc).__name__})")
             continue
@@ -5355,7 +5362,7 @@ def _materialize_batch_preflight_failure(
         "message": "batch preflight rejected PATCH",
         "affected_paths": [],
     }
-    recovery_request = _create_recovery_collect_request(root, item, patch_result)
+    recovery_request = None  # FAIL_HANDOFF already snapshots current source; no auto COLLECT
     log_text = ""
     detail_log_path = None
     if isinstance(row.get("log_path"), str):
@@ -5752,10 +5759,7 @@ def execute_items(
         executed.append((item.name, rc))
 
         if rc and item.kind == "PATCH":
-            recovery_request = _create_recovery_collect_request(root, item, patch_result or {})
-            if recovery_request is not None:
-                detail["recovery_collect_request"] = recovery_request.name
-                print(f"[NEXT RUN - COLLECT REQUEST READY] patchs/{_safe_display(recovery_request.name)}")
+            recovery_request = None  # explicit failed-item COLLECT remains user-triggered
             handoff = _create_fail_handoff(root, item, rc, console_log, patch_result, recovery_request, detail_log_path=detail_log_path)
             if handoff is not None:
                 try: detail["fail_handoff"] = handoff.relative_to(root).as_posix()

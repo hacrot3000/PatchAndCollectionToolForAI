@@ -23,20 +23,20 @@ with tempfile.TemporaryDirectory(prefix='ptv613_recovery_') as td:
     mk(root/'patchs'/'patch_2_later.zip',good,'from pathlib import Path\nPath("later.txt").write_text("ok")')
     cp=run(root,'a\n'); assert cp.returncode==2,(cp.stdout,cp.stderr)
     assert (root/'later.txt').read_text()=='ok'
-    requests=list((root/'patchs').glob('CODE_COLLECTION_REQUEST_patch_recovery_*.zip')); assert len(requests)==1,requests
-    with zipfile.ZipFile(requests[0]) as z:
-        inner=[n for n in z.namelist() if n.endswith('.json')][0]; req=json.loads(z.read(inner)); assert req['actions']==[{'type':'pack','paths':['source.txt']}]
+    requests=list((root/'patchs').glob('CODE_COLLECTION_REQUEST_patch_recovery_*.zip')); assert requests==[],requests
+    assert 'NEXT RUN - COLLECT REQUEST READY' not in cp.stdout+cp.stderr
     handoffs=list((root/'artifacts'/'patch_tool'/'fail_handoffs').glob('FAIL_HANDOFF_*.zip')); assert len(handoffs)==1,handoffs
     with zipfile.ZipFile(handoffs[0]) as z:
         names=z.namelist(); assert 'FAIL_SUMMARY.json' in names and 'console.log' in names
         assert 'current_source/source.txt' in names
-        assert any(n.startswith('recovery/CODE_COLLECTION_REQUEST_') for n in names)
+        assert not any(n.startswith('recovery/CODE_COLLECTION_REQUEST_') for n in names)
         summary=json.loads(z.read('FAIL_SUMMARY.json')); assert summary['patch_result']['diagnosis']['kind']=='source_drift'
     last=json.loads((root/'artifacts'/'patch_tool'/'LAST_RUN.json').read_text())
     assert last['status']=='FAIL' and last['failed_item']=='patch_1_fail.zip'
     assert last['not_executed']==[]
     assert [(x.get('name'),x.get('status')) for x in last['results']]==[('patch_1_fail.zip','PREFLIGHT_FAIL'),('patch_2_later.zip','PASS')]
     assert last['results'][0]['fail_handoff'].startswith('artifacts/patch_tool/fail_handoffs/')
+    assert not last['results'][0].get('recovery_collect_request')
     # v6.20.2 executes the unrelated later PATCH, but the failed preflight row
     # remains persistently recoverable rather than being erased by that success.
     unresolved=json.loads((root/'artifacts'/'patch_tool'/'UNRESOLVED_FAILURES.json').read_text())
@@ -51,7 +51,7 @@ with tempfile.TemporaryDirectory(prefix='ptv613_history_') as td:
         m._write_run_report(root,{'run_id':f'r{i:02d}','started_at':f'2026-08-09T00:00:{i:02d}+00:00','status':'PASS','exit_code':0,'selected':[f'p{i:02d}.zip'],'results':[{'name':f'p{i:02d}.zip','kind':'PATCH','status':'PASS','rc':0}]})
     hist=list((root/'artifacts'/'patch_tool'/'history').glob('*.json')); assert len(hist)==30,len(hist)
     assert (root/'artifacts'/'patch_tool'/'LAST_RUN.json').is_file()
-# Deterministic recovery request publication is idempotent without a process lock.
+# Low-level recovery-request builder remains deterministic for explicit/manual diagnostics; queue discovery removes legacy auto-generated leftovers.
 with tempfile.TemporaryDirectory(prefix='ptv613_recovery_publish_') as td:
     root=Path(td); (root/'patchs').mkdir(); (root/'src.c').write_text('x')
     item=m.QueueItem('p.zip','PATCH')
@@ -59,5 +59,12 @@ with tempfile.TemporaryDirectory(prefix='ptv613_recovery_publish_') as td:
     a=m._create_recovery_collect_request(root,item,result); b=m._create_recovery_collect_request(root,item,result)
     assert a is not None and a==b and a.is_file()
     assert len(list((root/'patchs').glob('CODE_COLLECTION_REQUEST_patch_recovery_*.zip')))==1
+    items,warnings=m.discover_queue(root)
+    assert not list((root/'patchs').glob('CODE_COLLECTION_REQUEST_patch_recovery_*.zip'))
+    assert not any(i.kind.startswith('COLLECT') for i in items)
+    assert any('REMOVED stale auto recovery COLLECT' in w for w in warnings),warnings
 
-print('PASS: v6.20.2 diagnosis, FAIL_HANDOFF, source-drift recollection, LAST_RUN/resume/history')
+src=(HERE/'python_patch_queue_dispatcher.py').read_text(encoding='utf-8')
+assert '_create_recovery_collect_request(root, item, patch_result)' not in src
+assert '_create_recovery_collect_request(root, item, patch_result or {})' not in src
+print('PASS: v6.20.2 FAIL_HANDOFF keeps source evidence without auto-queuing recovery COLLECT; explicit recovery/history preserved')
