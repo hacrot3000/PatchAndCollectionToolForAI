@@ -1079,13 +1079,37 @@ def _discover_search_files(root: Path, scopes: list[tuple[str, Path, str]], acti
     return files,diag
 
 
-def _match_files(root: Path, files: list[Path], action: dict, limits: dict, *, deadline: float | None = None) -> dict:
+def _match_files(root: Path, files: list[Path], action: dict, limits: dict, *, deadline: float | None = None, progress_cb=None) -> dict:
     query=action["query"]; regex_mode=bool(action.get("regex",False)); max_matches=int(action.get("max_matches",500)); context=int(action.get("context_lines",4))
     try: pattern=re.compile(query) if regex_mode else None
     except re.error as exc: raise ValueError(f"invalid search regex: {exc}") from exc
     max_bytes=int(limits.get("max_search_file_bytes",64*1024*1024))
+    # Regex work is intentionally ordered by bounded input size first. This
+    # maximizes safe evidence before a later pathological expression/file can
+    # consume the worker hard-timeout, without weakening the timeout itself.
+    if regex_mode and len(files) > 1:
+        def _regex_priority(path: Path):
+            try: size=path.stat().st_size
+            except OSError: size=max_bytes + 1
+            return (size, _search_rel(root,path).lower())
+        files=sorted(files,key=_regex_priority)
     matches=[]; total=0; searched=0; skipped=[]; ext=Counter(); truncated=False; skip_reasons=Counter()
     time_limit_reached=False; processed_files=0; stop=False
+    def snapshot():
+        return {
+            "matches":list(matches),
+            "match_count":total,
+            "truncated":truncated,
+            "files_searched":searched,
+            "content_skips":list(skipped[:250]),
+            "content_skip_count":len(skipped),
+            "content_skip_reason_counts":dict(skip_reasons),
+            "searched_extension_counts":dict(ext.most_common()),
+            "time_limit_reached":time_limit_reached,
+            "files_input":len(files),
+            "files_processed":processed_files,
+            "files_remaining":max(0,len(files)-processed_files),
+        }
     for path in files:
         if deadline is not None and time.monotonic() >= deadline:
             time_limit_reached=True; break
@@ -1112,21 +1136,12 @@ def _match_files(root: Path, files: list[Path], action: dict, limits: dict, *, d
                 matches.append({"path":rel,"line":idx+1,"context":[(n+1,lines[n],n==idx) for n in range(start,end)]})
             else:
                 truncated=True
+        # Publish only after a file has completed safely. If the next file
+        # hangs in regex evaluation, the parent can recover this atomic snapshot.
+        if progress_cb is not None:
+            progress_cb(snapshot())
         if stop: break
-    return {
-        "matches":matches,
-        "match_count":total,
-        "truncated":truncated,
-        "files_searched":searched,
-        "content_skips":skipped[:250],
-        "content_skip_count":len(skipped),
-        "content_skip_reason_counts":dict(skip_reasons),
-        "searched_extension_counts":dict(ext.most_common()),
-        "time_limit_reached":time_limit_reached,
-        "files_input":len(files),
-        "files_processed":processed_files,
-        "files_remaining":max(0,len(files)-processed_files),
-    }
+    return snapshot()
 
 def _rg_candidate_files(root: Path, scopes: list[tuple[str,Path,str]], action: dict, limits: dict, *, deadline: float | None = None) -> tuple[list[Path], dict]:
     rg=shutil.which('rg')
@@ -1374,19 +1389,32 @@ def _search_action_payload(root: Path, action: dict, limits: dict, *, deadline: 
     verify_nonzero=bool(action.get('verify_nonzero_with_fallback',False))
     primary_error=None; primary_cov=None
 
+    def publish_primary_progress(snapshot: dict, backend_name: str, coverage: dict, backend_diag=None) -> None:
+        if checkpoint_cb is None:
+            return
+        snap=dict(snapshot); snap["backend"]=backend_name
+        if backend_diag is not None: snap["backend_diag"]=backend_diag
+        checkpoint_cb(_search_result_payload(
+            root,action,scopes,snap,None,coverage,
+            primary_error=primary_error,fallback_enabled=fallback_enabled,
+            fallback_note='pending; primary file checkpoint preserved',
+            extra_reasons=['search action checkpoint saved after a safely completed primary file'],
+            force_incomplete=True,
+        ))
+
     if backend in {'auto','rg'}:
         rg_files,rg_diag=_rg_candidate_files(root,scopes,action,limits,deadline=deadline)
         if rg_diag.get('available') and not rg_diag.get('error'):
-            primary=_match_files(root,rg_files,action,limits,deadline=deadline); primary.update({"backend":"rg","backend_diag":rg_diag})
+            primary=_match_files(root,rg_files,action,limits,deadline=deadline,progress_cb=lambda snap: publish_primary_progress(snap,"rg",_empty_search_coverage(),rg_diag)); primary.update({"backend":"rg","backend_diag":rg_diag})
         elif backend=='rg':
             primary={"matches":[],"match_count":0,"truncated":False,"files_searched":0,"content_skips":[],"content_skip_count":0,"searched_extension_counts":{},"time_limit_reached":bool(rg_diag.get('time_limit_reached')),"files_input":0,"files_processed":0,"files_remaining":0,"backend":"rg","backend_diag":rg_diag}
             primary_error=rg_diag.get('error') or 'rg unavailable'
         else:
             pfiles,primary_cov=_discover_search_files(root,scopes,action,limits,walker='stack',deadline=deadline)
-            primary=_match_files(root,pfiles,action,limits,deadline=deadline); primary['backend']='python-stack'; primary['backend_diag']=rg_diag
+            primary=_match_files(root,pfiles,action,limits,deadline=deadline,progress_cb=lambda snap: publish_primary_progress(snap,'python-stack',primary_cov,rg_diag)); primary['backend']='python-stack'; primary['backend_diag']=rg_diag
     else:
         pfiles,primary_cov=_discover_search_files(root,scopes,action,limits,walker='stack',deadline=deadline)
-        primary=_match_files(root,pfiles,action,limits,deadline=deadline); primary['backend']='python-stack'
+        primary=_match_files(root,pfiles,action,limits,deadline=deadline,progress_cb=lambda snap: publish_primary_progress(snap,'python-stack',primary_cov)); primary['backend']='python-stack'
 
     initial_coverage=primary_cov or _empty_search_coverage()
     if checkpoint_cb is not None:
