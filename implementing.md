@@ -1,20 +1,30 @@
-# v6.19.5 mandatory continuity gate — NO SILENT REMOVAL
+# v6.20.0 mandatory continuity gate — NO SILENT REMOVAL
 
 Before modifying Patch Tool, read `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, and `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Do not delete or narrow any capability previously marked COMPLETE/PRESERVED/COMPATIBILITY_RESTORED unless the user explicitly requests it or a later documented contract supersedes it. Every intentional transition must be recorded in the ledger and protected by a behavioral test. Surface/string-only compatibility tests are not sufficient.
 
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.19.5**  
+Phiên bản mục tiêu: **v6.20.0**  
 Trạng thái: **95/95 HISTORICAL-COMPLETE DISPOSITION + SEMANTIC CONTINUITY — COMPLETE**
 
-## v6.19.5 — Persistent unresolved PATCH/COLLECT queue state
+
+## v6.20.0 — Git Safe Operations + Manual Execution Workflow
+
+- COLLECT `git` is strict allowlist-only: status/current branch/branches/log/show/worktree+staged+ref diffs and guarded existing-local-branch `switch`; nested repo is explicit project-relative `repo`. Raw command/argv and mutation operations are rejected.
+- PATCH automatic Git add/commit/push (#7/#8 historical COMPLETE) is **REMOVED_BY_REQUIREMENT** by the explicit v6.20.0 safety request. Historical ledger/disposition remains; runtime execution path is absent and regression-gated.
+- `manual_execution` is human-only structured argv. The runner shows each step, working directory, evidence-log path and capture wrapper; it waits for verified evidence and never runs the command itself.
+- Manual fallback accepts console copied into the designated log plus explicit exit code. `payload=manual_only` supports workflow-only packages. Non-TTY fails before source mutation.
+- Results: `MANUAL_EXECUTION_RESULT_*.zip/.txt`; HISTORY highlights them and FAIL_HANDOFF embeds manual evidence.
+- Gates: `self_test_git_safe_v6_20_0.py`, `self_test_manual_execution_v6_20_0.py`, master regression, Tool Health and exact package checksum gate.
+
+## v6.20.0 — Persistent unresolved PATCH/COLLECT queue state
 
 - Persist both failed PATCH and failed/incomplete COLLECT identities in `UNRESOLVED_FAILURES.json`.
 - Queue grouping reads persistent state, not LAST_RUN, so unrelated PASS runs cannot erase old failures.
 - Capture COLLECT request SHA before collector archive; resolve only exact PASS/delete.
 - Migrate still-queued v6.19.4 failures from HISTORY.
 - Keep PATCH predecessor planning PATCH-only.
-- Gate: `self_test_failed_queue_persistence_v6_19_5.py`.
+- Gate: `self_test_failed_queue_persistence_v6_20_0.py`.
 
 ## v6.19.4 — Normal queue owns failed-work presentation
 

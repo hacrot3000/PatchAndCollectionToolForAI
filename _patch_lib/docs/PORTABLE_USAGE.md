@@ -1,6 +1,6 @@
-# Python Patch Tool v6.19.5 portable usage
+# Python Patch Tool v6.20.0 portable usage
 
-## v6.19.5 persistent failed queue
+## v6.20.0 persistent failed queue
 
 - `Failed patch/collect (unresolved)` is backed by persistent unresolved state, not the most recent LAST_RUN.
 - Running an unrelated PATCH/COLLECT successfully does not remove older failed items from the second group.
@@ -28,7 +28,7 @@ When a report is shown directly or reopened from HISTORY, AI-facing artifacts ar
 Install/update at the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.19.5.zip -d "$PWD"
+unzip -o python_patch_tool_v6.20.0.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 
@@ -42,7 +42,7 @@ Requirement: **Python 3.10+**. The launcher accepts Python Launcher (`py -3`) or
 PowerShell install/update at the project root:
 
 ```powershell
-Expand-Archive -Force .\python_patch_tool_v6.19.5.zip .
+Expand-Archive -Force .\python_patch_tool_v6.20.0.zip .
 tools\run_python_patches.bat
 ```
 

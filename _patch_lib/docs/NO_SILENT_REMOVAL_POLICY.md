@@ -1,6 +1,6 @@
 # Python Patch Tool — NO SILENT REMOVAL POLICY
 
-### Persistent failed-work state (v6.19.5+)
+### Persistent failed-work state (v6.20.0+)
 
 Do not derive the second failed queue group only from LAST_RUN. PATCH/COLLECT failures that remain queued must survive unrelated later runs through `UNRESOLVED_FAILURES.json`. Do not clear them except on exact identity PASS or explicit queue deletion; do not let COLLECT failures enter PATCH predecessor planning. The migration from v6.19.4 HISTORY is part of compatibility.
 
@@ -135,3 +135,8 @@ The AI tool-context sync channel is a protected current capability. Future relea
 ### Copy-friendly ACTION REQUIRED paths (v6.19.3+)
 
 Long canonical artifact names remain authoritative, but ACTION REQUIRED has a protected copyability contract: when possible the tool creates a short hard-link under `artifacts/ptv_to_ai/` and prints the path on a dedicated physical output row. Do not replace this with manual `textwrap`, clipping, or insertion of newline characters into the pathname. If short-alias creation fails, fall back to the exact canonical path without changing PATCH/COLLECT status.
+
+
+## v6.20.0 explicit Git-mutation retirement
+
+The v6.20.0 safety requirement explicitly removes PATCH-side automatic Git mutation (historical capabilities #7 Git add isolation and #8 patch-aware commit/push). This is **REMOVED_BY_REQUIREMENT**, not a silent regression: the historical capability names remain in `CAPABILITY_LEDGER.md`, their current disposition is recorded in `CURRENT_CAPABILITY_DISPOSITION.json`, and `self_test_git_safe_v6_20_0.py` verifies that mutation execution code is absent/rejected. Safe Git inspection and clean existing-local-branch switching remain available only through the strict COLLECT allowlist. Manual execution is additive and does not authorize Patch Tool to execute operator commands.

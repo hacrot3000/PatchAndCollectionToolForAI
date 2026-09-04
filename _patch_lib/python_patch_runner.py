@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from python_patch_utils import PatchFailure, diagnose_ops, finish_failure, run_ops
 from python_patch_package_schema import PatchSchemaError, path_is_link_or_reparse, resolve_project_path, run_preflight, sha256_file
 
-VERSION = "6.19.5"
+VERSION = "6.20.0"
 _ACTIVE_TERMINATION_SIGNAL: int | None = None
 MAX_ARCHIVE_ENTRIES = 10000
 MAX_ARCHIVE_MEMBER_BYTES = 64 * 1024 * 1024
@@ -246,6 +246,10 @@ def _find_payload(extracted: Path, *, archive_name: str = "") -> tuple[dict, str
     if ops.is_file():
         return manifest, "ops", ops, []
     if manifest:
+        if manifest.get("payload") == "manual_only":
+            if py_files:
+                raise ValueError("payload=manual_only package must not contain a Python patch entrypoint")
+            return manifest, "manual_only", manifest_path, []
         pp = manifest.get("post_patch") if isinstance(manifest.get("post_patch"), dict) else {}
         commands = pp.get("commands") if isinstance(pp, dict) else None
         if not py_files and isinstance(commands, list) and commands and bool(pp.get("run_when_no_changes")):
@@ -741,89 +745,6 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
             return report
         print(f"VALIDATION PROFILE: {name} PASS")
     return report
-
-def _run_git_command(root: Path, args: list[str], *, timeout: int) -> ManagedProcessResult:
-    env = _external_command_env()
-    # Automated Git policy must never block waiting for credentials/input.
-    env["GIT_TERMINAL_PROMPT"] = "0"
-    return _run_managed_process(["git", *args], cwd=root, env=env, timeout=max(1, timeout))
-
-
-def _run_git_policy(root: Path, manifest: dict, before_dirty: dict[str, str], after_dirty: dict[str, str]) -> int:
-    policy = manifest.get("git")
-    if not isinstance(policy, dict) or not (root / ".git").exists():
-        return 0
-    touched = _touched_paths(before_dirty, after_dirty)
-    fail_on_error = bool(policy.get("fail_on_error", True))
-    timeout = int(policy.get("timeout_seconds", 300))
-    commit_mode = policy.get("commit")
-    auto_commit = commit_mode == "auto" and bool(touched)
-    staged_for_auto_commit = False
-    commit_completed = False
-
-    def run_git(args: list[str], label: str, *, command_timeout: int | None = None) -> int:
-        outcome = _run_git_command(root, args, timeout=command_timeout or timeout)
-        if outcome.timed_out:
-            raise RuntimeError(f"{label} timeout after {command_timeout or timeout}s")
-        rc = outcome.effective_rc
-        if outcome.lingering_descendants:
-            raise RuntimeError(f"{label} left descendant processes after leader exit; descendants were terminated")
-        if rc:
-            raise RuntimeError(f"{label} failed rc={rc}")
-        return rc
-
-    try:
-        if auto_commit:
-            message = policy.get("commit_message")
-            if not isinstance(message, str) or not message.strip():
-                raise RuntimeError("git.commit=auto requires commit_message")
-            preexisting_dirty = sorted(name for name in touched if name in before_dirty)
-            if preexisting_dirty:
-                # This guard must run BEFORE git add. Otherwise a rejected
-                # auto-commit silently changes the user's index by staging
-                # pre-existing local edits on the same target path.
-                raise RuntimeError(
-                    "git.commit=auto refuses target paths that were already dirty before PATCH: "
-                    + ", ".join(preexisting_dirty)
-                )
-        if policy.get("add") not in {None, "off", False} and touched:
-            # Mark ownership before invoking Git: a failing `git add` may have
-            # updated part of the index before returning non-zero.
-            staged_for_auto_commit = auto_commit
-            run_git(["add", "--", *touched], "git add")
-        if auto_commit:
-            message = str(policy.get("commit_message"))
-            # --only confines the commit to paths touched by this patch run.
-            run_git(["commit", "-m", message, "--only", "--", *touched], "git commit")
-            commit_completed = True
-            staged_for_auto_commit = False
-        if policy.get("push") == "auto":
-            run_git(["push"], "git push")
-    except Exception as exc:
-        # For auto-commit, touched paths are required to have been clean before
-        # PATCH. Therefore any staged entries on them after our `git add` were
-        # created by this policy and can be safely reset if commit never
-        # completed. This restores the user's pre-policy Git index on failure.
-        cleanup_error = None
-        if staged_for_auto_commit and not commit_completed and touched:
-            try:
-                reset = _run_git_command(root, ["reset", "--quiet", "HEAD", "--", *touched], timeout=min(timeout, 30))
-                if reset.timed_out:
-                    cleanup_error = f"git index cleanup timeout after {min(timeout, 30)}s"
-                elif reset.lingering_descendants:
-                    cleanup_error = "git index cleanup left descendant processes; descendants were terminated"
-                elif reset.effective_rc:
-                    cleanup_error = f"git index cleanup failed rc={reset.effective_rc}"
-            except Exception as cleanup_exc:
-                cleanup_error = f"git index cleanup failed: {type(cleanup_exc).__name__}: {cleanup_exc}"
-        print(f"ERROR: {exc}", file=sys.stderr)
-        if cleanup_error:
-            print(f"ERROR: {cleanup_error}", file=sys.stderr)
-            return 1
-        return 1 if fail_on_error else 0
-    return 0
-
-
 
 def _mutation_lock_key(root: Path) -> str:
     return hashlib.sha256(str(root.resolve()).encode("utf-8", errors="surrogateescape")).hexdigest()[:32]
@@ -1792,9 +1713,9 @@ def _inspect_patch(root: Path, source: Path, *, verb: str = "INSPECT") -> int:
             for profile in profiles:
                 if isinstance(profile, dict):
                     print(f"    - {profile.get('name')} (local trusted command)")
-        git = manifest.get("git") if isinstance(manifest, dict) else None
-        if isinstance(git, dict) and git:
-            print(f"  Git policy: add={git.get('add','off')} commit={git.get('commit','off')} push={git.get('push','off')}")
+        manual = manifest.get("manual_execution") if isinstance(manifest, dict) else None
+        if isinstance(manual, dict):
+            print(f"  Manual execution: human-only | steps={len(manual.get('steps') or [])} | package_result={manual.get('package_result', True)}")
         print(f"{verb} RESULT: READY_TO_APPLY — project unchanged")
         return _finish_result(result, status="PASS", rc=0, stage="validate", diagnosis={"kind": "ready_to_apply", "message": "project unchanged", "affected_paths": []}, partial={"detected": False, "changed_paths": [], "evidence": "read_only_validate"})
     except PatchSchemaError as exc:
@@ -1977,6 +1898,10 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
             return _finish_result(result, status="FAIL", rc=2, stage="preflight", diagnosis=diagnosis, partial={"detected": False, "changed_paths": [], "evidence": "preflight_failed_before_payload"})
 
         target_paths = list(preflight.get("target_paths") or [])
+        if isinstance(manifest.get("manual_execution"), dict) and not sys.stdin.isatty():
+            diagnosis = {"kind":"manual_execution_requires_tty","message":"manual_execution requires an interactive terminal; refusing before payload mutation","affected_paths":[]}
+            print("PREFLIGHT FAIL — project unchanged | manual_execution requires interactive TTY", file=sys.stderr)
+            return _finish_result(result, status="FAIL", rc=2, stage="preflight", diagnosis=diagnosis, partial={"detected":False,"changed_paths":[],"evidence":"manual_interaction_required_before_payload"})
         before_fp = _git_worktree_fingerprint(root)
         before_dirty = _dirty_paths(root)
         before_targets = _snapshot_declared_paths(root, target_paths)
@@ -2001,7 +1926,11 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
         print(f"PATCH: {source.name}")
         print("Execution: IN-PLACE (SANDBOX/worktree disabled)")
         result["stage"] = "payload"
-        if kind == "command_only":
+        if kind == "manual_only":
+            print("PATCH PAYLOAD: MANUAL_ONLY_PACKAGE (no source payload)")
+            rc = 0
+            payload_diag = None
+        elif kind == "command_only":
             print("PATCH PAYLOAD: COMMAND_ONLY_PACKAGE (no source payload)")
             rc = 0
             payload_diag = None
@@ -2087,7 +2016,7 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
             root, before_fp=before_fp, before_dirty=before_dirty,
             before_targets=before_targets, target_paths=target_paths,
         )
-        changed = False if kind == "command_only" else payload_delta.get("detected") is not False
+        changed = False if kind in {"command_only", "manual_only"} else payload_delta.get("detected") is not False
         result["stage"] = "post_patch"
         post_report = _run_post_patch(root, manifest, changed=changed)
         if post_report is not None:
@@ -2127,6 +2056,34 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
             )
             print(f"RUN SUMMARY: FAIL | post_patch rc={rc}", file=sys.stderr)
             return _finish_result(result, status="FAIL", rc=rc, stage="post_patch", diagnosis=diagnosis, partial=partial)
+
+        if isinstance(manifest.get("manual_execution"), dict):
+            result["stage"] = "manual_execution"
+            from python_patch_manual_workflow import run_manual_workflow
+            patch_name = str((manifest.get("patch") or {}).get("id") or source.stem)
+            manual_report = run_manual_workflow(root, manifest, patch_name)
+            if manual_report is not None:
+                result["manual_execution"] = manual_report
+                manual_rc = int(manual_report.get("rc") or 0)
+                if manual_rc:
+                    partial = _partial_state(root, before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets, target_paths=target_paths)
+                    diagnosis = {"kind":"manual_execution_failed" if manual_rc != 130 else "manual_execution_aborted", "message":f"manual_execution finished with status={manual_report.get('status')} rc={manual_rc}", "affected_paths":list(partial.get("changed_paths") or [])}
+                    rollback_result = _maybe_rollback(
+                        root, preflight=preflight, rollback_temp=rollback_temp, rollback_snapshot=rollback_snapshot,
+                        before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets,
+                        target_paths=target_paths, trigger="post_patch_failure",
+                    )
+                    if rollback_result is not None:
+                        result["rollback"] = rollback_result
+                        diagnosis["rollback_status"] = rollback_result.get("status")
+                        if rollback_result.get("status") == "PASS" and isinstance(rollback_result.get("remaining_project_delta"), dict):
+                            partial = rollback_result["remaining_project_delta"]
+                    partial = _apply_on_failure_commands(
+                        root, manifest, result, before_fp=before_fp, before_dirty=before_dirty,
+                        before_targets=before_targets, target_paths=target_paths, current_partial=partial,
+                    )
+                    print(f"RUN SUMMARY: FAIL | manual_execution rc={manual_rc}", file=sys.stderr)
+                    return _finish_result(result, status="FAIL", rc=manual_rc, stage="manual_execution", diagnosis=diagnosis, partial=partial)
 
         result["stage"] = "validation"
         if no_validation:
@@ -2211,21 +2168,6 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
             print(f"RUN SUMMARY: FAIL | validation profile rc={rc}", file=sys.stderr)
             return _finish_result(result, status="FAIL", rc=rc, stage="validation", diagnosis=diagnosis, partial=partial)
 
-        after_dirty = _dirty_paths(root)
-        result["stage"] = "git"
-        rc = _run_git_policy(root, manifest, before_dirty, after_dirty)
-        if rc:
-            partial = _partial_state(root, before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets, target_paths=target_paths)
-            diagnosis = {"kind": "git_policy_failed", "message": f"git policy returned rc={rc}", "affected_paths": list(partial.get("changed_paths") or [])}
-            if partial.get("detected") is True:
-                print("!!! PARTIAL MODIFICATION DETECTED: project changed before Git policy failed !!!", file=sys.stderr)
-            partial = _apply_on_failure_commands(
-                root, manifest, result, before_fp=before_fp, before_dirty=before_dirty,
-                before_targets=before_targets, target_paths=target_paths, current_partial=partial,
-            )
-            print(f"RUN SUMMARY: FAIL | git policy rc={rc}", file=sys.stderr)
-            return _finish_result(result, status="FAIL", rc=rc, stage="git", diagnosis=diagnosis, partial=partial)
-
         result["stage"] = "archive"
         try:
             if execution_source is None or input_sha is None:
@@ -2264,13 +2206,13 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
         print(f"INTERRUPTED by {label}", file=sys.stderr)
         diagnosis: dict[str, object] = {"kind": "interrupted", "message": label, "affected_paths": []}
         partial: dict[str, object] = {"detected": False, "changed_paths": [], "evidence": "interrupted_before_payload"}
-        if stage in {"payload", "post_patch", "validation", "git", "archive"} and (target_paths or before_fp is not None):
+        if stage in {"payload", "post_patch", "manual_execution", "validation", "archive"} and (target_paths or before_fp is not None):
             partial = _partial_state(
                 root, before_fp=before_fp, before_dirty=before_dirty,
                 before_targets=before_targets, target_paths=target_paths,
             )
             diagnosis["affected_paths"] = list(partial.get("changed_paths") or [])
-        trigger = "payload_failure" if stage == "payload" else ("post_patch_failure" if stage in {"post_patch", "validation"} else None)
+        trigger = "payload_failure" if stage == "payload" else ("post_patch_failure" if stage in {"post_patch", "manual_execution", "validation"} else None)
         if trigger is not None:
             rollback_result = _maybe_rollback(
                 root, preflight=preflight, rollback_temp=rollback_temp, rollback_snapshot=rollback_snapshot,
@@ -2287,7 +2229,7 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
         stage = str(result.get("stage") or "unknown")
         print(f"ERROR: PATCH execution failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         partial: dict[str, object] = {"detected": None, "changed_paths": [], "evidence": "internal_error_state_unknown"}
-        execution_started = stage in {"payload", "post_patch", "validation", "git", "archive"}
+        execution_started = stage in {"payload", "post_patch", "manual_execution", "validation", "archive"}
         if execution_started and (target_paths or before_fp is not None):
             try:
                 partial = _partial_state(
@@ -2305,7 +2247,7 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
         # failure. Preserve the same recovery semantics as an ordinary payload /
         # post-validation failure, then run failure-only commands. Preflight and
         # package errors deliberately never reach this branch with execution_started.
-        trigger = "payload_failure" if stage == "payload" else ("post_patch_failure" if stage in {"post_patch", "validation"} else None)
+        trigger = "payload_failure" if stage == "payload" else ("post_patch_failure" if stage in {"post_patch", "manual_execution", "validation"} else None)
         if trigger is not None:
             try:
                 rollback_result = _maybe_rollback(

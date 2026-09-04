@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "tool_version": "6.19.5",
+  "tool_version": "6.20.0",
   "manifest_file": "PATCH_TOOL_MANIFEST.json",
   "manifest": {
     "type": "object",
@@ -23,7 +23,9 @@
       "post_patch",
       "on_failure",
       "git",
-      "recovery"
+      "recovery",
+      "manual_execution",
+      "payload"
     ],
     "fields": {
       "schema_version": {
@@ -294,7 +296,8 @@
             "minimum": 1,
             "maximum": 1800
           }
-        }
+        },
+        "description": "Legacy PATCH Git mutation policy retained only for explicit rejection/compatibility diagnostics. v6.20.0 forbids add/commit/push execution."
       },
       "recovery": {
         "type": "object",
@@ -470,6 +473,75 @@
           },
           "request_full_sync": {
             "type": "boolean"
+          }
+        }
+      },
+      "payload": {
+        "type": "string",
+        "enum": [
+          "manual_only"
+        ]
+      },
+      "manual_execution": {
+        "type": "object",
+        "required": [
+          "steps"
+        ],
+        "allowed_fields": [
+          "stop_on_failure",
+          "package_result",
+          "steps"
+        ],
+        "fields": {
+          "stop_on_failure": {
+            "type": "boolean"
+          },
+          "package_result": {
+            "type": "boolean"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "argv"
+              ],
+              "allowed_fields": [
+                "id",
+                "title",
+                "description",
+                "cwd",
+                "argv",
+                "expected_exit_codes"
+              ],
+              "fields": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "cwd": {
+                  "type": "string"
+                },
+                "argv": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "expected_exit_codes": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
           }
         }
       }

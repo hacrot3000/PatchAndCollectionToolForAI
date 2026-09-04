@@ -1,4 +1,4 @@
-# Python Patch Tool v6.19.5 — AI tool-context synchronization contract
+# Python Patch Tool v6.20.0 — AI tool-context synchronization contract
 
 ## Goal
 
@@ -124,3 +124,8 @@ Future Patch Tool versions must not silently remove:
 - release-gated behavioral verification.
 
 Any intentional replacement requires explicit user approval, capability-ledger disposition, migration guidance, and semantic regression coverage.
+
+
+## v6.20.0 contract additions
+
+The synchronized authoritative document set includes `GIT_SAFE_OPERATIONS.md` and `MANUAL_EXECUTION_WORKFLOW.md` so an older AI learns the strict Git allowlist, requirement-driven retirement of PATCH Git mutation, and the human-only manual execution/evidence contract together with the schema update. Both files participate in the sync fingerprint.

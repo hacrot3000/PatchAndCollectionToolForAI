@@ -1,4 +1,4 @@
-# PATCH PACKAGE GUIDE — v6.19.5 authoritative AI/tool contract
+# PATCH PACKAGE GUIDE — v6.20.0 authoritative AI/tool contract
 
 ## AI context synchronization (v6.19.2)
 
@@ -21,6 +21,33 @@ tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json
 ```
 
 AI must read that schema before generating a PATCH package. Do not invent manifest fields.
+
+
+## v6.20.0: Git mutation retired; manual execution added
+
+PATCH-side automatic Git add/commit/push is no longer an execution stage. It is **REMOVED_BY_REQUIREMENT** for safety. A package that requests mutation through the legacy `git` block is rejected with `git_mutation_forbidden`; do not generate such packages. Read-only Git evidence (plus the tightly guarded clean local `switch`) belongs in a COLLECT `git.operations` action; see `GIT_SAFE_OPERATIONS.md`.
+
+When an operator must run a build/vendor/profiler/service command, declare `manual_execution` instead of `post_patch.commands` if Patch Tool itself must not execute the command. Example:
+
+```json
+{
+  "manual_execution": {
+    "stop_on_failure": true,
+    "package_result": true,
+    "steps": [
+      {
+        "id": "build-server",
+        "title": "Build server",
+        "cwd": "projects/m3-server/trunk/jdqs_server",
+        "argv": ["mvn", "-DskipTests", "package"],
+        "expected_exit_codes": [0]
+      }
+    ]
+  }
+}
+```
+
+Patch Tool renders one step at a time, supplies an evidence-log capture wrapper, and waits for the human to run it in another terminal. It verifies the evidence before advancing and packages the final logs into `MANUAL_EXECUTION_RESULT_*.zip/.txt`. `payload=manual_only` is allowed when no source payload is needed. See `MANUAL_EXECUTION_WORKFLOW.md`.
 
 ## Package shape
 
@@ -155,7 +182,7 @@ Rules:
 - `recovery.rollback.targets` must exactly cover the PATCH target set resolved by preflight.
 - Every rollback target needs an explicit `preflight.files` baseline. Existing files require `exists:true` plus exact SHA-256; initially absent files require `exists:false`.
 - The runner snapshots only those declared regular-file targets, with a bounded total byte limit, after preflight PASS and before payload execution.
-- Rollback may run only for `payload_failure` and/or `post_patch_failure`, before Git policy. It never attempts to undo a Git commit/push failure.
+- Rollback may run only for configured payload/post-patch failure handling. v6.20.0 has no PATCH Git mutation stage, so rollback never needs to undo a tool-created Git commit/push.
 - Existing files are restored from exact snapshot bytes; files that were initially absent are removed only if they became a regular file/symlink at the exact declared target path. Directories/non-file objects are never recursively removed.
 - On a Git project the pre/post worktree fingerprint verifies whether the whole project returned to baseline. If an undeclared file changed, status becomes `PARTIAL` even if declared targets were restored. Outside Git, verification is explicitly limited to declared targets.
 - Missing/ambiguous recovery metadata becomes `PREFLIGHT FAIL — project unchanged`; AI must not guess a rollback contract.
@@ -180,7 +207,7 @@ A FAIL_HANDOFF only embeds the current queue PATCH when its SHA-256 still equals
 
 ## Inspect / dry-run
 
-In the interactive selector the user can press `i` on a PATCH (line selector: `i <index>`). This runs the same package/schema/preflight checks, shows compatibility/targets/post commands/Git policy, and ends with:
+In the interactive selector the user can press `i` on a PATCH (line selector: `i <index>`). This runs the same package/schema/preflight checks, shows compatibility/targets/post commands/manual-execution summary, and ends with:
 
 ```text
 INSPECT RESULT: PASS — project unchanged
@@ -278,7 +305,7 @@ Windows dùng cùng options qua `.bat`/`.ps1`.
 
 - Với OPS replace/insert, `already` phải là marker/context idempotency **explicit** nếu cần. Tool không còn coi `new` xuất hiện ở nơi bất kỳ trong file là “already patched”.
 - OPS dry-run và execution chịu `execution.timeout_seconds`; write source dùng atomic replace.
-- `git.commit=auto` fail-closed nếu target đã dirty trước PATCH để tránh commit lẫn local edit của operator.
+- **Historical only:** v6.17.x `git.commit=auto` dirty-target guard is retained in the historical record; v6.20.0 rejects PATCH Git mutation instead of running it.
 - ZIP/TAR package bị giới hạn số entry, kích thước giải nén, compression ratio; symlink/non-regular member, duplicate/case-fold/Unicode collision và Windows drive/ADS names bị reject.
 - Planner records the stable SHA-256 of each selected queue package. Batch snapshot and immediate pre-spawn checks must match those planned bytes; replacement/disappearance fails before payload with `package_input_changed`.
 - Batch replay snapshots record exact SHA-256 + size and are reverified before requeue; corrupted/missing replay bytes become `batch_requeue_failed`.
@@ -391,7 +418,7 @@ Managed payload/post/validation/failure/Git-policy execution is process-tree con
 
 Persistent failure registry giữ nhiều unresolved entries. Planner xét tất cả entry liên quan; một PASS chỉ auto-resolve entry cùng logical patch **và cùng exact SHA-256**. Nếu một selected batch liên quan tới nhiều unresolved predecessor, planner yêu cầu Smart Resume xử lý trước.
 
-`git.fail_on_error` mặc định `true`. Nếu đặt `false`, lỗi Git automation được in ra nhưng không đổi PATCH result thành FAIL; chỉ dùng khi Git policy thật sự advisory. `git.commit=auto` vẫn giữ dirty-target guard/index cleanup như mô tả ở trên.
+**v6.20.0:** legacy `git.fail_on_error` / `git.commit` / `git.push` fields do not authorize Git mutation. Any requested mutation is rejected. Use COLLECT safe Git for evidence and `manual_execution` when the human must run an external command.
 
 
 Recipe policy override rule: `run --recipe` uses the policies stored in the recipe; `--failure-policy`/`--transaction-policy` must not be combined with `--recipe`. Create a new recipe with `plan` overrides when different policies are intended.

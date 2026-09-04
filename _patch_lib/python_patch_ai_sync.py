@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-VERSION = "6.19.5"  # bumped by release script
+VERSION = "6.20.0"  # bumped by release script
 FORMAT_VERSION = 1
 SYNC_PREFIX = "AI_TOOL_SYNC"
 STATE_REL = Path("artifacts/patch_tool/ai_sync_state.json")
@@ -23,6 +23,8 @@ STATE_REL = Path("artifacts/patch_tool/ai_sync_state.json")
 # than enormous; the capability ledger retains links/status for historical audit.
 SYNC_DOCS: tuple[str, ...] = (
     "tools/_patch_lib/docs/AI_USAGE_CONTRACT.md",
+    "tools/_patch_lib/docs/GIT_SAFE_OPERATIONS.md",
+    "tools/_patch_lib/docs/MANUAL_EXECUTION_WORKFLOW.md",
     "tools/_patch_lib/docs/AI_TOOL_SYNC_CONTRACT.md",
     "tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json",
     "tools/_patch_lib/docs/PATCH_PACKAGE_CHECKLIST.json",

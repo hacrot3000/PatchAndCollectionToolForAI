@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib, json, os, stat, subprocess, tempfile
 from pathlib import Path
 
-VERSION = "6.19.5"
+VERSION = "6.20.0"
 REQUIRED_RUNTIME = [
     "tools/run_python_patches.sh",
     "tools/run_python_patches.ps1",
@@ -19,6 +19,8 @@ REQUIRED_RUNTIME = [
     "tools/_patch_lib/python_patch_collect_compat.py",
     "tools/_patch_lib/python_patch_collect_regex_worker.py",
     "tools/_patch_lib/python_patch_collect_schema.py",
+    "tools/_patch_lib/python_patch_git_safe.py",
+    "tools/_patch_lib/python_patch_manual_workflow.py",
     "tools/_patch_lib/python_patch_decompile_compat.py",
     "tools/_patch_lib/install_python_patch_tool_v6.py",
     "tools/_patch_lib/install_python_patch_tool_v5.py",
@@ -43,6 +45,8 @@ REQUIRED_RUNTIME = [
     "tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json",
     "tools/_patch_lib/docs/PATCH_PACKAGE_CHECKLIST.json",
     "tools/_patch_lib/docs/AI_USAGE_CONTRACT.md",
+    "tools/_patch_lib/docs/GIT_SAFE_OPERATIONS.md",
+    "tools/_patch_lib/docs/MANUAL_EXECUTION_WORKFLOW.md",
     "tools/_patch_lib/docs/AI_TOOL_SYNC_CONTRACT.md",
     "tools/implementing.md",
     "tools/PYTHON_PATCH_TOOL_FEATURES_VI.md",

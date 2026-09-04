@@ -10,7 +10,7 @@ import shutil
 import stat
 from typing import Any
 
-VERSION = "6.19.5"
+VERSION = "6.20.0"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "PATCH_PACKAGE_SCHEMA.json"
 _HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 _SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
@@ -227,6 +227,31 @@ def validate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
             kind="schema_invalid",
             issues=issues,
         )
+
+    # v6.20.0 requirement-driven retirement: PATCH packages may no longer ask
+    # the tool to stage, commit or push.  Keep legacy fields in the schema only
+    # so old packages receive a precise safety error instead of an ambiguous
+    # unknown-field failure.  Read-only/safe Git inspection belongs to COLLECT
+    # action type=git and is implemented by python_patch_git_safe.py.
+    git_policy = manifest.get("git")
+    if isinstance(git_policy, dict):
+        requested = [k for k in ("add", "commit", "push") if git_policy.get(k) not in {None, "off", False}]
+        if requested:
+            raise PatchSchemaError(
+                "PATCH Git mutation is forbidden in v6.20.0: " + ", ".join(requested) +
+                "; use COLLECT git safe operations for inspection/safe local switch",
+                kind="git_mutation_forbidden",
+            )
+
+    manual = manifest.get("manual_execution")
+    if manual is not None:
+        try:
+            from python_patch_manual_workflow import validate_manual_execution
+            validate_manual_execution(manual)
+        except ValueError as exc:
+            raise PatchSchemaError(str(exc), kind="manual_execution_invalid") from exc
+    if manifest.get("payload") == "manual_only" and manual is None:
+        raise PatchSchemaError("payload=manual_only requires manual_execution", kind="manual_execution_invalid")
     return schema
 
 
@@ -777,13 +802,17 @@ def run_preflight(
         if on_failure.get("commands"):
             checks.append({"kind": "on_failure_commands", "status": "PASS", "count": len(on_failure.get("commands") or [])})
 
-    git_policy = manifest.get("git")
-    if isinstance(git_policy, dict) and any(git_policy.get(k) not in {None, "off", False} for k in ("add", "commit", "push")):
-        if shutil.which("git") is None:
-            raise PatchSchemaError("Git policy requested but git executable is not available", kind="command_missing")
-        if not (root / ".git").exists():
-            raise PatchSchemaError("Git policy requested but project is not a Git worktree", kind="worktree_requirement")
-        checks.append({"kind": "git", "status": "PASS"})
+    manual = manifest.get("manual_execution")
+    if manual is not None:
+        from python_patch_manual_workflow import validate_manual_execution, resolve_manual_cwd
+        cfg = validate_manual_execution(manual)
+        for step in cfg["steps"]:
+            cwd_raw = str(step.get("cwd") or ".")
+            try:
+                resolve_manual_cwd(root, cwd_raw)
+            except ValueError as exc:
+                raise PatchSchemaError(f"manual_execution cwd invalid: {cwd_raw}: {exc}", kind="manual_execution_invalid") from exc
+        checks.append({"kind":"manual_execution","status":"PASS","steps":len(cfg["steps"]),"human_only":True})
 
     report["target_paths"] = sorted(targets)
     return report

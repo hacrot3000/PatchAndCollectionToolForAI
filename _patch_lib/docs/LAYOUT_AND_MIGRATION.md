@@ -1,11 +1,11 @@
-# Python Patch Tool v6.19.5 — portable layout and migration
+# Python Patch Tool v6.20.0 — portable layout and migration
 
 ## Primary installation: extract and run
 
 From the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.19.5.zip -d "$PWD"
+unzip -o python_patch_tool_v6.20.0.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 

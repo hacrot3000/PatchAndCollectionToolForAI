@@ -1,13 +1,22 @@
-# Python Patch Tool v6.19.5 feature status
+# Python Patch Tool v6.20.0 feature status
 
-## v6.19.5 — persistent unresolved failed PATCH/COLLECT group
+
+## v6.20.0 — safe Git operations + human-only manual execution
+
+- COMPLETE/HARDENED: COLLECT Git context uses a fixed allowlist only (`status`, `current_branch`, `branches`, `log`, `show`, worktree/staged/ref diffs, guarded local `switch`); nested repositories are explicit and project-contained.
+- REMOVED_BY_REQUIREMENT: historical PATCH Git add/commit/push mutation automation (#7/#8) is intentionally retired by the v6.20.0 safety requirement; mutation requests are rejected and historical disposition remains recorded.
+- COMPLETE: `manual_execution` is structured-argv, stepwise and human-only; Patch Tool renders instructions/log capture and never executes the declared command.
+- COMPLETE: manual log-copy fallback + exit-code evidence, `payload=manual_only`, non-TTY pre-mutation refusal, ZIP+TXT result packaging, HISTORY visibility and FAIL_HANDOFF evidence embedding.
+- Regression: `self_test_git_safe_v6_20_0.py`, `self_test_manual_execution_v6_20_0.py`.
+
+## v6.20.0 — persistent unresolved failed PATCH/COLLECT group
 
 - COMPLETE: failed PATCH and COLLECT state survives unrelated later PASS runs.
 - COMPLETE: `UNRESOLVED_FAILURES.json` stores both PATCH and COLLECT identities; COLLECT request SHA is captured before execution/archive.
 - COMPLETE: exact same item PASS or normal selector delete resolves the persistent entry.
 - COMPLETE: v6.19.4 still-queued failures migrate from HISTORY.
 - PRESERVED: COLLECT failures never become PATCH predecessor/dependency constraints.
-- Regression: `self_test_failed_queue_persistence_v6_19_5.py`.
+- Regression: `self_test_failed_queue_persistence_v6_20_0.py`.
 
 
 ## v6.19.4 — failed PATCH/COLLECT integrated into the normal queue

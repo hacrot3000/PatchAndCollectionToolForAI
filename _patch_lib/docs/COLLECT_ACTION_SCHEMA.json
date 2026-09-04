@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "tool_version": "6.19.5",
+  "tool_version": "6.20.0",
   "request": {
     "type": "object",
     "required": [
@@ -546,18 +546,51 @@
       "profile_file": "tools/db_profiles.local.json (local-only; never included in a request ZIP)"
     },
     "git": {
-      "description": "Collect fixed read-only Git status/log/diff sections; arbitrary commands are not accepted.",
+      "description": "Strict allowlist-only Git inspection plus safe local-branch switch. No raw Git command/argv escape hatch; mutation commands such as add/commit/merge/rebase/reset/push/pull/cherry-pick/checkout are forbidden.",
       "required": [
-        "type",
-        "sections"
+        "type"
       ],
       "allowed_fields": [
         "id",
         "title",
         "type",
+        "repo",
+        "operations",
         "sections",
         "log_entries"
-      ]
+      ],
+      "compatibility_note": "Legacy sections/log_entries remain accepted and normalize to v6.20.0 safe operations.",
+      "operations": {
+        "allowed": [
+          "status",
+          "current_branch",
+          "branches",
+          "log",
+          "show",
+          "diff_worktree",
+          "diff_staged",
+          "diff_refs",
+          "diff_ref_worktree",
+          "switch"
+        ],
+        "forbidden_mutations": [
+          "add",
+          "commit",
+          "merge",
+          "rebase",
+          "reset",
+          "push",
+          "pull",
+          "cherry-pick",
+          "checkout"
+        ],
+        "raw_escape_fields_forbidden": [
+          "argv",
+          "command",
+          "raw_git"
+        ],
+        "switch_contract": "existing local branch only; clean worktree/index/untracked; no create/force/detach; --no-guess; hooks disabled"
+      }
     }
   },
   "git_sections": [

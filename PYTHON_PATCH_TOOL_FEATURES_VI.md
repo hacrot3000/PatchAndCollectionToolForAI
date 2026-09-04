@@ -1,16 +1,27 @@
-# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.19.5
+# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.20.0
 
 Trước khi AI sửa Patch Tool, bắt buộc đọc `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md` và `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Tính năng từng PASS/COMPLETE không được tự ý xóa, thu hẹp hoặc làm mất đường gọi chỉ vì code/schema hiện tại không dùng tới. Nếu thật sự phải thay thế, phải ghi trạng thái vào ledger và thêm test hành vi chứng minh.
 
-# Danh sách tính năng Python Patch Tool — v6.19.5
+# Danh sách tính năng Python Patch Tool — v6.20.0
 
-## v6.19.5 — Trạng thái failed được lưu bền vững
+
+## v6.20.0 — Git an toàn + hướng dẫn thực thi thủ công
+
+- Git COLLECT → **COMPLETE / HARDENED** — chỉ cho tập operation định nghĩa sẵn: status/current branch/branches/log/show/diff và `switch` local an toàn; hỗ trợ nested repo bằng `repo` project-relative. Không có raw Git command/argv.
+- Git mutation trong PATCH → **REMOVED_BY_REQUIREMENT** — add/commit/merge/rebase/reset/push/pull/cherry-pick/checkout không được Patch Tool thực thi. Riêng `switch` chỉ cho branch local đã tồn tại, worktree/index/untracked sạch và hooks bị vô hiệu hóa.
+- Manual execution → **COMPLETE** — manifest khai báo từng step bằng structured argv; tool chỉ in hướng dẫn/capture log, chờ user chạy terminal khác và xác minh evidence, tuyệt đối không tự execute command.
+- Manual fallback → **COMPLETE** — user có thể copy console vào file log được chỉ định và nhập exit code.
+- `payload=manual_only` → **COMPLETE** — package chỉ hướng dẫn workflow, không cần sửa source; non-TTY fail trước payload mutation.
+- Kết quả → **COMPLETE** — tổng hợp ZIP + TXT `MANUAL_EXECUTION_RESULT_*`; HISTORY nhận diện và FAIL_HANDOFF nhúng evidence khi fail.
+- Regression: `self_test_git_safe_v6_20_0.py`, `self_test_manual_execution_v6_20_0.py`.
+
+## v6.20.0 — Trạng thái failed được lưu bền vững
 
 - `Failed patch/collect (unresolved)` đọc từ `UNRESOLVED_FAILURES.json`, không phụ thuộc lần chạy gần nhất.
 - Chạy item khác PASS không làm mất failed cũ.
 - PATCH và COLLECT đều được persist; COLLECT ghi SHA request trước khi chạy.
 - Chỉ PASS đúng bytes hoặc xóa item mới resolve; v6.19.4 failure còn trong queue được migrate từ HISTORY.
-- Regression: `self_test_failed_queue_persistence_v6_19_5.py`.
+- Regression: `self_test_failed_queue_persistence_v6_20_0.py`.
 
 ## v6.19.4 — Nhóm failed nằm ngay trong queue bình thường
 

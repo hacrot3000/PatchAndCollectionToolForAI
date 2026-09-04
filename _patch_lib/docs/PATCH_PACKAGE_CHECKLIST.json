@@ -1,14 +1,14 @@
 {
   "format": "python-patch-tool-package-checklist",
   "format_version": 1,
-  "tool_version": "6.19.5",
+  "tool_version": "6.20.0",
   "source_of_truth": "PATCH_PACKAGE_SCHEMA.json",
   "checks": [
     "root PATCH_TOOL_MANIFEST.json exists",
     "manifest validates with zero schema issues",
     "after receiving AI_TOOL_SYNC, copy next_request_ai_context from AI_SYNC_MANIFEST.json into future PATCH/COLLECT requests; do not invent the sync token",
     "do not invent top-level fields; source baseline belongs in preflight.files",
-    "execution.timeout_seconds, post_patch/on_failure command timeouts, and git.timeout_seconds are integers 1..1800 when present",
+    "execution.timeout_seconds and managed post_patch/on_failure command timeouts are integers 1..1800 when present; legacy PATCH git mutation must not be requested",
     "exactly one Python entrypoint OR PATCH_TOOL_OPS.json, never both",
     "declare targets whenever mutable files are known",
     "declare exact preflight.files path/exists/sha256/anchors for source assumptions",
@@ -26,12 +26,18 @@
     "previous_failure.action is exactly delete, retry_before, run_after or block; never leave the failed predecessor orphaned",
     "continue_independent is used only when independent continuation is safe; unsafe partial/rollback/tool failures must safety-stop",
     "OPS idempotency uses explicit already markers; do not assume new text appearing elsewhere means the target operation was already applied",
-    "batch transaction mode declares complete manifest targets; tool expands effective targets from preflight/recovery/OPS metadata and rejects post_patch or Git add/commit/push side effects",
+    "batch transaction mode declares complete manifest targets; tool expands effective targets from preflight/recovery/OPS metadata and rejects unbounded post_patch side effects; PATCH Git add/commit/push is forbidden in v6.20.0",
     "every PATCH failure creates a FAIL_HANDOFF with automatic bounded related-source discovery and SOURCE_DISCOVERY.json; recovery.fail_handoff=false is ignored",
     "if manifest.project.key is present, it must match the operator-configured local .python_patch_tool.json project.key",
     "validation.profiles contains only trusted local profile names; never embed/invent validation commands there",
     "use plan for read-only dependency/target-conflict/resource/OPS-diff review before delivery when multiple PATCHes interact",
-    "if exporting a batch recipe, preserve exact package filename + SHA binding; do not bypass recipe mismatch"
+    "if exporting a batch recipe, preserve exact package filename + SHA binding; do not bypass recipe mismatch",
+    "v6.20.0 PATCH git mutation is forbidden: do not request add/commit/merge/rebase/reset/push/pull/cherry-pick/checkout and do not rely on legacy git automation",
+    "safe Git evidence belongs in COLLECT git.operations and must use only the documented fixed allowlist; never emit argv, command or raw_git escape fields",
+    "manual_execution steps use structured argv/cwd/expected_exit_codes only; raw command and inline shell/interpreter evaluator forms are forbidden",
+    "manual_execution is human-only: Patch Tool must only print instructions/verify evidence, never execute the declared step argv",
+    "use payload=manual_only only with manual_execution; non-TTY manual workflow must fail before payload mutation",
+    "when package_result is enabled, preserve MANUAL_EXECUTION_RESULT ZIP+TXT and step logs as AI-facing evidence"
   ],
   "known_migrations": {
     "source_baseline.files[].file": "preflight.files[].path",

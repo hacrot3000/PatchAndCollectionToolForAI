@@ -1,11 +1,21 @@
 # Python Patch Tool — cumulative capability ledger
 
-## v6.19.5 current capability — persistent failed queue state
+## v6.20.0 safe Git + human-only manual execution
+
+- **PRESERVED + HARDENED (#43):** COLLECT Git context now uses a strict operation allowlist only: `status`, `current_branch`, `branches`, `log`, `show`, `diff_worktree`, `diff_staged`, `diff_refs`, `diff_ref_worktree`, and safe `switch`. Nested repositories are supported through an explicit project-relative `repo`. There is no raw command/argv Git escape hatch.
+- **REMOVED_BY_REQUIREMENT (#7–8):** PATCH-side automatic Git mutation (`add`, `commit`, `push`, and related mutation automation) is intentionally retired by the v6.20.0 safety requirement. Historical rows/evidence remain in this ledger and the machine-readable disposition file; legacy manifest fields are parsed only to return a precise rejection.
+- **ADDITIVE:** PATCH packages may declare `manual_execution` with structured argv steps. The tool only renders instructions and verifies operator-provided/captured evidence; it never executes those step commands. Results are aggregated into ZIP + TXT companions and retained in HISTORY/FAIL_HANDOFF evidence.
+- **ADDITIVE:** `payload=manual_only` permits a workflow package that intentionally performs no source mutation. Non-interactive execution fails before payload mutation when a manual workflow is required.
+- Behavioral gates: `self_test_git_safe_v6_20_0.py`, `self_test_manual_execution_v6_20_0.py`.
+- User-facing contracts: `GIT_SAFE_OPERATIONS.md`, `MANUAL_EXECUTION_WORKFLOW.md`.
+
+
+## v6.20.0 current capability — persistent failed queue state
 
 - **PRESERVED + EXTENDED:** v6.19.4 normal-queue grouping is now backed by persistent unresolved state rather than LAST_RUN.
 - **COMPATIBILITY_RESTORED:** failed COLLECT items persist across unrelated successful runs and v6.19.4 HISTORY is migrated.
 - **PRESERVED:** exact SHA identity and PATCH planner safety; COLLECT failures do not constrain PATCH dependencies.
-- Behavioral gate: `self_test_failed_queue_persistence_v6_19_5.py`.
+- Behavioral gate: `self_test_failed_queue_persistence_v6_20_0.py`.
 
 
 ## v6.19.4 current capability — failed-work grouping without startup hijack
@@ -13,9 +23,9 @@
 - `PRESERVED/UX-SUPERSEDED`: Smart Resume recovery operations remain available through the explicit `resume` command.
 - `COMPATIBILITY_RESTORED/UX`: ordinary zero-argument queue startup is no longer replaced by a recovery prompt; immediately previous failed/replay items are grouped below new queue work.
 - Grouping is presentation-only and must never create a second execution/delete/inspection implementation.
-- Behavioral gate: `self_test_failed_queue_grouping_v6_19_5.py`.
+- Behavioral gate: `self_test_failed_queue_grouping_v6_20_0.py`.
 
-Current release: **v6.19.5**
+Current release: **v6.20.0**
 
 This is the canonical cross-version continuity ledger. It complements the current feature-status document; it must never be replaced by a current-only checklist.
 
@@ -34,7 +44,7 @@ See `HISTORICAL_FEATURE_BASELINE_V5_15.md` for all 107 original names. Machine-r
 - **PRESERVED + EXTENDED:** capability #100 primary handoff highlighting now also applies when the same COLLECT result / FAIL handoff / recovery COLLECT is viewed later through report/HISTORY.
 - **PRESERVED:** capability #101 accessible color roles keeps `NO_COLOR`/non-TTY plain output; ANSI is presentation only.
 - Problem states `INCOMPLETE` and `PREFLIGHT_FAIL` receive visible status emphasis without changing persisted report data.
-- Semantic gate: `self_test_history_artifact_highlight_v6_19_5.py`.
+- Semantic gate: `self_test_history_artifact_highlight_v6_20_0.py`.
 
 ## v6.18.7 search timeout / bounded-result preservation
 
@@ -192,12 +202,12 @@ A COLLECT that preserves usable evidence but cannot prove full coverage (timeout
 
 | Capability | State | Behavioral evidence |
 |---|---|---|
-| COLLECT result ZIP + same-stem TXT | PRESERVED/NEW | `self_test_cleartext_companion_v6_19_5.py` |
-| FAIL_HANDOFF ZIP + same-stem TXT | PRESERVED/NEW | `self_test_cleartext_companion_v6_19_5.py` |
-| Per-entry path/type/size/hash/description/content boundaries | PRESERVED/NEW | `self_test_cleartext_companion_v6_19_5.py` |
-| Binary evidence retained as Base64 | PRESERVED/NEW | `self_test_cleartext_companion_v6_19_5.py` |
-| Safe nested ZIP recursive expansion | PRESERVED/NEW | `self_test_cleartext_companion_v6_19_5.py` |
-| HISTORY/report exposes and highlights TXT alternate | PRESERVED/NEW | `self_test_cleartext_companion_v6_19_5.py` |
+| COLLECT result ZIP + same-stem TXT | PRESERVED/NEW | `self_test_cleartext_companion_v6_20_0.py` |
+| FAIL_HANDOFF ZIP + same-stem TXT | PRESERVED/NEW | `self_test_cleartext_companion_v6_20_0.py` |
+| Per-entry path/type/size/hash/description/content boundaries | PRESERVED/NEW | `self_test_cleartext_companion_v6_20_0.py` |
+| Binary evidence retained as Base64 | PRESERVED/NEW | `self_test_cleartext_companion_v6_20_0.py` |
+| Safe nested ZIP recursive expansion | PRESERVED/NEW | `self_test_cleartext_companion_v6_20_0.py` |
+| HISTORY/report exposes and highlights TXT alternate | PRESERVED/NEW | `self_test_cleartext_companion_v6_20_0.py` |
 
 **No-silent-removal rule:** the companion is part of the AI handoff contract, not temporary presentation. ZIP remains preferred, but a later release must not remove the TXT alternate or silently omit ZIP members from its representation.
 
@@ -205,13 +215,13 @@ A COLLECT that preserves usable evidence but cannot prove full coverage (timeout
 
 | Capability | State | Behavioral evidence |
 |---|---|---|
-| `database_select` active builder; no raw SQL | PRESERVED/NEW | `self_test_database_select_v6_19_5.py` |
-| SQLite read-only DB collection | PRESERVED/NEW | `self_test_database_select_v6_19_5.py` |
-| MySQL loopback + login-path auth | PRESERVED/NEW | `self_test_database_select_v6_19_5.py` |
-| MySQL SSH-tunnel transport | PRESERVED/NEW | `self_test_database_select_v6_19_5.py` |
-| JOIN/subquery/AND-OR/GROUP BY/HAVING/CASE/window AST | PRESERVED/NEW | `self_test_database_select_v6_19_5.py` |
-| DB partial output => COLLECT INCOMPLETE, evidence retained | PRESERVED/NEW | `self_test_database_select_v6_19_5.py` |
-| Local DB profile hard exclusion from COLLECT/search/FAIL_HANDOFF evidence | PRESERVED/NEW | `self_test_database_select_v6_19_5.py` |
+| `database_select` active builder; no raw SQL | PRESERVED/NEW | `self_test_database_select_v6_20_0.py` |
+| SQLite read-only DB collection | PRESERVED/NEW | `self_test_database_select_v6_20_0.py` |
+| MySQL loopback + login-path auth | PRESERVED/NEW | `self_test_database_select_v6_20_0.py` |
+| MySQL SSH-tunnel transport | PRESERVED/NEW | `self_test_database_select_v6_20_0.py` |
+| JOIN/subquery/AND-OR/GROUP BY/HAVING/CASE/window AST | PRESERVED/NEW | `self_test_database_select_v6_20_0.py` |
+| DB partial output => COLLECT INCOMPLETE, evidence retained | PRESERVED/NEW | `self_test_database_select_v6_20_0.py` |
+| Local DB profile hard exclusion from COLLECT/search/FAIL_HANDOFF evidence | PRESERVED/NEW | `self_test_database_select_v6_20_0.py` |
 
 **No-silent-removal rule:** later releases may extend the active builder additively, but must not introduce raw SQL, write-capable statements, embedded password fields, or direct remote MySQL TCP as a silent replacement for this safety boundary.
 
@@ -222,7 +232,7 @@ A COLLECT that preserves usable evidence but cannot prove full coverage (timeout
 - **COMPLETE:** legacy COLLECT without `ai_context` and legacy PATCH using `compatibility.max_tested_version` receive one-shot synchronization without making new fields mandatory.
 - **COMPLETE:** successful stale PATCH publishes `AI_TOOL_SYNC_RESULT_*.zip/.txt`; stale PATCH failure embeds sync docs inside FAIL_HANDOFF; stale COLLECT embeds them inside the collection result.
 - **COMPLETE:** delivery state suppresses repeated full documentation for the same agent/fingerprint until the fingerprint changes, preserving token budget.
-- Behavioral gate: `self_test_ai_sync_v6_19_5.py`.
+- Behavioral gate: `self_test_ai_sync_v6_20_0.py`.
 
 ## v6.19.3 current capability — copy-friendly upload aliases
 
@@ -230,6 +240,6 @@ A COLLECT that preserves usable evidence but cannot prove full coverage (timeout
 - **PRESERVED/NEW:** ACTION REQUIRED additionally creates a short hard-link alias under `artifacts/ptv_to_ai/` (`CR_<token>.zip/.txt`, `FH_<token>.zip/.txt`, `AS_<token>.zip/.txt`) and prints the pathname on its own output row.
 - **PRESERVED/NEW:** aliases share the exact inode/bytes with the canonical artifact on normal local filesystems; they do not duplicate large ZIP/TXT payloads.
 - **FAIL-OPEN PRESENTATION ONLY:** if the alias directory is unsafe, symlinked, cross-device, or hard-link creation is unavailable, execution/result semantics remain unchanged and the canonical artifact path is printed instead.
-- Behavioral gate: `self_test_copyable_upload_path_v6_19_5.py`.
+- Behavioral gate: `self_test_copyable_upload_path_v6_20_0.py`.
 
 **No-silent-removal rule:** future releases must not reintroduce tool-generated hard wrapping/clipping of upload artifact paths. Canonical artifact identity remains authoritative; the short alias is an additive copyability aid, not a replacement for HISTORY metadata.

@@ -7,8 +7,9 @@ from typing import Any
 
 from python_patch_database_select import DatabaseSelectError, validate_database_select_action
 from python_patch_ai_sync import normalize_ai_context
+from python_patch_git_safe import GitSafeError, validate_git_action
 
-VERSION = "6.19.5"
+VERSION = "6.20.0"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "COLLECT_ACTION_SCHEMA.json"
 DEFAULT_LIMITS = {
     "max_file_bytes": 8 * 1024 * 1024,
@@ -385,20 +386,10 @@ def validate_request_data(data: Any) -> dict[str, Any]:
             except DatabaseSelectError as exc:
                 raise CollectSchemaError(str(exc)) from exc
         elif action_type == "git":
-            sections = norm.get("sections")
-            allowed_sections = set(schema["git_sections"])
-            if not isinstance(sections, list) or not sections:
-                raise CollectSchemaError(f"{label}.sections must be a non-empty array")
-            cleaned: list[str] = []
-            for i, section in enumerate(sections, 1):
-                if not isinstance(section, str) or section not in allowed_sections:
-                    raise CollectSchemaError(
-                        f"{label}.sections[{i}] unsupported; allowed={','.join(sorted(allowed_sections))}"
-                    )
-                if section not in cleaned:
-                    cleaned.append(section)
-            norm["sections"] = cleaned
-            _bounded_int(norm, "log_entries", label, 20, 1, 200)
+            try:
+                norm = validate_git_action(norm, schema_git_sections=list(schema.get("git_sections") or []))
+            except GitSafeError as exc:
+                raise CollectSchemaError(f"{label}: {exc}") from exc
         normalized_actions.append(norm)
 
     return {

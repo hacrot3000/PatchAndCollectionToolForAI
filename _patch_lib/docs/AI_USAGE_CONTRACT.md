@@ -1,8 +1,8 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.19.5
+# AI / ChatGPT usage contract — Python Patch Tool v6.20.0
 
-## v6.19.5 persistent failed-work queue state
+## v6.20.0 persistent failed-work queue state
 
-Failed/PREFLIGHT_FAIL/INCOMPLETE PATCH and COLLECT queue items MUST be persisted in `artifacts/patch_tool/UNRESOLVED_FAILURES.json`; grouping MUST NOT depend on LAST_RUN. An unrelated PASS/IDLE/history view must never clear this state. The normal queue renders all current unresolved items in `Failed patch/collect (unresolved)` below `New patch/collect`, using the same QueueItem operations. A failure resolves only when the exact SHA-bound package/request later PASSes or the operator deletes that exact queue item. v6.19.5 migrates still-queued v6.19.4 failures from HISTORY on first use. Persistent COLLECT failures are presentation state only and MUST NOT become PATCH dependency predecessors. Explicit `resume` remains PATCH-recovery oriented.
+Failed/PREFLIGHT_FAIL/INCOMPLETE PATCH and COLLECT queue items MUST be persisted in `artifacts/patch_tool/UNRESOLVED_FAILURES.json`; grouping MUST NOT depend on LAST_RUN. An unrelated PASS/IDLE/history view must never clear this state. The normal queue renders all current unresolved items in `Failed patch/collect (unresolved)` below `New patch/collect`, using the same QueueItem operations. A failure resolves only when the exact SHA-bound package/request later PASSes or the operator deletes that exact queue item. v6.20.0 migrates still-queued v6.19.4 failures from HISTORY on first use. Persistent COLLECT failures are presentation state only and MUST NOT become PATCH dependency predecessors. Explicit `resume` remains PATCH-recovery oriented.
 
 
 ## v6.19.4 queue/recovery presentation contract
@@ -10,6 +10,17 @@ Failed/PREFLIGHT_FAIL/INCOMPLETE PATCH and COLLECT queue items MUST be persisted
 Normal zero-argument invocation MUST NOT be hijacked by an automatic Smart Resume prompt after a prior failure. The dispatcher presents current failed/replay packages in a second `Last failed patch/collect` group below `New patch/collect`; these are the same `QueueItem` objects and MUST retain identical selector/delete/inspect/preview/validate/priority/execution behavior. Smart Resume remains an explicit `resume` command, and unresolved predecessor safety remains planner-enforced after selection. AI changes MUST NOT reintroduce an automatic startup recovery prompt unless the user explicitly requests that behavior again.
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
+
+
+## v6.20.0 safe Git and manual execution contract
+
+Git access is request-data driven, not a generic command runner. For COLLECT, use only the strict `git.operations` allowlist documented in `GIT_SAFE_OPERATIONS.md`: `status`, `current_branch`, `branches`, `log`, `show`, `diff_worktree`, `diff_staged`, `diff_refs`, `diff_ref_worktree`, and guarded `switch`. Never emit `argv`, `command`, `raw_git`, or mutation operations such as add/commit/merge/rebase/reset/push/pull/cherry-pick/checkout. `switch` is limited to an existing local branch and a completely clean worktree/index/untracked state.
+
+PATCH automatic Git add/commit/push is **REMOVED_BY_REQUIREMENT** in v6.20.0. Historical `manifest.git` fields remain parseable only for compatibility diagnostics; any requested mutation is rejected as `git_mutation_forbidden` and is never executed. This intentional transition is recorded in `CAPABILITY_LEDGER.md` and `CURRENT_CAPABILITY_DISPOSITION.json`.
+
+For commands that must be run by the operator, use `manual_execution` as documented in `MANUAL_EXECUTION_WORKFLOW.md`. Each step must use structured `argv`, an optional safe project-relative `cwd`, and expected exit codes. Patch Tool prints a capture command/log path and waits for evidence; it never executes the declared argv. Raw `command` and inline evaluator forms (`bash/sh -c`, `python -c`, `node -e`, PowerShell `-Command`/`-EncodedCommand`) are forbidden. `payload=manual_only` is valid for a workflow with no source mutation. A manual workflow requires a TTY and fails before payload mutation in non-interactive execution.
+
+Successful/failed manual evidence is aggregated into `MANUAL_EXECUTION_RESULT_*.zip` plus `.txt`; HISTORY recognizes those artifacts and FAIL_HANDOFF embeds available evidence under `manual_execution/`.
 
 ## v6.19.2 AI tool-context synchronization contract
 
@@ -132,7 +143,7 @@ Patch Tool v6.17.6 validates/preflights before payload execution:
 - declared package resources;
 - declared current-file existence/SHA-256/exact anchors;
 - post-patch command cwd + executable availability;
-- required Git executable/worktree when Git policy is active.
+- required Git executable/worktree only when a declared safe COLLECT Git action is validated/executed.
 
 A preflight failure is a **project-unchanged failure** and is reported as `PREFLIGHT FAIL — project unchanged`.
 
@@ -142,7 +153,7 @@ PATCH remains **in-place**. SANDBOX/detached worktree transaction execution is p
 
 ### Optional safe rollback
 
-Rollback is never inferred. AI may add `recovery.rollback` only when it can declare the complete target set and exact baseline metadata required by `PATCH_PACKAGE_SCHEMA.json` / `PATCH_PACKAGE_GUIDE.md`. It is limited to payload/post-patch failures before Git policy. A rollback result is recorded as `PASS`, `PARTIAL`, `FAIL`, or `SKIPPED` in structured PATCH evidence. If the contract is incomplete, preflight rejects the package before project modification.
+Rollback is never inferred. AI may add `recovery.rollback` only when it can declare the complete target set and exact baseline metadata required by `PATCH_PACKAGE_SCHEMA.json` / `PATCH_PACKAGE_GUIDE.md`. It is limited to payload/post-patch failure handling; v6.20.0 has no PATCH Git mutation policy. Manual-step failure may reuse the configured post-patch-failure rollback trigger because the source payload/post phase has already completed. A rollback result is recorded as `PASS`, `PARTIAL`, `FAIL`, or `SKIPPED` in structured PATCH evidence. If the contract is incomplete, preflight rejects the package before project modification.
 
 ## PATCH failure recovery
 
@@ -254,7 +265,7 @@ Manifest lint reports all discoverable schema issues in the same pass, including
 
 Data-only OPS is sequentially dry-run against a temporary mirror before execution. This makes an OPS source/anchor mismatch a project-unchanged preflight failure. Arbitrary Python payload code is never executed during inspect/validate.
 
-v6.17.5 integrity rules: OPS `already` is explicit-only (never inferred merely because `new` occurs elsewhere); OPS diagnose/execution is a managed subprocess bounded by `execution.timeout_seconds`; source replacement is atomic. `git.commit=auto` refuses target files already dirty before PATCH, and commit return code must be exactly zero. `internal_error` is always a safety stop.
+v6.17.5 integrity rules: OPS `already` is explicit-only (never inferred merely because `new` occurs elsewhere); OPS diagnose/execution is a managed subprocess bounded by `execution.timeout_seconds`; source replacement is atomic. Historical PATCH `git.commit=auto` behavior is retained only as historical evidence; v6.20.0 rejects requested Git mutation by explicit safety requirement. `internal_error` is always a safety stop.
 
 The dispatcher also binds planned dependency/effective-target metadata to the queue package SHA-256. The selected package must still match that SHA when a batch snapshot is taken and immediately before child execution; otherwise execution stops as `package_input_changed` before payload. Batch replay snapshots carry their own SHA-256 and size and are verified again before requeue. This is a transient execution-integrity check only; it does not introduce a provenance/trust identity system. Mutation lock files and Patch Tool artifact subdirectories reject symlink/reparse redirection.
 
@@ -356,7 +367,7 @@ AI may declare `manifest.on_failure.commands` when a valid PATCH needs a determi
 
 Failure-only commands run after the configured rollback attempt. The PATCH's original failure/rc is primary; an `on_failure` error is secondary structured evidence. A failed/timeout/lingering `on_failure` command safety-stops automatic continuation; do not rely on later independent PATCHes running after cleanup failure. They are not a mechanism for handling an invalid manifest, preflight/source-drift rejection, or user Ctrl+C. Whole-batch atomic transaction mode rejects them because their side effects cannot be proven target-bounded.
 
-All AI-declared commands are non-interactive. Do not depend on stdin/password/confirmation prompts. Managed command completion requires the full contained process tree to finish; detached/background work is invalid. `git.timeout_seconds` may be declared for automated Git policy and must remain in `1..1800`.
+All AI-declared commands are non-interactive. Do not depend on stdin/password/confirmation prompts. Managed command completion requires the full contained process tree to finish; detached/background work is invalid. Legacy `git.timeout_seconds` may still parse inside an otherwise mutation-disabled historical `git` block, but v6.20.0 performs no PATCH Git automation; use safe COLLECT Git operations instead.
 
 ### v6.17.8 internal-error rule
 

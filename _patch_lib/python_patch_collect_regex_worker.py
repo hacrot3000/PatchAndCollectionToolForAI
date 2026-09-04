@@ -11,7 +11,7 @@ import time
 
 from python_patch_collect_compat import _search_action_payload
 
-VERSION = "6.19.5"
+VERSION = "6.20.0"
 
 
 def _reject_duplicate_json_pairs(pairs):

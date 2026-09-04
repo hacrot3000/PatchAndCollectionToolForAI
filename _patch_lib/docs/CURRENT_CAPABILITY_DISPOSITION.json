@@ -1,7 +1,7 @@
 {
   "format": "python-patch-tool-current-capability-disposition",
   "format_version": 1,
-  "current_version": "6.19.5",
+  "current_version": "6.20.0",
   "source_baseline": "5.15.0",
   "historical_complete_count": 95,
   "entries": [
@@ -11,8 +11,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_history_live_status_v6_19_5.py",
-        "self_test_queue_discovery_v6_19_5.py"
+        "self_test_history_live_status_v6_20_0.py",
+        "self_test_queue_discovery_v6_20_0.py"
       ]
     },
     {
@@ -21,8 +21,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_portable_installer_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_portable_installer_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -31,8 +31,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_portable_installer_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_portable_installer_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -41,8 +41,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_portable_installer_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_portable_installer_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -51,8 +51,8 @@
       "disposition": "SUPERSEDED",
       "note": "Natural ordering remains; stop-on-first-failure default was intentionally replaced by continue_independent with explicit fail_fast.",
       "evidence": [
-        "self_test_selection_contract_v6_19_5.py",
-        "self_test_fail_fast_v6_19_5.py",
+        "self_test_selection_contract_v6_20_0.py",
+        "self_test_fail_fast_v6_20_0.py",
         "CAPABILITY_LEDGER.md"
       ]
     },
@@ -62,28 +62,26 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_history_live_status_v6_19_5.py",
-        "self_test_queue_discovery_v6_19_5.py"
+        "self_test_history_live_status_v6_20_0.py",
+        "self_test_queue_discovery_v6_20_0.py"
       ]
     },
     {
       "id": 7,
       "name": "Git add isolation",
-      "disposition": "PRESERVED",
-      "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
+      "disposition": "REMOVED_BY_REQUIREMENT",
+      "note": "v6.20.0 explicitly retires PATCH-side Git mutation (add/commit/push and related mutation automation) by user safety requirement. Historical evidence remains recorded; replacement is strict read-only/safe-local-switch COLLECT Git operations with no raw Git escape hatch.",
       "evidence": [
-        "self_test_audit_fixes_v6_19_5.py",
-        "self_test_execution_audit_v6_19_5.py"
+        "self_test_git_safe_v6_20_0.py"
       ]
     },
     {
       "id": 8,
       "name": "Patch-aware commit/push",
-      "disposition": "PRESERVED",
-      "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
+      "disposition": "REMOVED_BY_REQUIREMENT",
+      "note": "v6.20.0 explicitly retires PATCH-side Git mutation (add/commit/push and related mutation automation) by user safety requirement. Historical evidence remains recorded; replacement is strict read-only/safe-local-switch COLLECT Git operations with no raw Git escape hatch.",
       "evidence": [
-        "self_test_audit_fixes_v6_19_5.py",
-        "self_test_execution_audit_v6_19_5.py"
+        "self_test_git_safe_v6_20_0.py"
       ]
     },
     {
@@ -92,8 +90,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_patch_preflight_v6_19_5.py",
-        "self_test_self_contained_v6_19_5.py"
+        "self_test_patch_preflight_v6_20_0.py",
+        "self_test_self_contained_v6_20_0.py"
       ]
     },
     {
@@ -102,8 +100,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_self_contained_v6_19_5.py",
-        "self_test_diagnostics_v6_19_5.py"
+        "self_test_self_contained_v6_20_0.py",
+        "self_test_diagnostics_v6_20_0.py"
       ]
     },
     {
@@ -112,8 +110,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_patch_preflight_v6_19_5.py",
-        "self_test_diagnostics_v6_19_5.py"
+        "self_test_patch_preflight_v6_20_0.py",
+        "self_test_diagnostics_v6_20_0.py"
       ]
     },
     {
@@ -122,8 +120,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_execution_audit_v6_19_5.py",
-        "self_test_collect_progress_v6_19_5.py"
+        "self_test_execution_audit_v6_20_0.py",
+        "self_test_collect_progress_v6_20_0.py"
       ]
     },
     {
@@ -132,7 +130,7 @@
       "disposition": "REMOVED_BY_REQUIREMENT",
       "note": "Transaction SANDBOX was explicitly removed; current execution is in-place with preflight, mutation serialization and optional rollback.",
       "evidence": [
-        "self_test_inplace_routing_v6_19_5.py",
+        "self_test_inplace_routing_v6_20_0.py",
         "CAPABILITY_LEDGER.md"
       ]
     },
@@ -142,8 +140,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_safe_rollback_v6_19_5.py",
-        "self_test_audit_fixes_v6_19_5.py"
+        "self_test_safe_rollback_v6_20_0.py",
+        "self_test_audit_fixes_v6_20_0.py"
       ]
     },
     {
@@ -152,8 +150,8 @@
       "disposition": "SUPERSEDED",
       "note": "Exact second-SANDBOX-run proof ended with SANDBOX removal; current equivalent uses OPS dry-run, source/preflight guards and duplicate protection.",
       "evidence": [
-        "self_test_self_contained_v6_19_5.py",
-        "self_test_audit_fixes_v6_19_5.py",
+        "self_test_self_contained_v6_20_0.py",
+        "self_test_audit_fixes_v6_20_0.py",
         "CAPABILITY_LEDGER.md"
       ]
     },
@@ -163,8 +161,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_patch_preflight_v6_19_5.py",
-        "self_test_patch_recovery_v6_19_5.py"
+        "self_test_patch_preflight_v6_20_0.py",
+        "self_test_patch_recovery_v6_20_0.py"
       ]
     },
     {
@@ -173,8 +171,8 @@
       "disposition": "SUPERSEDED",
       "note": "Nearest-block legacy export is replaced by anchor/source-drift diagnosis plus recovery COLLECT/current-source evidence.",
       "evidence": [
-        "self_test_patch_recovery_v6_19_5.py",
-        "self_test_fail_handoff_sources_v6_19_5.py",
+        "self_test_patch_recovery_v6_20_0.py",
+        "self_test_fail_handoff_sources_v6_20_0.py",
         "CAPABILITY_LEDGER.md"
       ]
     },
@@ -184,7 +182,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_diagnostics_v6_19_5.py",
+        "self_test_historical_diagnostics_v6_20_0.py",
         "compat_diagnostics/ in FAIL_HANDOFF"
       ]
     },
@@ -194,7 +192,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_diagnostics_v6_19_5.py",
+        "self_test_historical_diagnostics_v6_20_0.py",
         "compat_diagnostics/ in FAIL_HANDOFF"
       ]
     },
@@ -204,7 +202,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_diagnostics_v6_19_5.py",
+        "self_test_historical_diagnostics_v6_20_0.py",
         "compat_diagnostics/ in FAIL_HANDOFF"
       ]
     },
@@ -214,7 +212,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_diagnostics_v6_19_5.py",
+        "self_test_historical_diagnostics_v6_20_0.py",
         "compat_diagnostics/ in FAIL_HANDOFF"
       ]
     },
@@ -224,7 +222,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Redacted detailed evidence is restored additively under compat_diagnostics while exact v6 evidence remains available.",
       "evidence": [
-        "self_test_historical_diagnostics_v6_19_5.py",
+        "self_test_historical_diagnostics_v6_20_0.py",
         "compat_diagnostics/ in FAIL_HANDOFF"
       ]
     },
@@ -234,7 +232,7 @@
       "disposition": "SUPERSEDED",
       "note": "Old redact-before-any-persistence policy conflicts with the later exact-evidence contract; current handoff keeps exact bytes with explicit warning and also emits a redacted derivative.",
       "evidence": [
-        "self_test_historical_diagnostics_v6_19_5.py",
+        "self_test_historical_diagnostics_v6_20_0.py",
         "compat_diagnostics/ in FAIL_HANDOFF"
       ]
     },
@@ -244,7 +242,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_diagnostics_v6_19_5.py",
+        "self_test_historical_diagnostics_v6_20_0.py",
         "compat_diagnostics/ in FAIL_HANDOFF"
       ]
     },
@@ -254,7 +252,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_diagnostics_v6_19_5.py",
+        "self_test_historical_diagnostics_v6_20_0.py",
         "compat_diagnostics/ in FAIL_HANDOFF"
       ]
     },
@@ -264,7 +262,7 @@
       "disposition": "SUPERSEDED",
       "note": "Separate physical SUMMARY/CODE/DETAIL bundles were replaced by one unified handoff; compact/deep logical layers are retained inside it.",
       "evidence": [
-        "self_test_historical_diagnostics_v6_19_5.py",
+        "self_test_historical_diagnostics_v6_20_0.py",
         "compat_diagnostics/ in FAIL_HANDOFF"
       ]
     },
@@ -274,7 +272,7 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_diagnostics_v6_19_5.py",
+        "self_test_historical_diagnostics_v6_20_0.py",
         "compat_diagnostics/ in FAIL_HANDOFF"
       ]
     },
@@ -284,7 +282,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_diagnostics_v6_19_5.py",
+        "self_test_historical_diagnostics_v6_20_0.py",
         "compat_diagnostics/ in FAIL_HANDOFF"
       ]
     },
@@ -294,7 +292,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -304,7 +302,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -314,7 +312,7 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -324,7 +322,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -334,9 +332,9 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_search_partial_timeout_v6_19_5.py",
-        "self_test_find_discovery_v6_19_5.py",
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_search_partial_timeout_v6_20_0.py",
+        "self_test_find_discovery_v6_20_0.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -346,7 +344,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -356,7 +354,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -366,7 +364,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -376,8 +374,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_search_partial_timeout_v6_19_5.py",
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_search_partial_timeout_v6_20_0.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -387,7 +385,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -397,7 +395,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -407,7 +405,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -417,9 +415,9 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_search_partial_timeout_v6_19_5.py",
-        "self_test_find_discovery_v6_19_5.py",
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_search_partial_timeout_v6_20_0.py",
+        "self_test_find_discovery_v6_20_0.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -429,7 +427,7 @@
       "disposition": "SUPERSEDED",
       "note": "Guaranteed pack semantics were intentionally narrowed to exact files; restored directory action covers recursive subtree collection.",
       "evidence": [
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -437,9 +435,10 @@
       "id": 43,
       "name": "Safe Git context collector",
       "disposition": "PRESERVED",
-      "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
+      "note": "v6.20.0 preserves historical Git context collection and hardens/extends it to a strict allowlist: status/current_branch/branches/log/show/diff_worktree/diff_staged/diff_refs/diff_ref_worktree plus clean existing-local-branch switch. Raw Git and mutation operations are rejected.",
       "evidence": [
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
+        "self_test_git_safe_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -449,7 +448,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -459,7 +458,7 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -469,8 +468,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_search_partial_timeout_v6_19_5.py",
-        "self_test_collect_historical_actions_v6_19_5.py",
+        "self_test_search_partial_timeout_v6_20_0.py",
+        "self_test_collect_historical_actions_v6_20_0.py",
         "COLLECT_ACTION_SCHEMA.json"
       ]
     },
@@ -480,8 +479,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_planning_features_v6_19_5.py",
-        "self_test_local_duplicate_v6_19_5.py"
+        "self_test_planning_features_v6_20_0.py",
+        "self_test_local_duplicate_v6_20_0.py"
       ]
     },
     {
@@ -490,8 +489,8 @@
       "disposition": "SUPERSEDED",
       "note": "Automatic identity adoption was replaced by fail-closed configured Project Identity Guard.",
       "evidence": [
-        "self_test_planning_features_v6_19_5.py",
-        "self_test_patch_preflight_v6_19_5.py",
+        "self_test_planning_features_v6_20_0.py",
+        "self_test_patch_preflight_v6_20_0.py",
         "CAPABILITY_LEDGER.md"
       ]
     },
@@ -501,7 +500,7 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_local_duplicate_v6_19_5.py"
+        "self_test_local_duplicate_v6_20_0.py"
       ]
     },
     {
@@ -510,7 +509,7 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_queue_discovery_v6_19_5.py"
+        "self_test_queue_discovery_v6_20_0.py"
       ]
     },
     {
@@ -519,8 +518,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_batch_reporting_v6_19_5.py",
-        "self_test_patch_recovery_v6_19_5.py"
+        "self_test_batch_reporting_v6_20_0.py",
+        "self_test_patch_recovery_v6_20_0.py"
       ]
     },
     {
@@ -529,7 +528,7 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_validation_selection_v6_19_5.py",
+        "self_test_validation_selection_v6_20_0.py",
         "python_patch_project_state.py",
         "python_patch_runner.py"
       ]
@@ -540,7 +539,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_validation_selection_v6_19_5.py",
+        "self_test_validation_selection_v6_20_0.py",
         "python_patch_project_state.py",
         "python_patch_runner.py"
       ]
@@ -551,7 +550,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_validation_selection_v6_19_5.py",
+        "self_test_validation_selection_v6_20_0.py",
         "python_patch_project_state.py",
         "python_patch_runner.py"
       ]
@@ -562,7 +561,7 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
+        "self_test_historical_compatibility_v6_20_0.py",
         "python_patch_runner.py"
       ]
     },
@@ -572,7 +571,7 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
+        "self_test_historical_compatibility_v6_20_0.py",
         "python_patch_runner.py"
       ]
     },
@@ -582,7 +581,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
+        "self_test_historical_compatibility_v6_20_0.py",
         "python_patch_runner.py"
       ]
     },
@@ -592,7 +591,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
+        "self_test_historical_compatibility_v6_20_0.py",
         "python_patch_runner.py"
       ]
     },
@@ -602,7 +601,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
+        "self_test_historical_compatibility_v6_20_0.py",
         "python_patch_runner.py"
       ]
     },
@@ -612,7 +611,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
+        "self_test_historical_compatibility_v6_20_0.py",
         "python_patch_runner.py"
       ]
     },
@@ -622,7 +621,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
+        "self_test_historical_compatibility_v6_20_0.py",
         "python_patch_runner.py"
       ]
     },
@@ -632,7 +631,7 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
+        "self_test_historical_compatibility_v6_20_0.py",
         "python_patch_runner.py"
       ]
     },
@@ -642,7 +641,7 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
+        "self_test_historical_compatibility_v6_20_0.py",
         "python_patch_runner.py"
       ]
     },
@@ -652,7 +651,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
+        "self_test_historical_compatibility_v6_20_0.py",
         "python_patch_runner.py"
       ]
     },
@@ -662,7 +661,7 @@
       "disposition": "SUPERSEDED",
       "note": "Exact sandbox idempotency-before-command ordering was superseded with SANDBOX removal; current command gating runs after payload and source/preflight protections.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
+        "self_test_historical_compatibility_v6_20_0.py",
         "python_patch_runner.py"
       ]
     },
@@ -672,8 +671,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_portable_installer_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_portable_installer_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -682,8 +681,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_portable_installer_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_portable_installer_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -692,8 +691,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_portable_installer_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_portable_installer_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -702,8 +701,8 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_portable_installer_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_portable_installer_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -712,8 +711,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_portable_installer_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_portable_installer_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -722,8 +721,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_history_live_status_v6_19_5.py",
-        "self_test_queue_discovery_v6_19_5.py"
+        "self_test_history_live_status_v6_20_0.py",
+        "self_test_queue_discovery_v6_20_0.py"
       ]
     },
     {
@@ -732,8 +731,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_history_live_status_v6_19_5.py",
-        "self_test_queue_discovery_v6_19_5.py"
+        "self_test_history_live_status_v6_20_0.py",
+        "self_test_queue_discovery_v6_20_0.py"
       ]
     },
     {
@@ -742,8 +741,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_history_live_status_v6_19_5.py",
-        "self_test_queue_discovery_v6_19_5.py"
+        "self_test_history_live_status_v6_20_0.py",
+        "self_test_queue_discovery_v6_20_0.py"
       ]
     },
     {
@@ -752,8 +751,8 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_historical_compatibility_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -762,8 +761,8 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_history_live_status_v6_19_5.py",
-        "self_test_queue_discovery_v6_19_5.py"
+        "self_test_history_live_status_v6_20_0.py",
+        "self_test_queue_discovery_v6_20_0.py"
       ]
     },
     {
@@ -772,8 +771,8 @@
       "disposition": "SUPERSEDED",
       "note": "Selection-aware identity adoption is superseded by preconfigured identity agreement.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_historical_compatibility_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -782,8 +781,8 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_historical_compatibility_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -792,8 +791,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_historical_compatibility_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -802,8 +801,8 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_historical_compatibility_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -812,8 +811,8 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_historical_compatibility_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -822,8 +821,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_historical_compatibility_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -832,8 +831,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_historical_compatibility_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -842,8 +841,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_historical_compatibility_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -852,8 +851,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_historical_compatibility_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -862,8 +861,8 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_historical_compatibility_v6_19_5.py",
-        "self_test_public_entry_v6_19_5.py"
+        "self_test_historical_compatibility_v6_20_0.py",
+        "self_test_public_entry_v6_20_0.py"
       ]
     },
     {
@@ -872,8 +871,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_batch_reporting_v6_19_5.py",
-        "self_test_patch_recovery_v6_19_5.py"
+        "self_test_batch_reporting_v6_20_0.py",
+        "self_test_patch_recovery_v6_20_0.py"
       ]
     },
     {
@@ -882,7 +881,7 @@
       "disposition": "COMPATIBILITY_RESTORED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_docs_v6_19_5.py",
+        "self_test_docs_v6_20_0.py",
         "OUTPUT_FILES_GUIDE.md"
       ]
     },
@@ -892,10 +891,10 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_history_artifact_highlight_v6_19_5.py",
-        "self_test_upload_action_highlight_v6_19_5.py",
-        "self_test_collect_progress_v6_19_5.py",
-        "self_test_patch_recovery_v6_19_5.py"
+        "self_test_history_artifact_highlight_v6_20_0.py",
+        "self_test_upload_action_highlight_v6_20_0.py",
+        "self_test_collect_progress_v6_20_0.py",
+        "self_test_patch_recovery_v6_20_0.py"
       ]
     },
     {
@@ -904,9 +903,9 @@
       "disposition": "SUPERSEDED",
       "note": "Exact v5 ANSI palette is superseded by current accessible text/color/NO_COLOR presentation.",
       "evidence": [
-        "self_test_history_artifact_highlight_v6_19_5.py",
-        "self_test_upload_action_highlight_v6_19_5.py",
-        "self_test_result_clarity_v6_19_5.py",
+        "self_test_history_artifact_highlight_v6_20_0.py",
+        "self_test_upload_action_highlight_v6_20_0.py",
+        "self_test_result_clarity_v6_20_0.py",
         "CAPABILITY_LEDGER.md"
       ]
     },
@@ -916,7 +915,7 @@
       "disposition": "SUPERSEDED",
       "note": "Old REPORT/DETAIL filename alias model is superseded by current artifact roles.",
       "evidence": [
-        "self_test_docs_v6_19_5.py",
+        "self_test_docs_v6_20_0.py",
         "CAPABILITY_LEDGER.md"
       ]
     },
@@ -926,8 +925,8 @@
       "disposition": "SUPERSEDED",
       "note": "Exact LAST_RUN.md file is superseded by LAST_RUN.json + HISTORY while persistent run guidance remains.",
       "evidence": [
-        "self_test_history_live_status_v6_19_5.py",
-        "self_test_docs_v6_19_5.py",
+        "self_test_history_live_status_v6_20_0.py",
+        "self_test_docs_v6_20_0.py",
         "CAPABILITY_LEDGER.md"
       ]
     },
@@ -937,8 +936,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_result_clarity_v6_19_5.py",
-        "self_test_selection_contract_v6_19_5.py"
+        "self_test_result_clarity_v6_20_0.py",
+        "self_test_selection_contract_v6_20_0.py"
       ]
     },
     {
@@ -947,8 +946,8 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_batch_reporting_v6_19_5.py",
-        "self_test_result_clarity_v6_19_5.py"
+        "self_test_batch_reporting_v6_20_0.py",
+        "self_test_result_clarity_v6_20_0.py"
       ]
     },
     {
@@ -957,8 +956,8 @@
       "disposition": "SUPERSEDED",
       "note": "Old short handoff bundle names are superseded by current FAIL_HANDOFF/report naming.",
       "evidence": [
-        "self_test_docs_v6_19_5.py",
-        "self_test_patch_recovery_v6_19_5.py",
+        "self_test_docs_v6_20_0.py",
+        "self_test_patch_recovery_v6_20_0.py",
         "CAPABILITY_LEDGER.md"
       ]
     },
@@ -968,7 +967,7 @@
       "disposition": "PRESERVED",
       "note": "Historical COMPLETE capability has a current implementation/equivalent protected by the cited release gates.",
       "evidence": [
-        "self_test_selection_contract_v6_19_5.py"
+        "self_test_selection_contract_v6_20_0.py"
       ]
     }
   ],

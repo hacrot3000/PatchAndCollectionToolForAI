@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.19.5"
+VERSION = "6.20.0"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -766,7 +766,7 @@ def _reconcile_unresolved_registry_from_history(root: Path, items: list[QueueIte
         if not recovery: continue
         frozen=_freeze_legacy_failure_row(root,latest,item); ident=_failure_identity(frozen)
         if ident in unresolved_ids: continue
-        entries.append({"first_failed_at":now,"last_failed_at":now,"first_run_id":latest_run,"last_run_id":latest_run,"resolved":False,"migration":"history_reconcile_v6_19_5","row":frozen})
+        entries.append({"first_failed_at":now,"last_failed_at":now,"first_run_id":latest_run,"last_run_id":latest_run,"resolved":False,"migration":"history_reconcile_v6_20_0","row":frozen})
         unresolved_ids.add(ident); changed=True
     if changed:
         _atomic_json(_unresolved_registry_path(root),{"format":"python-patch-tool-unresolved-failures","format_version":1,"tool_version":VERSION,"updated_at":now,"entries":entries})
@@ -2156,6 +2156,41 @@ def _create_fail_handoff(
                 except Exception as exc:
                     attachment_warnings.append(f"recovery request attachment failed: {type(exc).__name__}")
 
+            # Human-run command evidence is part of the exact PATCH failure
+            # context.  Embed it additively under manual_execution/ so an AI can
+            # inspect the step instructions and console logs without losing the
+            # normal FAIL_HANDOFF/source evidence.
+            manual = patch_result.get("manual_execution") if isinstance(patch_result, dict) and isinstance(patch_result.get("manual_execution"), dict) else None
+            if isinstance(manual, dict):
+                summary["manual_execution"] = {
+                    "status": manual.get("status"),
+                    "result_zip": manual.get("result_zip"),
+                    "result_text": manual.get("result_text"),
+                    "work_dir": manual.get("work_dir"),
+                }
+                for key in ("result_zip", "result_text"):
+                    raw = manual.get(key)
+                    if not isinstance(raw, str) or not raw:
+                        continue
+                    try:
+                        mp = root / raw
+                        if mp.is_file() and not mp.is_symlink():
+                            zf.write(mp, f"manual_execution/{mp.name}")
+                    except Exception as exc:
+                        attachment_warnings.append(f"manual execution {key} attachment failed: {type(exc).__name__}")
+                raw_work = manual.get("work_dir")
+                if isinstance(raw_work, str) and raw_work:
+                    try:
+                        work = (root / raw_work).resolve(strict=True)
+                        work.relative_to(root.resolve(strict=True))
+                        for mp in sorted(work.rglob("*")):
+                            if not mp.is_file() or mp.is_symlink():
+                                continue
+                            rel = mp.relative_to(work).as_posix()
+                            zf.write(mp, f"manual_execution/work/{rel}")
+                    except Exception as exc:
+                        attachment_warnings.append(f"manual execution work evidence attachment failed: {type(exc).__name__}")
+
             try:
                 from python_patch_ai_sync import write_sync_bundle_to_zip
                 summary["ai_tool_sync"] = write_sync_bundle_to_zip(zf, root, ai_sync_decision)
@@ -3477,6 +3512,8 @@ _AI_UPLOAD_HISTORY_LABELS = frozenset({
     "Recovery COLLECT",
     "AI sync result",
     "AI sync TXT",
+    "Manual result",
+    "Manual result TXT",
 })
 
 
@@ -3548,6 +3585,11 @@ def _important_row_artifacts(root: Path, row: dict[str, object]) -> list[tuple[s
         add("COLLECT result", collect.get("result_zip"))
         add("COLLECT text", collect.get("result_text"))
         add("Request archive", collect.get("request_archive"))
+    patch_result = row.get("patch_result") if isinstance(row.get("patch_result"), dict) else None
+    manual = patch_result.get("manual_execution") if isinstance(patch_result, dict) and isinstance(patch_result.get("manual_execution"), dict) else None
+    if manual is not None:
+        add("Manual result", manual.get("result_zip"))
+        add("Manual result TXT", manual.get("result_text"))
     add("FAIL handoff", row.get("fail_handoff"))
     add("FAIL handoff TXT", row.get("fail_handoff_text"))
     add("AI sync result", row.get("ai_sync_result"))
@@ -6715,7 +6757,7 @@ def _run_queue(
             }]
             print(f"SELECTION FAIL — project unchanged | {_safe_display(str(exc))}", file=sys.stderr)
             return finish_report("FAIL", 2, failed_item="CLI_SELECTION")
-    # v6.19.5: persistent failed grouping; recovery no longer hijacks the next ordinary zero-argument run.
+    # v6.20.0: persistent failed grouping; recovery no longer hijacks the next ordinary zero-argument run.
     # Smart Resume remains available explicitly through the ``resume`` command;
     # ordinary queue selection shows previous failed/replay items as a second
     # visual group instead.  Planner safety for unresolved predecessors is
