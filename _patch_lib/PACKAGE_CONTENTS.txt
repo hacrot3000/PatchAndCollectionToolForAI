@@ -1,4 +1,4 @@
-Python Patch Tool v6.17.13 — full self-contained package
+Python Patch Tool v6.17.14 — full self-contained package
 
 Public launchers / user docs:
   tools/run_python_patches.sh
@@ -137,3 +137,5 @@ v6.17.12 contract-consistency audit:
 
 
 - v6.17.13 history hides IDLE, uses package-first rows, pauses after duplicate-only cleanup, and SMART RESUME follows the latest meaningful failed execution while unresolved predecessor safety persists.
+
+- v6.17.14 zero-work zero-argument discovery exits without run/log/LAST_RUN/history state; SMART RESUME auto-opens only for a failed LAST_RUN that still has concrete recovery work in the current queue.

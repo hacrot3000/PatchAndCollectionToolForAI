@@ -1,4 +1,4 @@
-# Python Patch Tool v6.17.13 feature status
+# Python Patch Tool v6.17.14 feature status
 
 | Capability | Status |
 |---|---|
@@ -100,4 +100,4 @@ v6.17.6 completes the current robustness/data-integrity audit scope, aggregate/d
 - Best-effort fixed live PATCH status header is COMPLETE for supported TTYs with automatic plain-console fallback; `PTV_DISABLE_LIVE_STATUS=1` disables it. Raw saved logs remain authoritative.
 
 
-- v6.17.13 history browser hides IDLE, renders package-first rows, pauses after duplicate-only queue cleanup, and automatic SMART RESUME keys to the latest meaningful failed execution while persistent predecessor safety remains enforced.
+- v6.17.13 history browser hides IDLE, renders package-first rows and pauses after duplicate-only queue cleanup. v6.17.14 corrects zero-work semantics: a genuinely empty zero-argument queue creates no run/log/state and does not auto-open HISTORY; automatic SMART RESUME requires a failed LAST_RUN with concrete recovery work still present in the current queue, while persistent predecessor safety remains enforced for related successors.

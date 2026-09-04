@@ -1,7 +1,7 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.17.13**  
-Trạng thái: **ZERO-ARGUMENT HISTORY + LIVE PATCH STATUS — COMPLETE**
+Phiên bản mục tiêu: **v6.17.14**  
+Trạng thái: **ZERO-WORK NO-LOG + SMART RESUME GATING — COMPLETE**
 
 ## Baseline
 
@@ -416,7 +416,7 @@ Recipe policy override rule: `run --recipe` uses the policies stored in the reci
 ## v6.17.12 — Zero-argument HISTORY + live PATCH status
 
 - Khi chạy public launcher **không tham số** ở terminal tương tác, selector luôn có thêm dòng `HISTORY`; dùng `↑/↓` rồi `Enter` để mở lịch sử mà không làm mất lựa chọn PATCH hiện tại. Smart Resume cũng có mục HISTORY tương tự.
-- Nếu sau discovery/duplicate filtering không còn PATCH/COLLECT runnable, tool vẫn in warning hiện có, `AUTO STATUS: IDLE` và Tool Health trước; sau đó zero-argument interactive mode tự mở history thay vì kết thúc ngay.
+- Nếu discovery ban đầu không có PATCH/COLLECT runnable, zero-argument mode chỉ in warning hiện có, `AUTO STATUS: IDLE` và Tool Health rồi return `0` **trước khi chạm LAST_RUN/history/registry/run artifacts**. Invocation rỗng không phải một run và không được tạo log/state chạy mới.
 - History dùng trực tiếp `artifacts/patch_tool/history/*.json` và report browser hiện có. Con trỏ mặc định ưu tiên **lần PASS gần nhất có PATCH/COLLECT thực sự**, không ưu tiên một lần IDLE rỗng vừa tạo. `Enter` mở report và **in sẵn mục `Important files` với đường dẫn tuyệt đối** cho COLLECT result/request ZIP, FAIL_HANDOFF, recovery COLLECT, replay/archived package và detail/preflight log quan trọng; artifact đã bị cleanup vẫn giữ path lịch sử và được đánh dấu `[missing]`. Detail/aggregate log, source diff và support ZIP vẫn dùng cùng report browser.
 - Khi chạy PATCH trên TTY phù hợp, tool dùng **best-effort fixed live status header**: mỗi PATCH hiển thị `WAITING`, `RUNNING`, `PASS`, `FAILED`, `PREFLIGHT FAILED`, `BLOCKED`, `NOT EXECUTED` hoặc `SKIPPED`; log child cuộn ở vùng dưới. Batch lớn dùng sliding status window để không chiếm hết màn hình.
 - Live header chỉ là presentation. Redirect/non-TTY, `TERM=dumb`, terminal quá nhỏ, Windows console không bật được VT, hoặc resize/lỗi render sẽ tự fallback về console truyền thống. Có thể tắt chủ động bằng `PTV_DISABLE_LIVE_STATUS=1`. Raw detail logs trên disk **không bị sanitize**; chỉ live display loại escape sequence có thể xóa/di chuyển cursor để bảo vệ header.
@@ -427,8 +427,8 @@ Recipe policy override rule: `run --recipe` uses the policies stored in the reci
 
 - User-facing HISTORY chỉ liệt kê run có PATCH/COLLECT thực sự. Các `IDLE` cũ vẫn còn trên disk cho tới cleanup nhưng bị ẩn; từ v6.17.13 run IDLE chỉ cập nhật `LAST_RUN.json` và không tạo thêm `history/*.json`.
 - HISTORY row ưu tiên thông tin có giá trị vận hành: **tên package trước, thời gian sau, trạng thái cuối**. Run-id vẫn tồn tại trong JSON/CLI management nhưng không chiếm dòng browser chính.
-- Nếu discovery ban đầu có package nhưng toàn bộ bị session/local duplicate filtering loại bỏ, tool in `QUEUE CLEANUP SUMMARY` và chờ Enter trước khi mở HISTORY. Việc này bảo đảm người dùng đọc được package nào đã bị tự loại/chuyển `patchs/ignore`. Queue thực sự rỗng ngay từ đầu vẫn tự mở HISTORY sau `AUTO STATUS` + Tool Health như v6.17.12.
-- Tách rõ **latest invocation** và **latest meaningful execution**. SMART RESUME tự động chỉ dựa trên lần PATCH/COLLECT meaningful gần nhất có status FAIL. Một IDLE hoặc PASS mới hơn không được phép bị registry lỗi cũ biến thành thông báo sai “phiên trước có lỗi”.
+- Nếu discovery ban đầu có package runnable nhưng toàn bộ bị session/local duplicate filtering loại bỏ, tool in `QUEUE CLEANUP SUMMARY` và chờ Enter trước khi mở HISTORY. Việc này bảo đảm người dùng đọc được package nào đã bị tự loại/chuyển `patchs/ignore`. Trường hợp ngay từ discovery đã không có runnable package thì không tự mở HISTORY và không ghi run/log.
+- SMART RESUME tự động chỉ dựa trên **LAST_RUN thực sự FAIL và còn recovery item của run đó trong queue**. Không fallback sang history cũ và không dùng registry cũ để bật global startup prompt. Registry vẫn là planner safety state cho successor liên quan.
 - `UNRESOLVED_FAILURES.json` vẫn là safety state: planner tiếp tục enforce failure cũ khi một successor có dependency/effective-target relation, và exact rollback replay identity của unresolved run vẫn bypass duplicate-history suppression. Chỉ bỏ global startup prompt sai ngữ nghĩa, không bỏ predecessor safety.
 - Report menu hiển thị `1..N=detail` thay vì `N=detail`; run không có item chỉ hiện aggregate/history/quit và trả lời rõ nếu người dùng thử action item-level.
 

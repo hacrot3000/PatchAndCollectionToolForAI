@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.17.13"
+VERSION = "6.17.14"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -640,6 +640,26 @@ def _latest_meaningful_run(root: Path, latest: dict[str, object] | None = None) 
         return latest
     entries = _visible_history_entries(root)
     return entries[0][1] if entries else None
+
+
+def _automatic_resume_available(root: Path, items: list[QueueItem], previous: dict[str, object] | None) -> bool:
+    """Return True only when the immediately recorded failed run has queue work to recover.
+
+    Persistent unresolved failures remain planner constraints, but they must not
+    force the interactive SMART RESUME menu in front of a new unrelated queue.
+    Auto-resume is therefore intentionally narrower than the persistent registry:
+    at least one replay/failed/remaining item from LAST_RUN must still exist in the
+    current runnable queue.
+    """
+    if not isinstance(previous, dict) or previous.get("status") != "FAIL":
+        return False
+    by_name = {item.name for item in items}
+    groups = _resume_groups(previous)
+    names: list[str] = []
+    for name in groups["replay"] + groups["failed"] + groups["remaining"]:
+        if isinstance(name, str) and name and name not in names:
+            names.append(name)
+    return any(name in by_name for name in names)
 
 
 def _find_history_entry(root: Path, run_id: str) -> tuple[Path, dict[str, object]] | None:
@@ -5971,11 +5991,6 @@ def _run_queue(
     started_at = _utc_now()
     run_id = f"{int(time.time()*1000000)}_{os.getpid()}"
     _ACTIVE_RUN_ID = run_id
-    previous = _load_previous_run(root)
-    meaningful_previous = _latest_meaningful_run(root, previous)
-    history_replay_sha = _unresolved_replay_identities(root)
-    history_replay_sha.update(_previous_replay_identities(meaningful_previous))
-    resume_items = _print_resume_hint(root, meaningful_previous)
     queue_safety_error: str | None = None
     recipe_chosen: list[QueueItem] | None = None
     recipe_failure: str | None = None
@@ -5986,6 +6001,28 @@ def _run_queue(
     except QueueSafetyError as exc:
         items, warnings = [], []
         queue_safety_error = str(exc)
+
+    # A zero-argument invocation with no runnable PATCH/COLLECT is not a run.
+    # Exit before touching LAST_RUN/history/registry/run artifacts.  Discovery
+    # warnings (for example a handoff ZIP with no patch signature) remain visible
+    # so the operator still understands why the queue is empty.
+    if zero_argument_invocation and recipe_path is None and queue_safety_error is None and not items:
+        for warning in warnings:
+            print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}")
+        print("AUTO STATUS: IDLE — no runnable patch/collect package is waiting in patchs/.")
+        print_health(root, compact=True)
+        _ACTIVE_RUN_ID = None
+        _LAST_EXECUTION_DETAILS = []
+        return 0
+
+    previous = _load_previous_run(root)
+    # Automatic resume is about the immediately recorded real run.  Do not
+    # fall back to arbitrary older history here; persistent unresolved failures
+    # are enforced separately by the dependency planner.
+    meaningful_previous = previous if _is_meaningful_run(previous) else None
+    history_replay_sha = _unresolved_replay_identities(root)
+    history_replay_sha.update(_previous_replay_identities(meaningful_previous))
+    resume_items = _print_resume_hint(root, meaningful_previous)
 
     # Recipe identity is a pre-mutation contract. Parse/project-bind/SHA-check it
     # before duplicate-history cleanup can move any queue package to ignore.
@@ -6109,29 +6146,32 @@ def _run_queue(
         else:
             print("AUTO STATUS: IDLE — no runnable patch/collect package is waiting in patchs/.")
         print_health(root, compact=True)
-        if zero_argument_invocation and sys.stdin.isatty() and sys.stdout.isatty():
-            if session_duplicates or local_duplicates:
-                print("\nQUEUE CLEANUP SUMMARY — queue ban đầu có package nhưng tất cả đã bị duplicate/auto-filter.")
-                if session_duplicates:
-                    print(f"  Session duplicates removed : {len(session_duplicates)}")
-                if local_duplicates:
-                    print(f"  Local-history duplicates   : {len(local_duplicates)} (đã chuyển vào patchs/ignore khi có thể)")
-                try:
-                    answer = input("Nhấn Enter để mở HISTORY (q để thoát): ").strip().lower()
-                except (EOFError, KeyboardInterrupt):
-                    print("")
-                    answer = "q"
-                if answer not in {"q", "quit", "esc"}:
-                    _history_browser(root)
-            else:
+        if zero_argument_invocation and sys.stdin.isatty() and sys.stdout.isatty() and (session_duplicates or local_duplicates):
+            print("\nQUEUE CLEANUP SUMMARY — queue ban đầu có package nhưng tất cả đã bị duplicate/auto-filter.")
+            if session_duplicates:
+                print(f"  Session duplicates removed : {len(session_duplicates)}")
+            if local_duplicates:
+                print(f"  Local-history duplicates   : {len(local_duplicates)} (đã chuyển vào patchs/ignore khi có thể)")
+            try:
+                answer = input("Nhấn Enter để mở HISTORY (q để thoát): ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print("")
+                answer = "q"
+            if answer not in {"q", "quit", "esc"}:
                 _history_browser(root)
-        return finish_report("IDLE", 0)
+        # Zero-work invocations are not runs: do not create a run directory,
+        # LAST_RUN/history entry, ledger update or unresolved-failure update.
+        # Old history/registry remain intact for explicit review and planner
+        # safety, but nothing from this invocation is persisted as a run.
+        _ACTIVE_RUN_ID = None
+        _LAST_EXECUTION_DETAILS = []
+        return 0
 
     chosen = list(recipe_chosen) if recipe_chosen is not None else None
-    # Automatic SMART RESUME describes the latest meaningful execution, not
-    # arbitrary older unresolved registry entries. Older failures remain
-    # enforced by the dependency planner when a related successor is selected.
-    should_auto_resume = isinstance(meaningful_previous, dict) and meaningful_previous.get("status") == "FAIL"
+    # SMART RESUME is automatic only when the immediately recorded failed run
+    # still has concrete recovery work in the current queue.  Older unresolved
+    # failures remain planner constraints but do not hijack unrelated new work.
+    should_auto_resume = _automatic_resume_available(root, items, meaningful_previous)
     if chosen is None and (force_resume or should_auto_resume):
         while True:
             try:

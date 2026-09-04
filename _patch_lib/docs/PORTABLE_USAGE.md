@@ -1,13 +1,13 @@
-# Python Patch Tool v6.17.13 portable usage
+# Python Patch Tool v6.17.14 portable usage
 
-The release is self-contained for its v6.17.13 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
+The release is self-contained for its v6.17.14 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
 
 ## Linux / POSIX
 
 Install/update at the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.17.13.zip -d "$PWD"
+unzip -o python_patch_tool_v6.17.14.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 
@@ -18,7 +18,7 @@ Requirement: **Python 3.10+**. The launcher accepts Python Launcher (`py -3`) or
 PowerShell install/update at the project root:
 
 ```powershell
-Expand-Archive -Force .\python_patch_tool_v6.17.13.zip .
+Expand-Archive -Force .\python_patch_tool_v6.17.14.zip .
 tools\run_python_patches.bat
 ```
 
@@ -107,9 +107,16 @@ Recipe policy override rule: `run --recipe` uses the policies stored in the reci
 
 - Interactive history hides IDLE probes and displays package/request name first, then local run timestamp, then final status. New IDLE invocations update `LAST_RUN.json` but are not appended to `history/*.json`.
 - If duplicate filtering consumes every queued candidate, the tool prints a queue-cleanup summary and waits for Enter before opening history, so automatic removals are visible. A queue that was truly empty from the start still opens history automatically in zero-argument interactive mode.
-- Automatic SMART RESUME describes the latest meaningful PATCH/COLLECT failure only. Older unresolved failures remain persistent planner constraints for related successors, but do not globally claim that the immediately previous invocation failed.
+- Automatic SMART RESUME requires the immediately recorded `LAST_RUN` to be FAIL **and** at least one replay/failed/remaining item from that run to still be runnable in the current queue. Older unresolved failures remain persistent planner constraints for related successors, but never globally hijack unrelated new queue work.
 - Report item detail is selected by a numeric index (`1..N`), not the literal letter `N`.
 
 - Old unpinned IDLE probes are removed first during history cleanup, so they do not consume the 30 meaningful-run retention budget.
 
 - History timestamps are displayed in the machine local timezone; persisted JSON timestamps remain UTC.
+
+
+## v6.17.14 zero-work and SMART RESUME correction
+
+- **Current behavior supersedes the v6.17.12/v6.17.13 zero-work behavior above.** If discovery finds no runnable PATCH/COLLECT, warnings, `AUTO STATUS: IDLE` and Tool Health are printed and the zero-argument launcher exits `0` immediately. The invocation is not a run: it creates no run directory and does not write `LAST_RUN`, history, ledger or unresolved-failure state; it also does not auto-open HISTORY.
+- If runnable candidates existed but duplicate/session filtering removes all of them, `QUEUE CLEANUP SUMMARY` is shown and Enter may open HISTORY so the operator can see what was removed. This cleanup-only invocation still does not create a run report.
+- Automatic SMART RESUME requires `LAST_RUN` itself to be FAIL **and** at least one replay/failed/remaining item from that exact run to still exist in the current runnable queue. Older unresolved failures remain planner constraints only for related successors and never force the startup recovery menu in front of unrelated new PATCH/COLLECT work.

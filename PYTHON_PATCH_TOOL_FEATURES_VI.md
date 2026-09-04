@@ -1,4 +1,4 @@
-# Danh sách tính năng Python Patch Tool — v6.17.13
+# Danh sách tính năng Python Patch Tool — v6.17.14
 
 ## Workflow / batch engine
 
@@ -182,7 +182,8 @@ Registry failure là **relation-aware**: PATCH độc lập vẫn chạy; depend
 | HISTORY mặc định ẩn toàn bộ run `IDLE`; IDLE mới chỉ cập nhật `LAST_RUN`, không tạo thêm `history/*.json` | **COMPLETE v6.17.13** |
 | Dòng HISTORY hiển thị `tên PATCH/COLLECT → ngày giờ → trạng thái`, không dùng run-id/counts làm thông tin chính | **COMPLETE v6.17.13** |
 | Queue từng có package nhưng tất cả bị duplicate/auto-filter: in `QUEUE CLEANUP SUMMARY` và chờ Enter trước khi mở HISTORY | **COMPLETE v6.17.13** |
-| SMART RESUME tự bật chỉ khi lần chạy có công việc gần nhất thực sự FAIL; failure cũ không còn bị gọi sai là “phiên trước” | **COMPLETE v6.17.13** |
+| Zero-work zero-argument không tạo run/LAST_RUN/history/log; không tự mở HISTORY | **COMPLETE v6.17.14** |
+| SMART RESUME tự bật chỉ khi LAST_RUN FAIL còn recovery item thực sự trong queue; failure cũ không chiếm màn hình PATCH/COLLECT mới độc lập | **COMPLETE v6.17.14** |
 | Unresolved failure cũ vẫn được planner enforce cho successor liên quan và replay package vẫn được bảo vệ khỏi duplicate suppression | **COMPLETE v6.17.13** |
 | Report menu dùng `1..N=detail`; run không có item không hiện action detail/diff/support vô nghĩa | **COMPLETE v6.17.13** |
 

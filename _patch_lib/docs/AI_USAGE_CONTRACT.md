@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.17.13
+# AI / ChatGPT usage contract — Python Patch Tool v6.17.14
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
@@ -283,4 +283,4 @@ Once payload execution has begun, an unexpected runner exception is treated as a
 
 ### v6.17.13 history/resume semantics
 
-IDLE invocations are not PATCH/COLLECT execution history and are hidden from the operator history browser. Persistent unresolved failures still constrain related successors through dependency/effective-target planning, but automatic SMART RESUME is keyed to the latest meaningful failed execution rather than any older registry entry.
+A zero-argument invocation with no runnable PATCH/COLLECT is not a run at all: it creates no LAST_RUN/history/run log/state. Persistent unresolved failures still constrain related successors through dependency/effective-target planning, but automatic SMART RESUME requires a failed LAST_RUN whose recovery item is still present in the current runnable queue; older registry entries never globally hijack unrelated new work.
