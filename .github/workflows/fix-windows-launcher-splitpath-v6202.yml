@@ -29,42 +29,42 @@ jobs:
 
           python3 - <<'PY'
           from pathlib import Path
-
           ps = Path('run_python_patches.ps1')
           text = ps.read_text(encoding='utf-8')
-
           old_paths = "$ToolsDir = Split-Path -LiteralPath $MyInvocation.MyCommand.Path -Parent\n$ProjectRoot = Split-Path -LiteralPath $ToolsDir -Parent"
           new_paths = "$ToolsDir = [System.IO.Path]::GetDirectoryName($MyInvocation.MyCommand.Path)\n$ProjectRoot = [System.IO.Path]::GetDirectoryName($ToolsDir)"
           if old_paths not in text:
               raise SystemExit('expected Split-Path launcher block not found')
           text = text.replace(old_paths, new_paths, 1)
-
-          old_fn = """function Invoke-PatchPython([string[]]$Arguments) {
-    $invokeArgs = @()
-    if ($Python.Prefix) { $invokeArgs += $Python.Prefix }
-    $invokeArgs += $Arguments
-    & $Python.Exe @invokeArgs
-    if ($null -eq $LASTEXITCODE) { return 1 }
-    return [int]$LASTEXITCODE
-}
-"""
-          new_fn = """$script:PatchPythonExitCode = 1
-function Invoke-PatchPython([string[]]$Arguments) {
-    $invokeArgs = @()
-    if ($Python.Prefix) { $invokeArgs += $Python.Prefix }
-    $invokeArgs += $Arguments
-    & $Python.Exe @invokeArgs
-    if ($null -eq $LASTEXITCODE) {
-        $script:PatchPythonExitCode = 1
-    } else {
-        $script:PatchPythonExitCode = [int]$LASTEXITCODE
-    }
-}
-"""
+          old_fn = "\n".join([
+              "function Invoke-PatchPython([string[]]$Arguments) {",
+              "    $invokeArgs = @()",
+              "    if ($Python.Prefix) { $invokeArgs += $Python.Prefix }",
+              "    $invokeArgs += $Arguments",
+              "    & $Python.Exe @invokeArgs",
+              "    if ($null -eq $LASTEXITCODE) { return 1 }",
+              "    return [int]$LASTEXITCODE",
+              "}",
+              "",
+          ])
+          new_fn = "\n".join([
+              "$script:PatchPythonExitCode = 1",
+              "function Invoke-PatchPython([string[]]$Arguments) {",
+              "    $invokeArgs = @()",
+              "    if ($Python.Prefix) { $invokeArgs += $Python.Prefix }",
+              "    $invokeArgs += $Arguments",
+              "    & $Python.Exe @invokeArgs",
+              "    if ($null -eq $LASTEXITCODE) {",
+              "        $script:PatchPythonExitCode = 1",
+              "    } else {",
+              "        $script:PatchPythonExitCode = [int]$LASTEXITCODE",
+              "    }",
+              "}",
+              "",
+          ])
           if old_fn not in text:
               raise SystemExit('expected Invoke-PatchPython block not found')
           text = text.replace(old_fn, new_fn, 1)
-
           replacements = {
               "exit (Invoke-PatchPython @($Dispatcher, '--project-root', $ProjectRoot))": "Invoke-PatchPython @($Dispatcher, '--project-root', $ProjectRoot)\n    exit $script:PatchPythonExitCode",
               "exit (Invoke-PatchPython (@($Dispatcher, '--project-root', $ProjectRoot, $command) + $rest))": "Invoke-PatchPython (@($Dispatcher, '--project-root', $ProjectRoot, $command) + $rest)\n    exit $script:PatchPythonExitCode",
@@ -80,19 +80,18 @@ function Invoke-PatchPython([string[]]$Arguments) {
           if 'exit (Invoke-PatchPython' in text:
               raise SystemExit('capturing exit(Invoke-PatchPython ...) callsite remains')
           ps.write_text(text, encoding='utf-8')
-
           test = Path('_patch_lib/self_test_windows_launchers_v6_20_0.py')
           t = test.read_text(encoding='utf-8')
           marker = "assert \"if ($ToolArgs.Count -eq 0)\" in pst\n"
-          insert = (
-              "assert \"[System.IO.Path]::GetDirectoryName($MyInvocation.MyCommand.Path)\" in pst\n"
-              "assert \"[System.IO.Path]::GetDirectoryName($ToolsDir)\" in pst\n"
-              "assert \"Split-Path -LiteralPath $MyInvocation.MyCommand.Path -Parent\" not in pst\n"
-              "assert \"Split-Path -LiteralPath $ToolsDir -Parent\" not in pst\n"
-              "assert \"$script:PatchPythonExitCode = 1\" in pst\n"
-              "assert \"exit (Invoke-PatchPython\" not in pst\n"
-              "assert \"exit $script:PatchPythonExitCode\" in pst\n"
-          )
+          insert = "".join([
+              "assert \"[System.IO.Path]::GetDirectoryName($MyInvocation.MyCommand.Path)\" in pst\n",
+              "assert \"[System.IO.Path]::GetDirectoryName($ToolsDir)\" in pst\n",
+              "assert \"Split-Path -LiteralPath $MyInvocation.MyCommand.Path -Parent\" not in pst\n",
+              "assert \"Split-Path -LiteralPath $ToolsDir -Parent\" not in pst\n",
+              "assert \"$script:PatchPythonExitCode = 1\" in pst\n",
+              "assert \"exit (Invoke-PatchPython\" not in pst\n",
+              "assert \"exit $script:PatchPythonExitCode\" in pst\n",
+          ])
           if marker not in t:
               raise SystemExit('windows launcher regression insertion marker missing')
           test.write_text(t.replace(marker, insert + marker, 1), encoding='utf-8')
