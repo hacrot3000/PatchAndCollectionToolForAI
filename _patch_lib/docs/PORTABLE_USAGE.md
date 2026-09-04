@@ -1,13 +1,13 @@
-# Python Patch Tool v6.17.8 portable usage
+# Python Patch Tool v6.17.9 portable usage
 
-The release is self-contained for its v6.17.8 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
+The release is self-contained for its v6.17.9 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
 
 ## Linux / POSIX
 
 Install/update at the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.17.8.zip -d "$PWD"
+unzip -o python_patch_tool_v6.17.9.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 
@@ -18,7 +18,7 @@ Requirement: **Python 3.10+**. The launcher accepts Python Launcher (`py -3`) or
 PowerShell install/update at the project root:
 
 ```powershell
-Expand-Archive -Force .\python_patch_tool_v6.17.8.zip .
+Expand-Archive -Force .\python_patch_tool_v6.17.9.zip .
 tools\run_python_patches.bat
 ```
 
@@ -50,7 +50,7 @@ PATCH package construction must follow `PATCH_PACKAGE_SCHEMA.json` and `PATCH_PA
 
 Failed PATCH runs write `artifacts/patch_tool/LAST_RUN.json` and always attempt a `fail_handoffs/FAIL_HANDOFF_*.zip`; every FAIL handoff automatically bundles bounded related source plus `SOURCE_DISCOVERY.json`. Source drift can additionally prepare a next-run COLLECT request. Interactive PATCH inspect is `i` (line selector: `i <index>`), read-only validate is `v` (line selector: `v <index>`), and Tool Health is `h`. Direct validation is `tools\run_python_patches.bat validate --patch patchs\example.zip` on Windows or `./tools/run_python_patches.sh validate --patch patchs/example.zip` on POSIX.
 
-When multiple PATCHes are selected, whole-batch preflight validates the selected set before the first source write. The default failure policy is `continue_independent`: after a contained PATCH failure, later independent PATCHes continue automatically. Declared dependency failures and effective-target overlap with a failed/blocked PATCH are reported as `BLOCKED`; explicit `fail_fast` remains available. Ctrl+C, rollback failure, or partial/unknown project state still safety-stop. Batch-preflight failures remain `PREFLIGHT_FAIL`; untouched work is `NOT_EXECUTED`.
+When multiple PATCHes are selected, read-only batch preflight validates the selected set before the first source write. Under the default `continue_independent` + `transaction=patch`, an item-local `PREFLIGHT_FAIL` rejects only that PATCH: dependency/effective-target-related successors become `BLOCKED`, while unrelated PATCHes continue. Global planning/resource/transaction failures, explicit `fail_fast`, and atomic `transaction=batch` remain whole-batch fail-closed. Ctrl+C, rollback failure, or partial/unknown project state still safety-stop. `NOT_EXECUTED` is reserved for work genuinely not attempted because a global/explicit stop occurred.
 
 If the previous run left a failed PATCH in `patchs/`, a successor generated from its FAIL_HANDOFF must declare `batch.previous_failure` with an explicit `delete`, `retry_before`, `run_after`, or `block` action and a reason. This prevents orphan failed PATCHes. Smart Resume is available with `resume --resume-mode all|failed|remaining`.
 

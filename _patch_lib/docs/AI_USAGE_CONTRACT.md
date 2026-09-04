@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.17.8
+# AI / ChatGPT usage contract — Python Patch Tool v6.17.9
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
@@ -192,7 +192,7 @@ Ví dụ:
 
 `action` chỉ được chọn một trong bốn hành động có nghĩa rõ ràng:
 
-- `delete`: PATCH kế tiếp thay thế predecessor; tool chỉ move **package PATCH lỗi** sang `patchs/ignore/YYYY-MM-DD-<tên gốc>`, không xóa source. Hành động này chỉ được áp dụng sau khi whole-batch preflight PASS.
+- `delete`: PATCH kế tiếp thay thế predecessor; tool chỉ move **package PATCH lỗi** sang `patchs/ignore/YYYY-MM-DD-<tên gốc>`, không xóa source. Hành động này chỉ được áp dụng sau khi các global preflight gate cần thiết PASS; PREFLIGHT_FAIL item-local không liên quan không tự chặn action.
 - `retry_before`: predecessor vẫn cần thiết; tool đưa PATCH lỗi chạy trước PATCH mới. Nếu predecessor tiếp tục lỗi, dependency/failure policy quyết định PATCH sau có bị block hay không.
 - `run_after`: PATCH mới phải chạy trước để chuẩn bị source rồi predecessor được retry sau. Không dùng nếu `depends_on` tạo thứ tự ngược lại.
 - `block`: AI xác định chưa an toàn để tiếp tục; tool chặn batch trước source write.
@@ -223,6 +223,8 @@ Dependency dùng `manifest.batch.depends_on` với `manifest.patch.id` đã tồ
 ## v6.17.5 — Whole-batch preflight và transaction
 
 Trước PATCH đầu tiên, dispatcher kiểm tra schema/package/compatibility/dependency/predecessor-action cho cả batch và chạy validate read-only cho từng PATCH. PATCH phụ thuộc có thể được ghi `DEFERRED_AFTER_DEPENDENCY` nếu source hiện tại chỉ mismatch vì nó mô tả trạng thái sau dependency; runner vẫn bắt buộc preflight đầy đủ ngay trước execution.
+
+**v6.17.9:** với `continue_independent` + `transaction=patch`, một validate read-only FAIL của riêng một PATCH trở thành `PREFLIGHT_FAIL` item-local. PATCH độc lập tiếp tục; PATCH phụ thuộc/overlap target bị `BLOCKED`. Global preflight gate, `transaction=batch`, hoặc explicit `fail_fast` vẫn dừng trước source write.
 
 `batch.transaction_policy = batch` là atomic rollback theo **effective target set resolve trước**, không phải sandbox/worktree. Khi dùng policy này:
 

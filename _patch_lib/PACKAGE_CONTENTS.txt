@@ -1,4 +1,4 @@
-Python Patch Tool v6.17.8 — full self-contained package
+Python Patch Tool v6.17.9 — full self-contained package
 
 Public launchers / user docs:
   tools/run_python_patches.sh
@@ -52,11 +52,11 @@ Runtime artifacts (created in project; not shipped pre-populated):
   patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip
 
 Normal use — Linux/POSIX:
-  unzip -o python_patch_tool_v6.17.8.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.17.9.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 Normal use — Windows (Python 3.10+):
-  Expand-Archive -Force .\python_patch_tool_v6.17.8.zip PROJECT_ROOT
+  Expand-Archive -Force .\python_patch_tool_v6.17.9.zip PROJECT_ROOT
   tools\run_python_patches.bat
   # or: .\tools\run_python_patches.ps1
 
@@ -112,3 +112,11 @@ v6.17.8 failure-only commands / script execution audit:
 - batch read-only validation timeouts signal the runner first so nested OPS workers are cleaned before hard-kill fallback.
 - Patch Tool internal result/lock control environment variables are removed before project/payload commands are spawned.
 - COLLECT Git context marks failed Git sections explicitly and collector lingering-process completion cannot report false PASS.
+
+
+v6.17.9 item-local batch preflight continuation:
+- under failure_policy=continue_independent + transaction_policy=patch, a read-only PREFLIGHT_FAIL belongs to that PATCH instead of aborting the whole selected batch;
+- dependency/effective-target-related successors become BLOCKED, while unrelated PATCHes continue automatically;
+- transaction_policy=batch, global planning/resource/transaction failures and explicit fail_fast remain whole-batch fail-closed;
+- recovery COLLECT/FAIL_HANDOFF for a preflight-failed PATCH is captured before independent source writes;
+- batch reports count PREFLIGHT_FAIL as the actual failed item and reserve NOT_EXECUTED for genuinely stopped work.

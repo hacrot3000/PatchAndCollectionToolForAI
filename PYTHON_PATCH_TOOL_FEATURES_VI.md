@@ -1,4 +1,4 @@
-# Danh sách tính năng Python Patch Tool — v6.17.8
+# Danh sách tính năng Python Patch Tool — v6.17.9
 
 ## Workflow / batch engine
 
@@ -143,3 +143,14 @@ Registry failure là **relation-aware**: PATCH độc lập vẫn chạy; depend
 | Dispatcher `inspect/preview/validate` có outer timeout + process-tree/signal containment | **COMPLETE v6.17.8** |
 | Dispatcher COLLECT foreground không còn dùng bare `subprocess.run`; Ctrl+C/SIGTERM forward theo tree | **COMPLETE v6.17.8** |
 | `internal_error` sau khi execution bắt đầu => rollback phù hợp → `on_failure`, giữ lỗi gốc primary | **COMPLETE v6.17.8** |
+
+
+## Sửa lỗi v6.17.9 — batch preflight continuation
+
+| Hành vi | Trạng thái |
+|---|---|
+| `continue_independent` + `transaction=patch`: PREFLIGHT_FAIL chỉ fail item đó | **COMPLETE v6.17.9** |
+| Dependency/effective-target relation với PREFLIGHT_FAIL => `BLOCKED` | **COMPLETE v6.17.9** |
+| PATCH độc lập vẫn chạy sau item-local PREFLIGHT_FAIL | **COMPLETE v6.17.9** |
+| `transaction=batch`, global preflight error, explicit `fail_fast` vẫn fail-closed | **COMPLETE v6.17.9** |
+| Report đếm đúng `PREFLIGHT_FAIL` và `failed_item`, không gán sai `NOT_EXECUTED` | **COMPLETE v6.17.9** |

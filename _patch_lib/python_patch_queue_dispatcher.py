@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.17.8"
+VERSION = "6.17.9"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -2664,6 +2664,18 @@ def _last_patch_name(*, status: str | None = None) -> str | None:
     return None
 
 
+def _last_problem_patch_name() -> str | None:
+    for detail in reversed(_LAST_EXECUTION_DETAILS):
+        if detail.get("kind") != "PATCH":
+            continue
+        if detail.get("status") not in {"FAIL", "PREFLIGHT_FAIL"}:
+            continue
+        name = detail.get("name")
+        if isinstance(name, str) and name:
+            return name
+    return None
+
+
 def _report_rows(report: dict[str, object]) -> list[dict[str, object]]:
     selected = [x for x in report.get("selected", []) if isinstance(x, str)] if isinstance(report.get("selected"), list) else []
     raw_results = report.get("results") if isinstance(report.get("results"), list) else []
@@ -4065,6 +4077,61 @@ def _batch_preflight(root: Path, chosen: list[QueueItem], metas: dict[str, Patch
     return ok, rows
 
 
+def _materialize_batch_preflight_failure(
+    root: Path,
+    item: QueueItem,
+    row: dict[str, object] | None,
+) -> dict[str, object]:
+    """Create the normal recovery artifacts for one read-only PATCH preflight failure.
+
+    The failure is item-local: no payload has executed and the project is unchanged.
+    Capturing the handoff here (before any independent PATCH writes source) preserves
+    the exact diagnostic/source state that caused the preflight rejection.
+    """
+    row = row or {}
+    patch_result = row.get("patch_result") if isinstance(row.get("patch_result"), dict) else None
+    if patch_result is None:
+        kind = str(row.get("classification") or "batch_preflight_failed").lower()
+        patch_path = root / "patchs" / item.name
+        patch_result = {
+            "format": "python-patch-tool-patch-result", "format_version": 1, "tool_version": VERSION,
+            "patch_file": item.name,
+            "patch_sha256": _sha256_file(patch_path) if patch_path.is_file() and not patch_path.is_symlink() else None,
+            "status": "FAIL", "rc": 2, "stage": "preflight",
+            "diagnosis": {"kind": kind, "message": "batch preflight rejected PATCH", "affected_paths": []},
+            "partial_modification": {"detected": False, "changed_paths": [], "evidence": "read_only_batch_preflight"},
+        }
+    diagnosis = patch_result.get("diagnosis") if isinstance(patch_result.get("diagnosis"), dict) else {
+        "kind": str(row.get("classification") or "batch_preflight_failed"),
+        "message": "batch preflight rejected PATCH",
+        "affected_paths": [],
+    }
+    recovery_request = _create_recovery_collect_request(root, item, patch_result)
+    log_text = ""
+    detail_log_path = None
+    if isinstance(row.get("log_path"), str):
+        detail_log_path = root / str(row["log_path"])
+        try:
+            log_text = detail_log_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            log_text = ""
+    fail_handoff = _create_fail_handoff(
+        root, item, 2, log_text, patch_result, recovery_request,
+        detail_log_path=detail_log_path,
+    )
+    detail: dict[str, object] = {
+        "name": item.name, "kind": item.kind, "status": "PREFLIGHT_FAIL", "rc": 2,
+        "diagnosis": diagnosis, "patch_result": patch_result,
+        "preflight_log_path": row.get("log_path"),
+        "recovery_collect_request": recovery_request.relative_to(root).as_posix() if recovery_request is not None else None,
+        "fail_handoff": fail_handoff.relative_to(root).as_posix() if fail_handoff is not None else None,
+        "continue_decision": {"allowed": True, "reason": "read_only_preflight_failure_project_unchanged"},
+    }
+    row["recovery_collect_request"] = detail["recovery_collect_request"]
+    row["fail_handoff"] = detail["fail_handoff"]
+    return detail
+
+
 def _safe_to_continue_after_failure(detail: dict[str, object]) -> tuple[bool, str]:
     """Return whether unrelated PATCHes may continue after this failure.
 
@@ -4198,11 +4265,13 @@ def execute_items(
     failure_policy: str = "continue_independent",
     metas: dict[str, PatchMeta] | None = None,
     history_replay_sha: dict[str, str] | None = None,
+    preflight_failure_details: dict[str, dict[str, object]] | None = None,
 ):
     """Execute a validated batch with controlled continuation and dependency blocking."""
     global _LAST_EXECUTION_DETAILS
     _LAST_EXECUTION_DETAILS = []
     metas = metas or {}
+    preflight_failure_details = preflight_failure_details or {}
     contract_error = _selection_contract_error(chosen)
     if contract_error:
         print(f"[PTV v{VERSION} ERROR] SELECTION: {_safe_display(contract_error)}", file=sys.stderr)
@@ -4219,6 +4288,25 @@ def execute_items(
         item_started_at = _utc_now()
         detail_log_path = _batch_item_log_path(root, _ACTIVE_RUN_ID, index + 1, item)
         meta = metas.get(item.name)
+
+        preflight_detail = preflight_failure_details.get(item.name)
+        if item.kind == "PATCH" and preflight_detail is not None:
+            detail = dict(preflight_detail)
+            detail.setdefault("started_at", item_started_at)
+            detail.setdefault("elapsed_seconds", round(time.monotonic() - item_started_mono, 3))
+            _LAST_EXECUTION_DETAILS.append(detail)
+            if meta is not None:
+                patch_status_by_id[meta.patch_id] = "PREFLIGHT_FAIL"
+                failed_target_records.append((meta.patch_id, set(meta.effective_targets)))
+            if not first_failure_rc:
+                first_failure_rc = int(detail.get("rc") or 2)
+            diagnosis = detail.get("diagnosis") if isinstance(detail.get("diagnosis"), dict) else {}
+            reason = str(diagnosis.get("kind") or "preflight_failed")
+            print(f"[PREFLIGHT_FAIL] {_safe_display(item.name)} | {_safe_display(reason)}")
+            if failure_policy != "continue_independent":
+                return first_failure_rc, executed, chosen[index + 1 :], late_duplicates, duplicate_warnings
+            print(f"[PTV v{VERSION}] CONTINUE AFTER PREFLIGHT FAILURE: {_safe_display(item.name)} | project unchanged")
+            continue
 
         if item.kind == "PATCH" and meta is not None:
             failed_deps = [
@@ -5331,53 +5419,68 @@ def _run_queue(root: Path, *, failure_policy_override: str | None = None, transa
         preflight_ok, batch_preflight_rows = _batch_preflight(root, chosen, metas, run_id=run_id, transaction_policy=transaction_policy)
     else:
         preflight_ok, batch_preflight_rows = True, []
+    preflight_failure_details: dict[str, dict[str, object]] = {}
     if not preflight_ok:
-        _LAST_EXECUTION_DETAILS = []
-        fail_names = {str(r.get("name")) for r in batch_preflight_rows if r.get("status") == "FAIL" and r.get("name")}
-        not_executed_items: list[QueueItem] = []
+        failed_rows = [r for r in batch_preflight_rows if r.get("status") == "FAIL"]
+        global_preflight_failure = any(not r.get("name") for r in failed_rows)
+        # Batch-transaction mode is intentionally all-or-nothing. Likewise,
+        # explicit fail_fast preserves the old whole-batch preflight barrier.
+        # Under the default patch transaction + continue_independent policy,
+        # a read-only failure belongs only to that PATCH; independent items
+        # continue while dependency/target-related successors are BLOCKED by
+        # execute_items using the normal relationship state machine.
+        must_abort_whole_batch = (
+            global_preflight_failure
+            or transaction_policy == "batch"
+            or failure_policy != "continue_independent"
+        )
+        if must_abort_whole_batch:
+            _LAST_EXECUTION_DETAILS = []
+            fail_names = {str(r.get("name")) for r in failed_rows if r.get("name")}
+            not_executed_items: list[QueueItem] = []
+            for item in chosen:
+                row = next((r for r in batch_preflight_rows if r.get("name") == item.name), None)
+                if item.name in fail_names:
+                    detail = _materialize_batch_preflight_failure(root, item, row)
+                    _LAST_EXECUTION_DETAILS.append(detail)
+                else:
+                    not_executed_items.append(item)
+                    _LAST_EXECUTION_DETAILS.append({
+                        "name": item.name, "kind": item.kind, "status": "NOT_EXECUTED", "rc": None,
+                        "diagnosis": {
+                            "kind": "batch_preflight_failed_elsewhere",
+                            "message": "no payload executed because whole-batch preflight failed",
+                        },
+                        "preflight_log_path": row.get("log_path") if row else None,
+                    })
+            print("BATCH PREFLIGHT: FAIL — no selected PATCH modified source", file=sys.stderr)
+            for row in failed_rows:
+                print(f"  - {_safe_display(str(row.get('name') or 'batch'))}: {_safe_display(str(row.get('classification')))}", file=sys.stderr)
+            failed = next((x.name for x in chosen if x.name in fail_names), chosen[0].name if chosen else None)
+            return finish_report("FAIL", 2, chosen=chosen, remaining=not_executed_items, failed_item=failed)
+
+        # Capture every failing PATCH's recovery artifacts before any independent
+        # PATCH writes source. This preserves the exact source/log evidence that
+        # caused the read-only preflight rejection while still allowing the
+        # default continuation policy to do its job.
         for item in chosen:
-            row = next((r for r in batch_preflight_rows if r.get("name") == item.name), None)
-            if item.name in fail_names:
-                patch_result = row.get("patch_result") if isinstance(row, dict) and isinstance(row.get("patch_result"), dict) else None
-                if patch_result is None:
-                    kind = str(row.get("classification") if row else "batch_preflight_failed").lower()
-                    patch_result = {
-                        "format": "python-patch-tool-patch-result", "format_version": 1, "tool_version": VERSION,
-                        "patch_file": item.name, "patch_sha256": _sha256_file(root / "patchs" / item.name) if (root / "patchs" / item.name).is_file() else None,
-                        "status": "FAIL", "rc": 2, "stage": "preflight",
-                        "diagnosis": {"kind": kind, "message": "batch preflight rejected PATCH", "affected_paths": []},
-                        "partial_modification": {"detected": False, "changed_paths": [], "evidence": "read_only_batch_preflight"},
-                    }
-                diagnosis = patch_result.get("diagnosis") if isinstance(patch_result.get("diagnosis"), dict) else {"kind": str(row.get("classification") if row else "batch_preflight_failed"), "message": "batch preflight rejected PATCH", "affected_paths": []}
-                recovery_request = _create_recovery_collect_request(root, item, patch_result)
-                log_text = ""
-                if isinstance(row, dict) and isinstance(row.get("log_path"), str):
-                    try: log_text = (root / str(row["log_path"])).read_text(encoding="utf-8", errors="replace")
-                    except OSError: log_text = ""
-                fail_handoff = _create_fail_handoff(root, item, 2, log_text, patch_result, recovery_request, detail_log_path=(root / str(row["log_path"])) if isinstance(row, dict) and isinstance(row.get("log_path"), str) else None)
-                detail = {
-                    "name": item.name, "kind": item.kind, "status": "PREFLIGHT_FAIL", "rc": 2,
-                    "diagnosis": diagnosis, "patch_result": patch_result,
-                    "preflight_log_path": row.get("log_path") if row else None,
-                    "recovery_collect_request": recovery_request.relative_to(root).as_posix() if recovery_request is not None else None,
-                    "fail_handoff": fail_handoff.relative_to(root).as_posix() if fail_handoff is not None else None,
-                }
-                _LAST_EXECUTION_DETAILS.append(detail)
-                if isinstance(row, dict):
-                    row["recovery_collect_request"] = detail["recovery_collect_request"]
-                    row["fail_handoff"] = detail["fail_handoff"]
-            else:
-                not_executed_items.append(item)
-                _LAST_EXECUTION_DETAILS.append({"name": item.name, "kind": item.kind, "status": "NOT_EXECUTED", "rc": None,
-                    "diagnosis": {"kind": "batch_preflight_failed_elsewhere", "message": "no payload executed because whole-batch preflight failed"},
-                    "preflight_log_path": row.get("log_path") if row else None})
-        print("BATCH PREFLIGHT: FAIL — no selected PATCH modified source", file=sys.stderr)
-        for row in batch_preflight_rows:
-            if row.get("status") == "FAIL": print(f"  - {_safe_display(str(row.get('name') or 'batch'))}: {_safe_display(str(row.get('classification')))}", file=sys.stderr)
-        failed = next((x.name for x in chosen if x.name in fail_names), chosen[0].name if chosen else None)
-        return finish_report("FAIL", 2, chosen=chosen, remaining=not_executed_items, failed_item=failed)
-    if needs_batch_preflight:
-        print("BATCH PREFLIGHT: PASS — all packages validated before first source write")
+            row = next((r for r in failed_rows if r.get("name") == item.name), None)
+            if row is not None:
+                preflight_failure_details[item.name] = _materialize_batch_preflight_failure(root, item, row)
+        print(
+            f"BATCH PREFLIGHT: PARTIAL — rejected={len(preflight_failure_details)}; "
+            "independent PATCHes will continue",
+            file=sys.stderr,
+        )
+        for row in failed_rows:
+            print(
+                f"  - {_safe_display(str(row.get('name') or 'batch'))}: "
+                f"{_safe_display(str(row.get('classification')))}",
+                file=sys.stderr,
+            )
+    else:
+        if needs_batch_preflight:
+            print("BATCH PREFLIGHT: PASS — all packages validated before first source write")
     deferred = [r for r in batch_preflight_rows if r.get("status") == "DEFERRED_AFTER_DEPENDENCY"]
     if deferred:
         print(f"  Deferred source checks after declared dependencies: {len(deferred)} (runner revalidates immediately before execution)")
@@ -5440,7 +5543,8 @@ def _run_queue(root: Path, *, failure_policy_override: str | None = None, transa
 
     try:
         rc, executed, remaining, late_duplicates, late_duplicate_warnings = execute_items(
-            root, chosen, failure_policy=failure_policy, metas=metas, history_replay_sha=history_replay_sha
+            root, chosen, failure_policy=failure_policy, metas=metas, history_replay_sha=history_replay_sha,
+            preflight_failure_details=preflight_failure_details,
         )
         local_duplicates = [*local_duplicates, *late_duplicates]
         for warning in late_duplicate_warnings:
@@ -5501,7 +5605,7 @@ def _run_queue(root: Path, *, failure_policy_override: str | None = None, transa
             batch_mutation_lock = None
 
     if rc:
-        failed_rows = [x for x in _LAST_EXECUTION_DETAILS if x.get("status") == "FAIL"]
+        failed_rows = [x for x in _LAST_EXECUTION_DETAILS if x.get("status") in {"FAIL", "PREFLIGHT_FAIL"}]
         failed_name = str(failed_rows[-1].get("name")) if failed_rows else (executed[-1][0] if executed else None)
         fail_count = len(failed_rows)
         print(f"SUMMARY: FAIL | failed={fail_count} | policy={failure_policy} | last={_safe_display(str(failed_name or 'unknown'))} rc={rc}", file=sys.stderr)
@@ -5510,7 +5614,7 @@ def _run_queue(root: Path, *, failure_policy_override: str | None = None, transa
             for item in remaining: print(f"  - {_safe_display(item.name)}", file=sys.stderr)
         if session_duplicates: _print_session_duplicate_removals(session_duplicates, stream=sys.stderr)
         finish_report("FAIL", rc, chosen=chosen, executed=executed, remaining=remaining, failed_item=failed_name)
-        _print_patch_result_banner("FAIL", _last_patch_name(status="FAIL"), rc=rc, stream=sys.stderr)
+        _print_patch_result_banner("FAIL", _last_problem_patch_name(), rc=rc, stream=sys.stderr)
         return rc
 
     if session_duplicates: _print_session_duplicate_removals(session_duplicates)

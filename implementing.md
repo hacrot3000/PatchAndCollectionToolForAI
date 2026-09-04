@@ -1,6 +1,6 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.17.8**  
+Phiên bản mục tiêu: **v6.17.9**  
 Trạng thái: **PROJECT POLICY + PRE-EXECUTION PLAN + PERSISTENT RECOVERY STATE — COMPLETE / STOP**
 
 ## Baseline
@@ -90,7 +90,7 @@ Nếu `LAST_RUN` còn predecessor FAIL trong `patchs/` và người dùng chọn
 
 Action hợp lệ:
 
-- `delete`: move package predecessor sang `patchs/ignore/YYYY-MM-DD-*` sau whole-batch preflight PASS.
+- `delete`: move package predecessor sang `patchs/ignore/YYYY-MM-DD-*` sau khi các global preflight gate an toàn đã PASS; một PREFLIGHT_FAIL không liên quan ở item khác không tự chặn action này.
 - `retry_before`: tự đưa predecessor chạy trước successor.
 - `run_after`: tự đưa predecessor chạy sau successor.
 - `block`: chặn batch trước source write.
@@ -109,7 +109,11 @@ Trước payload đầu tiên:
 
 PATCH phụ thuộc có thể được ghi `DEFERRED_AFTER_DEPENDENCY` nếu source mismatch hiện tại là do nó mô tả post-dependency state. Runner vẫn bắt buộc full preflight ngay trước PATCH đó. Schema/package/tool error không bao giờ được defer.
 
-Nếu whole-batch preflight FAIL: **không PATCH payload nào được chạy**.
+v6.17.9 phân loại preflight failure theo scope:
+
+- **Global preflight failure** (transaction compatibility/resource/planning integrity, hoặc `transaction_policy=batch`, hoặc explicit `fail_fast`) vẫn dừng toàn batch trước source write.
+- Với mặc định `continue_independent` + `transaction_policy=patch`, **item-local read-only preflight failure** (`PREFLIGHT_FAIL`, ví dụ `project_identity_unconfigured`/source drift độc lập) chỉ đánh fail PATCH đó. PATCH phụ thuộc hoặc overlap effective target bị `BLOCKED`; PATCH độc lập vẫn tiếp tục.
+- `PREFLIGHT_FAIL` không chạy payload và không chạy `on_failure.commands`, vì execution chưa bắt đầu.
 
 ## 5. Batch transaction
 
@@ -385,3 +389,8 @@ Windows vẫn có packaged process-group/taskkill/CTRL_BREAK contract; native PA
 - `inspect` / `preview` / `validate` no longer use bare `subprocess.run`; dispatcher owns a new process group, applies a bounded outer guard, and forwards Ctrl+C/SIGTERM before force-kill fallback.
 - COLLECT remains intentionally without a global wall-clock timeout because its request already has bounded file/byte/action limits and may be long-running, but dispatcher now owns/forwards its foreground process-tree lifecycle.
 - `internal_error` after execution begins now follows the same recovery boundary as an ordinary execution failure: rollback when the configured stage supports it, then `on_failure`; preflight/internal package failures still never run failure commands.
+
+
+## 15. v6.17.9 — item-local batch preflight continuation
+
+Sửa regression orchestration: whole-batch read-only validation vẫn chạy trước source write, nhưng kết quả FAIL của từng PATCH không còn tự biến mọi PATCH khác thành `NOT_EXECUTED` dưới policy mặc định. Dispatcher materialize FAIL_HANDOFF/COLLECT recovery cho item lỗi trước khi source khác thay đổi, sau đó state machine dependency/effective-target quyết định `BLOCKED` hay tiếp tục. Report giữ exit code failure của batch nhưng phản ánh đúng `PASS/PREFLIGHT_FAIL/BLOCKED/NOT_EXECUTED`.
