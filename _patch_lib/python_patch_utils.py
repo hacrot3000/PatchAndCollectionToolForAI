@@ -15,7 +15,7 @@ import zipfile
 import datetime as _dt
 from typing import Any, Callable, Iterable, Optional
 
-VERSION = "6.19.0"
+VERSION = "6.19.1"
 
 
 class PatchFailure(RuntimeError):

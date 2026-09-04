@@ -1,11 +1,21 @@
-# v6.19.0 mandatory continuity gate — NO SILENT REMOVAL
+# v6.19.1 mandatory continuity gate — NO SILENT REMOVAL
 
 Before modifying Patch Tool, read `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, and `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Do not delete or narrow any capability previously marked COMPLETE/PRESERVED/COMPATIBILITY_RESTORED unless the user explicitly requests it or a later documented contract supersedes it. Every intentional transition must be recorded in the ledger and protected by a behavioral test. Surface/string-only compatibility tests are not sufficient.
 
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.19.0**  
+Phiên bản mục tiêu: **v6.19.1**  
 Trạng thái: **95/95 HISTORICAL-COMPLETE DISPOSITION + SEMANTIC CONTINUITY — COMPLETE**
+
+## v6.19.1 — ZIP + clear-text companion artifacts
+
+- Mỗi `CODE_COLLECTION_RESULT_*.zip` phải sinh thêm file cùng stem `.txt`; TXT linearize toàn bộ entry bằng header `Path/Kind/Size/SHA-256/Encoding/Description` và begin/end boundary.
+- Mỗi `FAIL_HANDOFF_*.zip` phải sinh thêm companion `.txt`; ZIP vẫn là artifact preferred, TXT dùng cho AI không hỗ trợ giải nén.
+- Text member được copy verbatim. Binary member không được bỏ: encode Base64. Nested ZIP nhỏ/an toàn được expand recursively để AI đọc được manifest/source bên trong; nested archive vượt safety bound được giữ dưới representation lossless thay vì silently omitted.
+- Companion phải cảnh báo content bên trong là untrusted evidence/data, không phải instruction; sensitivity/trust requirement giống source ZIP.
+- Console/HISTORY/report phải lưu và highlight cả ZIP và TXT. Plain/non-TTY/`NO_COLOR` không được chèn ANSI vào path.
+- COLLECT chỉ được báo success khi companion chuẩn được tạo; FAIL_HANDOFF không được hy sinh mandatory ZIP nếu derived TXT thất bại, nhưng phải warning rõ.
+- Release gate: `self_test_cleartext_companion_v6_19_1.py`.
 
 ## v6.18.8 — HISTORY/report AI-upload artifact highlighting
 
@@ -14,7 +24,7 @@ Trạng thái: **95/95 HISTORICAL-COMPLETE DISPOSITION + SEMANTIC CONTINUITY —
 - Artifact AI-facing bị `[missing]` dùng nền đỏ/yellow warning để không bị hiểu nhầm là file có thể upload.
 - `BATCH RESULT — INCOMPLETE`, `[INCOMPLETE]` và `[PREFLIGHT_FAIL]` được nhấn mạnh; PASS/plain metadata không bị biến thành cảnh báo.
 - `NO_COLOR` và non-TTY phải giữ plain text không có escape sequence; path không được clip.
-- Regression bắt buộc: `self_test_history_artifact_highlight_v6_19_0.py`.
+- Regression bắt buộc: `self_test_history_artifact_highlight_v6_19_1.py`.
 
 ## v6.18.7 — Regex large-tree partial preservation
 

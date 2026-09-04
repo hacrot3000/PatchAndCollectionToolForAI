@@ -73,6 +73,11 @@ Starting with v6.18.3, the authoritative protected COLLECT action/alias surface 
 
 If an action is intentionally replaced, `CAPABILITY_LEDGER.md` must name the replacement and a semantic test must demonstrate either the preserved equivalent or the deliberate fail-closed disposition.
 
+## v6.19.1 output-representation invariant
+
+`CODE_COLLECTION_RESULT` and `FAIL_HANDOFF` are dual-representation AI-facing artifacts: ZIP plus same-stem clear-text TXT. Later refactors must not silently return to ZIP-only output, omit binary/nested members from the TXT, or remove TXT paths from HISTORY/report. Any intentional replacement requires an explicit ledger entry and semantic test.
+
+
 ## Documentation preservation
 
 Historical documentation must not be silently rewritten as if old behavior never existed. When text is no longer current, mark it `Historical — superseded by ...` instead of deleting evidence needed for future audits.

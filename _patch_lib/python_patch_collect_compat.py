@@ -21,7 +21,7 @@ import zipfile
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
 from python_patch_database_select import DatabaseSelectError, execute_database_select
 
-VERSION = "6.19.0"
+VERSION = "6.19.1"
 REQUEST_RE = re.compile(r"^CODE_COLLECTION_REQUEST(?:_[A-Za-z0-9._-]+)?\.json$", re.I)
 MAX_REQUEST_JSON_BYTES = 1024 * 1024
 REGEX_SEARCH_TIMEOUT_SECONDS = 60.0
@@ -49,7 +49,7 @@ SECRET_PATTERNS = [
     re.compile(r"(?i)((?:password|passwd|pwd|token|secret|api[_-]?key)\s*[=:]\s*)[^\s,;]+"),
 ]
 
-# v6.19.0 database profiles are operator-local configuration and form a hard
+# v6.19.1 database profiles are operator-local configuration and form a hard
 # evidence boundary.  Unlike generic sensitive source (which may be included
 # exactly with an explicit warning), these profile files must never be copied
 # into COLLECT output or searched for content.
@@ -552,6 +552,17 @@ class ResultBuilder:
                 except OSError: pass
                 raise
         self.temp.unlink()
+        try:
+            from python_patch_cleartext_companion import create_zip_cleartext_companion
+            create_zip_cleartext_companion(self.final, artifact_kind="COLLECT RESULT")
+        except Exception:
+            # The clear-text companion is part of the v6.19.1 COLLECT deliverable.
+            # Avoid publishing a ZIP-only success that would violate the output contract.
+            try:
+                self.final.unlink()
+            except OSError:
+                pass
+            raise
         return self.final
 
     def abort(self) -> None:

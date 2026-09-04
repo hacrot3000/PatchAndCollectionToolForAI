@@ -1,4 +1,4 @@
-# Python Patch Tool v6.19.0 portable usage
+# Python Patch Tool v6.19.1 portable usage
 
 The release is self-contained for its v6.19.0 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
 
@@ -12,7 +12,7 @@ When a report is shown directly or reopened from HISTORY, AI-facing artifacts ar
 Install/update at the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.19.0.zip -d "$PWD"
+unzip -o python_patch_tool_v6.19.1.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 
@@ -26,7 +26,7 @@ Requirement: **Python 3.10+**. The launcher accepts Python Launcher (`py -3`) or
 PowerShell install/update at the project root:
 
 ```powershell
-Expand-Archive -Force .\python_patch_tool_v6.19.0.zip .
+Expand-Archive -Force .\python_patch_tool_v6.19.1.zip .
 tools\run_python_patches.bat
 ```
 

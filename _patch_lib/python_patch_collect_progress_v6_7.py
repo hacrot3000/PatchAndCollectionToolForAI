@@ -18,7 +18,7 @@ import time
 import unicodedata
 from typing import Iterable
 
-VERSION = "6.19.0"
+VERSION = "6.19.1"
 DEFAULT_HEARTBEAT = 0.8
 DEFAULT_MARGIN = 2
 MAX_TAIL_LINES = 120
@@ -247,7 +247,14 @@ def _print_collect_success(root: Path, lines: Iterable[str]) -> bool:
             result_zip = validated
             break
         validation_errors.append(f"{reported}: {error or 'invalid result ZIP'}")
+    result_text = None
     if result_zip:
+        candidate_text = Path(result_zip).with_suffix(".txt")
+        try:
+            if candidate_text.is_file() and not candidate_text.is_symlink():
+                result_text = str(candidate_text)
+        except OSError:
+            result_text = None
         is_tty = bool(getattr(sys.stdout, 'isatty', lambda: False)()) and os.environ.get("NO_COLOR") is None
         banner = '!!! [PRIMARY - UPLOAD THIS FILE] !!!'
         destination = '>>> ACTION REQUIRED: UPLOAD TO CHATGPT / AI SERVER <<<'
@@ -267,11 +274,15 @@ def _print_collect_success(root: Path, lines: Iterable[str]) -> bool:
             # use the same high-contrast yellow background.
             print(f'\x1b[1;30;103m{_clip_cells(banner, width)}\x1b[0m')
             print(f'\x1b[1;30;103m{_clip_cells(destination, width)}\x1b[0m')
-            print(f'\x1b[1;4;30;103m{result_zip}\x1b[0m')
+            print(f'\x1b[1;30;103mZIP (preferred):\x1b[0m \x1b[1;4;30;103m{result_zip}\x1b[0m')
+            if result_text:
+                print(f'\x1b[1;30;103mClear-text TXT:\x1b[0m \x1b[1;4;30;103m{result_text}\x1b[0m')
         else:
             print(banner)
             print(destination)
-            print(result_zip)
+            print(f'ZIP (preferred): {result_zip}')
+            if result_text:
+                print(f'Clear-text TXT: {result_text}')
         print(rule)
     else:
         reason = f" ({validation_errors[0]})" if validation_errors else ''
@@ -287,7 +298,7 @@ def _print_collect_success(root: Path, lines: Iterable[str]) -> bool:
     for line in extras[-4:]:
         print(line)
     if result_zip:
-        _LAST_COLLECT_SUCCESS_META = {"result_zip": result_zip, "request_archive": request_zip, "quality": quality}
+        _LAST_COLLECT_SUCCESS_META = {"result_zip": result_zip, "result_text": result_text, "request_archive": request_zip, "quality": quality}
     return result_zip is not None
 
 def _cell_width(text: str) -> int:

@@ -7,7 +7,7 @@ from typing import Any
 
 from python_patch_database_select import DatabaseSelectError, validate_database_select_action
 
-VERSION = "6.19.0"
+VERSION = "6.19.1"
 SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "COLLECT_ACTION_SCHEMA.json"
 DEFAULT_LIMITS = {
     "max_file_bytes": 8 * 1024 * 1024,

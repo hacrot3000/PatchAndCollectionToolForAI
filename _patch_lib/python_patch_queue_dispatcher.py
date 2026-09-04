@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.19.0"
+VERSION = "6.19.1"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -1783,7 +1783,7 @@ def _sensitive_handoff_warnings(console_log: str, sources: list[tuple[str, Path]
     return list(dict.fromkeys(warnings))
 
 
-def _print_upload_action_block(path: Path | str, *, patch_failure: bool = False, stream=None) -> None:
+def _print_upload_action_block(path: Path | str, *, patch_failure: bool = False, companion_path: Path | str | None = None, stream=None) -> None:
     """Print one high-visibility upload-required block without changing plain-text semantics.
 
     TTY/VT terminals receive a bright-yellow background for the PRIMARY label,
@@ -1791,7 +1791,7 @@ def _print_upload_action_block(path: Path | str, *, patch_failure: bool = False,
     complete/copyable and is additionally underlined.  NO_COLOR/non-TTY output
     stays byte-for-byte plain apart from the terminal-width-bounded rule rows.
     """
-    out = stream or sys.stdout
+    out = stream if stream is not None else sys.stdout
     banner = (
         "!!! [PRIMARY - UPLOAD THIS FILE] PATCH FAIL HANDOFF !!!"
         if patch_failure else "!!! [PRIMARY - UPLOAD THIS FILE] !!!"
@@ -1808,12 +1808,16 @@ def _print_upload_action_block(path: Path | str, *, patch_failure: bool = False,
         block_style, path_style, reset = "\x1b[1;30;103m", "\x1b[1;4;30;103m", "\x1b[0m"
         print(f"{block_style}{_clip_selector_line(banner, width + 2)}{reset}", file=out)
         print(f"{block_style}{_clip_selector_line(action, width + 2)}{reset}", file=out)
-        # Do not clip the artifact path: users must be able to copy the exact ZIP.
-        print(f"{path_style}{_safe_display(path)}{reset}", file=out)
+        # Do not clip artifact paths: users must be able to copy the exact ZIP/TXT.
+        print(f"{block_style}ZIP (preferred):{reset} {path_style}{_safe_display(path)}{reset}", file=out)
+        if companion_path is not None:
+            print(f"{block_style}Clear-text TXT:{reset} {path_style}{_safe_display(companion_path)}{reset}", file=out)
     else:
         print(_clip_selector_line(banner, width + 2), file=out)
         print(_clip_selector_line(action, width + 2), file=out)
-        print(_safe_display(path), file=out)
+        print(f"ZIP (preferred): {_safe_display(path)}", file=out)
+        if companion_path is not None:
+            print(f"Clear-text TXT: {_safe_display(companion_path)}", file=out)
     print(rule, file=out)
 
 
@@ -2018,6 +2022,18 @@ def _create_fail_handoff(
         with zipfile.ZipFile(final) as zf:
             if zf.testzip() is not None:
                 raise ValueError("FAIL_HANDOFF ZIP CRC check failed")
+        companion = None
+        try:
+            from python_patch_cleartext_companion import create_zip_cleartext_companion
+            companion = create_zip_cleartext_companion(final, artifact_kind="PATCH FAIL_HANDOFF")
+        except Exception as companion_exc:
+            # Never sacrifice the mandatory ZIP handoff if the derived text view
+            # cannot be produced; surface the missing companion loudly instead.
+            print(
+                f"[PTV v{VERSION} WARNING] FAIL_HANDOFF clear-text companion unavailable: "
+                f"{type(companion_exc).__name__}: {companion_exc}",
+                file=sys.stderr,
+            )
         print("")
         print(
             "FAIL HANDOFF SOURCES: "
@@ -2027,7 +2043,7 @@ def _create_fail_handoff(
         )
         if detail_log_meta.get("truncated"):
             print("FAIL HANDOFF LOG: bounded DETAIL.log includes beginning + end of oversized log")
-        _print_upload_action_block(final, patch_failure=True)
+        _print_upload_action_block(final, patch_failure=True, companion_path=companion)
         return final
     except Exception as exc:
         print(f"[PTV v{VERSION} WARNING] could not create FAIL_HANDOFF: {type(exc).__name__}: {exc}", file=sys.stderr)
@@ -3291,6 +3307,8 @@ _AI_UPLOAD_HISTORY_LABELS = frozenset({
     "COLLECT result",
     "COLLECT ZIP",
     "FAIL handoff",
+    "FAIL handoff TXT",
+    "COLLECT text",
     "Recovery COLLECT",
 })
 
@@ -3361,8 +3379,10 @@ def _important_row_artifacts(root: Path, row: dict[str, object]) -> list[tuple[s
     collect = row.get("collect_result") if isinstance(row.get("collect_result"), dict) else None
     if collect is not None:
         add("COLLECT result", collect.get("result_zip"))
+        add("COLLECT text", collect.get("result_text"))
         add("Request archive", collect.get("request_archive"))
     add("FAIL handoff", row.get("fail_handoff"))
+    add("FAIL handoff TXT", row.get("fail_handoff_text"))
     recovery = row.get("recovery_collect_request")
     if isinstance(recovery, str) and recovery:
         rp = Path(recovery)
@@ -3564,6 +3584,10 @@ def _print_item_detail(root: Path, row: dict[str, object]) -> None:
         shown = _display_abs_path(root, row.get("fail_handoff"))
         handoff_path = shown[0] if shown else str(row["fail_handoff"])
         _print_history_artifact_line("FAIL handoff", handoff_path, bool(shown and shown[1]), indent="", label_width=16)
+    if row.get("fail_handoff_text"):
+        shown = _display_abs_path(root, row.get("fail_handoff_text"))
+        handoff_text_path = shown[0] if shown else str(row["fail_handoff_text"])
+        _print_history_artifact_line("FAIL handoff TXT", handoff_text_path, bool(shown and shown[1]), indent="", label_width=16)
     if row.get("recovery_collect_request"):
         raw_recovery = str(row.get("recovery_collect_request"))
         base = None if Path(raw_recovery).is_absolute() or "/" in raw_recovery.replace("\\", "/") else "patchs"
@@ -3576,6 +3600,10 @@ def _print_item_detail(root: Path, row: dict[str, object]) -> None:
             shown = _display_abs_path(root, collect.get("result_zip"))
             collect_path = shown[0] if shown else str(collect.get("result_zip"))
             _print_history_artifact_line("COLLECT ZIP", collect_path, bool(shown and shown[1]), indent="", label_width=12)
+        if collect.get("result_text"):
+            shown = _display_abs_path(root, collect.get("result_text"))
+            collect_text_path = shown[0] if shown else str(collect.get("result_text"))
+            _print_history_artifact_line("COLLECT text", collect_text_path, bool(shown and shown[1]), indent="", label_width=12)
         if collect.get("request_archive"):
             shown = _display_abs_path(root, collect.get("request_archive"))
             print(f"Request ZIP : {_safe_display(shown[0] if shown else str(collect.get('request_archive')))}")
@@ -5437,6 +5465,10 @@ def execute_items(
             if handoff is not None:
                 try: detail["fail_handoff"] = handoff.relative_to(root).as_posix()
                 except ValueError: detail["fail_handoff"] = str(handoff)
+                handoff_text = handoff.with_suffix(".txt")
+                if handoff_text.is_file() and not handoff_text.is_symlink():
+                    try: detail["fail_handoff_text"] = handoff_text.relative_to(root).as_posix()
+                    except ValueError: detail["fail_handoff_text"] = str(handoff_text)
         _LAST_EXECUTION_DETAILS.append(detail)
         if meta is not None:
             patch_status_by_id[meta.patch_id] = str(detail["status"])

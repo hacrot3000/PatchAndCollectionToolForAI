@@ -1,8 +1,18 @@
-# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.19.0
+# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.19.1
 
 Trước khi AI sửa Patch Tool, bắt buộc đọc `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md` và `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Tính năng từng PASS/COMPLETE không được tự ý xóa, thu hẹp hoặc làm mất đường gọi chỉ vì code/schema hiện tại không dùng tới. Nếu thật sự phải thay thế, phải ghi trạng thái vào ledger và thêm test hành vi chứng minh.
 
-# Danh sách tính năng Python Patch Tool — v6.19.0
+# Danh sách tính năng Python Patch Tool — v6.19.1
+
+## v6.19.1 — Companion clear-text cho COLLECT / FAIL_HANDOFF
+
+- `CODE_COLLECTION_RESULT_*.zip` → **COMPLETE** — luôn có `CODE_COLLECTION_RESULT_*.txt` cùng stem.
+- `FAIL_HANDOFF_*.zip` → **COMPLETE** — tạo thêm `FAIL_HANDOFF_*.txt`; ZIP vẫn là preferred artifact.
+- TXT → **COMPLETE** — header riêng từng entry, mô tả, size, SHA-256, encoding, begin/end marker.
+- Text → **COMPLETE** — giữ nguyên nội dung Unicode; binary → Base64; nested ZIP nhỏ/an toàn → expand recursive để AI không cần unzip.
+- HISTORY/report/upload block → **COMPLETE** — highlight và lưu path của cả ZIP lẫn TXT.
+- Security → **COMPLETE** — companion có cùng sensitivity với ZIP và có prompt/data boundary note.
+- Semantic regression: `self_test_cleartext_companion_v6_19_1.py`.
 
 ## v6.19.0 — Database SELECT active builder
 
@@ -14,7 +24,7 @@ Trước khi AI sửa Patch Tool, bắt buộc đọc `tools/_patch_lib/docs/NO_
 - Streaming CSV/JSONL: **COMPLETE** — bounded `max_rows/max_bytes/timeout/chunk_rows`; quota/timeout giữ partial result và COLLECT `INCOMPLETE`.
 - Result evidence: **COMPLETE** — `database_queries/...` nằm trong chính `CODE_COLLECTION_RESULT_*.zip`; HISTORY/highlight hiện có tiếp tục là primary upload artifact.
 - Secret boundary: **COMPLETE** — local profile không được đóng vào request/result, không được content-search và không được đưa vào FAIL_HANDOFF; exact COLLECT cố chỉ định profile sẽ fail-closed. Profile có `password` bị từ chối; result chỉ giữ SELECT template có placeholder và metadata kiểu bound value.
-- Semantic regression: `self_test_database_select_v6_19_0.py`.
+- Semantic regression: `self_test_database_select_v6_19_1.py`.
 
 Tài liệu authoritative: `tools/_patch_lib/docs/DATABASE_SELECT_ACTIVE_BUILDER.md`.
 
@@ -23,7 +33,7 @@ Tài liệu authoritative: `tools/_patch_lib/docs/DATABASE_SELECT_ACTIVE_BUILDER
 - `COLLECT result`, `FAIL handoff`, `Recovery COLLECT`: **COMPLETE** — nền vàng + underline path trên terminal hỗ trợ màu; `[missing]` dùng warning nền đỏ.
 - `BATCH RESULT — INCOMPLETE`, `[INCOMPLETE]`, `[PREFLIGHT_FAIL]`: **COMPLETE** — status quan trọng được nhấn màu để nhìn thấy ngay khi mở lịch sử.
 - `NO_COLOR`/non-TTY: **COMPLETE** — output vẫn plain, grep/copy/IDE task không chứa ANSI.
-- Capability #100/#101 tiếp tục được bảo toàn bằng semantic regression `self_test_history_artifact_highlight_v6_19_0.py`.
+- Capability #100/#101 tiếp tục được bảo toàn bằng semantic regression `self_test_history_artifact_highlight_v6_19_1.py`.
 
 ## v6.18.7 — Regex search cây lớn: giữ partial thay vì FAIL mất dữ liệu
 
