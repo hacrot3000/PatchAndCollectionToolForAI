@@ -1,4 +1,4 @@
-# Python Patch Tool v6.17.11 native Windows runtime lane.
+# Python Patch Tool v6.17.12 native Windows runtime lane.
 # Run from Windows PowerShell 5.1+ or PowerShell 7+. This script creates only a temporary test project.
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
@@ -66,10 +66,10 @@ make('patch_2_pass.zip','print("WIN-NATIVE-PASS")\n')
     Assert-True ($LASTEXITCODE -eq 0) 'native report history command failed'
 
     # Run the installed Windows-specific Python contract suite on the real Windows interpreter.
-    & $PythonExe @Prefix (Join-Path $TestRoot 'tools\_patch_lib\self_test_windows_runtime_v6_17_11.py')
+    & $PythonExe @Prefix (Join-Path $TestRoot 'tools\_patch_lib\self_test_windows_runtime_v6_17_12.py')
     Assert-True ($LASTEXITCODE -eq 0) 'Windows runtime contract self-test failed'
 
-    Write-Host "PASS: Python Patch Tool v6.17.11 native Windows lane (BAT + PowerShell + Unicode/space path + continue batch + report)"
+    Write-Host "PASS: Python Patch Tool v6.17.12 native Windows lane (BAT + PowerShell + Unicode/space path + continue batch + report)"
     exit 0
 }
 finally {

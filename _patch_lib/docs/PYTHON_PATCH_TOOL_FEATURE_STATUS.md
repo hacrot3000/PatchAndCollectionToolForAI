@@ -1,4 +1,4 @@
-# Python Patch Tool v6.17.11 feature status
+# Python Patch Tool v6.17.12 feature status
 
 | Capability | Status |
 |---|---|
@@ -93,7 +93,7 @@ v6.17.6 completes the current robustness/data-integrity audit scope, aggregate/d
 - `patch.version/phase/phase_under_test/summary/regression_scope` are descriptive metadata, not implicit gates.
 - `post_patch.run_when_no_changes=false` skips post commands for no-op/idempotent PATCHes; explicit `true` opts in.
 
-## v6.17.11 zero-argument history + live status
+## v6.17.12 zero-argument history + important artifact paths + live status
 
 - Zero-argument interactive selector/Smart Resume expose HISTORY; an idle zero-argument TTY opens history after warnings/status/health.
 - History defaults to the newest meaningful PASS and reuses the normal persisted report browser/artifacts.

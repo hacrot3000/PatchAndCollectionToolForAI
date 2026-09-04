@@ -1,4 +1,4 @@
-# PATCH PACKAGE GUIDE — v6.17.11 authoritative AI/tool contract
+# PATCH PACKAGE GUIDE — v6.17.12 authoritative AI/tool contract
 
 Machine-readable source of truth:
 
@@ -36,9 +36,9 @@ Optional manifest block:
 ```json
 {
   "compatibility": {
-    "min_tool_version": "6.17.11",
+    "min_tool_version": "6.17.12",
     "max_tool_version": "7.0.0",
-    "max_tested_version": "6.17.11"
+    "max_tested_version": "6.17.12"
   }
 }
 ```

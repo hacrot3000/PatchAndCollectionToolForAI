@@ -1,13 +1,13 @@
-# Python Patch Tool v6.17.11 portable usage
+# Python Patch Tool v6.17.12 portable usage
 
-The release is self-contained for its v6.17.11 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
+The release is self-contained for its v6.17.12 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
 
 ## Linux / POSIX
 
 Install/update at the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.17.11.zip -d "$PWD"
+unzip -o python_patch_tool_v6.17.12.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 
@@ -18,7 +18,7 @@ Requirement: **Python 3.10+**. The launcher accepts Python Launcher (`py -3`) or
 PowerShell install/update at the project root:
 
 ```powershell
-Expand-Archive -Force .\python_patch_tool_v6.17.11.zip .
+Expand-Archive -Force .\python_patch_tool_v6.17.12.zip .
 tools\run_python_patches.bat
 ```
 
@@ -94,10 +94,10 @@ POSIX `run_python_patches.sh` now performs the same Python 3.10+ gate as the Win
 
 Recipe policy override rule: `run --recipe` uses the policies stored in the recipe; `--failure-policy`/`--transaction-policy` must not be combined with `--recipe`. Create a new recipe with `plan` overrides when different policies are intended.
 
-## v6.17.11 zero-argument history and live status
+## v6.17.12 zero-argument history and live status
 
 - Interactive zero-argument selection always exposes a `HISTORY` row. Use Up/Down + Enter; returning to the queue preserves the current PATCH selection.
 - If no runnable PATCH/COLLECT remains, warnings, `AUTO STATUS: IDLE` and Tool Health are printed first, then the interactive zero-argument launcher opens history automatically. The default row is the newest meaningful PASS run.
-- Enter on a history run opens the existing report browser, including item details, logs, source diff, support bundle, archived PATCH package, COLLECT result/request ZIP and failure/recovery artifacts when still available.
+- Enter on a history run opens the existing report browser and immediately prints an `Important files` block with **absolute paths** for COLLECT result/request ZIPs, FAIL_HANDOFF, recovery/replay/archive packages and important diagnosis logs. Historical artifacts that were cleaned remain visible as paths marked `[missing]`; item detail, aggregate log, source diff and support bundle actions remain available from the same report menu.
 - PATCH execution uses a best-effort fixed status header only on a suitable interactive terminal. Redirected output, dumb/tiny terminals, unsupported Windows VT or resize/render failures fall back to normal scrolling output. Set `PTV_DISABLE_LIVE_STATUS=1` to opt out. Stored logs remain raw/authoritative.
 

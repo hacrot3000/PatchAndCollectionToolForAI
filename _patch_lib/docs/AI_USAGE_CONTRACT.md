@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.17.11
+# AI / ChatGPT usage contract — Python Patch Tool v6.17.12
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
@@ -275,7 +275,7 @@ Once payload execution has begun, an unexpected runner exception is treated as a
 - Nếu batch đang chọn liên quan đồng thời tới nhiều unresolved predecessor, planner fail-closed với `multiple_previous_failures_action_required`; dùng Smart Resume để Retry/Delete các predecessor trước vì manifest hiện chỉ có một `previous_failure` object.
 - Một PATCH PASS chỉ tự resolve registry entry cũ khi logical identity **và exact SHA-256** khớp. Reuse `patch.id` với bytes khác không phải bằng chứng predecessor đã được sửa.
 
-## v6.17.11 — presentation/history note
+## v6.17.12 — presentation/history note
 
 `HISTORY` and the live PATCH status header are user-interface presentation only; they do not change PATCH/COLLECT schema, dependency, rollback, result, or continuation semantics. Persistent report JSON and raw per-item/aggregate logs remain authoritative. Live display may strip terminal-control escape sequences solely to keep the fixed header stable; saved logs are unchanged.
 

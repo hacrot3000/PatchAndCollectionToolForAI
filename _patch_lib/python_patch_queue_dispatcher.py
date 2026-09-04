@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.17.11"
+VERSION = "6.17.12"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -3077,6 +3077,76 @@ def _finalize_batch_artifacts(root: Path, report: dict[str, object]) -> None:
         report.setdefault("report_warnings", []).append(f"batch report artifacts unavailable: {type(exc).__name__}: {exc}")
 
 
+def _display_abs_path(root: Path, raw: object, *, base: str | None = None) -> tuple[str, bool] | None:
+    """Return an absolute display path without requiring the artifact to exist."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        value = Path(raw).expanduser()
+        path = value if value.is_absolute() else (root / base / value if base else root / value)
+        path = path.absolute()
+        try:
+            exists = path.is_file() and not path.is_symlink()
+        except OSError:
+            exists = False
+        return str(path), exists
+    except Exception:
+        return None
+
+
+def _important_row_artifacts(root: Path, row: dict[str, object]) -> list[tuple[str, str, bool]]:
+    found: list[tuple[str, str, bool]] = []
+    seen: set[str] = set()
+    def add(label: str, raw: object, *, base: str | None = None) -> None:
+        item = _display_abs_path(root, raw, base=base)
+        if item is None:
+            return
+        path, exists = item
+        key = os.path.normcase(path)
+        if key in seen:
+            return
+        seen.add(key)
+        found.append((label, path, exists))
+
+    collect = row.get("collect_result") if isinstance(row.get("collect_result"), dict) else None
+    if collect is not None:
+        add("COLLECT result", collect.get("result_zip"))
+        add("Request archive", collect.get("request_archive"))
+    add("FAIL handoff", row.get("fail_handoff"))
+    recovery = row.get("recovery_collect_request")
+    if isinstance(recovery, str) and recovery:
+        rp = Path(recovery)
+        base = None if rp.is_absolute() or "/" in recovery.replace("\\", "/") else "patchs"
+        add("Recovery COLLECT", recovery, base=base)
+    requeued = row.get("requeued_as")
+    if isinstance(requeued, str) and requeued:
+        add("Replay PATCH", requeued, base="patchs")
+    name = row.get("name")
+    if row.get("status") == "PASS" and isinstance(name, str) and name:
+        add("Archived package", name, base="patchs/patched")
+    if str(row.get("status") or "") in {"FAIL", "PREFLIGHT_FAIL"}:
+        add("Detail log", row.get("log_path"))
+        add("Preflight log", row.get("preflight_log_path"))
+    return found
+
+
+def _print_important_artifacts(root: Path, rows: list[dict[str, object]], *, stream=None) -> None:
+    out = stream or sys.stdout
+    groups = []
+    for index, row in enumerate(rows, 1):
+        artifacts = _important_row_artifacts(root, row)
+        if artifacts:
+            groups.append((index, str(row.get("name") or "unknown"), artifacts))
+    if not groups:
+        return
+    print("Important files:", file=out)
+    for index, name, artifacts in groups:
+        print(f"  {index:>2}. {_safe_display(name)}", file=out)
+        for label, path, exists in artifacts:
+            suffix = "" if exists else " [missing]"
+            print(f"      {label:<16}: {_safe_display(path)}{suffix}", file=out)
+
+
 def _print_batch_overview(root: Path, report: dict[str, object], *, stream=None) -> None:
     out = stream or sys.stdout
     rows = _report_rows(report)
@@ -3103,9 +3173,15 @@ def _print_batch_overview(root: Path, report: dict[str, object], *, stream=None)
         print(f"  {i:>2}. [{row.get('status','UNKNOWN')}] {_safe_display(str(row.get('name','unknown')))}", file=out)
         print(f"      {_safe_display(_row_summary(row))}", file=out)
     if report.get("batch_log"):
-        print(f"Aggregate log: {report['batch_log']}", file=out)
+        absolute = _display_abs_path(root, report.get("batch_log"))
+        print(f"Aggregate log: {_safe_display(absolute[0] if absolute else str(report['batch_log']))}", file=out)
     if report.get("batch_report_dir"):
-        print(f"Detail logs : {report['batch_report_dir']}/items/", file=out)
+        try:
+            detail_dir = (root / str(report["batch_report_dir"]) / "items").absolute()
+            print(f"Detail logs : {_safe_display(str(detail_dir))}{os.sep}", file=out)
+        except Exception:
+            print(f"Detail logs : {report['batch_report_dir']}/items/", file=out)
+    _print_important_artifacts(root, rows, stream=out)
     launcher = r"tools\run_python_patches.bat report" if os.name == "nt" else "./tools/run_python_patches.sh report"
     print(f"Reopen report: {launcher}", file=out)
 
@@ -3221,17 +3297,25 @@ def _print_item_detail(root: Path, row: dict[str, object]) -> None:
         archived_path = root / "patchs" / "patched" / archived_name
         try:
             if archived_path.is_file() and not archived_path.is_symlink():
-                print(f"Archived pkg: patchs/patched/{_safe_display(archived_name)}")
+                print(f"Archived pkg: {_safe_display(str(archived_path.absolute()))}")
         except OSError:
             pass
-    if row.get("fail_handoff"): print(f"FAIL handoff: {_safe_display(str(row['fail_handoff']))}")
-    if row.get("recovery_collect_request"): print(f"Recovery COLLECT: patchs/{_safe_display(str(row['recovery_collect_request']))}")
+    if row.get("fail_handoff"):
+        shown = _display_abs_path(root, row.get("fail_handoff"))
+        print(f"FAIL handoff: {_safe_display(shown[0] if shown else str(row['fail_handoff']))}")
+    if row.get("recovery_collect_request"):
+        raw_recovery = str(row.get("recovery_collect_request"))
+        base = None if Path(raw_recovery).is_absolute() or "/" in raw_recovery.replace("\\", "/") else "patchs"
+        shown = _display_abs_path(root, raw_recovery, base=base)
+        print(f"Recovery COLLECT: {_safe_display(shown[0] if shown else raw_recovery)}")
     collect = row.get("collect_result") if isinstance(row.get("collect_result"), dict) else None
     if collect is not None:
         if collect.get("result_zip"):
-            print(f"COLLECT ZIP : {_safe_display(str(collect.get('result_zip')))}")
+            shown = _display_abs_path(root, collect.get("result_zip"))
+            print(f"COLLECT ZIP : {_safe_display(shown[0] if shown else str(collect.get('result_zip')))}")
         if collect.get("request_archive"):
-            print(f"Request ZIP : {_safe_display(str(collect.get('request_archive')))}")
+            shown = _display_abs_path(root, collect.get("request_archive"))
+            print(f"Request ZIP : {_safe_display(shown[0] if shown else str(collect.get('request_archive')))}")
         quality = collect.get("quality") if isinstance(collect.get("quality"), dict) else None
         if quality is not None:
             parts = []

@@ -1,6 +1,6 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.17.11**  
+Phiên bản mục tiêu: **v6.17.12**  
 Trạng thái: **ZERO-ARGUMENT HISTORY + LIVE PATCH STATUS — COMPLETE**
 
 ## Baseline
@@ -413,11 +413,11 @@ Sửa regression orchestration: whole-batch read-only validation vẫn chạy tr
 
 Recipe policy override rule: `run --recipe` uses the policies stored in the recipe; `--failure-policy`/`--transaction-policy` must not be combined with `--recipe`. Create a new recipe with `plan` overrides when different policies are intended.
 
-## v6.17.11 — Zero-argument HISTORY + live PATCH status
+## v6.17.12 — Zero-argument HISTORY + live PATCH status
 
 - Khi chạy public launcher **không tham số** ở terminal tương tác, selector luôn có thêm dòng `HISTORY`; dùng `↑/↓` rồi `Enter` để mở lịch sử mà không làm mất lựa chọn PATCH hiện tại. Smart Resume cũng có mục HISTORY tương tự.
 - Nếu sau discovery/duplicate filtering không còn PATCH/COLLECT runnable, tool vẫn in warning hiện có, `AUTO STATUS: IDLE` và Tool Health trước; sau đó zero-argument interactive mode tự mở history thay vì kết thúc ngay.
-- History dùng trực tiếp `artifacts/patch_tool/history/*.json` và report browser hiện có. Con trỏ mặc định ưu tiên **lần PASS gần nhất có PATCH/COLLECT thực sự**, không ưu tiên một lần IDLE rỗng vừa tạo. `Enter` mở lại detail/aggregate log, source diff, archived PATCH ZIP, COLLECT result/request ZIP, FAIL_HANDOFF, recovery COLLECT và support ZIP khi artifact còn tồn tại.
+- History dùng trực tiếp `artifacts/patch_tool/history/*.json` và report browser hiện có. Con trỏ mặc định ưu tiên **lần PASS gần nhất có PATCH/COLLECT thực sự**, không ưu tiên một lần IDLE rỗng vừa tạo. `Enter` mở report và **in sẵn mục `Important files` với đường dẫn tuyệt đối** cho COLLECT result/request ZIP, FAIL_HANDOFF, recovery COLLECT, replay/archived package và detail/preflight log quan trọng; artifact đã bị cleanup vẫn giữ path lịch sử và được đánh dấu `[missing]`. Detail/aggregate log, source diff và support ZIP vẫn dùng cùng report browser.
 - Khi chạy PATCH trên TTY phù hợp, tool dùng **best-effort fixed live status header**: mỗi PATCH hiển thị `WAITING`, `RUNNING`, `PASS`, `FAILED`, `PREFLIGHT FAILED`, `BLOCKED`, `NOT EXECUTED` hoặc `SKIPPED`; log child cuộn ở vùng dưới. Batch lớn dùng sliding status window để không chiếm hết màn hình.
 - Live header chỉ là presentation. Redirect/non-TTY, `TERM=dumb`, terminal quá nhỏ, Windows console không bật được VT, hoặc resize/lỗi render sẽ tự fallback về console truyền thống. Có thể tắt chủ động bằng `PTV_DISABLE_LIVE_STATUS=1`. Raw detail logs trên disk **không bị sanitize**; chỉ live display loại escape sequence có thể xóa/di chuyển cursor để bảo vệ header.
 
