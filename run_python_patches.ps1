@@ -4,8 +4,8 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
 $ToolArgs = @($args)
-$ToolsDir = Split-Path -LiteralPath $MyInvocation.MyCommand.Path -Parent
-$ProjectRoot = Split-Path -LiteralPath $ToolsDir -Parent
+$ToolsDir = [System.IO.Path]::GetDirectoryName($MyInvocation.MyCommand.Path)
+$ProjectRoot = [System.IO.Path]::GetDirectoryName($ToolsDir)
 $LibDir = Join-Path $ToolsDir '_patch_lib'
 $Runner = Join-Path $LibDir 'python_patch_runner.py'
 $Collector = Join-Path $LibDir 'python_patch_readonly_collector.py'
@@ -69,13 +69,17 @@ if ([string]::IsNullOrEmpty($env:PYTHONPATH)) {
     $env:PYTHONPATH = $LibDir + $pathSep + $env:PYTHONPATH
 }
 
+$script:PatchPythonExitCode = 1
 function Invoke-PatchPython([string[]]$Arguments) {
     $invokeArgs = @()
     if ($Python.Prefix) { $invokeArgs += $Python.Prefix }
     $invokeArgs += $Arguments
     & $Python.Exe @invokeArgs
-    if ($null -eq $LASTEXITCODE) { return 1 }
-    return [int]$LASTEXITCODE
+    if ($null -eq $LASTEXITCODE) {
+        $script:PatchPythonExitCode = 1
+    } else {
+        $script:PatchPythonExitCode = [int]$LASTEXITCODE
+    }
 }
 
 if ($ToolArgs.Count -eq 0) {
@@ -83,14 +87,16 @@ if ($ToolArgs.Count -eq 0) {
         Write-ToolError "ERROR: Missing queue dispatcher: $Dispatcher"
         exit 2
     }
-    exit (Invoke-PatchPython @($Dispatcher, '--project-root', $ProjectRoot))
+    Invoke-PatchPython @($Dispatcher, '--project-root', $ProjectRoot)
+    exit $script:PatchPythonExitCode
 }
 
 if ([string]$ToolArgs[0] -in @('report', 'run', 'resume', 'plan')) {
     $command = [string]$ToolArgs[0]
     $rest = @()
     if ($ToolArgs.Count -gt 1) { $rest = @($ToolArgs[1..($ToolArgs.Count - 1)]) }
-    exit (Invoke-PatchPython (@($Dispatcher, '--project-root', $ProjectRoot, $command) + $rest))
+    Invoke-PatchPython (@($Dispatcher, '--project-root', $ProjectRoot, $command) + $rest)
+    exit $script:PatchPythonExitCode
 }
 
 if ([string]::Equals([string]$ToolArgs[0], 'collect', [StringComparison]::OrdinalIgnoreCase)) {
@@ -109,7 +115,8 @@ if ([string]::Equals([string]$ToolArgs[0], 'collect', [StringComparison]::Ordina
     $rest = @()
     if ($ToolArgs.Count -gt 1) { $rest = @($ToolArgs[1..($ToolArgs.Count - 1)]) }
     $collectArgs = @($CollectProgress, '--project-root', $ProjectRoot, '--collector', $CollectCompat, '--') + $rest
-    exit (Invoke-PatchPython $collectArgs)
+    Invoke-PatchPython $collectArgs
+    exit $script:PatchPythonExitCode
 }
 
 
@@ -137,7 +144,8 @@ if ($automationRoute) {
         if ($lower.StartsWith('--transaction=') -or $lower -eq '--keep-failed-sandbox' -or $lower.StartsWith('--keep-failed-sandbox=')) { continue }
         [void]$dispatchArgs.Add($arg)
     }
-    exit (Invoke-PatchPython (@($Dispatcher, '--project-root', $ProjectRoot, 'run') + @($dispatchArgs)))
+    Invoke-PatchPython (@($Dispatcher, '--project-root', $ProjectRoot, 'run') + @($dispatchArgs))
+    exit $script:PatchPythonExitCode
 }
 
 if (-not (Test-Path -LiteralPath $Runner -PathType Leaf)) {
@@ -190,7 +198,8 @@ if (-not $forceInplace -and $filtered.Count -gt 0) {
 
 if ($forceInplace) {
     $runnerArgs = @($Runner) + @($filtered) + @('--transaction', 'off')
-    exit (Invoke-PatchPython $runnerArgs)
+    Invoke-PatchPython $runnerArgs
+    exit $script:PatchPythonExitCode
 }
 
 if ($strippedLegacyTransaction -and $filtered.Count -eq 0) {
@@ -199,4 +208,5 @@ if ($strippedLegacyTransaction -and $filtered.Count -eq 0) {
     exit 2
 }
 
-exit (Invoke-PatchPython (@($Runner) + @($filtered)))
+Invoke-PatchPython (@($Runner) + @($filtered))
+exit $script:PatchPythonExitCode

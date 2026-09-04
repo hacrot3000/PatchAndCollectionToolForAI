@@ -34,6 +34,13 @@ assert '%*' in bt
 
 # The Windows launcher must preserve the public zero-argument contract rather
 # than inventing a separate queue or project-root convention.
+assert "[System.IO.Path]::GetDirectoryName($MyInvocation.MyCommand.Path)" in pst
+assert "[System.IO.Path]::GetDirectoryName($ToolsDir)" in pst
+assert "Split-Path -LiteralPath $MyInvocation.MyCommand.Path -Parent" not in pst
+assert "Split-Path -LiteralPath $ToolsDir -Parent" not in pst
+assert "$script:PatchPythonExitCode = 1" in pst
+assert "exit (Invoke-PatchPython" not in pst
+assert "exit $script:PatchPythonExitCode" in pst
 assert "if ($ToolArgs.Count -eq 0)" in pst
 assert "if ([string]::Equals([string]$ToolArgs[0], 'collect'" in pst
 assert "if ([string]$ToolArgs[0] -in @('report', 'run', 'resume', 'plan'))" in pst
