@@ -278,106 +278,35 @@ with tempfile.TemporaryDirectory(prefix='ptv681dup_late_main_') as td:
 
 
 
-# Concurrent zero-argument sessions for the same project must never execute the
-# same PATCH twice. The project-local queue lock is acquired before discovery,
-# so a second session fails temporarily while the first one owns the queue.
-with tempfile.TemporaryDirectory(prefix='ptv692dup_concurrent_') as td:
+# v6.10.0 deliberately has no project/process queue lock. Independent terminal
+# windows are operator-controlled and must not be rejected as BUSY. A stale
+# .ptv_queue.lock from an older release is ignored and is never created by this
+# dispatcher.
+assert not hasattr(m, '_acquire_project_queue_lock')
+assert not hasattr(m, '_release_project_queue_lock')
+with tempfile.TemporaryDirectory(prefix='ptv610_no_process_lock_') as td:
     root = Path(td)
-    tools = root / 'tools'
-    queue = root / 'patchs'
-    history = queue / 'patched'
-    tools.mkdir(parents=True)
-    history.mkdir(parents=True)
-    patch = queue / 'concurrent.zip'
-    make_patch(patch, 'concurrent-payload')
-    calls = root / 'calls.txt'
-    started = root / 'started.txt'
-    launcher = tools / 'run_python_patches.sh'
+    tools = root/'tools'; queue=root/'patchs'; history=queue/'patched'
+    tools.mkdir(parents=True); history.mkdir(parents=True)
+    patch=queue/'concurrent.zip'; make_patch(patch,'concurrent-payload')
+    calls=root/'calls.txt'; launcher=tools/'run_python_patches.sh'
     launcher.write_text(
         '#!/usr/bin/env bash\n'
-        f'echo "$*" >> {str(calls)!r}\n'
-        f'echo started > {str(started)!r}\n'
-        'sleep 1\n'
-        'src="${2#patchs/}"\n'
-        'if [ -f "patchs/$src" ]; then mv "patchs/$src" "patchs/patched/$src"; fi\n'
-        'exit 0\n',
-        encoding='utf-8',
-    )
+        f'printf "%s\\n" "$*" >> {str(calls)!r}\n'
+        'sleep 0.35\n'
+        'exit 0\n', encoding='utf-8')
     launcher.chmod(0o755)
-    p1 = subprocess.Popen(
-        [sys.executable, '-S', str(MOD), '--project-root', str(root)],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-    )
-    assert p1.stdin is not None
-    p1.stdin.write('\n'); p1.stdin.flush()
-    import time
-    deadline=time.monotonic()+3
-    while not started.exists() and time.monotonic() < deadline:
-        time.sleep(0.03)
-    assert started.exists(), 'first queue session never launched patch'
-    p2 = subprocess.run(
-        [sys.executable, '-S', str(MOD), '--project-root', str(root)],
-        input='\n', text=True, capture_output=True, timeout=5,
-    )
-    out1, err1 = p1.communicate(timeout=5)
-    assert p1.returncode == 0, (p1.returncode, out1, err1)
-    assert p2.returncode == getattr(os, 'EX_TEMPFAIL', 75), (p2.returncode,p2.stdout,p2.stderr)
-    assert 'BUSY:' in p2.stderr and 'nothing executed' in p2.stderr, p2.stderr
-    invoked = calls.read_text(encoding='utf-8').splitlines()
-    assert len(invoked) == 1 and 'concurrent.zip' in invoked[0], invoked
+    p1=subprocess.Popen([sys.executable,'-S',str(MOD),'--project-root',str(root)],
+                        stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    p2=subprocess.Popen([sys.executable,'-S',str(MOD),'--project-root',str(root)],
+                        stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    out1,err1=p1.communicate(input='\n',timeout=5)
+    out2,err2=p2.communicate(input='\n',timeout=5)
+    assert p1.returncode==0,(p1.returncode,out1,err1)
+    assert p2.returncode==0,(p2.returncode,out2,err2)
+    assert 'BUSY:' not in err1+err2,(err1,err2)
+    assert not (queue/'.ptv_queue.lock').exists()
+    invoked=calls.read_text(encoding='utf-8').splitlines()
+    assert len(invoked)==2,invoked
 
-
-# Queue-lock path safety: project-local serialization must never follow a
-# symlink/hardlink and must never modify an external inode merely to record
-# lock diagnostics.
-if m.fcntl is not None:
-    with tempfile.TemporaryDirectory(prefix='ptv693lock_symlink_') as td:
-        root=Path(td); queue=root/'patchs'; queue.mkdir()
-        sentinel=root/'sentinel.txt'; sentinel.write_text('DO NOT MODIFY',encoding='utf-8')
-        (queue/'.ptv_queue.lock').symlink_to(sentinel)
-        handle,error=m._acquire_project_queue_lock(root)
-        assert handle is None,(handle,error)
-        assert error and 'lock unavailable' in error,error
-        assert sentinel.read_text(encoding='utf-8')=='DO NOT MODIFY'
-
-    with tempfile.TemporaryDirectory(prefix='ptv693lock_hardlink_') as td:
-        root=Path(td); queue=root/'patchs'; queue.mkdir()
-        sentinel=root/'sentinel.txt'; sentinel.write_text('HARDLINK SAFE',encoding='utf-8')
-        os.link(sentinel,queue/'.ptv_queue.lock')
-        handle,error=m._acquire_project_queue_lock(root)
-        assert handle is None,(handle,error)
-        assert error and 'lock unavailable' in error,error
-        assert sentinel.read_text(encoding='utf-8')=='HARDLINK SAFE'
-
-    with tempfile.TemporaryDirectory(prefix='ptv693lock_queue_symlink_') as td, tempfile.TemporaryDirectory(prefix='ptv693lock_external_') as ext:
-        root=Path(td); external=Path(ext)
-        (root/'patchs').symlink_to(external,target_is_directory=True)
-        handle,error=m._acquire_project_queue_lock(root)
-        assert handle is None,(handle,error)
-        assert error and 'patchs/ is a symlink' in error,error
-        assert not (external/'.ptv_queue.lock').exists()
-
-    with tempfile.TemporaryDirectory(prefix='ptv693lock_mode_') as td:
-        root=Path(td); (root/'patchs').mkdir()
-        handle,error=m._acquire_project_queue_lock(root)
-        assert handle is not None,error
-        try:
-            lock=root/'patchs'/'.ptv_queue.lock'
-            assert lock.is_file() and not lock.is_symlink(),lock
-            assert stat.S_IMODE(lock.stat().st_mode) & 0o077 == 0, oct(stat.S_IMODE(lock.stat().st_mode))
-        finally:
-            m._release_project_queue_lock(handle)
-
-    # Main output distinguishes true contention from unsafe lock-path state.
-    with tempfile.TemporaryDirectory(prefix='ptv693lock_main_symlink_') as td, tempfile.TemporaryDirectory(prefix='ptv693lock_main_ext_') as ext:
-        root=Path(td); external=Path(ext)
-        (root/'patchs').symlink_to(external,target_is_directory=True)
-        cp=subprocess.run(
-            [sys.executable,'-S',str(MOD),'--project-root',str(root)],
-            input='\n',text=True,capture_output=True,timeout=5,
-        )
-        assert cp.returncode==getattr(os,'EX_TEMPFAIL',75),(cp.returncode,cp.stdout,cp.stderr)
-        assert 'QUEUE LOCK:' in cp.stderr and 'BUSY:' not in cp.stderr,cp.stderr
-        assert not (external/'.ptv_queue.lock').exists()
-
-print('PASS: v6.9.6 local-only SHA-256 duplicate PATCH skip contract')
+print('PASS: v6.10.0 local-only SHA-256 duplicate PATCH skip contract')

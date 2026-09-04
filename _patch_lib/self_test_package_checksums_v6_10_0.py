@@ -25,10 +25,12 @@ required = {
     "tools/_patch_lib/python_patch_queue_dispatcher.py",
     "tools/_patch_lib/python_patch_collect_progress_v6_7.py",
     "tools/_patch_lib/docs/AI_USAGE_CONTRACT.md",
+    "tools/_patch_lib/docs/CODE_COLLECTION_GUIDE.md",
     "tools/_patch_lib/docs/PORTABLE_USAGE.md",
     "tools/_patch_lib/docs/PYTHON_PATCH_TOOL_FEATURE_STATUS.md",
-    "tools/_patch_lib/self_test_python_patch_tool_v6_9_6.py",
-    "tools/_patch_lib/self_test_local_duplicate_v6_9_6.py",
+    "tools/_patch_lib/self_test_python_patch_tool_v6_10_0.py",
+    "tools/_patch_lib/self_test_local_duplicate_v6_10_0.py",
+    "tools/_patch_lib/self_test_collect_exclusivity_v6_10_0.py",
 }
 assert required <= set(entries), sorted(required - set(entries))
 
@@ -68,4 +70,4 @@ for rel, wanted in sorted(entries.items()):
     actual = hashlib.sha256(path.read_bytes()).hexdigest()
     assert actual == wanted, (rel, wanted, actual)
 
-print("PASS: v6.9.6 package SHA256SUMS validates clean releases and installed overlays")
+print("PASS: v6.10.0 package SHA256SUMS validates clean releases and installed overlays")

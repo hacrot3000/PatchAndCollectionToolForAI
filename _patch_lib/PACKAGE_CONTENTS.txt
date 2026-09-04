@@ -1,87 +1,24 @@
-Python Patch Tool v6.9.6 — COLLECT-result classifier and release-test isolation repair
+Python Patch Tool v6.10.0 portable overlay
 
 Public entry point:
   tools/run_python_patches.sh
 
-MANDATORY COLLECT public contract:
-  AI delivers one ZIP containing exactly one CODE_COLLECTION_REQUEST*.json.
-  User puts that ZIP in patchs/ and runs only ./tools/run_python_patches.sh.
-  Loose request JSON and manual COLLECT-subcommand guidance are obsolete/invalid.
-  Successful COLLECT prints exactly one highlighted [PRIMARY - UPLOAD THIS FILE]
-  result ZIP path after existence/location/ZIP-CRC verification.
-  A COLLECT rc=0 is accepted only after the request ZIP is archived from
-  patchs/ to patchs/patched/.
-
-LOCAL DUPLICATE PATCH contract retained from v6.8.x:
-  Normal zero-argument queue compares runnable PATCH packages only with this
-  project's local patchs/patched/ files. Exact SHA-256 content identity is used.
-  No PROJECT KEY, network, remote/shared history, or other-machine state is read.
-  Identical renamed packages are skipped; same-name packages with changed bytes
-  remain runnable. Duplicate queue files are not deleted or moved. They are
-  reported as [SKIPPED:DUPLICATE_LOCAL] with the local matched history path.
-
-Managed release files:
-  tools/run_python_patches.sh
+Managed overlay:
   tools/_patch_lib/python_patch_queue_dispatcher.py
   tools/_patch_lib/python_patch_collect_progress_v6_7.py
+  tools/_patch_lib/docs/AI_USAGE_CONTRACT.md
+  tools/_patch_lib/docs/CODE_COLLECTION_GUIDE.md
+  tools/_patch_lib/docs/PORTABLE_USAGE.md
+  tools/_patch_lib/docs/PYTHON_PATCH_TOOL_FEATURE_STATUS.md
+  tools/_patch_lib/self_test_*.py
   tools/_patch_lib/VERSION
   tools/_patch_lib/SHA256SUMS
-  tools/_patch_lib/PACKAGE_CONTENTS.txt
-  tools/_patch_lib/self_test_*_v6_9_6.py
-  tools/_patch_lib/docs/
 
-Compatibility requirement:
-  Existing private core modules such as python_patch_runner.py and the readonly
-  collector must already be installed. They are deliberately not reconstructed
-  from incomplete evidence. The public launcher keeps PATCH execution in-place
-  with --transaction off; SANDBOX/worktree remains removed.
+Normal use:
+  unzip -o python_patch_tool_v6.10.0.zip -d PROJECT_ROOT
+  ./tools/run_python_patches.sh
 
-Release scope:
-  Retains the v6.9.x selector-priority/duplicate/COLLECT behavior and fixes only
-  regressions: height/width-safe fullscreen redraw, symlink/hardlink-safe local
-  queue locking, and COLLECT signal cleanup during post-exit drain. No unrelated
-  feature group is started.
+This overlay does not replace missing/private collector or runner core modules.
+COLLECT action schema must come from the installed collector or a proven request template.
 
-Retained duplicate hardening from v6.8.x:
-  Symlinked/shared patchs or patchs/patched history is never authoritative for
-  local duplicate suppression. Selected PATCHes are rechecked immediately
-  before launch so an identical PATCH archived moments earlier is skipped.
-
-Retained V6.9.0 selector priority contract:
-  In the TTY selector, Space keeps normal [x] selection. Keys 0..9 assign an
-  explicit priority to the current row. Numbered rows execute first from low to
-  high; equal numbers preserve the tool's displayed natural order. Remaining
-  [x] rows execute afterwards in natural order. Line-mode numeric item indexes
-  remain unchanged for backward compatibility.
-
-
-V6.9.6 in-place boundary hardening:
-  Historical/short PATCH execution flags such as `-a -y --move` are treated as
-  execution-capable and receive `--transaction off`. Only documented read-only
-  utility routes (`paths`, help, version) bypass the execution-only argument.
-
-V6.9.6 packaging invariant:
-  tools/run_python_patches.sh is shipped executable (Unix mode 0755); clean-unzip tests enforce it.
-
-V6.9.6 additional invariants:
-  Fullscreen queue frames never exceed terminal_height-1 rows; long queues use
-  a display-only viewport. Queue locking never follows symlink/multi-hardlink
-  lock state or truncates lock files. COLLECT signal forwarding remains active
-  through post-exit stdout drain so descendants cannot be orphaned.
-
-
-## v6.9.6 UI regression repair
-- Fullscreen selector rows are clipped to terminal cell width before ANSI styling; the current row is bold/reverse highlighted and the header always shows `CON TRỎ i/N`, preventing loss of position with very long filenames.
-- Successful COLLECT uses a high-contrast `ACTION REQUIRED` upload banner. The verified result ZIP path is printed exactly once; the archived request remains informational.
-
-V6.9.6 regression repair:
-  Canonical COLLECTION_MANIFEST result ZIPs are non-runnable evidence even when
-  they contain patch-looking Python. Ambiguous result+patch root manifests fail
-  closed as collection results. Selector headers keep CON TRỎ i/N left-most on
-  narrow terminals, and COLLECT decorative banner rows never force a width
-  larger than the live terminal. No unrelated capability is added.
-
-V6.9.6 classifier/test-isolation repair:
-  Re-zipped collection-result wrappers tolerate out-of-wrapper OS metadata such
-  as __MACOSX/.DS_Store without becoming executable legacy PATCHes. Master
-  release self-tests use Python -S so host sitecustomize cannot distort PASS/exit.
+COLLECT request ZIP artifact: CODE_COLLECTION_REQUEST_<purpose>_<timestamp>.zip

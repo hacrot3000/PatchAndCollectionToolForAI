@@ -10,7 +10,6 @@ import select
 import subprocess
 import sys
 import tarfile
-import stat
 import unicodedata
 import zipfile
 from dataclasses import dataclass
@@ -22,12 +21,8 @@ try:
 except Exception:
     termios = tty = None
 
-try:
-    import fcntl
-except Exception:
-    fcntl = None
 
-VERSION = "6.9.6"
+VERSION = "6.10.0"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -692,7 +687,7 @@ def _render(items, cursor, selected, priorities, msg, prev):
     full_footer = [
         "",
         "Space: chọn/bỏ [x] | 0-9: gán ưu tiên | ↑/↓: di chuyển",
-        "a: tất cả [x] | n: bỏ tất cả | d: xóa item tại con trỏ",
+        "a: tất cả PATCH [x] | n: bỏ tất cả | d: xóa item tại con trỏ",
         "Enter: xác nhận | q/Esc: hủy | Số nhỏ chạy trước; cùng số giữ thứ tự hiện tại",
         _safe_display(msg) if msg else "",
     ]
@@ -853,11 +848,37 @@ def _load_zero_argument_config(root: Path):
     return cfg, warnings
 
 
+def _selection_contract_error(chosen: list[QueueItem]) -> str | None:
+    """Enforce per-invocation COLLECT exclusivity without process locking.
+
+    A CODE_COLLECTION_REQUEST is intentionally a standalone readonly job: at
+    most one COLLECT-like item may be selected, and it may not be mixed with
+    PATCH work. This protects request/result lifecycle while still allowing
+    independent terminals/processes to run concurrently when the operator
+    chooses to do so.
+    """
+    collect_like = [item for item in chosen if item.kind.startswith("COLLECT")]
+    if len(collect_like) > 1:
+        return "CODE_COLLECTION_REQUEST chỉ được chọn đúng 1 cái mỗi lần; không thể chạy nhiều COLLECT cùng lúc"
+    if collect_like and len(chosen) > 1:
+        return "CODE_COLLECTION_REQUEST phải chạy riêng; không thể chọn COLLECT cùng với PATCH"
+    return None
+
+
+def _selected_collect_index(items: list[QueueItem], selected: set[int]) -> int | None:
+    for i in selected:
+        if 0 <= i < len(items) and items[i].kind.startswith("COLLECT"):
+            return i
+    return None
+
+
 def _initial_selected(items, initial_selection: str):
     if len(items) == 1:
         return {0}
     if initial_selection == "all":
-        return set(range(len(items)))
+        # "all" means all PATCHes. Multiple COLLECT requests are never
+        # auto-selected together and COLLECT is never mixed with PATCH.
+        return {i for i, item in enumerate(items) if item.kind == "PATCH"}
     return set()
 
 
@@ -907,7 +928,7 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
         for i, item in enumerate(items, 1):
             mark = "x" if i - 1 in selected else " "
             print(f"  [{mark}] {i}. [{_safe_display(item.kind)}] {_safe_display(item.name)}")
-        print("Nhập: 1,3-5 | a=all | n=none | d <số/range>=xóa | q=quit | Enter=xác nhận")
+        print("Nhập: 1,3-5 | a=all PATCH | n=none | d <số/range>=xóa | q=quit | Enter=xác nhận")
         raw_line, interrupted = _readline_or_interrupt()
         if interrupted:
             print("\nCancelled by Ctrl+C.")
@@ -918,7 +939,14 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
         if raw in {"q", "quit"}:
             return None
         if raw in {"a", "all"}:
-            return list(items)
+            patches = [item for item in items if item.kind == "PATCH"]
+            if patches:
+                return patches
+            collects = [item for item in items if item.kind.startswith("COLLECT")]
+            if len(collects) == 1:
+                return collects
+            print("COLLECT chỉ được chọn đúng 1 request; hãy nhập số của một COLLECT cụ thể.")
+            continue
         if raw in {"n", "none"}:
             selected.clear()
             continue
@@ -949,7 +977,12 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
             continue
         if raw == "":
             if selected:
-                return [items[i] for i in sorted(selected)]
+                chosen = [items[i] for i in sorted(selected)]
+                error = _selection_contract_error(chosen)
+                if error:
+                    print(f"Lựa chọn không hợp lệ: {error}")
+                    continue
+                return chosen
             print("Chưa chọn item nào.")
             continue
         try:
@@ -960,9 +993,14 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
         if not selected:
             print("Chưa chọn item nào.")
             continue
-        # Matching the historical line selector: a concrete number/range entry
-        # is itself the confirmation for that selection.
-        return [items[i] for i in sorted(selected)]
+        # A concrete number/range entry confirms the selection only when it
+        # respects the COLLECT-exclusive contract.
+        chosen = [items[i] for i in sorted(selected)]
+        error = _selection_contract_error(chosen)
+        if error:
+            print(f"Lựa chọn không hợp lệ: {error}")
+            continue
+        return chosen
     return []
 
 
@@ -1027,23 +1065,43 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto"):
             elif key == "DOWN":
                 cursor = (cursor + 1) % len(items)
             elif key == "SPACE":
-                if cursor in priorities:
-                    # A numbered selection becomes a normal [x] selection first;
-                    # a second Space can then deselect it. This makes Space the
-                    # explicit way to return a row to default tool ordering.
-                    priorities.pop(cursor, None)
-                    selected.add(cursor)
-                elif cursor in selected:
-                    selected.remove(cursor)
+                current = items[cursor]
+                if current.kind.startswith("COLLECT"):
+                    if selected == {cursor}:
+                        selected.clear()
+                    else:
+                        selected = {cursor}
+                    priorities.clear()
+                    msg = "COLLECT chạy độc lập: chỉ request này được chọn." if selected else "Đã bỏ chọn COLLECT."
                 else:
-                    selected.add(cursor)
+                    # Selecting PATCH while a COLLECT is selected switches the
+                    # invocation back to PATCH mode instead of creating a mixed
+                    # invalid selection.
+                    collect_index = _selected_collect_index(items, selected)
+                    if collect_index is not None:
+                        selected.clear(); priorities.clear()
+                    if cursor in priorities:
+                        priorities.pop(cursor, None)
+                        selected.add(cursor)
+                    elif cursor in selected:
+                        selected.remove(cursor)
+                    else:
+                        selected.add(cursor)
             elif key in {str(i) for i in range(10)}:
-                selected.add(cursor)
-                priorities[cursor] = int(key)
-                msg = f"Ưu tiên {key}: {_safe_display(items[cursor].name)}"
+                current = items[cursor]
+                if current.kind != "PATCH":
+                    msg = "COLLECT không dùng priority 0-9; dùng Space để chọn riêng request này."
+                else:
+                    if _selected_collect_index(items, selected) is not None:
+                        selected.clear(); priorities.clear()
+                    selected.add(cursor)
+                    priorities[cursor] = int(key)
+                    msg = f"Ưu tiên {key}: {_safe_display(current.name)}"
             elif key == "a":
-                selected = set(range(len(items)))
+                selected = {i for i, item in enumerate(items) if item.kind == "PATCH"}
                 priorities.clear()
+                if not selected:
+                    msg = "Không có PATCH để chọn tất cả; COLLECT phải chọn từng request một."
             elif key == "n":
                 selected.clear()
                 priorities.clear()
@@ -1052,7 +1110,12 @@ def select_items(root, items, *, initial_selection="none", selector_ui="auto"):
                 msg = f"Xóa {_safe_display(items[cursor].name)}? y để xác nhận"
             elif key == "ENTER":
                 if selected:
-                    return _ordered_selection(items, selected, priorities)
+                    chosen = _ordered_selection(items, selected, priorities)
+                    error = _selection_contract_error(chosen)
+                    if error:
+                        msg = error
+                        continue
+                    return chosen
                 msg = "Chưa chọn item nào."
     finally:
         try:
@@ -1125,7 +1188,11 @@ def _collect_archive_postcondition(root: Path, item: QueueItem) -> tuple[bool, s
 
 
 def execute_items(root: Path, chosen: list[QueueItem]):
-    """Execute in natural order, rechecking local duplicates immediately before PATCH launch."""
+    """Execute selected work after enforcing per-invocation COLLECT exclusivity."""
+    contract_error = _selection_contract_error(chosen)
+    if contract_error:
+        print(f"[PTV v{VERSION} ERROR] SELECTION: {_safe_display(contract_error)}", file=sys.stderr)
+        return 2, [], list(chosen), [], []
     executed: list[tuple[str, int]] = []
     late_duplicates: list[LocalDuplicate] = []
     duplicate_warnings: list[str] = []
@@ -1183,90 +1250,7 @@ def execute_items(root: Path, chosen: list[QueueItem]):
             return rc, executed, remaining, late_duplicates, duplicate_warnings
     return 0, executed, [], late_duplicates, duplicate_warnings
 
-def _acquire_project_queue_lock(root: Path):
-    """Acquire one exclusive zero-argument queue session per real project.
-
-    The lock path itself is untrusted local filesystem state.  Never follow a
-    symlinked ``patchs/`` directory or lock file, and never write/truncate the
-    lock inode: a symlink/hardlink must not let queue startup modify a file
-    outside the project.  ``flock`` ownership is kernel state, so PID text is
-    unnecessary for correctness.
-    """
-    if fcntl is None:
-        return None, "project queue locking is unavailable on this platform"
-
-    queue_dir = root / "patchs"
-    try:
-        if queue_dir.exists() or queue_dir.is_symlink():
-            if queue_dir.is_symlink():
-                return None, "project queue lock refused: patchs/ is a symlink"
-            if not queue_dir.is_dir():
-                return None, "project queue lock refused: patchs/ is not a directory"
-        else:
-            queue_dir.mkdir(parents=True, exist_ok=True)
-
-        dir_flags = os.O_RDONLY
-        if hasattr(os, "O_DIRECTORY"):
-            dir_flags |= os.O_DIRECTORY
-        if hasattr(os, "O_CLOEXEC"):
-            dir_flags |= os.O_CLOEXEC
-        if hasattr(os, "O_NOFOLLOW"):
-            dir_flags |= os.O_NOFOLLOW
-        dir_fd = os.open(queue_dir, dir_flags)
-    except OSError as exc:
-        return None, f"project queue lock unavailable ({type(exc).__name__})"
-
-    fd = None
-    try:
-        flags = os.O_RDONLY | os.O_CREAT
-        if hasattr(os, "O_NONBLOCK"):
-            flags |= os.O_NONBLOCK
-        if hasattr(os, "O_CLOEXEC"):
-            flags |= os.O_CLOEXEC
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        fd = os.open(".ptv_queue.lock", flags, 0o600, dir_fd=dir_fd)
-        st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode):
-            raise OSError("queue lock is not a regular file")
-        # Multiple hardlinks would make the lock shared with another path and
-        # violate project-local ownership even though no symlink is involved.
-        if st.st_nlink != 1:
-            raise OSError("queue lock has multiple hardlinks")
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        handle = os.fdopen(fd, "r", encoding="utf-8", closefd=True)
-        fd = None
-        return handle, None
-    except BlockingIOError:
-        return None, "another local Patch Tool queue session is already running"
-    except OSError as exc:
-        return None, f"project queue lock unavailable ({type(exc).__name__})"
-    finally:
-        if fd is not None:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-        try:
-            os.close(dir_fd)
-        except OSError:
-            pass
-
-def _release_project_queue_lock(handle) -> None:
-    if handle is None:
-        return
-    try:
-        if fcntl is not None:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-    except Exception:
-        pass
-    try:
-        handle.close()
-    except Exception:
-        pass
-
-
-def _run_locked_queue(root: Path):
+def _run_queue(root: Path):
     items, warnings = discover_queue(root)
     items, local_duplicates, duplicate_warnings = _split_local_duplicate_patches(root, items)
     printed_warnings = set()
@@ -1318,11 +1302,17 @@ def _run_locked_queue(root: Path):
         printed_warnings.add(warning)
         print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}", file=sys.stderr if rc else sys.stdout)
     if rc:
-        failed_name = executed[-1][0]
-        print(
-            f"SUMMARY: FAIL | stopped after {_safe_display(failed_name)} rc={rc}",
-            file=sys.stderr,
-        )
+        if executed:
+            failed_name = executed[-1][0]
+            print(
+                f"SUMMARY: FAIL | stopped after {_safe_display(failed_name)} rc={rc}",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"SUMMARY: FAIL | selection rejected before execution rc={rc}",
+                file=sys.stderr,
+            )
         if remaining:
             print(f"SKIPPED / NOT EXECUTED: {len(remaining)} selected item(s)", file=sys.stderr)
             for item in remaining:
@@ -1348,24 +1338,10 @@ def main(argv=None):
     ap.add_argument("--project-root", required=True)
     ns = ap.parse_args(argv)
     root = Path(ns.project_root).resolve()
-    lock_handle, lock_error = _acquire_project_queue_lock(root)
-    if lock_handle is None:
-        detail = _safe_display(lock_error or "project queue lock unavailable")
-        if detail.startswith("another local Patch Tool queue session"):
-            print(
-                f"[PTV v{VERSION} WARNING] BUSY: {detail}; nothing executed.",
-                file=sys.stderr,
-            )
-        else:
-            print(
-                f"[PTV v{VERSION} ERROR] QUEUE LOCK: {detail}; nothing executed.",
-                file=sys.stderr,
-            )
-        return getattr(os, "EX_TEMPFAIL", 75)
-    try:
-        return _run_locked_queue(root)
-    finally:
-        _release_project_queue_lock(lock_handle)
+    # Deliberately NO process-wide/project-wide queue lock. Selection isolation
+    # is per invocation only; operators may run other Patch Tool processes in
+    # separate terminals when they intentionally choose to do so.
+    return _run_queue(root)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ HERE=Path(__file__).resolve().parent
 MOD=HERE/'python_patch_queue_dispatcher.py'
 spec=importlib.util.spec_from_file_location('ptv_queue_v677_selection',MOD)
 m=importlib.util.module_from_spec(spec); sys.modules[spec.name]=m; spec.loader.exec_module(m)
-assert m.VERSION=='6.9.6'
+assert m.VERSION=='6.10.0'
 
 # Historical line grammar: lists, ranges (including reversed), bounds failure.
 assert m._parse_index_spec('1,3-5',6)=={0,2,3,4}
@@ -311,4 +311,4 @@ for physical in raw.splitlines():
     clean=m._ANSI_RE.sub('',physical).replace('\r','')
     assert m._display_cell_width(clean) <= 82,(m._display_cell_width(clean),clean)
 
-print('PASS: v6.9.6 selector/config/priority contracts and clean Ctrl+C handling')
+print('PASS: v6.10.0 selector/config/priority contracts and clean Ctrl+C handling')
