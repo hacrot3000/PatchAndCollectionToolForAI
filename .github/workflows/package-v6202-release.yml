@@ -1,0 +1,116 @@
+name: Package Python Patch Tool v6.20.2 release
+
+on:
+  push:
+    branches:
+      - ptv-v6.20.2-upload-helper
+    paths:
+      - .github/workflows/package-v6202-release.yml
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Verify main, construct exact portable tree, and test fresh ZIP
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          expected=1341aa53a8c93831a18eeb74f5d362aaa19e80c8
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected" || { echo "Unexpected main HEAD: $actual"; exit 2; }
+          test "$(cat _patch_lib/VERSION)" = "6.20.2"
+          python3 _patch_lib/python_patch_release_metadata.py --tool-dir . --check
+
+          rm -rf /tmp/ptv-release
+          mkdir -p /tmp/ptv-release/package
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          src_root=Path('.').resolve()
+          out=Path('/tmp/ptv-release/package')
+          text=(src_root/'_patch_lib'/'PACKAGE_CONTENTS.txt').read_text(encoding='utf-8')
+          begin='--- BEGIN GENERATED MANAGED FILE INDEX ---'
+          end='--- END GENERATED MANAGED FILE INDEX ---'
+          block=text.split(begin,1)[1].split(end,1)[0]
+          rels=[line.strip() for line in block.splitlines() if line.strip().startswith('tools/')]
+          if not rels:
+              raise SystemExit('managed file index is empty')
+          for rel in rels:
+              src=src_root/rel.removeprefix('tools/')
+              if src.is_symlink() or not src.is_file():
+                  raise SystemExit(f'unsafe/missing managed source: {rel}')
+              dst=out/rel
+              dst.parent.mkdir(parents=True,exist_ok=True)
+              shutil.copy2(src,dst)
+          sha_src=src_root/'_patch_lib'/'SHA256SUMS'
+          sha_dst=out/'tools'/'_patch_lib'/'SHA256SUMS'
+          sha_dst.parent.mkdir(parents=True,exist_ok=True)
+          shutil.copy2(sha_src,sha_dst)
+          expected=set(rels)|{'tools/_patch_lib/SHA256SUMS'}
+          actual={'/'.join(p.relative_to(out).parts) for p in out.rglob('*') if p.is_file()}
+          if actual != expected:
+              raise SystemExit(f'package tree mismatch missing={sorted(expected-actual)} extra={sorted(actual-expected)}')
+          if any(p.is_symlink() for p in out.rglob('*')):
+              raise SystemExit('package tree contains symlink')
+          print(f'PACKAGE TREE: {len(actual)} files')
+          PY
+
+          cd /tmp/ptv-release/package
+          zip -X -q -r /tmp/python_patch_tool_v6.20.2.zip tools
+          cd "$GITHUB_WORKSPACE"
+
+          python3 - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import zipfile
+          z=Path('/tmp/python_patch_tool_v6.20.2.zip')
+          with zipfile.ZipFile(z) as f:
+              names=f.namelist()
+              for name in names:
+                  p=PurePosixPath(name)
+                  if p.is_absolute() or '..' in p.parts or '\\' in name:
+                      raise SystemExit(f'unsafe ZIP member: {name}')
+                  mode=(f.getinfo(name).external_attr >> 16) & 0o170000
+                  if mode == 0o120000:
+                      raise SystemExit(f'symlink ZIP member: {name}')
+              if 'tools/_patch_lib/VERSION' not in names or 'tools/_patch_lib/SHA256SUMS' not in names:
+                  raise SystemExit('required release metadata missing from ZIP')
+              if any('__pycache__' in name or name.endswith('.pyc') for name in names):
+                  raise SystemExit('cache bytecode leaked into ZIP')
+          print(f'ZIP MEMBERS: {len(names)}')
+          PY
+
+          mkdir -p /tmp/ptv-release/verify
+          cd /tmp/ptv-release/verify
+          unzip -q /tmp/python_patch_tool_v6.20.2.zip
+          test "$(cat tools/_patch_lib/VERSION)" = "6.20.2"
+          cd tools
+          python3 _patch_lib/python_patch_release_metadata.py --tool-dir . --check
+          python3 _patch_lib/self_test_python_patch_tool_v6_20_0.py
+          python3 _patch_lib/self_test_tool_health_v6_20_0.py
+          python3 _patch_lib/self_test_package_checksums_v6_20_0.py
+          python3 _patch_lib/self_test_version_consistency_v6_20_0.py
+          python3 _patch_lib/self_test_capability_disposition_v6_20_0.py
+          python3 _patch_lib/self_test_existing_capability_hardening_v6_20_2.py
+          test -z "$(find . -name '__pycache__' -o -name '*.pyc' | head -n 1)"
+          sha256sum /tmp/python_patch_tool_v6.20.2.zip | tee /tmp/python_patch_tool_v6.20.2.zip.sha256
+          echo 'PASS: v6.20.2 fresh-ZIP full regression and release verification'
+
+      - name: Upload exact release ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: python_patch_tool_v6.20.2
+          path: /tmp/python_patch_tool_v6.20.2.zip
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
