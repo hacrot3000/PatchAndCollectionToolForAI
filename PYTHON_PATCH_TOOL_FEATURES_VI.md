@@ -1,4 +1,4 @@
-# Danh sách tính năng Python Patch Tool — v6.17.9
+# Danh sách tính năng Python Patch Tool — v6.17.10
 
 ## Workflow / batch engine
 
@@ -13,6 +13,10 @@
 | Failed PATCH không declared target + Git-clean fingerprint => partial state `unknown`, safety-stop | **COMPLETE v6.17.6** |
 | Unsafe queue/artifact/lock filesystem boundary => fail-closed rc=2, không traceback ngoài ý muốn | **COMPLETE v6.17.6** |
 | `continue_independent` mặc định; `fail_fast` là explicit opt-in | **COMPLETE v6.17.5** |
+| Recovery planner ràng buộc predecessor theo từng successor liên quan, không theo vị trí item đầu | **COMPLETE v6.17.10** |
+| Multiple unresolved related predecessors → fail-closed, yêu cầu Smart Resume | **COMPLETE v6.17.10** |
+| `run_anyway` legacy được ignore; dependency/target relation FAIL luôn BLOCKED | **COMPLETE v6.17.10** |
+| Recipe/plan giữ đúng effective failure + transaction policy | **COMPLETE v6.17.10** |
 | `continue_independent` có safety-stop | **COMPLETE v6.17.5** |
 | Dependency `batch.depends_on` + stable topological order | **COMPLETE v6.17.5** |
 | Dependency runtime FAIL → `BLOCKED` mặc định | **COMPLETE v6.17.5** |
@@ -125,6 +129,8 @@ Registry failure là **relation-aware**: PATCH độc lập vẫn chạy; depend
 | Failure command chạy sau rollback attempt; giữ nguyên RC/lỗi PATCH gốc | **COMPLETE v6.17.8** |
 | `on_failure` FAIL/timeout/lingering => safety-stop continuation | **COMPLETE v6.17.8** |
 | Structured `on_failure` / `post_patch` / validation timeout-vs-exit-code evidence | **COMPLETE v6.17.8** |
+| `post_patch.run_when_no_changes` — mặc định skip post command khi PATCH không tạo delta; `true` mới chạy cả no-op | **DOCUMENTED/ENFORCED v6.17.10** |
+| `patch.version/phase/phase_under_test/summary/regression_scope` là metadata, không phải implicit runtime gate | **DOCUMENTED v6.17.10** |
 | `git.timeout_seconds` + managed Git hook/push process-tree containment | **COMPLETE v6.17.8** |
 | `exit 124` không còn bị nhận nhầm là timeout | **COMPLETE v6.17.8** |
 | POSIX leader exit nhưng child nền còn sống => cleanup + không false PASS; Windows native normal-exit detection chưa được tuyên bố PASS | **COMPLETE POSIX v6.17.8 / WINDOWS NATIVE VERIFY PENDING** |

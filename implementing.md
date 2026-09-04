@@ -1,6 +1,6 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.17.9**  
+Phiên bản mục tiêu: **v6.17.10**  
 Trạng thái: **PROJECT POLICY + PRE-EXECUTION PLAN + PERSISTENT RECOVERY STATE — COMPLETE / STOP**
 
 ## Baseline
@@ -71,11 +71,11 @@ Manifest mới cho phép:
 - Missing dependency hoặc cycle FAIL trước payload đầu tiên.
 - Nếu dependency runtime FAIL:
   - mặc định successor = `BLOCKED`;
-  - `run_anyway` chỉ chạy khi manifest chủ động cho phép.
+  - `run_anyway` chỉ còn được schema chấp nhận để tương thích package cũ; runtime **luôn BLOCKED** khi dependency/related-target predecessor đã FAIL.
 
 ## 3. Không để PATCH predecessor FAIL bị mồ côi
 
-Nếu `LAST_RUN` còn predecessor FAIL trong `patchs/` và người dùng chọn successor thay vì retry predecessor, successor bắt buộc có:
+Nếu registry/LAST_RUN còn predecessor FAIL chưa resolve và PATCH được chọn **có quan hệ** (dependency, effective-target overlap, hoặc chủ động khai báo `previous_failure`) thì successor liên quan bắt buộc có:
 
 ```json
 "batch": {
@@ -316,7 +316,7 @@ Profile thiếu/invalid/executable thiếu fail ở preflight. Profile được 
 
 ### Persistent Unresolved-Failure Registry
 
-`artifacts/patch_tool/UNRESOLVED_FAILURES.json` giữ PATCH FAIL/PREFLIGHT_FAIL qua nhiều phiên, không phụ thuộc `LAST_RUN.json`. Failure được resolve khi cùng logical patch PASS, khi user Delete trong Smart Resume, hoặc khi predecessor được successor xử lý bằng `previous_failure.action=delete` thành công. Registry không chặn PATCH độc lập: sau khi `LAST_RUN` đã đổi, planner chỉ tái áp `batch.previous_failure` khi PATCH mới phụ thuộc vào failed patch id hoặc overlap effective target của failure; như vậy continuation độc lập vẫn giữ nguyên nhưng successor liên quan không thể lách recovery contract.
+`artifacts/patch_tool/UNRESOLVED_FAILURES.json` giữ PATCH FAIL/PREFLIGHT_FAIL qua nhiều phiên, không phụ thuộc `LAST_RUN.json`. Failure chỉ tự resolve khi **cùng logical patch và cùng exact package SHA-256** PASS; reuse `patch.id` với bytes khác không resolve failure cũ. User Delete trong Smart Resume hoặc `previous_failure.action=delete` thành công vẫn resolve explicit predecessor. Registry không chặn PATCH độc lập: sau khi `LAST_RUN` đã đổi, planner chỉ tái áp `batch.previous_failure` khi PATCH mới phụ thuộc vào failed patch id hoặc overlap effective target của failure; như vậy continuation độc lập vẫn giữ nguyên nhưng successor liên quan không thể lách recovery contract.
 
 ### Static Batch Conflict Analyzer
 
@@ -348,7 +348,7 @@ Analyzer chỉ cảnh báo/report; không tự đổi thứ tự và không suy 
 ./tools/run_python_patches.sh run --recipe BATCH_RECIPE.json
 ```
 
-Thiếu package, SHA khác hoặc project key khác => fail trước payload. Exact recipe package được bảo vệ khỏi duplicate-history suppression trong invocation đó, nhưng byte vẫn phải đúng SHA recipe.
+Thiếu package, SHA khác, patch id khác hoặc project key khác => fail trước payload. Exact recipe package được bảo vệ khỏi duplicate-history suppression trong invocation đó, nhưng byte vẫn phải đúng SHA recipe.
 
 ### Disk/resource preflight
 
@@ -394,3 +394,21 @@ Windows vẫn có packaged process-group/taskkill/CTRL_BREAK contract; native PA
 ## 15. v6.17.9 — item-local batch preflight continuation
 
 Sửa regression orchestration: whole-batch read-only validation vẫn chạy trước source write, nhưng kết quả FAIL của từng PATCH không còn tự biến mọi PATCH khác thành `NOT_EXECUTED` dưới policy mặc định. Dispatcher materialize FAIL_HANDOFF/COLLECT recovery cho item lỗi trước khi source khác thay đổi, sau đó state machine dependency/effective-target quyết định `BLOCKED` hay tiếp tục. Report giữ exit code failure của batch nhưng phản ánh đúng `PASS/PREFLIGHT_FAIL/BLOCKED/NOT_EXECUTED`.
+
+
+### Metadata vs runtime gates / `run_when_no_changes`
+
+`patch.version`, `phase`, `phase_under_test`, `summary` và `regression_scope` chỉ là metadata phục vụ identity/report/search/context; runtime **không** tự suy ra source/version gate từ các field này. Ràng buộc có hiệu lực phải nằm ở `preflight.files`, `manifest.project.key`, dependency hoặc trusted validation profile.
+
+`post_patch.run_when_no_changes` mặc định `false`: nếu payload là idempotent/no-op và không tạo project delta đã phát hiện thì `post_patch.commands` được skip. Chỉ khi manifest đặt `true` thì post commands mới chạy cả trong no-change path. Flag này không đổi success/failure/rollback semantics.
+
+## v6.17.10 — Contract consistency audit
+
+- Cross-run predecessor enforcement là **relation-based trên từng PATCH được chọn**, không còn gắn cứng vào item đầu batch. PATCH độc lập đứng trước không bị ép xử lý failure cũ; successor liên quan ở vị trí sau không thể lách `batch.previous_failure`.
+- Nếu một batch mới đồng thời liên quan tới **nhiều unresolved predecessor**, schema `previous_failure` hiện chỉ biểu diễn một predecessor nên planner fail-closed với `multiple_previous_failures_action_required`; xử lý chúng qua Smart Resume trước.
+- `batch.on_dependency_failure=run_anyway` là legacy-compatible input nhưng bị runtime ignore; dependency hoặc related-target failure luôn BLOCKED.
+- `plan --failure-policy/--transaction-policy` dùng đúng effective policy; recipe export ghi đúng policy đó và plan kiểm transaction compatibility giống execution.
+- `.python_patch_tool.json` được đọc qua cùng bounded/non-symlink/duplicate-key parser cho identity, validation, selector và batch policy; file malformed/unsafe làm `run`/`resume`/`plan` fail-closed rc=2 thay vì fallback policy.
+
+
+Recipe policy override rule: `run --recipe` uses the policies stored in the recipe; `--failure-policy`/`--transaction-policy` must not be combined with `--recipe`. Create a new recipe with `plan` overrides when different policies are intended.

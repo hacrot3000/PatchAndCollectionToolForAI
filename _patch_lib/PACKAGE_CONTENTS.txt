@@ -1,4 +1,4 @@
-Python Patch Tool v6.17.9 — full self-contained package
+Python Patch Tool v6.17.10 — full self-contained package
 
 Public launchers / user docs:
   tools/run_python_patches.sh
@@ -52,11 +52,11 @@ Runtime artifacts (created in project; not shipped pre-populated):
   patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip
 
 Normal use — Linux/POSIX:
-  unzip -o python_patch_tool_v6.17.9.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.17.10.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 Normal use — Windows (Python 3.10+):
-  Expand-Archive -Force .\python_patch_tool_v6.17.9.zip PROJECT_ROOT
+  Expand-Archive -Force .\python_patch_tool_v6.17.10.zip PROJECT_ROOT
   tools\run_python_patches.bat
   # or: .\tools\run_python_patches.ps1
 
@@ -120,3 +120,15 @@ v6.17.9 item-local batch preflight continuation:
 - transaction_policy=batch, global planning/resource/transaction failures and explicit fail_fast remain whole-batch fail-closed;
 - recovery COLLECT/FAIL_HANDOFF for a preflight-failed PATCH is captured before independent source writes;
 - batch reports count PREFLIGHT_FAIL as the actual failed item and reserve NOT_EXECUTED for genuinely stopped work.
+
+
+v6.17.10 contract-consistency audit:
+- unresolved predecessor rules are enforced per related successor across all unresolved failures, not by selected position or only the latest failure;
+- persistent failure resolution is exact package/SHA-bound, including previous_failure delete actions under patch.id reuse;
+- legacy on_dependency_failure=run_anyway is schema-readable only and cannot bypass dependency/related-target blocking;
+- plan/exported recipes preserve effective failure/transaction policies and reject incompatible batch transactions before preview;
+- recipe execution validates name + SHA-256 + patch_id before queue side effects and does not mutate unrelated queue duplicates;
+- .python_patch_tool.json uses one strict parser and run/resume/plan fail closed when an existing config is malformed or unsafe.
+- run --recipe rejects CLI failure/transaction policy overrides; replay semantics come from the recipe that plan exported.
+- patch version/phase/phase_under_test/summary/regression_scope are descriptive metadata, not implicit runtime gates.
+- post_patch.run_when_no_changes defaults false; post commands run for a no-op PATCH only when explicitly enabled.

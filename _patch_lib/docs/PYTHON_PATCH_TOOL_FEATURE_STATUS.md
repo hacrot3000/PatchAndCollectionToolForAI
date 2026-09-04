@@ -1,4 +1,4 @@
-# Python Patch Tool v6.17.8 feature status
+# Python Patch Tool v6.17.10 feature status
 
 | Capability | Status |
 |---|---|
@@ -60,7 +60,7 @@ v6.17.6 completes the current robustness/data-integrity audit scope, aggregate/d
 
 - Project Identity Guard: COMPLETE.
 - Trusted local validation profiles: COMPLETE.
-- Persistent unresolved-failure registry: COMPLETE. It survives LAST_RUN replacement without blocking unrelated PATCHes; dependency/target-related successors still require previous-failure handling.
+- Persistent unresolved-failure registry: COMPLETE. It survives LAST_RUN replacement without blocking unrelated PATCHes; dependency/target-related or explicitly declared successors still require previous-failure handling; enforcement is per related selected PATCH, not the first batch item. Exact-SHA PASS is required for automatic registry resolution.
 - Static effective-target conflict analysis: COMPLETE.
 - Read-only batch `plan` + OPS diff preview: COMPLETE.
 - Local patch ledger / ID reuse warning: COMPLETE.
@@ -81,3 +81,14 @@ v6.17.6 completes the current robustness/data-integrity audit scope, aggregate/d
 - Batch validate timeout graceful child cleanup: COMPLETE.
 - COLLECT Git-context failure visibility/helper suppression: COMPLETE.
 - Windows native runtime execution evidence for these changes: REQUIRES REAL WINDOWS HOST.
+
+## v6.17.10 contract consistency
+
+- Unresolved predecessor checks cover all persisted failures and the actually related successor.
+- Multiple related unresolved predecessors fail closed until Smart Resume resolves/retries them.
+- `on_dependency_failure=run_anyway` remains schema-readable only for compatibility; runtime blocking is mandatory.
+- `plan` and exported recipes preserve effective batch policies and validate batch-transaction compatibility.
+- Local project config parsing is unified across policy/identity/validation paths.
+- `run --recipe` rejects CLI batch-policy overrides; the stored recipe policies are replay semantics.
+- `patch.version/phase/phase_under_test/summary/regression_scope` are descriptive metadata, not implicit gates.
+- `post_patch.run_when_no_changes=false` skips post commands for no-op/idempotent PATCHes; explicit `true` opts in.

@@ -1,13 +1,13 @@
-# Python Patch Tool v6.17.9 portable usage
+# Python Patch Tool v6.17.10 portable usage
 
-The release is self-contained for its v6.17.9 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
+The release is self-contained for its v6.17.10 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
 
 ## Linux / POSIX
 
 Install/update at the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.17.9.zip -d "$PWD"
+unzip -o python_patch_tool_v6.17.10.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 
@@ -18,7 +18,7 @@ Requirement: **Python 3.10+**. The launcher accepts Python Launcher (`py -3`) or
 PowerShell install/update at the project root:
 
 ```powershell
-Expand-Archive -Force .\python_patch_tool_v6.17.9.zip .
+Expand-Archive -Force .\python_patch_tool_v6.17.10.zip .
 tools\run_python_patches.bat
 ```
 
@@ -75,10 +75,21 @@ Windows:
 .\tools\run_python_patches.ps1 run --recipe BATCH_RECIPE.json
 ```
 
-`plan` does not mutate project source. OPS previews run on a private mirror; arbitrary Python payloads are never executed for preview. Recipe execution requires exact queued package SHA-256 and, when recorded, the same local project key.
+`plan` does not mutate project source. OPS previews run on a private mirror; arbitrary Python payloads are never executed for preview. Recipe execution requires exact queued package filename + SHA-256 + patch id and, when recorded, the same local project key.
 
 ## v6.17.8 managed command note
 
 PATCH payload, post-patch, trusted validation and failure-only commands are automation-only and receive closed stdin. Do not write PATCH packages that wait for interactive confirmation. Timeout/interruption is process-tree contained before control returns to rollback/reporting. On Windows, the packaged implementation uses new process groups + CTRL_BREAK/taskkill fallback; run `tools\\run_windows_native_tests.ps1` on a real Windows host before claiming native verification for a release.
 
 POSIX `run_python_patches.sh` now performs the same Python 3.10+ gate as the Windows launcher and fails with a clear rc=2 message before importing the tool on an older interpreter.
+
+
+## v6.17.10 policy/config notes
+
+- `.python_patch_tool.json` is parsed with one bounded non-symlink duplicate-key-safe contract across selector, batch policy, project identity and validation profiles. If the file exists but is malformed/unsafe, `run`/`resume`/`plan` fail closed instead of silently falling back to default policies.
+- `plan --failure-policy ... --transaction-policy ...` applies those overrides; exported recipes preserve the effective policies exactly.
+- A plan using `transaction=batch` performs the same transaction-compatibility gate as execution before preview/export.
+- Cross-run unresolved failures constrain only related successors; unrelated queued PATCHes remain eligible. Multiple related unresolved predecessors must be resolved/retried via Smart Resume before a singular `batch.previous_failure` successor batch can proceed.
+
+
+Recipe policy override rule: `run --recipe` uses the policies stored in the recipe; `--failure-policy`/`--transaction-policy` must not be combined with `--recipe`. Create a new recipe with `plan` overrides when different policies are intended.

@@ -1,4 +1,4 @@
-# PATCH PACKAGE GUIDE — v6.17.9 authoritative AI/tool contract
+# PATCH PACKAGE GUIDE — v6.17.10 authoritative AI/tool contract
 
 Machine-readable source of truth:
 
@@ -36,9 +36,9 @@ Optional manifest block:
 ```json
 {
   "compatibility": {
-    "min_tool_version": "6.17.9",
+    "min_tool_version": "6.17.10",
     "max_tool_version": "7.0.0",
-    "max_tested_version": "6.17.9"
+    "max_tested_version": "6.17.10"
   }
 }
 ```
@@ -226,9 +226,9 @@ PATCH có thể khai báo:
 }
 ```
 
-`depends_on` sử dụng `patch.id` hiện hữu. Tool stable-topological-sort batch theo dependency, fail closed nếu thiếu dependency hoặc cycle. `on_dependency_failure` là `block` (mặc định) hoặc `run_anyway`.
+`depends_on` sử dụng `patch.id` hiện hữu. Tool stable-topological-sort batch theo dependency, fail closed nếu thiếu dependency hoặc cycle. `on_dependency_failure` mặc định là `block`; giá trị legacy `run_anyway` vẫn được schema đọc để tương thích nhưng runtime **ignore và vẫn BLOCKED** khi predecessor liên quan FAIL.
 
-`previous_failure` là contract phục hồi queue giữa hai lần chạy. Khi predecessor của lần chạy trước vẫn FAIL và còn trong `patchs/`, successor không được chạy nếu không chỉ rõ một trong `delete`, `retry_before`, `run_after`, `block`. Xem `AI_USAGE_CONTRACT.md` để biết quy tắc bắt buộc dành cho AI tạo PATCH.
+`previous_failure` là contract phục hồi queue giữa các lần chạy. Chỉ successor **có quan hệ** với unresolved predecessor (dependency, effective-target overlap, hoặc explicit declaration) phải chỉ rõ một trong `delete`, `retry_before`, `run_after`, `block`; PATCH độc lập không bị ràng buộc. Xem `AI_USAGE_CONTRACT.md` để biết quy tắc bắt buộc dành cho AI tạo PATCH.
 
 ### Batch policies
 
@@ -320,6 +320,14 @@ The **original PATCH failure remains authoritative**. A failure-only command tha
 
 `transaction_policy=batch` rejects `on_failure.commands`, just as it rejects target-unbounded post commands / validation profiles / Git side effects.
 
+### `post_patch.run_when_no_changes`
+
+`post_patch.commands` normally runs only when the PATCH produced a detected project delta. Set `post_patch.run_when_no_changes=true` only when the post command is intentionally required even for an idempotent/no-op PATCH. When omitted or `false`, a no-change PATCH skips `post_patch.commands`. This flag changes only whether post commands run; it does not turn patch metadata into a runtime gate and it does not override failure/rollback rules.
+
+### Patch metadata fields are descriptive, not implicit runtime gates
+
+`patch.version`, `patch.phase`, `patch.phase_under_test`, `patch.summary` and `patch.regression_scope` are package metadata used for identification, reporting, planning/search and human/AI context. They are **not** automatically enforced as source/version/regression gates. If a PATCH requires a specific source baseline or project, encode that requirement with `preflight.files`, `manifest.project.key`, dependencies, validation profiles or other documented runtime gates. AI must not assume a descriptive metadata value is validated merely because the schema accepts it.
+
 Managed payload/post/validation/failure/Git-policy execution is process-tree contained for timeout/interruption on supported platforms. On POSIX, a leader that exits while descendants remain is also detected: descendants are terminated and the command is reported failed. Windows normal-exit descendant detection still requires native verification; timeout/interrupt tree termination is covered by the packaged Windows contract. A program that deliberately returns exit code `124` is distinct from a Patch Tool timeout (`timed_out=true`). Git auto-policy accepts `git.timeout_seconds` (`1..1800`, default 300) and disables terminal credential prompts. Patch Tool internal result/lock environment variables are removed before untrusted/project commands are spawned.
 
 ### v6.17.8 dispatcher / internal-error execution boundary
@@ -327,3 +335,38 @@ Managed payload/post/validation/failure/Git-policy execution is process-tree con
 - `inspect`, `preview`, `validate` and the COLLECT progress supervisor are launched by the dispatcher through a process-group-aware foreground runner; Ctrl+C/SIGTERM is forwarded to the child tree instead of leaving a detached helper behind.
 - If an unexpected Patch Tool exception occurs **after payload execution has begun**, it is still an execution failure: configured rollback is attempted for payload/post-validation stages, then `on_failure.commands` runs. The internal-error rc/diagnosis remains primary.
 - Internal exceptions before execution (package/schema/preflight) remain project-unchanged failures and do not run `on_failure`.
+
+
+## v6.17.10 local project config + planning consistency
+
+`.python_patch_tool.json` dùng chung một parser bounded, reject symlink/duplicate JSON keys cho các đường identity, validation, selector và batch policy. Nếu file config tồn tại nhưng malformed/unsafe thì `run`/`resume`/`plan` fail-closed rc=2; không tự đổi sang policy mặc định. Các option runtime chính:
+
+```json
+{
+  "project": {"key": "my-project"},
+  "validation_profiles": {
+    "unit": {"argv": ["./tools/test.sh"], "cwd": ".", "timeout_seconds": 900}
+  },
+  "automation": {
+    "zero_argument": {
+      "selection": "prompt",
+      "non_interactive_confirmed": false,
+      "initial_selection": "none",
+      "selector_ui": "auto"
+    }
+  },
+  "batch": {
+    "failure_policy": "continue_independent",
+    "transaction_policy": "patch"
+  }
+}
+```
+
+`plan` dùng đúng effective `failure_policy` / `transaction_policy` từ config hoặc CLI override. `--export-recipe` ghi đúng các policy đó; nếu `transaction=batch` không tương thích với post commands, validation profiles, on-failure commands hoặc Git side effects thì `plan` fail trước preview/export, giống execution.
+
+Persistent failure registry giữ nhiều unresolved entries. Planner xét tất cả entry liên quan; một PASS chỉ auto-resolve entry cùng logical patch **và cùng exact SHA-256**. Nếu một selected batch liên quan tới nhiều unresolved predecessor, planner yêu cầu Smart Resume xử lý trước.
+
+`git.fail_on_error` mặc định `true`. Nếu đặt `false`, lỗi Git automation được in ra nhưng không đổi PATCH result thành FAIL; chỉ dùng khi Git policy thật sự advisory. `git.commit=auto` vẫn giữ dirty-target guard/index cleanup như mô tả ở trên.
+
+
+Recipe policy override rule: `run --recipe` uses the policies stored in the recipe; `--failure-policy`/`--transaction-policy` must not be combined with `--recipe`. Create a new recipe with `plan` overrides when different policies are intended.

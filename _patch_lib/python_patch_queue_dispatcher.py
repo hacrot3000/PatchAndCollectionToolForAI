@@ -29,7 +29,7 @@ from python_patch_project_state import (
     update_patch_ledger, ledger_id_reuse, disk_preflight, load_project_config,
 )
 from python_patch_batch import (
-    BatchPlanError, PatchMeta, load_patch_meta, topo_order, previous_failed_identity,
+    BatchPlanError, PatchMeta, load_patch_meta, topo_order,
     validate_previous_failure_declaration, transaction_compatibility, snapshot_targets,
     restore_targets, snapshot_package_bytes, requeue_packages, capture_compare_snapshot,
     build_diff_artifact, stable_package_sha256, analyze_static_conflicts,
@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.17.9"
+VERSION = "6.17.10"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -465,14 +465,24 @@ def _resolve_registry_previous_action(root: Path, action: dict[str, object] | No
         return
     patch_id = str(action.get("patch_id") or "")
     patch_file = str(action.get("patch_file") or "")
+    expected_sha = str(action.get("patch_sha256") or "").lower()
     data = _load_unresolved_registry(root)
     rows: list[dict[str, object]] = []
     for entry in data.get("entries") or []:
         if not isinstance(entry, dict) or entry.get("resolved") is True:
             continue
         row = entry.get("row") if isinstance(entry.get("row"), dict) else {}
-        pid, _sha, name = _failure_identity(row)
-        if (patch_id and pid == patch_id) or (not patch_id and patch_file and name == patch_file):
+        pid, sha, name = _failure_identity(row)
+        if expected_sha:
+            identity_match = sha == expected_sha and (
+                (patch_id and pid == patch_id)
+                or (not patch_id and patch_file and name == patch_file)
+            )
+        else:
+            # Without package SHA, never resolve multiple entries by patch_id
+            # alone.  Exact logical filename is the narrowest safe fallback.
+            identity_match = bool(patch_file and name == patch_file and (not patch_id or pid == patch_id))
+        if identity_match:
             rows.append(row)
     _resolve_registry_rows(root, rows, "superseded_by_previous_failure_delete")
 
@@ -483,8 +493,8 @@ def _update_unresolved_registry(root: Path, report: dict[str, object]) -> None:
     now = _utc_now()
     current_rows = [x for x in (report.get("results") or []) if isinstance(x, dict) and str(x.get("kind") or "PATCH") == "PATCH"]
 
-    # A successful run of the same logical patch id resolves older failures;
-    # when no id is available, exact name+SHA is used instead.
+    # A successful run resolves an older failure only for the exact same
+    # logical package bytes (SHA-bound identity), not patch.id reuse alone.
     for row in current_rows:
         if str(row.get("status") or "") != "PASS":
             continue
@@ -494,7 +504,11 @@ def _update_unresolved_registry(root: Path, report: dict[str, object]) -> None:
                 continue
             old = entry.get("row") if isinstance(entry.get("row"), dict) else {}
             opid, osha, oname = _failure_identity(old)
-            match = bool(pid and opid == pid) or (not pid and sha and osha == sha and name == oname)
+            # A later PASS resolves an unresolved failure only when it is the
+            # exact same logical package bytes.  patch.id reuse with different
+            # SHA is warning-worthy provenance, not proof that the old failure
+            # has been repaired/superseded.
+            match = bool(sha and osha and sha == osha and ((pid and opid == pid) or (not pid and name == oname)))
             if match:
                 entry["resolved"] = True
                 entry["resolved_at"] = now
@@ -3366,13 +3380,16 @@ def _load_zero_argument_config(root: Path):
     }
     warnings: list[str] = []
     path = root / ".python_patch_tool.json"
-    if not path.is_file():
+    if not path.exists() and not path.is_symlink():
         return cfg, warnings
     try:
-        data = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_json_pairs)
+        # Use the same bounded/non-symlink/duplicate-key parser as project
+        # identity and trusted validation profiles.  One config file must have
+        # one validity contract across selector, batch policy and runner paths.
+        data = load_project_config(root)
         node = data.get("automation", {}).get("zero_argument", {})
     except Exception as exc:
-        warnings.append(f"invalid .python_patch_tool.json; using prompt defaults ({type(exc).__name__})")
+        warnings.append(f"invalid .python_patch_tool.json; using prompt defaults ({type(exc).__name__}: {exc})")
         return cfg, warnings
     if not isinstance(node, dict):
         warnings.append("automation.zero_argument is not an object; using prompt defaults")
@@ -3908,81 +3925,126 @@ def _failure_relation_targets(row: dict[str, object] | None) -> set[str]:
 
 
 def _build_batch_plan(root: Path, chosen: list[QueueItem], available: list[QueueItem], previous: dict[str, object] | None):
-    """Resolve explicit dependencies and the unresolved-predecessor action.
+    """Resolve explicit dependencies and unresolved-predecessor actions.
 
-    Logical predecessor identity (historical filename/patch id) is kept for
-    manifest validation, while filesystem actions bind to the exact current
-    queue filename+SHA from the previous report.  This matters when batch
-    rollback had to publish the immutable replay bytes under RETRY-*.
+    Cross-run failure constraints are relation-based, not position-based: an
+    unrelated first PATCH must not be forced to handle a failure that only a
+    later successor depends on/overlaps, and a related later successor must not
+    be able to bypass ``batch.previous_failure`` merely because it is not first.
+
+    The manifest currently has a singular ``batch.previous_failure`` contract.
+    Therefore if one selected batch is related to more than one unresolved
+    predecessor, fail closed and require the operator to resolve/retry those
+    failures through SMART RESUME before running the successor batch.
     """
     if any(item.kind != "PATCH" for item in chosen):
         return list(chosen), {}, None
     work = list(chosen)
     by_name = {item.name: item for item in available if item.kind == "PATCH"}
-    failed_name, failed_id = previous_failed_identity(previous if isinstance(previous, dict) else None)
-    previous_action = None
     selected_names = {x.name for x in work}
+    previous_action = None
 
-    failed_row: dict[str, object] | None = None
-    if failed_name and isinstance(previous, dict):
-        rows = previous.get("results") if isinstance(previous.get("results"), list) else []
-        for row in reversed(rows):
-            if not isinstance(row, dict) or row.get("name") != failed_name:
-                continue
-            if str(row.get("status") or "") in {"FAIL", "PREFLIGHT_FAIL"}:
-                failed_row = row
-                break
-    if failed_name and failed_row is None:
-        failed_row = {"name": failed_name, "kind": "PATCH", "status": "FAIL"}
-    bound_failed = _bind_recovery_queue_row(root, failed_row) if failed_row is not None else None
-    failed_queue_name = str(bound_failed.get("_recovery_queue_name")) if isinstance(bound_failed, dict) else None
+    # Load selected metadata once for relation checks before any predecessor is
+    # inserted into the work list.
+    initial_meta = {item.name: load_patch_meta(root, item.name) for item in work}
+    related_contexts: list[dict[str, object]] = []
+    for failed_row in _merged_failed_recovery_rows(root, previous):
+        failed_id, _failed_sha, failed_name = _failure_identity(failed_row)
+        if not failed_name:
+            continue
+        bound_failed = _bind_recovery_queue_row(root, failed_row)
+        failed_queue_name = str(bound_failed.get("_recovery_queue_name")) if isinstance(bound_failed, dict) and bound_failed.get("_recovery_queue_name") else None
+        failed_selected_name = failed_queue_name or failed_name
+        # Selecting the exact failed/requeued package is an explicit retry and
+        # does not require a successor declaration for that same predecessor.
+        if failed_selected_name in selected_names:
+            continue
 
-    # An unresolved predecessor remains a planning constraint even after LAST_RUN
-    # has been replaced by an unrelated PASS/IDLE invocation.  Selecting the exact
-    # failed/requeued package itself is an explicit retry; otherwise the first
-    # successor must declare batch.previous_failure.  If the predecessor bytes are
-    # no longer queued, delete may still resolve the registry as already_absent,
-    # while retry_before/run_after fail closed because exact replay is impossible.
-    failed_selected_name = failed_queue_name or failed_name
-    if failed_name and work and failed_selected_name not in selected_names:
-        first_meta = load_patch_meta(root, work[0].name)
-        # A persistent registry entry can outlive many unrelated successful runs.
-        # Preserve the v6.17.5+ continue-independent contract: only a PATCH with
-        # an explicit dependency on, or target overlap with, that older failure
-        # is treated as its successor.  Immediate LAST_RUN failures keep the
-        # established strict previous_failure declaration behavior.
-        registry_only = isinstance(previous, dict) and previous.get("source") == "UNRESOLVED_FAILURES.json"
-        enforce_previous = bool(failed_queue_name)  # preserve immediate-LAST_RUN compatibility
-        if registry_only:
-            failed_targets = _failure_relation_targets(failed_row)
-            dependency_related = bool(failed_id and failed_id in first_meta.depends_on)
-            target_related = bool(failed_targets.intersection(first_meta.effective_targets))
-            enforce_previous = dependency_related or target_related
-        if enforce_previous:
-            previous_action = validate_previous_failure_declaration(first_meta, failed_name, failed_id)
-            previous_action["queue_file"] = failed_queue_name or failed_name
-            expected_sha = _recovery_row_expected_sha(bound_failed or failed_row or {})
-            if expected_sha:
-                previous_action["patch_sha256"] = expected_sha
-            action = str(previous_action.get("action"))
-            if action == "block":
+        failed_targets = _failure_relation_targets(failed_row)
+        # Prefer package metadata when the exact replay bytes are still queued;
+        # this preserves target relation even for early preflight failures whose
+        # structured result did not yet populate preflight.target_paths.
+        if failed_queue_name and (root / "patchs" / failed_queue_name).is_file():
+            try:
+                failed_targets.update(load_patch_meta(root, failed_queue_name).effective_targets)
+            except Exception:
+                pass
+
+        related: list[tuple[int, PatchMeta]] = []
+        for idx, item in enumerate(work):
+            meta = initial_meta[item.name]
+            dependency_related = bool(failed_id and failed_id in meta.depends_on)
+            target_related = bool(failed_targets and failed_targets.intersection(meta.effective_targets))
+            declared_prev = meta.previous_failure if isinstance(meta.previous_failure, dict) else {}
+            declared_id = str(declared_prev.get("patch_id") or "")
+            declared_file = str(declared_prev.get("patch_file") or "")
+            declaration_related = bool(
+                (failed_id and declared_id and declared_id == failed_id)
+                or (declared_file and declared_file == failed_name)
+            )
+            if dependency_related or target_related or declaration_related:
+                related.append((idx, meta))
+        if related:
+            related_contexts.append({
+                "failed_row": failed_row,
+                "bound_failed": bound_failed,
+                "failed_name": failed_name,
+                "failed_id": failed_id or None,
+                "failed_queue_name": failed_queue_name,
+                "failed_targets": failed_targets,
+                "related": related,
+            })
+
+    if len(related_contexts) > 1:
+        names = ", ".join(str(x.get("failed_name") or "?") for x in related_contexts)
+        raise BatchPlanError(
+            "selected PATCHes are related to multiple unresolved failed PATCHes; "
+            f"resolve/retry them with SMART RESUME first: {names}",
+            kind="multiple_previous_failures_action_required",
+        )
+
+    failed_queue_name = None
+    if related_contexts:
+        ctx = related_contexts[0]
+        failed_name = str(ctx["failed_name"])
+        failed_id = str(ctx.get("failed_id") or "") or None
+        failed_queue_name = str(ctx.get("failed_queue_name") or "") or None
+        bound_failed = ctx.get("bound_failed") if isinstance(ctx.get("bound_failed"), dict) else None
+        # The earliest related successor owns the singular previous_failure
+        # decision for this predecessor.  Unrelated PATCHes before it remain
+        # completely independent.
+        related = ctx["related"]
+        successor_meta = sorted(related, key=lambda x: x[0])[0][1]
+        previous_action = validate_previous_failure_declaration(successor_meta, failed_name, failed_id)
+        previous_action["successor_file"] = successor_meta.name
+        previous_action["queue_file"] = failed_queue_name or failed_name
+        expected_sha = _recovery_row_expected_sha(bound_failed or ctx["failed_row"])
+        if expected_sha:
+            previous_action["patch_sha256"] = expected_sha
+        action = str(previous_action.get("action"))
+        if action == "block":
+            raise BatchPlanError(
+                f"{successor_meta.name} explicitly blocks while failed predecessor {failed_name} is unresolved",
+                kind="previous_failure_blocked",
+            )
+        if action in {"retry_before", "run_after"}:
+            if not failed_queue_name:
                 raise BatchPlanError(
-                    f"{work[0].name} explicitly blocks while failed predecessor {failed_name} is unresolved",
-                    kind="previous_failure_blocked",
+                    f"previous failed PATCH is unavailable for {action}: {failed_name}",
+                    kind="previous_failure_missing",
                 )
-            if action in {"retry_before", "run_after"}:
-                if not failed_queue_name:
-                    raise BatchPlanError(
-                        f"previous failed PATCH is unavailable for {action}: {failed_name}",
-                        kind="previous_failure_missing",
-                    )
-                failed_item = by_name.get(failed_queue_name) or QueueItem(failed_queue_name, "PATCH")
-                if not (root / "patchs" / failed_queue_name).is_file():
-                    raise BatchPlanError(f"previous failed PATCH is unavailable for {action}: {failed_queue_name}", kind="previous_failure_missing")
-                if action == "retry_before":
-                    work.insert(0, failed_item)
-                else:
-                    work.append(failed_item)
+            failed_item = by_name.get(failed_queue_name) or QueueItem(failed_queue_name, "PATCH")
+            if not (root / "patchs" / failed_queue_name).is_file():
+                raise BatchPlanError(
+                    f"previous failed PATCH is unavailable for {action}: {failed_queue_name}",
+                    kind="previous_failure_missing",
+                )
+            successor_index = next(i for i,x in enumerate(work) if x.name == successor_meta.name)
+            if action == "retry_before":
+                work.insert(successor_index, failed_item)
+            else:
+                work.insert(successor_index + 1, failed_item)
+
     metas = [load_patch_meta(root, item.name) for item in work]
     ordered_metas = topo_order(metas)
     item_by_name = {item.name: item for item in work}
@@ -3992,18 +4054,24 @@ def _build_batch_plan(root: Path, chosen: list[QueueItem], available: list[Queue
     # allowed when dependency declarations do not force the opposite order.
     if previous_action and previous_action.get("action") == "run_after" and failed_queue_name:
         failed_meta = next((m for m in ordered_metas if m.name == failed_queue_name), None)
-        if failed_meta:
-            for m in ordered_metas:
-                if failed_meta.patch_id in m.depends_on:
-                    raise BatchPlanError(
-                        f"run_after conflicts with depends_on: {m.name} depends on {failed_meta.patch_id}",
-                        kind="previous_failure_action_conflict",
-                    )
-            ordered = [x for x in ordered if x.name != failed_queue_name] + [item_by_name[failed_queue_name]]
-            ordered_metas = [m for m in ordered_metas if m.name != failed_queue_name] + [failed_meta]
+        successor_file = str(previous_action.get("successor_file") or "")
+        successor_meta = next((m for m in ordered_metas if m.name == successor_file), None)
+        if failed_meta and successor_meta:
+            if failed_meta.patch_id in successor_meta.depends_on:
+                raise BatchPlanError(
+                    f"run_after conflicts with depends_on: {successor_meta.name} depends on {failed_meta.patch_id}",
+                    kind="previous_failure_action_conflict",
+                )
+            # Move the failed replay immediately after its declaring successor
+            # while keeping all other stable-topological order intact.
+            ordered = [x for x in ordered if x.name != failed_queue_name]
+            pos = next((i for i,x in enumerate(ordered) if x.name == successor_file), len(ordered)-1)
+            ordered.insert(pos + 1, item_by_name[failed_queue_name])
+            ordered_metas = [m for m in ordered_metas if m.name != failed_queue_name]
+            mpos = next((i for i,m in enumerate(ordered_metas) if m.name == successor_file), len(ordered_metas)-1)
+            ordered_metas.insert(mpos + 1, failed_meta)
     meta_map = {m.name: m for m in ordered_metas}
     return ordered, meta_map, previous_action
-
 
 def _batch_preflight(root: Path, chosen: list[QueueItem], metas: dict[str, PatchMeta], *, run_id: str, transaction_policy: str):
     """Validate every selected package before the first source write.
@@ -4319,7 +4387,13 @@ def execute_items(
                 if targets and failed_targets and targets.intersection(failed_targets)
             ]
             blockers = list(dict.fromkeys([*failed_deps, *related_target_failures]))
-            if blockers and meta.on_dependency_failure != "run_anyway":
+            if blockers:
+                if meta.on_dependency_failure == "run_anyway":
+                    print(
+                        f"[PTV v{VERSION} WARNING] batch.on_dependency_failure=run_anyway is deprecated/ignored; "
+                        "related PATCH failures are always BLOCKED by current safety policy",
+                        file=sys.stderr,
+                    )
                 diagnosis_kind = "dependency_failed" if failed_deps else "related_target_failed"
                 relation = "dependency failure" if failed_deps else "related target failure"
                 detail = {
@@ -5036,10 +5110,9 @@ def _resume_selection(root: Path, items: list[QueueItem], previous: dict[str, ob
     return None
 
 def _recipe_project_key(root: Path) -> str | None:
-    try:
-        cfg = load_project_config(root)
-    except Exception:
-        return None
+    # Recipe identity is a reproducibility boundary.  An invalid local config
+    # must not silently degrade into an unbound recipe.
+    cfg = load_project_config(root)
     project = cfg.get("project") if isinstance(cfg, dict) else None
     value = project.get("key") if isinstance(project, dict) else None
     return str(value) if isinstance(value, str) and value else None
@@ -5108,8 +5181,12 @@ def _load_batch_recipe(root: Path, path: Path, items: list[QueueItem]) -> tuple[
     for row in rows:
         if not isinstance(row, dict):
             raise BatchPlanError("batch recipe package entry must be an object", kind="recipe_invalid")
-        name = row.get("name"); sha = row.get("sha256")
-        if not isinstance(name, str) or Path(name).name != name or not isinstance(sha, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", sha):
+        name = row.get("name"); sha = row.get("sha256"); recipe_patch_id = row.get("patch_id")
+        if (
+            not isinstance(name, str) or Path(name).name != name
+            or not isinstance(sha, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", sha)
+            or not isinstance(recipe_patch_id, str) or not recipe_patch_id
+        ):
             raise BatchPlanError("batch recipe contains invalid package identity", kind="recipe_invalid")
         item = by_name.get(name)
         if item is None:
@@ -5117,6 +5194,17 @@ def _load_batch_recipe(root: Path, path: Path, items: list[QueueItem]) -> tuple[
         actual = stable_package_sha256(root/"patchs"/name)
         if actual.lower() != sha.lower():
             raise BatchPlanError(f"batch recipe SHA mismatch for {name}: expected={sha.lower()} actual={actual}", kind="package_input_changed")
+        try:
+            actual_meta = load_patch_meta(root, item.name)
+        except BatchPlanError:
+            raise
+        except Exception as exc:
+            raise BatchPlanError(f"cannot read batch recipe package metadata for {name}: {type(exc).__name__}: {exc}", kind="recipe_invalid") from exc
+        if actual_meta.patch_id != recipe_patch_id:
+            raise BatchPlanError(
+                f"batch recipe patch_id mismatch for {name}: expected={recipe_patch_id!r} actual={actual_meta.patch_id!r}",
+                kind="recipe_invalid",
+            )
         chosen.append(item)
     failure = data.get("failure_policy")
     transaction = data.get("transaction_policy")
@@ -5125,9 +5213,17 @@ def _load_batch_recipe(root: Path, path: Path, items: list[QueueItem]) -> tuple[
     return chosen, failure, transaction
 
 
-def _plan_queue(root: Path, *, export_recipe: str | None = None) -> int:
+def _plan_queue(
+    root: Path, *, export_recipe: str | None = None,
+    failure_policy_override: str | None = None, transaction_policy_override: str | None = None,
+) -> int:
     """Read-only batch plan over all queued PATCHes; COLLECT requests are listed but not planned."""
     previous = _load_previous_run(root)
+    cfg, config_warnings = _load_zero_argument_config(root)
+    failure_policy = failure_policy_override or str(cfg.get("failure_policy") or "continue_independent")
+    transaction_policy = transaction_policy_override or str(cfg.get("transaction_policy") or "patch")
+    for warning in config_warnings:
+        print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}")
     try:
         items, warnings = discover_queue(root)
     except QueueSafetyError as exc:
@@ -5145,8 +5241,15 @@ def _plan_queue(root: Path, *, export_recipe: str | None = None) -> int:
         print(f"PLAN FAIL — {getattr(exc,'kind','batch_plan_invalid')}: {_safe_display(str(exc))}", file=sys.stderr)
         return 2
     ordered_metas = [metas[x.name] for x in chosen if x.name in metas]
+    tx_issues = transaction_compatibility(ordered_metas, transaction_policy)
+    if tx_issues:
+        print(f"BATCH PLAN FAIL — transaction_policy={transaction_policy} is incompatible:", file=sys.stderr)
+        for issue in tx_issues:
+            print(f"  - {_safe_display(issue)}", file=sys.stderr)
+        return 2
     conflicts = analyze_static_conflicts(ordered_metas)
     print("BATCH PLAN — READ ONLY")
+    print(f"BATCH POLICY: failure={failure_policy} | transaction={transaction_policy}")
     for i,item in enumerate(chosen,1):
         meta = metas[item.name]
         deps = ",".join(meta.depends_on) if meta.depends_on else "-"
@@ -5179,7 +5282,7 @@ def _plan_queue(root: Path, *, export_recipe: str | None = None) -> int:
         if rc and not preview_rc: preview_rc = rc
     if export_recipe is not None:
         try:
-            _write_batch_recipe(root, Path(export_recipe), chosen, metas, failure_policy="continue_independent", transaction_policy="patch")
+            _write_batch_recipe(root, Path(export_recipe), chosen, metas, failure_policy=failure_policy, transaction_policy=transaction_policy)
         except Exception as exc:
             print(f"PLAN FAIL — recipe export: {type(exc).__name__}: {exc}",file=sys.stderr)
             return 2
@@ -5196,18 +5299,53 @@ def _run_queue(root: Path, *, failure_policy_override: str | None = None, transa
     _ACTIVE_RUN_ID = run_id
     previous = _load_previous_run(root)
     history_replay_sha = _previous_replay_identities(previous)
-    history_replay_sha.update(_recipe_identity_map(root, recipe_path))
     resume_items = _print_resume_hint(root, previous)
     queue_safety_error: str | None = None
+    recipe_chosen: list[QueueItem] | None = None
+    recipe_failure: str | None = None
+    recipe_transaction: str | None = None
+    recipe_error: Exception | None = None
     try:
         items, warnings = discover_queue(root)
     except QueueSafetyError as exc:
         items, warnings = [], []
         queue_safety_error = str(exc)
-    items, session_duplicates, session_duplicate_warnings = _split_session_duplicate_patches(root, items, history_replay_sha=history_replay_sha)
-    items, local_duplicates, duplicate_warnings = _split_local_duplicate_patches(root, items, history_replay_sha=history_replay_sha)
-    local_duplicates, ignore_warnings = _move_local_duplicates_to_ignore(root, local_duplicates)
-    duplicate_warnings = [*duplicate_warnings, *ignore_warnings]
+
+    # Recipe identity is a pre-mutation contract. Parse/project-bind/SHA-check it
+    # before duplicate-history cleanup can move any queue package to ignore.
+    # A malformed/tampered recipe must fail with the queue byte-for-byte intact.
+    if recipe_path is not None and queue_safety_error is None:
+        try:
+            if failure_policy_override is not None or transaction_policy_override is not None:
+                raise BatchPlanError(
+                    "batch recipe owns failure_policy/transaction_policy; CLI policy overrides are not allowed with --recipe (create a new recipe with plan overrides instead)",
+                    kind="recipe_invalid",
+                )
+            recipe_chosen, recipe_failure, recipe_transaction = _load_batch_recipe(root, Path(recipe_path), items)
+            for item in recipe_chosen:
+                try:
+                    history_replay_sha[item.name] = stable_package_sha256(root / "patchs" / item.name).lower()
+                except Exception:
+                    pass
+        except Exception as exc:
+            recipe_error = exc
+
+    session_duplicates: list[SessionDuplicate] = []
+    local_duplicates: list[LocalDuplicate] = []
+    session_duplicate_warnings: list[str] = []
+    duplicate_warnings: list[str] = []
+    ignore_warnings: list[str] = []
+    if recipe_error is None and recipe_chosen is None:
+        items, session_duplicates, session_duplicate_warnings = _split_session_duplicate_patches(root, items, history_replay_sha=history_replay_sha)
+        items, local_duplicates, duplicate_warnings = _split_local_duplicate_patches(root, items, history_replay_sha=history_replay_sha)
+        local_duplicates, ignore_warnings = _move_local_duplicates_to_ignore(root, local_duplicates)
+        duplicate_warnings = [*duplicate_warnings, *ignore_warnings]
+    elif recipe_chosen is not None:
+        # A recipe is an exact named/SHA-bound execution set.  Do not mutate
+        # unrelated queue entries via ordinary duplicate cleanup, and do not
+        # suppress recipe packages merely because identical bytes appear in
+        # local history.
+        session_duplicate_warnings.append("batch recipe active: duplicate-history cleanup is scoped out; only recipe packages will execute")
     printed_warnings = set()
     for warning in [*warnings, *session_duplicate_warnings, *duplicate_warnings]:
         if warning in printed_warnings: continue
@@ -5229,17 +5367,11 @@ def _run_queue(root: Path, *, failure_policy_override: str | None = None, transa
     batch_transaction: dict[str, object] | None = None
     static_conflicts: list[dict[str, object]] = []
     resource_preflight_report: dict[str, object] | None = None
-    recipe_chosen: list[QueueItem] | None = None
-    recipe_error: Exception | None = None
-    if recipe_path is not None:
-        try:
-            recipe_chosen, recipe_failure, recipe_transaction = _load_batch_recipe(root, Path(recipe_path), items)
-            if failure_policy_override is None and recipe_failure:
-                failure_policy = str(recipe_failure)
-            if transaction_policy_override is None and recipe_transaction:
-                transaction_policy = str(recipe_transaction)
-        except Exception as exc:
-            recipe_error = exc
+    if recipe_path is not None and recipe_error is None:
+        if failure_policy_override is None and recipe_failure:
+            failure_policy = str(recipe_failure)
+        if transaction_policy_override is None and recipe_transaction:
+            transaction_policy = str(recipe_transaction)
 
     def finish_report(status: str, rc: int, *, chosen: list[QueueItem] | None = None, executed=None, remaining=None, failed_item=None):
         chosen = chosen or []; executed = executed or []; remaining = remaining or []
@@ -5653,8 +5785,20 @@ def main(argv=None):
     ns = ap.parse_args(argv)
     root = Path(ns.project_root).resolve()
     try:
+        if ns.command in {"run", "resume", "plan"}:
+            try:
+                load_project_config(root)
+            except Exception as exc:
+                print(
+                    f"[PTV v{VERSION} ERROR] PROJECT CONFIG: {_safe_display(str(exc))}",
+                    file=sys.stderr,
+                )
+                return 2
         if ns.command == "plan":
-            return _plan_queue(root, export_recipe=ns.export_recipe)
+            return _plan_queue(
+                root, export_recipe=ns.export_recipe,
+                failure_policy_override=ns.failure_policy, transaction_policy_override=ns.transaction_policy,
+            )
         if ns.command == "report":
             return _report_command(
                 root, ns.run_id, list_runs=ns.list_runs, pin_run=ns.pin, unpin_run=ns.unpin,

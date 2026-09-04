@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.17.9
+# AI / ChatGPT usage contract — Python Patch Tool v6.17.10
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
@@ -197,7 +197,7 @@ Ví dụ:
 - `run_after`: PATCH mới phải chạy trước để chuẩn bị source rồi predecessor được retry sau. Không dùng nếu `depends_on` tạo thứ tự ngược lại.
 - `block`: AI xác định chưa an toàn để tiếp tục; tool chặn batch trước source write.
 
-`reason` là bắt buộc. AI phải mô tả ngắn vì sao hành động đó đúng. Khuyến nghị khai báo cả `patch_id` và `patch_file` để tool đối chiếu chính xác với predecessor trong `LAST_RUN`.
+`reason` là bắt buộc. AI phải mô tả ngắn vì sao hành động đó đúng. Khuyến nghị khai báo cả `patch_id` và `patch_file` để tool đối chiếu chính xác với predecessor trong `LAST_RUN`/`UNRESOLVED_FAILURES.json`; filesystem action luôn bind thêm exact package SHA khi có.
 
 **Quy tắc chống PATCH mồ côi:** sau khi nhận FAIL_HANDOFF, mọi PATCH successor phải chủ động quyết định số phận predecessor. Không được tạo PATCH mới rồi mặc định để người dùng tự đoán nên xóa PATCH cũ, retry trước hay chạy lại sau.
 
@@ -217,7 +217,7 @@ Dependency dùng `manifest.batch.depends_on` với `manifest.patch.id` đã tồ
 
 - Dependency bắt buộc phải có mặt trong batch được chọn; thiếu dependency hoặc cycle làm whole-batch preflight FAIL trước source write.
 - `on_dependency_failure` mặc định là `block`.
-- Chỉ dùng `run_anyway` khi PATCH thật sự độc lập với kết quả runtime của dependency và AI có bằng chứng source assumptions vẫn hợp lệ.
+- `run_anyway` là giá trị legacy chỉ còn được schema chấp nhận để tương thích; **không dùng trong PATCH mới**. Runtime luôn `BLOCKED` khi dependency hoặc related-target predecessor đã FAIL.
 - Không dùng dependency để thay thế source preflight. Runner vẫn preflight lại ngay trước từng PATCH.
 
 ## v6.17.5 — Whole-batch preflight và transaction
@@ -260,3 +260,17 @@ All AI-declared commands are non-interactive. Do not depend on stdin/password/co
 ### v6.17.8 internal-error rule
 
 Once payload execution has begun, an unexpected runner exception is treated as a PATCH execution failure for recovery purposes: applicable rollback first, then `on_failure.commands`. AI must not assume failure-only commands run for package/schema/preflight rejection or for user interruption. Dispatcher foreground routes (`inspect`/`preview`/`validate`/COLLECT supervisor) are signal/tree-contained as well. POSIX normal-exit orphan detection is runtime-tested; Windows native normal-exit orphan detection is not claimed by the Linux release lane.
+
+
+## v6.17.10 — metadata and post-patch semantics
+
+`patch.version`, `patch.phase`, `patch.phase_under_test`, `patch.summary` and `patch.regression_scope` are descriptive metadata. They do not create implicit runtime gates. Put enforceable source assumptions in `preflight.files`, project binding in `manifest.project.key`, ordering in batch dependencies, and executable checks in trusted validation profiles.
+
+`post_patch.run_when_no_changes` defaults to `false`. Therefore `post_patch.commands` is skipped when the PATCH produced no detected project delta unless the manifest explicitly sets `run_when_no_changes=true`. This option does not change PATCH success/failure semantics; it only controls whether post commands also run for an idempotent/no-op PATCH.
+
+## v6.17.10 — unresolved predecessor consistency
+
+- Cross-run enforcement áp theo **PATCH successor thực sự liên quan**, không theo item đầu của batch. Quan hệ gồm `depends_on`, effective-target overlap, hoặc chính successor chủ động khai báo `batch.previous_failure`.
+- PATCH độc lập không phải xử lý failure cũ.
+- Nếu batch đang chọn liên quan đồng thời tới nhiều unresolved predecessor, planner fail-closed với `multiple_previous_failures_action_required`; dùng Smart Resume để Retry/Delete các predecessor trước vì manifest hiện chỉ có một `previous_failure` object.
+- Một PATCH PASS chỉ tự resolve registry entry cũ khi logical identity **và exact SHA-256** khớp. Reuse `patch.id` với bytes khác không phải bằng chứng predecessor đã được sửa.
