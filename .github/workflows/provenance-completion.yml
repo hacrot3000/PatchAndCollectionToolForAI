@@ -24,7 +24,6 @@ jobs:
           mkdir -p /tmp/ptv-provenance-final/tools
           python3 -c 'from pathlib import Path; import shutil,sys; sys.path.insert(0,str(Path("_patch_lib").resolve())); from python_patch_release_metadata import managed_relpaths; src=Path(".").resolve(); project=Path("/tmp/ptv-provenance-final"); rows=managed_relpaths(src); [(lambda rel,s,d:(d.parent.mkdir(parents=True,exist_ok=True),shutil.copy2(s,d)))(rel,src/Path(rel).relative_to("tools"),project/rel) for rel in rows]; shutil.copy2(src/"_patch_lib/SHA256SUMS",project/"tools/_patch_lib/SHA256SUMS"); (project/"tools/run_python_patches.sh").chmod(0o755)'
           export PYTHONDONTWRITEBYTECODE=1
-          export NO_COLOR=1
           cd /tmp/ptv-provenance-final/tools
           python3 _patch_lib/self_test_provenance_signature_v6_21_0.py
           python3 _patch_lib/self_test_ai_sync_v6_20_0.py
