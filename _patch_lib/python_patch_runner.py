@@ -1489,6 +1489,11 @@ def _prepare_package(root: Path, source: Path, *, skip_validation: bool = False)
     manifest: dict = {}
     extracted: Path | None = None
     if source.suffix.lower() == ".py":
+        try:
+            from python_patch_provenance import ProvenanceError, enforce_legacy_unsigned_policy
+            enforce_legacy_unsigned_policy(root, package_label=source.name)
+        except ProvenanceError as exc:
+            raise PatchSchemaError(str(exc), kind=exc.kind) from exc
         kind = "python"
         payload = source
         preflight = {
@@ -1513,6 +1518,11 @@ def _prepare_package(root: Path, source: Path, *, skip_validation: bool = False)
     manifest_path = extracted / "PATCH_TOOL_MANIFEST.json"
     manifest, kind, payload, legacy_scripts = _find_payload(extracted, archive_name=source.name)
     if not manifest_path.is_file():
+        try:
+            from python_patch_provenance import ProvenanceError, enforce_legacy_unsigned_policy
+            enforce_legacy_unsigned_policy(root, package_label=source.name)
+        except ProvenanceError as exc:
+            raise PatchSchemaError(str(exc), kind=exc.kind) from exc
         if kind != "python":
             raise PatchSchemaError(
                 "legacy archive without PATCH_TOOL_MANIFEST.json must contain a positively recognized Python patch entrypoint",

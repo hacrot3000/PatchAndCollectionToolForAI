@@ -600,6 +600,18 @@ def run_preflight(
     }
     checks: list[dict[str, Any]] = report["checks"]
 
+    # Cryptographic provenance is a local trust-policy preflight contract.
+    # Verification covers canonical manifest semantics plus every regular
+    # package file and always completes before any payload/source mutation.
+    try:
+        from python_patch_provenance import ProvenanceError, verify_patch_provenance
+        checks.append(verify_patch_provenance(root, manifest, extracted))
+    except ProvenanceError as exc:
+        report["status"] = "FAIL"
+        issue = {"kind": exc.kind, "field": "manifest.provenance", "message": str(exc)}
+        report["issues"] = [issue]
+        raise PatchSchemaError(str(exc), kind=exc.kind, issues=[issue], report=report) from exc
+
     # Project identity and named validation profiles are local-policy contracts.
     # PATCH packages may request them, but may not define the executable command.
     try:
