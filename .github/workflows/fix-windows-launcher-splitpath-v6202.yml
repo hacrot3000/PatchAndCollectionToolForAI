@@ -1,4 +1,4 @@
-name: Fix v6.20.2 Windows launcher path resolution
+name: Fix v6.20.2 Windows launcher path and output forwarding
 
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
           ref: ptv-v6.20.2-hardening-work
           fetch-depth: 0
 
-      - name: Replace incompatible Split-Path usage, test, refresh metadata, commit
+      - name: Fix path resolution and child output forwarding, test, refresh metadata, commit
         shell: bash
         run: |
           set -euo pipefail
@@ -32,11 +32,54 @@ jobs:
 
           ps = Path('run_python_patches.ps1')
           text = ps.read_text(encoding='utf-8')
-          old = "$ToolsDir = Split-Path -LiteralPath $MyInvocation.MyCommand.Path -Parent\n$ProjectRoot = Split-Path -LiteralPath $ToolsDir -Parent"
-          new = "$ToolsDir = [System.IO.Path]::GetDirectoryName($MyInvocation.MyCommand.Path)\n$ProjectRoot = [System.IO.Path]::GetDirectoryName($ToolsDir)"
-          if old not in text:
+
+          old_paths = "$ToolsDir = Split-Path -LiteralPath $MyInvocation.MyCommand.Path -Parent\n$ProjectRoot = Split-Path -LiteralPath $ToolsDir -Parent"
+          new_paths = "$ToolsDir = [System.IO.Path]::GetDirectoryName($MyInvocation.MyCommand.Path)\n$ProjectRoot = [System.IO.Path]::GetDirectoryName($ToolsDir)"
+          if old_paths not in text:
               raise SystemExit('expected Split-Path launcher block not found')
-          ps.write_text(text.replace(old, new, 1), encoding='utf-8')
+          text = text.replace(old_paths, new_paths, 1)
+
+          old_fn = """function Invoke-PatchPython([string[]]$Arguments) {
+    $invokeArgs = @()
+    if ($Python.Prefix) { $invokeArgs += $Python.Prefix }
+    $invokeArgs += $Arguments
+    & $Python.Exe @invokeArgs
+    if ($null -eq $LASTEXITCODE) { return 1 }
+    return [int]$LASTEXITCODE
+}
+"""
+          new_fn = """$script:PatchPythonExitCode = 1
+function Invoke-PatchPython([string[]]$Arguments) {
+    $invokeArgs = @()
+    if ($Python.Prefix) { $invokeArgs += $Python.Prefix }
+    $invokeArgs += $Arguments
+    & $Python.Exe @invokeArgs
+    if ($null -eq $LASTEXITCODE) {
+        $script:PatchPythonExitCode = 1
+    } else {
+        $script:PatchPythonExitCode = [int]$LASTEXITCODE
+    }
+}
+"""
+          if old_fn not in text:
+              raise SystemExit('expected Invoke-PatchPython block not found')
+          text = text.replace(old_fn, new_fn, 1)
+
+          replacements = {
+              "exit (Invoke-PatchPython @($Dispatcher, '--project-root', $ProjectRoot))": "Invoke-PatchPython @($Dispatcher, '--project-root', $ProjectRoot)\n    exit $script:PatchPythonExitCode",
+              "exit (Invoke-PatchPython (@($Dispatcher, '--project-root', $ProjectRoot, $command) + $rest))": "Invoke-PatchPython (@($Dispatcher, '--project-root', $ProjectRoot, $command) + $rest)\n    exit $script:PatchPythonExitCode",
+              "exit (Invoke-PatchPython $collectArgs)": "Invoke-PatchPython $collectArgs\n    exit $script:PatchPythonExitCode",
+              "exit (Invoke-PatchPython (@($Dispatcher, '--project-root', $ProjectRoot, 'run') + @($dispatchArgs)))": "Invoke-PatchPython (@($Dispatcher, '--project-root', $ProjectRoot, 'run') + @($dispatchArgs))\n    exit $script:PatchPythonExitCode",
+              "exit (Invoke-PatchPython $runnerArgs)": "Invoke-PatchPython $runnerArgs\n    exit $script:PatchPythonExitCode",
+              "exit (Invoke-PatchPython (@($Runner) + @($filtered)))": "Invoke-PatchPython (@($Runner) + @($filtered))\nexit $script:PatchPythonExitCode",
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'expected launcher callsite not found: {old}')
+              text = text.replace(old, new, 1)
+          if 'exit (Invoke-PatchPython' in text:
+              raise SystemExit('capturing exit(Invoke-PatchPython ...) callsite remains')
+          ps.write_text(text, encoding='utf-8')
 
           test = Path('_patch_lib/self_test_windows_launchers_v6_20_0.py')
           t = test.read_text(encoding='utf-8')
@@ -46,6 +89,9 @@ jobs:
               "assert \"[System.IO.Path]::GetDirectoryName($ToolsDir)\" in pst\n"
               "assert \"Split-Path -LiteralPath $MyInvocation.MyCommand.Path -Parent\" not in pst\n"
               "assert \"Split-Path -LiteralPath $ToolsDir -Parent\" not in pst\n"
+              "assert \"$script:PatchPythonExitCode = 1\" in pst\n"
+              "assert \"exit (Invoke-PatchPython\" not in pst\n"
+              "assert \"exit $script:PatchPythonExitCode\" in pst\n"
           )
           if marker not in t:
               raise SystemExit('windows launcher regression insertion marker missing')
@@ -69,5 +115,5 @@ jobs:
           git config user.name "Patch Tool CI"
           git config user.email "patch-tool-ci@users.noreply.github.com"
           git add run_python_patches.ps1 _patch_lib/self_test_windows_launchers_v6_20_0.py _patch_lib/PACKAGE_CONTENTS.txt _patch_lib/SHA256SUMS
-          git commit -m "fix: make Windows launcher path resolution PowerShell-compatible"
+          git commit -m "fix: preserve Windows launcher output and exit status"
           git push origin HEAD:ptv-v6.20.2-hardening-work
