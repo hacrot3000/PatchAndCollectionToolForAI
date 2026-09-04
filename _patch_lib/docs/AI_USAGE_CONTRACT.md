@@ -1,6 +1,6 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.11.0
+# AI / ChatGPT usage contract — Python Patch Tool v6.12.0
 
-This document overrides obsolete v5 COLLECT examples and older chat instructions.
+This document overrides obsolete v5/v6.11 COLLECT examples and older chat instructions.
 
 ## Public workflow
 
@@ -10,61 +10,118 @@ The normal public command is always:
 ./tools/run_python_patches.sh
 ```
 
-If AI needs more source/evidence, it must return **one ZIP request package**, never a loose JSON:
+PATCH and COLLECT packages go into `<project>/patchs/`. AI must return **one ZIP artifact**, never loose patch/collect JSON.
+
+## Before an AI work session
+
+The user should send AI **all files under `tools/_patch_lib/docs/`**. When Patch Tool itself is being developed, also send:
+
+- `tools/implementing.md`
+- `tools/PYTHON_PATCH_TOOL_FEATURES_VI.md`
+
+AI must read the current docs before creating PATCH/COLLECT artifacts.
+
+## Authoritative COLLECT action schema
+
+The machine-readable source of truth is:
+
+```text
+tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json
+```
+
+v6.12.0 is self-contained and guarantees exactly these readonly actions:
+
+- `pack`
+- `overview`
+- `find`
+- `search`
+- `git`
+
+Do not invent or alias an unsupported action. Historical names such as `research`, `content`, `search_files`, `symbol_graph`, `references`, `callgraph`, `dependencies`, or `decompile` are **not part of the v6.12.0 contract** unless a future schema explicitly adds them.
+
+### `pack`
+
+```json
+{"type":"pack","paths":["relative/file.c","relative/file.h"]}
+```
+
+Exact regular files only; no absolute paths, `..`, globs, directories or symlinks.
+
+### `overview`
+
+```json
+{"type":"overview","path":".","tree_depth":3}
+```
+
+Produces a bounded project/file-type/tree overview. This is a real supported action in v6.12.0; it is no longer guessed/delegated to an unknown private collector.
+
+### `find`
+
+```json
+{"type":"find","paths":["."],"patterns":["*.c","CMakeLists.txt"],"collect":true}
+```
+
+Finds by path/name glob. With `collect:true`, matched regular files are copied into the result subject to limits.
+
+### `search`
+
+```json
+{"type":"search","paths":["src"],"query":"foo|bar","regex":true,"context_lines":8}
+```
+
+Bounded UTF-8 text search with context.
+
+### `git`
+
+```json
+{"type":"git","sections":["status","log","diff_stat","diff"]}
+```
+
+Only fixed read-only Git sections are accepted. Arbitrary Git/shell commands are not accepted.
+
+## COLLECT request delivery
+
+AI returns exactly one ZIP:
 
 ```text
 CODE_COLLECTION_REQUEST_<purpose>_<timestamp>.zip
 └── CODE_COLLECTION_REQUEST_<purpose>_<timestamp>.json
 ```
 
-The ZIP contains exactly one request JSON and is copied to `<project>/patchs/`.
-The user runs the zero-argument launcher and later uploads only the verified result ZIP shown under `!!! [PRIMARY - UPLOAD THIS FILE] !!!`.
+The inner JSON must pass `COLLECT_ACTION_SCHEMA.json` preflight. Unsupported actions/fields become `COLLECT INVALID` before execution.
 
-## Guaranteed action: exact-file `pack`
+## Selection isolation
 
-Python Patch Tool v6.11.0 guarantees this action at the overlay layer:
+- at most one `[COLLECT]` per invocation;
+- never mix COLLECT and PATCH;
+- `a` means all PATCHes only;
+- priority `0..9` applies to PATCH only;
+- no project/process lock: other terminals may run independently by operator choice.
 
-```json
-{
-  "type": "pack",
-  "paths": [
-    "main-esp32c3/main/ota/app_ota_ble_transport.c",
-    "main-esp32c3/main/ota/app_ota_ble_transport.h"
-  ]
-}
-```
+## PATCH duplicate rules
 
-Use `pack` when the AI needs exact current source files by known relative path. `paths` must contain exact regular files inside the project root. Do not use absolute paths, `..`, globs, directories, or symlinks. Missing paths must remain an explicit COLLECT failure rather than being skipped.
+Two duplicate scopes exist:
 
-A request consisting only of `pack` actions is handled directly by the v6.11.0 compatibility collector. The result ZIP preserves each source as `files/<relative-path>` and includes `COLLECTION_MANIFEST.json` with path, byte size and SHA-256.
+1. **Current queue/session**: exact same size + SHA-256 among queued PATCHes. The first natural-order file is canonical; later byte-identical files are removed from `patchs/` immediately and never shown as separate runnable items.
+2. **Local successful history**: exact SHA-256 against current project's direct `patchs/patched/`; those queue files are skipped, not globally/server suppressed.
 
-## All other COLLECT actions — strict compatibility rule
+No cross-machine/server/project-key duplicate database is used.
 
-**Do not use the historical v5 action list as an authoritative schema.** An observed installed collector used with Patch Tool v6.9.1 rejected `overview` at runtime with `Unknown action type: overview`. Except for the overlay-guaranteed `pack` action above, action names remain private-collector/revision specific.
+## Self-contained package contract
 
-For any non-`pack` action, AI must do one of the following before creating the inner JSON:
+v6.12.0 ships its own:
 
-1. Use the exact action names and fields defined by the **current installed collector/schema** supplied for that project; or
-2. Reuse/adapt an action object from a `CODE_COLLECTION_REQUEST` known to have **PASSed with the same installed collector revision**.
+- `python_patch_runner.py`
+- `python_patch_utils.py`
+- `python_patch_readonly_collector.py`
+- `python_patch_collect_compat.py`
+- dispatcher/progress/schema/docs
 
-If neither is available, AI must request the current collector/schema or a known-good request template. **Never guess an action type.** In particular, do not emit `overview` merely because an older v5 document listed it.
-
-## Selection isolation — mandatory
-
-A `CODE_COLLECTION_REQUEST` is a standalone job within one invocation:
-
-- select **at most one** `[COLLECT]` item per run;
-- never select `[COLLECT]` together with any `[PATCH]`;
-- selecting a COLLECT in the TTY selector clears every other selection;
-- selecting a PATCH while a COLLECT is selected switches back to PATCH selection;
-- `a` means **all PATCHes**, not all COLLECT requests;
-- priority `0..9` applies to PATCH only; COLLECT has no priority.
-
-This is **selection isolation only**. Patch Tool v6.11.0 deliberately does **not** hold a project/process lock. The operator may open other terminal windows and run other Patch Tool processes manually/concurrently. Concurrent execution is operator-controlled and does not create global/shared history.
+The package therefore does not require an older private core for the documented v6.12.0 contract. Historical/ambiguous formats outside this contract fail closed instead of being guessed.
 
 ## Result ZIP
 
-A successful COLLECT prints one highlighted result path only:
+A successful COLLECT prints exactly one highlighted upload path:
 
 ```text
 !!! [PRIMARY - UPLOAD THIS FILE] !!!
@@ -72,8 +129,8 @@ A successful COLLECT prints one highlighted result path only:
 <absolute-path-to-result.zip>
 ```
 
-The archived request path is informational. A result archive containing `COLLECTION_MANIFEST.json` is evidence and must not be placed back into `patchs/`; queue discovery skips it fail-closed.
+Upload that ZIP to AI. Do not put collection-result ZIPs back into `patchs/`.
 
 ## PATCH rules retained
 
-PATCH stays in-place; SANDBOX/worktree execution remains removed. Duplicate PATCH suppression is local-only against the current project `patchs/patched/` by exact package SHA-256; it is not server/global/cross-machine history.
+PATCH remains in-place. SANDBOX/detached Git worktree transaction execution is permanently removed. Patch archives are safely extracted outside the project and the patch script/OPS runs with project root as working directory.

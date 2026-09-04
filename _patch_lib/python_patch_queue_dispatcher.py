@@ -15,6 +15,8 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from python_patch_collect_schema import CollectSchemaError, validate_request_data
+
 try:
     import termios
     import tty
@@ -22,7 +24,7 @@ except Exception:
     termios = tty = None
 
 
-VERSION = "6.11.0"
+VERSION = "6.12.0"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -48,6 +50,14 @@ class LocalDuplicate:
     item: QueueItem
     history_name: str
     sha256: str
+
+
+@dataclass(frozen=True)
+class SessionDuplicate:
+    item: QueueItem
+    canonical_name: str
+    sha256: str
+    removed: bool
 
 
 def _safe_display(value: str) -> str:
@@ -204,13 +214,11 @@ def inspect_collect_zip(path: Path):
                 data = json.loads(raw.decode("utf-8"))
             except Exception as exc:
                 return False, f"invalid_request_json:{type(exc).__name__}"
-            if (
-                not isinstance(data, dict)
-                or not isinstance(data.get("actions"), list)
-                or not data["actions"]
-            ):
-                return False, "invalid_request"
-            return True, f"id={data.get('id', 'collect')} actions={len(data['actions'])}"
+            try:
+                validated = validate_request_data(data)
+            except CollectSchemaError as exc:
+                return False, f"schema_error:{exc}"
+            return True, f"id={validated.get('id') or 'collect'} actions={len(validated['actions'])}"
     except Exception as exc:
         return False, f"invalid_zip:{type(exc).__name__}"
 
@@ -334,6 +342,89 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: fh.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _split_session_duplicate_patches(root: Path, items: list[QueueItem]):
+    """Collapse byte-identical PATCH files already present in the same queue.
+
+    Fast path: stat/group by file size first, then SHA-256 only groups that can
+    possibly contain a duplicate. The first PATCH in natural queue order is the
+    canonical file. Later byte-identical files are removed from ``patchs/``
+    immediately, as explicitly requested. COLLECT requests are never deduped.
+    """
+    queue_dir = root / "patchs"
+    runnable: list[QueueItem] = []
+    duplicates: list[SessionDuplicate] = []
+    warnings: list[str] = []
+
+    size_by_name: dict[str, int | None] = {}
+    size_counts: dict[int, int] = {}
+    for item in items:
+        if item.kind != "PATCH":
+            continue
+        path = queue_dir / item.name
+        try:
+            if path.is_symlink() or not path.is_file():
+                size_by_name[item.name] = None
+                continue
+            size = path.stat().st_size
+            size_by_name[item.name] = size
+            size_counts[size] = size_counts.get(size, 0) + 1
+        except OSError as exc:
+            size_by_name[item.name] = None
+            warnings.append(
+                f"session duplicate stat skipped for patchs/{item.name} ({type(exc).__name__})"
+            )
+
+    canonical_by_hash: dict[tuple[int, str], QueueItem] = {}
+    for item in items:
+        if item.kind != "PATCH":
+            runnable.append(item)
+            continue
+        size = size_by_name.get(item.name)
+        if size is None or size_counts.get(size, 0) < 2:
+            runnable.append(item)
+            continue
+        path = queue_dir / item.name
+        try:
+            digest = _sha256_file(path)
+        except OSError as exc:
+            warnings.append(
+                f"session duplicate hash skipped for patchs/{item.name} ({type(exc).__name__})"
+            )
+            runnable.append(item)
+            continue
+        key = (size, digest)
+        canonical = canonical_by_hash.get(key)
+        if canonical is None:
+            canonical_by_hash[key] = item
+            runnable.append(item)
+            continue
+        removed = False
+        try:
+            path.unlink()
+            removed = True
+        except FileNotFoundError:
+            removed = True
+        except OSError as exc:
+            warnings.append(
+                f"duplicate PATCH was excluded from this run but could not be removed: "
+                f"patchs/{item.name} ({type(exc).__name__})"
+            )
+        duplicates.append(SessionDuplicate(item, canonical.name, digest, removed))
+
+    return runnable, duplicates, warnings
+
+
+def _print_session_duplicate_removals(duplicates: list[SessionDuplicate], *, stream=None) -> None:
+    if not duplicates:
+        return
+    out = stream or sys.stdout
+    print("DUPLICATE PATCHES COLLAPSED IN THIS SESSION:", file=out)
+    for index, duplicate in enumerate(duplicates, 1):
+        status = "REMOVED:DUPLICATE_SESSION" if duplicate.removed else "SKIPPED:DUPLICATE_SESSION"
+        print(f"{index}. [{status}] {_safe_display(duplicate.item.name)}", file=out)
+        print(f"   Same content as: patchs/{_safe_display(duplicate.canonical_name)}", file=out)
 
 
 def _split_local_duplicate_patches(root: Path, items: list[QueueItem]):
@@ -529,6 +620,7 @@ def discover_queue(root: Path):
                 or detail == "invalid_request"
                 or detail.startswith("invalid_request_json:")
                 or detail.startswith("request_too_large=")
+                or detail.startswith("schema_error:")
                 or (
                     detail.startswith("request_json_count=")
                     and detail != "request_json_count=0"
@@ -1249,15 +1341,20 @@ def execute_items(root: Path, chosen: list[QueueItem]):
 
 def _run_queue(root: Path):
     items, warnings = discover_queue(root)
+    items, session_duplicates, session_duplicate_warnings = _split_session_duplicate_patches(root, items)
     items, local_duplicates, duplicate_warnings = _split_local_duplicate_patches(root, items)
     printed_warnings = set()
-    for warning in [*warnings, *duplicate_warnings]:
+    for warning in [*warnings, *session_duplicate_warnings, *duplicate_warnings]:
         if warning in printed_warnings:
             continue
         printed_warnings.add(warning)
         print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}")
     if not items:
-        if local_duplicates:
+        if session_duplicates:
+            print("AUTO STATUS: IDLE — no new runnable package remains after duplicate filtering.")
+            _print_session_duplicate_removals(session_duplicates)
+            _print_local_duplicate_skips(local_duplicates)
+        elif local_duplicates:
             print("AUTO STATUS: IDLE — no new runnable package; local duplicate PATCHes were skipped.")
             _print_local_duplicate_skips(local_duplicates)
         else:
@@ -1282,11 +1379,13 @@ def _run_queue(root: Path):
             return 130
     if chosen is None:
         print("Cancelled.")
+        _print_session_duplicate_removals(session_duplicates)
         if local_duplicates:
             _print_local_duplicate_skips(local_duplicates)
         return 0
     if not chosen:
         print("AUTO STATUS: IDLE — queue is empty or no runnable item remains; nothing executed.")
+        _print_session_duplicate_removals(session_duplicates)
         if local_duplicates:
             _print_local_duplicate_skips(local_duplicates)
         return 0
@@ -1314,17 +1413,24 @@ def _run_queue(root: Path):
             print(f"SKIPPED / NOT EXECUTED: {len(remaining)} selected item(s)", file=sys.stderr)
             for item in remaining:
                 print(f"  - {_safe_display(item.name)}", file=sys.stderr)
+        if session_duplicates:
+            _print_session_duplicate_removals(session_duplicates, stream=sys.stderr)
         if local_duplicates:
             _print_local_duplicate_skips(local_duplicates, stream=sys.stderr)
         return rc
+    if session_duplicates:
+        _print_session_duplicate_removals(session_duplicates)
     if local_duplicates:
         _print_local_duplicate_skips(local_duplicates)
     completed_count = len(executed)
-    duplicate_count = len(local_duplicates)
+    session_duplicate_count = len(session_duplicates)
+    local_duplicate_count = len(local_duplicates)
+    duplicate_count = session_duplicate_count + local_duplicate_count
     if duplicate_count:
         print(
             f"SUMMARY: PASS | {completed_count} item(s) completed | "
-            f"{duplicate_count} item(s) skipped as local duplicate"
+            f"{session_duplicate_count} duplicate file(s) collapsed in-session | "
+            f"{local_duplicate_count} item(s) skipped from local history"
         )
     else:
         print(f"SUMMARY: PASS | {completed_count} item(s) completed")

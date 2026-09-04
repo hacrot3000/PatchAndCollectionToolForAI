@@ -1,59 +1,70 @@
-# CODE COLLECTION GUIDE — CURRENT COMPATIBILITY CONTRACT (v6.11.0)
+# CODE COLLECTION GUIDE — v6.12.0 AUTHORITATIVE CONTRACT
 
-This file intentionally replaces obsolete v5 guides at the same path.
+Python Patch Tool v6.12.0 is self-contained for its documented COLLECT schema. The authoritative action list is not inferred from old guides; it is defined by `COLLECT_ACTION_SCHEMA.json` and enforced before execution.
 
-## Guaranteed overlay action: `pack`
+## Supported actions
 
-Python Patch Tool v6.11.0 natively supports one readonly action without relying on the private collector core:
+| Action | Purpose |
+|---|---|
+| `pack` | Exact current bytes for known project-relative files. |
+| `overview` | Bounded project/tree/file-type overview. |
+| `find` | Find path/name globs, optionally collect matched files. |
+| `search` | Bounded literal/regex search with line context. |
+| `git` | Fixed read-only Git status/log/diff sections. |
+
+Any other action type or unsupported field is rejected as `COLLECT INVALID` before the collector runs.
+
+## Examples
+
+### Exact files
 
 ```json
 {
-  "type": "pack",
-  "paths": [
-    "relative/path/to/source.c",
-    "relative/path/to/source.h"
+  "id": "ota-transport-source",
+  "actions": [
+    {"type": "pack", "paths": ["main/app.c", "main/app.h"]}
   ]
 }
 ```
 
-`pack` means: copy the exact current bytes of the listed project files into one verified collection result ZIP. The result contains `COLLECTION_MANIFEST.json` plus each source under `files/<project-relative-path>` with size and SHA-256 metadata.
+### Overview
 
-Rules for `pack.paths`:
+```json
+{
+  "id": "project-overview",
+  "actions": [
+    {"type": "overview", "path": ".", "tree_depth": 3}
+  ]
+}
+```
 
-- each entry is an exact project-relative file path;
-- `/` separators only;
-- no absolute paths;
-- no `..` traversal;
-- no glob patterns;
-- no directories;
-- no symlinks;
-- missing files make the COLLECT fail instead of silently omitting evidence.
+### Find + search + Git
 
-A request containing only `pack` actions is handled by the v6.11.0 overlay itself and therefore does not require `python_patch_readonly_collector.py` to understand `pack`.
+```json
+{
+  "id": "root-cause-source",
+  "actions": [
+    {"type": "find", "paths": ["."], "patterns": ["*.java", "*.properties"], "collect": true},
+    {"type": "search", "paths": ["."], "query": "getPassword\\(|saveBatch", "regex": true, "context_lines": 8},
+    {"type": "git", "sections": ["status", "log", "diff_stat", "diff"]}
+  ]
+}
+```
 
-## Other action names remain collector-specific
+## Request delivery
 
-Older versions of this guide advertised a fixed list including `overview`, `research`, `ls`, `tree`, `find`, `file`, `search`, `references`, `git`, and decompile aliases. That historical list is **not authoritative for the currently installed private collector**. Runtime evidence from an installed v6.9.1 environment rejected `overview` with `Unknown action type: overview`.
-
-Therefore, except for the overlay-guaranteed `pack` action above:
-
-- do not copy old action examples into a new request;
-- do not guess aliases;
-- use only the exact schema/actions from the current installed collector, or a request known to have PASSed with that same collector revision;
-- if no authoritative schema/template is available, collect that compatibility evidence first instead of inventing JSON.
-
-## Delivery format
-
-AI returns one ZIP containing exactly one `CODE_COLLECTION_REQUEST*.json`. The user places the ZIP in `patchs/` and runs only:
+AI returns **one ZIP containing exactly one `CODE_COLLECTION_REQUEST*.json`**. The user copies the ZIP to `patchs/` and runs only:
 
 ```bash
 ./tools/run_python_patches.sh
 ```
 
-## Selection rule
+Raw JSON is rejected.
 
-Exactly one COLLECT request may be selected in an invocation, and it cannot be mixed with PATCH. This does not serialize or lock the whole project: separate terminal windows/processes remain allowed by operator choice.
+## Selection
+
+One invocation can run exactly one COLLECT request and cannot mix it with PATCH. This is not a global lock; separate terminals may run independently.
 
 ## Result
 
-Upload the single verified result ZIP highlighted as `[PRIMARY - UPLOAD THIS FILE]`; do not put a collection-result ZIP back into the runnable queue.
+Upload only the result ZIP highlighted as `[PRIMARY - UPLOAD THIS FILE]`.

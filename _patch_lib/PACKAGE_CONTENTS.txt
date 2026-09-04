@@ -1,26 +1,36 @@
-Python Patch Tool v6.11.0 portable overlay
+Python Patch Tool v6.12.0 full self-contained portable package
 
-Public entry point:
+Public files:
   tools/run_python_patches.sh
+  tools/implementing.md
+  tools/PYTHON_PATCH_TOOL_FEATURES_VI.md
+  tools/HUONG_DAN_PYTHON_PATCH_TOOL.html
 
-Managed overlay:
+Self-contained runtime:
   tools/_patch_lib/python_patch_queue_dispatcher.py
-  tools/_patch_lib/python_patch_collect_progress_v6_7.py
+  tools/_patch_lib/python_patch_runner.py
+  tools/_patch_lib/python_patch_utils.py
+  tools/_patch_lib/python_patch_readonly_collector.py
   tools/_patch_lib/python_patch_collect_compat.py
+  tools/_patch_lib/python_patch_collect_schema.py
+  tools/_patch_lib/python_patch_collect_progress_v6_7.py
+
+Authoritative docs/schema:
   tools/_patch_lib/docs/AI_USAGE_CONTRACT.md
   tools/_patch_lib/docs/CODE_COLLECTION_GUIDE.md
+  tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json
   tools/_patch_lib/docs/PORTABLE_USAGE.md
   tools/_patch_lib/docs/PYTHON_PATCH_TOOL_FEATURE_STATUS.md
-  tools/_patch_lib/self_test_*.py
+  tools/_patch_lib/docs/COLLECT_PROGRESS_V6_12_0.md
+
+Integrity/tests:
   tools/_patch_lib/VERSION
   tools/_patch_lib/SHA256SUMS
+  tools/_patch_lib/self_test_*.py
 
 Normal use:
-  unzip -o python_patch_tool_v6.11.0.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.12.0.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
-The overlay natively supports pack-only COLLECT requests for exact current files.
-Other COLLECT actions are delegated to the installed private collector core and remain revision-specific.
-The overlay does not reconstruct or replace missing/private PATCH runner core modules.
-
-COLLECT request ZIP artifact: CODE_COLLECTION_REQUEST_<purpose>_<timestamp>.zip
+v6.12.0 does not require an older private Patch Tool core for its documented contract.
+Unsupported historical PATCH/COLLECT formats fail closed rather than being guessed.

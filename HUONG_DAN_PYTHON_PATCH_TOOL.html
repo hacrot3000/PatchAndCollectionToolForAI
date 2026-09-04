@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hướng dẫn Python Patch Tool v6.12.0</title>
+<style>
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:980px;margin:32px auto;padding:0 18px;line-height:1.55;color:#1f2328}code,pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}pre{background:#f6f8fa;padding:12px;overflow:auto;border:1px solid #d0d7de;border-radius:8px}h1,h2{line-height:1.25}.note{border-left:4px solid #0969da;padding:8px 12px;background:#f6f8fa}.warn{border-left:4px solid #cf222e;padding:8px 12px;background:#fff8f8}table{border-collapse:collapse;width:100%}td,th{border:1px solid #d0d7de;padding:6px;text-align:left}</style>
+</head>
+<body>
+<h1>Python Patch Tool v6.12.0 — hướng dẫn nhanh</h1>
+
+<h2>1. Cài đặt / cập nhật</h2>
+<pre>unzip -o python_patch_tool_v6.12.0.zip -d "$PWD"
+cat tools/_patch_lib/VERSION</pre>
+<p>Kết quả version phải là <code>6.12.0</code>.</p>
+
+<h2>2. Chạy công cụ</h2>
+<pre>./tools/run_python_patches.sh</pre>
+<p>Không cần tham số. Tool tự nhận PATCH và CODE_COLLECTION_REQUEST trong <code>patchs/</code>.</p>
+<ul>
+<li>PATCH: có thể chọn nhiều; phím <code>0..9</code> đặt priority, số nhỏ chạy trước.</li>
+<li>COLLECT: mỗi lần chỉ được chọn <strong>1 request</strong>, không chạy chung với PATCH.</li>
+<li>Tool không khóa project; bạn có thể chủ động chạy terminal khác song song.</li>
+<li>Nếu nhiều PATCH trong cùng queue có checksum giống hệt nhau, tool giữ một file và tự loại file trùng.</li>
+</ul>
+
+<h2>3. Khi AI cần source</h2>
+<p>AI phải trả một ZIP <code>CODE_COLLECTION_REQUEST_*.zip</code>. Chép ZIP vào <code>patchs/</code>, chạy lệnh zero-argument ở trên, sau đó upload đúng ZIP được tool đánh dấu:</p>
+<pre>!!! [PRIMARY - UPLOAD THIS FILE] !!!
+&gt;&gt;&gt; ACTION REQUIRED: UPLOAD TO CHATGPT / AI SERVER &lt;&lt;&lt;
+/path/to/CODE_COLLECTION_RESULT_....zip</pre>
+
+<h2>4. Chuẩn bị AI trước mỗi phiên làm việc</h2>
+<div class="note"><strong>Gửi cho AI toàn bộ file trong <code>tools/_patch_lib/docs/</code></strong>, không chỉ một file. Nếu đang tiếp tục phát triển Patch Tool, gửi thêm <code>tools/implementing.md</code> và <code>tools/PYTHON_PATCH_TOOL_FEATURES_VI.md</code>.</div>
+<p>AI phải đọc tài liệu hiện hành trước khi tạo PATCH hoặc COLLECT request. Action COLLECT authoritative nằm trong <code>COLLECT_ACTION_SCHEMA.json</code>; không tự đoán action name.</p>
+
+<h2>5. Prompt mẫu chuẩn</h2>
+<h3>Tiếng Việt</h3>
+<pre>Tôi đang dùng Python Patch Tool hiện hành. Hãy đọc TOÀN BỘ các file tôi gửi từ tools/_patch_lib/docs/ trước khi làm việc; nếu có tools/implementing.md và tools/PYTHON_PATCH_TOOL_FEATURES_VI.md thì đọc cả hai.
+Tuân thủ contract hiện tại, không dùng hướng dẫn/version cũ để suy đoán. Ưu tiên sửa lỗi trước, sau đó mới hoàn thiện task đang dở; không tự start tính năng mới.
+Nếu cần source/evidence, hãy tạo đúng MỘT CODE_COLLECTION_REQUEST_*.zip theo COLLECT_ACTION_SCHEMA.json; không trả JSON rời và không yêu cầu chạy lệnh collect thủ công. Nếu tạo patch, trả đúng MỘT ZIP patch tương thích tool hiện hành.
+Người dùng luôn chạy: ./tools/run_python_patches.sh</pre>
+
+<h3>English</h3>
+<pre>I am using the current Python Patch Tool. Read ALL files I provide from tools/_patch_lib/docs/ before doing any work; also read tools/implementing.md and tools/PYTHON_PATCH_TOOL_FEATURES_VI.md when provided.
+Follow the current contract and do not infer behavior from obsolete versions. Fix bugs first, then finish already in-progress tasks; do not start new features on your own.
+If source/evidence is required, return exactly ONE CODE_COLLECTION_REQUEST_*.zip conforming to COLLECT_ACTION_SCHEMA.json; never return loose JSON and never ask me to run a manual collect command. If a code patch is required, return exactly ONE patch ZIP compatible with the current tool.
+The user always runs: ./tools/run_python_patches.sh</pre>
+
+<h3>Русский</h3>
+<pre>Я использую актуальную версию Python Patch Tool. Перед началом работы прочитайте ВСЕ файлы, которые я отправляю из tools/_patch_lib/docs/; если приложены tools/implementing.md и tools/PYTHON_PATCH_TOOL_FEATURES_VI.md, прочитайте и их.
+Следуйте только текущему контракту и не делайте выводы по устаревшим версиям. Сначала исправляйте ошибки, затем завершайте уже начатые задачи; не начинайте новые функции самостоятельно.
+Если нужны исходники/доказательства, верните ровно ОДИН архив CODE_COLLECTION_REQUEST_*.zip по схеме COLLECT_ACTION_SCHEMA.json; не возвращайте отдельный JSON и не просите запускать collect вручную. Если нужен патч кода, верните ровно ОДИН ZIP-патч, совместимый с текущей версией инструмента.
+Пользователь всегда запускает: ./tools/run_python_patches.sh</pre>
+
+<h2>6. Action COLLECT</h2>
+<table><tr><th>Action</th><th>Dùng khi</th></tr>
+<tr><td><code>pack</code></td><td>Biết chính xác path file cần lấy.</td></tr>
+<tr><td><code>overview</code></td><td>Cần overview bounded của project/thư mục.</td></tr>
+<tr><td><code>find</code></td><td>Tìm file theo tên/glob; có thể collect file khớp.</td></tr>
+<tr><td><code>search</code></td><td>Tìm text/regex có context.</td></tr>
+<tr><td><code>git</code></td><td>Lấy status/log/diff cố định, read-only.</td></tr></table>
+<div class="warn">Không dùng action ngoài schema hiện hành chỉ vì tài liệu cũ từng nhắc tới nó.</div>
+</body>
+</html>

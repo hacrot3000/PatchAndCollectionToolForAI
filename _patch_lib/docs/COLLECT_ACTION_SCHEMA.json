@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "tool_version": "6.12.0",
+  "request": {
+    "type": "object",
+    "required": ["actions"],
+    "allowed_fields": ["id", "title", "actions", "limits"]
+  },
+  "limits": {
+    "allowed_fields": ["max_file_bytes", "max_total_bytes", "max_files", "max_report_bytes"],
+    "defaults": {
+      "max_file_bytes": 8388608,
+      "max_total_bytes": 268435456,
+      "max_files": 5000,
+      "max_report_bytes": 16777216
+    }
+  },
+  "actions": {
+    "pack": {
+      "description": "Collect exact current bytes for known project-relative regular files.",
+      "required": ["type", "paths"],
+      "allowed_fields": ["id", "title", "type", "paths"]
+    },
+    "overview": {
+      "description": "Produce a bounded read-only project/tree/file-type overview.",
+      "required": ["type"],
+      "allowed_fields": ["id", "title", "type", "path", "tree_depth"]
+    },
+    "find": {
+      "description": "Find files by filename/path glob patterns and optionally collect exact matches.",
+      "required": ["type", "patterns"],
+      "allowed_fields": ["id", "title", "type", "paths", "patterns", "collect", "max_results"]
+    },
+    "search": {
+      "description": "Bounded text or regex search with line context.",
+      "required": ["type", "query"],
+      "allowed_fields": ["id", "title", "type", "query", "regex", "paths", "context_lines", "max_matches"]
+    },
+    "git": {
+      "description": "Collect fixed read-only Git status/log/diff sections; arbitrary commands are not accepted.",
+      "required": ["type", "sections"],
+      "allowed_fields": ["id", "title", "type", "sections", "log_entries"]
+    }
+  },
+  "git_sections": ["status", "log", "diff_stat", "diff"]
+}

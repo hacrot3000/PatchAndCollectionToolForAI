@@ -1,0 +1,60 @@
+# Danh sách tính năng Python Patch Tool — v6.12.0
+
+> Quy tắc duy trì: file này **phải được cập nhật ở mỗi release** khi một tính năng đổi trạng thái. Không được ghi COMPLETE nếu chưa có acceptance test tương ứng.
+
+## Hoàn thành
+
+| Nhóm | Tính năng | Trạng thái |
+|---|---|---|
+| Workflow | Entry point duy nhất `./tools/run_python_patches.sh` | COMPLETE |
+| Queue | Tự phân loại PATCH / COLLECT / non-runnable evidence | COMPLETE |
+| Queue | COLLECT request phải là ZIP; raw JSON bị reject | COMPLETE |
+| Selector | Space, ↑/↓, a/n/d, Enter, q/Esc | COMPLETE |
+| Selector | Priority PATCH 0–9, số nhỏ chạy trước, cùng số giữ thứ tự | COMPLETE |
+| Selector | Clip filename + Unicode cell width + viewport terminal | COMPLETE |
+| COLLECT isolation | Mỗi invocation chỉ chọn đúng 1 COLLECT, không trộn PATCH | COMPLETE |
+| Concurrency | Không project/process lock; terminal khác được chạy độc lập | COMPLETE |
+| Duplicate local history | Exact SHA-256 so với `patchs/patched/`, local project only | COMPLETE |
+| Duplicate current session | Exact size+SHA-256; giữ 1 canonical, tự xóa file queue trùng | COMPLETE v6.12.0 |
+| PATCH | In-place, SANDBOX/worktree bị loại bỏ | COMPLETE |
+| PATCH | Python package/standalone Python + safe archive extraction | COMPLETE v6.12.0 |
+| PATCH | Data-only `PATCH_TOOL_OPS.json` chuẩn | COMPLETE v6.12.0 |
+| PATCH | Post-patch argv command + timeout | COMPLETE v6.12.0 |
+| PATCH | Git manifest policy cơ bản `add/commit/push` fail-closed | COMPLETE v6.12.0 |
+| COLLECT | Highlight một `[PRIMARY - UPLOAD THIS FILE]` | COMPLETE |
+| COLLECT | Verified ZIP + CRC + request archive lifecycle | COMPLETE |
+| COLLECT | `pack` exact-file | COMPLETE |
+| COLLECT | `overview` bounded project overview | COMPLETE v6.12.0 |
+| COLLECT | `find` bounded glob/name lookup + optional collect | COMPLETE v6.12.0 |
+| COLLECT | `search` text/regex + context | COMPLETE v6.12.0 |
+| COLLECT | `git` fixed read-only status/log/diff sections | COMPLETE v6.12.0 |
+| COLLECT schema | Machine-readable `COLLECT_ACTION_SCHEMA.json` | COMPLETE v6.12.0 |
+| COLLECT schema | Queue preflight action + field validation | COMPLETE v6.12.0 |
+| Packaging | Full self-contained runtime cho contract v6.12.0 | COMPLETE v6.12.0 |
+| Packaging | `SHA256SUMS`, no `.pyc`/`__pycache__`, launcher 0755 | COMPLETE |
+| Docs | AI contract + current collect guide | COMPLETE |
+| Docs | `implementing.md` live task tracker | COMPLETE v6.12.0 |
+| Docs | Hướng dẫn HTML + prompt VI/EN/RU | COMPLETE v6.12.0 |
+
+## Một phần / bị giới hạn có chủ đích
+
+| Tính năng | Trạng thái | Ghi chú |
+|---|---|---|
+| Tương thích mọi private-core lịch sử | PARTIAL / FAIL-CLOSED | v6.12.0 tự chứa contract hiện hành; format cũ không có bằng chứng được reject thay vì đoán. |
+| Advanced historical COLLECT actions ngoài schema | NOT GUARANTEED | `content`, `symbol_graph`, `references`, `callgraph`, `dependencies`, `decompile` chưa thuộc contract v6.12.0. |
+| Phase inference nâng cao | DEFERRED | Chỉ sửa khi runtime evidence cho thấy phase telemetry sai/thiếu. |
+| LAST_RUN/private historical report parity | DEFERRED | Không phải acceptance của self-contained v6.12.0. |
+
+## Action COLLECT chính thức v6.12.0
+
+Chỉ các action sau là authoritative:
+
+- `pack`
+- `overview`
+- `find`
+- `search`
+- `git`
+
+Schema máy đọc được: `tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json`.
+
+Không được tự suy diễn tên action ngoài danh sách này.

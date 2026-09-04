@@ -240,8 +240,9 @@ with tempfile.TemporaryDirectory(prefix='ptv681dup_late_') as td:
     assert second.is_file(), second
 
 
-# End-to-end late duplicate reporting: both copies are initially selectable,
-# but after the first archives itself the second is reported as a local skip.
+# End-to-end current-session duplicate collapse: byte-identical queue files
+# are collapsed before the selector. The natural-order first copy is canonical
+# and the redundant file is removed from patchs/ immediately.
 with tempfile.TemporaryDirectory(prefix='ptv681dup_late_main_') as td:
     root = Path(td)
     tools = root / 'tools'
@@ -272,13 +273,29 @@ with tempfile.TemporaryDirectory(prefix='ptv681dup_late_main_') as td:
     assert cp.returncode == 0, (cp.returncode, cp.stdout, cp.stderr)
     invoked = calls.read_text(encoding='utf-8').splitlines()
     assert len(invoked) == 1 and 'copy_1.zip' in invoked[0], invoked
-    assert '[SKIPPED:DUPLICATE_LOCAL] copy_2.zip' in cp.stdout, cp.stdout
-    assert 'SUMMARY: PASS | 1 item(s) completed | 1 item(s) skipped as local duplicate' in cp.stdout, cp.stdout
-    assert second.is_file(), second
+    assert '[REMOVED:DUPLICATE_SESSION] copy_2.zip' in cp.stdout, cp.stdout
+    assert 'Same content as: patchs/copy_1.zip' in cp.stdout, cp.stdout
+    assert '1 duplicate file(s) collapsed in-session' in cp.stdout, cp.stdout
+    assert not second.exists(), second
 
 
 
-# v6.11.0 deliberately has no project/process queue lock. Independent terminal
+# Explicit 3-file acceptance from the user requirement: 3 queued PATCHes, two
+# are byte-identical under different names. Exactly one duplicate is removed
+# before selection while the unique PATCH remains runnable.
+with tempfile.TemporaryDirectory(prefix='ptv612_session_three_') as td:
+    root=Path(td); q=root/'patchs'; (q/'patched').mkdir(parents=True)
+    a=q/'patch_1.zip'; b=q/'renamed_copy.zip'; c=q/'patch_3.zip'
+    make_patch(a,'same-session-bytes'); shutil.copy2(a,b); make_patch(c,'unique-session-bytes')
+    items=[m.QueueItem(a.name,'PATCH'),m.QueueItem(b.name,'PATCH'),m.QueueItem(c.name,'PATCH')]
+    runnable,dups,warns=m._split_session_duplicate_patches(root,items)
+    assert [x.name for x in runnable]==['patch_1.zip','patch_3.zip'],runnable
+    assert len(dups)==1 and dups[0].item.name=='renamed_copy.zip' and dups[0].canonical_name=='patch_1.zip',dups
+    assert dups[0].removed and not b.exists(),b
+    assert a.is_file() and c.is_file() and not warns,warns
+
+
+# v6.12.0 deliberately has no project/process queue lock. Independent terminal
 # windows are operator-controlled and must not be rejected as BUSY. A stale
 # .ptv_queue.lock from an older release is ignored and is never created by this
 # dispatcher.
@@ -309,4 +326,4 @@ with tempfile.TemporaryDirectory(prefix='ptv610_no_process_lock_') as td:
     invoked=calls.read_text(encoding='utf-8').splitlines()
     assert len(invoked)==2,invoked
 
-print('PASS: v6.11.0 local-only SHA-256 duplicate PATCH skip contract')
+print('PASS: v6.12.0 current-session duplicate collapse plus local-history duplicate contract')

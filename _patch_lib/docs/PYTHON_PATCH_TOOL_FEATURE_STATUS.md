@@ -1,30 +1,36 @@
-# Python Patch Tool v6.11.0 feature status
+# Python Patch Tool v6.12.0 feature status
 
 | Capability | Status |
 |---|---|
 | Public zero-argument PATCH/COLLECT queue | COMPLETE |
-| AI COLLECT request ZIP-only delivery | COMPLETE / documented |
-| Overlay-native exact-file `pack` action | COMPLETE / v6.11.0 |
-| Historical v5 COLLECT action list | OBSOLETE as universal schema; only `pack` is overlay-guaranteed |
-| Exactly one COLLECT per invocation | COMPLETE / enforced |
-| COLLECT + PATCH mixed selection | REJECTED |
-| Multiple COLLECT selection | REJECTED |
+| AI COLLECT request ZIP-only delivery | COMPLETE |
+| Current-session exact duplicate collapse/removal | COMPLETE / v6.12.0 |
+| Local-history duplicate filtering | COMPLETE |
 | PATCH priority `0..9` | COMPLETE |
 | TTY/line selector width-height safety | COMPLETE |
-| Project/process queue lock | REMOVED BY REQUIREMENT — concurrent terminals are operator-controlled |
-| Local-only duplicate PATCH filtering | COMPLETE; exact SHA-256 against local `patchs/patched/` only |
+| Exactly one COLLECT per invocation / no PATCH mix | COMPLETE |
+| Project/process queue lock | REMOVED BY REQUIREMENT |
 | Permanent PATCH in-place / SANDBOX removal | COMPLETE |
+| Self-contained Python PATCH runner | COMPLETE / v6.12.0 |
+| Self-contained `PATCH_TOOL_OPS.json` runner | COMPLETE / v6.12.0 |
+| Self-contained patch utility compatibility helpers | COMPLETE / v6.12.0 contract |
 | Readonly COLLECT progress/result validation | COMPLETE |
-| Collection-result archive non-runnable classification | COMPLETE |
-| Exact private collector action-schema replacement | PARTIAL: `pack` guaranteed by overlay; all other actions remain private-core specific |
-| Exact LAST_RUN/private-core audit synthesis | PRIVATE-CORE DEPENDENT |
-| Real large-project COLLECT validation | PARTIAL COMPLETE; real M3 COLLECT PASS observed |
-| Phase-inference refinement | DEFERRED until real evidence shows a concrete deficiency |
+| `pack` action | COMPLETE |
+| `overview` action | COMPLETE / v6.12.0 |
+| `find` action | COMPLETE / v6.12.0 |
+| `search` action | COMPLETE / v6.12.0 |
+| `git` readonly action | COMPLETE / v6.12.0 |
+| Exact machine-readable COLLECT schema | COMPLETE / v6.12.0 |
+| COLLECT schema preflight in queue | COMPLETE / v6.12.0 |
+| Full self-contained package for documented v6.12.0 contract | COMPLETE |
+| `tools/implementing.md` live task tracker | COMPLETE |
+| Vietnamese feature matrix | COMPLETE |
+| Vietnamese HTML guide + VI/EN/RU AI prompts | COMPLETE |
+| Historical private-core parity outside current contract | PARTIAL / FAIL-CLOSED BY DESIGN |
+| Advanced historical COLLECT actions outside schema | NOT IMPLEMENTED in v6.12.0 |
+| Exact historical LAST_RUN/private report parity | DEFERRED |
+| Phase-inference refinement | DEFERRED pending concrete runtime evidence |
 
-## v6.11.0 completion
+## v6.12.0 development stop condition
 
-- Adds a compatibility collector layer that natively handles pack-only requests without reconstructing the private collector core.
-- `pack.paths` collects exact project-relative regular files, rejects path traversal/symlinks/directories/missing sources, records size + SHA-256, and emits a canonical `COLLECTION_MANIFEST.json` result ZIP.
-- Non-pack requests are delegated intact to the installed private collector, preserving existing collector behavior.
-- Retains one-COLLECT-only selection and no project/process queue lock.
-- Does not claim support for `overview` or any other private action without exact current collector evidence.
+The explicitly requested v6.12.0 scope is complete. Do not automatically begin another feature. Ask the user which task should be next.
