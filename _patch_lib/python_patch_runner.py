@@ -25,7 +25,16 @@ from dataclasses import dataclass
 from python_patch_utils import PatchFailure, diagnose_ops, finish_failure, run_ops
 from python_patch_package_schema import PatchSchemaError, path_is_link_or_reparse, resolve_project_path, run_preflight, sha256_file
 
-VERSION = "6.20.1"
+try:
+    from python_patch_version import VERSION
+except ImportError:
+    # Standalone compatibility for historical/minimal COLLECT module sets.
+    import json as _ptv_version_json
+    from pathlib import Path as _PTVVersionPath
+    try:
+        VERSION = str(_ptv_version_json.loads((_PTVVersionPath(__file__).resolve().parent / "docs" / "COLLECT_ACTION_SCHEMA.json").read_text(encoding="utf-8")).get("tool_version") or "unknown")
+    except Exception:
+        VERSION = "unknown"
 _ACTIVE_TERMINATION_SIGNAL: int | None = None
 MAX_ARCHIVE_ENTRIES = 10000
 MAX_ARCHIVE_MEMBER_BYTES = 64 * 1024 * 1024
@@ -1839,6 +1848,23 @@ def _preview_patch(root: Path, source: Path) -> int:
         if input_temp is not None: input_temp.cleanup()
 
 
+
+def _apply_rollback_result_to_failure(
+    result: dict[str, object],
+    diagnosis: dict[str, object],
+    partial: dict[str, object],
+    rollback_result: dict[str, object] | None,
+) -> dict[str, object]:
+    """Attach rollback bookkeeping to an existing failure without changing policy."""
+    if rollback_result is None:
+        return partial
+    result["rollback"] = rollback_result
+    diagnosis["rollback_status"] = rollback_result.get("status")
+    remaining = rollback_result.get("remaining_project_delta")
+    if rollback_result.get("status") == "PASS" and isinstance(remaining, dict):
+        return remaining
+    return partial
+
 def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> int:
     result = _base_result(source)
     if path_is_link_or_reparse(source) or not source.is_file():
@@ -2000,11 +2026,7 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
                 before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets,
                 target_paths=target_paths, trigger="payload_failure",
             )
-            if rollback_result is not None:
-                result["rollback"] = rollback_result
-                diagnosis["rollback_status"] = rollback_result.get("status")
-                if rollback_result.get("status") == "PASS":
-                    partial = rollback_result.get("remaining_project_delta") if isinstance(rollback_result.get("remaining_project_delta"), dict) else partial
+            partial = _apply_rollback_result_to_failure(result, diagnosis, partial, rollback_result)
             partial = _apply_on_failure_commands(
                 root, manifest, result, before_fp=before_fp, before_dirty=before_dirty,
                 before_targets=before_targets, target_paths=target_paths, current_partial=partial,
@@ -2045,11 +2067,7 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
                 before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets,
                 target_paths=target_paths, trigger="post_patch_failure",
             )
-            if rollback_result is not None:
-                result["rollback"] = rollback_result
-                diagnosis["rollback_status"] = rollback_result.get("status")
-                if rollback_result.get("status") == "PASS":
-                    partial = rollback_result.get("remaining_project_delta") if isinstance(rollback_result.get("remaining_project_delta"), dict) else partial
+            partial = _apply_rollback_result_to_failure(result, diagnosis, partial, rollback_result)
             partial = _apply_on_failure_commands(
                 root, manifest, result, before_fp=before_fp, before_dirty=before_dirty,
                 before_targets=before_targets, target_paths=target_paths, current_partial=partial,
@@ -2073,11 +2091,7 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
                         before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets,
                         target_paths=target_paths, trigger="post_patch_failure",
                     )
-                    if rollback_result is not None:
-                        result["rollback"] = rollback_result
-                        diagnosis["rollback_status"] = rollback_result.get("status")
-                        if rollback_result.get("status") == "PASS" and isinstance(rollback_result.get("remaining_project_delta"), dict):
-                            partial = rollback_result["remaining_project_delta"]
+                    partial = _apply_rollback_result_to_failure(result, diagnosis, partial, rollback_result)
                     partial = _apply_on_failure_commands(
                         root, manifest, result, before_fp=before_fp, before_dirty=before_dirty,
                         before_targets=before_targets, target_paths=target_paths, current_partial=partial,
@@ -2120,11 +2134,7 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
                     before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets,
                     target_paths=target_paths, trigger="post_patch_failure",
                 )
-                if rollback_result is not None:
-                    result["rollback"] = rollback_result
-                    diagnosis["rollback_status"] = rollback_result.get("status")
-                    if rollback_result.get("status") == "PASS" and isinstance(rollback_result.get("remaining_project_delta"), dict):
-                        partial = rollback_result["remaining_project_delta"]
+                partial = _apply_rollback_result_to_failure(result, diagnosis, partial, rollback_result)
                 partial = _apply_on_failure_commands(
                     root, manifest, result, before_fp=before_fp, before_dirty=before_dirty,
                     before_targets=before_targets, target_paths=target_paths, current_partial=partial,
@@ -2156,11 +2166,7 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
                 before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets,
                 target_paths=target_paths, trigger="post_patch_failure",
             )
-            if rollback_result is not None:
-                result["rollback"] = rollback_result
-                diagnosis["rollback_status"] = rollback_result.get("status")
-                if rollback_result.get("status") == "PASS" and isinstance(rollback_result.get("remaining_project_delta"), dict):
-                    partial = rollback_result["remaining_project_delta"]
+            partial = _apply_rollback_result_to_failure(result, diagnosis, partial, rollback_result)
             partial = _apply_on_failure_commands(
                 root, manifest, result, before_fp=before_fp, before_dirty=before_dirty,
                 before_targets=before_targets, target_paths=target_paths, current_partial=partial,
@@ -2219,11 +2225,7 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
                 before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets,
                 target_paths=target_paths, trigger=trigger,
             )
-            if rollback_result is not None:
-                result["rollback"] = rollback_result
-                diagnosis["rollback_status"] = rollback_result.get("status")
-                if rollback_result.get("status") == "PASS" and isinstance(rollback_result.get("remaining_project_delta"), dict):
-                    partial = rollback_result["remaining_project_delta"]
+            partial = _apply_rollback_result_to_failure(result, diagnosis, partial, rollback_result)
         return _finish_result(result, status="FAIL", rc=rc, stage=stage, diagnosis=diagnosis, partial=partial)
     except Exception as exc:
         stage = str(result.get("stage") or "unknown")
@@ -2255,11 +2257,7 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
                     before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets,
                     target_paths=target_paths, trigger=trigger,
                 )
-                if rollback_result is not None:
-                    result["rollback"] = rollback_result
-                    diagnosis["rollback_status"] = rollback_result.get("status")
-                    if rollback_result.get("status") == "PASS" and isinstance(rollback_result.get("remaining_project_delta"), dict):
-                        partial = rollback_result["remaining_project_delta"]
+                partial = _apply_rollback_result_to_failure(result, diagnosis, partial, rollback_result)
             except Exception as rollback_exc:
                 result["rollback"] = {"status": "FAIL", "error": f"{type(rollback_exc).__name__}: {rollback_exc}"}
                 diagnosis["rollback_status"] = "FAIL"

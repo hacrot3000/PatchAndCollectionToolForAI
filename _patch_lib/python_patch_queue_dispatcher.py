@@ -47,7 +47,16 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.20.1"
+try:
+    from python_patch_version import VERSION
+except ImportError:
+    # Standalone compatibility for historical/minimal COLLECT module sets.
+    import json as _ptv_version_json
+    from pathlib import Path as _PTVVersionPath
+    try:
+        VERSION = str(_ptv_version_json.loads((_PTVVersionPath(__file__).resolve().parent / "docs" / "COLLECT_ACTION_SCHEMA.json").read_text(encoding="utf-8")).get("tool_version") or "unknown")
+    except Exception:
+        VERSION = "unknown"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -6568,6 +6577,26 @@ def _plan_queue(
     return preview_rc
 
 
+def _persist_queue_report_side_effects(root: Path, report: dict[str, object]) -> None:
+    """Persist/report one completed queue run; execution policy stays in _run_queue."""
+    _finalize_batch_artifacts(root, report)
+    _write_run_report(root, report)
+    try:
+        _update_unresolved_registry(root, report)
+    except Exception as exc:
+        print(f"[PTV v{VERSION} WARNING] could not update unresolved-failure registry: {type(exc).__name__}: {exc}", file=sys.stderr)
+    try:
+        update_patch_ledger(root, report)
+    except Exception as exc:
+        print(f"[PTV v{VERSION} WARNING] could not update PATCH ledger: {type(exc).__name__}: {exc}", file=sys.stderr)
+    if len(report.get("selected") or []) > 1:
+        status = str(report.get("status") or "")
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            _batch_report_menu(root, report)
+        else:
+            _print_batch_overview(root, report, stream=sys.stderr if status == "FAIL" else sys.stdout)
+
+
 def _run_queue(
     root: Path, *, failure_policy_override: str | None = None, transaction_policy_override: str | None = None,
     force_resume: bool = False, resume_mode: str | None = None, recipe_path: str | None = None,
@@ -6712,19 +6741,7 @@ def _run_queue(
             "previous_resume_items": resume_items if status != "IDLE" else [],
             "previous_failed_item": (meaningful_previous.get("failed_item") or meaningful_previous.get("previous_failed_item")) if isinstance(meaningful_previous, dict) else None,
         }
-        _finalize_batch_artifacts(root, report)
-        _write_run_report(root, report)
-        try:
-            _update_unresolved_registry(root, report)
-        except Exception as exc:
-            print(f"[PTV v{VERSION} WARNING] could not update unresolved-failure registry: {type(exc).__name__}: {exc}", file=sys.stderr)
-        try:
-            update_patch_ledger(root, report)
-        except Exception as exc:
-            print(f"[PTV v{VERSION} WARNING] could not update PATCH ledger: {type(exc).__name__}: {exc}", file=sys.stderr)
-        if len(report.get("selected") or []) > 1:
-            if sys.stdin.isatty() and sys.stdout.isatty(): _batch_report_menu(root, report)
-            else: _print_batch_overview(root, report, stream=sys.stderr if status == "FAIL" else sys.stdout)
+        _persist_queue_report_side_effects(root, report)
         return rc
 
     if recipe_error is not None:
@@ -6779,7 +6796,7 @@ def _run_queue(
             }]
             print(f"SELECTION FAIL — project unchanged | {_safe_display(str(exc))}", file=sys.stderr)
             return finish_report("FAIL", 2, failed_item="CLI_SELECTION")
-    # v6.20.1: persistent failed grouping; recovery no longer hijacks the next ordinary zero-argument run.
+    # v6.20.2: persistent failed grouping; recovery no longer hijacks the next ordinary zero-argument run.
     # Smart Resume remains available explicitly through the ``resume`` command;
     # ordinary queue selection shows previous failed/replay items as a second
     # visual group instead.  Planner safety for unresolved predecessors is
