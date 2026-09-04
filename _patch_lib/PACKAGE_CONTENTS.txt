@@ -1,4 +1,4 @@
-Python Patch Tool v6.18.0 — full self-contained package
+Python Patch Tool v6.18.1 — full self-contained package
 
 Public launchers / user docs:
   tools/run_python_patches.sh
@@ -52,11 +52,11 @@ Runtime artifacts (created in project; not shipped pre-populated):
   patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip
 
 Normal use — Linux/POSIX:
-  unzip -o python_patch_tool_v6.18.0.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.18.1.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 Normal use — Windows (Python 3.10+):
-  Expand-Archive -Force .\python_patch_tool_v6.18.0.zip PROJECT_ROOT
+  Expand-Archive -Force .\python_patch_tool_v6.18.1.zip PROJECT_ROOT
   tools\run_python_patches.bat
   # or: .\tools\run_python_patches.ps1
 
@@ -148,3 +148,10 @@ v6.18.0 search/discovery hardening:
 - coverage/skipped/module diagnostics + SEARCH_INCONSISTENCY + must_find/INCOMPLETE semantics;
 - anchor_paths/expected_files and in-project absolute search paths;
 - ./tools/run_python_patches.sh health-search disposable fixture suite.
+
+
+v6.18.1 upgrade continuity / history restoration:
+- zero-argument interactive empty queue opens existing HISTORY after warning/IDLE/Tool Health;
+- zero-work remains non-run state: no new LAST_RUN/history/run log/ledger/unresolved mutation;
+- v6.17.14 Smart Resume gating remains intact;
+- upgrade-continuity regression guards established queue/history/recovery/report/batch/schema/launcher capabilities plus v6.18 search additions.

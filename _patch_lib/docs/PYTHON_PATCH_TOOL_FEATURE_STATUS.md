@@ -1,4 +1,4 @@
-# Python Patch Tool v6.18.0 feature status
+# Python Patch Tool v6.18.1 feature status
 
 | Capability | Status |
 |---|---|
@@ -110,3 +110,11 @@ v6.17.6 completes the current robustness/data-integrity audit scope, aggregate/d
 - COMPLETE: auto primary + independent fallback consistency check and `SEARCH_INCONSISTENCY`.
 - COMPLETE: `must_find`, `anchor_paths`, `expected_files`, `COLLECT INCOMPLETE` diagnostic ZIP.
 - COMPLETE: `health-search` disposable fixture.
+
+## v6.18.1 upgrade continuity
+
+- RESTORED: empty zero-argument interactive queue opens existing HISTORY after warnings/status/Tool Health.
+- PRESERVED: zero-work invocation remains non-run state and creates no LAST_RUN/history/run-log/ledger/unresolved mutations.
+- PRESERVED: v6.17.14 Smart Resume gating and cross-run predecessor safety.
+- PRESERVED: all v6.18.0 coverage-aware search/discovery additions.
+- ADDED: upgrade-continuity self-test covering established queue/history/recovery/report/batch/schema/launcher surfaces.

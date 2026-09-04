@@ -1,6 +1,6 @@
-# Python Patch Tool v6.18.0 portable usage
+# Python Patch Tool v6.18.1 portable usage
 
-The release is self-contained for its v6.18.0 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
+The release is self-contained for its v6.18.1 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
 
 ## Linux / POSIX
 
@@ -125,3 +125,7 @@ Recipe policy override rule: `run --recipe` uses the policies stored in the reci
 ## v6.18.0 search health
 
 Run `./tools/run_python_patches.sh health-search` (or the equivalent PowerShell/BAT launcher command) to validate discovery/search independently of project source. Search is filesystem-first by default and does not use Git tracking as an implicit scope.
+
+## v6.18.1 empty-queue behavior
+
+Running the public launcher with no arguments on an interactive terminal and no runnable PATCH/COLLECT prints discovery warnings, IDLE status and Tool Health, then opens existing HISTORY. This does not create an IDLE run or modify LAST_RUN/history state.

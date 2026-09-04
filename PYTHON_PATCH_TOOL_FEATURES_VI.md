@@ -1,4 +1,4 @@
-# Danh sách tính năng Python Patch Tool — v6.18.0
+# Danh sách tính năng Python Patch Tool — v6.18.1
 
 ## Workflow / batch engine
 
@@ -207,3 +207,21 @@ Registry failure là **relation-aware**: PATCH độc lập vẫn chạy; depend
 | `health-search` fixture suite | **COMPLETE v6.18.0** |
 
 Nguyên tắc bắt buộc: **Zero matches is a search result, not proof of absence.** AI chỉ được suy luận “không tìm thấy source” khi report ghi `Coverage status: VERIFIED`; `INCOMPLETE`, `PARTIAL` hoặc `INCONSISTENT` phải được coi là evidence chưa đủ.
+
+## v6.18.1 — Bảo toàn tính năng khi nâng cấp
+
+| Tính năng | Trạng thái |
+|---|---|
+| Queue rỗng + zero-argument + TTY → mở HISTORY sau status/health | **RESTORED v6.18.1** |
+| Queue rỗng không tạo fake IDLE run/LAST_RUN/history/log | **PRESERVED v6.17.14+** |
+| Smart Resume chỉ tự bật khi recovery item của LAST_RUN FAIL còn trong queue | **PRESERVED** |
+| HISTORY ẩn IDLE, package-first rows, report/detail/support artifacts | **PRESERVED** |
+| Duplicate session/local-history handling + `patchs/ignore` | **PRESERVED** |
+| Recovery Retry/COLLECT/Delete + unresolved predecessor safety | **PRESERVED** |
+| Batch `continue_independent`, dependency/target blocking, plan/recipe/lock | **PRESERVED** |
+| PATCH manifest fields v6.17.x | **NO REMOVAL** |
+| COLLECT actions `pack/overview/find/search/git` | **NO REMOVAL** |
+| Search coverage/fallback/must_find/anchors/health-search v6.18.0 | **PRESERVED** |
+| Upgrade continuity self-test | **COMPLETE v6.18.1** |
+
+Nguyên tắc release mới: tính năng đã ở trạng thái COMPLETE không được đổi semantics theo hướng mất workflow người dùng nếu chưa có regression test thể hiện rõ tính tương thích. Thay đổi safety semantics phải bảo toàn UI/workflow cũ khi hai mục tiêu không xung đột.

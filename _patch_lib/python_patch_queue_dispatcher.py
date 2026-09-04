@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.18.0"
+VERSION = "6.18.1"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -6006,12 +6006,17 @@ def _run_queue(
     # A zero-argument invocation with no runnable PATCH/COLLECT is not a run.
     # Exit before touching LAST_RUN/history/registry/run artifacts.  Discovery
     # warnings (for example a handoff ZIP with no patch signature) remain visible
-    # so the operator still understands why the queue is empty.
+    # so the operator still understands why the queue is empty.  Preserve the
+    # v6.17.12 operator workflow: on an interactive terminal, an empty queue
+    # opens the existing HISTORY browser after status/health.  Reviewing history
+    # must not manufacture an IDLE run or overwrite LAST_RUN.
     if zero_argument_invocation and recipe_path is None and queue_safety_error is None and not items:
         for warning in warnings:
             print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}")
         print("AUTO STATUS: IDLE — no runnable patch/collect package is waiting in patchs/.")
         print_health(root, compact=True)
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            _history_browser(root)
         _ACTIVE_RUN_ID = None
         _LAST_EXECUTION_DETAILS = []
         return 0

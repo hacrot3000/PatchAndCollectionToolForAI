@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.18.0
+# AI / ChatGPT usage contract — Python Patch Tool v6.18.1
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
@@ -293,3 +293,9 @@ A zero-argument invocation with no runnable PATCH/COLLECT is not a run at all: i
 For bug investigation, prefer `source_scope=filesystem` / `filesystem=true`, `respect_gitignore=false`, `backend=auto`, `fallback_search=true`, `diagnose_on_zero=true`, `report_coverage=true`, and `report_skipped_dirs=true`. Use `must_find=true` for symbols/files that prior evidence says must exist. When the user gives a concrete subtree/file, pass it through `anchor_paths` / `expected_files` instead of relying only on broad discovery.
 
 A `SEARCH_INCONSISTENCY` or `COLLECT INCOMPLETE` result is diagnostic evidence to inspect and possibly recollect; it is never proof of absence.
+
+## v6.18.1 — zero-work history / upgrade-continuity rule
+
+A zero-argument invocation with no runnable PATCH/COLLECT is still **not a run** and must not create or replace LAST_RUN/history/run-log/ledger/unresolved state. On an interactive TTY, after warnings, `AUTO STATUS: IDLE` and Tool Health, the tool opens the existing HISTORY browser. AI must not interpret this history navigation as a new run.
+
+Release compatibility rule: previously COMPLETE user workflows and schema fields are additive-preserved unless an explicit safety conflict requires a breaking change. The packaged upgrade-continuity self-test guards the established queue/history/recovery/report/batch/launcher contract together with v6.18 search additions.

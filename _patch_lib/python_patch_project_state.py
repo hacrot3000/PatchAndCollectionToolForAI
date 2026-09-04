@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-VERSION = "6.18.0"
+VERSION = "6.18.1"
 CONFIG_NAME = ".python_patch_tool.json"
 MAX_CONFIG_BYTES = 1024 * 1024
 MAX_PROFILE_TIMEOUT = 1800

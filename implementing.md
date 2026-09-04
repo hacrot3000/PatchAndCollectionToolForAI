@@ -1,7 +1,7 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.18.0**  
-Trạng thái: **ZERO-WORK NO-LOG + SMART RESUME GATING — COMPLETE**
+Phiên bản mục tiêu: **v6.18.1**  
+Trạng thái: **UPGRADE CONTINUITY + RESTORED EMPTY-QUEUE HISTORY — COMPLETE**
 
 ## Baseline
 
@@ -458,3 +458,11 @@ COLLECT `search` trước v6.18.0 dùng filesystem traversal nhưng tái sử d�
 ### Search health
 
 `./tools/run_python_patches.sh health-search` tạo fixture tạm và kiểm literal/regex/find, nested tree, untracked/gitignored, Unicode, symlink safety, >5.000 files, relative/absolute in-project paths, `must_find`, anchors và expected files. Fixture không sửa source project.
+
+## v6.18.1 — Upgrade continuity + restored empty-queue HISTORY
+
+- Khôi phục workflow đã được yêu cầu ở v6.17.12: chạy public launcher không tham số trong TTY, nếu discovery không có PATCH/COLLECT runnable thì sau warning, `AUTO STATUS: IDLE` và Tool Health sẽ mở HISTORY hiện có.
+- Giữ nguyên hardening đúng của v6.17.14: invocation rỗng **không** tạo run mới, không ghi `LAST_RUN.json`, không thêm `history/*.json`, không tạo run log và không cập nhật unresolved/ledger. HISTORY chỉ là read-only navigation tới state đã tồn tại.
+- Không đổi Smart Resume gating của v6.17.14: failure cũ không hijack queue mới độc lập; unresolved predecessor vẫn được planner enforce cho successor liên quan.
+- Thêm `self_test_upgrade_continuity_v6_18_1.py` để khóa các capability đã công bố: zero-argument queue/HISTORY, Smart Resume/recovery, duplicate handling, report/support bundle, batch plan/lock, PATCH schema fields, COLLECT legacy actions, launcher Linux/Windows và toàn bộ search additions v6.18.0.
+- Audit v6.17.14 -> v6.18.0 xác nhận runtime function/class surface không bị xóa; PATCH schema không mất field; COLLECT schema chỉ mở rộng search. Regression HISTORY là thay đổi semantics từ v6.17.14, không phải code search v6.18.0 xóa chức năng.
