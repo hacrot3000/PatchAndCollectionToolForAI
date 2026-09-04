@@ -50,6 +50,12 @@ def _unwrap_manual_argv(argv: list[str]) -> tuple[str, list[str]]:
             if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", token):
                 i += 1
                 continue
+            if token == "-S" or low == "--split-string" or low.startswith("--split-string="):
+                # GNU env -S/--split-string reparses one string into argv and
+                # can therefore hide bash -c/python -c style evaluators from
+                # the structured-argv policy.  Do not attempt to emulate that
+                # parser here; reject this wrapper fail-closed.
+                return "__ptv_forbidden_inline_wrapper__", []
             if low in {"-i", "--ignore-environment", "-0", "--null"}:
                 i += 1
                 continue
@@ -75,6 +81,8 @@ def _unwrap_manual_argv(argv: list[str]) -> tuple[str, list[str]]:
 
 
 def _has_forbidden_inline_eval(exe: str, args: list[str]) -> bool:
+    if exe == "__ptv_forbidden_inline_wrapper__":
+        return True
     kind = _FORBIDDEN_INLINE.get(exe)
     if kind is None:
         return False
