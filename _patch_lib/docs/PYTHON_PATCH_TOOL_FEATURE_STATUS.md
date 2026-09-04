@@ -1,4 +1,13 @@
-# Python Patch Tool v6.18.4 feature status
+# Python Patch Tool v6.18.5 feature status
+
+## v6.18.5 discovery preservation fix
+
+- Scope-relative `find` path globs: **FIXED / PRESERVED ADDITIVELY**.
+- Globstar `**/` zero-directory semantics for `find` and `directory`: **FIXED**.
+- `find` traversal budget separated from collection `max_files`: **FIXED**; uses `max_search_files` and reports VERIFIED/PARTIAL coverage.
+- False-zero behavior when find discovery is truncated: **FAIL-SAFE** as COLLECT `INCOMPLETE`.
+- Historical basename and project-relative glob matching: **PRESERVED**.
+- Regression reproducing the Mine battle-pass COLLECT pattern shapes: `self_test_find_discovery_v6_18_5.py`: **REQUIRED RELEASE GATE**.
 
 ## v6.18.4 proof-of-continuity completion
 

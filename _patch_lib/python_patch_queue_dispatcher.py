@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.18.4"
+VERSION = "6.18.5"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -1849,7 +1849,7 @@ def _create_fail_handoff(
         sensitive_warnings = _sensitive_handoff_warnings(evidence_log, frozen_sources)
         summary["sensitive_content_warnings"] = sensitive_warnings
 
-        # v6.18.4 additive historical diagnostics compatibility.  Keep the
+        # v6.18.5 additive historical diagnostics compatibility.  Keep the
         # exact v6 evidence untouched and add a separately redacted/normalized
         # derivative layer for the v5 COMPLETE diagnostic capabilities.
         compat_diagnostics = None

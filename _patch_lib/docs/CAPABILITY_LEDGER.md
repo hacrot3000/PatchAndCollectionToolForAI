@@ -1,6 +1,6 @@
 # Python Patch Tool — cumulative capability ledger
 
-Current release: **v6.18.4**
+Current release: **v6.18.5**
 
 This is the canonical cross-version continuity ledger. It complements the current feature-status document; it must never be replaced by a current-only checklist.
 
@@ -13,6 +13,13 @@ Status vocabulary:
 - **NOT_CURRENTLY_GUARANTEED** — historical capability existed but current self-contained v6 package does not claim equivalent parity; it must remain visible here rather than silently disappearing.
 
 See `HISTORICAL_FEATURE_BASELINE_V5_15.md` for all 107 original names. Machine-readable complete-ID coverage is enforced by `CURRENT_CAPABILITY_DISPOSITION.json`.
+
+## v6.18.5 discovery/glob false-zero hardening
+
+- **PRESERVED + HARDENED:** historical/current `find` remains filename/path discovery but now evaluates patterns against basename, each requested scope-relative path, and the full project-relative path. This fixes false zero for `paths=[".../jdqs_server"]` with `patterns=["src/main/java/.../*.java"]` without removing any prior matching view.
+- **PRESERVED + HARDENED:** `directory` include/exclude and `find` glob patterns now implement `**/` as zero-or-more directory levels, so `**/*.java` includes direct children as well as nested files.
+- **PRESERVED + HARDENED:** `find` traversal uses `limits.max_search_files`; `limits.max_files` remains a packaging quota only. A discovery-budget truncation reports `Coverage status: PARTIAL` and marks the COLLECT result `INCOMPLETE` instead of silently claiming trustworthy zero coverage.
+- Semantic evidence: `self_test_find_discovery_v6_18_5.py` plus the existing historical COLLECT/search/continuity gates. No historical COMPLETE disposition is removed or narrowed.
 
 ## v6.18.4 final continuity closure
 
@@ -101,7 +108,7 @@ The old direct public form `./tools/run_python_patches.sh collect <command> ...`
 | 79 | Correct public-runner placement | **PRESERVED** | `tools/run_python_patches.sh` remains the public POSIX entry point; `_patch_lib` stays private. |
 | 80 | Portable direct upgrade | **PRESERVED** | Release ZIP does not include `.python_patch_tool.json`; extraction replaces only Patch-Tool-managed package paths. |
 | 81 | Optional controlled installer | **COMPATIBILITY_RESTORED v6.18.3** | `install_python_patch_tool_v6.py` plus historical filename wrapper `install_python_patch_tool_v5.py`; fixed-list stale-file backup/removal, dry-run and create-config-without-overwrite. Normal use does not require it. |
-| 82 | Portable-layout regression test | **PRESERVED / EXPANDED** | Package/version/checksum tests plus `self_test_portable_installer_v6_18_4.py` validate direct layout and controlled migration semantics. |
+| 82 | Portable-layout regression test | **PRESERVED / EXPANDED** | Package/version/checksum tests plus `self_test_portable_installer_v6_18_5.py` validate direct layout and controlled migration semantics. |
 | 83–85 | Interactive / TTY / line multi-select | **PRESERVED** | Current selector keeps fullscreen and line-mode selection contracts. |
 | 86 | Repeated explicit `--patch` | **COMPATIBILITY_RESTORED v6.18.2** | Dispatcher-level semantic test, not launcher-string inspection. |
 | 87 | Unselected-package preservation + audit | **COMPATIBILITY_RESTORED v6.18.3** | Unselected runnable packages remain in `patchs/` and `LAST_RUN.json` records `user_not_selected`. |

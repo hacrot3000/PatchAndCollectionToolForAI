@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib, json, os, stat, subprocess, tempfile
 from pathlib import Path
 
-VERSION = "6.18.4"
+VERSION = "6.18.5"
 REQUIRED_RUNTIME = [
     "tools/run_python_patches.sh",
     "tools/run_python_patches.ps1",
@@ -201,7 +201,7 @@ def print_health(root: Path, *, compact: bool=False) -> int:
 
 def run_search_health(root: Path, *, compact: bool = False) -> int:
     """Exercise discovery/search against a disposable fixture; never touches project source."""
-    from python_patch_collect_compat import _find_action, _search_action_payload
+    from python_patch_collect_compat import _directory_action, _find_action, _search_action_payload
     from python_patch_collect_schema import validate_request_data
     checks=[]
     def record(name: str, ok: bool, detail: str=''):
@@ -212,6 +212,8 @@ def run_search_health(root: Path, *, compact: bool = False) -> int:
         (fixture/'module_a'/'A.java').write_text('class A { String literal = "HEALTH_LITERAL"; }\n',encoding='utf-8')
         (fixture/'module_b'/'nested'/'B.java').write_text('class B { int value123 = 7; }\n',encoding='utf-8')
         (fixture/'module_b'/'nested'/'TênUnicode.java').write_text('String unicode = "TÌM_KIẾM_ĐƯỢC";\n',encoding='utf-8')
+        (fixture/'scoped'/'src'/'main'/'java'/'pkg').mkdir(parents=True)
+        (fixture/'scoped'/'src'/'main'/'java'/'pkg'/'Scoped.java').write_text('class Scoped {}\n',encoding='utf-8')
         (fixture/'.gitignore').write_text('ignored_module/\n',encoding='utf-8')
         (fixture/'ignored_module').mkdir(); (fixture/'ignored_module'/'Ignored.java').write_text('String x="IGNORED_BUT_PRESENT";\n',encoding='utf-8')
         subprocess.run(['git','init','-q'],cwd=fixture,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
@@ -236,6 +238,10 @@ def run_search_health(root: Path, *, compact: bool = False) -> int:
         out=search(r'value\d+',regex=True); record('regex search',out['matches']==1,out['coverage_status'])
         req=validate_request_data({'actions':[{'type':'find','paths':['module_b'],'patterns':['*.java'],'max_results':20}]})
         report,matches=_find_action(fixture,req['actions'][0],req['limits']); record('filename find',len(matches)>=2,str(len(matches)))
+        req=validate_request_data({'actions':[{'type':'find','paths':['scoped'],'patterns':['src/main/java/pkg/*.java'],'max_results':20}]})
+        report,matches=_find_action(fixture,req['actions'][0],req['limits']); record('scope-relative find glob',any(rel.endswith('/Scoped.java') for rel,_ in matches) and 'Coverage status: VERIFIED' in report,str(len(matches)))
+        req=validate_request_data({'actions':[{'type':'directory','path':'module_a','include':['**/*.java'],'exclude':[],'max_results':20}]})
+        d_report,d_matches=_directory_action(fixture,req['actions'][0],req['limits']); record('globstar direct-child directory',any(rel.endswith('/A.java') for rel,_ in d_matches),str(len(d_matches)))
         out=search('IGNORED_BUT_PRESENT'); record('filesystem sees gitignored/untracked',out['matches']==1,out['coverage_status'])
         out=search('IGNORED_BUT_PRESENT',source_scope='git_tracked'); record('git_tracked remains explicit/narrow',out['matches']==0,str(out['matches']))
         out=search('TÌM_KIẾM_ĐƯỢC'); record('Unicode filename/content',out['matches']==1,out['coverage_status'])

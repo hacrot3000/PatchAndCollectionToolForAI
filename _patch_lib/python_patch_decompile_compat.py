@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-VERSION = "6.18.4"
+VERSION = "6.18.5"
 MARKER_RE = re.compile(
     rb"^//----- \((?:0[xX])?([0-9A-Fa-f]+)\) -+\r?$",
     re.MULTILINE,

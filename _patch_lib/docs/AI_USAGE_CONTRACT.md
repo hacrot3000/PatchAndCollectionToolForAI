@@ -1,4 +1,4 @@
-# AI / ChatGPT usage contract — Python Patch Tool v6.18.4
+# AI / ChatGPT usage contract — Python Patch Tool v6.18.5
 
 This document overrides older Patch Tool instructions when they conflict with the current package.
 
@@ -7,6 +7,14 @@ This document overrides older Patch Tool instructions when they conflict with th
 Before AI changes Patch Tool code, it MUST read `NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, `HISTORICAL_FEATURE_BASELINE_V5_15.md`, `HISTORICAL_FEATURE_STATUS_V5_15.json`, and `CURRENT_CAPABILITY_DISPOSITION.json` in addition to the current schemas/docs. A capability previously documented as COMPLETE/PRESERVED/COMPATIBILITY_RESTORED must not be silently deleted, narrowed, renamed, or made unreachable. Historical code must not be removed merely because the current schema does not exercise it. Intentional replacement/removal requires an explicit ledger disposition and behavioral regression evidence in the same release.
 
 Current docs override old docs for runtime semantics, but they do **not** erase historical capability evidence.
+
+### v6.18.5 filename discovery / glob contract
+
+For `find`, path-bearing patterns are interpreted relative to **each requested `paths[]` scope**, while basename and full project-relative matching remain additive compatibility views. For both `find` and `directory`, `**/` means zero or more directory levels; therefore `**/*.java` must match a direct child `Foo.java` as well as `nested/Foo.java`.
+
+`find` is discovery, so traversal is governed by `limits.max_search_files`, not the output packaging quota `limits.max_files`. `Matches: 0` from `find` is only trustworthy when its report says `Coverage status: VERIFIED`; if the discovery budget is exhausted the COLLECT is `INCOMPLETE`.
+
+AI must not rewrite requests merely to work around a backend bug when a documented discovery pattern should be supported. Fix the tool additively and retain historical basename/project-relative semantics.
 
 ### v6.18.4 proof-of-continuity gate
 

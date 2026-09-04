@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "tool_version": "6.18.4",
+  "tool_version": "6.18.5",
   "request": {
     "type": "object",
     "required": [
@@ -101,7 +101,7 @@
       ]
     },
     "find": {
-      "description": "Find files by filename/path glob patterns and optionally collect exact matches.",
+      "description": "Coverage-aware filename/path glob discovery. Patterns match basename, each requested scope-relative path, and project-relative path; **/ matches zero or more directories. Discovery traversal uses max_search_files, not the collection max_files quota.",
       "required": [
         "type",
         "patterns"
@@ -379,7 +379,7 @@
       ]
     },
     "directory": {
-      "description": "Historical bounded recursive directory collector with include/exclude glob filters.",
+      "description": "Historical bounded recursive directory collector with include/exclude glob filters; patterns are scope-relative/project-relative and **/ matches zero or more directories.",
       "required": [
         "type",
         "path"

@@ -1,8 +1,16 @@
-# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.18.4
+# Bảo toàn tính năng khi nâng cấp — bắt buộc từ v6.18.2, release hiện tại v6.18.5
 
 Trước khi AI sửa Patch Tool, bắt buộc đọc `tools/_patch_lib/docs/NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md` và `HISTORICAL_FEATURE_BASELINE_V5_15.md`. Tính năng từng PASS/COMPLETE không được tự ý xóa, thu hẹp hoặc làm mất đường gọi chỉ vì code/schema hiện tại không dùng tới. Nếu thật sự phải thay thế, phải ghi trạng thái vào ledger và thêm test hành vi chứng minh.
 
-# Danh sách tính năng Python Patch Tool — v6.18.4
+# Danh sách tính năng Python Patch Tool — v6.18.5
+
+## v6.18.5 — Sửa discovery/glob nhưng không mất tính năng cũ
+
+- `find` hiểu pattern theo path tương đối của từng scope, basename và project-relative path.
+- `**/*.java` khớp cả file Java nằm trực tiếp trong thư mục và file ở thư mục con.
+- `find` scan theo `max_search_files`; `max_files` chỉ còn là quota file đóng gói.
+- Nếu scan filename bị cắt vì budget, COLLECT phải `INCOMPLETE`, không được biến `Matches: 0` thành bằng chứng thiếu source.
+- Có semantic regression `self_test_find_discovery_v6_18_5.py`; toàn bộ continuity/compatibility gate v6.18.4 vẫn bắt buộc PASS.
 
 ## v6.18.4 — Gate bảo toàn 95 capability COMPLETE lịch sử
 

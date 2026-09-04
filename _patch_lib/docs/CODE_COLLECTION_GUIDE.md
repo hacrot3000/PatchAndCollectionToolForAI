@@ -1,6 +1,6 @@
-# CODE COLLECTION GUIDE — v6.18.4 AUTHORITATIVE CONTRACT
+# CODE COLLECTION GUIDE — v6.18.5 AUTHORITATIVE CONTRACT
 
-Python Patch Tool v6.18.4 ships a self-contained, read-only COLLECT runtime. The authoritative action/field list is `COLLECT_ACTION_SCHEMA.json`; this guide explains the intended semantics.
+Python Patch Tool v6.18.5 ships a self-contained, read-only COLLECT runtime. The authoritative action/field list is `COLLECT_ACTION_SCHEMA.json`; this guide explains the intended semantics.
 
 This is an **AI/tool-facing technical document**. The public user workflow remains intentionally simple: AI provides one request ZIP, the user places it in `patchs/`, then runs the normal zero-argument launcher.
 
@@ -26,6 +26,20 @@ Then the user runs only:
 ```
 
 Raw request JSON is not the public delivery artifact.
+
+## v6.18.5 `find` / `directory` glob semantics
+
+`find.patterns[]` are matched additively against:
+
+1. the filename (`MineInfoCSHandler.java`);
+2. the path relative to each requested `paths[]` scope (`src/main/java/.../MineInfoCSHandler.java`);
+3. the full project-relative path.
+
+This means a request rooted at `projects/m3-server/trunk/jdqs_server` may correctly use `src/main/java/.../*.java` patterns. `find` scans with `max_search_files`; `max_files` only limits packaged output. The report includes `=== FIND COVERAGE ===` and a zero result is reliable only when coverage is `VERIFIED`.
+
+For both `find` and `directory`, globstar `**/` means **zero or more** directory levels. Example: `**/*.java` matches both `Foo.java` and `nested/Foo.java`.
+
+These semantics are additive: historical basename and project-relative matching remain supported.
 
 ## Current actions
 

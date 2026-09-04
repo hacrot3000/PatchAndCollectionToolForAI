@@ -20,7 +20,7 @@ import zipfile
 
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
 
-VERSION = "6.18.4"
+VERSION = "6.18.5"
 REQUEST_RE = re.compile(r"^CODE_COLLECTION_REQUEST(?:_[A-Za-z0-9._-]+)?\.json$", re.I)
 MAX_REQUEST_JSON_BYTES = 1024 * 1024
 REGEX_SEARCH_TIMEOUT_SECONDS = 60.0
@@ -488,28 +488,147 @@ def _overview(root: Path, action: dict, limits: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _find_action(root: Path, action: dict, limits: dict) -> tuple[str, list[tuple[str, Path]]]:
+def _globstar_compat_patterns(pattern: str) -> list[str]:
+    """Return additive fnmatch variants where ``**/`` may match zero directories.
+
+    Python's :mod:`fnmatch` treats ``**`` like two ordinary ``*`` tokens, so
+    ``**/*.java`` does not match ``Foo.java``.  Historical COLLECT requests and
+    common shell/pathlib glob expectations treat globstar as *zero or more*
+    directory levels.  Keep the original pattern (preserving every previous
+    match) and add only the zero-directory variants.
+    """
+    normalized = str(pattern).replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    out = [normalized]
+    queue = [normalized]
+    seen = {normalized}
+    while queue:
+        current = queue.pop(0)
+        start = 0
+        while True:
+            pos = current.find("**/", start)
+            if pos < 0:
+                break
+            candidate = current[:pos] + current[pos + 3:]
+            if candidate not in seen:
+                seen.add(candidate)
+                out.append(candidate)
+                queue.append(candidate)
+            start = pos + 1
+    return out
+
+
+def _matches_discovery_pattern(*, name: str, local_rel: str, project_rel: str, pattern: str) -> bool:
+    """Match a discovery glob without narrowing historical behavior.
+
+    A path-bearing ``find`` pattern is naturally relative to each requested
+    scope.  Older self-contained code checked only basename and the full
+    project-relative path, causing false zero results for requests such as
+    ``paths=["projects/.../jdqs_server"]`` plus
+    ``patterns=["src/main/java/.../*.java"]``.
+
+    Test all three historical/useful views (basename, scope-relative path,
+    project-relative path) and globstar zero-directory variants.
+    """
+    candidates = []
+    for value in (str(name), str(local_rel), str(project_rel)):
+        value = value.replace("\\", "/")
+        if value not in candidates:
+            candidates.append(value)
+    for variant in _globstar_compat_patterns(pattern):
+        if any(fnmatch.fnmatchcase(candidate, variant) for candidate in candidates):
+            return True
+    return False
+
+
+def _find_action_result(root: Path, action: dict, limits: dict) -> dict:
+    """Coverage-aware filename/path discovery used by ``find``.
+
+    Discovery traversal uses ``max_search_files`` rather than the collection
+    quota ``max_files``.  The latter still bounds how many files a collect=true
+    action may package, but it must not silently truncate the tree being
+    searched for filenames.
+    """
     matches: list[tuple[str, Path]] = []
-    max_results = min(action.get("max_results", 1000), limits["max_files"])
+    requested_max = int(action.get("max_results", 1000))
+    max_results = min(requested_max, int(limits["max_files"])) if action.get("collect") else requested_max
+    max_scan_files = int(limits.get("max_search_files", 250000))
     seen: set[str] = set()
+    scanned = 0
+    limit_reached = False
+    resolved_scopes: list[str] = []
+
     for raw_scope in action.get("paths", ["."]):
-        _, scope = _resolve_scope(root, raw_scope, file_ok=True)
-        for path in _iter_files(root, scope, max_files=limits["max_files"]):
+        scope_rel, scope = _resolve_scope(root, raw_scope, file_ok=True)
+        resolved_scopes.append(scope_rel)
+        remaining = max_scan_files - scanned
+        if remaining <= 0:
+            limit_reached = True
+            break
+        # Ask for one sentinel entry beyond the remaining budget so an exact
+        # boundary is not incorrectly reported as complete coverage.
+        for path in _iter_files(root, scope, max_files=remaining + 1):
+            scanned += 1
+            if scanned > max_scan_files:
+                limit_reached = True
+                break
             rel = _project_rel(root, path)
             if rel in seen:
                 continue
-            if any(fnmatch.fnmatch(path.name, pat) or fnmatch.fnmatch(rel, pat) for pat in action["patterns"]):
+            try:
+                local_rel = path.relative_to(scope).as_posix() if scope.is_dir() else path.name
+            except ValueError:
+                local_rel = path.name
+            if any(
+                _matches_discovery_pattern(
+                    name=path.name, local_rel=local_rel, project_rel=rel, pattern=pat
+                )
+                for pat in action["patterns"]
+            ):
                 seen.add(rel)
                 matches.append((rel, path))
                 if len(matches) >= max_results:
                     break
-        if len(matches) >= max_results:
+        if limit_reached or len(matches) >= max_results:
             break
-    lines = ["# Find results", "", f"Patterns: `{action['patterns']}`", f"Matches: {len(matches)}", ""]
+
+    coverage = "PARTIAL" if limit_reached else "VERIFIED"
+    lines = [
+        "# Find results",
+        "",
+        f"Patterns: `{action['patterns']}`",
+        f"Matches: {len(matches)}",
+        "",
+        "=== FIND COVERAGE ===",
+        "",
+        f"Requested scopes: {len(action.get('paths', ['.']))}",
+        f"Resolved scopes: {', '.join(resolved_scopes) if resolved_scopes else '(none)'}",
+        f"Files considered: {min(scanned, max_scan_files)}",
+        f"Discovery budget: max_search_files={max_scan_files}",
+        "Pattern semantics: basename + scope-relative path + project-relative path; **/ may match zero or more directories.",
+        f"Coverage status: {coverage}",
+        "",
+    ]
     lines += [f"- `{rel}`" for rel, _ in matches]
     if len(matches) >= max_results:
         lines.append(f"[TRUNCATED at max_results={max_results}]")
-    return "\n".join(lines) + "\n", matches
+    if limit_reached:
+        lines.append(f"[INCOMPLETE: filename discovery hit max_search_files={max_scan_files}]")
+    return {
+        "report": "\n".join(lines) + "\n",
+        "matches": matches,
+        "incomplete": limit_reached,
+        "reasons": [f"find coverage hit max_search_files={max_scan_files}"] if limit_reached else [],
+        "files_considered": min(scanned, max_scan_files),
+        "coverage_status": coverage,
+    }
+
+
+def _find_action(root: Path, action: dict, limits: dict) -> tuple[str, list[tuple[str, Path]]]:
+    """Backward-compatible two-value wrapper used by older internal tests/API."""
+    result = _find_action_result(root, action, limits)
+    return result["report"], result["matches"]
 
 
 def _looks_text(path: Path) -> bool:
@@ -1369,8 +1488,14 @@ def _directory_action(root: Path, action: dict, limits: dict) -> tuple[str, list
     for src in _iter_files(root, scope, max_files=limits["max_search_files"]):
         file_rel = _project_rel(root, src)
         local = src.relative_to(scope).as_posix()
-        include = any(fnmatch.fnmatch(local, pat) or fnmatch.fnmatch(src.name, pat) for pat in includes)
-        exclude = any(fnmatch.fnmatch(local, pat) or fnmatch.fnmatch(src.name, pat) for pat in excludes)
+        include = any(
+            _matches_discovery_pattern(name=src.name, local_rel=local, project_rel=file_rel, pattern=pat)
+            for pat in includes
+        )
+        exclude = any(
+            _matches_discovery_pattern(name=src.name, local_rel=local, project_rel=file_rel, pattern=pat)
+            for pat in excludes
+        )
         if include and not exclude:
             # Historical directory collection was discovery-driven, so unlike an
             # explicit exact-file pack it must not automatically ingest obvious
@@ -1380,7 +1505,11 @@ def _directory_action(root: Path, action: dict, limits: dict) -> tuple[str, list
             matches.append((file_rel, src))
             if len(matches) >= max_results:
                 break
-    lines = ["# Directory collection", "", f"Path: `{rel}`", f"Include: {includes}", f"Exclude: {excludes}", f"Matches: {len(matches)}", ""]
+    lines = [
+        "# Directory collection", "", f"Path: `{rel}`", f"Include: {includes}",
+        f"Exclude: {excludes}", f"Matches: {len(matches)}",
+        "Pattern semantics: scope-relative/project-relative glob; **/ may match zero or more directories.", ""
+    ]
     lines.extend(f"- `{item_rel}`" for item_rel, _ in matches)
     if len(matches) >= max_results:
         lines += ["", f"[TRUNCATED at max_results={max_results}]"]
@@ -1694,8 +1823,11 @@ def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
                 elif kind == "tree":
                     builder.add_report(index, kind, title, _tree_action(root, action))
                 elif kind == "find":
-                    report, matches = _find_action(root, action, request_data["limits"])
-                    builder.add_report(index, kind, title, report)
+                    find_result = _find_action_result(root, action, request_data["limits"])
+                    matches = find_result["matches"]
+                    builder.add_report(index, kind, title, find_result["report"])
+                    if find_result.get("incomplete"):
+                        builder.mark_incomplete(action=index, kind=kind, reasons=list(find_result.get("reasons") or []))
                     if action.get("collect"):
                         for rel, src in matches:
                             builder.add_exact_file(rel, src, source_action=index)
