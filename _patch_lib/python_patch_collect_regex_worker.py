@@ -10,7 +10,7 @@ import tempfile
 
 from python_patch_collect_compat import _search_action_direct
 
-VERSION = "6.17.1"
+VERSION = "6.17.2"
 
 
 def _reject_duplicate_json_pairs(pairs):

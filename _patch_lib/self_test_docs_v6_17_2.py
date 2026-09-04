@@ -30,14 +30,14 @@ for phrase in [
     'Target-overlap', 'Patch provenance'
 ]:
     assert phrase.lower() in features.lower(),phrase
-assert patch_schema['tool_version']=='6.17.1' and patch_schema['schema_version']==1
+assert patch_schema['tool_version']=='6.17.2' and patch_schema['schema_version']==1
 assert 'batch' in patch_schema['manifest']['allowed_fields']
 batch_spec=patch_schema['manifest']['fields']['batch']
 assert 'depends_on' in batch_spec['allowed_fields'] and 'previous_failure' in batch_spec['allowed_fields']
 prev=batch_spec['fields']['previous_failure']
 assert set(prev['fields']['action']['enum'])=={'delete','retry_before','run_after','block'}
-assert checklist['tool_version']=='6.17.1' and 'READY_TO_APPLY' in checklist['result_classes']
-assert collect_schema['tool_version']=='6.17.1'
+assert checklist['tool_version']=='6.17.2' and 'READY_TO_APPLY' in checklist['result_classes']
+assert collect_schema['tool_version']=='6.17.2'
 for phrase in [
     'batch.previous_failure', 'retry_before', 'run_after', '`reason` là bắt buộc',
     'depends_on', 'on_dependency_failure', 'FAIL_HANDOFF',
@@ -64,4 +64,4 @@ assert 'PASS / FAIL / BLOCKED / PREFLIGHT_FAIL / NOT_EXECUTED / SKIPPED' in html
 for prompt_id in ['prompt-vi','prompt-en','prompt-ru']:
     assert f'id="{prompt_id}"' in html and f"selectPrompt('{prompt_id}')" in html and f"copyPrompt('{prompt_id}',this)" in html
 assert html.count('>Select all</button>')==3 and html.count('>Copy</button>')==3
-print('PASS: v6.17.1 diagnostics, Windows parity docs, schemas/checklist and minimal user HTML contract')
+print('PASS: v6.17.2 diagnostics, Windows parity docs, schemas/checklist and minimal user HTML contract')

@@ -1,4 +1,4 @@
-# PATCH PACKAGE GUIDE — v6.17.1 authoritative AI/tool contract
+# PATCH PACKAGE GUIDE — v6.17.2 authoritative AI/tool contract
 
 Machine-readable source of truth:
 
@@ -36,9 +36,9 @@ Optional manifest block:
 ```json
 {
   "compatibility": {
-    "min_tool_version": "6.17.1",
+    "min_tool_version": "6.17.2",
     "max_tool_version": "7.0.0",
-    "max_tested_version": "6.17.1"
+    "max_tested_version": "6.17.2"
   }
 }
 ```
@@ -97,20 +97,19 @@ Missing/non-regular required resources are rejected before the payload runs.
 
 ## Recovery policy
 
-Default behavior on PATCH failure is to generate a structured FAIL handoff. Source drift/anchor mismatch also prepares a read-only `pack` COLLECT request when safe source paths are known.
+Every PATCH failure generates a structured FAIL handoff and automatically discovers/bundles related current source. This is mandatory in v6.17.2. The legacy `recovery.fail_handoff` boolean remains schema-accepted for package compatibility, but `false` is deprecated and ignored with a warning.
 
-A package may explicitly disable either behavior:
+Source drift/anchor mismatch may additionally prepare a read-only `pack` COLLECT request. That secondary next-run request may still be disabled independently:
 
 ```json
 {
   "recovery": {
-    "fail_handoff": false,
     "collect_on_source_drift": false
   }
 }
 ```
 
-Do not disable them without a concrete reason.
+FAIL_HANDOFF source discovery uses structured target/preflight/rollback evidence, source paths from failure output, bounded basename lookup, and one-hop local references/same-stem companions. The ZIP includes `SOURCE_DISCOVERY.json` so AI can distinguish attached source from files omitted by safety quotas.
 
 ## Metadata-driven safe rollback
 
@@ -175,7 +174,7 @@ INSPECT RESULT: PASS — project unchanged
 
 No PATCH payload is executed and the package is not archived.
 
-## v6.17.1 package lint / validate
+## v6.17.2 package lint / validate
 
 Before delivering a PATCH, validate the manifest against `PATCH_PACKAGE_SCHEMA.json` and `PATCH_PACKAGE_CHECKLIST.json`. **Never invent `source_baseline`** or other legacy/custom fields. Source assumptions belong only in `preflight.files` using `path`, optional `exists`, `sha256`, and/or `anchors`.
 
@@ -202,9 +201,9 @@ Validation/inspect results use one of four classes:
 - `SOURCE_DRIFT` — current source SHA/existence/anchor or OPS match assumptions do not hold; project unchanged.
 - `TOOL_ERROR` — unexpected Patch Tool internal failure; project unchanged.
 
-Schema lint reports multiple independent manifest issues in one pass. Source preflight likewise aggregates declared file mismatches and includes expected/actual SHA where applicable. For data-only OPS packages, v6.17.1 simulates the sequential operation list on a private temporary mirror before execution; a missing/ambiguous source match fails before the real payload is allowed to write.
+Schema lint reports multiple independent manifest issues in one pass. Source preflight likewise aggregates declared file mismatches and includes expected/actual SHA where applicable. For data-only OPS packages, v6.17.2 simulates the sequential operation list on a private temporary mirror before execution; a missing/ambiguous source match fails before the real payload is allowed to write.
 
-## Batch metadata (v6.17.1)
+## Batch metadata (v6.17.2)
 
 PATCH có thể khai báo:
 
@@ -254,7 +253,7 @@ Có thể override cho một lượt chạy:
 
 Windows dùng cùng options qua `.bat`/`.ps1`.
 
-### v6.17.1 integrity notes
+### v6.17.2 integrity notes
 
 - Với OPS replace/insert, `already` phải là marker/context idempotency **explicit** nếu cần. Tool không còn coi `new` xuất hiện ở nơi bất kỳ trong file là “already patched”.
 - OPS dry-run và execution chịu `execution.timeout_seconds`; write source dùng atomic replace.

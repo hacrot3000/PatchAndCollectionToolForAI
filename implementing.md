@@ -1,6 +1,6 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.17.1**  
+Phiên bản mục tiêu: **v6.17.2**  
 Trạng thái: **CONTROLLED BATCH ENGINE + SMART RESUME + ADVANCED REPORTING — COMPLETE / STOP**
 
 ## Baseline
@@ -129,7 +129,7 @@ Batch atomic mode fail-closed:
 
 Không tuyên bố atomicity cho path mà Python payload tự ghi nhưng không khai báo/không thể resolve trước. PATCH mutation được serialize theo project để tránh lost-update giữa hai terminal; selector/COLLECT vẫn độc lập.
 
-## 5.1. Integrity hardening v6.17.1
+## 5.1. Integrity hardening v6.17.2
 
 - `internal_error` luôn safety-stop; nếu exception xảy ra sau payload thì partial state được tính lại, không mặc định `detected=false`.
 - OPS idempotency chỉ dùng `already` được khai báo explicit; sự xuất hiện của `new` ở nơi khác trong file không còn được coi là bằng chứng đã patch.
@@ -221,6 +221,27 @@ Package có:
 ```
 
 Lane chạy thực trên Windows và kiểm tra BAT + PowerShell launcher, project path có space/Unicode, controlled continue batch, persistent report và Windows runtime contracts. Host build Linux không được phép giả vờ đây là native PASS; release chỉ ghi native lane **packaged** nếu chưa chạy trên máy Windows thật.
+
+## 12. Mandatory FAIL_HANDOFF source collection — v6.17.2
+
+Mọi **PATCH FAIL** đều phải tạo `FAIL_HANDOFF_*.zip` và tự thu source liên quan; không phụ thuộc diagnosis có `affected_paths` hay không. `recovery.fail_handoff=false` được giữ parser-compatible cho package cũ nhưng dispatcher cảnh báo và **không cho tắt** handoff nữa.
+
+Thứ tự discovery fail-closed/bounded:
+
+1. structured evidence: `diagnosis.affected_paths`, partial/project delta, `preflight.target_paths`, preflight checks/issues, rollback paths;
+2. effective targets của đúng queue package nếu SHA vẫn khớp bytes đã chạy;
+3. source path xuất hiện trong traceback/compiler/tool log;
+4. nếu log chỉ có basename (`Foo.cpp:123`), bounded project scan tối đa 25.000 file, bỏ `.git`, build/dist, dependency/cache, `artifacts` và `patchs`;
+5. mở rộng **một hop** tới quoted local code/config reference và file cùng stem (`.c/.h`, `.cpp/.hpp`, `.ts/.tsx`, ...).
+
+Bundle ghi:
+
+- `current_source/<relative-path>` — exact current bytes của source tìm được;
+- `SOURCE_DISCOVERY.json` — evidence/reason cho từng file, số file scan, truncation, included/skipped và limits;
+- `FAIL_SUMMARY.json.source_discovery` — summary ngắn;
+- sensitive-content warning vẫn hoạt động, không âm thầm redact source.
+
+Hard limits hiện tại: tối đa 256 source files, 32 MiB/file, 128 MiB tổng source, 1 MiB text/reference scan mỗi seed. Khi vượt quota, handoff vẫn được tạo và `SOURCE_DISCOVERY.json` ghi rõ file bị bỏ qua. Child PATCH chết trước khi ghi structured result sẽ được dispatcher tạo minimal failure result để vẫn có thể đối chiếu package SHA và thu target metadata khi queue bytes còn nguyên.
 
 ## Regression/stop condition
 

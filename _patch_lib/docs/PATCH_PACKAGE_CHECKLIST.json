@@ -1,7 +1,7 @@
 {
   "format": "python-patch-tool-package-checklist",
   "format_version": 1,
-  "tool_version": "6.17.1",
+  "tool_version": "6.17.2",
   "source_of_truth": "PATCH_PACKAGE_SCHEMA.json",
   "checks": [
     "root PATCH_TOOL_MANIFEST.json exists",
@@ -21,7 +21,8 @@
     "previous_failure.action is exactly delete, retry_before, run_after or block; never leave the failed predecessor orphaned",
     "continue_independent is used only when independent continuation is safe; unsafe partial/rollback/tool failures must safety-stop",
     "OPS idempotency uses explicit already markers; do not assume new text appearing elsewhere means the target operation was already applied",
-    "batch transaction mode declares complete manifest targets; tool expands effective targets from preflight/recovery/OPS metadata and rejects post_patch or Git add/commit/push side effects"
+    "batch transaction mode declares complete manifest targets; tool expands effective targets from preflight/recovery/OPS metadata and rejects post_patch or Git add/commit/push side effects",
+    "every PATCH failure creates a FAIL_HANDOFF with automatic bounded related-source discovery and SOURCE_DISCOVERY.json; recovery.fail_handoff=false is ignored"
   ],
   "known_migrations": {
     "source_baseline.files[].file": "preflight.files[].path",

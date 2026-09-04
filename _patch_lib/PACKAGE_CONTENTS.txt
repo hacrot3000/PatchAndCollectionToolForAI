@@ -1,4 +1,4 @@
-Python Patch Tool v6.17.1 — full self-contained package
+Python Patch Tool v6.17.2 — full self-contained package
 
 Public launchers / user docs:
   tools/run_python_patches.sh
@@ -43,20 +43,21 @@ Runtime artifacts (created in project; not shipped pre-populated):
   artifacts/patch_tool/runs/<run_id>/items/*.log
   artifacts/patch_tool/runs/<run_id>/source_compare/*/source.diff
   artifacts/patch_tool/fail_handoffs/FAIL_HANDOFF_*.zip
+  FAIL_HANDOFF contains SOURCE_DISCOVERY.json + bounded current_source/** on every PATCH failure
   artifacts/patch_tool/support/*.zip
   artifacts/patch_tool/exports/*.zip
   patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip
 
 Normal use — Linux/POSIX:
-  unzip -o python_patch_tool_v6.17.1.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.17.2.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 Normal use — Windows (Python 3.10+):
-  Expand-Archive -Force .\python_patch_tool_v6.17.1.zip PROJECT_ROOT
+  Expand-Archive -Force .\python_patch_tool_v6.17.2.zip PROJECT_ROOT
   tools\run_python_patches.bat
   # or: .\tools\run_python_patches.ps1
 
-v6.17.1 controlled batch engine:
+v6.17.2 controlled batch engine:
 - failure_policy=fail_fast remains default; continue_independent continues only after a proven-safe failure;
 - dependency order uses existing manifest.patch.id plus batch.depends_on; failed dependencies default to BLOCKED;
 - successor after unresolved FAIL must declare batch.previous_failure action: delete/retry_before/run_after/block + reason;

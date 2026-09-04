@@ -43,7 +43,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.17.1"
+VERSION = "6.17.2"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -110,8 +110,23 @@ def _forward_patch_signal(proc: subprocess.Popen, signum: int) -> None:
         pass
 
 MAX_PATCH_CAPTURE_BYTES = 8 * 1024 * 1024
-MAX_HANDOFF_SOURCE_FILE_BYTES = 2 * 1024 * 1024
-MAX_HANDOFF_SOURCE_TOTAL_BYTES = 20 * 1024 * 1024
+MAX_HANDOFF_SOURCE_FILE_BYTES = 32 * 1024 * 1024
+MAX_HANDOFF_SOURCE_TOTAL_BYTES = 128 * 1024 * 1024
+MAX_HANDOFF_SOURCE_FILES = 256
+MAX_HANDOFF_SCAN_FILES = 25000
+MAX_HANDOFF_REFERENCE_TEXT_BYTES = 1024 * 1024
+_HANDOFF_SCAN_SKIP_DIRS = {
+    ".git", "node_modules", ".venv", "venv", "__pycache__", "build", "dist",
+    "artifacts", "patchs", ".idea", ".vscode",
+}
+_HANDOFF_SOURCE_SUFFIXES = {
+    ".py", ".pyi", ".c", ".h", ".cc", ".hh", ".cpp", ".hpp", ".cxx", ".hxx",
+    ".m", ".mm", ".java", ".kt", ".kts", ".swift", ".go", ".rs", ".cs",
+    ".js", ".jsx", ".ts", ".tsx", ".vue", ".svelte", ".php", ".rb", ".lua",
+    ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd", ".sql", ".proto",
+    ".html", ".htm", ".css", ".scss", ".sass", ".less", ".xml", ".json", ".json5",
+    ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".properties", ".gradle",
+}
 RUN_HISTORY_LIMIT = 30
 
 
@@ -370,6 +385,13 @@ def _run_patch_child(
     env = dict(os.environ)
     env["PTV_PATCH_RESULT_FILE"] = str(result_path)
     env["PYTHONUNBUFFERED"] = "1"
+    spawn_patch_sha: str | None = None
+    spawn_patch_path = root / "patchs" / item.name
+    try:
+        if spawn_patch_path.is_file() and not spawn_patch_path.is_symlink():
+            spawn_patch_sha = _sha256_file(spawn_patch_path)
+    except OSError:
+        spawn_patch_sha = None
     proc = subprocess.Popen(
         cmd, cwd=root, env=env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -466,6 +488,32 @@ def _run_patch_child(
     result = _load_json(result_path)
     try: result_path.unlink()
     except OSError: pass
+    if result is None and raw_rc != 0:
+        # A child can die before it writes the structured result (signal, Python
+        # startup/import failure, abrupt process exit). Preserve enough identity
+        # for the mandatory FAIL_HANDOFF source collector to inspect the exact
+        # unchanged queue package when possible.
+        result = {
+            "format": "python-patch-tool-patch-result",
+            "format_version": 1,
+            "tool_version": VERSION,
+            "patch_file": item.name,
+            "patch_sha256": spawn_patch_sha,
+            "status": "FAIL",
+            "rc": _normalize_subprocess_rc(raw_rc),
+            "stage": "child_process",
+            "preflight": None,
+            "diagnosis": {
+                "kind": "child_result_missing",
+                "message": "PATCH child exited without structured result",
+                "affected_paths": [],
+            },
+            "partial_modification": {
+                "detected": None,
+                "changed_paths": [],
+                "evidence": "child_result_missing_state_unknown",
+            },
+        }
     if interrupted_sig is not None:
         rc = 128 + abs(interrupted_sig)
     else:
@@ -492,6 +540,300 @@ def _safe_handoff_source(root: Path, rel: str) -> Path | None:
         return path
     except Exception:
         return None
+
+
+def _normalize_handoff_candidate(root: Path, raw: str) -> str | None:
+    """Normalize a log/metadata path into a safe project-relative POSIX path."""
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip().strip('"\'`()[]{}<>,;')
+    if not text:
+        return None
+    text = re.sub(r":\d+(?::\d+)?$", "", text)
+    try:
+        native = Path(text)
+        if native.is_absolute():
+            resolved = native.resolve(strict=False)
+            rel = resolved.relative_to(root.resolve())
+            candidate = rel.as_posix()
+            return candidate if _safe_handoff_source(root, candidate) is not None else None
+    except Exception:
+        pass
+    text = text.replace("\\", "/")
+    root_posix = root.resolve().as_posix().rstrip("/")
+    if text.startswith(root_posix + "/"):
+        text = text[len(root_posix) + 1 :]
+    if re.match(r"^[A-Za-z]:/", text):
+        return None
+    pure = Path(text)
+    if pure.is_absolute() or ".." in pure.parts or not pure.parts:
+        return None
+    rel = pure.as_posix()
+    while rel.startswith("./"):
+        rel = rel[2:]
+    if not rel:
+        return None
+    return rel if _safe_handoff_source(root, rel) is not None else None
+
+
+def _handoff_structured_path_evidence(
+    root: Path,
+    item: QueueItem,
+    patch_result: dict[str, object] | None,
+) -> list[tuple[str, str]]:
+    """Return target/source paths proven related by structured PATCH evidence."""
+    evidence: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    def add(raw: object, reason: str) -> None:
+        if not isinstance(raw, str):
+            return
+        rel = _normalize_handoff_candidate(root, raw)
+        if rel is not None and rel not in seen:
+            seen.add(rel)
+            evidence.append((rel, reason))
+
+    def add_many(values: object, reason: str) -> None:
+        if isinstance(values, list):
+            for value in values:
+                add(value, reason)
+
+    if isinstance(patch_result, dict):
+        diagnosis = patch_result.get("diagnosis")
+        if isinstance(diagnosis, dict):
+            add_many(diagnosis.get("affected_paths"), "diagnosis.affected_paths")
+            issues = diagnosis.get("issues")
+            if isinstance(issues, list):
+                for issue in issues:
+                    if isinstance(issue, dict):
+                        add(issue.get("path"), "diagnosis.issue.path")
+        partial = patch_result.get("partial_modification")
+        if isinstance(partial, dict):
+            add_many(partial.get("changed_paths"), "partial_modification.changed_paths")
+        preflight = patch_result.get("preflight")
+        if isinstance(preflight, dict):
+            add_many(preflight.get("target_paths"), "preflight.target_paths")
+            add_many(preflight.get("affected_paths"), "preflight.affected_paths")
+            for key in ("checks", "issues"):
+                rows = preflight.get(key)
+                if isinstance(rows, list):
+                    for row in rows:
+                        if isinstance(row, dict):
+                            add(row.get("path"), f"preflight.{key}.path")
+        rollback = patch_result.get("rollback")
+        if isinstance(rollback, dict):
+            add_many(rollback.get("restored_paths"), "rollback.restored_paths")
+            remaining = rollback.get("remaining_project_delta")
+            if isinstance(remaining, dict):
+                add_many(remaining.get("changed_paths"), "rollback.remaining_project_delta")
+        delta = patch_result.get("project_delta")
+        if isinstance(delta, dict):
+            add_many(delta.get("changed_paths"), "project_delta.changed_paths")
+
+    patch_path = root / "patchs" / item.name
+    expected_sha = patch_result.get("patch_sha256") if isinstance(patch_result, dict) else None
+    exact_queue_bytes = False
+    try:
+        exact_queue_bytes = (
+            patch_path.is_file() and not patch_path.is_symlink()
+            and isinstance(expected_sha, str) and bool(expected_sha)
+            and _sha256_file(patch_path) == expected_sha
+        )
+    except OSError:
+        exact_queue_bytes = False
+    if exact_queue_bytes:
+        try:
+            meta = load_patch_meta(root, item.name)
+            for rel in meta.effective_targets:
+                add(rel, "executed_patch.effective_target")
+        except Exception:
+            pass
+    return evidence
+
+
+def _handoff_console_path_evidence(root: Path, console_log: str) -> tuple[list[tuple[str, str]], set[str]]:
+    """Extract source paths and unresolved basenames from failure output."""
+    evidence: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    unresolved_basenames: set[str] = set()
+    suffix_alt = "|".join(sorted(re.escape(x.lstrip(".")) for x in _HANDOFF_SOURCE_SUFFIXES))
+    patterns = [
+        re.compile(r'''File\s+["']([^"']+)["']'''),
+        re.compile(rf'''(?<![A-Za-z0-9_])((?:[A-Za-z]:[\\/])?[^\s"'<>|]+?\.(?:{suffix_alt}))(?::\d+(?::\d+)?)?''', re.I),
+    ]
+    for pattern in patterns:
+        for match in pattern.finditer(console_log[:MAX_PATCH_CAPTURE_BYTES]):
+            raw = match.group(1)
+            rel = _normalize_handoff_candidate(root, raw)
+            if rel is not None:
+                if rel not in seen:
+                    seen.add(rel)
+                    evidence.append((rel, "console_path"))
+                continue
+            cleaned = re.sub(r":\d+(?::\d+)?$", "", raw.strip().strip('"\'`()[]{}<>,;')).replace("\\", "/")
+            if "/" not in cleaned and Path(cleaned).suffix.lower() in _HANDOFF_SOURCE_SUFFIXES:
+                unresolved_basenames.add(cleaned)
+    return evidence, unresolved_basenames
+
+
+def _scan_handoff_basenames(root: Path, basenames: set[str]) -> tuple[list[tuple[str, str]], int, bool]:
+    """Bounded repository scan used only when logs mention a source basename."""
+    if not basenames:
+        return [], 0, False
+    found: list[tuple[str, str]] = []
+    scanned = 0
+    truncated = False
+    wanted = set(basenames)
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in _HANDOFF_SCAN_SKIP_DIRS and not (Path(dirpath) / d).is_symlink()
+        ]
+        for name in filenames:
+            scanned += 1
+            if scanned > MAX_HANDOFF_SCAN_FILES:
+                truncated = True
+                return found, scanned - 1, truncated
+            if name not in wanted:
+                continue
+            path = Path(dirpath) / name
+            try:
+                rel = path.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            if _safe_handoff_source(root, rel) is not None:
+                found.append((rel, f"console_basename_scan:{name}"))
+                if len(found) >= MAX_HANDOFF_SOURCE_FILES:
+                    return found, scanned, True
+    return found, scanned, truncated
+
+
+def _related_source_references(root: Path, seeds: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Discover one-hop local code/config references and same-stem companions."""
+    out: list[tuple[str, str]] = []
+    seen: set[str] = {rel for rel, _ in seeds}
+    suffix_alt = "|".join(sorted(re.escape(x.lstrip(".")) for x in _HANDOFF_SOURCE_SUFFIXES))
+    quoted_ref = re.compile(rf'''["']([^"'\r\n]+?\.(?:{suffix_alt}))["']''', re.I)
+    for rel, _reason in seeds[:MAX_HANDOFF_SOURCE_FILES]:
+        src = _safe_handoff_source(root, rel)
+        if src is None:
+            continue
+        for suffix in _HANDOFF_SOURCE_SUFFIXES:
+            candidate = src.with_suffix(suffix)
+            try:
+                crel = candidate.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            if crel in seen or _safe_handoff_source(root, crel) is None:
+                continue
+            seen.add(crel)
+            out.append((crel, f"same_stem_companion:{rel}"))
+            if len(out) >= MAX_HANDOFF_SOURCE_FILES:
+                return out
+        try:
+            with src.open("rb") as fh:
+                sample = fh.read(MAX_HANDOFF_REFERENCE_TEXT_BYTES)
+            text = sample.decode("utf-8", errors="ignore")
+        except OSError:
+            continue
+        for match in quoted_ref.finditer(text):
+            raw = match.group(1).replace("\\", "/")
+            candidates = []
+            if raw.startswith("/") or re.match(r"^[A-Za-z]:/", raw):
+                candidates.append(raw)
+            else:
+                try:
+                    candidates.append((src.parent / raw).relative_to(root).as_posix())
+                except (ValueError, OSError):
+                    pass
+                root_rel = raw
+                while root_rel.startswith("./"):
+                    root_rel = root_rel[2:]
+                candidates.append(root_rel)
+            for candidate in candidates:
+                crel = _normalize_handoff_candidate(root, candidate)
+                if crel is None or crel in seen:
+                    continue
+                seen.add(crel)
+                out.append((crel, f"one_hop_reference:{rel}"))
+                if len(out) >= MAX_HANDOFF_SOURCE_FILES:
+                    return out
+                break
+    return out
+
+
+def _discover_fail_handoff_sources(
+    root: Path,
+    item: QueueItem,
+    patch_result: dict[str, object] | None,
+    console_log: str,
+) -> tuple[list[tuple[str, Path]], dict[str, object]]:
+    """Automatically discover and bound source attachments for every PATCH FAIL."""
+    ordered: list[tuple[str, str]] = []
+    reason_by_path: dict[str, list[str]] = {}
+
+    def merge(rows: list[tuple[str, str]]) -> None:
+        for rel, reason in rows:
+            if rel not in reason_by_path:
+                reason_by_path[rel] = []
+                ordered.append((rel, reason))
+            if reason not in reason_by_path[rel]:
+                reason_by_path[rel].append(reason)
+
+    structured = _handoff_structured_path_evidence(root, item, patch_result)
+    merge(structured)
+    console_rows, basenames = _handoff_console_path_evidence(root, console_log)
+    merge(console_rows)
+    scanned_rows, scanned_files, scan_truncated = _scan_handoff_basenames(root, basenames)
+    merge(scanned_rows)
+    merge(_related_source_references(root, ordered))
+
+    attachments: list[tuple[str, Path]] = []
+    included: list[dict[str, object]] = []
+    skipped: list[dict[str, object]] = []
+    total = 0
+    for rel, _ in ordered:
+        src = _safe_handoff_source(root, rel)
+        if src is None:
+            skipped.append({"path": rel, "reason": "unsafe_missing_or_over_per_file_limit"})
+            continue
+        try:
+            size = src.stat().st_size
+        except OSError:
+            skipped.append({"path": rel, "reason": "stat_failed"})
+            continue
+        if len(attachments) >= MAX_HANDOFF_SOURCE_FILES:
+            skipped.append({"path": rel, "reason": "max_source_files"})
+            continue
+        if total + size > MAX_HANDOFF_SOURCE_TOTAL_BYTES:
+            skipped.append({"path": rel, "reason": "max_total_source_bytes", "size": size})
+            continue
+        attachments.append((rel, src))
+        total += size
+        included.append({"path": rel, "size": size, "reasons": reason_by_path.get(rel, [])})
+
+    discovery = {
+        "format": "python-patch-tool-fail-source-discovery",
+        "format_version": 1,
+        "mode": "automatic_on_every_patch_failure",
+        "structured_seed_count": len(structured),
+        "console_path_count": len(console_rows),
+        "console_unresolved_basenames": sorted(basenames),
+        "basename_scan_files_examined": scanned_files,
+        "basename_scan_truncated": scan_truncated,
+        "discovered_paths": len(ordered),
+        "included_files": included,
+        "skipped_files": skipped,
+        "included_total_bytes": total,
+        "limits": {
+            "max_source_files": MAX_HANDOFF_SOURCE_FILES,
+            "max_source_file_bytes": MAX_HANDOFF_SOURCE_FILE_BYTES,
+            "max_source_total_bytes": MAX_HANDOFF_SOURCE_TOTAL_BYTES,
+            "max_repository_scan_files": MAX_HANDOFF_SCAN_FILES,
+            "max_reference_text_bytes_per_seed": MAX_HANDOFF_REFERENCE_TEXT_BYTES,
+        },
+    }
+    return attachments, discovery
 
 
 def _enrich_patch_diagnosis(patch_result: dict[str, object] | None, console_log: str) -> dict[str, object] | None:
@@ -641,9 +983,13 @@ def _create_fail_handoff(
     recovery_request: Path | None,
 ) -> Path | None:
     if isinstance(patch_result, dict):
-        recovery = patch_result.get("recovery")
-        if isinstance(recovery, dict) and recovery.get("fail_handoff") is False:
-            return None
+        recovery_cfg = patch_result.get("recovery")
+        if isinstance(recovery_cfg, dict) and recovery_cfg.get("fail_handoff") is False:
+            print(
+                f"[PTV v{VERSION} WARNING] recovery.fail_handoff=false is deprecated/ignored; "
+                "every PATCH failure now creates a FAIL_HANDOFF with automatic source collection.",
+                file=sys.stderr,
+            )
     out = _artifact_run_root(root) / "fail_handoffs"
     out.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
@@ -674,27 +1020,22 @@ def _create_fail_handoff(
     else:
         summary["patch_attachment"] = "omitted_queue_input_missing"
     try:
-        total = 0
-        affected: list[str] = []
-        if isinstance(patch_result, dict) and isinstance(patch_result.get("diagnosis"), dict):
-            affected.extend(x for x in patch_result["diagnosis"].get("affected_paths", []) if isinstance(x, str))
-        if isinstance(patch_result, dict) and isinstance(patch_result.get("partial_modification"), dict):
-            affected.extend(x for x in patch_result["partial_modification"].get("changed_paths", []) if isinstance(x, str))
-        source_attachments: list[tuple[str, Path]] = []
-        for rel in dict.fromkeys(affected):
-            src = _safe_handoff_source(root, rel)
-            if src is None:
-                continue
-            size = src.stat().st_size
-            if total + size > MAX_HANDOFF_SOURCE_TOTAL_BYTES:
-                break
-            source_attachments.append((rel, src))
-            total += size
+        source_attachments, source_discovery = _discover_fail_handoff_sources(
+            root, item, patch_result, console_log
+        )
         sensitive_warnings = _sensitive_handoff_warnings(console_log, source_attachments)
         summary["sensitive_content_warnings"] = sensitive_warnings
+        summary["source_discovery"] = {
+            "mode": source_discovery.get("mode"),
+            "discovered_paths": source_discovery.get("discovered_paths"),
+            "included_files": len(source_discovery.get("included_files") or []),
+            "included_total_bytes": source_discovery.get("included_total_bytes"),
+            "skipped_files": len(source_discovery.get("skipped_files") or []),
+        }
         with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
             zf.writestr("FAIL_SUMMARY.json", json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
             zf.writestr("console.log", console_log)
+            zf.writestr("SOURCE_DISCOVERY.json", json.dumps(source_discovery, ensure_ascii=False, indent=2) + "\n")
             if sensitive_warnings:
                 warning_text = (
                     "WARNING: This diagnostic bundle intentionally preserves exact source/log bytes.\n"
@@ -716,6 +1057,12 @@ def _create_fail_handoff(
             if zf.testzip() is not None:
                 raise ValueError("FAIL_HANDOFF ZIP CRC check failed")
         print("")
+        print(
+            "FAIL HANDOFF SOURCES: "
+            f"included={len(source_discovery.get('included_files') or [])} | "
+            f"bytes={source_discovery.get('included_total_bytes', 0)} | "
+            f"skipped={len(source_discovery.get('skipped_files') or [])}"
+        )
         print("=" * 72)
         print("!!! [PRIMARY - UPLOAD THIS FILE] PATCH FAIL HANDOFF !!!")
         print(">>> ACTION REQUIRED: UPLOAD TO CHATGPT / AI SERVER <<<")

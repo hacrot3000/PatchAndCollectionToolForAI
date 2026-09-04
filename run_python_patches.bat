@@ -1,6 +1,6 @@
 @echo off
 setlocal
-rem Python Patch Tool v6.17.1 Windows launcher wrapper.
+rem Python Patch Tool v6.17.2 Windows launcher wrapper.
 set "PTV_TOOLS_DIR=%~dp0"
 
 where powershell.exe >nul 2>nul

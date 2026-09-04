@@ -1,6 +1,6 @@
-# CODE COLLECTION GUIDE — v6.17.1 AUTHORITATIVE CONTRACT
+# CODE COLLECTION GUIDE — v6.17.2 AUTHORITATIVE CONTRACT
 
-Python Patch Tool v6.17.1 is self-contained for its documented COLLECT schema. The authoritative action list is not inferred from old guides; it is defined by `COLLECT_ACTION_SCHEMA.json` and enforced before execution.
+Python Patch Tool v6.17.2 is self-contained for its documented COLLECT schema. The authoritative action list is not inferred from old guides; it is defined by `COLLECT_ACTION_SCHEMA.json` and enforced before execution.
 
 This is an **AI/tool-facing technical document**. Do not copy the action table into the end-user HTML guide; the user should not need to choose or understand action types.
 
@@ -67,7 +67,7 @@ Raw JSON is rejected.
 
 One invocation can run exactly one COLLECT request and cannot mix it with PATCH. This is not a global queue lock; separate COLLECT/selector terminals may run independently. PATCH source mutation is serialized per project only while mutating source, to prevent lost updates.
 
-## v6.17.1 safety bounds
+## v6.17.2 safety bounds
 
 Request limits cannot exceed the tool's local hard ceilings. Internal result/output folders are excluded from discovery so a COLLECT can never recursively collect the ZIP it is currently writing. Exact-file packing checks byte quotas during copying, not only before copying. Regex search executes in an isolated worker with a 60-second hard timeout per regex action. Likely credential/private-key files are still preserved exactly when explicitly requested, but the result manifest/console warns the operator before upload.
 
