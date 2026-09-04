@@ -18,7 +18,7 @@ import time
 import unicodedata
 from typing import Iterable
 
-VERSION = "6.17.12"
+VERSION = "6.17.13"
 DEFAULT_HEARTBEAT = 0.8
 DEFAULT_MARGIN = 2
 MAX_TAIL_LINES = 120

@@ -1,13 +1,13 @@
-# Python Patch Tool v6.17.12 portable usage
+# Python Patch Tool v6.17.13 portable usage
 
-The release is self-contained for its v6.17.12 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
+The release is self-contained for its v6.17.13 documented PATCH/COLLECT contract. Put PATCH or `CODE_COLLECTION_REQUEST_*.zip` directly under `<project>/patchs/`; all platforms use the same queue and Python core.
 
 ## Linux / POSIX
 
 Install/update at the project root:
 
 ```bash
-unzip -o python_patch_tool_v6.17.12.zip -d "$PWD"
+unzip -o python_patch_tool_v6.17.13.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 
@@ -18,7 +18,7 @@ Requirement: **Python 3.10+**. The launcher accepts Python Launcher (`py -3`) or
 PowerShell install/update at the project root:
 
 ```powershell
-Expand-Archive -Force .\python_patch_tool_v6.17.12.zip .
+Expand-Archive -Force .\python_patch_tool_v6.17.13.zip .
 tools\run_python_patches.bat
 ```
 
@@ -101,3 +101,15 @@ Recipe policy override rule: `run --recipe` uses the policies stored in the reci
 - Enter on a history run opens the existing report browser and immediately prints an `Important files` block with **absolute paths** for COLLECT result/request ZIPs, FAIL_HANDOFF, recovery/replay/archive packages and important diagnosis logs. Historical artifacts that were cleaned remain visible as paths marked `[missing]`; item detail, aggregate log, source diff and support bundle actions remain available from the same report menu.
 - PATCH execution uses a best-effort fixed status header only on a suitable interactive terminal. Redirected output, dumb/tiny terminals, unsupported Windows VT or resize/render failures fall back to normal scrolling output. Set `PTV_DISABLE_LIVE_STATUS=1` to opt out. Stored logs remain raw/authoritative.
 
+
+
+## v6.17.13 history and resume clarification
+
+- Interactive history hides IDLE probes and displays package/request name first, then local run timestamp, then final status. New IDLE invocations update `LAST_RUN.json` but are not appended to `history/*.json`.
+- If duplicate filtering consumes every queued candidate, the tool prints a queue-cleanup summary and waits for Enter before opening history, so automatic removals are visible. A queue that was truly empty from the start still opens history automatically in zero-argument interactive mode.
+- Automatic SMART RESUME describes the latest meaningful PATCH/COLLECT failure only. Older unresolved failures remain persistent planner constraints for related successors, but do not globally claim that the immediately previous invocation failed.
+- Report item detail is selected by a numeric index (`1..N`), not the literal letter `N`.
+
+- Old unpinned IDLE probes are removed first during history cleanup, so they do not consume the 30 meaningful-run retention budget.
+
+- History timestamps are displayed in the machine local timezone; persisted JSON timestamps remain UTC.

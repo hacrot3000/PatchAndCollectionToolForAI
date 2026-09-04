@@ -1,4 +1,4 @@
-# Python Patch Tool v6.17.12 feature status
+# Python Patch Tool v6.17.13 feature status
 
 | Capability | Status |
 |---|---|
@@ -99,3 +99,5 @@ v6.17.6 completes the current robustness/data-integrity audit scope, aggregate/d
 - History defaults to the newest meaningful PASS and reuses the normal persisted report browser/artifacts.
 - Best-effort fixed live PATCH status header is COMPLETE for supported TTYs with automatic plain-console fallback; `PTV_DISABLE_LIVE_STATUS=1` disables it. Raw saved logs remain authoritative.
 
+
+- v6.17.13 history browser hides IDLE, renders package-first rows, pauses after duplicate-only queue cleanup, and automatic SMART RESUME keys to the latest meaningful failed execution while persistent predecessor safety remains enforced.

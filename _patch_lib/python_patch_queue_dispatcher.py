@@ -47,7 +47,7 @@ except Exception:
     msvcrt = None
 
 
-VERSION = "6.17.12"
+VERSION = "6.17.13"
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -615,6 +615,33 @@ def _history_entries(root: Path) -> list[tuple[Path, dict[str, object]]]:
     return out
 
 
+def _is_meaningful_run(report: dict[str, object] | None) -> bool:
+    """True only for invocations that actually selected/executed PATCH/COLLECT work.
+
+    IDLE probes are intentionally excluded from the user-facing history and
+    Smart Resume semantics.  LAST_RUN may still be IDLE so automation can see
+    the most recent invocation, while history remains useful to an operator.
+    """
+    if not isinstance(report, dict):
+        return False
+    selected = report.get("selected")
+    if isinstance(selected, list) and any(isinstance(x, str) and x for x in selected):
+        return True
+    rows = report.get("results")
+    return isinstance(rows, list) and any(isinstance(x, dict) and x.get("name") for x in rows)
+
+
+def _visible_history_entries(root: Path) -> list[tuple[Path, dict[str, object]]]:
+    return [(path, report) for path, report in _history_entries(root) if _is_meaningful_run(report)]
+
+
+def _latest_meaningful_run(root: Path, latest: dict[str, object] | None = None) -> dict[str, object] | None:
+    if _is_meaningful_run(latest):
+        return latest
+    entries = _visible_history_entries(root)
+    return entries[0][1] if entries else None
+
+
 def _find_history_entry(root: Path, run_id: str) -> tuple[Path, dict[str, object]] | None:
     for path, data in _history_entries(root):
         if str(data.get("run_id")) == str(run_id): return path, data
@@ -624,30 +651,55 @@ def _find_history_entry(root: Path, run_id: str) -> tuple[Path, dict[str, object
 def _cleanup_history(root: Path) -> dict[str, int]:
     pins = _load_pinned_runs(root)
     entries = list(reversed(_history_entries(root)))  # oldest -> newest
-    unpinned = [(p, d) for p, d in entries if str(d.get("run_id")) not in pins]
-    remove_count = max(0, len(entries) - RUN_HISTORY_LIMIT)
     removed = 0
-    for path, data in unpinned:
-        if removed >= remove_count: break
+
+    def remove_entry(path: Path, data: dict[str, object]) -> bool:
+        nonlocal removed
         run_id = str(data.get("run_id") or "")
-        try: path.unlink(); removed += 1
-        except OSError: pass
+        try:
+            path.unlink()
+            removed += 1
+        except OSError:
+            return False
         run_dir = _batch_run_dir(root, run_id)
         if run_dir.is_dir() and not run_dir.is_symlink():
             try: shutil.rmtree(run_dir)
             except OSError: pass
-    return {"removed": removed, "pinned": len(pins), "remaining": len(_history_entries(root))}
+        return True
+
+    # Historical IDLE probes are not operator history.  Remove every unpinned
+    # one first so they cannot consume the 30-run meaningful-history budget.
+    for path, data in list(entries):
+        rid = str(data.get("run_id") or "")
+        if rid not in pins and not _is_meaningful_run(data):
+            remove_entry(path, data)
+
+    remaining_entries = list(reversed(_history_entries(root)))
+    meaningful = [(p, d) for p, d in remaining_entries if _is_meaningful_run(d)]
+    remove_count = max(0, len(meaningful) - RUN_HISTORY_LIMIT)
+    for path, data in meaningful:
+        if remove_count <= 0:
+            break
+        if str(data.get("run_id") or "") in pins:
+            continue
+        if remove_entry(path, data):
+            remove_count -= 1
+    return {"removed": removed, "pinned": len(pins), "remaining": len(_visible_history_entries(root))}
+
 
 
 def _write_run_report(root: Path, report: dict[str, object]) -> None:
     out = _artifact_run_root(root)
     try:
         _atomic_json(out / "LAST_RUN.json", report)
-        history = _artifact_subdir(root, "history")
-        stamp = str(report.get("started_at", "run")).replace(":", "").replace("+", "_").replace("-", "").replace(".", "_")
-        run_id = _safe_slug(str(report.get("run_id") or "run"), 64)
-        _atomic_json(history / f"{stamp}_{run_id}.json", report)
-        _cleanup_history(root)
+        # IDLE is an invocation state, not useful PATCH/COLLECT history.  Keep
+        # LAST_RUN authoritative but do not create another user-history entry.
+        if _is_meaningful_run(report):
+            history = _artifact_subdir(root, "history")
+            stamp = str(report.get("started_at", "run")).replace(":", "").replace("+", "_").replace("-", "").replace(".", "_")
+            run_id = _safe_slug(str(report.get("run_id") or "run"), 64)
+            _atomic_json(history / f"{stamp}_{run_id}.json", report)
+            _cleanup_history(root)
     except Exception as exc:
         print(f"[PTV v{VERSION} WARNING] could not write LAST_RUN/history: {type(exc).__name__}: {exc}", file=sys.stderr)
 
@@ -3344,15 +3396,33 @@ def _print_row_subset(rows: list[dict[str, object]], title: str) -> None:
         print(f"      {_safe_display(_row_summary(row))}")
 
 
+def _history_primary_name(report: dict[str, object]) -> str:
+    names: list[str] = []
+    selected = report.get("selected")
+    if isinstance(selected, list):
+        names.extend(str(x) for x in selected if isinstance(x, str) and x)
+    if not names:
+        for row in _report_rows(report):
+            name = row.get("name")
+            if isinstance(name, str) and name and name not in names:
+                names.append(name)
+    if not names:
+        return "[không có PATCH/COLLECT]"
+    if len(names) == 1:
+        return names[0]
+    return f"{names[0]} +{len(names)-1} mục"
+
+
 def _list_history(root: Path) -> int:
-    entries = _history_entries(root); pins = _load_pinned_runs(root)
+    entries = _visible_history_entries(root); pins = _load_pinned_runs(root)
     if not entries:
-        print("No Patch Tool run history is available."); return 0
-    print("PATCH TOOL RUN HISTORY")
+        print("Chưa có lịch sử PATCH/COLLECT có công việc thực sự."); return 0
+    print("PATCH TOOL RUN HISTORY — IDLE runs are hidden")
     for i, (_path, report) in enumerate(entries[:max(RUN_HISTORY_LIMIT, len(pins)+10)], 1):
-        rows = _report_rows(report); counts = _batch_counts(rows); rid = str(report.get("run_id") or "unknown")
+        rid = str(report.get("run_id") or "unknown")
         mark = "PIN" if rid in pins else "   "
-        print(f"{i:>2}. [{mark}] {rid} | {report.get('status','UNKNOWN')} | PASS={counts['PASS']} FAIL={counts['FAIL']} BLOCKED={counts['BLOCKED']} PREFLIGHT_FAIL={counts['PREFLIGHT_FAIL']}")
+        print(f"{i:>2}. [{mark}] {_history_row_text(report, pinned=rid in pins)}")
+        print(f"     run_id: {rid}")
     print("Manage: report --pin/--unpin/--delete/--export <run_id> | report --cleanup")
     return 0
 
@@ -3374,24 +3444,27 @@ def _history_default_index(entries: list[tuple[Path, dict[str, object]]]) -> int
     return 0
 
 
+def _history_display_time(raw: object) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return "unknown-time"
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return text.replace("T", " ")[:19]
+
+
 def _history_row_text(report: dict[str, object], *, pinned: bool = False) -> str:
-    rows = _report_rows(report)
-    counts = _batch_counts(rows)
     status = str(report.get("status") or "UNKNOWN").upper()
-    run_id = str(report.get("run_id") or "unknown")
-    started = str(report.get("started_at") or "")
-    when = started.replace("T", " ")[:19] if started else "unknown-time"
-    kinds = []
-    for row in rows:
-        kind = str(row.get("kind") or "")
-        if kind and kind not in kinds:
-            kinds.append(kind)
-    kind_text = "/".join(kinds[:3]) if kinds else "IDLE"
-    pin = " PIN" if pinned else ""
-    return (
-        f"[{status}{pin}] {when} | {kind_text} | PASS={counts['PASS']} "
-        f"FAIL={counts['FAIL']} PREFLIGHT={counts['PREFLIGHT_FAIL']} | {run_id}"
-    )
+    when = _history_display_time(report.get("started_at"))
+    name = _history_primary_name(report)
+    pin = " | PIN" if pinned else ""
+    # Operator-facing order: package name first, then LOCAL execution time, then state.
+    return f"{_safe_display(name)} | {when} | {status}{pin}"
+
 
 
 def _render_history_selector(
@@ -3403,7 +3476,7 @@ def _render_history_selector(
         "↑/↓: di chuyển | Enter: mở kết quả | q/Esc: quay lại",
         _safe_display(msg) if msg else "",
     ] if frame_budget >= 5 else ([] if frame_budget <= 2 else ["↑/↓ | Enter mở | q quay lại"])
-    header = ["LỊCH SỬ CHẠY PATCH TOOL — mặc định: lần PASS gần nhất"] if frame_budget >= 2 else []
+    header = ["LỊCH SỬ CHẠY PATCH TOOL — PATCH/COLLECT thực tế; mặc định: lần PASS gần nhất"] if frame_budget >= 2 else []
     item_capacity = max(1, frame_budget - len(header) - len(footer))
     start, end = _selector_viewport(len(entries), cursor, item_capacity)
     lines: list[tuple[str, bool]] = [(x, False) for x in header]
@@ -3436,9 +3509,9 @@ def _history_browser(root: Path) -> int:
     FAIL_HANDOFF/recovery paths and support ZIP creation behave exactly like
     the just-finished run report.
     """
-    entries = _history_entries(root)
+    entries = _visible_history_entries(root)
     if not entries:
-        print("No Patch Tool run history is available.")
+        print("Chưa có lịch sử PATCH/COLLECT có công việc thực sự.")
         return 0
     default_index = _history_default_index(entries)
     pins = _load_pinned_runs(root)
@@ -3568,7 +3641,10 @@ def _batch_report_menu(root: Path, report: dict[str, object]) -> None:
     rows = _report_rows(report)
     while True:
         _print_batch_overview(root, report)
-        print("Menu: N=detail | a=aggregate | p=PASS | x=problems | c=changed | d N=diff | s N=support ZIP | h=history | q=exit")
+        if rows:
+            print(f"Menu: 1..{len(rows)}=detail | a=aggregate | p=PASS | x=problems | c=changed | d N=diff | s N=support ZIP | h=history | q=exit")
+        else:
+            print("Menu: a=aggregate | h=history | q=exit")
         try: raw = input("report> ").strip()
         except (EOFError, KeyboardInterrupt): print(""); return
         low = raw.lower()
@@ -3578,13 +3654,22 @@ def _batch_report_menu(root: Path, report: dict[str, object]) -> None:
             if isinstance(rel, str): _show_file_paged(root / rel, "AGGREGATE BATCH LOG")
             else: print("Aggregate log is unavailable.")
             continue
+        if low == "h": _list_history(root); continue
+        if not rows:
+            if low in {"n", "p", "x", "c"} or re.fullmatch(r"[ds]\s+\d+", low) or low.isdigit():
+                print("Run này không có PATCH/COLLECT item để xem detail/diff/support.")
+            else:
+                print("Lựa chọn không hợp lệ.")
+            continue
+        if low == "n":
+            print(f"Detail dùng số thứ tự 1..{len(rows)} (ví dụ: 1), không phải chữ N.")
+            continue
         if low == "p":
             _print_row_subset([(i,r) for i,r in enumerate(rows,1) if r.get("status")=="PASS"], "PASS ITEMS"); continue
         if low == "x":
             _print_row_subset([(i,r) for i,r in enumerate(rows,1) if r.get("status") in {"FAIL","BLOCKED","PREFLIGHT_FAIL"}], "PROBLEM ITEMS"); continue
         if low == "c":
             _print_row_subset([(i,r) for i,r in enumerate(rows,1) if isinstance(r.get("source_compare"),dict) and (r["source_compare"].get("changed_paths") or [])], "ITEMS WITH SOURCE CHANGES"); continue
-        if low == "h": _list_history(root); continue
         m = re.fullmatch(r"([ds])\s+(\d+)", low)
         if m and 1 <= int(m.group(2)) <= len(rows):
             idx = int(m.group(2))-1
@@ -3594,6 +3679,7 @@ def _batch_report_menu(root: Path, report: dict[str, object]) -> None:
         if low.isdigit() and 1 <= int(low) <= len(rows):
             _print_item_detail(root, rows[int(low)-1]); continue
         print("Lựa chọn không hợp lệ.")
+
 
 
 def _load_report_by_run_id(root: Path, run_id: str | None) -> dict[str, object] | None:
@@ -5149,6 +5235,28 @@ def _previous_replay_identities(previous: dict[str, object] | None) -> dict[str,
     return out
 
 
+def _unresolved_replay_identities(root: Path) -> dict[str, str]:
+    """Protect exact replay packages belonging to any unresolved failed run.
+
+    An unrelated PASS or an IDLE invocation may replace LAST_RUN, but must not
+    make a rollback replay look like an ordinary local-history duplicate.
+    """
+    registry = _load_unresolved_registry(root)
+    run_ids: list[str] = []
+    for entry in registry.get("entries") or []:
+        if not isinstance(entry, dict) or entry.get("resolved") is True:
+            continue
+        rid = entry.get("last_run_id") or entry.get("first_run_id")
+        if isinstance(rid, str) and rid and rid not in run_ids:
+            run_ids.append(rid)
+    out: dict[str, str] = {}
+    for rid in run_ids:
+        found = _find_history_entry(root, rid)
+        if found is not None:
+            out.update(_previous_replay_identities(found[1]))
+    return out
+
+
 def _failed_recovery_rows(previous: dict[str, object] | None) -> list[dict[str, object]]:
     if not isinstance(previous, dict) or previous.get("status") != "FAIL":
         return []
@@ -5644,7 +5752,7 @@ def _resume_selection(root: Path, items: list[QueueItem], previous: dict[str, ob
         },
     ]
     action = _interactive_choice_menu(
-        "SMART RESUME — PHIÊN TRƯỚC CÓ PATCH LỖI",
+        "SMART RESUME — LẦN CHẠY CÓ CÔNG VIỆC GẦN NHẤT CÓ PATCH LỖI",
         f"Rollback replay={len(groups['replay'])} | Failed={len(failed_rows)} | Remaining/blocked={len(groups['remaining'])}",
         options,
     )
@@ -5864,8 +5972,10 @@ def _run_queue(
     run_id = f"{int(time.time()*1000000)}_{os.getpid()}"
     _ACTIVE_RUN_ID = run_id
     previous = _load_previous_run(root)
-    history_replay_sha = _previous_replay_identities(previous)
-    resume_items = _print_resume_hint(root, previous)
+    meaningful_previous = _latest_meaningful_run(root, previous)
+    history_replay_sha = _unresolved_replay_identities(root)
+    history_replay_sha.update(_previous_replay_identities(meaningful_previous))
+    resume_items = _print_resume_hint(root, meaningful_previous)
     queue_safety_error: str | None = None
     recipe_chosen: list[QueueItem] | None = None
     recipe_failure: str | None = None
@@ -5960,8 +6070,8 @@ def _run_queue(
                  "ignore_path": f"patchs/ignore/{d.ignored_name}" if d.ignored_name else None}
                 for d in local_duplicates
             ],
-            "previous_resume_items": resume_items,
-            "previous_failed_item": (previous.get("failed_item") or previous.get("previous_failed_item")) if isinstance(previous, dict) else None,
+            "previous_resume_items": resume_items if status != "IDLE" else [],
+            "previous_failed_item": (meaningful_previous.get("failed_item") or meaningful_previous.get("previous_failed_item")) if isinstance(meaningful_previous, dict) else None,
         }
         _finalize_batch_artifacts(root, report)
         _write_run_report(root, report)
@@ -6000,15 +6110,33 @@ def _run_queue(
             print("AUTO STATUS: IDLE — no runnable patch/collect package is waiting in patchs/.")
         print_health(root, compact=True)
         if zero_argument_invocation and sys.stdin.isatty() and sys.stdout.isatty():
-            _history_browser(root)
+            if session_duplicates or local_duplicates:
+                print("\nQUEUE CLEANUP SUMMARY — queue ban đầu có package nhưng tất cả đã bị duplicate/auto-filter.")
+                if session_duplicates:
+                    print(f"  Session duplicates removed : {len(session_duplicates)}")
+                if local_duplicates:
+                    print(f"  Local-history duplicates   : {len(local_duplicates)} (đã chuyển vào patchs/ignore khi có thể)")
+                try:
+                    answer = input("Nhấn Enter để mở HISTORY (q để thoát): ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    print("")
+                    answer = "q"
+                if answer not in {"q", "quit", "esc"}:
+                    _history_browser(root)
+            else:
+                _history_browser(root)
         return finish_report("IDLE", 0)
 
     chosen = list(recipe_chosen) if recipe_chosen is not None else None
-    if chosen is None and (force_resume or (isinstance(previous, dict) and previous.get("status") == "FAIL") or _unresolved_failure_rows(root)):
+    # Automatic SMART RESUME describes the latest meaningful execution, not
+    # arbitrary older unresolved registry entries. Older failures remain
+    # enforced by the dependency planner when a related successor is selected.
+    should_auto_resume = isinstance(meaningful_previous, dict) and meaningful_previous.get("status") == "FAIL"
+    if chosen is None and (force_resume or should_auto_resume):
         while True:
             try:
                 decision = _resume_selection(
-                    root, items, previous, mode=resume_mode, show_history=zero_argument_invocation,
+                    root, items, meaningful_previous, mode=resume_mode, show_history=zero_argument_invocation,
                 )
             except KeyboardInterrupt:
                 print("\nCancelled by Ctrl+C.")

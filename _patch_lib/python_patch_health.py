@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib, json, os, stat
 from pathlib import Path
 
-VERSION = "6.17.12"
+VERSION = "6.17.13"
 REQUIRED_RUNTIME = [
     "tools/run_python_patches.sh",
     "tools/run_python_patches.ps1",

@@ -1,4 +1,4 @@
-Python Patch Tool v6.17.12 — full self-contained package
+Python Patch Tool v6.17.13 — full self-contained package
 
 Public launchers / user docs:
   tools/run_python_patches.sh
@@ -52,11 +52,11 @@ Runtime artifacts (created in project; not shipped pre-populated):
   patchs/CODE_COLLECTION_REQUEST_patch_recovery_*.zip
 
 Normal use — Linux/POSIX:
-  unzip -o python_patch_tool_v6.17.12.zip -d PROJECT_ROOT
+  unzip -o python_patch_tool_v6.17.13.zip -d PROJECT_ROOT
   ./tools/run_python_patches.sh
 
 Normal use — Windows (Python 3.10+):
-  Expand-Archive -Force .\python_patch_tool_v6.17.12.zip PROJECT_ROOT
+  Expand-Archive -Force .\python_patch_tool_v6.17.13.zip PROJECT_ROOT
   tools\run_python_patches.bat
   # or: .\tools\run_python_patches.ps1
 
@@ -135,3 +135,5 @@ v6.17.12 contract-consistency audit:
 - v6.17.12 zero-argument interactive selector/Smart Resume expose HISTORY; idle zero-argument TTY auto-opens persisted history after status/health.
 - v6.17.12 supported interactive PATCH terminals use a best-effort fixed live status header with automatic plain-console fallback; `PTV_DISABLE_LIVE_STATUS=1` opts out and saved logs remain raw.
 
+
+- v6.17.13 history hides IDLE, uses package-first rows, pauses after duplicate-only cleanup, and SMART RESUME follows the latest meaningful failed execution while unresolved predecessor safety persists.

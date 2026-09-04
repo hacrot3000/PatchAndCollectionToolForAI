@@ -1,6 +1,6 @@
 # Python Patch Tool — implementing.md
 
-Phiên bản mục tiêu: **v6.17.12**  
+Phiên bản mục tiêu: **v6.17.13**  
 Trạng thái: **ZERO-ARGUMENT HISTORY + LIVE PATCH STATUS — COMPLETE**
 
 ## Baseline
@@ -421,3 +421,17 @@ Recipe policy override rule: `run --recipe` uses the policies stored in the reci
 - Khi chạy PATCH trên TTY phù hợp, tool dùng **best-effort fixed live status header**: mỗi PATCH hiển thị `WAITING`, `RUNNING`, `PASS`, `FAILED`, `PREFLIGHT FAILED`, `BLOCKED`, `NOT EXECUTED` hoặc `SKIPPED`; log child cuộn ở vùng dưới. Batch lớn dùng sliding status window để không chiếm hết màn hình.
 - Live header chỉ là presentation. Redirect/non-TTY, `TERM=dumb`, terminal quá nhỏ, Windows console không bật được VT, hoặc resize/lỗi render sẽ tự fallback về console truyền thống. Có thể tắt chủ động bằng `PTV_DISABLE_LIVE_STATUS=1`. Raw detail logs trên disk **không bị sanitize**; chỉ live display loại escape sequence có thể xóa/di chuyển cursor để bảo vệ header.
 
+
+
+## v6.17.13 — History/IDLE/Smart Resume semantics
+
+- User-facing HISTORY chỉ liệt kê run có PATCH/COLLECT thực sự. Các `IDLE` cũ vẫn còn trên disk cho tới cleanup nhưng bị ẩn; từ v6.17.13 run IDLE chỉ cập nhật `LAST_RUN.json` và không tạo thêm `history/*.json`.
+- HISTORY row ưu tiên thông tin có giá trị vận hành: **tên package trước, thời gian sau, trạng thái cuối**. Run-id vẫn tồn tại trong JSON/CLI management nhưng không chiếm dòng browser chính.
+- Nếu discovery ban đầu có package nhưng toàn bộ bị session/local duplicate filtering loại bỏ, tool in `QUEUE CLEANUP SUMMARY` và chờ Enter trước khi mở HISTORY. Việc này bảo đảm người dùng đọc được package nào đã bị tự loại/chuyển `patchs/ignore`. Queue thực sự rỗng ngay từ đầu vẫn tự mở HISTORY sau `AUTO STATUS` + Tool Health như v6.17.12.
+- Tách rõ **latest invocation** và **latest meaningful execution**. SMART RESUME tự động chỉ dựa trên lần PATCH/COLLECT meaningful gần nhất có status FAIL. Một IDLE hoặc PASS mới hơn không được phép bị registry lỗi cũ biến thành thông báo sai “phiên trước có lỗi”.
+- `UNRESOLVED_FAILURES.json` vẫn là safety state: planner tiếp tục enforce failure cũ khi một successor có dependency/effective-target relation, và exact rollback replay identity của unresolved run vẫn bypass duplicate-history suppression. Chỉ bỏ global startup prompt sai ngữ nghĩa, không bỏ predecessor safety.
+- Report menu hiển thị `1..N=detail` thay vì `N=detail`; run không có item chỉ hiện aggregate/history/quit và trả lời rõ nếu người dùng thử action item-level.
+
+- History cleanup loại IDLE unpinned cũ trước khi áp RUN_HISTORY_LIMIT=30 cho meaningful runs; pinned run vẫn được giữ.
+
+- History row chuyển `started_at` UTC sang timezone local chỉ ở presentation; persisted report timestamp không thay đổi.

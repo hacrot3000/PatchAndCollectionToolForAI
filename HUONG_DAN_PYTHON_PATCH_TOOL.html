@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Hướng dẫn Python Patch Tool v6.17.12</title>
+<title>Hướng dẫn Python Patch Tool v6.17.13</title>
 <style>
 :root{color-scheme:light dark}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:980px;margin:32px auto;padding:0 18px;line-height:1.55;color:#1f2328;background:#fff}
@@ -27,14 +27,14 @@ h1,h2{line-height:1.25}
 </style>
 </head>
 <body>
-<h1>Python Patch Tool v6.17.12 — hướng dẫn nhanh</h1>
+<h1>Python Patch Tool v6.17.13 — hướng dẫn nhanh</h1>
 
 <h2>1. Cài đặt / cập nhật</h2>
 <p><strong>Linux / POSIX:</strong></p>
-<pre>unzip -o python_patch_tool_v6.17.12.zip -d "$PWD"
+<pre>unzip -o python_patch_tool_v6.17.13.zip -d "$PWD"
 cat tools/_patch_lib/VERSION</pre>
 <p><strong>Windows PowerShell:</strong> cần Python <strong>3.10+</strong>.</p>
-<pre>Expand-Archive -Force .\python_patch_tool_v6.17.12.zip .
+<pre>Expand-Archive -Force .\python_patch_tool_v6.17.13.zip .
 Get-Content .\tools\_patch_lib\VERSION</pre>
 <p>Kết quả version phải là <code>6.17.12</code>.</p>
 
@@ -56,7 +56,8 @@ Get-Content .\tools\_patch_lib\VERSION</pre>
 <li>Tool không khóa project; bạn có thể chủ động chạy terminal khác song song.</li>
 <li>Nếu nhiều PATCH trong cùng queue có checksum giống hệt nhau, tool giữ một file và tự loại file trùng.</li>
 <li>Nếu nghi ngờ tool bị copy/cài thiếu hoặc sai checksum, nhấn <code>h</code> trong menu để kiểm tra nhanh Tool Health; thao tác này không chạy PATCH.</li>
-<li>Khi chạy launcher không tham số, selector luôn có thêm mục <strong>HISTORY</strong>; dùng <strong>↑/↓ + Enter</strong> để xem lại lịch sử rồi quay lại queue. Nếu không còn PATCH/COLLECT runnable, tool in warning, <code>AUTO STATUS: IDLE</code>, Tool Health rồi tự mở HISTORY.</li>
+<li>Khi chạy launcher không tham số, selector luôn có thêm mục <strong>HISTORY</strong>; dùng <strong>↑/↓ + Enter</strong> để xem lại lịch sử rồi quay lại queue. Nếu queue thực sự rỗng, tool in warning, <code>AUTO STATUS: IDLE</code>, Tool Health rồi tự mở HISTORY. Nếu queue có package nhưng tất cả bị duplicate/auto-filter, tool in <strong>QUEUE CLEANUP SUMMARY</strong> và chờ <strong>Enter</strong> trước khi mở HISTORY để bạn đọc được các package đã bị loại.</li>
+<li>SMART RESUME tự bật theo <strong>lần PATCH/COLLECT có công việc gần nhất</strong>; lỗi cũ vẫn được giữ để chặn successor liên quan nhưng không còn bị gọi sai là “phiên trước có lỗi”.</li>
 </ul>
 
 <h2>3. Khi AI cần thêm source</h2>
@@ -121,7 +122,7 @@ The user runs the zero-argument launcher for the OS: Linux ./tools/run_python_pa
 <li>Khi chọn nhiều PATCH, cuối run có bảng <code>PASS / FAIL / BLOCKED / PREFLIGHT_FAIL / NOT_EXECUTED / SKIPPED</code>. Mặc định tool tiếp tục các PATCH độc lập sau một lỗi; PATCH phụ thuộc hoặc dùng chung effective target với PATCH lỗi sẽ bị <code>BLOCKED</code>. <code>fail_fast</code> vẫn có thể bật rõ ràng khi muốn dừng ở lỗi đầu tiên. Ctrl+C/rollback failure/partial-unknown vẫn safety-stop.</li>
 <li>Nếu phiên trước có PATCH lỗi, Smart Resume dùng <strong>↑/↓ + Enter</strong> và hiển thị mô tả của mục đang chọn. Có thêm <strong>COLLECT source của PATCH lỗi</strong> và <strong>Xóa PATCH lỗi khỏi hàng đợi</strong> (chuyển sang <code>patchs/ignore</code>). Nếu có nhiều PATCH lỗi, dùng selector checkbox với <code>Space</code> để chọn nhiều.</li>
 <li>Log chi tiết từng PATCH và log tổng hợp batch được lưu trong <code>artifacts/patch_tool/runs/</code>. Mở lại bằng lệnh <code>report</code>; menu hỗ trợ detail, aggregate, lọc lỗi/PASS, source diff, support ZIP và history.</li>
-<li>HISTORY mặc định trỏ tới lần <strong>PASS gần nhất có công việc thực sự</strong>. Khi mở một run, report in sẵn <strong>Important files</strong> với <strong>đường dẫn tuyệt đối</strong> của COLLECT result/request ZIP, FAIL_HANDOFF, recovery/replay/archive package và log chẩn đoán quan trọng. Artifact đã bị dọn vẫn hiện vị trí lịch sử kèm <code>[missing]</code>; detail/log/source diff và support ZIP vẫn xem qua menu report.</li>
+<li>HISTORY chỉ hiện các lần có <strong>PATCH/COLLECT thực sự</strong> (ẩn IDLE), mỗi dòng hiển thị <strong>tên package → ngày giờ local của máy → trạng thái</strong>, và mặc định trỏ tới lần <strong>PASS gần nhất có công việc thực sự</strong>. Khi mở một run, report in sẵn <strong>Important files</strong> với <strong>đường dẫn tuyệt đối</strong> của COLLECT result/request ZIP, FAIL_HANDOFF, recovery/replay/archive package và log chẩn đoán quan trọng. Artifact đã bị dọn vẫn hiện vị trí lịch sử kèm <code>[missing]</code>; detail/log/source diff và support ZIP vẫn xem qua menu report.</li>
 <li>Khi terminal tương tác hỗ trợ an toàn, lúc chạy PATCH tool giữ một <strong>live status header</strong> cố định ở trên với trạng thái <code>WAITING / RUNNING / PASS / FAILED / BLOCKED / ...</code> và để console cuộn bên dưới. Nếu terminal không phù hợp hoặc bị resize, tool tự fallback về console thường. Có thể tắt bằng <code>PTV_DISABLE_LIVE_STATUS=1</code>; log lưu trên disk luôn giữ nguyên.</li>
 </ul>
 
