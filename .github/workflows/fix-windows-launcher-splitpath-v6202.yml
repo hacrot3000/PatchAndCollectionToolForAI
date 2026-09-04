@@ -1,0 +1,73 @@
+name: Fix v6.20.2 Windows launcher path resolution
+
+on:
+  push:
+    branches:
+      - ptv-v6.20.2-upload-helper
+    paths:
+      - .github/workflows/fix-windows-launcher-splitpath-v6202.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ptv-v6.20.2-hardening-work
+          fetch-depth: 0
+
+      - name: Replace incompatible Split-Path usage, test, refresh metadata, commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=7a0721876f7a834724ac9c21546b692e2b75716d
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected" || { echo "Unexpected work branch HEAD: $actual"; exit 2; }
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          ps = Path('run_python_patches.ps1')
+          text = ps.read_text(encoding='utf-8')
+          old = "$ToolsDir = Split-Path -LiteralPath $MyInvocation.MyCommand.Path -Parent\n$ProjectRoot = Split-Path -LiteralPath $ToolsDir -Parent"
+          new = "$ToolsDir = [System.IO.Path]::GetDirectoryName($MyInvocation.MyCommand.Path)\n$ProjectRoot = [System.IO.Path]::GetDirectoryName($ToolsDir)"
+          if old not in text:
+              raise SystemExit('expected Split-Path launcher block not found')
+          ps.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          test = Path('_patch_lib/self_test_windows_launchers_v6_20_0.py')
+          t = test.read_text(encoding='utf-8')
+          marker = "assert \"if ($ToolArgs.Count -eq 0)\" in pst\n"
+          insert = (
+              "assert \"[System.IO.Path]::GetDirectoryName($MyInvocation.MyCommand.Path)\" in pst\n"
+              "assert \"[System.IO.Path]::GetDirectoryName($ToolsDir)\" in pst\n"
+              "assert \"Split-Path -LiteralPath $MyInvocation.MyCommand.Path -Parent\" not in pst\n"
+              "assert \"Split-Path -LiteralPath $ToolsDir -Parent\" not in pst\n"
+          )
+          if marker not in t:
+              raise SystemExit('windows launcher regression insertion marker missing')
+          test.write_text(t.replace(marker, insert + marker, 1), encoding='utf-8')
+          PY
+
+          rm -rf /tmp/ptv-winfix
+          mkdir -p /tmp/ptv-winfix/project/tools
+          tar --exclude=.git --exclude='__pycache__' --exclude='*.pyc' -cf - . | tar -xf - -C /tmp/ptv-winfix/project/tools
+          cd /tmp/ptv-winfix/project/tools
+          export PYTHONDONTWRITEBYTECODE=1
+          python3 _patch_lib/self_test_windows_launchers_v6_20_0.py
+          python3 _patch_lib/self_test_windows_runtime_v6_20_0.py
+          python3 _patch_lib/self_test_windows_native_lane_v6_20_0.py
+
+          cd "$GITHUB_WORKSPACE"
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/python_patch_release_metadata.py --tool-dir .
+          PYTHONDONTWRITEBYTECODE=1 python3 _patch_lib/python_patch_release_metadata.py --tool-dir . --check
+          test -z "$(find . -name '__pycache__' -o -name '*.pyc' | head -n 1)"
+
+          git config user.name "Patch Tool CI"
+          git config user.email "patch-tool-ci@users.noreply.github.com"
+          git add run_python_patches.ps1 _patch_lib/self_test_windows_launchers_v6_20_0.py _patch_lib/PACKAGE_CONTENTS.txt _patch_lib/SHA256SUMS
+          git commit -m "fix: make Windows launcher path resolution PowerShell-compatible"
+          git push origin HEAD:ptv-v6.20.2-hardening-work
