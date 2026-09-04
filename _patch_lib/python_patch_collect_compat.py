@@ -21,7 +21,16 @@ import zipfile
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
 from python_patch_database_select import DatabaseSelectError, execute_database_select
 
-VERSION = "6.20.1"
+try:
+    from python_patch_version import VERSION
+except ImportError:
+    # Standalone compatibility for historical/minimal COLLECT module sets.
+    import json as _ptv_version_json
+    from pathlib import Path as _PTVVersionPath
+    try:
+        VERSION = str(_ptv_version_json.loads((_PTVVersionPath(__file__).resolve().parent / "docs" / "COLLECT_ACTION_SCHEMA.json").read_text(encoding="utf-8")).get("tool_version") or "unknown")
+    except Exception:
+        VERSION = "unknown"
 REQUEST_RE = re.compile(r"^CODE_COLLECTION_REQUEST(?:_[A-Za-z0-9._-]+)?\.json$", re.I)
 MAX_REQUEST_JSON_BYTES = 1024 * 1024
 REGEX_SEARCH_TIMEOUT_SECONDS = 60.0
@@ -2053,9 +2062,9 @@ def _decompile_action(root: Path, action: dict, limits: dict) -> str:
     return report.replace(f"Source: `{src.name}`", f"Source: `{rel}`", 1)
 
 
-def _git_action(root: Path, action: dict) -> str:
-    from python_patch_git_safe import run_git_operations
-    return run_git_operations(root, action)
+def _git_action(root: Path, action: dict) -> dict:
+    from python_patch_git_safe import run_git_operations_result
+    return run_git_operations_result(root, action)
 
 
 def _collect_queue_dirs(root: Path) -> tuple[Path, Path]:
@@ -2278,7 +2287,14 @@ def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
                         if quota_reasons:
                             builder.mark_incomplete(action=index, kind=kind, reasons=quota_reasons)
                 elif kind == "git":
-                    builder.add_report(index, kind, title, _git_action(root, action))
+                    git_result = _git_action(root, action)
+                    builder.add_report(index, kind, title, str(git_result.get("report") or ""))
+                    if git_result.get("incomplete"):
+                        builder.mark_incomplete(
+                            action=index,
+                            kind=kind,
+                            reasons=list(git_result.get("reasons") or ["Git operation returned bounded partial evidence"]),
+                        )
                 else:
                     raise ValueError(f"unsupported action after schema validation: {kind}")
             collection_status = builder.collection_status
