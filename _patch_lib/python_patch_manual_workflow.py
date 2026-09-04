@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -15,13 +16,87 @@ import zipfile
 
 VERSION = "6.20.1"
 _EXIT_RE = re.compile(r"(?m)^\[PTV_MANUAL_EXIT_CODE=(-?\d+)\]\s*$")
+_EXIT_TAIL_BYTES = 64 * 1024
 _FORBIDDEN_INLINE = {
-    "bash": {"-c"}, "sh": {"-c"}, "zsh": {"-c"},
-    "python": {"-c"}, "python3": {"-c"}, "node": {"-e", "--eval"},
-    "pwsh": {"-command", "-c", "-encodedcommand", "-enc"},
-    "powershell": {"-command", "-c", "-encodedcommand", "-enc"},
-    "powershell.exe": {"-command", "-c", "-encodedcommand", "-enc"},
+    "bash": "shell", "sh": "shell", "zsh": "shell", "dash": "shell", "ksh": "shell",
+    "python": "python", "python3": "python", "pypy": "python", "pypy3": "python",
+    "node": "node",
+    "pwsh": "powershell", "powershell": "powershell", "powershell.exe": "powershell", "pwsh.exe": "powershell",
+    "cmd": "cmd", "cmd.exe": "cmd",
 }
+
+
+def _basename_lower(value: str) -> str:
+    return Path(value.replace("\\", "/")).name.lower()
+
+
+def _unwrap_manual_argv(argv: list[str]) -> tuple[str, list[str]]:
+    """Return the effective executable and its arguments for inline-eval checks.
+
+    Manual commands remain operator-executed and are intentionally not reduced
+    to a tiny executable allowlist.  We only unwrap common launchers that can
+    otherwise hide an inline shell/evaluator escape from the existing policy.
+    """
+    exe = _basename_lower(argv[0])
+    args = list(argv[1:])
+    if exe in {"env", "env.exe"}:
+        i = 0
+        while i < len(args):
+            token = args[i]
+            low = token.lower()
+            if token == "--":
+                i += 1
+                break
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", token):
+                i += 1
+                continue
+            if low in {"-i", "--ignore-environment", "-0", "--null"}:
+                i += 1
+                continue
+            if low in {"-u", "--unset", "-c", "--chdir"}:
+                i += 2
+                continue
+            if low.startswith("--unset=") or low.startswith("--chdir="):
+                i += 1
+                continue
+            if token.startswith("-"):
+                # Unknown env option: fail closed by treating env itself as the
+                # effective program rather than guessing where its command is.
+                return exe, args
+            break
+        if i < len(args):
+            exe = _basename_lower(args[i])
+            args = args[i + 1 :]
+    elif exe in {"busybox", "busybox.exe"} and args:
+        applet = _basename_lower(args[0])
+        if applet in _FORBIDDEN_INLINE:
+            exe, args = applet, args[1:]
+    return exe, args
+
+
+def _has_forbidden_inline_eval(exe: str, args: list[str]) -> bool:
+    kind = _FORBIDDEN_INLINE.get(exe)
+    if kind is None:
+        return False
+    for raw in args:
+        token = str(raw).strip().lower()
+        if kind in {"shell", "python"}:
+            if token == "-c" or token.startswith("-c"):
+                return True
+        elif kind == "node":
+            if token == "-e" or token.startswith("-e") or token == "--eval" or token.startswith("--eval="):
+                return True
+        elif kind == "powershell":
+            head = token.split("=", 1)[0].split(":", 1)[0]
+            if head in {"-c", "/c", "-command", "/command", "-enc", "-encodedcommand"}:
+                return True
+            if token.startswith("-command:") or token.startswith("-command=") or token.startswith("-encodedcommand:") or token.startswith("-encodedcommand="):
+                return True
+        elif kind == "cmd":
+            if token in {"/c", "/k"} or token.startswith("/c") or token.startswith("/k"):
+                return True
+    return False
+
 
 class ManualWorkflowError(ValueError):
     pass
@@ -72,9 +147,8 @@ def validate_manual_execution(value: Any) -> dict[str, Any]:
         argv=raw.get("argv")
         if not isinstance(argv,list) or not argv or not all(isinstance(x,str) and x for x in argv):
             raise ManualWorkflowError(f"{label}.argv must be a non-empty string array")
-        exe=Path(argv[0]).name.lower()
-        forbidden=_FORBIDDEN_INLINE.get(exe,set())
-        if any(str(arg).lower() in forbidden for arg in argv[1:]):
+        exe, exe_args = _unwrap_manual_argv(argv)
+        if _has_forbidden_inline_eval(exe, exe_args):
             raise ManualWorkflowError(f"{label}.argv inline shell/eval execution is forbidden for {exe}")
         expected=raw.get("expected_exit_codes",[0])
         if not isinstance(expected,list) or not expected or len(expected)>32 or not all(isinstance(x,int) and not isinstance(x,bool) and -255<=x<=255 for x in expected):
@@ -183,17 +257,99 @@ def _instruction_text(index:int,total:int,step:dict[str,Any],cwd:Path,log_file:P
     )
 
 
+def _open_regular_nofollow(path: Path, flags: int) -> int:
+    if _unsafe_linkish(path):
+        raise ManualWorkflowError(f"unsafe linked/reparsed manual evidence file: {path}")
+    nofollow = int(getattr(os, "O_NOFOLLOW", 0) or 0)
+    try:
+        fd = os.open(path, flags | nofollow)
+    except OSError as exc:
+        raise ManualWorkflowError(f"cannot open manual evidence file safely: {path}: {exc}") from exc
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise ManualWorkflowError(f"manual evidence path is not a regular file: {path}")
+        return fd
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def _read_tail_bytes(log_file: Path, limit: int = _EXIT_TAIL_BYTES) -> bytes | None:
+    if not log_file.exists() or _unsafe_linkish(log_file):
+        return None
+    try:
+        fd = _open_regular_nofollow(log_file, os.O_RDONLY)
+    except ManualWorkflowError:
+        return None
+    try:
+        size = os.fstat(fd).st_size
+        os.lseek(fd, max(0, size - max(1024, int(limit))), os.SEEK_SET)
+        chunks: list[bytes] = []
+        remaining = min(size, max(1024, int(limit)))
+        while remaining > 0:
+            part = os.read(fd, min(65536, remaining))
+            if not part:
+                break
+            chunks.append(part)
+            remaining -= len(part)
+        return b"".join(chunks)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
 def _read_exit_code(log_file:Path)->int|None:
-    if _unsafe_linkish(log_file) or not log_file.is_file(): return None
-    try: text=log_file.read_text(encoding="utf-8",errors="replace")
-    except OSError: return None
+    raw = _read_tail_bytes(log_file)
+    if raw is None:
+        return None
+    text = raw.decode("utf-8", errors="replace")
     matches=_EXIT_RE.findall(text)
     return int(matches[-1]) if matches else None
 
 
 def _append_manual_exit(log_file:Path,rc:int)->None:
-    with log_file.open("a",encoding="utf-8",errors="replace") as fh:
-        fh.write(f"\n[PTV_MANUAL_EXIT_CODE={rc}]\n")
+    fd = _open_regular_nofollow(log_file, os.O_WRONLY | os.O_APPEND)
+    try:
+        os.write(fd, f"\n[PTV_MANUAL_EXIT_CODE={rc}]\n".encode("utf-8"))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _evidence_metadata(log_file: Path) -> tuple[int, str]:
+    fd = _open_regular_nofollow(log_file, os.O_RDONLY)
+    try:
+        h = hashlib.sha256()
+        total = 0
+        while True:
+            chunk = os.read(fd, 1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            h.update(chunk)
+        return total, h.hexdigest()
+    finally:
+        os.close(fd)
+
+
+def _write_text_new(path: Path, text: str) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    nofollow = int(getattr(os, "O_NOFOLLOW", 0) or 0)
+    try:
+        fd = os.open(path, flags | nofollow, 0o600)
+    except OSError as exc:
+        raise ManualWorkflowError(f"cannot create manual workflow file safely: {path}: {exc}") from exc
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", errors="strict", newline="") as fh:
+            fd = -1
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+    finally:
+        if fd >= 0:
+            os.close(fd)
 
 
 def _write_json_atomic(path:Path,data:dict[str,Any])->None:
@@ -219,15 +375,31 @@ def _package_result(root:Path,work_dir:Path,report:dict[str,Any])->tuple[Path,Pa
     out=_safe_dir_chain(root,["artifacts","patch_tool","manual"],create=True)
     stamp=datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     final=out/f"MANUAL_EXECUTION_RESULT_{_slug(str(report['patch']))}_{stamp}.zip"
-    temp=out/("."+final.name+".tmp")
     report_json=json.dumps(report,ensure_ascii=False,indent=2)+"\n"
     report_md=_report_md(report)
+    fd,tmp_name=tempfile.mkstemp(prefix=".ptv-manual-result-",suffix=".zip",dir=out)
+    temp=Path(tmp_name)
     try:
-        with zipfile.ZipFile(temp,"w",compression=zipfile.ZIP_DEFLATED,compresslevel=6) as zf:
-            zf.writestr("MANUAL_EXECUTION.json",report_json)
-            zf.writestr("MANUAL_EXECUTION_REPORT.md",report_md)
-            for p in sorted((work_dir/"steps").glob("*")):
-                if p.is_file() and not p.is_symlink(): zf.write(p,f"steps/{p.name}")
+        with os.fdopen(fd,"w+b") as raw_fh:
+            fd=-1
+            with zipfile.ZipFile(raw_fh,"w",compression=zipfile.ZIP_DEFLATED,compresslevel=6) as zf:
+                zf.writestr("MANUAL_EXECUTION.json",report_json)
+                zf.writestr("MANUAL_EXECUTION_REPORT.md",report_md)
+                for p in sorted((work_dir/"steps").glob("*")):
+                    if _unsafe_linkish(p) or not p.is_file():
+                        continue
+                    # Read through a no-follow descriptor before putting evidence
+                    # into the ZIP so a concurrent symlink swap cannot redirect it.
+                    evid_fd=_open_regular_nofollow(p,os.O_RDONLY)
+                    try:
+                        chunks=[]
+                        while True:
+                            chunk=os.read(evid_fd,1024*1024)
+                            if not chunk: break
+                            chunks.append(chunk)
+                        zf.writestr(f"steps/{p.name}",b"".join(chunks))
+                    finally:
+                        os.close(evid_fd)
         os.replace(temp,final)
         with zipfile.ZipFile(final) as zf:
             if zf.testzip() is not None: raise ManualWorkflowError("manual execution result ZIP CRC check failed")
@@ -235,6 +407,9 @@ def _package_result(root:Path,work_dir:Path,report:dict[str,Any])->tuple[Path,Pa
         txt=create_zip_cleartext_companion(final,artifact_kind="MANUAL EXECUTION RESULT")
         return final,txt
     finally:
+        try:
+            if 'fd' in locals() and fd >= 0: os.close(fd)
+        except OSError: pass
         try:temp.unlink()
         except OSError:pass
 
@@ -257,7 +432,7 @@ def run_manual_workflow(root:Path, manifest:dict[str,Any], patch_name:str, *, in
             instruction_file=steps_dir/f"{stem}_instruction.txt"
             capture=build_capture_command(cwd,step["argv"],log_file)
             instruction=_instruction_text(index,len(cfg['steps']),step,cwd,log_file,capture)
-            instruction_file.write_text(instruction,encoding="utf-8")
+            _write_text_new(instruction_file,instruction)
             print("\n"+"="*72); print(instruction.rstrip()); print("="*72,flush=True)
             row={"index":index,"id":step['id'],"title":step['title'],"description":step['description'],"cwd":step['cwd'],"argv":step['argv'],"expected_exit_codes":step['expected_exit_codes'],"instruction_file":instruction_file.relative_to(root).as_posix(),"log_file":log_file.relative_to(root).as_posix(),"status":"WAITING","exit_code":None}
             report['steps'].append(row); _write_json_atomic(work/"MANUAL_EXECUTION.json",report)
@@ -267,7 +442,7 @@ def run_manual_workflow(root:Path, manifest:dict[str,Any], patch_name:str, *, in
                 if choice=="q":
                     row['status']="ABORTED"; aborted=True; any_fail=True; break
                 if choice=="m":
-                    if not log_file.is_file() or log_file.is_symlink():
+                    if not log_file.is_file() or _unsafe_linkish(log_file):
                         print(f"MANUAL FALLBACK: save/copy console output to this file first:\n{log_file}",flush=True); continue
                     raw_rc=input_fn("Exit code of the command: ").strip()
                     try: rc=int(raw_rc)
@@ -280,6 +455,13 @@ def run_manual_workflow(root:Path, manifest:dict[str,Any], patch_name:str, *, in
                 if rc is None:
                     print(f"Evidence not ready: log missing or [PTV_MANUAL_EXIT_CODE=N] marker not found:\n{log_file}",flush=True); continue
                 row['exit_code']=rc
+                try:
+                    log_size, log_sha = _evidence_metadata(log_file)
+                    row['log_size_bytes']=log_size
+                    row['log_sha256']=log_sha
+                except ManualWorkflowError as exc:
+                    print(f"Evidence rejected: {exc}",file=sys.stderr,flush=True)
+                    continue
                 if rc in step['expected_exit_codes']:
                     row['status']="PASS"; print(f"MANUAL STEP PASS: {step['id']} | exit={rc}",flush=True)
                 else:
@@ -290,7 +472,7 @@ def run_manual_workflow(root:Path, manifest:dict[str,Any], patch_name:str, *, in
         report['status']="ABORTED" if aborted else ("FAIL" if any_fail else "PASS")
         report['finished_at']=datetime.now(timezone.utc).isoformat()
         report['rc']=130 if aborted else (1 if any_fail else 0)
-        (work/"MANUAL_EXECUTION_REPORT.md").write_text(_report_md(report),encoding="utf-8")
+        _write_text_new(work/"MANUAL_EXECUTION_REPORT.md",_report_md(report))
         _write_json_atomic(work/"MANUAL_EXECUTION.json",report)
         if cfg['package_result']:
             z,t=_package_result(root,work,report)
@@ -300,6 +482,19 @@ def run_manual_workflow(root:Path, manifest:dict[str,Any], patch_name:str, *, in
             print(f"MANUAL EXECUTION RESULT TXT: {t}",flush=True)
         return report
     except KeyboardInterrupt:
+        for row in reversed(report.get('steps', [])):
+            if row.get('status') == 'WAITING':
+                row['status'] = 'ABORTED'
+                break
         report['status']="ABORTED"; report['rc']=130; report['finished_at']=datetime.now(timezone.utc).isoformat()
+        report_md_path=work/"MANUAL_EXECUTION_REPORT.md"
+        if not report_md_path.exists():
+            _write_text_new(report_md_path,_report_md(report))
         _write_json_atomic(work/"MANUAL_EXECUTION.json",report)
+        if cfg['package_result']:
+            z,t=_package_result(root,work,report)
+            report['result_zip']=z.relative_to(root).as_posix(); report['result_text']=t.relative_to(root).as_posix()
+            _write_json_atomic(work/"MANUAL_EXECUTION.json",report)
+            print(f"MANUAL EXECUTION RESULT ZIP: {z}",flush=True)
+            print(f"MANUAL EXECUTION RESULT TXT: {t}",flush=True)
         raise

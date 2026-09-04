@@ -3,7 +3,7 @@ from __future__ import annotations
 import json, os, subprocess, sys, tempfile, zipfile
 from pathlib import Path
 
-from python_patch_manual_workflow import validate_manual_execution, run_manual_workflow, ManualWorkflowError
+from python_patch_manual_workflow import validate_manual_execution, run_manual_workflow, ManualWorkflowError, _read_exit_code, _append_manual_exit
 from python_patch_package_schema import validate_manifest
 
 base={'stop_on_failure':True,'package_result':True,'steps':[{'id':'build-server','title':'Build server','description':'manual evidence test','cwd':'.','argv':['touch','SHOULD_NOT_BE_CREATED'],'expected_exit_codes':[0]}]}
@@ -17,6 +17,14 @@ for bad in [
     {'steps':[{'id':'x','argv':['python','-c','print(1)']}]},
     {'steps':[{'id':'x','argv':['node','-e','1+1']}]},
     {'steps':[{'id':'x','argv':['powershell','-Command','Get-ChildItem']}]},
+    {'steps':[{'id':'x','argv':['python3','-cprint(123)']}]},
+    {'steps':[{'id':'x','argv':['node','-econsole.log(1)']}]},
+    {'steps':[{'id':'x','argv':['bash','-cprintf x']}]},
+    {'steps':[{'id':'x','argv':['env','bash','-c','echo x']}]},
+    {'steps':[{'id':'x','argv':['/usr/bin/env','python3','-c','print(1)']}]},
+    {'steps':[{'id':'x','argv':['powershell.exe','-Command:Get-ChildItem']}]},
+    {'steps':[{'id':'x','argv':['cmd.exe','/cecho x']}]},
+    {'steps':[{'id':'x','argv':['busybox','sh','-c','echo x']}]},
 ]:
     try: validate_manual_execution(bad)
     except ManualWorkflowError: pass
@@ -35,6 +43,8 @@ with tempfile.TemporaryDirectory(prefix='ptv620_manual_') as td:
         raise AssertionError(prompt)
     report=run_manual_workflow(root,{'manual_execution':base},'manual_semantic',input_fn=evidence_input)
     assert report and report['status']=='PASS' and report['rc']==0,report
+    assert report['steps'][0]['log_size_bytes'] > 0
+    assert len(report['steps'][0]['log_sha256']) == 64
     assert not (root/'SHOULD_NOT_BE_CREATED').exists(),'Patch Tool executed the manual command'
     z=root/report['result_zip']; t=root/report['result_text']; assert z.is_file() and t.is_file()
     with zipfile.ZipFile(z) as f:
@@ -58,6 +68,48 @@ with tempfile.TemporaryDirectory(prefix='ptv620_manual_fallback_') as td:
     report=run_manual_workflow(root,{'manual_execution':base},'manual_fallback',input_fn=fallback_input)
     assert report and report['status']=='PASS',report
     log=root/report['steps'][0]['log_file']; assert '[PTV_MANUAL_EXIT_CODE=0]' in log.read_text()
+
+# Large logs are verified from a bounded tail; full evidence remains on disk.
+with tempfile.TemporaryDirectory(prefix='ptv620_manual_large_') as td:
+    root=Path(td); log=root/'large.log'
+    with log.open('wb') as fh:
+        fh.write(b'x' * (2 * 1024 * 1024))
+        fh.write(b'\n[PTV_MANUAL_EXIT_CODE=7]\n')
+    assert _read_exit_code(log) == 7
+
+# Symlink evidence must never be followed for append/read.
+if hasattr(os, 'symlink'):
+    with tempfile.TemporaryDirectory(prefix='ptv620_manual_link_') as td:
+        root=Path(td); target=root/'target.log'; target.write_text('safe\n',encoding='utf-8')
+        link=root/'link.log'
+        try:
+            link.symlink_to(target)
+        except OSError:
+            pass
+        else:
+            assert _read_exit_code(link) is None
+            try: _append_manual_exit(link,0)
+            except ManualWorkflowError: pass
+            else: raise AssertionError('manual evidence append followed symlink')
+            assert target.read_text(encoding='utf-8') == 'safe\n'
+
+# Ctrl+C finalizes the current step and packages the evidence/report before the
+# interrupt propagates to the caller.
+with tempfile.TemporaryDirectory(prefix='ptv620_manual_interrupt_') as td:
+    root=Path(td)
+    try:
+        run_manual_workflow(root,{'manual_execution':base},'manual_interrupt',input_fn=lambda _prompt: (_ for _ in ()).throw(KeyboardInterrupt()))
+    except KeyboardInterrupt:
+        pass
+    else:
+        raise AssertionError('KeyboardInterrupt did not propagate')
+    state_files=list((root/'artifacts'/'ptv_manual').glob('M_*/MANUAL_EXECUTION.json'))
+    assert len(state_files)==1,state_files
+    state=json.loads(state_files[0].read_text(encoding='utf-8'))
+    assert state['status']=='ABORTED' and state['rc']==130,state
+    assert state['steps'][0]['status']=='ABORTED',state
+    assert list((root/'artifacts'/'patch_tool'/'manual').glob('MANUAL_EXECUTION_RESULT_*.zip'))
+    assert list((root/'artifacts'/'patch_tool'/'manual').glob('MANUAL_EXECUTION_RESULT_*.txt'))
 
 # Non-TTY gate is before any Python payload mutation.
 with tempfile.TemporaryDirectory(prefix='ptv620_manual_nontty_') as td:
