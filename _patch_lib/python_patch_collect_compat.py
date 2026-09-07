@@ -333,6 +333,23 @@ def _ensure_real_dir_chain(root: Path, parts: tuple[str, ...]) -> Path:
     return cur
 
 
+_RESOURCE_PARTIAL_MARKERS = (
+    "timeout", "timed out", "time limit", "safety cap",
+    "max_file_bytes", "max_files", "max_total_bytes", "max_report_bytes",
+    "collection exceeds", "exceeds max_file_bytes", "exceeds max_files",
+    "exceeds max_total_bytes", "too large", "output quota",
+)
+
+def _is_resource_partial_reason(value: object) -> bool:
+    text = str(value or "").lower()
+    return any(marker in text for marker in _RESOURCE_PARTIAL_MARKERS)
+
+def _is_recoverable_resource_failure(exc: BaseException) -> bool:
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return True
+    return _is_resource_partial_reason(f"{type(exc).__name__}: {exc}")
+
+
 class ResultBuilder:
     def __init__(self, root: Path, request_data: dict, request_member: str):
         self.root = root
@@ -345,6 +362,8 @@ class ResultBuilder:
         self.sensitive_warnings: list[dict[str, object]] = []
         self.collection_warnings: list[dict[str, object]] = []
         self.collection_status = "PASS"
+        self.resource_incomplete = False
+        self._resource_handoff_actions: set[tuple[int, str]] = set()
         from python_patch_ai_sync import decide_sync
         self.ai_sync_decision = decide_sync(
             root,
@@ -518,8 +537,48 @@ class ResultBuilder:
             self.mark_incomplete(action=index,kind=kind,reasons=list(dict.fromkeys(reasons)))
 
     def mark_incomplete(self, *, action: int, kind: str, reasons: list[str]) -> None:
+        clean_reasons = list(dict.fromkeys(str(x) for x in reasons if str(x)))
         self.collection_status = "INCOMPLETE"
-        self.collection_warnings.append({"action": action, "type": kind, "reasons": list(reasons)})
+        self.collection_warnings.append({"action": action, "type": kind, "reasons": clean_reasons})
+        resource_reasons = [x for x in clean_reasons if _is_resource_partial_reason(x)]
+        if resource_reasons:
+            self.resource_incomplete = True
+            key = (int(action), str(kind))
+            if key not in self._resource_handoff_actions:
+                self._resource_handoff_actions.add(key)
+                safe_kind = _safe_id(kind)
+                arc_base = f"handoff/COLLECT_INCOMPLETE_HANDOFF_{int(action):03d}_{safe_kind}"
+                payload = {
+                    "format": "python-patch-tool-collect-incomplete-handoff",
+                    "format_version": 1,
+                    "tool_version": VERSION,
+                    "request_id": self.request_data.get("id"),
+                    "action": int(action),
+                    "type": str(kind),
+                    "status": "INCOMPLETE",
+                    "reason_class": "resource_limit_or_timeout",
+                    "reasons": resource_reasons,
+                    "files_collected_so_far": self.file_count,
+                    "file_bytes_collected_so_far": self.total_bytes,
+                    "reports_completed_so_far": len(self.reports),
+                    "policy": "preserve partial result when at least one file is collected; publish no result when zero files were collected",
+                }
+                self.zf.writestr(arc_base + ".json", json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+                text = [
+                    "COLLECT INCOMPLETE HANDOFF",
+                    f"Request: {self.request_data.get('id') or 'collect'}",
+                    f"Action : {int(action)} [{kind}]",
+                    "Status : INCOMPLETE",
+                    "Cause  : resource limit / timeout",
+                    f"Files preserved so far: {self.file_count}",
+                    f"Bytes preserved so far: {self.total_bytes}",
+                    "",
+                    "Reasons:",
+                    *[f"- {x}" for x in resource_reasons],
+                    "",
+                    "Policy: partial evidence is intentionally preserved when at least one file has already been collected.",
+                ]
+                self.zf.writestr(arc_base + ".txt", "\n".join(text) + "\n")
 
     def finish(self) -> Path:
         from python_patch_ai_sync import write_sync_bundle_to_zip
@@ -540,6 +599,7 @@ class ResultBuilder:
             "sensitive_warnings": self.sensitive_warnings,
             "collection_status": self.collection_status,
             "collection_warnings": self.collection_warnings,
+            "resource_incomplete": self.resource_incomplete,
             "ai_tool_sync": self.ai_sync_manifest,
         }
         self.zf.writestr("COLLECTION_MANIFEST.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
@@ -2325,6 +2385,8 @@ def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
                         )
                 else:
                     raise ValueError(f"unsupported action after schema validation: {kind}")
+            if builder.resource_incomplete and builder.file_count <= 0:
+                raise ValueError("resource-limited collection produced no collected files; no partial result is published")
             collection_status = builder.collection_status
             result = builder.finish()
             try:
@@ -2350,7 +2412,29 @@ def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
             except Exception:
                 pass
             return result, archived, len(request_data["actions"]), lifecycle, collection_status
-        except Exception:
+        except Exception as exc:
+            if builder.file_count > 0 and _is_recoverable_resource_failure(exc):
+                failed_action = int(locals().get("index", 0) or 0)
+                failed_kind = str(locals().get("kind", "collect"))
+                message = _redact_text(str(exc))[:2000]
+                builder.mark_incomplete(
+                    action=failed_action,
+                    kind=failed_kind,
+                    reasons=[
+                        f"{type(exc).__name__}: {message}",
+                        f"resource failure occurred after {builder.file_count} file(s) were already collected; partial result preserved",
+                    ],
+                )
+                result = builder.finish()
+                try:
+                    archived, lifecycle = _archive_request(root, request_zip, execution_request, request_sha)
+                except Exception:
+                    try: result.unlink()
+                    except OSError: pass
+                    try: result.with_suffix(".txt").unlink()
+                    except OSError: pass
+                    raise
+                return result, archived, max(0, failed_action - 1), lifecycle, "INCOMPLETE"
             builder.abort()
             raise
     finally:

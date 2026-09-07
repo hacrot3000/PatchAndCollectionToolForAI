@@ -52,6 +52,51 @@ def _atomic_text(path: Path, text: str) -> None:
             pass
 
 
+def _bounded_payload_json(payload: dict, limits: dict) -> str:
+    """Keep worker IPC bounded while preserving a useful PARTIAL search result."""
+    hard = max(int(limits.get("max_report_bytes", 0) or 0), 1024 * 1024) * 2
+    def dump(value: dict) -> str:
+        return json.dumps(value, ensure_ascii=False)
+    raw = dump(payload)
+    original_bytes = len(raw.encode("utf-8"))
+    if original_bytes <= hard:
+        return raw
+
+    out = dict(payload)
+    details = list(out.get("match_details") or [])
+    reasons = list(out.get("reasons") or [])
+    cap_reason = f"regex search worker result exceeded safety cap ({original_bytes} bytes); bounded partial details preserved"
+    reasons.append(cap_reason)
+    out["reasons"] = list(dict.fromkeys(str(x) for x in reasons))
+    out["incomplete"] = True
+    out["coverage_status"] = "PARTIAL"
+    out["execution_status"] = "PARTIAL"
+    out["worker_result_truncated"] = True
+    out["match_details_total_before_worker_cap"] = len(details)
+
+    keep = min(len(details), 512)
+    while True:
+        out["match_details"] = details[:keep]
+        raw = dump(out)
+        if len(raw.encode("utf-8")) <= hard or keep <= 0:
+            break
+        keep //= 2
+
+    if len(raw.encode("utf-8")) > hard:
+        report = str(out.get("report") or "")
+        out["report"] = report[:max(4096, hard // 4)] + "\n\n[PTV: report truncated to keep regex worker result within safety cap]\n"
+        out["coverage"] = {"worker_result_truncated": True}
+        raw = dump(out)
+    if len(raw.encode("utf-8")) > hard:
+        out["report"] = str(out.get("report") or "")[:4096] + "\n[PTV: report heavily truncated by worker safety cap]\n"
+        out["match_details"] = []
+        raw = dump(out)
+    if len(raw.encode("utf-8")) > hard:
+        raise ValueError(f"cannot bound regex worker partial payload below safety cap ({len(raw.encode('utf-8'))} > {hard})")
+    out["match_details_preserved_after_worker_cap"] = len(out.get("match_details") or [])
+    return dump(out)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument("--project-root", required=True)
@@ -68,9 +113,9 @@ def main(argv=None) -> int:
         soft_timeout = float(data.get("soft_timeout_seconds", 0) or 0)
         deadline = time.monotonic() + soft_timeout if soft_timeout > 0 else None
         def checkpoint(payload):
-            _atomic_text(result, json.dumps(payload, ensure_ascii=False))
+            _atomic_text(result, _bounded_payload_json(payload, data["limits"]))
         payload = _search_action_payload(root, data["action"], data["limits"], deadline=deadline, checkpoint_cb=checkpoint)
-        _atomic_text(result, json.dumps(payload, ensure_ascii=False))
+        _atomic_text(result, _bounded_payload_json(payload, data["limits"]))
         return 0
     except Exception as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
