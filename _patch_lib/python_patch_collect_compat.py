@@ -1604,7 +1604,15 @@ def _search_action(root: Path, action: dict, limits: dict) -> dict:
             detail=(proc.stdout or '').strip().replace('\n',' ')[:800]; raise ValueError(f"regex search worker failed rc={proc.returncode}: {detail}")
         if not result_path.is_file() or result_path.is_symlink(): raise ValueError("regex search worker produced no safe result")
         size=result_path.stat().st_size; hard=max(int(limits.get('max_report_bytes',0)),1024*1024)*2
-        if size>hard: raise ValueError(f"regex search worker result exceeded safety cap ({size} bytes)")
+        if size>hard:
+            reason=(
+                f"regex search worker result exceeded safety cap ({size} bytes); "
+                "oversized worker payload was not trusted, bounded partial coverage returned"
+            )
+            data=_generic_timeout_partial_payload(root,action,limits,reason)
+            data["worker_result_truncated"]=True
+            data["worker_result_original_bytes"]=size
+            return data
         data=json.loads(result_path.read_text(encoding='utf-8'))
         if not isinstance(data,dict) or not isinstance(data.get('report'),str): raise ValueError("regex search worker returned invalid payload")
         return data

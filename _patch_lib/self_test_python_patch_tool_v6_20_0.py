@@ -37,6 +37,7 @@ names=[
  'self_test_ai_sync_v6_20_0.py',
  'self_test_search_discovery_v6_20_0.py',
  'self_test_search_partial_timeout_v6_20_0.py',
+ 'self_test_regex_worker_safety_cap_v6_20_2.py',
  'self_test_find_discovery_v6_20_0.py',
  'self_test_collect_historical_actions_v6_20_0.py',
  'self_test_git_safe_v6_20_0.py',

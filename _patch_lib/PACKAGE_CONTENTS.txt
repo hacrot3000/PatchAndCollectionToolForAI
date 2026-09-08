@@ -199,6 +199,7 @@ tools/_patch_lib/self_test_python_patch_tool_v6_20_0.py
 tools/_patch_lib/self_test_queue_discovery_v6_20_0.py
 tools/_patch_lib/self_test_recovery_integrity_v6_20_0.py
 tools/_patch_lib/self_test_recovery_menu_v6_20_0.py
+tools/_patch_lib/self_test_regex_worker_safety_cap_v6_20_2.py
 tools/_patch_lib/self_test_result_clarity_v6_20_0.py
 tools/_patch_lib/self_test_robustness_v6_20_0.py
 tools/_patch_lib/self_test_safe_rollback_v6_20_0.py
