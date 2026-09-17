@@ -140,8 +140,6 @@ function captureUserInput(state,data){
     if(ch==='\x7f'||ch==='\b'){state.inputBuffer=state.inputBuffer.slice(0,-1);continue;}
     if(ch==='\x1b')continue;
     if(ch>=' '){
-      // A printable character after a completed Git command starts the next
-      // interactive command. Re-enable detection before its output arrives.
       endGitOutputSuppression(state);
       state.inputBuffer=(state.inputBuffer+ch).slice(-4096);
     }
@@ -170,7 +168,7 @@ async function copyText(text,button){
     document.body.append(area);area.select();
     try{copied=document.execCommand('copy');}finally{area.remove();}
   }
-  if(!copied)throw new Error('Không thể sao chép vào clipboard');
+  if(!copied)throw new Error('Cannot copy to clipboard');
   if(button){const old=button.textContent;button.textContent='Copied';setTimeout(()=>{if(button.isConnected)button.textContent=old;},1000);}
 }
 
@@ -232,7 +230,7 @@ function render(state){
     const link=document.createElement('a');link.className='detected-link';link.href=file.url;link.download=file.name||'';link.textContent=file.path;link.title=file.path;
     const download=document.createElement('button');download.className='detected-download';download.textContent='Download';download.onclick=()=>openDownload(file);
     const copy=document.createElement('button');copy.className='detected-copy';copy.textContent='Copy';copy.onclick=()=>copyText(file.path,copy).catch(app.showError);
-    const ignore=document.createElement('button');ignore.className='detected-ignore';ignore.textContent='Ignore';ignore.title='Ẩn file này trong phiên làm việc hiện tại';ignore.onclick=()=>ignoreFile(state,file);
+    const ignore=document.createElement('button');ignore.className='detected-ignore';ignore.textContent='Ignore';ignore.title='Hide this file for the current session';ignore.onclick=()=>ignoreFile(state,file);
     row.append(kind,link,download,copy,ignore);rows.push(row);
   }
   for(const url of [...state.urls.values()].reverse()){
@@ -332,7 +330,7 @@ function installTaskSearch(){
     results.replaceChildren();
     results.classList.toggle('visible',Boolean(q));
     if(!q)return;
-    if(!taskSearch.items.length){const empty=document.createElement('div');empty.className='task-search-empty';empty.textContent='Không tìm thấy task';results.append(empty);return;}
+    if(!taskSearch.items.length){const empty=document.createElement('div');empty.className='task-search-empty';empty.textContent='No tasks found';results.append(empty);return;}
     taskSearch.items.forEach((task,index)=>{
       const b=document.createElement('button');b.className='task-search-result'+(index===0?' selected':'');
       const label=document.createElement('span');label.className='label';label.textContent=task.menu_label||task.label;
