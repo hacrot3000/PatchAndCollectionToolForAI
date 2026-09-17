@@ -75,6 +75,7 @@ func (s *Server) downloadableFilesFromText(text string) []downloadableFile {
 		// ACTION REQUIRED result behind earlier console noise.
 		text = text[len(text)-(128<<10):]
 	}
+	text = stripGitShellOutput(text)
 	seen := make(map[string]struct{})
 	var paths []string
 	for _, rawLine := range strings.Split(strings.ReplaceAll(text, "\r", ""), "\n") {
@@ -110,6 +111,98 @@ func (s *Server) downloadableFilesFromText(text string) []downloadableFile {
 		})
 	}
 	return files
+}
+
+// stripGitShellOutput removes output belonging to an interactive Git command
+// before generic path detection runs. The browser suppresses Git output live;
+// this is the reload/reconnect fallback for scrollback that is scanned again.
+// A new non-Git prompt ends suppression, while compound commands are left
+// untouched so `git status && ./collector` cannot hide collector artifacts.
+func stripGitShellOutput(text string) string {
+	lines := strings.Split(strings.ReplaceAll(text, "\r", ""), "\n")
+	out := make([]string, 0, len(lines))
+	suppress := false
+	for _, line := range lines {
+		if command, ok := shellPromptCommand(line); ok {
+			if standaloneGitShellCommand(command) {
+				suppress = true
+				continue
+			}
+			if suppress {
+				suppress = false
+				// Never feed the typed prompt command itself to file detection.
+				continue
+			}
+		}
+		if suppress {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
+
+func shellPromptCommand(line string) (string, bool) {
+	markers := []string{"$ ", "# ", "% ", "> ", "❯ ", "➜ "}
+	bestIndex, bestLen := -1, 0
+	for _, marker := range markers {
+		if idx := strings.LastIndex(line, marker); idx > bestIndex {
+			bestIndex, bestLen = idx, len(marker)
+		}
+	}
+	if bestIndex < 0 {
+		return "", false
+	}
+	command := strings.TrimSpace(line[bestIndex+bestLen:])
+	return command, command != ""
+}
+
+func standaloneGitShellCommand(command string) bool {
+	command = strings.TrimSpace(command)
+	if command == "" || strings.Contains(command, "&&") || strings.Contains(command, "||") || strings.ContainsAny(command, ";|") {
+		return false
+	}
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return false
+	}
+	i := 0
+	for i < len(fields) && shellAssignmentField(fields[i]) {
+		i++
+	}
+	if i < len(fields) && (fields[i] == "command" || fields[i] == "builtin") {
+		i++
+	}
+	if i < len(fields) && fields[i] == "sudo" {
+		i++
+		for i < len(fields) && strings.HasPrefix(fields[i], "-") {
+			i++
+		}
+	}
+	if i < len(fields) && fields[i] == "env" {
+		i++
+		for i < len(fields) && (strings.HasPrefix(fields[i], "-") || shellAssignmentField(fields[i])) {
+			i++
+		}
+	}
+	if i >= len(fields) {
+		return false
+	}
+	name := strings.Trim(fields[i], "\"'")
+	return name == "git" || filepath.Base(name) == "git"
+}
+
+func shellAssignmentField(value string) bool {
+	if idx := strings.IndexByte(value, '='); idx > 0 {
+		name := value[:idx]
+		for i, r := range name {
+			if !(r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || i > 0 && r >= '0' && r <= '9') {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func ignoreDownloadDetectionLine(line string) bool {
