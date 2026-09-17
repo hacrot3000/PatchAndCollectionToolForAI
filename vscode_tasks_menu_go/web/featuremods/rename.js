@@ -1,6 +1,7 @@
 const app=globalThis.TaskMenuApp;
 if(!app)throw new Error('TaskMenuApp unavailable for terminal rename');
 
+const tabsHost=document.querySelector('#tabs');
 const style=document.createElement('style');
 style.textContent=`
 .terminal-rename{white-space:nowrap;padding:5px 8px}
@@ -69,10 +70,7 @@ function beginInlineRename(view){
 function ensure(view){
   const label=labelSpan(view);if(!label)return;
   defaultTitle(view,label);apply(view);
-  if(!label.dataset.renameBound){
-    label.dataset.renameBound='1';label.title='Double-click để đổi tên tab';
-    label.ondblclick=e=>{e.preventDefault();e.stopPropagation();beginInlineRename(view);};
-  }
+  label.title='Double-click để đổi tên tab';
   // Keep the existing Rename action for terminal tabs, but route it through
   // the same inline editor used by double-click.
   if(view.meta.task_id===0){
@@ -82,5 +80,21 @@ function ensure(view){
     }
   }
 }
+
+// Use delegation on the tabs host instead of binding ondblclick to each title.
+// Restored/reordered/new tabs therefore keep rename support even when their DOM
+// nodes are created after this module has loaded. Status/close controls are not
+// rename targets; double-clicking the title area itself is enough.
+if(tabsHost&&!tabsHost.dataset.renameDelegated){
+  tabsHost.dataset.renameDelegated='1';
+  tabsHost.addEventListener('dblclick',event=>{
+    const target=event.target instanceof Element?event.target:null;
+    const tab=target?.closest('.tab[data-id]');
+    if(!tab||!tabsHost.contains(tab)||target?.closest('.status,.close'))return;
+    const view=app.views.get(tab.dataset.id||'');if(!view)return;
+    event.preventDefault();event.stopPropagation();beginInlineRename(view);
+  },true);
+}
+
 window.addEventListener('taskmenu:session',event=>{const view=event.detail?.view;if(view)ensure(view);});
 for(const view of app.views.values())ensure(view);
