@@ -99,6 +99,57 @@ hoặc PowerShell:
 
 PATCH/COLLECT package được đặt trong `patchs/` của project và runner sẽ tự phân loại theo manifest/contract hiện có.
 
+## VS Code Tasks Menu (`vscode_tasks_menu`)
+
+Repository cũng cung cấp `vscode_tasks_menu`: giao diện web/terminal cho `<workspace>/.vscode/tasks.json`, dùng PTY thật để chạy các task tương tác mà không cần mở từng terminal thủ công.
+
+Nếu repository được cài thành `PROJECT_ROOT/tools/`, chạy từ **project root**:
+
+```bash
+cd PROJECT_ROOT
+./tools/vscode_tasks_menu
+```
+
+Launcher luôn dùng **working directory hiện tại làm workspace**, tự build backend Go khi cần, khởi động daemon và mở web UI. Có thể dùng terminal UI native Go bằng:
+
+```bash
+./tools/vscode_tasks_menu --terminal
+```
+
+Các chức năng chính gồm:
+
+- mỗi task chạy trong PTY/session/tab riêng, hỗ trợ ANSI, prompt tương tác, Ctrl+C và reconnect/replay scrollback;
+- terminal tab, đổi tên tab, sắp xếp/khôi phục tab, split dọc/ngang, nhiều split group, active tab và CWD được lưu theo project;
+- reload browser vẫn khôi phục terminal layout; self-update cũng lưu/khôi phục tabs, CWD, order và split layout;
+- Console menu có copy/search/save/clear log; clear yêu cầu xác nhận;
+- phát hiện file path trong output để download, có thể bật/tắt theo từng tab và clear/ignore danh sách detect;
+- upload file vào workspace với kiểm tra traversal/symlink và xác nhận overwrite;
+- Git Quick Actions có kiểm soát, Favorites/Recent/History, task search, notification, theme/font và các tiện ích UI khác;
+- hỗ trợ local/remote access qua cấu hình `vscode_tasks_menu.ini`, với auth/TLS và các kiểm tra an toàn khi bind ra ngoài loopback.
+
+Quản lý daemon:
+
+```bash
+./tools/vscode_tasks_menu --status
+./tools/vscode_tasks_menu --stop-daemon
+./tools/vscode_tasks_menu --restart-daemon
+```
+
+### Self-update
+
+Sau khi đã bootstrap phiên bản có hỗ trợ self-update, có thể tự kiểm tra branch `main` của public repository, tải source mới, test/build/validate và thay binary hiện tại bằng:
+
+```bash
+./tools/vscode_tasks_menu --self-update
+```
+
+Nếu daemon đang chạy, web UI sẽ yêu cầu xác nhận trước khi update. Updater ưu tiên giữ nguyên listener/port; nếu URL thay đổi, browser sẽ redirect sang URL mới. Terminal layout được snapshot trước update và daemon mới dựng lại terminal tabs sau restart. **Process task đang chạy không được đảm bảo tiếp tục xuyên qua self-update**, vì vậy nên hoàn tất task quan trọng trước khi xác nhận update.
+
+Tài liệu chi tiết:
+
+- `vscode_tasks_menu_go/README.md` — kiến trúc, web/terminal mode, session, download/upload, remote access và CI.
+- `vscode_tasks_menu_go/SELF_UPDATE.md` — quy trình self-update, listener handoff, restore session và fallback.
+
 ## Nguyên tắc an toàn quan trọng
 
 PatchAndCollectionToolForAI không coi manifest là shell script. Các capability nguy hiểm được giới hạn theo schema/allowlist, Git mutation bị cấm theo policy hiện tại, manual command luôn do người vận hành tự chạy, và lỗi/thiếu evidence phải được thể hiện rõ thay vì báo PASS giả.
@@ -205,6 +256,57 @@ or PowerShell:
 ```
 
 Place PATCH/COLLECT packages in the project's `patchs/` directory; the runner classifies them according to the existing manifest/contracts.
+
+### VS Code Tasks Menu (`vscode_tasks_menu`)
+
+The repository also provides `vscode_tasks_menu`, a web/terminal interface for `<workspace>/.vscode/tasks.json`. It runs interactive tasks in real PTYs so users do not need to open and manage separate terminals manually.
+
+If the repository is installed as `PROJECT_ROOT/tools/`, run it from the **project root**:
+
+```bash
+cd PROJECT_ROOT
+./tools/vscode_tasks_menu
+```
+
+The launcher always uses the **current working directory as the workspace**, builds the Go backend when necessary, starts the daemon, and opens the web UI. A native Go terminal UI is also available:
+
+```bash
+./tools/vscode_tasks_menu --terminal
+```
+
+Main capabilities include:
+
+- one PTY/session/tab per task, with ANSI output, interactive prompts, Ctrl+C, reconnect, and scrollback replay;
+- terminal tabs, tab renaming, tab ordering/restoration, vertical and horizontal splits, multiple split groups, active-tab state, and per-terminal CWD persistence;
+- browser reload restores terminal layout, and self-update also preserves tabs, CWDs, ordering, and split layout;
+- Console actions for copy/search/save/clear log, with confirmation before clearing;
+- file-path detection in terminal output for downloads, with per-tab enable/disable and clear/ignore controls;
+- workspace uploads with traversal/symlink protection and overwrite confirmation;
+- controlled Git Quick Actions, Favorites/Recent/History, task search, notifications, theme/font controls, and other browser UI helpers;
+- local or remote access through `vscode_tasks_menu.ini`, including auth/TLS and safety checks before binding outside loopback.
+
+Daemon management:
+
+```bash
+./tools/vscode_tasks_menu --status
+./tools/vscode_tasks_menu --stop-daemon
+./tools/vscode_tasks_menu --restart-daemon
+```
+
+#### Self-update
+
+After bootstrapping a version that supports self-update, the tool can check the public repository's `main` branch, download the new source, test/build/validate it, and atomically replace the current binary with:
+
+```bash
+./tools/vscode_tasks_menu --self-update
+```
+
+If a daemon is running, the web UI asks for confirmation before updating. The updater prefers to preserve the existing listener/port; if the URL changes, the browser redirects to the new URL. Terminal layout is snapshotted before the update and the new daemon recreates terminal tabs after restart. **Running task processes are not guaranteed to survive self-update**, so important long-running tasks should be completed before confirming the update.
+
+Detailed documentation:
+
+- `vscode_tasks_menu_go/README.md` — architecture, web/terminal modes, sessions, download/upload, remote access, and CI.
+- `vscode_tasks_menu_go/SELF_UPDATE.md` — self-update flow, listener handoff, session restoration, and fallback behavior.
 
 ### Safety model
 
