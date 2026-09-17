@@ -40,7 +40,7 @@ function updateClearButton(view,button){
   const hasFiles=Boolean(bar?.querySelector('.detected-ignore'));
   button.hidden=!hasFiles;
   button.disabled=!hasFiles;
-  button.title=hasFiles?'Ignore toàn bộ file download đang được detect trong session này':'Không có file download để clear';
+  button.title=hasFiles?'Ignore all detected download files in this session':'No detected download files to clear';
 }
 
 function updateToggle(view,button){
@@ -50,8 +50,8 @@ function updateToggle(view,button){
   button.classList.toggle('off',!enabled);
   button.setAttribute('aria-pressed',enabled?'true':'false');
   button.title=enabled
-    ?'Đang theo dõi file download cho tab này. Bấm để tắt.'
-    :'Đã tắt theo dõi file download cho tab này. URL vẫn được detect. Bấm để bật lại.';
+    ?'Download file detection is enabled for this tab. Click to disable it.'
+    :'Download file detection is disabled for this tab. URL detection remains enabled. Click to enable file detection.';
 }
 
 function clearDetectedFiles(view,button){
