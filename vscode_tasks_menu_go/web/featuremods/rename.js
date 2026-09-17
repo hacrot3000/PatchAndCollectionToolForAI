@@ -70,13 +70,13 @@ function beginInlineRename(view){
 function ensure(view){
   const label=labelSpan(view);if(!label)return;
   defaultTitle(view,label);apply(view);
-  label.title='Double-click để đổi tên tab';
+  label.title='Double-click to rename this tab';
   // Keep the existing Rename action for terminal tabs, but route it through
   // the same inline editor used by double-click.
   if(view.meta.task_id===0){
     const head=view.pane.querySelector('.pane-head');
     if(head&&!head.querySelector('.terminal-rename')){
-      const button=document.createElement('button');button.className='terminal-rename';button.textContent='Rename';button.title='Đổi tên tab terminal';button.onclick=()=>beginInlineRename(view);view.stop.before(button);
+      const button=document.createElement('button');button.className='terminal-rename';button.textContent='Rename';button.title='Rename terminal tab';button.onclick=()=>beginInlineRename(view);view.stop.before(button);
     }
   }
 }
