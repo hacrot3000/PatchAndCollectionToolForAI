@@ -352,7 +352,7 @@ function showError(e){console.error(e);alert('ERROR: '+e.message);}
 globalThis.TaskMenuApp={
   get taskData(){return taskData;},
   get active(){return active;},
-  views,jsonFetch,showError,consoleText,startTask,startTerminal,activateView,loadTasks
+  views,jsonFetch,showError,consoleText,startTask,startTerminal,activateView,loadTasks,syncSessions,attachSession:attach
 };
 document.querySelector('#open-terminal').onclick=()=>startTerminal().catch(showError);
 document.querySelector('#edit-title').onclick=()=>{try{editPageTitle();}catch(e){showError(e);}};
