@@ -5,9 +5,6 @@ const tabsHost=document.querySelector('#tabs');
 const style=document.createElement('style');
 style.textContent=`
 .terminal-rename{white-space:nowrap;padding:5px 8px}
-.tab .tab-title-editing{display:inline-block;min-width:48px;max-width:320px;padding:1px 4px;margin:-2px 0;border:1px solid #5a88b4;border-radius:4px;background:#0d1117;color:inherit;outline:none;white-space:nowrap;overflow:hidden;text-overflow:clip}
-.tab.tab-renaming .status{display:none}
-html[data-taskmenu-theme="light"] .tab .tab-title-editing{background:#fff}
 `;document.head.append(style);
 
 function key(id){return `vscode-tasks-menu:tab-title:${app.taskData.workspace}:${id}`;}
@@ -39,56 +36,33 @@ function defaultTitle(view,label){
 function apply(view){
   const label=labelSpan(view);if(!label)return;
   const fallback=defaultTitle(view,label);
-  if(label.dataset.editing==='1')return;
   label.textContent=saved(view)||fallback;
 }
-function selectAllText(element){
-  const selection=window.getSelection?.();if(!selection)return;
-  const range=document.createRange();range.selectNodeContents(element);selection.removeAllRanges();selection.addRange(range);
-}
-function beginInlineRename(view){
-  const label=labelSpan(view);if(!label||label.dataset.editing==='1')return;
+function promptRename(view){
+  const label=labelSpan(view);if(!label)return;
   const fallback=defaultTitle(view,label);
-  const before=saved(view)||label.textContent.trim()||fallback;
-  view.tab.classList.add('tab-renaming');
-  label.dataset.editing='1';label.classList.add('tab-title-editing');label.contentEditable='true';label.spellcheck=false;
-  label.textContent=before;label.focus();selectAllText(label);
-
-  let finished=false;
-  const finish=save=>{
-    if(finished)return;finished=true;
-    const value=(label.textContent||'').replace(/[\r\n]+/g,' ').trim();
-    label.contentEditable='false';label.classList.remove('tab-title-editing');delete label.dataset.editing;
-    view.tab.classList.remove('tab-renaming');
-    label.onkeydown=null;label.onblur=null;
-    if(save){store(view,value&&value!==fallback?value:'');}
-    label.textContent=save?(saved(view)||fallback):before;
-  };
-  label.onkeydown=e=>{
-    if(e.key==='Enter'){e.preventDefault();e.stopPropagation();finish(true);}
-    else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();finish(false);}
-  };
-  label.onblur=()=>finish(true);
+  const before=saved(view)||fallback;
+  const answer=window.prompt('Tab title:',before);
+  if(answer===null)return;
+  const value=String(answer).replace(/[\r\n]+/g,' ').trim();
+  store(view,value&&value!==fallback?value:'');
+  apply(view);
 }
 function ensure(view){
   const label=labelSpan(view);if(!label)return;
   defaultTitle(view,label);apply(view);
   label.title='Double-click to rename this tab';
   if(view.status)view.status.title='Double-click to rename this tab';
-  // Keep the existing Rename action for terminal tabs, but route it through
-  // the same inline editor used by double-click.
   if(view.meta.task_id===0){
     const head=view.pane.querySelector('.pane-head');
     if(head&&!head.querySelector('.terminal-rename')){
-      const button=document.createElement('button');button.className='terminal-rename';button.textContent='Rename';button.title='Rename terminal tab';button.onclick=()=>beginInlineRename(view);view.stop.before(button);
+      const button=document.createElement('button');button.className='terminal-rename';button.textContent='Rename';button.title='Rename terminal tab';button.onclick=()=>promptRename(view);view.stop.before(button);
     }
   }
 }
 
-// Use delegation on the tabs host instead of binding ondblclick to each title.
-// Restored/reordered/new tabs therefore keep rename support even when their DOM
-// nodes are created after this module has loaded. The changing status text is
-// intentionally a rename target too; only the close control is excluded.
+// Delegate from the tabs host so restored/reordered/new tabs always support rename.
+// The changing status text remains a valid target; only the close control is excluded.
 if(tabsHost&&!tabsHost.dataset.renameDelegated){
   tabsHost.dataset.renameDelegated='1';
   tabsHost.addEventListener('dblclick',event=>{
@@ -96,7 +70,7 @@ if(tabsHost&&!tabsHost.dataset.renameDelegated){
     const tab=target?.closest('.tab[data-id]');
     if(!tab||!tabsHost.contains(tab)||target?.closest('.close'))return;
     const view=app.views.get(tab.dataset.id||'');if(!view)return;
-    event.preventDefault();event.stopPropagation();beginInlineRename(view);
+    event.preventDefault();event.stopPropagation();promptRename(view);
   },true);
 }
 
