@@ -10,7 +10,7 @@ html[data-taskmenu-theme="light"] .git-panel{background:#fff;border-color:#b9c0c
 document.head.append(style);
 
 const workspace=document.querySelector('#workspace');
-const pill=document.createElement('button');pill.className='git-status-pill';pill.title='Git — click để mở Git Quick Actions';workspace.after(pill);
+const pill=document.createElement('button');pill.className='git-status-pill';pill.title='Git — click to open Git Quick Actions';workspace.after(pill);
 
 const panel=document.createElement('div');panel.className='git-panel';
 const panelHead=document.createElement('div');panelHead.className='git-panel-head';
@@ -53,7 +53,7 @@ function renderStatus(data){
   currentStatus=data;
   if(!data?.repository){pill.className='git-status-pill';pill.textContent='';panel.classList.remove('visible');return;}
   const parts=['Git:',data.branch||'(unknown)',data.head||'--------'];parts.push(data.changed?data.changed+' changed':'clean');if(data.ahead)parts.push('↑'+data.ahead);if(data.behind)parts.push('↓'+data.behind);
-  const text=parts.join(' · ');pill.textContent=text;panelSummary.textContent=text;pill.className='git-status-pill visible '+(data.changed?'dirty':'clean');pill.title='Branch: '+(data.branch||'unknown')+'\nHEAD: '+(data.head||'unknown')+'\nChanged: '+(data.changed||0)+'\nAhead: '+(data.ahead||0)+'\nBehind: '+(data.behind||0)+'\nClick để mở Git Quick Actions';
+  const text=parts.join(' · ');pill.textContent=text;panelSummary.textContent=text;pill.className='git-status-pill visible '+(data.changed?'dirty':'clean');pill.title='Branch: '+(data.branch||'unknown')+'\nHEAD: '+(data.head||'unknown')+'\nChanged: '+(data.changed||0)+'\nAhead: '+(data.ahead||0)+'\nBehind: '+(data.behind||0)+'\nClick to open Git Quick Actions';
 }
 async function refresh(){
   if(refreshing)return;refreshing=true;
@@ -86,7 +86,7 @@ quickGroup('WORKTREE',[
 ]);
 
 async function commit(pushAfter){const message=window.prompt('Commit message:','');if(message===null||!message.trim())return;await action('commit',{message:message.trim()});if(pushAfter)await action('push');}
-async function stashPush(){const message=window.prompt('Stash message (để trống dùng mặc định):','');if(message===null)return;await action('stash_push',{message:message.trim()});}
+async function stashPush(){const message=window.prompt('Stash message (leave blank to use the default):','');if(message===null)return;await action('stash_push',{message:message.trim()});}
 
 const views=[['changes','Changes'],['branches','Branches'],['log','Log'],['ahead-behind','Ahead / Behind'],['stashes','Stash'],['compare','Compare']];
 for(const [id,label] of views){const b=el('button','',label);b.dataset.gitView=id;b.onclick=()=>{currentView=id;updateNav();loadCurrentView().catch(app.showError);};nav.append(b);}
@@ -113,7 +113,7 @@ async function loadBranches(){
 }
 async function loadLog(){const data=await gitView('log',{limit:'50'});content.replaceChildren();for(const commit of data.commits||[]){const row=el('div','git-row');const code=el('span','git-row-code',commit.short);const main=el('div','git-row-main');main.append(el('div','git-row-title',commit.subject),el('div','git-row-sub',commit.date+' · '+commit.author));const actions=el('div','git-row-actions');actions.append(actionButton('Copy SHA',()=>copyText(commit.sha)));row.append(code,main,actions);content.append(row);}if(!content.childElementCount)empty('No commits');}
 async function loadAheadBehind(){const data=await gitView('ahead-behind');content.replaceChildren();content.append(el('div','git-row-sub',data.upstream?`Upstream ${data.upstream} · ahead ${data.ahead} · behind ${data.behind}`:'No upstream configured'));for(const commit of data.commits||[]){const row=el('div','git-row');const code=el('span','git-row-code '+(commit.direction==='ahead'?'git-direction-ahead':'git-direction-behind'),commit.direction==='ahead'?'↑':'↓');const main=el('div','git-row-main');main.append(el('div','git-row-title',commit.subject),el('div','git-row-sub',commit.sha));const actions=el('div','git-row-actions');actions.append(actionButton('Copy SHA',()=>copyText(commit.sha)));row.append(code,main,actions);content.append(row);}}
-async function loadStashes(){const data=await gitView('stashes');content.replaceChildren();const create=actionButton('Create stash',()=>stashPush());content.append(create);for(const stash of data.stashes||[]){const row=el('div','git-row');const code=el('span','git-row-code',stash.ref);const main=el('div','git-row-main');main.append(el('div','git-row-title',stash.subject),el('div','git-row-sub',stash.when+' · '+stash.sha.slice(0,8)));const actions=el('div','git-row-actions');actions.append(actionButton('Pop',()=>action('stash_pop',{ref:stash.ref},`Pop ${stash.ref}? Có thể tạo conflict nếu worktree khác.`)),actionButton('Copy ref',()=>copyText(stash.ref)));row.append(code,main,actions);content.append(row);}}
+async function loadStashes(){const data=await gitView('stashes');content.replaceChildren();const create=actionButton('Create stash',()=>stashPush());content.append(create);for(const stash of data.stashes||[]){const row=el('div','git-row');const code=el('span','git-row-code',stash.ref);const main=el('div','git-row-main');main.append(el('div','git-row-title',stash.subject),el('div','git-row-sub',stash.when+' · '+stash.sha.slice(0,8)));const actions=el('div','git-row-actions');actions.append(actionButton('Pop',()=>action('stash_pop',{ref:stash.ref},`Pop ${stash.ref}? This may create conflicts if the worktree has changed.`)),actionButton('Copy ref',()=>copyText(stash.ref)));row.append(code,main,actions);content.append(row);}}
 async function loadCompare(base=''){
   currentView='compare';updateNav();const branches=await gitView('branches');content.replaceChildren();const controls=el('div','git-compare-controls');const select=document.createElement('select');for(const branch of [...(branches.local||[]),...(branches.remote||[])]){if(branch.current)continue;const o=document.createElement('option');o.value=branch.name;o.textContent=branch.name;select.append(o);}if(base&&[...select.options].some(o=>o.value===base))select.value=base;const run=actionButton('Compare',async()=>{if(!select.value)return;const data=await gitView('compare',{base:select.value});renderCompare(data,controls);});controls.append(select,run);content.append(controls);if(base&&select.value)await run.onclick();
 }
