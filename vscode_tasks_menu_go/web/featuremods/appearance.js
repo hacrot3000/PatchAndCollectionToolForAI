@@ -32,9 +32,9 @@ const themeSelect=document.createElement('select');themeSelect.title='Theme';
 for(const [value,label] of [['dark','Dark'],['light','Light']]){const option=document.createElement('option');option.value=value;option.textContent=label;themeSelect.append(option);}themeSelect.value=theme;
 const fontSelect=document.createElement('select');fontSelect.title='Terminal font';
 for(const [value,label] of [['default','Default Mono'],['dejavu','DejaVu Mono'],['liberation','Liberation Mono'],['mono','Monospace']]){const option=document.createElement('option');option.value=value;option.textContent=label;fontSelect.append(option);}fontSelect.value=fontKey;
-const smaller=document.createElement('button');smaller.textContent='A−';smaller.title='Giảm cỡ chữ terminal';
+const smaller=document.createElement('button');smaller.textContent='A−';smaller.title='Decrease terminal font size';
 const sizeLabel=document.createElement('span');sizeLabel.className='appearance-font-size';
-const larger=document.createElement('button');larger.textContent='A+';larger.title='Tăng cỡ chữ terminal';
+const larger=document.createElement('button');larger.textContent='A+';larger.title='Increase terminal font size';
 controls.append(themeSelect,fontSelect,smaller,sizeLabel,larger);
 document.querySelector('#reload').before(controls);
 
