@@ -20,7 +20,7 @@ function initializeSidebar(){
   document.head.append(style);
 
   const resizer=document.createElement('div');
-  resizer.className='sidebar-resizer';resizer.title='Kéo để đổi độ rộng menu · double-click để reset';
+  resizer.className='sidebar-resizer';resizer.title='Drag to resize the sidebar · double-click to reset';
 
   const key='vscode-tasks-menu:sidebar-width:'+app.taskData.workspace;
   const defaultWidth=310;
