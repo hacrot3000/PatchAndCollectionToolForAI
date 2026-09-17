@@ -19,10 +19,14 @@ func TestTerminalRenameFeatureModule(t *testing.T) {
 		"Double-click",
 		"task_id===0",
 		"localStorage.setItem",
-		"beginInlineRename(view)",
+		"promptRename(view)",
+		"window.prompt('Tab title:',before)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("rename module missing %q", want)
 		}
+	}
+	if strings.Contains(js, "beginInlineRename") || strings.Contains(js, "contentEditable='true'") {
+		t.Fatal("rename feature must use popup prompt instead of inline editing")
 	}
 }
