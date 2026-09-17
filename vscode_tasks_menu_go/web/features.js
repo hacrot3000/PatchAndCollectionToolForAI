@@ -40,6 +40,15 @@ function saveIgnored(state){
   try{sessionStorage.setItem(ignoredStorageKey(state.view),JSON.stringify([...state.ignored]));}
   catch(e){console.warn('Cannot persist ignored detected files',e);}
 }
+function fileDetectionStorageKey(view){return 'vscode-tasks-menu:file-detection:'+view.meta.id;}
+function loadFileDetectionEnabled(view){
+  try{return sessionStorage.getItem(fileDetectionStorageKey(view))!=='0';}
+  catch{return true;}
+}
+function saveFileDetectionEnabled(state){
+  try{sessionStorage.setItem(fileDetectionStorageKey(state.view),state.fileDetectionEnabled?'1':'0');}
+  catch(e){console.warn('Cannot persist file detection state',e);}
+}
 
 function gitExecutable(value){
   const token=String(value||'').trim().replace(/^['"]|['"]$/g,'');
@@ -93,11 +102,27 @@ function stateFor(view){
   bar.className='detected-actions';
   const head=view.pane.querySelector('.pane-head');
   head.after(bar);
-  state={view,bar,recent:'',timer:null,seq:0,files:new Map(),urls:new Map(),ignored:loadIgnored(view),inputBuffer:'',inputLines:[],inputDisposable:null,suppressGitOutput:false,gitTaskOutput:taskUsesGit(view)};
+  state={view,bar,recent:'',timer:null,seq:0,files:new Map(),urls:new Map(),ignored:loadIgnored(view),fileDetectionEnabled:loadFileDetectionEnabled(view),inputBuffer:'',inputLines:[],inputDisposable:null,suppressGitOutput:false,gitTaskOutput:taskUsesGit(view)};
   states.set(view.meta.id,state);
   state.inputDisposable=view.term.onData(data=>captureUserInput(state,data));
   return state;
 }
+
+function isFileDetectionEnabled(view){return stateFor(view).fileDetectionEnabled;}
+function setFileDetectionEnabled(view,enabled){
+  const state=stateFor(view);const next=Boolean(enabled);
+  if(state.fileDetectionEnabled===next)return next;
+  state.fileDetectionEnabled=next;
+  saveFileDetectionEnabled(state);
+  clearTimeout(state.timer);
+  state.seq++;
+  state.recent='';
+  state.files.clear();
+  render(state);
+  window.dispatchEvent(new CustomEvent('taskmenu:file-detection-changed',{detail:{view,enabled:next}}));
+  return next;
+}
+globalThis.TaskMenuFileDetection={isEnabled:isFileDetectionEnabled,setEnabled:setFileDetectionEnabled};
 
 function commitUserInput(state){
   const line=state.inputBuffer.trim();
@@ -225,18 +250,19 @@ function render(state){
 function scheduleScan(view,text){
   const state=stateFor(view);
   if(state.gitTaskOutput||state.suppressGitOutput)return;
-  state.recent=(state.recent+text).slice(-131072);
   for(const url of detectURLs(text))remember(state.urls,url,url);
   render(state);
+  if(!state.fileDetectionEnabled)return;
+  state.recent=(state.recent+text).slice(-131072);
   clearTimeout(state.timer);const seq=++state.seq;
   state.timer=setTimeout(()=>scanFiles(state,seq),220);
 }
 
 async function scanFiles(state,seq){
   try{
-    if(state.gitTaskOutput||state.suppressGitOutput)return;
+    if(!state.fileDetectionEnabled||state.gitTaskOutput||state.suppressGitOutput)return;
     const data=await app.jsonFetch('/api/files/selection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:state.recent})});
-    if(seq!==state.seq||state.view.closed||state.gitTaskOutput||state.suppressGitOutput)return;
+    if(seq!==state.seq||state.view.closed||!state.fileDetectionEnabled||state.gitTaskOutput||state.suppressGitOutput)return;
     for(const file of data.files||[]){
       if(state.ignored.has(file.path)||userTypedFile(state,file.path))continue;
       remember(state.files,file.path,file,32);
