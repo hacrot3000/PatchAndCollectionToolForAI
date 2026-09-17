@@ -47,9 +47,6 @@ async function freezeForSelfUpdate(){
   if(persistenceFrozen){await saveInFlight.catch(()=>{});return;}
   persistenceFrozen=true;
   clearTimeout(saveTimer);
-  // Wait for any older queued save, then make one final strict snapshot while
-  // every timer/observer/pagehide writer is already frozen. If this request
-  // fails, self-update confirmation must not continue and destroy the layout.
   await saveInFlight.catch(()=>{});
   const payload=snapshotPayload();
   await app.jsonFetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -97,39 +94,68 @@ function restoredGroups(restored,ids){
   return groups;
 }
 
+function applySavedLayout(saved,ids,{clearMissing=true}={}){
+  if(!ids.length)return;
+  restoreTabOrder(ids);
+  let activeIndex=Number(saved?.active_index);
+  if(!Number.isInteger(activeIndex)||activeIndex<0||activeIndex>=ids.length)activeIndex=0;
+  const groups=restoredGroups(saved,ids);
+  if(groups.length)globalThis.TaskMenuSplit?.restoreProjectGroups?.(groups);
+  else if(clearMissing)globalThis.TaskMenuSplit?.clearAll?.();
+  const activeID=ids[activeIndex];
+  if(activeID){
+    app.activateView(activeID);
+    setTimeout(()=>globalThis.TaskMenuSplit?.syncForActive?.(),0);
+  }
+}
+
+function liveIDsFromSaved(saved,existing){
+  const live=new Set(existing.map(meta=>meta.id).filter(Boolean));
+  const terminals=Array.isArray(saved?.terminals)?saved.terminals:[];
+  if(terminals.length!==existing.length||!terminals.length)return [];
+  const ids=terminals.map(item=>String(item?.session_id||'').trim());
+  if(ids.some(id=>!id||!live.has(id))||new Set(ids).size!==ids.length)return [];
+  return ids;
+}
+
 async function restoreProjectTerminals(){
   try{
+    const saved=await app.jsonFetch(endpoint);
     const live=await app.jsonFetch('/api/sessions');
     const existing=(live.sessions||[]).filter(meta=>meta.task_id===0&&meta.status==='running');
+
     if(existing.length){
-      const ids=existing.map(meta=>meta.id).filter(Boolean);
-      await waitForViews(ids);
-      restoring=false;scheduleSave(250);return;
+      await app.syncSessions?.();
+      const savedIDs=liveIDsFromSaved(saved,existing);
+      const ids=savedIDs.length?savedIDs:existing.map(meta=>meta.id).filter(Boolean);
+      const ready=await waitForViews(ids);
+      if(!ready)throw new Error('Timed out waiting for live terminal tabs');
+      if(savedIDs.length){
+        applySavedLayout(saved,ids,{clearMissing:true});
+      }else{
+        // Legacy v1/v2 state has no stable session ids. Keep any split restored
+        // by split.js/sessionStorage, then persist v3 ids once startup settles.
+        restoreTabOrder(ids);
+        globalThis.TaskMenuSplit?.syncForActive?.();
+      }
+      return;
     }
 
-    const saved=await app.jsonFetch(endpoint);
     if(!Array.isArray(saved.terminals)||saved.terminals.length===0){
       globalThis.TaskMenuSplit?.clearAll?.();
-      restoring=false;return;
+      return;
     }
 
     const restored=await app.jsonFetch(endpoint,{method:'POST'});
     const metas=Array.isArray(restored.sessions)?restored.sessions:[];
+    for(const meta of metas)app.attachSession?.(meta,false);
+    await app.syncSessions?.();
     const ids=metas.map(meta=>meta.id).filter(Boolean);
-    if(!ids.length){restoring=false;return;}
+    if(!ids.length)return;
     const ready=await waitForViews(ids);
     if(!ready)throw new Error('Timed out waiting for restored terminal tabs');
 
-    restoreTabOrder(ids);
-    let activeIndex=Number(restored.active_index);
-    if(!Number.isInteger(activeIndex)||activeIndex<0||activeIndex>=ids.length)activeIndex=0;
-    const activeID=ids[activeIndex];
-    if(activeID)app.activateView(activeID);
-
-    const groups=restoredGroups(restored,ids);
-    if(groups.length)globalThis.TaskMenuSplit?.restoreProjectGroups?.(groups);
-    else globalThis.TaskMenuSplit?.clearAll?.();
-    if(activeID){app.activateView(activeID);setTimeout(()=>globalThis.TaskMenuSplit?.syncForActive?.(),0);}
+    applySavedLayout(restored,ids,{clearMissing:true});
     if(Array.isArray(restored.warnings)&&restored.warnings.length)console.warn('Terminal restore:',...restored.warnings);
   }catch(e){
     console.warn('Cannot restore terminal project state',e);
