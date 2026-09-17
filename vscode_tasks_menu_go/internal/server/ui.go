@@ -44,8 +44,17 @@ func serveEmbeddedAsset(w http.ResponseWriter, contentType, path string) {
 		http.Error(w, "embedded asset unavailable", http.StatusInternalServerError)
 		return
 	}
+	if path == "featuremods/next.js" {
+		text := string(data)
+		text = strings.ReplaceAll(text, ".js';", ".js?v=2';")
+		data = []byte(text)
+	}
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
+	if path == "features.js" || strings.HasPrefix(path, "featuremods/") {
+		w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
+	} else {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	}
 	_, _ = w.Write(data)
 }
 
