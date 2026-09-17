@@ -31,7 +31,7 @@ func TestProjectTerminalStateNormalizeMigratesLegacySplit(t *testing.T) {
 		value.Terminals = append(value.Terminals, terminalStateItem{Cwd: filepath.Join("/tmp", "terminal", string(rune('a'+i%26)))})
 	}
 	got := normalizeProjectTerminalState(value)
-	if got.Version != 2 || len(got.Terminals) != projectTerminalMaxTabs {
+	if got.Version != 3 || len(got.Terminals) != projectTerminalMaxTabs {
 		t.Fatalf("normalized terminal state = %#v", got)
 	}
 	if got.ActiveIndex != 0 {
@@ -86,7 +86,6 @@ func TestProjectTerminalStateTracksCwdOrderMultipleSplitsAndRestores(t *testing.
 	}
 	defer m.Shutdown(time.Second)
 
-	// Persist a deliberately non-creation tab order: B, A, D, C.
 	order := []session.Metadata{metas[1], metas[0], metas[3], metas[2]}
 	value, err := s.captureTerminalState(terminalSnapshotRequest{
 		SessionIDs:      []string{order[0].ID, order[1].ID, order[2].ID, order[3].ID},
@@ -106,6 +105,9 @@ func TestProjectTerminalStateTracksCwdOrderMultipleSplitsAndRestores(t *testing.
 	for i, want := range wantCwds {
 		if value.Terminals[i].Cwd != want {
 			t.Fatalf("terminal[%d].cwd=%q want %q", i, value.Terminals[i].Cwd, want)
+		}
+		if value.Terminals[i].SessionID != order[i].ID {
+			t.Fatalf("terminal[%d].session_id=%q want %q", i, value.Terminals[i].SessionID, order[i].ID)
 		}
 	}
 	if value.ActiveIndex != 3 || len(value.Splits) != 2 {
@@ -143,6 +145,16 @@ func TestProjectTerminalStateTracksCwdOrderMultipleSplitsAndRestores(t *testing.
 	}
 	for i, want := range wantCwds {
 		waitTerminalCwd(t, m2, resp.Sessions[i].ID, want)
+	}
+
+	persisted, err := readProjectTerminalState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, meta := range resp.Sessions {
+		if persisted.Terminals[i].SessionID != meta.ID {
+			t.Fatalf("restored terminal[%d] session_id=%q want new id %q", i, persisted.Terminals[i].SessionID, meta.ID)
+		}
 	}
 
 	req := httptest.NewRequest("GET", "/api/state/tasks?scope=terminals", nil)
