@@ -23,7 +23,8 @@ func TestSelfUpdateBrowserWorkflow(t *testing.T) {
 		"failed",
 		"target_url",
 		"location.replace",
-		"Đang chờ daemon mới khởi động",
+		"Waiting for the new daemon to start",
+		"Update completed. The new daemon is ready.",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("selfupdate.js missing %q", want)
