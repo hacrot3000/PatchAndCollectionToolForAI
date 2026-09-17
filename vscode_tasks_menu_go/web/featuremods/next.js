@@ -1,0 +1,17 @@
+import '/featuremods/notifications.js';
+import '/featuremods/upload.js';
+import '/featuremods/rename.js';
+import '/featuremods/inputs.js';
+import '/featuremods/envprofiles.js';
+import '/featuremods/terminalcwd.js';
+import '/featuremods/restartclear.js';
+import '/featuremods/gitstatus.js';
+import '/featuremods/sidebar.js';
+import '/featuremods/appearance.js';
+import '/featuremods/middleclick.js';
+import '/featuremods/split.js';
+import '/featuremods/terminalrestore.js';
+import '/featuremods/pagetitle.js';
+import '/featuremods/ptvpriority.js';
+import '/featuremods/menus.js';
+import '/featuremods/viewportfix.js';

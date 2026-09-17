@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SRC_DIR="$SCRIPT_DIR/vscode_tasks_menu_go"
+BUILD_DIR="$SRC_DIR/.build"
+BIN="$BUILD_DIR/vscode_tasks_menu"
+
+if ! command -v go >/dev/null 2>&1; then
+    echo "ERROR: Go toolchain không có trong PATH." >&2
+    exit 127
+fi
+
+mkdir -p "$BUILD_DIR"
+needs_build=0
+if [[ ! -x "$BIN" ]]; then
+    needs_build=1
+elif find "$SRC_DIR" -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' -o -path '*/web/*' \) -newer "$BIN" -print -quit | grep -q .; then
+    needs_build=1
+fi
+
+if [[ "$needs_build" == "1" ]]; then
+    tmp="$BIN.tmp.$$"
+    (
+        cd "$SRC_DIR"
+        GOPROXY=off go build -o "$tmp" ./cmd/vscode_tasks_menu
+    )
+    chmod +x "$tmp"
+    mv -f "$tmp" "$BIN"
+fi
+
+exec "$BIN" --workspace "$PWD" "$@"
