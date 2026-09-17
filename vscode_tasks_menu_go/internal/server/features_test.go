@@ -57,6 +57,27 @@ func TestEmbeddedFeaturesDetectedFilesCanBeIgnoredAndPrioritized(t *testing.T) {
 	}
 }
 
+func TestEmbeddedFeaturesSuppressGitCommandOutputFromFileDetection(t *testing.T) {
+	js := embeddedFeaturesJS(t)
+	for _, want := range []string{
+		"function standaloneGitCommand(line)",
+		"function taskUsesGit(view)",
+		"beginGitOutputSuppression(state)",
+		"endGitOutputSuppression(state)",
+		"if(standaloneGitCommand(line))beginGitOutputSuppression(state)",
+		"if(state.gitTaskOutput||state.suppressGitOutput)return",
+		"state.seq++",
+		"state.recent=''",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("features.js missing Git output suppression behavior %q", want)
+		}
+	}
+	if strings.Contains(js, "git status')") {
+		t.Fatal("Git suppression must not be hard-coded only to git status")
+	}
+}
+
 func TestEmbeddedFeaturesTaskSearchPalette(t *testing.T) {
 	js := embeddedFeaturesJS(t)
 	for _, want := range []string{
