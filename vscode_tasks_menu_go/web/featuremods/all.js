@@ -107,7 +107,7 @@ function createQuickSection(title,ids,allowUnstar){
     const row=document.createElement('div');row.className='quick-task-row';
     const run=document.createElement('button');run.className='quick-task-run';run.textContent=task.menu_label||task.label;run.title=task.detail||task.label;run.onclick=()=>app.startTask(task).catch(app.showError);
     row.append(run);
-    if(allowUnstar){const star=document.createElement('button');star.className='quick-task-star';star.textContent='★';star.title='Bỏ khỏi Favorites';star.onclick=()=>toggleFavorite(id);row.append(star);}
+    if(allowUnstar){const star=document.createElement('button');star.className='quick-task-star';star.textContent='★';star.title='Remove from Favorites';star.onclick=()=>toggleFavorite(id);row.append(star);}
     list.append(row);
   }
   return section;
@@ -136,7 +136,7 @@ function decorateTaskButtons(){
     const star=document.createElement('button');star.className='task-favorite-toggle';star.dataset.taskId=String(task.id);star.onclick=()=>toggleFavorite(task.id);row.append(star);
   }
   for(const star of menu.querySelectorAll('.task-favorite-toggle')){
-    const id=Number(star.dataset.taskId);star.textContent=isFavorite(id)?'★':'☆';star.title=isFavorite(id)?'Bỏ khỏi Favorites':'Thêm vào Favorites';
+    const id=Number(star.dataset.taskId);star.textContent=isFavorite(id)?'★':'☆';star.title=isFavorite(id)?'Remove from Favorites':'Add to Favorites';
   }
 }
 
@@ -174,12 +174,12 @@ function ensureRerunButton(view){
   let button=view.pane.querySelector('.session-rerun');
   if(!button){button=document.createElement('button');button.className='session-rerun';view.stop.before(button);}
   button.textContent=view.meta.status==='running'?'Restart':'Run again';
-  button.title=view.meta.status==='running'?'Dừng task hiện tại rồi chạy lại':'Chạy lại task này';
+  button.title=view.meta.status==='running'?'Stop the current task and run it again':'Run this task again';
   button.onclick=()=>restartOrRun(view).catch(app.showError);
 }
 
 async function restartOrRun(view){
-  const task=taskByID(view.meta.task_id);if(!task)throw new Error('Task không còn tồn tại trong tasks.json');
+  const task=taskByID(view.meta.task_id);if(!task)throw new Error('Task no longer exists in tasks.json');
   const button=view.pane.querySelector('.session-rerun');if(button)button.disabled=true;
   try{
     if(view.meta.status==='running'){
@@ -223,7 +223,7 @@ function renderHistory(){
   for(const item of items){
     const row=document.createElement('div');row.className='history-row';const label=document.createElement('span');label.className='history-label';label.textContent=item.label||String(item.task_id);const state=document.createElement('span');state.className='history-state '+String(item.status||'').toLowerCase();state.textContent=item.status||'';
     const meta=document.createElement('span');meta.className='history-meta';const when=item.started_at?new Date(item.started_at).toLocaleString():'';meta.textContent=when+' · '+formatDuration(item.duration);
-    const task=taskByID(item.task_id);if(task){row.style.cursor='pointer';row.title='Click để chạy lại';row.onclick=()=>app.startTask(task).catch(app.showError);}
+    const task=taskByID(item.task_id);if(task){row.style.cursor='pointer';row.title='Click to run again';row.onclick=()=>app.startTask(task).catch(app.showError);}
     row.append(label,state,meta);list.append(row);
   }
   const quick=[...menu.querySelectorAll('.quick-task-section')];const anchor=quick.length?quick[quick.length-1].nextSibling:menu.querySelector('.task-search-panel')?.nextSibling;
@@ -264,8 +264,8 @@ function saveConsoleLog(view){
 }
 function ensureConsoleTools(view){
   const head=view.pane.querySelector('.pane-head');if(!head||head.querySelector('.console-search-btn'))return;
-  const find=document.createElement('button');find.className='console-tool console-search-btn';find.textContent='Find';find.title='Search console (Ctrl+F)';find.onclick=()=>showConsoleFind(view);
-  const save=document.createElement('button');save.className='console-tool console-save-btn';save.textContent='Save log';save.title='Download toàn bộ console thành file .log';save.onclick=()=>saveConsoleLog(view);
+  const find=document.createElement('button');find.className='console-tool console-search-btn';find.textContent='🔎 Find in console';find.title='Search console (Ctrl+F)';find.onclick=()=>showConsoleFind(view);
+  const save=document.createElement('button');save.className='console-tool console-save-btn';save.textContent='💾 Save console log';save.title='Download the entire console as a .log file';save.onclick=()=>saveConsoleLog(view);
   view.copy.before(find,save);
 }
 
