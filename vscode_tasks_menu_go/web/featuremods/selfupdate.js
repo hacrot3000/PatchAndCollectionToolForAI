@@ -36,12 +36,29 @@ const arrivingID=updatedQueryID();if(arrivingID){try{sessionStorage.setItem(comp
 
 function terminalRestore(){return globalThis.TaskMenuTerminalRestore;}
 function resumeTerminalPersistence(){terminalRestore()?.resumeAfterSelfUpdate?.();}
+function statusText(req){
+  if(req?.error)return 'Update failed: '+req.error;
+  const labels={
+    awaiting_confirmation:'Waiting for confirmation.',
+    confirmed:'Update confirmed. Preparing the update…',
+    downloading:'Downloading the latest source…',
+    testing:'Running validation tests…',
+    building:'Building the new binary…',
+    installing:'Installing the validated binary…',
+    ready_restart:'New binary is ready. Preparing daemon handoff…',
+    restarting:'Restarting the daemon…',
+    completed:'Update completed. The new daemon is ready.',
+    failed:'Update failed.',
+    cancelled:'Update cancelled.'
+  };
+  return labels[req?.status]||String(req?.status||'');
+}
 
 function show(req){
   currentID=req.id||'';overlay.classList.add('visible');
   revision.textContent=req.revision?'Revision: '+req.revision:'';
   status.classList.toggle('self-update-error',req.status==='failed');
-  status.textContent=req.error||req.message||req.status||'';
+  status.textContent=statusText(req);
   const waiting=req.status==='awaiting_confirmation';
   actions.style.display=waiting?'flex':'none';
   intro.textContent=waiting
