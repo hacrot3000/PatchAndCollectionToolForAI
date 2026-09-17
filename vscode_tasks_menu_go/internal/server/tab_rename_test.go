@@ -14,7 +14,7 @@ func TestInlineTabTitleRename(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		"Double-click để đổi tên tab",
+		"Double-click to rename this tab",
 		"tabsHost.addEventListener('dblclick'",
 		"target?.closest('.tab[data-id]')",
 		"target?.closest('.status,.close')",
