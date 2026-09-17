@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
+	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -16,11 +20,14 @@ import (
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/config"
+	"bletonfc/vscode_tasks_menu/internal/selfupdate"
 	"bletonfc/vscode_tasks_menu/internal/server"
 	"bletonfc/vscode_tasks_menu/internal/session"
 	"bletonfc/vscode_tasks_menu/internal/state"
 	terminalui "bletonfc/vscode_tasks_menu/internal/terminal"
 )
+
+var buildRevision = "dev"
 
 func main() {
 	workspace := flag.String("workspace", "", "workspace chứa .vscode/tasks.json")
@@ -30,7 +37,17 @@ func main() {
 	statusOnly := flag.Bool("status", false, "in trạng thái daemon rồi thoát")
 	stopDaemonFlag := flag.Bool("stop-daemon", false, "dừng daemon của workspace rồi thoát")
 	restartDaemon := flag.Bool("restart-daemon", false, "dừng daemon cũ rồi khởi động lại")
+	selfUpdateFlag := flag.Bool("self-update", false, "kiểm tra, xác nhận và cài bản mới nhất từ GitHub")
+	versionFlag := flag.Bool("version", false, "in revision của binary rồi thoát")
+	handoffFD := flag.Int("handoff-fd", -1, "inherited listener fd (internal)")
+	listenAddr := flag.String("listen-addr", "", "listener address override (internal)")
+	selfUpdateID := flag.String("self-update-id", "", "self-update handoff id (internal)")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("vscode_tasks_menu revision=%s\n", buildRevision)
+		return
+	}
 
 	ws, err := resolveWorkspace(*workspace)
 	fatalIf(err)
@@ -41,9 +58,14 @@ func main() {
 	cfg, cfgPath, err := config.Load(ws)
 	fatalIf(err)
 	if *serve {
-		fatalIf(serveForeground(ws, cfg, cfgPath))
+		fatalIf(serveForeground(ws, cfg, cfgPath, *handoffFD, *listenAddr, *selfUpdateID))
 		return
 	}
+	if *selfUpdateFlag {
+		fatalIf(runSelfUpdate(ws, cfg))
+		return
+	}
+
 	startLock, err := state.AcquireStartLock(ws)
 	fatalIf(err)
 	defer startLock.Close()
@@ -68,18 +90,12 @@ func main() {
 	}
 	state.Remove(ws)
 	fatalIf(startDaemon(ws))
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if st, err := state.Load(ws); err == nil && state.Healthy(st) {
-			fmt.Println(st.URL)
-			if cfg.OpenBrowser && !*noBrowser {
-				_ = openBrowser(st.URL)
-			}
-			return
-		}
-		time.Sleep(80 * time.Millisecond)
+	st, err := waitForDaemon(ws, 5*time.Second, 0)
+	fatalIf(err)
+	fmt.Println(st.URL)
+	if cfg.OpenBrowser && !*noBrowser {
+		_ = openBrowser(st.URL)
 	}
-	fatalIf(fmt.Errorf("daemon không khởi động; xem log: %s", state.LogPath(ws)))
 }
 
 func resolveWorkspace(value string) (string, error) {
@@ -100,16 +116,17 @@ func resolveWorkspace(value string) (string, error) {
 	return abs, nil
 }
 
-func serveForeground(ws string, cfg config.Config, cfgPath string) error {
+func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int, listenAddr, updateID string) error {
 	if err := state.EnsureDir(ws); err != nil {
 		return err
 	}
-	daemonLock, err := state.AcquireDaemonLock(ws)
+	daemonLock, err := acquireDaemonLock(ws, handoffFD >= 3)
 	if err != nil {
 		return err
 	}
 	defer daemonLock.Close()
-	ln, err := net.Listen("tcp", cfg.Address())
+
+	ln, err := createListener(cfg, handoffFD, listenAddr)
 	if err != nil {
 		return err
 	}
@@ -120,16 +137,27 @@ func serveForeground(ws string, cfg config.Config, cfgPath string) error {
 		_ = ln.Close()
 		return err
 	}
-	defer state.Remove(ws)
+	defer state.RemoveIfPID(ws, os.Getpid())
+	if updateID != "" {
+		_, _ = selfupdate.Update(ws, updateID, "completed", "Cập nhật hoàn tất; daemon mới đã sẵn sàng.", url, "")
+	}
+
 	logger := log.New(os.Stdout, "", log.LstdFlags)
 	logger.Printf("workspace=%s", ws)
 	logger.Printf("config=%s", cfgPath)
 	logger.Printf("url=%s", url)
+	if updateID != "" {
+		logger.Printf("self-update handoff=%s revision=%s", updateID, buildRevision)
+	}
 	if warning := server.RemoteWarning(cfg); warning != "" {
 		logger.Print(warning)
 	}
 	manager := session.NewManager(4 << 20)
 	srv := &server.Server{Workspace: ws, Config: cfg, Log: logger, Sessions: manager}
+	server.RegisterSelfUpdateHandoff(srv, func(id string) error {
+		return handoffToUpdatedDaemon(ws, ln, manager, id)
+	})
+	defer server.RegisterSelfUpdateHandoff(srv, nil)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
@@ -150,6 +178,80 @@ func serveForeground(ws string, cfg config.Config, cfgPath string) error {
 		return nil
 	}
 	return err
+}
+
+func acquireDaemonLock(ws string, wait bool) (*os.File, error) {
+	if !wait {
+		return state.AcquireDaemonLock(ws)
+	}
+	deadline := time.Now().Add(8 * time.Second)
+	var last error
+	for time.Now().Before(deadline) {
+		f, err := state.AcquireDaemonLock(ws)
+		if err == nil {
+			return f, nil
+		}
+		last = err
+		time.Sleep(40 * time.Millisecond)
+	}
+	return nil, fmt.Errorf("waiting for previous daemon lock: %w", last)
+}
+
+func createListener(cfg config.Config, handoffFD int, listenAddr string) (net.Listener, error) {
+	if handoffFD >= 3 {
+		file := os.NewFile(uintptr(handoffFD), "vscode_tasks_menu-handoff-listener")
+		if file == nil {
+			return nil, fmt.Errorf("invalid inherited listener fd %d", handoffFD)
+		}
+		ln, err := net.FileListener(file)
+		_ = file.Close()
+		if err != nil {
+			return nil, fmt.Errorf("restore inherited listener: %w", err)
+		}
+		return ln, nil
+	}
+	address := strings.TrimSpace(listenAddr)
+	if address == "" {
+		address = cfg.Address()
+	}
+	return net.Listen("tcp", address)
+}
+
+func handoffToUpdatedDaemon(ws string, ln net.Listener, manager *session.Manager, updateID string) error {
+	provider, ok := ln.(interface{ File() (*os.File, error) })
+	if !ok {
+		return fmt.Errorf("listener does not support file-descriptor handoff")
+	}
+	listenerFile, err := provider.File()
+	if err != nil {
+		return fmt.Errorf("duplicate listener: %w", err)
+	}
+	defer listenerFile.Close()
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	logFile, err := os.OpenFile(state.LogPath(ws), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(exe, "--workspace", ws, "--serve", "--handoff-fd", "3", "--self-update-id", updateID)
+	cmd.ExtraFiles = []*os.File{listenerFile}
+	cmd.Stdout, cmd.Stderr = logFile, logFile
+	cmd.Stdin = nil
+	if runtime.GOOS != "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	}
+	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
+		return fmt.Errorf("start replacement daemon: %w", err)
+	}
+	_ = cmd.Process.Release()
+	_ = logFile.Close()
+	// The child now owns a duplicated listening socket and waits for the old
+	// daemon lock. Stop PTYs only after the replacement process exists.
+	manager.Shutdown(2 * time.Second)
+	return ln.Close()
 }
 
 func publicURLForListener(cfg config.Config, ln net.Listener) string {
@@ -181,6 +283,10 @@ func healthURLForListener(cfg config.Config, ln net.Listener) string {
 }
 
 func startDaemon(ws string) error {
+	return startDaemonWithOptions(ws, "", "")
+}
+
+func startDaemonWithOptions(ws, listenAddr, updateID string) error {
 	if err := state.EnsureDir(ws); err != nil {
 		return err
 	}
@@ -192,7 +298,14 @@ func startDaemon(ws string) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(exe, "--workspace", ws, "--serve")
+	args := []string{"--workspace", ws, "--serve"}
+	if strings.TrimSpace(listenAddr) != "" {
+		args = append(args, "--listen-addr", listenAddr)
+	}
+	if updateID != "" {
+		args = append(args, "--self-update-id", updateID)
+	}
+	cmd := exec.Command(exe, args...)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	cmd.Stdin = nil
 	if runtime.GOOS != "windows" {
@@ -249,6 +362,158 @@ func stopExistingDaemon(ws string) error {
 		time.Sleep(80 * time.Millisecond)
 	}
 	return fmt.Errorf("daemon pid %d không dừng sau 5 giây", st.PID)
+}
+
+func runSelfUpdate(ws string, cfg config.Config) (err error) {
+	lock, err := state.AcquireStartLock(ws)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	remote, err := selfupdate.RemoteRevision(ctx)
+	if err != nil {
+		return fmt.Errorf("check latest revision: %w", err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	installed := selfupdate.InstalledRevision(exe)
+	if installed == remote || buildRevision == remote {
+		fmt.Printf("Đã là bản mới nhất: %s\n", remote[:12])
+		return nil
+	}
+
+	oldState, stateErr := state.Load(ws)
+	daemonRunning := stateErr == nil && state.Healthy(oldState)
+	currentURL := ""
+	if daemonRunning {
+		currentURL = oldState.URL
+	}
+	req, err := selfupdate.CreateRequest(ws, remote, currentURL, !daemonRunning)
+	if err != nil {
+		return err
+	}
+	fail := func(cause error) error {
+		_, _ = selfupdate.Update(ws, req.ID, "failed", "Cập nhật thất bại.", "", cause.Error())
+		return cause
+	}
+
+	if daemonRunning {
+		fmt.Printf("Có bản mới %s. Chờ xác nhận tại %s ...\n", remote[:12], oldState.URL)
+		decision, decisionErr := selfupdate.WaitForDecision(ws, req.ID, 30*time.Minute)
+		if decisionErr != nil {
+			if decision.Status == "cancelled" {
+				fmt.Println("Đã hủy self-update.")
+				return nil
+			}
+			return fail(decisionErr)
+		}
+	}
+
+	progress := func(status, message string) {
+		fmt.Println(message)
+		_, _ = selfupdate.Update(ws, req.ID, status, message, "", "")
+	}
+	staged, err := selfupdate.Prepare(ctx, remote, exe, progress)
+	if err != nil {
+		return fail(err)
+	}
+	defer os.Remove(staged)
+	progress("installing", "Đang thay binary hiện tại bằng bản đã kiểm tra…")
+	if err := selfupdate.Install(staged, exe, remote); err != nil {
+		return fail(err)
+	}
+
+	if !daemonRunning {
+		_, _ = selfupdate.Update(ws, req.ID, "completed", "Cập nhật hoàn tất. Daemon chưa chạy nên không cần restart.", "", "")
+		fmt.Printf("Self-update hoàn tất: %s\n", remote[:12])
+		return nil
+	}
+
+	_, _ = selfupdate.Update(ws, req.ID, "ready_restart", "Binary mới đã sẵn sàng; chuẩn bị handoff daemon…", "", "")
+	if err := requestDaemonHandoff(cfg, oldState, req.ID); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: socket handoff unavailable: %v; fallback restart cùng port.\n", err)
+		if err := fallbackRestartAfterUpdate(ws, oldState, req.ID); err != nil {
+			return fail(err)
+		}
+	}
+	newState, err := waitForDaemon(ws, 15*time.Second, oldState.PID)
+	if err != nil {
+		// Handoff callbacks report asynchronous errors through self-update state.
+		if latest, loadErr := selfupdate.Load(ws); loadErr == nil && latest.Status == "failed" {
+			if restartErr := fallbackRestartAfterUpdate(ws, oldState, req.ID); restartErr == nil {
+				newState, err = waitForDaemon(ws, 15*time.Second, oldState.PID)
+			}
+		}
+	}
+	if err != nil {
+		return fail(err)
+	}
+	_, _ = selfupdate.Update(ws, req.ID, "completed", "Cập nhật hoàn tất; daemon mới đã sẵn sàng.", newState.URL, "")
+	fmt.Printf("Self-update hoàn tất: %s\n%s\n", remote[:12], newState.URL)
+	if newState.URL != oldState.URL && cfg.OpenBrowser {
+		_ = openBrowser(newState.URL)
+	}
+	return nil
+}
+
+func requestDaemonHandoff(cfg config.Config, st state.State, id string) error {
+	base := strings.TrimRight(st.HealthURL, "/")
+	if base == "" {
+		base = strings.TrimRight(st.URL, "/")
+	}
+	url := base + "/api/state/tasks?scope=self-update&action=handoff"
+	body, _ := json.Marshal(map[string]string{"id": id})
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if cfg.AuthEnabled {
+		req.SetBasicAuth(cfg.Username, cfg.Password)
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if strings.HasPrefix(strings.ToLower(url), "https://") {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // #nosec G402 -- loopback control request only
+	}
+	client := &http.Client{Timeout: 5 * time.Second, Transport: transport}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("handoff endpoint returned %s", resp.Status)
+	}
+	return nil
+}
+
+func fallbackRestartAfterUpdate(ws string, old state.State, updateID string) error {
+	if err := stopExistingDaemon(ws); err != nil {
+		return err
+	}
+	if err := startDaemonWithOptions(ws, old.Address, updateID); err == nil {
+		return nil
+	}
+	// Last resort: config may choose another ephemeral port. Browser UI receives
+	// target_url after startup; launcher also opens it when configured.
+	return startDaemonWithOptions(ws, "", updateID)
+}
+
+func waitForDaemon(ws string, timeout time.Duration, differentPID int) (state.State, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		st, err := state.Load(ws)
+		if err == nil && (differentPID == 0 || st.PID != differentPID) && state.Healthy(st) {
+			return st, nil
+		}
+		time.Sleep(80 * time.Millisecond)
+	}
+	return state.State{}, fmt.Errorf("daemon không khởi động; xem log: %s", state.LogPath(ws))
 }
 
 func openBrowser(url string) error {
