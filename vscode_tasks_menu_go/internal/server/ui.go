@@ -64,9 +64,9 @@ const indexHTML = `<!doctype html>
   <script src="/vendor/xterm.js"></script>
   <script src="/vendor/addon-fit.js"></script>
   <script type="module" src="/app.js"></script>
-  <script type="module" src="/features.js"></script>
-  <script type="module" src="/featuremods/all.js"></script>
-  <script type="module" src="/featuremods/next.js"></script>
+  <script type="module" src="/features.js?v=2"></script>
+  <script type="module" src="/featuremods/all.js?v=2"></script>
+  <script type="module" src="/featuremods/next.js?v=2"></script>
 </body>
 </html>`
 
