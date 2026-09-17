@@ -23,7 +23,7 @@ async function loadConfiguredTitle(){
 
 async function editConfiguredTitle(){
   const current=document.title===defaultTitle?'':document.title;
-  const value=window.prompt('Page title (để trống để dùng mặc định):',current);
+  const value=window.prompt('Page title (leave blank to use the default):',current);
   if(value===null)return;
   const data=await app.jsonFetch('/api/config/page-title',{
     method:'PUT',
@@ -35,7 +35,7 @@ async function editConfiguredTitle(){
 }
 
 if(button){
-  button.title='Đổi tiêu đề và lưu vào vscode_tasks_menu.ini của project';
+  button.title="Edit the title and save it to the project's vscode_tasks_menu.ini";
   button.onclick=()=>editConfiguredTitle().catch(app.showError);
 }
 window.addEventListener('taskmenu:tasks',()=>loadConfiguredTitle().catch(app.showError));
