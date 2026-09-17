@@ -152,8 +152,12 @@ func writeProjectTaskState(workspace string, state projectTaskState) error {
 }
 
 func (s *Server) taskState(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Query().Get("scope") == "terminals" {
+	switch r.URL.Query().Get("scope") {
+	case "terminals":
 		s.terminalState(w, r)
+		return
+	case "self-update":
+		s.selfUpdateState(w, r)
 		return
 	}
 	switch r.Method {
