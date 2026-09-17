@@ -4,8 +4,11 @@ if(!app)throw new Error('TaskMenuApp unavailable for terminal restore');
 const endpoint='/api/state/tasks?scope=terminals';
 const tabsHost=document.querySelector('#tabs');
 let restoring=true;
+let persistenceFrozen=false;
 let saveTimer=null;
 let saveInFlight=Promise.resolve();
+let resolveRestoreReady;
+const restoreReady=new Promise(resolve=>{resolveRestoreReady=resolve;});
 
 function terminalIDsInTabOrder(){
   const ids=[];
@@ -33,14 +36,33 @@ function snapshotPayload(){
 }
 
 function persistSnapshot(){
-  if(restoring)return Promise.resolve();
+  if(restoring||persistenceFrozen)return Promise.resolve();
   const payload=snapshotPayload();
   saveInFlight=saveInFlight.catch(()=>{}).then(()=>app.jsonFetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})).catch(e=>console.warn('Cannot persist terminal project state',e));
   return saveInFlight;
 }
 
+async function freezeForSelfUpdate(){
+  await restoreReady;
+  if(persistenceFrozen){await saveInFlight.catch(()=>{});return;}
+  persistenceFrozen=true;
+  clearTimeout(saveTimer);
+  // Wait for any older queued save, then make one final strict snapshot while
+  // every timer/observer/pagehide writer is already frozen. If this request
+  // fails, self-update confirmation must not continue and destroy the layout.
+  await saveInFlight.catch(()=>{});
+  const payload=snapshotPayload();
+  await app.jsonFetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+}
+
+function resumeAfterSelfUpdate(){
+  if(!persistenceFrozen)return;
+  persistenceFrozen=false;
+  if(!restoring)scheduleSave(100);
+}
+
 function scheduleSave(delay=500){
-  if(restoring)return;
+  if(restoring||persistenceFrozen)return;
   clearTimeout(saveTimer);
   saveTimer=setTimeout(()=>persistSnapshot(),delay);
 }
@@ -112,7 +134,10 @@ async function restoreProjectTerminals(){
   }catch(e){
     console.warn('Cannot restore terminal project state',e);
   }finally{
-    restoring=false;scheduleSave(500);
+    restoring=false;
+    resolveRestoreReady?.();
+    resolveRestoreReady=null;
+    if(!persistenceFrozen)scheduleSave(500);
   }
 }
 
@@ -134,12 +159,12 @@ if(tabsHost){
   observer.observe(tabsHost,{childList:true});
 }
 
-setInterval(()=>{if(!restoring)persistSnapshot();},2000);
+setInterval(()=>{if(!restoring&&!persistenceFrozen)persistSnapshot();},2000);
 window.addEventListener('pagehide',()=>{
-  if(restoring)return;
+  if(restoring||persistenceFrozen)return;
   const payload=snapshotPayload();
   try{fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),keepalive:true});}catch{}
 });
 
-globalThis.TaskMenuTerminalRestore={persistSnapshot,snapshotPayload};
+globalThis.TaskMenuTerminalRestore={persistSnapshot,snapshotPayload,freezeForSelfUpdate,resumeAfterSelfUpdate,isPersistenceFrozen:()=>persistenceFrozen};
 setTimeout(()=>restoreProjectTerminals(),0);
