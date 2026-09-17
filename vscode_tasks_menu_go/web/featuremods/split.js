@@ -80,8 +80,8 @@ function updateButtons(){
     const mergeV=view.pane.querySelector('.session-merge-vertical');
     const mergeH=view.pane.querySelector('.session-merge-horizontal');
     const unsplit=view.pane.querySelector('.session-unsplit');
-    if(vertical){vertical.textContent=group?'Use vertical split':'Split vertical';vertical.title=group?'Đổi group này sang chia dọc':'Mở terminal mới và chia dọc';}
-    if(horizontal){horizontal.textContent=group?'Use horizontal split':'Split horizontal';horizontal.title=group?'Đổi group này sang chia ngang':'Mở terminal mới và chia ngang';}
+    if(vertical){vertical.textContent=group?'Use vertical split':'Split vertical';vertical.title=group?'Switch this group to a vertical split':'Open a new terminal in a vertical split';}
+    if(horizontal){horizontal.textContent=group?'Use horizontal split':'Split horizontal';horizontal.title=group?'Switch this group to a horizontal split':'Open a new terminal in a horizontal split';}
     if(mergeV)mergeV.disabled=!canMerge;
     if(mergeH)mergeH.disabled=!canMerge;
     if(unsplit)unsplit.hidden=!group;
@@ -106,7 +106,7 @@ function ensureResizer(group){
     resizer.classList.toggle('horizontal',group.orientation==='horizontal');
     return resizer;
   }
-  resizer=document.createElement('div');resizer.className='split-resizer '+group.orientation;resizer.title='Kéo để thay đổi tỷ lệ hai pane; double-click để về 50/50';
+  resizer=document.createElement('div');resizer.className='split-resizer '+group.orientation;resizer.title='Drag to resize the panes; double-click to reset to 50/50';
   panes.append(resizer);
   resizer.addEventListener('pointerdown',event=>{
     if(event.button!==0||!renderedGroup)return;
@@ -188,7 +188,7 @@ async function splitFrom(view,orientation){
   const before=new Set(app.views.keys());
   await app.startTerminal();
   const created=[...app.views.keys()].find(id=>!before.has(id));
-  if(!created)throw new Error('Không tạo được terminal mới để split');
+  if(!created)throw new Error('Could not create a new terminal for the split');
   createGroup(view.meta.id,created,orientation,0.5,true);
   app.activateView(created);setTimeout(()=>{syncForActive();app.views.get(created)?.term.focus();},0);
 }
@@ -204,13 +204,13 @@ function viewsInTabOrder(){
 
 function chooseMergeTarget(view,orientation){
   const candidates=viewsInTabOrder().filter(candidate=>candidate.meta.id!==view.meta.id);
-  if(!candidates.length)throw new Error('Không có tab khác để merge');
-  const label=orientation==='horizontal'?'ngang':'dọc';
+  if(!candidates.length)throw new Error('No other tab is available to merge');
+  const label=orientation==='horizontal'?'horizontal':'vertical';
   const lines=candidates.map((candidate,index)=>`${index+1}. ${candidate.meta.label} [${candidate.meta.status}]`).join('\n');
-  const answer=prompt(`Merge ${label} tab “${view.meta.label}” với tab nào?\n\n${lines}\n\nNhập số tab:`, '1');
+  const answer=prompt(`Merge ${label} tab “${view.meta.label}” with which tab?\n\n${lines}\n\nEnter a tab number:`, '1');
   if(answer===null)return null;
   const index=Number.parseInt(answer.trim(),10)-1;
-  if(!Number.isInteger(index)||index<0||index>=candidates.length)throw new Error('Lựa chọn tab merge không hợp lệ');
+  if(!Number.isInteger(index)||index<0||index>=candidates.length)throw new Error('Invalid merge target');
   return candidates[index];
 }
 
@@ -224,8 +224,8 @@ function install(view){
   installed.add(view);
   const vertical=document.createElement('button');vertical.className='session-split-vertical';vertical.textContent='Split vertical';vertical.onclick=()=>splitFrom(view,'vertical').catch(app.showError);
   const horizontal=document.createElement('button');horizontal.className='session-split-horizontal';horizontal.textContent='Split horizontal';horizontal.onclick=()=>splitFrom(view,'horizontal').catch(app.showError);
-  const mergeV=document.createElement('button');mergeV.className='session-merge-vertical';mergeV.textContent='Merge vertical…';mergeV.title='Ghép tab này với một tab đang có theo chiều dọc';mergeV.onclick=()=>{try{mergeWith(view,'vertical');}catch(e){app.showError(e);}};
-  const mergeH=document.createElement('button');mergeH.className='session-merge-horizontal';mergeH.textContent='Merge horizontal…';mergeH.title='Ghép tab này với một tab đang có theo chiều ngang';mergeH.onclick=()=>{try{mergeWith(view,'horizontal');}catch(e){app.showError(e);}};
+  const mergeV=document.createElement('button');mergeV.className='session-merge-vertical';mergeV.textContent='Merge vertical…';mergeV.title='Merge this tab with an existing tab in a vertical split';mergeV.onclick=()=>{try{mergeWith(view,'vertical');}catch(e){app.showError(e);}};
+  const mergeH=document.createElement('button');mergeH.className='session-merge-horizontal';mergeH.textContent='Merge horizontal…';mergeH.title='Merge this tab with an existing tab in a horizontal split';mergeH.onclick=()=>{try{mergeWith(view,'horizontal');}catch(e){app.showError(e);}};
   const unsplit=document.createElement('button');unsplit.className='session-unsplit';unsplit.textContent='Unsplit';unsplit.onclick=()=>unsplitView(view);
   const stop=view.pane.querySelector('.stop');if(stop)stop.before(vertical,horizontal,mergeV,mergeH,unsplit);else view.pane.querySelector('.pane-head')?.append(vertical,horizontal,mergeV,mergeH,unsplit);
   updateButtons();
