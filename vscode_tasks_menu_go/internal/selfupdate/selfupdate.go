@@ -1,0 +1,358 @@
+package selfupdate
+
+import (
+	"archive/tar"
+	"compress/gzip"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"bletonfc/vscode_tasks_menu/internal/state"
+)
+
+const (
+	Repository     = "hacrot3000/PatchAndCollectionToolForAI"
+	Branch         = "main"
+	maxArchiveSize = 128 << 20
+)
+
+type Request struct {
+	ID          string `json:"id"`
+	Revision    string `json:"revision"`
+	Status      string `json:"status"`
+	Message     string `json:"message,omitempty"`
+	CurrentURL  string `json:"current_url,omitempty"`
+	TargetURL   string `json:"target_url,omitempty"`
+	Error       string `json:"error,omitempty"`
+	RequestedAt string `json:"requested_at"`
+	ConfirmedAt string `json:"confirmed_at,omitempty"`
+	CompletedAt string `json:"completed_at,omitempty"`
+}
+
+func RequestPath(workspace string) string {
+	return filepath.Join(state.Dir(workspace), "self-update.json")
+}
+
+func randomID() (string, error) {
+	var raw [12]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw[:]), nil
+}
+
+func CreateRequest(workspace, revision, currentURL string, confirmed bool) (Request, error) {
+	if err := state.EnsureDir(workspace); err != nil {
+		return Request{}, err
+	}
+	id, err := randomID()
+	if err != nil {
+		return Request{}, err
+	}
+	status := "awaiting_confirmation"
+	confirmedAt := ""
+	if confirmed {
+		status = "confirmed"
+		confirmedAt = time.Now().Format(time.RFC3339)
+	}
+	req := Request{ID: id, Revision: revision, Status: status, CurrentURL: currentURL, RequestedAt: time.Now().Format(time.RFC3339), ConfirmedAt: confirmedAt}
+	return req, Save(workspace, req)
+}
+
+func Load(workspace string) (Request, error) {
+	data, err := os.ReadFile(RequestPath(workspace))
+	if err != nil {
+		return Request{}, err
+	}
+	var req Request
+	if err := json.Unmarshal(data, &req); err != nil {
+		return Request{}, err
+	}
+	return req, nil
+}
+
+func Save(workspace string, req Request) error {
+	if err := state.EnsureDir(workspace); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(req, "", "  ")
+	if err != nil {
+		return err
+	}
+	path := RequestPath(workspace)
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".self-update.*.tmp")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(name, path)
+}
+
+func Update(workspace, id, status, message, targetURL, errText string) (Request, error) {
+	req, err := Load(workspace)
+	if err != nil {
+		return Request{}, err
+	}
+	if req.ID != id {
+		return Request{}, fmt.Errorf("self-update request changed")
+	}
+	req.Status = status
+	req.Message = message
+	if targetURL != "" {
+		req.TargetURL = targetURL
+	}
+	if errText != "" {
+		req.Error = errText
+	}
+	now := time.Now().Format(time.RFC3339)
+	if status == "confirmed" && req.ConfirmedAt == "" {
+		req.ConfirmedAt = now
+	}
+	if status == "completed" || status == "failed" || status == "cancelled" {
+		req.CompletedAt = now
+	}
+	return req, Save(workspace, req)
+}
+
+func WaitForDecision(workspace, id string, timeout time.Duration) (Request, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		req, err := Load(workspace)
+		if err == nil && req.ID == id {
+			switch req.Status {
+			case "confirmed":
+				return req, nil
+			case "cancelled":
+				return req, fmt.Errorf("update cancelled")
+			case "failed":
+				return req, fmt.Errorf("update failed: %s", req.Error)
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return Request{}, fmt.Errorf("timed out waiting for update confirmation")
+}
+
+func RemoteRevision(ctx context.Context) (string, error) {
+	url := "https://api.github.com/repos/" + Repository + "/commits/" + Branch
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "vscode_tasks_menu-self-update")
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GitHub revision query returned %s", resp.Status)
+	}
+	var value struct{ SHA string `json:"sha"` }
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&value); err != nil {
+		return "", err
+	}
+	if len(value.SHA) < 12 {
+		return "", fmt.Errorf("GitHub returned invalid revision")
+	}
+	return value.SHA, nil
+}
+
+func MarkerPath(binary string) string { return binary + ".revision" }
+
+func InstalledRevision(binary string) string {
+	data, err := os.ReadFile(MarkerPath(binary))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func Prepare(ctx context.Context, revision, targetBinary string, progress func(status, message string)) (string, error) {
+	if progress == nil {
+		progress = func(string, string) {}
+	}
+	tmpRoot, err := os.MkdirTemp("", "vscode_tasks_menu-update-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tmpRoot)
+
+	progress("downloading", "Đang tải source mới từ GitHub…")
+	if err := downloadAndExtract(ctx, revision, tmpRoot); err != nil {
+		return "", err
+	}
+	source := filepath.Join(tmpRoot, "vscode_tasks_menu_go")
+	if _, err := os.Stat(filepath.Join(source, "go.mod")); err != nil {
+		return "", fmt.Errorf("archive thiếu vscode_tasks_menu_go/go.mod")
+	}
+
+	progress("testing", "Đang chạy go test trước khi cài…")
+	if out, err := runGo(ctx, source, "test", "./..."); err != nil {
+		return "", fmt.Errorf("go test failed: %w\n%s", err, trimOutput(out))
+	}
+
+	progress("building", "Đang compile binary mới…")
+	dir := filepath.Dir(targetBinary)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	staged, err := os.CreateTemp(dir, ".vscode_tasks_menu.new.*")
+	if err != nil {
+		return "", err
+	}
+	stagedPath := staged.Name()
+	if err := staged.Close(); err != nil {
+		os.Remove(stagedPath)
+		return "", err
+	}
+	os.Remove(stagedPath)
+	ldflags := "-X main.buildRevision=" + revision
+	if out, err := runGo(ctx, source, "build", "-trimpath", "-ldflags", ldflags, "-o", stagedPath, "./cmd/vscode_tasks_menu"); err != nil {
+		os.Remove(stagedPath)
+		return "", fmt.Errorf("go build failed: %w\n%s", err, trimOutput(out))
+	}
+	if err := os.Chmod(stagedPath, 0o755); err != nil {
+		os.Remove(stagedPath)
+		return "", err
+	}
+	check := exec.CommandContext(ctx, stagedPath, "--version")
+	out, err := check.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), revision) {
+		os.Remove(stagedPath)
+		return "", fmt.Errorf("new binary validation failed: %v %s", err, trimOutput(out))
+	}
+	return stagedPath, nil
+}
+
+func Install(stagedPath, targetBinary, revision string) error {
+	if stagedPath == "" || targetBinary == "" {
+		return fmt.Errorf("invalid self-update install path")
+	}
+	if err := os.Rename(stagedPath, targetBinary); err != nil {
+		return fmt.Errorf("replace executable: %w", err)
+	}
+	if err := os.Chmod(targetBinary, 0o755); err != nil {
+		return err
+	}
+	tmp := MarkerPath(targetBinary) + ".tmp"
+	if err := os.WriteFile(tmp, []byte(revision+"\n"), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, MarkerPath(targetBinary))
+}
+
+func runGo(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "go", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off")
+	return cmd.CombinedOutput()
+}
+
+func trimOutput(data []byte) string {
+	const max = 16 << 10
+	if len(data) > max {
+		data = data[len(data)-max:]
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func downloadAndExtract(ctx context.Context, revision, dst string) error {
+	url := "https://codeload.github.com/" + Repository + "/tar.gz/" + revision
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", "vscode_tasks_menu-self-update")
+	resp, err := (&http.Client{Timeout: 90 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GitHub archive returned %s", resp.Status)
+	}
+	gz, err := gzip.NewReader(io.LimitReader(resp.Body, maxArchiveSize))
+	if err != nil {
+		return err
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	var total int64
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		name := filepath.ToSlash(hdr.Name)
+		marker := "/vscode_tasks_menu_go/"
+		idx := strings.Index(name, marker)
+		if idx < 0 {
+			continue
+		}
+		rel := strings.TrimPrefix(name[idx+1:], "vscode_tasks_menu_go/")
+		if rel == "" || strings.HasPrefix(rel, ".build/") || rel == ".build" {
+			continue
+		}
+		clean := filepath.Clean(filepath.FromSlash(rel))
+		if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) {
+			return fmt.Errorf("unsafe archive path %q", hdr.Name)
+		}
+		target := filepath.Join(dst, "vscode_tasks_menu_go", clean)
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			total += hdr.Size
+			if total > maxArchiveSize {
+				return fmt.Errorf("self-update archive exceeds extracted size limit")
+			}
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			f, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+			if err != nil {
+				return err
+			}
+			_, copyErr := io.CopyN(f, tr, hdr.Size)
+			closeErr := f.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
+		}
+	}
+	return nil
+}
