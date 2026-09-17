@@ -13,6 +13,7 @@ import '/featuremods/split.js';
 import '/featuremods/terminalrestore.js';
 import '/featuremods/pagetitle.js';
 import '/featuremods/ptvpriority.js';
-import '/featuremods/menus.js';
 import '/featuremods/clearfiles.js';
+import '/featuremods/selfupdate.js';
+import '/featuremods/menus.js';
 import '/featuremods/viewportfix.js';
