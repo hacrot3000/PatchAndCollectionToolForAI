@@ -56,7 +56,7 @@ func TestWorkspaceUploadRejectsTraversalAndSymlinkDirectory(t *testing.T) {
 func TestUploadFeatureModule(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/upload.js");if err != nil { t.Fatal(err) }
 	js := string(data)
-	for _, want := range []string{"Upload", "dragenter", "FormData", "/api/files/upload", "overwrite=1", "Ghi đè?"} {
+	for _, want := range []string{"Upload", "dragenter", "FormData", "/api/files/upload", "overwrite=1", "Overwrite it?"} {
 		if !strings.Contains(js, want) { t.Fatalf("upload module missing %q", want) }
 	}
 }
