@@ -7,7 +7,7 @@ import (
 	webassets "bletonfc/vscode_tasks_menu/web"
 )
 
-func TestInlineTabTitleRename(t *testing.T) {
+func TestPopupTabTitleRename(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/rename.js")
 	if err != nil {
 		t.Fatal(err)
@@ -19,15 +19,10 @@ func TestInlineTabTitleRename(t *testing.T) {
 		"target?.closest('.tab[data-id]')",
 		"target?.closest('.close')",
 		"app.views.get(tab.dataset.id||'')",
-		"beginInlineRename(view)",
-		"contentEditable='true'",
-		"tab-renaming",
-		".tab.tab-renaming .status{display:none}",
-		"view.tab.classList.add('tab-renaming')",
-		"view.tab.classList.remove('tab-renaming')",
-		"e.key==='Enter'",
-		"e.key==='Escape'",
-		"label.onblur=()=>finish(true)",
+		"promptRename(view)",
+		"window.prompt('Tab title:',before)",
+		"answer===null",
+		"store(view,value&&value!==fallback?value:'')",
 		"vscode-tasks-menu:tab-title:",
 		"vscode-tasks-menu:terminal-title:",
 	} {
@@ -38,8 +33,17 @@ func TestInlineTabTitleRename(t *testing.T) {
 	if strings.Contains(js, "target?.closest('.status,.close')") {
 		t.Fatal("running status must remain a valid double-click rename target")
 	}
-	if strings.Contains(js, "window.prompt(") {
-		t.Fatal("tab rename should use inline editing instead of window.prompt")
+	for _, forbidden := range []string{
+		"contentEditable='true'",
+		"tab-title-editing",
+		"tab-renaming",
+		"label.onblur",
+		"label.onkeydown",
+		"beginInlineRename",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("popup rename must not retain inline editing behavior %q", forbidden)
+		}
 	}
 	if strings.Contains(js, "label.ondblclick") {
 		t.Fatal("tab rename should use delegated dblclick so restored tabs cannot lose the handler")
