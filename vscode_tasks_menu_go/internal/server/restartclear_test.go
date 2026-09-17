@@ -18,9 +18,10 @@ func TestRestartAndClearConsoleControls(t *testing.T) {
 		"restart.textContent='Restart'",
 		"/api/sessions/force-kill",
 		"waitUntilStopped",
-		"không chạy lại để tránh process chồng nhau",
+		"will not be restarted to avoid overlapping processes",
 		"session-clear-console",
-		"Clear console",
+		"🧹 Clear console",
+		"window.confirm('Clear this console and server-side scrollback?",
 		"/api/sessions/clear-console",
 		"view.term.clear()",
 	} {
