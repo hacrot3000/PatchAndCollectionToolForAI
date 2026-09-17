@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"os"
 	"testing"
 
 	"bletonfc/vscode_tasks_menu/internal/config"
