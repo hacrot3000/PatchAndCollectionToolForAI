@@ -83,6 +83,16 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, req)
+	case "ack":
+		if req.Status != "completed" {
+			http.Error(w, "only completed updates can be acknowledged", http.StatusConflict)
+			return
+		}
+		if err := os.Remove(updater.RequestPath(s.Workspace)); err != nil && !os.IsNotExist(err) {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": req.ID})
 	case "handoff":
 		if !loopbackRemote(r.RemoteAddr) {
 			http.Error(w, "handoff is restricted to loopback", http.StatusForbidden)
