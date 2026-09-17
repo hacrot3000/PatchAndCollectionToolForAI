@@ -18,13 +18,13 @@ function installUploadUI(){
   if(button?.isConnected)return;
   const header=document.querySelector('header');if(!header)return;
   input=document.createElement('input');input.type='file';input.multiple=true;input.hidden=true;input.onchange=()=>{const files=[...(input.files||[])];input.value='';if(files.length)chooseDestinationAndUpload(files);};document.body.append(input);
-  button=document.createElement('button');button.id='upload-workspace';button.textContent='Upload';button.title='Upload file vào workspace';button.onclick=()=>input.click();
+  button=document.createElement('button');button.id='upload-workspace';button.textContent='Upload';button.title='Upload files into the workspace';button.onclick=()=>input.click();
   const reload=document.querySelector('#reload');if(reload)header.insertBefore(button,reload);else header.append(button);
   overlay=document.createElement('div');overlay.className='upload-drop-overlay';overlay.textContent='Drop files to upload into workspace';document.body.append(overlay);
 }
 
 async function chooseDestinationAndUpload(files){
-  const value=window.prompt('Thư mục đích tương đối trong workspace:',lastDir());if(value===null)return;
+  const value=window.prompt('Destination directory relative to the workspace:',lastDir());if(value===null)return;
   const dir=(value.trim()||'.');saveDir(dir);
   button.disabled=true;const old=button.textContent;button.textContent=`Upload 0/${files.length}`;
   try{
@@ -42,7 +42,7 @@ async function uploadOne(file,dir,overwrite){
   const response=await fetch(url,{method:'POST',body:form,cache:'no-store'});
   if(response.status===409&&!overwrite){
     const message=(await response.text()).trim();
-    if(message.includes('already exists')&&window.confirm(`${file.name} đã tồn tại. Ghi đè?`))return uploadOne(file,dir,true);
+    if(message.includes('already exists')&&window.confirm(`${file.name} already exists. Overwrite it?`))return uploadOne(file,dir,true);
     throw new Error(message||'Upload conflict');
   }
   if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
