@@ -138,9 +138,6 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 		return err
 	}
 	defer state.RemoveIfPID(ws, os.Getpid())
-	if updateID != "" {
-		_, _ = selfupdate.Update(ws, updateID, "completed", "Cập nhật hoàn tất; daemon mới đã sẵn sàng.", url, "")
-	}
 
 	logger := log.New(os.Stdout, "", log.LstdFlags)
 	logger.Printf("workspace=%s", ws)
@@ -154,6 +151,28 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	}
 	manager := session.NewManager(4 << 20)
 	srv := &server.Server{Workspace: ws, Config: cfg, Log: logger, Sessions: manager}
+
+	// A replacement daemon must recreate saved PTYs before it advertises the
+	// update as complete. The browser can then reload and merely attach to live
+	// sessions instead of racing to recreate them while the old daemon tears down.
+	if updateID != "" {
+		restored, warnings, restoreErr := srv.RestoreProjectTerminalsForStartup()
+		if restoreErr != nil {
+			logger.Printf("self-update terminal restore failed: %v", restoreErr)
+			_, _ = selfupdate.Update(ws, updateID, "completed", "Cập nhật hoàn tất; daemon mới đã sẵn sàng nhưng không thể khôi phục terminal: "+restoreErr.Error(), url, "")
+		} else {
+			logger.Printf("self-update restored terminal sessions=%d", restored)
+			for _, warning := range warnings {
+				logger.Printf("terminal restore warning: %s", warning)
+			}
+			message := "Cập nhật hoàn tất; daemon mới đã sẵn sàng."
+			if restored > 0 {
+				message = fmt.Sprintf("Cập nhật hoàn tất; đã khôi phục %d terminal.", restored)
+			}
+			_, _ = selfupdate.Update(ws, updateID, "completed", message, url, "")
+		}
+	}
+
 	server.RegisterSelfUpdateHandoff(srv, func(id string) error {
 		return handoffToUpdatedDaemon(ws, ln, manager, id)
 	})
