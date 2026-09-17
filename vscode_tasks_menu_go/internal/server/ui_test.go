@@ -62,7 +62,7 @@ func TestStaticUIMenuGroupsDefaultCollapsed(t *testing.T) {
 func TestStaticUIHasCopyConsoleAction(t *testing.T) {
 	for _, want := range []string{
 		"copy.className='copy-console'",
-		"copy.textContent='Copy console'",
+		"copy.textContent='📋 Copy console'",
 		"copyConsole(view)",
 		"view.term.buffer.active",
 		"navigator.clipboard.writeText(text)",
