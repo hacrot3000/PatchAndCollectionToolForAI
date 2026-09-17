@@ -14,7 +14,7 @@ func TestTaskInputsFeatureModule(t *testing.T) {
 	for _, want := range []string{
 		"promptString",
 		"pickString",
-		"type command chưa được hỗ trợ",
+		"command type is not supported",
 		"pendingByTask",
 		"payload,inputs:values",
 		"event.stopImmediatePropagation()",
