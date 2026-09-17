@@ -74,7 +74,7 @@ function ensure(view){
     label.ondblclick=e=>{e.preventDefault();e.stopPropagation();beginInlineRename(view);};
   }
   // Keep the existing Rename action for terminal tabs, but route it through
-  // the same inline editor instead of window.prompt().
+  // the same inline editor used by double-click.
   if(view.meta.task_id===0){
     const head=view.pane.querySelector('.pane-head');
     if(head&&!head.querySelector('.terminal-rename')){
