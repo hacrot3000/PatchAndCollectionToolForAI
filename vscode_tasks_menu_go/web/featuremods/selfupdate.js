@@ -67,7 +67,13 @@ cancel.onclick=async()=>{
 
 function redirectAfterUpdate(req){
   if(applyingRedirect||!req?.id)return;
-  try{if(sessionStorage.getItem(completedMarker(req.id))==='1'){hide();return;}}catch{}
+  try{
+    if(sessionStorage.getItem(completedMarker(req.id))==='1'){
+      postAction('ack',req.id).catch(()=>{});
+      hide();
+      return;
+    }
+  }catch{}
   applyingRedirect=true;
   try{sessionStorage.setItem(completedMarker(req.id),'1');}catch{}
   const target=String(req.target_url||location.origin).replace(/\/$/,'');
