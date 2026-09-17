@@ -36,14 +36,14 @@ function promptString(input){
 }
 function pickString(input){
   const options=Array.isArray(input.options)?input.options.map(String):[];
-  if(!options.length)throw new Error(`Input ${input.id}: pickString không có options`);
+  if(!options.length)throw new Error(`Input ${input.id}: pickString has no options`);
   const defaultValue=String(input.default??'');const defaultIndex=Math.max(0,options.indexOf(defaultValue));
-  const message=(input.description||input.id)+'\n\n'+options.map((value,index)=>`${index+1}. ${value}${index===defaultIndex?'  [default]':''}`).join('\n')+'\n\nNhập số hoặc giá trị:';
+  const message=(input.description||input.id)+'\n\n'+options.map((value,index)=>`${index+1}. ${value}${index===defaultIndex?'  [default]':''}`).join('\n')+'\n\nEnter a number or value:';
   const answer=window.prompt(message,String(defaultIndex+1));if(answer===null)return {cancelled:true};
   const trimmed=answer.trim();const number=Number(trimmed);
   if(Number.isInteger(number)&&number>=1&&number<=options.length)return {value:options[number-1]};
   const exact=options.find(value=>value===trimmed);if(exact!==undefined)return {value:exact};
-  throw new Error(`Giá trị không hợp lệ cho ${input.id}`);
+  throw new Error(`Invalid value for ${input.id}`);
 }
 async function collectTaskInputs(task){
   const values={};
@@ -52,9 +52,9 @@ async function collectTaskInputs(task){
     switch(String(input.type||'')){
       case 'promptString':result=promptString(input);break;
       case 'pickString':result=pickString(input);break;
-      case 'command':throw new Error(`Input ${input.id}: type command chưa được hỗ trợ vì có thể tự thực thi command ngoài task`);
-      case 'missing':throw new Error(`Input ${input.id} được tham chiếu nhưng chưa khai báo trong tasks.json`);
-      default:throw new Error(`Input ${input.id}: type ${input.type||'(trống)'} chưa được hỗ trợ`);
+      case 'command':throw new Error(`Input ${input.id}: command type is not supported because it could execute a command outside the task`);
+      case 'missing':throw new Error(`Input ${input.id} is referenced but not declared in tasks.json`);
+      default:throw new Error(`Input ${input.id}: type ${input.type||'(empty)'} is not supported`);
     }
     if(result.cancelled)return null;values[input.id]=result.value;
   }
