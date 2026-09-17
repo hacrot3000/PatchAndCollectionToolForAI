@@ -1,18 +1,24 @@
 const app=globalThis.TaskMenuApp;
-if(!app)throw new Error('TaskMenuApp unavailable for clear detected files');
+if(!app)throw new Error('TaskMenuApp unavailable for detected file controls');
 
 const installed=new WeakSet();
+const style=document.createElement('style');
+style.textContent=`
+.detected-file-controls{display:inline-flex;align-items:center;gap:4px}
+.detected-files-toggle.off{opacity:.72;background:#34281b;border-color:#6b4f31}
+`;
+document.head.append(style);
 
-function placeButton(view,button){
+function placeControls(view,controls){
   const head=view?.pane?.querySelector('.pane-head');
   if(!head)return;
   const host=head.querySelector('.pane-action-menus');
   if(host){
     const sessionMenu=host.querySelector('.taskmenu-menu');
-    if(sessionMenu){sessionMenu.after(button);return;}
-    host.prepend(button);return;
+    if(sessionMenu){sessionMenu.after(controls);return;}
+    host.prepend(controls);return;
   }
-  head.append(button);
+  head.append(controls);
 }
 
 function bindDetectedBar(view,button){
@@ -22,19 +28,30 @@ function bindDetectedBar(view,button){
   button._detectedBarObserver=null;
   button._detectedBar=bar;
   if(bar){
-    const observer=new MutationObserver(()=>updateButton(view,button));
+    const observer=new MutationObserver(()=>updateClearButton(view,button));
     observer.observe(bar,{childList:true});
     button._detectedBarObserver=observer;
   }
   return bar;
 }
 
-function updateButton(view,button){
+function updateClearButton(view,button){
   const bar=bindDetectedBar(view,button);
   const hasFiles=Boolean(bar?.querySelector('.detected-ignore'));
   button.hidden=!hasFiles;
   button.disabled=!hasFiles;
   button.title=hasFiles?'Ignore toàn bộ file download đang được detect trong session này':'Không có file download để clear';
+}
+
+function updateToggle(view,button){
+  const api=globalThis.TaskMenuFileDetection;
+  const enabled=api?.isEnabled?.(view)!==false;
+  button.textContent=enabled?'Files: ON':'Files: OFF';
+  button.classList.toggle('off',!enabled);
+  button.setAttribute('aria-pressed',enabled?'true':'false');
+  button.title=enabled
+    ?'Đang theo dõi file download cho tab này. Bấm để tắt.'
+    :'Đã tắt theo dõi file download cho tab này. URL vẫn được detect. Bấm để bật lại.';
 }
 
 function clearDetectedFiles(view,button){
@@ -50,7 +67,7 @@ function clearDetectedFiles(view,button){
     if(!ignore)break;
     ignore.click();count++;
   }
-  updateButton(view,button);
+  updateClearButton(view,button);
   if(count){
     const old=button.textContent;button.textContent='Cleared '+count;
     setTimeout(()=>{if(button.isConnected)button.textContent=old;},1000);
@@ -60,22 +77,46 @@ function clearDetectedFiles(view,button){
 function install(view){
   if(!view?.pane||installed.has(view))return;
   installed.add(view);
-  const button=document.createElement('button');
-  button.className='detected-clear-all';
-  button.textContent='Clear files';
-  button.hidden=true;
-  button.onclick=()=>clearDetectedFiles(view,button);
-  placeButton(view,button);
+
+  const controls=document.createElement('span');
+  controls.className='detected-file-controls';
+  const toggle=document.createElement('button');
+  toggle.className='detected-files-toggle';
+  const clear=document.createElement('button');
+  clear.className='detected-clear-all';
+  clear.textContent='Clear files';
+  clear.hidden=true;
+  controls.append(toggle,clear);
+
+  toggle.onclick=()=>{
+    const api=globalThis.TaskMenuFileDetection;
+    if(!api?.setEnabled||!api?.isEnabled){app.showError(new Error('File detection control unavailable'));return;}
+    api.setEnabled(view,!api.isEnabled(view));
+    updateToggle(view,toggle);
+    updateClearButton(view,clear);
+  };
+  clear.onclick=()=>clearDetectedFiles(view,clear);
+  placeControls(view,controls);
 
   const paneObserver=new MutationObserver(()=>{
-    placeButton(view,button);
-    updateButton(view,button);
+    placeControls(view,controls);
+    updateToggle(view,toggle);
+    updateClearButton(view,clear);
   });
   paneObserver.observe(view.pane,{childList:true});
-  button._detectedFilesObserver=paneObserver;
-  updateButton(view,button);
+  controls._detectedFilesObserver=paneObserver;
+  updateToggle(view,toggle);
+  updateClearButton(view,clear);
 }
 
+window.addEventListener('taskmenu:file-detection-changed',event=>{
+  const view=event.detail?.view;
+  if(!view)return;
+  const toggle=view.pane?.querySelector('.detected-files-toggle');
+  const clear=view.pane?.querySelector('.detected-clear-all');
+  if(toggle)updateToggle(view,toggle);
+  if(clear)updateClearButton(view,clear);
+});
 window.addEventListener('taskmenu:session',event=>{
   const view=event.detail?.view;
   if(view)setTimeout(()=>install(view),0);
@@ -83,7 +124,7 @@ window.addEventListener('taskmenu:session',event=>{
 window.addEventListener('taskmenu:output',event=>{
   const view=event.detail?.view;
   if(!view)return;
-  const button=view.pane?.querySelector('.detected-clear-all');
-  if(button)setTimeout(()=>updateButton(view,button),260);
+  const clear=view.pane?.querySelector('.detected-clear-all');
+  if(clear)setTimeout(()=>updateClearButton(view,clear),260);
 });
 for(const view of app.views.values())install(view);
