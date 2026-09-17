@@ -25,12 +25,12 @@ function refresh(){
 }
 function change(){
   if(select.value!=='__custom__'){save(select.value);return;}
-  const value=window.prompt('Thư mục tương đối trong workspace cho terminal mới:',saved());if(value===null){refresh();return;}
-  const clean=normalizeCandidate(value);if(!clean){app.showError(new Error('Terminal cwd phải nằm trong workspace'));refresh();return;}save(clean);refresh();
+  const value=window.prompt('Relative workspace directory for new terminals:',saved());if(value===null){refresh();return;}
+  const clean=normalizeCandidate(value);if(!clean){app.showError(new Error('Terminal working directory must stay inside the workspace'));refresh();return;}save(clean);refresh();
 }
 function install(){
   if(select?.isConnected)return;const header=document.querySelector('header');if(!header)return;
-  select=document.createElement('select');select.id='terminal-cwd';select.title='Working directory cho terminal mới';select.onchange=change;
+  select=document.createElement('select');select.id='terminal-cwd';select.title='Working directory for new terminals';select.onchange=change;
   const open=document.querySelector('#open-terminal');header.insertBefore(select,open);refresh();
 }
 window.fetch=async function(input,init={}){
