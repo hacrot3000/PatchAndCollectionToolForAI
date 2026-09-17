@@ -11,7 +11,7 @@ style.textContent=`
 .self-update-overlay.visible{display:flex}
 .self-update-dialog{width:min(560px,96vw);background:#171a20;border:1px solid #48515f;border-radius:10px;box-shadow:0 18px 55px rgba(0,0,0,.5);padding:18px}
 .self-update-dialog h3{margin:0 0 8px;font-size:16px}.self-update-dialog p{margin:7px 0;line-height:1.45}.self-update-revision{font-family:ui-monospace,monospace;font-size:12px;opacity:.75;word-break:break-all}.self-update-status{margin-top:12px;padding:9px 10px;border-radius:6px;background:#0d1117;border:1px solid #30343b;font-size:12px;white-space:pre-wrap}.self-update-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.self-update-confirm{background:#24472f;border-color:#3b7850}.self-update-cancel{background:#3b2528;border-color:#684047}.self-update-error{color:#ff8994}
-html[data-taskmenu-theme="light"] .self-update-dialog{background:#fff;border-color:#b9c0c8}.self-update-status{background:#f5f6f8}
+html[data-taskmenu-theme="light"] .self-update-dialog{background:#fff;border-color:#b9c0c8}html[data-taskmenu-theme="light"] .self-update-status{background:#f5f6f8;border-color:#c8ced6}
 `;
 document.head.append(style);
 
@@ -42,7 +42,7 @@ function show(req){
   const waiting=req.status==='awaiting_confirmation';
   actions.style.display=waiting?'flex':'none';
   intro.textContent=waiting
-    ?'Có bản mới của VS Code Tasks Menu. Terminal layout/CWD sẽ được lưu trước khi cập nhật. Daemon sẽ cố giữ nguyên URL và port hiện tại.'
+    ?'Có bản mới của VS Code Tasks Menu. Terminal tabs, thứ tự, CWD và split layout sẽ được lưu trước khi cập nhật. Daemon sẽ cố giữ nguyên URL/port; tiến trình task đang chạy không thể được nối lại sau khi thay daemon.'
     :'Đang cập nhật. Trang này sẽ tự kết nối lại khi daemon mới sẵn sàng.';
 }
 function hide(){overlay.classList.remove('visible');currentID='';}
@@ -86,7 +86,6 @@ async function poll(){
     if(req.status==='failed'){show(req);actions.style.display='none';return;}
     show(req);
   }catch(e){
-    // During socket handoff the old HTTP server may disappear for a short time.
     if(currentID){overlay.classList.add('visible');status.textContent='Đang chờ daemon mới khởi động…';actions.style.display='none';}
   }
 }
