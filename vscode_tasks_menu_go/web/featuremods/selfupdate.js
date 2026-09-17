@@ -45,8 +45,8 @@ function show(req){
   const waiting=req.status==='awaiting_confirmation';
   actions.style.display=waiting?'flex':'none';
   intro.textContent=waiting
-    ?'Có bản mới của VS Code Tasks Menu. Terminal tabs, thứ tự, CWD và split layout sẽ được lưu trước khi cập nhật. Daemon sẽ cố giữ nguyên URL/port; tiến trình task đang chạy không thể được nối lại sau khi thay daemon.'
-    :'Đang cập nhật. Trang này sẽ tự kết nối lại khi daemon mới sẵn sàng.';
+    ?'A new VS Code Tasks Menu version is available. Terminal tabs, order, CWD, and split layout will be saved before updating. The daemon will try to keep the same URL and port; running task processes cannot be reattached after the daemon is replaced.'
+    :'Updating. This page will reconnect automatically when the new daemon is ready.';
 }
 function hide(){overlay.classList.remove('visible');currentID='';}
 
@@ -101,7 +101,7 @@ async function poll(){
     if(req.status==='failed'){resumeTerminalPersistence();show(req);actions.style.display='none';return;}
     show(req);
   }catch(e){
-    if(currentID){overlay.classList.add('visible');status.textContent='Đang chờ daemon mới khởi động…';actions.style.display='none';}
+    if(currentID){overlay.classList.add('visible');status.textContent='Waiting for the new daemon to start…';actions.style.display='none';}
   }
 }
 
