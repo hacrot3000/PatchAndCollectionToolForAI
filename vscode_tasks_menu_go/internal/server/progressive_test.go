@@ -65,7 +65,7 @@ func TestProgressiveFeaturesConsoleFindAndSaveLog(t *testing.T) {
 		"function findInConsole",
 		"term.scrollToLine",
 		"term.select",
-		"Save log",
+		"💾 Save console log",
 		"new Blob([text",
 		"safeLogName(view)",
 		"e.key.toLowerCase()!=='f'",
