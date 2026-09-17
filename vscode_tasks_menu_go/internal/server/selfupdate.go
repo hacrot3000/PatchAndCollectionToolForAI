@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	updater "bletonfc/vscode_tasks_menu/internal/selfupdate"
 )
@@ -107,6 +108,10 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "id": req.ID})
 		go func() {
+			// Let net/http flush the Accepted response before the callback closes
+			// the listener. Otherwise the CLI can misread a successful handoff as
+			// a connection reset and start a duplicate fallback restart.
+			time.Sleep(120 * time.Millisecond)
 			if err := fn(req.ID); err != nil {
 				_, _ = updater.Update(s.Workspace, req.ID, "failed", "Daemon handoff thất bại.", "", err.Error())
 			}
