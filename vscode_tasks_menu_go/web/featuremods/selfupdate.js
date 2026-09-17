@@ -34,6 +34,9 @@ function clearUpdatedQuery(){
 }
 const arrivingID=updatedQueryID();if(arrivingID){try{sessionStorage.setItem(completedMarker(arrivingID),'1');}catch{}clearUpdatedQuery();}
 
+function terminalRestore(){return globalThis.TaskMenuTerminalRestore;}
+function resumeTerminalPersistence(){terminalRestore()?.resumeAfterSelfUpdate?.();}
+
 function show(req){
   currentID=req.id||'';overlay.classList.add('visible');
   revision.textContent=req.revision?'Revision: '+req.revision:'';
@@ -54,15 +57,21 @@ async function postAction(action,id){
 confirm.onclick=async()=>{
   if(!currentID)return;
   confirm.disabled=true;cancel.disabled=true;
+  let frozen=false;
   try{
-    await globalThis.TaskMenuTerminalRestore?.persistSnapshot?.();
+    const restore=terminalRestore();
+    if(restore?.freezeForSelfUpdate){await restore.freezeForSelfUpdate();frozen=true;}
+    else await restore?.persistSnapshot?.();
     const req=await postAction('confirm',currentID);show(req);
-  }catch(e){app.showError(e);confirm.disabled=false;cancel.disabled=false;}
+  }catch(e){
+    if(frozen)resumeTerminalPersistence();
+    app.showError(e);confirm.disabled=false;cancel.disabled=false;
+  }
 };
 cancel.onclick=async()=>{
   if(!currentID)return;
   cancel.disabled=true;confirm.disabled=true;
-  try{await postAction('cancel',currentID);hide();}catch(e){app.showError(e);cancel.disabled=false;confirm.disabled=false;}
+  try{await postAction('cancel',currentID);resumeTerminalPersistence();hide();}catch(e){app.showError(e);cancel.disabled=false;confirm.disabled=false;}
 };
 
 function redirectAfterUpdate(req){
@@ -87,9 +96,9 @@ async function poll(){
   try{
     const req=await app.jsonFetch(endpoint);
     if(!req||req.status==='idle'||!req.id){hide();return;}
-    if(req.status==='cancelled'){if(req.id===currentID)hide();return;}
+    if(req.status==='cancelled'){resumeTerminalPersistence();if(req.id===currentID)hide();return;}
     if(req.status==='completed'){show(req);redirectAfterUpdate(req);return;}
-    if(req.status==='failed'){show(req);actions.style.display='none';return;}
+    if(req.status==='failed'){resumeTerminalPersistence();show(req);actions.style.display='none';return;}
     show(req);
   }catch(e){
     if(currentID){overlay.classList.add('visible');status.textContent='Đang chờ daemon mới khởi động…';actions.style.display='none';}
