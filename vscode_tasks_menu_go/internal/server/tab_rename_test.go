@@ -15,7 +15,10 @@ func TestInlineTabTitleRename(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"Double-click để đổi tên tab",
-		"label.ondblclick",
+		"tabsHost.addEventListener('dblclick'",
+		"target?.closest('.tab[data-id]')",
+		"target?.closest('.status,.close')",
+		"app.views.get(tab.dataset.id||'')",
 		"beginInlineRename(view)",
 		"contentEditable='true'",
 		"e.key==='Enter'",
@@ -31,7 +34,10 @@ func TestInlineTabTitleRename(t *testing.T) {
 	if strings.Contains(js, "window.prompt(") {
 		t.Fatal("tab rename should use inline editing instead of window.prompt")
 	}
-	// The dblclick handler is intentionally installed for every tab. Only the
+	if strings.Contains(js, "label.ondblclick") {
+		t.Fatal("tab rename should use delegated dblclick so restored tabs cannot lose the handler")
+	}
+	// The dblclick handler is intentionally available for every tab. Only the
 	// legacy toolbar Rename button remains terminal-only.
 	if strings.Contains(js, "if(view.meta.task_id!==0)return;apply(view)") {
 		t.Fatal("double-click rename must not be restricted to terminal tabs")
