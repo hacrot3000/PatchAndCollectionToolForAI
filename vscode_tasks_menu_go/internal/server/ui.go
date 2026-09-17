@@ -11,12 +11,15 @@ func staticUI(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/", "/index.html":
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
 		_, _ = w.Write([]byte(indexHTML))
 	case "/app.css":
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
 		_, _ = w.Write([]byte(appCSS))
 	case "/app.js":
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
 		_, _ = w.Write([]byte(appJS))
 	case "/features.js":
 		serveEmbeddedAsset(w, "application/javascript; charset=utf-8", "features.js")
@@ -42,7 +45,7 @@ func serveEmbeddedAsset(w http.ResponseWriter, contentType, path string) {
 		return
 	}
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
 	_, _ = w.Write(data)
 }
 
