@@ -7,6 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	updater "bletonfc/vscode_tasks_menu/internal/selfupdate"
 )
 
 const (
@@ -151,9 +154,43 @@ func writeProjectTaskState(workspace string, state projectTaskState) error {
 	return os.Chmod(projectTaskStatePath(workspace), 0o600)
 }
 
+func terminalStateProtectedBySelfUpdate(workspace string) bool {
+	req, err := updater.Load(workspace)
+	if err != nil {
+		return false
+	}
+	switch req.Status {
+	case "confirmed", "downloading", "testing", "building", "installing", "ready_restart", "restarting":
+	default:
+		return false
+	}
+	stamp := strings.TrimSpace(req.ConfirmedAt)
+	if stamp == "" {
+		stamp = strings.TrimSpace(req.RequestedAt)
+	}
+	when, err := time.Parse(time.RFC3339, stamp)
+	if err != nil {
+		return false
+	}
+	age := time.Since(when)
+	return age >= -time.Minute && age <= 30*time.Minute
+}
+
 func (s *Server) taskState(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Query().Get("scope") {
 	case "terminals":
+		if r.Method == http.MethodPut && terminalStateProtectedBySelfUpdate(s.Workspace) {
+			// The confirmed snapshot is the recovery source for the replacement
+			// daemon. Ignore teardown writes from the old browser/daemon so a
+			// disappearing PTY set cannot overwrite it with an empty layout.
+			state, err := readProjectTerminalState(s.Workspace)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, state)
+			return
+		}
 		s.terminalState(w, r)
 		return
 	case "self-update":
