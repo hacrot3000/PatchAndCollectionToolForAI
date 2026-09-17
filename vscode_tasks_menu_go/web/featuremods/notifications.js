@@ -13,7 +13,7 @@ let button=null;
 function installButton(){
   if(button?.isConnected)return;
   const header=document.querySelector('header');if(!header)return;
-  button=document.createElement('button');button.id='notifications-toggle';button.title='Desktop notification khi task hoàn tất';button.onclick=toggleNotifications;
+  button=document.createElement('button');button.id='notifications-toggle';button.title='Desktop notification when a task finishes';button.onclick=toggleNotifications;
   const reload=document.querySelector('#reload');if(reload)header.insertBefore(button,reload);else header.append(button);updateButton();
 }
 function updateButton(){if(!button)return;button.textContent=buttonLabel();button.disabled=supportState()==='unsupported';}
