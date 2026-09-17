@@ -17,10 +17,14 @@ func TestInlineTabTitleRename(t *testing.T) {
 		"Double-click to rename this tab",
 		"tabsHost.addEventListener('dblclick'",
 		"target?.closest('.tab[data-id]')",
-		"target?.closest('.status,.close')",
+		"target?.closest('.close')",
 		"app.views.get(tab.dataset.id||'')",
 		"beginInlineRename(view)",
 		"contentEditable='true'",
+		"tab-renaming",
+		".tab.tab-renaming .status{display:none}",
+		"view.tab.classList.add('tab-renaming')",
+		"view.tab.classList.remove('tab-renaming')",
 		"e.key==='Enter'",
 		"e.key==='Escape'",
 		"label.onblur=()=>finish(true)",
@@ -30,6 +34,9 @@ func TestInlineTabTitleRename(t *testing.T) {
 		if !strings.Contains(js, want) {
 			t.Fatalf("rename.js missing %q", want)
 		}
+	}
+	if strings.Contains(js, "target?.closest('.status,.close')") {
+		t.Fatal("running status must remain a valid double-click rename target")
 	}
 	if strings.Contains(js, "window.prompt(") {
 		t.Fatal("tab rename should use inline editing instead of window.prompt")
