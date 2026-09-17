@@ -14,7 +14,8 @@ func TestSelfUpdateBrowserWorkflow(t *testing.T) {
 	for _, want := range []string{
 		"/api/state/tasks?scope=self-update",
 		"Update now",
-		"TaskMenuTerminalRestore?.persistSnapshot",
+		"freezeForSelfUpdate",
+		"resumeAfterSelfUpdate",
 		"action='+encodeURIComponent(action)",
 		"postAction('ack',req.id)",
 		"awaiting_confirmation",
@@ -35,7 +36,10 @@ func TestSelfUpdateBrowserWorkflow(t *testing.T) {
 	}
 	terminalRestore, err := webassets.Files.ReadFile("featuremods/terminalrestore.js")
 	if err != nil { t.Fatal(err) }
-	if !strings.Contains(string(terminalRestore), "TaskMenuTerminalRestore={persistSnapshot,snapshotPayload}") {
-		t.Fatal("terminal restore must expose immediate snapshot for self update")
+	restoreJS := string(terminalRestore)
+	for _, want := range []string{"TaskMenuTerminalRestore=", "persistSnapshot", "snapshotPayload", "freezeForSelfUpdate", "resumeAfterSelfUpdate"} {
+		if !strings.Contains(restoreJS, want) {
+			t.Fatalf("terminal restore API missing %q", want)
+		}
 	}
 }
