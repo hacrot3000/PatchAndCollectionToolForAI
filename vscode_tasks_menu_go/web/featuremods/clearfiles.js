@@ -15,8 +15,22 @@ function placeButton(view,button){
   head.append(button);
 }
 
+function bindDetectedBar(view,button){
+  const bar=view?.pane?.querySelector('.detected-actions')||null;
+  if(button._detectedBar===bar)return bar;
+  button._detectedBarObserver?.disconnect();
+  button._detectedBarObserver=null;
+  button._detectedBar=bar;
+  if(bar){
+    const observer=new MutationObserver(()=>updateButton(view,button));
+    observer.observe(bar,{childList:true});
+    button._detectedBarObserver=observer;
+  }
+  return bar;
+}
+
 function updateButton(view,button){
-  const bar=view?.pane?.querySelector('.detected-actions');
+  const bar=bindDetectedBar(view,button);
   const hasFiles=Boolean(bar?.querySelector('.detected-ignore'));
   button.hidden=!hasFiles;
   button.disabled=!hasFiles;
@@ -24,7 +38,7 @@ function updateButton(view,button){
 }
 
 function clearDetectedFiles(view,button){
-  const bar=view?.pane?.querySelector('.detected-actions');
+  const bar=bindDetectedBar(view,button);
   if(!bar)return;
   // Ignore is the source of truth for this session. Clicking the existing
   // handler also persists the ignored path in sessionStorage, so a later scan
@@ -53,12 +67,12 @@ function install(view){
   button.onclick=()=>clearDetectedFiles(view,button);
   placeButton(view,button);
 
-  const observer=new MutationObserver(()=>{
+  const paneObserver=new MutationObserver(()=>{
     placeButton(view,button);
     updateButton(view,button);
   });
-  observer.observe(view.pane,{childList:true});
-  button._detectedFilesObserver=observer;
+  paneObserver.observe(view.pane,{childList:true});
+  button._detectedFilesObserver=paneObserver;
   updateButton(view,button);
 }
 
