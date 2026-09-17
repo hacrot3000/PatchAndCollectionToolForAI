@@ -20,7 +20,8 @@ const (
 )
 
 type terminalStateItem struct {
-	Cwd string `json:"cwd"`
+	SessionID string `json:"session_id,omitempty"`
+	Cwd       string `json:"cwd"`
 }
 
 type terminalSplitState struct {
@@ -66,7 +67,7 @@ type terminalRestoreResponse struct {
 }
 
 func defaultProjectTerminalState() projectTerminalState {
-	return projectTerminalState{Version: 2, Terminals: []terminalStateItem{}, ActiveIndex: -1, Splits: []terminalSplitState{}}
+	return projectTerminalState{Version: 3, Terminals: []terminalStateItem{}, ActiveIndex: -1, Splits: []terminalSplitState{}}
 }
 
 func projectTerminalStatePath(workspace string) string {
@@ -93,6 +94,17 @@ func normalizeSplitRatio(value float64) float64 {
 	return value
 }
 
+func normalizeTerminalSessionID(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.ContainsRune(value, '\x00') {
+		return ""
+	}
+	if len(value) > 160 {
+		value = value[:160]
+	}
+	return value
+}
+
 func normalizeProjectTerminalState(value projectTerminalState) projectTerminalState {
 	out := defaultProjectTerminalState()
 	for _, item := range value.Terminals {
@@ -103,7 +115,7 @@ func normalizeProjectTerminalState(value projectTerminalState) projectTerminalSt
 		if len(cwd) > 4096 {
 			cwd = cwd[:4096]
 		}
-		out.Terminals = append(out.Terminals, terminalStateItem{Cwd: cwd})
+		out.Terminals = append(out.Terminals, terminalStateItem{SessionID: normalizeTerminalSessionID(item.SessionID), Cwd: cwd})
 		if len(out.Terminals) == projectTerminalMaxTabs {
 			break
 		}
@@ -264,7 +276,7 @@ func (s *Server) captureTerminalState(req terminalSnapshotRequest) (projectTermi
 			continue
 		}
 		indexByID[id] = len(value.Terminals)
-		value.Terminals = append(value.Terminals, terminalStateItem{Cwd: cwd})
+		value.Terminals = append(value.Terminals, terminalStateItem{SessionID: id, Cwd: cwd})
 		if len(value.Terminals) == projectTerminalMaxTabs {
 			break
 		}
@@ -325,7 +337,7 @@ func (s *Server) restoreTerminalState() (terminalRestoreResponse, error) {
 		specs = append(specs, restoreTerminalSpec{spec: spec, warning: warning})
 	}
 	started := make([]string, 0, len(specs))
-	for _, item := range specs {
+	for i, item := range specs {
 		meta, err := s.Sessions.Start(item.spec)
 		if err != nil {
 			for _, id := range started {
@@ -335,11 +347,29 @@ func (s *Server) restoreTerminalState() (terminalRestoreResponse, error) {
 		}
 		started = append(started, meta.ID)
 		resp.Sessions = append(resp.Sessions, meta)
+		value.Terminals[i].SessionID = meta.ID
 		if item.warning != "" {
 			resp.Warnings = append(resp.Warnings, item.warning)
 		}
 	}
+	if err := writeProjectTerminalState(s.Workspace, value); err != nil {
+		for _, id := range started {
+			_ = s.Sessions.Stop(id)
+		}
+		return terminalRestoreResponse{}, fmt.Errorf("persist restored terminal ids: %w", err)
+	}
 	return resp, nil
+}
+
+// RestoreProjectTerminalsForStartup recreates the saved terminal PTYs before a
+// replacement daemon advertises self-update completion. It is safe only while
+// the session manager does not yet contain terminal sessions.
+func (s *Server) RestoreProjectTerminalsForStartup() (int, []string, error) {
+	resp, err := s.restoreTerminalState()
+	if err != nil {
+		return 0, nil, err
+	}
+	return len(resp.Sessions), append([]string(nil), resp.Warnings...), nil
 }
 
 type restoreTerminalSpec struct {
