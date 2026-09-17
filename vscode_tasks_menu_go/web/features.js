@@ -41,6 +41,51 @@ function saveIgnored(state){
   catch(e){console.warn('Cannot persist ignored detected files',e);}
 }
 
+function gitExecutable(value){
+  const token=String(value||'').trim().replace(/^['"]|['"]$/g,'');
+  return token==='git'||token.endsWith('/git');
+}
+function shellAssignment(token){return /^[A-Za-z_][A-Za-z0-9_]*=/.test(token);}
+function standaloneGitCommand(line){
+  const text=String(line||'').trim();
+  if(!text||/&&|\|\||[;|]/.test(text))return false;
+  const tokens=text.split(/\s+/).filter(Boolean);let i=0;
+  while(i<tokens.length&&shellAssignment(tokens[i]))i++;
+  if(tokens[i]==='command'||tokens[i]==='builtin')i++;
+  if(tokens[i]==='sudo'){
+    i++;
+    while(i<tokens.length&&tokens[i].startsWith('-'))i++;
+  }
+  if(tokens[i]==='env'){
+    i++;
+    while(i<tokens.length&&(tokens[i].startsWith('-')||shellAssignment(tokens[i])))i++;
+  }
+  return gitExecutable(tokens[i]);
+}
+function taskUsesGit(view){
+  if(!view?.meta?.task_id||!app.taskData)return false;
+  const task=app.taskData.tasks.find(item=>item.id===view.meta.task_id);if(!task)return false;
+  if((task.group||[]).some(group=>String(group).toLowerCase()==='git'))return true;
+  if(typeof task.command==='string'&&gitExecutable(task.command))return true;
+  for(const arg of Array.isArray(task.args)?task.args:[]){
+    if(typeof arg==='string'&&/^\s*(?:sudo\s+|command\s+)?(?:\/\S*\/)?git(?:\s|$)/.test(arg))return true;
+  }
+  return false;
+}
+function beginGitOutputSuppression(state){
+  state.suppressGitOutput=true;
+  state.recent='';
+  clearTimeout(state.timer);
+  state.seq++;
+}
+function endGitOutputSuppression(state){
+  if(!state.suppressGitOutput)return;
+  state.suppressGitOutput=false;
+  state.recent='';
+  clearTimeout(state.timer);
+  state.seq++;
+}
+
 function stateFor(view){
   let state=states.get(view.meta.id);
   if(state)return state;
@@ -48,7 +93,7 @@ function stateFor(view){
   bar.className='detected-actions';
   const head=view.pane.querySelector('.pane-head');
   head.after(bar);
-  state={view,bar,recent:'',timer:null,seq:0,files:new Map(),urls:new Map(),ignored:loadIgnored(view),inputBuffer:'',inputLines:[],inputDisposable:null};
+  state={view,bar,recent:'',timer:null,seq:0,files:new Map(),urls:new Map(),ignored:loadIgnored(view),inputBuffer:'',inputLines:[],inputDisposable:null,suppressGitOutput:false,gitTaskOutput:taskUsesGit(view)};
   states.set(view.meta.id,state);
   state.inputDisposable=view.term.onData(data=>captureUserInput(state,data));
   return state;
@@ -60,6 +105,8 @@ function commitUserInput(state){
   if(!line)return;
   state.inputLines.push(line);
   if(state.inputLines.length>64)state.inputLines.splice(0,state.inputLines.length-64);
+  if(standaloneGitCommand(line))beginGitOutputSuppression(state);
+  else endGitOutputSuppression(state);
 }
 
 function captureUserInput(state,data){
@@ -67,7 +114,12 @@ function captureUserInput(state,data){
     if(ch==='\r'||ch==='\n'){commitUserInput(state);continue;}
     if(ch==='\x7f'||ch==='\b'){state.inputBuffer=state.inputBuffer.slice(0,-1);continue;}
     if(ch==='\x1b')continue;
-    if(ch>=' ')state.inputBuffer=(state.inputBuffer+ch).slice(-4096);
+    if(ch>=' '){
+      // A printable character after a completed Git command starts the next
+      // interactive command. Re-enable detection before its output arrives.
+      endGitOutputSuppression(state);
+      state.inputBuffer=(state.inputBuffer+ch).slice(-4096);
+    }
   }
   render(state);
 }
@@ -172,6 +224,7 @@ function render(state){
 
 function scheduleScan(view,text){
   const state=stateFor(view);
+  if(state.gitTaskOutput||state.suppressGitOutput)return;
   state.recent=(state.recent+text).slice(-131072);
   for(const url of detectURLs(text))remember(state.urls,url,url);
   render(state);
@@ -181,8 +234,9 @@ function scheduleScan(view,text){
 
 async function scanFiles(state,seq){
   try{
+    if(state.gitTaskOutput||state.suppressGitOutput)return;
     const data=await app.jsonFetch('/api/files/selection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:state.recent})});
-    if(seq!==state.seq||state.view.closed)return;
+    if(seq!==state.seq||state.view.closed||state.gitTaskOutput||state.suppressGitOutput)return;
     for(const file of data.files||[]){
       if(state.ignored.has(file.path)||userTypedFile(state,file.path))continue;
       remember(state.files,file.path,file,32);
@@ -192,6 +246,8 @@ async function scanFiles(state,seq){
 }
 
 function scanExisting(view){
+  const state=stateFor(view);
+  if(state.gitTaskOutput)return;
   const text=app.consoleText(view);
   if(text)scheduleScan(view,text.slice(-131072));
 }
