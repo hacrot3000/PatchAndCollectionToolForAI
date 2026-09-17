@@ -16,6 +16,7 @@ func TestSelfUpdateBrowserWorkflow(t *testing.T) {
 		"Update now",
 		"TaskMenuTerminalRestore?.persistSnapshot",
 		"action='+encodeURIComponent(action)",
+		"postAction('ack',req.id)",
 		"awaiting_confirmation",
 		"completed",
 		"failed",
