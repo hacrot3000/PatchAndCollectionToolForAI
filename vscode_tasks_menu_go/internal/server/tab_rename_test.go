@@ -1,0 +1,47 @@
+package server
+
+import (
+	"strings"
+	"testing"
+
+	webassets "bletonfc/vscode_tasks_menu/web"
+)
+
+func TestInlineTabTitleRename(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/rename.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"Double-click để đổi tên tab",
+		"label.ondblclick",
+		"beginInlineRename(view)",
+		"contentEditable='true'",
+		"e.key==='Enter'",
+		"e.key==='Escape'",
+		"label.onblur=()=>finish(true)",
+		"vscode-tasks-menu:tab-title:",
+		"vscode-tasks-menu:terminal-title:",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("rename.js missing %q", want)
+		}
+	}
+	if strings.Contains(js, "window.prompt(") {
+		t.Fatal("tab rename should use inline editing instead of window.prompt")
+	}
+	// The dblclick handler is intentionally installed for every tab. Only the
+	// legacy toolbar Rename button remains terminal-only.
+	if strings.Contains(js, "if(view.meta.task_id!==0)return;apply(view)") {
+		t.Fatal("double-click rename must not be restricted to terminal tabs")
+	}
+
+	loader, err := webassets.Files.ReadFile("featuremods/next.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(loader), "import '/featuremods/rename.js';") {
+		t.Fatal("next.js must load rename.js")
+	}
+}
