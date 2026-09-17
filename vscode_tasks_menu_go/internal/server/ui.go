@@ -59,7 +59,7 @@ func serveEmbeddedAsset(w http.ResponseWriter, contentType, path string) {
 }
 
 const indexHTML = `<!doctype html>
-<html lang="vi">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -68,7 +68,7 @@ const indexHTML = `<!doctype html>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <header><strong>VS CODE TASKS</strong><span id="workspace"></span><button id="open-terminal" title="Mở shell tương tác tại thư mục gốc project">Open Terminal</button><button id="edit-title" title="Đổi tiêu đề tab trình duyệt">Edit title</button><button id="reload">Reload tasks.json</button></header>
+  <header><strong>VS CODE TASKS</strong><span id="workspace"></span><button id="open-terminal" title="Open an interactive shell at the project root">Open Terminal</button><button id="edit-title" title="Edit the browser page title">Edit title</button><button id="reload">Reload tasks.json</button></header>
   <main><aside id="menu"></aside><section><div id="tabs"></div><div id="panes"></div></section></main>
   <script src="/vendor/xterm.js"></script>
   <script src="/vendor/addon-fit.js"></script>
@@ -111,13 +111,13 @@ function restorePageTitle(){
 
 function editPageTitle(){
   const current=document.title===defaultPageTitle?'':document.title;
-  const value=window.prompt('Page title (để trống để dùng mặc định):',current);
+  const value=window.prompt('Page title (leave blank to use the default):',current);
   if(value===null)return;
   const title=value.trim();
   try{
     if(title)localStorage.setItem(pageTitleStorageKey(),title);
     else localStorage.removeItem(pageTitleStorageKey());
-  }catch(e){throw new Error('Không thể lưu page title: '+e.message);}
+  }catch(e){throw new Error('Cannot save page title: '+e.message);}
   document.title=title||defaultPageTitle;
 }
 
@@ -189,7 +189,7 @@ function attach(meta,activate){
   const download=document.createElement('button');download.className='download';download.textContent='Download';download.hidden=true;
   const stop=document.createElement('button');stop.className='stop';stop.textContent='Stop';
   stop.onclick=async()=>{try{updateMeta(await jsonFetch('/api/sessions/'+meta.id+'/stop',{method:'POST'}));}catch(e){showError(e);}};
-  const copy=document.createElement('button');copy.className='copy-console';copy.textContent='Copy console';copy.title='Sao chép toàn bộ nội dung console';
+  const copy=document.createElement('button');copy.className='copy-console';copy.textContent='📋 Copy console';copy.title='Copy the entire console output';
   copy.onclick=()=>copyConsole(view).catch(showError);
   head.append(cmd,downloadSelect,download,stop,copy);
   const terminalHost=document.createElement('div');terminalHost.className='terminal';
@@ -230,7 +230,7 @@ function updateDownloadButton(view){
   const idx=view.downloadSelect.hidden?0:Number(view.downloadSelect.value||0);
   const file=view.downloadFiles[idx]||view.downloadFiles[0];
   view.download.textContent=view.downloadFiles.length>1?'Download ('+view.downloadFiles.length+')':'Download';
-  view.download.title=file?.path?'Tải '+file.path:'Tải file đã chọn';
+  view.download.title=file?.path?'Download '+file.path:'Download the selected file';
 }
 
 function downloadSelectedFile(view){
@@ -260,7 +260,7 @@ function consoleText(view){
 
 async function copyConsole(view){
   const text=consoleText(view);
-  if(!text){showCopyFeedback(view,'Console trống');return;}
+  if(!text){showCopyFeedback(view,'Console is empty');return;}
   let copied=false;
   if(navigator.clipboard&&window.isSecureContext){
     try{await navigator.clipboard.writeText(text);copied=true;}catch{}
@@ -271,13 +271,13 @@ async function copyConsole(view){
     document.body.append(area);area.select();
     try{copied=document.execCommand('copy');}finally{area.remove();}
   }
-  if(!copied)throw new Error('Không thể sao chép console vào clipboard');
-  showCopyFeedback(view,'Copied');
+  if(!copied)throw new Error('Cannot copy console to clipboard');
+  showCopyFeedback(view,'✓ Copied');
 }
 
 function showCopyFeedback(view,label){
   clearTimeout(view.copyTimer);view.copy.textContent=label;
-  view.copyTimer=setTimeout(()=>{if(!view.closed)view.copy.textContent='Copy console';},1200);
+  view.copyTimer=setTimeout(()=>{if(!view.closed)view.copy.textContent='📋 Copy console';},1200);
 }
 
 function scheduleSelectionScan(view){
@@ -345,7 +345,7 @@ function updateMeta(meta){
   const view=views.get(meta.id);if(!view)return;
   view.meta=meta;view.status.textContent=meta.status+(meta.exit_code!=null?' '+meta.exit_code:'');
   view.stop.textContent=meta.task_id===0?'Close terminal':'Stop';
-  view.stop.title=meta.task_id===0?'Đóng terminal và các tiến trình đang chạy trong terminal':'Dừng task';
+  view.stop.title=meta.task_id===0?'Close the terminal and its running processes':'Stop task';
   view.stop.disabled=meta.status!=='running';
   window.dispatchEvent(new CustomEvent('taskmenu:session',{detail:{view,meta}}));
 }
