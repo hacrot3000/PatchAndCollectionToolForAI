@@ -65,6 +65,16 @@ func Load(workspace string) (State, error) {
 
 func Remove(workspace string) { _ = os.Remove(Path(workspace)) }
 
+// RemoveIfPID prevents an older daemon from deleting server.json after a
+// replacement daemon has already completed a zero-port-change handoff.
+func RemoveIfPID(workspace string, pid int) {
+	s, err := Load(workspace)
+	if err != nil || s.PID != pid {
+		return
+	}
+	_ = os.Remove(Path(workspace))
+}
+
 func Healthy(s State) bool {
 	healthURL := s.HealthURL
 	if healthURL == "" {
