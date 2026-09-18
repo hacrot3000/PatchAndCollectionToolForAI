@@ -106,3 +106,22 @@ func TestEditorTabContextMenuUsesEditorOnlyActions(t *testing.T) {
 		}
 	}
 }
+
+
+func TestTabDragInstallsForExternalEditorTabs(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/tabdrag.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"window.addEventListener('taskmenu:view-activated'",
+		"event.detail?.kind!=='external'",
+		"node.dataset.id===id",
+		"if(tab)installTab(tab)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("tabdrag.js missing external/editor tab install behavior %q", want)
+		}
+	}
+}
