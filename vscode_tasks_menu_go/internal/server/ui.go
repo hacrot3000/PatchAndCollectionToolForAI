@@ -89,6 +89,8 @@ const FitAddonCtor=globalThis.FitAddon?.FitAddon;
 if(!TerminalCtor||!FitAddonCtor)throw new Error('Embedded xterm assets did not load');
 
 const defaultPageTitle='VS Code Tasks Menu';
+const layoutProfile=(matchMedia('(pointer: coarse)').matches||matchMedia('(max-width: 900px)').matches)?'mobile':'desktop';
+document.documentElement.dataset.taskmenuLayout=layoutProfile;
 const menu=document.querySelector('#menu');
 const tabs=document.querySelector('#tabs');
 const panes=document.querySelector('#panes');
@@ -467,6 +469,7 @@ globalThis.TaskMenuApp={
   get active(){return active;},
   get browserLease(){return browserLease;},
   get browserLeaseLost(){return browserLeaseLost;},
+  get layoutProfile(){return layoutProfile;},
   views,jsonFetch,showError,consoleText,startTask,startTerminal,activateView,activateExternalView,loadTasks,syncSessions,attachSession:attach,addOutputFilter
 };
 document.querySelector('#open-terminal').onclick=()=>startTerminal().catch(showError);
