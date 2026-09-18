@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"bletonfc/vscode_tasks_menu/internal/config"
 	"bletonfc/vscode_tasks_menu/internal/session"
@@ -24,6 +25,10 @@ type Server struct {
 	Config    config.Config
 	Log       *log.Logger
 	Sessions  session.Service
+
+	projectIndexMu         sync.Mutex
+	projectIndex           *projectFileIndex
+	projectIndexRefreshing bool
 }
 
 func (s *Server) Handler() http.Handler {
@@ -40,6 +45,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/files/upload", s.fileUpload)
 	mux.HandleFunc("/api/project/tree", s.projectTree)
 	mux.HandleFunc("/api/project/file", s.projectFile)
+	mux.HandleFunc("/api/project/files/search", s.projectFileSearch)
 	mux.HandleFunc("/api/sessions/force-kill", s.sessionForceKill)
 	mux.HandleFunc("/api/sessions/clear-console", s.sessionClearConsole)
 	mux.HandleFunc("/api/sessions", s.sessionsRoot)
