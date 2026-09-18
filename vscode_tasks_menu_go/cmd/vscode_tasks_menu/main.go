@@ -81,7 +81,7 @@ func main() {
 	defer startLock.Close()
 
 	if *reloadConfigFlag {
-		fatalIf(reloadDaemonConfig(ws, cfgPath))
+		fatalIf(reloadDaemonConfig(ws, cfg, cfgPath))
 		return
 	}
 	if *statusOnly {
@@ -392,7 +392,7 @@ func startDaemonWithOptions(ws, listenAddr, updateID string) error {
 	return logFile.Close()
 }
 
-func reloadDaemonConfig(ws, cfgPath string) error {
+func reloadDaemonConfig(ws string, cfg config.Config, cfgPath string) error {
 	st, err := state.Load(ws)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -427,6 +427,7 @@ func reloadDaemonConfig(ws, cfgPath string) error {
 		return fmt.Errorf("reload config: %w", err)
 	}
 	fmt.Printf("Đã reload config: %s\n%s\n", cfgPath, next.URL)
+	printRemoteFirewallGuidance(os.Stdout, cfg, next.Address)
 	return nil
 }
 
