@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -106,5 +107,48 @@ func TestPinnedProjectFileAtomicWriteAndCommit(t *testing.T) {
 	}
 	if savedInfo.Mode().Perm() != 0o640 {
 		t.Fatalf("mode=%o want 640", savedInfo.Mode().Perm())
+	}
+}
+
+
+func TestPinnedProjectFilePreservesUserXattr(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "file.txt")
+	if err := os.WriteFile(path, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const name = "user.vscode_tasks_menu_test"
+	if err := syscall.Setxattr(path, name, []byte("keep"), 0); err != nil {
+		if err == syscall.ENOTSUP || err == syscall.EOPNOTSUPP || err == syscall.EPERM {
+			t.Skipf("user xattr unavailable: %v", err)
+		}
+		t.Fatal(err)
+	}
+	pinned, err := openProjectPinnedFile(root, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pinned.close()
+	_, info, err := pinned.readCurrent(projectEditableLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pinned.writeTemp([]byte("after\n"), info); err != nil {
+		t.Fatal(err)
+	}
+	if err := pinned.commitTemp(); err != nil {
+		t.Fatal(err)
+	}
+	size, err := syscall.Getxattr(path, name, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := make([]byte, size)
+	n, err := syscall.Getxattr(path, name, value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(value[:n]) != "keep" {
+		t.Fatalf("xattr=%q want keep", value[:n])
 	}
 }
