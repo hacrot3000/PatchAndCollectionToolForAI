@@ -111,15 +111,23 @@ async function toggleDirectory(pathValue){
 function openFile(pathValue){
   window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path:pathValue,source:'explorer'}}));
 }
+async function restoreExpandedDirectories(){
+  let changed=false;
+  const paths=[...expanded].sort((a,b)=>a.split('/').length-b.split('/').length||a.localeCompare(b));
+  for(const pathValue of paths){
+    if(loaded.has(pathValue))continue;
+    try{await loadDirectory(pathValue);}
+    catch{expanded.delete(pathValue);changed=true;}
+  }
+  if(changed)persistExpanded();
+}
 async function ensureRoot(force=false){
   if(force){loaded.clear();rootLoaded=false;showMessage('Loading…');}
   if(rootLoaded&&!force)return;
   try{
     await loadDirectory('',force);rootLoaded=true;render();
-    for(const pathValue of [...expanded]){
-      if(pathValue.includes('/'))continue;
-      if(!loaded.has(pathValue))loadDirectory(pathValue).then(()=>render()).catch(()=>{});
-    }
+    await restoreExpandedDirectories();
+    render();
   }catch(error){rootLoaded=false;showMessage('Explorer unavailable');throw error;}
 }
 function open(){
