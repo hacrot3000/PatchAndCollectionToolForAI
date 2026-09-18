@@ -36,31 +36,57 @@ vscode_tasks_menu --self-update
 
 ## Terminal/session khi update
 
-Self-update không cố giữ process PTY cũ sống xuyên qua binary replacement. Trước khi update, browser ghi ngay terminal project state hiện tại, gồm:
+Từ kiến trúc session broker, process/PTY không còn thuộc trực tiếp web daemon. Mỗi workspace có một **session broker process độc lập** giữ:
 
-- số terminal tab;
-- thứ tự tab;
-- CWD hiện tại của từng terminal;
-- active tab;
-- các split group, orientation và ratio.
+- process và process group của task/terminal;
+- PTY master;
+- session ID;
+- trạng thái running/exited/stopped;
+- scrollback;
+- CWD/runtime metadata.
 
-Daemon cũ shutdown các PTY trước khi kết thúc; daemon mới dùng project state để dựng lại terminal tabs. Console/scrollback cũ không cần được giữ.
+Web daemon chỉ kết nối tới broker qua Unix socket cục bộ. Vì vậy khi self-update thay binary và restart web daemon, broker vẫn tiếp tục chạy và **không nhận SIGINT/SIGHUP chỉ vì daemon được thay thế**.
 
-Task process đang chạy không được đảm bảo tiếp tục qua self-update. Nếu đang có task dài quan trọng, nên hoàn tất task trước khi xác nhận update.
+Luồng bình thường:
+
+```text
+running task / terminal
+    -> session broker vẫn sống
+    -> daemon cũ detach
+    -> daemon mới start
+    -> daemon mới reconnect broker
+    -> browser reload
+    -> attach lại cùng session_id
+```
+
+Do giữ nguyên session ID, browser có thể phục hồi lại tab/order/active tab/split state đang lưu. Output phát sinh trong lúc daemon đang được thay vẫn được broker đưa vào scrollback và replay sau khi reconnect.
+
+Browser vẫn snapshot project terminal state trước update để làm fallback cho trường hợp broker thực sự rỗng. Daemon mới **không recreate terminal** nếu broker đã còn session live; nó ưu tiên reconnect các session hiện hữu.
+
+### Giới hạn chuyển tiếp từ bản cũ
+
+Lần đầu nâng cấp từ một binary **pre-broker** sang bản có session broker là trường hợp đặc biệt: các process đã chạy trước lúc update vẫn do daemon cũ sở hữu, nên không thể chuyển ownership của PTY sang broker giữa chừng. Những process đó có thể mất trong chính lần chuyển tiếp đầu tiên.
+
+Sau khi đã chạy phiên bản broker, các task/terminal được tạo mới thuộc broker và các self-update tiếp theo có thể giữ chúng xuyên qua daemon replacement.
+
+### Fallback restart
+
+Updater ưu tiên theo thứ tự:
+
+```text
+listener FD handoff, broker giữ nguyên
+    -> broker-preserving daemon detach + restart cùng old Address
+    -> legacy daemon stop (last resort)
+    -> restart theo config hiện tại
+```
+
+Hai đường đầu không shutdown broker. Đường legacy stop chỉ còn là last resort nếu control path preserve-session không dùng được; trong trường hợp đó task đang chạy có thể bị dừng.
 
 ## Daemon và URL
 
 Trên Linux/macOS, TCP listener có thể được duplicate thành file descriptor và truyền cho daemon mới. Đây là đường ưu tiên vì nó giữ nguyên socket đang listen và do đó giữ nguyên port.
 
-Nếu handoff thất bại, updater fallback theo thứ tự:
-
-```text
-same listener FD
-    -> restart và bind lại old Address
-    -> restart theo config hiện tại
-```
-
-Nếu bước cuối chọn port khác, update state ghi `target_url`; browser đang mở tự redirect sang URL đó.
+Nếu listener handoff thất bại, updater trước tiên yêu cầu daemon cũ **detach nhưng giữ broker**, chờ daemon lock/state cũ được nhả rồi start binary mới trên old Address. Chỉ khi control path này cũng không hoạt động mới dùng legacy stop. Nếu bước cuối phải chọn port khác, update state ghi `target_url`; browser đang mở tự redirect sang URL đó.
 
 ## Khi không có daemon
 
