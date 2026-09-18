@@ -62,6 +62,63 @@ Mỗi group chọn một trong các preset màu nền/chữ có độ tương ph
 
 Mode, group definitions, preset màu và mapping `session_id -> group_id` được lưu atomic trong runtime state của workspace, nên reload browser và self-update giữ nguyên khi session ID được broker bảo toàn.
 
+### Preset command cho terminal
+
+Preset command chỉ xuất hiện trên **terminal tab** (`task_id == 0`). Click phải tab terminal sẽ có:
+
+```text
+Preset command ▶
+```
+
+Submenu hiển thị từng preset theo dạng:
+
+```text
+Tên preset — đoạn đầu của command thứ nhất
+```
+
+Ví dụ:
+
+```text
+Auto commit — git add .
+Deploy — ./scripts/deploy.sh
+```
+
+Chọn preset sẽ chạy các command **tuần tự trong chính shell terminal hiện tại**. Runner không spawn một shell riêng, vì vậy state như `cd` hoặc `export` của command có thể tiếp tục ảnh hưởng tới các command sau.
+
+Sau mỗi command, runner lấy exit code của chính shell và chỉ gửi command kế tiếp khi exit code bằng `0`. Nếu command trả khác `0`, session đóng, hoặc kết nối terminal bị mất thì preset dừng ngay và không gửi các command còn lại.
+
+Ví dụ:
+
+```text
+git add .
+git commit "Auto commit all"
+git push
+git status
+```
+
+Nếu `git push` trả exit code khác `0`, `git status` sẽ không được gửi.
+
+Runner hiện hỗ trợ terminal shell `bash/sh/zsh/dash/ksh/ash/fish`. Command được gửi trực tiếp qua WebSocket của terminal nguồn, không đi qua Broadcast All/Group, vì vậy chọn một preset không tự fan-out sang các tab khác.
+
+Submenu có **Manage presets…** để mở dialog riêng. Dialog hỗ trợ:
+
+- Add preset;
+- đổi tên preset;
+- Add/Remove từng command;
+- mỗi command là một textarea riêng nên có thể chứa nhiều dòng;
+- Save;
+- Delete preset;
+- Close;
+- cảnh báo trước khi bỏ các thay đổi chưa Save.
+
+Preset được lưu project-local tại:
+
+```text
+<workspace>/vscode_tasks_menu.presets.json
+```
+
+File được ghi atomic với quyền `0600`, nên preset vẫn còn sau browser reload, daemon restart, self-update và reboot miễn project/file còn tồn tại.
+
 ### Download file xuất hiện trong output
 
 Khi output của task in ra đường dẫn file, có thể dùng chuột **bôi chọn vùng text chứa path**. Web UI sẽ kiểm tra các path thật nằm trong vùng chọn:
