@@ -207,6 +207,11 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 		return handoffToUpdatedDaemon(ws, ln, id)
 	})
 	defer server.RegisterSelfUpdateHandoff(srv, nil)
+	server.RegisterSelfUpdateDetach(srv, func(id string) error {
+		logger.Printf("self-update detach=%s; preserving session broker", id)
+		return ln.Close()
+	})
+	defer server.RegisterSelfUpdateDetach(srv, nil)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
