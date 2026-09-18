@@ -171,6 +171,14 @@ func TestBrokerSessionSurvivesDaemonClientReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	const customTitle = "Long running OTA monitor"
+	renamed, err := first.SetTitle(meta.ID, customTitle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renamed.Title != customTitle {
+		t.Fatalf("broker did not store custom title: %#v", renamed)
+	}
 	backlog, stream, unsubscribe, err := first.Subscribe(meta.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -205,6 +213,9 @@ func TestBrokerSessionSurvivesDaemonClientReplacement(t *testing.T) {
 	}
 	if got.ID != meta.ID || got.Status != "running" {
 		t.Fatalf("preserved session changed across client replacement: %#v", got)
+	}
+	if got.Title != customTitle {
+		t.Fatalf("custom tab title lost across client replacement: got %q want %q", got.Title, customTitle)
 	}
 	replay, _, unsubscribe2, err := second.Subscribe(meta.ID)
 	if err != nil {
