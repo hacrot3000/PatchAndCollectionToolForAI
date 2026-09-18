@@ -167,3 +167,22 @@ func TestEditorShowsBackendFileWarnings(t *testing.T) {
 		}
 	}
 }
+
+
+func TestEditorWarnsBeforePageUnloadWhenDirty(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"window.addEventListener('beforeunload'",
+		"[...editors.values()].some(view=>!view.closed&&view.dirty)",
+		"event.preventDefault()",
+		"event.returnValue=''",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor beforeunload guard missing %q", want)
+		}
+	}
+}
