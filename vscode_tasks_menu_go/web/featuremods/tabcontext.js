@@ -203,6 +203,32 @@ function clampPosition(x,y){
   });
 }
 
+function openEditorContextMenu(view,x,y){
+  closeContextMenu();
+  addHeading('Editor');
+  const editor=globalThis.TaskMenuEditor;
+  const actions=[
+    {label:'Save',title:'Save file',disabled:Boolean(view.file?.read_only)||!view.dirty,run:()=>editor?.saveEditor?.(view)},
+    {label:'Reload',title:'Reload file from disk',run:()=>editor?.reloadEditor?.(view)},
+    {label:'Go to line…',title:'Go to a line in this file',run:()=>editor?.goToLine?.(view)},
+    {label:'Close',title:'Close editor tab',danger:true,run:()=>editor?.closeEditor?.(view.id)}
+  ];
+  for(const action of actions){
+    const item=document.createElement('button');
+    item.type='button';item.textContent=action.label;styleCustomItem(item,action);
+    item.onclick=event=>{
+      event.preventDefault();event.stopPropagation();
+      closeContextMenu();
+      if(view.closed||item.disabled)return;
+      editor?.activateEditor?.(view.id);
+      Promise.resolve(action.run()).catch(app.showError);
+    };
+    menu.append(item);
+  }
+  menu.classList.add('open');
+  clampPosition(x,y);
+}
+
 function openContextMenu(view,x,y){
   closeContextMenu();
   contextView=view;
@@ -235,10 +261,13 @@ tabsHost.addEventListener('contextmenu',event=>{
   const target=event.target instanceof Element?event.target:null;
   const tab=target?.closest('.tab[data-id]');
   if(!tab||!tabsHost.contains(tab))return;
-  const view=app.views.get(tab.dataset.id||'');
-  if(!view)return;
+  const id=tab.dataset.id||'';
+  const view=app.views.get(id);
+  const editorView=globalThis.TaskMenuEditor?.editors?.get(id);
+  if(!view&&!editorView)return;
   event.preventDefault();event.stopPropagation();
-  openContextMenu(view,event.clientX,event.clientY);
+  if(editorView)openEditorContextMenu(editorView,event.clientX,event.clientY);
+  else openContextMenu(view,event.clientX,event.clientY);
 },true);
 
 document.addEventListener('pointerdown',event=>{
