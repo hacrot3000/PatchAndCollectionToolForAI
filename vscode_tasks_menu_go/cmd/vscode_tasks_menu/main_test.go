@@ -147,3 +147,31 @@ func TestReloadConfigWhenDaemonIsNotRunningIsNoop(t *testing.T) {
 		t.Fatalf("reload without daemon: %v", err)
 	}
 }
+
+
+func TestRemoteFirewallGuidanceUsesActualBoundPort(t *testing.T) {
+	cfg := config.Default()
+	cfg.Bind = "0.0.0.0"
+	lines := remoteFirewallGuidance(cfg, "0.0.0.0:43127")
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"TCP port 43127",
+		"sudo ufw allow 43127/tcp",
+		"sudo firewall-cmd --permanent --add-port=43127/tcp",
+		"sudo firewall-cmd --reload",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("firewall guidance missing %q: %s", want, joined)
+		}
+	}
+}
+
+func TestRemoteFirewallGuidanceOnlyForWildcardIPv4Bind(t *testing.T) {
+	for _, bind := range []string{"127.0.0.1", "localhost", "::1", "::"} {
+		cfg := config.Default()
+		cfg.Bind = bind
+		if got := remoteFirewallGuidance(cfg, "127.0.0.1:43127"); len(got) != 0 {
+			t.Fatalf("bind=%q unexpectedly produced firewall guidance: %#v", bind, got)
+		}
+	}
+}
