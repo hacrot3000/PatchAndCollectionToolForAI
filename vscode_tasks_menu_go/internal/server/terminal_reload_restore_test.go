@@ -14,7 +14,8 @@ func TestTerminalReloadRestoresSavedOrderAndSplits(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		"liveIDsFromSaved(saved,existing)",
+		"layoutIDsFromSaved(saved,existing)",
+		"savedTerminalIDs(saved)",
 		"session_id",
 		"applySavedLayout(saved,ids",
 		"restoreProjectGroups",
