@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	projectContentSearchDefaultLimit = 100
-	projectContentSearchMaxLimit     = 200
-	projectContentSearchMaxLineBytes = 256 << 10
+	projectContentSearchDefaultLimit    = 100
+	projectContentSearchMaxLimit        = 200
+	projectContentSearchMaxLineBytes    = 256 << 10
+	projectContentSearchMaxPreviewBytes = 4 << 10
 )
 
 type projectContentSearchResult struct {
@@ -139,13 +140,15 @@ func searchProjectContentRG(parent context.Context, rg, root, query string, limi
 		if rel == "" {
 			continue
 		}
-		column := 1
+		lineText := strings.TrimRight(event.Data.Lines.Text, "\r\n")
+		matchStart := 0
 		if len(event.Data.Submatches) > 0 {
-			column = event.Data.Submatches[0].Start + 1
+			matchStart = event.Data.Submatches[0].Start
 		}
 		results = append(results, projectContentSearchResult{
-			Path: rel, Line: event.Data.LineNumber, Column: column,
-			Preview: strings.TrimRight(event.Data.Lines.Text, "\r\n"),
+			Path: rel, Line: event.Data.LineNumber,
+			Column: projectUTF16Column(lineText, matchStart),
+			Preview: boundedProjectSearchPreview(lineText, matchStart),
 		})
 		if len(results) >= limit {
 			cancel()
@@ -238,8 +241,11 @@ func searchProjectContentFallback(ctx context.Context, root, query string, limit
 					break
 				}
 				at += searchFrom
+				lineText := string(line)
 				results = append(results, projectContentSearchResult{
-					Path: rel, Line: lineNumber, Column: at + 1, Preview: string(line),
+					Path: rel, Line: lineNumber,
+					Column: projectUTF16Column(lineText, at),
+					Preview: boundedProjectSearchPreview(lineText, at),
 				})
 				if len(results) >= limit {
 					return errProjectContentSearchLimit
@@ -333,6 +339,65 @@ func projectIgnoreRuleMatches(rule projectIgnoreRule, rel string) bool {
 		}
 	}
 	return false
+}
+
+func projectUTF16Column(line string, byteOffset int) int {
+	if byteOffset < 0 {
+		byteOffset = 0
+	}
+	if byteOffset > len(line) {
+		byteOffset = len(line)
+	}
+	for byteOffset > 0 && byteOffset < len(line) && (line[byteOffset]&0xC0) == 0x80 {
+		byteOffset--
+	}
+	units := 0
+	for _, r := range line[:byteOffset] {
+		if r > 0xFFFF {
+			units += 2
+		} else {
+			units++
+		}
+	}
+	return units + 1
+}
+
+func boundedProjectSearchPreview(line string, matchStart int) string {
+	if len(line) <= projectContentSearchMaxPreviewBytes {
+		return line
+	}
+	if matchStart < 0 {
+		matchStart = 0
+	}
+	if matchStart > len(line) {
+		matchStart = len(line)
+	}
+	start := matchStart - projectContentSearchMaxPreviewBytes/3
+	if start < 0 {
+		start = 0
+	}
+	maxStart := len(line) - projectContentSearchMaxPreviewBytes
+	if start > maxStart {
+		start = maxStart
+	}
+	for start < len(line) && start > 0 && (line[start]&0xC0) == 0x80 {
+		start++
+	}
+	end := start + projectContentSearchMaxPreviewBytes
+	if end > len(line) {
+		end = len(line)
+	}
+	for end > start && end < len(line) && (line[end]&0xC0) == 0x80 {
+		end--
+	}
+	preview := line[start:end]
+	if start > 0 {
+		preview = "…" + preview
+	}
+	if end < len(line) {
+		preview += "…"
+	}
+	return preview
 }
 
 func projectContentTextBytes(data []byte) bool {
