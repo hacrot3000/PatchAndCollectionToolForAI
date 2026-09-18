@@ -18,7 +18,7 @@ html[data-taskmenu-theme="light"] .git-status-pill.dirty{background:#fff3cd;bord
 `;
 document.head.append(style);
 
-const workspaceKey=name=>'vscode-tasks-menu:'+name+':'+app.taskData.workspace;
+const workspaceKey=name=>'vscode-tasks-menu:'+name+':'+(app.layoutProfile||'desktop')+':'+app.taskData.workspace;
 const families={default:'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',dejavu:'DejaVu Sans Mono, monospace',liberation:'Liberation Mono, monospace',mono:'monospace'};
 function read(name,fallback){try{return localStorage.getItem(workspaceKey(name))||fallback;}catch{return fallback;}}
 function write(name,value){try{localStorage.setItem(workspaceKey(name),String(value));}catch(e){console.warn('Cannot persist appearance setting',e);}}
