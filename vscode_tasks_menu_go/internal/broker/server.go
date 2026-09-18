@@ -113,10 +113,6 @@ func Run(ctx context.Context, workspace string, logger *log.Logger) error {
 		cancel()
 		_ = ln.Close()
 		return
-		/* unreachable select tail retained intentionally empty */
-		select {
-		case <-done:
-		}
 	}()
 
 	logger.Printf("session broker workspace=%s socket=%s protocol=%d", workspace, socketPath, ProtocolVersion)
