@@ -164,24 +164,42 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	defer brokerClient.Close()
 	srv := &server.Server{Workspace: ws, Config: cfg, Log: logger, Sessions: brokerClient}
 
-	// A replacement daemon must recreate saved PTYs before it advertises the
-	// update as complete. The browser can then reload and merely attach to live
-	// sessions instead of racing to recreate them while the old daemon tears down.
+	// During self-update the independent broker normally survives the web-daemon
+	// replacement. Reuse those exact sessions first so task processes, PTYs,
+	// session IDs and scrollback remain intact. Only recreate saved terminals when
+	// the broker is genuinely empty (for example the first migration from an old
+	// non-broker build).
 	if updateID != "" {
-		restored, warnings, restoreErr := srv.RestoreProjectTerminalsForStartup()
-		if restoreErr != nil {
-			logger.Printf("self-update terminal restore failed: %v", restoreErr)
-			_, _ = selfupdate.Update(ws, updateID, "completed", "Cập nhật hoàn tất; daemon mới đã sẵn sàng nhưng không thể khôi phục terminal: "+restoreErr.Error(), url, "")
-		} else {
-			logger.Printf("self-update restored terminal sessions=%d", restored)
-			for _, warning := range warnings {
-				logger.Printf("terminal restore warning: %s", warning)
+		liveSessions, listErr := brokerClient.ListWithError()
+		switch {
+		case listErr != nil:
+			logger.Printf("self-update broker session discovery warning: %v", listErr)
+			_, _ = selfupdate.Update(ws, updateID, "completed", "Update completed; daemon is ready and will retry broker session discovery.", url, listErr.Error())
+		case len(liveSessions) > 0:
+			running := 0
+			for _, meta := range liveSessions {
+				if meta.Status == "running" {
+					running++
+				}
 			}
-			message := "Cập nhật hoàn tất; daemon mới đã sẵn sàng."
-			if restored > 0 {
-				message = fmt.Sprintf("Cập nhật hoàn tất; đã khôi phục %d terminal.", restored)
+			logger.Printf("self-update reconnected broker sessions=%d running=%d", len(liveSessions), running)
+			_, _ = selfupdate.Update(ws, updateID, "completed", fmt.Sprintf("Update completed; reconnected %d broker sessions (%d running).", len(liveSessions), running), url, "")
+		default:
+			restored, warnings, restoreErr := srv.RestoreProjectTerminalsForStartup()
+			if restoreErr != nil {
+				logger.Printf("self-update terminal restore failed: %v", restoreErr)
+				_, _ = selfupdate.Update(ws, updateID, "completed", "Update completed; daemon is ready but saved terminals could not be restored: "+restoreErr.Error(), url, "")
+			} else {
+				logger.Printf("self-update restored terminal sessions=%d", restored)
+				for _, warning := range warnings {
+					logger.Printf("terminal restore warning: %s", warning)
+				}
+				message := "Update completed; daemon is ready."
+				if restored > 0 {
+					message = fmt.Sprintf("Update completed; restored %d terminals.", restored)
+				}
+				_, _ = selfupdate.Update(ws, updateID, "completed", message, url, "")
 			}
-			_, _ = selfupdate.Update(ws, updateID, "completed", message, url, "")
 		}
 	}
 
