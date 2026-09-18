@@ -93,3 +93,32 @@ func TestEditorDirtySaveShortcutsAndCloseFlow(t *testing.T) {
 		t.Fatal("dirty editor contents must not be persisted to localStorage")
 	}
 }
+
+
+func TestEditorExternalConflictResolutionFlow(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"response.status===409",
+		"File changed outside the editor.",
+		"compare.textContent='Compare'",
+		"reload.textContent='Reload'",
+		"overwrite.textContent='Overwrite'",
+		"cancel.textContent='Cancel'",
+		"function showConflictCompare(view,latest)",
+		"pre.textContent=text",
+		"putEditorFile(view,latest.sha256)",
+		"if(result.conflict)continue",
+		"setEditorDocument(view,latest)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor conflict flow missing %q", want)
+		}
+	}
+	if strings.Contains(js, "innerHTML") {
+		t.Fatal("editor conflict/source UI must not render source through innerHTML")
+	}
+}
