@@ -176,10 +176,14 @@ async function checkBrowserLease(){
   }
 }
 
-async function jsonFetch(url,opts={}){
+function fetchWithLease(url,opts={}){
   const headers=new Headers(opts.headers||{});
   if(browserLease)headers.set('X-TaskMenu-Lease',browserLease);
-  const r=await fetch(url,{cache:'no-store',...opts,headers});
+  return fetch(url,{...opts,headers});
+}
+
+async function jsonFetch(url,opts={}){
+  const r=await fetchWithLease(url,{cache:'no-store',...opts});
   if(!r.ok){
     const message=(await r.text())||r.statusText;
     if(r.status===409&&r.headers.get('X-TaskMenu-Lease-Revoked')==='1'){
@@ -470,7 +474,7 @@ globalThis.TaskMenuApp={
   get browserLease(){return browserLease;},
   get browserLeaseLost(){return browserLeaseLost;},
   get layoutProfile(){return layoutProfile;},
-  views,jsonFetch,showError,consoleText,startTask,startTerminal,activateView,activateExternalView,loadTasks,syncSessions,attachSession:attach,addOutputFilter
+  views,jsonFetch,fetchWithLease,showError,consoleText,startTask,startTerminal,activateView,activateExternalView,loadTasks,syncSessions,attachSession:attach,addOutputFilter
 };
 document.querySelector('#open-terminal').onclick=()=>startTerminal().catch(showError);
 document.querySelector('#edit-title').onclick=()=>{try{editPageTitle();}catch(e){showError(e);}};
