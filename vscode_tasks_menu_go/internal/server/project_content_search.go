@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -154,11 +153,11 @@ func searchProjectContentRG(parent context.Context, rg, root, query string, limi
 	}
 	scanErr := scanner.Err()
 	waitErr := cmd.Wait()
-	if scanErr != nil {
-		return nil, scanErr
-	}
 	if len(results) >= limit {
 		return results, nil
+	}
+	if scanErr != nil {
+		return nil, scanErr
 	}
 	if err := parent.Err(); err != nil {
 		return nil, err
@@ -284,4 +283,3 @@ func maxInt(a, b int) int {
 	return b
 }
 
-var _ io.Reader
