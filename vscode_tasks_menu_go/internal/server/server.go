@@ -46,6 +46,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/project/tree", s.projectTree)
 	mux.HandleFunc("/api/project/file", s.projectFile)
 	mux.HandleFunc("/api/project/files/search", s.projectFileSearch)
+	mux.HandleFunc("/api/project/content/search", s.projectContentSearch)
 	mux.HandleFunc("/api/sessions/force-kill", s.sessionForceKill)
 	mux.HandleFunc("/api/sessions/clear-console", s.sessionClearConsole)
 	mux.HandleFunc("/api/sessions", s.sessionsRoot)
