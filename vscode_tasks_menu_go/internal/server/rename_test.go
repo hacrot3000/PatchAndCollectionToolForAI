@@ -19,6 +19,10 @@ func TestTerminalRenameFeatureModule(t *testing.T) {
 		"Double-click",
 		"task_id===0",
 		"localStorage.setItem",
+		"brokerTitle(view)",
+		"persistTitle(view,value)",
+		"/api/sessions/'+encodeURIComponent(view.meta.id)+'/title",
+		"migrateLegacyBrowserTitle(view)",
 		"promptRename(view)",
 		"window.prompt('Tab title:',before)",
 	} {
