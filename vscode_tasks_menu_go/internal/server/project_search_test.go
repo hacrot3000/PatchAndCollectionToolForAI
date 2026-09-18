@@ -102,3 +102,29 @@ func TestCurrentProjectFileIndexLoadsFreshCacheAndRecoversCorruptCache(t *testin
 		t.Fatalf("fallback index=%#v", idx)
 	}
 }
+
+
+func TestSearchProjectFileIndexTopKPreservesRankingAndTieBreak(t *testing.T) {
+	paths := make([]string, 0, 2000)
+	for i := 1999; i >= 0; i-- {
+		paths = append(paths, "src/feature_"+strconv.Itoa(i)+".go")
+	}
+	paths = append(paths, "feature.go", "aaa/feature.go", "zzz/feature.go")
+	idx, err := newProjectFileIndex(paths, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := searchProjectFileIndex(idx, "feature", 3)
+	if len(results) != 3 {
+		t.Fatalf("results=%d want 3", len(results))
+	}
+	for i := 1; i < len(results); i++ {
+		prev, current := results[i-1], results[i]
+		if prev.Score < current.Score || prev.Score == current.Score && prev.Path > current.Path {
+			t.Fatalf("results not sorted best-first: %#v", results)
+		}
+	}
+	if results[0].Path != "feature.go" {
+		t.Fatalf("top result=%#v want feature.go", results[0])
+	}
+}
