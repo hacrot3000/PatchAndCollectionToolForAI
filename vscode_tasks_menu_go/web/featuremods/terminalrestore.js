@@ -81,44 +81,74 @@ function restoreTabOrder(ids){
   }
 }
 
+function savedTerminalIDs(saved){
+  const terminals=Array.isArray(saved?.terminals)?saved.terminals:[];
+  const out=[];const seen=new Set();
+  for(const item of terminals){
+    const id=String(item?.session_id||'').trim();
+    if(!id||seen.has(id))continue;
+    seen.add(id);out.push(id);
+  }
+  return out;
+}
+
+function restoredSessionIDAt(saved,index,ids){
+  const fromState=String(saved?.terminals?.[index]?.session_id||'').trim();
+  return fromState||ids[index]||'';
+}
+
 function restoredGroups(restored,ids){
   if(app.layoutProfile==='mobile')return [];
   const raw=Array.isArray(restored?.splits)&&restored.splits.length?restored.splits:(restored?.split?[restored.split]:[]);
+  const live=new Set(ids);
   const groups=[];const used=new Set();
   for(const split of raw){
     if(!Number.isInteger(split?.left)||!Number.isInteger(split?.right)||split.left===split.right)continue;
-    const first=ids[split.left],second=ids[split.right];
-    if(!first||!second||used.has(first)||used.has(second))continue;
+    const first=restoredSessionIDAt(restored,split.left,ids);
+    const second=restoredSessionIDAt(restored,split.right,ids);
+    if(!first||!second||!live.has(first)||!live.has(second)||used.has(first)||used.has(second))continue;
     used.add(first);used.add(second);
     groups.push({first,second,ratio:Number(split.ratio)||0.5,orientation:split.orientation==='horizontal'?'horizontal':'vertical'});
   }
   return groups;
 }
 
+function savedActiveSessionID(saved,ids){
+  let activeIndex=Number(saved?.active_index);
+  if(!Number.isInteger(activeIndex)||activeIndex<0)activeIndex=0;
+  const candidate=restoredSessionIDAt(saved,activeIndex,ids);
+  return ids.includes(candidate)?candidate:(ids[0]||'');
+}
+
 function applySavedLayout(saved,ids,{clearMissing=true}={}){
   if(!ids.length)return;
   restoreTabOrder(ids);
-  let activeIndex=Number(saved?.active_index);
-  if(!Number.isInteger(activeIndex)||activeIndex<0||activeIndex>=ids.length)activeIndex=0;
   const groups=restoredGroups(saved,ids);
   if(app.layoutProfile==='mobile'){
     globalThis.TaskMenuSplit?.clearPresentation?.();
   }else if(groups.length)globalThis.TaskMenuSplit?.restoreProjectGroups?.(groups);
   else if(clearMissing)globalThis.TaskMenuSplit?.clearAll?.();
-  const activeID=ids[activeIndex];
+  const activeID=savedActiveSessionID(saved,ids);
   if(activeID){
     app.activateView(activeID);
     setTimeout(()=>globalThis.TaskMenuSplit?.syncForActive?.(),0);
   }
 }
 
-function liveIDsFromSaved(saved,existing){
-  const live=new Set(existing.map(meta=>meta.id).filter(Boolean));
-  const terminals=Array.isArray(saved?.terminals)?saved.terminals:[];
-  if(terminals.length!==existing.length||!terminals.length)return [];
-  const ids=terminals.map(item=>String(item?.session_id||'').trim());
-  if(ids.some(id=>!id||!live.has(id))||new Set(ids).size!==ids.length)return [];
-  return ids;
+function layoutIDsFromSaved(saved,existing){
+  const liveIDs=existing.map(meta=>String(meta?.id||'').trim()).filter(Boolean);
+  const live=new Set(liveIDs);
+  const savedIDs=savedTerminalIDs(saved);
+  if(!savedIDs.length)return [];
+  const ordered=[];const seen=new Set();
+  for(const id of savedIDs){
+    if(live.has(id)&&!seen.has(id)){seen.add(id);ordered.push(id);}
+  }
+  if(!ordered.length)return [];
+  for(const id of liveIDs){
+    if(!seen.has(id)){seen.add(id);ordered.push(id);}
+  }
+  return ordered;
 }
 
 async function restoreProjectTerminals(){
@@ -129,7 +159,7 @@ async function restoreProjectTerminals(){
 
     if(existing.length){
       await app.syncSessions?.();
-      const savedIDs=liveIDsFromSaved(saved,existing);
+      const savedIDs=layoutIDsFromSaved(saved,existing);
       const ids=savedIDs.length?savedIDs:existing.map(meta=>meta.id).filter(Boolean);
       const ready=await waitForViews(ids);
       if(!ready)throw new Error('Timed out waiting for live terminal tabs');
