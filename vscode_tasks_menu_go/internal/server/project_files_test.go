@@ -222,3 +222,175 @@ func TestProjectFileReadMarksMediumAndPermissionFilesReadOnly(t *testing.T) {
 		t.Fatalf("locked response=%#v", got)
 	}
 }
+
+
+func TestProjectFileSaveAtomicPreservesModeAndUpdatesHash(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "save.txt")
+	if err := os.WriteFile(path, []byte("before\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	old := sha256.Sum256([]byte("before\n"))
+	body, err := json.Marshal(projectFileSaveRequest{
+		Path:           "save.txt",
+		Content:        "after\n",
+		ExpectedSHA256: hex.EncodeToString(old[:]),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: root}
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodPut, "/api/project/file", strings.NewReader(string(body))))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("save status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "after\n" {
+		t.Fatalf("saved data=%q", data)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o640 {
+		t.Fatalf("mode=%o want 640", info.Mode().Perm())
+	}
+	var got projectFileResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	nextHash := sha256.Sum256(data)
+	if got.SHA256 != hex.EncodeToString(nextHash[:]) || got.ReadOnly {
+		t.Fatalf("save response=%#v", got)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "save.txt" {
+		t.Fatalf("unexpected temp files after save: %#v", entries)
+	}
+}
+
+func TestProjectFileSavePreservesBOMAndCRLF(t *testing.T) {
+	root := t.TempDir()
+	original := append([]byte{0xEF, 0xBB, 0xBF}, []byte("one\r\ntwo\r\n")...)
+	path := filepath.Join(root, "windows.txt")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := sha256.Sum256(original)
+	body, err := json.Marshal(projectFileSaveRequest{
+		Path:           "windows.txt",
+		Content:        "alpha\nbeta\n",
+		ExpectedSHA256: hex.EncodeToString(old[:]),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: root}
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodPut, "/api/project/file", strings.NewReader(string(body))))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("save status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := append([]byte{0xEF, 0xBB, 0xBF}, []byte("alpha\r\nbeta\r\n")...)
+	if string(data) != string(want) {
+		t.Fatalf("saved bytes=%q want=%q", data, want)
+	}
+}
+
+func TestProjectFileSaveDetectsExternalConflict(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "conflict.txt")
+	initial := []byte("initial\n")
+	if err := os.WriteFile(path, initial, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := sha256.Sum256(initial)
+	if err := os.WriteFile(path, []byte("external\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(projectFileSaveRequest{
+		Path:           "conflict.txt",
+		Content:        "editor\n",
+		ExpectedSHA256: hex.EncodeToString(old[:]),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: root}
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodPut, "/api/project/file", strings.NewReader(string(body))))
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("conflict status=%d want=409 body=%s", rr.Code, rr.Body.String())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "external\n" {
+		t.Fatalf("conflict overwrote disk data: %q", data)
+	}
+}
+
+func TestProjectFileSaveRejectsReadOnlyAndSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	locked := filepath.Join(root, "locked.txt")
+	if err := os.WriteFile(locked, []byte("locked"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("locked"))
+	body, err := json.Marshal(projectFileSaveRequest{
+		Path:           "locked.txt",
+		Content:        "change",
+		ExpectedSHA256: hex.EncodeToString(sum[:]),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: root}
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodPut, "/api/project/file", strings.NewReader(string(body))))
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("locked status=%d want=403 body=%s", rr.Code, rr.Body.String())
+	}
+
+	outside := t.TempDir()
+	outsideFile := filepath.Join(outside, "outside.txt")
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideFile, filepath.Join(root, "escape.txt")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	outsideHash := sha256.Sum256([]byte("outside"))
+	body, err = json.Marshal(projectFileSaveRequest{
+		Path:           "escape.txt",
+		Content:        "bad",
+		ExpectedSHA256: hex.EncodeToString(outsideHash[:]),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodPut, "/api/project/file", strings.NewReader(string(body))))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("escape status=%d want=404 body=%s", rr.Code, rr.Body.String())
+	}
+	data, err := os.ReadFile(outsideFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "outside" {
+		t.Fatalf("outside file changed: %q", data)
+	}
+}
