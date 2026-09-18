@@ -362,6 +362,13 @@ function activateView(id){
     const yes=sid===id;v.tab.classList.toggle('active',yes);v.pane.classList.toggle('hidden',!yes);
     if(yes)setTimeout(()=>{try{v.fit.fit();v.term.focus();}catch{}},0);
   }
+  window.dispatchEvent(new CustomEvent('taskmenu:view-activated',{detail:{kind:'terminal',id}}));
+}
+
+function activateExternalView(token){
+  active='external:'+String(token||'view');
+  for(const [,v] of views){v.tab.classList.remove('active');v.pane.classList.add('hidden');}
+  window.dispatchEvent(new CustomEvent('taskmenu:view-activated',{detail:{kind:'external',id:String(token||'view')}}));
 }
 
 async function closeView(id){
@@ -401,7 +408,7 @@ function showError(e){console.error(e);alert('ERROR: '+e.message);}
 globalThis.TaskMenuApp={
   get taskData(){return taskData;},
   get active(){return active;},
-  views,jsonFetch,showError,consoleText,startTask,startTerminal,activateView,loadTasks,syncSessions,attachSession:attach,addOutputFilter
+  views,jsonFetch,showError,consoleText,startTask,startTerminal,activateView,activateExternalView,loadTasks,syncSessions,attachSession:attach,addOutputFilter
 };
 document.querySelector('#open-terminal').onclick=()=>startTerminal().catch(showError);
 document.querySelector('#edit-title').onclick=()=>{try{editPageTitle();}catch(e){showError(e);}};
