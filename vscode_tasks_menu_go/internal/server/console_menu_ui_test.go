@@ -51,3 +51,16 @@ func TestConsoleMenuOrderIconsColorsAndClearConfirmation(t *testing.T) {
 		t.Fatal("core UI must give Copy console a visible icon")
 	}
 }
+
+
+func TestConsoleFindShortcutDoesNotStealProjectSearchShortcut(t *testing.T) {
+	all := mustEmbeddedAsset(t, "featuremods/all.js")
+	for _, want := range []string{
+		"e.shiftKey||e.altKey||e.key.toLowerCase()!=='f'",
+		"showConsoleFind(view)",
+	} {
+		if !strings.Contains(all, want) {
+			t.Fatalf("all.js missing console/project-search shortcut separation %q", want)
+		}
+	}
+}
