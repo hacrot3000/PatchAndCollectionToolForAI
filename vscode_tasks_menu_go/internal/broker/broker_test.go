@@ -161,3 +161,16 @@ func TestEnsureClientReusesAndCanShutdownRunningBroker(t *testing.T) {
 		t.Fatal("broker did not exit after ShutdownBroker")
 	}
 }
+
+func TestBrokerTitleCapabilityBackwardCompatibility(t *testing.T) {
+	legacy := &Client{info: Info{ProtocolVersion: ProtocolVersion}}
+	if legacy.SupportsSessionTitle() {
+		t.Fatal("legacy broker without capabilities must not advertise session title support")
+	}
+
+	ws := testWorkspace(t)
+	modern := &Client{info: NewInfo(ws)}
+	if !modern.SupportsSessionTitle() {
+		t.Fatal("new broker must advertise session title support")
+	}
+}
