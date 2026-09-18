@@ -84,3 +84,30 @@ func TestProjectContentSearchFallbackHonorsCancellation(t *testing.T) {
 		t.Fatalf("err=%v want context.Canceled", err)
 	}
 }
+
+
+func TestProjectContentSearchFallbackHonorsRootGitignore(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "ignored"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("ignored/\n*.tmp\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ignored", "secret.txt"), []byte("needle ignored\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "scratch.tmp"), []byte("needle temp\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "keep.txt"), []byte("needle keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	results, err := searchProjectContentFallback(context.Background(), root, "needle", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Path != "keep.txt" {
+		t.Fatalf("ignore filtering results=%#v", results)
+	}
+}
