@@ -104,3 +104,46 @@ func TestConfigReloadSignalPreservesSessionBroker(t *testing.T) {
 		t.Fatal("config reload signal must close the old web listener")
 	}
 }
+
+
+func TestReloadConfigCLIUsesBrokerPreservingRestart(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		`flag.Bool("reload-config"`,
+		"reloadDaemonConfig(ws, cfgPath)",
+		"func reloadDaemonConfig(ws, cfgPath string) error",
+		"process.Signal(reloadConfigSignal)",
+		"waitForDaemonStateRelease(ws, st.PID",
+		"startDaemon(ws)",
+		"waitForDaemon(ws, 8*time.Second, st.PID)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("reload-config flow missing %q", want)
+		}
+	}
+	load := strings.Index(src, "cfg, cfgPath, err := config.Load(ws)")
+	reload := strings.Index(src, "fatalIf(reloadDaemonConfig(ws, cfgPath))")
+	if load < 0 || reload < 0 || load > reload {
+		t.Fatal("reload-config must validate vscode_tasks_menu.ini before restarting daemon")
+	}
+	start := strings.Index(src, "func reloadDaemonConfig(ws, cfgPath string) error")
+	end := strings.Index(src[start:], "func printDaemonStatus")
+	if start < 0 || end < 0 {
+		t.Fatal("reloadDaemonConfig function not found")
+	}
+	body := src[start : start+end]
+	if strings.Contains(body, "stopExistingDaemon(") || strings.Contains(body, "ShutdownBroker") {
+		t.Fatal("reload-config must not use the broker-destructive daemon stop path")
+	}
+}
+
+func TestReloadConfigWhenDaemonIsNotRunningIsNoop(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	if err := reloadDaemonConfig(t.TempDir(), "/tmp/vscode_tasks_menu.ini"); err != nil {
+		t.Fatalf("reload without daemon: %v", err)
+	}
+}
