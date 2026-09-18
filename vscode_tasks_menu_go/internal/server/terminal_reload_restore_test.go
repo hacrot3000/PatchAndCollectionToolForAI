@@ -15,7 +15,9 @@ func TestTerminalReloadRestoresSavedOrderAndSplits(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"layoutIDsFromSaved(saved,existing)",
-		"savedTerminalIDs(saved)",
+		"normalizedCwd",
+		"normalizedCwd(meta.cwd)===wantedCwd",
+		"if(item)return ''",
 		"session_id",
 		"applySavedLayout(saved,ids",
 		"restoreProjectGroups",
@@ -36,6 +38,26 @@ func TestCoreUIExposesImmediateSessionSyncForRestore(t *testing.T) {
 	for _, want := range []string{"syncSessions,attachSession:attach", "async function syncSessions()", "function attach(meta,activate)"} {
 		if !strings.Contains(appJS, want) {
 			t.Fatalf("appJS missing terminal restore hook %q", want)
+		}
+	}
+}
+
+
+func TestTerminalReloadCanRemapChangedSessionIDsByCwdWithoutWrongSplitFallback(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/terminalrestore.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const wantedCwd=normalizedCwd(item?.cwd)",
+		"const liveCwd=normalizedCwd(app.views.get(id)?.meta?.cwd)",
+		"normalizedCwd(meta.cwd)===wantedCwd",
+		"if(item)return ''",
+		"const reserved=new Set(used);if(first)reserved.add(first)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("terminalrestore.js missing safe CWD remap behavior %q", want)
 		}
 	}
 }
