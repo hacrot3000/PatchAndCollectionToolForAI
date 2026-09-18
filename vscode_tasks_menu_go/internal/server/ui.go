@@ -74,7 +74,7 @@ const indexHTML = `<!doctype html>
   <main><aside id="menu"></aside><section><div id="tabs"></div><div id="panes"></div></section></main>
   <script src="/vendor/xterm.js"></script>
   <script src="/vendor/addon-fit.js"></script>
-  <script src="/vendor/codemirror6-all.min.js"></script>
+  <script src="/vendor/codemirror6-all.min.js?v=9dcf83af"></script>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/features.js?v=2"></script>
   <script type="module" src="/featuremods/all.js?v=2"></script>
