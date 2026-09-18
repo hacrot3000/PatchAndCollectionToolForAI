@@ -389,6 +389,12 @@ document.addEventListener('keydown',event=>{
   }
 });
 
+window.addEventListener('beforeunload',event=>{
+  if(![...editors.values()].some(view=>!view.closed&&view.dirty))return;
+  event.preventDefault();
+  event.returnValue='';
+});
+
 window.addEventListener('taskmenu:project-file-open-request',event=>{
   const pathValue=event.detail?.path;if(pathValue)openFile(pathValue).catch(app.showError);
 });
