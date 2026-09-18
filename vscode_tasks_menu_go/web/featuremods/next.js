@@ -11,6 +11,7 @@ import '/featuremods/appearance.js';
 import '/featuremods/middleclick.js';
 import '/featuremods/split.js';
 import '/featuremods/terminalrestore.js';
+import '/featuremods/tabdrag.js';
 import '/featuremods/pagetitle.js';
 import '/featuremods/ptvpriority.js';
 import '/featuremods/clearfiles.js';
