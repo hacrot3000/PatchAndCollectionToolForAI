@@ -2,8 +2,9 @@ CodeMirror 6 vendored browser bundle
 Source repository: https://github.com/paul-norman/codemirror6-prebuilt
 Source version: 1.0.1
 Source commit: 168ec1705e8f522a855c49129147494a9490b65a
-Source file: dist/all.min.js
-Source blob SHA: 9dcf83afa36821b57b3e9edc9e1ecb3ff5c447e4
-Vendoring policy: copied unchanged and embedded into the Go binary; no CDN or runtime package install.
-Bundle exposes the global cm6 loader and includes CodeMirror 6 basicSetup plus the language extensions declared by the pinned source bundle.
+Upstream source file: dist/all.js
+Upstream source blob SHA: b802a88c0ba4d0bf564cb02814590a519ba5f389
+Local vendor blob SHA after IDE hooks: 8b031d22f9641ef6dafdf842a2b3328b8f23bd76
+Local hooks: expose Decoration/EditorView/ViewPlugin/RangeSetBuilder; allow extraExtensions; add official javascript() options for TypeScript, JSX and TSX.
+Vendoring policy: embedded into the Go binary; no CDN or runtime package install.
 See LICENSE-codemirror6-prebuilt.txt for the upstream MIT license.
