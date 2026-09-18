@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"syscall"
 	"time"
 
@@ -33,9 +34,8 @@ func acquireLock(workspace string) (*os.File, error) {
 	return f, nil
 }
 
-// Run serves the minimal broker control plane. At protocol v1 foundation stage
-// it intentionally owns no PTY sessions yet; later stages add session methods
-// without changing discovery/state identity.
+// Run serves the workspace session broker. The broker owns PTYs independently
+// from the web daemon so a daemon replacement can reconnect without killing tasks.
 func Run(ctx context.Context, workspace string, logger *log.Logger) error {
 	if logger == nil {
 		logger = log.New(os.Stderr, "", log.LstdFlags)
@@ -71,6 +71,8 @@ func Run(ctx context.Context, workspace string, logger *log.Logger) error {
 	defer manager.Shutdown(2 * time.Second)
 
 	mux := http.NewServeMux()
+	stopRequested := make(chan struct{})
+	var stopOnce sync.Once
 	mux.HandleFunc("/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -88,16 +90,31 @@ func Run(ctx context.Context, workspace string, logger *log.Logger) error {
 		_ = json.NewEncoder(w).Encode(info)
 	})
 	registerSessionRoutes(mux, manager)
+	mux.HandleFunc("/v1/shutdown", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		writeBrokerJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		go stopOnce.Do(func() { close(stopRequested) })
+	})
 
 	httpServer := &http.Server{Handler: mux}
 	done := make(chan struct{})
 	go func() {
 		select {
 		case <-ctx.Done():
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-			_ = httpServer.Shutdown(shutdownCtx)
-			cancel()
-			_ = ln.Close()
+		case <-stopRequested:
+		case <-done:
+			return
+		}
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_ = httpServer.Shutdown(shutdownCtx)
+		cancel()
+		_ = ln.Close()
+		return
+		/* unreachable select tail retained intentionally empty */
+		select {
 		case <-done:
 		}
 	}()
