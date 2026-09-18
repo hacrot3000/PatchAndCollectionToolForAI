@@ -3,6 +3,7 @@
 package server
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -115,6 +116,69 @@ func (p *projectPinnedFile) readCurrent(maxBytes int64) ([]byte, os.FileInfo, er
 	return data, info, nil
 }
 
+func projectFDPath(file *os.File) string {
+	return fmt.Sprintf("/proc/self/fd/%d", file.Fd())
+}
+
+func readProjectXattr(path, name string) ([]byte, error) {
+	size, err := syscall.Getxattr(path, name, nil)
+	if err != nil {
+		return nil, err
+	}
+	if size == 0 {
+		return []byte{}, nil
+	}
+	value := make([]byte, size)
+	n, err := syscall.Getxattr(path, name, value)
+	if err != nil {
+		return nil, err
+	}
+	return value[:n], nil
+}
+
+func projectMetadataXattr(name string) bool {
+	return strings.HasPrefix(name, "user.") ||
+		strings.HasPrefix(name, "system.posix_acl_") ||
+		name == "security.selinux" ||
+		name == "security.capability"
+}
+
+func copyProjectExtendedMetadata(source, target *os.File) error {
+	sourcePath, targetPath := projectFDPath(source), projectFDPath(target)
+	size, err := syscall.Listxattr(sourcePath, nil)
+	if errors.Is(err, syscall.ENOTSUP) || errors.Is(err, syscall.EOPNOTSUPP) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if size == 0 {
+		return nil
+	}
+	names := make([]byte, size)
+	n, err := syscall.Listxattr(sourcePath, names)
+	if err != nil {
+		return err
+	}
+	for _, raw := range bytes.Split(names[:n], []byte{0}) {
+		name := string(raw)
+		if name == "" || !projectMetadataXattr(name) {
+			continue
+		}
+		value, err := readProjectXattr(sourcePath, name)
+		if err != nil {
+			return fmt.Errorf("cannot read %s metadata: %w", name, err)
+		}
+		if existing, err := readProjectXattr(targetPath, name); err == nil && bytes.Equal(existing, value) {
+			continue
+		}
+		if err := syscall.Setxattr(targetPath, name, value, 0); err != nil {
+			return fmt.Errorf("cannot preserve %s metadata: %w", name, err)
+		}
+	}
+	return nil
+}
+
 func (p *projectPinnedFile) writeTemp(data []byte, original os.FileInfo) error {
 	if p == nil || p.parent == nil || original == nil {
 		return fmt.Errorf("invalid pinned project file")
@@ -160,6 +224,23 @@ func (p *projectPinnedFile) writeTemp(data []byte, original os.FileInfo) error {
 		p.temp = nil
 		p.tempName = ""
 	}
+	sourceFD, err := syscall.Openat(
+		int(p.parent.Fd()),
+		p.name,
+		syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW,
+		0,
+	)
+	if err != nil {
+		cleanup()
+		return err
+	}
+	source := os.NewFile(uintptr(sourceFD), p.name)
+	if source == nil {
+		_ = syscall.Close(sourceFD)
+		cleanup()
+		return fmt.Errorf("cannot open source metadata")
+	}
+	defer source.Close()
 	if stat, ok := original.Sys().(*syscall.Stat_t); ok {
 		if err := temp.Chown(int(stat.Uid), int(stat.Gid)); err != nil {
 			cleanup()
@@ -169,6 +250,10 @@ func (p *projectPinnedFile) writeTemp(data []byte, original os.FileInfo) error {
 	if err := temp.Chmod(original.Mode().Perm()); err != nil {
 		cleanup()
 		return fmt.Errorf("cannot preserve file permissions: %w", err)
+	}
+	if err := copyProjectExtendedMetadata(source, temp); err != nil {
+		cleanup()
+		return err
 	}
 	if _, err := temp.Write(data); err != nil {
 		cleanup()
