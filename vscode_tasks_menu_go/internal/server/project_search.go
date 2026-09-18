@@ -174,7 +174,7 @@ func fuzzyProjectPathScore(candidate, query string) (int, bool) {
 	if len(tokens) == 0 {
 		return 0, false
 	}
-	total := 0
+	total := projectBaseTokenSequenceBonus(baseLower, tokens)
 	for _, token := range tokens {
 		score, ok := fuzzyProjectTokenScore(candidateLower, baseLower, token)
 		if !ok {
@@ -186,6 +186,33 @@ func fuzzyProjectPathScore(candidate, query string) (int, bool) {
 		total += 200 - len(candidate)
 	}
 	return total, true
+}
+
+func projectBaseTokenSequenceBonus(base string, queryTokens []string) int {
+	stem := strings.TrimSuffix(base, path.Ext(base))
+	parts := strings.FieldsFunc(stem, func(r rune) bool {
+		return r == '_' || r == '-' || r == '.' || r == ' ' || r == '/'
+	})
+	if len(parts) == 0 || len(queryTokens) == 0 {
+		return 0
+	}
+	if len(parts) == len(queryTokens) {
+		for i := range parts {
+			if parts[i] != queryTokens[i] {
+				return 0
+			}
+		}
+		return 1200
+	}
+	if len(parts) > len(queryTokens) {
+		for i := range queryTokens {
+			if parts[i] != queryTokens[i] {
+				return 0
+			}
+		}
+		return 500
+	}
+	return 0
 }
 
 func fuzzyProjectTokenScore(candidate, base, token string) (int, bool) {
