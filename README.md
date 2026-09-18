@@ -120,6 +120,7 @@ Các chức năng chính gồm:
 
 - mỗi task chạy trong PTY/session/tab riêng, hỗ trợ ANSI, prompt tương tác, Ctrl+C và reconnect/replay scrollback;
 - terminal tab, đổi tên tab, sắp xếp/khôi phục tab, split dọc/ngang, nhiều split group, active tab và CWD được lưu theo project;
+- Broadcast Groups: click phải tab để gán/tạo/xóa khỏi group; menu `Broadcast` hỗ trợ `None / All / Group`, gửi raw key/Enter/Ctrl+C/arrow tới các session đích và tô màu tab theo preset group;
 - reload browser vẫn khôi phục terminal layout; self-update giữ session broker sống qua daemon replacement nên process/PTY/session ID/scrollback tiếp tục tồn tại, đồng thời tabs, CWD, order và split layout được attach lại;
 - Console menu có copy/search/save/clear log; clear yêu cầu xác nhận;
 - phát hiện file path trong output để download, có thể bật/tắt theo từng tab và clear/ignore danh sách detect;
@@ -278,6 +279,7 @@ Main capabilities include:
 
 - one PTY/session/tab per task, with ANSI output, interactive prompts, Ctrl+C, reconnect, and scrollback replay;
 - terminal tabs, tab renaming, tab ordering/restoration, vertical and horizontal splits, multiple split groups, active-tab state, and per-terminal CWD persistence;
+- Broadcast Groups: right-click a tab to assign/create/remove group membership; the `Broadcast` menu provides `None / All / Group`, fans out raw key/Enter/Ctrl+C/arrow input to matching sessions, and colors grouped tabs using readable presets;
 - browser reload restores terminal layout; self-update keeps the independent session broker alive across web-daemon replacement so process/PTY/session IDs and scrollback survive while tabs, CWDs, ordering, and split layout are reattached;
 - Console actions for copy/search/save/clear log, with confirmation before clearing;
 - file-path detection in terminal output for downloads, with per-tab enable/disable and clear/ignore controls;
