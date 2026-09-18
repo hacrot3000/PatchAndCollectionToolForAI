@@ -132,7 +132,7 @@ func (m *Manager) Metadata(id string) (Metadata, bool) {
 	return s.metadata(), true
 }
 
-func normalizeTitle(value string) string {
+func NormalizeTitle(value string) string {
 	value = strings.TrimSpace(strings.NewReplacer("\r", " ", "\n", " ").Replace(value))
 	for strings.Contains(value, "  ") {
 		value = strings.ReplaceAll(value, "  ", " ")
@@ -149,7 +149,7 @@ func (m *Manager) SetTitle(id, title string) (Metadata, error) {
 		return Metadata{}, fmt.Errorf("session not found")
 	}
 	s.mu.Lock()
-	s.meta.Title = normalizeTitle(title)
+	s.meta.Title = NormalizeTitle(title)
 	meta := s.meta
 	s.mu.Unlock()
 	return meta, nil
