@@ -92,21 +92,34 @@ function savedTerminalIDs(saved){
   return out;
 }
 
-function restoredSessionIDAt(saved,index,ids){
-  const fromState=String(saved?.terminals?.[index]?.session_id||'').trim();
-  return fromState||ids[index]||'';
+function normalizedCwd(value){return String(value||'').trim().replace(/\\+$/,'');}
+
+function restoredSessionIDAt(saved,index,ids,exclude=new Set()){
+  const item=saved?.terminals?.[index];
+  const fromState=String(item?.session_id||'').trim();
+  if(fromState&&ids.includes(fromState)&&!exclude.has(fromState))return fromState;
+  const wantedCwd=normalizedCwd(item?.cwd);
+  if(wantedCwd){
+    for(const id of ids){
+      if(exclude.has(id))continue;
+      const liveCwd=normalizedCwd(app.views.get(id)?.meta?.cwd);
+      if(liveCwd&&liveCwd===wantedCwd)return id;
+    }
+  }
+  const fallback=ids[index]||'';
+  return fallback&&!exclude.has(fallback)?fallback:'';
 }
 
 function restoredGroups(restored,ids){
   if(app.layoutProfile==='mobile')return [];
   const raw=Array.isArray(restored?.splits)&&restored.splits.length?restored.splits:(restored?.split?[restored.split]:[]);
-  const live=new Set(ids);
   const groups=[];const used=new Set();
   for(const split of raw){
     if(!Number.isInteger(split?.left)||!Number.isInteger(split?.right)||split.left===split.right)continue;
-    const first=restoredSessionIDAt(restored,split.left,ids);
-    const second=restoredSessionIDAt(restored,split.right,ids);
-    if(!first||!second||!live.has(first)||!live.has(second)||used.has(first)||used.has(second))continue;
+    const first=restoredSessionIDAt(restored,split.left,ids,used);
+    const reserved=new Set(used);if(first)reserved.add(first);
+    const second=restoredSessionIDAt(restored,split.right,ids,reserved);
+    if(!first||!second||first===second)continue;
     used.add(first);used.add(second);
     groups.push({first,second,ratio:Number(split.ratio)||0.5,orientation:split.orientation==='horizontal'?'horizontal':'vertical'});
   }
@@ -136,17 +149,24 @@ function applySavedLayout(saved,ids,{clearMissing=true}={}){
 }
 
 function layoutIDsFromSaved(saved,existing){
-  const liveIDs=existing.map(meta=>String(meta?.id||'').trim()).filter(Boolean);
-  const live=new Set(liveIDs);
-  const savedIDs=savedTerminalIDs(saved);
-  if(!savedIDs.length)return [];
-  const ordered=[];const seen=new Set();
-  for(const id of savedIDs){
-    if(live.has(id)&&!seen.has(id)){seen.add(id);ordered.push(id);}
+  const metas=existing.filter(meta=>String(meta?.id||'').trim());
+  if(!Array.isArray(saved?.terminals)||!saved.terminals.length)return [];
+  const byID=new Map(metas.map(meta=>[String(meta.id),meta]));
+  const used=new Set();const ordered=[];
+  for(const item of saved.terminals){
+    const oldID=String(item?.session_id||'').trim();
+    let match=oldID&&!used.has(oldID)?byID.get(oldID):null;
+    if(!match){
+      const wantedCwd=normalizedCwd(item?.cwd);
+      if(wantedCwd)match=metas.find(meta=>!used.has(String(meta.id))&&normalizedCwd(meta.cwd)===wantedCwd)||null;
+    }
+    if(match){
+      const id=String(match.id);used.add(id);ordered.push(id);
+    }
   }
   if(!ordered.length)return [];
-  for(const id of liveIDs){
-    if(!seen.has(id)){seen.add(id);ordered.push(id);}
+  for(const meta of metas){
+    const id=String(meta.id);if(!used.has(id)){used.add(id);ordered.push(id);}
   }
   return ordered;
 }
