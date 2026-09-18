@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -188,14 +189,7 @@ func TestProjectFileReadRejectsBinaryInvalidUTF8AndOversize(t *testing.T) {
 func TestProjectFileReadMarksMediumAndPermissionFilesReadOnly(t *testing.T) {
 	root := t.TempDir()
 	medium := filepath.Join(root, "medium.txt")
-	f, err := os.Create(medium)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := f.Truncate(projectEditableLimit + 1); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.Close(); err != nil {
+	if err := os.WriteFile(medium, []byte(strings.Repeat("x", int(projectEditableLimit+1))), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	s := &Server{Workspace: root}
