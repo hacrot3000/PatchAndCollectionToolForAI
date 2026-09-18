@@ -115,7 +115,7 @@ func TestReloadConfigCLIUsesBrokerPreservingRestart(t *testing.T) {
 	for _, want := range []string{
 		`flag.Bool("reload-config"`,
 		"reloadDaemonConfig(ws, cfgPath)",
-		"func reloadDaemonConfig(ws, cfgPath string) error",
+		"func reloadDaemonConfig(ws string, cfg config.Config, cfgPath string) error",
 		"process.Signal(reloadConfigSignal)",
 		"waitForDaemonStateRelease(ws, st.PID",
 		"startDaemon(ws)",
@@ -126,7 +126,7 @@ func TestReloadConfigCLIUsesBrokerPreservingRestart(t *testing.T) {
 		}
 	}
 	load := strings.Index(src, "cfg, cfgPath, err := config.Load(ws)")
-	reload := strings.Index(src, "fatalIf(reloadDaemonConfig(ws, cfgPath))")
+	reload := strings.Index(src, "fatalIf(reloadDaemonConfig(ws, cfg, cfgPath))")
 	if load < 0 || reload < 0 || load > reload {
 		t.Fatal("reload-config must validate vscode_tasks_menu.ini before restarting daemon")
 	}
@@ -143,7 +143,7 @@ func TestReloadConfigCLIUsesBrokerPreservingRestart(t *testing.T) {
 
 func TestReloadConfigWhenDaemonIsNotRunningIsNoop(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-	if err := reloadDaemonConfig(t.TempDir(), "/tmp/vscode_tasks_menu.ini"); err != nil {
+	if err := reloadDaemonConfig(t.TempDir(), config.Default(), "/tmp/vscode_tasks_menu.ini"); err != nil {
 		t.Fatalf("reload without daemon: %v", err)
 	}
 }
