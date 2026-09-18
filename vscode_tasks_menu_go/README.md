@@ -169,9 +169,12 @@ Task vẫn chạy nguyên command khai báo trong `tasks.json`; các task vốn 
 
 ```bash
 ./vscode_tasks_menu --status
+./vscode_tasks_menu --reload-config
 ./vscode_tasks_menu --stop-daemon
 ./vscode_tasks_menu --restart-daemon
 ```
+
+`--reload-config` đọc và validate lại `<workspace>/vscode_tasks_menu.ini` trước khi tác động tới daemon. Nếu config hợp lệ và daemon đang chạy, lệnh chỉ restart web daemon bằng đường broker-preserving nên task/terminal hiện có tiếp tục chạy; thay đổi bind/port/TLS/auth được áp dụng đầy đủ. Nếu config không hợp lệ, daemon hiện tại không bị dừng. Nếu daemon chưa chạy, lệnh chỉ xác nhận config hợp lệ và không tự start daemon.
 
 `--stop-daemon` và `--restart-daemon` là thao tác chủ động: daemon yêu cầu session broker shutdown, broker gửi interrupt/hangup tới các session đang chạy rồi force-kill process còn sót sau grace period. Vì vậy hai lệnh này vẫn giữ semantics cũ là dừng session.
 
