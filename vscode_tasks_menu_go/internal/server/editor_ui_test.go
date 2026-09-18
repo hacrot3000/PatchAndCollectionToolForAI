@@ -51,9 +51,12 @@ func TestEditorInitialLanguageCoverageMapping(t *testing.T) {
 		"options.css=true",
 		"options.xml=true",
 		"options.java=true",
-		"CMake (plain)",
-		"Shell (plain)",
-		"Lua (plain)",
+		"options.typescript=true",
+		"options.jsx=true",
+		"options.tsx=true",
+		"return 'CMake'",
+		"return 'Shell'",
+		"return 'Lua'",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("editor language mapping missing %q", want)
