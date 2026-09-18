@@ -453,3 +453,43 @@ func TestProjectFileSaveAllowsJSONEscapingHeadroom(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
+
+
+func TestProjectFileSavePreservesMixedLineEndings(t *testing.T) {
+	root := t.TempDir()
+	original := []byte("one\r\ntwo\nthree\r\n")
+	path := filepath.Join(root, "mixed.txt")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := sha256.Sum256(original)
+	body, err := json.Marshal(projectFileSaveRequest{
+		Path: "mixed.txt",
+		Content: "ONE\nTWO\nTHREE\n",
+		ExpectedSHA256: hex.EncodeToString(old[:]),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: root}
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodPut, "/api/project/file", bytes.NewReader(body)))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("save status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("ONE\r\nTWO\nTHREE\r\n")
+	if string(data) != string(want) {
+		t.Fatalf("saved=%q want=%q", data, want)
+	}
+	var got projectFileResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.LineEnding != "mixed" {
+		t.Fatalf("line ending=%q want mixed", got.LineEnding)
+	}
+}
