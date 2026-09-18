@@ -9,6 +9,7 @@ type Service interface {
 	List() []Metadata
 	Start(tasks.Execution) (Metadata, error)
 	Metadata(string) (Metadata, bool)
+	SetTitle(string, string) (Metadata, error)
 	Input(string, []byte) error
 	Resize(string, uint16, uint16) error
 	Stop(string) error
