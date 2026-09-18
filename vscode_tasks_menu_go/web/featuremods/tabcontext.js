@@ -92,6 +92,34 @@ function addActions(view,label,actions){
   }
   return true;
 }
+function addCustomActions(label,actions){
+  if(!Array.isArray(actions)||!actions.length)return false;
+  addHeading(label);
+  for(const action of actions){
+    const item=document.createElement('button');
+    item.type='button';
+    item.textContent=action.label||'Action';
+    item.title=action.title||item.textContent;
+    item.disabled=Boolean(action.disabled);
+    if(action.danger)item.classList.add('context-danger');
+    if(action.preset){
+      item.style.background=action.preset.bg||'';
+      item.style.color=action.preset.fg||'';
+      item.style.borderColor=action.preset.fg||'';
+    }
+    item.onclick=event=>{
+      event.preventDefault();event.stopPropagation();
+      const targetView=contextView;
+      closeContextMenu();
+      if(!targetView||targetView.closed||item.disabled)return;
+      app.activateView(targetView.meta.id);
+      Promise.resolve(action.run?.(targetView)).catch(app.showError);
+    };
+    menu.append(item);
+  }
+  return true;
+}
+
 
 function clampPosition(x,y){
   menu.style.left=Math.max(4,x)+'px';
@@ -109,13 +137,18 @@ function openContextMenu(view,x,y){
   closeContextMenu();
   contextView=view;
   const session=sourceActions(view,'Session');
+  const broadcastActions=globalThis.TaskMenuBroadcast?.contextActions?.(view)||[];
   const consoleActions=sourceActions(view,'Console');
   const hasSession=addActions(view,'Session',session);
-  if(hasSession&&consoleActions.length){
+  if(hasSession&&broadcastActions.length){
+    const sep=document.createElement('div');sep.className='tab-context-separator';menu.append(sep);
+  }
+  const hasBroadcast=addCustomActions('Broadcast group',broadcastActions);
+  if((hasSession||hasBroadcast)&&consoleActions.length){
     const sep=document.createElement('div');sep.className='tab-context-separator';menu.append(sep);
   }
   const hasConsole=addActions(view,'Console',consoleActions);
-  if(!hasSession&&!hasConsole){
+  if(!hasSession&&!hasBroadcast&&!hasConsole){
     const empty=document.createElement('div');empty.className='tab-context-heading';empty.textContent='NO ACTIONS AVAILABLE';menu.append(empty);
   }
   menu.classList.add('open');
