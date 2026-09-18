@@ -270,7 +270,7 @@ function ensureConsoleTools(view){
 }
 
 document.addEventListener('keydown',e=>{
-  if(!(e.ctrlKey||e.metaKey)||e.key.toLowerCase()!=='f')return;
+  if(!(e.ctrlKey||e.metaKey)||e.shiftKey||e.altKey||e.key.toLowerCase()!=='f')return;
   const view=app.views.get(app.active);if(!view)return;
   e.preventDefault();showConsoleFind(view);
 });
