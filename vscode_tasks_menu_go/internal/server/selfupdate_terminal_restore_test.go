@@ -90,3 +90,54 @@ func TestSelfUpdateUIFreezesTerminalPersistenceBeforeConfirm(t *testing.T) {
 		t.Fatal("self-update must resume terminal persistence after failure/cancel")
 	}
 }
+
+
+func TestSelfUpdateGuardProtectsRequestedMobileProfileWithoutTouchingDesktop(t *testing.T) {
+	workspace := t.TempDir()
+	desktop := projectTerminalState{
+		Version: 3,
+		Terminals: []terminalStateItem{{SessionID: "desktop-a", Cwd: workspace}, {SessionID: "desktop-b", Cwd: workspace}},
+		ActiveIndex: 1,
+		Splits: []terminalSplitState{{Left: 0, Right: 1, Ratio: 0.6, Orientation: "vertical"}},
+	}
+	mobile := projectTerminalState{
+		Version: 3,
+		Terminals: []terminalStateItem{{SessionID: "mobile-a", Cwd: workspace}},
+		ActiveIndex: 0,
+	}
+	if err := writeProjectTerminalStateProfile(workspace, "desktop", desktop); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeProjectTerminalStateProfile(workspace, "mobile", mobile); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := updater.CreateRequest(workspace, "0123456789abcdef", "http://127.0.0.1:1234", true); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &Server{Workspace: workspace}
+	r := httptest.NewRequest("PUT", "/api/state/tasks?scope=terminals&profile=mobile", strings.NewReader(`{"session_ids":[],"active_session_id":"","splits":[]}`))
+	w := httptest.NewRecorder()
+	s.taskState(w, r)
+	if w.Code != 200 {
+		t.Fatalf("protected mobile terminal PUT status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	gotMobile, err := readProjectTerminalStateProfile(workspace, "mobile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gotMobile.Terminals) != 1 || gotMobile.Terminals[0].SessionID != "mobile-a" || len(gotMobile.Splits) != 0 {
+		t.Fatalf("mobile recovery snapshot was overwritten: %#v", gotMobile)
+	}
+	gotDesktop, err := readProjectTerminalStateProfile(workspace, "desktop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gotDesktop.Terminals) != 2 || len(gotDesktop.Splits) != 1 || gotDesktop.ActiveIndex != 1 {
+		t.Fatalf("desktop layout changed while protecting mobile snapshot: %#v", gotDesktop)
+	}
+	if strings.Contains(w.Body.String(), "desktop-a") || strings.Contains(w.Body.String(), `"splits":[`) {
+		t.Fatalf("mobile protected response leaked desktop layout: %s", w.Body.String())
+	}
+}
