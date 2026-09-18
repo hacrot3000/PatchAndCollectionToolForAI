@@ -149,3 +149,92 @@ func TestBrokerClientOwnsAndControlsPTYSession(t *testing.T) {
 		t.Fatal("broker did not stop")
 	}
 }
+
+func TestBrokerSessionSurvivesDaemonClientReplacement(t *testing.T) {
+	ws := testWorkspace(t)
+	ctx, cancelBroker := context.WithCancel(context.Background())
+	defer cancelBroker()
+	errCh := make(chan error, 1)
+	go func() { errCh <- Run(ctx, ws, log.New(io.Discard, "", 0)) }()
+
+	first := waitForClient(t, ws, errCh)
+	spec := tasks.Execution{
+		TaskID: 77,
+		Label: "Preserve across daemon replacement",
+		Command: "/bin/sh",
+		Args: []string{"-c", "printf 'before-reconnect\\n'; sleep 1; printf 'during-reconnect\\n'; sleep 30"},
+		Cwd: ws,
+		Env: os.Environ(),
+		Preview: "preserve broker session",
+	}
+	meta, err := first.Start(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backlog, stream, unsubscribe, err := first.Subscribe(meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := string(backlog)
+	beforeDeadline := time.After(3 * time.Second)
+	for !strings.Contains(output, "before-reconnect") {
+		select {
+		case chunk, ok := <-stream:
+			if !ok {
+				t.Fatalf("stream closed before initial output: %q", output)
+			}
+			output += string(chunk)
+		case <-beforeDeadline:
+			t.Fatalf("initial broker output timeout: %q", output)
+		}
+	}
+	unsubscribe()
+	first.Close()
+
+	// No daemon client is attached while the task produces this output.
+	time.Sleep(1300 * time.Millisecond)
+
+	second, err := NewClient(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	got, ok := second.Metadata(meta.ID)
+	if !ok {
+		t.Fatalf("replacement client cannot find preserved session %s", meta.ID)
+	}
+	if got.ID != meta.ID || got.Status != "running" {
+		t.Fatalf("preserved session changed across client replacement: %#v", got)
+	}
+	replay, _, unsubscribe2, err := second.Subscribe(meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unsubscribe2()
+	replayed := string(replay)
+	if !strings.Contains(replayed, "before-reconnect") || !strings.Contains(replayed, "during-reconnect") {
+		t.Fatalf("broker did not preserve scrollback produced without daemon client: %q", replayed)
+	}
+
+	if err := second.Stop(meta.ID); err != nil {
+		t.Fatal(err)
+	}
+	stopDeadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(stopDeadline) {
+		if current, exists := second.Metadata(meta.ID); exists && current.Status != "running" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := second.ShutdownBroker(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("broker shutdown: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("broker did not stop")
+	}
+}
