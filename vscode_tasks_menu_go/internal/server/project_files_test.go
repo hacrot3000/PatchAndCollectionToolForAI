@@ -493,3 +493,27 @@ func TestProjectFileSavePreservesMixedLineEndings(t *testing.T) {
 		t.Fatalf("line ending=%q want mixed", got.LineEnding)
 	}
 }
+
+
+func TestProjectTreeHidesGitDirectory(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git", "objects"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "visible.txt"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: root}
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/project/tree", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var got []projectTreeEntry
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "visible.txt" {
+		t.Fatalf("entries=%#v", got)
+	}
+}
