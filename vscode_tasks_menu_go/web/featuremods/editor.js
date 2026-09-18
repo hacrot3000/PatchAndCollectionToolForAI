@@ -106,9 +106,26 @@ function applyReadOnly(view){
   view.cm.contentDOM.setAttribute('aria-readonly',readonly?'true':'false');
   view.save.disabled=readonly||!view.dirty||view.saving;
 }
+function installEditorDispatchGuard(view){
+  const originalDispatch=view.cm.dispatch.bind(view.cm);
+  view.dispatchRaw=originalDispatch;
+  view.cm.dispatch=(...input)=>{
+    const transaction=input.length===1&&input[0]?.startState
+      ? input[0]
+      : view.cm.state.update(...input);
+    if(transaction.docChanged&&view.file.read_only&&!view.internalUpdate)return;
+    originalDispatch(transaction);
+    if(transaction.docChanged&&!view.internalUpdate)setDirty(view,true);
+  };
+}
 function setEditorDocument(view,file){
   const currentLength=view.cm.state.doc.length;
-  view.cm.dispatch({changes:{from:0,to:currentLength,insert:file.content||''}});
+  view.internalUpdate=true;
+  try{
+    view.cm.dispatch({changes:{from:0,to:currentLength,insert:file.content||''}});
+  }finally{
+    view.internalUpdate=false;
+  }
   view.file={...file};
   view.path.textContent=file.path;
   view.path.title=file.path;
@@ -303,17 +320,17 @@ function createEditor(file){
   pane.append(head,host);panesHost.append(pane);
 
   const cm=cmFactory.newEditor(host,file.content||'',languageOptions(file.path));
-  const view={id,file:{...file},tab,label,dirty,pane,head,path:pathNode,meta,readonlyBadge,save,reload,host,cm,closed:false,dirty:false,saving:false};
+  const view={id,file:{...file},tab,label,dirty,pane,head,path:pathNode,meta,readonlyBadge,save,reload,host,cm,closed:false,dirty:false,saving:false,internalUpdate:false,dispatchRaw:null};
   editors.set(id,view);
+  installEditorDispatchGuard(view);
   applyReadOnly(view);
   setDirty(view,false);
 
-  cm.contentDOM.addEventListener('input',()=>{if(!view.file.read_only)setDirty(view,true);});
+  cm.contentDOM.addEventListener('beforeinput',event=>{if(view.file.read_only)event.preventDefault();},true);
   cm.contentDOM.addEventListener('keydown',event=>{
     if(event.key==='Tab'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey&&!view.file.read_only){
       event.preventDefault();
       view.cm.dispatch(view.cm.state.replaceSelection('\t'));
-      setDirty(view,true);
     }
   },true);
   tab.onclick=()=>activateEditor(id);
