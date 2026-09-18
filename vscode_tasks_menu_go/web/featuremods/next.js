@@ -17,4 +17,5 @@ import '/featuremods/ptvpriority.js';
 import '/featuremods/clearfiles.js';
 import '/featuremods/selfupdate.js';
 import '/featuremods/menus.js';
+import '/featuremods/tabcontext.js';
 import '/featuremods/viewportfix.js';
