@@ -135,3 +135,25 @@ func overlayStoredSessionTitles(items []session.Metadata, titles map[string]stri
 	}
 	return out
 }
+
+func (s *Server) withStoredTitle(meta session.Metadata) session.Metadata {
+	titles, err := storedSessionTitles(s.Workspace)
+	if err != nil {
+		if s.Log != nil {
+			s.Log.Printf("session title state read warning: %v", err)
+		}
+		return meta
+	}
+	return overlayStoredSessionTitle(meta, titles)
+}
+
+func (s *Server) withStoredTitles(items []session.Metadata) []session.Metadata {
+	titles, err := storedSessionTitles(s.Workspace)
+	if err != nil {
+		if s.Log != nil {
+			s.Log.Printf("session title state read warning: %v", err)
+		}
+		return items
+	}
+	return overlayStoredSessionTitles(items, titles)
+}
