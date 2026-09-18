@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"bletonfc/vscode_tasks_menu/internal/broker"
 	"bletonfc/vscode_tasks_menu/internal/config"
 	"bletonfc/vscode_tasks_menu/internal/selfupdate"
 	"bletonfc/vscode_tasks_menu/internal/server"
@@ -38,6 +39,7 @@ func main() {
 	stopDaemonFlag := flag.Bool("stop-daemon", false, "dừng daemon của workspace rồi thoát")
 	restartDaemon := flag.Bool("restart-daemon", false, "dừng daemon cũ rồi khởi động lại")
 	selfUpdateFlag := flag.Bool("self-update", false, "kiểm tra, xác nhận và cài bản mới nhất từ GitHub")
+	sessionBroker := flag.Bool("session-broker", false, "chạy session broker foreground (internal)")
 	versionFlag := flag.Bool("version", false, "in revision của binary rồi thoát")
 	handoffFD := flag.Int("handoff-fd", -1, "inherited listener fd (internal)")
 	listenAddr := flag.String("listen-addr", "", "listener address override (internal)")
@@ -51,6 +53,12 @@ func main() {
 
 	ws, err := resolveWorkspace(*workspace)
 	fatalIf(err)
+	if *sessionBroker {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		fatalIf(broker.Run(ctx, ws, log.New(os.Stdout, "", log.LstdFlags)))
+		return
+	}
 	if *terminal {
 		fatalIf(terminalui.Run(ws))
 		return
