@@ -122,3 +122,24 @@ func TestBrowserLeaseBlocksStaleMutationsButNotLegacyBeforeFirstAcquire(t *testi
 		t.Fatalf("current mutation status=%d called=%d", current.Code, called)
 	}
 }
+
+
+func TestBrowserLeaseUIClaimsControlAndStopsReconnectAfterRevocation(t *testing.T) {
+	for _, want := range []string{
+		"await acquireBrowserLease();await loadTasks();await syncSessions();",
+		"X-TaskMenu-Lease",
+		"showLeaseLost",
+		"Reload and take control",
+		"browserLeaseLost",
+		"?lease=",
+		"if(view.closed||browserLeaseLost)return",
+		"browserLeaseHeartbeat=setInterval",
+	} {
+		if !strings.Contains(appJS, want) {
+			t.Fatalf("app JS missing browser lease behavior %q", want)
+		}
+	}
+	if !strings.Contains(appCSS, ".browser-lease-overlay") {
+		t.Fatal("browser lease takeover UI overlay is missing")
+	}
+}
