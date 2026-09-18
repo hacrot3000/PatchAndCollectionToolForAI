@@ -125,12 +125,7 @@ func (s *Server) projectFileSave(w http.ResponseWriter, r *http.Request) {
 	if bom {
 		currentText = currentText[3:]
 	}
-	lineEnding := detectProjectLineEnding(currentText)
-	normalized := strings.ReplaceAll(req.Content, "\r\n", "\n")
-	normalized = strings.ReplaceAll(normalized, "\r", "\n")
-	if lineEnding == "crlf" {
-		normalized = strings.ReplaceAll(normalized, "\n", "\r\n")
-	}
+	lineEnding, normalized := applyProjectLineEndings(req.Content, currentText)
 	next := []byte(normalized)
 	if bom {
 		next = append([]byte{0xEF, 0xBB, 0xBF}, next...)
@@ -285,10 +280,65 @@ func (s *Server) projectFileRead(w http.ResponseWriter, r *http.Request) {
 }
 
 func detectProjectLineEnding(data []byte) string {
-	if bytes.Contains(data, []byte("\r\n")) {
-		return "crlf"
+	label, _, _ := projectLineEndingProfile(data)
+	return label
+}
+
+func projectLineEndingProfile(data []byte) (label, preferred string, endings []string) {
+	lfCount, crlfCount := 0, 0
+	for i := 0; i < len(data); i++ {
+		if data[i] != '\n' {
+			continue
+		}
+		if i > 0 && data[i-1] == '\r' {
+			endings = append(endings, "\r\n")
+			crlfCount++
+		} else {
+			endings = append(endings, "\n")
+			lfCount++
+		}
 	}
-	return "lf"
+	switch {
+	case crlfCount > 0 && lfCount > 0:
+		label = "mixed"
+	case crlfCount > 0:
+		label = "crlf"
+	default:
+		label = "lf"
+	}
+	preferred = "\n"
+	if crlfCount > lfCount {
+		preferred = "\r\n"
+	}
+	return label, preferred, endings
+}
+
+func applyProjectLineEndings(content string, current []byte) (string, string) {
+	label, preferred, endings := projectLineEndingProfile(current)
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	if !strings.Contains(normalized, "\n") {
+		return label, normalized
+	}
+	var out strings.Builder
+	out.Grow(len(normalized) + len(endings))
+	endingIndex := 0
+	start := 0
+	for i := 0; i < len(normalized); i++ {
+		if normalized[i] != '\n' {
+			continue
+		}
+		out.WriteString(normalized[start:i])
+		ending := preferred
+		if endingIndex < len(endings) {
+			ending = endings[endingIndex]
+		}
+		out.WriteString(ending)
+		endingIndex++
+		start = i + 1
+	}
+	out.WriteString(normalized[start:])
+	return label, out.String()
 }
 
 func (s *Server) projectTree(w http.ResponseWriter, r *http.Request) {
