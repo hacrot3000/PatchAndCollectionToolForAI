@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -74,7 +75,7 @@ func TestCurrentProjectFileIndexLoadsFreshCacheAndRecoversCorruptCache(t *testin
 		t.Fatal(err)
 	}
 	s := &Server{Workspace: root}
-	idx, err := s.currentProjectFileIndex(t.Context())
+	idx, err := s.currentProjectFileIndex(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +94,7 @@ func TestCurrentProjectFileIndexLoadsFreshCacheAndRecoversCorruptCache(t *testin
 		t.Fatal(err)
 	}
 	s = &Server{Workspace: root}
-	idx, err = s.currentProjectFileIndex(t.Context())
+	idx, err = s.currentProjectFileIndex(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
