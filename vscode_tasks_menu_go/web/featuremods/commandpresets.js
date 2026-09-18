@@ -64,9 +64,9 @@ function commandPayload(view,command,token,index){
   const flavor=shellFlavor(view);
   if(!flavor)throw new Error('Preset commands support bash/sh/zsh/dash/ksh/ash/fish terminals. Current shell: '+String(view?.meta?.command_preview||'unknown'));
   if(flavor==='fish'){
-    return 'begin\n'+command+'\nset __vtm_preset_rc $status\nprintf \'\\\\036VTM_PRESET:'+token+':'+index+':%d\\\\037\' $__vtm_preset_rc\nend\r';
+    return 'begin\n'+command+'\nset __vtm_preset_rc $status\nprintf \'\\036VTM_PRESET:'+token+':'+index+':%d\\037\' $__vtm_preset_rc\nend\r';
   }
-  return '{\n'+command+'\n__vtm_preset_rc=$?\nprintf \'\\\\036VTM_PRESET:'+token+':'+index+':%d\\\\037\' "$__vtm_preset_rc"\n}\r';
+  return '{\n'+command+'\n__vtm_preset_rc=$?\nprintf \'\\036VTM_PRESET:'+token+':'+index+':%d\\037\' "$__vtm_preset_rc"\n}\r';
 }
 
 function decodeOutput(data){
