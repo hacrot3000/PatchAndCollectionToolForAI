@@ -102,9 +102,21 @@ func (s *Server) browserLeaseAPI(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func internalLoopbackLeaseExempt(r *http.Request) bool {
+	if r.Method != http.MethodPost || r.URL.Path != "/api/state/tasks" || r.URL.Query().Get("scope") != "self-update" {
+		return false
+	}
+	switch r.URL.Query().Get("action") {
+	case "handoff", "detach":
+		return loopbackRemote(r.RemoteAddr)
+	default:
+		return false
+	}
+}
+
 func (s *Server) requireBrowserLease(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/browser/lease" || r.URL.Path == "/api/health" {
+		if r.URL.Path == "/api/browser/lease" || r.URL.Path == "/api/health" || internalLoopbackLeaseExempt(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
