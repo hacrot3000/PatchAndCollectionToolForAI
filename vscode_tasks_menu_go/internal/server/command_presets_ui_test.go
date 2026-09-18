@@ -21,12 +21,12 @@ func TestCommandPresetRunnerFoundation(t *testing.T) {
 		"const rc=await executeCommand(view,run,preset.commands[index],index)",
 		"if(rc!==0)",
 		"view.ws.send(commandPayload(view,command,run.token,index))",
-		"term", // module is xterm/session oriented
+		"term",
 		"taskmenu:output",
 		"taskmenu:session",
 		"markerPattern(run.token,index)",
-		"\x1eVTM_PRESET:",
-		"\x1f",
+		"\\x1eVTM_PRESET:",
+		"\\x1f",
 		"Preset commands support bash/sh/zsh/dash/ksh/ash/fish terminals",
 	} {
 		if !strings.Contains(js, want) {
