@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -112,4 +114,117 @@ func urlQueryEscape(value string) string {
 		}
 	}
 	return out
+}
+
+
+func TestProjectFileReadMetadataAndEncoding(t *testing.T) {
+	root := t.TempDir()
+	data := append([]byte{0xEF, 0xBB, 0xBF}, []byte("one\r\ntwo\r\n")...)
+	path := filepath.Join(root, "sample.txt")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: root}
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/project/file?path=sample.txt", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var got projectFileResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	if got.Path != "sample.txt" || got.Content != "one\r\ntwo\r\n" {
+		t.Fatalf("response=%#v", got)
+	}
+	if got.SHA256 != hex.EncodeToString(sum[:]) || got.Size != int64(len(data)) {
+		t.Fatalf("hash/size response=%#v", got)
+	}
+	if got.Encoding != "utf-8" || got.LineEnding != "crlf" || !got.BOM || got.ReadOnly {
+		t.Fatalf("metadata response=%#v", got)
+	}
+}
+
+func TestProjectFileReadRejectsBinaryInvalidUTF8AndOversize(t *testing.T) {
+	root := t.TempDir()
+	cases := []struct {
+		name   string
+		data   []byte
+		status int
+	}{
+		{name: "binary.bin", data: []byte{'a', 0, 'b'}, status: http.StatusUnsupportedMediaType},
+		{name: "invalid.txt", data: []byte{0xff, 0xfe, 0xfd}, status: http.StatusUnsupportedMediaType},
+	}
+	s := &Server{Workspace: root}
+	for _, tc := range cases {
+		if err := os.WriteFile(filepath.Join(root, tc.name), tc.data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/project/file?path="+tc.name, nil))
+		if rr.Code != tc.status {
+			t.Fatalf("%s status=%d want=%d body=%s", tc.name, rr.Code, tc.status, rr.Body.String())
+		}
+	}
+	huge := filepath.Join(root, "huge.txt")
+	f, err := os.Create(huge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(projectReadableLimit + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/project/file?path=huge.txt", nil))
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversize status=%d want=413 body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestProjectFileReadMarksMediumAndPermissionFilesReadOnly(t *testing.T) {
+	root := t.TempDir()
+	medium := filepath.Join(root, "medium.txt")
+	f, err := os.Create(medium)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(projectEditableLimit + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: root}
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/project/file?path=medium.txt", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("medium status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var got projectFileResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.ReadOnly || got.Warning == "" {
+		t.Fatalf("medium response=%#v", got)
+	}
+
+	locked := filepath.Join(root, "locked.txt")
+	if err := os.WriteFile(locked, []byte("locked"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	rr = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/project/file?path=locked.txt", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("locked status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.ReadOnly {
+		t.Fatalf("locked response=%#v", got)
+	}
 }

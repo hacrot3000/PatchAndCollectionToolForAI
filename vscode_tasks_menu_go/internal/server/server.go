@@ -39,6 +39,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/files/download", s.fileDownload)
 	mux.HandleFunc("/api/files/upload", s.fileUpload)
 	mux.HandleFunc("/api/project/tree", s.projectTree)
+	mux.HandleFunc("/api/project/file", s.projectFile)
 	mux.HandleFunc("/api/sessions/force-kill", s.sessionForceKill)
 	mux.HandleFunc("/api/sessions/clear-console", s.sessionClearConsole)
 	mux.HandleFunc("/api/sessions", s.sessionsRoot)
