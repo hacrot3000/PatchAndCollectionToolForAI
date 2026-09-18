@@ -192,5 +192,5 @@ window.addEventListener('pagehide',()=>{
   try{fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),keepalive:true});}catch{}
 });
 
-globalThis.TaskMenuTerminalRestore={persistSnapshot,snapshotPayload,freezeForSelfUpdate,resumeAfterSelfUpdate,isPersistenceFrozen:()=>persistenceFrozen};
+globalThis.TaskMenuTerminalRestore={persistSnapshot,snapshotPayload,freezeForSelfUpdate,resumeAfterSelfUpdate,isPersistenceFrozen:()=>persistenceFrozen,ready:restoreReady};
 setTimeout(()=>restoreProjectTerminals(),0);
