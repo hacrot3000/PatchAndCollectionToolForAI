@@ -192,7 +192,7 @@ setInterval(()=>{if(!restoring&&!persistenceFrozen)persistSnapshot();},2000);
 window.addEventListener('pagehide',()=>{
   if(restoring||persistenceFrozen)return;
   const payload=snapshotPayload();
-  try{fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),keepalive:true});}catch{}
+  try{app.fetchWithLease(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),keepalive:true});}catch{}
 });
 
 globalThis.TaskMenuTerminalRestore={persistSnapshot,snapshotPayload,freezeForSelfUpdate,resumeAfterSelfUpdate,isPersistenceFrozen:()=>persistenceFrozen,ready:restoreReady};
