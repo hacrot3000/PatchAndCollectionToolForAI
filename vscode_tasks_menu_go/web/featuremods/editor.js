@@ -13,7 +13,7 @@ style.textContent=`
 .editor-head{min-height:40px;padding:5px 9px}
 .editor-head .editor-path{font:12px ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;opacity:.82}
 .editor-head .editor-meta{font-size:10px;opacity:.58;white-space:nowrap}
-.editor-head .editor-readonly{font-size:10px;padding:2px 6px;border:1px solid #7d6733;border-radius:10px;color:#ffe29a;background:#493b1d;white-space:nowrap}
+.editor-head .editor-readonly,.editor-head .editor-warning{font-size:10px;padding:2px 6px;border:1px solid #7d6733;border-radius:10px;color:#ffe29a;background:#493b1d;white-space:nowrap}.editor-head .editor-warning{max-width:260px;overflow:hidden;text-overflow:ellipsis}
 .editor-host{flex:1;min-height:0;overflow:hidden}
 .editor-host .cm-editor{height:100%;font-size:13px}
 .editor-host .cm-scroller{overflow:auto;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
@@ -130,6 +130,9 @@ function setEditorDocument(view,file){
   view.path.textContent=file.path;
   view.path.title=file.path;
   view.meta.textContent=editorMetaText(file);
+  view.warningBadge.hidden=!file.warning;
+  view.warningBadge.textContent=file.warning?'WARNING':'';
+  view.warningBadge.title=file.warning||'';
   applyReadOnly(view);
   setDirty(view,false);
 }
@@ -313,14 +316,15 @@ function createEditor(file){
   const pathNode=document.createElement('div');pathNode.className='editor-path';pathNode.textContent=file.path;pathNode.title=file.path;
   const meta=document.createElement('div');meta.className='editor-meta';meta.textContent=editorMetaText(file);
   const readonlyBadge=document.createElement('span');readonlyBadge.className='editor-readonly';readonlyBadge.textContent='READ-ONLY';readonlyBadge.hidden=!file.read_only;
+  const warningBadge=document.createElement('span');warningBadge.className='editor-warning';warningBadge.textContent=file.warning?'WARNING':'';warningBadge.title=file.warning||'';warningBadge.hidden=!file.warning;
   const save=document.createElement('button');save.type='button';save.className='editor-save';save.textContent='Save';save.title='Save file (Ctrl/Cmd+S)';
   const reload=document.createElement('button');reload.type='button';reload.textContent='Reload';reload.title='Reload file from disk';
-  head.append(pathNode,meta,readonlyBadge,save,reload);
+  head.append(pathNode,meta,readonlyBadge,warningBadge,save,reload);
   const host=document.createElement('div');host.className='editor-host';
   pane.append(head,host);panesHost.append(pane);
 
   const cm=cmFactory.newEditor(host,file.content||'',languageOptions(file.path));
-  const view={id,file:{...file},tab,label,dirty,pane,head,path:pathNode,meta,readonlyBadge,save,reload,host,cm,closed:false,dirty:false,saving:false,internalUpdate:false,dispatchRaw:null};
+  const view={id,file:{...file},tab,label,dirty,pane,head,path:pathNode,meta,readonlyBadge,warningBadge,save,reload,host,cm,closed:false,dirty:false,saving:false,internalUpdate:false,dispatchRaw:null};
   editors.set(id,view);
   installEditorDispatchGuard(view);
   applyReadOnly(view);
