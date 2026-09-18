@@ -265,6 +265,12 @@ window.addEventListener('taskmenu:session',event=>{
   const view=event.detail?.view;if(view)install(view);
   setTimeout(()=>{tryRestoreSaved();syncForActive();updateButtons();},0);
 });
+window.addEventListener('taskmenu:view-activated',event=>{
+  if(event.detail?.kind==='external'){
+    cleanupPresentation();updateButtons();return;
+  }
+  if(event.detail?.kind==='terminal')setTimeout(syncForActive,0);
+});
 for(const view of app.views.values())install(view);
 pendingSaved=readSaved();setTimeout(()=>{tryRestoreSaved();syncForActive();updateButtons();},0);
 
