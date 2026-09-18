@@ -113,3 +113,41 @@ func TestTabContextSupportsPresetSubmenus(t *testing.T) {
 		}
 	}
 }
+
+func TestCommandPresetDisplayHidesInternalWrapper(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/commandpresets.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"app.addOutputFilter(filterPresetDisplay)",
+		"view.term.write(displayCommandText(command))",
+		"payloadEchoLineCount(payload)",
+		"run.echoLinesRemaining",
+		"stripPresetSentinel(run,text)",
+		"return out||null",
+		"run.displayActive=typeof app.addOutputFilter==='function'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("commandpresets.js missing display filtering behavior %q", want)
+		}
+	}
+	if strings.Contains(js, "stty -echo") {
+		t.Fatal("preset display cleanup must not disable terminal echo with stty")
+	}
+}
+
+func TestCoreOutputFilterKeepsRawOutputEvent(t *testing.T) {
+	if !strings.Contains(appJS, "const outputFilters=[]") {
+		t.Fatal("core UI missing output filter registry")
+	}
+	if !strings.Contains(appJS, "addOutputFilter") || !strings.Contains(appJS, "filterOutput(view,data)") {
+		t.Fatal("core UI missing output filter API")
+	}
+	write := strings.Index(appJS, "writeOutput(view,filterOutput(view,data));")
+	rawEvent := strings.Index(appJS, "taskmenu:output")
+	if write < 0 || rawEvent < 0 || write > rawEvent {
+		t.Fatal("core must filter display output while still dispatching raw taskmenu:output afterwards")
+	}
+}
