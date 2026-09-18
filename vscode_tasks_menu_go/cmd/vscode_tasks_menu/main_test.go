@@ -175,3 +175,22 @@ func TestRemoteFirewallGuidanceOnlyForWildcardIPv4Bind(t *testing.T) {
 		}
 	}
 }
+
+
+func TestStatusIncludesRemoteFirewallGuidance(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"printDaemonStatus(ws, cfg)",
+		"func printDaemonStatus(ws string, cfg config.Config)",
+		`fmt.Printf("running pid=%d url=%s started=%s\n", st.PID, st.URL, st.StartedAt)`,
+		"printRemoteFirewallGuidance(os.Stdout, cfg, st.Address)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("status remote guidance missing %q", want)
+		}
+	}
+}
