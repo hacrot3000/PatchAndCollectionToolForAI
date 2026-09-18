@@ -27,21 +27,55 @@ func TestCreateListenerFromInheritedFDKeepsAddress(t *testing.T) {
 	}
 }
 
-func TestSelfUpdateRestoresTerminalsBeforeCompletedState(t *testing.T) {
+func TestSelfUpdateReconnectsBrokerBeforeTerminalFallback(t *testing.T) {
 	data, err := os.ReadFile("main.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(data)
+	discover := strings.Index(src, "brokerClient.ListWithError()")
+	reconnect := strings.Index(src, "self-update reconnected broker sessions=")
 	restore := strings.Index(src, "RestoreProjectTerminalsForStartup()")
-	completed := strings.Index(src, `selfupdate.Update(ws, updateID, "completed"`)
-	if restore < 0 {
-		t.Fatal("serveForeground must restore project terminals during self-update startup")
+	if discover < 0 || reconnect < 0 || restore < 0 {
+		t.Fatalf("missing self-update broker reconnect flow: discover=%d reconnect=%d restore=%d", discover, reconnect, restore)
 	}
-	if completed < 0 {
-		t.Fatal("serveForeground must publish self-update completion")
+	if !(discover < reconnect && reconnect < restore) {
+		t.Fatal("self-update must discover/reuse broker sessions before terminal recreation fallback")
 	}
-	if restore > completed {
-		t.Fatal("self-update completion must not be published before terminal restore")
+}
+
+func TestSelfUpdateHandoffDoesNotShutdownBroker(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start := strings.Index(src, "func handoffToUpdatedDaemon")
+	end := strings.Index(src[start:], "func publicURLForListener")
+	if start < 0 || end < 0 {
+		t.Fatal("handoffToUpdatedDaemon not found")
+	}
+	body := src[start : start+end]
+	if strings.Contains(body, "ShutdownBroker") || strings.Contains(body, ".Shutdown(") {
+		t.Fatal("self-update handoff must not shut down the independent session broker")
+	}
+}
+
+func TestSelfUpdateFallbackPrefersBrokerPreservingDetach(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start := strings.Index(src, "func fallbackRestartAfterUpdate")
+	end := strings.Index(src[start:], "func waitForDaemon(")
+	if start < 0 || end < 0 {
+		t.Fatal("fallbackRestartAfterUpdate not found")
+	}
+	body := src[start : start+end]
+	detach := strings.Index(body, "requestDaemonDetach")
+	legacyStop := strings.Index(body, "stopExistingDaemon")
+	if detach < 0 || legacyStop < 0 || detach > legacyStop {
+		t.Fatal("self-update fallback must try broker-preserving detach before legacy daemon stop")
 	}
 }
