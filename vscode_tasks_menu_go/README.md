@@ -42,6 +42,26 @@ Mỗi lần bấm một task sẽ tạo một **PTY session riêng** và một t
 - Close tab đã `exited/stopped`: session đã hoàn tất được xóa khỏi daemon.
 - Daemon giữ tối đa khoảng 4 MiB scrollback cho mỗi session để reconnect/replay.
 
+### Broadcast Groups
+
+Web UI có menu **Broadcast** ở bên trái **Terminal** với ba mode:
+
+- **None**: chỉ tab nguồn nhận input như bình thường;
+- **All**: mỗi raw key/input từ tab nguồn được gửi thêm tới mọi session đang `running`;
+- **Group**: raw key/input chỉ được gửi thêm tới các session cùng broadcast group với tab nguồn; nếu tab nguồn không thuộc group nào thì không fan-out.
+
+Broadcast giữ nguyên dữ liệu từ `xterm.onData()`, vì vậy ký tự thường, Enter, Ctrl+C, phím mũi tên và paste đều đi qua cùng cơ chế. Session nguồn vẫn dùng WebSocket input cũ; fan-out luôn loại source ID để tránh nhận một phím hai lần. Request broadcast của từng source được queue theo thứ tự để giảm nguy cơ reorder khi gõ nhanh.
+
+Click phải một tab mở thêm phần **Broadcast group**:
+
+- chọn một group đã có để assign tab;
+- **Create new group…** để tạo group và assign ngay tab hiện tại;
+- **Remove from group** để bỏ tab khỏi group.
+
+Mỗi group chọn một trong các preset màu nền/chữ có độ tương phản cao: Slate, Ocean, Forest, Amber, Violet, Rose, Cyan và Lime. Tab thuộc group được tô theo preset đó để dễ nhận biết. Có thể edit/delete group từ menu Broadcast; xóa group sẽ tự bỏ assignment của các tab thuộc group.
+
+Mode, group definitions, preset màu và mapping `session_id -> group_id` được lưu atomic trong runtime state của workspace, nên reload browser và self-update giữ nguyên khi session ID được broker bảo toàn.
+
 ### Download file xuất hiện trong output
 
 Khi output của task in ra đường dẫn file, có thể dùng chuột **bôi chọn vùng text chứa path**. Web UI sẽ kiểm tra các path thật nằm trong vùng chọn:
