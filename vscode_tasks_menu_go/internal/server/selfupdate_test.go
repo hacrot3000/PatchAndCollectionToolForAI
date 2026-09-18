@@ -66,3 +66,63 @@ func TestSelfUpdateHandoffRejectsRemoteClient(t *testing.T) {
 		t.Fatalf("remote handoff status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
+
+func TestSelfUpdateDetachPreservesBrokerControlPath(t *testing.T) {
+	workspace := t.TempDir()
+	req, err := updater.CreateRequest(workspace, "0123456789abcdef", "http://127.0.0.1:1234", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := updater.Update(workspace, req.ID, "ready_restart", "ready", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: workspace}
+	called := make(chan string, 1)
+	RegisterSelfUpdateDetach(s, func(id string) error { called <- id; return nil })
+	defer RegisterSelfUpdateDetach(s, nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/state/tasks?scope=self-update&action=detach", strings.NewReader(`{"id":"`+req.ID+`"}`))
+	request.RemoteAddr = "127.0.0.1:50100"
+	rr := httptest.NewRecorder()
+	s.selfUpdateState(rr, request)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("detach status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	select {
+	case id := <-called:
+		if id != req.ID {
+			t.Fatalf("detach id=%q", id)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("detach callback not invoked")
+	}
+	loaded, err := updater.Load(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Status != "restarting" {
+		t.Fatalf("detach update status=%q want restarting", loaded.Status)
+	}
+}
+
+func TestSelfUpdateDetachRejectsRemoteClient(t *testing.T) {
+	workspace := t.TempDir()
+	req, err := updater.CreateRequest(workspace, "0123456789abcdef", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := updater.Update(workspace, req.ID, "ready_restart", "ready", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: workspace}
+	RegisterSelfUpdateDetach(s, func(string) error { return nil })
+	defer RegisterSelfUpdateDetach(s, nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/state/tasks?scope=self-update&action=detach", strings.NewReader(`{"id":"`+req.ID+`"}`))
+	request.RemoteAddr = "192.0.2.10:50100"
+	rr := httptest.NewRecorder()
+	s.selfUpdateState(rr, request)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("remote detach status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
