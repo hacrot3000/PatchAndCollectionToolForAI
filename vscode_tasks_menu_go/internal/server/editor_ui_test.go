@@ -122,3 +122,29 @@ func TestEditorExternalConflictResolutionFlow(t *testing.T) {
 		t.Fatal("editor conflict/source UI must not render source through innerHTML")
 	}
 }
+
+
+func TestEditorTracksTransactionsAndBlocksReadOnlyDocumentChanges(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function installEditorDispatchGuard(view)",
+		"view.cm.state.update(...input)",
+		"transaction.docChanged&&view.file.read_only&&!view.internalUpdate",
+		"if(transaction.docChanged&&!view.internalUpdate)setDirty(view,true)",
+		"view.internalUpdate=true",
+		"view.internalUpdate=false",
+		"addEventListener('beforeinput'",
+		"if(view.file.read_only)event.preventDefault()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor transaction guard missing %q", want)
+		}
+	}
+	if strings.Contains(js, "addEventListener('input',()=>{if(!view.file.read_only)setDirty(view,true);}") {
+		t.Fatal("dirty tracking must not depend on DOM input events")
+	}
+}
