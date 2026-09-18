@@ -59,3 +59,23 @@ func TestSplitTerminalFeature(t *testing.T) {
 		t.Fatal("next.js must load split.js")
 	}
 }
+
+
+func TestSplitSuspendsForExternalEditorViewWithoutDestroyingGroups(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/split.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"window.addEventListener('taskmenu:view-activated'",
+		"event.detail?.kind==='external'",
+		"cleanupPresentation();updateButtons();return",
+		"event.detail?.kind==='terminal'",
+		"setTimeout(syncForActive,0)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("split external-view integration missing %q", want)
+		}
+	}
+}
