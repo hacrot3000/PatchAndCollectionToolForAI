@@ -199,6 +199,40 @@ function remember(map,key,value,max=8){
   while(map.size>max)map.delete(map.keys().next().value);
 }
 
+function detectedPathMaxChars(){
+  const width=document.querySelector('#panes')?.clientWidth||Math.max(640,window.innerWidth-360);
+  return Math.max(96,Math.min(180,Math.floor((width-240)/7)));
+}
+
+function compactPathPart(value,max){
+  const text=String(value||'');
+  if(text.length<=max)return text;
+  if(max<=3)return '...';
+  return text.slice(0,max-3)+'...';
+}
+
+function compactDetectedPath(value,maxChars=detectedPathMaxChars()){
+  const path=String(value||'').replace(/\\/g,'/');
+  if(path.length<=maxChars)return path;
+  const parts=path.split('/').filter(Boolean);
+  const filename=parts.pop()||path;
+  const lead='.../';
+  // The filename carries the most important identity. Never truncate it merely
+  // to preserve an unhelpful absolute-path prefix.
+  if(!parts.length||lead.length+filename.length>=maxChars)return lead+filename;
+
+  const dirBudget=Math.max(0,maxChars-lead.length-filename.length-1);
+  const context=parts.slice(-2);
+  if(context.length===1)return lead+compactPathPart(context[0],dirBudget)+'/'+filename;
+
+  const first=context[0],last=context[1];
+  const firstBudget=Math.min(first.length,Math.max(7,Math.floor(dirBudget*0.38)));
+  const firstShown=compactPathPart(first,firstBudget);
+  const lastBudget=Math.max(4,dirBudget-firstShown.length-1);
+  const lastShown=compactPathPart(last,lastBudget);
+  return lead+firstShown+'/'+lastShown+'/'+filename;
+}
+
 function filePriority(file){
   const path=String(file?.path||'').replace(/\\/g,'/');
   const name=String(file?.name||path.split('/').pop()||'');
@@ -227,7 +261,7 @@ function render(state){
   for(const {file} of ranked){
     const row=document.createElement('div');row.className='detected-row';
     const kind=document.createElement('span');kind.className='detected-kind';kind.textContent='FILE';
-    const link=document.createElement('a');link.className='detected-link';link.href=file.url;link.download=file.name||'';link.textContent=file.path;link.title=file.path;
+    const link=document.createElement('a');link.className='detected-link';link.href=file.url;link.download=file.name||'';link.textContent=compactDetectedPath(file.path);link.title=file.path;
     const download=document.createElement('button');download.className='detected-download';download.textContent='Download';download.onclick=()=>openDownload(file);
     const copy=document.createElement('button');copy.className='detected-copy';copy.textContent='Copy';copy.onclick=()=>copyText(file.path,copy).catch(app.showError);
     const ignore=document.createElement('button');ignore.className='detected-ignore';ignore.textContent='Ignore';ignore.title='Hide this file for the current session';ignore.onclick=()=>ignoreFile(state,file);
