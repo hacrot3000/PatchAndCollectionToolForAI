@@ -125,3 +125,12 @@ func TestTabDragInstallsForExternalEditorTabs(t *testing.T) {
 		}
 	}
 }
+
+func TestTabOrderIsScopedByLayoutProfile(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/tabdrag.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	if !strings.Contains(js, "'vscode-tasks-menu:tab-order:'+(app.layoutProfile||'desktop')") {
+		t.Fatal("tab order storage must be scoped by desktop/mobile layout profile")
+	}
+}
