@@ -437,9 +437,9 @@ function languageLabel(pathValue){
     if(options[key])return key==='cpp'?'C/C++':key==='javascript'?'JS/TS':key.toUpperCase();
   }
   const lower=String(pathValue||'').toLowerCase();
-  if(/(^|\/)(cmakelists\.txt)$/.test(lower)||lower.endsWith('.cmake'))return 'CMake (plain)';
-  if(/\.(sh|bash|zsh|fish)$/.test(lower))return 'Shell (plain)';
-  if(lower.endsWith('.lua'))return 'Lua (plain)';
+  if(/(^|\/)(cmakelists\.txt)$/.test(lower)||lower.endsWith('.cmake'))return 'CMake';
+  if(/\.(sh|bash|zsh|fish)$/.test(lower))return 'Shell';
+  if(lower.endsWith('.lua'))undefined
   return 'Plain text';
 }
 function editorMetaText(file){
