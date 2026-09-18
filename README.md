@@ -120,7 +120,7 @@ Các chức năng chính gồm:
 
 - mỗi task chạy trong PTY/session/tab riêng, hỗ trợ ANSI, prompt tương tác, Ctrl+C và reconnect/replay scrollback;
 - terminal tab, đổi tên tab, sắp xếp/khôi phục tab, split dọc/ngang, nhiều split group, active tab và CWD được lưu theo project;
-- reload browser vẫn khôi phục terminal layout; self-update cũng lưu/khôi phục tabs, CWD, order và split layout;
+- reload browser vẫn khôi phục terminal layout; self-update giữ session broker sống qua daemon replacement nên process/PTY/session ID/scrollback tiếp tục tồn tại, đồng thời tabs, CWD, order và split layout được attach lại;
 - Console menu có copy/search/save/clear log; clear yêu cầu xác nhận;
 - phát hiện file path trong output để download, có thể bật/tắt theo từng tab và clear/ignore danh sách detect;
 - upload file vào workspace với kiểm tra traversal/symlink và xác nhận overwrite;
@@ -143,7 +143,7 @@ Sau khi đã bootstrap phiên bản có hỗ trợ self-update, có thể tự k
 ./tools/vscode_tasks_menu --self-update
 ```
 
-Nếu daemon đang chạy, web UI sẽ yêu cầu xác nhận trước khi update. Updater ưu tiên giữ nguyên listener/port; nếu URL thay đổi, browser sẽ redirect sang URL mới. Terminal layout được snapshot trước update và daemon mới dựng lại terminal tabs sau restart. **Process task đang chạy không được đảm bảo tiếp tục xuyên qua self-update**, vì vậy nên hoàn tất task quan trọng trước khi xác nhận update.
+Nếu daemon đang chạy, web UI sẽ yêu cầu xác nhận trước khi update. Các task/terminal mới được tạo bởi phiên bản có session broker thuộc một broker process độc lập với web daemon; updater ưu tiên giữ broker sống, thay daemon rồi reconnect lại **cùng session ID**, vì vậy process/PTY và scrollback tiếp tục chạy trong lúc update. Listener/port cũng được giữ khi handoff cho phép; nếu URL thay đổi, browser sẽ redirect sang URL mới. Riêng lần nâng chuyển tiếp đầu tiên từ một bản **pre-broker**, các process đã được daemon cũ sở hữu không thể chuyển ownership giữa chừng và có thể mất trong lần update đó. Xem `vscode_tasks_menu_go/SELF_UPDATE.md` để biết fallback/last-resort behavior.
 
 Tài liệu chi tiết:
 
@@ -278,7 +278,7 @@ Main capabilities include:
 
 - one PTY/session/tab per task, with ANSI output, interactive prompts, Ctrl+C, reconnect, and scrollback replay;
 - terminal tabs, tab renaming, tab ordering/restoration, vertical and horizontal splits, multiple split groups, active-tab state, and per-terminal CWD persistence;
-- browser reload restores terminal layout, and self-update also preserves tabs, CWDs, ordering, and split layout;
+- browser reload restores terminal layout; self-update keeps the independent session broker alive across web-daemon replacement so process/PTY/session IDs and scrollback survive while tabs, CWDs, ordering, and split layout are reattached;
 - Console actions for copy/search/save/clear log, with confirmation before clearing;
 - file-path detection in terminal output for downloads, with per-tab enable/disable and clear/ignore controls;
 - workspace uploads with traversal/symlink protection and overwrite confirmation;
@@ -301,7 +301,7 @@ After bootstrapping a version that supports self-update, the tool can check the 
 ./tools/vscode_tasks_menu --self-update
 ```
 
-If a daemon is running, the web UI asks for confirmation before updating. The updater prefers to preserve the existing listener/port; if the URL changes, the browser redirects to the new URL. Terminal layout is snapshotted before the update and the new daemon recreates terminal tabs after restart. **Running task processes are not guaranteed to survive self-update**, so important long-running tasks should be completed before confirming the update.
+If a daemon is running, the web UI asks for confirmation before updating. Tasks/terminals created by a broker-enabled build are owned by a session-broker process that is independent of the web daemon. The updater prefers to keep that broker alive, replace the daemon, and reconnect to the **same session IDs**, so running processes, PTYs, and scrollback continue through the update. The listener/port is also preserved when handoff is available; if the URL changes, the browser redirects to the new URL. The first transition from a **pre-broker** build is the exception: processes already owned by the old daemon cannot have their PTY ownership migrated mid-run and may be lost during that one upgrade. See `vscode_tasks_menu_go/SELF_UPDATE.md` for fallback/last-resort behavior.
 
 Detailed documentation:
 
