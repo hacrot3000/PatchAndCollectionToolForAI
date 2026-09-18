@@ -79,3 +79,28 @@ func TestSelfUpdateFallbackPrefersBrokerPreservingDetach(t *testing.T) {
 		t.Fatal("self-update fallback must try broker-preserving detach before legacy daemon stop")
 	}
 }
+
+
+func TestConfigReloadSignalPreservesSessionBroker(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	want := "if sig == reloadConfigSignal"
+	start := strings.Index(src, want)
+	if start < 0 {
+		t.Fatalf("missing reload signal branch %q", want)
+	}
+	end := strings.Index(src[start:], "logger.Printf(\"shutdown signal=%s\"")
+	if end < 0 {
+		t.Fatal("reload signal branch end not found")
+	}
+	body := src[start : start+end]
+	if strings.Contains(body, "ShutdownBroker") {
+		t.Fatal("config reload signal must preserve session broker")
+	}
+	if !strings.Contains(body, "_ = ln.Close()") {
+		t.Fatal("config reload signal must close the old web listener")
+	}
+}
