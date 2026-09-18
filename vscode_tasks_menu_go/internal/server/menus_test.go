@@ -15,6 +15,8 @@ func TestGroupedMenusFeature(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"header-action-menus",
+		"makeMenu('Files'",
+		"Quick Open…  Ctrl+P",
 		"makeMenu('Terminal'",
 		"makeMenu('Workspace'",
 		"makeMenu('Settings'",

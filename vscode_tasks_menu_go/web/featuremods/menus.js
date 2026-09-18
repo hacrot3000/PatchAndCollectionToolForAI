@@ -32,6 +32,11 @@ function installHeaderMenus(){
   const header=document.querySelector('header'),workspace=document.querySelector('#workspace');if(!header||!workspace||header.querySelector('.header-action-menus'))return;
   const host=document.createElement('div');host.className='header-action-menus';header.append(host);
 
+  const files=makeMenu('Files','Project files');
+  const quickOpen=document.createElement('button');quickOpen.type='button';quickOpen.textContent='Quick Open…  Ctrl+P';quickOpen.onclick=()=>{closeAll();globalThis.TaskMenuQuickOpen?.open();};
+  addSection(files.pop,'OPEN',[quickOpen]);
+  host.append(files.menu);
+
   const terminal=makeMenu('Terminal','Terminal actions');
   addSection(terminal.pop,'NEW TERMINAL',[document.querySelector('#terminal-cwd'),document.querySelector('#open-terminal')]);
   host.append(terminal.menu);
