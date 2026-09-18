@@ -23,7 +23,7 @@ type Server struct {
 	Workspace string
 	Config    config.Config
 	Log       *log.Logger
-	Sessions  *session.Manager
+	Sessions  session.Service
 }
 
 func (s *Server) Handler() http.Handler {
