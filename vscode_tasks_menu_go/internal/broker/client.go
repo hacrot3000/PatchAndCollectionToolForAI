@@ -68,6 +68,15 @@ func (c *Client) Close() {
 	}
 }
 
+func (c *Client) SupportsSessionTitle() bool {
+	for _, capability := range c.info.Capabilities {
+		if capability == CapabilitySessionTitle {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Client) endpoint(path string) string {
 	return "http://session-broker" + path
 }
