@@ -33,6 +33,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/state/tasks", s.taskState)
 	mux.HandleFunc("/api/config/page-title", s.pageTitle)
 	mux.HandleFunc("/api/broadcast", s.broadcastStateAPI)
+	mux.HandleFunc("/api/command-presets", s.commandPresets)
 	mux.HandleFunc("/api/git/status", s.gitStatus)
 	mux.HandleFunc("/api/files/selection", s.filesSelection)
 	mux.HandleFunc("/api/files/download", s.fileDownload)
