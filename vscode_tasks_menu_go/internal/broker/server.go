@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"bletonfc/vscode_tasks_menu/internal/session"
 	runtimestate "bletonfc/vscode_tasks_menu/internal/state"
 )
 
@@ -66,6 +67,9 @@ func Run(ctx context.Context, workspace string, logger *log.Logger) error {
 	}
 	defer RemoveInfoIfPID(workspace, info.PID)
 
+	manager := session.NewManager(4 << 20)
+	defer manager.Shutdown(2 * time.Second)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -83,6 +87,7 @@ func Run(ctx context.Context, workspace string, logger *log.Logger) error {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(info)
 	})
+	registerSessionRoutes(mux, manager)
 
 	httpServer := &http.Server{Handler: mux}
 	done := make(chan struct{})
