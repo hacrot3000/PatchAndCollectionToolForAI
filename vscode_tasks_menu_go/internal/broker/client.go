@@ -231,3 +231,7 @@ func (c *Client) Subscribe(id string) ([]byte, <-chan []byte, func(), error) {
 	}()
 	return backlog, stream, stop, nil
 }
+
+func (c *Client) ShutdownBroker() error {
+	return c.doJSON(http.MethodPost, "/v1/shutdown", nil, nil)
+}
