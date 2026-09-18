@@ -25,9 +25,16 @@ style.textContent=`
 .editor-dirty-dialog{width:min(430px,94vw);background:#171a20;border:1px solid #3b414d;border-radius:10px;box-shadow:0 18px 48px rgba(0,0,0,.5);padding:16px}
 .editor-dirty-dialog h3{margin:0 0 8px;font-size:15px}.editor-dirty-dialog p{margin:0 0 14px;font-size:12px;opacity:.75;word-break:break-word}
 .editor-dirty-actions{display:flex;justify-content:flex-end;gap:8px}.editor-dirty-actions .discard{margin-right:auto;background:#4a252a;border-color:#7a4048;color:#ffe2e4}
+.editor-conflict-dialog{width:min(560px,96vw)}
+.editor-conflict-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}.editor-conflict-actions .compare{margin-right:auto}
+.editor-compare-dialog{width:min(1100px,96vw);max-height:90vh;display:flex;flex-direction:column}
+.editor-compare-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:0}.editor-compare-side{min-width:0;display:flex;flex-direction:column;gap:5px}
+.editor-compare-label{font-size:11px;font-weight:600;opacity:.75}.editor-compare-text{margin:0;min-height:180px;max-height:62vh;overflow:auto;white-space:pre;tab-size:4;background:#0d1117;border:1px solid #343a45;border-radius:6px;padding:9px;font:12px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
+@media(max-width:760px){.editor-compare-grid{grid-template-columns:1fr}.editor-compare-text{max-height:28vh}}
 html[data-taskmenu-theme="light"] .editor-pane{background:#fff}
 html[data-taskmenu-theme="light"] .editor-head .editor-readonly{color:#6c5314;background:#fff6d9;border-color:#c9ab61}
 html[data-taskmenu-theme="light"] .editor-dirty-dialog{background:#fff;border-color:#b9c0c8}
+html[data-taskmenu-theme="light"] .editor-compare-text{background:#f8f9fb;border-color:#c8ced6}
 `;
 document.head.append(style);
 
@@ -150,21 +157,93 @@ function dirtyCloseChoice(view){
     save.focus();
   });
 }
+async function putEditorFile(view,expectedSHA256){
+  const response=await fetch('/api/project/file',{
+    method:'PUT',
+    cache:'no-store',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      path:view.file.path,
+      content:view.cm.state.doc.toString(),
+      expected_sha256:expectedSHA256
+    })
+  });
+  if(response.status===409)return {conflict:true};
+  if(!response.ok)throw new Error((await response.text())||response.statusText);
+  return {file:await response.json()};
+}
+async function readLatestEditorFile(view){
+  return app.jsonFetch('/api/project/file?path='+encodeURIComponent(view.file.path));
+}
+function conflictChoice(view){
+  return new Promise(resolve=>{
+    const backdrop=document.createElement('div');backdrop.className='editor-dirty-backdrop';
+    const dialog=document.createElement('div');dialog.className='editor-dirty-dialog editor-conflict-dialog';dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');
+    const title=document.createElement('h3');title.textContent='File changed outside the editor.';
+    const message=document.createElement('p');message.textContent='Choose how to resolve '+view.file.path+'. Your unsaved editor text will not be overwritten unless you choose Reload.';
+    const actions=document.createElement('div');actions.className='editor-conflict-actions';
+    const compare=document.createElement('button');compare.type='button';compare.className='compare';compare.textContent='Compare';
+    const reload=document.createElement('button');reload.type='button';reload.textContent='Reload';
+    const overwrite=document.createElement('button');overwrite.type='button';overwrite.className='editor-save';overwrite.textContent='Overwrite';
+    const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';
+    actions.append(compare,reload,overwrite,cancel);dialog.append(title,message,actions);backdrop.append(dialog);document.body.append(backdrop);
+    let done=false;
+    const finish=value=>{if(done)return;done=true;document.removeEventListener('keydown',onKey,true);backdrop.remove();resolve(value);};
+    const onKey=event=>{if(event.key==='Escape'){event.preventDefault();finish('cancel');}};
+    document.addEventListener('keydown',onKey,true);
+    backdrop.onmousedown=event=>{if(event.target===backdrop)finish('cancel');};
+    compare.onclick=()=>finish('compare');reload.onclick=()=>finish('reload');overwrite.onclick=()=>finish('overwrite');cancel.onclick=()=>finish('cancel');
+    cancel.focus();
+  });
+}
+function showConflictCompare(view,latest){
+  return new Promise(resolve=>{
+    const backdrop=document.createElement('div');backdrop.className='editor-dirty-backdrop';
+    const dialog=document.createElement('div');dialog.className='editor-dirty-dialog editor-compare-dialog';dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');
+    const title=document.createElement('h3');title.textContent='Compare changes';
+    const message=document.createElement('p');message.textContent=view.file.path+' — editor copy versus current file on disk.';
+    const grid=document.createElement('div');grid.className='editor-compare-grid';
+    const makeSide=(label,text)=>{
+      const side=document.createElement('div');side.className='editor-compare-side';
+      const head=document.createElement('div');head.className='editor-compare-label';head.textContent=label;
+      const pre=document.createElement('pre');pre.className='editor-compare-text';pre.textContent=text;
+      side.append(head,pre);return side;
+    };
+    grid.append(makeSide('Editor (unsaved)',view.cm.state.doc.toString()),makeSide('Disk (latest)',latest.content||''));
+    const actions=document.createElement('div');actions.className='editor-dirty-actions';
+    const close=document.createElement('button');close.type='button';close.textContent='Back';actions.append(close);
+    dialog.append(title,message,grid,actions);backdrop.append(dialog);document.body.append(backdrop);
+    let done=false;
+    const finish=()=>{if(done)return;done=true;document.removeEventListener('keydown',onKey,true);backdrop.remove();resolve();};
+    const onKey=event=>{if(event.key==='Escape'){event.preventDefault();finish();}};
+    document.addEventListener('keydown',onKey,true);
+    backdrop.onmousedown=event=>{if(event.target===backdrop)finish();};close.onclick=finish;close.focus();
+  });
+}
+async function resolveSaveConflict(view){
+  while(!view.closed){
+    const latest=await readLatestEditorFile(view);
+    const choice=await conflictChoice(view);
+    if(choice==='cancel')return null;
+    if(choice==='compare'){await showConflictCompare(view,latest);continue;}
+    if(choice==='reload'){setEditorDocument(view,latest);return latest;}
+    if(choice==='overwrite'){
+      const result=await putEditorFile(view,latest.sha256);
+      if(result.conflict)continue;
+      setEditorDocument(view,result.file);
+      return result.file;
+    }
+  }
+  return null;
+}
 async function saveEditor(view){
   if(!view||view.closed||view.file.read_only||!view.dirty||view.saving)return view?.file||null;
   view.saving=true;view.save.disabled=true;view.save.textContent='Saving…';
   try{
-    const file=await app.jsonFetch('/api/project/file',{
-      method:'PUT',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        path:view.file.path,
-        content:view.cm.state.doc.toString(),
-        expected_sha256:view.file.sha256
-      })
-    });
-    setEditorDocument(view,file);
-    return file;
+    const result=await putEditorFile(view,view.file.sha256);
+    if(result.conflict)return resolveSaveConflict(view);
+    setEditorDocument(view,result.file);
+    return result.file;
   }finally{
     view.saving=false;
     if(!view.closed){
