@@ -82,7 +82,7 @@ func (s *Server) tasks(w http.ResponseWriter, r *http.Request) {
 func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, map[string]any{"sessions": s.Sessions.List()})
+		writeJSON(w, http.StatusOK, map[string]any{"sessions": s.withStoredTitles(s.Sessions.List())})
 	case http.MethodPost:
 		var req struct {
 			Kind   string            `json:"kind"`
@@ -194,11 +194,14 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 				http.NotFound(w, r)
 				return
 			}
-			writeJSON(w, http.StatusOK, meta)
+			writeJSON(w, http.StatusOK, s.withStoredTitle(meta))
 		case http.MethodDelete:
 			if err := s.Sessions.Remove(id); err != nil {
 				http.Error(w, err.Error(), http.StatusConflict)
 				return
+			}
+			if err := removeStoredSessionTitle(s.Workspace, id); err != nil && s.Log != nil {
+				s.Log.Printf("session title cleanup warning: %v", err)
 			}
 			w.WriteHeader(http.StatusNoContent)
 		default:
@@ -218,7 +221,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		meta, _ := s.Sessions.Metadata(id)
-		writeJSON(w, http.StatusOK, meta)
+		writeJSON(w, http.StatusOK, s.withStoredTitle(meta))
 	case "title":
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -233,11 +236,31 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		meta, err := s.Sessions.SetTitle(id, req.Title)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+		meta, ok := s.Sessions.Metadata(id)
+		if !ok {
+			http.NotFound(w, r)
 			return
 		}
+		title := session.NormalizeTitle(req.Title)
+		if err := setStoredSessionTitle(s.Workspace, id, title); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		syncToSession := true
+		if capability, ok := s.Sessions.(interface{ SupportsSessionTitle() bool }); ok && !capability.SupportsSessionTitle() {
+			syncToSession = false
+		}
+		if syncToSession {
+			if updated, err := s.Sessions.SetTitle(id, title); err != nil {
+				if s.Log != nil {
+					s.Log.Printf("session title broker sync warning id=%s: %v", id, err)
+				}
+			} else {
+				meta = updated
+			}
+		}
+		meta.Title = title
 		writeJSON(w, http.StatusOK, meta)
 	case "resize":
 		if r.Method != http.MethodPost {
