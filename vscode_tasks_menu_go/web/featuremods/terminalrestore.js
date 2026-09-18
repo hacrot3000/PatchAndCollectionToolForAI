@@ -81,18 +81,10 @@ function restoreTabOrder(ids){
   }
 }
 
-function savedTerminalIDs(saved){
-  const terminals=Array.isArray(saved?.terminals)?saved.terminals:[];
-  const out=[];const seen=new Set();
-  for(const item of terminals){
-    const id=String(item?.session_id||'').trim();
-    if(!id||seen.has(id))continue;
-    seen.add(id);out.push(id);
-  }
-  return out;
+function normalizedCwd(value){
+  const text=String(value||'').trim();
+  return text.length>1?text.replace(/[\\/]+$/,''):text;
 }
-
-function normalizedCwd(value){return String(value||'').trim().replace(/\\+$/,'');}
 
 function restoredSessionIDAt(saved,index,ids,exclude=new Set()){
   const item=saved?.terminals?.[index];
@@ -106,6 +98,7 @@ function restoredSessionIDAt(saved,index,ids,exclude=new Set()){
       if(liveCwd&&liveCwd===wantedCwd)return id;
     }
   }
+  if(item)return '';
   const fallback=ids[index]||'';
   return fallback&&!exclude.has(fallback)?fallback:'';
 }
