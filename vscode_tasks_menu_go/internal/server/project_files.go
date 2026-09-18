@@ -60,7 +60,7 @@ func (s *Server) projectFile(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) projectFileSave(w http.ResponseWriter, r *http.Request) {
 	var req projectFileSaveRequest
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, projectEditableLimit+(128<<10)))
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, projectEditableLimit*6+(256<<10)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
 		http.Error(w, "invalid JSON or editor payload too large", http.StatusBadRequest)
@@ -69,6 +69,14 @@ func (s *Server) projectFileSave(w http.ResponseWriter, r *http.Request) {
 	rel, err := cleanProjectRelativePath(req.Path, false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !utf8.ValidString(req.Content) || strings.ContainsRune(req.Content, '\x00') {
+		http.Error(w, "editor content must be valid UTF-8 text without NUL bytes", http.StatusUnsupportedMediaType)
+		return
+	}
+	if int64(len(req.Content)) > projectEditableLimit {
+		http.Error(w, "editor content is too large", http.StatusRequestEntityTooLarge)
 		return
 	}
 	if len(req.ExpectedSHA256) != sha256.Size*2 {
