@@ -83,3 +83,26 @@ func TestTabContextMenuReusesSessionAndConsoleActions(t *testing.T) {
 		t.Fatal("tabcontext.js must load after menus.js so Session/Console source actions already exist")
 	}
 }
+
+
+func TestEditorTabContextMenuUsesEditorOnlyActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/tabcontext.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function openEditorContextMenu(view,x,y)",
+		"globalThis.TaskMenuEditor?.editors?.get(id)",
+		"{label:'Save'",
+		"{label:'Reload'",
+		"{label:'Go to line…'",
+		"{label:'Close'",
+		"editor?.activateEditor?.(view.id)",
+		"if(editorView)openEditorContextMenu",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("tabcontext.js missing editor-only context behavior %q", want)
+		}
+	}
+}
