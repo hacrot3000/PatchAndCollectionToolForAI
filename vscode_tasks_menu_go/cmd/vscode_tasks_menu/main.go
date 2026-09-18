@@ -85,7 +85,7 @@ func main() {
 		return
 	}
 	if *statusOnly {
-		printDaemonStatus(ws)
+		printDaemonStatus(ws, cfg)
 		return
 	}
 	if *stopDaemonFlag || *restartDaemon {
@@ -452,7 +452,7 @@ func printRemoteFirewallGuidance(w *os.File, cfg config.Config, address string) 
 	}
 }
 
-func printDaemonStatus(ws string) {
+func printDaemonStatus(ws string, cfg config.Config) {
 	st, err := state.Load(ws)
 	if err != nil || !state.Healthy(st) {
 		if err == nil {
@@ -462,6 +462,7 @@ func printDaemonStatus(ws string) {
 		return
 	}
 	fmt.Printf("running pid=%d url=%s started=%s\n", st.PID, st.URL, st.StartedAt)
+	printRemoteFirewallGuidance(os.Stdout, cfg, st.Address)
 }
 
 func stopExistingDaemon(ws string) error {
