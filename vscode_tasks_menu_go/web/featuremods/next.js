@@ -24,4 +24,5 @@ import '/featuremods/menus.js';
 import '/featuremods/broadcast.js';
 import '/featuremods/commandpresets.js';
 import '/featuremods/tabcontext.js';
+import '/featuremods/mobile.js';
 import '/featuremods/viewportfix.js';
