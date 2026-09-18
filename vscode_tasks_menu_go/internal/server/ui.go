@@ -25,6 +25,8 @@ func staticUI(w http.ResponseWriter, r *http.Request) {
 		serveEmbeddedAsset(w, "application/javascript; charset=utf-8", "features.js")
 	case "/vendor/xterm.js":
 		serveEmbeddedAsset(w, "application/javascript; charset=utf-8", "vendor/xterm.js")
+	case "/vendor/codemirror6-all.min.js":
+		serveEmbeddedAsset(w, "application/javascript; charset=utf-8", "vendor/codemirror6-all.min.js")
 	case "/vendor/addon-fit.js":
 		serveEmbeddedAsset(w, "application/javascript; charset=utf-8", "vendor/addon-fit.js")
 	case "/vendor/xterm.css":
@@ -72,6 +74,7 @@ const indexHTML = `<!doctype html>
   <main><aside id="menu"></aside><section><div id="tabs"></div><div id="panes"></div></section></main>
   <script src="/vendor/xterm.js"></script>
   <script src="/vendor/addon-fit.js"></script>
+  <script src="/vendor/codemirror6-all.min.js"></script>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/features.js?v=2"></script>
   <script type="module" src="/featuremods/all.js?v=2"></script>
