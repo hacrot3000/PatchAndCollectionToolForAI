@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -19,6 +20,7 @@ type Metadata struct {
 	ID             string `json:"id"`
 	TaskID         int    `json:"task_id"`
 	Label          string `json:"label"`
+	Title          string `json:"title,omitempty"`
 	CommandPreview string `json:"command_preview"`
 	Cwd            string `json:"cwd"`
 	Status         string `json:"status"`
@@ -129,6 +131,30 @@ func (m *Manager) Metadata(id string) (Metadata, bool) {
 	}
 	return s.metadata(), true
 }
+
+func normalizeTitle(value string) string {
+	value = strings.TrimSpace(strings.NewReplacer("\r", " ", "\n", " ").Replace(value))
+	for strings.Contains(value, "  ") {
+		value = strings.ReplaceAll(value, "  ", " ")
+	}
+	if len(value) > 240 {
+		value = value[:240]
+	}
+	return value
+}
+
+func (m *Manager) SetTitle(id, title string) (Metadata, error) {
+	s, ok := m.Get(id)
+	if !ok {
+		return Metadata{}, fmt.Errorf("session not found")
+	}
+	s.mu.Lock()
+	s.meta.Title = normalizeTitle(title)
+	meta := s.meta
+	s.mu.Unlock()
+	return meta, nil
+}
+
 
 func (m *Manager) Input(id string, data []byte) error {
 	s, ok := m.Get(id)
