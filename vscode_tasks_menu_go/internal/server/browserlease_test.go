@@ -143,3 +143,42 @@ func TestBrowserLeaseUIClaimsControlAndStopsReconnectAfterRevocation(t *testing.
 		t.Fatal("browser lease takeover UI overlay is missing")
 	}
 }
+
+
+func TestBrowserLeaseAllowsOnlyLoopbackSelfUpdateTransportActions(t *testing.T) {
+	s := &Server{}
+	if _, err := s.browserLeaseState().acquire(); err != nil {
+		t.Fatal(err)
+	}
+	called := 0
+	h := s.requireBrowserLease(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called++
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	tests := []struct {
+		name       string
+		target     string
+		remoteAddr string
+		want       int
+	}{
+		{"loopback handoff", "/api/state/tasks?scope=self-update&action=handoff", "127.0.0.1:43120", http.StatusAccepted},
+		{"loopback detach", "/api/state/tasks?scope=self-update&action=detach", "[::1]:43120", http.StatusAccepted},
+		{"remote handoff", "/api/state/tasks?scope=self-update&action=handoff", "192.168.1.20:43120", http.StatusConflict},
+		{"browser confirm still protected", "/api/state/tasks?scope=self-update&action=confirm", "127.0.0.1:43120", http.StatusConflict},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, tc.target, nil)
+			req.RemoteAddr = tc.remoteAddr
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, req)
+			if rr.Code != tc.want {
+				t.Fatalf("status=%d want=%d body=%s", rr.Code, tc.want, rr.Body.String())
+			}
+		})
+	}
+	if called != 2 {
+		t.Fatalf("inner handler called=%d want 2", called)
+	}
+}
