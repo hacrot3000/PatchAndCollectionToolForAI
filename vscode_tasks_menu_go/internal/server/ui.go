@@ -93,6 +93,40 @@ let taskData=null;
 let active=null;
 const views=new Map();
 const hidden=new Set();
+const outputFilters=[];
+
+function addOutputFilter(filter){
+  if(typeof filter!=='function')throw new Error('Output filter must be a function');
+  outputFilters.push(filter);
+  return ()=>{
+    const index=outputFilters.indexOf(filter);
+    if(index>=0)outputFilters.splice(index,1);
+  };
+}
+
+function filterOutput(view,data){
+  let current=data;
+  for(const filter of [...outputFilters]){
+    if(current==null)break;
+    try{current=filter(view,current);}catch(e){console.warn('Output filter failed',e);}
+  }
+  return current;
+}
+
+function writeOutput(view,data){
+  if(data==null)return;
+  if(typeof data==='string'){
+    if(data)view.term.write(data);
+    return;
+  }
+  if(data instanceof ArrayBuffer){
+    if(data.byteLength)view.term.write(new Uint8Array(data));
+    return;
+  }
+  if(ArrayBuffer.isView(data)){
+    if(data.byteLength)view.term.write(new Uint8Array(data.buffer,data.byteOffset,data.byteLength));
+  }
+}
 
 async function jsonFetch(url,opts={}){
   const r=await fetch(url,{cache:'no-store',...opts});
@@ -307,7 +341,7 @@ function connect(view,replay){
   ws.onopen=()=>{try{view.fit.fit();}catch{}};
   ws.onmessage=e=>{
     const data=e.data;
-    if(typeof data==='string')view.term.write(data);else view.term.write(new Uint8Array(data));
+    writeOutput(view,filterOutput(view,data));
     window.dispatchEvent(new CustomEvent('taskmenu:output',{detail:{view,data}}));
   };
   ws.onclose=async()=>{
@@ -364,7 +398,7 @@ function showError(e){console.error(e);alert('ERROR: '+e.message);}
 globalThis.TaskMenuApp={
   get taskData(){return taskData;},
   get active(){return active;},
-  views,jsonFetch,showError,consoleText,startTask,startTerminal,activateView,loadTasks,syncSessions,attachSession:attach
+  views,jsonFetch,showError,consoleText,startTask,startTerminal,activateView,loadTasks,syncSessions,attachSession:attach,addOutputFilter
 };
 document.querySelector('#open-terminal').onclick=()=>startTerminal().catch(showError);
 document.querySelector('#edit-title').onclick=()=>{try{editPageTitle();}catch(e){showError(e);}};
