@@ -114,7 +114,7 @@ func TestReloadConfigCLIUsesBrokerPreservingRestart(t *testing.T) {
 	src := string(data)
 	for _, want := range []string{
 		`flag.Bool("reload-config"`,
-		"reloadDaemonConfig(ws, cfgPath)",
+		"reloadDaemonConfig(ws, cfg, cfgPath)",
 		"func reloadDaemonConfig(ws string, cfg config.Config, cfgPath string) error",
 		"process.Signal(reloadConfigSignal)",
 		"waitForDaemonStateRelease(ws, st.PID",
@@ -130,7 +130,7 @@ func TestReloadConfigCLIUsesBrokerPreservingRestart(t *testing.T) {
 	if load < 0 || reload < 0 || load > reload {
 		t.Fatal("reload-config must validate vscode_tasks_menu.ini before restarting daemon")
 	}
-	start := strings.Index(src, "func reloadDaemonConfig(ws, cfgPath string) error")
+	start := strings.Index(src, "func reloadDaemonConfig(ws string, cfg config.Config, cfgPath string) error")
 	end := strings.Index(src[start:], "func printDaemonStatus")
 	if start < 0 || end < 0 {
 		t.Fatal("reloadDaemonConfig function not found")
