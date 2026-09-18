@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	webassets "bletonfc/vscode_tasks_menu/web"
 	"time"
 )
 
@@ -180,5 +182,41 @@ func TestBrowserLeaseAllowsOnlyLoopbackSelfUpdateTransportActions(t *testing.T) 
 	}
 	if called != 2 {
 		t.Fatalf("inner handler called=%d want 2", called)
+	}
+}
+
+
+func TestBrowserLeaseHealthCheckRejectsTokenWhenDaemonHasNoActiveLease(t *testing.T) {
+	s := &Server{}
+	req := httptest.NewRequest(http.MethodGet, "/api/browser/lease", nil)
+	req.Header.Set(browserLeaseHeader, "token-from-previous-daemon")
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status=%d want=%d body=%s", rr.Code, http.StatusConflict, rr.Body.String())
+	}
+	if rr.Header().Get("X-TaskMenu-Lease-Revoked") != "1" {
+		t.Fatal("stale token after daemon restart must be marked revoked")
+	}
+}
+
+func TestDirectMutationFeaturesUseLeaseAwareFetch(t *testing.T) {
+	for _, path := range []string{"featuremods/upload.js", "featuremods/editor.js", "featuremods/terminalrestore.js"} {
+		data, err := webassets.Files.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), "app.fetchWithLease(") {
+			t.Fatalf("%s must use the lease-aware fetch helper for direct mutations", path)
+		}
+	}
+	for _, want := range []string{
+		"async function fetchWithLease",
+		"X-TaskMenu-Lease-Revoked",
+		"showLeaseLost();",
+	} {
+		if !strings.Contains(appJS, want) {
+			t.Fatalf("app JS missing direct-fetch lease handling %q", want)
+		}
 	}
 }
