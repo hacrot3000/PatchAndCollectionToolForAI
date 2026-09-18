@@ -13,6 +13,18 @@ import (
 )
 
 var selfUpdateHandoffs sync.Map // map[*Server]func(string) error
+var selfUpdateDetaches sync.Map // map[*Server]func(string) error
+
+func RegisterSelfUpdateDetach(s *Server, fn func(string) error) {
+	if s == nil {
+		return
+	}
+	if fn == nil {
+		selfUpdateDetaches.Delete(s)
+		return
+	}
+	selfUpdateDetaches.Store(s, fn)
+}
 
 func RegisterSelfUpdateHandoff(s *Server, fn func(string) error) {
 	if s == nil {
@@ -93,6 +105,38 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": req.ID})
+	case "detach":
+		if !loopbackRemote(r.RemoteAddr) {
+			http.Error(w, "detach is restricted to loopback", http.StatusForbidden)
+			return
+		}
+		switch req.Status {
+		case "ready_restart", "restarting", "failed":
+		default:
+			http.Error(w, "update is not ready to detach daemon", http.StatusConflict)
+			return
+		}
+		value, ok := selfUpdateDetaches.Load(s)
+		if !ok {
+			http.Error(w, "daemon detach unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		fn, ok := value.(func(string) error)
+		if !ok || fn == nil {
+			http.Error(w, "daemon detach unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if _, err := updater.Update(s.Workspace, req.ID, "restarting", "Detaching old daemon while preserving session broker…", "", ""); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "id": req.ID})
+		go func() {
+			time.Sleep(120 * time.Millisecond)
+			if err := fn(req.ID); err != nil {
+				_, _ = updater.Update(s.Workspace, req.ID, "failed", "Daemon detach failed.", "", err.Error())
+			}
+		}()
 	case "handoff":
 		if !loopbackRemote(r.RemoteAddr) {
 			http.Error(w, "handoff is restricted to loopback", http.StatusForbidden)
