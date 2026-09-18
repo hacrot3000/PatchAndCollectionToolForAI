@@ -197,7 +197,7 @@ async function restartOrRun(view){
 
 function updateSessionPresentation(view,meta){
   const state=displayState(meta);const duration=formatDuration(elapsedSeconds(meta));
-  view.status.textContent=state.text+' '+duration;
+  view.status.textContent=meta.status==='running'?duration:state.text+' '+duration;
   view.tab.classList.remove('state-running','state-success','state-fail','state-stopped');view.tab.classList.add('state-'+state.cls);
   ensureRerunButton(view);
   ensureConsoleTools(view);
