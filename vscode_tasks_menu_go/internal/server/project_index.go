@@ -1,12 +1,14 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -66,6 +68,13 @@ func (idx *projectFileIndex) pathAt(i int) string {
 }
 
 func buildProjectFileIndex(ctx context.Context, root string) (*projectFileIndex, error) {
+	if rg, err := exec.LookPath("rg"); err == nil {
+		if paths, rgErr := projectIndexPathsRG(ctx, rg, root); rgErr == nil {
+			return newProjectFileIndex(paths, time.Now())
+		} else if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+	}
 	paths, err := projectIndexPathsFallback(ctx, root)
 	if err != nil {
 		return nil, err
@@ -73,8 +82,66 @@ func buildProjectFileIndex(ctx context.Context, root string) (*projectFileIndex,
 	return newProjectFileIndex(paths, time.Now())
 }
 
+func projectIndexPathsRG(ctx context.Context, rg, root string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, rg, "--files", "-0", "--hidden", "--glob", "!.git/**")
+	cmd.Dir = root
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, 4096)
+	totalBytes := 0
+	scanner := bufio.NewScanner(stdout)
+	scanner.Split(scanProjectIndexNUL)
+	scanner.Buffer(make([]byte, 64<<10), 1<<20)
+	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return nil, err
+		}
+		path := normalizeProjectIndexPath(scanner.Text())
+		if path == "" {
+			continue
+		}
+		totalBytes += len(path) + 1
+		if len(paths) >= projectIndexMaxFiles || totalBytes > projectIndexMaxBytes {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return nil, fmt.Errorf("project file index is too large")
+		}
+		paths = append(paths, path)
+	}
+	if err := scanner.Err(); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return nil, err
+	}
+	if err := cmd.Wait(); err != nil {
+		return nil, err
+	}
+	return paths, nil
+}
+
+func scanProjectIndexNUL(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if i := bytes.IndexByte(data, 0); i >= 0 {
+		return i + 1, data[:i], nil
+	}
+	if atEOF {
+		if len(data) == 0 {
+			return 0, nil, nil
+		}
+		return 0, nil, fmt.Errorf("invalid rg file index output")
+	}
+	return 0, nil, nil
+}
+
 func projectIndexPathsFallback(ctx context.Context, root string) ([]string, error) {
 	paths := make([]string, 0, 4096)
+	ignore := loadProjectRootIgnore(root)
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			if entry != nil && entry.IsDir() {
@@ -88,21 +155,21 @@ func projectIndexPathsFallback(ctx context.Context, root string) ([]string, erro
 		if path == root {
 			return nil
 		}
-		if entry.IsDir() {
-			if entry.Name() == ".git" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
-			return nil
-		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return nil
 		}
 		rel = normalizeProjectIndexPath(filepath.ToSlash(rel))
 		if rel == "" {
+			return nil
+		}
+		if entry.IsDir() {
+			if entry.Name() == ".git" || ignore.matches(rel, true) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() || ignore.matches(rel, false) {
 			return nil
 		}
 		paths = append(paths, rel)
