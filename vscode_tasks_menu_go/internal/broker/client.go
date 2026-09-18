@@ -24,6 +24,17 @@ type Client struct {
 	transport *http.Transport
 }
 
+type cancelReadCloser struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (c *cancelReadCloser) Close() error {
+	err := c.ReadCloser.Close()
+	c.cancel()
+	return err
+}
+
 var _ session.Service = (*Client)(nil)
 
 func NewClient(workspace string) (*Client, error) {
@@ -63,9 +74,9 @@ func (c *Client) endpoint(path string) string {
 
 func (c *Client) do(method, path string, body io.Reader, contentType string) (*http.Response, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, method, c.endpoint(path), body)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	if contentType != "" {
@@ -73,8 +84,10 @@ func (c *Client) do(method, path string, body io.Reader, contentType string) (*h
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("session broker %s %s: %w", method, path, err)
 	}
+	resp.Body = &cancelReadCloser{ReadCloser: resp.Body, cancel: cancel}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return resp, nil
 	}
