@@ -159,6 +159,9 @@ func (c *Client) Metadata(id string) (session.Metadata, bool) {
 }
 
 func (c *Client) SetTitle(id, title string) (session.Metadata, error) {
+	if !c.SupportsSessionTitle() {
+		return session.Metadata{}, fmt.Errorf("session broker does not support %s capability", CapabilitySessionTitle)
+	}
 	var meta session.Metadata
 	err := c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(id)+"/title", map[string]string{"title": title}, &meta)
 	return meta, err
