@@ -17,7 +17,7 @@ body.tab-reordering,#tabs.tab-reordering{user-select:none}
 `;
 document.head.append(style);
 
-function storageKey(){return 'vscode-tasks-menu:tab-order:'+app.taskData.workspace;}
+function storageKey(){return 'vscode-tasks-menu:tab-order:'+(app.layoutProfile||'desktop')+':'+app.taskData.workspace;}
 function currentIDs(){
   return [...tabsHost.querySelectorAll('.tab[data-id]')].map(tab=>tab.dataset.id||'').filter(Boolean);
 }
