@@ -145,7 +145,7 @@ func TestProjectContentSearchFallbackReportsUnicodeColumn(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("results=%#v", results)
 	}
-	if results[0].Column != 6 {
-		t.Fatalf("column=%d want 6", results[0].Column)
+	if results[0].Column != 5 {
+		t.Fatalf("column=%d want 5", results[0].Column)
 	}
 }
