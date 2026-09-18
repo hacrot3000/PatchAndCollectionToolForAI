@@ -120,14 +120,19 @@ func (c *Client) doJSON(method, path string, input, output any) error {
 	return json.NewDecoder(resp.Body).Decode(output)
 }
 
-func (c *Client) List() []session.Metadata {
+func (c *Client) ListWithError() ([]session.Metadata, error) {
 	var payload struct {
 		Sessions []session.Metadata `json:"sessions"`
 	}
 	if err := c.doJSON(http.MethodGet, "/v1/sessions", nil, &payload); err != nil {
-		return nil
+		return nil, err
 	}
-	return payload.Sessions
+	return payload.Sessions, nil
+}
+
+func (c *Client) List() []session.Metadata {
+	items, _ := c.ListWithError()
+	return items
 }
 
 func (c *Client) Start(spec tasks.Execution) (session.Metadata, error) {
