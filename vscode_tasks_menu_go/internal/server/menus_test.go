@@ -17,6 +17,8 @@ func TestGroupedMenusFeature(t *testing.T) {
 		"header-action-menus",
 		"makeMenu('Files'",
 		"Quick Open…  Ctrl+P",
+		"explorer.textContent='Explorer'",
+		"TaskMenuExplorer?.open()",
 		"makeMenu('Terminal'",
 		"makeMenu('Workspace'",
 		"makeMenu('Settings'",
