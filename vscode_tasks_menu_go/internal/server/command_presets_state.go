@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 const (
@@ -25,6 +26,8 @@ type commandPreset struct {
 	Name     string   `json:"name"`
 	Commands []string `json:"commands"`
 }
+
+var commandPresetStateMu sync.Mutex
 
 type projectCommandPresetState struct {
 	Version int             `json:"version"`
@@ -179,4 +182,26 @@ func findCommandPreset(state *projectCommandPresetState, id string) (*commandPre
 		}
 	}
 	return nil, false
+}
+
+func loadProjectCommandPresetState(workspace string) (projectCommandPresetState, error) {
+	commandPresetStateMu.Lock()
+	defer commandPresetStateMu.Unlock()
+	return readProjectCommandPresetState(workspace)
+}
+
+func mutateProjectCommandPresetState(workspace string, fn func(*projectCommandPresetState) error) (projectCommandPresetState, error) {
+	commandPresetStateMu.Lock()
+	defer commandPresetStateMu.Unlock()
+	state, err := readProjectCommandPresetState(workspace)
+	if err != nil {
+		return projectCommandPresetState{}, err
+	}
+	if err := fn(&state); err != nil {
+		return projectCommandPresetState{}, err
+	}
+	if err := writeProjectCommandPresetState(workspace, state); err != nil {
+		return projectCommandPresetState{}, err
+	}
+	return readProjectCommandPresetState(workspace)
 }
