@@ -16,7 +16,7 @@ func TestEditorUsesVendoredCodeMirrorAndStaysOutsideTerminalSessions(t *testing.
 	for _, want := range []string{
 		"globalThis.cm6?.load",
 		"cmFactory.newEditor",
-		"data-view-kind",
+		"dataset.viewKind='editor'",
 		"app.activateExternalView(id)",
 		"/api/project/file?path=",
 		"taskmenu:project-file-open-request",
