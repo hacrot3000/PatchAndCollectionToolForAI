@@ -13,17 +13,24 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/tasks"
 )
 
-func waitForClient(t *testing.T, workspace string) *Client {
+func waitForClient(t *testing.T, workspace string, runErr <-chan error) *Client {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
+	var lastErr error
 	for time.Now().Before(deadline) {
+		select {
+		case err := <-runErr:
+			t.Fatalf("broker exited before client became available: %v", err)
+		default:
+		}
 		client, err := NewClient(workspace)
 		if err == nil {
 			return client
 		}
+		lastErr = err
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatal("broker client did not become available")
+	t.Fatalf("broker client did not become available: %v", lastErr)
 	return nil
 }
 
@@ -47,7 +54,7 @@ func TestBrokerClientOwnsAndControlsPTYSession(t *testing.T) {
 	ctx, cancelBroker := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() { errCh <- Run(ctx, ws, log.New(io.Discard, "", 0)) }()
-	client := waitForClient(t, ws)
+	client := waitForClient(t, ws, errCh)
 	defer client.Close()
 
 	spec := tasks.Execution{
