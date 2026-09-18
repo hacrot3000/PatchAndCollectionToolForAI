@@ -29,6 +29,8 @@ import (
 
 var buildRevision = "dev"
 
+const reloadConfigSignal = syscall.Signal(1)
+
 func main() {
 	workspace := flag.String("workspace", "", "workspace chứa .vscode/tasks.json")
 	serve := flag.Bool("serve", false, "chạy HTTP server foreground (internal)")
@@ -214,11 +216,16 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	defer server.RegisterSelfUpdateDetach(srv, nil)
 
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM, reloadConfigSignal)
 	serveDone := make(chan struct{})
 	go func() {
 		select {
 		case sig := <-sigCh:
+			if sig == reloadConfigSignal {
+				logger.Printf("config reload signal=%s; preserving session broker", sig)
+				_ = ln.Close()
+				return
+			}
 			logger.Printf("shutdown signal=%s", sig)
 			if err := brokerClient.ShutdownBroker(); err != nil {
 				logger.Printf("session broker shutdown warning: %v", err)
