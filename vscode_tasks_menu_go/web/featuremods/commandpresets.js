@@ -105,6 +105,73 @@ function decodeOutput(data){
   return String(data??'');
 }
 
+function displayCommandText(command){
+  return String(command).replace(/\r\n/g,'\n').replace(/\r/g,'\n').replace(/\n/g,'\r\n')+'\r\n';
+}
+
+function payloadEchoLineCount(payload){
+  return (String(payload).match(/\n/g)||[]).length+(String(payload).endsWith('\r')?1:0);
+}
+
+function decodeDisplayData(run,data){
+  if(typeof data==='string')return data;
+  let bytes=null;
+  if(data instanceof ArrayBuffer)bytes=new Uint8Array(data);
+  else if(ArrayBuffer.isView(data))bytes=new Uint8Array(data.buffer,data.byteOffset,data.byteLength);
+  if(!bytes)return String(data??'');
+  if(!run.displayDecoder)run.displayDecoder=new TextDecoder();
+  return run.displayDecoder.decode(bytes,{stream:true});
+}
+
+function stripPresetSentinel(run,text){
+  const prefix='\x1eVTM_PRESET:'+run.token+':'+run.index+':';
+  let buffer=(run.displayCarry||'')+text;
+  let out='';
+  run.displayCarry='';
+  while(buffer){
+    const start=buffer.indexOf(prefix);
+    if(start>=0){
+      out+=buffer.slice(0,start);
+      const end=buffer.indexOf('\x1f',start+prefix.length);
+      if(end<0){
+        run.displayCarry=buffer.slice(start);
+        return out||null;
+      }
+      buffer=buffer.slice(end+1);
+      continue;
+    }
+    let keep=0;
+    for(let length=Math.min(prefix.length-1,buffer.length);length>0;length--){
+      if(buffer.endsWith(prefix.slice(0,length))){keep=length;break;}
+    }
+    if(keep){
+      out+=buffer.slice(0,-keep);
+      run.displayCarry=buffer.slice(-keep);
+      return out||null;
+    }
+    out+=buffer;
+    buffer='';
+  }
+  return out||null;
+}
+
+function filterPresetDisplay(view,data){
+  const run=runs.get(view?.meta?.id);
+  if(!run||run.finished||!run.displayActive)return data;
+  let text=decodeDisplayData(run,data);
+
+  while(run.echoLinesRemaining>0){
+    const newline=text.indexOf('\n');
+    if(newline<0)return null;
+    run.echoLinesRemaining--;
+    text=text.slice(newline+1);
+  }
+  if(!text)return null;
+  return stripPresetSentinel(run,text);
+}
+
+if(typeof app.addOutputFilter==='function')app.addOutputFilter(filterPresetDisplay);
+
 function rejectRun(run,error){
   if(run.finished)return;
   run.finished=true;
@@ -156,8 +223,14 @@ function waitForExitCode(run,index){
 
 async function executeCommand(view,run,command,index){
   await waitForSocket(view);
+  const payload=commandPayload(view,command,run.token,index);
+  run.displayActive=typeof app.addOutputFilter==='function';
+  run.echoLinesRemaining=run.displayActive?payloadEchoLineCount(payload):0;
+  run.displayCarry='';
+  run.displayDecoder=null;
   const result=waitForExitCode(run,index);
-  view.ws.send(commandPayload(view,command,run.token,index));
+  if(run.displayActive)view.term.write(displayCommandText(command));
+  view.ws.send(payload);
   return result;
 }
 
@@ -167,7 +240,7 @@ async function runPreset(view,preset){
   if(runs.has(view.meta.id))throw new Error('A preset is already running in this terminal.');
   if(!preset?.commands?.length)throw new Error('Preset has no commands.');
 
-  const run={view,preset,token:randomToken(),buffer:'',waiter:null,finished:false,index:-1};
+  const run={view,preset,token:randomToken(),buffer:'',waiter:null,finished:false,index:-1,displayActive:false,echoLinesRemaining:0,displayCarry:'',displayDecoder:null};
   runs.set(view.meta.id,run);
   view.tab.classList.add('preset-command-running');
   try{
