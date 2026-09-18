@@ -18,6 +18,7 @@ let headerMenu=null;
 let headerTrigger=null;
 let headerPop=null;
 let dialogHost=null;
+let dialogKeydown=null;
 let lastInputWarningAt=0;
 const inputQueues=new Map();
 const inputHooks=new Map();
@@ -175,6 +176,7 @@ async function mutate(payload){
 
 function closeDialog(result,resolve){
   const host=dialogHost;dialogHost=null;
+  if(dialogKeydown){document.removeEventListener('keydown',dialogKeydown,true);dialogKeydown=null;}
   if(host)host.remove();
   resolve(result);
 }
@@ -222,8 +224,8 @@ function groupDialog(existing=null){
     actions.append(cancel,save);
     card.append(title,nameLabel,name,colorLabel,palette,actions);backdrop.append(card);document.body.append(backdrop);
     backdrop.addEventListener('pointerdown',event=>{if(event.target===backdrop)closeDialog(null,resolve);});
-    const keydown=event=>{if(event.key==='Escape'){document.removeEventListener('keydown',keydown,true);closeDialog(null,resolve);}};
-    document.addEventListener('keydown',keydown,true);
+    dialogKeydown=event=>{if(event.key==='Escape')closeDialog(null,resolve);};
+    document.addEventListener('keydown',dialogKeydown,true);
     setTimeout(()=>{name.focus();name.select();},0);
   });
 }
