@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -92,22 +93,28 @@ func (s *Server) projectFileSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() {
+	root, err := s.projectRoot()
+	if err != nil {
+		http.Error(w, "project root unavailable", http.StatusInternalServerError)
+		return
+	}
+	pinned, err := openProjectPinnedFile(root, path)
+	if err != nil {
 		http.Error(w, "project file unavailable", http.StatusNotFound)
 		return
 	}
-	if info.Size() > projectEditableLimit {
+	defer pinned.close()
+	current, info, err := pinned.readCurrent(projectEditableLimit)
+	if errors.Is(err, errPinnedProjectFileTooLarge) {
 		http.Error(w, "project file is read-only in the editor", http.StatusForbidden)
+		return
+	}
+	if err != nil || info == nil || !info.Mode().IsRegular() {
+		http.Error(w, "project file unavailable", http.StatusNotFound)
 		return
 	}
 	if info.Mode().Perm()&0o222 == 0 {
 		http.Error(w, "project file is read-only", http.StatusForbidden)
-		return
-	}
-	current, err := os.ReadFile(path)
-	if err != nil {
-		http.Error(w, "project file unavailable", http.StatusNotFound)
 		return
 	}
 	if !projectTextBytesValid(current) {
@@ -135,61 +142,26 @@ func (s *Server) projectFileSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".task-menu-editor-*")
+	if err := pinned.writeTemp(next, info); err != nil {
+		http.Error(w, "cannot prepare editor save file", http.StatusInternalServerError)
+		return
+	}
+	latest, _, err := pinned.readCurrent(projectEditableLimit)
 	if err != nil {
-		http.Error(w, "cannot create editor save file", http.StatusInternalServerError)
-		return
-	}
-	tmpName := tmp.Name()
-	cleanup := func() {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-	}
-	if err := tmp.Chmod(info.Mode().Perm()); err != nil {
-		cleanup()
-		http.Error(w, "cannot preserve file permissions", http.StatusInternalServerError)
-		return
-	}
-	if _, err := tmp.Write(next); err != nil {
-		cleanup()
-		http.Error(w, "cannot write editor save file", http.StatusInternalServerError)
-		return
-	}
-	if err := tmp.Sync(); err != nil {
-		cleanup()
-		http.Error(w, "cannot sync editor save file", http.StatusInternalServerError)
-		return
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		http.Error(w, "cannot close editor save file", http.StatusInternalServerError)
-		return
-	}
-
-	latest, err := os.ReadFile(path)
-	if err != nil {
-		_ = os.Remove(tmpName)
 		http.Error(w, "project file unavailable", http.StatusConflict)
 		return
 	}
 	latestHash := sha256.Sum256(latest)
 	if !strings.EqualFold(hex.EncodeToString(latestHash[:]), req.ExpectedSHA256) {
-		_ = os.Remove(tmpName)
 		http.Error(w, "project file changed outside the editor", http.StatusConflict)
 		return
 	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
+	if err := pinned.commitTemp(); err != nil {
 		http.Error(w, "cannot finalize editor save", http.StatusInternalServerError)
 		return
 	}
-	if dir, err := os.Open(filepath.Dir(path)); err == nil {
-		_ = dir.Sync()
-		_ = dir.Close()
-	}
-
-	savedInfo, err := os.Stat(path)
-	if err != nil {
+	_, savedInfo, err := pinned.readCurrent(projectEditableLimit)
+	if err != nil || savedInfo == nil {
 		http.Error(w, "saved file metadata unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -236,17 +208,23 @@ func (s *Server) projectFileRead(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() {
+	root, err := s.projectRoot()
+	if err != nil {
+		http.Error(w, "project root unavailable", http.StatusInternalServerError)
+		return
+	}
+	pinned, err := openProjectPinnedFile(root, path)
+	if err != nil {
 		http.Error(w, "project file unavailable", http.StatusNotFound)
 		return
 	}
-	if info.Size() > projectReadableLimit {
+	defer pinned.close()
+	data, info, err := pinned.readCurrent(projectReadableLimit)
+	if errors.Is(err, errPinnedProjectFileTooLarge) {
 		http.Error(w, "project file is too large for the editor", http.StatusRequestEntityTooLarge)
 		return
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
+	if err != nil || info == nil || !info.Mode().IsRegular() {
 		http.Error(w, "project file unavailable", http.StatusNotFound)
 		return
 	}
