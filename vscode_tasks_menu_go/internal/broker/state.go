@@ -1,6 +1,8 @@
 package broker
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -21,7 +23,14 @@ func StatePath(workspace string) string {
 }
 
 func SocketPath(workspace string) string {
-	return filepath.Join(runtimestate.Dir(workspace), socketFileName)
+	candidate := filepath.Join(runtimestate.Dir(workspace), socketFileName)
+	// Linux sockaddr_un.sun_path is typically limited to 108 bytes including
+	// the NUL terminator. Keep margin for portability across Unix variants.
+	if len(candidate) <= 96 {
+		return candidate
+	}
+	sum := sha256.Sum256([]byte(workspace))
+	return filepath.Join(os.TempDir(), "vtm-broker-"+hex.EncodeToString(sum[:8])+".sock")
 }
 
 func LockPath(workspace string) string {
