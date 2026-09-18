@@ -29,11 +29,15 @@ type Server struct {
 	projectIndexMu         sync.Mutex
 	projectIndex           *projectFileIndex
 	projectIndexRefreshing bool
+
+	browserLeaseMu sync.Mutex
+	browserLease   *browserLease
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", s.health)
+	mux.HandleFunc("/api/browser/lease", s.browserLeaseAPI)
 	mux.HandleFunc("/api/tasks", s.tasks)
 	mux.HandleFunc("/api/state/tasks", s.taskState)
 	mux.HandleFunc("/api/config/page-title", s.pageTitle)
@@ -54,6 +58,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", staticUI)
 
 	var handler http.Handler = mux
+	handler = s.requireBrowserLease(handler)
 	handler = s.sameOriginMutations(handler)
 	if s.Config.AuthEnabled {
 		handler = s.basicAuth(handler)
@@ -306,6 +311,12 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) sessionWebSocket(w http.ResponseWriter, r *http.Request, id string) {
+	leaseToken := strings.TrimSpace(r.URL.Query().Get("lease"))
+	revoked, ok := s.browserLeaseState().watch(leaseToken)
+	if !ok {
+		writeLeaseRevoked(w)
+		return
+	}
 	backlog, stream, unsubscribe, err := s.Sessions.Subscribe(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
@@ -332,11 +343,17 @@ func (s *Server) sessionWebSocket(w http.ResponseWriter, r *http.Request, id str
 			if err != nil {
 				return
 			}
+			if !s.browserLeaseState().valid(leaseToken) {
+				return
+			}
 			_ = s.Sessions.Input(id, data)
 		}
 	}()
 	for {
 		select {
+		case <-revoked:
+			_ = conn.Close(websocket.StatusPolicyViolation, "browser control lease revoked")
+			return
 		case <-readDone:
 			return
 		case data, ok := <-stream:
