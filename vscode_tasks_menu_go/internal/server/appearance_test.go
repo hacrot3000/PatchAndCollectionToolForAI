@@ -40,3 +40,22 @@ func TestAppearancePreferencesAreScopedByLayoutProfile(t *testing.T) {
 		t.Fatal("appearance storage must be scoped by desktop/mobile layout profile")
 	}
 }
+
+
+func TestDesktopAppearanceMigratesLegacyStorageWithoutFeedingMobile(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/appearance.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"legacyWorkspaceKey",
+		"if(app.layoutProfile==='desktop')",
+		"localStorage.getItem(legacyWorkspaceKey(name))",
+		"localStorage.setItem(key,legacy)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("appearance migration missing %q", want)
+		}
+	}
+}
