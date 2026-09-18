@@ -51,6 +51,14 @@ func (l *browserLease) valid(token string) bool {
 	return ok
 }
 
+func (l *browserLease) owns(token string) bool {
+	token = strings.TrimSpace(token)
+	l.mu.Lock()
+	ok := l.current != "" && token != "" && token == l.current
+	l.mu.Unlock()
+	return ok
+}
+
 func (l *browserLease) watch(token string) (<-chan struct{}, bool) {
 	token = strings.TrimSpace(token)
 	l.mu.Lock()
@@ -92,7 +100,7 @@ func (s *Server) browserLeaseAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"lease": token})
 	case http.MethodGet:
-		if !lease.valid(r.Header.Get(browserLeaseHeader)) {
+		if !lease.owns(r.Header.Get(browserLeaseHeader)) {
 			writeLeaseRevoked(w)
 			return
 		}
