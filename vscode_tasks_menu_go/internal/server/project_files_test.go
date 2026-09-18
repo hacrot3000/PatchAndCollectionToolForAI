@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -392,5 +393,63 @@ func TestProjectFileSaveRejectsReadOnlyAndSymlinkEscape(t *testing.T) {
 	}
 	if string(data) != "outside" {
 		t.Fatalf("outside file changed: %q", data)
+	}
+}
+
+
+func TestProjectFileSaveRejectsNULContent(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "text.txt")
+	original := []byte("safe\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(original)
+	body, err := json.Marshal(projectFileSaveRequest{
+		Path: "text.txt", Content: "bad\x00text",
+		ExpectedSHA256: hex.EncodeToString(sum[:]),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: root}
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodPut, "/api/project/file", strings.NewReader(string(body))))
+	if rr.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status=%d want 415 body=%s", rr.Code, rr.Body.String())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(original) {
+		t.Fatalf("file changed after rejected NUL save: %q", data)
+	}
+}
+
+func TestProjectFileSaveAllowsJSONEscapingHeadroom(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "escaped.txt")
+	original := []byte("old\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(original)
+	content := strings.Repeat("\t", int(projectEditableLimit/2))
+	body, err := json.Marshal(projectFileSaveRequest{
+		Path: "escaped.txt", Content: content,
+		ExpectedSHA256: hex.EncodeToString(sum[:]),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(body)) <= projectEditableLimit {
+		t.Fatalf("test payload did not exceed decoded-content limit: %d", len(body))
+	}
+	s := &Server{Workspace: root}
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodPut, "/api/project/file", bytes.NewReader(body)))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
