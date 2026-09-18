@@ -1,6 +1,7 @@
 package server
 
 import (
+	"container/heap"
 	"context"
 	"net/http"
 	"path"
@@ -107,32 +108,62 @@ func (s *Server) refreshProjectFileIndex(root string) {
 	_ = saveProjectIndexCache(root, idx)
 }
 
+type projectFileSearchHeap []projectFileSearchResult
+
+func (h projectFileSearchHeap) Len() int { return len(h) }
+func (h projectFileSearchHeap) Less(i, j int) bool {
+	if h[i].Score != h[j].Score {
+		return h[i].Score < h[j].Score
+	}
+	return h[i].Path > h[j].Path
+}
+func (h projectFileSearchHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
+func (h *projectFileSearchHeap) Push(value any) {
+	*h = append(*h, value.(projectFileSearchResult))
+}
+func (h *projectFileSearchHeap) Pop() any {
+	old := *h
+	n := len(old)
+	value := old[n-1]
+	*h = old[:n-1]
+	return value
+}
+
+func projectFileSearchBetter(a, b projectFileSearchResult) bool {
+	if a.Score != b.Score {
+		return a.Score > b.Score
+	}
+	return a.Path < b.Path
+}
+
 func searchProjectFileIndex(idx *projectFileIndex, query string, limit int) []projectFileSearchResult {
 	if idx == nil || limit <= 0 {
 		return []projectFileSearchResult{}
 	}
-	results := make([]projectFileSearchResult, 0, limit*2)
+	top := make(projectFileSearchHeap, 0, limit)
+	heap.Init(&top)
 	for i := range idx.offsets {
 		candidate := idx.pathAt(i)
 		score, ok := fuzzyProjectPathScore(candidate, query)
 		if !ok {
 			continue
 		}
-		results = append(results, projectFileSearchResult{
-			Path:  candidate,
-			Name:  path.Base(candidate),
-			Score: score,
-		})
-	}
-	sort.Slice(results, func(i, j int) bool {
-		if results[i].Score != results[j].Score {
-			return results[i].Score > results[j].Score
+		result := projectFileSearchResult{
+			Path: candidate, Name: path.Base(candidate), Score: score,
 		}
-		return results[i].Path < results[j].Path
-	})
-	if len(results) > limit {
-		results = results[:limit]
+		if top.Len() < limit {
+			heap.Push(&top, result)
+			continue
+		}
+		if projectFileSearchBetter(result, top[0]) {
+			top[0] = result
+			heap.Fix(&top, 0)
+		}
 	}
+	results := []projectFileSearchResult(top)
+	sort.Slice(results, func(i, j int) bool {
+		return projectFileSearchBetter(results[i], results[j])
+	})
 	return results
 }
 
