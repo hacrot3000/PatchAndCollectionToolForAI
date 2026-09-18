@@ -358,6 +358,9 @@ func (s *Server) projectTree(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]projectTreeEntry, 0, len(entries))
 	for _, entry := range entries {
+		if entry.IsDir() && entry.Name() == ".git" {
+			continue
+		}
 		item, ok := s.projectTreeItem(dir, entry)
 		if !ok {
 			continue
