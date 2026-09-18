@@ -18,6 +18,7 @@ import '/featuremods/clearfiles.js';
 import '/featuremods/selfupdate.js';
 import '/featuremods/quickopen.js';
 import '/featuremods/explorer.js';
+import '/featuremods/editor.js';
 import '/featuremods/menus.js';
 import '/featuremods/broadcast.js';
 import '/featuremods/commandpresets.js';
