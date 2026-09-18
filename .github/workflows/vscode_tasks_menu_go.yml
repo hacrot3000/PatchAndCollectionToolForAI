@@ -5,6 +5,7 @@ on:
     branches:
       - "main"
       - "IDE_tool"
+      - "feat/mobile-exclusive-browser-lease"
     paths:
       - "vscode_tasks_menu"
       - "vscode_tasks_menu_go/**"
