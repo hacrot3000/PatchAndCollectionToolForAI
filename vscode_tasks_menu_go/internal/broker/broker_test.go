@@ -125,3 +125,39 @@ func TestBrokerSocketPathFallsBackWhenRuntimePathIsTooLong(t *testing.T) {
 		t.Fatalf("long runtime path should fall back to temp dir: %s", path)
 	}
 }
+
+func TestEnsureClientReusesAndCanShutdownRunningBroker(t *testing.T) {
+	ws := testWorkspace(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- Run(ctx, ws, log.New(io.Discard, "", 0)) }()
+
+	client := waitForClient(t, ws, errCh)
+	client.Close()
+
+	reused, err := EnsureClient(ws, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := LoadInfo(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reused.info.PID != info.PID {
+		t.Fatalf("EnsureClient did not reuse live broker: client pid=%d state pid=%d", reused.info.PID, info.PID)
+	}
+	if err := reused.ShutdownBroker(); err != nil {
+		t.Fatal(err)
+	}
+	reused.Close()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("broker shutdown: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("broker did not exit after ShutdownBroker")
+	}
+}
