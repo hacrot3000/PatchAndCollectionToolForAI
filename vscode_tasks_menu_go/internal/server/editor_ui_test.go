@@ -60,3 +60,36 @@ func TestEditorInitialLanguageCoverageMapping(t *testing.T) {
 		}
 	}
 }
+
+
+func TestEditorDirtySaveShortcutsAndCloseFlow(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function setDirty(view,dirty)",
+		"view.tab.classList.toggle('dirty',view.dirty)",
+		"method:'PUT'",
+		"expected_sha256:view.file.sha256",
+		"content:view.cm.state.doc.toString()",
+		"Save changes?",
+		"Discard",
+		"Cancel",
+		"function closeEditor(id)",
+		"function goToLine(view)",
+		"event.key==='Tab'",
+		"replaceSelection('\\t')",
+		"key==='s'",
+		"key==='g'",
+		"Discard unsaved changes and reload",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor dirty/save flow missing %q", want)
+		}
+	}
+	if strings.Contains(js, "localStorage.setItem") && strings.Contains(js, "view.cm.state.doc.toString()") {
+		t.Fatal("dirty editor contents must not be persisted to localStorage")
+	}
+}

@@ -20,8 +20,14 @@ style.textContent=`
 .editor-tab .editor-dirty{display:none;margin-left:5px;color:#f2c96d}
 .editor-tab.dirty .editor-dirty{display:inline}
 .editor-tab .close{margin-left:8px}
+.editor-save{background:#203f31;border-color:#3a7058;color:#dcf6e7}
+.editor-dirty-backdrop{position:fixed;inset:0;z-index:7000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:18px}
+.editor-dirty-dialog{width:min(430px,94vw);background:#171a20;border:1px solid #3b414d;border-radius:10px;box-shadow:0 18px 48px rgba(0,0,0,.5);padding:16px}
+.editor-dirty-dialog h3{margin:0 0 8px;font-size:15px}.editor-dirty-dialog p{margin:0 0 14px;font-size:12px;opacity:.75;word-break:break-word}
+.editor-dirty-actions{display:flex;justify-content:flex-end;gap:8px}.editor-dirty-actions .discard{margin-right:auto;background:#4a252a;border-color:#7a4048;color:#ffe2e4}
 html[data-taskmenu-theme="light"] .editor-pane{background:#fff}
 html[data-taskmenu-theme="light"] .editor-head .editor-readonly{color:#6c5314;background:#fff6d9;border-color:#c9ab61}
+html[data-taskmenu-theme="light"] .editor-dirty-dialog{background:#fff;border-color:#b9c0c8}
 `;
 document.head.append(style);
 
@@ -79,11 +85,19 @@ function editorMetaText(file){
   const bom=file.bom?' + BOM':'';
   return [languageLabel(file.path),'UTF-8'+bom,ending,formatBytes(file.size)].join(' • ');
 }
+function setDirty(view,dirty){
+  if(!view||view.closed)return;
+  view.dirty=Boolean(dirty);
+  view.tab.classList.toggle('dirty',view.dirty);
+  view.tab.title=(view.dirty?'● ':'')+view.file.path;
+  view.save.disabled=Boolean(view.file.read_only)||!view.dirty||view.saving;
+}
 function applyReadOnly(view){
   const readonly=Boolean(view.file.read_only);
   view.readonlyBadge.hidden=!readonly;
   view.cm.contentDOM.setAttribute('contenteditable',readonly?'false':'true');
   view.cm.contentDOM.setAttribute('aria-readonly',readonly?'true':'false');
+  view.save.disabled=readonly||!view.dirty||view.saving;
 }
 function setEditorDocument(view,file){
   const currentLength=view.cm.state.doc.length;
@@ -93,6 +107,7 @@ function setEditorDocument(view,file){
   view.path.title=file.path;
   view.meta.textContent=editorMetaText(file);
   applyReadOnly(view);
+  setDirty(view,false);
 }
 function activateEditorDOM(id){
   activeEditorID=id;
@@ -113,6 +128,63 @@ function deactivateEditors(){
     view.tab.classList.remove('active');
     view.pane.classList.add('hidden');
   }
+}
+function dirtyCloseChoice(view){
+  if(!view?.dirty)return Promise.resolve('discard');
+  return new Promise(resolve=>{
+    const backdrop=document.createElement('div');backdrop.className='editor-dirty-backdrop';
+    const dialog=document.createElement('div');dialog.className='editor-dirty-dialog';dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');
+    const title=document.createElement('h3');title.textContent='Save changes?';
+    const message=document.createElement('p');message.textContent=view.file.path+' has unsaved changes.';
+    const actions=document.createElement('div');actions.className='editor-dirty-actions';
+    const discard=document.createElement('button');discard.type='button';discard.className='discard';discard.textContent='Discard';
+    const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';
+    const save=document.createElement('button');save.type='button';save.className='editor-save';save.textContent='Save';
+    actions.append(discard,cancel,save);dialog.append(title,message,actions);backdrop.append(dialog);document.body.append(backdrop);
+    let done=false;
+    const finish=value=>{if(done)return;done=true;document.removeEventListener('keydown',onKey,true);backdrop.remove();resolve(value);};
+    const onKey=event=>{if(event.key==='Escape'){event.preventDefault();finish('cancel');}};
+    document.addEventListener('keydown',onKey,true);
+    backdrop.onmousedown=event=>{if(event.target===backdrop)finish('cancel');};
+    discard.onclick=()=>finish('discard');cancel.onclick=()=>finish('cancel');save.onclick=()=>finish('save');
+    save.focus();
+  });
+}
+async function saveEditor(view){
+  if(!view||view.closed||view.file.read_only||!view.dirty||view.saving)return view?.file||null;
+  view.saving=true;view.save.disabled=true;view.save.textContent='Saving…';
+  try{
+    const file=await app.jsonFetch('/api/project/file',{
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        path:view.file.path,
+        content:view.cm.state.doc.toString(),
+        expected_sha256:view.file.sha256
+      })
+    });
+    setEditorDocument(view,file);
+    return file;
+  }finally{
+    view.saving=false;
+    if(!view.closed){
+      view.save.textContent='Save';
+      view.save.disabled=Boolean(view.file.read_only)||!view.dirty;
+    }
+  }
+}
+async function closeEditor(id){
+  const view=editors.get(id);if(!view)return false;
+  if(view.dirty){
+    const choice=await dirtyCloseChoice(view);
+    if(choice==='cancel')return false;
+    if(choice==='save'){
+      await saveEditor(view);
+      if(view.dirty)return false;
+    }
+  }
+  destroyEditor(id);
+  return true;
 }
 function destroyEditor(id){
   const view=editors.get(id);if(!view)return;
@@ -145,23 +217,35 @@ function createEditor(file){
   const pathNode=document.createElement('div');pathNode.className='editor-path';pathNode.textContent=file.path;pathNode.title=file.path;
   const meta=document.createElement('div');meta.className='editor-meta';meta.textContent=editorMetaText(file);
   const readonlyBadge=document.createElement('span');readonlyBadge.className='editor-readonly';readonlyBadge.textContent='READ-ONLY';readonlyBadge.hidden=!file.read_only;
+  const save=document.createElement('button');save.type='button';save.className='editor-save';save.textContent='Save';save.title='Save file (Ctrl/Cmd+S)';
   const reload=document.createElement('button');reload.type='button';reload.textContent='Reload';reload.title='Reload file from disk';
-  head.append(pathNode,meta,readonlyBadge,reload);
+  head.append(pathNode,meta,readonlyBadge,save,reload);
   const host=document.createElement('div');host.className='editor-host';
   pane.append(head,host);panesHost.append(pane);
 
   const cm=cmFactory.newEditor(host,file.content||'',languageOptions(file.path));
-  const view={id,file:{...file},tab,label,dirty,pane,head,path:pathNode,meta,readonlyBadge,reload,host,cm,closed:false};
+  const view={id,file:{...file},tab,label,dirty,pane,head,path:pathNode,meta,readonlyBadge,save,reload,host,cm,closed:false,dirty:false,saving:false};
   editors.set(id,view);
   applyReadOnly(view);
+  setDirty(view,false);
 
+  cm.contentDOM.addEventListener('input',()=>{if(!view.file.read_only)setDirty(view,true);});
+  cm.contentDOM.addEventListener('keydown',event=>{
+    if(event.key==='Tab'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey&&!view.file.read_only){
+      event.preventDefault();
+      view.cm.dispatch(view.cm.state.replaceSelection('\t'));
+      setDirty(view,true);
+    }
+  },true);
   tab.onclick=()=>activateEditor(id);
-  close.onclick=event=>{event.stopPropagation();destroyEditor(id);};
+  close.onclick=event=>{event.stopPropagation();closeEditor(id).catch(app.showError);};
+  save.onclick=()=>saveEditor(view).catch(app.showError);
   reload.onclick=()=>reloadEditor(view).catch(app.showError);
   return view;
 }
 async function reloadEditor(view){
   if(!view||view.closed)return;
+  if(view.dirty&&!window.confirm('Discard unsaved changes and reload '+view.file.path+'?'))return;
   const file=await app.jsonFetch('/api/project/file?path='+encodeURIComponent(view.file.path));
   setEditorDocument(view,file);
 }
@@ -181,6 +265,30 @@ async function openFile(pathValue){
   }finally{opening.delete(pathValue);}
 }
 
+
+function goToLine(view){
+  if(!view||view.closed)return;
+  const raw=window.prompt('Go to line (1-'+view.cm.state.doc.lines+'):','1');
+  if(raw===null)return;
+  const lineNumber=Math.max(1,Math.min(view.cm.state.doc.lines,Number.parseInt(raw,10)||1));
+  const line=view.cm.state.doc.line(lineNumber);
+  view.cm.dispatch({selection:{anchor:line.from},scrollIntoView:true});
+  view.cm.focus();
+}
+
+document.addEventListener('keydown',event=>{
+  if(!(event.ctrlKey||event.metaKey)||!activeEditorID)return;
+  const view=editors.get(activeEditorID);if(!view||view.closed)return;
+  const key=event.key.toLowerCase();
+  if(key==='s'){
+    event.preventDefault();
+    saveEditor(view).catch(app.showError);
+  }else if(key==='g'){
+    event.preventDefault();
+    goToLine(view);
+  }
+});
+
 window.addEventListener('taskmenu:project-file-open-request',event=>{
   const pathValue=event.detail?.path;if(pathValue)openFile(pathValue).catch(app.showError);
 });
@@ -193,6 +301,9 @@ globalThis.TaskMenuEditor={
   editors,
   openFile,
   reloadEditor,
+  saveEditor,
+  closeEditor,
+  goToLine,
   activateEditor,
   destroyEditor,
   get active(){return activeEditorID;}
