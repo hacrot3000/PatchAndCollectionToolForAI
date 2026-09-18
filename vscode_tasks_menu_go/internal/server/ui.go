@@ -82,7 +82,7 @@ const indexHTML = `<!doctype html>
 </body>
 </html>`
 
-const appCSS = `:root{font-family:system-ui,sans-serif;color-scheme:dark;background:#101216;color:#e8eaed}*{box-sizing:border-box}body{margin:0}header{height:52px;display:flex;align-items:center;gap:16px;padding:0 16px;border-bottom:1px solid #30343b}header #workspace{opacity:.65;flex:1;font-size:12px}button,select{background:#252a33;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:7px 10px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}#open-terminal{background:#223b55;border-color:#365f84;white-space:nowrap}#edit-title{white-space:nowrap}main{display:grid;grid-template-columns:310px 1fr;height:calc(100vh - 52px)}aside{overflow:auto;border-right:1px solid #30343b;padding:10px}.group{margin:5px 0}.group>button,.task{width:100%;text-align:left}.children{padding-left:14px}.task{margin:2px 0;background:#171a20}.task:hover{background:#242a34}section{min-width:0;display:flex;flex-direction:column}#tabs{height:42px;border-bottom:1px solid #30343b;display:flex;align-items:end;overflow:auto;white-space:nowrap}.tab{border-radius:6px 6px 0 0;border-bottom:0;margin-left:4px}.tab.active{background:#343b48}.tab .status{opacity:.65;margin-left:6px}.tab .close{margin-left:8px}#panes{flex:1;min-height:0;position:relative}.pane{position:absolute;inset:0;display:flex;flex-direction:column}.pane.hidden{display:none}.pane-head{display:flex;gap:8px;align-items:center;padding:7px 10px;border-bottom:1px solid #30343b}.pane-head .command{font-family:ui-monospace,monospace;font-size:12px;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.download-select{max-width:280px;min-width:140px}.download{white-space:nowrap;background:#24472f;border-color:#3b7850}.copy-console{margin-left:24px;white-space:nowrap}.terminal{flex:1;min-height:0;padding:6px;background:#050607}`
+const appCSS = `:root{font-family:system-ui,sans-serif;color-scheme:dark;background:#101216;color:#e8eaed}*{box-sizing:border-box}body{margin:0}header{height:52px;display:flex;align-items:center;gap:16px;padding:0 16px;border-bottom:1px solid #30343b}header #workspace{opacity:.65;flex:1;font-size:12px}button,select{background:#252a33;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:7px 10px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}#open-terminal{background:#223b55;border-color:#365f84;white-space:nowrap}#edit-title{white-space:nowrap}main{display:grid;grid-template-columns:310px 1fr;height:calc(100vh - 52px)}aside{overflow:auto;border-right:1px solid #30343b;padding:10px}.group{margin:5px 0}.group>button,.task{width:100%;text-align:left}.children{padding-left:14px}.task{margin:2px 0;background:#171a20}.task:hover{background:#242a34}section{min-width:0;display:flex;flex-direction:column}#tabs{height:42px;border-bottom:1px solid #30343b;display:flex;align-items:end;overflow:auto;white-space:nowrap}.tab{border-radius:6px 6px 0 0;border-bottom:0;margin-left:4px}.tab.active{background:#343b48}.tab .status{opacity:.65;margin-left:6px}.tab .close{margin-left:8px}#panes{flex:1;min-height:0;position:relative}.pane{position:absolute;inset:0;display:flex;flex-direction:column}.pane.hidden{display:none}.pane-head{display:flex;gap:8px;align-items:center;padding:7px 10px;border-bottom:1px solid #30343b}.pane-head .command{font-family:ui-monospace,monospace;font-size:12px;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.download-select{max-width:280px;min-width:140px}.download{white-space:nowrap;background:#24472f;border-color:#3b7850}.copy-console{margin-left:24px;white-space:nowrap}.terminal{flex:1;min-height:0;padding:6px;background:#050607}.browser-lease-lost>header,.browser-lease-lost>main{filter:blur(1px);opacity:.45;pointer-events:none}.browser-lease-overlay{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px;background:rgba(4,6,9,.72)}.browser-lease-card{width:min(520px,100%);padding:22px;border:1px solid #48515f;border-radius:12px;background:#171a20;box-shadow:0 18px 55px rgba(0,0,0,.45);text-align:center}.browser-lease-card strong{display:block;font-size:18px;margin-bottom:10px}.browser-lease-card p{margin:8px 0;line-height:1.45}.browser-lease-card .browser-lease-hint{font-size:12px;opacity:.7}.browser-lease-card button{margin-top:10px;background:#244c70;border-color:#3f79a8;padding:10px 14px}`
 
 const appJS = `const TerminalCtor=globalThis.Terminal;
 const FitAddonCtor=globalThis.FitAddon?.FitAddon;
@@ -97,6 +97,9 @@ let active=null;
 const views=new Map();
 const hidden=new Set();
 const outputFilters=[];
+let browserLease='';
+let browserLeaseLost=false;
+let browserLeaseHeartbeat=null;
 
 function addOutputFilter(filter){
   if(typeof filter!=='function')throw new Error('Output filter must be a function');
@@ -131,9 +134,60 @@ function writeOutput(view,data){
   }
 }
 
-async function jsonFetch(url,opts={}){
-  const r=await fetch(url,{cache:'no-store',...opts});
+function showLeaseLost(message='This browser is no longer the active controller.'){
+  if(browserLeaseLost)return;
+  browserLeaseLost=true;
+  clearInterval(browserLeaseHeartbeat);
+  document.body.classList.add('browser-lease-lost');
+  for(const view of views.values()){
+    clearTimeout(view.reconnectTimer);
+    try{view.ws?.close();}catch{}
+  }
+  let overlay=document.querySelector('#browser-lease-overlay');
+  if(!overlay){
+    overlay=document.createElement('div');overlay.id='browser-lease-overlay';overlay.className='browser-lease-overlay';
+    const card=document.createElement('div');card.className='browser-lease-card';
+    const title=document.createElement('strong');title.textContent='Control moved to another browser';
+    const text=document.createElement('p');text.textContent=message;
+    const hint=document.createElement('p');hint.className='browser-lease-hint';hint.textContent='Reload this page to take control. The other browser will then be disconnected.';
+    const reload=document.createElement('button');reload.type='button';reload.textContent='Reload and take control';reload.onclick=()=>location.reload();
+    card.append(title,text,hint,reload);overlay.append(card);document.body.append(overlay);
+  }
+}
+
+async function acquireBrowserLease(){
+  const r=await fetch('/api/browser/lease',{method:'POST',cache:'no-store'});
   if(!r.ok)throw new Error((await r.text())||r.statusText);
+  const data=await r.json();
+  browserLease=String(data?.lease||'').trim();
+  if(!browserLease)throw new Error('Server did not return a browser control lease');
+  browserLeaseLost=false;
+  document.body.classList.remove('browser-lease-lost');
+}
+
+async function checkBrowserLease(){
+  if(!browserLease||browserLeaseLost)return;
+  const r=await fetch('/api/browser/lease',{cache:'no-store',headers:{'X-TaskMenu-Lease':browserLease}});
+  if(r.ok)return;
+  if(r.status===409||r.headers.get('X-TaskMenu-Lease-Revoked')==='1'){
+    showLeaseLost((await r.text()).trim()||undefined);
+  }
+}
+
+async function jsonFetch(url,opts={}){
+  const headers=new Headers(opts.headers||{});
+  if(browserLease)headers.set('X-TaskMenu-Lease',browserLease);
+  const r=await fetch(url,{cache:'no-store',...opts,headers});
+  if(!r.ok){
+    const message=(await r.text())||r.statusText;
+    if(r.status===409&&r.headers.get('X-TaskMenu-Lease-Revoked')==='1'){
+      showLeaseLost(message.trim()||undefined);
+      const error=new Error('Browser control lease revoked');
+      error.browserLeaseRevoked=true;
+      throw error;
+    }
+    throw new Error(message);
+  }
   if(r.status===204)return null;
   return r.json();
 }
@@ -207,7 +261,10 @@ async function startTerminal(){
   hidden.delete(meta.id);attach(meta,true);
 }
 
-function wsURL(id){return (location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/api/sessions/'+encodeURIComponent(id)+'/ws';}
+function wsURL(id){
+  const base=(location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/api/sessions/'+encodeURIComponent(id)+'/ws';
+  return browserLease?base+'?lease='+encodeURIComponent(browserLease):base;
+}
 
 function attach(meta,activate){
   let view=views.get(meta.id);
@@ -239,7 +296,7 @@ function attach(meta,activate){
   downloadSelect.onchange=()=>updateDownloadButton(view);
   download.onclick=()=>downloadSelectedFile(view);
   term.onSelectionChange(()=>scheduleSelectionScan(view));
-  term.onData(data=>{if(view.ws&&view.ws.readyState===WebSocket.OPEN)view.ws.send(data);});
+  term.onData(data=>{if(!browserLeaseLost&&view.ws&&view.ws.readyState===WebSocket.OPEN)view.ws.send(data);});
   const resize=()=>{
     try{fit.fit();}catch{}
     clearTimeout(view.resizeTimer);
@@ -338,7 +395,7 @@ async function scanSelection(view,text,seq){
 }
 
 function connect(view,replay){
-  if(view.closed)return;
+  if(view.closed||browserLeaseLost)return;
   if(replay)view.term.reset();
   const ws=new WebSocket(wsURL(view.meta.id));view.ws=ws;ws.binaryType='arraybuffer';
   ws.onopen=()=>{try{view.fit.fit();}catch{}};
@@ -348,7 +405,7 @@ function connect(view,replay){
     window.dispatchEvent(new CustomEvent('taskmenu:output',{detail:{view,data}}));
   };
   ws.onclose=async()=>{
-    if(view.closed)return;
+    if(view.closed||browserLeaseLost)return;
     try{
       const meta=await jsonFetch('/api/sessions/'+view.meta.id);updateMeta(meta);
       if(meta.status==='running')view.reconnectTimer=setTimeout(()=>connect(view,true),600);
@@ -404,13 +461,17 @@ async function syncSessions(){
   if(!active&&views.size)activateView(views.keys().next().value);
 }
 
-function showError(e){console.error(e);alert('ERROR: '+e.message);}
+function showError(e){console.error(e);if(e?.browserLeaseRevoked)return;alert('ERROR: '+e.message);}
 globalThis.TaskMenuApp={
   get taskData(){return taskData;},
   get active(){return active;},
+  get browserLease(){return browserLease;},
+  get browserLeaseLost(){return browserLeaseLost;},
   views,jsonFetch,showError,consoleText,startTask,startTerminal,activateView,activateExternalView,loadTasks,syncSessions,attachSession:attach,addOutputFilter
 };
 document.querySelector('#open-terminal').onclick=()=>startTerminal().catch(showError);
 document.querySelector('#edit-title').onclick=()=>{try{editPageTitle();}catch(e){showError(e);}};
 document.querySelector('#reload').onclick=()=>loadTasks().catch(showError);
-await loadTasks();await syncSessions();setInterval(()=>syncSessions().catch(()=>{}),1000);`
+await acquireBrowserLease();await loadTasks();await syncSessions();
+setInterval(()=>{if(!browserLeaseLost)syncSessions().catch(()=>{});},1000);
+browserLeaseHeartbeat=setInterval(()=>checkBrowserLease().catch(e=>console.warn('Browser lease heartbeat failed',e)),1000);`
