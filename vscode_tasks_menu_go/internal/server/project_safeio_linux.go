@@ -242,9 +242,14 @@ func (p *projectPinnedFile) writeTemp(data []byte, original os.FileInfo) error {
 	}
 	defer source.Close()
 	if stat, ok := original.Sys().(*syscall.Stat_t); ok {
-		if err := temp.Chown(int(stat.Uid), int(stat.Gid)); err != nil {
+		if tempInfo, statErr := temp.Stat(); statErr != nil {
 			cleanup()
-			return fmt.Errorf("cannot preserve file ownership: %w", err)
+			return statErr
+		} else if tempStat, ok := tempInfo.Sys().(*syscall.Stat_t); ok && (tempStat.Uid != stat.Uid || tempStat.Gid != stat.Gid) {
+			if err := temp.Chown(int(stat.Uid), int(stat.Gid)); err != nil {
+				cleanup()
+				return fmt.Errorf("cannot preserve file ownership: %w", err)
+			}
 		}
 	}
 	if _, err := temp.Write(data); err != nil {
