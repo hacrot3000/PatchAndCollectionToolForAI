@@ -97,6 +97,7 @@ func main() {
 
 	if st, err := state.Load(ws); err == nil && state.Healthy(st) {
 		fmt.Println(st.URL)
+		printRemoteFirewallGuidance(os.Stdout, cfg, st.Address)
 		if cfg.OpenBrowser && !*noBrowser {
 			_ = openBrowser(st.URL)
 		}
@@ -107,6 +108,7 @@ func main() {
 	st, err := waitForDaemon(ws, 5*time.Second, 0)
 	fatalIf(err)
 	fmt.Println(st.URL)
+	printRemoteFirewallGuidance(os.Stdout, cfg, st.Address)
 	if cfg.OpenBrowser && !*noBrowser {
 		_ = openBrowser(st.URL)
 	}
@@ -157,6 +159,9 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	logger.Printf("workspace=%s", ws)
 	logger.Printf("config=%s", cfgPath)
 	logger.Printf("url=%s", url)
+	for _, line := range remoteFirewallGuidance(cfg, ln.Addr().String()) {
+		logger.Print(line)
+	}
 	if updateID != "" {
 		logger.Printf("self-update handoff=%s revision=%s", updateID, buildRevision)
 	}
@@ -423,6 +428,27 @@ func reloadDaemonConfig(ws, cfgPath string) error {
 	}
 	fmt.Printf("Đã reload config: %s\n%s\n", cfgPath, next.URL)
 	return nil
+}
+
+func remoteFirewallGuidance(cfg config.Config, address string) []string {
+	if strings.TrimSpace(cfg.Bind) != "0.0.0.0" {
+		return nil
+	}
+	_, port, err := net.SplitHostPort(strings.TrimSpace(address))
+	if err != nil || port == "" || port == "0" {
+		return []string{"Remote access bind=0.0.0.0; hãy mở TCP port đang cấu hình trên firewall."}
+	}
+	return []string{
+		fmt.Sprintf("Remote access bind=0.0.0.0 đang dùng TCP port %s.", port),
+		fmt.Sprintf("UFW: sudo ufw allow %s/tcp", port),
+		fmt.Sprintf("firewalld: sudo firewall-cmd --permanent --add-port=%s/tcp && sudo firewall-cmd --reload", port),
+	}
+}
+
+func printRemoteFirewallGuidance(w *os.File, cfg config.Config, address string) {
+	for _, line := range remoteFirewallGuidance(cfg, address) {
+		fmt.Fprintln(w, line)
+	}
 }
 
 func printDaemonStatus(ws string) {
