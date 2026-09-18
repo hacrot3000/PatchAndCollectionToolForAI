@@ -23,7 +23,6 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/config"
 	"bletonfc/vscode_tasks_menu/internal/selfupdate"
 	"bletonfc/vscode_tasks_menu/internal/server"
-	"bletonfc/vscode_tasks_menu/internal/session"
 	"bletonfc/vscode_tasks_menu/internal/state"
 	terminalui "bletonfc/vscode_tasks_menu/internal/terminal"
 )
@@ -157,8 +156,13 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	if warning := server.RemoteWarning(cfg); warning != "" {
 		logger.Print(warning)
 	}
-	manager := session.NewManager(4 << 20)
-	srv := &server.Server{Workspace: ws, Config: cfg, Log: logger, Sessions: manager}
+	brokerClient, err := broker.EnsureClient(ws, logger)
+	if err != nil {
+		_ = ln.Close()
+		return err
+	}
+	defer brokerClient.Close()
+	srv := &server.Server{Workspace: ws, Config: cfg, Log: logger, Sessions: brokerClient}
 
 	// A replacement daemon must recreate saved PTYs before it advertises the
 	// update as complete. The browser can then reload and merely attach to live
@@ -182,7 +186,7 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	}
 
 	server.RegisterSelfUpdateHandoff(srv, func(id string) error {
-		return handoffToUpdatedDaemon(ws, ln, manager, id)
+		return handoffToUpdatedDaemon(ws, ln, id)
 	})
 	defer server.RegisterSelfUpdateHandoff(srv, nil)
 
@@ -193,7 +197,9 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 		select {
 		case sig := <-sigCh:
 			logger.Printf("shutdown signal=%s", sig)
-			manager.Shutdown(2 * time.Second)
+			if err := brokerClient.ShutdownBroker(); err != nil {
+				logger.Printf("session broker shutdown warning: %v", err)
+			}
 			_ = ln.Close()
 		case <-serveDone:
 		}
@@ -244,7 +250,7 @@ func createListener(cfg config.Config, handoffFD int, listenAddr string) (net.Li
 	return net.Listen("tcp", address)
 }
 
-func handoffToUpdatedDaemon(ws string, ln net.Listener, manager *session.Manager, updateID string) error {
+func handoffToUpdatedDaemon(ws string, ln net.Listener, updateID string) error {
 	provider, ok := ln.(interface{ File() (*os.File, error) })
 	if !ok {
 		return fmt.Errorf("listener does not support file-descriptor handoff")
@@ -276,8 +282,8 @@ func handoffToUpdatedDaemon(ws string, ln net.Listener, manager *session.Manager
 	_ = cmd.Process.Release()
 	_ = logFile.Close()
 	// The child now owns a duplicated listening socket and waits for the old
-	// daemon lock. Stop PTYs only after the replacement process exists.
-	manager.Shutdown(2 * time.Second)
+	// daemon lock. The independent session broker deliberately remains alive,
+	// preserving PTYs while the web daemon process is replaced.
 	return ln.Close()
 }
 
