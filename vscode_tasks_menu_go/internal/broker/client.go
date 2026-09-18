@@ -149,6 +149,12 @@ func (c *Client) Metadata(id string) (session.Metadata, bool) {
 	return meta, true
 }
 
+func (c *Client) SetTitle(id, title string) (session.Metadata, error) {
+	var meta session.Metadata
+	err := c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(id)+"/title", map[string]string{"title": title}, &meta)
+	return meta, err
+}
+
 func (c *Client) Input(id string, data []byte) error {
 	resp, err := c.do(http.MethodPost, "/v1/sessions/"+url.PathEscape(id)+"/input", bytes.NewReader(data), "application/octet-stream")
 	if err != nil {
