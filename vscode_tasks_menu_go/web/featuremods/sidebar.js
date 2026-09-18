@@ -3,7 +3,7 @@ if(!app)throw new Error('TaskMenuApp unavailable for sidebar resize');
 
 let initialized=false;
 function initializeSidebar(){
-  if(initialized||!app.taskData?.workspace)return;
+  if(app.layoutProfile==='mobile'||initialized||!app.taskData?.workspace)return;
   const main=document.querySelector('main');
   const aside=document.querySelector('aside');
   const section=document.querySelector('main>section');
