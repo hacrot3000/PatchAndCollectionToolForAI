@@ -35,6 +35,8 @@ Mỗi lần bấm một task sẽ tạo một **PTY session riêng** và một t
 ### Lifecycle của tab/session
 
 - Reload browser hoặc đóng/mở lại browser: task đang chạy **không bị kill**; tab được phục hồi từ daemon và log PTY được replay.
+- Task/terminal được sở hữu bởi **session broker process độc lập** với web daemon. Daemon chỉ proxy API/WebSocket tới broker qua Unix socket local.
+- Khi self-update thay web daemon, broker tiếp tục giữ process group, PTY, session ID và scrollback; daemon mới reconnect lại các session hiện hữu thay vì chạy lại task.
 - **Close** một tab đang chạy: chỉ đóng UI, process vẫn chạy và sẽ xuất hiện lại sau reload/mở lại web.
 - **Stop**: gửi `SIGINT` cho process group của task.
 - Close tab đã `exited/stopped`: session đã hoàn tất được xóa khỏi daemon.
@@ -94,9 +96,33 @@ Task vẫn chạy nguyên command khai báo trong `tasks.json`; các task vốn 
 ./vscode_tasks_menu --restart-daemon
 ```
 
-`--restart-daemon` hữu ích sau khi thay source Go hoặc thay cấu hình server. Restart là thao tác chủ động: daemon gửi `SIGINT` cho các PTY task đang chạy, chờ grace period rồi mới force-kill process còn sót.
+`--stop-daemon` và `--restart-daemon` là thao tác chủ động: daemon yêu cầu session broker shutdown, broker gửi interrupt/hangup tới các session đang chạy rồi force-kill process còn sót sau grace period. Vì vậy hai lệnh này vẫn giữ semantics cũ là dừng session.
 
-Không tự restart daemon chỉ vì binary vừa được rebuild, vì việc đó có thể làm mất các task đang chạy.
+Self-update dùng đường khác: daemon **detach nhưng không shutdown broker**, nên task/terminal có thể tiếp tục chạy xuyên qua daemon replacement.
+
+### Session broker và self-update
+
+Mỗi workspace có broker state/socket riêng trong runtime directory. Broker được daemon tự start nếu chưa có, hoặc reuse nếu đã sống. Browser không kết nối trực tiếp broker; toàn bộ API công khai vẫn đi qua web daemon như trước.
+
+Trong self-update bình thường:
+
+```text
+task/terminal -> broker
+                  |
+old daemon --------+
+   detach
+new daemon --------+
+                  |
+browser reconnect
+```
+
+Daemon mới query broker sessions trước. Nếu broker còn session, nó giữ nguyên session ID và không recreate terminal. Core UI `syncSessions()` attach lại các tab; scrollback gồm cả output phát sinh trong khoảng daemon bị thay.
+
+Nếu listener-FD handoff không dùng được, updater ưu tiên control action `detach` để daemon cũ thoát mà broker vẫn sống, rồi start daemon mới trên address cũ. Legacy SIGTERM chỉ là last resort.
+
+**Giới hạn chuyển tiếp:** lần đầu update từ build pre-broker sang build broker không thể chuyển ownership của các PTY đã được daemon cũ tạo trước đó. Sau khi đã chạy build broker, các session tạo mới có thể được giữ qua các self-update tiếp theo.
+
+Chi tiết xem `SELF_UPDATE.md`.
 
 ## Cấu hình local và remote
 
@@ -203,7 +229,8 @@ vscode_tasks_menu_go/
 ├── cmd/vscode_tasks_menu/      entry point
 ├── internal/config/            INI config
 ├── internal/server/            HTTP/WebSocket + web UI
-├── internal/session/           PTY sessions + scrollback
+├── internal/broker/            persistent session broker + Unix-socket client/server
+├── internal/session/           PTY session engine used by the broker
 ├── internal/state/             daemon state + file lock
 ├── internal/tasks/             JSONC parser + command resolver
 ├── internal/terminal/          terminal UI native Go
