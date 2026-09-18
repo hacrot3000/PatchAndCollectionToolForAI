@@ -176,10 +176,14 @@ async function checkBrowserLease(){
   }
 }
 
-function fetchWithLease(url,opts={}){
+async function fetchWithLease(url,opts={}){
   const headers=new Headers(opts.headers||{});
   if(browserLease)headers.set('X-TaskMenu-Lease',browserLease);
-  return fetch(url,{...opts,headers});
+  const response=await fetch(url,{...opts,headers});
+  if(response.status===409&&response.headers.get('X-TaskMenu-Lease-Revoked')==='1'){
+    showLeaseLost();
+  }
+  return response;
 }
 
 async function jsonFetch(url,opts={}){
