@@ -207,18 +207,24 @@ function openContextMenu(view,x,y){
   closeContextMenu();
   contextView=view;
   const session=sourceActions(view,'Session');
+  const presetActions=globalThis.TaskMenuCommandPresets?.contextActions?.(view)||[];
   const broadcastActions=globalThis.TaskMenuBroadcast?.contextActions?.(view)||[];
   const consoleActions=sourceActions(view,'Console');
+
   const hasSession=addActions(view,'Session',session);
-  if(hasSession&&broadcastActions.length){
+  if(hasSession&&presetActions.length){
+    const sep=document.createElement('div');sep.className='tab-context-separator';menu.append(sep);
+  }
+  const hasPresets=addCustomActions('',presetActions);
+  if((hasSession||hasPresets)&&broadcastActions.length){
     const sep=document.createElement('div');sep.className='tab-context-separator';menu.append(sep);
   }
   const hasBroadcast=addCustomActions('Broadcast group',broadcastActions);
-  if((hasSession||hasBroadcast)&&consoleActions.length){
+  if((hasSession||hasPresets||hasBroadcast)&&consoleActions.length){
     const sep=document.createElement('div');sep.className='tab-context-separator';menu.append(sep);
   }
   const hasConsole=addActions(view,'Console',consoleActions);
-  if(!hasSession&&!hasBroadcast&&!hasConsole){
+  if(!hasSession&&!hasPresets&&!hasBroadcast&&!hasConsole){
     const empty=document.createElement('div');empty.className='tab-context-heading';empty.textContent='NO ACTIONS AVAILABLE';menu.append(empty);
   }
   menu.classList.add('open');
