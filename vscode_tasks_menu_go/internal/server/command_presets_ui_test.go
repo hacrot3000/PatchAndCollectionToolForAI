@@ -43,3 +43,73 @@ func TestCommandPresetRunnerFoundation(t *testing.T) {
 		t.Fatal("preset runner sentinel escape is double-escaped and would print literal text")
 	}
 }
+
+func TestCommandPresetManagerAndContextActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/commandpresets.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"Preset command (running)",
+		"Preset command",
+		"if(!view||view.meta.task_id!==0)return []",
+		"preset.name+' — '+(firstCommandSnippet(preset)",
+		"Manage presets…",
+		"Command presets",
+		"＋ Add preset",
+		"Preset name",
+		"Commands — executed sequentially; stop on non-zero exit code",
+		"＋ Add command",
+		"Delete preset",
+		"Close",
+		"action:'create'",
+		"action:'update'",
+		"action:'delete'",
+		"Discard unsaved preset changes?",
+		"textarea",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("commandpresets.js missing manager/context behavior %q", want)
+		}
+	}
+}
+
+func TestCommandPresetLoaderOrder(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/next.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := string(data)
+	broadcast := strings.Index(next, "import '/featuremods/broadcast.js';")
+	presets := strings.Index(next, "import '/featuremods/commandpresets.js';")
+	context := strings.Index(next, "import '/featuremods/tabcontext.js';")
+	if broadcast < 0 || presets < 0 || context < 0 {
+		t.Fatalf("missing loader entries: broadcast=%d presets=%d context=%d", broadcast, presets, context)
+	}
+	if !(broadcast < presets && presets < context) {
+		t.Fatalf("command presets must load after broadcast and before tab context: broadcast=%d presets=%d context=%d", broadcast, presets, context)
+	}
+}
+
+func TestTabContextSupportsPresetSubmenus(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/tabcontext.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"TaskMenuCommandPresets?.contextActions?.(view)",
+		"addCustomActions('',presetActions)",
+		"Array.isArray(action.children)&&action.children.length",
+		"openCustomSubmenu(item,action.children)",
+		"tab-context-submenu",
+		"positionSubmenu(owner)",
+		"ownerRect.left-rect.width-4",
+		"submenu?.contains(target)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("tabcontext.js missing preset submenu support %q", want)
+		}
+	}
+}
