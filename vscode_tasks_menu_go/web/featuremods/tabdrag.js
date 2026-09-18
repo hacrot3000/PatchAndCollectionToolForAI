@@ -130,6 +130,12 @@ window.addEventListener('taskmenu:session',event=>{
   const tab=event.detail?.view?.tab;
   if(tab)installTab(tab);
 });
+window.addEventListener('taskmenu:view-activated',event=>{
+  if(event.detail?.kind!=='external')return;
+  const id=String(event.detail?.id||'');
+  const tab=[...tabsHost.querySelectorAll('.tab[data-id]')].find(node=>node.dataset.id===id);
+  if(tab)installTab(tab);
+});
 
 installAll();
 (async()=>{
