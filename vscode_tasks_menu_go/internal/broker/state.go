@@ -44,6 +44,7 @@ func NewInfo(workspace string) Info {
 		Workspace:       workspace,
 		SocketPath:      SocketPath(workspace),
 		StartedAt:       time.Now().Format(time.RFC3339),
+		Capabilities:    []string{CapabilitySessionTitle},
 	}
 }
 
