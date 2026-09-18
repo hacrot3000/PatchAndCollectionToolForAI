@@ -111,3 +111,41 @@ func TestProjectContentSearchFallbackHonorsRootGitignore(t *testing.T) {
 		t.Fatalf("ignore filtering results=%#v", results)
 	}
 }
+
+
+func TestProjectContentSearchUsesUTF16ColumnsAndBoundsPreview(t *testing.T) {
+	line := "á😀prefix needle " + strings.Repeat("x", projectContentSearchMaxPreviewBytes*2)
+	byteOffset := strings.Index(line, "needle")
+	if byteOffset < 0 {
+		t.Fatal("needle missing")
+	}
+	column := projectUTF16Column(line, byteOffset)
+	// "á"=1 UTF-16 unit, "😀"=2, then "prefix " is 7.
+	if column != 11 {
+		t.Fatalf("column=%d want 11", column)
+	}
+	preview := boundedProjectSearchPreview(line, byteOffset)
+	if len(preview) > projectContentSearchMaxPreviewBytes+len("……")*3 {
+		t.Fatalf("preview too large: %d bytes", len(preview))
+	}
+	if !strings.Contains(preview, "needle") {
+		t.Fatalf("preview lost match: %q", preview)
+	}
+}
+
+func TestProjectContentSearchFallbackReportsUnicodeColumn(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "unicode.txt"), []byte("á😀 needle\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	results, err := searchProjectContentFallback(context.Background(), root, "needle", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results=%#v", results)
+	}
+	if results[0].Column != 6 {
+		t.Fatalf("column=%d want 6", results[0].Column)
+	}
+}
