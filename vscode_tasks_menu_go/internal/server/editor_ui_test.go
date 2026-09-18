@@ -148,3 +148,22 @@ func TestEditorTracksTransactionsAndBlocksReadOnlyDocumentChanges(t *testing.T) 
 		t.Fatal("dirty tracking must not depend on DOM input events")
 	}
 }
+
+
+func TestEditorShowsBackendFileWarnings(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"editor-warning",
+		"warningBadge.hidden=!file.warning",
+		"warningBadge.title=file.warning||''",
+		"view.warningBadge.hidden=!file.warning",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor warning UI missing %q", want)
+		}
+	}
+}
