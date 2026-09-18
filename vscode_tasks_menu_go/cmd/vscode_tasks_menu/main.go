@@ -39,6 +39,7 @@ func main() {
 	statusOnly := flag.Bool("status", false, "in trạng thái daemon rồi thoát")
 	stopDaemonFlag := flag.Bool("stop-daemon", false, "dừng daemon của workspace rồi thoát")
 	restartDaemon := flag.Bool("restart-daemon", false, "dừng daemon cũ rồi khởi động lại")
+	reloadConfigFlag := flag.Bool("reload-config", false, "nạp lại vscode_tasks_menu.ini và restart web daemon, giữ nguyên session broker")
 	selfUpdateFlag := flag.Bool("self-update", false, "kiểm tra, xác nhận và cài bản mới nhất từ GitHub")
 	sessionBroker := flag.Bool("session-broker", false, "chạy session broker foreground (internal)")
 	versionFlag := flag.Bool("version", false, "in revision của binary rồi thoát")
@@ -79,6 +80,10 @@ func main() {
 	fatalIf(err)
 	defer startLock.Close()
 
+	if *reloadConfigFlag {
+		fatalIf(reloadDaemonConfig(ws, cfgPath))
+		return
+	}
 	if *statusOnly {
 		printDaemonStatus(ws)
 		return
@@ -380,6 +385,44 @@ func startDaemonWithOptions(ws, listenAddr, updateID string) error {
 	}
 	_ = cmd.Process.Release()
 	return logFile.Close()
+}
+
+func reloadDaemonConfig(ws, cfgPath string) error {
+	st, err := state.Load(ws)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Printf("Config hợp lệ: %s\nDaemon chưa chạy; không cần reload.\n", cfgPath)
+			return nil
+		}
+		return err
+	}
+	if !state.Healthy(st) {
+		state.Remove(ws)
+		fmt.Printf("Config hợp lệ: %s\nDaemon không còn hoạt động; đã dọn state cũ.\n", cfgPath)
+		return nil
+	}
+	if runtime.GOOS == "windows" {
+		return fmt.Errorf("-reload-config chưa hỗ trợ restart giữ session broker trên Windows; dùng -restart-daemon")
+	}
+	process, err := os.FindProcess(st.PID)
+	if err != nil {
+		return fmt.Errorf("find daemon pid %d: %w", st.PID, err)
+	}
+	if err := process.Signal(reloadConfigSignal); err != nil {
+		return fmt.Errorf("gửi tín hiệu reload config tới daemon pid %d: %w", st.PID, err)
+	}
+	if err := waitForDaemonStateRelease(ws, st.PID, 5*time.Second); err != nil {
+		return fmt.Errorf("reload config: %w", err)
+	}
+	if err := startDaemon(ws); err != nil {
+		return fmt.Errorf("khởi động lại daemon sau reload config: %w", err)
+	}
+	next, err := waitForDaemon(ws, 8*time.Second, st.PID)
+	if err != nil {
+		return fmt.Errorf("reload config: %w", err)
+	}
+	fmt.Printf("Đã reload config: %s\n%s\n", cfgPath, next.URL)
+	return nil
 }
 
 func printDaemonStatus(ws string) {
