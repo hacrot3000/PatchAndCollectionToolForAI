@@ -193,3 +193,57 @@ func TestCodeMirrorImmutableAssetUsesVersionedURL(t *testing.T) {
 		t.Fatal("CodeMirror immutable asset must use a versioned URL")
 	}
 }
+
+
+func TestEditorLanguageMappingCoversRequiredIDEFormats(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"else if(ext==='jsx')options.jsx=true",
+		"else if(ext==='ts')options.typescript=true",
+		"else if(ext==='tsx')options.tsx=true",
+		"if(name==='cmakelists.txt'||ext==='cmake')return 'cmake'",
+		"if(['sh','bash','zsh','fish','ksh'].includes(ext)",
+		"if(ext==='lua')return 'lua'",
+		"function legacySyntaxExtension(kind)",
+		"buildLegacyDecorations(update.view,kind)",
+		"options.extraExtensions=[legacySyntaxExtension(legacy)]",
+		"return 'CMake'",
+		"return 'Shell'",
+		"return 'Lua'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor language coverage missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"CMake (plain)", "Shell (plain)", "Lua (plain)"} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("editor still marks required language as plain text: %q", forbidden)
+		}
+	}
+}
+
+func TestVendoredCodeMirrorExposesIDEHooksAndTypeScriptModes(t *testing.T) {
+	data, err := webassets.Files.ReadFile("vendor/codemirror6-all.min.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"Decoration: () => Decoration",
+		"EditorView: () => EditorView",
+		"RangeSetBuilder: () => RangeSetBuilder",
+		"ViewPlugin: () => ViewPlugin",
+		"Array.isArray(options2.extraExtensions)",
+		"typescript: javascript({ typescript: true })",
+		"jsx: javascript({ jsx: true })",
+		"tsx: javascript({ typescript: true, jsx: true })",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("vendored CodeMirror IDE hook missing %q", want)
+		}
+	}
+}
