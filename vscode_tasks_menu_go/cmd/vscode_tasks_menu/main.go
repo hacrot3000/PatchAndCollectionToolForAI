@@ -493,7 +493,7 @@ func runSelfUpdate(ws string, cfg config.Config) (err error) {
 	_, _ = selfupdate.Update(ws, req.ID, "ready_restart", "Binary mới đã sẵn sàng; chuẩn bị handoff daemon…", "", "")
 	if err := requestDaemonHandoff(cfg, oldState, req.ID); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: socket handoff unavailable: %v; fallback restart cùng port.\n", err)
-		if err := fallbackRestartAfterUpdate(ws, oldState, req.ID); err != nil {
+		if err := fallbackRestartAfterUpdate(ws, cfg, oldState, req.ID); err != nil {
 			return fail(err)
 		}
 	}
@@ -501,7 +501,7 @@ func runSelfUpdate(ws string, cfg config.Config) (err error) {
 	if err != nil {
 		// Handoff callbacks report asynchronous errors through self-update state.
 		if latest, loadErr := selfupdate.Load(ws); loadErr == nil && latest.Status == "failed" {
-			if restartErr := fallbackRestartAfterUpdate(ws, oldState, req.ID); restartErr == nil {
+			if restartErr := fallbackRestartAfterUpdate(ws, cfg, oldState, req.ID); restartErr == nil {
 				newState, err = waitForDaemon(ws, 15*time.Second, oldState.PID)
 			}
 		}
@@ -517,12 +517,12 @@ func runSelfUpdate(ws string, cfg config.Config) (err error) {
 	return nil
 }
 
-func requestDaemonHandoff(cfg config.Config, st state.State, id string) error {
+func requestDaemonAction(cfg config.Config, st state.State, id, action string) error {
 	base := strings.TrimRight(st.HealthURL, "/")
 	if base == "" {
 		base = strings.TrimRight(st.URL, "/")
 	}
-	url := base + "/api/state/tasks?scope=self-update&action=handoff"
+	url := base + "/api/state/tasks?scope=self-update&action=" + action
 	body, _ := json.Marshal(map[string]string{"id": id})
 	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(string(body)))
 	if err != nil {
@@ -543,14 +543,55 @@ func requestDaemonHandoff(cfg config.Config, st state.State, id string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("handoff endpoint returned %s", resp.Status)
+		return fmt.Errorf("%s endpoint returned %s", action, resp.Status)
 	}
 	return nil
 }
 
-func fallbackRestartAfterUpdate(ws string, old state.State, updateID string) error {
-	if err := stopExistingDaemon(ws); err != nil {
-		return err
+func requestDaemonHandoff(cfg config.Config, st state.State, id string) error {
+	return requestDaemonAction(cfg, st, id, "handoff")
+}
+
+func requestDaemonDetach(cfg config.Config, st state.State, id string) error {
+	return requestDaemonAction(cfg, st, id, "detach")
+}
+
+func waitForDaemonStateRelease(ws string, oldPID int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		st, err := state.Load(ws)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err == nil && st.PID != oldPID {
+			return nil
+		}
+		time.Sleep(40 * time.Millisecond)
+	}
+	return fmt.Errorf("old daemon pid %d did not release runtime state", oldPID)
+}
+
+func fallbackRestartAfterUpdate(ws string, cfg config.Config, old state.State, updateID string) error {
+	preserved := false
+	if state.Healthy(old) {
+		if err := requestDaemonDetach(cfg, old, updateID); err == nil {
+			if waitErr := waitForDaemonStateRelease(ws, old.PID, 5*time.Second); waitErr == nil {
+				preserved = true
+			} else {
+				fmt.Fprintf(os.Stderr, "WARNING: daemon detach timed out: %v; falling back to legacy stop.\n", waitErr)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "WARNING: broker-preserving daemon detach unavailable: %v; falling back to legacy stop.\n", err)
+		}
+	} else if err := waitForDaemonStateRelease(ws, old.PID, 2*time.Second); err == nil {
+		// The old listener is already gone (for example after a partial handoff).
+		// Let the process finish naturally so its independent broker stays alive.
+		preserved = true
+	}
+	if !preserved {
+		if err := stopExistingDaemon(ws); err != nil {
+			return err
+		}
 	}
 	if err := startDaemonWithOptions(ws, old.Address, updateID); err == nil {
 		return nil
