@@ -36,10 +36,10 @@ func TestCommandPresetRunnerFoundation(t *testing.T) {
 	if strings.Contains(js, "/api/broadcast") {
 		t.Fatal("preset runner must not fan commands through Broadcast All/Group")
 	}
-	if !strings.Contains(js, "printf \'\\036VTM_PRESET:") {
+	if !strings.Contains(js, "printf '\\036VTM_PRESET:") {
 		t.Fatal("preset runner must ask shell printf to emit RS sentinel with one backslash escape")
 	}
-	if strings.Contains(js, "printf \'\\\\036VTM_PRESET:") {
+	if strings.Contains(js, "printf '\\\\036VTM_PRESET:") {
 		t.Fatal("preset runner sentinel escape is double-escaped and would print literal text")
 	}
 }
