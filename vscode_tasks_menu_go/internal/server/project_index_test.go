@@ -94,3 +94,46 @@ func TestProjectIndexCacheRoundTripAndCorruption(t *testing.T) {
 		t.Fatal("corrupt cache was accepted")
 	}
 }
+
+
+func TestProjectIndexPathsRGParsesNULAndNormalizesPaths(t *testing.T) {
+	root := t.TempDir()
+	script := filepath.Join(t.TempDir(), "fake-rg")
+	body := "#!/bin/sh\nprintf 'src/main.go\\0.vscode/tasks.json\\0'\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := projectIndexPathsRG(context.Background(), script, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 2 || paths[0] != "src/main.go" || paths[1] != ".vscode/tasks.json" {
+		t.Fatalf("paths=%#v", paths)
+	}
+}
+
+func TestProjectIndexFallbackHonorsRootGitignore(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "ignored"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("ignored/\n*.tmp\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ignored", "hidden.go"), []byte("package hidden"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "scratch.tmp"), []byte("tmp"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "keep.go"), []byte("package keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := projectIndexPathsFallback(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 2 || paths[0] != ".gitignore" || paths[1] != "keep.go" {
+		t.Fatalf("paths=%#v", paths)
+	}
+}
