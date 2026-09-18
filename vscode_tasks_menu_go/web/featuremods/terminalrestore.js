@@ -1,7 +1,7 @@
 const app=globalThis.TaskMenuApp;
 if(!app)throw new Error('TaskMenuApp unavailable for terminal restore');
 
-const endpoint='/api/state/tasks?scope=terminals';
+const endpoint='/api/state/tasks?scope=terminals&profile='+encodeURIComponent(app.layoutProfile||'desktop');
 const tabsHost=document.querySelector('#tabs');
 let restoring=true;
 let persistenceFrozen=false;
@@ -82,6 +82,7 @@ function restoreTabOrder(ids){
 }
 
 function restoredGroups(restored,ids){
+  if(app.layoutProfile==='mobile')return [];
   const raw=Array.isArray(restored?.splits)&&restored.splits.length?restored.splits:(restored?.split?[restored.split]:[]);
   const groups=[];const used=new Set();
   for(const split of raw){
@@ -100,7 +101,9 @@ function applySavedLayout(saved,ids,{clearMissing=true}={}){
   let activeIndex=Number(saved?.active_index);
   if(!Number.isInteger(activeIndex)||activeIndex<0||activeIndex>=ids.length)activeIndex=0;
   const groups=restoredGroups(saved,ids);
-  if(groups.length)globalThis.TaskMenuSplit?.restoreProjectGroups?.(groups);
+  if(app.layoutProfile==='mobile'){
+    globalThis.TaskMenuSplit?.clearPresentation?.();
+  }else if(groups.length)globalThis.TaskMenuSplit?.restoreProjectGroups?.(groups);
   else if(clearMissing)globalThis.TaskMenuSplit?.clearAll?.();
   const activeID=ids[activeIndex];
   if(activeID){
