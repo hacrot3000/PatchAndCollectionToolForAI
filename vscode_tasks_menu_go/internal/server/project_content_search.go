@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -178,6 +179,7 @@ func searchProjectContentRG(parent context.Context, rg, root, query string, limi
 func searchProjectContentFallback(ctx context.Context, root, query string, limit int) ([]projectContentSearchResult, error) {
 	needle := []byte(query)
 	results := make([]projectContentSearchResult, 0, minInt(limit, 32))
+	ignore := loadProjectRootIgnore(root)
 	err := filepath.WalkDir(root, func(full string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			if entry != nil && entry.IsDir() {
@@ -191,21 +193,25 @@ func searchProjectContentFallback(ctx context.Context, root, query string, limit
 		if full == root {
 			return nil
 		}
-		if entry.IsDir() {
-			if entry.Name() == ".git" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
-			return nil
-		}
 		rel, err := filepath.Rel(root, full)
 		if err != nil {
 			return nil
 		}
 		rel = normalizeProjectIndexPath(filepath.ToSlash(rel))
 		if rel == "" {
+			return nil
+		}
+		if entry.IsDir() {
+			if entry.Name() == ".git" || ignore.matches(rel, true) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() || ignore.matches(rel, false) {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil || info.Size() > projectReadableLimit {
 			return nil
 		}
 		data, err := os.ReadFile(full)
@@ -254,6 +260,80 @@ func searchProjectContentFallback(ctx context.Context, root, query string, limit
 }
 
 var errProjectContentSearchLimit = errors.New("project content search result limit reached")
+
+type projectIgnoreRule struct {
+	pattern string
+	negate  bool
+	dirOnly bool
+	anchored bool
+}
+
+type projectIgnoreMatcher struct {
+	rules []projectIgnoreRule
+}
+
+func loadProjectRootIgnore(root string) projectIgnoreMatcher {
+	data, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		return projectIgnoreMatcher{}
+	}
+	matcher := projectIgnoreMatcher{}
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(strings.TrimSuffix(raw, "\r"))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		rule := projectIgnoreRule{}
+		if strings.HasPrefix(line, "!") {
+			rule.negate = true
+			line = strings.TrimPrefix(line, "!")
+		}
+		rule.dirOnly = strings.HasSuffix(line, "/")
+		line = strings.TrimSuffix(line, "/")
+		rule.anchored = strings.HasPrefix(line, "/")
+		line = strings.TrimPrefix(line, "/")
+		line = filepath.ToSlash(strings.TrimSpace(line))
+		if line == "" {
+			continue
+		}
+		rule.pattern = line
+		matcher.rules = append(matcher.rules, rule)
+	}
+	return matcher
+}
+
+func (m projectIgnoreMatcher) matches(rel string, isDir bool) bool {
+	rel = filepath.ToSlash(rel)
+	ignored := false
+	for _, rule := range m.rules {
+		if rule.dirOnly && !isDir && !strings.Contains(rel, rule.pattern+"/") && !strings.HasPrefix(rel, rule.pattern+"/") {
+			continue
+		}
+		if projectIgnoreRuleMatches(rule, rel) {
+			ignored = !rule.negate
+		}
+	}
+	return ignored
+}
+
+func projectIgnoreRuleMatches(rule projectIgnoreRule, rel string) bool {
+	pattern := rule.pattern
+	if rule.anchored || strings.Contains(pattern, "/") {
+		if ok, _ := path.Match(pattern, rel); ok {
+			return true
+		}
+		if rule.dirOnly && (rel == pattern || strings.HasPrefix(rel, pattern+"/")) {
+			return true
+		}
+		return false
+	}
+	for _, part := range strings.Split(rel, "/") {
+		if ok, _ := path.Match(pattern, part); ok {
+			return true
+		}
+	}
+	return false
+}
 
 func projectContentTextBytes(data []byte) bool {
 	sample := data
