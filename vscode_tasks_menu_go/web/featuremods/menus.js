@@ -34,8 +34,9 @@ function installHeaderMenus(){
 
   const files=makeMenu('Files','Project files');
   const quickOpen=document.createElement('button');quickOpen.type='button';quickOpen.textContent='Quick Open…  Ctrl+P';quickOpen.onclick=()=>{closeAll();globalThis.TaskMenuQuickOpen?.open();};
+  const searchFiles=document.createElement('button');searchFiles.type='button';searchFiles.textContent='Search in Files…  Ctrl+Shift+F';searchFiles.onclick=()=>{closeAll();globalThis.TaskMenuProjectSearch?.open();};
   const explorer=document.createElement('button');explorer.type='button';explorer.textContent='Explorer';explorer.onclick=()=>{closeAll();globalThis.TaskMenuExplorer?.open();};
-  addSection(files.pop,'OPEN',[quickOpen,explorer]);
+  addSection(files.pop,'OPEN',[quickOpen,searchFiles,explorer]);
   host.append(files.menu);
 
   const terminal=makeMenu('Terminal','Terminal actions');
