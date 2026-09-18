@@ -42,3 +42,26 @@ func TestExplorerModuleLoadsBeforeMenus(t *testing.T) {
 		t.Fatalf("Explorer must load before menus")
 	}
 }
+
+
+func TestExplorerRestoresNestedExpandedDirectories(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"async function restoreExpandedDirectories()",
+		"a.split('/').length-b.split('/').length",
+		"await loadDirectory(pathValue)",
+		"expanded.delete(pathValue)",
+		"await restoreExpandedDirectories()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("explorer nested restore missing %q", want)
+		}
+	}
+	if strings.Contains(js, "if(pathValue.includes('/'))continue") {
+		t.Fatal("Explorer restore must not skip nested expanded directories")
+	}
+}
