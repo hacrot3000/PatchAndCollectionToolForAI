@@ -132,6 +132,11 @@ window.addEventListener('taskmenu:session',event=>{
 });
 
 installAll();
-setTimeout(()=>{restoreSavedOrder();installAll();},0);
+(async()=>{
+  try{await globalThis.TaskMenuTerminalRestore?.ready;}catch{}
+  restoreSavedOrder();installAll();
+  // Persist the final terminal subset after applying the full live-tab order.
+  globalThis.TaskMenuTerminalRestore?.persistSnapshot?.();
+})();
 
 globalThis.TaskMenuTabOrder={saveOrder,restoreSavedOrder,currentIDs};
