@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -103,5 +104,24 @@ func TestBrokerRunProbeAndCleanup(t *testing.T) {
 	}
 	if _, err := os.Stat(StatePath(ws)); !os.IsNotExist(err) {
 		t.Fatalf("broker state still exists after shutdown: %v", err)
+	}
+}
+
+func TestBrokerSocketPathFallsBackWhenRuntimePathIsTooLong(t *testing.T) {
+	longBase := filepath.Join(t.TempDir(), strings.Repeat("very-long-runtime-segment-", 6))
+	if err := os.MkdirAll(longBase, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", longBase)
+	ws := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := SocketPath(ws)
+	if len(path) > 96 {
+		t.Fatalf("broker socket path too long: %d bytes: %s", len(path), path)
+	}
+	if filepath.Dir(path) != os.TempDir() {
+		t.Fatalf("long runtime path should fall back to temp dir: %s", path)
 	}
 }
