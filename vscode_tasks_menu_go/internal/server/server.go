@@ -219,6 +219,26 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 		}
 		meta, _ := s.Sessions.Metadata(id)
 		writeJSON(w, http.StatusOK, meta)
+	case "title":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Title string `json:"title"`
+		}
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		meta, err := s.Sessions.SetTitle(id, req.Title)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, meta)
 	case "resize":
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
