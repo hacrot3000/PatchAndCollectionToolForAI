@@ -247,15 +247,15 @@ func (p *projectPinnedFile) writeTemp(data []byte, original os.FileInfo) error {
 			return fmt.Errorf("cannot preserve file ownership: %w", err)
 		}
 	}
+	if _, err := temp.Write(data); err != nil {
+		cleanup()
+		return err
+	}
 	if err := temp.Chmod(original.Mode().Perm()); err != nil {
 		cleanup()
 		return fmt.Errorf("cannot preserve file permissions: %w", err)
 	}
 	if err := copyProjectExtendedMetadata(source, temp); err != nil {
-		cleanup()
-		return err
-	}
-	if _, err := temp.Write(data); err != nil {
 		cleanup()
 		return err
 	}
