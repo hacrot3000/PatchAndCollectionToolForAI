@@ -438,23 +438,32 @@ func remoteWildcardHost(host string) bool {
 
 func remoteFirewallGuidance(cfg config.Config, address string) []string {
 	host, port, err := net.SplitHostPort(strings.TrimSpace(address))
-	if err == nil {
-		if !remoteWildcardHost(host) {
-			return nil
-		}
-	} else if !remoteWildcardHost(cfg.Bind) {
+	configWildcard := remoteWildcardHost(cfg.Bind)
+	liveWildcard := err == nil && remoteWildcardHost(host)
+	if !configWildcard && !liveWildcard {
 		return nil
 	}
-	if err != nil || port == "" || port == "0" {
-		return []string{"Remote access wildcard bind đang bật; hãy mở TCP port đang cấu hình trên firewall."}
+
+	lines := make([]string, 0, 4)
+	if configWildcard && err == nil && !liveWildcard {
+		lines = append(lines, fmt.Sprintf("WARNING: config bind=%s nhưng daemon hiện listen %s; chạy --reload-config để áp dụng remote access.", cfg.Bind, address))
 	}
-	return []string{
+
+	if err != nil || port == "" || port == "0" {
+		if cfg.Port > 0 {
+			port = strconv.Itoa(cfg.Port)
+		} else {
+			lines = append(lines, "Remote access wildcard bind đang bật; hãy mở TCP port sau khi daemon bind thành công.")
+			return lines
+		}
+	}
+	lines = append(lines,
 		fmt.Sprintf("Remote access wildcard bind đang dùng TCP port %s.", port),
 		fmt.Sprintf("UFW: sudo ufw allow %s/tcp", port),
 		fmt.Sprintf("firewalld: sudo firewall-cmd --permanent --add-port=%s/tcp && sudo firewall-cmd --reload", port),
-	}
+	)
+	return lines
 }
-
 func printRemoteFirewallGuidance(w *os.File, cfg config.Config, address string) {
 	for _, line := range remoteFirewallGuidance(cfg, address) {
 		fmt.Fprintln(w, line)
