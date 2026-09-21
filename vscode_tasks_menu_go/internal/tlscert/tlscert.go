@@ -110,8 +110,12 @@ func ensureAuto(workspace string, cfg config.Config) (Result, error) {
 	dnsNames, ipAddresses := desiredSANs(cfg)
 
 	if reusableAutoPair(certPath, keyPath, dnsNames, ipAddresses, time.Now()) {
-		_ = os.Chmod(certPath, 0o600)
-		_ = os.Chmod(keyPath, 0o600)
+		if err := os.Chmod(certPath, 0o600); err != nil {
+			return Result{}, fmt.Errorf("protect self-signed certificate: %w", err)
+		}
+		if err := os.Chmod(keyPath, 0o600); err != nil {
+			return Result{}, fmt.Errorf("protect self-signed private key: %w", err)
+		}
 		return Result{CertPath: certPath, KeyPath: keyPath, Auto: true}, nil
 	}
 	certPEM, keyPEM, err := generateSelfSigned(workspace, dnsNames, ipAddresses, time.Now())
@@ -237,6 +241,9 @@ func generateSelfSigned(workspace string, dnsNames []string, ips []net.IP, now t
 	serial, err := rand.Int(rand.Reader, serialLimit)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generate certificate serial: %w", err)
+	}
+	if serial.Sign() == 0 {
+		serial = big.NewInt(1)
 	}
 	name := filepath.Base(filepath.Clean(workspace))
 	if name == "." || name == string(filepath.Separator) || strings.TrimSpace(name) == "" {
