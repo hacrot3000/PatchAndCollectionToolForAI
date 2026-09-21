@@ -63,6 +63,7 @@ func TestRemoteWarningRequiresTLSForUntrustedNetwork(t *testing.T) {
 		}
 	}
 
+	cfg.Protocol = config.ProtocolHTTPS
 	cfg.TLSCert = "/tmp/server.crt"
 	cfg.TLSKey = "/tmp/server.key"
 	if warning := RemoteWarning(cfg); warning != "" {
