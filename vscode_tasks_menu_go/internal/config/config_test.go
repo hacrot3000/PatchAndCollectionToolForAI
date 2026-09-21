@@ -43,3 +43,28 @@ func TestLoadProtectsExistingConfigPermissions(t *testing.T) {
 		t.Fatalf("config mode=%#o want 0600", got)
 	}
 }
+
+
+func TestEffectiveRemoteListenerRequiresAuthEvenWhenConfigBindIsLoopback(t *testing.T) {
+	cfg := Default()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("default local config should validate: %v", err)
+	}
+	for _, address := range []string{"0.0.0.0:42882", "[::]:42882", "192.168.1.20:42882"} {
+		if err := cfg.ValidateListenerAddress(address); err == nil {
+			t.Fatalf("effective remote listener %q must require auth", address)
+		}
+	}
+	if err := cfg.ValidateListenerAddress("127.0.0.1:42882"); err != nil {
+		t.Fatalf("loopback listener unexpectedly rejected: %v", err)
+	}
+
+	cfg.AuthEnabled = true
+	cfg.Username = "admin"
+	cfg.Password = "strong-password"
+	for _, address := range []string{"0.0.0.0:42882", "[::]:42882", "192.168.1.20:42882"} {
+		if err := cfg.ValidateListenerAddress(address); err != nil {
+			t.Fatalf("authenticated remote listener %q rejected: %v", address, err)
+		}
+	}
+}
