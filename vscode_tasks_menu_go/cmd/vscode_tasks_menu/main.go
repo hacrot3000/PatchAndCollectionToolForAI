@@ -100,7 +100,7 @@ func main() {
 		fmt.Println(st.URL)
 		printRemoteFirewallGuidance(os.Stdout, cfg, st.Address)
 		printRemoteSecurityWarning(cfg)
-	printTLSStatus(ws, cfg)
+		printTLSStatus(ws, cfg)
 		if cfg.OpenBrowser && !*noBrowser {
 			_ = openBrowser(st.URL)
 		}
