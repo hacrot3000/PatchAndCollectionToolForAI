@@ -42,6 +42,52 @@ Mỗi lần bấm một task sẽ tạo một **PTY session riêng** và một t
 - Close tab đã `exited/stopped`: session đã hoàn tất được xóa khỏi daemon.
 - Daemon giữ tối đa khoảng 4 MiB scrollback cho mỗi session để reconnect/replay.
 
+### Một browser điều khiển tại một thời điểm
+
+Web UI dùng **exclusive browser lease**. Mỗi lần một browser/tab mới tải trang hoặc reload:
+
+1. browser mới nhận lease điều khiển mới;
+2. lease cũ bị revoke ngay;
+3. WebSocket PTY của browser cũ bị đóng và mọi request thay đổi trạng thái bằng lease cũ bị từ chối;
+4. browser cũ hiện overlay **Control moved to another browser** với nút **Reload and take control**.
+
+Browser reload sau cùng luôn giành quyền điều khiển. Việc revoke browser **không dừng task/terminal** trong session broker; browser mới reconnect vào các session vẫn đang chạy.
+
+Các control action nội bộ của self-update (`handoff`/`detach`) từ loopback được phép đi qua lease để daemon vẫn có thể tự thay thế/restart. Các action browser như confirm/cancel vẫn yêu cầu lease hiện tại.
+
+### Mobile và desktop
+
+Layout được xác định một lần khi trang tải:
+
+- `mobile`: viewport hẹp hoặc coarse pointer;
+- `desktop`: các trường hợp còn lại.
+
+Mobile dùng giao diện riêng:
+
+- task menu dạng drawer với nút `☰`;
+- header action dạng menu `⋮`;
+- tab cuộn ngang bằng touch;
+- touch target lớn hơn;
+- hỗ trợ `VisualViewport` và safe-area để giảm lỗi khi bàn phím ảo mở;
+- mỗi terminal có thanh phím nhanh: `Esc`, `Tab`, `Ctrl+C`, `←`, `↑`, `↓`, `→`, `Enter`;
+- **không bật terminal split trên mobile**.
+
+State trình bày được tách theo profile. Desktop giữ file terminal layout cũ:
+
+```text
+vscode_tasks_menu.terminals.json
+```
+
+Mobile dùng:
+
+```text
+vscode_tasks_menu.terminals.mobile.json
+```
+
+Backend không nhận/lưu split trong profile mobile. Vì vậy mở mobile, thao tác tab rồi quay lại desktop không được xóa split desktop. Tab order và appearance (theme/font/font-size) cũng được namespace theo profile. Preference appearance desktop từ key cũ được migrate một chiều sang key desktop khi nâng cấp, nên không mất cấu hình cũ. Sidebar resize chỉ chạy ở desktop.
+
+Nếu mobile tạo thêm terminal trong lúc takeover, desktop sẽ giữ lại order/split của các terminal cũ còn sống và append terminal mới. Split chỉ mất khi một terminal thuộc split thực sự không còn tồn tại.
+
 ### Broadcast Groups
 
 Web UI có menu **Broadcast** ở bên trái **Terminal** với ba mode:

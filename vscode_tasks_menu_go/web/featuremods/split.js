@@ -3,6 +3,7 @@ if(!app)throw new Error('TaskMenuApp unavailable for split terminal');
 
 const panes=document.querySelector('#panes');
 const tabsHost=document.querySelector('#tabs');
+const splitSupported=app.layoutProfile!=='mobile';
 const installed=new WeakSet();
 let groups=[];
 let pendingSaved=[];
@@ -33,7 +34,7 @@ body.split-resizing-y{user-select:none;cursor:row-resize}
 `;
 document.head.append(style);
 
-function storageKey(){return 'vscode-tasks-menu:split:'+app.taskData.workspace;}
+function storageKey(){return 'vscode-tasks-menu:split:'+(app.layoutProfile||'desktop')+':'+app.taskData.workspace;}
 function clampRatio(value){return Math.min(0.8,Math.max(0.2,Number(value)||0.5));}
 function normalizeOrientation(value){return value==='horizontal'?'horizontal':'vertical';}
 function normalizeGroup(raw){
@@ -44,7 +45,7 @@ function normalizeGroup(raw){
 }
 function groupFor(id){return groups.find(group=>group.first===id||group.second===id)||null;}
 function groupState(group){return group?{first:group.first,second:group.second,left:group.first,right:group.second,ratio:group.ratio,orientation:group.orientation}:null;}
-function getGroups(){return groups.map(group=>groupState(group));}
+function getGroups(){return splitSupported?groups.map(group=>groupState(group)):[];}
 function getState(){return groupState(groupFor(app.active)||groups[0]||null);}
 function emitChanged(){window.dispatchEvent(new CustomEvent('taskmenu:split-changed',{detail:{state:getState(),groups:getGroups()}}));}
 function fitSoon(view){setTimeout(()=>{try{view?.fit?.fit();}catch{}},0);}
@@ -147,6 +148,7 @@ function renderGroup(group){
 }
 
 function syncForActive(){
+  if(!splitSupported){cleanupPresentation();updateButtons();return;}
   const group=groupFor(app.active);
   if(group){
     const expectedRatio=(group.ratio*100)+'%';
@@ -181,6 +183,7 @@ function unsplitView(view){
 }
 
 async function splitFrom(view,orientation){
+  if(!splitSupported)return;
   const existing=groupFor(view.meta.id);
   if(existing){
     existing.orientation=normalizeOrientation(orientation);saveState();app.activateView(view.meta.id);setTimeout(syncForActive,0);return;
@@ -215,12 +218,13 @@ function chooseMergeTarget(view,orientation){
 }
 
 function mergeWith(view,orientation){
+  if(!splitSupported)return;
   const target=chooseMergeTarget(view,orientation);if(!target)return;
   createGroup(view.meta.id,target.meta.id,orientation,0.5,true);app.activateView(view.meta.id);setTimeout(()=>{syncForActive();view.term.focus();},0);
 }
 
 function install(view){
-  if(!view?.pane||installed.has(view))return;
+  if(!splitSupported||!view?.pane||installed.has(view))return;
   installed.add(view);
   const vertical=document.createElement('button');vertical.className='session-split-vertical';vertical.textContent='Split vertical';vertical.onclick=()=>splitFrom(view,'vertical').catch(app.showError);
   const horizontal=document.createElement('button');horizontal.className='session-split-horizontal';horizontal.textContent='Split horizontal';horizontal.onclick=()=>splitFrom(view,'horizontal').catch(app.showError);
@@ -246,6 +250,7 @@ function tryRestoreSaved(){
 }
 
 function restoreProjectGroups(rawGroups){
+  if(!splitSupported){cleanupPresentation();groups=[];pendingSaved=[];return [];}
   cleanupPresentation();groups=[];pendingSaved=[];clearSaved();
   const occupied=new Set();
   for(const raw of Array.isArray(rawGroups)?rawGroups:[]){
@@ -258,6 +263,7 @@ function restoreProjectGroups(rawGroups){
 function restoreProjectSplit(leftID,rightID,savedRatio,orientation='vertical'){
   return restoreProjectGroups([{first:leftID,second:rightID,ratio:savedRatio,orientation}]).length>0;
 }
+function clearPresentation(){cleanupPresentation();updateButtons();}
 function clearAll(){cleanupPresentation();groups=[];pendingSaved=[];clearSaved();updateButtons();emitChanged();}
 function clearSplit(){clearAll();}
 
@@ -272,7 +278,7 @@ window.addEventListener('taskmenu:view-activated',event=>{
   if(event.detail?.kind==='terminal')setTimeout(syncForActive,0);
 });
 for(const view of app.views.values())install(view);
-pendingSaved=readSaved();setTimeout(()=>{tryRestoreSaved();syncForActive();updateButtons();},0);
+pendingSaved=splitSupported?readSaved():[];setTimeout(()=>{tryRestoreSaved();syncForActive();updateButtons();},0);
 
 document.addEventListener('click',event=>{
   const target=event.target instanceof Element?event.target:null;
@@ -291,4 +297,4 @@ const observer=new MutationObserver(()=>{
 });
 observer.observe(panes,{childList:true});
 
-globalThis.TaskMenuSplit={getState,getGroups,restoreProjectSplit,restoreProjectGroups,clearSplit,clearAll,syncForActive};
+globalThis.TaskMenuSplit={getState,getGroups,restoreProjectSplit,restoreProjectGroups,clearSplit,clearAll,clearPresentation,syncForActive,isSupported:()=>splitSupported};

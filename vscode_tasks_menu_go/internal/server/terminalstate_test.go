@@ -164,3 +164,54 @@ func TestProjectTerminalStateTracksCwdOrderMultipleSplitsAndRestores(t *testing.
 		t.Fatalf("terminal state GET status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
+
+
+func TestTerminalLayoutProfilesKeepDesktopSplitWhenMobileSaves(t *testing.T) {
+	root := t.TempDir()
+	desktop := projectTerminalState{
+		Version: 3,
+		Terminals: []terminalStateItem{
+			{SessionID: "desktop-a", Cwd: root},
+			{SessionID: "desktop-b", Cwd: root},
+		},
+		ActiveIndex: 1,
+		Splits: []terminalSplitState{{Left: 0, Right: 1, Ratio: 0.6, Orientation: "vertical"}},
+	}
+	if err := writeProjectTerminalStateProfile(root, "desktop", desktop); err != nil {
+		t.Fatal(err)
+	}
+	mobile := projectTerminalState{
+		Version: 3,
+		Terminals: []terminalStateItem{
+			{SessionID: "mobile-b", Cwd: root},
+			{SessionID: "mobile-a", Cwd: root},
+		},
+		ActiveIndex: 0,
+		Splits: []terminalSplitState{{Left: 0, Right: 1, Ratio: 0.3, Orientation: "horizontal"}},
+	}
+	if err := writeProjectTerminalStateProfile(root, "mobile", mobile); err != nil {
+		t.Fatal(err)
+	}
+
+	gotDesktop, err := readProjectTerminalStateProfile(root, "desktop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotDesktop.ActiveIndex != 1 || len(gotDesktop.Splits) != 1 {
+		t.Fatalf("desktop layout was changed by mobile save: %#v", gotDesktop)
+	}
+	if gotDesktop.Splits[0].Ratio != 0.6 || gotDesktop.Splits[0].Orientation != "vertical" {
+		t.Fatalf("desktop split was changed by mobile save: %#v", gotDesktop.Splits)
+	}
+
+	gotMobile, err := readProjectTerminalStateProfile(root, "mobile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotMobile.ActiveIndex != 0 || len(gotMobile.Splits) != 0 {
+		t.Fatalf("mobile layout must never persist split state: %#v", gotMobile)
+	}
+	if projectTerminalStatePathForProfile(root, "desktop") == projectTerminalStatePathForProfile(root, "mobile") {
+		t.Fatal("desktop and mobile terminal state paths must be different")
+	}
+}

@@ -183,7 +183,8 @@ func (s *Server) taskState(w http.ResponseWriter, r *http.Request) {
 			// The confirmed snapshot is the recovery source for the replacement
 			// daemon. Ignore teardown writes from the old browser/daemon so a
 			// disappearing PTY set cannot overwrite it with an empty layout.
-			state, err := readProjectTerminalState(s.Workspace)
+			profile := normalizeTerminalLayoutProfile(r.URL.Query().Get("profile"))
+			state, err := readProjectTerminalStateProfile(s.Workspace, profile)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return

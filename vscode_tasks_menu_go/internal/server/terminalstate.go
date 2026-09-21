@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	projectTerminalStateFile = "vscode_tasks_menu.terminals.json"
-	projectTerminalStateMax  = 32 << 10
+	projectTerminalStateFile       = "vscode_tasks_menu.terminals.json"
+	projectTerminalMobileStateFile = "vscode_tasks_menu.terminals.mobile.json"
+	projectTerminalStateMax        = 32 << 10
 	projectTerminalMaxTabs   = 32
 )
 
@@ -70,8 +71,22 @@ func defaultProjectTerminalState() projectTerminalState {
 	return projectTerminalState{Version: 3, Terminals: []terminalStateItem{}, ActiveIndex: -1, Splits: []terminalSplitState{}}
 }
 
-func projectTerminalStatePath(workspace string) string {
+func normalizeTerminalLayoutProfile(value string) string {
+	if strings.EqualFold(strings.TrimSpace(value), "mobile") {
+		return "mobile"
+	}
+	return "desktop"
+}
+
+func projectTerminalStatePathForProfile(workspace, profile string) string {
+	if normalizeTerminalLayoutProfile(profile) == "mobile" {
+		return filepath.Join(workspace, projectTerminalMobileStateFile)
+	}
 	return filepath.Join(workspace, projectTerminalStateFile)
+}
+
+func projectTerminalStatePath(workspace string) string {
+	return projectTerminalStatePathForProfile(workspace, "desktop")
 }
 
 func normalizeSplitOrientation(value string) string {
@@ -154,8 +169,13 @@ func normalizeProjectTerminalState(value projectTerminalState) projectTerminalSt
 }
 
 func readProjectTerminalState(workspace string) (projectTerminalState, error) {
+	return readProjectTerminalStateProfile(workspace, "desktop")
+}
+
+func readProjectTerminalStateProfile(workspace, profile string) (projectTerminalState, error) {
+	profile = normalizeTerminalLayoutProfile(profile)
 	value := defaultProjectTerminalState()
-	data, err := os.ReadFile(projectTerminalStatePath(workspace))
+	data, err := os.ReadFile(projectTerminalStatePathForProfile(workspace, profile))
 	if os.IsNotExist(err) {
 		return value, nil
 	}
@@ -171,11 +191,25 @@ func readProjectTerminalState(workspace string) (projectTerminalState, error) {
 	if err := json.Unmarshal(data, &value); err != nil {
 		return defaultProjectTerminalState(), fmt.Errorf("parse terminal state: %w", err)
 	}
-	return normalizeProjectTerminalState(value), nil
+	value = normalizeProjectTerminalState(value)
+	if profile == "mobile" {
+		value.Splits = []terminalSplitState{}
+		value.Split = nil
+	}
+	return value, nil
 }
 
 func writeProjectTerminalState(workspace string, value projectTerminalState) error {
+	return writeProjectTerminalStateProfile(workspace, "desktop", value)
+}
+
+func writeProjectTerminalStateProfile(workspace, profile string, value projectTerminalState) error {
+	profile = normalizeTerminalLayoutProfile(profile)
 	value = normalizeProjectTerminalState(value)
+	if profile == "mobile" {
+		value.Splits = []terminalSplitState{}
+		value.Split = nil
+	}
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode terminal state: %w", err)
@@ -205,16 +239,18 @@ func writeProjectTerminalState(workspace string, value projectTerminalState) err
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close terminal state: %w", err)
 	}
-	if err := os.Rename(name, projectTerminalStatePath(workspace)); err != nil {
+	target := projectTerminalStatePathForProfile(workspace, profile)
+	if err := os.Rename(name, target); err != nil {
 		return fmt.Errorf("replace terminal state: %w", err)
 	}
-	return os.Chmod(projectTerminalStatePath(workspace), 0o600)
+	return os.Chmod(target, 0o600)
 }
 
 func (s *Server) terminalState(w http.ResponseWriter, r *http.Request) {
+	profile := normalizeTerminalLayoutProfile(r.URL.Query().Get("profile"))
 	switch r.Method {
 	case http.MethodGet:
-		value, err := readProjectTerminalState(s.Workspace)
+		value, err := readProjectTerminalStateProfile(s.Workspace, profile)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -233,16 +269,20 @@ func (s *Server) terminalState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		previous, _ := readProjectTerminalState(s.Workspace)
+		if profile == "mobile" {
+			value.Splits = []terminalSplitState{}
+			value.Split = nil
+		}
+		previous, _ := readProjectTerminalStateProfile(s.Workspace, profile)
 		if !reflect.DeepEqual(previous, value) {
-			if err := writeProjectTerminalState(s.Workspace, value); err != nil {
+			if err := writeProjectTerminalStateProfile(s.Workspace, profile, value); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 		}
 		writeJSON(w, http.StatusOK, value)
 	case http.MethodPost:
-		resp, err := s.restoreTerminalState()
+		resp, err := s.restoreTerminalStateProfile(profile)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
@@ -311,12 +351,17 @@ func (s *Server) captureTerminalState(req terminalSnapshotRequest) (projectTermi
 }
 
 func (s *Server) restoreTerminalState() (terminalRestoreResponse, error) {
+	return s.restoreTerminalStateProfile("desktop")
+}
+
+func (s *Server) restoreTerminalStateProfile(profile string) (terminalRestoreResponse, error) {
+	profile = normalizeTerminalLayoutProfile(profile)
 	for _, meta := range s.Sessions.List() {
 		if meta.TaskID == 0 {
 			return terminalRestoreResponse{}, fmt.Errorf("terminal sessions already exist")
 		}
 	}
-	value, err := readProjectTerminalState(s.Workspace)
+	value, err := readProjectTerminalStateProfile(s.Workspace, profile)
 	if err != nil {
 		return terminalRestoreResponse{}, err
 	}
@@ -352,7 +397,7 @@ func (s *Server) restoreTerminalState() (terminalRestoreResponse, error) {
 			resp.Warnings = append(resp.Warnings, item.warning)
 		}
 	}
-	if err := writeProjectTerminalState(s.Workspace, value); err != nil {
+	if err := writeProjectTerminalStateProfile(s.Workspace, profile, value); err != nil {
 		for _, id := range started {
 			_ = s.Sessions.Stop(id)
 		}

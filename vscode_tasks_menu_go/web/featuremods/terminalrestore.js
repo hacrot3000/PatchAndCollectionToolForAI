@@ -1,7 +1,7 @@
 const app=globalThis.TaskMenuApp;
 if(!app)throw new Error('TaskMenuApp unavailable for terminal restore');
 
-const endpoint='/api/state/tasks?scope=terminals';
+const endpoint='/api/state/tasks?scope=terminals&profile='+encodeURIComponent(app.layoutProfile||'desktop');
 const tabsHost=document.querySelector('#tabs');
 let restoring=true;
 let persistenceFrozen=false;
@@ -81,41 +81,87 @@ function restoreTabOrder(ids){
   }
 }
 
+function normalizedCwd(value){
+  const text=String(value||'').trim();
+  return text.length>1?text.replace(/[\\/]+$/,''):text;
+}
+
+function restoredSessionIDAt(saved,index,ids,exclude=new Set()){
+  const item=saved?.terminals?.[index];
+  const fromState=String(item?.session_id||'').trim();
+  if(fromState&&ids.includes(fromState)&&!exclude.has(fromState))return fromState;
+  const wantedCwd=normalizedCwd(item?.cwd);
+  if(wantedCwd){
+    for(const id of ids){
+      if(exclude.has(id))continue;
+      const liveCwd=normalizedCwd(app.views.get(id)?.meta?.cwd);
+      if(liveCwd&&liveCwd===wantedCwd)return id;
+    }
+  }
+  if(item)return '';
+  const fallback=ids[index]||'';
+  return fallback&&!exclude.has(fallback)?fallback:'';
+}
+
 function restoredGroups(restored,ids){
+  if(app.layoutProfile==='mobile')return [];
   const raw=Array.isArray(restored?.splits)&&restored.splits.length?restored.splits:(restored?.split?[restored.split]:[]);
   const groups=[];const used=new Set();
   for(const split of raw){
     if(!Number.isInteger(split?.left)||!Number.isInteger(split?.right)||split.left===split.right)continue;
-    const first=ids[split.left],second=ids[split.right];
-    if(!first||!second||used.has(first)||used.has(second))continue;
+    const first=restoredSessionIDAt(restored,split.left,ids,used);
+    const reserved=new Set(used);if(first)reserved.add(first);
+    const second=restoredSessionIDAt(restored,split.right,ids,reserved);
+    if(!first||!second||first===second)continue;
     used.add(first);used.add(second);
     groups.push({first,second,ratio:Number(split.ratio)||0.5,orientation:split.orientation==='horizontal'?'horizontal':'vertical'});
   }
   return groups;
 }
 
+function savedActiveSessionID(saved,ids){
+  let activeIndex=Number(saved?.active_index);
+  if(!Number.isInteger(activeIndex)||activeIndex<0)activeIndex=0;
+  const candidate=restoredSessionIDAt(saved,activeIndex,ids);
+  return ids.includes(candidate)?candidate:(ids[0]||'');
+}
+
 function applySavedLayout(saved,ids,{clearMissing=true}={}){
   if(!ids.length)return;
   restoreTabOrder(ids);
-  let activeIndex=Number(saved?.active_index);
-  if(!Number.isInteger(activeIndex)||activeIndex<0||activeIndex>=ids.length)activeIndex=0;
   const groups=restoredGroups(saved,ids);
-  if(groups.length)globalThis.TaskMenuSplit?.restoreProjectGroups?.(groups);
+  if(app.layoutProfile==='mobile'){
+    globalThis.TaskMenuSplit?.clearPresentation?.();
+  }else if(groups.length)globalThis.TaskMenuSplit?.restoreProjectGroups?.(groups);
   else if(clearMissing)globalThis.TaskMenuSplit?.clearAll?.();
-  const activeID=ids[activeIndex];
+  const activeID=savedActiveSessionID(saved,ids);
   if(activeID){
     app.activateView(activeID);
     setTimeout(()=>globalThis.TaskMenuSplit?.syncForActive?.(),0);
   }
 }
 
-function liveIDsFromSaved(saved,existing){
-  const live=new Set(existing.map(meta=>meta.id).filter(Boolean));
-  const terminals=Array.isArray(saved?.terminals)?saved.terminals:[];
-  if(terminals.length!==existing.length||!terminals.length)return [];
-  const ids=terminals.map(item=>String(item?.session_id||'').trim());
-  if(ids.some(id=>!id||!live.has(id))||new Set(ids).size!==ids.length)return [];
-  return ids;
+function layoutIDsFromSaved(saved,existing){
+  const metas=existing.filter(meta=>String(meta?.id||'').trim());
+  if(!Array.isArray(saved?.terminals)||!saved.terminals.length)return [];
+  const byID=new Map(metas.map(meta=>[String(meta.id),meta]));
+  const used=new Set();const ordered=[];
+  for(const item of saved.terminals){
+    const oldID=String(item?.session_id||'').trim();
+    let match=oldID&&!used.has(oldID)?byID.get(oldID):null;
+    if(!match){
+      const wantedCwd=normalizedCwd(item?.cwd);
+      if(wantedCwd)match=metas.find(meta=>!used.has(String(meta.id))&&normalizedCwd(meta.cwd)===wantedCwd)||null;
+    }
+    if(match){
+      const id=String(match.id);used.add(id);ordered.push(id);
+    }
+  }
+  if(!ordered.length)return [];
+  for(const meta of metas){
+    const id=String(meta.id);if(!used.has(id)){used.add(id);ordered.push(id);}
+  }
+  return ordered;
 }
 
 async function restoreProjectTerminals(){
@@ -126,7 +172,7 @@ async function restoreProjectTerminals(){
 
     if(existing.length){
       await app.syncSessions?.();
-      const savedIDs=liveIDsFromSaved(saved,existing);
+      const savedIDs=layoutIDsFromSaved(saved,existing);
       const ids=savedIDs.length?savedIDs:existing.map(meta=>meta.id).filter(Boolean);
       const ready=await waitForViews(ids);
       if(!ready)throw new Error('Timed out waiting for live terminal tabs');
@@ -189,7 +235,7 @@ setInterval(()=>{if(!restoring&&!persistenceFrozen)persistSnapshot();},2000);
 window.addEventListener('pagehide',()=>{
   if(restoring||persistenceFrozen)return;
   const payload=snapshotPayload();
-  try{fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),keepalive:true});}catch{}
+  try{app.fetchWithLease(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),keepalive:true});}catch{}
 });
 
 globalThis.TaskMenuTerminalRestore={persistSnapshot,snapshotPayload,freezeForSelfUpdate,resumeAfterSelfUpdate,isPersistenceFrozen:()=>persistenceFrozen,ready:restoreReady};

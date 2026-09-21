@@ -14,7 +14,10 @@ func TestTerminalRestoreFeature(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		"/api/state/tasks?scope=terminals",
+		"scope=terminals&profile=",
+		"encodeURIComponent(app.layoutProfile||'desktop')",
+		"app.layoutProfile==='mobile'",
+		"clearPresentation",
 		"terminalIDsInTabOrder",
 		"active_session_id",
 		"left_session_id",

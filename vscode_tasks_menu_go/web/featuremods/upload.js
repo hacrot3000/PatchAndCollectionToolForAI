@@ -39,7 +39,7 @@ async function chooseDestinationAndUpload(files){
 async function uploadOne(file,dir,overwrite){
   const form=new FormData();form.append('dir',dir);form.append('file',file,file.name);
   const url='/api/files/upload'+(overwrite?'?overwrite=1':'');
-  const response=await fetch(url,{method:'POST',body:form,cache:'no-store'});
+  const response=await app.fetchWithLease(url,{method:'POST',body:form,cache:'no-store'});
   if(response.status===409&&!overwrite){
     const message=(await response.text()).trim();
     if(message.includes('already exists')&&window.confirm(`${file.name} already exists. Overwrite it?`))return uploadOne(file,dir,true);

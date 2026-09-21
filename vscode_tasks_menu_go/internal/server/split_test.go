@@ -15,6 +15,11 @@ func TestSplitTerminalFeature(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"let groups=[]",
+		"const splitSupported=app.layoutProfile!=='mobile'",
+		"if(!splitSupported||!view?.pane||installed.has(view))return",
+		"function clearPresentation()",
+		"isSupported:()=>splitSupported",
+		"'vscode-tasks-menu:split:'+(app.layoutProfile||'desktop')",
 		"split-vertical",
 		"split-horizontal",
 		"session-split-vertical",

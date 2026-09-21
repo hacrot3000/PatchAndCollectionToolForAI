@@ -27,3 +27,11 @@ func TestResizableSidebarFeature(t *testing.T) {
 		}
 	}
 }
+
+func TestSidebarDoesNotInitializeInMobileProfile(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/sidebar.js")
+	if err != nil { t.Fatal(err) }
+	if !strings.Contains(string(data), "if(app.layoutProfile==='mobile'||initialized") {
+		t.Fatal("desktop sidebar resize state must not initialize in mobile profile")
+	}
+}

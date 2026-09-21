@@ -270,7 +270,7 @@ function dirtyCloseChoice(view){
   });
 }
 async function putEditorFile(view,expectedSHA256){
-  const response=await fetch('/api/project/file',{
+  const response=await app.fetchWithLease('/api/project/file',{
     method:'PUT',
     cache:'no-store',
     headers:{'Content-Type':'application/json'},
