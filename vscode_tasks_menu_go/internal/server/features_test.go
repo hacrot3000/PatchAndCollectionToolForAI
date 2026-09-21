@@ -95,3 +95,46 @@ func TestEmbeddedFeaturesTaskSearchPalette(t *testing.T) {
 		}
 	}
 }
+
+
+func TestEmbeddedFeaturesDetectionToggleCoversFilesAndURLs(t *testing.T) {
+	js := embeddedFeaturesJS(t)
+	for _, want := range []string{
+		"if(!state.fileDetectionEnabled||state.gitTaskOutput||state.suppressGitOutput)return",
+		"state.files.clear()",
+		"state.urls.clear()",
+		"ignoredURLStorageKey",
+		"loadIgnoredURLs",
+		"saveIgnoredURLs",
+		"function ignoreURL(state,url)",
+		"!state.ignoredURLs.has(url)",
+		"ignore.title='Hide this URL for the current session'",
+		"ignore.onclick=()=>ignoreURL(state,url)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("features.js missing unified file/URL detection behavior %q", want)
+		}
+	}
+}
+
+func TestDetectedControlsClearFilesAndURLsTogether(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/clearfiles.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"Files/URLs: ON",
+		"Files/URLs: OFF",
+		"File and URL detection is enabled",
+		"File and URL detection is disabled",
+		"Clear detected",
+		"function clearDetectedItems(view,button)",
+		"bar?.querySelector('.detected-ignore')",
+		"Ignore all detected files and URLs in this session",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("clearfiles.js missing unified detected-item behavior %q", want)
+		}
+	}
+}
