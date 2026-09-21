@@ -104,7 +104,8 @@ func Load(workspace string) (Config, string, error) {
 }
 
 func (c Config) Validate() error {
-	switch strings.ToLower(strings.TrimSpace(c.Protocol)) {
+	protocol := strings.ToLower(strings.TrimSpace(c.Protocol))
+	switch protocol {
 	case ProtocolHTTP, ProtocolHTTPS:
 	default:
 		return fmt.Errorf("server.protocol phải là http hoặc https")
@@ -121,7 +122,7 @@ func (c Config) Validate() error {
 	if (c.TLSCert == "") != (c.TLSKey == "") {
 		return fmt.Errorf("tls_cert và tls_key phải được cấu hình cùng nhau")
 	}
-	if c.Protocol == ProtocolHTTP && (c.TLSCert != "" || c.TLSKey != "") {
+	if protocol == ProtocolHTTP && (c.TLSCert != "" || c.TLSKey != "") {
 		return fmt.Errorf("tls_cert/tls_key chỉ dùng khi server.protocol=https")
 	}
 	return nil
@@ -146,7 +147,7 @@ func (c Config) ValidateListenerAddress(address string) error {
 }
 
 func (c Config) Address() string { return net.JoinHostPort(c.Bind, strconv.Itoa(c.Port)) }
-func (c Config) TLS() bool       { return c.Protocol == ProtocolHTTPS }
+func (c Config) TLS() bool       { return strings.EqualFold(strings.TrimSpace(c.Protocol), ProtocolHTTPS) }
 func (c Config) CustomTLS() bool { return c.TLSCert != "" && c.TLSKey != "" }
 
 func parseBool(value string, fallback bool) bool {
