@@ -103,11 +103,16 @@ input.addEventListener('keydown',event=>{
   else if(event.key==='Escape'){event.preventDefault();close();}
 });
 backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)close();});
+function globalProjectSearchShortcut(event){
+  const primary=event.ctrlKey||event.metaKey;
+  if(!primary||!event.shiftKey||event.altKey||event.key.toLowerCase()!=='f')return;
+  event.preventDefault();
+  event.stopPropagation();
+  if(backdrop.classList.contains('visible'))input.focus();else open();
+}
+window.addEventListener('keydown',globalProjectSearchShortcut,true);
 document.addEventListener('keydown',event=>{
-  if((event.ctrlKey||event.metaKey)&&event.shiftKey&&event.key.toLowerCase()==='f'){
-    event.preventDefault();
-    if(backdrop.classList.contains('visible'))input.focus();else open();
-  }else if(event.key==='Escape'&&backdrop.classList.contains('visible'))close();
+  if(event.key==='Escape'&&backdrop.classList.contains('visible'))close();
 });
 
 globalThis.TaskMenuProjectSearch={open,close};
