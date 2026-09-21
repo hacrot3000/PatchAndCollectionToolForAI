@@ -98,6 +98,7 @@ func main() {
 	if st, err := state.Load(ws); err == nil && state.Healthy(st) {
 		fmt.Println(st.URL)
 		printRemoteFirewallGuidance(os.Stdout, cfg, st.Address)
+		printRemoteSecurityWarning(cfg)
 		if cfg.OpenBrowser && !*noBrowser {
 			_ = openBrowser(st.URL)
 		}
@@ -109,6 +110,7 @@ func main() {
 	fatalIf(err)
 	fmt.Println(st.URL)
 	printRemoteFirewallGuidance(os.Stdout, cfg, st.Address)
+	printRemoteSecurityWarning(cfg)
 	if cfg.OpenBrowser && !*noBrowser {
 		_ = openBrowser(st.URL)
 	}
@@ -428,6 +430,7 @@ func reloadDaemonConfig(ws string, cfg config.Config, cfgPath string) error {
 	}
 	fmt.Printf("Đã reload config: %s\n%s\n", cfgPath, next.URL)
 	printRemoteFirewallGuidance(os.Stdout, cfg, next.Address)
+	printRemoteSecurityWarning(cfg)
 	return nil
 }
 
@@ -470,6 +473,12 @@ func printRemoteFirewallGuidance(w *os.File, cfg config.Config, address string) 
 	}
 }
 
+func printRemoteSecurityWarning(cfg config.Config) {
+	if warning := server.RemoteWarning(cfg); warning != "" {
+		fmt.Fprintln(os.Stdout, warning)
+	}
+}
+
 func printDaemonStatus(ws string, cfg config.Config) {
 	st, err := state.Load(ws)
 	if err != nil || !state.Healthy(st) {
@@ -481,6 +490,7 @@ func printDaemonStatus(ws string, cfg config.Config) {
 	}
 	fmt.Printf("running pid=%d url=%s started=%s\n", st.PID, st.URL, st.StartedAt)
 	printRemoteFirewallGuidance(os.Stdout, cfg, st.Address)
+	printRemoteSecurityWarning(cfg)
 }
 
 func stopExistingDaemon(ws string) error {
