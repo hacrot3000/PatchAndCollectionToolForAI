@@ -4,6 +4,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -213,5 +214,66 @@ func TestTerminalLayoutProfilesKeepDesktopSplitWhenMobileSaves(t *testing.T) {
 	}
 	if projectTerminalStatePathForProfile(root, "desktop") == projectTerminalStatePathForProfile(root, "mobile") {
 		t.Fatal("desktop and mobile terminal state paths must be different")
+	}
+}
+
+
+func TestTerminalStateFreezeRejectsEmptyShutdownSnapshotAndPreservesSavedLayout(t *testing.T) {
+	root := t.TempDir()
+	saved := projectTerminalState{
+		Version: 3,
+		Terminals: []terminalStateItem{
+			{SessionID: "old-a", Cwd: root},
+			{SessionID: "old-b", Cwd: root},
+		},
+		ActiveIndex: 1,
+		Splits: []terminalSplitState{{Left: 0, Right: 1, Ratio: 0.6, Orientation: "vertical"}},
+	}
+	if err := writeProjectTerminalState(root, saved); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &Server{Workspace: root, Sessions: session.NewManager(64 << 10)}
+	s.FreezeTerminalStatePersistence()
+
+	req := httptest.NewRequest("PUT", "/api/state/tasks?scope=terminals", strings.NewReader(`{"session_ids":[],"active_session_id":"","splits":[]}`))
+	rr := httptest.NewRecorder()
+	s.terminalState(rr, req)
+	if rr.Code != 503 {
+		t.Fatalf("frozen terminal state PUT status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	got, err := readProjectTerminalState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Terminals) != 2 || got.ActiveIndex != 1 || len(got.Splits) != 1 {
+		t.Fatalf("saved terminal layout was overwritten during shutdown: %#v", got)
+	}
+}
+
+func TestTerminalStateEmptySnapshotStillClearsWhenNotFrozen(t *testing.T) {
+	root := t.TempDir()
+	if err := writeProjectTerminalState(root, projectTerminalState{
+		Version: 3,
+		Terminals: []terminalStateItem{{SessionID: "old-a", Cwd: root}},
+		ActiveIndex: 0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &Server{Workspace: root, Sessions: session.NewManager(64 << 10)}
+	req := httptest.NewRequest("PUT", "/api/state/tasks?scope=terminals", strings.NewReader(`{"session_ids":[],"active_session_id":"","splits":[]}`))
+	rr := httptest.NewRecorder()
+	s.terminalState(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("normal empty terminal state PUT status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	got, err := readProjectTerminalState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Terminals) != 0 {
+		t.Fatalf("intentional empty snapshot was not persisted: %#v", got)
 	}
 }
