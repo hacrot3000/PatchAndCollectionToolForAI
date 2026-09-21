@@ -368,8 +368,11 @@ func (s *Server) basicAuth(next http.Handler) http.Handler {
 			return
 		}
 		user, pass, ok := r.BasicAuth()
-		if !ok || !constantTimeCredentialEqual(user, s.Config.Username) || !constantTimeCredentialEqual(pass, s.Config.Password) {
+		userMatch := constantTimeCredentialEqual(user, s.Config.Username)
+		passMatch := constantTimeCredentialEqual(pass, s.Config.Password)
+		if !ok || !userMatch || !passMatch {
 			s.authRecordFailure(r.RemoteAddr, time.Now())
+			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("WWW-Authenticate", `Basic realm="VSCode Tasks Menu", charset="UTF-8"`)
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
