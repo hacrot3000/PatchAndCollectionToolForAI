@@ -218,7 +218,7 @@ func Prepare(ctx context.Context, revision, targetBinary string, progress func(s
 	defer os.RemoveAll(tmpRoot)
 
 	progress("downloading", "Đang tải source mới từ GitHub…")
-	if err := downloadAndExtract(ctx, revision, tmpRoot); err != nil {
+	if err := downloadSource(ctx, revision, tmpRoot); err != nil {
 		return "", err
 	}
 	source := filepath.Join(tmpRoot, "vscode_tasks_menu_go")
@@ -321,6 +321,103 @@ func trimOutput(data []byte) string {
 		data = data[len(data)-max:]
 	}
 	return strings.TrimSpace(string(data))
+}
+
+func downloadSource(ctx context.Context, revision, dst string) error {
+	archiveErr := downloadAndExtract(ctx, revision, dst)
+	if archiveErr == nil {
+		return nil
+	}
+	if err := downloadWithGit(ctx, revision, dst); err != nil {
+		return fmt.Errorf("GitHub archive download failed: %v; git fallback failed: %w", archiveErr, err)
+	}
+	return nil
+}
+
+func downloadWithGit(ctx context.Context, revision, dst string) error {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		return fmt.Errorf("git executable not found")
+	}
+	checkout := filepath.Join(dst, ".git-fallback")
+	_ = os.RemoveAll(checkout)
+	defer os.RemoveAll(checkout)
+	if err := os.MkdirAll(checkout, 0o755); err != nil {
+		return err
+	}
+	run := func(args ...string) error {
+		cmd := exec.CommandContext(ctx, git, args...)
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("%s: %w: %s", strings.Join(args, " "), err, trimOutput(out))
+		}
+		return nil
+	}
+	if err := run("init", "-q", checkout); err != nil {
+		return err
+	}
+	if err := run("-C", checkout, "remote", "add", "origin", "https://github.com/"+Repository+".git"); err != nil {
+		return err
+	}
+	if err := run("-C", checkout, "fetch", "-q", "--depth", "1", "origin", revision); err != nil {
+		return err
+	}
+	if err := run("-C", checkout, "checkout", "-q", "--detach", "FETCH_HEAD"); err != nil {
+		return err
+	}
+	source := filepath.Join(checkout, "vscode_tasks_menu_go")
+	if _, err := os.Stat(filepath.Join(source, "go.mod")); err != nil {
+		return fmt.Errorf("git fallback checkout missing vscode_tasks_menu_go/go.mod")
+	}
+	if err := copyTreeWithoutBuild(source, filepath.Join(dst, "vscode_tasks_menu_go")); err != nil {
+		return err
+	}
+	launcherData, err := os.ReadFile(filepath.Join(checkout, "vscode_tasks_menu"))
+	if err != nil {
+		return fmt.Errorf("git fallback checkout missing root launcher: %w", err)
+	}
+	return os.WriteFile(filepath.Join(dst, "vscode_tasks_menu"), launcherData, 0o755)
+}
+
+func copyTreeWithoutBuild(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return os.MkdirAll(dst, 0o755)
+		}
+		if rel == ".build" || strings.HasPrefix(rel, ".build"+string(filepath.Separator)) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		target := filepath.Join(dst, rel)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		mode := info.Mode().Perm()
+		if mode == 0 {
+			mode = 0o644
+		}
+		return os.WriteFile(target, data, mode)
+	})
 }
 
 func downloadAndExtract(ctx context.Context, revision, dst string) error {

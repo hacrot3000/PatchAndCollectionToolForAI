@@ -12,6 +12,15 @@ BRANCH="main"
 API_URL="https://api.github.com/repos/$REPOSITORY/commits/$BRANCH"
 ARCHIVE_BASE_URL="https://codeload.github.com/$REPOSITORY/tar.gz"
 MAX_ARCHIVE_BYTES=$((128 * 1024 * 1024))
+BOOTSTRAP_TMP_ROOT=""
+
+cleanup_bootstrap_tmp() {
+    if [[ -n "${BOOTSTRAP_TMP_ROOT:-}" ]]; then
+        rm -rf -- "$BOOTSTRAP_TMP_ROOT"
+        BOOTSTRAP_TMP_ROOT=""
+    fi
+}
+trap cleanup_bootstrap_tmp EXIT
 
 die() {
     echo "ERROR: $*" >&2
@@ -28,28 +37,56 @@ source_complete() {
 http_stdout() {
     local url="$1"
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --retry 2 --connect-timeout 10 --max-time 30             -H 'Accept: application/vnd.github+json'             -H 'User-Agent: vscode_tasks_menu-self-install'             "$url"
-        return
+        if curl -fsSL --retry 2 --connect-timeout 10 --max-time 30 \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'User-Agent: vscode_tasks_menu-self-install' \
+            "$url"; then
+            return 0
+        fi
     fi
     if command -v wget >/dev/null 2>&1; then
-        wget -qO- --timeout=30             --header='Accept: application/vnd.github+json'             --user-agent='vscode_tasks_menu-self-install'             "$url"
-        return
+        if wget -qO- --timeout=30 \
+            --header='Accept: application/vnd.github+json' \
+            --user-agent='vscode_tasks_menu-self-install' \
+            "$url"; then
+            return 0
+        fi
     fi
-    die "Self-install cần curl hoặc wget để tải source từ GitHub."
+    return 1
 }
 
 http_download() {
     local url="$1"
     local output="$2"
     if command -v curl >/dev/null 2>&1; then
-        curl -fL --retry 2 --connect-timeout 10 --max-time 120             -H 'User-Agent: vscode_tasks_menu-self-install'             -o "$output" "$url"
-        return
+        if curl -fL --retry 2 --connect-timeout 10 --max-time 120 \
+            -H 'User-Agent: vscode_tasks_menu-self-install' \
+            -o "$output" "$url"; then
+            return 0
+        fi
     fi
     if command -v wget >/dev/null 2>&1; then
-        wget -q --timeout=120             --user-agent='vscode_tasks_menu-self-install'             -O "$output" "$url"
-        return
+        if wget -q --timeout=120 \
+            --user-agent='vscode_tasks_menu-self-install' \
+            -O "$output" "$url"; then
+            return 0
+        fi
     fi
-    die "Self-install cần curl hoặc wget để tải source từ GitHub."
+    return 1
+}
+
+stage_source_with_git() {
+    local revision="$1"
+    local tmp_root="$2"
+    command -v git >/dev/null 2>&1 || return 1
+    local git_root="$tmp_root/git-source"
+    rm -rf -- "$git_root"
+    git init -q "$git_root" || return 1
+    git -C "$git_root" remote add origin "https://github.com/$REPOSITORY.git" || return 1
+    GIT_TERMINAL_PROMPT=0 git -C "$git_root" fetch -q --depth 1 origin "$revision" || return 1
+    git -C "$git_root" checkout -q --detach FETCH_HEAD || return 1
+    [[ -f "$git_root/vscode_tasks_menu_go/go.mod" ]] || return 1
+    printf '%s\n' "$git_root/vscode_tasks_menu_go"
 }
 
 remote_revision() {
@@ -70,20 +107,26 @@ bootstrap_source() {
     revision="$(remote_revision)"
     pristine_install=0
     tmp_root="$(mktemp -d "$SCRIPT_DIR/.vscode_tasks_menu-install.XXXXXX")"
-    trap 'rm -rf -- "$tmp_root"' EXIT
+    BOOTSTRAP_TMP_ROOT="$tmp_root"
     archive="$tmp_root/source.tar.gz"
     extract_root="$tmp_root/extract"
     mkdir -p "$extract_root"
 
-    http_download "$ARCHIVE_BASE_URL/$revision" "$archive"
-    archive_size="$(wc -c < "$archive" | tr -d '[:space:]')"
-    [[ "$archive_size" =~ ^[0-9]+$ ]] || die "Không xác định được kích thước archive self-install."
-    (( archive_size <= MAX_ARCHIVE_BYTES )) || die "Archive self-install vượt giới hạn 128 MiB."
+    staged_source=""
+    if http_download "$ARCHIVE_BASE_URL/$revision" "$archive"; then
+        archive_size="$(wc -c < "$archive" | tr -d '[:space:]')"
+        [[ "$archive_size" =~ ^[0-9]+$ ]] || die "Không xác định được kích thước archive self-install."
+        (( archive_size <= MAX_ARCHIVE_BYTES )) || die "Archive self-install vượt giới hạn 128 MiB."
 
-    tar --no-same-owner --no-same-permissions -xzf "$archive" -C "$extract_root"
-    go_mod="$(find "$extract_root" -type f -path '*/vscode_tasks_menu_go/go.mod' -print -quit)"
-    [[ -n "$go_mod" ]] || die "Archive GitHub thiếu vscode_tasks_menu_go/go.mod."
-    staged_source="$(dirname "$go_mod")"
+        tar --no-same-owner --no-same-permissions -xzf "$archive" -C "$extract_root"
+        go_mod="$(find "$extract_root" -type f -path '*/vscode_tasks_menu_go/go.mod' -print -quit)"
+        [[ -n "$go_mod" ]] || die "Archive GitHub thiếu vscode_tasks_menu_go/go.mod."
+        staged_source="$(dirname "$go_mod")"
+    else
+        echo "Self-install: tải archive qua codeload thất bại; thử fallback bằng git..." >&2
+        staged_source="$(stage_source_with_git "$revision" "$tmp_root" || true)"
+        [[ -n "$staged_source" ]] || die "Không tải được source từ codeload.github.com và git fallback qua github.com cũng thất bại."
+    fi
     [[ -f "$staged_source/cmd/vscode_tasks_menu/main.go" ]] || die "Archive GitHub thiếu cmd/vscode_tasks_menu/main.go."
     [[ -f "$staged_source/internal/selfupdate/selfupdate.go" ]] || die "Archive GitHub thiếu self-update source."
     [[ -f "$staged_source/web/assets.go" ]] || die "Archive GitHub thiếu embedded web assets."
@@ -113,8 +156,7 @@ bootstrap_source() {
         rm -f "$SOURCE_REVISION_FILE"
         echo "Self-install: đã bổ sung file còn thiếu; giữ nguyên source hiện có (revision=dev)."
     fi
-    trap - EXIT
-    rm -rf -- "$tmp_root"
+    cleanup_bootstrap_tmp
 }
 
 source_revision_for_build() {
