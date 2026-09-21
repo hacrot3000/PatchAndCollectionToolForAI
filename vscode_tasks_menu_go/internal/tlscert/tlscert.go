@@ -68,6 +68,14 @@ func Resolve(workspace string, cfg config.Config) (Result, error) {
 	return ensureAuto(workspace, cfg)
 }
 
+func AutoPaths(workspace string) (string, string, error) {
+	dir, err := AutoDir(workspace)
+	if err != nil {
+		return "", "", err
+	}
+	return filepath.Join(dir, autoCertFile), filepath.Join(dir, autoKeyFile), nil
+}
+
 func AutoDir(workspace string) (string, error) {
 	base := strings.TrimSpace(os.Getenv("VSCODE_TASKS_MENU_CONFIG_DIR"))
 	if base == "" {
