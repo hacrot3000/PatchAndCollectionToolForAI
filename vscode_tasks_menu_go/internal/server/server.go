@@ -64,7 +64,12 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) Serve(listener net.Listener) error {
-	httpServer := &http.Server{Handler: s.Handler()}
+	httpServer := &http.Server{
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    64 << 10,
+	}
 	if s.Config.TLS() {
 		return httpServer.ServeTLS(listener, s.Config.TLSCert, s.Config.TLSKey)
 	}
@@ -104,7 +109,7 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			Env    map[string]string `json:"env,omitempty"`
 			Cwd    string            `json:"cwd,omitempty"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
@@ -287,7 +292,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			Rows uint16 `json:"rows"`
 			Cols uint16 `json:"cols"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
