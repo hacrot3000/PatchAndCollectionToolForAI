@@ -99,6 +99,9 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Bind) == "" {
 		return fmt.Errorf("server.bind không được để trống")
 	}
+	if c.AuthEnabled && (strings.TrimSpace(c.Username) == "" || c.Password == "" || c.Password == "change-me") {
+		return fmt.Errorf("[auth] enabled=true yêu cầu username/password riêng; không được dùng password mặc định change-me")
+	}
 	if err := c.validateRemoteAuthHost(c.Bind); err != nil {
 		return err
 	}
