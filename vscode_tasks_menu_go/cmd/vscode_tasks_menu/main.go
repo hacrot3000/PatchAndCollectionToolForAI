@@ -141,6 +141,12 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	if err := state.EnsureDir(ws); err != nil {
 		return err
 	}
+	daemonLock, err := acquireDaemonLock(ws, handoffFD >= 3)
+	if err != nil {
+		return err
+	}
+	defer daemonLock.Close()
+
 	tlsResult, err := tlscert.Resolve(ws, cfg)
 	if err != nil {
 		return err
@@ -149,11 +155,6 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 		cfg.TLSCert = tlsResult.CertPath
 		cfg.TLSKey = tlsResult.KeyPath
 	}
-	daemonLock, err := acquireDaemonLock(ws, handoffFD >= 3)
-	if err != nil {
-		return err
-	}
-	defer daemonLock.Close()
 
 	ln, err := createListener(cfg, handoffFD, listenAddr)
 	if err != nil {
