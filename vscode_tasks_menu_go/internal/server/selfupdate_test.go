@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -124,5 +125,72 @@ func TestSelfUpdateDetachRejectsRemoteClient(t *testing.T) {
 	s.selfUpdateState(rr, request)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("remote detach status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+
+func TestSelfUpdateCheckAndStartHooks(t *testing.T) {
+	workspace := t.TempDir()
+	s := &Server{Workspace: workspace}
+	RegisterSelfUpdateCheck(s, func(context.Context) (SelfUpdateCheckResult, error) {
+		return SelfUpdateCheckResult{
+			Available: true,
+			InstalledRevision: "old-revision",
+			RemoteRevision: "new-revision",
+		}, nil
+	})
+	defer RegisterSelfUpdateCheck(s, nil)
+
+	check := httptest.NewRequest(http.MethodGet, "/api/state/tasks?scope=self-update&action=check", nil)
+	checkRR := httptest.NewRecorder()
+	s.selfUpdateState(checkRR, check)
+	if checkRR.Code != http.StatusOK {
+		t.Fatalf("check status=%d body=%s", checkRR.Code, checkRR.Body.String())
+	}
+	body := checkRR.Body.String()
+	for _, want := range []string{`"available":true`, `"installed_revision":"old-revision"`, `"remote_revision":"new-revision"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("check response missing %q: %s", want, body)
+		}
+	}
+
+	started := make(chan struct{}, 1)
+	RegisterSelfUpdateStart(s, func() error {
+		started <- struct{}{}
+		return nil
+	})
+	defer RegisterSelfUpdateStart(s, nil)
+
+	start := httptest.NewRequest(http.MethodPost, "/api/state/tasks?scope=self-update&action=start", strings.NewReader(`{}`))
+	startRR := httptest.NewRecorder()
+	s.selfUpdateState(startRR, start)
+	if startRR.Code != http.StatusAccepted {
+		t.Fatalf("start status=%d body=%s", startRR.Code, startRR.Body.String())
+	}
+	select {
+	case <-started:
+	default:
+		t.Fatal("self-update start callback was not invoked")
+	}
+}
+
+func TestSelfUpdateStartRejectsConcurrentActiveRequest(t *testing.T) {
+	workspace := t.TempDir()
+	if _, err := updater.CreateRequest(workspace, "0123456789abcdef", "", true); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: workspace}
+	called := false
+	RegisterSelfUpdateStart(s, func() error { called = true; return nil })
+	defer RegisterSelfUpdateStart(s, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/state/tasks?scope=self-update&action=start", strings.NewReader(`{}`))
+	rr := httptest.NewRecorder()
+	s.selfUpdateState(rr, req)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("concurrent start status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if called {
+		t.Fatal("start callback must not run while update request is active")
 	}
 }
