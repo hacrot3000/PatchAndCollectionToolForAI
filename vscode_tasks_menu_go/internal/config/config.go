@@ -172,12 +172,14 @@ func isLoopbackBind(host string) bool {
 
 func writeDefault(path string, cfg Config) error {
 	content := fmt.Sprintf(`[server]
+# https là mặc định. Đặt http chỉ khi chủ động muốn tắt TLS.
 protocol = %s
 bind = %s
 port = %d
-# Set khi bind = 0.0.0.0/:: và muốn URL echo ra dùng IP/hostname truy cập từ xa.
+# Set khi bind = 0.0.0.0/:: và muốn URL/certificate SAN dùng IP/hostname truy cập từ xa.
 # advertise_host = 192.168.1.20
 open_browser = %t
+# Với protocol=https: nếu bỏ trống cả hai dòng dưới, tool tự tạo/reuse self-signed certificate.
 # tls_cert = /absolute/path/to/server.crt
 # tls_key = /absolute/path/to/server.key
 
