@@ -89,6 +89,11 @@ bootstrap_source() {
     [[ -f "$staged_source/web/assets.go" ]] || die "Archive GitHub thiếu embedded web assets."
 
     if [[ ! -e "$SRC_DIR" ]]; then
+        # Build artifacts are machine-local and must never be trusted from the
+        # downloaded source archive. Older repository revisions accidentally
+        # tracked .build/vscode_tasks_menu, which could otherwise make a fresh
+        # install execute a stale binary even though the source is current.
+        rm -rf -- "$staged_source/.build"
         mv "$staged_source" "$SRC_DIR"
         pristine_install=1
     else
@@ -136,8 +141,19 @@ mkdir -p "$BUILD_DIR"
 needs_build=0
 if [[ ! -x "$BIN" ]]; then
     needs_build=1
-elif find "$SRC_DIR" -type f     \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' -o -path '*/web/*' \)     ! -path "$BUILD_DIR/*" -newer "$BIN" -print -quit | grep -q .; then
-    needs_build=1
+else
+    source_revision="$(source_revision_for_build || true)"
+    binary_revision=""
+    if [[ -f "$BIN.revision" ]]; then
+        binary_revision="$(tr -d '[:space:]' < "$BIN.revision")"
+    fi
+    if [[ -n "$source_revision" && "$binary_revision" != "$source_revision" ]]; then
+        # Revision identity is stronger than mtimes. This catches stale binaries
+        # copied from an archive or left by an older bootstrap.
+        needs_build=1
+    elif find "$SRC_DIR" -type f         \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' -o -path '*/web/*' \)         ! -path "$BUILD_DIR/*" -newer "$BIN" -print -quit | grep -q .; then
+        needs_build=1
+    fi
 fi
 
 if [[ "$needs_build" == "1" ]]; then
