@@ -281,6 +281,7 @@ func Install(stagedPath, targetBinary, revision string) error {
 	if stagedPath == "" || targetBinary == "" {
 		return fmt.Errorf("invalid self-update install path")
 	}
+	defer os.Remove(stagedLauncherPath(stagedPath))
 	if launcherTarget, ok := launcherPathForBinary(targetBinary); ok {
 		launcherStage := stagedLauncherPath(stagedPath)
 		if _, err := os.Stat(launcherStage); err == nil {
@@ -353,10 +354,16 @@ func downloadAndExtract(ctx context.Context, revision, dst string) error {
 			return err
 		}
 		name := filepath.ToSlash(hdr.Name)
+		rootSlash := strings.IndexByte(name, '/')
+		if rootSlash < 0 || rootSlash == len(name)-1 {
+			continue
+		}
+		repoRel := name[rootSlash+1:]
 		var target string
-		marker := "/vscode_tasks_menu_go/"
-		if idx := strings.Index(name, marker); idx >= 0 {
-			rel := strings.TrimPrefix(name[idx+1:], "vscode_tasks_menu_go/")
+		if repoRel == "vscode_tasks_menu" {
+			target = filepath.Join(dst, "vscode_tasks_menu")
+		} else if strings.HasPrefix(repoRel, "vscode_tasks_menu_go/") {
+			rel := strings.TrimPrefix(repoRel, "vscode_tasks_menu_go/")
 			if rel == "" || strings.HasPrefix(rel, ".build/") || rel == ".build" {
 				continue
 			}
@@ -365,8 +372,6 @@ func downloadAndExtract(ctx context.Context, revision, dst string) error {
 				return fmt.Errorf("unsafe archive path %q", hdr.Name)
 			}
 			target = filepath.Join(dst, "vscode_tasks_menu_go", clean)
-		} else if strings.HasSuffix(name, "/vscode_tasks_menu") {
-			target = filepath.Join(dst, "vscode_tasks_menu")
 		} else {
 			continue
 		}
