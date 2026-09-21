@@ -60,7 +60,8 @@ func TestMobileHeaderActionsStayAboveBackdrop(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		`body>header{height:50px!important;min-height:50px!important;max-height:50px!important;padding:0 8px!important;gap:8px!important;z-index:1600`,
+		`body>header{height:50px!important;min-height:50px!important;max-height:50px!important;padding:0 8px!important;gap:8px!important;z-index:1300`,
+		`body.mobile-actions-open>header{z-index:1600}`,
 		`.header-action-menus{display:none;position:fixed;z-index:1550`,
 		`.mobile-backdrop{display:none;position:fixed;inset:0;z-index:1400`,
 	} {
