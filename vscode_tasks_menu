@@ -69,7 +69,7 @@ bootstrap_source() {
     local revision tmp_root archive extract_root go_mod staged_source archive_size
     revision="$(remote_revision)"
     tmp_root="$(mktemp -d "$SCRIPT_DIR/.vscode_tasks_menu-install.XXXXXX")"
-    trap 'rm -rf -- "$tmp_root"' RETURN
+    trap 'rm -rf -- "$tmp_root"' EXIT
     archive="$tmp_root/source.tar.gz"
     extract_root="$tmp_root/extract"
     mkdir -p "$extract_root"
@@ -100,7 +100,7 @@ bootstrap_source() {
     printf '%s\n' "$revision" > "$SOURCE_REVISION_FILE"
     chmod 600 "$SOURCE_REVISION_FILE"
     echo "Self-install: source revision ${revision:0:12} đã sẵn sàng."
-    trap - RETURN
+    trap - EXIT
     rm -rf -- "$tmp_root"
 }
 
