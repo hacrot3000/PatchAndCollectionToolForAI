@@ -304,3 +304,35 @@ func TestServeForegroundValidatesEffectiveListenerBeforePublishingState(t *testi
 		t.Fatal("effective listener must be auth-validated before daemon state is published")
 	}
 }
+
+
+func TestProtocolChangesURLSchemeWithoutChangingListenerPort(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	httpsCfg := config.Default()
+	httpsURL := publicURLForListener(httpsCfg, ln)
+	if httpsURL != "https://127.0.0.1:"+port {
+		t.Fatalf("HTTPS URL=%q", httpsURL)
+	}
+	if health := healthURLForListener(httpsCfg, ln); health != "https://127.0.0.1:"+port {
+		t.Fatalf("HTTPS health URL=%q", health)
+	}
+
+	httpCfg := httpsCfg
+	httpCfg.Protocol = config.ProtocolHTTP
+	httpURL := publicURLForListener(httpCfg, ln)
+	if httpURL != "http://127.0.0.1:"+port {
+		t.Fatalf("HTTP URL=%q", httpURL)
+	}
+	if health := healthURLForListener(httpCfg, ln); health != "http://127.0.0.1:"+port {
+		t.Fatalf("HTTP health URL=%q", health)
+	}
+}
