@@ -24,6 +24,7 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/selfupdate"
 	"bletonfc/vscode_tasks_menu/internal/server"
 	"bletonfc/vscode_tasks_menu/internal/state"
+	"bletonfc/vscode_tasks_menu/internal/tlscert"
 	terminalui "bletonfc/vscode_tasks_menu/internal/terminal"
 )
 
@@ -138,6 +139,14 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	if err := state.EnsureDir(ws); err != nil {
 		return err
 	}
+	tlsResult, err := tlscert.Resolve(ws, cfg)
+	if err != nil {
+		return err
+	}
+	if cfg.TLS() {
+		cfg.TLSCert = tlsResult.CertPath
+		cfg.TLSKey = tlsResult.KeyPath
+	}
 	daemonLock, err := acquireDaemonLock(ws, handoffFD >= 3)
 	if err != nil {
 		return err
@@ -165,6 +174,17 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	logger.Printf("workspace=%s", ws)
 	logger.Printf("config=%s", cfgPath)
 	logger.Printf("url=%s", url)
+	if cfg.TLS() {
+		if tlsResult.Auto {
+			mode := "reused"
+			if tlsResult.Created {
+				mode = "created"
+			}
+			logger.Printf("https=self-signed mode=%s cert=%s key=%s", mode, tlsResult.CertPath, tlsResult.KeyPath)
+		} else {
+			logger.Printf("https=configured cert=%s key=%s", tlsResult.CertPath, tlsResult.KeyPath)
+		}
+	}
 	for _, line := range remoteFirewallGuidance(cfg, ln.Addr().String()) {
 		logger.Print(line)
 	}
