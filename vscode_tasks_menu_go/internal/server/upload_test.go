@@ -60,3 +60,35 @@ func TestUploadFeatureModule(t *testing.T) {
 		if !strings.Contains(js, want) { t.Fatalf("upload module missing %q", want) }
 	}
 }
+
+
+func TestUploadDestinationBrowserUsesWorkspaceTreeAndKeepsManualPathInput(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/upload.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"Choose upload destination",
+		"Destination directory relative to the workspace:",
+		"/api/project/tree?path=",
+		".filter(item=>item?.type==='dir')",
+		". (workspace root)",
+		"upload-directory-row",
+		"upload-destination-tree",
+		"destinationInput.type='text'",
+		"destinationInput.value=destinationSelected",
+		"destinationConfirm.textContent='Upload here'",
+		"if(event.key==='Enter')",
+		"else if(event.key==='Escape')",
+		"loadDestinationDirectory(pathValue",
+		"toggleDestinationDirectory(fullPath)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("upload destination browser missing %q", want)
+		}
+	}
+	if strings.Contains(js, "window.prompt('Destination directory relative to the workspace:'") {
+		t.Fatal("upload destination must use the directory browser instead of window.prompt")
+	}
+}
