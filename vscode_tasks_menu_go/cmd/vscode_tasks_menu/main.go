@@ -502,6 +502,25 @@ func stopExistingDaemon(ws string) error {
 	return fmt.Errorf("daemon pid %d không dừng sau 5 giây", st.PID)
 }
 
+func effectiveInstalledRevision(embedded, marker string) string {
+	embedded = strings.TrimSpace(embedded)
+	if embedded != "" && embedded != "dev" {
+		return embedded
+	}
+	return strings.TrimSpace(marker)
+}
+
+func shortRevision(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unknown"
+	}
+	if len(value) > 12 {
+		return value[:12]
+	}
+	return value
+}
+
 func runSelfUpdate(ws string, cfg config.Config) (err error) {
 	lock, err := state.AcquireStartLock(ws)
 	if err != nil {
@@ -519,10 +538,14 @@ func runSelfUpdate(ws string, cfg config.Config) (err error) {
 	if err != nil {
 		return err
 	}
-	installed := selfupdate.InstalledRevision(exe)
-	if installed == remote || buildRevision == remote {
+	markerRevision := selfupdate.InstalledRevision(exe)
+	installedRevision := effectiveInstalledRevision(buildRevision, markerRevision)
+	if installedRevision == remote {
 		fmt.Printf("Đã là bản mới nhất: %s\n", remote[:12])
 		return nil
+	}
+	if markerRevision == remote && installedRevision != remote {
+		fmt.Fprintf(os.Stderr, "WARNING: revision marker=%s nhưng binary revision=%s; bỏ qua marker cũ và cập nhật lại binary.\n", shortRevision(markerRevision), shortRevision(installedRevision))
 	}
 
 	oldState, stateErr := state.Load(ws)
