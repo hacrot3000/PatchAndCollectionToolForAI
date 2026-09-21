@@ -257,6 +257,10 @@ func (s *Server) terminalState(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, value)
 	case http.MethodPut:
+		if s.terminalStatePersistenceFrozen() {
+			http.Error(w, "terminal state persistence is frozen during daemon shutdown", http.StatusServiceUnavailable)
+			return
+		}
 		var req terminalSnapshotRequest
 		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, projectTerminalStateMax))
 		dec.DisallowUnknownFields()
