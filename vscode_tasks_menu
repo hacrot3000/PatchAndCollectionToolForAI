@@ -22,7 +22,7 @@ source_complete() {
     [[ -f "$SRC_DIR/go.mod" ]] &&
     [[ -f "$SRC_DIR/cmd/vscode_tasks_menu/main.go" ]] &&
     [[ -f "$SRC_DIR/internal/selfupdate/selfupdate.go" ]] &&
-    [[ -f "$SRC_DIR/web/embed.go" ]]
+    [[ -f "$SRC_DIR/web/assets.go" ]]
 }
 
 http_stdout() {
@@ -85,7 +85,7 @@ bootstrap_source() {
     staged_source="$(dirname "$go_mod")"
     [[ -f "$staged_source/cmd/vscode_tasks_menu/main.go" ]] || die "Archive GitHub thiếu cmd/vscode_tasks_menu/main.go."
     [[ -f "$staged_source/internal/selfupdate/selfupdate.go" ]] || die "Archive GitHub thiếu self-update source."
-    [[ -f "$staged_source/web/embed.go" ]] || die "Archive GitHub thiếu embedded web assets."
+    [[ -f "$staged_source/web/assets.go" ]] || die "Archive GitHub thiếu embedded web assets."
 
     if [[ ! -e "$SRC_DIR" ]]; then
         mv "$staged_source" "$SRC_DIR"
