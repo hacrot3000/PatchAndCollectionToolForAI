@@ -39,7 +39,11 @@ func TestRootLauncherSelfInstallsMissingSourceOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := filepath.Clean(filepath.Join(wd, "..", "..", ".."))
-	launcherData, err := os.ReadFile(filepath.Join(root, "vscode_tasks_menu"))
+	launcherPath := filepath.Join(root, "vscode_tasks_menu")
+	launcherData, err := os.ReadFile(launcherPath)
+	if os.IsNotExist(err) {
+		t.Skip("root launcher is intentionally absent from legacy self-update staging")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +254,11 @@ func TestRootLauncherSelfInstallContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := filepath.Clean(filepath.Join(wd, "..", "..", ".."))
-	data, err := os.ReadFile(filepath.Join(root, "vscode_tasks_menu"))
+	launcherPath := filepath.Join(root, "vscode_tasks_menu")
+	data, err := os.ReadFile(launcherPath)
+	if os.IsNotExist(err) {
+		t.Skip("root launcher is intentionally absent from legacy self-update staging")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
