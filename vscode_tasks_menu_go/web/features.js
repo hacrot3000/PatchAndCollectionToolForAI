@@ -40,6 +40,18 @@ function saveIgnored(state){
   try{sessionStorage.setItem(ignoredStorageKey(state.view),JSON.stringify([...state.ignored]));}
   catch(e){console.warn('Cannot persist ignored detected files',e);}
 }
+function ignoredURLStorageKey(view){return 'vscode-tasks-menu:ignored-urls:'+view.meta.id;}
+function loadIgnoredURLs(view){
+  try{
+    const raw=sessionStorage.getItem(ignoredURLStorageKey(view));
+    const values=raw?JSON.parse(raw):[];
+    return new Set(Array.isArray(values)?values.filter(value=>typeof value==='string'):[]);
+  }catch{return new Set();}
+}
+function saveIgnoredURLs(state){
+  try{sessionStorage.setItem(ignoredURLStorageKey(state.view),JSON.stringify([...state.ignoredURLs]));}
+  catch(e){console.warn('Cannot persist ignored detected URLs',e);}
+}
 function fileDetectionStorageKey(view){return 'vscode-tasks-menu:file-detection:'+view.meta.id;}
 function loadFileDetectionEnabled(view){
   try{return sessionStorage.getItem(fileDetectionStorageKey(view))!=='0';}
@@ -102,7 +114,7 @@ function stateFor(view){
   bar.className='detected-actions';
   const head=view.pane.querySelector('.pane-head');
   head.after(bar);
-  state={view,bar,recent:'',timer:null,seq:0,files:new Map(),urls:new Map(),ignored:loadIgnored(view),fileDetectionEnabled:loadFileDetectionEnabled(view),inputBuffer:'',inputLines:[],inputDisposable:null,suppressGitOutput:false,gitTaskOutput:taskUsesGit(view)};
+  state={view,bar,recent:'',timer:null,seq:0,files:new Map(),urls:new Map(),ignored:loadIgnored(view),ignoredURLs:loadIgnoredURLs(view),fileDetectionEnabled:loadFileDetectionEnabled(view),inputBuffer:'',inputLines:[],inputDisposable:null,suppressGitOutput:false,gitTaskOutput:taskUsesGit(view)};
   states.set(view.meta.id,state);
   state.inputDisposable=view.term.onData(data=>captureUserInput(state,data));
   return state;
@@ -118,6 +130,7 @@ function setFileDetectionEnabled(view,enabled){
   state.seq++;
   state.recent='';
   state.files.clear();
+  state.urls.clear();
   render(state);
   window.dispatchEvent(new CustomEvent('taskmenu:file-detection-changed',{detail:{view,enabled:next}}));
   return next;
@@ -250,6 +263,15 @@ function ignoreFile(state,file){
   render(state);
 }
 
+function ignoreURL(state,url){
+  url=String(url||'').trim();
+  if(!url)return;
+  state.ignoredURLs.add(url);
+  state.urls.delete(url);
+  saveIgnoredURLs(state);
+  render(state);
+}
+
 function render(state){
   const rows=[];
   const ranked=[...state.files.values()].reverse()
@@ -265,13 +287,14 @@ function render(state){
     const ignore=document.createElement('button');ignore.className='detected-ignore';ignore.textContent='Ignore';ignore.title='Hide this file for the current session';ignore.onclick=()=>ignoreFile(state,file);
     row.append(kind,link,download,copy,ignore);rows.push(row);
   }
-  for(const url of [...state.urls.values()].reverse()){
+  for(const url of [...state.urls.values()].reverse().filter(url=>!state.ignoredURLs.has(url))){
     const row=document.createElement('div');row.className='detected-row';
     const kind=document.createElement('span');kind.className='detected-kind';kind.textContent='URL';
     const link=document.createElement('a');link.className='detected-link';link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.textContent=url;link.title=url;
     const open=document.createElement('button');open.textContent='Open';open.onclick=()=>window.open(url,'_blank','noopener');
     const copy=document.createElement('button');copy.className='detected-copy';copy.textContent='Copy';copy.onclick=()=>copyText(url,copy).catch(app.showError);
-    row.append(kind,link,open,copy);rows.push(row);
+    const ignore=document.createElement('button');ignore.className='detected-ignore';ignore.textContent='Ignore';ignore.title='Hide this URL for the current session';ignore.onclick=()=>ignoreURL(state,url);
+    row.append(kind,link,open,copy,ignore);rows.push(row);
   }
   state.bar.replaceChildren(...rows.slice(0,12));
   state.bar.classList.toggle('has-items',rows.length>0);
@@ -279,10 +302,11 @@ function render(state){
 
 function scheduleScan(view,text){
   const state=stateFor(view);
-  if(state.gitTaskOutput||state.suppressGitOutput)return;
-  for(const url of detectURLs(text))remember(state.urls,url,url);
+  if(!state.fileDetectionEnabled||state.gitTaskOutput||state.suppressGitOutput)return;
+  for(const url of detectURLs(text)){
+    if(!state.ignoredURLs.has(url))remember(state.urls,url,url);
+  }
   render(state);
-  if(!state.fileDetectionEnabled)return;
   state.recent=(state.recent+text).slice(-131072);
   clearTimeout(state.timer);const seq=++state.seq;
   state.timer=setTimeout(()=>scanFiles(state,seq),220);
