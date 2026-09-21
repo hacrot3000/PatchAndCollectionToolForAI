@@ -46,3 +46,24 @@ func TestQuickOpenIsLoadedBeforeGroupedMenus(t *testing.T) {
 		t.Fatalf("next.js must load quickopen before menus: %q", js)
 	}
 }
+
+
+func TestQuickOpenShortcutIsGlobalCaptureAndExact(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/quickopen.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function globalQuickOpenShortcut(event)",
+		"const primary=event.ctrlKey||event.metaKey",
+		"!primary||event.shiftKey||event.altKey||event.key.toLowerCase()!=='p'",
+		"event.preventDefault()",
+		"event.stopPropagation()",
+		"window.addEventListener('keydown',globalQuickOpenShortcut,true)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Quick Open global shortcut contract missing %q", want)
+		}
+	}
+}
