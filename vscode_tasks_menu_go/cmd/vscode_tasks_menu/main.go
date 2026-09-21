@@ -100,6 +100,7 @@ func main() {
 		fmt.Println(st.URL)
 		printRemoteFirewallGuidance(os.Stdout, cfg, st.Address)
 		printRemoteSecurityWarning(cfg)
+	printTLSStatus(ws, cfg)
 		if cfg.OpenBrowser && !*noBrowser {
 			_ = openBrowser(st.URL)
 		}
@@ -112,6 +113,7 @@ func main() {
 	fmt.Println(st.URL)
 	printRemoteFirewallGuidance(os.Stdout, cfg, st.Address)
 	printRemoteSecurityWarning(cfg)
+	printTLSStatus(ws, cfg)
 	if cfg.OpenBrowser && !*noBrowser {
 		_ = openBrowser(st.URL)
 	}
@@ -180,9 +182,9 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 			if tlsResult.Created {
 				mode = "created"
 			}
-			logger.Printf("https=self-signed mode=%s cert=%s key=%s", mode, tlsResult.CertPath, tlsResult.KeyPath)
+			logger.Printf("https=self-signed mode=%s cert=%s", mode, tlsResult.CertPath)
 		} else {
-			logger.Printf("https=configured cert=%s key=%s", tlsResult.CertPath, tlsResult.KeyPath)
+			logger.Printf("https=configured cert=%s", tlsResult.CertPath)
 		}
 	}
 	for _, line := range remoteFirewallGuidance(cfg, ln.Addr().String()) {
@@ -455,6 +457,7 @@ func reloadDaemonConfig(ws string, cfg config.Config, cfgPath string) error {
 	fmt.Printf("Đã reload config: %s\n%s\n", cfgPath, next.URL)
 	printRemoteFirewallGuidance(os.Stdout, cfg, next.Address)
 	printRemoteSecurityWarning(cfg)
+	printTLSStatus(ws, cfg)
 	return nil
 }
 
@@ -497,6 +500,35 @@ func printRemoteFirewallGuidance(w *os.File, cfg config.Config, address string) 
 	}
 }
 
+func printTLSStatus(ws string, cfg config.Config) {
+	if !cfg.TLS() {
+		fmt.Fprintln(os.Stdout, "Protocol: HTTP (TLS disabled by config)")
+		return
+	}
+	certPath := cfg.TLSCert
+	auto := false
+	if !cfg.CustomTLS() {
+		var err error
+		certPath, _, err = tlscert.AutoPaths(ws)
+		if err != nil {
+			fmt.Fprintf(os.Stdout, "HTTPS: auto self-signed certificate path unavailable: %v\n", err)
+			return
+		}
+		auto = true
+	}
+	if auto {
+		fmt.Fprintf(os.Stdout, "HTTPS: auto self-signed certificate: %s\n", certPath)
+	} else {
+		fmt.Fprintf(os.Stdout, "HTTPS: configured certificate: %s\n", certPath)
+	}
+	if fingerprint, err := tlscert.FingerprintSHA256(certPath); err == nil {
+		fmt.Fprintf(os.Stdout, "Certificate SHA-256: %s\n", fingerprint)
+	}
+	if auto {
+		fmt.Fprintln(os.Stdout, "NOTE: self-signed HTTPS encrypts traffic but is not trusted by browsers by default; verify the fingerprint before trusting the certificate.")
+	}
+}
+
 func printRemoteSecurityWarning(cfg config.Config) {
 	if warning := server.RemoteWarning(cfg); warning != "" {
 		fmt.Fprintln(os.Stdout, warning)
@@ -515,6 +547,7 @@ func printDaemonStatus(ws string, cfg config.Config) {
 	fmt.Printf("running pid=%d url=%s started=%s\n", st.PID, st.URL, st.StartedAt)
 	printRemoteFirewallGuidance(os.Stdout, cfg, st.Address)
 	printRemoteSecurityWarning(cfg)
+	printTLSStatus(ws, cfg)
 }
 
 func stopExistingDaemon(ws string) error {
