@@ -39,6 +39,9 @@ jobs:
           go-version: ${{ matrix.go-version }}
           cache: false
 
+      - name: Launcher syntax
+        run: bash -n ../vscode_tasks_menu
+
       - name: JavaScript syntax
         run: |
           find web -type f -name '*.js' -print0 | while IFS= read -r -d '' file; do
