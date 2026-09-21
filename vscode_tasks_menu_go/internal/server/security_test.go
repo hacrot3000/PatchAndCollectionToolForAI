@@ -57,7 +57,7 @@ func TestRemoteWarningRequiresTLSForUntrustedNetwork(t *testing.T) {
 	cfg.Username = "admin"
 	cfg.Password = "strong-password"
 	warning := RemoteWarning(cfg)
-	for _, want := range []string{"SECURITY WARNING", "Basic Auth", "tls_cert/tls_key", "auth.enabled=true"} {
+	for _, want := range []string{"SECURITY WARNING", "Basic Auth", "server.protocol=https", "self-signed certificate", "auth.enabled=true"} {
 		if !strings.Contains(warning, want) {
 			t.Fatalf("remote HTTP warning missing %q: %s", want, warning)
 		}
