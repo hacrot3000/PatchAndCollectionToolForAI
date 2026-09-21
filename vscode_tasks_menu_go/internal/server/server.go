@@ -70,6 +70,10 @@ func (s *Server) Serve(listener net.Listener) error {
 		_ = listener.Close()
 		return fmt.Errorf("server config validation: %w", err)
 	}
+	if s.Config.TLS() && !s.Config.CustomTLS() {
+		_ = listener.Close()
+		return fmt.Errorf("HTTPS certificate/key chưa được resolve trước khi serve")
+	}
 	if addr := listener.Addr(); addr != nil && strings.HasPrefix(addr.Network(), "tcp") {
 		if err := s.Config.ValidateListenerAddress(addr.String()); err != nil {
 			_ = listener.Close()
