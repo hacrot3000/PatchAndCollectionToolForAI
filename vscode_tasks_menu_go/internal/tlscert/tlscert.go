@@ -60,12 +60,22 @@ func Resolve(workspace string, cfg config.Config) (Result, error) {
 		return Result{}, nil
 	}
 	if cfg.CustomTLS() {
-		if _, err := tls.LoadX509KeyPair(cfg.TLSCert, cfg.TLSKey); err != nil {
+		certPath := resolveConfiguredPath(workspace, cfg.TLSCert)
+		keyPath := resolveConfiguredPath(workspace, cfg.TLSKey)
+		if _, err := tls.LoadX509KeyPair(certPath, keyPath); err != nil {
 			return Result{}, fmt.Errorf("load configured TLS certificate/key: %w", err)
 		}
-		return Result{CertPath: cfg.TLSCert, KeyPath: cfg.TLSKey}, nil
+		return Result{CertPath: certPath, KeyPath: keyPath}, nil
 	}
 	return ensureAuto(workspace, cfg)
+}
+
+func resolveConfiguredPath(workspace, value string) string {
+	value = strings.TrimSpace(value)
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value)
+	}
+	return filepath.Join(workspace, value)
 }
 
 func AutoPaths(workspace string) (string, string, error) {
@@ -79,12 +89,13 @@ func AutoPaths(workspace string) (string, string, error) {
 func AutoDir(workspace string) (string, error) {
 	base := strings.TrimSpace(os.Getenv("VSCODE_TASKS_MENU_CONFIG_DIR"))
 	if base == "" {
-		var err error
-		base, err = os.UserConfigDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve user config dir: %w", err)
+		if userConfig, err := os.UserConfigDir(); err == nil && strings.TrimSpace(userConfig) != "" {
+			base = filepath.Join(userConfig, "vscode_tasks_menu")
+		} else if userCache, err := os.UserCacheDir(); err == nil && strings.TrimSpace(userCache) != "" {
+			base = filepath.Join(userCache, "vscode_tasks_menu")
+		} else {
+			base = filepath.Join(os.TempDir(), "vscode_tasks_menu")
 		}
-		base = filepath.Join(base, "vscode_tasks_menu")
 	}
 	abs, err := filepath.Abs(workspace)
 	if err != nil {
