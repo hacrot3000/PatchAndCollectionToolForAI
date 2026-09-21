@@ -52,3 +52,23 @@ func TestSelfUpdateBrowserWorkflow(t *testing.T) {
 		}
 	}
 }
+
+func TestSelfUpdateRemoteBrowserKeepsReachableOrigin(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/selfupdate.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function isLoopbackHostname(hostname)",
+		"function redirectTargetForUpdate(req)",
+		"host.startsWith('127.')",
+		"if(isLoopbackHostname(target.hostname)&&!isLoopbackHostname(here.hostname))return here;",
+		"const url=redirectTargetForUpdate(req);",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("self-update remote redirect protection missing %q", want)
+		}
+	}
+	if strings.Contains(js, "const target=String(req.target_url||location.origin)") {
+		t.Fatal("self-update must not blindly replace the browser origin with daemon target_url")
+	}
+}

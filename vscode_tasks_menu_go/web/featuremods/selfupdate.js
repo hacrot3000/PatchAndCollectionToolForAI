@@ -150,6 +150,24 @@ cancel.onclick=async()=>{
   try{await postAction('cancel',currentID);resumeTerminalPersistence();hide();}catch(e){app.showError(e);cancel.disabled=false;confirm.disabled=false;}
 };
 
+function isLoopbackHostname(hostname){
+  const host=String(hostname||'').trim().toLowerCase().replace(/^\[|\]$/g,'');
+  return host==='localhost'||host==='::1'||host.startsWith('127.');
+}
+function redirectTargetForUpdate(req){
+  const here=new URL(location.href);
+  const raw=String(req?.target_url||'').trim();
+  if(!raw)return here;
+  let target;
+  try{target=new URL(raw,here);}catch{return here;}
+  // target_url is derived from the daemon listener. A wildcard listener is
+  // intentionally published as 127.0.0.1, which is only meaningful on the
+  // server itself. Remote browsers must keep the origin they actually used.
+  if(isLoopbackHostname(target.hostname)&&!isLoopbackHostname(here.hostname))return here;
+  if(target.origin===here.origin)return here;
+  return new URL(target.origin+'/');
+}
+
 function redirectAfterUpdate(req){
   if(applyingRedirect||!req?.id)return;
   try{
@@ -161,9 +179,7 @@ function redirectAfterUpdate(req){
   }catch{}
   applyingRedirect=true;
   try{sessionStorage.setItem(completedMarker(req.id),'1');}catch{}
-  const target=String(req.target_url||location.origin).replace(/\/$/,'');
-  const here=location.origin.replace(/\/$/,'');
-  const url=new URL(target===here?location.href:target+'/');
+  const url=redirectTargetForUpdate(req);
   url.searchParams.set('_self_updated',req.id);
   setTimeout(()=>location.replace(url.toString()),450);
 }
