@@ -432,10 +432,14 @@ func reloadDaemonConfig(ws string, cfg config.Config, cfgPath string) error {
 }
 
 func remoteFirewallGuidance(cfg config.Config, address string) []string {
-	if strings.TrimSpace(cfg.Bind) != "0.0.0.0" {
+	host, port, err := net.SplitHostPort(strings.TrimSpace(address))
+	if err == nil {
+		if strings.TrimSpace(host) != "0.0.0.0" {
+			return nil
+		}
+	} else if strings.TrimSpace(cfg.Bind) != "0.0.0.0" {
 		return nil
 	}
-	_, port, err := net.SplitHostPort(strings.TrimSpace(address))
 	if err != nil || port == "" || port == "0" {
 		return []string{"Remote access bind=0.0.0.0; hãy mở TCP port đang cấu hình trên firewall."}
 	}
