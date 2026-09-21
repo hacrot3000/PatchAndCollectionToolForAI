@@ -121,8 +121,15 @@ func TestBrokerSocketPathFallsBackWhenRuntimePathIsTooLong(t *testing.T) {
 	if len(path) > 96 {
 		t.Fatalf("broker socket path too long: %d bytes: %s", len(path), path)
 	}
-	if filepath.Dir(path) != os.TempDir() {
-		t.Fatalf("long runtime path should fall back to temp dir: %s", path)
+	socketDir := filepath.Dir(path)
+	if socketDir == os.TempDir() {
+		t.Fatalf("fallback socket must not live directly in shared temp dir: %s", path)
+	}
+	if filepath.Dir(socketDir) != os.TempDir() {
+		t.Fatalf("fallback socket should live in private child of temp dir: %s", path)
+	}
+	if !strings.HasPrefix(filepath.Base(socketDir), "vtm-broker-") {
+		t.Fatalf("unexpected fallback socket directory: %s", socketDir)
 	}
 }
 
@@ -172,5 +179,68 @@ func TestBrokerTitleCapabilityBackwardCompatibility(t *testing.T) {
 	modern := &Client{info: NewInfo(ws)}
 	if !modern.SupportsSessionTitle() {
 		t.Fatal("new broker must advertise session title support")
+	}
+}
+
+
+func TestBrokerFallbackSocketDirectoryIsPrivate(t *testing.T) {
+	longBase := filepath.Join(t.TempDir(), strings.Repeat("very-long-runtime-segment-", 6))
+	if err := os.MkdirAll(longBase, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", longBase)
+	ws := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() { errCh <- Run(ctx, ws, log.New(io.Discard, "", 0)) }()
+
+	var probeErr error
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		probeCtx, probeCancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		_, probeErr = Probe(probeCtx, ws)
+		probeCancel()
+		if probeErr == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if probeErr != nil {
+		cancel()
+		t.Fatalf("broker never became probeable: %v", probeErr)
+	}
+
+	socketDir := filepath.Dir(SocketPath(ws))
+	info, err := os.Stat(socketDir)
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		cancel()
+		t.Fatalf("fallback socket dir mode=%#o want 0700", got)
+	}
+	socketInfo, err := os.Stat(SocketPath(ws))
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	if got := socketInfo.Mode().Perm(); got != 0o600 {
+		cancel()
+		t.Fatalf("fallback socket mode=%#o want 0600", got)
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("broker shutdown: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("broker did not stop")
 	}
 }
