@@ -451,7 +451,7 @@ func remoteFirewallGuidance(cfg config.Config, address string) []string {
 
 	if err != nil || port == "" || port == "0" {
 		if cfg.Port > 0 {
-			port = strconv.Itoa(cfg.Port)
+			port = fmt.Sprintf("%d", cfg.Port)
 		} else {
 			lines = append(lines, "Remote access wildcard bind đang bật; hãy mở TCP port sau khi daemon bind thành công.")
 			return lines
