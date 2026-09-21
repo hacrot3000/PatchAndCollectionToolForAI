@@ -51,3 +51,21 @@ func TestCoreUIDetectsStableLayoutProfileOncePerPage(t *testing.T) {
 		}
 	}
 }
+
+
+func TestMobileHeaderActionsStayAboveBackdrop(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/mobile.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		`body>header{height:50px!important;min-height:50px!important;max-height:50px!important;padding:0 8px!important;gap:8px!important;z-index:1600`,
+		`.header-action-menus{display:none;position:fixed;z-index:1550`,
+		`.mobile-backdrop{display:none;position:fixed;inset:0;z-index:1400`,
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("mobile stacking contract missing %q", want)
+		}
+	}
+}
