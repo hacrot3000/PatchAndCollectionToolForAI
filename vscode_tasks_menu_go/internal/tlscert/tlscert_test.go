@@ -216,3 +216,26 @@ func TestAutoDirIsStablePerWorkspace(t *testing.T) {
 		t.Fatalf("auto TLS workspace key is not hex: %v", err)
 	}
 }
+
+
+func TestFingerprintSHA256IsStable(t *testing.T) {
+	t.Setenv("VSCODE_TASKS_MENU_CONFIG_DIR", t.TempDir())
+	result, err := Resolve(t.TempDir(), config.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := FingerprintSHA256(result.CertPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := FingerprintSHA256(result.CertPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a == "" || a != b {
+		t.Fatalf("unstable certificate fingerprint a=%q b=%q", a, b)
+	}
+	if len(a) != 95 {
+		t.Fatalf("unexpected SHA-256 fingerprint length=%d value=%q", len(a), a)
+	}
+}
