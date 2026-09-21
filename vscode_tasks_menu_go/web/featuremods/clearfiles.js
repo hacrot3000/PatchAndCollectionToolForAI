@@ -37,29 +37,29 @@ function bindDetectedBar(view,button){
 
 function updateClearButton(view,button){
   const bar=bindDetectedBar(view,button);
-  const hasFiles=Boolean(bar?.querySelector('.detected-ignore'));
-  button.hidden=!hasFiles;
-  button.disabled=!hasFiles;
-  button.title=hasFiles?'Ignore all detected download files in this session':'No detected download files to clear';
+  const hasItems=Boolean(bar?.querySelector('.detected-ignore'));
+  button.hidden=!hasItems;
+  button.disabled=!hasItems;
+  button.title=hasItems?'Ignore all detected files and URLs in this session':'No detected files or URLs to clear';
 }
 
 function updateToggle(view,button){
   const api=globalThis.TaskMenuFileDetection;
   const enabled=api?.isEnabled?.(view)!==false;
-  button.textContent=enabled?'Files: ON':'Files: OFF';
+  button.textContent=enabled?'Files/URLs: ON':'Files/URLs: OFF';
   button.classList.toggle('off',!enabled);
   button.setAttribute('aria-pressed',enabled?'true':'false');
   button.title=enabled
-    ?'Download file detection is enabled for this tab. Click to disable it.'
-    :'Download file detection is disabled for this tab. URL detection remains enabled. Click to enable file detection.';
+    ?'File and URL detection is enabled for this tab. Click to disable both.'
+    :'File and URL detection is disabled for this tab. Click to enable both.';
 }
 
-function clearDetectedFiles(view,button){
+function clearDetectedItems(view,button){
   const bar=bindDetectedBar(view,button);
   if(!bar)return;
-  // Ignore is the source of truth for this session. Clicking the existing
-  // handler also persists the ignored path in sessionStorage, so a later scan
-  // cannot immediately add the same file back. render() is synchronous and
+  // Ignore is the source of truth for this session. Clicking each row's
+  // handler persists its ignored file/URL in sessionStorage, so later output
+  // cannot immediately add the same item back. render() is synchronous and
   // reveals the next rows as earlier rows disappear.
   let count=0;
   for(let guard=0;guard<1024;guard++){
@@ -84,7 +84,7 @@ function install(view){
   toggle.className='detected-files-toggle';
   const clear=document.createElement('button');
   clear.className='detected-clear-all';
-  clear.textContent='Clear files';
+  clear.textContent='Clear detected';
   clear.hidden=true;
   controls.append(toggle,clear);
 
@@ -95,7 +95,7 @@ function install(view){
     updateToggle(view,toggle);
     updateClearButton(view,clear);
   };
-  clear.onclick=()=>clearDetectedFiles(view,clear);
+  clear.onclick=()=>clearDetectedItems(view,clear);
   placeControls(view,controls);
 
   const paneObserver=new MutationObserver(()=>{
