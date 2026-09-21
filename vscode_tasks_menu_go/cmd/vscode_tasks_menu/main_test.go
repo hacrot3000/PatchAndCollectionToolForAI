@@ -280,3 +280,27 @@ func TestRemoteWildcardHost(t *testing.T) {
 		}
 	}
 }
+
+
+func TestServeForegroundValidatesEffectiveListenerBeforePublishingState(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start := strings.Index(src, "func serveForeground")
+	end := strings.Index(src[start:], "func acquireDaemonLock")
+	if start < 0 || end < 0 {
+		t.Fatal("serveForeground not found")
+	}
+	body := src[start : start+end]
+	create := strings.Index(body, "createListener(cfg, handoffFD, listenAddr)")
+	validate := strings.Index(body, "cfg.ValidateListenerAddress(ln.Addr().String())")
+	stateNew := strings.Index(body, "state.New(ws, url, healthURL, ln.Addr().String())")
+	if create < 0 || validate < 0 || stateNew < 0 {
+		t.Fatalf("missing effective listener security flow create=%d validate=%d state=%d", create, validate, stateNew)
+	}
+	if !(create < validate && validate < stateNew) {
+		t.Fatal("effective listener must be auth-validated before daemon state is published")
+	}
+}
