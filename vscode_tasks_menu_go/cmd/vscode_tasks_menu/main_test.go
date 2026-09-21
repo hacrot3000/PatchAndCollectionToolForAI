@@ -194,3 +194,19 @@ func TestStatusIncludesRemoteFirewallGuidance(t *testing.T) {
 		}
 	}
 }
+
+
+func TestRemoteFirewallGuidancePrefersLiveListenerAddress(t *testing.T) {
+	localCfg := config.Default()
+	lines := remoteFirewallGuidance(localCfg, "0.0.0.0:42882")
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "TCP port 42882") {
+		t.Fatalf("live wildcard listener should produce guidance even when current config is local: %s", joined)
+	}
+
+	remoteCfg := config.Default()
+	remoteCfg.Bind = "0.0.0.0"
+	if got := remoteFirewallGuidance(remoteCfg, "127.0.0.1:42882"); len(got) != 0 {
+		t.Fatalf("live loopback listener must not use stale remote config: %#v", got)
+	}
+}
