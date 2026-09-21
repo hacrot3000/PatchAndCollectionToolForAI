@@ -18,7 +18,7 @@ func TestProjectSearchUIUsesBoundedCancelableBackendSearch(t *testing.T) {
 		"&limit=100",
 		"new AbortController()",
 		"controller.abort()",
-		"event.shiftKey&&event.key.toLowerCase()==='f'",
+		"globalProjectSearchShortcut",
 		"globalThis.TaskMenuEditor",
 		"editor.openFile(item.path)",
 		"scrollIntoView:true",
