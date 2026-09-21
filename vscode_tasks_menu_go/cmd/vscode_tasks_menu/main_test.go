@@ -166,8 +166,8 @@ func TestRemoteFirewallGuidanceUsesActualBoundPort(t *testing.T) {
 	}
 }
 
-func TestRemoteFirewallGuidanceOnlyForWildcardIPv4Bind(t *testing.T) {
-	for _, bind := range []string{"127.0.0.1", "localhost", "::1", "::"} {
+func TestRemoteFirewallGuidanceSkipsLocalOnlyBind(t *testing.T) {
+	for _, bind := range []string{"127.0.0.1", "localhost", "::1"} {
 		cfg := config.Default()
 		cfg.Bind = bind
 		if got := remoteFirewallGuidance(cfg, "127.0.0.1:43127"); len(got) != 0 {
@@ -206,8 +206,15 @@ func TestRemoteFirewallGuidancePrefersLiveListenerAddress(t *testing.T) {
 
 	remoteCfg := config.Default()
 	remoteCfg.Bind = "0.0.0.0"
-	if got := remoteFirewallGuidance(remoteCfg, "127.0.0.1:42882"); len(got) != 0 {
-		t.Fatalf("live loopback listener must not use stale remote config: %#v", got)
+	got := strings.Join(remoteFirewallGuidance(remoteCfg, "127.0.0.1:42882"), "\n")
+	for _, want := range []string{
+		"WARNING: config bind=0.0.0.0 nhưng daemon hiện listen 127.0.0.1:42882",
+		"chạy --reload-config",
+		"TCP port 42882",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("remote config/live listener mismatch missing %q: %s", want, got)
+		}
 	}
 }
 
