@@ -99,15 +99,31 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Bind) == "" {
 		return fmt.Errorf("server.bind không được để trống")
 	}
-	if !isLoopbackBind(c.Bind) {
-		if !c.AuthEnabled || c.Username == "" || c.Password == "" || c.Password == "change-me" {
-			return fmt.Errorf("remote bind %q yêu cầu [auth] enabled=true và username/password riêng", c.Bind)
-		}
+	if err := c.validateRemoteAuthHost(c.Bind); err != nil {
+		return err
 	}
 	if (c.TLSCert == "") != (c.TLSKey == "") {
 		return fmt.Errorf("tls_cert và tls_key phải được cấu hình cùng nhau")
 	}
 	return nil
+}
+
+func (c Config) validateRemoteAuthHost(host string) error {
+	if isLoopbackBind(host) {
+		return nil
+	}
+	if !c.AuthEnabled || c.Username == "" || c.Password == "" || c.Password == "change-me" {
+		return fmt.Errorf("remote bind %q yêu cầu [auth] enabled=true và username/password riêng", host)
+	}
+	return nil
+}
+
+func (c Config) ValidateListenerAddress(address string) error {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(address))
+	if err != nil {
+		return fmt.Errorf("listener address không hợp lệ %q: %w", address, err)
+	}
+	return c.validateRemoteAuthHost(strings.Trim(host, "[]"))
 }
 
 func (c Config) Address() string { return net.JoinHostPort(c.Bind, strconv.Itoa(c.Port)) }
