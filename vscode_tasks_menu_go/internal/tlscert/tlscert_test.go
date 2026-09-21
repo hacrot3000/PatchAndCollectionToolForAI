@@ -239,3 +239,37 @@ func TestFingerprintSHA256IsStable(t *testing.T) {
 		t.Fatalf("unexpected SHA-256 fingerprint length=%d value=%q", len(a), a)
 	}
 }
+
+
+func TestResolveCustomTLSPathsAreRelativeToWorkspace(t *testing.T) {
+	t.Setenv("VSCODE_TASKS_MENU_CONFIG_DIR", t.TempDir())
+	workspace := t.TempDir()
+	auto, err := Resolve(workspace, config.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	certData, err := os.ReadFile(auto.CertPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyData, err := os.ReadFile(auto.KeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "custom.crt"), certData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "custom.key"), keyData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.TLSCert = "custom.crt"
+	cfg.TLSKey = "custom.key"
+	result, err := Resolve(workspace, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.CertPath != filepath.Join(workspace, "custom.crt") || result.KeyPath != filepath.Join(workspace, "custom.key") {
+		t.Fatalf("relative custom TLS paths not workspace-relative: %#v", result)
+	}
+}
