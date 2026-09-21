@@ -164,6 +164,9 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+			if err := configureTerminalGitTextconv(s.Workspace, &spec); err != nil && s.Log != nil {
+				s.Log.Printf("terminal git textconv warning: %v", err)
+			}
 			meta, err := s.Sessions.Start(spec)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)

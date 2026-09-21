@@ -21,6 +21,7 @@ import (
 
 	"bletonfc/vscode_tasks_menu/internal/broker"
 	"bletonfc/vscode_tasks_menu/internal/config"
+	"bletonfc/vscode_tasks_menu/internal/gittextconv"
 	"bletonfc/vscode_tasks_menu/internal/selfupdate"
 	"bletonfc/vscode_tasks_menu/internal/server"
 	"bletonfc/vscode_tasks_menu/internal/state"
@@ -45,6 +46,7 @@ func main() {
 	selfUpdateAuto := flag.Bool("self-update-auto", false, "tự xác nhận self-update (internal)")
 	sessionBroker := flag.Bool("session-broker", false, "chạy session broker foreground (internal)")
 	versionFlag := flag.Bool("version", false, "in revision của binary rồi thoát")
+	gitTextconv := flag.Bool("git-textconv", false, "normalize standalone CR for Git textconv (internal)")
 	handoffFD := flag.Int("handoff-fd", -1, "inherited listener fd (internal)")
 	listenAddr := flag.String("listen-addr", "", "listener address override (internal)")
 	selfUpdateID := flag.String("self-update-id", "", "self-update handoff id (internal)")
@@ -52,6 +54,13 @@ func main() {
 
 	if *versionFlag {
 		fmt.Printf("vscode_tasks_menu revision=%s\n", buildRevision)
+		return
+	}
+	if *gitTextconv {
+		if flag.NArg() != 1 {
+			fatalIf(fmt.Errorf("--git-textconv requires exactly one file path"))
+		}
+		fatalIf(gittextconv.NormalizeFile(flag.Arg(0), os.Stdout))
 		return
 	}
 

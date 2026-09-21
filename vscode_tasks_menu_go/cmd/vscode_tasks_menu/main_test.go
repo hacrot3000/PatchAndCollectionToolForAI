@@ -363,3 +363,30 @@ func TestShutdownFreezesTerminalStateBeforeBrokerShutdown(t *testing.T) {
 		t.Fatal("shutdown must freeze terminal persistence and close web listener before stopping broker")
 	}
 }
+
+func TestGitTextconvCLIHookRunsBeforeWorkspaceResolution(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	flagPos := strings.Index(src, `flag.Bool("git-textconv"`)
+	hookPos := strings.Index(src, "if *gitTextconv {")
+	workspacePos := strings.Index(src, "ws, err := resolveWorkspace(*workspace)")
+	for name, pos := range map[string]int{"flag": flagPos, "hook": hookPos, "workspace": workspacePos} {
+		if pos < 0 {
+			t.Fatalf("missing git textconv CLI %s", name)
+		}
+	}
+	if !(flagPos < hookPos && hookPos < workspacePos) {
+		t.Fatal("git textconv helper must run before workspace resolution so Git temp blobs work from any cwd")
+	}
+	for _, want := range []string{
+		"gittextconv.NormalizeFile(flag.Arg(0), os.Stdout)",
+		"--git-textconv requires exactly one file path",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("git textconv CLI missing %q", want)
+		}
+	}
+}
