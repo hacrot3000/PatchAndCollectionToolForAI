@@ -100,8 +100,12 @@ func New(workspace, url, healthURL, address string) State {
 }
 
 func EnsureDir(workspace string) error {
-	if err := os.MkdirAll(Dir(workspace), 0o700); err != nil {
+	dir := Dir(workspace)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("tạo runtime dir: %w", err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("bảo vệ runtime dir: %w", err)
 	}
 	return nil
 }
