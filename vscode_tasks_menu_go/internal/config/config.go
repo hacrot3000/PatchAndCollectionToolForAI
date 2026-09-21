@@ -35,6 +35,9 @@ func Load(workspace string) (Config, string, error) {
 		}
 		return cfg, path, nil
 	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return Config{}, path, fmt.Errorf("bảo vệ quyền truy cập %s: %w", path, err)
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return Config{}, path, err
