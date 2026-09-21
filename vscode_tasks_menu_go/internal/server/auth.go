@@ -52,7 +52,7 @@ func (s *Server) authBlocked(remote string, now time.Time) (bool, time.Duration)
 	state.LastSeen = now
 	if state.BlockedUntil.After(now) {
 		s.authFailures[key] = state
-		return true, time.Until(state.BlockedUntil)
+		return true, state.BlockedUntil.Sub(now)
 	}
 	if now.Sub(state.WindowStart) > authFailureWindow {
 		delete(s.authFailures, key)
@@ -110,6 +110,7 @@ func writeAuthRateLimit(w http.ResponseWriter, retry time.Duration) {
 	if seconds < 1 {
 		seconds = 1
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Retry-After", strconv.Itoa(seconds))
 	http.Error(w, "too many authentication failures", http.StatusTooManyRequests)
 }
