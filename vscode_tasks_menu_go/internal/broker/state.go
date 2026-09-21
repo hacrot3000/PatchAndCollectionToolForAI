@@ -30,7 +30,8 @@ func SocketPath(workspace string) string {
 		return candidate
 	}
 	sum := sha256.Sum256([]byte(workspace))
-	return filepath.Join(os.TempDir(), "vtm-broker-"+hex.EncodeToString(sum[:8])+".sock")
+	privateDir := filepath.Join(os.TempDir(), "vtm-broker-"+hex.EncodeToString(sum[:8]))
+	return filepath.Join(privateDir, socketFileName)
 }
 
 func LockPath(workspace string) string {
