@@ -65,7 +65,7 @@ func TestEmbeddedFeaturesSuppressGitCommandOutputFromFileDetection(t *testing.T)
 		"beginGitOutputSuppression(state)",
 		"endGitOutputSuppression(state)",
 		"if(standaloneGitCommand(line))beginGitOutputSuppression(state)",
-		"if(state.gitTaskOutput||state.suppressGitOutput)return",
+		"if(!state.fileDetectionEnabled||state.gitTaskOutput||state.suppressGitOutput)return",
 		"state.seq++",
 		"state.recent=''",
 	} {
