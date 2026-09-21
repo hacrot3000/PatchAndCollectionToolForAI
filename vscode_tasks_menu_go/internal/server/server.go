@@ -66,6 +66,16 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) Serve(listener net.Listener) error {
+	if err := s.Config.Validate(); err != nil {
+		_ = listener.Close()
+		return fmt.Errorf("server config validation: %w", err)
+	}
+	if addr := listener.Addr(); addr != nil && strings.HasPrefix(addr.Network(), "tcp") {
+		if err := s.Config.ValidateListenerAddress(addr.String()); err != nil {
+			_ = listener.Close()
+			return fmt.Errorf("listener security validation: %w", err)
+		}
+	}
 	httpServer := &http.Server{
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
