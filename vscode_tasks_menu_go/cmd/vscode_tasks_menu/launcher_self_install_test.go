@@ -192,6 +192,56 @@ chmod +x "$out"
 	if got := lineCount(t, execLog); got != 2 {
 		t.Fatalf("binary executions=%d want 2", got)
 	}
+
+	// Partial repair must fill missing files without pretending mixed/local source
+	// is exactly the downloaded GitHub revision.
+	localGoMod := []byte("module local/custom\n\ngo 1.19\n")
+	if err := os.WriteFile(filepath.Join(installDir, "vscode_tasks_menu_go", "go.mod"), localGoMod, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(installDir, "vscode_tasks_menu_go", "web", "assets.go")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(installDir, "vscode_tasks_menu_go", ".build", "vscode_tasks_menu")); err != nil {
+		t.Fatal(err)
+	}
+
+	thirdOutput := run()
+	if !strings.Contains(thirdOutput, "giữ nguyên source hiện có (revision=dev)") {
+		t.Fatalf("partial repair did not report mixed-source revision semantics:\n%s", thirdOutput)
+	}
+	gotGoMod, err := os.ReadFile(filepath.Join(installDir, "vscode_tasks_menu_go", "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotGoMod) != string(localGoMod) {
+		t.Fatalf("partial repair overwrote local go.mod:\n%s", gotGoMod)
+	}
+	if _, err := os.Stat(filepath.Join(installDir, "vscode_tasks_menu_go", "web", "assets.go")); err != nil {
+		t.Fatalf("partial repair did not restore missing web/assets.go: %v", err)
+	}
+	for _, path := range []string{
+		"vscode_tasks_menu_go/.build/source.revision",
+		"vscode_tasks_menu_go/.build/vscode_tasks_menu.revision",
+	} {
+		if _, err := os.Stat(filepath.Join(installDir, path)); !os.IsNotExist(err) {
+			t.Fatalf("partial repair must not keep trusted revision marker %s: %v", path, err)
+		}
+	}
+	if got := lineCount(t, curlLog); got != 4 {
+		t.Fatalf("partial repair curl calls total=%d want 4", got)
+	}
+	if got := lineCount(t, goLog); got != 2 {
+		t.Fatalf("partial repair go calls total=%d want 2", got)
+	}
+	goArgsAfterRepair, err := os.ReadFile(goLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(goArgsAfterRepair)), "\n")
+	if strings.Contains(lines[len(lines)-1], "-ldflags") {
+		t.Fatalf("partial repair build must not embed remote revision: %s", lines[len(lines)-1])
+	}
 }
 
 func TestRootLauncherSelfInstallContract(t *testing.T) {
