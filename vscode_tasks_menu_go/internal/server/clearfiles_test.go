@@ -7,7 +7,7 @@ import (
 	webassets "bletonfc/vscode_tasks_menu/web"
 )
 
-func TestClearDetectedFilesFeature(t *testing.T) {
+func TestClearDetectedItemsFeature(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/clearfiles.js")
 	if err != nil {
 		t.Fatal(err)
@@ -16,13 +16,13 @@ func TestClearDetectedFilesFeature(t *testing.T) {
 	for _, want := range []string{
 		"detected-file-controls",
 		"detected-files-toggle",
-		"Files: ON",
-		"Files: OFF",
+		"Files/URLs: ON",
+		"Files/URLs: OFF",
 		"TaskMenuFileDetection",
 		"api.setEnabled(view,!api.isEnabled(view))",
 		"detected-clear-all",
-		"Clear files",
-		"bar.querySelector('.detected-ignore')",
+		"Clear detected",
+		"bar?.querySelector('.detected-ignore')",
 		"ignore.click()",
 		"guard<1024",
 		"sessionMenu.after(controls)",
