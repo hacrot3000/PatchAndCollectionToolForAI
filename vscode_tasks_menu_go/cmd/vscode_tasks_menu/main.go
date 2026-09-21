@@ -431,20 +431,25 @@ func reloadDaemonConfig(ws string, cfg config.Config, cfgPath string) error {
 	return nil
 }
 
+func remoteWildcardHost(host string) bool {
+	host = strings.TrimSpace(strings.Trim(host, "[]"))
+	return host == "0.0.0.0" || host == "::"
+}
+
 func remoteFirewallGuidance(cfg config.Config, address string) []string {
 	host, port, err := net.SplitHostPort(strings.TrimSpace(address))
 	if err == nil {
-		if strings.TrimSpace(host) != "0.0.0.0" {
+		if !remoteWildcardHost(host) {
 			return nil
 		}
-	} else if strings.TrimSpace(cfg.Bind) != "0.0.0.0" {
+	} else if !remoteWildcardHost(cfg.Bind) {
 		return nil
 	}
 	if err != nil || port == "" || port == "0" {
-		return []string{"Remote access bind=0.0.0.0; hãy mở TCP port đang cấu hình trên firewall."}
+		return []string{"Remote access wildcard bind đang bật; hãy mở TCP port đang cấu hình trên firewall."}
 	}
 	return []string{
-		fmt.Sprintf("Remote access bind=0.0.0.0 đang dùng TCP port %s.", port),
+		fmt.Sprintf("Remote access wildcard bind đang dùng TCP port %s.", port),
 		fmt.Sprintf("UFW: sudo ufw allow %s/tcp", port),
 		fmt.Sprintf("firewalld: sudo firewall-cmd --permanent --add-port=%s/tcp && sudo firewall-cmd --reload", port),
 	}
