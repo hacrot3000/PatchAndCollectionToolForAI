@@ -7,7 +7,8 @@ if(app.layoutProfile==='mobile'){
   style.textContent=`
   html[data-taskmenu-layout="mobile"]{--taskmenu-mobile-height:100dvh}
   html[data-taskmenu-layout="mobile"] body{height:var(--taskmenu-mobile-height,100dvh)!important;max-height:var(--taskmenu-mobile-height,100dvh)!important;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
-  html[data-taskmenu-layout="mobile"] body>header{height:50px!important;min-height:50px!important;max-height:50px!important;padding:0 8px!important;gap:8px!important;z-index:1600;background:#101216}
+  html[data-taskmenu-layout="mobile"] body>header{height:50px!important;min-height:50px!important;max-height:50px!important;padding:0 8px!important;gap:8px!important;z-index:1300;background:#101216}
+  html[data-taskmenu-layout="mobile"] body.mobile-actions-open>header{z-index:1600}
   html[data-taskmenu-layout="mobile"] body>header>strong{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42vw}
   html[data-taskmenu-layout="mobile"] body>header>#workspace{display:none}
   html[data-taskmenu-layout="mobile"] body>main{display:grid!important;grid-template-columns:minmax(0,1fr)!important;max-height:calc(100% - 50px)!important}
