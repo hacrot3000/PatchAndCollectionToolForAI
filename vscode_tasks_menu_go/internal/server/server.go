@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -61,7 +62,7 @@ func (s *Server) Handler() http.Handler {
 	if s.Config.AuthEnabled {
 		handler = s.basicAuth(handler)
 	}
-	return securityHeaders(handler)
+	return securityHeaders(handler, s.Config.TLS())
 }
 
 func (s *Server) Serve(listener net.Listener) error {
@@ -70,6 +71,9 @@ func (s *Server) Serve(listener net.Listener) error {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		MaxHeaderBytes:    64 << 10,
+		TLSConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		},
 	}
 	if s.Config.TLS() {
 		return httpServer.ServeTLS(listener, s.Config.TLSCert, s.Config.TLSKey)
@@ -324,6 +328,7 @@ func (s *Server) sessionWebSocket(w http.ResponseWriter, r *http.Request, id str
 	if err != nil {
 		return
 	}
+	conn.SetReadLimit(32 << 10)
 	defer conn.Close(websocket.StatusNormalClosure, "session closed")
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -400,13 +405,16 @@ func (s *Server) sameOriginMutations(next http.Handler) http.Handler {
 	})
 }
 
-func securityHeaders(next http.Handler) http.Handler {
+func securityHeaders(next http.Handler, tlsEnabled bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; font-src 'self' data:")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+		if tlsEnabled {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
