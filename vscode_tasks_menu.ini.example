@@ -1,0 +1,35 @@
+# vscode_tasks_menu.ini example
+#
+# Copy file này thành <workspace>/vscode_tasks_menu.ini nếu muốn cấu hình thủ công.
+# File thật có thể chứa password và tool sẽ ép permission 0600 trên hệ POSIX.
+
+[server]
+# https (mặc định) hoặc http.
+protocol = https
+
+# Local-only:
+bind = 127.0.0.1
+# Remote/LAN:
+# bind = 0.0.0.0
+
+# 0 = chọn port tự do; hoặc đặt port cố định, ví dụ 42882.
+port = 0
+
+# Khi bind wildcard và client truy cập bằng IP/hostname cụ thể, nên đặt giá trị này.
+# Giá trị cũng được đưa vào SAN của self-signed certificate tự sinh.
+# advertise_host = 192.168.1.20
+# advertise_host = devbox.example.lan
+
+open_browser = true
+
+# Chỉ dùng với protocol=https.
+# Nếu bỏ trống cả hai, tool tự tạo và tái sử dụng self-signed certificate/key
+# trong user config directory riêng của workspace.
+# tls_cert = /absolute/path/to/server.crt
+# tls_key = /absolute/path/to/server.key
+
+[auth]
+# Bắt buộc khi bind ra ngoài loopback.
+enabled = false
+username = admin
+password = change-me
