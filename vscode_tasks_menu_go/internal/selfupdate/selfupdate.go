@@ -193,6 +193,20 @@ func InstalledRevision(binary string) string {
 	return strings.TrimSpace(string(data))
 }
 
+func launcherPathForBinary(targetBinary string) (string, bool) {
+	targetBinary = filepath.Clean(targetBinary)
+	buildDir := filepath.Dir(targetBinary)
+	sourceDir := filepath.Dir(buildDir)
+	if filepath.Base(targetBinary) != "vscode_tasks_menu" || filepath.Base(buildDir) != ".build" || filepath.Base(sourceDir) != "vscode_tasks_menu_go" {
+		return "", false
+	}
+	return filepath.Join(filepath.Dir(sourceDir), "vscode_tasks_menu"), true
+}
+
+func stagedLauncherPath(stagedBinary string) string {
+	return stagedBinary + ".launcher"
+}
+
 func Prepare(ctx context.Context, revision, targetBinary string, progress func(status, message string)) (string, error) {
 	if progress == nil {
 		progress = func(string, string) {}
@@ -247,12 +261,38 @@ func Prepare(ctx context.Context, revision, targetBinary string, progress func(s
 		os.Remove(stagedPath)
 		return "", fmt.Errorf("new binary validation failed: %v %s", err, trimOutput(out))
 	}
+	if _, ok := launcherPathForBinary(targetBinary); ok {
+		launcherSource := filepath.Join(tmpRoot, "vscode_tasks_menu")
+		launcherData, readErr := os.ReadFile(launcherSource)
+		if readErr != nil {
+			os.Remove(stagedPath)
+			return "", fmt.Errorf("archive thiếu root launcher vscode_tasks_menu: %w", readErr)
+		}
+		launcherStage := stagedLauncherPath(stagedPath)
+		if writeErr := os.WriteFile(launcherStage, launcherData, 0o755); writeErr != nil {
+			os.Remove(stagedPath)
+			return "", fmt.Errorf("stage root launcher: %w", writeErr)
+		}
+	}
 	return stagedPath, nil
 }
 
 func Install(stagedPath, targetBinary, revision string) error {
 	if stagedPath == "" || targetBinary == "" {
 		return fmt.Errorf("invalid self-update install path")
+	}
+	if launcherTarget, ok := launcherPathForBinary(targetBinary); ok {
+		launcherStage := stagedLauncherPath(stagedPath)
+		if _, err := os.Stat(launcherStage); err == nil {
+			if err := os.Rename(launcherStage, launcherTarget); err != nil {
+				return fmt.Errorf("replace root launcher: %w", err)
+			}
+			if err := os.Chmod(launcherTarget, 0o755); err != nil {
+				return fmt.Errorf("chmod root launcher: %w", err)
+			}
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("inspect staged root launcher: %w", err)
+		}
 	}
 	if err := os.Rename(stagedPath, targetBinary); err != nil {
 		return fmt.Errorf("replace executable: %w", err)
@@ -313,20 +353,23 @@ func downloadAndExtract(ctx context.Context, revision, dst string) error {
 			return err
 		}
 		name := filepath.ToSlash(hdr.Name)
+		var target string
 		marker := "/vscode_tasks_menu_go/"
-		idx := strings.Index(name, marker)
-		if idx < 0 {
+		if idx := strings.Index(name, marker); idx >= 0 {
+			rel := strings.TrimPrefix(name[idx+1:], "vscode_tasks_menu_go/")
+			if rel == "" || strings.HasPrefix(rel, ".build/") || rel == ".build" {
+				continue
+			}
+			clean := filepath.Clean(filepath.FromSlash(rel))
+			if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) {
+				return fmt.Errorf("unsafe archive path %q", hdr.Name)
+			}
+			target = filepath.Join(dst, "vscode_tasks_menu_go", clean)
+		} else if strings.HasSuffix(name, "/vscode_tasks_menu") {
+			target = filepath.Join(dst, "vscode_tasks_menu")
+		} else {
 			continue
 		}
-		rel := strings.TrimPrefix(name[idx+1:], "vscode_tasks_menu_go/")
-		if rel == "" || strings.HasPrefix(rel, ".build/") || rel == ".build" {
-			continue
-		}
-		clean := filepath.Clean(filepath.FromSlash(rel))
-		if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) {
-			return fmt.Errorf("unsafe archive path %q", hdr.Name)
-		}
-		target := filepath.Join(dst, "vscode_tasks_menu_go", clean)
 		switch hdr.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0o755); err != nil {
