@@ -51,7 +51,7 @@ function installHeaderMenus(){
   const settings=makeMenu('Settings','Tool settings');
   addSection(settings.pop,'ENVIRONMENT',[document.querySelector('#env-profile'),document.querySelector('#env-profile-manage')]);
   addSection(settings.pop,'NOTIFICATIONS',[document.querySelector('#notifications-toggle')]);
-  addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls')]);
+  addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls'),document.querySelector('#self-update-check')]);
   host.append(settings.menu);
 
   const git=document.querySelector('.git-status-pill');if(git)host.append(git);
