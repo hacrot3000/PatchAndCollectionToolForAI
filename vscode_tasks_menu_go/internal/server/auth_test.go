@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -73,10 +74,10 @@ func TestSensitiveRoutesRejectRemoteRequestsWithoutAuthentication(t *testing.T) 
 		{http.MethodPost, "/api/files/upload"},
 		{http.MethodPost, "/api/sessions"},
 	}
-	for _, tc := range tests {
+	for i, tc := range tests {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			req := httptest.NewRequest(tc.method, tc.path, nil)
-			req.RemoteAddr = "198.51.100.77:42000"
+			req.RemoteAddr = fmt.Sprintf("198.51.100.%d:42000", i+1)
 			rr := httptest.NewRecorder()
 			h.ServeHTTP(rr, req)
 			if rr.Code != http.StatusUnauthorized {
