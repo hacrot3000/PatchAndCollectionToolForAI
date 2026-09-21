@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -50,6 +51,13 @@ func Run(ctx context.Context, workspace string, logger *log.Logger) error {
 		return err
 	}
 	socketPath := SocketPath(workspace)
+	socketDir := filepath.Dir(socketPath)
+	if err := os.MkdirAll(socketDir, 0o700); err != nil {
+		return fmt.Errorf("create session broker socket dir: %w", err)
+	}
+	if err := os.Chmod(socketDir, 0o700); err != nil {
+		return fmt.Errorf("protect session broker socket dir: %w", err)
+	}
 	_ = os.Remove(socketPath)
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {
