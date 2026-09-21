@@ -431,7 +431,7 @@ func RemoteWarning(cfg config.Config) string {
 		return ""
 	}
 	if !cfg.TLS() {
-		return "SECURITY WARNING: remote access đang dùng HTTP; Basic Auth chỉ base64 nên username/password và dữ liệu phiên có thể bị chặn đọc trên mạng. Không public port này ra Internet nếu chưa cấu hình tls_cert/tls_key hoặc đặt tool sau HTTPS reverse proxy và chỉ bind proxy nội bộ."
+		return "SECURITY WARNING: remote access đang dùng HTTP; Basic Auth chỉ base64 nên username/password và dữ liệu phiên có thể bị chặn đọc trên mạng. Không public port này ra Internet nếu chưa cấu hình tls_cert/tls_key. Nếu dùng HTTPS reverse proxy, hãy bind tool vào loopback và vẫn giữ auth.enabled=true, hoặc cấu hình proxy tự enforce authentication."
 	}
 	return ""
 }
