@@ -65,3 +65,99 @@ func TestInstallReplacesBinaryAndWritesRevision(t *testing.T) {
 		t.Fatalf("staged binary still exists: %v", err)
 	}
 }
+
+
+func TestLauncherPathForBinaryRecognizesStandardInstallLayout(t *testing.T) {
+	root := t.TempDir()
+	binary := filepath.Join(root, "vscode_tasks_menu_go", ".build", "vscode_tasks_menu")
+	got, ok := launcherPathForBinary(binary)
+	if !ok {
+		t.Fatal("standard install layout was not recognized")
+	}
+	want := filepath.Join(root, "vscode_tasks_menu")
+	if got != want {
+		t.Fatalf("launcher path=%q want %q", got, want)
+	}
+
+	for _, binary := range []string{
+		filepath.Join(root, "vscode_tasks_menu"),
+		filepath.Join(root, ".build", "vscode_tasks_menu"),
+		filepath.Join(root, "other", ".build", "vscode_tasks_menu"),
+		filepath.Join(root, "vscode_tasks_menu_go", ".build", "renamed"),
+	} {
+		if got, ok := launcherPathForBinary(binary); ok {
+			t.Fatalf("unexpected launcher path for %q: %q", binary, got)
+		}
+	}
+}
+
+func TestInstallReplacesRootLauncherAndBinaryTogether(t *testing.T) {
+	root := t.TempDir()
+	buildDir := filepath.Join(root, "vscode_tasks_menu_go", ".build")
+	if err := os.MkdirAll(buildDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	targetBinary := filepath.Join(buildDir, "vscode_tasks_menu")
+	targetLauncher := filepath.Join(root, "vscode_tasks_menu")
+	stagedBinary := filepath.Join(buildDir, ".vscode_tasks_menu.new.test")
+	stagedLauncher := stagedLauncherPath(stagedBinary)
+
+	if err := os.WriteFile(targetBinary, []byte("old-binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetLauncher, []byte("old-launcher"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stagedBinary, []byte("new-binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stagedLauncher, []byte("new-launcher"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	const revision = "abcdef0123456789"
+	if err := Install(stagedBinary, targetBinary, revision); err != nil {
+		t.Fatal(err)
+	}
+	gotBinary, err := os.ReadFile(targetBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotBinary) != "new-binary" {
+		t.Fatalf("binary=%q", gotBinary)
+	}
+	gotLauncher, err := os.ReadFile(targetLauncher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotLauncher) != "new-launcher" {
+		t.Fatalf("launcher=%q", gotLauncher)
+	}
+	if revisionGot := InstalledRevision(targetBinary); revisionGot != revision {
+		t.Fatalf("revision=%q want %q", revisionGot, revision)
+	}
+	if _, err := os.Stat(stagedLauncher); !os.IsNotExist(err) {
+		t.Fatalf("staged launcher still exists: %v", err)
+	}
+}
+
+func TestInstallDoesNotGuessLauncherOutsideStandardLayout(t *testing.T) {
+	dir := t.TempDir()
+	targetBinary := filepath.Join(dir, "custom-tool-name")
+	stagedBinary := filepath.Join(dir, "staged")
+	if err := os.WriteFile(targetBinary, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stagedBinary, []byte("new"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stagedLauncherPath(stagedBinary), []byte("must-not-install"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(stagedBinary, targetBinary, "1234567890abcdef"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := launcherPathForBinary(targetBinary); ok {
+		t.Fatal("custom binary path unexpectedly recognized as standard launcher layout")
+	}
+}
