@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -137,5 +138,24 @@ func TestProtocolIsCaseInsensitive(t *testing.T) {
 	}
 	if cfg.TLS() {
 		t.Fatal("HTTP protocol should disable TLS regardless of case")
+	}
+}
+
+
+func TestNewConfigFileWritesHTTPSProtocol(t *testing.T) {
+	workspace := t.TempDir()
+	cfg, path, err := Load(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Protocol != ProtocolHTTPS {
+		t.Fatalf("new config protocol=%q want https", cfg.Protocol)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "protocol = https") {
+		t.Fatalf("generated config missing HTTPS protocol:\n%s", data)
 	}
 }
