@@ -120,3 +120,22 @@ func TestHTTPProtocolRejectsTLSCertificateFields(t *testing.T) {
 		t.Fatalf("plain http config rejected: %v", err)
 	}
 }
+
+
+func TestProtocolIsCaseInsensitive(t *testing.T) {
+	cfg := Default()
+	cfg.Protocol = "HTTPS"
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.TLS() {
+		t.Fatal("HTTPS protocol should enable TLS regardless of case")
+	}
+	cfg.Protocol = "HTTP"
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLS() {
+		t.Fatal("HTTP protocol should disable TLS regardless of case")
+	}
+}
