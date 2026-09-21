@@ -81,3 +81,42 @@ func TestAuthEnabledRejectsDefaultPasswordEvenOnLoopback(t *testing.T) {
 		t.Fatalf("loopback auth with custom password rejected: %v", err)
 	}
 }
+
+
+func TestHTTPSIsDefaultProtocol(t *testing.T) {
+	cfg := Default()
+	if cfg.Protocol != ProtocolHTTPS || !cfg.TLS() {
+		t.Fatalf("default protocol=%q TLS=%v want https/true", cfg.Protocol, cfg.TLS())
+	}
+}
+
+func TestLegacyConfigWithoutProtocolDefaultsToHTTPS(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	content := "[server]\nbind = 127.0.0.1\nport = 42882\nopen_browser = false\n\n[auth]\nenabled = false\nusername = admin\npassword = change-me\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := Load(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Protocol != ProtocolHTTPS || !cfg.TLS() {
+		t.Fatalf("legacy config protocol=%q TLS=%v want https/true", cfg.Protocol, cfg.TLS())
+	}
+}
+
+func TestHTTPProtocolRejectsTLSCertificateFields(t *testing.T) {
+	cfg := Default()
+	cfg.Protocol = ProtocolHTTP
+	cfg.TLSCert = "/tmp/server.crt"
+	cfg.TLSKey = "/tmp/server.key"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("http protocol must reject tls_cert/tls_key")
+	}
+	cfg.TLSCert = ""
+	cfg.TLSKey = ""
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("plain http config rejected: %v", err)
+	}
+}
