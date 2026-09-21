@@ -247,11 +247,13 @@ username = admin
 password = thay-bang-mat-khau-rieng
 ```
 
-Khi bind ra ngoài loopback, app **không khởi động** nếu auth chưa bật, username/password rỗng hoặc password vẫn là `change-me`.
+Khi bind ra ngoài loopback, app **không khởi động** nếu auth chưa bật, username/password rỗng hoặc password vẫn là `change-me`. Daemon còn kiểm tra **listener thực tế sau khi bind**; vì vậy các đường nội bộ như `--listen-addr` hoặc listener được handoff cũng không thể vô tình mở non-loopback khi auth không hợp lệ.
 
-Basic Auth trên HTTP không mã hóa credential trên đường truyền. Khi truy cập qua mạng không tin cậy nên cấu hình `tls_cert` và `tls_key` để dùng HTTPS/WSS.
+Basic Auth trên HTTP không mã hóa credential trên đường truyền. **Không public trực tiếp cổng HTTP này ra Internet.** Khi truy cập qua mạng không tin cậy, cấu hình `tls_cert` và `tls_key` để dùng HTTPS/WSS. Nếu dùng HTTPS reverse proxy, nên bind tool vào loopback và vẫn giữ `auth.enabled=true`, hoặc để reverse proxy tự enforce authentication.
 
-Backend cũng chặn cross-origin request làm thay đổi trạng thái và gửi các security header cơ bản. CSP không cho phép tải script từ CDN ngoài; browser chỉ dùng asset do chính daemon phục vụ.
+Remote client không có credential chỉ nhận `401`; `/api/health` chỉ anonymous từ loopback. Basic Auth có giới hạn brute-force theo IP, WebSocket giữ same-origin check mặc định và message read-limit, HTTP server giới hạn header/body và header timeout. Session broker không mở TCP; Unix socket được bảo vệ bằng thư mục private `0700` và socket `0600`.
+
+Backend cũng chặn cross-origin request làm thay đổi trạng thái và gửi security header. Khi TLS bật, server yêu cầu TLS 1.2+ và gửi HSTS. CSP không cho phép tải script từ CDN ngoài; browser chỉ dùng asset do chính daemon phục vụ.
 
 ## Menu từ tasks.json
 
