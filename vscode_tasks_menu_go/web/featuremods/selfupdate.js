@@ -4,6 +4,8 @@ if(!app)throw new Error('TaskMenuApp unavailable for self update');
 const endpoint='/api/state/tasks?scope=self-update';
 let currentID='';
 let applyingRedirect=false;
+let startingFromSettings=false;
+let settingsStartDeadline=0;
 
 const style=document.createElement('style');
 style.textContent=`
@@ -25,6 +27,24 @@ const actions=document.createElement('div');actions.className='self-update-actio
 const cancel=document.createElement('button');cancel.className='self-update-cancel';cancel.textContent='Cancel';
 const confirm=document.createElement('button');confirm.className='self-update-confirm';confirm.textContent='Update now';
 actions.append(cancel,confirm);dialog.append(title,intro,revision,status,actions);overlay.append(dialog);document.body.append(overlay);
+
+const checkUpdate=document.createElement('button');
+checkUpdate.id='self-update-check';
+checkUpdate.type='button';
+checkUpdate.textContent='Check update';
+checkUpdate.title='Check GitHub for a newer vscode_tasks_menu revision';
+document.querySelector('header')?.append(checkUpdate);
+
+function resetCheckUpdateButton(){
+  if(!checkUpdate.isConnected)return;
+  checkUpdate.disabled=false;
+  checkUpdate.textContent='Check update';
+}
+function showCheckUpdateFeedback(label,delay=1600){
+  checkUpdate.disabled=true;
+  checkUpdate.textContent=label;
+  setTimeout(()=>{if(!startingFromSettings)resetCheckUpdateButton();},delay);
+}
 
 function completedMarker(id){return 'vscode-tasks-menu:self-update-completed:'+id;}
 function updatedQueryID(){return new URL(location.href).searchParams.get('_self_updated')||'';}
@@ -66,6 +86,45 @@ function show(req){
     :'Updating. This page will reconnect automatically when the new daemon is ready.';
 }
 function hide(){overlay.classList.remove('visible');currentID='';}
+
+async function checkAndStartUpdate(){
+  if(startingFromSettings)return;
+  checkUpdate.disabled=true;
+  checkUpdate.textContent='Checking…';
+  let frozen=false;
+  try{
+    const result=await app.jsonFetch(endpoint+'&action=check');
+    if(!result?.available){
+      const short=String(result?.installed_revision||'').slice(0,12);
+      showCheckUpdateFeedback(short?'Up to date · '+short:'Up to date');
+      return;
+    }
+
+    const restore=terminalRestore();
+    if(restore?.freezeForSelfUpdate){await restore.freezeForSelfUpdate();frozen=true;}
+    else await restore?.persistSnapshot?.();
+
+    startingFromSettings=true;
+    settingsStartDeadline=Date.now()+10000;
+    checkUpdate.textContent='Updating…';
+    overlay.classList.add('visible');
+    revision.textContent=result.remote_revision?'Revision: '+result.remote_revision:'';
+    intro.textContent='A newer version is available. Starting the existing self-update pipeline automatically…';
+    status.classList.remove('self-update-error');
+    status.textContent='Starting automatic self-update…';
+    actions.style.display='none';
+    await app.jsonFetch(endpoint+'&action=start',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  }catch(e){
+    startingFromSettings=false;
+    settingsStartDeadline=0;
+    if(frozen)resumeTerminalPersistence();
+    resetCheckUpdateButton();
+    hide();
+    app.showError(e);
+  }
+}
+checkUpdate.onclick=()=>checkAndStartUpdate();
+
 
 async function postAction(action,id){
   return app.jsonFetch(endpoint+'&action='+encodeURIComponent(action),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
@@ -112,10 +171,31 @@ function redirectAfterUpdate(req){
 async function poll(){
   try{
     const req=await app.jsonFetch(endpoint);
-    if(!req||req.status==='idle'||!req.id){hide();return;}
-    if(req.status==='cancelled'){resumeTerminalPersistence();if(req.id===currentID)hide();return;}
+    if(!req||req.status==='idle'||!req.id){
+      if(startingFromSettings){
+        if(Date.now()<settingsStartDeadline){
+          overlay.classList.add('visible');
+          status.textContent='Waiting for the updater process to start…';
+          actions.style.display='none';
+          return;
+        }
+        startingFromSettings=false;
+        settingsStartDeadline=0;
+        resumeTerminalPersistence();
+        resetCheckUpdateButton();
+        hide();
+        app.showError(new Error('Automatic self-update did not start.'));
+        return;
+      }
+      hide();return;
+    }
+    if(startingFromSettings){
+      startingFromSettings=false;
+      settingsStartDeadline=0;
+    }
+    if(req.status==='cancelled'){startingFromSettings=false;settingsStartDeadline=0;resumeTerminalPersistence();resetCheckUpdateButton();if(req.id===currentID)hide();return;}
     if(req.status==='completed'){show(req);redirectAfterUpdate(req);return;}
-    if(req.status==='failed'){resumeTerminalPersistence();show(req);actions.style.display='none';return;}
+    if(req.status==='failed'){startingFromSettings=false;settingsStartDeadline=0;resumeTerminalPersistence();resetCheckUpdateButton();show(req);actions.style.display='none';return;}
     show(req);
   }catch(e){
     if(currentID){overlay.classList.add('visible');status.textContent='Waiting for the new daemon to start…';actions.style.display='none';}
