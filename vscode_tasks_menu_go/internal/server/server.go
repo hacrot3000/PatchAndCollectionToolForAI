@@ -36,6 +36,22 @@ type Server struct {
 
 	browserLeaseMu sync.Mutex
 	browserLease   *browserLease
+
+	terminalStateMu     sync.RWMutex
+	terminalStateFrozen bool
+}
+
+func (s *Server) FreezeTerminalStatePersistence() {
+	s.terminalStateMu.Lock()
+	s.terminalStateFrozen = true
+	s.terminalStateMu.Unlock()
+}
+
+func (s *Server) terminalStatePersistenceFrozen() bool {
+	s.terminalStateMu.RLock()
+	frozen := s.terminalStateFrozen
+	s.terminalStateMu.RUnlock()
+	return frozen
 }
 
 func (s *Server) Handler() http.Handler {
