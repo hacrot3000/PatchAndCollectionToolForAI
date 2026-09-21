@@ -148,6 +148,10 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	if err != nil {
 		return err
 	}
+	if err := cfg.ValidateListenerAddress(ln.Addr().String()); err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("listener security validation: %w", err)
+	}
 	url := publicURLForListener(cfg, ln)
 	healthURL := healthURLForListener(cfg, ln)
 	st := state.New(ws, url, healthURL, ln.Addr().String())
