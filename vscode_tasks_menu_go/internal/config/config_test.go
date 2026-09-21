@@ -68,3 +68,16 @@ func TestEffectiveRemoteListenerRequiresAuthEvenWhenConfigBindIsLoopback(t *test
 		}
 	}
 }
+
+
+func TestAuthEnabledRejectsDefaultPasswordEvenOnLoopback(t *testing.T) {
+	cfg := Default()
+	cfg.AuthEnabled = true
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("auth enabled with change-me password must be rejected")
+	}
+	cfg.Password = "strong-password"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("loopback auth with custom password rejected: %v", err)
+	}
+}
