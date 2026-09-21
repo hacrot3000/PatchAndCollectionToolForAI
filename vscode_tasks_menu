@@ -159,7 +159,7 @@ fi
 if [[ "$needs_build" == "1" ]]; then
     tmp="$BIN.tmp.$$"
     revision="$(source_revision_for_build || true)"
-    build_args=(build -trimpath -o "$tmp")
+    build_args=(build -buildvcs=false -trimpath -o "$tmp")
     if [[ -n "$revision" ]]; then
         build_args+=(-ldflags "-X main.buildRevision=$revision")
     fi
