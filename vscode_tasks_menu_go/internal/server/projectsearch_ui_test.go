@@ -56,3 +56,24 @@ func TestProjectSearchFeatureIsLoadedAndExposedInFilesMenu(t *testing.T) {
 		}
 	}
 }
+
+
+func TestProjectSearchShortcutIsGlobalCaptureAndExact(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/projectsearch.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function globalProjectSearchShortcut(event)",
+		"const primary=event.ctrlKey||event.metaKey",
+		"!primary||!event.shiftKey||event.altKey||event.key.toLowerCase()!=='f'",
+		"event.preventDefault()",
+		"event.stopPropagation()",
+		"window.addEventListener('keydown',globalProjectSearchShortcut,true)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Project Search global shortcut contract missing %q", want)
+		}
+	}
+}
