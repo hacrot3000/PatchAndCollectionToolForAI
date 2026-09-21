@@ -51,6 +51,7 @@ func TestSecurityHeadersDoNotSendHSTSOnPlainHTTP(t *testing.T) {
 
 func TestRemoteWarningRequiresTLSForUntrustedNetwork(t *testing.T) {
 	cfg := config.Default()
+	cfg.Protocol = config.ProtocolHTTP
 	cfg.Bind = "0.0.0.0"
 	cfg.AuthEnabled = true
 	cfg.Username = "admin"
