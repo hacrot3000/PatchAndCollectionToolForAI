@@ -25,6 +25,14 @@ func TestSelfUpdateBrowserWorkflow(t *testing.T) {
 		"location.replace",
 		"Waiting for the new daemon to start",
 		"Update completed. The new daemon is ready.",
+		"self-update-check",
+		"Check update",
+		"endpoint+'&action=check'",
+		"endpoint+'&action=start'",
+		"checkAndStartUpdate",
+		"freezeForSelfUpdate",
+		"startingFromSettings",
+		"Automatic self-update did not start.",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("selfupdate.js missing %q", want)
