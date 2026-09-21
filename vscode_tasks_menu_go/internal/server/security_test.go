@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -75,5 +76,21 @@ func TestSessionWebSocketPinsReadLimit(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "conn.SetReadLimit(32 << 10)") {
 		t.Fatal("session WebSocket must pin an application read limit")
+	}
+}
+
+
+func TestServeRejectsUnauthenticatedEffectiveRemoteListener(t *testing.T) {
+	ln, err := net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		t.Skipf("cannot create wildcard listener: %v", err)
+	}
+	s := &Server{Config: config.Default()}
+	err = s.Serve(ln)
+	if err == nil {
+		t.Fatal("Serve accepted a non-loopback listener while auth was disabled")
+	}
+	if !strings.Contains(err.Error(), "listener security validation") {
+		t.Fatalf("unexpected Serve error: %v", err)
 	}
 }
