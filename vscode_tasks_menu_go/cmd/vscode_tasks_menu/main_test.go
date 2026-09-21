@@ -210,3 +210,40 @@ func TestRemoteFirewallGuidancePrefersLiveListenerAddress(t *testing.T) {
 		t.Fatalf("live loopback listener must not use stale remote config: %#v", got)
 	}
 }
+
+
+func TestEffectiveInstalledRevisionPrefersEmbeddedBinary(t *testing.T) {
+	const remote = "8bdd1ee585c304d205990592c96d45e018f7001e"
+	const older = "1234567890abcdef1234567890abcdef12345678"
+
+	if got := effectiveInstalledRevision(older, remote); got != older {
+		t.Fatalf("embedded revision must win over stale marker: got %q want %q", got, older)
+	}
+	if got := effectiveInstalledRevision(remote, older); got != remote {
+		t.Fatalf("embedded current revision must win over marker: got %q want %q", got, remote)
+	}
+	if got := effectiveInstalledRevision("dev", remote); got != remote {
+		t.Fatalf("legacy dev binary should fall back to marker: got %q want %q", got, remote)
+	}
+	if got := effectiveInstalledRevision("", remote); got != remote {
+		t.Fatalf("empty embedded revision should fall back to marker: got %q want %q", got, remote)
+	}
+}
+
+func TestSelfUpdateWarnsWhenMarkerClaimsLatestButBinaryDoesNot(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"markerRevision := selfupdate.InstalledRevision(exe)",
+		"installedRevision := effectiveInstalledRevision(buildRevision, markerRevision)",
+		"markerRevision == remote && installedRevision != remote",
+		"bỏ qua marker cũ và cập nhật lại binary",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("self-update stale marker protection missing %q", want)
+		}
+	}
+}
