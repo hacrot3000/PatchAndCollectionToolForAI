@@ -66,8 +66,9 @@ bootstrap_source() {
     command -v tar >/dev/null 2>&1 || die "Self-install cần lệnh tar."
 
     echo "Self-install: thiếu source vscode_tasks_menu_go; đang tải từ GitHub..."
-    local revision tmp_root archive extract_root go_mod staged_source archive_size
+    local revision tmp_root archive extract_root go_mod staged_source archive_size pristine_install
     revision="$(remote_revision)"
+    pristine_install=0
     tmp_root="$(mktemp -d "$SCRIPT_DIR/.vscode_tasks_menu-install.XXXXXX")"
     trap 'rm -rf -- "$tmp_root"' EXIT
     archive="$tmp_root/source.tar.gz"
@@ -89,6 +90,7 @@ bootstrap_source() {
 
     if [[ ! -e "$SRC_DIR" ]]; then
         mv "$staged_source" "$SRC_DIR"
+        pristine_install=1
     else
         mkdir -p "$SRC_DIR"
         # Chỉ bổ sung file còn thiếu; không ghi đè source/local changes đang có.
@@ -97,9 +99,15 @@ bootstrap_source() {
     source_complete || die "Self-install hoàn tất tải nhưng source vẫn chưa đầy đủ."
 
     mkdir -p "$BUILD_DIR"
-    printf '%s\n' "$revision" > "$SOURCE_REVISION_FILE"
-    chmod 600 "$SOURCE_REVISION_FILE"
-    echo "Self-install: source revision ${revision:0:12} đã sẵn sàng."
+    if [[ "$pristine_install" == "1" ]]; then
+        printf '%s\n' "$revision" > "$SOURCE_REVISION_FILE"
+        chmod 600 "$SOURCE_REVISION_FILE"
+        echo "Self-install: source revision ${revision:0:12} đã sẵn sàng."
+    else
+        # Source hỗn hợp có thể chứa local changes; không được giả nhận SHA remote.
+        rm -f "$SOURCE_REVISION_FILE"
+        echo "Self-install: đã bổ sung file còn thiếu; giữ nguyên source hiện có (revision=dev)."
+    fi
     trap - EXIT
     rm -rf -- "$tmp_root"
 }
