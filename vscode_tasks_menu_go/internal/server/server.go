@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -29,6 +28,9 @@ type Server struct {
 	projectIndexMu         sync.Mutex
 	projectIndex           *projectFileIndex
 	projectIndexRefreshing bool
+
+	authMu       sync.Mutex
+	authFailures map[string]authFailureState
 }
 
 func (s *Server) Handler() http.Handler {
@@ -352,16 +354,22 @@ func (s *Server) sessionWebSocket(w http.ResponseWriter, r *http.Request, id str
 
 func (s *Server) basicAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/health" {
+		if r.URL.Path == "/api/health" && loopbackRemote(r.RemoteAddr) {
 			next.ServeHTTP(w, r)
 			return
 		}
+		if blocked, retry := s.authBlocked(r.RemoteAddr, time.Now()); blocked {
+			writeAuthRateLimit(w, retry)
+			return
+		}
 		user, pass, ok := r.BasicAuth()
-		if !ok || subtle.ConstantTimeCompare([]byte(user), []byte(s.Config.Username)) != 1 || subtle.ConstantTimeCompare([]byte(pass), []byte(s.Config.Password)) != 1 {
+		if !ok || !constantTimeCredentialEqual(user, s.Config.Username) || !constantTimeCredentialEqual(pass, s.Config.Password) {
+			s.authRecordFailure(r.RemoteAddr, time.Now())
 			w.Header().Set("WWW-Authenticate", `Basic realm="VSCode Tasks Menu", charset="UTF-8"`)
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
 		}
+		s.authRecordSuccess(r.RemoteAddr)
 		next.ServeHTTP(w, r)
 	})
 }
