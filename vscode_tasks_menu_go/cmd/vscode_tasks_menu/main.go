@@ -42,6 +42,7 @@ func main() {
 	restartDaemon := flag.Bool("restart-daemon", false, "dừng daemon cũ rồi khởi động lại")
 	reloadConfigFlag := flag.Bool("reload-config", false, "nạp lại vscode_tasks_menu.ini và restart web daemon, giữ nguyên session broker")
 	selfUpdateFlag := flag.Bool("self-update", false, "kiểm tra, xác nhận và cài bản mới nhất từ GitHub")
+	selfUpdateAuto := flag.Bool("self-update-auto", false, "tự xác nhận self-update (internal)")
 	sessionBroker := flag.Bool("session-broker", false, "chạy session broker foreground (internal)")
 	versionFlag := flag.Bool("version", false, "in revision của binary rồi thoát")
 	handoffFD := flag.Int("handoff-fd", -1, "inherited listener fd (internal)")
@@ -72,8 +73,8 @@ func main() {
 		fatalIf(serveForeground(ws, cfg, cfgPath, *handoffFD, *listenAddr, *selfUpdateID))
 		return
 	}
-	if *selfUpdateFlag {
-		fatalIf(runSelfUpdate(ws, cfg))
+	if *selfUpdateFlag || *selfUpdateAuto {
+		fatalIf(runSelfUpdate(ws, cfg, *selfUpdateAuto))
 		return
 	}
 
@@ -204,6 +205,10 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	}
 	defer brokerClient.Close()
 	srv := &server.Server{Workspace: ws, Config: cfg, Log: logger, Sessions: brokerClient}
+	server.RegisterSelfUpdateCheck(srv, checkSelfUpdate)
+	defer server.RegisterSelfUpdateCheck(srv, nil)
+	server.RegisterSelfUpdateStart(srv, func() error { return startAutoSelfUpdate(ws) })
+	defer server.RegisterSelfUpdateStart(srv, nil)
 
 	// During self-update the independent broker normally survives the web-daemon
 	// replacement. Reuse those exact sessions first so task processes, PTYs,
@@ -604,7 +609,47 @@ func shortRevision(value string) string {
 	return value
 }
 
-func runSelfUpdate(ws string, cfg config.Config) (err error) {
+func checkSelfUpdate(ctx context.Context) (server.SelfUpdateCheckResult, error) {
+	remote, err := selfupdate.RemoteRevision(ctx)
+	if err != nil {
+		return server.SelfUpdateCheckResult{}, fmt.Errorf("check latest revision: %w", err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return server.SelfUpdateCheckResult{}, err
+	}
+	installed := effectiveInstalledRevision(buildRevision, selfupdate.InstalledRevision(exe))
+	return server.SelfUpdateCheckResult{
+		Available:         installed != remote,
+		InstalledRevision: installed,
+		RemoteRevision:    remote,
+	}, nil
+}
+
+func startAutoSelfUpdate(ws string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	logFile, err := os.OpenFile(state.LogPath(ws), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(exe, "--workspace", ws, "--self-update-auto")
+	cmd.Stdout, cmd.Stderr = logFile, logFile
+	cmd.Stdin = nil
+	if runtime.GOOS != "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	}
+	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
+		return fmt.Errorf("start automatic self-update: %w", err)
+	}
+	_ = cmd.Process.Release()
+	return logFile.Close()
+}
+
+func runSelfUpdate(ws string, cfg config.Config, autoConfirm bool) (err error) {
 	lock, err := state.AcquireStartLock(ws)
 	if err != nil {
 		return err
@@ -637,7 +682,7 @@ func runSelfUpdate(ws string, cfg config.Config) (err error) {
 	if daemonRunning {
 		currentURL = oldState.URL
 	}
-	req, err := selfupdate.CreateRequest(ws, remote, currentURL, !daemonRunning)
+	req, err := selfupdate.CreateRequest(ws, remote, currentURL, !daemonRunning || autoConfirm)
 	if err != nil {
 		return err
 	}
@@ -646,7 +691,7 @@ func runSelfUpdate(ws string, cfg config.Config) (err error) {
 		return cause
 	}
 
-	if daemonRunning {
+	if daemonRunning && !autoConfirm {
 		fmt.Printf("Có bản mới %s. Chờ xác nhận tại %s ...\n", remote[:12], oldState.URL)
 		decision, decisionErr := selfupdate.WaitForDecision(ws, req.ID, 30*time.Minute)
 		if decisionErr != nil {
@@ -656,6 +701,8 @@ func runSelfUpdate(ws string, cfg config.Config) (err error) {
 			}
 			return fail(decisionErr)
 		}
+	} else if daemonRunning {
+		fmt.Printf("Có bản mới %s. Tự động xác nhận cập nhật từ Settings.\n", remote[:12])
 	}
 
 	progress := func(status, message string) {
