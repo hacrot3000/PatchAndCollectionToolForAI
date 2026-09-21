@@ -265,11 +265,12 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 				_ = ln.Close()
 				return
 			}
-			logger.Printf("shutdown signal=%s", sig)
+			logger.Printf("shutdown signal=%s; freezing terminal state before broker shutdown", sig)
+			srv.FreezeTerminalStatePersistence()
+			_ = ln.Close()
 			if err := brokerClient.ShutdownBroker(); err != nil {
 				logger.Printf("session broker shutdown warning: %v", err)
 			}
-			_ = ln.Close()
 		case <-serveDone:
 		}
 	}()
