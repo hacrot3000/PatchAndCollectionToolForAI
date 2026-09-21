@@ -10,7 +10,13 @@ import (
 	"strings"
 )
 
+const (
+	ProtocolHTTP  = "http"
+	ProtocolHTTPS = "https"
+)
+
 type Config struct {
+	Protocol      string
 	Bind          string
 	Port          int
 	AdvertiseHost string
@@ -23,7 +29,7 @@ type Config struct {
 }
 
 func Default() Config {
-	return Config{Bind: "127.0.0.1", Port: 0, OpenBrowser: true, Username: "admin"}
+	return Config{Protocol: ProtocolHTTPS, Bind: "127.0.0.1", Port: 0, OpenBrowser: true, Username: "admin"}
 }
 
 func Load(workspace string) (Config, string, error) {
@@ -62,6 +68,8 @@ func Load(workspace string) (Config, string, error) {
 		key = strings.ToLower(strings.TrimSpace(key))
 		value = strings.TrimSpace(value)
 		switch section + "." + key {
+		case "server.protocol":
+			cfg.Protocol = strings.ToLower(value)
 		case "server.bind":
 			cfg.Bind = value
 		case "server.port":
@@ -96,6 +104,11 @@ func Load(workspace string) (Config, string, error) {
 }
 
 func (c Config) Validate() error {
+	switch strings.ToLower(strings.TrimSpace(c.Protocol)) {
+	case ProtocolHTTP, ProtocolHTTPS:
+	default:
+		return fmt.Errorf("server.protocol phải là http hoặc https")
+	}
 	if strings.TrimSpace(c.Bind) == "" {
 		return fmt.Errorf("server.bind không được để trống")
 	}
@@ -107,6 +120,9 @@ func (c Config) Validate() error {
 	}
 	if (c.TLSCert == "") != (c.TLSKey == "") {
 		return fmt.Errorf("tls_cert và tls_key phải được cấu hình cùng nhau")
+	}
+	if c.Protocol == ProtocolHTTP && (c.TLSCert != "" || c.TLSKey != "") {
+		return fmt.Errorf("tls_cert/tls_key chỉ dùng khi server.protocol=https")
 	}
 	return nil
 }
@@ -130,7 +146,8 @@ func (c Config) ValidateListenerAddress(address string) error {
 }
 
 func (c Config) Address() string { return net.JoinHostPort(c.Bind, strconv.Itoa(c.Port)) }
-func (c Config) TLS() bool       { return c.TLSCert != "" && c.TLSKey != "" }
+func (c Config) TLS() bool       { return c.Protocol == ProtocolHTTPS }
+func (c Config) CustomTLS() bool { return c.TLSCert != "" && c.TLSKey != "" }
 
 func parseBool(value string, fallback bool) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
@@ -154,6 +171,7 @@ func isLoopbackBind(host string) bool {
 
 func writeDefault(path string, cfg Config) error {
 	content := fmt.Sprintf(`[server]
+protocol = %s
 bind = %s
 port = %d
 # Set khi bind = 0.0.0.0/:: và muốn URL echo ra dùng IP/hostname truy cập từ xa.
@@ -166,7 +184,7 @@ open_browser = %t
 enabled = false
 username = %s
 password = change-me
-`, cfg.Bind, cfg.Port, cfg.OpenBrowser, cfg.Username)
+`, cfg.Protocol, cfg.Bind, cfg.Port, cfg.OpenBrowser, cfg.Username)
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("tạo %s: %w", path, err)
 	}
