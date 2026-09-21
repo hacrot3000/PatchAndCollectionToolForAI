@@ -247,3 +247,29 @@ func TestSelfUpdateWarnsWhenMarkerClaimsLatestButBinaryDoesNot(t *testing.T) {
 		}
 	}
 }
+
+
+func TestRemoteFirewallGuidanceRecognizesIPv6WildcardListener(t *testing.T) {
+	cfg := config.Default()
+	cfg.Bind = "0.0.0.0"
+	for _, address := range []string{"0.0.0.0:42882", "[::]:42882"} {
+		lines := remoteFirewallGuidance(cfg, address)
+		joined := strings.Join(lines, "\n")
+		if !strings.Contains(joined, "TCP port 42882") {
+			t.Fatalf("wildcard listener %q should produce firewall guidance: %s", address, joined)
+		}
+	}
+}
+
+func TestRemoteWildcardHost(t *testing.T) {
+	for _, host := range []string{"0.0.0.0", "::", "[::]"} {
+		if !remoteWildcardHost(host) {
+			t.Fatalf("expected wildcard host %q", host)
+		}
+	}
+	for _, host := range []string{"127.0.0.1", "::1", "localhost", "192.168.1.20"} {
+		if remoteWildcardHost(host) {
+			t.Fatalf("unexpected wildcard host %q", host)
+		}
+	}
+}
