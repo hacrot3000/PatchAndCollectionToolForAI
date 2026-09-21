@@ -21,7 +21,7 @@ func TestQuickOpenUsesBackendBoundedSearchAndKeyboardNavigation(t *testing.T) {
 		"ArrowDown",
 		"ArrowUp",
 		"event.key==='Enter'",
-		"event.key.toLowerCase()==='p'",
+		"globalQuickOpenShortcut",
 		"taskmenu:project-file-open-request",
 		"data.results.slice(0,50)",
 	} {
