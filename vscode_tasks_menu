@@ -147,9 +147,12 @@ else
     if [[ -f "$BIN.revision" ]]; then
         binary_revision="$(tr -d '[:space:]' < "$BIN.revision")"
     fi
-    if [[ -n "$source_revision" && "$binary_revision" != "$source_revision" ]]; then
-        # Revision identity is stronger than mtimes. This catches stale binaries
-        # copied from an archive or left by an older bootstrap.
+    if [[ -n "$source_revision" && -z "$binary_revision" ]]; then
+        # A source revision marker with an unmarked executable is characteristic
+        # of legacy/fresh installs that may have inherited a stale tracked
+        # .build binary. Rebuild it once. If both revisions exist but differ,
+        # keep the binary: self-update intentionally replaces the executable
+        # without rewriting the bootstrap source tree.
         needs_build=1
     elif find "$SRC_DIR" -type f         \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' -o -path '*/web/*' \)         ! -path "$BUILD_DIR/*" -newer "$BIN" -print -quit | grep -q .; then
         needs_build=1
