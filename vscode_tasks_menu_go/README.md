@@ -212,12 +212,26 @@ File runtime:
 <workspace>/vscode_tasks_menu.ini
 ```
 
-Nếu chưa có, app tự tạo với quyền `0600`. File này nằm trong `.gitignore` vì có thể chứa credential. File mẫu được commit tại root là `vscode_tasks_menu.ini.example`.
+Nếu chưa có, app tự tạo với quyền `0600`. File này có thể chứa credential nên không nên commit vào Git. File mẫu được commit tại root là `vscode_tasks_menu.ini.example`.
 
-### Local mặc định
+### Protocol
+
+`server.protocol` nhận hai giá trị:
+
+- `https` — **mặc định**.
+- `http` — chỉ dùng khi chủ động muốn tắt TLS.
+
+Port không thay đổi theo protocol. Ví dụ `port = 42882` có thể phục vụ `https://...:42882` hoặc `http://...:42882` tùy `protocol`.
+
+Config cũ chưa có `protocol` được hiểu là `https`.
+
+### HTTPS mặc định và certificate tự ký
+
+Config local tối thiểu:
 
 ```ini
 [server]
+protocol = https
 bind = 127.0.0.1
 port = 0
 open_browser = true
@@ -228,18 +242,26 @@ username = admin
 password = change-me
 ```
 
-### Remote access
+Với `protocol=https`:
 
-Ví dụ:
+- Nếu cấu hình cả `tls_cert` và `tls_key`, tool dùng đúng certificate/key đó và kiểm tra key pair trước khi mở server.
+- Nếu bỏ trống cả hai, tool tự tạo **self-signed certificate** và ECDSA P-256 private key, sau đó tái sử dụng qua các lần chạy.
+- Certificate tự sinh có SAN cho `localhost`, loopback, hostname máy, `advertise_host`, và các IP interface hiện tại khi bind wildcard.
+- Certificate tự sinh được rotate khi sắp hết hạn hoặc SAN hiện tại không còn đủ.
+- Private key và certificate tự sinh được lưu ngoài repo trong user config directory theo hash workspace; thư mục private `0700`, file `0600`.
+- `--status`/startup in đường dẫn certificate và SHA-256 fingerprint để người dùng đối chiếu trước khi trust.
+
+Self-signed HTTPS **mã hóa traffic nhưng không tự tạo trust**. Browser sẽ cảnh báo cho tới khi certificate được trust. Hãy kiểm tra fingerprint mà tool in ra trước khi thêm certificate vào trust store. Tool không tự động sửa trust store của hệ điều hành/browser.
+
+Nếu client truy cập bằng IP/hostname cụ thể, nên đặt đúng `advertise_host` để giá trị đó được đưa vào SAN:
 
 ```ini
 [server]
+protocol = https
 bind = 0.0.0.0
-port = 0
+port = 42882
 advertise_host = 192.168.1.20
 open_browser = true
-# tls_cert = /absolute/path/to/server.crt
-# tls_key = /absolute/path/to/server.key
 
 [auth]
 enabled = true
@@ -247,13 +269,41 @@ username = admin
 password = thay-bang-mat-khau-rieng
 ```
 
-Khi bind ra ngoài loopback, app **không khởi động** nếu auth chưa bật, username/password rỗng hoặc password vẫn là `change-me`. Daemon còn kiểm tra **listener thực tế sau khi bind**; vì vậy các đường nội bộ như `--listen-addr` hoặc listener được handoff cũng không thể vô tình mở non-loopback khi auth không hợp lệ.
+Có thể thay self-signed bằng certificate riêng:
 
-Basic Auth trên HTTP không mã hóa credential trên đường truyền. **Không public trực tiếp cổng HTTP này ra Internet.** Khi truy cập qua mạng không tin cậy, cấu hình `tls_cert` và `tls_key` để dùng HTTPS/WSS. Nếu dùng HTTPS reverse proxy, nên bind tool vào loopback và vẫn giữ `auth.enabled=true`, hoặc để reverse proxy tự enforce authentication.
+```ini
+[server]
+protocol = https
+bind = 0.0.0.0
+port = 42882
+advertise_host = devbox.example.lan
+tls_cert = /absolute/path/to/server.crt
+tls_key = /absolute/path/to/server.key
+```
+
+### HTTP tùy chọn
+
+Khi thật sự cần plaintext HTTP:
+
+```ini
+[server]
+protocol = http
+bind = 127.0.0.1
+port = 42882
+open_browser = true
+```
+
+Với `protocol=http`, không được cấu hình `tls_cert`/`tls_key`. Nếu HTTP được bind ra ngoài loopback, tool vẫn yêu cầu authentication và in cảnh báo rằng Basic Auth không mã hóa credential trên đường truyền.
+
+### Remote access và security boundary
+
+Khi bind ra ngoài loopback, app **không khởi động** nếu auth chưa bật, username/password rỗng hoặc password vẫn là `change-me`. Daemon còn kiểm tra **listener thực tế sau khi bind**; vì vậy các đường nội bộ như `--listen-addr` hoặc listener được handoff cũng không thể vô tình mở non-loopback khi auth không hợp lệ.
 
 Remote client không có credential chỉ nhận `401`; `/api/health` chỉ anonymous từ loopback. Basic Auth có giới hạn brute-force theo IP, WebSocket giữ same-origin check mặc định và message read-limit, HTTP server giới hạn header/body và header timeout. Session broker không mở TCP; Unix socket được bảo vệ bằng thư mục private `0700` và socket `0600`.
 
-Backend cũng chặn cross-origin request làm thay đổi trạng thái và gửi security header. Khi TLS bật, server yêu cầu TLS 1.2+ và gửi HSTS. CSP không cho phép tải script từ CDN ngoài; browser chỉ dùng asset do chính daemon phục vụ.
+Backend chặn cross-origin request làm thay đổi trạng thái và gửi security header. Khi HTTPS bật, server yêu cầu TLS 1.2+ và gửi HSTS. CSP không cho phép tải script từ CDN ngoài; browser chỉ dùng asset do chính daemon phục vụ.
+
+Nếu dùng HTTPS reverse proxy thay vì TLS trực tiếp của tool, nên bind tool vào loopback và vẫn giữ `auth.enabled=true`, hoặc để reverse proxy tự enforce authentication.
 
 ## Menu từ tasks.json
 
