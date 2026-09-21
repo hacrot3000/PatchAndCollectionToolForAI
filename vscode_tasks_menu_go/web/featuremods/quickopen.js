@@ -96,11 +96,16 @@ input.addEventListener('keydown',event=>{
   else if(event.key==='Escape'){event.preventDefault();close();}
 });
 backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)close();});
+function globalQuickOpenShortcut(event){
+  const primary=event.ctrlKey||event.metaKey;
+  if(!primary||event.shiftKey||event.altKey||event.key.toLowerCase()!=='p')return;
+  event.preventDefault();
+  event.stopPropagation();
+  if(backdrop.classList.contains('visible'))input.focus();else open();
+}
+window.addEventListener('keydown',globalQuickOpenShortcut,true);
 document.addEventListener('keydown',event=>{
-  if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='p'){
-    event.preventDefault();
-    if(backdrop.classList.contains('visible'))input.focus();else open();
-  }else if(event.key==='Escape'&&backdrop.classList.contains('visible'))close();
+  if(event.key==='Escape'&&backdrop.classList.contains('visible'))close();
 });
 
 globalThis.TaskMenuQuickOpen={open,close};
