@@ -336,3 +336,21 @@ func TestProtocolChangesURLSchemeWithoutChangingListenerPort(t *testing.T) {
 		t.Fatalf("HTTP health URL=%q", health)
 	}
 }
+
+
+func TestShutdownFreezesTerminalStateBeforeBrokerShutdown(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	freeze := strings.Index(src, "srv.FreezeTerminalStatePersistence()")
+	closeListener := strings.Index(src, "_ = ln.Close()")
+	shutdownBroker := strings.Index(src, "brokerClient.ShutdownBroker()")
+	if freeze < 0 || closeListener < 0 || shutdownBroker < 0 {
+		t.Fatalf("shutdown preservation flow missing freeze=%d close=%d broker=%d", freeze, closeListener, shutdownBroker)
+	}
+	if !(freeze < closeListener && closeListener < shutdownBroker) {
+		t.Fatal("shutdown must freeze terminal persistence and close web listener before stopping broker")
+	}
+}
