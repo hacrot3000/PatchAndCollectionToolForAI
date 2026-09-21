@@ -37,6 +37,24 @@ type Result struct {
 	Created  bool
 }
 
+func FingerprintSHA256(certPath string) (string, error) {
+	data, err := os.ReadFile(certPath)
+	if err != nil {
+		return "", err
+	}
+	block, _ := pem.Decode(data)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return "", fmt.Errorf("invalid PEM certificate")
+	}
+	sum := sha256.Sum256(block.Bytes)
+	raw := strings.ToUpper(hex.EncodeToString(sum[:]))
+	parts := make([]string, 0, len(raw)/2)
+	for i := 0; i < len(raw); i += 2 {
+		parts = append(parts, raw[i:i+2])
+	}
+	return strings.Join(parts, ":"), nil
+}
+
 func Resolve(workspace string, cfg config.Config) (Result, error) {
 	if !cfg.TLS() {
 		return Result{}, nil
