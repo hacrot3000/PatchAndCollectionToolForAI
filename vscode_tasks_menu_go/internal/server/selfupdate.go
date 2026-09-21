@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -12,8 +13,38 @@ import (
 	updater "bletonfc/vscode_tasks_menu/internal/selfupdate"
 )
 
+type SelfUpdateCheckResult struct {
+	Available        bool   `json:"available"`
+	InstalledRevision string `json:"installed_revision,omitempty"`
+	RemoteRevision    string `json:"remote_revision,omitempty"`
+}
+
 var selfUpdateHandoffs sync.Map // map[*Server]func(string) error
 var selfUpdateDetaches sync.Map // map[*Server]func(string) error
+var selfUpdateChecks sync.Map   // map[*Server]func(context.Context) (SelfUpdateCheckResult, error)
+var selfUpdateStarts sync.Map   // map[*Server]func() error
+
+func RegisterSelfUpdateCheck(s *Server, fn func(context.Context) (SelfUpdateCheckResult, error)) {
+	if s == nil {
+		return
+	}
+	if fn == nil {
+		selfUpdateChecks.Delete(s)
+		return
+	}
+	selfUpdateChecks.Store(s, fn)
+}
+
+func RegisterSelfUpdateStart(s *Server, fn func() error) {
+	if s == nil {
+		return
+	}
+	if fn == nil {
+		selfUpdateStarts.Delete(s)
+		return
+	}
+	selfUpdateStarts.Store(s, fn)
+}
 
 func RegisterSelfUpdateDetach(s *Server, fn func(string) error) {
 	if s == nil {
@@ -38,7 +69,31 @@ func RegisterSelfUpdateHandoff(s *Server, fn func(string) error) {
 }
 
 func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
+	action := strings.TrimSpace(r.URL.Query().Get("action"))
 	if r.Method == http.MethodGet {
+		if action == "check" {
+			value, ok := selfUpdateChecks.Load(s)
+			if !ok {
+				http.Error(w, "self-update check unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			fn, ok := value.(func(context.Context) (SelfUpdateCheckResult, error))
+			if !ok || fn == nil {
+				http.Error(w, "self-update check unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			result, err := fn(r.Context())
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			writeJSON(w, http.StatusOK, result)
+			return
+		}
+		if action != "" {
+			http.Error(w, "unknown self-update action", http.StatusBadRequest)
+			return
+		}
 		req, err := updater.Load(s.Workspace)
 		if os.IsNotExist(err) {
 			writeJSON(w, http.StatusOK, map[string]string{"status": "idle"})
@@ -53,6 +108,35 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if action == "start" {
+		if req, err := updater.Load(s.Workspace); err == nil {
+			switch req.Status {
+			case "awaiting_confirmation", "confirmed", "downloading", "testing", "building", "installing", "ready_restart", "restarting":
+				http.Error(w, "self-update is already in progress", http.StatusConflict)
+				return
+			}
+		} else if !os.IsNotExist(err) {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		value, ok := selfUpdateStarts.Load(s)
+		if !ok {
+			http.Error(w, "self-update start unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		fn, ok := value.(func() error)
+		if !ok || fn == nil {
+			http.Error(w, "self-update start unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if err := fn(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "status": "starting"})
 		return
 	}
 
@@ -72,7 +156,7 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switch r.URL.Query().Get("action") {
+	switch action {
 	case "confirm":
 		if req.Status != "awaiting_confirmation" {
 			http.Error(w, "update is not awaiting confirmation", http.StatusConflict)
