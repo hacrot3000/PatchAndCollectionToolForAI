@@ -92,7 +92,7 @@ func TestConfigReloadSignalPreservesSessionBroker(t *testing.T) {
 	if start < 0 {
 		t.Fatalf("missing reload signal branch %q", want)
 	}
-	end := strings.Index(src[start:], "logger.Printf(\"shutdown signal=%s\"")
+	end := strings.Index(src[start:], "logger.Printf(\"shutdown signal=%s; freezing terminal state before broker shutdown\"")
 	if end < 0 {
 		t.Fatal("reload signal branch end not found")
 	}
@@ -344,9 +344,18 @@ func TestShutdownFreezesTerminalStateBeforeBrokerShutdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(data)
-	freeze := strings.Index(src, "srv.FreezeTerminalStatePersistence()")
-	closeListener := strings.Index(src, "_ = ln.Close()")
-	shutdownBroker := strings.Index(src, "brokerClient.ShutdownBroker()")
+	start := strings.Index(src, "logger.Printf(\"shutdown signal=%s; freezing terminal state before broker shutdown\"")
+	if start < 0 {
+		t.Fatal("shutdown signal block not found")
+	}
+	end := strings.Index(src[start:], "case <-serveDone:")
+	if end < 0 {
+		t.Fatal("shutdown signal block end not found")
+	}
+	body := src[start : start+end]
+	freeze := strings.Index(body, "srv.FreezeTerminalStatePersistence()")
+	closeListener := strings.Index(body, "_ = ln.Close()")
+	shutdownBroker := strings.Index(body, "brokerClient.ShutdownBroker()")
 	if freeze < 0 || closeListener < 0 || shutdownBroker < 0 {
 		t.Fatalf("shutdown preservation flow missing freeze=%d close=%d broker=%d", freeze, closeListener, shutdownBroker)
 	}
