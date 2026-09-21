@@ -14,6 +14,36 @@ Công cụ luôn lấy workspace từ **thư mục hiện tại** khi gọi exec
 
 Vì vậy thay đổi `tasks.json` sẽ đổi menu ngay, không cần build lại Go. Nút **Reload tasks.json** trên web và phím `r` trong terminal mode sẽ đọc lại file.
 
+## Cài đặt một file / self-install
+
+Có thể cài mới chỉ bằng **một file** root `vscode_tasks_menu`. Không cần tải sẵn thư mục `vscode_tasks_menu_go`.
+
+Ví dụ:
+
+```bash
+chmod +x ./vscode_tasks_menu
+./vscode_tasks_menu
+```
+
+Nếu launcher phát hiện source Go bắt buộc còn thiếu, nó tự:
+
+1. lấy SHA mới nhất của nhánh `main` từ GitHub;
+2. tải source archive đúng SHA đó;
+3. chỉ cài/bổ sung `vscode_tasks_menu_go` cạnh launcher;
+4. build `vscode_tasks_menu_go/.build/vscode_tasks_menu`;
+5. nhúng đúng source revision vào binary và ghi revision marker;
+6. tiếp tục chạy tool với workspace là thư mục hiện tại.
+
+Yêu cầu bootstrap: `bash`, Go toolchain, `tar`, và một trong `curl` hoặc `wget`.
+
+Source được tải qua HTTPS từ GitHub. Archive được staging trong thư mục tạm cạnh launcher, giới hạn 128 MiB, kiểm tra các file bắt buộc trước khi cài. Nếu `vscode_tasks_menu_go` đã tồn tại nhưng thiếu file, self-install chỉ bổ sung file còn thiếu và **không ghi đè source/local changes đang có**.
+
+Sau khi đã cài xong, các lần chạy bình thường không truy cập mạng để self-install. Việc nâng cấp tiếp tục dùng:
+
+```bash
+./vscode_tasks_menu --self-update
+```
+
 ## Chế độ web
 
 ```bash
@@ -22,11 +52,12 @@ Vì vậy thay đổi `tasks.json` sẽ đổi menu ngay, không cần build l�
 
 Lần chạy đầu sẽ:
 
-1. build Go binary vào `vscode_tasks_menu_go/.build/` nếu cần;
-2. khởi động daemon nền;
-3. bind port đã cấu hình (`0` = hệ điều hành chọn port trống);
-4. in URL;
-5. tự mở browser nếu `open_browser = true`.
+1. nếu thiếu source, tự self-install `vscode_tasks_menu_go` từ GitHub;
+2. build Go binary vào `vscode_tasks_menu_go/.build/` nếu cần;
+3. khởi động daemon nền;
+4. bind port đã cấu hình (`0` = hệ điều hành chọn port trống);
+5. in URL;
+6. tự mở browser nếu `open_browser = true`.
 
 Nếu daemon của cùng workspace đã chạy, launcher chỉ in URL và mở browser, không tạo daemon thứ hai.
 
