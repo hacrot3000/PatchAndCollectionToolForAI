@@ -226,3 +226,19 @@ func TestCopyRootSupportFileStagesInstallerAndLauncher(t *testing.T) {
 		t.Fatal("expected unsafe support-file name rejection")
 	}
 }
+
+
+func TestSameExecutablePathRecognizesSymlinkToGlobalBinary(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "taskdeck")
+	if err := os.WriteFile(target, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "taskdeck-link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if !SameExecutablePath(link, target) {
+		t.Fatalf("symlink %q and target %q must be treated as the same executable", link, target)
+	}
+}
