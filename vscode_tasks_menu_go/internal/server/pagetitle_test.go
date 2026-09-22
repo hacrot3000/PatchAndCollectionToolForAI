@@ -12,9 +12,10 @@ import (
 
 func TestPageTitleAPIReadsAndWritesWorkspaceConfig(t *testing.T) {
 	workspace := t.TempDir()
-	configPath := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	legacyConfigPath := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	configPath := filepath.Join(workspace, ".vscode", "vscode_tasks_menu.ini")
 	initial := "[server]\nbind = 127.0.0.1\n\n[auth]\npassword = keep-me\n"
-	if err := os.WriteFile(configPath, []byte(initial), 0o600); err != nil {
+	if err := os.WriteFile(legacyConfigPath, []byte(initial), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	s := &Server{Workspace: workspace}
@@ -45,6 +46,9 @@ func TestPageTitleAPIReadsAndWritesWorkspaceConfig(t *testing.T) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(legacyConfigPath); !os.IsNotExist(err) {
+		t.Fatalf("legacy config still exists: %v", err)
 	}
 	if !strings.Contains(string(data), "password = keep-me") || !strings.Contains(string(data), "page_title = BLE Secure OTA") {
 		t.Fatalf("config not preserved/updated:\n%s", data)

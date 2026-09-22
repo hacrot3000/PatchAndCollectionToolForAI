@@ -17,8 +17,9 @@ func TestTerminalCWDConfigAPIReadsWritesAndPreservesINI(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	configPath := filepath.Join(workspace, "vscode_tasks_menu.ini")
-	if err := os.WriteFile(configPath, []byte("[server]\nbind = 127.0.0.1\n\n[auth]\npassword = keep-me\n"), 0o600); err != nil {
+	legacyConfigPath := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	configPath := filepath.Join(workspace, ".vscode", "vscode_tasks_menu.ini")
+	if err := os.WriteFile(legacyConfigPath, []byte("[server]\nbind = 127.0.0.1\n\n[auth]\npassword = keep-me\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	s := &Server{Workspace: workspace}
@@ -50,6 +51,9 @@ func TestTerminalCWDConfigAPIReadsWritesAndPreservesINI(t *testing.T) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(legacyConfigPath); !os.IsNotExist(err) {
+		t.Fatalf("legacy config still exists: %v", err)
 	}
 	if !strings.Contains(string(data), "password = keep-me") || !strings.Contains(string(data), "[terminal]") {
 		t.Fatalf("config not preserved:\n%s", data)

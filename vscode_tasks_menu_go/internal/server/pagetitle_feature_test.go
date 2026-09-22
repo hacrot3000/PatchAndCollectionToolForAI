@@ -16,7 +16,7 @@ func TestPageTitleFeatureUsesWorkspaceConfigAPI(t *testing.T) {
 	for _, want := range []string{
 		"/api/config/page-title",
 		"method:'PUT'",
-		"vscode_tasks_menu.ini",
+		".vscode/vscode_tasks_menu.ini",
 		"localStorage.removeItem(key)",
 		"document.title=String(data?.title||'').trim()||defaultTitle",
 		"button.onclick=()=>editConfiguredTitle().catch(app.showError)",

@@ -35,7 +35,7 @@ async function editConfiguredTitle(){
 }
 
 if(button){
-  button.title="Edit the title and save it to the project's vscode_tasks_menu.ini";
+  button.title="Edit the title and save it to the project's .vscode/vscode_tasks_menu.ini";
   button.onclick=()=>editConfiguredTitle().catch(app.showError);
 }
 window.addEventListener('taskmenu:tasks',()=>loadConfiguredTitle().catch(app.showError));
