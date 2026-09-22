@@ -217,6 +217,7 @@ function installActivityBar(){
       if(visible){
         activeView='explorer';
         hideTasksPanel();
+        closeHistoryPanel();
       }else if(activeView==='explorer'){
         activeView='';
       }
