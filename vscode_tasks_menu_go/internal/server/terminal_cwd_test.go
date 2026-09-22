@@ -21,5 +21,23 @@ func TestWorkspaceTerminalExecutionAtRejectsEscape(t *testing.T){
 }
 func TestTerminalCwdFeatureModule(t *testing.T){
 	data,err:=webassets.Files.ReadFile("featuremods/terminalcwd.js");if err!=nil{t.Fatal(err)};js:=string(data)
-	for _,want:=range []string{"Terminal: project root","Terminal: Custom…","options?.cwd","payload,cwd:saved()","terminal-cwd:"}{if !strings.Contains(js,want){t.Fatalf("terminal cwd module missing %q",want)}}
+	for _,want:=range []string{
+		"Terminal: project root",
+		"Terminal: Add directory…",
+		"/api/config/terminal-cwds",
+		"TaskMenuDirectoryBrowser?.choose",
+		"Choose terminal directory",
+		"Terminal directory relative to the workspace:",
+		"payload,cwd:selectedCWD()",
+		"localStorage.removeItem(key)",
+	}{
+		if !strings.Contains(js,want){t.Fatalf("terminal cwd module missing %q",want)}
+	}
+	for _,forbidden:=range []string{
+		"window.prompt('Relative workspace directory for new terminals:'",
+		"localStorage.setItem(",
+		"options?.cwd",
+	}{
+		if strings.Contains(js,forbidden){t.Fatalf("terminal cwd module still contains legacy behavior %q",forbidden)}
+	}
 }

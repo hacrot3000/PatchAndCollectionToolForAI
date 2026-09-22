@@ -83,6 +83,9 @@ func TestUploadDestinationBrowserUsesWorkspaceTreeAndKeepsManualPathInput(t *tes
 		"else if(event.key==='Escape')",
 		"loadDestinationDirectory(pathValue",
 		"toggleDestinationDirectory(fullPath)",
+		"async function chooseWorkspaceDirectory(options={})",
+		"globalThis.TaskMenuDirectoryBrowser={choose:chooseWorkspaceDirectory}",
+		"title:'Choose upload destination'",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("upload destination browser missing %q", want)

@@ -27,7 +27,7 @@ function joinDir(parent,name){return parent&&parent!=='.'?parent+'/'+name:name;}
 function displayDir(path){return !path||path==='.'?'. (workspace root)':path;}
 
 let input=null,button=null,overlay=null,dragDepth=0;
-let destinationOverlay=null,destinationTree=null,destinationInput=null,destinationConfirm=null;
+let destinationOverlay=null,destinationTree=null,destinationInput=null,destinationConfirm=null,destinationTitle=null,destinationLabel=null;
 let destinationResolve=null,destinationSelected='.';
 const destinationLoaded=new Map();
 const destinationExpanded=new Set();
@@ -47,18 +47,18 @@ function installDestinationBrowser(){
   destinationOverlay=document.createElement('div');destinationOverlay.className='upload-destination-overlay';
   const dialog=document.createElement('div');dialog.className='upload-destination-dialog';
   const head=document.createElement('div');head.className='upload-destination-head';
-  const title=document.createElement('strong');title.textContent='Choose upload destination';
+  destinationTitle=document.createElement('strong');destinationTitle.textContent='Choose upload destination';
   const refresh=document.createElement('button');refresh.type='button';refresh.textContent='↻';refresh.title='Refresh directories';
   const close=document.createElement('button');close.type='button';close.textContent='×';close.title='Cancel';
   destinationTree=document.createElement('div');destinationTree.className='upload-destination-tree';
   const pathBox=document.createElement('div');pathBox.className='upload-destination-path';
-  const label=document.createElement('label');label.textContent='Destination directory relative to the workspace:';
+  destinationLabel=document.createElement('label');destinationLabel.textContent='Destination directory relative to the workspace:';
   destinationInput=document.createElement('input');destinationInput.type='text';destinationInput.autocomplete='off';destinationInput.spellcheck=false;
-  pathBox.append(label,destinationInput);
+  pathBox.append(destinationLabel,destinationInput);
   const actions=document.createElement('div');actions.className='upload-destination-actions';
   const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';
   destinationConfirm=document.createElement('button');destinationConfirm.type='button';destinationConfirm.className='upload-destination-confirm';destinationConfirm.textContent='Upload here';
-  actions.append(cancel,destinationConfirm);head.append(title,refresh,close);dialog.append(head,destinationTree,pathBox,actions);destinationOverlay.append(dialog);document.body.append(destinationOverlay);
+  actions.append(cancel,destinationConfirm);head.append(destinationTitle,refresh,close);dialog.append(head,destinationTree,pathBox,actions);destinationOverlay.append(dialog);document.body.append(destinationOverlay);
 
   close.onclick=cancel.onclick=()=>closeDestinationBrowser(null);
   destinationConfirm.onclick=()=>closeDestinationBrowser((destinationInput.value.trim()||'.'));
@@ -152,9 +152,14 @@ function closeDestinationBrowser(value){
   resolve(value);
 }
 
-async function chooseDestination(){
+async function chooseWorkspaceDirectory(options={}){
   installDestinationBrowser();
-  destinationSelected=lastDir().trim()||'.';
+  if(destinationResolve)throw new Error('Directory browser is already open');
+  const initial=String(options.initial||'.').trim()||'.';
+  destinationTitle.textContent=String(options.title||'Choose directory');
+  destinationLabel.textContent=String(options.label||'Directory relative to the workspace:');
+  destinationConfirm.textContent=String(options.confirm||'Use directory');
+  destinationSelected=initial;
   destinationInput.value=destinationSelected;
   destinationExpanded.add('');
   destinationOverlay.classList.add('visible');
@@ -163,6 +168,17 @@ async function chooseDestination(){
   setTimeout(()=>destinationInput.focus(),0);
   return new Promise(resolve=>{destinationResolve=resolve;});
 }
+
+async function chooseDestination(){
+  return chooseWorkspaceDirectory({
+    title:'Choose upload destination',
+    label:'Destination directory relative to the workspace:',
+    confirm:'Upload here',
+    initial:lastDir()
+  });
+}
+
+globalThis.TaskMenuDirectoryBrowser={choose:chooseWorkspaceDirectory};
 
 async function chooseDestinationAndUpload(files){
   const value=await chooseDestination();if(value===null)return;
