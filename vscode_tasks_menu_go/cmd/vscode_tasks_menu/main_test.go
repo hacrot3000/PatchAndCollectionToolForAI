@@ -437,6 +437,12 @@ func TestLegacyCleanupSkipsTaskdeckSourceRepository(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(gitDir, "config"), []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(workspace, "vscode_tasks_menu_go"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "vscode_tasks_menu_go", "go.mod"), []byte("module bletonfc/vscode_tasks_menu\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if !taskdeckSourceRepository(workspace) {
 		t.Fatal("TaskDeck source repository was not recognized")
 	}
@@ -468,6 +474,7 @@ func TestLegacyCleanupRunsOnlyFromGlobalInteractiveEntry(t *testing.T) {
 		"filepath.Base(exe) == \"taskdeck\"",
 		"stdinInfo.Mode()&os.ModeCharDevice",
 		"taskdeckSourceRepository(workspace)",
+		"cleanupLegacyTaskdeckArtifacts(workspace, false)",
 		"os.RemoveAll(path)",
 		"Dọn dẹp và xóa các thành phần cũ này? [y/N]:",
 	} {
@@ -492,5 +499,38 @@ func TestDaemonGlobalMigrationDetectionIsLinuxExecutableAware(t *testing.T) {
 		if !strings.Contains(src, want) {
 			t.Fatalf("daemon migration detection missing %q", want)
 		}
+	}
+}
+
+
+func TestCleanupLegacyFlagExists(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		`flag.Bool("cleanup-legacy"`,
+		"cleanupLegacyTaskdeckArtifacts(ws, true)",
+		"Không còn thành phần TaskDeck legacy trong workspace.",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("cleanup CLI missing %q", want)
+		}
+	}
+}
+
+func TestTaskdeckSourceGuardRequiresSourceMarker(t *testing.T) {
+	workspace := t.TempDir()
+	gitDir := filepath.Join(workspace, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := "[remote \"origin\"]\n\turl = git@github.com:hacrot3000/PatchAndCollectionToolForAI.git\n"
+	if err := os.WriteFile(filepath.Join(gitDir, "config"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if taskdeckSourceRepository(workspace) {
+		t.Fatal("repo remote alone must not suppress legacy cleanup without TaskDeck source marker")
 	}
 }
