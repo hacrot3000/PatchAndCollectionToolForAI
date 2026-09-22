@@ -409,11 +409,24 @@ func downloadWithGit(ctx context.Context, revision, dst string) error {
 	if err := copyTreeWithoutBuild(source, filepath.Join(dst, "vscode_tasks_menu_go")); err != nil {
 		return err
 	}
-	launcherData, err := os.ReadFile(filepath.Join(checkout, "vscode_tasks_menu"))
-	if err != nil {
+	if err := copyRootSupportFile(checkout, dst, "vscode_tasks_menu", 0o755); err != nil {
 		return fmt.Errorf("git fallback checkout missing root launcher: %w", err)
 	}
-	return os.WriteFile(filepath.Join(dst, "vscode_tasks_menu"), launcherData, 0o755)
+	if err := copyRootSupportFile(checkout, dst, "install.sh", 0o755); err != nil {
+		return fmt.Errorf("git fallback checkout missing install.sh: %w", err)
+	}
+	return nil
+}
+
+func copyRootSupportFile(srcRoot, dstRoot, name string, mode os.FileMode) error {
+	if filepath.Base(name) != name || name == "." || name == "" {
+		return fmt.Errorf("invalid root support file %q", name)
+	}
+	data, err := os.ReadFile(filepath.Join(srcRoot, name))
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dstRoot, name), data, mode)
 }
 
 func copyTreeWithoutBuild(src, dst string) error {
@@ -494,8 +507,8 @@ func downloadAndExtract(ctx context.Context, revision, dst string) error {
 		}
 		repoRel := name[rootSlash+1:]
 		var target string
-		if repoRel == "vscode_tasks_menu" {
-			target = filepath.Join(dst, "vscode_tasks_menu")
+		if repoRel == "vscode_tasks_menu" || repoRel == "install.sh" {
+			target = filepath.Join(dst, repoRel)
 		} else if strings.HasPrefix(repoRel, "vscode_tasks_menu_go/") {
 			rel := strings.TrimPrefix(repoRel, "vscode_tasks_menu_go/")
 			if rel == "" || strings.HasPrefix(rel, ".build/") || rel == ".build" {
