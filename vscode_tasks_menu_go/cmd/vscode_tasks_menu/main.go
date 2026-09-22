@@ -53,7 +53,7 @@ func main() {
 	flag.Parse()
 
 	if *versionFlag {
-		fmt.Printf("vscode_tasks_menu revision=%s\n", buildRevision)
+		fmt.Printf("taskdeck revision=%s\n", buildRevision)
 		return
 	}
 	if *gitTextconv {
@@ -344,7 +344,7 @@ func handoffToUpdatedDaemon(ws string, ln net.Listener, updateID string) error {
 		return fmt.Errorf("duplicate listener: %w", err)
 	}
 	defer listenerFile.Close()
-	exe, err := os.Executable()
+	exe, err := preferredTaskdeckExecutable()
 	if err != nil {
 		return err
 	}
@@ -407,7 +407,7 @@ func startDaemonWithOptions(ws, listenAddr, updateID string) error {
 	if err := state.EnsureDir(ws); err != nil {
 		return err
 	}
-	exe, err := os.Executable()
+	exe, err := preferredTaskdeckExecutable()
 	if err != nil {
 		return err
 	}
@@ -627,16 +627,29 @@ func checkSelfUpdate(ctx context.Context) (server.SelfUpdateCheckResult, error) 
 	if err != nil {
 		return server.SelfUpdateCheckResult{}, err
 	}
+	global, err := selfupdate.GlobalBinaryPath()
+	if err != nil {
+		return server.SelfUpdateCheckResult{}, err
+	}
+	migrationPending := !selfupdate.SameExecutablePath(exe, global)
 	installed := effectiveInstalledRevision(buildRevision, selfupdate.InstalledRevision(exe))
 	return server.SelfUpdateCheckResult{
-		Available:         installed != remote,
+		Available:         migrationPending || installed != remote,
 		InstalledRevision: installed,
 		RemoteRevision:    remote,
 	}, nil
 }
 
-func startAutoSelfUpdate(ws string) error {
+func preferredTaskdeckExecutable() (string, error) {
 	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return selfupdate.PreferredBinary(exe), nil
+}
+
+func startAutoSelfUpdate(ws string) error {
+	exe, err := preferredTaskdeckExecutable()
 	if err != nil {
 		return err
 	}
@@ -675,13 +688,27 @@ func runSelfUpdate(ws string, cfg config.Config, autoConfirm bool) (err error) {
 	if err != nil {
 		return err
 	}
-	markerRevision := selfupdate.InstalledRevision(exe)
-	installedRevision := effectiveInstalledRevision(buildRevision, markerRevision)
-	if installedRevision == remote {
+	global, err := selfupdate.GlobalBinaryPath()
+	if err != nil {
+		return err
+	}
+	migratingToGlobal := !selfupdate.SameExecutablePath(exe, global)
+	targetBinary := exe
+	if migratingToGlobal {
+		targetBinary = global
+	}
+
+	markerRevision := selfupdate.InstalledRevision(targetBinary)
+	installedRevision := markerRevision
+	if !migratingToGlobal {
+		installedRevision = effectiveInstalledRevision(buildRevision, markerRevision)
+	}
+	targetReady := selfupdate.ExecutableExists(targetBinary) && installedRevision == remote
+	if !migratingToGlobal && targetReady {
 		fmt.Printf("Đã là bản mới nhất: %s\n", remote[:12])
 		return nil
 	}
-	if markerRevision == remote && installedRevision != remote {
+	if !migratingToGlobal && markerRevision == remote && installedRevision != remote {
 		fmt.Fprintf(os.Stderr, "WARNING: revision marker=%s nhưng binary revision=%s; bỏ qua marker cũ và cập nhật lại binary.\n", shortRevision(markerRevision), shortRevision(installedRevision))
 	}
 
@@ -701,7 +728,11 @@ func runSelfUpdate(ws string, cfg config.Config, autoConfirm bool) (err error) {
 	}
 
 	if daemonRunning && !autoConfirm {
-		fmt.Printf("Có bản mới %s. Chờ xác nhận tại %s ...\n", remote[:12], oldState.URL)
+		if migratingToGlobal {
+			fmt.Printf("TaskDeck sẽ chuyển từ cài đặt local sang %s. Chờ xác nhận tại %s ...\n", global, oldState.URL)
+		} else {
+			fmt.Printf("Có bản mới %s. Chờ xác nhận tại %s ...\n", remote[:12], oldState.URL)
+		}
 		decision, decisionErr := selfupdate.WaitForDecision(ws, req.ID, 30*time.Minute)
 		if decisionErr != nil {
 			if decision.Status == "cancelled" {
@@ -711,26 +742,42 @@ func runSelfUpdate(ws string, cfg config.Config, autoConfirm bool) (err error) {
 			return fail(decisionErr)
 		}
 	} else if daemonRunning {
-		fmt.Printf("Có bản mới %s. Tự động xác nhận cập nhật từ Settings.\n", remote[:12])
+		if migratingToGlobal {
+			fmt.Printf("Tự động chuyển TaskDeck sang global user app: %s\n", global)
+		} else {
+			fmt.Printf("Có bản mới %s. Tự động xác nhận cập nhật từ Settings.\n", remote[:12])
+		}
 	}
 
 	progress := func(status, message string) {
 		fmt.Println(message)
 		_, _ = selfupdate.Update(ws, req.ID, status, message, "", "")
 	}
-	staged, err := selfupdate.Prepare(ctx, remote, exe, progress)
-	if err != nil {
-		return fail(err)
-	}
-	defer os.Remove(staged)
-	progress("installing", "Đang thay binary hiện tại bằng bản đã kiểm tra…")
-	if err := selfupdate.Install(staged, exe, remote); err != nil {
-		return fail(err)
+	if !targetReady {
+		staged, prepareErr := selfupdate.Prepare(ctx, remote, targetBinary, progress)
+		if prepareErr != nil {
+			return fail(prepareErr)
+		}
+		defer os.Remove(staged)
+		if migratingToGlobal {
+			progress("installing", "Đang cài TaskDeck global vào "+global+"…")
+		} else {
+			progress("installing", "Đang thay binary hiện tại bằng bản đã kiểm tra…")
+		}
+		if installErr := selfupdate.Install(staged, targetBinary, remote); installErr != nil {
+			return fail(installErr)
+		}
+	} else if migratingToGlobal {
+		progress("installing", "TaskDeck global đã tồn tại; chuyển daemon sang "+global+"…")
 	}
 
 	if !daemonRunning {
-		_, _ = selfupdate.Update(ws, req.ID, "completed", "Cập nhật hoàn tất. Daemon chưa chạy nên không cần restart.", "", "")
-		fmt.Printf("Self-update hoàn tất: %s\n", remote[:12])
+		message := "Cập nhật hoàn tất. Daemon chưa chạy nên không cần restart."
+		if migratingToGlobal {
+			message = "Đã chuyển sang TaskDeck global: " + global
+		}
+		_, _ = selfupdate.Update(ws, req.ID, "completed", message, "", "")
+		fmt.Printf("%s\n", message)
 		return nil
 	}
 
@@ -743,7 +790,6 @@ func runSelfUpdate(ws string, cfg config.Config, autoConfirm bool) (err error) {
 	}
 	newState, err := waitForDaemon(ws, 15*time.Second, oldState.PID)
 	if err != nil {
-		// Handoff callbacks report asynchronous errors through self-update state.
 		if latest, loadErr := selfupdate.Load(ws); loadErr == nil && latest.Status == "failed" {
 			if restartErr := fallbackRestartAfterUpdate(ws, cfg, oldState, req.ID); restartErr == nil {
 				newState, err = waitForDaemon(ws, 15*time.Second, oldState.PID)
@@ -753,14 +799,17 @@ func runSelfUpdate(ws string, cfg config.Config, autoConfirm bool) (err error) {
 	if err != nil {
 		return fail(err)
 	}
-	_, _ = selfupdate.Update(ws, req.ID, "completed", "Cập nhật hoàn tất; daemon mới đã sẵn sàng.", newState.URL, "")
-	fmt.Printf("Self-update hoàn tất: %s\n%s\n", remote[:12], newState.URL)
+	message := "Cập nhật hoàn tất; daemon mới đã sẵn sàng."
+	if migratingToGlobal {
+		message = "Đã chuyển daemon sang TaskDeck global: " + global
+	}
+	_, _ = selfupdate.Update(ws, req.ID, "completed", message, newState.URL, "")
+	fmt.Printf("%s\n%s\n", message, newState.URL)
 	if newState.URL != oldState.URL && cfg.OpenBrowser {
 		_ = openBrowser(newState.URL)
 	}
 	return nil
 }
-
 func requestDaemonAction(cfg config.Config, st state.State, id, action string) error {
 	base := strings.TrimRight(st.HealthURL, "/")
 	if base == "" {

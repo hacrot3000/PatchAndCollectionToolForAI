@@ -390,3 +390,36 @@ func TestGitTextconvCLIHookRunsBeforeWorkspaceResolution(t *testing.T) {
 		}
 	}
 }
+
+
+func TestGlobalTaskdeckIsPreferredForRestartAndHandoff(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"func preferredTaskdeckExecutable()",
+		"return selfupdate.PreferredBinary(exe), nil",
+		"func handoffToUpdatedDaemon",
+		"func startDaemonWithOptions",
+		"migrationPending := !selfupdate.SameExecutablePath(exe, global)",
+		"targetBinary = global",
+		"Đã chuyển daemon sang TaskDeck global:",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("global TaskDeck migration flow missing %q", want)
+		}
+	}
+}
+
+func TestVersionOutputUsesTaskdeckName(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	if !strings.Contains(src, "taskdeck revision=%s") {
+		t.Fatal("version output must use taskdeck name")
+	}
+}
