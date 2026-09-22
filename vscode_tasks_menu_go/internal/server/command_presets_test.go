@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -97,5 +98,14 @@ func TestCommandPresetValidation(t *testing.T) {
 				t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 			}
 		})
+	}
+}
+
+
+func TestCommandPresetPathLivesUnderVSCode(t *testing.T) {
+	workspace := t.TempDir()
+	want := filepath.Join(workspace, ".vscode", projectCommandPresetFile)
+	if got := projectCommandPresetPath(workspace); got != want {
+		t.Fatalf("preset path=%q want %q", got, want)
 	}
 }

@@ -30,7 +30,7 @@ func TestProjectTaskStatePersistsAndLimitsHistory(t *testing.T) {
 	if err := writeProjectTaskState(workspace, state); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(workspace, projectTaskStateFile)
+	path := projectTaskStatePath(workspace)
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
@@ -77,5 +77,27 @@ func TestProjectTaskStateAPI(t *testing.T) {
 	}
 	if len(got.Favorites) != 2 || got.Favorites[0] != 5 || len(got.History) != 1 || got.History[0].Label != "Build" {
 		t.Fatalf("unexpected state: %#v", got)
+	}
+}
+
+
+func TestProjectTaskStateReadMigratesLegacyRootFile(t *testing.T) {
+	workspace := t.TempDir()
+	legacy := filepath.Join(workspace, projectTaskStateFile)
+	if err := os.WriteFile(legacy, []byte("{\"version\":1,\"favorites\":[7],\"recent\":[],\"history\":[]}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readProjectTaskState(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Favorites) != 1 || got.Favorites[0] != 7 {
+		t.Fatalf("migrated state=%#v", got)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatalf("legacy state still exists: %v", err)
+	}
+	if _, err := os.Stat(projectTaskStatePath(workspace)); err != nil {
+		t.Fatalf("migrated state missing: %v", err)
 	}
 }

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"bletonfc/vscode_tasks_menu/internal/projectfiles"
 )
 
 const (
@@ -35,7 +37,7 @@ type projectCommandPresetState struct {
 }
 
 func projectCommandPresetPath(workspace string) string {
-	return filepath.Join(workspace, projectCommandPresetFile)
+	return projectfiles.Path(workspace, projectCommandPresetFile)
 }
 
 func defaultProjectCommandPresetState() projectCommandPresetState {
@@ -104,7 +106,11 @@ func normalizeProjectCommandPresetState(value projectCommandPresetState) (projec
 }
 
 func readProjectCommandPresetState(workspace string) (projectCommandPresetState, error) {
-	data, err := os.ReadFile(projectCommandPresetPath(workspace))
+	path, err := projectfiles.Resolve(workspace, projectCommandPresetFile)
+	if err != nil {
+		return projectCommandPresetState{}, fmt.Errorf("resolve preset state: %w", err)
+	}
+	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return defaultProjectCommandPresetState(), nil
 	}
@@ -140,7 +146,11 @@ func writeProjectCommandPresetState(workspace string, state projectCommandPreset
 	if len(data) > projectCommandPresetMaxFile {
 		return fmt.Errorf("preset state exceeds size limit")
 	}
-	tmp, err := os.CreateTemp(workspace, ".vscode_tasks_menu.presets.*.tmp")
+	target, err := projectfiles.Resolve(workspace, projectCommandPresetFile)
+	if err != nil {
+		return fmt.Errorf("resolve preset state: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(target), ".vscode_tasks_menu.presets.*.tmp")
 	if err != nil {
 		return fmt.Errorf("create preset state temp file: %w", err)
 	}
@@ -161,10 +171,10 @@ func writeProjectCommandPresetState(workspace string, state projectCommandPreset
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close preset state: %w", err)
 	}
-	if err := os.Rename(name, projectCommandPresetPath(workspace)); err != nil {
+	if err := os.Rename(name, target); err != nil {
 		return fmt.Errorf("replace preset state: %w", err)
 	}
-	return os.Chmod(projectCommandPresetPath(workspace), 0o600)
+	return os.Chmod(target, 0o600)
 }
 
 func newCommandPresetID() (string, error) {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"bletonfc/vscode_tasks_menu/internal/projectfiles"
 	updater "bletonfc/vscode_tasks_menu/internal/selfupdate"
 )
 
@@ -40,12 +41,16 @@ func defaultProjectTaskState() projectTaskState {
 }
 
 func projectTaskStatePath(workspace string) string {
-	return filepath.Join(workspace, projectTaskStateFile)
+	return projectfiles.Path(workspace, projectTaskStateFile)
 }
 
 func readProjectTaskState(workspace string) (projectTaskState, error) {
 	state := defaultProjectTaskState()
-	data, err := os.ReadFile(projectTaskStatePath(workspace))
+	path, err := projectfiles.Resolve(workspace, projectTaskStateFile)
+	if err != nil {
+		return state, fmt.Errorf("resolve task-menu state: %w", err)
+	}
+	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return state, nil
 	}
@@ -127,7 +132,11 @@ func writeProjectTaskState(workspace string, state projectTaskState) error {
 		return fmt.Errorf("task-menu state exceeds size limit")
 	}
 
-	tmp, err := os.CreateTemp(workspace, ".vscode_tasks_menu.state.*.tmp")
+	target, err := projectfiles.Resolve(workspace, projectTaskStateFile)
+	if err != nil {
+		return fmt.Errorf("resolve task-menu state: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(target), ".vscode_tasks_menu.state.*.tmp")
 	if err != nil {
 		return fmt.Errorf("create task-menu state temp file: %w", err)
 	}
@@ -148,10 +157,10 @@ func writeProjectTaskState(workspace string, state projectTaskState) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close task-menu state: %w", err)
 	}
-	if err := os.Rename(tmpName, projectTaskStatePath(workspace)); err != nil {
+	if err := os.Rename(tmpName, target); err != nil {
 		return fmt.Errorf("replace task-menu state: %w", err)
 	}
-	return os.Chmod(projectTaskStatePath(workspace), 0o600)
+	return os.Chmod(target, 0o600)
 }
 
 func terminalStateProtectedBySelfUpdate(workspace string) bool {
