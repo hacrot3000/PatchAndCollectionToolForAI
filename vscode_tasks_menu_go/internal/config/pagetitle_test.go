@@ -9,7 +9,7 @@ import (
 
 func TestSetPageTitlePreservesExistingConfig(t *testing.T) {
 	workspace := t.TempDir()
-	path := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	path := filepath.Join(workspace, ".vscode", "vscode_tasks_menu.ini")
 	original := `[server]
 bind = 127.0.0.1
 port = 0
@@ -19,6 +19,7 @@ enabled = true
 username = admin
 password = secret-value
 `
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { t.Fatal(err) }
 	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -54,6 +55,7 @@ password = secret-value
 func TestSetPageTitleUpdatesExistingUISectionAndClearsToDefault(t *testing.T) {
 	workspace := t.TempDir()
 	path := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { t.Fatal(err) }
 	if err := os.WriteFile(path, []byte("[ui]\npage_title = Old title\n\n[server]\nbind = 127.0.0.1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

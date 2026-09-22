@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"bletonfc/vscode_tasks_menu/internal/projectfiles"
 )
 
 const maxPageTitleRunes = 200
@@ -13,7 +15,10 @@ const maxPageTitleRunes = 200
 // vscode_tasks_menu.ini. An absent file/key means the UI should use its default
 // title.
 func ReadPageTitle(workspace string) (string, error) {
-	path := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	path, err := projectfiles.Resolve(workspace, "vscode_tasks_menu.ini")
+	if err != nil {
+		return "", err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -59,7 +64,10 @@ func SetPageTitle(workspace, value string) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	path, err := projectfiles.Resolve(workspace, "vscode_tasks_menu.ini")
+	if err != nil {
+		return err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("đọc %s: %w", path, err)
@@ -113,7 +121,7 @@ func SetPageTitle(workspace, value string) error {
 	}
 
 	content := strings.Join(lines, "\n") + "\n"
-	tmp, err := os.CreateTemp(workspace, ".vscode_tasks_menu.ini.*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".vscode_tasks_menu.ini.*")
 	if err != nil {
 		return fmt.Errorf("tạo file config tạm: %w", err)
 	}

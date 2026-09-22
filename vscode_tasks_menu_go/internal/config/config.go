@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
+
+	"bletonfc/vscode_tasks_menu/internal/projectfiles"
 )
 
 const (
@@ -33,7 +34,10 @@ func Default() Config {
 }
 
 func Load(workspace string) (Config, string, error) {
-	path := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	path, err := projectfiles.Resolve(workspace, "vscode_tasks_menu.ini")
+	if err != nil {
+		return Config{}, projectfiles.Path(workspace, "vscode_tasks_menu.ini"), err
+	}
 	cfg := Default()
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		if err := writeDefault(path, cfg); err != nil {

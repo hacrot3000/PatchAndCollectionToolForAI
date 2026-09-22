@@ -159,3 +159,27 @@ func TestNewConfigFileWritesHTTPSProtocol(t *testing.T) {
 		t.Fatalf("generated config missing HTTPS protocol:\n%s", data)
 	}
 }
+
+
+func TestLoadMigratesLegacyConfigIntoVSCode(t *testing.T) {
+	workspace := t.TempDir()
+	legacy := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	content := "[server]\nprotocol = https\nbind = 127.0.0.1\nport = 0\nopen_browser = false\n\n[auth]\nenabled = false\nusername = admin\npassword = change-me\n"
+	if err := os.WriteFile(legacy, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, path, err := Load(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(workspace, ".vscode", "vscode_tasks_menu.ini")
+	if path != want {
+		t.Fatalf("config path=%q want %q", path, want)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatalf("legacy config still exists: %v", err)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("migrated config missing: %v", err)
+	}
+}

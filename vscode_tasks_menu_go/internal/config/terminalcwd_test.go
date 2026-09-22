@@ -9,7 +9,8 @@ import (
 
 func TestTerminalCWDSettingsPersistInWorkspaceINI(t *testing.T) {
 	workspace := t.TempDir()
-	configPath := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	configPath := filepath.Join(workspace, ".vscode", "vscode_tasks_menu.ini")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil { t.Fatal(err) }
 	original := "[server]\nbind = 127.0.0.1\n\n[auth]\npassword = keep-me\n"
 	if err := os.WriteFile(configPath, []byte(original), 0o600); err != nil {
 		t.Fatal(err)

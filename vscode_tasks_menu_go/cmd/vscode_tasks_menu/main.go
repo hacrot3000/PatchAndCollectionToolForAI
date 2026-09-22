@@ -41,7 +41,7 @@ func main() {
 	statusOnly := flag.Bool("status", false, "in trạng thái daemon rồi thoát")
 	stopDaemonFlag := flag.Bool("stop-daemon", false, "dừng daemon của workspace rồi thoát")
 	restartDaemon := flag.Bool("restart-daemon", false, "dừng daemon cũ rồi khởi động lại")
-	reloadConfigFlag := flag.Bool("reload-config", false, "nạp lại vscode_tasks_menu.ini và restart web daemon, giữ nguyên session broker")
+	reloadConfigFlag := flag.Bool("reload-config", false, "nạp lại .vscode/vscode_tasks_menu.ini và restart web daemon, giữ nguyên session broker")
 	selfUpdateFlag := flag.Bool("self-update", false, "kiểm tra, xác nhận và cài bản mới nhất từ GitHub")
 	selfUpdateAuto := flag.Bool("self-update-auto", false, "tự xác nhận self-update (internal)")
 	sessionBroker := flag.Bool("session-broker", false, "chạy session broker foreground (internal)")

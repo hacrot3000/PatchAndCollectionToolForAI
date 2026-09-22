@@ -7,6 +7,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"bletonfc/vscode_tasks_menu/internal/projectfiles"
 )
 
 const (
@@ -77,7 +79,10 @@ func NormalizeTerminalCWDSettings(value TerminalCWDSettings) (TerminalCWDSetting
 
 func ReadTerminalCWDSettings(workspace string) (TerminalCWDSettings, error) {
 	cfg := DefaultTerminalCWDSettings()
-	configPath := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	configPath, err := projectfiles.Resolve(workspace, "vscode_tasks_menu.ini")
+	if err != nil {
+		return TerminalCWDSettings{}, err
+	}
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -129,7 +134,10 @@ func SetTerminalCWDSettings(workspace string, value TerminalCWDSettings) error {
 	if err != nil {
 		return err
 	}
-	configPath := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	configPath, err := projectfiles.Resolve(workspace, "vscode_tasks_menu.ini")
+	if err != nil {
+		return err
+	}
 	data, err := os.ReadFile(configPath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("đọc %s: %w", configPath, err)
@@ -200,7 +208,7 @@ func SetTerminalCWDSettings(workspace string, value TerminalCWDSettings) error {
 	}
 
 	content := strings.Join(lines, "\n") + "\n"
-	tmp, err := os.CreateTemp(workspace, ".vscode_tasks_menu.ini.*")
+	tmp, err := os.CreateTemp(filepath.Dir(configPath), ".vscode_tasks_menu.ini.*")
 	if err != nil {
 		return fmt.Errorf("tạo file config tạm: %w", err)
 	}
