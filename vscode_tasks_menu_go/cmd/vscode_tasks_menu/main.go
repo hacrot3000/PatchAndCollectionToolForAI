@@ -189,7 +189,14 @@ func maybeOfferLegacyCleanup(workspace string) {
 		return
 	}
 	global, err := selfupdate.GlobalBinaryPath()
-	if err != nil || !selfupdate.SameExecutablePath(exe, global) {
+	if err != nil {
+		return
+	}
+	runningGlobal := selfupdate.SameExecutablePath(exe, global)
+	if !runningGlobal && filepath.Base(exe) == "taskdeck" && selfupdate.ExecutableExists(global) {
+		runningGlobal = true
+	}
+	if !runningGlobal {
 		return
 	}
 	if taskdeckSourceRepository(workspace) {
