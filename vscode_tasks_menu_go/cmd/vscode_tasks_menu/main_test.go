@@ -3,6 +3,7 @@ package main
 import (
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -470,6 +471,24 @@ func TestLegacyCleanupRunsOnlyFromGlobalInteractiveEntry(t *testing.T) {
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("legacy cleanup guard missing %q", want)
+		}
+	}
+}
+
+
+func TestDaemonGlobalMigrationDetectionIsLinuxExecutableAware(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		`/proc/%d/exe`,
+		"daemonNeedsGlobalMigration(oldState, global)",
+		"migrationPending = migrationPending || daemonNeedsGlobalMigration(st, global)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("daemon migration detection missing %q", want)
 		}
 	}
 }

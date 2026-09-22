@@ -31,6 +31,7 @@ import (
 )
 
 var buildRevision = "dev"
+var activeWorkspaceForUpdateCheck string
 
 const reloadConfigSignal = syscall.Signal(1)
 
@@ -246,6 +247,8 @@ func resolveWorkspace(value string) (string, error) {
 }
 
 func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int, listenAddr, updateID string) error {
+	activeWorkspaceForUpdateCheck = ws
+	defer func() { activeWorkspaceForUpdateCheck = "" }()
 	if err := state.EnsureDir(ws); err != nil {
 		return err
 	}
@@ -716,6 +719,24 @@ func shortRevision(value string) string {
 	return value
 }
 
+func resolveWorkspaceForStateCheck() string {
+	return activeWorkspaceForUpdateCheck
+}
+
+func daemonNeedsGlobalMigration(st state.State, global string) bool {
+	if st.PID <= 0 || strings.TrimSpace(global) == "" {
+		return false
+	}
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", st.PID))
+	if err != nil {
+		return false
+	}
+	return !selfupdate.SameExecutablePath(exe, global)
+}
+
 func checkSelfUpdate(ctx context.Context) (server.SelfUpdateCheckResult, error) {
 	remote, err := selfupdate.RemoteRevision(ctx)
 	if err != nil {
@@ -730,6 +751,9 @@ func checkSelfUpdate(ctx context.Context) (server.SelfUpdateCheckResult, error) 
 		return server.SelfUpdateCheckResult{}, err
 	}
 	migrationPending := !selfupdate.SameExecutablePath(exe, global)
+	if st, stateErr := state.Load(resolveWorkspaceForStateCheck()); stateErr == nil && state.Healthy(st) {
+		migrationPending = migrationPending || daemonNeedsGlobalMigration(st, global)
+	}
 	installed := effectiveInstalledRevision(buildRevision, selfupdate.InstalledRevision(exe))
 	return server.SelfUpdateCheckResult{
 		Available:         migrationPending || installed != remote,
@@ -737,7 +761,6 @@ func checkSelfUpdate(ctx context.Context) (server.SelfUpdateCheckResult, error) 
 		RemoteRevision:    remote,
 	}, nil
 }
-
 func preferredTaskdeckExecutable() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -790,7 +813,12 @@ func runSelfUpdate(ws string, cfg config.Config, autoConfirm bool) (err error) {
 	if err != nil {
 		return err
 	}
+	oldState, stateErr := state.Load(ws)
+	daemonRunning := stateErr == nil && state.Healthy(oldState)
 	migratingToGlobal := !selfupdate.SameExecutablePath(exe, global)
+	if daemonRunning && daemonNeedsGlobalMigration(oldState, global) {
+		migratingToGlobal = true
+	}
 	targetBinary := exe
 	if migratingToGlobal {
 		targetBinary = global
@@ -809,9 +837,6 @@ func runSelfUpdate(ws string, cfg config.Config, autoConfirm bool) (err error) {
 	if !migratingToGlobal && markerRevision == remote && installedRevision != remote {
 		fmt.Fprintf(os.Stderr, "WARNING: revision marker=%s nhưng binary revision=%s; bỏ qua marker cũ và cập nhật lại binary.\n", shortRevision(markerRevision), shortRevision(installedRevision))
 	}
-
-	oldState, stateErr := state.Load(ws)
-	daemonRunning := stateErr == nil && state.Healthy(oldState)
 	currentURL := ""
 	if daemonRunning {
 		currentURL = oldState.URL
