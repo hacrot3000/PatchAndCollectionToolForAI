@@ -139,13 +139,25 @@ func main() {
 	}
 }
 
+func taskdeckRepositoryRemote(text string) bool {
+	return strings.Contains(strings.ToLower(text), "github.com/hacrot3000/patchandcollectiontoolforai")
+}
+
 func taskdeckSourceRepository(workspace string) bool {
+	if _, err := os.Stat(filepath.Join(workspace, "vscode_tasks_menu_go", "go.mod")); err != nil {
+		return false
+	}
+
+	gitConfig := filepath.Join(workspace, ".git", "config")
+	if data, err := os.ReadFile(gitConfig); err == nil {
+		return taskdeckRepositoryRemote(string(data))
+	}
+
+	// Git worktrees store .git as a file, so fall back to git only for that
+	// layout. The Git root must still be exactly the active workspace.
 	workspaceAbs, err := filepath.Abs(workspace)
 	if err != nil {
 		workspaceAbs = filepath.Clean(workspace)
-	}
-	if _, err := os.Stat(filepath.Join(workspace, "vscode_tasks_menu_go", "go.mod")); err != nil {
-		return false
 	}
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
@@ -156,20 +168,16 @@ func taskdeckSourceRepository(workspace string) bool {
 	if err != nil {
 		return false
 	}
-	root := strings.TrimSpace(string(out))
-	rootAbs, err := filepath.Abs(root)
+	rootAbs, err := filepath.Abs(strings.TrimSpace(string(out)))
 	if err != nil {
-		rootAbs = filepath.Clean(root)
+		rootAbs = filepath.Clean(strings.TrimSpace(string(out)))
 	}
 	if filepath.Clean(rootAbs) != filepath.Clean(workspaceAbs) {
 		return false
 	}
 	remoteCmd := exec.Command(gitPath, "-C", workspace, "remote", "-v")
 	remotes, err := remoteCmd.Output()
-	if err != nil {
-		return false
-	}
-	return strings.Contains(strings.ToLower(string(remotes)), "github.com/hacrot3000/patchandcollectiontoolforai")
+	return err == nil && taskdeckRepositoryRemote(string(remotes))
 }
 
 func legacyTaskdeckArtifacts(workspace string) []string {
