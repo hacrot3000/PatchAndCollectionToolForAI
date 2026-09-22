@@ -423,3 +423,53 @@ func TestVersionOutputUsesTaskdeckName(t *testing.T) {
 		t.Fatal("version output must use taskdeck name")
 	}
 }
+
+
+func TestLegacyCleanupSkipsTaskdeckSourceRepository(t *testing.T) {
+	workspace := t.TempDir()
+	gitDir := filepath.Join(workspace, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := "[remote \"origin\"]\n\turl = git@github.com:hacrot3000/PatchAndCollectionToolForAI.git\n"
+	if err := os.WriteFile(filepath.Join(gitDir, "config"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !taskdeckSourceRepository(workspace) {
+		t.Fatal("TaskDeck source repository was not recognized")
+	}
+}
+
+func TestLegacyCleanupFindsOnlyOldProjectArtifacts(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "vscode_tasks_menu"), []byte("launcher"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(workspace, "vscode_tasks_menu_go"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	found := legacyTaskdeckArtifacts(workspace)
+	if len(found) != 2 {
+		t.Fatalf("legacy artifacts=%v want 2", found)
+	}
+}
+
+func TestLegacyCleanupRunsOnlyFromGlobalInteractiveEntry(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"maybeOfferLegacyCleanup(ws)",
+		"!selfupdate.SameExecutablePath(exe, global)",
+		"stdinInfo.Mode()&os.ModeCharDevice",
+		"taskdeckSourceRepository(workspace)",
+		"os.RemoveAll(path)",
+		"Dọn dẹp và xóa các thành phần cũ này? [y/N]:",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("legacy cleanup guard missing %q", want)
+		}
+	}
+}

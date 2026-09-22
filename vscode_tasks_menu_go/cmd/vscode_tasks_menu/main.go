@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -66,6 +67,9 @@ func main() {
 
 	ws, err := resolveWorkspace(*workspace)
 	fatalIf(err)
+	if !*serve && !*sessionBroker && !*gitTextconv && !*selfUpdateAuto {
+		maybeOfferLegacyCleanup(ws)
+	}
 	if *sessionBroker {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
@@ -126,6 +130,100 @@ func main() {
 	printTLSStatus(ws, cfg)
 	if cfg.OpenBrowser && !*noBrowser {
 		_ = openBrowser(st.URL)
+	}
+}
+
+func taskdeckSourceRepository(workspace string) bool {
+	workspaceAbs, err := filepath.Abs(workspace)
+	if err != nil {
+		workspaceAbs = filepath.Clean(workspace)
+	}
+	gitPath, err := exec.LookPath("git")
+	if err == nil {
+		rootCmd := exec.Command(gitPath, "-C", workspace, "rev-parse", "--show-toplevel")
+		if out, runErr := rootCmd.Output(); runErr == nil {
+			root := strings.TrimSpace(string(out))
+			rootAbs, absErr := filepath.Abs(root)
+			if absErr != nil {
+				rootAbs = filepath.Clean(root)
+			}
+			if filepath.Clean(rootAbs) == filepath.Clean(workspaceAbs) {
+				remoteCmd := exec.Command(gitPath, "-C", workspace, "remote", "-v")
+				if remotes, remoteErr := remoteCmd.Output(); remoteErr == nil {
+					if strings.Contains(strings.ToLower(string(remotes)), "patchandcollectiontoolforai") {
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	// Fail-safe fallback when git is temporarily unavailable. The repository's
+	// own .git/config is enough to prove this is TaskDeck source and prevents
+	// cleanup from ever deleting the development checkout.
+	configPath := filepath.Join(workspace, ".git", "config")
+	if data, readErr := os.ReadFile(configPath); readErr == nil {
+		return strings.Contains(strings.ToLower(string(data)), "patchandcollectiontoolforai")
+	}
+	return false
+}
+
+func legacyTaskdeckArtifacts(workspace string) []string {
+	candidates := []string{
+		filepath.Join(workspace, "vscode_tasks_menu"),
+		filepath.Join(workspace, "vscode_tasks_menu_go"),
+	}
+	found := make([]string, 0, len(candidates))
+	for _, path := range candidates {
+		if _, err := os.Lstat(path); err == nil {
+			found = append(found, path)
+		}
+	}
+	return found
+}
+
+func maybeOfferLegacyCleanup(workspace string) {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	global, err := selfupdate.GlobalBinaryPath()
+	if err != nil || !selfupdate.SameExecutablePath(exe, global) {
+		return
+	}
+	if taskdeckSourceRepository(workspace) {
+		return
+	}
+	artifacts := legacyTaskdeckArtifacts(workspace)
+	if len(artifacts) == 0 {
+		return
+	}
+	stdinInfo, err := os.Stdin.Stat()
+	if err != nil || stdinInfo.Mode()&os.ModeCharDevice == 0 {
+		return
+	}
+
+	fmt.Println("TaskDeck đang chạy từ global app:", global)
+	fmt.Println("Phát hiện thành phần cài đặt cũ trong project:")
+	for _, path := range artifacts {
+		fmt.Println(" -", filepath.Base(path))
+	}
+	fmt.Print("Dọn dẹp và xóa các thành phần cũ này? [y/N]: ")
+	answer, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil {
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "y", "yes":
+	default:
+		return
+	}
+	for _, path := range artifacts {
+		if err := os.RemoveAll(path); err != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: không xóa được %s: %v\n", path, err)
+			continue
+		}
+		fmt.Println("Đã xóa:", path)
 	}
 }
 
