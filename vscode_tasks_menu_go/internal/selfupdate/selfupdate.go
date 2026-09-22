@@ -206,6 +206,17 @@ func ExecutableExists(path string) bool {
 }
 
 func SameExecutablePath(left, right string) bool {
+	if leftInfo, leftErr := os.Stat(left); leftErr == nil {
+		if rightInfo, rightErr := os.Stat(right); rightErr == nil && os.SameFile(leftInfo, rightInfo) {
+			return true
+		}
+	}
+	leftResolved, leftResolveErr := filepath.EvalSymlinks(left)
+	rightResolved, rightResolveErr := filepath.EvalSymlinks(right)
+	if leftResolveErr == nil && rightResolveErr == nil {
+		left = leftResolved
+		right = rightResolved
+	}
 	leftAbs, leftErr := filepath.Abs(left)
 	rightAbs, rightErr := filepath.Abs(right)
 	if leftErr != nil || rightErr != nil {
