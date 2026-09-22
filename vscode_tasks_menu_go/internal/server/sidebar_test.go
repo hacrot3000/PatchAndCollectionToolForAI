@@ -21,6 +21,9 @@ func TestResizableSidebarFeature(t *testing.T) {
 		"sidebar-width:",
 		"dblclick",
 		"localStorage.setItem",
+		"--taskmenu-sidebar-width",
+		"task-sidebar-auto-hide",
+		"taskmenu:sidebar-mode-changed",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("sidebar.js missing behavior %q", want)

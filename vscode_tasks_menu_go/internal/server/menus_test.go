@@ -22,7 +22,7 @@ func TestGroupedMenusFeature(t *testing.T) {
 		"makeMenu('Terminal'",
 		"makeMenu('Workspace'",
 		"makeMenu('Settings'",
-		"addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls'),document.querySelector('#self-update-check')])",
+		"addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls'),document.querySelector('#sidebar-auto-hide-toggle'),document.querySelector('#self-update-check')])",
 		".git-status-pill",
 		"pane-action-menus",
 		"paneMenu(view,'Session'",
