@@ -188,3 +188,41 @@ func TestGlobalTaskdeckBinaryPathAndPreference(t *testing.T) {
 		t.Fatal("equivalent global paths were not recognized")
 	}
 }
+
+
+func TestCopyRootSupportFileStagesInstallerAndLauncher(t *testing.T) {
+	source := t.TempDir()
+	dest := t.TempDir()
+	for _, item := range []struct {
+		name string
+		mode os.FileMode
+	}{
+		{name: "vscode_tasks_menu", mode: 0o755},
+		{name: "install.sh", mode: 0o755},
+	} {
+		want := "#!/bin/sh\necho " + item.name + "\n"
+		if err := os.WriteFile(filepath.Join(source, item.name), []byte(want), item.mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := copyRootSupportFile(source, dest, item.name, item.mode); err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.ReadFile(filepath.Join(dest, item.name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != want {
+			t.Fatalf("%s content=%q want %q", item.name, got, want)
+		}
+		info, err := os.Stat(filepath.Join(dest, item.name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm()&0o111 == 0 {
+			t.Fatalf("%s is not executable: %v", item.name, info.Mode())
+		}
+	}
+	if err := copyRootSupportFile(source, dest, "../escape", 0o755); err == nil {
+		t.Fatal("expected unsafe support-file name rejection")
+	}
+}
