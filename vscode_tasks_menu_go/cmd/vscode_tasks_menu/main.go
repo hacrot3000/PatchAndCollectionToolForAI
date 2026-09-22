@@ -140,7 +140,11 @@ func main() {
 }
 
 func taskdeckRepositoryRemote(text string) bool {
-	return strings.Contains(strings.ToLower(text), "github.com/hacrot3000/patchandcollectiontoolforai")
+	normalized := strings.ToLower(text)
+	normalized = strings.ReplaceAll(normalized, "git@github.com:", "github.com/")
+	normalized = strings.ReplaceAll(normalized, "ssh://git@github.com/", "github.com/")
+	normalized = strings.ReplaceAll(normalized, "https://github.com/", "github.com/")
+	return strings.Contains(normalized, "github.com/hacrot3000/patchandcollectiontoolforai")
 }
 
 func taskdeckSourceRepository(workspace string) bool {
