@@ -7,6 +7,15 @@ import (
 	"testing"
 )
 
+func TestStaticUIUsesTaskDeckBrand(t *testing.T) {
+	if !strings.Contains(indexHTML, "<header><strong>TaskDeck</strong>") {
+		t.Fatal("header must use TaskDeck brand")
+	}
+	if strings.Contains(indexHTML, "<strong>VS CODE TASKS</strong>") {
+		t.Fatal("legacy VS CODE TASKS header brand must be removed")
+	}
+}
+
 func TestStaticUIUsesOnlyLocalTerminalAssets(t *testing.T) {
 	if strings.Contains(indexHTML, "cdn.jsdelivr.net") || strings.Contains(indexHTML, "https://") || strings.Contains(indexHTML, "http://") {
 		t.Fatalf("index HTML must not depend on external browser assets")

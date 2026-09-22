@@ -20,9 +20,10 @@ func TestGroupedMenusFeature(t *testing.T) {
 		"explorer.textContent='Explorer'",
 		"TaskMenuExplorer?.open()",
 		"makeMenu('Terminal'",
-		"makeMenu('Workspace'",
 		"makeMenu('Settings'",
+		"addSection(files.pop,'FILES',[document.querySelector('#upload-workspace')])",
 		"addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls'),document.querySelector('#self-update-check')])",
+		"addSection(settings.pop,'WORKSPACE',[document.querySelector('#reload'),document.querySelector('#edit-title')])",
 		".git-status-pill",
 		"pane-action-menus",
 		"paneMenu(view,'Session'",
@@ -41,6 +42,9 @@ func TestGroupedMenusFeature(t *testing.T) {
 		if !strings.Contains(js, want) {
 			t.Fatalf("menus.js missing grouped control behavior %q", want)
 		}
+	}
+	if strings.Contains(js, "makeMenu('Workspace'") {
+		t.Fatal("Workspace header menu must be removed")
 	}
 	if !strings.Contains(indexHTML, `/featuremods/next.js`) {
 		t.Fatal("index must load featuremods/next.js")

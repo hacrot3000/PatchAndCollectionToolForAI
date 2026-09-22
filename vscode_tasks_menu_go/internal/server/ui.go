@@ -70,7 +70,7 @@ const indexHTML = `<!doctype html>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <header><strong>VS CODE TASKS</strong><span id="workspace"></span><button id="open-terminal" title="Open an interactive shell at the project root">Open Terminal</button><button id="edit-title" title="Edit the browser page title">Edit title</button><button id="reload">Reload tasks.json</button></header>
+  <header><strong>TaskDeck</strong><span id="workspace"></span><button id="open-terminal" title="Open an interactive shell at the project root">Open Terminal</button><button id="edit-title" title="Edit the browser page title">Edit title</button><button id="reload">Reload tasks.json</button></header>
   <main><aside id="menu"></aside><section><div id="tabs"></div><div id="panes"></div></section></main>
   <script src="/vendor/xterm.js"></script>
   <script src="/vendor/addon-fit.js"></script>

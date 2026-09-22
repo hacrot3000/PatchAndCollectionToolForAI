@@ -37,21 +37,18 @@ function installHeaderMenus(){
   const searchFiles=document.createElement('button');searchFiles.type='button';searchFiles.textContent='Search in Files…  Ctrl+Shift+F';searchFiles.onclick=()=>{closeAll();globalThis.TaskMenuProjectSearch?.open();};
   const explorer=document.createElement('button');explorer.type='button';explorer.textContent='Explorer';explorer.onclick=()=>{closeAll();globalThis.TaskMenuExplorer?.open();};
   addSection(files.pop,'OPEN',[quickOpen,searchFiles,explorer]);
+  addSection(files.pop,'FILES',[document.querySelector('#upload-workspace')]);
   host.append(files.menu);
 
   const terminal=makeMenu('Terminal','Terminal actions');
   addSection(terminal.pop,'NEW TERMINAL',[document.querySelector('#terminal-cwd'),document.querySelector('#open-terminal')]);
   host.append(terminal.menu);
 
-  const workspaceMenu=makeMenu('Workspace','Workspace actions');
-  addSection(workspaceMenu.pop,'FILES & TASKS',[document.querySelector('#upload-workspace'),document.querySelector('#reload')]);
-  addSection(workspaceMenu.pop,'PROJECT',[document.querySelector('#edit-title')]);
-  host.append(workspaceMenu.menu);
-
   const settings=makeMenu('Settings','Tool settings');
   addSection(settings.pop,'ENVIRONMENT',[document.querySelector('#env-profile'),document.querySelector('#env-profile-manage')]);
   addSection(settings.pop,'NOTIFICATIONS',[document.querySelector('#notifications-toggle')]);
   addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls'),document.querySelector('#self-update-check')]);
+  addSection(settings.pop,'WORKSPACE',[document.querySelector('#reload'),document.querySelector('#edit-title')]);
   host.append(settings.menu);
 
   const git=document.querySelector('.git-status-pill');if(git)host.append(git);
