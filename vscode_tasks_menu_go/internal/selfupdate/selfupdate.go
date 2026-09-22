@@ -185,6 +185,43 @@ func RemoteRevision(ctx context.Context) (string, error) {
 
 func MarkerPath(binary string) string { return binary + ".revision" }
 
+func GlobalBinaryPath() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv("TASKDECK_INSTALL_DIR")); dir != "" {
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(abs, "taskdeck"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home directory: %w", err)
+	}
+	return filepath.Join(home, ".local", "bin", "taskdeck"), nil
+}
+
+func ExecutableExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0
+}
+
+func SameExecutablePath(left, right string) bool {
+	leftAbs, leftErr := filepath.Abs(left)
+	rightAbs, rightErr := filepath.Abs(right)
+	if leftErr != nil || rightErr != nil {
+		return filepath.Clean(left) == filepath.Clean(right)
+	}
+	return filepath.Clean(leftAbs) == filepath.Clean(rightAbs)
+}
+
+func PreferredBinary(current string) string {
+	global, err := GlobalBinaryPath()
+	if err == nil && ExecutableExists(global) {
+		return global
+	}
+	return current
+}
+
 func InstalledRevision(binary string) string {
 	data, err := os.ReadFile(MarkerPath(binary))
 	if err != nil {

@@ -1,227 +1,46 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SRC_DIR="$SCRIPT_DIR/vscode_tasks_menu_go"
-BUILD_DIR="$SRC_DIR/.build"
-BIN="$BUILD_DIR/vscode_tasks_menu"
-SOURCE_REVISION_FILE="$BUILD_DIR/source.revision"
-
 REPOSITORY="hacrot3000/PatchAndCollectionToolForAI"
 BRANCH="main"
-API_URL="https://api.github.com/repos/$REPOSITORY/commits/$BRANCH"
-ARCHIVE_BASE_URL="https://codeload.github.com/$REPOSITORY/tar.gz"
-MAX_ARCHIVE_BYTES=$((128 * 1024 * 1024))
-BOOTSTRAP_TMP_ROOT=""
-
-cleanup_bootstrap_tmp() {
-    if [[ -n "${BOOTSTRAP_TMP_ROOT:-}" ]]; then
-        rm -rf -- "$BOOTSTRAP_TMP_ROOT"
-        BOOTSTRAP_TMP_ROOT=""
-    fi
-}
-trap cleanup_bootstrap_tmp EXIT
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_DIR="${TASKDECK_INSTALL_DIR:-${HOME}/.local/bin}"
+TASKDECK_BIN="$INSTALL_DIR/taskdeck"
 
 die() {
     echo "ERROR: $*" >&2
     exit 1
 }
 
-source_complete() {
-    [[ -f "$SRC_DIR/go.mod" ]] &&
-    [[ -f "$SRC_DIR/cmd/vscode_tasks_menu/main.go" ]] &&
-    [[ -f "$SRC_DIR/internal/selfupdate/selfupdate.go" ]] &&
-    [[ -f "$SRC_DIR/web/assets.go" ]]
-}
-
-http_stdout() {
-    local url="$1"
+download_install_script() {
+    local output="$1"
+    local url="https://raw.githubusercontent.com/$REPOSITORY/$BRANCH/install.sh"
     if command -v curl >/dev/null 2>&1; then
-        if curl -fsSL --retry 2 --connect-timeout 10 --max-time 30 \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'User-Agent: vscode_tasks_menu-self-install' \
-            "$url"; then
-            return 0
-        fi
+        curl -fsSL --retry 3 --connect-timeout 10 --max-time 60 -o "$output" "$url" && return 0
     fi
     if command -v wget >/dev/null 2>&1; then
-        if wget -qO- --timeout=30 \
-            --header='Accept: application/vnd.github+json' \
-            --user-agent='vscode_tasks_menu-self-install' \
-            "$url"; then
-            return 0
-        fi
+        wget -q --timeout=60 -O "$output" "$url" && return 0
     fi
     return 1
 }
 
-http_download() {
-    local url="$1"
-    local output="$2"
-    if command -v curl >/dev/null 2>&1; then
-        if curl -fL --retry 2 --connect-timeout 10 --max-time 120 \
-            -H 'User-Agent: vscode_tasks_menu-self-install' \
-            -o "$output" "$url"; then
-            return 0
-        fi
+install_taskdeck() {
+    echo "TaskDeck chưa được cài tại $TASKDECK_BIN; đang cài global user app..."
+    if [[ -x "$SCRIPT_DIR/install.sh" ]]; then
+        TASKDECK_INSTALL_DIR="$INSTALL_DIR" "$SCRIPT_DIR/install.sh"
+        return
     fi
-    if command -v wget >/dev/null 2>&1; then
-        if wget -q --timeout=120 \
-            --user-agent='vscode_tasks_menu-self-install' \
-            -O "$output" "$url"; then
-            return 0
-        fi
-    fi
-    return 1
+    local tmp
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/taskdeck-installer.XXXXXX")"
+    download_install_script "$tmp/install.sh" || { rm -rf -- "$tmp"; die "Không tải được install.sh từ GitHub."; }
+    chmod +x "$tmp/install.sh"
+    TASKDECK_INSTALL_DIR="$INSTALL_DIR" "$tmp/install.sh"
+    rm -rf -- "$tmp"
 }
 
-stage_source_with_git() {
-    local revision="$1"
-    local tmp_root="$2"
-    command -v git >/dev/null 2>&1 || return 1
-    local git_root="$tmp_root/git-source"
-    rm -rf -- "$git_root"
-    git init -q "$git_root" || return 1
-    git -C "$git_root" remote add origin "https://github.com/$REPOSITORY.git" || return 1
-    GIT_TERMINAL_PROMPT=0 git -C "$git_root" fetch -q --depth 1 origin "$revision" || return 1
-    git -C "$git_root" checkout -q --detach FETCH_HEAD || return 1
-    [[ -f "$git_root/vscode_tasks_menu_go/go.mod" ]] || return 1
-    printf '%s\n' "$git_root/vscode_tasks_menu_go"
-}
-
-remote_revision() {
-    local json revision
-    json="$(http_stdout "$API_URL")" || die "Không lấy được revision mới nhất từ GitHub."
-    revision="$(printf '%s\n' "$json" | grep -oE '"sha"[[:space:]]*:[[:space:]]*"[0-9a-fA-F]{40}"' | head -n 1 | sed -E 's/.*"([0-9a-fA-F]{40})".*/\1/' || true)"
-    [[ "$revision" =~ ^[0-9a-fA-F]{40}$ ]] || die "GitHub trả về revision không hợp lệ."
-    printf '%s\n' "$revision"
-}
-
-bootstrap_source() {
-    source_complete && return 0
-    [[ ! -L "$SRC_DIR" ]] || die "$SRC_DIR là symlink; từ chối self-install để tránh ghi source ra ngoài thư mục tool."
-    command -v tar >/dev/null 2>&1 || die "Self-install cần lệnh tar."
-
-    echo "Self-install: thiếu source vscode_tasks_menu_go; đang tải từ GitHub..."
-    local revision tmp_root archive extract_root go_mod staged_source archive_size pristine_install
-    revision="$(remote_revision)"
-    pristine_install=0
-    tmp_root="$(mktemp -d "$SCRIPT_DIR/.vscode_tasks_menu-install.XXXXXX")"
-    BOOTSTRAP_TMP_ROOT="$tmp_root"
-    archive="$tmp_root/source.tar.gz"
-    extract_root="$tmp_root/extract"
-    mkdir -p "$extract_root"
-
-    staged_source=""
-    if http_download "$ARCHIVE_BASE_URL/$revision" "$archive"; then
-        archive_size="$(wc -c < "$archive" | tr -d '[:space:]')"
-        [[ "$archive_size" =~ ^[0-9]+$ ]] || die "Không xác định được kích thước archive self-install."
-        (( archive_size <= MAX_ARCHIVE_BYTES )) || die "Archive self-install vượt giới hạn 128 MiB."
-
-        tar --no-same-owner --no-same-permissions -xzf "$archive" -C "$extract_root"
-        go_mod="$(find "$extract_root" -type f -path '*/vscode_tasks_menu_go/go.mod' -print -quit)"
-        [[ -n "$go_mod" ]] || die "Archive GitHub thiếu vscode_tasks_menu_go/go.mod."
-        staged_source="$(dirname "$go_mod")"
-    else
-        echo "Self-install: tải archive qua codeload thất bại; thử fallback bằng git..." >&2
-        staged_source="$(stage_source_with_git "$revision" "$tmp_root" || true)"
-        [[ -n "$staged_source" ]] || die "Không tải được source từ codeload.github.com và git fallback qua github.com cũng thất bại."
-    fi
-    [[ -f "$staged_source/cmd/vscode_tasks_menu/main.go" ]] || die "Archive GitHub thiếu cmd/vscode_tasks_menu/main.go."
-    [[ -f "$staged_source/internal/selfupdate/selfupdate.go" ]] || die "Archive GitHub thiếu self-update source."
-    [[ -f "$staged_source/web/assets.go" ]] || die "Archive GitHub thiếu embedded web assets."
-
-    if [[ ! -e "$SRC_DIR" ]]; then
-        # Build artifacts are machine-local and must never be trusted from the
-        # downloaded source archive. Older repository revisions accidentally
-        # tracked .build/vscode_tasks_menu, which could otherwise make a fresh
-        # install execute a stale binary even though the source is current.
-        rm -rf -- "$staged_source/.build"
-        mv "$staged_source" "$SRC_DIR"
-        pristine_install=1
-    else
-        mkdir -p "$SRC_DIR"
-        # Chỉ bổ sung file còn thiếu; không ghi đè source/local changes đang có.
-        cp -a -n "$staged_source/." "$SRC_DIR/"
-    fi
-    source_complete || die "Self-install hoàn tất tải nhưng source vẫn chưa đầy đủ."
-
-    mkdir -p "$BUILD_DIR"
-    if [[ "$pristine_install" == "1" ]]; then
-        printf '%s\n' "$revision" > "$SOURCE_REVISION_FILE"
-        chmod 600 "$SOURCE_REVISION_FILE"
-        echo "Self-install: source revision ${revision:0:12} đã sẵn sàng."
-    else
-        # Source hỗn hợp có thể chứa local changes; không được giả nhận SHA remote.
-        rm -f "$SOURCE_REVISION_FILE"
-        echo "Self-install: đã bổ sung file còn thiếu; giữ nguyên source hiện có (revision=dev)."
-    fi
-    cleanup_bootstrap_tmp
-}
-
-source_revision_for_build() {
-    [[ -f "$SOURCE_REVISION_FILE" ]] || return 0
-    local revision
-    revision="$(tr -d '[:space:]' < "$SOURCE_REVISION_FILE")"
-    [[ "$revision" =~ ^[0-9a-fA-F]{40}$ ]] || return 0
-
-    # Marker chỉ đáng tin khi source chưa bị sửa sau lần bootstrap.
-    if find "$SRC_DIR" -type f         \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' -o -path '*/web/*' \)         ! -path "$BUILD_DIR/*" -newer "$SOURCE_REVISION_FILE" -print -quit | grep -q .; then
-        return 0
-    fi
-    printf '%s\n' "$revision"
-}
-
-if ! command -v go >/dev/null 2>&1; then
-    echo "ERROR: Go toolchain không có trong PATH." >&2
-    exit 127
+if [[ ! -x "$TASKDECK_BIN" ]]; then
+    install_taskdeck
 fi
+[[ -x "$TASKDECK_BIN" ]] || die "Cài TaskDeck thất bại: không tìm thấy $TASKDECK_BIN"
 
-bootstrap_source
-mkdir -p "$BUILD_DIR"
-
-needs_build=0
-if [[ ! -x "$BIN" ]]; then
-    needs_build=1
-else
-    source_revision="$(source_revision_for_build || true)"
-    binary_revision=""
-    if [[ -f "$BIN.revision" ]]; then
-        binary_revision="$(tr -d '[:space:]' < "$BIN.revision")"
-    fi
-    if [[ -n "$source_revision" && -z "$binary_revision" ]]; then
-        # A source revision marker with an unmarked executable is characteristic
-        # of legacy/fresh installs that may have inherited a stale tracked
-        # .build binary. Rebuild it once. If both revisions exist but differ,
-        # keep the binary: self-update intentionally replaces the executable
-        # without rewriting the bootstrap source tree.
-        needs_build=1
-    elif find "$SRC_DIR" -type f         \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' -o -path '*/web/*' \)         ! -path "$BUILD_DIR/*" -newer "$BIN" -print -quit | grep -q .; then
-        needs_build=1
-    fi
-fi
-
-if [[ "$needs_build" == "1" ]]; then
-    tmp="$BIN.tmp.$$"
-    revision="$(source_revision_for_build || true)"
-    build_args=(build -buildvcs=false -trimpath -o "$tmp")
-    if [[ -n "$revision" ]]; then
-        build_args+=(-ldflags "-X main.buildRevision=$revision")
-    fi
-    build_args+=(./cmd/vscode_tasks_menu)
-    (
-        cd "$SRC_DIR"
-        GOPROXY=off GOSUMDB=off go "${build_args[@]}"
-    )
-    chmod +x "$tmp"
-    mv -f "$tmp" "$BIN"
-    if [[ -n "$revision" ]]; then
-        printf '%s\n' "$revision" > "$BIN.revision.tmp"
-        chmod 600 "$BIN.revision.tmp"
-        mv -f "$BIN.revision.tmp" "$BIN.revision"
-    else
-        rm -f "$BIN.revision"
-    fi
-fi
-
-exec "$BIN" --workspace "$PWD" "$@"
+exec "$TASKDECK_BIN" --workspace "$PWD" "$@"

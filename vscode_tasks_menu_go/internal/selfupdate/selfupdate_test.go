@@ -161,3 +161,30 @@ func TestInstallDoesNotGuessLauncherOutsideStandardLayout(t *testing.T) {
 		t.Fatal("custom binary path unexpectedly recognized as standard launcher layout")
 	}
 }
+
+
+func TestGlobalTaskdeckBinaryPathAndPreference(t *testing.T) {
+	installDir := t.TempDir()
+	t.Setenv("TASKDECK_INSTALL_DIR", installDir)
+	global, err := GlobalBinaryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(installDir, "taskdeck")
+	if global != want {
+		t.Fatalf("global path=%q want %q", global, want)
+	}
+	current := filepath.Join(t.TempDir(), "vscode_tasks_menu")
+	if got := PreferredBinary(current); got != current {
+		t.Fatalf("preferred missing-global=%q want current %q", got, current)
+	}
+	if err := os.WriteFile(global, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := PreferredBinary(current); got != global {
+		t.Fatalf("preferred=%q want global %q", got, global)
+	}
+	if !SameExecutablePath(global, filepath.Join(installDir, ".", "taskdeck")) {
+		t.Fatal("equivalent global paths were not recognized")
+	}
+}
