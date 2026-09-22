@@ -244,6 +244,18 @@ function installActivityBar(){
   }
 
   toggle.onclick=()=>setAutoHide(!enabled());
+
+  document.addEventListener('pointerdown',event=>{
+    if(!enabled()||!activeView)return;
+    const target=event.target;
+    if(!(target instanceof Node))return;
+    if(rail.contains(target))return;
+    if(activeView==='tasks'&&menu.contains(target))return;
+    if(activeView==='explorer'&&explorerPanel?.contains(target))return;
+    if(activeView==='history'&&historyPanel.contains(target))return;
+    closeActive();
+  },true);
+
   document.addEventListener('keydown',event=>{
     if(event.key==='Escape'&&enabled()&&(activeView==='tasks'||activeView==='history'))closeActive();
   });

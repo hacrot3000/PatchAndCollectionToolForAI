@@ -30,6 +30,12 @@ func TestActivityBarIsAdditiveAndFailureIsolated(t *testing.T) {
 		"appearance.append(toggle)",
 		"TaskMenuExplorer?.open()",
 		"TaskMenuExplorer?.close()",
+		"document.addEventListener('pointerdown'",
+		"rail.contains(target)",
+		"activeView==='tasks'&&menu.contains(target)",
+		"activeView==='explorer'&&explorerPanel?.contains(target)",
+		"activeView==='history'&&historyPanel.contains(target)",
+		"},true)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("activitybar.js missing %q", want)
