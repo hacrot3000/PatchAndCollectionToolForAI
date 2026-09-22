@@ -7,6 +7,7 @@ on:
       - "IDE_tool"
     paths:
       - "vscode_tasks_menu"
+      - "install.sh"
       - "vscode_tasks_menu_go/**"
       - ".github/workflows/vscode_tasks_menu_go.yml"
   workflow_dispatch:
@@ -39,8 +40,10 @@ jobs:
           go-version: ${{ matrix.go-version }}
           cache: false
 
-      - name: Launcher syntax
-        run: bash -n ../vscode_tasks_menu
+      - name: Launcher and installer syntax
+        run: |
+          bash -n ../vscode_tasks_menu
+          bash -n ../install.sh
 
       - name: JavaScript syntax
         run: |
@@ -55,4 +58,4 @@ jobs:
         run: go vet ./...
 
       - name: Build
-        run: go build -trimpath -o /tmp/vscode_tasks_menu ./cmd/vscode_tasks_menu
+        run: go build -buildvcs=false -trimpath -o /tmp/taskdeck ./cmd/vscode_tasks_menu
