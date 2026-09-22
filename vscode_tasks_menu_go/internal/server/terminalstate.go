@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 
+	"bletonfc/vscode_tasks_menu/internal/projectfiles"
 	"bletonfc/vscode_tasks_menu/internal/session"
 	"bletonfc/vscode_tasks_menu/internal/tasks"
 )
@@ -78,11 +79,15 @@ func normalizeTerminalLayoutProfile(value string) string {
 	return "desktop"
 }
 
-func projectTerminalStatePathForProfile(workspace, profile string) string {
+func projectTerminalStateFileForProfile(profile string) string {
 	if normalizeTerminalLayoutProfile(profile) == "mobile" {
-		return filepath.Join(workspace, projectTerminalMobileStateFile)
+		return projectTerminalMobileStateFile
 	}
-	return filepath.Join(workspace, projectTerminalStateFile)
+	return projectTerminalStateFile
+}
+
+func projectTerminalStatePathForProfile(workspace, profile string) string {
+	return projectfiles.Path(workspace, projectTerminalStateFileForProfile(profile))
 }
 
 func projectTerminalStatePath(workspace string) string {
@@ -175,7 +180,11 @@ func readProjectTerminalState(workspace string) (projectTerminalState, error) {
 func readProjectTerminalStateProfile(workspace, profile string) (projectTerminalState, error) {
 	profile = normalizeTerminalLayoutProfile(profile)
 	value := defaultProjectTerminalState()
-	data, err := os.ReadFile(projectTerminalStatePathForProfile(workspace, profile))
+	path, err := projectfiles.Resolve(workspace, projectTerminalStateFileForProfile(profile))
+	if err != nil {
+		return value, fmt.Errorf("resolve terminal state: %w", err)
+	}
+	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return value, nil
 	}
@@ -218,7 +227,11 @@ func writeProjectTerminalStateProfile(workspace, profile string, value projectTe
 	if len(data) > projectTerminalStateMax {
 		return fmt.Errorf("terminal state exceeds size limit")
 	}
-	tmp, err := os.CreateTemp(workspace, ".vscode_tasks_menu.terminals.*.tmp")
+	target, err := projectfiles.Resolve(workspace, projectTerminalStateFileForProfile(profile))
+	if err != nil {
+		return fmt.Errorf("resolve terminal state: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(target), ".vscode_tasks_menu.terminals.*.tmp")
 	if err != nil {
 		return fmt.Errorf("create terminal state temp file: %w", err)
 	}
@@ -239,7 +252,6 @@ func writeProjectTerminalStateProfile(workspace, profile string, value projectTe
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close terminal state: %w", err)
 	}
-	target := projectTerminalStatePathForProfile(workspace, profile)
 	if err := os.Rename(name, target); err != nil {
 		return fmt.Errorf("replace terminal state: %w", err)
 	}

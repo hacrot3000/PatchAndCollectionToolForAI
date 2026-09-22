@@ -277,3 +277,35 @@ func TestTerminalStateEmptySnapshotStillClearsWhenNotFrozen(t *testing.T) {
 		t.Fatalf("intentional empty snapshot was not persisted: %#v", got)
 	}
 }
+
+
+func TestTerminalStatePathsLiveUnderVSCode(t *testing.T) {
+	root := t.TempDir()
+	for profile, name := range map[string]string{
+		"desktop": projectTerminalStateFile,
+		"mobile": projectTerminalMobileStateFile,
+	} {
+		want := filepath.Join(root, ".vscode", name)
+		if got := projectTerminalStatePathForProfile(root, profile); got != want {
+			t.Fatalf("%s state path=%q want %q", profile, got, want)
+		}
+	}
+}
+
+func TestTerminalStateReadMigratesLegacyRootFile(t *testing.T) {
+	root := t.TempDir()
+	legacy := filepath.Join(root, projectTerminalStateFile)
+	data := []byte("{\"version\":3,\"terminals\":[],\"active_index\":-1,\"splits\":[]}\n")
+	if err := os.WriteFile(legacy, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readProjectTerminalState(root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatalf("legacy terminal state still exists: %v", err)
+	}
+	if _, err := os.Stat(projectTerminalStatePath(root)); err != nil {
+		t.Fatalf("migrated terminal state missing: %v", err)
+	}
+}

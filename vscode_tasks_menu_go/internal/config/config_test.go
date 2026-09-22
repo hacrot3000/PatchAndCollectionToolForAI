@@ -33,10 +33,11 @@ func TestLoadProtectsExistingConfigPermissions(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := Load(workspace); err != nil {
+	_, loadedPath, err := Load(workspace)
+	if err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(path)
+	info, err := os.Stat(loadedPath)
 	if err != nil {
 		t.Fatal(err)
 	}
