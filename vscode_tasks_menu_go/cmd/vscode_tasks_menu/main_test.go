@@ -245,7 +245,7 @@ func TestSelfUpdateWarnsWhenMarkerClaimsLatestButBinaryDoesNot(t *testing.T) {
 	}
 	src := string(data)
 	for _, want := range []string{
-		"markerRevision := selfupdate.InstalledRevision(exe)",
+		"markerRevision := selfupdate.InstalledRevision(targetBinary)",
 		"installedRevision := effectiveInstalledRevision(buildRevision, markerRevision)",
 		"markerRevision == remote && installedRevision != remote",
 		"bỏ qua marker cũ và cập nhật lại binary",
