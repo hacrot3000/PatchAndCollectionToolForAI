@@ -532,3 +532,19 @@ func TestTaskdeckSourceGuardRequiresSourceMarker(t *testing.T) {
 		t.Fatal("repo remote alone must not suppress legacy cleanup without TaskDeck source marker")
 	}
 }
+
+
+func TestTaskdeckRepositoryRemoteRecognizesSSHAndHTTPS(t *testing.T) {
+	for _, remote := range []string{
+		"git@github.com:hacrot3000/PatchAndCollectionToolForAI.git",
+		"https://github.com/hacrot3000/PatchAndCollectionToolForAI.git",
+		"ssh://git@github.com/hacrot3000/PatchAndCollectionToolForAI.git",
+	} {
+		if !taskdeckRepositoryRemote(remote) {
+			t.Fatalf("TaskDeck remote not recognized: %s", remote)
+		}
+	}
+	if taskdeckRepositoryRemote("git@github.com:hacrot3000/M3.git") {
+		t.Fatal("unrelated repository must not be treated as TaskDeck source")
+	}
+}
