@@ -464,7 +464,8 @@ func TestLegacyCleanupRunsOnlyFromGlobalInteractiveEntry(t *testing.T) {
 	src := string(data)
 	for _, want := range []string{
 		"maybeOfferLegacyCleanup(ws)",
-		"!selfupdate.SameExecutablePath(exe, global)",
+		"runningGlobal := selfupdate.SameExecutablePath(exe, global)",
+		"filepath.Base(exe) == \"taskdeck\"",
 		"stdinInfo.Mode()&os.ModeCharDevice",
 		"taskdeckSourceRepository(workspace)",
 		"os.RemoveAll(path)",
