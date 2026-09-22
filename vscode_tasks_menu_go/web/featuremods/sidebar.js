@@ -27,16 +27,7 @@ function initializeSidebar(){
   function limits(){return {min:220,max:Math.max(220,Math.min(650,window.innerWidth-320))};}
   function clamp(value){const {min,max}=limits();return Math.min(max,Math.max(min,Math.round(value)||defaultWidth));}
   function apply(width){
-    const value=clamp(width);
-    main.style.setProperty('--taskmenu-sidebar-width',value+'px');
-    if(document.body.classList.contains('task-sidebar-auto-hide')){
-      main.style.gridTemplateColumns='48px minmax(0,1fr)';
-      resizer.hidden=true;
-    }else{
-      main.style.gridTemplateColumns=value+'px 6px minmax(0,1fr)';
-      resizer.hidden=false;
-    }
-    return value;
+    const value=clamp(width);main.style.gridTemplateColumns=value+'px 6px minmax(0,1fr)';return value;
   }
   function load(){let value=defaultWidth;try{value=Number(localStorage.getItem(key))||defaultWidth;}catch{}return apply(value);}
   function save(value){try{localStorage.setItem(key,String(value));}catch(e){console.warn('Cannot persist sidebar width',e);}}
@@ -65,7 +56,6 @@ function initializeSidebar(){
   resizer.addEventListener('pointerup',finish);resizer.addEventListener('pointercancel',finish);
   resizer.addEventListener('dblclick',()=>{width=apply(defaultWidth);save(width);});
   window.addEventListener('resize',()=>{width=apply(width);});
-  window.addEventListener('taskmenu:sidebar-mode-changed',()=>{width=apply(width);});
 }
 
 if(app.taskData?.workspace)initializeSidebar();

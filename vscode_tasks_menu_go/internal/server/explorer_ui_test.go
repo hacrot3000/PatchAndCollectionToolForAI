@@ -65,20 +65,3 @@ func TestExplorerRestoresNestedExpandedDirectories(t *testing.T) {
 		t.Fatal("Explorer restore must not skip nested expanded directories")
 	}
 }
-
-func TestExplorerCoordinatesWithActivityBar(t *testing.T) {
-	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
-	if err != nil {
-		t.Fatal(err)
-	}
-	js := string(data)
-	for _, want := range []string{
-		"body.task-sidebar-auto-hide .project-explorer",
-		"taskmenu:explorer-opened",
-		"taskmenu:explorer-closed",
-	} {
-		if !strings.Contains(js, want) {
-			t.Fatalf("explorer activity-bar integration missing %q", want)
-		}
-	}
-}

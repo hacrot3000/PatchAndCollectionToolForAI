@@ -18,7 +18,6 @@ import '/featuremods/clearfiles.js';
 import '/featuremods/selfupdate.js';
 import '/featuremods/quickopen.js';
 import '/featuremods/explorer.js';
-import '/featuremods/activitybar.js';
 import '/featuremods/editor.js';
 import '/featuremods/projectsearch.js';
 import '/featuremods/menus.js';

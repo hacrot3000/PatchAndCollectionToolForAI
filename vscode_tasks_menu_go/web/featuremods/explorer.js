@@ -16,7 +16,6 @@ style.textContent=`
 .project-explorer-name.file{opacity:.9}
 .project-explorer-children{margin-left:13px;border-left:1px solid #252c35;padding-left:4px}
 .project-explorer-message{padding:10px 8px;opacity:.65}
-body.task-sidebar-auto-hide .project-explorer{left:48px;width:min(var(--taskmenu-sidebar-width,310px),calc(100vw - 48px))}
 html[data-taskmenu-theme="light"] .project-explorer{background:#fff;border-color:#b9c0c8;box-shadow:10px 0 28px rgba(0,0,0,.12)}
 html[data-taskmenu-theme="light"] .project-explorer-row:hover{background:#edf1f5}
 html[data-taskmenu-theme="light"] .project-explorer-children{border-color:#dfe3e8}
@@ -133,13 +132,8 @@ async function ensureRoot(force=false){
 }
 function open(){
   panel.classList.add('visible');restoreExpanded();ensureRoot(false).catch(app.showError);
-  window.dispatchEvent(new CustomEvent('taskmenu:explorer-opened'));
 }
-function close(){
-  const wasVisible=panel.classList.contains('visible');
-  panel.classList.remove('visible');
-  if(wasVisible)window.dispatchEvent(new CustomEvent('taskmenu:explorer-closed'));
-}
+function close(){panel.classList.remove('visible');}
 async function reload(){try{await ensureRoot(true);}catch(error){app.showError(error);}}
 
 refresh.onclick=reload;
