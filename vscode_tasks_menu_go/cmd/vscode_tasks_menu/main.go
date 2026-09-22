@@ -52,6 +52,7 @@ func main() {
 	handoffFD := flag.Int("handoff-fd", -1, "inherited listener fd (internal)")
 	listenAddr := flag.String("listen-addr", "", "listener address override (internal)")
 	selfUpdateID := flag.String("self-update-id", "", "self-update handoff id (internal)")
+	cleanupLegacy := flag.Bool("cleanup-legacy", false, "dọn vscode_tasks_menu và vscode_tasks_menu_go cũ trong workspace")
 	flag.Parse()
 
 	if *versionFlag {
@@ -68,6 +69,10 @@ func main() {
 
 	ws, err := resolveWorkspace(*workspace)
 	fatalIf(err)
+	if *cleanupLegacy {
+		fatalIf(cleanupLegacyTaskdeckArtifacts(ws, true))
+		return
+	}
 	if !*serve && !*sessionBroker && !*gitTextconv && !*selfUpdateAuto {
 		maybeOfferLegacyCleanup(ws)
 	}
@@ -139,34 +144,32 @@ func taskdeckSourceRepository(workspace string) bool {
 	if err != nil {
 		workspaceAbs = filepath.Clean(workspace)
 	}
+	if _, err := os.Stat(filepath.Join(workspace, "vscode_tasks_menu_go", "go.mod")); err != nil {
+		return false
+	}
 	gitPath, err := exec.LookPath("git")
-	if err == nil {
-		rootCmd := exec.Command(gitPath, "-C", workspace, "rev-parse", "--show-toplevel")
-		if out, runErr := rootCmd.Output(); runErr == nil {
-			root := strings.TrimSpace(string(out))
-			rootAbs, absErr := filepath.Abs(root)
-			if absErr != nil {
-				rootAbs = filepath.Clean(root)
-			}
-			if filepath.Clean(rootAbs) == filepath.Clean(workspaceAbs) {
-				remoteCmd := exec.Command(gitPath, "-C", workspace, "remote", "-v")
-				if remotes, remoteErr := remoteCmd.Output(); remoteErr == nil {
-					if strings.Contains(strings.ToLower(string(remotes)), "patchandcollectiontoolforai") {
-						return true
-					}
-				}
-			}
-		}
+	if err != nil {
+		return false
 	}
-
-	// Fail-safe fallback when git is temporarily unavailable. The repository's
-	// own .git/config is enough to prove this is TaskDeck source and prevents
-	// cleanup from ever deleting the development checkout.
-	configPath := filepath.Join(workspace, ".git", "config")
-	if data, readErr := os.ReadFile(configPath); readErr == nil {
-		return strings.Contains(strings.ToLower(string(data)), "patchandcollectiontoolforai")
+	rootCmd := exec.Command(gitPath, "-C", workspace, "rev-parse", "--show-toplevel")
+	out, err := rootCmd.Output()
+	if err != nil {
+		return false
 	}
-	return false
+	root := strings.TrimSpace(string(out))
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		rootAbs = filepath.Clean(root)
+	}
+	if filepath.Clean(rootAbs) != filepath.Clean(workspaceAbs) {
+		return false
+	}
+	remoteCmd := exec.Command(gitPath, "-C", workspace, "remote", "-v")
+	remotes, err := remoteCmd.Output()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(remotes)), "github.com/hacrot3000/patchandcollectiontoolforai")
 }
 
 func legacyTaskdeckArtifacts(workspace string) []string {
@@ -181,6 +184,51 @@ func legacyTaskdeckArtifacts(workspace string) []string {
 		}
 	}
 	return found
+}
+
+func cleanupLegacyTaskdeckArtifacts(workspace string, forcePrompt bool) error {
+	if taskdeckSourceRepository(workspace) {
+		if forcePrompt {
+			fmt.Println("Bỏ qua cleanup: workspace hiện tại là source repo TaskDeck.")
+		}
+		return nil
+	}
+	artifacts := legacyTaskdeckArtifacts(workspace)
+	if len(artifacts) == 0 {
+		if forcePrompt {
+			fmt.Println("Không còn thành phần TaskDeck legacy trong workspace.")
+		}
+		return nil
+	}
+	stdinInfo, err := os.Stdin.Stat()
+	if err != nil || stdinInfo.Mode()&os.ModeCharDevice == 0 {
+		if forcePrompt {
+			return fmt.Errorf("cleanup cần chạy từ terminal tương tác")
+		}
+		return nil
+	}
+	fmt.Println("Phát hiện thành phần TaskDeck legacy trong project:")
+	for _, path := range artifacts {
+		fmt.Println(" -", filepath.Base(path))
+	}
+	fmt.Print("Dọn dẹp và xóa các thành phần cũ này? [y/N]: ")
+	answer, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil {
+		return err
+	}
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "y", "yes":
+	default:
+		fmt.Println("Đã bỏ qua cleanup.")
+		return nil
+	}
+	for _, path := range artifacts {
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("không xóa được %s: %w", path, err)
+		}
+		fmt.Println("Đã xóa:", path)
+	}
+	return nil
 }
 
 func maybeOfferLegacyCleanup(workspace string) {
@@ -199,39 +247,9 @@ func maybeOfferLegacyCleanup(workspace string) {
 	if !runningGlobal {
 		return
 	}
-	if taskdeckSourceRepository(workspace) {
-		return
-	}
-	artifacts := legacyTaskdeckArtifacts(workspace)
-	if len(artifacts) == 0 {
-		return
-	}
-	stdinInfo, err := os.Stdin.Stat()
-	if err != nil || stdinInfo.Mode()&os.ModeCharDevice == 0 {
-		return
-	}
-
 	fmt.Println("TaskDeck đang chạy từ global app:", global)
-	fmt.Println("Phát hiện thành phần cài đặt cũ trong project:")
-	for _, path := range artifacts {
-		fmt.Println(" -", filepath.Base(path))
-	}
-	fmt.Print("Dọn dẹp và xóa các thành phần cũ này? [y/N]: ")
-	answer, err := bufio.NewReader(os.Stdin).ReadString('\n')
-	if err != nil {
-		return
-	}
-	switch strings.ToLower(strings.TrimSpace(answer)) {
-	case "y", "yes":
-	default:
-		return
-	}
-	for _, path := range artifacts {
-		if err := os.RemoveAll(path); err != nil {
-			fmt.Fprintf(os.Stderr, "WARNING: không xóa được %s: %v\n", path, err)
-			continue
-		}
-		fmt.Println("Đã xóa:", path)
+	if err := cleanupLegacyTaskdeckArtifacts(workspace, false); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: legacy cleanup: %v\n", err)
 	}
 }
 
