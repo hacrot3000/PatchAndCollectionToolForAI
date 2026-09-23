@@ -4,6 +4,7 @@ const ProtocolVersion = 1
 
 const CapabilitySessionTitle = "session_title"
 const CapabilityPatchProtocolEvents = "patch_protocol_events"
+const CapabilityPatchProtocolCommands = "patch_protocol_commands"
 
 // Info is the durable identity advertised by the session broker. The daemon
 // validates both ProtocolVersion and Workspace before trusting a discovered
@@ -29,7 +30,8 @@ type ExecutionSpec struct {
 	Cwd     string   `json:"cwd"`
 	Env     []string `json:"env"`
 	Preview        string   `json:"preview"`
-	ProtocolEvents bool     `json:"protocol_events,omitempty"`
+	ProtocolEvents   bool `json:"protocol_events,omitempty"`
+	ProtocolCommands bool `json:"protocol_commands,omitempty"`
 }
 
 type ResizeRequest struct {

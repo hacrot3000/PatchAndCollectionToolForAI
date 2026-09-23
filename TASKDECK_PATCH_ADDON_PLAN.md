@@ -149,7 +149,8 @@ Status: **IN PROGRESS**
 
 - [x] Add optional POSIX event FD/pipe to Python entrypoint via `TASKDECK_PATCH_EVENT_FD`; no FD keeps the historical `execv` path.
 - [x] Define optional POSIX command FD contract via `TASKDECK_PATCH_COMMAND_FD`; it requires a separate event FD.
-- [x] Session manager has disabled-by-default FD4 command plumbing with bounded/versioned envelope validation; built-in Patch sessions do not enable it yet.
+- [x] Session manager has disabled-by-default FD4 command plumbing with bounded/versioned envelope validation.
+- [x] Broker carries command capability/wire/internal writes with old-broker fallback; built-in Patch sessions still do not enable commands.
 - [x] Define versioned JSONL envelope and initial `hello/run_started/run_finished/error` lifecycle events.
 - [x] Emit Python-owned `queue_snapshot` with stable item/warning/count fields before dispatcher-backed runs.
 - [ ] Emit item/progress/artifact events while terminal UI remains authoritative.
@@ -214,8 +215,9 @@ Every phase must preserve:
 | Phase 1.5C.1c public Patch protocol API | DONE | 07b11200 | Built-in Patch sessions now request protocol events and TaskDeck exposes optional per-session protocol state with legacy fallback. |
 | Phase 1.5C.2 native queue summary | DONE | e24e619e | Patch panel renders bounded Python-owned queue_snapshot data, falls back to PTY-only, and never parses terminal text. |
 | Phase 1.5D.1 command channel contract | DONE | 70eb2dc7 | Added bounded versioned JSONL CommandReader and optional command FD pass-through contract; TaskDeck does not enable it yet. |
-| Phase 1.5D.2a session command pipe | DONE | this commit | Added opt-in FD4 command pipe, bounded envelope validation and session write primitive; Patch sessions still leave it disabled. |
+| Phase 1.5D.2a session command pipe | DONE | 1a6aa5f9 | Added opt-in FD4 command pipe, bounded envelope validation and session write primitive; Patch sessions still leave it disabled. |
+| Phase 1.5D.2b broker command plumbing | DONE | this commit | Added capability-gated command flag and internal broker command endpoint; built-in Patch sessions remain command-disabled. |
 
 ## Next action
 
-Continue **Phase 1.5D.2b**: carry the disabled-by-default command channel through broker capability/wire/internal API with old-broker fallback.
+Continue **Phase 1.5E**: define Python-owned prompt events and a minimal prompt-response command schema for one safe selector interaction before enabling command channels in Patch sessions.

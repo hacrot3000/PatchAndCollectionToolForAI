@@ -30,6 +30,7 @@ func executionFromWire(spec ExecutionSpec) tasks.Execution {
 		Command: spec.Command, Args: append([]string(nil), spec.Args...),
 		Cwd: spec.Cwd, Env: append([]string(nil), spec.Env...), Preview: spec.Preview,
 		ProtocolEvents: spec.ProtocolEvents,
+		ProtocolCommands: spec.ProtocolCommands,
 	}
 }
 
@@ -39,6 +40,7 @@ func executionToWire(spec tasks.Execution) ExecutionSpec {
 		Command: spec.Command, Args: append([]string(nil), spec.Args...),
 		Cwd: spec.Cwd, Env: append([]string(nil), spec.Env...), Preview: spec.Preview,
 		ProtocolEvents: spec.ProtocolEvents,
+		ProtocolCommands: spec.ProtocolCommands,
 	}
 }
 
@@ -155,6 +157,21 @@ func (a *sessionAPI) sessionItem(w http.ResponseWriter, r *http.Request) {
 		a.simpleAction(w, r, id, a.manager.Kill)
 	case "clear":
 		a.simpleAction(w, r, id, a.manager.Clear)
+	case "command":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		data, err := io.ReadAll(io.LimitReader(r.Body, maxBrokerInput+1))
+		if err != nil || len(data) > maxBrokerInput {
+			http.Error(w, "invalid protocol command", http.StatusBadRequest)
+			return
+		}
+		if err := a.manager.ProtocolCommand(id, data); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	case "protocol":
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

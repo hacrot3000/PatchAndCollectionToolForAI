@@ -85,6 +85,10 @@ func (c *Client) SupportsPatchProtocolEvents() bool {
 	return c.supportsCapability(CapabilityPatchProtocolEvents)
 }
 
+func (c *Client) SupportsPatchProtocolCommands() bool {
+	return c.supportsCapability(CapabilityPatchProtocolCommands)
+}
+
 func (c *Client) endpoint(path string) string {
 	return "http://session-broker" + path
 }
@@ -157,9 +161,24 @@ func (c *Client) Start(spec tasks.Execution) (session.Metadata, error) {
 	wire := executionToWire(spec)
 	if wire.ProtocolEvents && !c.SupportsPatchProtocolEvents() {
 		wire.ProtocolEvents = false
+		wire.ProtocolCommands = false
+	}
+	if wire.ProtocolCommands && !c.SupportsPatchProtocolCommands() {
+		wire.ProtocolCommands = false
 	}
 	err := c.doJSON(http.MethodPost, "/v1/sessions", wire, &meta)
 	return meta, err
+}
+
+func (c *Client) ProtocolCommand(id string, data []byte) error {
+	if !c.SupportsPatchProtocolCommands() {
+		return fmt.Errorf("session broker does not support %s capability", CapabilityPatchProtocolCommands)
+	}
+	resp, err := c.do(http.MethodPost, "/v1/sessions/"+url.PathEscape(id)+"/command", bytes.NewReader(data), "application/json")
+	if err != nil {
+		return err
+	}
+	return resp.Body.Close()
 }
 
 func (c *Client) ProtocolState(id string) (session.ProtocolState, error) {

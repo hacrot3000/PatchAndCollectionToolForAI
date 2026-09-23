@@ -42,7 +42,7 @@ func LockPath(workspace string) string {
 func NewInfo(workspace string) Info {
 	capabilities := []string{CapabilitySessionTitle}
 	if runtime.GOOS != "windows" {
-		capabilities = append(capabilities, CapabilityPatchProtocolEvents)
+		capabilities = append(capabilities, CapabilityPatchProtocolEvents, CapabilityPatchProtocolCommands)
 	}
 	return Info{
 		ProtocolVersion: ProtocolVersion,

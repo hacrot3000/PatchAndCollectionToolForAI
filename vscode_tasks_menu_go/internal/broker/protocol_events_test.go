@@ -13,26 +13,30 @@ func TestPatchProtocolCapabilityAndWireFallback(t *testing.T) {
 	if legacy.SupportsPatchProtocolEvents() {
 		t.Fatal("legacy broker must not advertise Patch protocol events")
 	}
+	if legacy.SupportsPatchProtocolCommands() {
+		t.Fatal("legacy broker must not advertise Patch protocol commands")
+	}
 	state, err := legacy.ProtocolState("missing")
 	if err != nil || state.Available {
 		t.Fatalf("legacy protocol state should be unavailable without network call: state=%#v err=%v", state, err)
 	}
 
-	wire := executionToWire(tasks.Execution{TaskID: -1, ProtocolEvents: true})
-	if !wire.ProtocolEvents {
-		t.Fatal("new wire format lost ProtocolEvents")
+	wire := executionToWire(tasks.Execution{TaskID: -1, ProtocolEvents: true, ProtocolCommands: true})
+	if !wire.ProtocolEvents || !wire.ProtocolCommands {
+		t.Fatal("new wire format lost Patch protocol flags")
 	}
 	roundTrip := executionFromWire(wire)
-	if !roundTrip.ProtocolEvents {
-		t.Fatal("wire round-trip lost ProtocolEvents")
+	if !roundTrip.ProtocolEvents || !roundTrip.ProtocolCommands {
+		t.Fatal("wire round-trip lost Patch protocol flags")
 	}
 
 	modern := &Client{info: NewInfo(t.TempDir())}
-	if runtime.GOOS != "windows" && !modern.SupportsPatchProtocolEvents() {
-		t.Fatal("new POSIX broker must advertise Patch protocol events")
+	if runtime.GOOS != "windows" && (!modern.SupportsPatchProtocolEvents() || !modern.SupportsPatchProtocolCommands()) {
+		t.Fatal("new POSIX broker must advertise Patch protocol event and command capabilities")
 	}
 }
 
-func TestClientImplementsOptionalProtocolStateProvider(t *testing.T) {
+func TestClientImplementsOptionalProtocolInterfaces(t *testing.T) {
 	var _ session.ProtocolStateProvider = (*Client)(nil)
+	var _ session.ProtocolCommandWriter = (*Client)(nil)
 }
