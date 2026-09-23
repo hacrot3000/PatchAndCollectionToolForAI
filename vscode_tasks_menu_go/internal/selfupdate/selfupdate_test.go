@@ -221,8 +221,11 @@ func TestCopyRootSupportFileStagesInstallerAndLauncher(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if info.Mode().Perm()&0o111 == 0 {
+		if item.mode&0o111 != 0 && info.Mode().Perm()&0o111 == 0 {
 			t.Fatalf("%s is not executable: %v", item.name, info.Mode())
+		}
+		if item.mode&0o111 == 0 && info.Mode().Perm()&0o111 != 0 {
+			t.Fatalf("%s unexpectedly executable: %v", item.name, info.Mode())
 		}
 	}
 	if err := copyRootSupportFile(source, dest, "../escape", 0o755); err == nil {
