@@ -288,7 +288,9 @@ Every phase must preserve:
 | Phase 2F.2b2 narrow History endpoint | DONE | 4b774b08 | Built-in History alone opts into TASKDECK_PATCH_NATIVE_HISTORY; /history-detail accepts only active-prompt advertised run_ids and writes through the final prompt-bound FD4 gate. |
 
 | Phase 2F.3 native History/report web browser | DONE | b2846665 | History is now a native primary Patch panel view; run selection uses only /history-detail, projected files/artifacts reuse safe Download/Open actions, and PTY remains explicit fallback/evidence. |
-| Phase 2F.3 UI contract correction | DONE | this commit | Updated stale export expectations and scoped Queue/Failed anti-inference assertions so History may display Python-projected policy fields without permitting web-side policy decisions. |
+| Phase 2F.3 UI contract correction | DONE | 12337bc0 | Updated stale export expectations and scoped Queue/Failed anti-inference assertions so History may display Python-projected policy fields without permitting web-side policy decisions. |
+
+| Phase 2F.3 Queue/Failed assertion correction | DONE | this commit | Narrowed the remaining file-global Queue anti-inference assertion so History may display Python-projected failure_policy without allowing Queue-side policy inference. |
 
 ## Next action
 

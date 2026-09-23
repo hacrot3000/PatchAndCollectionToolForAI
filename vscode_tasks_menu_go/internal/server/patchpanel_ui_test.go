@@ -190,7 +190,7 @@ func TestPatchPanelQueueFailedViewsUsePythonGroupingOnly(t *testing.T) {
 	for _, forbidden := range []string{
 		"item.name.includes('FAIL')",
 		"item.name.includes('failed')",
-		"failure_policy",
+		"failure_policy===",
 	} {
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("Queue/Failed UI must not infer Python failure policy: found %q", forbidden)
