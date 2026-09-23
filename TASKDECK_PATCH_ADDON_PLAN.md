@@ -154,6 +154,7 @@ Status: **IN PROGRESS**
 - [x] Define versioned JSONL envelope and initial `hello/run_started/run_finished/error` lifecycle events.
 - [x] Emit Python-owned `queue_snapshot` with stable item/warning/count fields before dispatcher-backed runs.
 - [ ] Emit item/progress/artifact events while terminal UI remains authoritative.
+- [x] Child Python processes emit into an internal pipe; the entrypoint relays them onto the TaskDeck event channel with one global sequence.
 - [x] Add protocol envelope/lifecycle/version tests.
 - [x] Session manager supports an opt-in FD 3 event pipe and bounded protocol state while PTY remains unchanged.
 - [x] Broker advertises `patch_protocol_events`, carries the opt-in flag and exposes protocol state; old brokers fall back to PTY-only.
@@ -216,8 +217,9 @@ Every phase must preserve:
 | Phase 1.5C.2 native queue summary | DONE | e24e619e | Patch panel renders bounded Python-owned queue_snapshot data, falls back to PTY-only, and never parses terminal text. |
 | Phase 1.5D.1 command channel contract | DONE | 70eb2dc7 | Added bounded versioned JSONL CommandReader and optional command FD pass-through contract; TaskDeck does not enable it yet. |
 | Phase 1.5D.2a session command pipe | DONE | 1a6aa5f9 | Added opt-in FD4 command pipe, bounded envelope validation and session write primitive; Patch sessions still leave it disabled. |
-| Phase 1.5D.2b broker command plumbing | DONE | this commit | Added capability-gated command flag and internal broker command endpoint; built-in Patch sessions remain command-disabled. |
+| Phase 1.5D.2b broker command plumbing | DONE | 74279462 | Added capability-gated command flag and internal broker command endpoint; built-in Patch sessions remain command-disabled. |
+| Phase 1.5E.1 child event relay | DONE | this commit | Child protocol events now use an internal pipe and are re-sequenced by the entrypoint before reaching TaskDeck. |
 
 ## Next action
 
-Continue **Phase 1.5E**: define Python-owned prompt events and a minimal prompt-response command schema for one safe selector interaction before enabling command channels in Patch sessions.
+Continue **Phase 1.5E.2**: define prompt/prompt_response helpers and integrate one conservative queue-selection path with command-channel-first, terminal fallback semantics.

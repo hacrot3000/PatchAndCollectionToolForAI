@@ -175,6 +175,40 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertEqual(events[-1]["exit_code"], 7)
         self.assertEqual(events[-1]["status"], "failed")
 
+    def test_child_events_are_relayed_with_entrypoint_sequence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            child = Path(tmp) / "child.py"
+            child.write_text(
+                "import json, os\n"
+                "fd=int(os.environ['TASKDECK_PATCH_EVENT_FD'])\n"
+                "event={'protocol':'taskdeck.patch','version':1,'type':'child_probe','seq':1,'value':'ok'}\n"
+                "os.write(fd,(json.dumps(event)+'\\n').encode())\n",
+                encoding="utf-8",
+            )
+            read_fd, write_fd = os.pipe()
+            try:
+                from python_patch_protocol import EventWriter
+                writer = EventWriter(write_fd)
+                rc = entry._run_with_protocol(writer, [str(child)], tmp, ["health-search"])
+                os.close(write_fd)
+                write_fd = -1
+                chunks = []
+                while True:
+                    data = os.read(read_fd, 65536)
+                    if not data:
+                        break
+                    chunks.append(data)
+            finally:
+                if write_fd >= 0:
+                    os.close(write_fd)
+                os.close(read_fd)
+
+        events = [json.loads(line) for line in b"".join(chunks).decode("utf-8").splitlines()]
+        self.assertEqual(rc, 0)
+        self.assertEqual([event["type"] for event in events], ["hello", "run_started", "child_probe", "run_finished"])
+        self.assertEqual([event["seq"] for event in events], [1, 2, 3, 4])
+        self.assertEqual(events[2]["value"], "ok")
+
     def test_route_classification_is_stable(self):
         cases = [
             ([], "queue"),

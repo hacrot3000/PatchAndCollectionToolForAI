@@ -10,6 +10,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -244,8 +245,10 @@ def _run_with_protocol(
     tool_args: Sequence[str],
     command_fd: int | None = None,
 ) -> int:
+    from python_patch_protocol import relay_event_fd
+
     route = classify_route(tool_args)
-    capabilities = ["events_v1", "queue_snapshot_v1"]
+    capabilities = ["events_v1", "queue_snapshot_v1", "child_event_relay_v1"]
     if command_fd is not None:
         capabilities.append("commands_v1")
     writer.emit(
@@ -261,13 +264,36 @@ def _run_with_protocol(
         except Exception as exc:
             writer.emit("error", phase="queue_snapshot", message=f"{type(exc).__name__}: {exc}")
     writer.emit("run_started", route=route)
+
+    child_event_read, child_event_write = os.pipe()
+    child_env = os.environ.copy()
+    child_env[EVENT_FD_ENV] = str(child_event_write)
+    pass_fds = [child_event_write]
+    if command_fd is not None:
+        pass_fds.append(command_fd)
+
+    relay_thread = None
     try:
-        pass_fds = (writer.fd,) if command_fd is None else (writer.fd, command_fd)
         proc = subprocess.Popen(
             [sys.executable, *child_argv],
-            pass_fds=pass_fds,
+            pass_fds=tuple(pass_fds),
+            env=child_env,
         )
+        os.close(child_event_write)
+        child_event_write = -1
+        relay_thread = threading.Thread(
+            target=relay_event_fd,
+            args=(child_event_read, writer),
+            name="taskdeck-patch-event-relay",
+            daemon=True,
+        )
+        relay_thread.start()
+        child_event_read = -1
     except OSError as exc:
+        if child_event_read >= 0:
+            os.close(child_event_read)
+        if child_event_write >= 0:
+            os.close(child_event_write)
         writer.emit("error", phase="spawn", message=str(exc))
         writer.emit("run_finished", route=route, status="failed", exit_code=2)
         writer.close()
@@ -288,6 +314,11 @@ def _run_with_protocol(
                 signal.signal(sig_value, handler)
             except (OSError, RuntimeError, ValueError):
                 pass
+
+    if relay_thread is not None:
+        relay_thread.join(timeout=2.0)
+        if relay_thread.is_alive():
+            writer.emit("error", phase="child_event_relay", message="child event relay did not close after process exit")
 
     exit_code = _normalized_return_code(return_code)
     writer.emit(

@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from typing import Any
 
 PROTOCOL_NAME = "taskdeck.patch"
 PROTOCOL_VERSION = 1
 MAX_COMMAND_BYTES = 1 << 20
+MAX_EVENT_BYTES = 1 << 20
 
 
 class ProtocolCommandError(RuntimeError):
@@ -76,32 +78,74 @@ class EventWriter:
         self._stream = os.fdopen(os.dup(fd), "w", encoding="utf-8", buffering=1)
         self._seq = 0
         self._disabled = False
+        self._lock = threading.Lock()
 
     def emit(self, event_type: str, **payload: Any) -> bool:
-        if self._disabled:
+        with self._lock:
+            if self._disabled:
+                return False
+            self._seq += 1
+            event = {
+                "protocol": PROTOCOL_NAME,
+                "version": PROTOCOL_VERSION,
+                "type": str(event_type),
+                "seq": self._seq,
+                "time_ms": int(time.time() * 1000),
+                **payload,
+            }
+            try:
+                self._stream.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
+                self._stream.flush()
+                return True
+            except (BrokenPipeError, OSError, ValueError):
+                self._disabled = True
+                return False
+
+    def forward(self, event: dict[str, Any]) -> bool:
+        if not isinstance(event, dict):
             return False
-        self._seq += 1
-        event = {
-            "protocol": PROTOCOL_NAME,
-            "version": PROTOCOL_VERSION,
-            "type": str(event_type),
-            "seq": self._seq,
-            "time_ms": int(time.time() * 1000),
-            **payload,
+        event_type = event.get("type")
+        if not isinstance(event_type, str) or not event_type:
+            return False
+        payload = {
+            key: value
+            for key, value in event.items()
+            if key not in {"protocol", "version", "type", "seq", "time_ms"}
         }
-        try:
-            self._stream.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
-            self._stream.flush()
-            return True
-        except (BrokenPipeError, OSError, ValueError):
-            self._disabled = True
-            return False
+        return self.emit(event_type, **payload)
 
     def close(self) -> None:
         try:
             self._stream.close()
         except OSError:
             pass
+
+
+def relay_event_fd(fd: int, writer: EventWriter) -> None:
+    """Forward child JSONL events through the entrypoint-owned sequence."""
+    try:
+        with os.fdopen(fd, "r", encoding="utf-8", buffering=1) as stream:
+            while True:
+                raw = stream.readline(MAX_EVENT_BYTES + 1)
+                if raw == "":
+                    return
+                if len(raw.encode("utf-8")) > MAX_EVENT_BYTES or not raw.endswith("\n"):
+                    writer.emit("error", phase="child_event_relay", message="child event exceeds JSONL size/record boundary")
+                    return
+                try:
+                    event = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    writer.emit("error", phase="child_event_relay", message=f"invalid child event JSON: {exc}")
+                    continue
+                if not isinstance(event, dict):
+                    writer.emit("error", phase="child_event_relay", message="child event must be a JSON object")
+                    continue
+                if event.get("protocol") != PROTOCOL_NAME or event.get("version") != PROTOCOL_VERSION:
+                    writer.emit("error", phase="child_event_relay", message="unsupported child event envelope")
+                    continue
+                writer.forward(event)
+    except OSError as exc:
+        writer.emit("error", phase="child_event_relay", message=f"child event pipe failed: {exc}")
 
 
 def build_queue_snapshot(project_root: str) -> dict[str, Any]:
