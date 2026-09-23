@@ -495,6 +495,41 @@ def _windows_taskkill_tree(proc: subprocess.Popen, *, force: bool) -> None:
             pass
 
 
+def _protocol_progress_detail(value: str, limit: int = 512) -> str:
+    clean = _sanitize_terminal_text(str(value)).strip()
+    if len(clean) <= limit:
+        return clean
+    return clean[: max(0, limit - 1)] + "…"
+
+
+def _protocol_progress_context() -> dict[str, object]:
+    def positive_int(name: str) -> int | None:
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            return None
+        try:
+            value = int(raw, 10)
+        except ValueError:
+            return None
+        return value if value > 0 else None
+
+    return {
+        "run_id": os.environ.get("TASKDECK_PATCH_PROGRESS_RUN_ID", "").strip() or None,
+        "index": positive_int("TASKDECK_PATCH_PROGRESS_INDEX"),
+        "total": positive_int("TASKDECK_PATCH_PROGRESS_TOTAL"),
+        "item_name": os.environ.get("TASKDECK_PATCH_PROGRESS_ITEM_NAME", "").strip() or None,
+        "item_kind": os.environ.get("TASKDECK_PATCH_PROGRESS_ITEM_KIND", "").strip() or "COLLECT",
+    }
+
+
+def _protocol_progress_writer():
+    try:
+        from python_patch_protocol import event_writer_from_env
+        return event_writer_from_env()
+    except Exception:
+        return None
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Python Patch Tool v6.17.8 COLLECT one-line progress supervisor")
     ap.add_argument("--project-root", required=True)
@@ -570,6 +605,25 @@ def main(argv: list[str] | None = None) -> int:
     phase = "start"
     last_detail = "starting collector"
     is_tty = bool(getattr(sys.stdout, "isatty", lambda: False)())
+    protocol_writer = _protocol_progress_writer()
+    protocol_context = _protocol_progress_context()
+
+    def emit_protocol_progress(status: str, elapsed_seconds: float) -> None:
+        if protocol_writer is None:
+            return
+        payload = {
+            "scope": "collect",
+            **{key: value for key, value in protocol_context.items() if value is not None},
+            "phase": str(phase),
+            "status": str(status),
+            "elapsed_seconds": round(max(0.0, float(elapsed_seconds)), 3),
+            "output_lines": max(0, int(output_lines)),
+            "detail": _protocol_progress_detail(last_detail),
+        }
+        try:
+            protocol_writer.emit("progress", **payload)
+        except Exception:
+            pass
 
     # Completion metadata must outlive the bounded diagnostic tail. A valid ZIP
     # may be reported and followed by hundreds of ordinary log lines; using
@@ -609,15 +663,17 @@ def main(argv: list[str] | None = None) -> int:
         now = time.monotonic()
         if rc is not None:
             break
-        if is_tty and now - last_render >= heartbeat:
+        if now - last_render >= heartbeat:
             last_render = now
-            state, rss, read_b, write_b = _proc_snapshot(proc.pid)
             elapsed = now - started
-            status = (
-                f"⏳ COLLECT | {elapsed:6.1f}s | {phase:<8} | pid={proc.pid} {state} rss={rss} "
-                f"r={_fmt_bytes(read_b)} w={_fmt_bytes(write_b)} | {last_detail}"
-            )
-            _render_one_line(status)
+            emit_protocol_progress("RUNNING", elapsed)
+            if is_tty:
+                state, rss, read_b, write_b = _proc_snapshot(proc.pid)
+                status = (
+                    f"⏳ COLLECT | {elapsed:6.1f}s | {phase:<8} | pid={proc.pid} {state} rss={rss} "
+                    f"r={_fmt_bytes(read_b)} w={_fmt_bytes(write_b)} | {last_detail}"
+                )
+                _render_one_line(status)
         if received_signal and signal_deadline[0] is not None and now >= signal_deadline[0]:
             try:
                 if os.name == "posix":
@@ -716,6 +772,7 @@ def main(argv: list[str] | None = None) -> int:
         f"{render_state} COLLECT {render_label} | rc={final_rc} | {elapsed:.1f}s | phase={phase} | output={output_lines} lines",
         final=True,
     )
+    emit_protocol_progress(render_label, elapsed)
 
     # Keep the terminal compact on PASS. On FAIL, surface a bounded tail so the user has useful evidence.
     if lingering_output_tree:
@@ -750,6 +807,11 @@ def main(argv: list[str] | None = None) -> int:
         "output_lines": output_lines,
     })
     _write_collect_run_result(result_meta)
+    if protocol_writer is not None:
+        try:
+            protocol_writer.close()
+        except Exception:
+            pass
     return final_rc
 
 

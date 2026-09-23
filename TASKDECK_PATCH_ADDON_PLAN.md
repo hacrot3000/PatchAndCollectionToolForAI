@@ -156,7 +156,7 @@ Status: **IN PROGRESS**
 - [x] Emit Python-owned `queue_snapshot` with stable item/warning/count fields before dispatcher-backed runs.
 - [x] Emit Python-owned item_started/item_finished events only around actual payload execution.
 - [x] Emit Python-owned artifact events only for verified user-facing files under project artifacts/.
-- [ ] Emit progress events while terminal UI remains authoritative.
+- [x] Emit bounded Python-owned COLLECT progress events from the existing progress supervisor while terminal UI remains authoritative.
 - [x] Child Python processes emit into an internal pipe; the entrypoint relays them onto the TaskDeck event channel with one global sequence.
 - [x] Add protocol envelope/lifecycle/version tests.
 - [x] Session manager supports an opt-in FD 3 event pipe and bounded protocol state while PTY remains unchanged.
@@ -235,8 +235,9 @@ Every phase must preserve:
 | Phase 1.5F.2 native item lifecycle state | DONE | 87efcaff | TaskDeck retains bounded item lifecycle state and Patch panel displays running/completed item status while PTY remains available. |
 | Phase 1.5F.2 UI contract test correction | DONE | 8b087ceb | Updated the stale fixed-40-iteration assertion to the new bounded lifecycle polling contract; no runtime behavior change. |
 | Phase 1.5F.3a Python artifact events | DONE | 858f2293 | Emits fail handoff, AI sync and COLLECT result artifacts only after validating a real non-link file under project artifacts/; internal/history files are not exposed. |
-| Phase 1.5F.3b native artifact state/actions | DONE | this commit | TaskDeck retains a bounded validated artifact list; Patch panel offers existing safe download plus text-editor open actions without parsing terminal/history output. |
+| Phase 1.5F.3b native artifact state/actions | DONE | 033af150 | TaskDeck retains a bounded validated artifact list; Patch panel offers existing safe download plus text-editor open actions without parsing terminal/history output. |
+| Phase 1.5G.1 Python COLLECT progress events | DONE | this commit | COLLECT progress supervisor emits bounded phase/status/elapsed/output/detail events over the inherited protocol FD; Go never parses console text. |
 
 ## Next action
 
-Continue **Phase 1.5G.1**: define Python-owned progress events from existing bounded progress sources, keeping terminal output authoritative and avoiding Go-side console parsing.
+Continue **Phase 1.5G.2**: validate and retain the latest bounded progress event in TaskDeck protocol state and render it in the Patch panel without changing PTY output.

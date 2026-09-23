@@ -2293,6 +2293,16 @@ def _run_foreground_child(
     kwargs: dict[str, object] = {"cwd": root, "env": env}
     if os.name != "nt":
         kwargs["start_new_session"] = True
+        if label == "COLLECT":
+            source_env = env if env is not None else os.environ
+            raw_event_fd = str(source_env.get("TASKDECK_PATCH_EVENT_FD", "")).strip()
+            try:
+                event_fd = int(raw_event_fd, 10)
+                if event_fd >= 3:
+                    os.fstat(event_fd)
+                    kwargs["pass_fds"] = (event_fd,)
+            except (OSError, ValueError):
+                pass
     elif hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     proc = subprocess.Popen(cmd, **kwargs)
@@ -5863,6 +5873,11 @@ def execute_items(
                 runtime = _artifact_subdir(root, "runtime")
                 collect_result_path = runtime / f"collect_{int(time.time()*1000000)}_{os.getpid()}.json"
                 env = dict(os.environ); env["PTV_COLLECT_RESULT_FILE"] = str(collect_result_path)
+                env["TASKDECK_PATCH_PROGRESS_RUN_ID"] = str(_ACTIVE_RUN_ID or "")
+                env["TASKDECK_PATCH_PROGRESS_INDEX"] = str(index + 1)
+                env["TASKDECK_PATCH_PROGRESS_TOTAL"] = str(len(chosen))
+                env["TASKDECK_PATCH_PROGRESS_ITEM_NAME"] = item.name
+                env["TASKDECK_PATCH_PROGRESS_ITEM_KIND"] = item.kind
                 rc = _run_foreground_child(root, cmd, env=env, timeout=None, label="COLLECT")
                 collect_result = _load_json(collect_result_path)
                 try: collect_result_path.unlink()

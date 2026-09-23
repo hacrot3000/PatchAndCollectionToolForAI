@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -312,6 +315,71 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertLess(details, artifacts)
         self.assertLess(artifacts, finished)
         self.assertIn("_emit_detail_artifacts(root, item, detail)", dispatcher)
+
+    @unittest.skipUnless(os.name == "posix", "protocol event FD inheritance requires POSIX pass_fds")
+    def test_collect_progress_emits_structured_protocol_events(self):
+        progress = self.base / "_patch_lib" / "python_patch_collect_progress_v6_7.py"
+        with tempfile.TemporaryDirectory(prefix="taskdeck-progress-") as td:
+            root = Path(td)
+            collector = root / "collector.py"
+            collector.write_text(
+                "import time\n"
+                "print('search candidates', flush=True)\n"
+                "time.sleep(0.35)\n",
+                encoding="utf-8",
+            )
+            read_fd, write_fd = os.pipe()
+            env = dict(os.environ)
+            env[entry.EVENT_FD_ENV] = str(write_fd)
+            env["PTV_COLLECT_HEARTBEAT_SECONDS"] = "0.1"
+            env["TASKDECK_PATCH_PROGRESS_RUN_ID"] = "run-test"
+            env["TASKDECK_PATCH_PROGRESS_INDEX"] = "2"
+            env["TASKDECK_PATCH_PROGRESS_TOTAL"] = "3"
+            env["TASKDECK_PATCH_PROGRESS_ITEM_NAME"] = "collect.zip"
+            env["TASKDECK_PATCH_PROGRESS_ITEM_KIND"] = "COLLECT"
+            try:
+                cp = subprocess.run(
+                    [
+                        sys.executable, str(progress),
+                        "--project-root", str(root),
+                        "--collector", str(collector),
+                        "--",
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    env=env,
+                    pass_fds=(write_fd,),
+                    timeout=10,
+                )
+                os.close(write_fd)
+                write_fd = -1
+                raw = os.read(read_fd, 1 << 20).decode("utf-8")
+            finally:
+                if write_fd >= 0:
+                    os.close(write_fd)
+                os.close(read_fd)
+            self.assertNotEqual(raw.strip(), "")
+            events = [json.loads(line) for line in raw.splitlines() if line.strip()]
+            progress_events = [event for event in events if event.get("type") == "progress"]
+            self.assertTrue(progress_events, (cp.returncode, cp.stdout, cp.stderr, events))
+            self.assertTrue(any(event.get("status") == "RUNNING" for event in progress_events), progress_events)
+            final = progress_events[-1]
+            self.assertEqual(final.get("run_id"), "run-test")
+            self.assertEqual(final.get("index"), 2)
+            self.assertEqual(final.get("total"), 3)
+            self.assertEqual(final.get("item_name"), "collect.zip")
+            self.assertEqual(final.get("item_kind"), "COLLECT")
+            self.assertIn(final.get("status"), {"PASS", "FAIL", "INCOMPLETE"})
+            self.assertIsInstance(final.get("output_lines"), int)
+            self.assertLessEqual(len(str(final.get("detail") or "")), 512)
+
+    def test_dispatcher_passes_protocol_fd_only_to_collect_supervisor(self):
+        dispatcher = (self.base / "_patch_lib" / "python_patch_queue_dispatcher.py").read_text(encoding="utf-8")
+        self.assertIn('if label == "COLLECT":', dispatcher)
+        self.assertIn('kwargs["pass_fds"] = (event_fd,)', dispatcher)
+        self.assertIn('env["TASKDECK_PATCH_PROGRESS_INDEX"] = str(index + 1)', dispatcher)
+        self.assertIn('env["TASKDECK_PATCH_PROGRESS_ITEM_NAME"] = item.name', dispatcher)
 
     def test_event_writer_emits_versioned_jsonl(self):
         from python_patch_protocol import EventWriter
