@@ -58,6 +58,16 @@ func TestPatchToolExecutionUsesBuiltinRuntimeAndReservedTaskID(t *testing.T) {
 	if !spec.ProtocolCommands {
 		t.Fatal("built-in Patch session must enable protocol commands now that queue_selection prompt events are defined")
 	}
+	nativeResume := false
+	for _, item := range spec.Env {
+		if item == "TASKDECK_PATCH_NATIVE_RESUME=1" {
+			nativeResume = true
+			break
+		}
+	}
+	if !nativeResume {
+		t.Fatal("built-in Resume session must explicitly opt into native Resume")
+	}
 	if spec.Label != "Patch Tool · Resume" {
 		t.Fatalf("label=%q", spec.Label)
 	}
@@ -107,6 +117,27 @@ func TestSessionProtocolEndpointIsOptional(t *testing.T) {
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("optional protocol endpoint missing %q", want)
+		}
+	}
+}
+
+
+func TestPatchQueueDoesNotOptIntoNativeResume(t *testing.T) {
+	workspace := t.TempDir()
+	runtimeRoot := t.TempDir()
+	entry := filepath.Join(runtimeRoot, "python_patch_entry.py")
+	python := filepath.Join(runtimeRoot, "python3")
+	for _, path := range []string{entry, python} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil { t.Fatal(err) }
+	}
+	t.Setenv("TASKDECK_PATCH_RUNTIME", entry)
+	t.Setenv("TASKDECK_PATCH_PYTHON", python)
+	t.Setenv("TASKDECK_PATCH_NATIVE_RESUME", "0")
+	spec, err := patchToolExecution(workspace, "queue")
+	if err != nil { t.Fatal(err) }
+	for _, item := range spec.Env {
+		if item == "TASKDECK_PATCH_NATIVE_RESUME=1" {
+			t.Fatal("ordinary Queue session must not opt into native Resume")
 		}
 	}
 }

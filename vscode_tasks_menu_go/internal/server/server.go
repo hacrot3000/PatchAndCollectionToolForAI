@@ -289,6 +289,11 @@ func patchToolExecution(workspace, mode string) (tasks.Execution, error) {
 	}
 	spec.ProtocolEvents = true
 	spec.ProtocolCommands = true
+	if strings.EqualFold(strings.TrimSpace(mode), "resume") {
+		if err := tasks.ApplyEnvironmentOverrides(&spec, map[string]string{"TASKDECK_PATCH_NATIVE_RESUME": "1"}); err != nil {
+			return tasks.Execution{}, err
+		}
+	}
 	return spec, nil
 }
 
@@ -451,6 +456,119 @@ func buildPatchItemActionCommand(state session.ProtocolState, req patchItemActio
 	if err != nil { return nil, "", err }
 	return command, actionID, nil
 }
+
+type patchResumeActionRequest struct {
+	PromptID     string `json:"prompt_id"`
+	Action       string `json:"action"`
+	FailedIndexes []int `json:"failed_indexes,omitempty"`
+}
+
+func buildPatchResumeActionCommand(state session.ProtocolState, req patchResumeActionRequest) ([]byte, error) {
+	if !state.CommandsEnabled {
+		return nil, fmt.Errorf("Patch protocol command channel is not enabled")
+	}
+	if len(state.Prompt) == 0 {
+		return nil, fmt.Errorf("Patch session has no active prompt")
+	}
+	var prompt struct {
+		Protocol   string   `json:"protocol"`
+		Version    int      `json:"version"`
+		Type       string   `json:"type"`
+		PromptID   string   `json:"prompt_id"`
+		PromptKind string   `json:"prompt_kind"`
+		Actions    []string `json:"actions"`
+		FailedItems []struct {
+			Index      int  `json:"index"`
+			CanRetry   bool `json:"can_retry"`
+			CanCollect bool `json:"can_collect"`
+			CanDelete  bool `json:"can_delete"`
+		} `json:"failed_items"`
+		Constraints struct {
+			SelectionActions []string `json:"selection_actions"`
+		} `json:"constraints"`
+	}
+	if err := json.Unmarshal(state.Prompt, &prompt); err != nil {
+		return nil, fmt.Errorf("invalid active Patch Resume prompt: %w", err)
+	}
+	if prompt.Protocol != "taskdeck.patch" || prompt.Version != 1 || prompt.Type != "prompt" || prompt.PromptKind != "resume_action" {
+		return nil, fmt.Errorf("unsupported active Patch Resume prompt")
+	}
+	req.PromptID = strings.TrimSpace(req.PromptID)
+	if req.PromptID == "" || req.PromptID != prompt.PromptID {
+		return nil, fmt.Errorf("Resume action does not match the active prompt")
+	}
+	action := strings.ToLower(strings.TrimSpace(req.Action))
+	switch action {
+	case "all", "failed", "remaining", "collect_failed", "delete_failed", "history", "normal":
+	default:
+		return nil, fmt.Errorf("unsupported Patch Resume action %q", action)
+	}
+	advertised := false
+	for _, value := range prompt.Actions {
+		if action == strings.ToLower(strings.TrimSpace(value)) {
+			advertised = true
+			break
+		}
+	}
+	if !advertised {
+		return nil, fmt.Errorf("Patch Resume action %q is not available", action)
+	}
+	selectionAction := false
+	for _, value := range prompt.Constraints.SelectionActions {
+		if action == strings.ToLower(strings.TrimSpace(value)) {
+			selectionAction = true
+			break
+		}
+	}
+	payload := map[string]any{"prompt_id": req.PromptID, "action": action}
+	if selectionAction {
+		if len(req.FailedIndexes) == 0 || len(req.FailedIndexes) > 4096 {
+			return nil, fmt.Errorf("Patch Resume action %q requires a bounded non-empty failed_indexes array", action)
+		}
+		valid := make(map[int]bool, len(prompt.FailedItems))
+		for _, item := range prompt.FailedItems {
+			allowed := false
+			switch action {
+			case "failed":
+				allowed = item.CanRetry
+			case "collect_failed":
+				allowed = item.CanCollect
+			case "delete_failed":
+				allowed = item.CanDelete
+			}
+			if item.Index > 0 && allowed {
+				valid[item.Index] = true
+			}
+		}
+		seen := make(map[int]bool, len(req.FailedIndexes))
+		indexes := make([]int, 0, len(req.FailedIndexes))
+		for _, index := range req.FailedIndexes {
+			if !valid[index] {
+				return nil, fmt.Errorf("Patch Resume failed index is unavailable for %s: %d", action, index)
+			}
+			if !seen[index] {
+				seen[index] = true
+				indexes = append(indexes, index)
+			}
+		}
+		payload["failed_indexes"] = indexes
+	} else if len(req.FailedIndexes) != 0 {
+		return nil, fmt.Errorf("Patch Resume action %q must not include failed_indexes", action)
+	}
+	seq := time.Now().UnixNano()
+	if seq < 1 {
+		seq = 1
+	}
+	return json.Marshal(map[string]any{
+		"protocol": "taskdeck.patch",
+		"version": 1,
+		"type": "command",
+		"seq": seq,
+		"command": "resume_action",
+		"payload": payload,
+	})
+}
+
 func workspaceTerminalExecution(workspace string) (tasks.Execution, error) {
 	candidates := []string{strings.TrimSpace(os.Getenv("SHELL")), "/bin/bash", "/bin/sh"}
 	seen := make(map[string]bool, len(candidates))
@@ -638,6 +756,43 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"accepted": true, "action_id": actionID})
+	case "resume-action":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		provider, ok := s.Sessions.(session.ProtocolStateProvider)
+		if !ok {
+			http.Error(w, "Patch protocol state is unavailable", http.StatusConflict)
+			return
+		}
+		writer, ok := s.Sessions.(session.ProtocolCommandWriter)
+		if !ok {
+			http.Error(w, "Patch protocol commands are unavailable", http.StatusConflict)
+			return
+		}
+		state, err := provider.ProtocolState(id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		var req patchResumeActionRequest
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			http.Error(w, "invalid Patch Resume action JSON", http.StatusBadRequest)
+			return
+		}
+		command, err := buildPatchResumeActionCommand(state, req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		if err := writer.ProtocolCommand(id, command); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
 	case "protocol":
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

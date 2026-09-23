@@ -359,6 +359,10 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 	if err != nil {
 		return err
 	}
+	resumePromptID, isResumeAction, err := protocolResumeActionPromptID(line)
+	if err != nil {
+		return err
+	}
 	s, ok := m.Get(id)
 	if !ok {
 		return fmt.Errorf("session not found")
@@ -368,7 +372,7 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 	if s.meta.Status != "running" || s.protocolCommand == nil {
 		return fmt.Errorf("Patch protocol command channel is not enabled")
 	}
-	if isPromptResponse || isItemAction {
+	if isPromptResponse || isItemAction || isResumeAction {
 		if len(s.protocol.Prompt) == 0 {
 			return fmt.Errorf("Patch session has no active prompt")
 		}
@@ -381,6 +385,9 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 		if isItemAction {
 			boundPromptID = actionPromptID
 			commandName = "item_action"
+		} else if isResumeAction {
+			boundPromptID = resumePromptID
+			commandName = "resume_action"
 		}
 		if boundPromptID != activePromptID {
 			return fmt.Errorf("Patch %s does not match the active prompt", commandName)
@@ -389,7 +396,7 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 	if _, err := s.protocolCommand.Write(append(line, '\n')); err != nil {
 		return fmt.Errorf("write Patch protocol command: %w", err)
 	}
-	if isPromptResponse {
+	if isPromptResponse || isResumeAction {
 		s.protocol.Prompt = nil
 	}
 	return nil

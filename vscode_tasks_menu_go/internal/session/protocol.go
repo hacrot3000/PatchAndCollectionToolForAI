@@ -393,6 +393,25 @@ func protocolItemActionPromptID(data []byte) (string, bool, error) {
 	}
 	return command.Payload.PromptID, true, nil
 }
+func protocolResumeActionPromptID(data []byte) (string, bool, error) {
+	var command struct {
+		Command string `json:"command"`
+		Payload struct {
+			PromptID string `json:"prompt_id"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &command); err != nil {
+		return "", false, fmt.Errorf("invalid Patch protocol command JSON: %w", err)
+	}
+	if command.Command != "resume_action" {
+		return "", false, nil
+	}
+	if strings.TrimSpace(command.Payload.PromptID) == "" {
+		return "", true, fmt.Errorf("Patch resume_action prompt_id is required")
+	}
+	return command.Payload.PromptID, true, nil
+}
+
 func protocolPromptResponseID(data []byte) (string, bool, error) {
 	var command struct {
 		Command string `json:"command"`

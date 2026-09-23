@@ -18,6 +18,15 @@ func queueSelectionState() session.ProtocolState {
 	}
 }
 
+func resumeActionState() session.ProtocolState {
+	return session.ProtocolState{
+		Available: true,
+		Enabled: true,
+		CommandsEnabled: true,
+		Prompt: json.RawMessage(`{"protocol":"taskdeck.patch","version":1,"type":"prompt","seq":9,"prompt_id":"resume123","prompt_kind":"resume_action","actions":["all","failed","remaining","collect_failed","delete_failed","history","normal"],"failed_items":[{"index":1,"name":"a.zip","can_retry":true,"can_collect":true,"can_delete":true},{"index":2,"name":"b.zip","can_retry":false,"can_collect":true,"can_delete":false}],"constraints":{"selection_actions":["failed","collect_failed","delete_failed"]}}`),
+	}
+}
+
 func TestBuildPatchPromptResponseCommandIsNarrowAndPromptBound(t *testing.T) {
 	data, err := buildPatchPromptResponseCommand(queueSelectionState(), patchPromptResponseRequest{
 		PromptID: "abc123",
@@ -115,4 +124,69 @@ func TestPublicItemActionEndpointDoesNotExposeRawCommand(t *testing.T) {
 		if !strings.Contains(src, want) { t.Fatalf("public item action contract missing %q", want) }
 	}
 	if strings.Contains(src, `case "command":`) { t.Fatal("TaskDeck public API must not expose the raw protocol command endpoint") }
+}
+
+
+func TestBuildPatchResumeActionCommandIsNarrowPromptBoundAndCapabilityChecked(t *testing.T) {
+	data, err := buildPatchResumeActionCommand(resumeActionState(), patchResumeActionRequest{
+		PromptID: "resume123",
+		Action: "failed",
+		FailedIndexes: []int{1},
+	})
+	if err != nil { t.Fatal(err) }
+	var command map[string]any
+	if err := json.Unmarshal(data, &command); err != nil { t.Fatal(err) }
+	if command["command"] != "resume_action" || command["type"] != "command" {
+		t.Fatalf("unexpected Resume command envelope: %#v", command)
+	}
+	payload := command["payload"].(map[string]any)
+	if payload["prompt_id"] != "resume123" || payload["action"] != "failed" {
+		t.Fatalf("unexpected Resume payload: %#v", payload)
+	}
+	indexes := payload["failed_indexes"].([]any)
+	if len(indexes) != 1 || int(indexes[0].(float64)) != 1 {
+		t.Fatalf("unexpected failed indexes: %#v", indexes)
+	}
+}
+
+func TestBuildPatchResumeActionCommandRejectsStaleUnsupportedAndUnavailable(t *testing.T) {
+	state := resumeActionState()
+	tests := []patchResumeActionRequest{
+		{PromptID: "stale", Action: "all"},
+		{PromptID: "resume123", Action: "execute"},
+		{PromptID: "resume123", Action: "failed"},
+		{PromptID: "resume123", Action: "failed", FailedIndexes: []int{2}},
+		{PromptID: "resume123", Action: "delete_failed", FailedIndexes: []int{2}},
+		{PromptID: "resume123", Action: "all", FailedIndexes: []int{1}},
+		{PromptID: "resume123", Action: "collect_failed", FailedIndexes: []int{3}},
+	}
+	for _, req := range tests {
+		if _, err := buildPatchResumeActionCommand(state, req); err == nil {
+			t.Fatalf("invalid Resume action accepted: %#v", req)
+		}
+	}
+	if _, err := buildPatchResumeActionCommand(state, patchResumeActionRequest{PromptID:"resume123", Action:"collect_failed", FailedIndexes:[]int{2}}); err != nil {
+		t.Fatalf("advertised collect_failed capability rejected: %v", err)
+	}
+}
+
+func TestPublicResumeActionEndpointDoesNotExposeRawCommand(t *testing.T) {
+	data, err := os.ReadFile("server.go")
+	if err != nil { t.Fatal(err) }
+	src := string(data)
+	for _, want := range []string{
+		`case "resume-action":`,
+		"patchResumeActionRequest",
+		"buildPatchResumeActionCommand(state, req)",
+		"session.ProtocolCommandWriter",
+		"http.MaxBytesReader(w, r.Body, 16<<10)",
+		`"TASKDECK_PATCH_NATIVE_RESUME": "1"`,
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("public Resume action contract missing %q", want)
+		}
+	}
+	if strings.Contains(src, `case "command":`) {
+		t.Fatal("TaskDeck public API must not expose the raw protocol command endpoint")
+	}
 }
