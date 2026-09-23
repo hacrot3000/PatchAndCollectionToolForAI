@@ -5466,6 +5466,7 @@ def _materialize_batch_preflight_failure(
     }
     row["recovery_collect_request"] = detail["recovery_collect_request"]
     row["fail_handoff"] = detail["fail_handoff"]
+    _emit_detail_artifacts(root, item, detail)
     return detail
 
 
@@ -5601,6 +5602,88 @@ def _emit_protocol_event(event_type: str, **payload: object) -> bool:
         return bool(emit_runtime_event(event_type, **payload))
     except Exception:
         return False
+
+
+def _project_artifact_rel(root: Path, raw: object) -> str | None:
+    """Return a safe project-relative user artifact path.
+
+    Protocol artifact events never publish arbitrary filesystem paths. Only a
+    real, non-link file under the project's artifacts/ tree is eligible.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        root_real = root.resolve(strict=True)
+        candidate = Path(raw).expanduser()
+        if not candidate.is_absolute():
+            candidate = root_real / candidate
+        candidate = Path(os.path.abspath(candidate))
+        lexical_rel = candidate.relative_to(root_real)
+        if not lexical_rel.parts or lexical_rel.parts[0] != "artifacts":
+            return None
+        cur = root_real
+        for part in lexical_rel.parts:
+            cur = cur / part
+            if _path_is_link_or_reparse(cur):
+                return None
+        if not cur.is_file():
+            return None
+        resolved = cur.resolve(strict=True)
+        resolved.relative_to(root_real)
+        return resolved.relative_to(root_real).as_posix()
+    except (OSError, ValueError):
+        return None
+
+
+def _detail_artifact_rows(root: Path, detail: dict[str, object]) -> list[dict[str, object]]:
+    candidates: list[tuple[str, object, bool]] = [
+        ("fail_handoff_zip", detail.get("fail_handoff"), True),
+        ("fail_handoff_text", detail.get("fail_handoff_text"), False),
+        ("ai_sync_zip", detail.get("ai_sync_result"), True),
+        ("ai_sync_text", detail.get("ai_sync_result_text"), False),
+    ]
+    collect = detail.get("collect_result")
+    if isinstance(collect, dict):
+        candidates.extend([
+            ("collect_result_zip", collect.get("result_zip"), True),
+            ("collect_result_text", collect.get("result_text"), False),
+        ])
+    rows: list[dict[str, object]] = []
+    seen: set[tuple[str, str]] = set()
+    for artifact_kind, raw, primary in candidates:
+        rel = _project_artifact_rel(root, raw)
+        key = (artifact_kind, rel or "")
+        if rel is None or key in seen:
+            continue
+        seen.add(key)
+        rows.append({
+            "artifact_kind": artifact_kind,
+            "path": rel,
+            "primary": primary,
+        })
+    return rows
+
+
+def _emit_detail_artifacts(
+    root: Path,
+    item: QueueItem,
+    detail: dict[str, object],
+    *,
+    index: int | None = None,
+    total: int | None = None,
+) -> None:
+    for row in _detail_artifact_rows(root, detail):
+        payload: dict[str, object] = {
+            "run_id": _ACTIVE_RUN_ID,
+            "item_name": item.name,
+            "item_kind": item.kind,
+            **row,
+        }
+        if index is not None:
+            payload["index"] = index
+        if total is not None:
+            payload["total"] = total
+        _emit_protocol_event("artifact", **payload)
 
 
 def execute_items(
@@ -5867,6 +5950,7 @@ def execute_items(
                     try: detail["fail_handoff_text"] = handoff_text.relative_to(root).as_posix()
                     except ValueError: detail["fail_handoff_text"] = str(handoff_text)
         _LAST_EXECUTION_DETAILS.append(detail)
+        _emit_detail_artifacts(root, item, detail, index=index + 1, total=len(chosen))
         _emit_protocol_event(
             "item_finished",
             run_id=_ACTIVE_RUN_ID,

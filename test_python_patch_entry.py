@@ -270,6 +270,49 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertGreater(finished, details)
         self.assertNotIn('"item_started"', dispatcher[dispatcher.index('if item.kind == "PATCH" and preflight_detail is not None:'):running])
 
+    def test_dispatcher_artifact_rows_only_publish_real_project_artifacts(self):
+        from python_patch_queue_dispatcher import _detail_artifact_rows
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifacts = root / "artifacts"
+            artifacts.mkdir()
+            fail_zip = artifacts / "FAIL_HANDOFF_demo.zip"
+            fail_zip.write_bytes(b"zip")
+            fail_txt = artifacts / "FAIL_HANDOFF_demo.txt"
+            fail_txt.write_text("text", encoding="utf-8")
+            collect_zip = artifacts / "collect.zip"
+            collect_zip.write_bytes(b"collect")
+            outside = root / "outside.zip"
+            outside.write_bytes(b"outside")
+
+            rows = _detail_artifact_rows(root, {
+                "fail_handoff": str(fail_zip),
+                "fail_handoff_text": "artifacts/FAIL_HANDOFF_demo.txt",
+                "ai_sync_result": str(outside),
+                "log_path": "artifacts/internal.log",
+                "collect_result": {
+                    "result_zip": str(collect_zip),
+                    "result_text": str(root / "missing.txt"),
+                    "request_archive": "patchs/patched/request.zip",
+                },
+            })
+
+        self.assertEqual(rows, [
+            {"artifact_kind": "fail_handoff_zip", "path": "artifacts/FAIL_HANDOFF_demo.zip", "primary": True},
+            {"artifact_kind": "fail_handoff_text", "path": "artifacts/FAIL_HANDOFF_demo.txt", "primary": False},
+            {"artifact_kind": "collect_result_zip", "path": "artifacts/collect.zip", "primary": True},
+        ])
+
+    def test_dispatcher_artifact_events_precede_item_finished(self):
+        dispatcher = (self.base / "_patch_lib" / "python_patch_queue_dispatcher.py").read_text(encoding="utf-8")
+        details = dispatcher.index("_LAST_EXECUTION_DETAILS.append(detail)")
+        artifacts = dispatcher.index("_emit_detail_artifacts(root, item, detail, index=index + 1, total=len(chosen))", details)
+        finished = dispatcher.index('"item_finished"', artifacts)
+        self.assertLess(details, artifacts)
+        self.assertLess(artifacts, finished)
+        self.assertIn("_emit_detail_artifacts(root, item, detail)", dispatcher)
+
     def test_event_writer_emits_versioned_jsonl(self):
         from python_patch_protocol import EventWriter
 

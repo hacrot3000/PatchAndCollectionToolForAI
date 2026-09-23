@@ -155,7 +155,8 @@ Status: **IN PROGRESS**
 - [x] Define versioned JSONL envelope and initial `hello/run_started/run_finished/error` lifecycle events.
 - [x] Emit Python-owned `queue_snapshot` with stable item/warning/count fields before dispatcher-backed runs.
 - [x] Emit Python-owned item_started/item_finished events only around actual payload execution.
-- [ ] Emit progress/artifact events while terminal UI remains authoritative.
+- [x] Emit Python-owned artifact events only for verified user-facing files under project artifacts/.
+- [ ] Emit progress events while terminal UI remains authoritative.
 - [x] Child Python processes emit into an internal pipe; the entrypoint relays them onto the TaskDeck event channel with one global sequence.
 - [x] Add protocol envelope/lifecycle/version tests.
 - [x] Session manager supports an opt-in FD 3 event pipe and bounded protocol state while PTY remains unchanged.
@@ -231,8 +232,9 @@ Every phase must preserve:
 | Phase 1.5E.4 native queue selection UI | DONE | 3160762d | Patch panel renders queue_selection directly from Python prompt data and submits bounded select/cancel responses, with PTY fallback preserved. |
 | Phase 1.5F.1 item lifecycle events | DONE | dff4ab05 | Dispatcher emits item_started/item_finished only for actual PATCH/COLLECT payload execution; preflight/blocked/duplicate skips are not misreported as started. |
 | Phase 1.5F.2 native item lifecycle state | DONE | 87efcaff | TaskDeck retains bounded item lifecycle state and Patch panel displays running/completed item status while PTY remains available. |
-| Phase 1.5F.2 UI contract test correction | DONE | this commit | Updated the stale fixed-40-iteration assertion to the new bounded lifecycle polling contract; no runtime behavior change. |
+| Phase 1.5F.2 UI contract test correction | DONE | 8b087ceb | Updated the stale fixed-40-iteration assertion to the new bounded lifecycle polling contract; no runtime behavior change. |
+| Phase 1.5F.3a Python artifact events | DONE | this commit | Emits fail handoff, AI sync and COLLECT result artifacts only after validating a real non-link file under project artifacts/; internal/history files are not exposed. |
 
 ## Next action
 
-Continue **Phase 1.5F.3**: define Python-owned artifact events for stable user-facing outputs such as fail handoff, AI sync result and COLLECT result artifacts, without exposing internal history schemas.
+Continue **Phase 1.5F.3b**: retain a bounded artifact list in TaskDeck protocol state and render safe project-relative artifact actions in the Patch panel.
