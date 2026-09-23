@@ -281,8 +281,9 @@ Every phase must preserve:
 | Phase 2E.3 native Smart Resume UI | DONE | 2c36121d | Patch panel renders Python-owned Resume snapshot/options/failed-item capabilities, submits only through /resume-action, confirms destructive delete, and preserves PTY fallback/history handoff. |
 | Phase 2E.3 UI contract test correction | DONE | 1b3811df | Updated the legacy Running-view PTY activation assertion for native Resume; runtime behavior is unchanged. |
 | Phase 2F.1 History/report projection | DONE | 235847fb | Python exposes bounded meaningful-run summaries and one-run report detail views with verified project-relative files; report route emits history_snapshot additively and Go never sees raw history JSON. |
-| Phase 2F.1 read-only pin loader correction | DONE | this commit | History projections no longer materialize artifacts/patch_tool merely to read PINNED_RUNS; Pin/Unpin writes keep the existing mutating path. |
+| Phase 2F.1 read-only pin loader correction | DONE | ff3d78aa | History projections no longer materialize artifacts/patch_tool merely to read PINNED_RUNS; Pin/Unpin writes keep the existing mutating path. |
+| Phase 2F.2a native History Python command path | DONE | this commit | Opt-in History sessions emit a read-only history_action prompt, accept only advertised prompt-bound history_detail run_ids, emit history_report, and leave terminal report behavior unchanged. |
 
 ## Next action
 
-Continue **Phase 2F.2**: add an opt-in native History detail command that requests one run_id, emits history_report, and TaskDeck retains it behind a narrow prompt-bound/read-only endpoint while terminal History remains unchanged.
+Continue **Phase 2F.2b**: retain history_snapshot/history_report in TaskDeck and add a narrow active-prompt /history-detail endpoint with a final FD4 prompt gate; do not expose raw protocol commands.

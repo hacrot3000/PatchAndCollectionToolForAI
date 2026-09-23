@@ -4204,6 +4204,82 @@ def protocol_history_report_view(root: Path, run_id: str) -> dict[str, object]:
     }
 
 
+def protocol_history_prompt_contract(root: Path) -> dict[str, object]:
+    """Return the read-only native History prompt from the stable list projection."""
+    view = protocol_history_view(root)
+    runs = list(view.get("runs") or []) if isinstance(view.get("runs"), list) else []
+    return {
+        "prompt_kind": "history_action",
+        "title": "Patch Tool History",
+        "actions": ["detail"] if runs else [],
+        "runs": runs,
+        "default_run_id": _protocol_history_text(view.get("default_run_id") or "", 128),
+        "constraints": {"read_only": True, "run_id_source": "runs", "max_runs": 100},
+    }
+
+
+def _protocol_history_detail_session(root: Path) -> bool:
+    """Serve native read-only History detail requests only when TaskDeck opts in."""
+    if os.environ.get("TASKDECK_PATCH_NATIVE_HISTORY", "").strip() != "1":
+        return False
+
+    from python_patch_protocol import ProtocolCommandError, emit_prompt, prompt_channels_from_env
+
+    try:
+        writer, reader = prompt_channels_from_env()
+    except ProtocolCommandError:
+        return False
+    if writer is None or reader is None:
+        return False
+
+    prompt_started = False
+    try:
+        contract = protocol_history_prompt_contract(root)
+        runs = contract["runs"]
+        if not runs:
+            return True
+        prompt_id = emit_prompt(
+            writer,
+            "history_action",
+            title=contract["title"],
+            actions=contract["actions"],
+            runs=runs,
+            default_run_id=contract["default_run_id"],
+            constraints=contract["constraints"],
+        )
+        prompt_started = True
+        allowed_run_ids = {
+            str(row.get("run_id") or "")
+            for row in runs
+            if isinstance(row, dict) and str(row.get("run_id") or "")
+        }
+        while True:
+            try:
+                command = reader.read()
+                if command is None:
+                    return True
+                if command.get("command") != "history_detail":
+                    raise ProtocolCommandError("native History requires a history_detail command")
+                payload = command.get("payload")
+                if not isinstance(payload, dict):
+                    raise ProtocolCommandError("history_detail payload must be an object")
+                if payload.get("prompt_id") != prompt_id:
+                    raise ProtocolCommandError("history_detail prompt_id does not match the active prompt")
+                run_id = str(payload.get("run_id") or "").strip()
+                if not run_id or len(run_id) > 128 or run_id not in allowed_run_ids:
+                    raise ProtocolCommandError("history_detail run_id is not available in the active History prompt")
+                writer.emit("history_report", prompt_id=prompt_id, **protocol_history_report_view(root, run_id))
+            except (ProtocolCommandError, ValueError, TypeError) as exc:
+                writer.emit("error", phase="history_detail", message=str(exc))
+                continue
+    except (ProtocolCommandError, ValueError, TypeError, QueueSafetyError) as exc:
+        writer.emit("error", phase="history_action_prompt", message=str(exc))
+        return True if prompt_started else False
+    finally:
+        reader.close()
+        writer.close()
+
+
 def _render_history_selector(
     entries: list[tuple[Path, dict[str, object]]], cursor: int, pins: set[str], prev: int, msg: str = ""
 ) -> int:
@@ -4462,6 +4538,8 @@ def _report_command(
     if export_run: return _export_history(root, export_run)
     if cleanup:
         result = _cleanup_history(root); print(f"HISTORY CLEANUP: removed={result['removed']} pinned={result['pinned']} remaining={result['remaining']}"); return 0
+    if run_id is None and support_item is None and _protocol_history_detail_session(root):
+        return 0
     report = _load_report_by_run_id(root, run_id)
     if not report:
         print("No matching Patch Tool run report is available.", file=sys.stderr); return 2

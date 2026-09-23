@@ -846,6 +846,135 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertLess(emit, native)
         self.assertLess(native, terminal)
 
+    def test_native_history_is_strictly_opt_in(self):
+        import python_patch_queue_dispatcher as dispatcher
+        old = os.environ.pop("TASKDECK_PATCH_NATIVE_HISTORY", None)
+        try:
+            with tempfile.TemporaryDirectory(prefix="taskdeck-native-history-off-") as td:
+                self.assertFalse(dispatcher._protocol_history_detail_session(Path(td)))
+        finally:
+            if old is not None:
+                os.environ["TASKDECK_PATCH_NATIVE_HISTORY"] = old
+
+    @unittest.skipUnless(os.name == "posix", "native History command channel requires POSIX FDs")
+    def test_native_history_detail_is_prompt_bound_read_only_and_repeatable(self):
+        import python_patch_queue_dispatcher as dispatcher
+        event_read, event_write = os.pipe()
+        command_read, command_write = os.pipe()
+        old_event = os.environ.get(entry.EVENT_FD_ENV)
+        old_command = os.environ.get(entry.COMMAND_FD_ENV)
+        old_native = os.environ.get("TASKDECK_PATCH_NATIVE_HISTORY")
+        os.environ[entry.EVENT_FD_ENV] = str(event_write)
+        os.environ[entry.COMMAND_FD_ENV] = str(command_read)
+        os.environ["TASKDECK_PATCH_NATIVE_HISTORY"] = "1"
+        seen = {}
+        snapshot = {
+            "status": "available",
+            "runs": [{"run_id": "run-1", "status": "PASS"}, {"run_id": "run-2", "status": "FAIL"}],
+            "total": 2, "default_run_id": "run-1", "truncated": False,
+        }
+
+        def respond():
+            nonlocal command_write
+            with os.fdopen(os.dup(event_read), "r", encoding="utf-8") as stream:
+                prompt = json.loads(stream.readline())
+            seen["prompt"] = prompt
+            for seq, run_id in ((1, "run-1"), (2, "run-2")):
+                command = {
+                    "protocol": "taskdeck.patch", "version": 1, "type": "command", "seq": seq,
+                    "command": "history_detail",
+                    "payload": {"prompt_id": prompt["prompt_id"], "run_id": run_id},
+                }
+                os.write(command_write, (json.dumps(command) + "\n").encode("utf-8"))
+            os.close(command_write)
+            command_write = -1
+
+        worker = threading.Thread(target=respond)
+        worker.start()
+        try:
+            with tempfile.TemporaryDirectory(prefix="taskdeck-native-history-") as td, \
+                 mock.patch.object(dispatcher, "protocol_history_view", return_value=snapshot), \
+                 mock.patch.object(dispatcher, "protocol_history_report_view", side_effect=lambda _root, run_id: {
+                     "status": "available", "run": {"run_id": run_id, "status": "PASS"},
+                     "items": [], "total_items": 0, "items_truncated": False, "files": [], "warnings": [],
+                 }):
+                handled = dispatcher._protocol_history_detail_session(Path(td))
+            worker.join(timeout=2)
+            self.assertTrue(handled)
+            self.assertFalse(worker.is_alive())
+            os.close(event_write); event_write = -1
+            remaining = os.read(event_read, 1 << 20).decode("utf-8")
+        finally:
+            if old_event is None: os.environ.pop(entry.EVENT_FD_ENV, None)
+            else: os.environ[entry.EVENT_FD_ENV] = old_event
+            if old_command is None: os.environ.pop(entry.COMMAND_FD_ENV, None)
+            else: os.environ[entry.COMMAND_FD_ENV] = old_command
+            if old_native is None: os.environ.pop("TASKDECK_PATCH_NATIVE_HISTORY", None)
+            else: os.environ["TASKDECK_PATCH_NATIVE_HISTORY"] = old_native
+            for fd in (event_read, event_write, command_read, command_write):
+                if fd >= 0:
+                    try: os.close(fd)
+                    except OSError: pass
+
+        self.assertEqual(seen["prompt"]["prompt_kind"], "history_action")
+        self.assertEqual(seen["prompt"]["actions"], ["detail"])
+        self.assertTrue(seen["prompt"]["constraints"]["read_only"])
+        events = [json.loads(line) for line in remaining.splitlines() if line.strip()]
+        reports = [event for event in events if event.get("type") == "history_report"]
+        self.assertEqual([event["run"]["run_id"] for event in reports], ["run-1", "run-2"])
+        self.assertTrue(all(event["prompt_id"] == seen["prompt"]["prompt_id"] for event in reports))
+
+    @unittest.skipUnless(os.name == "posix", "native History command channel requires POSIX FDs")
+    def test_native_history_rejects_unadvertised_run_id(self):
+        import python_patch_queue_dispatcher as dispatcher
+        event_read, event_write = os.pipe()
+        command_read, command_write = os.pipe()
+        old_event = os.environ.get(entry.EVENT_FD_ENV)
+        old_command = os.environ.get(entry.COMMAND_FD_ENV)
+        old_native = os.environ.get("TASKDECK_PATCH_NATIVE_HISTORY")
+        os.environ[entry.EVENT_FD_ENV] = str(event_write)
+        os.environ[entry.COMMAND_FD_ENV] = str(command_read)
+        os.environ["TASKDECK_PATCH_NATIVE_HISTORY"] = "1"
+
+        def respond():
+            nonlocal command_write
+            with os.fdopen(os.dup(event_read), "r", encoding="utf-8") as stream:
+                prompt = json.loads(stream.readline())
+            command = {
+                "protocol": "taskdeck.patch", "version": 1, "type": "command", "seq": 1,
+                "command": "history_detail",
+                "payload": {"prompt_id": prompt["prompt_id"], "run_id": "not-advertised"},
+            }
+            os.write(command_write, (json.dumps(command) + "\n").encode("utf-8"))
+            os.close(command_write); command_write = -1
+
+        worker = threading.Thread(target=respond); worker.start()
+        try:
+            snapshot = {"status": "available", "runs": [{"run_id": "run-1"}], "total": 1, "default_run_id": "run-1", "truncated": False}
+            with tempfile.TemporaryDirectory(prefix="taskdeck-native-history-invalid-") as td, \
+                 mock.patch.object(dispatcher, "protocol_history_view", return_value=snapshot), \
+                 mock.patch.object(dispatcher, "protocol_history_report_view") as report_view:
+                handled = dispatcher._protocol_history_detail_session(Path(td))
+                report_view.assert_not_called()
+            worker.join(timeout=2)
+            os.close(event_write); event_write = -1
+            remaining = os.read(event_read, 1 << 20).decode("utf-8")
+        finally:
+            if old_event is None: os.environ.pop(entry.EVENT_FD_ENV, None)
+            else: os.environ[entry.EVENT_FD_ENV] = old_event
+            if old_command is None: os.environ.pop(entry.COMMAND_FD_ENV, None)
+            else: os.environ[entry.COMMAND_FD_ENV] = old_command
+            if old_native is None: os.environ.pop("TASKDECK_PATCH_NATIVE_HISTORY", None)
+            else: os.environ["TASKDECK_PATCH_NATIVE_HISTORY"] = old_native
+            for fd in (event_read, event_write, command_read, command_write):
+                if fd >= 0:
+                    try: os.close(fd)
+                    except OSError: pass
+        self.assertTrue(handled)
+        events = [json.loads(line) for line in remaining.splitlines() if line.strip()]
+        self.assertTrue(any(event.get("type") == "error" and event.get("phase") == "history_detail" for event in events))
+        self.assertFalse(any(event.get("type") == "history_report" for event in events))
+
     def test_history_projection_is_python_owned_bounded_and_sanitized(self):
         import python_patch_queue_dispatcher as dispatcher
         from python_patch_protocol import build_history_snapshot, build_history_report
