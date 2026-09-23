@@ -223,6 +223,122 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertTrue(handled)
         self.assertEqual([item.name for item in chosen], ["one.zip"])
 
+    def test_dispatcher_protocol_item_action_emits_result_and_keeps_prompt_active(self):
+        from python_patch_queue_dispatcher import QueueItem, _protocol_queue_selection
+        import python_patch_queue_dispatcher as dispatcher
+
+        event_read, event_write = os.pipe()
+        command_read, command_write = os.pipe()
+        old_event = os.environ.get(entry.EVENT_FD_ENV)
+        old_command = os.environ.get(entry.COMMAND_FD_ENV)
+        os.environ[entry.EVENT_FD_ENV] = str(event_write)
+        os.environ[entry.COMMAND_FD_ENV] = str(command_read)
+        seen = {}
+
+        def respond():
+            with os.fdopen(os.dup(event_read), "r", encoding="utf-8") as stream:
+                prompt = json.loads(stream.readline())
+                seen["prompt"] = prompt
+                action = {
+                    "protocol": "taskdeck.patch",
+                    "version": 1,
+                    "type": "command",
+                    "seq": 1,
+                    "command": "item_action",
+                    "payload": {
+                        "prompt_id": prompt["prompt_id"],
+                        "action_id": "action-1",
+                        "action": "preview",
+                        "index": 1,
+                    },
+                }
+                os.write(command_write, (json.dumps(action) + "\n").encode("utf-8"))
+                result = json.loads(stream.readline())
+                seen["result"] = result
+                response = {
+                    "protocol": "taskdeck.patch",
+                    "version": 1,
+                    "type": "command",
+                    "seq": 2,
+                    "command": "prompt_response",
+                    "payload": {
+                        "prompt_id": prompt["prompt_id"],
+                        "action": "select",
+                        "indexes": [1],
+                    },
+                }
+                os.write(command_write, (json.dumps(response) + "\n").encode("utf-8"))
+
+        worker = threading.Thread(target=respond)
+        worker.start()
+        items = [QueueItem("one.zip", "PATCH", "manifest")]
+        try:
+            with mock.patch.object(dispatcher, "_run_runner_captured", return_value=(0, "preview output\n", False)):
+                handled, chosen = _protocol_queue_selection(items, "none", set(), root=Path("/workspace"))
+        finally:
+            worker.join(timeout=2)
+            if old_event is None:
+                os.environ.pop(entry.EVENT_FD_ENV, None)
+            else:
+                os.environ[entry.EVENT_FD_ENV] = old_event
+            if old_command is None:
+                os.environ.pop(entry.COMMAND_FD_ENV, None)
+            else:
+                os.environ[entry.COMMAND_FD_ENV] = old_command
+            for fd in (event_read, event_write, command_read, command_write):
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+        self.assertTrue(handled)
+        self.assertEqual([item.name for item in chosen], ["one.zip"])
+        self.assertEqual(seen["prompt"]["item_actions"], ["inspect", "preview", "validate"])
+        result = seen["result"]
+        self.assertEqual(result["type"], "action_result")
+        self.assertEqual(result["action_id"], "action-1")
+        self.assertEqual(result["action"], "preview")
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["rc"], 0)
+        self.assertEqual(result["output"], "preview output\n")
+
+    def test_protocol_item_action_rejects_collect_without_running_runner(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        class Writer:
+            def __init__(self): self.events = []
+            def emit(self, event_type, **payload): self.events.append((event_type, payload)); return True
+
+        writer = Writer()
+        command = {
+            "payload": {
+                "prompt_id": "prompt-1",
+                "action_id": "action-collect",
+                "action": "inspect",
+                "index": 1,
+            }
+        }
+        with mock.patch.object(dispatcher, "_run_runner_captured") as runner:
+            dispatcher._protocol_item_action(
+                Path("/workspace"),
+                writer,
+                [dispatcher.QueueItem("request.zip", "COLLECT", "request")],
+                "prompt-1",
+                command,
+            )
+        runner.assert_not_called()
+        self.assertEqual(writer.events[0][0], "action_result")
+        self.assertEqual(writer.events[0][1]["status"], "UNSUPPORTED")
+        self.assertEqual(writer.events[0][1]["rc"], 2)
+
+    def test_protocol_action_output_is_bounded_and_preserves_tail(self):
+        import python_patch_queue_dispatcher as dispatcher
+        text = "A" * (dispatcher._PROTOCOL_ACTION_OUTPUT_BYTES + 1000) + "TAIL"
+        bounded, truncated = dispatcher._protocol_action_output(text)
+        self.assertTrue(truncated)
+        self.assertLessEqual(len(bounded.encode("utf-8")), dispatcher._PROTOCOL_ACTION_OUTPUT_BYTES + 8)
+        self.assertTrue(bounded.endswith("TAIL"))
+
     def test_dispatcher_protocol_selector_absent_channels_falls_back(self):
         from python_patch_queue_dispatcher import QueueItem, _protocol_queue_selection
 

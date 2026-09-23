@@ -4853,10 +4853,99 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
     return []
 
 
+_PROTOCOL_ITEM_ACTIONS = {"inspect", "preview", "validate"}
+_PROTOCOL_ACTION_OUTPUT_BYTES = 64 << 10
+
+
+def _protocol_action_output(text: str) -> tuple[str, bool]:
+    clean = _ANSI_RE.sub("", str(text)).replace("\r\n", "\n").replace("\r", "\n")
+    filtered = "".join(
+        ch for ch in clean
+        if ch in {"\n", "\t"} or unicodedata.category(ch) != "Cc"
+    )
+    raw = filtered.encode("utf-8", errors="replace")
+    if len(raw) <= _PROTOCOL_ACTION_OUTPUT_BYTES:
+        return filtered, False
+    marker = b"\n... [TaskDeck native action output truncated] ...\n"
+    head_budget = max(0, _PROTOCOL_ACTION_OUTPUT_BYTES * 3 // 4 - len(marker))
+    tail_budget = max(0, _PROTOCOL_ACTION_OUTPUT_BYTES - head_budget - len(marker))
+    bounded = raw[:head_budget] + marker + raw[-tail_budget:]
+    return bounded.decode("utf-8", errors="replace"), True
+
+
+def _protocol_item_action(
+    root: Path | None,
+    writer,
+    items: list[QueueItem],
+    active_prompt_id: str,
+    command: dict[str, object],
+) -> None:
+    payload = command.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError("item_action payload must be an object")
+    prompt_id = str(payload.get("prompt_id") or "")
+    action_id = str(payload.get("action_id") or "").strip()
+    action = str(payload.get("action") or "").strip().lower()
+    index = payload.get("index")
+    if prompt_id != active_prompt_id:
+        raise ValueError("item_action prompt_id does not match the active prompt")
+    if not action_id or len(action_id) > 128:
+        raise ValueError("item_action action_id is required and must be <=128 characters")
+    if action not in _PROTOCOL_ITEM_ACTIONS:
+        raise ValueError(f"unsupported item_action action: {action!r}")
+    if isinstance(index, bool) or not isinstance(index, int) or index < 1 or index > len(items):
+        raise ValueError("item_action index is out of range")
+    item = items[index - 1]
+    if root is None:
+        raise ValueError("item_action project root is unavailable")
+    if item.kind != "PATCH":
+        writer.emit(
+            "action_result",
+            prompt_id=active_prompt_id,
+            action_id=action_id,
+            action=action,
+            index=index,
+            item_name=item.name,
+            item_kind=item.kind,
+            status="UNSUPPORTED",
+            rc=2,
+            timed_out=False,
+            elapsed_seconds=0.0,
+            output="Native inspect/preview/validate applies only to PATCH items.",
+            output_truncated=False,
+        )
+        return
+
+    started = time.monotonic()
+    rc, output, timed_out = _run_runner_captured(
+        root,
+        _runner_command(root, action, item),
+        timeout=1830,
+    )
+    bounded_output, truncated = _protocol_action_output(output)
+    writer.emit(
+        "action_result",
+        prompt_id=active_prompt_id,
+        action_id=action_id,
+        action=action,
+        index=index,
+        item_name=item.name,
+        item_kind=item.kind,
+        status="PASS" if rc == 0 else ("TIMEOUT" if timed_out else "FAIL"),
+        rc=int(rc),
+        timed_out=bool(timed_out),
+        elapsed_seconds=round(time.monotonic() - started, 3),
+        output=bounded_output,
+        output_truncated=truncated,
+    )
+
+
 def _protocol_queue_selection(
     items: list[QueueItem],
     initial_selection: str,
     failed_group_names: set[str] | None = None,
+    *,
+    root: Path | None = None,
 ) -> tuple[bool, list[QueueItem] | None]:
     """Handle the narrow native queue-selection prompt when both channels exist.
 
@@ -4865,8 +4954,9 @@ def _protocol_queue_selection(
     """
     from python_patch_protocol import (
         ProtocolCommandError,
+        emit_prompt,
         prompt_channels_from_env,
-        request_prompt,
+        prompt_response_from_command,
     )
 
     try:
@@ -4889,20 +4979,32 @@ def _protocol_queue_selection(
             }
             for index, item in enumerate(items, 1)
         ]
-        response = request_prompt(
+        prompt_id = emit_prompt(
             writer,
-            reader,
             "queue_selection",
             title="Choose PATCH/COLLECT work",
             items=rows,
             initial_selected=initial,
             actions=["select", "cancel"],
+            item_actions=sorted(_PROTOCOL_ITEM_ACTIONS),
             constraints={
                 "index_base": 1,
                 "collect_exclusive": True,
                 "collect_max": 1,
             },
         )
+        while True:
+            command = reader.read()
+            if command is None:
+                raise ProtocolCommandError("Patch protocol command channel closed while waiting for queue_selection")
+            if command.get("command") == "item_action":
+                try:
+                    _protocol_item_action(root, writer, items, prompt_id, command)
+                except (ValueError, TypeError) as exc:
+                    writer.emit("error", phase="item_action", message=str(exc))
+                continue
+            response = prompt_response_from_command(command, prompt_id)
+            break
         action = str(response.get("action") or "")
         if action == "cancel":
             return True, None
@@ -7137,6 +7239,7 @@ def _run_queue(
             selector_items,
             str(cfg.get("initial_selection", "none")),
             failed_group_names,
+            root=root,
         )
         if protocol_handled:
             chosen = protocol_chosen

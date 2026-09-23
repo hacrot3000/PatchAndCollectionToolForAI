@@ -248,7 +248,7 @@ def _run_with_protocol(
     from python_patch_protocol import relay_event_fd
 
     route = classify_route(tool_args)
-    capabilities = ["events_v1", "queue_snapshot_v1", "child_event_relay_v1", "progress_v1"]
+    capabilities = ["events_v1", "queue_snapshot_v1", "child_event_relay_v1", "progress_v1", "item_actions_v1"]
     if command_fd is not None:
         capabilities.append("commands_v1")
     writer.emit(

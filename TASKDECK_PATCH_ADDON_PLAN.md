@@ -174,6 +174,9 @@ Status: **IN PROGRESS**
   - [x] Phase 2A.1 Python-owned stable Queue/Failed protocol projection.
   - [x] Phase 2A.2 Web Queue/Failed views from queue_snapshot.
 - [ ] Native Inspect / Preview / Validate.
+  - [x] Phase 2B.1 Python-owned item_action/action_result protocol contract over the active Queue prompt.
+  - [ ] Phase 2B.2 TaskDeck backend endpoint/state for bounded native item actions.
+  - [ ] Phase 2B.3 Patch panel Inspect/Preview/Validate controls and result viewer.
 - [ ] Native Run selection and confirmation prompts.
 - [ ] Native Running/progress view with console as secondary evidence.
 - [ ] Native Resume/recovery.
@@ -242,8 +245,9 @@ Every phase must preserve:
 | Phase 1.5G.1 Python COLLECT progress events | DONE | e5a55760 | COLLECT progress supervisor emits bounded phase/status/elapsed/output/detail events over the inherited protocol FD; Go never parses console text. |
 | Phase 1.5G.2 native progress state/UI | DONE | 851611a4 | TaskDeck validates and retains only the latest bounded progress event; Patch panel renders native progress while PTY remains unchanged. |
 | Phase 2A.1 Queue/Failed protocol projection | DONE | 44ea3cce | Python dispatcher projects new/failed grouping and bounded failure summaries from the same unresolved policy used by the terminal selector; Go does not read history schemas. |
-| Phase 2A.2 native Queue/Failed web views | DONE | this commit | Patch panel separates Queue/Failed strictly by Python snapshot group and renders bounded failure summaries; legacy snapshots remain Queue-only without inferred failure policy. |
+| Phase 2A.2 native Queue/Failed web views | DONE | dd41c7b0 | Patch panel separates Queue/Failed strictly by Python snapshot group and renders bounded failure summaries; legacy snapshots remain Queue-only without inferred failure policy. |
+| Phase 2B.1 native item action protocol | DONE | this commit | Active queue prompts accept bounded inspect/preview/validate item_action commands, execute the existing read-only Python runner path, emit correlated action_result events, then continue waiting for selection. |
 
 ## Next action
 
-Continue **Phase 2B.1**: define Python-owned native Inspect/Preview/Validate command/result contracts for queue items, reusing the existing read-only dispatcher operations and preserving PTY fallback.
+Continue **Phase 2B.2**: validate item_action requests in TaskDeck, retain the latest bounded action_result in protocol state, and expose a narrow per-session action endpoint without accepting arbitrary protocol commands.

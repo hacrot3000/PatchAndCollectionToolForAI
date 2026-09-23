@@ -179,12 +179,11 @@ def prompt_channels_from_env() -> tuple[EventWriter | None, CommandReader | None
     return EventWriter(event_fd), CommandReader(command_fd)
 
 
-def request_prompt(
+def emit_prompt(
     writer: EventWriter,
-    reader: CommandReader,
     prompt_kind: str,
     **payload: Any,
-) -> dict[str, Any]:
+) -> str:
     prompt_id = os.urandom(12).hex()
     writer.emit(
         "prompt",
@@ -192,7 +191,10 @@ def request_prompt(
         prompt_kind=str(prompt_kind),
         **payload,
     )
-    command = reader.read()
+    return prompt_id
+
+
+def prompt_response_from_command(command: dict[str, Any] | None, prompt_id: str) -> dict[str, Any]:
     if command is None:
         raise ProtocolCommandError("Patch protocol command channel closed while waiting for prompt response")
     if command.get("command") != "prompt_response":
@@ -203,6 +205,16 @@ def request_prompt(
     if response.get("prompt_id") != prompt_id:
         raise ProtocolCommandError("Patch prompt_response prompt_id does not match the active prompt")
     return response
+
+
+def request_prompt(
+    writer: EventWriter,
+    reader: CommandReader,
+    prompt_kind: str,
+    **payload: Any,
+) -> dict[str, Any]:
+    prompt_id = emit_prompt(writer, prompt_kind, **payload)
+    return prompt_response_from_command(reader.read(), prompt_id)
 
 
 def relay_event_fd(fd: int, writer: EventWriter) -> None:
