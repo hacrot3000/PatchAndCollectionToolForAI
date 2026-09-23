@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -12,6 +13,7 @@ const (
 	patchProtocolVersion  = 1
 	maxProtocolEventBytes   = 1 << 20
 	maxProtocolCommandBytes = 1 << 20
+	maxProtocolItems        = 4096
 )
 
 type protocolEnvelope struct {
@@ -19,6 +21,17 @@ type protocolEnvelope struct {
 	Version  int    `json:"version"`
 	Type     string `json:"type"`
 	Seq      int64  `json:"seq"`
+}
+
+type ProtocolItemState struct {
+	Index          int      `json:"index"`
+	Total          int      `json:"total"`
+	Name           string   `json:"name"`
+	Kind           string   `json:"kind"`
+	Status         string   `json:"status"`
+	RC             *int     `json:"rc,omitempty"`
+	StartedAt      string   `json:"started_at,omitempty"`
+	ElapsedSeconds *float64 `json:"elapsed_seconds,omitempty"`
 }
 
 type ProtocolState struct {
@@ -29,8 +42,9 @@ type ProtocolState struct {
 	LastSeq         int64           `json:"last_seq,omitempty"`
 	LastEvent       json.RawMessage `json:"last_event,omitempty"`
 	QueueSnapshot   json.RawMessage `json:"queue_snapshot,omitempty"`
-	Prompt          json.RawMessage `json:"prompt,omitempty"`
-	Error           string          `json:"error,omitempty"`
+	Prompt          json.RawMessage     `json:"prompt,omitempty"`
+	Items           []ProtocolItemState `json:"items,omitempty"`
+	Error           string              `json:"error,omitempty"`
 }
 
 type ProtocolStateProvider interface {
@@ -71,6 +85,63 @@ func validateProtocolCommand(data []byte) ([]byte, error) {
 	return json.Marshal(value)
 }
 
+func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
+	var event struct {
+		Type           string   `json:"type"`
+		Index          int      `json:"index"`
+		Total          int      `json:"total"`
+		Name           string   `json:"name"`
+		Kind           string   `json:"kind"`
+		Status         string   `json:"status"`
+		RC             *int     `json:"rc"`
+		StartedAt      string   `json:"started_at"`
+		ElapsedSeconds *float64 `json:"elapsed_seconds"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return ProtocolItemState{}, "", fmt.Errorf("invalid Patch item event JSON: %w", err)
+	}
+	if event.Type != "item_started" && event.Type != "item_finished" {
+		return ProtocolItemState{}, "", fmt.Errorf("unsupported Patch item event")
+	}
+	if event.Index < 1 || event.Total < event.Index || event.Total > maxProtocolItems {
+		return ProtocolItemState{}, "", fmt.Errorf("Patch item event index/total is out of bounds")
+	}
+	if strings.TrimSpace(event.Name) == "" || strings.TrimSpace(event.Kind) == "" {
+		return ProtocolItemState{}, "", fmt.Errorf("Patch item event identity is incomplete")
+	}
+	status := strings.TrimSpace(event.Status)
+	if event.Type == "item_started" {
+		status = "RUNNING"
+	} else if status == "" {
+		return ProtocolItemState{}, "", fmt.Errorf("Patch item_finished status is required")
+	}
+	return ProtocolItemState{
+		Index: event.Index,
+		Total: event.Total,
+		Name: event.Name,
+		Kind: event.Kind,
+		Status: status,
+		RC: event.RC,
+		StartedAt: event.StartedAt,
+		ElapsedSeconds: event.ElapsedSeconds,
+	}, event.Type, nil
+}
+
+func upsertProtocolItem(items []ProtocolItemState, item ProtocolItemState) []ProtocolItemState {
+	for i := range items {
+		if items[i].Index == item.Index {
+			items[i] = item
+			return items
+		}
+	}
+	if len(items) >= maxProtocolItems {
+		return items
+	}
+	items = append(items, item)
+	sort.Slice(items, func(i, j int) bool { return items[i].Index < items[j].Index })
+	return items
+}
+
 func protocolPromptID(data []byte) (string, error) {
 	var event struct {
 		Type     string `json:"type"`
@@ -109,5 +180,6 @@ func cloneProtocolState(in ProtocolState) ProtocolState {
 	out.LastEvent = append(json.RawMessage(nil), in.LastEvent...)
 	out.QueueSnapshot = append(json.RawMessage(nil), in.QueueSnapshot...)
 	out.Prompt = append(json.RawMessage(nil), in.Prompt...)
+	out.Items = append([]ProtocolItemState(nil), in.Items...)
 	return out
 }

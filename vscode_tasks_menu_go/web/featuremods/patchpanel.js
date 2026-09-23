@@ -36,6 +36,13 @@ function installPatchPanel(){
   .task-patch-prompt-detail{display:block;opacity:.62;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-prompt-buttons{display:flex;gap:6px;margin-top:8px}
   .task-patch-prompt-buttons button{flex:1}
+  .task-patch-run{margin:0 0 10px;padding:8px;border:1px solid #30343b;border-radius:6px;background:#0d1015;font-size:11px}
+  .task-patch-run[hidden]{display:none}
+  .task-patch-run-title{font-weight:700;margin-bottom:6px}
+  .task-patch-run-items{display:grid;gap:4px}
+  .task-patch-run-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;padding:5px 6px;border-radius:4px;background:#171c23}
+  .task-patch-run-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .task-patch-run-status{font-weight:700}
   .task-patch-actions{display:grid;gap:7px}
   .task-patch-action{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:9px 10px;text-align:left}
   .task-patch-action strong{font-size:12px}
@@ -47,6 +54,8 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-summary-count{border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-prompt{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-prompt-item{background:#fff}
+  html[data-taskmenu-theme="light"] .task-patch-run{background:#f6f8fa;border-color:#d0d7de}
+  html[data-taskmenu-theme="light"] .task-patch-run-item{background:#fff}
   `;
   document.head.append(style);
 
@@ -79,8 +88,13 @@ function installPatchPanel(){
   const promptButtons=document.createElement('div');promptButtons.className='task-patch-prompt-buttons';
   promptBox.append(promptTitle,promptNote,promptItems,promptButtons);
 
+  const runBox=document.createElement('div');runBox.className='task-patch-run';runBox.hidden=true;
+  const runTitle=document.createElement('div');runTitle.className='task-patch-run-title';runTitle.textContent='Run status';
+  const runItems=document.createElement('div');runItems.className='task-patch-run-items';
+  runBox.append(runTitle,runItems);
+
   const actions=document.createElement('div');actions.className='task-patch-actions';
-  body.append(note,summary,promptBox,actions);
+  body.append(note,summary,promptBox,runBox,actions);
   panel.append(head,body);
   document.body.append(panel);
 
@@ -91,6 +105,8 @@ function installPatchPanel(){
     ['plan','Plan','Inspect the execution plan without replacing the Python engine'],
   ];
   const buttons=[];
+  let activeSessionId='';
+  let protocolPollGeneration=0;
   for(const [mode,label,detail] of actionDefs){
     const button=document.createElement('button');
     button.type='button';
@@ -106,6 +122,8 @@ function installPatchPanel(){
   function setVisible(value){
     const visible=Boolean(value);
     panel.classList.toggle('visible',visible);
+    if(!visible)protocolPollGeneration+=1;
+    if(visible&&activeSessionId)void pollProtocol(activeSessionId,true,true);
     window.dispatchEvent(new CustomEvent('taskmenu:patch-panel-visible',{detail:{visible}}));
   }
   function open(){setVisible(true);}
@@ -148,6 +166,26 @@ function installPatchPanel(){
     summaryWarnings.textContent=warnings.length?`${warnings.length} warning(s): ${warnings.slice(0,3).join(' | ')}`:'';
   }
 
+  function renderItemLifecycle(items){
+    const rows=Array.isArray(items)?items:[];
+    runItems.replaceChildren();
+    if(!rows.length){
+      runBox.hidden=true;
+      return;
+    }
+    runBox.hidden=false;
+    for(const item of rows){
+      const row=document.createElement('div');row.className='task-patch-run-item';
+      const name=document.createElement('span');name.className='task-patch-run-name';
+      name.textContent=`${Number(item?.index||0)}. ${String(item?.name||'')} · ${String(item?.kind||'')}`;
+      const status=document.createElement('span');status.className='task-patch-run-status';
+      const rc=item?.rc;
+      status.textContent=rc===undefined||rc===null?String(item?.status||''): `${String(item?.status||'')} (rc=${rc})`;
+      row.append(name,status);
+      runItems.append(row);
+    }
+  }
+
   function clearPrompt(){
     promptBox.hidden=true;
     promptTitle.textContent='';
@@ -186,6 +224,7 @@ function installPatchPanel(){
       });
       clearPrompt();
       summaryStatus.textContent=action==='cancel'?'Cancelled':'Selection submitted';
+      void pollProtocol(sessionId,false,true);
     }catch(error){
       for(const button of promptButtons.querySelectorAll('button'))button.disabled=false;
       throw error;
@@ -237,11 +276,15 @@ function installPatchPanel(){
     return true;
   }
 
-  async function pollProtocol(sessionId,expectPrompt=false){
+  async function pollProtocol(sessionId,expectPrompt=false,followLifecycle=false){
+    const generation=++protocolPollGeneration;
     resetSummary('Loading…');
     clearPrompt();
     let haveSnapshot=false;
-    for(let attempt=0;attempt<40;attempt+=1){
+    const maxAttempts=followLifecycle?7200:40;
+    const delayMs=followLifecycle?1000:250;
+    for(let attempt=0;attempt<maxAttempts;attempt+=1){
+      if(generation!==protocolPollGeneration||!panel.classList.contains('visible'))return;
       let state;
       try{
         state=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/protocol`);
@@ -258,6 +301,7 @@ function installPatchPanel(){
         renderQueueSnapshot(state.queue_snapshot);
         haveSnapshot=true;
       }
+      renderItemLifecycle(state?.items);
       if(expectPrompt&&state?.commands_enabled===false&&haveSnapshot){
         summaryStatus.textContent+=' · Continue in PTY';
         return;
@@ -266,13 +310,17 @@ function installPatchPanel(){
         summaryStatus.textContent+=' · Awaiting selection';
         return;
       }
-      if(!expectPrompt&&haveSnapshot)return;
+      if(state?.last_event?.type==='run_finished'){
+        if(haveSnapshot)summaryStatus.textContent+=' · Finished';
+        return;
+      }
+      if(!expectPrompt&&haveSnapshot&&!followLifecycle)return;
       if(state?.error){
         if(!haveSnapshot)resetSummary('Protocol error');
         summaryWarnings.textContent=String(state.error);
         return;
       }
-      await new Promise(resolve=>setTimeout(resolve,250));
+      await new Promise(resolve=>setTimeout(resolve,delayMs));
     }
     if(haveSnapshot){
       summaryStatus.textContent+=' · Continue in PTY';
@@ -289,10 +337,11 @@ function installPatchPanel(){
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({kind:'patch',patch_mode:mode}),
       });
+      activeSessionId=meta.id;
       app.attachSession(meta,true);
       window.dispatchEvent(new CustomEvent('taskmenu:patch-session-started',{detail:{mode,meta}}));
       if(mode==='queue'||mode==='resume'||mode==='plan'){
-        void pollProtocol(meta.id,mode==='queue');
+        void pollProtocol(meta.id,mode==='queue',mode!=='queue');
       }else{
         resetSummary('History uses PTY');
       }
@@ -303,7 +352,7 @@ function installPatchPanel(){
   }
 
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,renderQueuePrompt,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,renderQueuePrompt,renderItemLifecycle,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 

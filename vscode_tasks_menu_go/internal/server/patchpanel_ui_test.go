@@ -26,6 +26,10 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"for(let attempt=0;attempt<40;attempt+=1)",
 		"renderQueueSnapshot(state.queue_snapshot)",
 		"state?.prompt&&renderQueuePrompt(sessionId,state.prompt)",
+		"renderItemLifecycle(state?.items)",
+		"followLifecycle?7200:40",
+		"followLifecycle?1000:250",
+		"protocolPollGeneration",
 		"/prompt-response",
 		"submitPromptResponse(sessionId,prompt,'select')",
 		"submitPromptResponse(sessionId,prompt,'cancel')",
@@ -34,7 +38,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"mode==='queue'",
 		"items.slice(0,50)",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,renderQueuePrompt",
+		"TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,renderQueuePrompt,renderItemLifecycle",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {

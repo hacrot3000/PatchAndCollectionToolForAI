@@ -159,6 +159,7 @@ Status: **IN PROGRESS**
 - [x] Child Python processes emit into an internal pipe; the entrypoint relays them onto the TaskDeck event channel with one global sequence.
 - [x] Add protocol envelope/lifecycle/version tests.
 - [x] Session manager supports an opt-in FD 3 event pipe and bounded protocol state while PTY remains unchanged.
+- [x] TaskDeck retains up to 4096 item lifecycle entries and Patch panel shows native running/completed status with polling stopped when hidden.
 - [x] Broker advertises `patch_protocol_events`, carries the opt-in flag and exposes protocol state; old brokers fall back to PTY-only.
 - [x] Patch panel polls bounded protocol state and renders a native queue summary while PTY remains the authoritative interactive surface.
 - [x] Patch panel renders Python-owned queue_selection prompts and submits only bounded select/cancel responses; PTY remains available as fallback.
@@ -228,8 +229,9 @@ Every phase must preserve:
 | Phase 1.5E.3 public prompt response backend | DONE | 3b047a68 | Stores active prompt state, enables built-in command channels, exposes only bounded prompt responses, and rejects stale/double responses before FD4 writes. |
 | Phase 1.5E.3 test import correction | DONE | 6d571371 | Added the missing os import required by the public prompt-response contract test; no runtime behavior change. |
 | Phase 1.5E.4 native queue selection UI | DONE | 3160762d | Patch panel renders queue_selection directly from Python prompt data and submits bounded select/cancel responses, with PTY fallback preserved. |
-| Phase 1.5F.1 item lifecycle events | DONE | this commit | Dispatcher emits item_started/item_finished only for actual PATCH/COLLECT payload execution; preflight/blocked/duplicate skips are not misreported as started. |
+| Phase 1.5F.1 item lifecycle events | DONE | dff4ab05 | Dispatcher emits item_started/item_finished only for actual PATCH/COLLECT payload execution; preflight/blocked/duplicate skips are not misreported as started. |
+| Phase 1.5F.2 native item lifecycle state | DONE | this commit | TaskDeck retains bounded item lifecycle state and Patch panel displays running/completed item status while PTY remains available. |
 
 ## Next action
 
-Continue **Phase 1.5F.2**: retain native item lifecycle state in TaskDeck and show running/completed item status in the Patch panel while terminal output remains secondary evidence.
+Continue **Phase 1.5F.3**: define Python-owned artifact events for stable user-facing outputs such as fail handoff, AI sync result and COLLECT result artifacts, without exposing internal history schemas.
