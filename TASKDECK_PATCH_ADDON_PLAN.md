@@ -230,7 +230,8 @@ Every phase must preserve:
 | Phase 1.5E.3 test import correction | DONE | 6d571371 | Added the missing os import required by the public prompt-response contract test; no runtime behavior change. |
 | Phase 1.5E.4 native queue selection UI | DONE | 3160762d | Patch panel renders queue_selection directly from Python prompt data and submits bounded select/cancel responses, with PTY fallback preserved. |
 | Phase 1.5F.1 item lifecycle events | DONE | dff4ab05 | Dispatcher emits item_started/item_finished only for actual PATCH/COLLECT payload execution; preflight/blocked/duplicate skips are not misreported as started. |
-| Phase 1.5F.2 native item lifecycle state | DONE | this commit | TaskDeck retains bounded item lifecycle state and Patch panel displays running/completed item status while PTY remains available. |
+| Phase 1.5F.2 native item lifecycle state | DONE | 87efcaff | TaskDeck retains bounded item lifecycle state and Patch panel displays running/completed item status while PTY remains available. |
+| Phase 1.5F.2 UI contract test correction | DONE | this commit | Updated the stale fixed-40-iteration assertion to the new bounded lifecycle polling contract; no runtime behavior change. |
 
 ## Next action
 
