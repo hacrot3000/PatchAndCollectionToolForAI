@@ -136,7 +136,7 @@ func (s *Server) tasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"workspace": s.Workspace, "tasks": items})
+	writeJSON(w, http.StatusOK, map[string]any{"workspace": s.Workspace, "tasks": visibleTasks(items)})
 }
 
 func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
