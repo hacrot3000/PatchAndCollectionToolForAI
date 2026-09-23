@@ -198,7 +198,7 @@ Status: **IN PROGRESS**
   - [x] Phase 2E.2 narrow Resume action endpoint and protocol prompt execution.
     - [x] Phase 2E.2a Python opt-in resume_action prompt/command path.
     - [x] Phase 2E.2b TaskDeck endpoint, final-write gate and built-in Resume opt-in.
-  - [ ] Phase 2E.3 native Resume/recovery web controls.
+  - [x] Phase 2E.3 native Resume/recovery web controls.
 - [ ] Native History/report browser.
 - [ ] Native artifact actions.
 - [ ] Remove default dependence on terminal rendering only after feature parity is proven.
@@ -274,8 +274,9 @@ Every phase must preserve:
 | Phase 2E.1 Resume projection/contract | DONE | 195ebd3a | Python emits a stable resume_snapshot from the exact Smart Resume boundary, shares action definitions with terminal Resume, defines resume_action contract, and TaskDeck retains the snapshot without changing terminal interaction. |
 | Phase 2E.2a native Resume Python command path | DONE | fee4eafa | Python handles prompt-bound resume_action only when TASKDECK_PATCH_NATIVE_RESUME=1 and both protocol channels exist; malformed/unavailable native input falls back to the historical terminal Resume path. |
 | Phase 2E.2a test fixture correction | DONE | 9f8883bb | Resume protocol tests now use an existing temp project and explicit recovery-row binding mocks; runtime behavior is unchanged. |
-| Phase 2E.2b TaskDeck Resume endpoint/gate | DONE | this commit | Built-in Resume explicitly opts into native mode; public API accepts only active-prompt advertised Resume actions, and session final-write gate consumes the prompt to reject stale/double submissions. |
+| Phase 2E.2b TaskDeck Resume endpoint/gate | DONE | 36d9cb75 | Built-in Resume explicitly opts into native mode; public API accepts only active-prompt advertised Resume actions, and session final-write gate consumes the prompt to reject stale/double submissions. |
+| Phase 2E.3 native Smart Resume UI | DONE | this commit | Patch panel renders Python-owned Resume snapshot/options/failed-item capabilities, submits only through /resume-action, confirms destructive delete, and preserves PTY fallback/history handoff. |
 
 ## Next action
 
-Continue **Phase 2E.3**: render native Smart Resume options/failed-item multi-select in the Patch panel and submit only through the bounded resume-action endpoint, with PTY fallback retained.
+Continue **Phase 2F.1**: define a stable Python-owned History/report projection that exposes bounded run summaries and report details without making Go parse internal history JSON schemas.

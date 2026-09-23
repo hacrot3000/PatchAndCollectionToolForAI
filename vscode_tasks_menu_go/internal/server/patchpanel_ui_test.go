@@ -21,12 +21,22 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"['history','History'",
 		"['plan','Plan'",
 		"JSON.stringify({kind:'patch',patch_mode:mode})",
-		"app.attachSession(meta,mode!=='queue')",
+		"app.attachSession(meta,mode!=='queue'&&mode!=='resume')",
 		"/protocol",
 		"const maxAttempts=followLifecycle?7200:40",
 		"for(let attempt=0;attempt<maxAttempts;attempt+=1)",
 		"renderQueueSnapshot(state.queue_snapshot)",
+		"state?.prompt&&renderResumePrompt(sessionId,state.prompt)",
 		"state?.prompt&&renderQueuePrompt(sessionId,state.prompt)",
+		"renderResumeSnapshot(state.resume_snapshot)",
+		"/resume-action",
+		"submitResumeAction",
+		"prompt?.prompt_kind!=='resume_action'",
+		"failed_indexes",
+		"can_retry",
+		"can_collect",
+		"can_delete",
+		"mode==='queue'||mode==='resume'",
 		"renderItemLifecycle(state?.items)",
 		"enterRunningView()",
 		"finishRunningView()",
@@ -70,7 +80,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"failure?.diagnosis_kind",
 		"snapshot?.group_counts",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,submitItemAction,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
+		"TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,renderResumeSnapshot,renderResumePrompt,submitResumeAction,submitItemAction,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {
@@ -245,5 +255,63 @@ func TestPatchPanelRunningViewKeepsPTYAsSecondaryEvidence(t *testing.T) {
 	}
 	if strings.Contains(js, "views.delete(activeSessionId)") {
 		t.Fatal("native Running view must retain the PTY session as evidence")
+	}
+}
+
+
+func TestPatchPanelNativeResumeUsesPythonPromptContract(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function renderResumeSnapshot(snapshot)",
+		"function renderResumePrompt(sessionId,prompt)",
+		"prompt?.prompt_kind!=='resume_action'",
+		"Array.isArray(prompt.options)?prompt.options:[]",
+		"option?.available!==true",
+		"String(option?.label||action)",
+		"String(option?.description||'')",
+		"resumeFailedRows(prompt)",
+		"item?.can_retry",
+		"item?.can_collect",
+		"item?.can_delete",
+		"resumeSelectionActions(prompt)",
+		"JSON.stringify(payload)",
+		"/resume-action",
+		"payload.failed_indexes=indexes",
+		"Recovery policy and availability come from the Python Patch Tool.",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Resume UI missing Python-owned contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"previous_status==='FAIL'",
+		"diagnosis_kind==='",
+		"failure.status==='FAIL'",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("native Resume UI must not infer recovery policy: found %q", forbidden)
+		}
+	}
+}
+
+func TestPatchPanelNativeResumeKeepsPTYFallbackAndDestructiveConfirm(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"app.attachSession(meta,mode!=='queue'&&mode!=='resume')",
+		"if(haveResumeSnapshot)resumeNote.textContent='Native Resume command channel unavailable. Continue in terminal.'",
+		"if(sessionId===activeSessionId)openTerminalEvidence()",
+		"action==='delete_failed'&&!window.confirm",
+		"if(action==='history')",
+		"openTerminalEvidence();",
+		"['all','failed','remaining','collect_failed'].includes(action)",
+		"void pollProtocol(sessionId,true,true)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Resume fallback/safety contract missing %q", want)
+		}
 	}
 }

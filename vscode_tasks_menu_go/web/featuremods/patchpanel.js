@@ -50,6 +50,25 @@ function installPatchPanel(){
   .task-patch-prompt-detail{display:block;opacity:.62;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-prompt-buttons{display:flex;gap:6px;margin-top:8px}
   .task-patch-prompt-buttons button{flex:1}
+  .task-patch-resume{margin:0 0 10px;padding:8px;border:1px solid #4b596d;border-radius:6px;background:#121923;font-size:11px}
+  .task-patch-resume[hidden]{display:none}
+  .task-patch-resume-head{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+  .task-patch-resume-title{font-weight:700;flex:1}
+  .task-patch-resume-status{opacity:.7}
+  .task-patch-resume-counts{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:7px}
+  .task-patch-resume-count{padding:2px 5px;border:1px solid #3b4655;border-radius:999px}
+  .task-patch-resume-items{display:grid;gap:4px;max-height:220px;overflow:auto;margin-bottom:7px}
+  .task-patch-resume-item{display:flex;align-items:flex-start;gap:7px;padding:5px 6px;border-radius:4px;background:#171f2a}
+  .task-patch-resume-item input{margin-top:2px}
+  .task-patch-resume-item-copy{min-width:0;flex:1}
+  .task-patch-resume-item-name{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .task-patch-resume-item-detail{display:block;opacity:.66;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .task-patch-resume-options{display:grid;gap:5px}
+  .task-patch-resume-option{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:7px 8px;text-align:left}
+  .task-patch-resume-option strong{font-size:11px}
+  .task-patch-resume-option span{font-size:10px;opacity:.7}
+  .task-patch-resume-option[disabled]{opacity:.45}
+  .task-patch-resume-note{margin-top:6px;opacity:.72}
   .task-patch-running-head{display:none;margin:0 0 10px;padding:8px;border:1px solid #4b596d;border-radius:6px;background:#121923;font-size:11px}
   .task-patch-panel.running .task-patch-running-head{display:block}
   .task-patch-running-title{font-weight:700;font-size:12px}
@@ -60,6 +79,7 @@ function installPatchPanel(){
   .task-patch-panel.running .task-patch-summary,
   .task-patch-panel.running .task-patch-action-result,
   .task-patch-panel.running .task-patch-prompt,
+  .task-patch-panel.running .task-patch-resume,
   .task-patch-panel.running .task-patch-actions{display:none!important}
   .task-patch-run{margin:0 0 10px;padding:8px;border:1px solid #30343b;border-radius:6px;background:#0d1015;font-size:11px}
   .task-patch-run[hidden]{display:none}
@@ -98,6 +118,9 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-running-head{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-prompt{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-prompt-item{background:#fff}
+  html[data-taskmenu-theme="light"] .task-patch-resume{background:#f6f8fa;border-color:#b9c0c8}
+  html[data-taskmenu-theme="light"] .task-patch-resume-item{background:#fff}
+  html[data-taskmenu-theme="light"] .task-patch-resume-count{border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-run{background:#f6f8fa;border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-run-item{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-progress{background:#fff}
@@ -147,6 +170,17 @@ function installPatchPanel(){
   const promptButtons=document.createElement('div');promptButtons.className='task-patch-prompt-buttons';
   promptBox.append(promptTitle,promptNote,promptItems,promptButtons);
 
+  const resumeBox=document.createElement('div');resumeBox.className='task-patch-resume';resumeBox.hidden=true;
+  const resumeHead=document.createElement('div');resumeHead.className='task-patch-resume-head';
+  const resumeTitle=document.createElement('div');resumeTitle.className='task-patch-resume-title';resumeTitle.textContent='Smart Resume';
+  const resumeStatus=document.createElement('div');resumeStatus.className='task-patch-resume-status';
+  resumeHead.append(resumeTitle,resumeStatus);
+  const resumeCounts=document.createElement('div');resumeCounts.className='task-patch-resume-counts';
+  const resumeItems=document.createElement('div');resumeItems.className='task-patch-resume-items';
+  const resumeOptions=document.createElement('div');resumeOptions.className='task-patch-resume-options';
+  const resumeNote=document.createElement('div');resumeNote.className='task-patch-resume-note';
+  resumeBox.append(resumeHead,resumeCounts,resumeItems,resumeOptions,resumeNote);
+
   const runningHead=document.createElement('div');runningHead.className='task-patch-running-head';
   const runningTitle=document.createElement('div');runningTitle.className='task-patch-running-title';runningTitle.textContent='Running';
   const runningMeta=document.createElement('div');runningMeta.className='task-patch-running-meta';runningMeta.textContent='Waiting for Python execution state…';
@@ -171,7 +205,7 @@ function installPatchPanel(){
   artifactBox.append(artifactTitle,artifactList);
 
   const actions=document.createElement('div');actions.className='task-patch-actions';
-  body.append(note,summary,actionResultBox,promptBox,runningHead,runBox,artifactBox,actions);
+  body.append(note,summary,actionResultBox,promptBox,resumeBox,runningHead,runBox,artifactBox,actions);
   panel.append(head,body);
   document.body.append(panel);
 
@@ -187,6 +221,9 @@ function installPatchPanel(){
   let latestQueueSnapshot=null;
   let queueSummaryView='queue';
   let activeQueuePrompt=null;
+  let latestResumeSnapshot=null;
+  let activeResumePrompt=null;
+  let resumeBusy=false;
   let actionBusy=false;
   let actionPollGeneration=0;
   let runningMode=false;
@@ -222,6 +259,178 @@ function installPatchPanel(){
     summaryCounts.replaceChildren();
     summaryList.replaceChildren();
     summaryWarnings.replaceChildren();
+  }
+
+  function clearResumeView(){
+    latestResumeSnapshot=null;
+    activeResumePrompt=null;
+    resumeBusy=false;
+    resumeBox.hidden=true;
+    resumeStatus.textContent='';
+    resumeCounts.replaceChildren();
+    resumeItems.replaceChildren();
+    resumeOptions.replaceChildren();
+    resumeNote.textContent='';
+  }
+
+  function resumeFailedRows(source){
+    return Array.isArray(source?.failed_items)?source.failed_items:[];
+  }
+
+  function selectedResumeIndexes(){
+    return [...resumeItems.querySelectorAll('input[type="checkbox"]:checked')]
+      .map(input=>Number(input.dataset.resumeFailedIndex))
+      .filter(index=>Number.isInteger(index)&&index>0);
+  }
+
+  function resumeCapabilityForAction(action){
+    return {failed:'can_retry',collect_failed:'can_collect',delete_failed:'can_delete'}[action]||'';
+  }
+
+  function renderResumeSnapshot(snapshot){
+    latestResumeSnapshot=snapshot&&typeof snapshot==='object'?snapshot:null;
+    if(!latestResumeSnapshot){
+      if(!activeResumePrompt)resumeBox.hidden=true;
+      return;
+    }
+    resumeBox.hidden=false;
+    const summary=latestResumeSnapshot.summary&&typeof latestResumeSnapshot.summary==='object'?latestResumeSnapshot.summary:{};
+    resumeStatus.textContent=latestResumeSnapshot.status==='empty'?'No recovery work':'Recovery available';
+    resumeCounts.replaceChildren();
+    for(const [key,label] of [['replay','Replay'],['failed','Failed'],['remaining','Remaining']]){
+      const count=Number(summary[key]||0);
+      const chip=document.createElement('span');chip.className='task-patch-resume-count';chip.textContent=`${label}: ${Number.isFinite(count)?count:0}`;
+      resumeCounts.append(chip);
+    }
+    if(!activeResumePrompt){
+      resumeItems.replaceChildren();
+      const rows=Array.isArray(latestResumeSnapshot.items)?latestResumeSnapshot.items:[];
+      for(const item of rows.slice(0,30)){
+        const row=document.createElement('div');row.className='task-patch-resume-item';
+        const copy=document.createElement('span');copy.className='task-patch-resume-item-copy';
+        const name=document.createElement('span');name.className='task-patch-resume-item-name';name.textContent=String(item?.name||'');
+        const detail=document.createElement('span');detail.className='task-patch-resume-item-detail';detail.textContent=[item?.group,item?.kind,item?.detail].filter(Boolean).join(' · ');
+        copy.append(name,detail);row.append(copy);resumeItems.append(row);
+      }
+      resumeNote.textContent='Waiting for Python Smart Resume actions…';
+    }
+  }
+
+  function resumeActionAllowed(prompt,action){
+    return new Set(Array.isArray(prompt?.actions)?prompt.actions.map(String):[]).has(action);
+  }
+
+  function resumeSelectionActions(prompt){
+    const constraints=prompt?.constraints&&typeof prompt.constraints==='object'?prompt.constraints:{};
+    return new Set(Array.isArray(constraints.selection_actions)?constraints.selection_actions.map(String):[]);
+  }
+
+  function renderResumeFailedItems(prompt){
+    resumeItems.replaceChildren();
+    const rows=resumeFailedRows(prompt);
+    for(const item of rows){
+      const index=Number(item?.index);
+      if(!Number.isInteger(index)||index<1)continue;
+      const label=document.createElement('label');label.className='task-patch-resume-item';
+      const input=document.createElement('input');input.type='checkbox';input.dataset.resumeFailedIndex=String(index);input.disabled=resumeBusy;
+      const copy=document.createElement('span');copy.className='task-patch-resume-item-copy';
+      const name=document.createElement('span');name.className='task-patch-resume-item-name';name.textContent=`${index}. ${String(item?.name||'')}`;
+      const failure=item?.failure&&typeof item.failure==='object'?item.failure:{};
+      const capabilities=[
+        item?.can_retry?'retry':'',
+        item?.can_collect?'collect':'',
+        item?.can_delete?'delete':'',
+      ].filter(Boolean).join('/');
+      const detail=document.createElement('span');detail.className='task-patch-resume-item-detail';
+      detail.textContent=[
+        String(item?.queue_name||''),
+        String(failure?.status||''),
+        String(failure?.diagnosis_kind||''),
+        capabilities?('actions: '+capabilities):'',
+      ].filter(Boolean).join(' · ');
+      copy.append(name,detail);label.append(input,copy);resumeItems.append(label);
+    }
+  }
+
+  async function submitResumeAction(sessionId,prompt,action){
+    if(resumeBusy)return null;
+    if(!resumeActionAllowed(prompt,action))throw new Error(`Resume action ${action} is not advertised by Python`);
+    const selectionActions=resumeSelectionActions(prompt);
+    const payload={prompt_id:String(prompt?.prompt_id||''),action};
+    if(selectionActions.has(action)){
+      const indexes=selectedResumeIndexes();
+      if(!indexes.length){
+        resumeNote.textContent='Select at least one failed item for this action.';
+        return null;
+      }
+      const capability=resumeCapabilityForAction(action);
+      const byIndex=new Map(resumeFailedRows(prompt).map(item=>[Number(item?.index),item]));
+      const unavailable=indexes.find(index=>!byIndex.get(index)?.[capability]);
+      if(unavailable){
+        resumeNote.textContent=`Selected item ${unavailable} is not available for this action.`;
+        return null;
+      }
+      payload.failed_indexes=indexes;
+      if(action==='delete_failed'&&!window.confirm(`Remove ${indexes.length} selected failed PATCH item(s) from the queue?`))return null;
+    }
+    resumeBusy=true;
+    for(const button of resumeOptions.querySelectorAll('button'))button.disabled=true;
+    for(const input of resumeItems.querySelectorAll('input'))input.disabled=true;
+    resumeNote.textContent='Submitting Smart Resume action…';
+    try{
+      await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/resume-action`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(payload),
+      });
+      activeResumePrompt=null;
+      resumeBox.hidden=true;
+      resumeBusy=false;
+      if(action==='history'){
+        openTerminalEvidence();
+        return true;
+      }
+      if(['all','failed','remaining','collect_failed'].includes(action)){
+        enterRunningView();
+        void pollProtocol(sessionId,false,true);
+      }else{
+        void pollProtocol(sessionId,true,true);
+      }
+      return true;
+    }catch(error){
+      resumeBusy=false;
+      renderResumePrompt(sessionId,prompt);
+      resumeNote.textContent=String(error?.message||error);
+      throw error;
+    }
+  }
+
+  function renderResumePrompt(sessionId,prompt){
+    if(prompt?.type!=='prompt'||prompt?.prompt_kind!=='resume_action'||!prompt?.prompt_id)return false;
+    activeResumePrompt=prompt;
+    activeQueuePrompt=null;
+    promptBox.hidden=true;
+    resumeBox.hidden=false;
+    resumeBusy=false;
+    resumeTitle.textContent=String(prompt.title||'Smart Resume');
+    resumeStatus.textContent='Choose recovery action';
+    renderResumeFailedItems(prompt);
+    resumeOptions.replaceChildren();
+    const options=Array.isArray(prompt.options)?prompt.options:[];
+    for(const option of options){
+      const action=String(option?.key||'');
+      if(!action||option?.available!==true||!resumeActionAllowed(prompt,action))continue;
+      const button=document.createElement('button');button.type='button';button.className='task-patch-resume-option';button.dataset.resumeAction=action;
+      const strong=document.createElement('strong');strong.textContent=String(option?.label||action);
+      const description=document.createElement('span');
+      const count=Number(option?.count||0);
+      description.textContent=[String(option?.description||''),count>0?(`count=${count}`):''].filter(Boolean).join(' · ');
+      button.append(strong,description);
+      button.onclick=()=>submitResumeAction(sessionId,prompt,action).catch(app.showError);
+      resumeOptions.append(button);
+    }
+    resumeNote.textContent='Recovery policy and availability come from the Python Patch Tool.';
+    return true;
   }
 
   function enterRunningView(){
@@ -617,6 +826,7 @@ function installPatchPanel(){
     resetSummary('Loading…');
     clearPrompt();
     let haveSnapshot=false;
+    let haveResumeSnapshot=false;
     const maxAttempts=followLifecycle?7200:40;
     const delayMs=followLifecycle?1000:250;
     for(let attempt=0;attempt<maxAttempts;attempt+=1){
@@ -639,13 +849,22 @@ function installPatchPanel(){
         renderQueueSnapshot(state.queue_snapshot);
         haveSnapshot=true;
       }
+      if(state?.resume_snapshot&&!haveResumeSnapshot){
+        renderResumeSnapshot(state.resume_snapshot);
+        haveResumeSnapshot=true;
+      }
       renderItemLifecycle(state?.items);
       renderProgress(state?.progress);
       if(state?.action_result)renderActionResult(state.action_result);
       renderArtifacts(state?.artifacts);
-      if(expectPrompt&&state?.commands_enabled===false&&haveSnapshot){
+      if(expectPrompt&&state?.commands_enabled===false&&(haveSnapshot||haveResumeSnapshot)){
         summaryStatus.textContent+=' · Continue in PTY';
+        if(haveResumeSnapshot)resumeNote.textContent='Native Resume command channel unavailable. Continue in terminal.';
         if(sessionId===activeSessionId)openTerminalEvidence();
+        return;
+      }
+      if(expectPrompt&&state?.prompt&&renderResumePrompt(sessionId,state.prompt)){
+        summaryStatus.textContent+=' · Smart Resume';
         return;
       }
       if(expectPrompt&&state?.prompt&&renderQueuePrompt(sessionId,state.prompt)){
@@ -665,8 +884,9 @@ function installPatchPanel(){
       }
       await new Promise(resolve=>setTimeout(resolve,delayMs));
     }
-    if(haveSnapshot){
+    if(haveSnapshot||haveResumeSnapshot){
       summaryStatus.textContent+=' · Continue in PTY';
+      if(haveResumeSnapshot)resumeNote.textContent='Native Resume prompt timed out. Continue in terminal.';
     }else{
       resetSummary('Snapshot timeout · Continue in PTY');
     }
@@ -685,12 +905,13 @@ function installPatchPanel(){
       actionPollGeneration+=1;
       leaveRunningView();
       clearActionResult();
+      clearResumeView();
       renderProgress(null);
       renderArtifacts([]);
-      app.attachSession(meta,mode!=='queue');
+      app.attachSession(meta,mode!=='queue'&&mode!=='resume');
       window.dispatchEvent(new CustomEvent('taskmenu:patch-session-started',{detail:{mode,meta}}));
       if(mode==='queue'||mode==='resume'||mode==='plan'){
-        void pollProtocol(meta.id,mode==='queue',mode!=='queue');
+        void pollProtocol(meta.id,mode==='queue'||mode==='resume',mode==='resume'||mode==='plan');
       }else{
         resetSummary('History uses PTY');
       }
@@ -706,7 +927,7 @@ function installPatchPanel(){
   queueTab.onclick=()=>setQueueSummaryView('queue');
   failedTab.onclick=()=>setQueueSummaryView('failed');
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,submitItemAction,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,renderResumeSnapshot,renderResumePrompt,submitResumeAction,submitItemAction,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 
