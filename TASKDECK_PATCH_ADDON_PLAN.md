@@ -223,7 +223,8 @@ Every phase must preserve:
 | Phase 1.5E.1 protocol test discovery correction | DONE | 13c2848a | Moved unittest.main() after ProtocolContractTests so CI executes the complete protocol contract suite instead of routing tests only. |
 | Phase 1.5E.1 lifecycle test scope correction | DONE | 7c146ccf | Updated the lifecycle-only protocol test to use a non-queue route; queue_snapshot behavior remains covered by its dedicated test. |
 | Phase 1.5E.2 queue selection prompt contract | DONE | c81046a2 | Added Python-owned queue_selection prompt/prompt_response handling with strict prompt-id/index/COLLECT validation and terminal fallback on protocol failure. |
-| Phase 1.5E.3 public prompt response backend | DONE | this commit | Stores active prompt state, enables built-in command channels, exposes only bounded prompt responses, and rejects stale/double responses before FD4 writes. |
+| Phase 1.5E.3 public prompt response backend | DONE | 3b047a68 | Stores active prompt state, enables built-in command channels, exposes only bounded prompt responses, and rejects stale/double responses before FD4 writes. |
+| Phase 1.5E.3 test import correction | DONE | this commit | Added the missing os import required by the public prompt-response contract test; no runtime behavior change. |
 
 ## Next action
 

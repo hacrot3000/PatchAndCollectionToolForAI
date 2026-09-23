@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
