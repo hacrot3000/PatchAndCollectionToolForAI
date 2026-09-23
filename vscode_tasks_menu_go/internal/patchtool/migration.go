@@ -132,7 +132,6 @@ func PlanLegacyMigration(workspace, executable string) (LegacyMigrationPlan, err
 	if len(legacyFiles) == 0 {
 		return plan, nil
 	}
-	plan.Present = true
 
 	bundledFiles, err := runtimeFiles(bundled)
 	if err != nil {
@@ -140,6 +139,10 @@ func PlanLegacyMigration(workspace, executable string) (LegacyMigrationPlan, err
 	}
 
 	for rel, legacyPath := range legacyFiles {
+		if compatibilityLauncherInstalled(rel, legacyPath) {
+			continue
+		}
+		plan.Present = true
 		bundledPath, managed := bundledFiles[rel]
 		if !managed {
 			plan.Unknown = append(plan.Unknown, rel)
@@ -222,6 +225,15 @@ func writeCompatibilityLauncher(path string, spec struct {
 		return err
 	}
 	return os.Rename(tmpPath, path)
+}
+
+func compatibilityLauncherInstalled(rel, path string) bool {
+	spec, ok := compatibilityLaunchers[filepath.ToSlash(rel)]
+	if !ok {
+		return false
+	}
+	data, err := os.ReadFile(path)
+	return err == nil && string(data) == spec.body
 }
 
 func verifiedSet(plan LegacyMigrationPlan) map[string]bool {

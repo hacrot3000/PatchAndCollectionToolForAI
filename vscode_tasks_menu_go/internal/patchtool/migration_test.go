@@ -143,6 +143,13 @@ func TestApplyLegacyMigrationKeepsLauncherShimAndProjectFiles(t *testing.T) {
 	if data, err := os.ReadFile(filepath.Join(legacy, "project_helper.sh")); err != nil || string(data) != "keep me\n" {
 		t.Fatalf("project helper changed data=%q err=%v", data, err)
 	}
+	afterPlan, err := PlanLegacyMigration(workspace, exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterPlan.Present {
+		t.Fatalf("TaskDeck compatibility shim must count as already migrated, got %#v", afterPlan)
+	}
 }
 
 func TestApplyLegacyMigrationRefusesModifiedRuntimeWithoutWritingShim(t *testing.T) {

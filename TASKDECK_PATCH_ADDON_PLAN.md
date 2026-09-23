@@ -199,7 +199,8 @@ Every phase must preserve:
 | Phase 1D.2 Patch Activity Bar panel | DONE | 0d32d411 | Added Patch icon/panel with Queue/Resume/History/Plan actions; sessions use the existing TaskDeck PTY renderer. |
 | Phase 1D.3 legacy task de-dup | DONE | ae49e6ca | Task list hides only a zero-argument, exact legacy tools/run_python_patches.sh duplicate; customized/parameterized tasks remain visible. |
 | Phase 1E.1 migration safety plan | DONE | e9506386 | Added fail-closed SHA-256 comparison of legacy tools runtime against the active bundled release; modified/symlinked/unknown files block cleanup. |
-| Phase 1E.2a guarded migration apply | DONE | this commit | Revalidates hashes immediately before cleanup, installs compatibility launchers first, removes only verified runtime files, and keeps unrelated tools files. |
+| Phase 1E.2a guarded migration apply | DONE | 6a7cbf1c | Revalidates hashes immediately before cleanup, installs compatibility launchers first, removes only verified runtime files, and keeps unrelated tools files. |
+| Phase 1E.2a migrated-shim recognition | DONE | this commit | Planner treats TaskDeck-generated compatibility launchers as already migrated instead of locally modified legacy runtime. |
 
 ## Next action
 
