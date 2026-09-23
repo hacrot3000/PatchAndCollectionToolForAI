@@ -153,7 +153,9 @@ Status: **IN PROGRESS**
 - [x] Emit Python-owned `queue_snapshot` with stable item/warning/count fields before dispatcher-backed runs.
 - [ ] Emit item/progress/artifact events while terminal UI remains authoritative.
 - [x] Add protocol envelope/lifecycle/version tests.
-- [ ] TaskDeck consumes events for native summary while PTY remains visible.
+- [x] Session manager supports an opt-in FD 3 event pipe and bounded protocol state while PTY remains unchanged.
+- [ ] Broker exposes the protocol capability/state without breaking old brokers.
+- [ ] Patch panel consumes protocol state for a native queue summary while PTY remains visible.
 
 ### Phase 2 — Native Patch web UI
 Status: **TODO**
@@ -205,8 +207,9 @@ Every phase must preserve:
 | Phase 1E.2a migrated-shim recognition | DONE | 00072c0d | Planner treats TaskDeck-generated compatibility launchers as already migrated instead of locally modified legacy runtime. |
 | Phase 1E.2b cleanup wiring | DONE | 19f19167 | Wired verified Patch runtime migration into interactive/global legacy cleanup, kept unsafe runtimes, and skipped the source repository. |
 | Phase 1.5A protocol event channel | DONE | 150f26b8 | Added opt-in protocol v1 JSONL event FD with lifecycle events; no-protocol terminal path remains execv-compatible. |
-| Phase 1.5B Python queue snapshot | DONE | this commit | Protocol bridge calls authoritative dispatcher queue discovery directly and emits stable queue_snapshot data before terminal execution. |
+| Phase 1.5B Python queue snapshot | DONE | 840ee91d | Protocol bridge calls authoritative dispatcher queue discovery directly and emits stable queue_snapshot data before terminal execution. |
+| Phase 1.5C.1a session protocol state | DONE | this commit | Added opt-in FD 3 transport in the session manager and bounded latest-event/queue-snapshot state without changing PTY output. |
 
 ## Next action
 
-Continue **Phase 1.5C**: add a TaskDeck-side event pipe and bounded in-memory protocol state so the Patch panel can render queue_snapshot while the existing PTY remains visible.
+Continue **Phase 1.5C.1b**: advertise broker protocol capability, carry the opt-in flag across the broker wire, and expose per-session protocol state with old-broker fallback.

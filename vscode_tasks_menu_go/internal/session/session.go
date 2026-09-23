@@ -1,11 +1,14 @@
 package session
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -38,6 +41,7 @@ type managedSession struct {
 	maxScrollback int
 	subscribers   map[chan []byte]struct{}
 	stopRequested bool
+	protocol      ProtocolState
 }
 
 type Manager struct {
@@ -61,8 +65,24 @@ func (m *Manager) Start(spec tasks.Execution) (Metadata, error) {
 	cmd := exec.Command(spec.Command, spec.Args...)
 	cmd.Dir = spec.Cwd
 	cmd.Env = spec.Env
+
+	var protocolRead, protocolWrite *os.File
+	if spec.ProtocolEvents && runtime.GOOS != "windows" {
+		protocolRead, protocolWrite, err = os.Pipe()
+		if err != nil {
+			return Metadata{}, fmt.Errorf("create Patch protocol pipe for %s: %w", spec.Label, err)
+		}
+		cmd.ExtraFiles = []*os.File{protocolWrite}
+		cmd.Env = setEnvironmentValue(cmd.Env, "TASKDECK_PATCH_EVENT_FD", "3")
+	}
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 30, Cols: 120})
+	if protocolWrite != nil {
+		_ = protocolWrite.Close()
+	}
 	if err != nil {
+		if protocolRead != nil {
+			_ = protocolRead.Close()
+		}
 		return Metadata{}, fmt.Errorf("start PTY for %s: %w", spec.Label, err)
 	}
 	header := taskHeader(spec)
@@ -72,12 +92,74 @@ func (m *Manager) Start(spec tasks.Execution) (Metadata, error) {
 	s := &managedSession{
 		meta: Metadata{ID: id, TaskID: spec.TaskID, Label: spec.Label, CommandPreview: spec.Preview, Cwd: spec.Cwd, Status: "running", StartedAt: time.Now().Format(time.RFC3339)},
 		cmd: cmd, ptyFile: ptmx, scrollback: append([]byte(nil), header...), maxScrollback: m.maxScrollback, subscribers: map[chan []byte]struct{}{},
+		protocol: ProtocolState{Available: true, Enabled: protocolRead != nil},
 	}
 	m.mu.Lock()
 	m.sessions[id] = s
 	m.mu.Unlock()
+	if protocolRead != nil {
+		go s.protocolReadLoop(protocolRead)
+	}
 	go s.readLoop()
 	return s.metadata(), nil
+}
+
+func setEnvironmentValue(env []string, key, value string) []string {
+	if env == nil {
+		env = os.Environ()
+	}
+	prefix := key + "="
+	out := make([]string, 0, len(env)+1)
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return append(out, prefix+value)
+}
+
+func (s *managedSession) applyProtocolLine(line []byte) {
+	if len(line) == 0 || len(line) > maxProtocolEventBytes {
+		return
+	}
+	var envelope protocolEnvelope
+	if err := json.Unmarshal(line, &envelope); err != nil {
+		s.setProtocolError("invalid protocol JSON: " + err.Error())
+		return
+	}
+	if envelope.Protocol != patchProtocolName || envelope.Version != patchProtocolVersion || strings.TrimSpace(envelope.Type) == "" {
+		s.setProtocolError("unsupported Patch protocol envelope")
+		return
+	}
+	raw := append(json.RawMessage(nil), line...)
+	s.mu.Lock()
+	s.protocol.EventCount++
+	s.protocol.LastSeq = envelope.Seq
+	s.protocol.LastEvent = raw
+	s.protocol.Error = ""
+	if envelope.Type == "queue_snapshot" {
+		s.protocol.QueueSnapshot = append(json.RawMessage(nil), raw...)
+	}
+	s.mu.Unlock()
+}
+
+func (s *managedSession) setProtocolError(message string) {
+	s.mu.Lock()
+	s.protocol.Error = message
+	s.mu.Unlock()
+}
+
+func (s *managedSession) protocolReadLoop(file *os.File) {
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64<<10), maxProtocolEventBytes)
+	for scanner.Scan() {
+		s.applyProtocolLine(scanner.Bytes())
+	}
+	if err := scanner.Err(); err != nil {
+		s.setProtocolError("Patch protocol read failed: " + err.Error())
+	}
 }
 
 func taskHeader(spec tasks.Execution) []byte {
@@ -122,6 +204,17 @@ func (m *Manager) Get(id string) (*managedSession, bool) {
 	s, ok := m.sessions[id]
 	m.mu.RUnlock()
 	return s, ok
+}
+
+func (m *Manager) ProtocolState(id string) (ProtocolState, error) {
+	s, ok := m.Get(id)
+	if !ok {
+		return ProtocolState{}, fmt.Errorf("session not found")
+	}
+	s.mu.Lock()
+	state := cloneProtocolState(s.protocol)
+	s.mu.Unlock()
+	return state, nil
 }
 
 func (m *Manager) Metadata(id string) (Metadata, bool) {

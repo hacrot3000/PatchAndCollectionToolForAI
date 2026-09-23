@@ -16,8 +16,9 @@ type Execution struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args"`
 	Cwd     string   `json:"cwd"`
-	Env     []string `json:"-"`
-	Preview string   `json:"preview"`
+	Env            []string `json:"-"`
+	Preview        string   `json:"preview"`
+	ProtocolEvents bool     `json:"-"`
 }
 
 var envVariablePattern = regexp.MustCompile(`\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}`)
