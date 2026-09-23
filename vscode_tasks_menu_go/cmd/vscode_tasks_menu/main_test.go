@@ -548,3 +548,24 @@ func TestTaskdeckRepositoryRemoteRecognizesSSHAndHTTPS(t *testing.T) {
 		t.Fatal("unrelated repository must not be treated as TaskDeck source")
 	}
 }
+
+
+func TestPatchCLIIsFirstClassSubcommand(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		`flag.NArg() > 0 && flag.Arg(0) == "patch"`,
+		"os.Exit(runPatchCLI(ws, flag.Args()[1:]))",
+		"patchtool.Resolve(workspace, exe)",
+		"cmd.Stdin = os.Stdin",
+		"cmd.Stdout = os.Stdout",
+		"cmd.Stderr = os.Stderr",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("taskdeck patch flow missing %q", want)
+		}
+	}
+}

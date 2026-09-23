@@ -109,12 +109,12 @@ Status: **DONE**
 - [x] Add routing-contract tests and CI syntax/compile checks.
 
 ### Phase 1B — TaskDeck CLI integration
-Status: **TODO**
+Status: **DONE**
 
-- [ ] Add `taskdeck patch [args...]`.
-- [ ] Resolve the Patch Tool runtime from the TaskDeck release.
-- [ ] Pass the current TaskDeck workspace as `--project-root`.
-- [ ] Preserve PTY/interactive behavior.
+- [x] Add `taskdeck patch [args...]`.
+- [x] Resolve bundled Patch Tool runtime first, with project-entry/legacy-launcher fallback during migration.
+- [x] Pass the current TaskDeck workspace as `--project-root`.
+- [x] Preserve interactive terminal behavior by inheriting stdin/stdout/stderr and child exit code.
 
 ### Phase 1C — Versioned global release layout
 Status: **TODO**
@@ -187,8 +187,9 @@ Every phase must preserve:
 | --- | --- | --- | --- |
 | Phase 0 roadmap | DONE | 0ac231f2 | Architecture/recovery plan created before runtime changes. |
 | Phase 1A canonical entrypoint | DONE | 0e871ed1 | Routing moved from shell/PowerShell to one Python entrypoint; wrappers remain compatible. |
-| Phase 1A CI path correction | DONE | this commit | Fix CI working-directory path for the new Python routing contract; no runtime behavior change. |
+| Phase 1A CI path correction | DONE | 14adf537 | Fix CI working-directory path for the new Python routing contract; no runtime behavior change. |
+| Phase 1B TaskDeck CLI | DONE | this commit | Added shared Patch runtime resolver and `taskdeck patch`; bundled runtime wins, legacy project launcher remains a migration fallback. |
 
 ## Next action
 
-Implement **Phase 1B**: add `taskdeck patch [args...]` while the runtime is still discoverable from the development/legacy layout. Global versioned runtime installation follows in Phase 1C.
+Implement **Phase 1C**: install TaskDeck and Patch Tool together in a versioned global release and switch `~/.local/bin/taskdeck` to the current release atomically.

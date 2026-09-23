@@ -23,6 +23,7 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/broker"
 	"bletonfc/vscode_tasks_menu/internal/config"
 	"bletonfc/vscode_tasks_menu/internal/gittextconv"
+	"bletonfc/vscode_tasks_menu/internal/patchtool"
 	"bletonfc/vscode_tasks_menu/internal/selfupdate"
 	"bletonfc/vscode_tasks_menu/internal/server"
 	"bletonfc/vscode_tasks_menu/internal/state"
@@ -67,6 +68,7 @@ func main() {
 		return
 	}
 
+	patchCommand := flag.NArg() > 0 && flag.Arg(0) == "patch"
 	ws, err := resolveWorkspace(*workspace)
 	fatalIf(err)
 	if *cleanupLegacy {
@@ -75,6 +77,9 @@ func main() {
 	}
 	if !*serve && !*sessionBroker && !*gitTextconv && !*selfUpdateAuto {
 		maybeOfferLegacyCleanup(ws)
+	}
+	if patchCommand {
+		os.Exit(runPatchCLI(ws, flag.Args()[1:]))
 	}
 	if *sessionBroker {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -137,6 +142,39 @@ func main() {
 	if cfg.OpenBrowser && !*noBrowser {
 		_ = openBrowser(st.URL)
 	}
+}
+
+func runPatchCLI(workspace string, args []string) int {
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "TaskDeck Patch: cannot resolve executable: %v\n", err)
+		return 2
+	}
+	runtimeSpec, err := patchtool.Resolve(workspace, exe)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "TaskDeck Patch: %v\n", err)
+		return 2
+	}
+	command, commandArgs, err := runtimeSpec.Command(workspace, args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "TaskDeck Patch: %v\n", err)
+		return 2
+	}
+	cmd := exec.Command(command, commandArgs...)
+	cmd.Dir = workspace
+	cmd.Env = os.Environ()
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return exitErr.ExitCode()
+		}
+		fmt.Fprintf(os.Stderr, "TaskDeck Patch: start failed: %v\n", err)
+		return 2
+	}
+	return 0
 }
 
 func taskdeckRepositoryRemote(text string) bool {
