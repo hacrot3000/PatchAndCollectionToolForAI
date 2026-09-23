@@ -712,13 +712,127 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertIn("collect_failed", prompt["actions"])
         self.assertEqual(prompt["constraints"]["failed_index_base"], 1)
 
+    def test_native_resume_is_strictly_opt_in(self):
+        import python_patch_queue_dispatcher as dispatcher
+        old = os.environ.pop("TASKDECK_PATCH_NATIVE_RESUME", None)
+        try:
+            handled, decision = dispatcher._protocol_resume_selection(Path("/workspace"), [], None)
+        finally:
+            if old is not None:
+                os.environ["TASKDECK_PATCH_NATIVE_RESUME"] = old
+        self.assertFalse(handled)
+        self.assertIsNone(decision)
+
+    def test_native_resume_action_uses_prompt_bound_failed_indexes(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        previous = {"status": "FAIL", "results": [{"name": "failed.zip", "kind": "PATCH", "status": "FAIL"}]}
+        items = [dispatcher.QueueItem("failed.zip", "PATCH", "manifest")]
+        failed_row = {"name": "failed.zip", "kind": "PATCH", "status": "FAIL", "_recovery_queue_name": "failed.zip"}
+
+        event_read, event_write = os.pipe()
+        command_read, command_write = os.pipe()
+        old_event = os.environ.get(entry.EVENT_FD_ENV)
+        old_command = os.environ.get(entry.COMMAND_FD_ENV)
+        old_native = os.environ.get("TASKDECK_PATCH_NATIVE_RESUME")
+        os.environ[entry.EVENT_FD_ENV] = str(event_write)
+        os.environ[entry.COMMAND_FD_ENV] = str(command_read)
+        os.environ["TASKDECK_PATCH_NATIVE_RESUME"] = "1"
+        seen = {}
+
+        def respond():
+            with os.fdopen(os.dup(event_read), "r", encoding="utf-8") as stream:
+                prompt = json.loads(stream.readline())
+                seen["prompt"] = prompt
+            command = {
+                "protocol": "taskdeck.patch",
+                "version": 1,
+                "type": "command",
+                "seq": 1,
+                "command": "resume_action",
+                "payload": {
+                    "prompt_id": prompt["prompt_id"],
+                    "action": "failed",
+                    "failed_indexes": [1],
+                },
+            }
+            os.write(command_write, (json.dumps(command) + "\n").encode("utf-8"))
+
+        worker = threading.Thread(target=respond)
+        worker.start()
+        try:
+            with mock.patch.object(dispatcher, "_merged_failed_recovery_rows", return_value=[failed_row]), \
+                 mock.patch.object(dispatcher, "_queued_failed_rows", return_value=[failed_row]), \
+                 mock.patch.object(dispatcher, "_visible_history_entries", return_value=[]):
+                handled, decision = dispatcher._protocol_resume_selection(Path("/workspace"), items, previous)
+        finally:
+            worker.join(timeout=2)
+            if old_event is None: os.environ.pop(entry.EVENT_FD_ENV, None)
+            else: os.environ[entry.EVENT_FD_ENV] = old_event
+            if old_command is None: os.environ.pop(entry.COMMAND_FD_ENV, None)
+            else: os.environ[entry.COMMAND_FD_ENV] = old_command
+            if old_native is None: os.environ.pop("TASKDECK_PATCH_NATIVE_RESUME", None)
+            else: os.environ["TASKDECK_PATCH_NATIVE_RESUME"] = old_native
+            for fd in (event_read, event_write, command_read, command_write):
+                try: os.close(fd)
+                except OSError: pass
+
+        self.assertTrue(handled)
+        self.assertEqual(seen["prompt"]["prompt_kind"], "resume_action")
+        self.assertIn("failed", seen["prompt"]["actions"])
+        self.assertEqual([item.name for item in decision["items"]], ["failed.zip"])
+
+    def test_native_resume_invalid_response_falls_back_without_execution(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        event_read, event_write = os.pipe()
+        command_read, command_write = os.pipe()
+        old_event = os.environ.get(entry.EVENT_FD_ENV)
+        old_command = os.environ.get(entry.COMMAND_FD_ENV)
+        old_native = os.environ.get("TASKDECK_PATCH_NATIVE_RESUME")
+        os.environ[entry.EVENT_FD_ENV] = str(event_write)
+        os.environ[entry.COMMAND_FD_ENV] = str(command_read)
+        os.environ["TASKDECK_PATCH_NATIVE_RESUME"] = "1"
+
+        def respond():
+            with os.fdopen(os.dup(event_read), "r", encoding="utf-8") as stream:
+                prompt = json.loads(stream.readline())
+            command = {
+                "protocol": "taskdeck.patch", "version": 1, "type": "command", "seq": 1,
+                "command": "resume_action",
+                "payload": {"prompt_id": prompt["prompt_id"], "action": "failed", "failed_indexes": [999]},
+            }
+            os.write(command_write, (json.dumps(command) + "\n").encode("utf-8"))
+
+        worker = threading.Thread(target=respond)
+        worker.start()
+        try:
+            handled, decision = dispatcher._protocol_resume_selection(Path("/workspace"), [], {"status": "FAIL", "results": []})
+        finally:
+            worker.join(timeout=2)
+            if old_event is None: os.environ.pop(entry.EVENT_FD_ENV, None)
+            else: os.environ[entry.EVENT_FD_ENV] = old_event
+            if old_command is None: os.environ.pop(entry.COMMAND_FD_ENV, None)
+            else: os.environ[entry.COMMAND_FD_ENV] = old_command
+            if old_native is None: os.environ.pop("TASKDECK_PATCH_NATIVE_RESUME", None)
+            else: os.environ["TASKDECK_PATCH_NATIVE_RESUME"] = old_native
+            for fd in (event_read, event_write, command_read, command_write):
+                try: os.close(fd)
+                except OSError: pass
+        self.assertFalse(handled)
+        self.assertIsNone(decision)
+
     def test_resume_snapshot_emission_is_additive_before_terminal_resume_selection(self):
         dispatcher = (self.base / "_patch_lib" / "python_patch_queue_dispatcher.py").read_text(encoding="utf-8")
         emit = dispatcher.index("_emit_protocol_resume_snapshot(root, items, meaningful_previous)")
         select = dispatcher.index("_resume_selection(", emit)
         self.assertLess(emit, select)
         self.assertIn("def protocol_resume_prompt_contract(", dispatcher)
-        self.assertNotIn("TASKDECK_PATCH_NATIVE_RESUME", dispatcher)
+        self.assertIn('os.environ.get("TASKDECK_PATCH_NATIVE_RESUME", "").strip() != "1"', dispatcher)
+        native = dispatcher.index("_protocol_resume_selection(root, items, meaningful_previous)", emit)
+        terminal = dispatcher.index("_resume_selection(", native)
+        self.assertLess(emit, native)
+        self.assertLess(native, terminal)
 
     def test_queue_snapshot_uses_dispatcher_discovery_contract(self):
         from python_patch_protocol import build_queue_snapshot

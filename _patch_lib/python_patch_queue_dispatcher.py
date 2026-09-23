@@ -6441,6 +6441,134 @@ def protocol_resume_prompt_contract(root: Path, items: list[QueueItem], previous
     }
 
 
+def _protocol_resume_selection(
+    root: Path,
+    items: list[QueueItem],
+    previous: dict[str, object] | None,
+) -> tuple[bool, dict[str, object] | None]:
+    """Handle Smart Resume through the native command channel only when opted in.
+
+    The opt-in environment flag is deliberately required in addition to both
+    protocol channels. Ordinary terminal resume therefore keeps the historical
+    interactive menu even when protocol support exists elsewhere.
+    """
+    if os.environ.get("TASKDECK_PATCH_NATIVE_RESUME", "").strip() != "1":
+        return False, None
+
+    from python_patch_protocol import (
+        ProtocolCommandError,
+        emit_prompt,
+        prompt_channels_from_env,
+    )
+
+    try:
+        writer, reader = prompt_channels_from_env()
+    except ProtocolCommandError:
+        return False, None
+    if writer is None or reader is None:
+        return False, None
+
+    try:
+        view = protocol_resume_view(root, items, previous)
+        contract = protocol_resume_prompt_contract(root, items, previous)
+        prompt_id = emit_prompt(
+            writer,
+            "resume_action",
+            title=contract["title"],
+            actions=contract["actions"],
+            options=contract["options"],
+            failed_items=contract["failed_items"],
+            constraints=contract["constraints"],
+        )
+        command = reader.read()
+        if command is None:
+            raise ProtocolCommandError("Patch protocol command channel closed while waiting for resume_action")
+        if command.get("command") != "resume_action":
+            raise ProtocolCommandError("Smart Resume requires a resume_action command")
+        payload = command.get("payload")
+        if not isinstance(payload, dict):
+            raise ProtocolCommandError("resume_action payload must be an object")
+        if payload.get("prompt_id") != prompt_id:
+            raise ProtocolCommandError("resume_action prompt_id does not match the active prompt")
+
+        action = str(payload.get("action") or "").strip().lower()
+        allowed = {str(value) for value in contract["actions"]}
+        if action not in allowed:
+            raise ProtocolCommandError(f"unsupported resume_action: {action!r}")
+
+        raw_indexes = payload.get("failed_indexes")
+        selection_actions = set(contract["constraints"]["selection_actions"])
+        if action in selection_actions:
+            if not isinstance(raw_indexes, list) or not raw_indexes:
+                raise ProtocolCommandError(f"resume_action {action!r} requires failed_indexes")
+            normalized: list[int] = []
+            seen: set[int] = set()
+            for raw in raw_indexes:
+                if isinstance(raw, bool) or not isinstance(raw, int):
+                    raise ProtocolCommandError("resume_action failed_indexes must be integers")
+                if raw < 1 or raw > len(view["failed_items"]):
+                    raise ProtocolCommandError(f"resume_action failed index out of range: {raw}")
+                if raw not in seen:
+                    normalized.append(raw)
+                    seen.add(raw)
+        else:
+            if raw_indexes not in (None, []):
+                raise ProtocolCommandError(f"resume_action {action!r} must not include failed_indexes")
+            normalized = []
+
+        groups = _resume_groups(previous)
+        by_name = {item.name: item for item in items}
+
+        def available(names: list[str]) -> list[QueueItem]:
+            return [by_name[name] for name in names if name in by_name]
+
+        failed_rows = _merged_failed_recovery_rows(root, previous)
+        queued_failed_rows = _queued_failed_rows(root, failed_rows)
+        failed_queue_names = [str(row.get("_recovery_queue_name") or "") for row in queued_failed_rows]
+        ordered_names: list[str] = []
+        for name in groups["replay"] + failed_queue_names + groups["remaining"]:
+            if name and name not in ordered_names:
+                ordered_names.append(name)
+        all_unresolved = available(ordered_names)
+        failed_only = available(failed_queue_names)
+        remaining_only = available(groups["remaining"])
+
+        if action == "normal":
+            return True, None
+        if action == "history":
+            return True, {"action": "history"}
+        if action == "all":
+            return True, {"action": "run", "items": all_unresolved} if all_unresolved else None
+        if action == "remaining":
+            return True, {"action": "run", "items": remaining_only} if remaining_only else None
+
+        selected_rows = [failed_rows[index - 1] for index in normalized]
+        selected_view = [view["failed_items"][index - 1] for index in normalized]
+        capability = {
+            "failed": "can_retry",
+            "collect_failed": "can_collect",
+            "delete_failed": "can_delete",
+        }[action]
+        if any(row.get(capability) is not True for row in selected_view):
+            raise ProtocolCommandError(f"resume_action {action!r} includes an unavailable failed item")
+
+        if action == "failed":
+            names = {str(row.get("queue_name") or "") for row in selected_view}
+            selected = [item for item in failed_only if item.name in names]
+            return True, {"action": "run", "items": selected} if selected else None
+        if action == "collect_failed":
+            return True, {"action": "collect_failed", "rows": selected_rows} if selected_rows else None
+        if action == "delete_failed":
+            return True, {"action": "delete_failed", "rows": selected_rows} if selected_rows else None
+        raise ProtocolCommandError(f"unsupported resume_action: {action!r}")
+    except (ProtocolCommandError, ValueError, TypeError) as exc:
+        writer.emit("error", phase="resume_action_prompt", message=str(exc))
+        return False, None
+    finally:
+        reader.close()
+        writer.close()
+
+
 def _emit_protocol_resume_snapshot(root: Path, items: list[QueueItem], previous: dict[str, object] | None) -> bool:
     try:
         return _emit_protocol_event("resume_snapshot", **protocol_resume_view(root, items, previous))
@@ -7314,16 +7442,22 @@ def _run_queue(
     # unchanged and still applies after selection.
     if chosen is None and not explicit_selection_requested and force_resume:
         _emit_protocol_resume_snapshot(root, items, meaningful_previous)
+        native_resume_handled, native_resume_decision = _protocol_resume_selection(root, items, meaningful_previous)
         while True:
-            try:
-                decision = _resume_selection(
-                    root, items, meaningful_previous, mode=resume_mode, show_history=zero_argument_invocation,
-                )
-            except KeyboardInterrupt:
-                print("\nCancelled by Ctrl+C.")
-                return finish_report("CANCELLED", 130)
+            if native_resume_handled:
+                decision = native_resume_decision
+            else:
+                try:
+                    decision = _resume_selection(
+                        root, items, meaningful_previous, mode=resume_mode, show_history=zero_argument_invocation,
+                    )
+                except KeyboardInterrupt:
+                    print("\nCancelled by Ctrl+C.")
+                    return finish_report("CANCELLED", 130)
             if isinstance(decision, dict) and str(decision.get("action") or "") == "history":
                 _history_browser(root)
+                if native_resume_handled:
+                    return finish_report("CANCELLED", 0)
                 continue
             break
         if isinstance(decision, dict):
