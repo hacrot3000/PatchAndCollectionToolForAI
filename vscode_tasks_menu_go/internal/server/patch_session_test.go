@@ -141,3 +141,32 @@ func TestPatchQueueDoesNotOptIntoNativeResume(t *testing.T) {
 		}
 	}
 }
+
+
+func TestPatchHistoryOptsIntoNativeHistoryOnly(t *testing.T) {
+	workspace := t.TempDir()
+	runtimeRoot := t.TempDir()
+	entry := filepath.Join(runtimeRoot, "python_patch_entry.py")
+	python := filepath.Join(runtimeRoot, "python3")
+	for _, path := range []string{entry, python} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil { t.Fatal(err) }
+	}
+	t.Setenv("TASKDECK_PATCH_RUNTIME", entry)
+	t.Setenv("TASKDECK_PATCH_PYTHON", python)
+
+	history, err := patchToolExecution(workspace, "history")
+	if err != nil { t.Fatal(err) }
+	found := false
+	for _, item := range history.Env {
+		if item == "TASKDECK_PATCH_NATIVE_HISTORY=1" { found = true }
+	}
+	if !found { t.Fatal("built-in History session must explicitly opt into native History") }
+
+	queue, err := patchToolExecution(workspace, "queue")
+	if err != nil { t.Fatal(err) }
+	for _, item := range queue.Env {
+		if item == "TASKDECK_PATCH_NATIVE_HISTORY=1" {
+			t.Fatal("ordinary Queue session must not opt into native History")
+		}
+	}
+}

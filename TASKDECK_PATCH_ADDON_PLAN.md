@@ -284,8 +284,10 @@ Every phase must preserve:
 | Phase 2F.1 read-only pin loader correction | DONE | ff3d78aa | History projections no longer materialize artifacts/patch_tool merely to read PINNED_RUNS; Pin/Unpin writes keep the existing mutating path. |
 | Phase 2F.2a native History Python command path | DONE | 3fa7e4e5 | Opt-in History sessions emit a read-only history_action prompt, accept only advertised prompt-bound history_detail run_ids, emit history_report, and leave terminal report behavior unchanged. |
 
-| Phase 2F.2b1 TaskDeck History protocol state/gate | DONE | this commit | TaskDeck retains history_snapshot/history_report and final FD4 writes require the active History prompt; history_detail stays reusable and does not consume that read-only prompt. |
+| Phase 2F.2b1 TaskDeck History protocol state/gate | DONE | 6fb41938 | TaskDeck retains history_snapshot/history_report and final FD4 writes require the active History prompt; history_detail stays reusable and does not consume that read-only prompt. |
+
+| Phase 2F.2b2 narrow History endpoint | DONE | this commit | Built-in History alone opts into TASKDECK_PATCH_NATIVE_HISTORY; /history-detail accepts only active-prompt advertised run_ids and writes through the final prompt-bound FD4 gate. |
 
 ## Next action
 
-Continue **Phase 2F.2b2**: opt built-in History into native mode and expose only a narrow advertised-run /history-detail endpoint; do not expose raw protocol commands.
+Continue **Phase 2F.3**: render the native History list/detail UI from history_snapshot/history_report, using only /history-detail for report selection and existing safe file actions for projected files/artifacts.

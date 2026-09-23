@@ -18,6 +18,15 @@ func queueSelectionState() session.ProtocolState {
 	}
 }
 
+func historyActionState() session.ProtocolState {
+	return session.ProtocolState{
+		Available: true,
+		Enabled: true,
+		CommandsEnabled: true,
+		Prompt: json.RawMessage(`{"protocol":"taskdeck.patch","version":1,"type":"prompt","seq":11,"prompt_id":"history123","prompt_kind":"history_action","actions":["detail"],"runs":[{"run_id":"run-1"},{"run_id":"run-2"}],"constraints":{"read_only":true}}`),
+	}
+}
+
 func resumeActionState() session.ProtocolState {
 	return session.ProtocolState{
 		Available: true,
@@ -185,6 +194,59 @@ func TestPublicResumeActionEndpointDoesNotExposeRawCommand(t *testing.T) {
 		if !strings.Contains(src, want) {
 			t.Fatalf("public Resume action contract missing %q", want)
 		}
+	}
+	if strings.Contains(src, `case "command":`) {
+		t.Fatal("TaskDeck public API must not expose the raw protocol command endpoint")
+	}
+}
+
+
+func TestBuildPatchHistoryDetailCommandIsNarrowPromptBoundAndAdvertised(t *testing.T) {
+	data, err := buildPatchHistoryDetailCommand(historyActionState(), patchHistoryDetailRequest{PromptID:"history123", RunID:"run-2"})
+	if err != nil { t.Fatal(err) }
+	var command map[string]any
+	if err := json.Unmarshal(data, &command); err != nil { t.Fatal(err) }
+	if command["command"] != "history_detail" || command["type"] != "command" {
+		t.Fatalf("unexpected History command envelope: %#v", command)
+	}
+	payload := command["payload"].(map[string]any)
+	if payload["prompt_id"] != "history123" || payload["run_id"] != "run-2" {
+		t.Fatalf("unexpected History detail payload: %#v", payload)
+	}
+}
+
+func TestBuildPatchHistoryDetailCommandRejectsStaleOrUnadvertisedRun(t *testing.T) {
+	state := historyActionState()
+	for _, req := range []patchHistoryDetailRequest{
+		{PromptID:"stale", RunID:"run-1"},
+		{PromptID:"history123", RunID:""},
+		{PromptID:"history123", RunID:"not-advertised"},
+		{PromptID:"history123", RunID:strings.Repeat("x", 129)},
+	} {
+		if _, err := buildPatchHistoryDetailCommand(state, req); err == nil {
+			t.Fatalf("invalid History detail accepted: %#v", req)
+		}
+	}
+	wrong := state
+	wrong.Prompt = json.RawMessage(`{"protocol":"taskdeck.patch","version":1,"type":"prompt","seq":1,"prompt_id":"history123","prompt_kind":"queue_selection","actions":["detail"],"runs":[{"run_id":"run-1"}]}`)
+	if _, err := buildPatchHistoryDetailCommand(wrong, patchHistoryDetailRequest{PromptID:"history123",RunID:"run-1"}); err == nil {
+		t.Fatal("History detail accepted against non-History prompt")
+	}
+}
+
+func TestPublicHistoryDetailEndpointDoesNotExposeRawCommand(t *testing.T) {
+	data, err := os.ReadFile("server.go")
+	if err != nil { t.Fatal(err) }
+	src := string(data)
+	for _, want := range []string{
+		`case "history-detail":`,
+		"patchHistoryDetailRequest",
+		"buildPatchHistoryDetailCommand(state, req)",
+		"session.ProtocolCommandWriter",
+		"http.MaxBytesReader(w, r.Body, 16<<10)",
+		`"TASKDECK_PATCH_NATIVE_HISTORY": "1"`,
+	} {
+		if !strings.Contains(src, want) { t.Fatalf("public History detail contract missing %q", want) }
 	}
 	if strings.Contains(src, `case "command":`) {
 		t.Fatal("TaskDeck public API must not expose the raw protocol command endpoint")
