@@ -22,7 +22,12 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"['plan','Plan'",
 		"JSON.stringify({kind:'patch',patch_mode:mode})",
 		"app.attachSession(meta,true)",
-		"TaskMenuPatchPanel={open,close,toggle,start",
+		"/protocol",
+		"for(let attempt=0;attempt<40;attempt+=1)",
+		"renderQueueSnapshot(state.queue_snapshot)",
+		"items.slice(0,50)",
+		"state?.available===false",
+		"TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {
@@ -44,5 +49,24 @@ func TestPatchPanelLoadsBeforeActivityBar(t *testing.T) {
 	activity := strings.Index(js, "activitybar.js")
 	if panel < 0 || activity < 0 || panel > activity {
 		t.Fatal("Patch panel must initialize before the Activity Bar binds its Patch view")
+	}
+}
+
+
+func TestPatchPanelNativeSummaryDoesNotParseTerminalOutput(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, forbidden := range []string{
+		"AUTO STATUS:",
+		"CON TRỎ",
+		"Missing patch signature",
+		"terminal.write",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("Patch native summary must not parse or infer terminal output: found %q", forbidden)
+		}
 	}
 }

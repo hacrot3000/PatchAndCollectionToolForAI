@@ -155,7 +155,7 @@ Status: **IN PROGRESS**
 - [x] Add protocol envelope/lifecycle/version tests.
 - [x] Session manager supports an opt-in FD 3 event pipe and bounded protocol state while PTY remains unchanged.
 - [x] Broker advertises `patch_protocol_events`, carries the opt-in flag and exposes protocol state; old brokers fall back to PTY-only.
-- [ ] Patch panel consumes protocol state for a native queue summary while PTY remains visible.
+- [x] Patch panel polls bounded protocol state and renders a native queue summary while PTY remains the authoritative interactive surface.
 
 ### Phase 2 — Native Patch web UI
 Status: **TODO**
@@ -210,8 +210,9 @@ Every phase must preserve:
 | Phase 1.5B Python queue snapshot | DONE | 840ee91d | Protocol bridge calls authoritative dispatcher queue discovery directly and emits stable queue_snapshot data before terminal execution. |
 | Phase 1.5C.1a session protocol state | DONE | 3ae480a1 | Added opt-in FD 3 transport in the session manager and bounded latest-event/queue-snapshot state without changing PTY output. |
 | Phase 1.5C.1b broker protocol capability | DONE | 5fd3a3d6 | Added capability-gated broker wire/API for protocol events with old-broker PTY-only fallback. |
-| Phase 1.5C.1c public Patch protocol API | DONE | this commit | Built-in Patch sessions now request protocol events and TaskDeck exposes optional per-session protocol state with legacy fallback. |
+| Phase 1.5C.1c public Patch protocol API | DONE | 07b11200 | Built-in Patch sessions now request protocol events and TaskDeck exposes optional per-session protocol state with legacy fallback. |
+| Phase 1.5C.2 native queue summary | DONE | this commit | Patch panel renders bounded Python-owned queue_snapshot data, falls back to PTY-only, and never parses terminal text. |
 
 ## Next action
 
-Continue **Phase 1.5C.2**: render the latest queue_snapshot in the Patch Activity Bar panel with bounded polling, while keeping the PTY session as the authoritative interactive surface.
+Continue **Phase 1.5D**: add an optional command channel foundation for native prompt/selection control, leaving it disabled by default until prompt events are defined.
