@@ -22,6 +22,7 @@ func TestActivityBarIsAdditiveAndFailureIsolated(t *testing.T) {
 		"sidebar-width:",
 		"makeButton('tasks','Tasks'",
 		"makeButton('explorer','Explorer'",
+		"makeButton('patch','Patch Tool'",
 		"makeButton('history','History'",
 		"task-history-panel",
 		"adoptHistoryFromTasks",
@@ -34,6 +35,7 @@ func TestActivityBarIsAdditiveAndFailureIsolated(t *testing.T) {
 		"rail.contains(target)",
 		"activeView==='tasks'&&menu.contains(target)",
 		"activeView==='explorer'&&explorerPanel?.contains(target)",
+		"activeView==='patch'&&globalThis.TaskMenuPatchPanel?.panel?.contains(target)",
 		"activeView==='history'&&historyPanel.contains(target)",
 		"},true)",
 	} {
@@ -57,6 +59,7 @@ func TestActivityBarLoadsAfterAllExistingFeatureModules(t *testing.T) {
 		"tabcontext.js",
 		"mobile.js",
 		"viewportfix.js",
+		"patchpanel.js",
 	} {
 		pos := strings.Index(js, existing)
 		if pos < 0 || activity < 0 || pos > activity {

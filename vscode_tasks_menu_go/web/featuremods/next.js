@@ -26,4 +26,5 @@ import '/featuremods/commandpresets.js';
 import '/featuremods/tabcontext.js';
 import '/featuremods/mobile.js';
 import '/featuremods/viewportfix.js';
+import '/featuremods/patchpanel.js';
 import '/featuremods/activitybar.js';

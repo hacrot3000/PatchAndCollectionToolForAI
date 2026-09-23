@@ -64,6 +64,7 @@ function installActivityBar(){
 
   const tasksButton=makeButton('tasks','Tasks',`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h2M10 6h9M5 12h2M10 12h9M5 18h2M10 18h9"/></svg>`);
   const explorerButton=makeButton('explorer','Explorer',`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l2 2h9v10h-17z"/><path d="M3.5 8.5h17"/></svg>`);
+  const patchButton=makeButton('patch','Patch Tool',`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h10v14H7z"/><path d="M9.5 8.5h5M9.5 12h5M9.5 15.5h3"/></svg>`);
   const historyButton=makeButton('history','History',`<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3 2"/></svg>`);
   main.prepend(rail);
 
@@ -96,7 +97,7 @@ function installActivityBar(){
     return document.body.classList.contains('task-sidebar-auto-hide');
   }
   function updateButtons(){
-    for(const button of [tasksButton,explorerButton,historyButton]){
+    for(const button of [tasksButton,explorerButton,patchButton,historyButton]){
       const active=enabled()&&button.dataset.view===activeView;
       button.classList.toggle('active',active);
       button.setAttribute('aria-pressed',active?'true':'false');
@@ -146,11 +147,15 @@ function installActivityBar(){
   function closeExplorer(){
     try{globalThis.TaskMenuExplorer?.close();}catch(error){console.warn('Auto sidebar could not close Explorer',error);}
   }
+  function closePatchPanel(){
+    try{globalThis.TaskMenuPatchPanel?.close();}catch(error){console.warn('Auto sidebar could not close Patch Tool',error);}
+  }
   function closeActive(){
     const previous=activeView;
     activeView='';
     hideTasksPanel();
     if(previous==='explorer')closeExplorer();
+    if(previous==='patch')closePatchPanel();
     if(previous==='history')closeHistoryPanel();
     updateButtons();
     fitTerminals();
@@ -158,6 +163,7 @@ function installActivityBar(){
   function showTasks(){
     activeView='tasks';
     closeExplorer();
+    closePatchPanel();
     closeHistoryPanel();
     document.body.classList.add('task-sidebar-panel-open');
     updateButtons();
@@ -166,8 +172,18 @@ function installActivityBar(){
   function showExplorer(){
     activeView='explorer';
     hideTasksPanel();
+    closePatchPanel();
     closeHistoryPanel();
     try{globalThis.TaskMenuExplorer?.open();}catch(error){console.warn('Auto sidebar could not open Explorer',error);}
+    updateButtons();
+    fitTerminals();
+  }
+  function showPatch(){
+    activeView='patch';
+    hideTasksPanel();
+    closeExplorer();
+    closeHistoryPanel();
+    try{globalThis.TaskMenuPatchPanel?.open();}catch(error){console.warn('Auto sidebar could not open Patch Tool',error);}
     updateButtons();
     fitTerminals();
   }
@@ -175,6 +191,7 @@ function installActivityBar(){
     activeView='history';
     hideTasksPanel();
     closeExplorer();
+    closePatchPanel();
     adoptHistoryFromTasks();
     historyPanel.classList.add('visible');
     updateButtons();
@@ -190,11 +207,13 @@ function installActivityBar(){
     if(activeView===view){closeActive();return;}
     if(view==='tasks')showTasks();
     if(view==='explorer')showExplorer();
+    if(view==='patch')showPatch();
     if(view==='history')showHistory();
   }
 
   tasksButton.onclick=()=>activate('tasks');
   explorerButton.onclick=()=>activate('explorer');
+  patchButton.onclick=()=>activate('patch');
   historyButton.onclick=()=>activate('history');
   historyPanelClose.onclick=()=>{if(activeView==='history')closeActive();else closeHistoryPanel();};
 
@@ -207,6 +226,20 @@ function installActivityBar(){
       historyContent.querySelector('.history-section')?.remove();
       showHistoryEmpty();
     },0);
+  });
+
+  window.addEventListener('taskmenu:patch-panel-visible',event=>{
+    if(!enabled())return;
+    const visible=Boolean(event.detail?.visible);
+    if(visible){
+      activeView='patch';
+      hideTasksPanel();
+      closeExplorer();
+      closeHistoryPanel();
+    }else if(activeView==='patch'){
+      activeView='';
+    }
+    updateButtons();
   });
 
   const explorerPanel=document.querySelector('.project-explorer');
@@ -231,6 +264,7 @@ function installActivityBar(){
     activeView='';
     hideTasksPanel();
     closeExplorer();
+    closePatchPanel();
     closeHistoryPanel();
     refreshPanelWidth();
     document.body.classList.toggle('task-sidebar-auto-hide',on);
@@ -252,12 +286,13 @@ function installActivityBar(){
     if(rail.contains(target))return;
     if(activeView==='tasks'&&menu.contains(target))return;
     if(activeView==='explorer'&&explorerPanel?.contains(target))return;
+    if(activeView==='patch'&&globalThis.TaskMenuPatchPanel?.panel?.contains(target))return;
     if(activeView==='history'&&historyPanel.contains(target))return;
     closeActive();
   },true);
 
   document.addEventListener('keydown',event=>{
-    if(event.key==='Escape'&&enabled()&&(activeView==='tasks'||activeView==='history'))closeActive();
+    if(event.key==='Escape'&&enabled()&&(activeView==='tasks'||activeView==='patch'||activeView==='history'))closeActive();
   });
   window.addEventListener('resize',()=>{if(enabled())refreshPanelWidth();});
 

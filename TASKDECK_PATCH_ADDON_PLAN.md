@@ -129,9 +129,9 @@ Status: **DONE**
 ### Phase 1D — Dedicated Patch panel
 Status: **IN PROGRESS**
 
-- [ ] Add Patch icon/view to the TaskDeck Activity Bar.
+- [x] Add Patch icon/view to the TaskDeck Activity Bar.
 - [x] Backend launches Patch Tool without a `.vscode/tasks.json` entry through bounded built-in session modes.
-- [ ] Phase 1 UI uses the existing PTY/session renderer.
+- [x] Phase 1 panel exposes Queue/Resume/History/Plan and renders the launched process through the existing PTY/session view.
 - [ ] Detect/hide duplicate legacy `run_python_patches.sh` task where safe.
 
 ### Phase 1E — Legacy project runtime migration
@@ -194,8 +194,9 @@ Every phase must preserve:
 | Phase 1C.2a self-update release primitives | DONE | 0e2fc6a0 | Added versioned release stage/install helpers, atomic symlink switching, Patch runtime source staging, and old-release preservation tests; main self-update flow not switched yet. |
 | Phase 1C.2a support-file mode test correction | DONE | 52af3a60 | Test now distinguishes executable launchers from non-executable Python test/support files; runtime behavior unchanged. |
 | Phase 1C.2b self-update wiring | DONE | 23ce9d21 | Self-update now requires a complete versioned TaskDeck + Patch release, installs it atomically, and hands the daemon off through the stable global entrypoint. |
-| Phase 1D.1 built-in Patch session backend | DONE | this commit | Added bounded `kind:patch` session modes backed by the shared runtime resolver; Patch sessions use reserved task id -1 and do not depend on tasks.json. |
+| Phase 1D.1 built-in Patch session backend | DONE | bc8e5b4a | Added bounded `kind:patch` session modes backed by the shared runtime resolver; Patch sessions use reserved task id -1 and do not depend on tasks.json. |
+| Phase 1D.2 Patch Activity Bar panel | DONE | this commit | Added Patch icon/panel with Queue/Resume/History/Plan actions; sessions use the existing TaskDeck PTY renderer. |
 
 ## Next action
 
-Continue **Phase 1D.2**: add the Patch Activity Bar icon/panel and connect Queue/Resume/History/Plan actions to the built-in Patch session backend.
+Continue **Phase 1D.3**: identify only definite legacy Patch Tool tasks and hide those duplicates from TaskDeck while leaving unrelated project tasks untouched.
