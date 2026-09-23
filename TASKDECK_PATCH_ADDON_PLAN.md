@@ -200,6 +200,9 @@ Status: **IN PROGRESS**
     - [x] Phase 2E.2b TaskDeck endpoint, final-write gate and built-in Resume opt-in.
   - [x] Phase 2E.3 native Resume/recovery web controls.
 - [ ] Native History/report browser.
+  - [x] Phase 2F.1 Python-owned bounded History list/report projection + additive history_snapshot event.
+  - [ ] Phase 2F.2 native History detail command/state/endpoint.
+  - [ ] Phase 2F.3 native History/report web browser.
 - [ ] Native artifact actions.
 - [ ] Remove default dependence on terminal rendering only after feature parity is proven.
 
@@ -276,8 +279,9 @@ Every phase must preserve:
 | Phase 2E.2a test fixture correction | DONE | 9f8883bb | Resume protocol tests now use an existing temp project and explicit recovery-row binding mocks; runtime behavior is unchanged. |
 | Phase 2E.2b TaskDeck Resume endpoint/gate | DONE | 36d9cb75 | Built-in Resume explicitly opts into native mode; public API accepts only active-prompt advertised Resume actions, and session final-write gate consumes the prompt to reject stale/double submissions. |
 | Phase 2E.3 native Smart Resume UI | DONE | 2c36121d | Patch panel renders Python-owned Resume snapshot/options/failed-item capabilities, submits only through /resume-action, confirms destructive delete, and preserves PTY fallback/history handoff. |
-| Phase 2E.3 UI contract test correction | DONE | this commit | Updated the legacy Running-view PTY activation assertion for native Resume; runtime behavior is unchanged. |
+| Phase 2E.3 UI contract test correction | DONE | 1b3811df | Updated the legacy Running-view PTY activation assertion for native Resume; runtime behavior is unchanged. |
+| Phase 2F.1 History/report projection | DONE | this commit | Python exposes bounded meaningful-run summaries and one-run report detail views with verified project-relative files; report route emits history_snapshot additively and Go never sees raw history JSON. |
 
 ## Next action
 
-Continue **Phase 2F.1**: define a stable Python-owned History/report projection that exposes bounded run summaries and report details without making Go parse internal history JSON schemas.
+Continue **Phase 2F.2**: add an opt-in native History detail command that requests one run_id, emits history_report, and TaskDeck retains it behind a narrow prompt-bound/read-only endpoint while terminal History remains unchanged.

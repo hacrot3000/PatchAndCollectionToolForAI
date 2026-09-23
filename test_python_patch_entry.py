@@ -613,6 +613,7 @@ class ProtocolContractTests(unittest.TestCase):
         cases = [
             ([], "queue"),
             (["resume"], "resume"),
+            (["report"], "report"),
             (["collect", "search"], "collect"),
             (["--all"], "run"),
             (["health-search"], "utility"),
@@ -844,6 +845,119 @@ class ProtocolContractTests(unittest.TestCase):
         terminal = dispatcher.index("_resume_selection(", native)
         self.assertLess(emit, native)
         self.assertLess(native, terminal)
+
+    def test_history_projection_is_python_owned_bounded_and_sanitized(self):
+        import python_patch_queue_dispatcher as dispatcher
+        from python_patch_protocol import build_history_snapshot, build_history_report
+
+        with tempfile.TemporaryDirectory(prefix="taskdeck-history-view-") as td:
+            root = Path(td)
+            artifact_dir = root / "artifacts" / "patch_tool" / "runs" / "run-1"
+            artifact_dir.mkdir(parents=True)
+            summary_path = artifact_dir / "SUMMARY.txt"
+            log_path = artifact_dir / "batch.log"
+            handoff_path = root / "artifacts" / "ptv_to_ai" / "FAIL_HANDOFF.zip"
+            handoff_path.parent.mkdir(parents=True)
+            summary_path.write_text("summary", encoding="utf-8")
+            log_path.write_text("log", encoding="utf-8")
+            handoff_path.write_bytes(b"zip")
+            report = {
+                "run_id": "run-1",
+                "status": "FAIL",
+                "started_at": "2026-09-23T10:00:00+00:00",
+                "elapsed_seconds": 1.25,
+                "selected": ["patch.zip"],
+                "failure_policy": "continue_independent",
+                "transaction_policy": "patch",
+                "batch_summary": summary_path.relative_to(root).as_posix(),
+                "batch_log": log_path.relative_to(root).as_posix(),
+                "results": [{
+                    "name": "patch.zip",
+                    "kind": "PATCH",
+                    "status": "FAIL",
+                    "rc": 2,
+                    "elapsed_seconds": 1.1,
+                    "fail_handoff": handoff_path.relative_to(root).as_posix(),
+                    "patch_result": {
+                        "diagnosis": {"kind": "build_failed", "message": "internal raw detail"},
+                        "project_delta": {"changed_paths": ["a.py"]},
+                    },
+                    "source_compare": {"diff_path": "private/raw.diff"},
+                }],
+                "report_warnings": ["warning\nline"],
+                "internal_secret": "must-not-leak",
+            }
+            fake_path = root / "history.json"
+            with mock.patch.object(dispatcher, "_visible_history_entries", return_value=[(fake_path, report)]), \
+                 mock.patch.object(dispatcher, "_load_pinned_runs", return_value={"run-1"}), \
+                 mock.patch.object(dispatcher, "_find_history_entry", return_value=(fake_path, report)):
+                snapshot = build_history_snapshot(str(root))
+                detail = build_history_report(str(root), "run-1")
+
+        self.assertEqual(snapshot["status"], "available")
+        self.assertEqual(snapshot["total"], 1)
+        self.assertEqual(snapshot["default_run_id"], "run-1")
+        self.assertTrue(snapshot["runs"][0]["pinned"])
+        self.assertEqual(snapshot["runs"][0]["counts"]["FAIL"], 1)
+        self.assertEqual(detail["status"], "available")
+        self.assertEqual(detail["run"]["run_id"], "run-1")
+        self.assertEqual(detail["items"][0]["diagnosis"], "build_failed")
+        self.assertEqual(detail["items"][0]["changed_count"], 1)
+        self.assertEqual(detail["items"][0]["artifacts"][0]["path"], "artifacts/ptv_to_ai/FAIL_HANDOFF.zip")
+        self.assertTrue(detail["items"][0]["artifacts"][0]["upload_required"])
+        self.assertEqual({row["path"] for row in detail["files"]}, {
+            "artifacts/patch_tool/runs/run-1/SUMMARY.txt",
+            "artifacts/patch_tool/runs/run-1/batch.log",
+        })
+        encoded = json.dumps(detail)
+        for forbidden in ("patch_result", "source_compare", "internal_secret", str(root)):
+            self.assertNotIn(forbidden, encoded)
+        self.assertNotIn("\n", detail["warnings"][0])
+
+    def test_history_projection_does_not_materialize_artifacts_on_empty_project(self):
+        from python_patch_protocol import build_history_snapshot
+
+        with tempfile.TemporaryDirectory(prefix="taskdeck-history-empty-") as td:
+            root = Path(td)
+            snapshot = build_history_snapshot(str(root))
+            self.assertEqual(snapshot["status"], "empty")
+            self.assertEqual(snapshot["runs"], [])
+            self.assertFalse((root / "artifacts").exists())
+
+    def test_history_report_projection_rejects_unknown_run(self):
+        from python_patch_protocol import build_history_report
+
+        with tempfile.TemporaryDirectory(prefix="taskdeck-history-missing-") as td:
+            detail = build_history_report(td, "../not-a-run")
+        self.assertEqual(detail["status"], "not_found")
+        self.assertNotIn("items", detail)
+
+    def test_protocol_supervisor_emits_history_snapshot_before_report_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            child = Path(tmp) / "child.py"
+            child.write_text("raise SystemExit(0)\n", encoding="utf-8")
+            read_fd, write_fd = os.pipe()
+            try:
+                from python_patch_protocol import EventWriter
+                writer = EventWriter(write_fd)
+                rc = entry._run_with_protocol(writer, [str(child)], tmp, ["report"])
+                os.close(write_fd)
+                write_fd = -1
+                chunks = []
+                while True:
+                    data = os.read(read_fd, 65536)
+                    if not data:
+                        break
+                    chunks.append(data)
+            finally:
+                if write_fd >= 0:
+                    os.close(write_fd)
+                os.close(read_fd)
+        events = [json.loads(line) for line in b"".join(chunks).decode("utf-8").splitlines()]
+        self.assertEqual(rc, 0)
+        self.assertEqual([event["type"] for event in events], ["hello", "history_snapshot", "run_started", "run_finished"])
+        self.assertEqual(events[1]["status"], "empty")
+        self.assertFalse((Path(tmp) / "artifacts").exists())
 
     def test_queue_snapshot_uses_dispatcher_discovery_contract(self):
         from python_patch_protocol import build_queue_snapshot

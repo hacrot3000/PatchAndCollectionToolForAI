@@ -248,7 +248,7 @@ def _run_with_protocol(
     from python_patch_protocol import relay_event_fd
 
     route = classify_route(tool_args)
-    capabilities = ["events_v1", "queue_snapshot_v1", "child_event_relay_v1", "progress_v1", "item_actions_v1", "resume_snapshot_v1"]
+    capabilities = ["events_v1", "queue_snapshot_v1", "child_event_relay_v1", "progress_v1", "item_actions_v1", "resume_snapshot_v1", "history_snapshot_v1"]
     if command_fd is not None:
         capabilities.append("commands_v1")
     writer.emit(
@@ -263,6 +263,12 @@ def _run_with_protocol(
             emit_queue_snapshot(writer, project_root)
         except Exception as exc:
             writer.emit("error", phase="queue_snapshot", message=f"{type(exc).__name__}: {exc}")
+    if route == "report":
+        try:
+            from python_patch_protocol import emit_history_snapshot
+            emit_history_snapshot(writer, project_root)
+        except Exception as exc:
+            writer.emit("error", phase="history_snapshot", message=f"{type(exc).__name__}: {exc}")
     writer.emit("run_started", route=route)
 
     child_event_read, child_event_write = os.pipe()

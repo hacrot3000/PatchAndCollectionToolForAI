@@ -4020,6 +4020,184 @@ def _history_row_text(report: dict[str, object], *, pinned: bool = False) -> str
 
 
 
+def _protocol_history_text(value: object, limit: int = 512) -> str:
+    text = _safe_display(str(value or "")).strip()
+    return text if len(text) <= limit else text[: max(0, limit - 1)] + "…"
+
+
+def _protocol_project_file_rel(root: Path, raw: object, *, base: str | None = None) -> str | None:
+    """Return one verified regular project file as a relative POSIX path."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        root_real = root.resolve(strict=True)
+        value = Path(raw).expanduser()
+        if value.is_absolute():
+            candidate = Path(os.path.abspath(value))
+        else:
+            candidate = Path(os.path.abspath(root_real / base / value if base else root_real / value))
+        rel = candidate.relative_to(root_real)
+        if not rel.parts or any(part in {"", ".", ".."} for part in rel.parts):
+            return None
+        cur = root_real
+        for part in rel.parts:
+            cur = cur / part
+            if _path_is_link_or_reparse(cur):
+                return None
+        if not cur.is_file():
+            return None
+        resolved = cur.resolve(strict=True)
+        resolved.relative_to(root_real)
+        return resolved.relative_to(root_real).as_posix()
+    except (OSError, ValueError):
+        return None
+
+
+def _protocol_history_run_summary(report: dict[str, object], *, pinned: bool) -> dict[str, object]:
+    rows = _report_rows(report)
+    counts = _batch_counts(rows)
+    tx = report.get("batch_transaction") if isinstance(report.get("batch_transaction"), dict) else {}
+    elapsed = report.get("elapsed_seconds")
+    safe_elapsed = (
+        float(elapsed)
+        if isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool)
+        and float(elapsed) >= 0 and float(elapsed) < 1e12
+        else None
+    )
+    selected = report.get("selected") if isinstance(report.get("selected"), list) else []
+    return {
+        "run_id": _protocol_history_text(report.get("run_id"), 128),
+        "status": _protocol_history_text(str(report.get("status") or "UNKNOWN").upper(), 64),
+        "started_at": _protocol_history_text(report.get("started_at"), 128),
+        "ended_at": _protocol_history_text(report.get("ended_at"), 128),
+        "display_time": _protocol_history_text(_history_display_time(report.get("started_at")), 32),
+        "primary_name": _protocol_history_text(_history_primary_name(report), 256),
+        "pinned": bool(pinned),
+        "selected_count": len([value for value in selected if isinstance(value, str) and value]),
+        "item_count": len(rows),
+        "counts": counts,
+        "failure_policy": _protocol_history_text(report.get("failure_policy") or "continue_independent", 64),
+        "transaction_policy": _protocol_history_text(report.get("transaction_policy") or "patch", 64),
+        "batch_transaction_status": _protocol_history_text(tx.get("status"), 64),
+        **({"elapsed_seconds": round(safe_elapsed, 3)} if safe_elapsed is not None else {}),
+    }
+
+
+def protocol_history_view(root: Path) -> dict[str, object]:
+    """Stable bounded run-list projection; internal history JSON never leaves Python."""
+    entries = _visible_history_entries(root)
+    pins = _load_pinned_runs(root)
+    limit = 100
+    visible = entries[:limit]
+    default_run_id = ""
+    if entries:
+        default_index = _history_default_index(entries)
+        if 0 <= default_index < len(entries):
+            default_run_id = str(entries[default_index][1].get("run_id") or "")
+        if default_run_id and all(str(report.get("run_id") or "") != default_run_id for _path, report in visible):
+            visible = list(visible)
+            if len(visible) >= limit:
+                visible[-1] = entries[default_index]
+            else:
+                visible.append(entries[default_index])
+    runs = [
+        _protocol_history_run_summary(report, pinned=str(report.get("run_id") or "") in pins)
+        for _path, report in visible
+    ]
+    return {
+        "status": "available" if runs else "empty",
+        "runs": runs,
+        "total": len(entries),
+        "default_run_id": _protocol_history_text(default_run_id, 128),
+        "truncated": len(entries) > len(runs),
+    }
+
+
+def _protocol_history_item_artifacts(root: Path, row: dict[str, object]) -> list[dict[str, object]]:
+    out: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for label, path, exists in _important_row_artifacts(root, row):
+        if not exists:
+            continue
+        rel = _protocol_project_file_rel(root, path)
+        if rel is None or rel in seen:
+            continue
+        seen.add(rel)
+        out.append({
+            "label": _protocol_history_text(label, 80),
+            "path": rel,
+            "upload_required": label in _AI_UPLOAD_HISTORY_LABELS,
+        })
+        if len(out) >= 32:
+            break
+    diff = _source_compare_path(root, row)
+    if diff is not None:
+        rel = _protocol_project_file_rel(root, str(diff))
+        if rel is not None and rel not in seen and len(out) < 32:
+            out.append({"label": "Source diff", "path": rel, "upload_required": False})
+    return out
+
+
+def _protocol_history_item(root: Path, row: dict[str, object], index: int) -> dict[str, object]:
+    raw_rc = row.get("rc")
+    rc = raw_rc if isinstance(raw_rc, int) and not isinstance(raw_rc, bool) else None
+    elapsed = row.get("elapsed_seconds")
+    safe_elapsed = (
+        float(elapsed)
+        if isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool)
+        and float(elapsed) >= 0 and float(elapsed) < 1e12
+        else None
+    )
+    blocked = row.get("blocked_by") if isinstance(row.get("blocked_by"), list) else []
+    depends = row.get("depends_on") if isinstance(row.get("depends_on"), list) else []
+    changed = _row_changed_count(row)
+    return {
+        "index": index,
+        "name": _protocol_history_text(row.get("name") or "unknown", 512),
+        "kind": _protocol_history_text(row.get("kind") or "PATCH", 64),
+        "status": _protocol_history_text(str(row.get("status") or "UNKNOWN").upper(), 64),
+        "summary": _protocol_history_text(_row_summary(row), 512),
+        "diagnosis": _protocol_history_text(_row_diagnosis(row), 128),
+        "batch_rolled_back": row.get("batch_rolled_back") is True,
+        "blocked_by": [_protocol_history_text(value, 256) for value in blocked[:64]],
+        "depends_on": [_protocol_history_text(value, 256) for value in depends[:64]],
+        "artifacts": _protocol_history_item_artifacts(root, row),
+        **({"rc": rc} if rc is not None else {}),
+        **({"elapsed_seconds": round(safe_elapsed, 3)} if safe_elapsed is not None else {}),
+        **({"changed_count": changed} if isinstance(changed, int) and changed >= 0 else {}),
+    }
+
+
+def protocol_history_report_view(root: Path, run_id: str) -> dict[str, object]:
+    """Stable bounded detail projection for one meaningful History run."""
+    requested = str(run_id or "").strip()
+    if not requested or len(requested) > 128:
+        return {"status": "not_found", "run_id": _protocol_history_text(requested, 128)}
+    found = _find_history_entry(root, requested)
+    if found is None or not _is_meaningful_run(found[1]):
+        return {"status": "not_found", "run_id": _protocol_history_text(requested, 128)}
+    _path, report = found
+    pins = _load_pinned_runs(root)
+    rows = _report_rows(report)
+    limit = 512
+    visible_rows = rows[:limit]
+    files: list[dict[str, object]] = []
+    for label, key in (("Run summary", "batch_summary"), ("Aggregate log", "batch_log")):
+        rel = _protocol_project_file_rel(root, report.get(key))
+        if rel is not None:
+            files.append({"label": label, "path": rel})
+    warnings = report.get("report_warnings") if isinstance(report.get("report_warnings"), list) else []
+    return {
+        "status": "available",
+        "run": _protocol_history_run_summary(report, pinned=requested in pins),
+        "items": [_protocol_history_item(root, row, index) for index, row in enumerate(visible_rows, 1)],
+        "total_items": len(rows),
+        "items_truncated": len(rows) > len(visible_rows),
+        "files": files,
+        "warnings": [_protocol_history_text(value, 512) for value in warnings[:50]],
+    }
+
+
 def _render_history_selector(
     entries: list[tuple[Path, dict[str, object]]], cursor: int, pins: set[str], prev: int, msg: str = ""
 ) -> int:

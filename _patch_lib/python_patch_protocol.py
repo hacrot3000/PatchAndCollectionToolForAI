@@ -270,3 +270,31 @@ def emit_queue_snapshot(writer: EventWriter, project_root: str) -> bool:
         return False
     writer.emit("queue_snapshot", **snapshot)
     return True
+
+
+def build_history_snapshot(project_root: str) -> dict[str, Any]:
+    """Return the stable bounded History list projection owned by Python."""
+    from pathlib import Path
+    from python_patch_queue_dispatcher import protocol_history_view
+
+    root = Path(project_root).expanduser().resolve()
+    return protocol_history_view(root)
+
+
+def build_history_report(project_root: str, run_id: str) -> dict[str, Any]:
+    """Return one stable bounded History report projection owned by Python."""
+    from pathlib import Path
+    from python_patch_queue_dispatcher import protocol_history_report_view
+
+    root = Path(project_root).expanduser().resolve()
+    return protocol_history_report_view(root, run_id)
+
+
+def emit_history_snapshot(writer: EventWriter, project_root: str) -> bool:
+    try:
+        snapshot = build_history_snapshot(project_root)
+    except Exception as exc:
+        writer.emit("error", phase="history_snapshot", message=f"{type(exc).__name__}: {exc}")
+        return False
+    writer.emit("history_snapshot", **snapshot)
+    return True
