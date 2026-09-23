@@ -83,6 +83,8 @@ type ProtocolState struct {
 	LastEvent       json.RawMessage `json:"last_event,omitempty"`
 	QueueSnapshot   json.RawMessage `json:"queue_snapshot,omitempty"`
 	ResumeSnapshot  json.RawMessage `json:"resume_snapshot,omitempty"`
+	HistorySnapshot json.RawMessage `json:"history_snapshot,omitempty"`
+	HistoryReport   json.RawMessage `json:"history_report,omitempty"`
 	Prompt          json.RawMessage     `json:"prompt,omitempty"`
 	Items           []ProtocolItemState     `json:"items,omitempty"`
 	Artifacts       []ProtocolArtifactState `json:"artifacts,omitempty"`
@@ -393,6 +395,25 @@ func protocolItemActionPromptID(data []byte) (string, bool, error) {
 	}
 	return command.Payload.PromptID, true, nil
 }
+func protocolHistoryDetailPromptID(data []byte) (string, bool, error) {
+	var command struct {
+		Command string `json:"command"`
+		Payload struct {
+			PromptID string `json:"prompt_id"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &command); err != nil {
+		return "", false, fmt.Errorf("invalid Patch protocol command JSON: %w", err)
+	}
+	if command.Command != "history_detail" {
+		return "", false, nil
+	}
+	if strings.TrimSpace(command.Payload.PromptID) == "" {
+		return "", true, fmt.Errorf("Patch history_detail prompt_id is required")
+	}
+	return command.Payload.PromptID, true, nil
+}
+
 func protocolResumeActionPromptID(data []byte) (string, bool, error) {
 	var command struct {
 		Command string `json:"command"`
@@ -436,6 +457,8 @@ func cloneProtocolState(in ProtocolState) ProtocolState {
 	out.LastEvent = append(json.RawMessage(nil), in.LastEvent...)
 	out.QueueSnapshot = append(json.RawMessage(nil), in.QueueSnapshot...)
 	out.ResumeSnapshot = append(json.RawMessage(nil), in.ResumeSnapshot...)
+	out.HistorySnapshot = append(json.RawMessage(nil), in.HistorySnapshot...)
+	out.HistoryReport = append(json.RawMessage(nil), in.HistoryReport...)
 	out.Prompt = append(json.RawMessage(nil), in.Prompt...)
 	out.Items = append([]ProtocolItemState(nil), in.Items...)
 	out.Artifacts = append([]ProtocolArtifactState(nil), in.Artifacts...)

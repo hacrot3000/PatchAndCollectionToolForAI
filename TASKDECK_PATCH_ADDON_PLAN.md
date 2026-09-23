@@ -282,8 +282,10 @@ Every phase must preserve:
 | Phase 2E.3 UI contract test correction | DONE | 1b3811df | Updated the legacy Running-view PTY activation assertion for native Resume; runtime behavior is unchanged. |
 | Phase 2F.1 History/report projection | DONE | 235847fb | Python exposes bounded meaningful-run summaries and one-run report detail views with verified project-relative files; report route emits history_snapshot additively and Go never sees raw history JSON. |
 | Phase 2F.1 read-only pin loader correction | DONE | ff3d78aa | History projections no longer materialize artifacts/patch_tool merely to read PINNED_RUNS; Pin/Unpin writes keep the existing mutating path. |
-| Phase 2F.2a native History Python command path | DONE | this commit | Opt-in History sessions emit a read-only history_action prompt, accept only advertised prompt-bound history_detail run_ids, emit history_report, and leave terminal report behavior unchanged. |
+| Phase 2F.2a native History Python command path | DONE | 3fa7e4e5 | Opt-in History sessions emit a read-only history_action prompt, accept only advertised prompt-bound history_detail run_ids, emit history_report, and leave terminal report behavior unchanged. |
+
+| Phase 2F.2b1 TaskDeck History protocol state/gate | DONE | this commit | TaskDeck retains history_snapshot/history_report and final FD4 writes require the active History prompt; history_detail stays reusable and does not consume that read-only prompt. |
 
 ## Next action
 
-Continue **Phase 2F.2b**: retain history_snapshot/history_report in TaskDeck and add a narrow active-prompt /history-detail endpoint with a final FD4 prompt gate; do not expose raw protocol commands.
+Continue **Phase 2F.2b2**: opt built-in History into native mode and expose only a narrow advertised-run /history-detail endpoint; do not expose raw protocol commands.

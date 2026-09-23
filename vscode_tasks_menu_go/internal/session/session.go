@@ -218,13 +218,19 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 		s.protocol.Artifacts = nil
 		s.protocol.Progress = nil
 		s.protocol.ActionResult = nil
+		s.protocol.HistoryReport = nil
 	case "queue_snapshot":
 		s.protocol.QueueSnapshot = append(json.RawMessage(nil), raw...)
 	case "resume_snapshot":
 		s.protocol.ResumeSnapshot = append(json.RawMessage(nil), raw...)
+	case "history_snapshot":
+		s.protocol.HistorySnapshot = append(json.RawMessage(nil), raw...)
+	case "history_report":
+		s.protocol.HistoryReport = append(json.RawMessage(nil), raw...)
 	case "prompt":
 		s.protocol.Prompt = append(json.RawMessage(nil), raw...)
 		s.protocol.ActionResult = nil
+		s.protocol.HistoryReport = nil
 	case "item_started", "item_finished":
 		s.protocol.Items = upsertProtocolItem(s.protocol.Items, itemState)
 	case "artifact":
@@ -363,6 +369,10 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 	if err != nil {
 		return err
 	}
+	historyPromptID, isHistoryDetail, err := protocolHistoryDetailPromptID(line)
+	if err != nil {
+		return err
+	}
 	s, ok := m.Get(id)
 	if !ok {
 		return fmt.Errorf("session not found")
@@ -372,7 +382,7 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 	if s.meta.Status != "running" || s.protocolCommand == nil {
 		return fmt.Errorf("Patch protocol command channel is not enabled")
 	}
-	if isPromptResponse || isItemAction || isResumeAction {
+	if isPromptResponse || isItemAction || isResumeAction || isHistoryDetail {
 		if len(s.protocol.Prompt) == 0 {
 			return fmt.Errorf("Patch session has no active prompt")
 		}
@@ -388,6 +398,9 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 		} else if isResumeAction {
 			boundPromptID = resumePromptID
 			commandName = "resume_action"
+		} else if isHistoryDetail {
+			boundPromptID = historyPromptID
+			commandName = "history_detail"
 		}
 		if boundPromptID != activePromptID {
 			return fmt.Errorf("Patch %s does not match the active prompt", commandName)
