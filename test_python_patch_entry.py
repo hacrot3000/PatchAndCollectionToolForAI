@@ -670,6 +670,56 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertEqual(set(mapping), names)
         self.assertEqual(names, {"failed.zip"})
 
+    def test_resume_protocol_view_is_python_owned_and_bounded(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        items = [
+            dispatcher.QueueItem("replay.zip", "PATCH", "manifest"),
+            dispatcher.QueueItem("failed.zip", "PATCH", "manifest"),
+            dispatcher.QueueItem("remaining.zip", "PATCH", "manifest"),
+        ]
+        previous = {
+            "status": "FAIL",
+            "failed_item": "failed.zip",
+            "results": [
+                {"name": "replay.zip", "kind": "PATCH", "status": "PASS", "batch_rolled_back": True},
+                {"name": "failed.zip", "kind": "PATCH", "status": "FAIL", "rc": 2, "patch_result": {"diagnosis": {"kind": "build_failed", "message": "bad\nsource"}}},
+                {"name": "remaining.zip", "kind": "PATCH", "status": "BLOCKED"},
+            ],
+        }
+        failed_row = previous["results"][1]
+        bound = dict(failed_row)
+        bound["_recovery_queue_name"] = "failed.zip"
+        with mock.patch.object(dispatcher, "_merged_failed_recovery_rows", return_value=[failed_row]), \
+             mock.patch.object(dispatcher, "_queued_failed_rows", return_value=[bound]), \
+             mock.patch.object(dispatcher, "_bind_recovery_queue_row", return_value=bound), \
+             mock.patch.object(dispatcher, "_visible_history_entries", return_value=[(Path("history.json"), previous)]):
+            view = dispatcher.protocol_resume_view(Path("/workspace"), items, previous)
+            prompt = dispatcher.protocol_resume_prompt_contract(Path("/workspace"), items, previous)
+
+        self.assertEqual(view["status"], "available")
+        self.assertEqual(view["summary"]["all"], 3)
+        self.assertEqual(view["summary"]["failed"], 1)
+        self.assertEqual(view["summary"]["remaining"], 1)
+        self.assertEqual([row["group"] for row in view["items"]], ["replay", "failed", "remaining"])
+        self.assertEqual(view["failed_items"][0]["queue_name"], "failed.zip")
+        self.assertTrue(view["failed_items"][0]["can_retry"])
+        self.assertTrue(view["failed_items"][0]["can_collect"])
+        self.assertTrue(view["failed_items"][0]["can_delete"])
+        self.assertNotIn("\n", view["failed_items"][0]["failure"]["message"])
+        self.assertEqual(prompt["prompt_kind"], "resume_action")
+        self.assertIn("failed", prompt["actions"])
+        self.assertIn("collect_failed", prompt["actions"])
+        self.assertEqual(prompt["constraints"]["failed_index_base"], 1)
+
+    def test_resume_snapshot_emission_is_additive_before_terminal_resume_selection(self):
+        dispatcher = (self.base / "_patch_lib" / "python_patch_queue_dispatcher.py").read_text(encoding="utf-8")
+        emit = dispatcher.index("_emit_protocol_resume_snapshot(root, items, meaningful_previous)")
+        select = dispatcher.index("_resume_selection(", emit)
+        self.assertLess(emit, select)
+        self.assertIn("def protocol_resume_prompt_contract(", dispatcher)
+        self.assertNotIn("TASKDECK_PATCH_NATIVE_RESUME", dispatcher)
+
     def test_queue_snapshot_uses_dispatcher_discovery_contract(self):
         from python_patch_protocol import build_queue_snapshot
 

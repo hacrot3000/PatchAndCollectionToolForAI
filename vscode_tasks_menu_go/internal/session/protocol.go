@@ -82,6 +82,7 @@ type ProtocolState struct {
 	LastSeq         int64           `json:"last_seq,omitempty"`
 	LastEvent       json.RawMessage `json:"last_event,omitempty"`
 	QueueSnapshot   json.RawMessage `json:"queue_snapshot,omitempty"`
+	ResumeSnapshot  json.RawMessage `json:"resume_snapshot,omitempty"`
 	Prompt          json.RawMessage     `json:"prompt,omitempty"`
 	Items           []ProtocolItemState     `json:"items,omitempty"`
 	Artifacts       []ProtocolArtifactState `json:"artifacts,omitempty"`
@@ -415,6 +416,7 @@ func cloneProtocolState(in ProtocolState) ProtocolState {
 	out := in
 	out.LastEvent = append(json.RawMessage(nil), in.LastEvent...)
 	out.QueueSnapshot = append(json.RawMessage(nil), in.QueueSnapshot...)
+	out.ResumeSnapshot = append(json.RawMessage(nil), in.ResumeSnapshot...)
 	out.Prompt = append(json.RawMessage(nil), in.Prompt...)
 	out.Items = append([]ProtocolItemState(nil), in.Items...)
 	out.Artifacts = append([]ProtocolArtifactState(nil), in.Artifacts...)

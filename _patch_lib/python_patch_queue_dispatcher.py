@@ -6291,6 +6291,163 @@ def _resume_groups(previous: dict[str, object] | None) -> dict[str, list[str]]:
     return groups
 
 
+def _resume_action_options(counts: dict[str, int], history_count: int) -> list[dict[str, object]]:
+    return [
+        {
+            "key": "all",
+            "label": "Retry/replay toàn bộ phần chưa hoàn tất",
+            "description": "Chạy lại các PATCH đã rollback, PATCH bị lỗi và các item còn BLOCKED/NOT_EXECUTED theo thứ tự hợp lệ.",
+            "available": counts.get("all", 0) > 0,
+            "count": counts.get("all", 0),
+            "selection": "none",
+        },
+        {
+            "key": "failed",
+            "label": "Retry PATCH lỗi",
+            "description": "Chỉ chạy lại PATCH đã FAIL/PREFLIGHT_FAIL. Nếu có nhiều PATCH lỗi, bạn có thể chọn nhiều bằng Space.",
+            "available": counts.get("failed", 0) > 0,
+            "count": counts.get("failed", 0),
+            "selection": "failed_items",
+        },
+        {
+            "key": "remaining",
+            "label": "Chạy phần còn lại / đang bị BLOCKED",
+            "description": "Không retry PATCH lỗi; chỉ xét các item chưa chạy. Dependency và predecessor rule vẫn được kiểm tra trước khi thực thi.",
+            "available": counts.get("remaining", 0) > 0,
+            "count": counts.get("remaining", 0),
+            "selection": "none",
+        },
+        {
+            "key": "collect_failed",
+            "label": "COLLECT source của PATCH lỗi",
+            "description": "Tự xác định source hiện tại liên quan đến PATCH lỗi và chạy CODE_COLLECTION_REQUEST. Có thể chọn nhiều PATCH; COLLECT được chạy tuần tự từng request.",
+            "available": counts.get("collect_failed", 0) > 0,
+            "count": counts.get("collect_failed", 0),
+            "selection": "failed_items",
+        },
+        {
+            "key": "delete_failed",
+            "label": "Xóa PATCH lỗi khỏi hàng đợi",
+            "description": "Loại PATCH lỗi khỏi patchs/ bằng cách chuyển an toàn vào patchs/ignore. Nếu có nhiều PATCH lỗi, bạn có thể chọn nhiều PATCH cùng lúc.",
+            "available": counts.get("delete_failed", 0) > 0,
+            "count": counts.get("delete_failed", 0),
+            "selection": "failed_items",
+        },
+        {
+            "key": "history",
+            "label": "Xem lại lịch sử chạy gần đây",
+            "description": "Mở lịch sử run đã lưu và xem lại kết quả, detail/aggregate log, source diff, FAIL_HANDOFF, recovery COLLECT và support ZIP.",
+            "available": history_count > 0,
+            "count": history_count,
+            "selection": "none",
+        },
+        {
+            "key": "normal",
+            "label": "Bỏ qua phục hồi và mở queue bình thường",
+            "description": "Không thay đổi PATCH lỗi ở bước này; quay về màn hình chọn PATCH/COLLECT thông thường.",
+            "available": True,
+            "count": 0,
+            "selection": "none",
+        },
+    ]
+
+
+def protocol_resume_view(root: Path, items: list[QueueItem], previous: dict[str, object] | None) -> dict[str, object]:
+    """Stable native Smart Resume projection; no history/report schema escapes."""
+    groups = _resume_groups(previous)
+    by_name = {item.name: item for item in items}
+
+    def available(names: list[str]) -> list[QueueItem]:
+        return [by_name[name] for name in names if name in by_name]
+
+    failed_rows = _merged_failed_recovery_rows(root, previous)
+    queued_failed_rows = _queued_failed_rows(root, failed_rows)
+    failed_queue_names = [str(row.get("_recovery_queue_name") or "") for row in queued_failed_rows]
+    ordered_names: list[str] = []
+    for name in groups["replay"] + failed_queue_names + groups["remaining"]:
+        if name and name not in ordered_names:
+            ordered_names.append(name)
+
+    all_unresolved = available(ordered_names)
+    failed_only = available(failed_queue_names)
+    remaining_only = available(groups["remaining"])
+    replay_names = set(groups["replay"])
+    failed_names = set(failed_queue_names)
+
+    item_rows: list[dict[str, object]] = []
+    for index, item in enumerate(all_unresolved, 1):
+        group = "replay" if item.name in replay_names else ("failed" if item.name in failed_names else "remaining")
+        item_rows.append({
+            "index": index,
+            "name": item.name,
+            "kind": item.kind,
+            "detail": item.detail,
+            "group": group,
+        })
+
+    failed_items: list[dict[str, object]] = []
+    for index, row in enumerate(failed_rows, 1):
+        bound = _bind_recovery_queue_row(root, row)
+        queue_name = str(bound.get("_recovery_queue_name") or "") if isinstance(bound, dict) else ""
+        failed_items.append({
+            "index": index,
+            "name": _safe_display(str(row.get("name") or "unknown"))[:1024],
+            "queue_name": queue_name,
+            "queued": bool(queue_name and queue_name in by_name),
+            "can_retry": bool(queue_name and queue_name in {item.name for item in failed_only}),
+            "can_collect": True,
+            "can_delete": bool(queue_name and any(str(item.get("_recovery_queue_name") or "") == queue_name for item in queued_failed_rows)),
+            "failure": _protocol_failure_summary(row),
+        })
+
+    counts = {
+        "all": len(all_unresolved),
+        "replay": len(available(groups["replay"])),
+        "failed": len(failed_only),
+        "remaining": len(remaining_only),
+        "collect_failed": len(failed_rows),
+        "delete_failed": len(queued_failed_rows),
+    }
+    history_count = len(_visible_history_entries(root))
+    options = _resume_action_options(counts, history_count)
+    return {
+        "status": "available" if (all_unresolved or failed_rows) else "empty",
+        "summary": {
+            "previous_status": str(previous.get("status") or "") if isinstance(previous, dict) else "",
+            "failed_item": _safe_display(str(previous.get("failed_item") or previous.get("previous_failed_item") or ""))[:1024] if isinstance(previous, dict) else "",
+            **counts,
+        },
+        "items": item_rows,
+        "failed_items": failed_items,
+        "actions": options,
+        "constraints": {
+            "failed_index_base": 1,
+            "selection_actions": ["failed", "collect_failed", "delete_failed"],
+            "run_actions": ["all", "failed", "remaining"],
+            "navigation_actions": ["history", "normal"],
+        },
+    }
+
+
+def protocol_resume_prompt_contract(root: Path, items: list[QueueItem], previous: dict[str, object] | None) -> dict[str, object]:
+    view = protocol_resume_view(root, items, previous)
+    return {
+        "prompt_kind": "resume_action",
+        "title": "Smart Resume",
+        "actions": [str(row["key"]) for row in view["actions"] if row.get("available") is True],
+        "options": view["actions"],
+        "failed_items": view["failed_items"],
+        "constraints": view["constraints"],
+    }
+
+
+def _emit_protocol_resume_snapshot(root: Path, items: list[QueueItem], previous: dict[str, object] | None) -> bool:
+    try:
+        return _emit_protocol_event("resume_snapshot", **protocol_resume_view(root, items, previous))
+    except Exception:
+        return False
+
+
 def _failure_row_diagnosis(row: dict[str, object]) -> str:
     result = row.get("patch_result") if isinstance(row.get("patch_result"), dict) else None
     diagnosis = result.get("diagnosis") if isinstance(result, dict) and isinstance(result.get("diagnosis"), dict) else None
@@ -6710,42 +6867,16 @@ def _resume_selection(root: Path, items: list[QueueItem], previous: dict[str, ob
         return None
     if not (all_unresolved or failed_rows):
         return None
+    counts = {
+        "all": len(all_unresolved),
+        "failed": len(failed_only),
+        "remaining": len(remaining_only),
+        "collect_failed": len(failed_rows),
+        "delete_failed": len(queued_failed_rows),
+    }
     options = [
-        {
-            "key": "all",
-            "label": "Retry/replay toàn bộ phần chưa hoàn tất",
-            "description": "Chạy lại các PATCH đã rollback, PATCH bị lỗi và các item còn BLOCKED/NOT_EXECUTED theo thứ tự hợp lệ.",
-        },
-        {
-            "key": "failed",
-            "label": "Retry PATCH lỗi",
-            "description": "Chỉ chạy lại PATCH đã FAIL/PREFLIGHT_FAIL. Nếu có nhiều PATCH lỗi, bạn có thể chọn nhiều bằng Space.",
-        },
-        {
-            "key": "remaining",
-            "label": "Chạy phần còn lại / đang bị BLOCKED",
-            "description": "Không retry PATCH lỗi; chỉ xét các item chưa chạy. Dependency và predecessor rule vẫn được kiểm tra trước khi thực thi.",
-        },
-        {
-            "key": "collect_failed",
-            "label": "COLLECT source của PATCH lỗi",
-            "description": "Tự xác định source hiện tại liên quan đến PATCH lỗi và chạy CODE_COLLECTION_REQUEST. Có thể chọn nhiều PATCH; COLLECT được chạy tuần tự từng request.",
-        },
-        {
-            "key": "delete_failed",
-            "label": "Xóa PATCH lỗi khỏi hàng đợi",
-            "description": "Loại PATCH lỗi khỏi patchs/ bằng cách chuyển an toàn vào patchs/ignore. Nếu có nhiều PATCH lỗi, bạn có thể chọn nhiều PATCH cùng lúc.",
-        },
-        {
-            "key": "history",
-            "label": "Xem lại lịch sử chạy gần đây",
-            "description": "Mở lịch sử run đã lưu và xem lại kết quả, detail/aggregate log, source diff, FAIL_HANDOFF, recovery COLLECT và support ZIP.",
-        },
-        {
-            "key": "normal",
-            "label": "Bỏ qua phục hồi và mở queue bình thường",
-            "description": "Không thay đổi PATCH lỗi ở bước này; quay về màn hình chọn PATCH/COLLECT thông thường.",
-        },
+        {"key": str(row["key"]), "label": str(row["label"]), "description": str(row["description"])}
+        for row in _resume_action_options(counts, len(_visible_history_entries(root)))
     ]
     action = _interactive_choice_menu(
         "SMART RESUME — LẦN CHẠY CÓ CÔNG VIỆC GẦN NHẤT CÓ PATCH LỖI",
@@ -7182,6 +7313,7 @@ def _run_queue(
     # visual group instead.  Planner safety for unresolved predecessors is
     # unchanged and still applies after selection.
     if chosen is None and not explicit_selection_requested and force_resume:
+        _emit_protocol_resume_snapshot(root, items, meaningful_previous)
         while True:
             try:
                 decision = _resume_selection(

@@ -220,6 +220,8 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 		s.protocol.ActionResult = nil
 	case "queue_snapshot":
 		s.protocol.QueueSnapshot = append(json.RawMessage(nil), raw...)
+	case "resume_snapshot":
+		s.protocol.ResumeSnapshot = append(json.RawMessage(nil), raw...)
 	case "prompt":
 		s.protocol.Prompt = append(json.RawMessage(nil), raw...)
 		s.protocol.ActionResult = nil

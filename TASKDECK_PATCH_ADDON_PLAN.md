@@ -194,6 +194,9 @@ Status: **IN PROGRESS**
 - **History/report pagination and menus:** terminal-only today and belong to Native History/report browser.
 
 - [ ] Native Resume/recovery.
+  - [x] Phase 2E.1 Python-owned Resume snapshot/action contract + TaskDeck retained state; terminal Resume remains authoritative.
+  - [ ] Phase 2E.2 narrow Resume action endpoint and protocol prompt execution.
+  - [ ] Phase 2E.3 native Resume/recovery web controls.
 - [ ] Native History/report browser.
 - [ ] Native artifact actions.
 - [ ] Remove default dependence on terminal rendering only after feature parity is proven.
@@ -265,8 +268,9 @@ Every phase must preserve:
 | Phase 2B.2b narrow item-action endpoint | DONE | 3bb89fe6 | Public API accepts only prompt-bound inspect/preview/validate + index, validates PATCH-only prompt items, generates action_id server-side and never exposes raw protocol command writes. |
 | Phase 2B.3 native item action UI | DONE | 39f59d45 | Queue/Failed PATCH rows expose only Python-advertised Inspect/Preview/Validate actions; result polling is correlated by action_id and rendered from structured action_result state. |
 | Phase 2C.1 normal-run interaction audit | DONE | 6d7accbf | Verified queue_selection select/cancel is the only interactive normal-run confirmation boundary; added a regression contract preventing a second terminal-input gate before execute_items. Resume/delete/history interactions are explicitly deferred to their owning phases. |
-| Phase 2D.1 native Running primary view | DONE | this commit | Queue PTY is attached without activation; after native selection the Patch panel prioritizes lifecycle/progress/artifacts, with explicit terminal-evidence fallback and post-finish return to Queue. |
+| Phase 2D.1 native Running primary view | DONE | 12a9dcdc | Queue PTY is attached without activation; after native selection the Patch panel prioritizes lifecycle/progress/artifacts, with explicit terminal-evidence fallback and post-finish return to Queue. |
+| Phase 2E.1 Resume projection/contract | DONE | this commit | Python emits a stable resume_snapshot from the exact Smart Resume boundary, shares action definitions with terminal Resume, defines resume_action contract, and TaskDeck retains the snapshot without changing terminal interaction. |
 
 ## Next action
 
-Continue **Phase 2E.1**: define a stable Python-owned Resume/recovery view and prompt contract for unresolved failed work before adding native Resume controls; keep existing terminal resume behavior unchanged.
+Continue **Phase 2E.2**: add a narrow prompt-bound Resume action endpoint and enable Python resume_action command handling only when TaskDeck explicitly opts into native Resume; terminal fallback must remain unchanged.
