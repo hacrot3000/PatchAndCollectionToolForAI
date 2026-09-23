@@ -50,6 +50,17 @@ function installPatchPanel(){
   .task-patch-prompt-detail{display:block;opacity:.62;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-prompt-buttons{display:flex;gap:6px;margin-top:8px}
   .task-patch-prompt-buttons button{flex:1}
+  .task-patch-running-head{display:none;margin:0 0 10px;padding:8px;border:1px solid #4b596d;border-radius:6px;background:#121923;font-size:11px}
+  .task-patch-panel.running .task-patch-running-head{display:block}
+  .task-patch-running-title{font-weight:700;font-size:12px}
+  .task-patch-running-meta{margin-top:3px;opacity:.72}
+  .task-patch-running-actions{display:flex;gap:6px;margin-top:8px}
+  .task-patch-running-actions button{flex:1}
+  .task-patch-panel.running .task-patch-panel-note,
+  .task-patch-panel.running .task-patch-summary,
+  .task-patch-panel.running .task-patch-action-result,
+  .task-patch-panel.running .task-patch-prompt,
+  .task-patch-panel.running .task-patch-actions{display:none!important}
   .task-patch-run{margin:0 0 10px;padding:8px;border:1px solid #30343b;border-radius:6px;background:#0d1015;font-size:11px}
   .task-patch-run[hidden]{display:none}
   .task-patch-run-title{font-weight:700;margin-bottom:6px}
@@ -84,6 +95,7 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-summary-tab.active{background:#e7eef7;border-color:#9aa9bc;color:#1f2328}
   html[data-taskmenu-theme="light"] .task-patch-action-result{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-action-result-output{background:#fff;border-color:#d0d7de}
+  html[data-taskmenu-theme="light"] .task-patch-running-head{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-prompt{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-prompt-item{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-run{background:#f6f8fa;border-color:#d0d7de}
@@ -135,6 +147,15 @@ function installPatchPanel(){
   const promptButtons=document.createElement('div');promptButtons.className='task-patch-prompt-buttons';
   promptBox.append(promptTitle,promptNote,promptItems,promptButtons);
 
+  const runningHead=document.createElement('div');runningHead.className='task-patch-running-head';
+  const runningTitle=document.createElement('div');runningTitle.className='task-patch-running-title';runningTitle.textContent='Running';
+  const runningMeta=document.createElement('div');runningMeta.className='task-patch-running-meta';runningMeta.textContent='Waiting for Python execution state…';
+  const runningActions=document.createElement('div');runningActions.className='task-patch-running-actions';
+  const terminalEvidence=document.createElement('button');terminalEvidence.type='button';terminalEvidence.textContent='Open terminal evidence';
+  const runningBack=document.createElement('button');runningBack.type='button';runningBack.textContent='Back to Queue';runningBack.hidden=true;
+  runningActions.append(terminalEvidence,runningBack);
+  runningHead.append(runningTitle,runningMeta,runningActions);
+
   const runBox=document.createElement('div');runBox.className='task-patch-run';runBox.hidden=true;
   const runTitle=document.createElement('div');runTitle.className='task-patch-run-title';runTitle.textContent='Run status';
   const progressNode=document.createElement('div');progressNode.className='task-patch-progress';progressNode.hidden=true;
@@ -150,7 +171,7 @@ function installPatchPanel(){
   artifactBox.append(artifactTitle,artifactList);
 
   const actions=document.createElement('div');actions.className='task-patch-actions';
-  body.append(note,summary,actionResultBox,promptBox,runBox,artifactBox,actions);
+  body.append(note,summary,actionResultBox,promptBox,runningHead,runBox,artifactBox,actions);
   panel.append(head,body);
   document.body.append(panel);
 
@@ -168,6 +189,8 @@ function installPatchPanel(){
   let activeQueuePrompt=null;
   let actionBusy=false;
   let actionPollGeneration=0;
+  let runningMode=false;
+  let runningFinished=false;
   for(const [mode,label,detail] of actionDefs){
     const button=document.createElement('button');
     button.type='button';
@@ -184,7 +207,7 @@ function installPatchPanel(){
     const visible=Boolean(value);
     panel.classList.toggle('visible',visible);
     if(!visible){protocolPollGeneration+=1;actionPollGeneration+=1;}
-    if(visible&&activeSessionId)void pollProtocol(activeSessionId,true,true);
+    if(visible&&activeSessionId)void pollProtocol(activeSessionId,!runningMode,true);
     window.dispatchEvent(new CustomEvent('taskmenu:patch-panel-visible',{detail:{visible}}));
   }
   function open(){setVisible(true);}
@@ -199,6 +222,43 @@ function installPatchPanel(){
     summaryCounts.replaceChildren();
     summaryList.replaceChildren();
     summaryWarnings.replaceChildren();
+  }
+
+  function enterRunningView(){
+    runningMode=true;
+    runningFinished=false;
+    panel.classList.add('running');
+    runningTitle.textContent='Running';
+    runningMeta.textContent='Python is preparing or executing the selected work…';
+    runningBack.hidden=true;
+    runBox.hidden=false;
+  }
+
+  function finishRunningView(){
+    if(!runningMode)return;
+    runningFinished=true;
+    runningTitle.textContent='Finished';
+    runningMeta.textContent='Native run state is complete. Terminal evidence remains available.';
+    runningBack.hidden=false;
+  }
+
+  function leaveRunningView(){
+    runningMode=false;
+    runningFinished=false;
+    panel.classList.remove('running');
+    runningTitle.textContent='Running';
+    runningMeta.textContent='Waiting for Python execution state…';
+    runningBack.hidden=true;
+    renderProgress(null);
+    renderItemLifecycle([]);
+    renderArtifacts([]);
+    if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);
+  }
+
+  function openTerminalEvidence(){
+    if(!activeSessionId||!app.views.has(activeSessionId))return;
+    app.activateView(activeSessionId);
+    close();
   }
 
   function clearActionResult(){
@@ -400,7 +460,7 @@ function installPatchPanel(){
     const rows=Array.isArray(items)?items:[];
     runItems.replaceChildren();
     if(!rows.length){
-      runBox.hidden=true;
+      runBox.hidden=!runningMode;
       return;
     }
     runBox.hidden=false;
@@ -496,6 +556,7 @@ function installPatchPanel(){
       });
       clearPrompt();
       summaryStatus.textContent=action==='cancel'?'Cancelled':'Selection submitted';
+      if(action==='select')enterRunningView();
       void pollProtocol(sessionId,false,true);
     }catch(error){
       for(const button of promptButtons.querySelectorAll('button'))button.disabled=false;
@@ -566,10 +627,12 @@ function installPatchPanel(){
       }catch(error){
         resetSummary('PTY-only');
         console.warn('Patch protocol state unavailable:',error);
+        if(sessionId===activeSessionId)openTerminalEvidence();
         return;
       }
       if(state?.available===false){
         resetSummary('PTY-only');
+        if(sessionId===activeSessionId)openTerminalEvidence();
         return;
       }
       if(state?.queue_snapshot&&!haveSnapshot){
@@ -582,6 +645,7 @@ function installPatchPanel(){
       renderArtifacts(state?.artifacts);
       if(expectPrompt&&state?.commands_enabled===false&&haveSnapshot){
         summaryStatus.textContent+=' · Continue in PTY';
+        if(sessionId===activeSessionId)openTerminalEvidence();
         return;
       }
       if(expectPrompt&&state?.prompt&&renderQueuePrompt(sessionId,state.prompt)){
@@ -590,6 +654,7 @@ function installPatchPanel(){
       }
       if(state?.last_event?.type==='run_finished'){
         if(haveSnapshot)summaryStatus.textContent+=' · Finished';
+        finishRunningView();
         return;
       }
       if(!expectPrompt&&haveSnapshot&&!followLifecycle)return;
@@ -605,6 +670,7 @@ function installPatchPanel(){
     }else{
       resetSummary('Snapshot timeout · Continue in PTY');
     }
+    if(sessionId===activeSessionId&&!runningMode)openTerminalEvidence();
   }
 
   async function start(mode,sourceButton=null){
@@ -617,10 +683,11 @@ function installPatchPanel(){
       });
       activeSessionId=meta.id;
       actionPollGeneration+=1;
+      leaveRunningView();
       clearActionResult();
       renderProgress(null);
       renderArtifacts([]);
-      app.attachSession(meta,true);
+      app.attachSession(meta,mode!=='queue');
       window.dispatchEvent(new CustomEvent('taskmenu:patch-session-started',{detail:{mode,meta}}));
       if(mode==='queue'||mode==='resume'||mode==='plan'){
         void pollProtocol(meta.id,mode==='queue',mode!=='queue');
@@ -633,11 +700,13 @@ function installPatchPanel(){
     }
   }
 
+  terminalEvidence.onclick=openTerminalEvidence;
+  runningBack.onclick=()=>{if(runningFinished)leaveRunningView();};
   actionResultClose.onclick=clearActionResult;
   queueTab.onclick=()=>setQueueSummaryView('queue');
   failedTab.onclick=()=>setQueueSummaryView('failed');
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,submitItemAction,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,submitItemAction,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 

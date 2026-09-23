@@ -21,13 +21,19 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"['history','History'",
 		"['plan','Plan'",
 		"JSON.stringify({kind:'patch',patch_mode:mode})",
-		"app.attachSession(meta,true)",
+		"app.attachSession(meta,mode!=='queue')",
 		"/protocol",
 		"const maxAttempts=followLifecycle?7200:40",
 		"for(let attempt=0;attempt<maxAttempts;attempt+=1)",
 		"renderQueueSnapshot(state.queue_snapshot)",
 		"state?.prompt&&renderQueuePrompt(sessionId,state.prompt)",
 		"renderItemLifecycle(state?.items)",
+		"enterRunningView()",
+		"finishRunningView()",
+		"Open terminal evidence",
+		"app.activateView(activeSessionId)",
+		"panel.classList.add('running')",
+		"runningBack.hidden=false",
 		"renderProgress(state?.progress)",
 		"if(state?.action_result)renderActionResult(state.action_result)",
 		"/item-action",
@@ -64,7 +70,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"failure?.diagnosis_kind",
 		"snapshot?.group_counts",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,submitItemAction,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
+		"TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,submitItemAction,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {
@@ -211,5 +217,33 @@ func TestPatchPanelNativeItemActionsArePromptAdvertisedAndCorrelated(t *testing.
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("native item action UI must not infer action result from terminal text: found %q", forbidden)
 		}
+	}
+}
+
+
+func TestPatchPanelRunningViewKeepsPTYAsSecondaryEvidence(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"if(action==='select')enterRunningView()",
+		"app.attachSession(meta,mode!=='queue')",
+		"function openTerminalEvidence()",
+		"app.views.has(activeSessionId)",
+		"app.activateView(activeSessionId)",
+		"finishRunningView();",
+		"runningBack.onclick=()=>{if(runningFinished)leaveRunningView();}",
+		"task-patch-panel.running .task-patch-summary",
+		"task-patch-panel.running .task-patch-prompt",
+		"task-patch-panel.running .task-patch-actions",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Running view missing contract %q", want)
+		}
+	}
+	if strings.Contains(js, "views.delete(activeSessionId)") {
+		t.Fatal("native Running view must retain the PTY session as evidence")
 	}
 }

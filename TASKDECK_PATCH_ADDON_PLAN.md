@@ -182,7 +182,8 @@ Status: **IN PROGRESS**
 - [x] Native Run selection and confirmation prompts.
   - [x] Phase 2C.1 audit confirms the existing native queue_selection select/cancel response is the normal-run confirmation boundary; there is no second terminal confirmation after selection.
   - [x] Existing non-interactive selection remains separately gated by non_interactive_confirmed and PATCH-only queue rules.
-- [ ] Native Running/progress view with console as secondary evidence.
+- [x] Native Running/progress view with console as secondary evidence.
+  - [x] Phase 2D.1 Queue execution switches to native lifecycle/progress/artifact view; PTY is retained and explicitly available as secondary evidence.
 
 #### Phase 2C.1 interaction audit
 
@@ -263,8 +264,9 @@ Every phase must preserve:
 | Phase 2B.2a action result state/gate | DONE | 01e0936f | Session state validates/retains latest action_result, clears it on a new prompt/run, and binds item_action to the still-active prompt at the final FD4 write gate. |
 | Phase 2B.2b narrow item-action endpoint | DONE | 3bb89fe6 | Public API accepts only prompt-bound inspect/preview/validate + index, validates PATCH-only prompt items, generates action_id server-side and never exposes raw protocol command writes. |
 | Phase 2B.3 native item action UI | DONE | 39f59d45 | Queue/Failed PATCH rows expose only Python-advertised Inspect/Preview/Validate actions; result polling is correlated by action_id and rendered from structured action_result state. |
-| Phase 2C.1 normal-run interaction audit | DONE | this commit | Verified queue_selection select/cancel is the only interactive normal-run confirmation boundary; added a regression contract preventing a second terminal-input gate before execute_items. Resume/delete/history interactions are explicitly deferred to their owning phases. |
+| Phase 2C.1 normal-run interaction audit | DONE | 6d7accbf | Verified queue_selection select/cancel is the only interactive normal-run confirmation boundary; added a regression contract preventing a second terminal-input gate before execute_items. Resume/delete/history interactions are explicitly deferred to their owning phases. |
+| Phase 2D.1 native Running primary view | DONE | this commit | Queue PTY is attached without activation; after native selection the Patch panel prioritizes lifecycle/progress/artifacts, with explicit terminal-evidence fallback and post-finish return to Queue. |
 
 ## Next action
 
-Continue **Phase 2D.1**: make the native Running view the primary Patch-panel surface for an executing queue session (item lifecycle + progress + artifacts), while keeping the PTY session available as secondary evidence rather than removing it.
+Continue **Phase 2E.1**: define a stable Python-owned Resume/recovery view and prompt contract for unresolved failed work before adding native Resume controls; keep existing terminal resume behavior unchanged.
