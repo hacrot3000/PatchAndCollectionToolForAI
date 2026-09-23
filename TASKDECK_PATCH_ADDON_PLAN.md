@@ -170,9 +170,9 @@ Status: **DONE**
 ### Phase 2 — Native Patch web UI
 Status: **IN PROGRESS**
 
-- [ ] Native Queue and Failed views.
+- [x] Native Queue and Failed views.
   - [x] Phase 2A.1 Python-owned stable Queue/Failed protocol projection.
-  - [ ] Phase 2A.2 Web Queue/Failed views from queue_snapshot.
+  - [x] Phase 2A.2 Web Queue/Failed views from queue_snapshot.
 - [ ] Native Inspect / Preview / Validate.
 - [ ] Native Run selection and confirmation prompts.
 - [ ] Native Running/progress view with console as secondary evidence.
@@ -241,8 +241,9 @@ Every phase must preserve:
 | Phase 1.5F.3b native artifact state/actions | DONE | 033af150 | TaskDeck retains a bounded validated artifact list; Patch panel offers existing safe download plus text-editor open actions without parsing terminal/history output. |
 | Phase 1.5G.1 Python COLLECT progress events | DONE | e5a55760 | COLLECT progress supervisor emits bounded phase/status/elapsed/output/detail events over the inherited protocol FD; Go never parses console text. |
 | Phase 1.5G.2 native progress state/UI | DONE | 851611a4 | TaskDeck validates and retains only the latest bounded progress event; Patch panel renders native progress while PTY remains unchanged. |
-| Phase 2A.1 Queue/Failed protocol projection | DONE | this commit | Python dispatcher projects new/failed grouping and bounded failure summaries from the same unresolved policy used by the terminal selector; Go does not read history schemas. |
+| Phase 2A.1 Queue/Failed protocol projection | DONE | 44ea3cce | Python dispatcher projects new/failed grouping and bounded failure summaries from the same unresolved policy used by the terminal selector; Go does not read history schemas. |
+| Phase 2A.2 native Queue/Failed web views | DONE | this commit | Patch panel separates Queue/Failed strictly by Python snapshot group and renders bounded failure summaries; legacy snapshots remain Queue-only without inferred failure policy. |
 
 ## Next action
 
-Continue **Phase 2A.2**: render separate native Queue and Failed views from queue_snapshot.group/failure fields, preserving the existing Python-owned selection prompt and PTY fallback.
+Continue **Phase 2B.1**: define Python-owned native Inspect/Preview/Validate command/result contracts for queue items, reusing the existing read-only dispatcher operations and preserving PTY fallback.

@@ -46,9 +46,15 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"prompt.initial_selected",
 		"constraints.collect_exclusive",
 		"mode==='queue'",
-		"items.slice(0,50)",
+		"const visible=items.slice(0,50)",
+		"setQueueSummaryView('queue')",
+		"setQueueSummaryView('failed')",
+		"item?.group==='failed'",
+		"item?.group==='new'",
+		"failure?.diagnosis_kind",
+		"snapshot?.group_counts",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,renderQueuePrompt,renderItemLifecycle,renderProgress,renderArtifacts",
+		"TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,renderItemLifecycle,renderProgress,renderArtifacts",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {
@@ -130,6 +136,38 @@ func TestPatchPanelArtifactActionsUseStructuredProtocolOnly(t *testing.T) {
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("artifact UI missing structured protocol contract %q", want)
+		}
+	}
+}
+
+
+func TestPatchPanelQueueFailedViewsUsePythonGroupingOnly(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"item?.group==='failed'",
+		"item?.group==='new'",
+		"failure?.status",
+		"failure?.rc",
+		"failure?.diagnosis_kind",
+		"failure?.message",
+		"snapshot?.group_counts",
+		"No unresolved failed item",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Queue/Failed view missing protocol field %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"item.name.includes('FAIL')",
+		"item.name.includes('failed')",
+		"failure_policy",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("Queue/Failed UI must not infer Python failure policy: found %q", forbidden)
 		}
 	}
 }
