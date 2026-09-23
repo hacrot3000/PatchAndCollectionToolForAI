@@ -199,6 +199,9 @@ func TestCopyRootSupportFileStagesInstallerAndLauncher(t *testing.T) {
 	}{
 		{name: "vscode_tasks_menu", mode: 0o755},
 		{name: "install.sh", mode: 0o755},
+		{name: "python_patch_entry.py", mode: 0o755},
+		{name: "test_python_patch_entry.py", mode: 0o644},
+		{name: "run_python_patches.sh", mode: 0o755},
 	} {
 		want := "#!/bin/sh\necho " + item.name + "\n"
 		if err := os.WriteFile(filepath.Join(source, item.name), []byte(want), item.mode); err != nil {
@@ -240,5 +243,99 @@ func TestSameExecutablePathRecognizesSymlinkToGlobalBinary(t *testing.T) {
 	}
 	if !SameExecutablePath(link, target) {
 		t.Fatalf("symlink %q and target %q must be treated as the same executable", link, target)
+	}
+}
+
+
+func makeFakeRelease(t *testing.T, path string) {
+	t.Helper()
+	for _, item := range []struct {
+		path string
+		mode os.FileMode
+	}{
+		{filepath.Join(path, "taskdeck"), 0o755},
+		{filepath.Join(path, "patchtool", "python_patch_entry.py"), 0o755},
+		{filepath.Join(path, "patchtool", "_patch_lib", "python_patch_queue_dispatcher.py"), 0o644},
+	} {
+		if err := os.MkdirAll(filepath.Dir(item.path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(item.path, []byte("test\n"), item.mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestGlobalReleasePathsAndAtomicInstallPreserveOldRelease(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	appDir := filepath.Join(root, "lib", "taskdeck")
+	t.Setenv("TASKDECK_INSTALL_DIR", binDir)
+	t.Setenv("TASKDECK_APP_DIR", appDir)
+
+	rev1 := "1111111111111111111111111111111111111111"
+	rev2 := "2222222222222222222222222222222222222222"
+
+	release1, err := GlobalReleaseDir(rev1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged1 := filepath.Join(filepath.Dir(release1), ".stage-one")
+	makeFakeRelease(t, staged1)
+	if err := InstallGlobalRelease(staged1, rev1); err != nil {
+		t.Fatal(err)
+	}
+
+	global, err := GlobalBinaryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != filepath.Join(release1, "taskdeck") {
+		t.Fatalf("global resolves to %q want %q", resolved, filepath.Join(release1, "taskdeck"))
+	}
+	if InstalledRevision(global) != rev1 {
+		t.Fatalf("marker=%q want %q", InstalledRevision(global), rev1)
+	}
+	if !GlobalReleaseReady(rev1) {
+		t.Fatal("first release should be globally ready")
+	}
+
+	release2, err := GlobalReleaseDir(rev2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged2 := filepath.Join(filepath.Dir(release2), ".stage-two")
+	makeFakeRelease(t, staged2)
+	if err := InstallGlobalRelease(staged2, rev2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(release1, "taskdeck")); err != nil {
+		t.Fatalf("old release was removed: %v", err)
+	}
+	resolved, err = filepath.EvalSymlinks(global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != filepath.Join(release2, "taskdeck") {
+		t.Fatalf("global resolves to %q want %q", resolved, filepath.Join(release2, "taskdeck"))
+	}
+	if GlobalReleaseReady(rev1) {
+		t.Fatal("old release must not remain current")
+	}
+	if !GlobalReleaseReady(rev2) {
+		t.Fatal("second release should be globally ready")
+	}
+}
+
+func TestGlobalReleaseDirRejectsUnsafeRevision(t *testing.T) {
+	t.Setenv("TASKDECK_APP_DIR", t.TempDir())
+	for _, revision := range []string{"", "../escape", "not-a-sha", "1234/567890abcdef"} {
+		if _, err := GlobalReleaseDir(revision); err == nil {
+			t.Fatalf("unsafe revision accepted: %q", revision)
+		}
 	}
 }

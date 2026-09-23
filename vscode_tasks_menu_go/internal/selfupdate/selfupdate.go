@@ -200,6 +200,77 @@ func GlobalBinaryPath() (string, error) {
 	return filepath.Join(home, ".local", "bin", "taskdeck"), nil
 }
 
+func GlobalAppRoot() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv("TASKDECK_APP_DIR")); dir != "" {
+		return filepath.Abs(dir)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home directory: %w", err)
+	}
+	return filepath.Join(home, ".local", "lib", "taskdeck"), nil
+}
+
+func GlobalCurrentLink() (string, error) {
+	root, err := GlobalAppRoot()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "current"), nil
+}
+
+func validReleaseRevision(revision string) bool {
+	revision = strings.TrimSpace(revision)
+	if len(revision) < 12 || len(revision) > 64 {
+		return false
+	}
+	for _, ch := range revision {
+		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+func GlobalReleaseDir(revision string) (string, error) {
+	if !validReleaseRevision(revision) {
+		return "", fmt.Errorf("invalid release revision %q", revision)
+	}
+	root, err := GlobalAppRoot()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "releases", strings.ToLower(strings.TrimSpace(revision))), nil
+}
+
+func releaseStructureReady(release string) bool {
+	return ExecutableExists(filepath.Join(release, "taskdeck")) &&
+		regularFile(filepath.Join(release, "patchtool", "python_patch_entry.py")) &&
+		regularFile(filepath.Join(release, "patchtool", "_patch_lib", "python_patch_queue_dispatcher.py"))
+}
+
+func regularFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
+func GlobalReleaseReady(revision string) bool {
+	global, err := GlobalBinaryPath()
+	if err != nil || InstalledRevision(global) != strings.TrimSpace(revision) || !ExecutableExists(global) {
+		return false
+	}
+	release, err := GlobalReleaseDir(revision)
+	if err != nil || !releaseStructureReady(release) {
+		return false
+	}
+	resolved, err := filepath.EvalSymlinks(global)
+	if err != nil {
+		return false
+	}
+	expected := filepath.Join(release, "taskdeck")
+	return SameExecutablePath(resolved, expected)
+}
+
 func ExecutableExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0
@@ -295,7 +366,7 @@ func Prepare(ctx context.Context, revision, targetBinary string, progress func(s
 	}
 	os.Remove(stagedPath)
 	ldflags := "-X main.buildRevision=" + revision
-	if out, err := runGo(ctx, source, "build", "-trimpath", "-ldflags", ldflags, "-o", stagedPath, "./cmd/vscode_tasks_menu"); err != nil {
+	if out, err := runGo(ctx, source, "build", "-buildvcs=false", "-trimpath", "-ldflags", ldflags, "-o", stagedPath, "./cmd/vscode_tasks_menu"); err != nil {
 		os.Remove(stagedPath)
 		return "", fmt.Errorf("go build failed: %w\n%s", err, trimOutput(out))
 	}
@@ -354,6 +425,250 @@ func Install(stagedPath, targetBinary, revision string) error {
 		return err
 	}
 	return os.Rename(tmp, MarkerPath(targetBinary))
+}
+
+func runPythonEntryTests(ctx context.Context, sourceRoot string) error {
+	python := ""
+	for _, name := range []string{"python3", "python"} {
+		if path, err := exec.LookPath(name); err == nil {
+			python = path
+			break
+		}
+	}
+	if python == "" {
+		return fmt.Errorf("Python 3.10+ was not found in PATH")
+	}
+	probe := exec.CommandContext(ctx, python, "-c", "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 3)")
+	if out, err := probe.CombinedOutput(); err != nil {
+		return fmt.Errorf("Python 3.10+ is required: %w: %s", err, trimOutput(out))
+	}
+	for _, args := range [][]string{
+		{"test_python_patch_entry.py"},
+		{"-m", "py_compile", "python_patch_entry.py"},
+	} {
+		cmd := exec.CommandContext(ctx, python, args...)
+		cmd.Dir = sourceRoot
+		cmd.Env = append(os.Environ(), "PYTHONDONTWRITEBYTECODE=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("Patch entry validation failed: %w\n%s", err, trimOutput(out))
+		}
+	}
+	return nil
+}
+
+func copyPatchRuntime(sourceRoot, release string) error {
+	patchRoot := filepath.Join(release, "patchtool")
+	if err := os.MkdirAll(patchRoot, 0o755); err != nil {
+		return err
+	}
+	for _, item := range []struct {
+		name string
+		mode os.FileMode
+	}{
+		{"python_patch_entry.py", 0o755},
+		{"run_python_patches.sh", 0o755},
+		{"run_python_patches.ps1", 0o644},
+		{"run_python_patches.bat", 0o644},
+	} {
+		source := filepath.Join(sourceRoot, item.name)
+		if !regularFile(source) {
+			if item.name == "run_python_patches.ps1" || item.name == "run_python_patches.bat" {
+				continue
+			}
+			return fmt.Errorf("Patch runtime source missing %s", item.name)
+		}
+		data, err := os.ReadFile(source)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(patchRoot, item.name), data, item.mode); err != nil {
+			return err
+		}
+	}
+	libSource := filepath.Join(sourceRoot, "_patch_lib")
+	if !regularDirectory(libSource) {
+		return fmt.Errorf("Patch runtime source missing _patch_lib")
+	}
+	return copyTreeWithoutBuild(libSource, filepath.Join(patchRoot, "_patch_lib"))
+}
+
+func regularDirectory(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+func validateReleaseBinary(ctx context.Context, release, revision string) error {
+	if !releaseStructureReady(release) {
+		return fmt.Errorf("release structure is incomplete: %s", release)
+	}
+	check := exec.CommandContext(ctx, filepath.Join(release, "taskdeck"), "--version")
+	out, err := check.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), revision) {
+		return fmt.Errorf("release binary validation failed: %v %s", err, trimOutput(out))
+	}
+	return nil
+}
+
+func PrepareGlobalRelease(ctx context.Context, revision string, progress func(status, message string)) (staged string, err error) {
+	if progress == nil {
+		progress = func(string, string) {}
+	}
+	finalRelease, err := GlobalReleaseDir(revision)
+	if err != nil {
+		return "", err
+	}
+	if releaseStructureReady(finalRelease) {
+		if err := validateReleaseBinary(ctx, finalRelease, revision); err != nil {
+			return "", fmt.Errorf("existing release is invalid: %w", err)
+		}
+		return finalRelease, nil
+	}
+	if _, err := os.Lstat(finalRelease); err == nil {
+		return "", fmt.Errorf("release destination exists but is incomplete: %s", finalRelease)
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	releasesDir := filepath.Dir(finalRelease)
+	if err := os.MkdirAll(releasesDir, 0o755); err != nil {
+		return "", err
+	}
+	id, err := randomID()
+	if err != nil {
+		return "", err
+	}
+	staged = filepath.Join(releasesDir, "."+strings.ToLower(revision)+".new."+id)
+	if err := os.MkdirAll(staged, 0o755); err != nil {
+		return "", err
+	}
+	cleanupStaged := true
+	defer func() {
+		if cleanupStaged {
+			_ = os.RemoveAll(staged)
+		}
+	}()
+
+	tmpRoot, err := os.MkdirTemp("", "taskdeck-release-update-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tmpRoot)
+
+	progress("downloading", "Đang tải source TaskDeck + Patch add-on từ GitHub…")
+	if err := downloadSource(ctx, revision, tmpRoot); err != nil {
+		return "", err
+	}
+	source := filepath.Join(tmpRoot, "vscode_tasks_menu_go")
+	if !regularFile(filepath.Join(source, "go.mod")) {
+		return "", fmt.Errorf("archive thiếu vscode_tasks_menu_go/go.mod")
+	}
+	if !regularFile(filepath.Join(tmpRoot, "python_patch_entry.py")) || !regularDirectory(filepath.Join(tmpRoot, "_patch_lib")) {
+		return "", fmt.Errorf("archive thiếu Patch add-on runtime")
+	}
+
+	progress("testing", "Đang chạy Go và Patch entry tests trước khi cài…")
+	if out, err := runGo(ctx, source, "test", "./..."); err != nil {
+		return "", fmt.Errorf("go test failed: %w\n%s", err, trimOutput(out))
+	}
+	if err := runPythonEntryTests(ctx, tmpRoot); err != nil {
+		return "", err
+	}
+
+	progress("building", "Đang compile TaskDeck release mới…")
+	ldflags := "-X main.buildRevision=" + revision
+	if out, err := runGo(ctx, source, "build", "-buildvcs=false", "-trimpath", "-ldflags", ldflags, "-o", filepath.Join(staged, "taskdeck"), "./cmd/vscode_tasks_menu"); err != nil {
+		return "", fmt.Errorf("go build failed: %w\n%s", err, trimOutput(out))
+	}
+	if err := os.Chmod(filepath.Join(staged, "taskdeck"), 0o755); err != nil {
+		return "", err
+	}
+	if err := copyPatchRuntime(tmpRoot, staged); err != nil {
+		return "", err
+	}
+	if err := validateReleaseBinary(ctx, staged, revision); err != nil {
+		return "", err
+	}
+	cleanupStaged = false
+	return staged, nil
+}
+
+func atomicSymlink(target, link string) error {
+	if target == "" || link == "" {
+		return fmt.Errorf("invalid symlink path")
+	}
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		return err
+	}
+	id, err := randomID()
+	if err != nil {
+		return err
+	}
+	tmp := filepath.Join(filepath.Dir(link), "."+filepath.Base(link)+".new."+id)
+	_ = os.Remove(tmp)
+	if err := os.Symlink(target, tmp); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, link); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+func writeRevisionMarker(binary, revision string) error {
+	tmp := MarkerPath(binary) + ".tmp"
+	if err := os.WriteFile(tmp, []byte(revision+"\n"), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, MarkerPath(binary))
+}
+
+func InstallGlobalRelease(prepared, revision string) error {
+	if prepared == "" {
+		return fmt.Errorf("invalid prepared release path")
+	}
+	finalRelease, err := GlobalReleaseDir(revision)
+	if err != nil {
+		return err
+	}
+	if filepath.Clean(prepared) != filepath.Clean(finalRelease) {
+		if _, err := os.Lstat(finalRelease); err == nil {
+			if !releaseStructureReady(finalRelease) {
+				return fmt.Errorf("release destination exists but is incomplete: %s", finalRelease)
+			}
+			if err := os.RemoveAll(prepared); err != nil {
+				return err
+			}
+		} else if os.IsNotExist(err) {
+			if err := os.Rename(prepared, finalRelease); err != nil {
+				return fmt.Errorf("install release directory: %w", err)
+			}
+		} else {
+			return err
+		}
+	}
+	if !releaseStructureReady(finalRelease) {
+		return fmt.Errorf("installed release is incomplete: %s", finalRelease)
+	}
+
+	current, err := GlobalCurrentLink()
+	if err != nil {
+		return err
+	}
+	global, err := GlobalBinaryPath()
+	if err != nil {
+		return err
+	}
+	if err := atomicSymlink(finalRelease, current); err != nil {
+		return fmt.Errorf("switch current release: %w", err)
+	}
+	if err := atomicSymlink(filepath.Join(current, "taskdeck"), global); err != nil {
+		return fmt.Errorf("switch global taskdeck entry: %w", err)
+	}
+	if err := writeRevisionMarker(global, revision); err != nil {
+		return err
+	}
+	return nil
 }
 
 func runGo(ctx context.Context, dir string, args ...string) ([]byte, error) {
@@ -420,11 +735,24 @@ func downloadWithGit(ctx context.Context, revision, dst string) error {
 	if err := copyTreeWithoutBuild(source, filepath.Join(dst, "vscode_tasks_menu_go")); err != nil {
 		return err
 	}
-	if err := copyRootSupportFile(checkout, dst, "vscode_tasks_menu", 0o755); err != nil {
-		return fmt.Errorf("git fallback checkout missing root launcher: %w", err)
+	for _, item := range []struct {
+		name string
+		mode os.FileMode
+	}{
+		{"vscode_tasks_menu", 0o755},
+		{"install.sh", 0o755},
+		{"python_patch_entry.py", 0o755},
+		{"test_python_patch_entry.py", 0o644},
+		{"run_python_patches.sh", 0o755},
+		{"run_python_patches.ps1", 0o644},
+		{"run_python_patches.bat", 0o644},
+	} {
+		if err := copyRootSupportFile(checkout, dst, item.name, item.mode); err != nil {
+			return fmt.Errorf("git fallback checkout missing %s: %w", item.name, err)
+		}
 	}
-	if err := copyRootSupportFile(checkout, dst, "install.sh", 0o755); err != nil {
-		return fmt.Errorf("git fallback checkout missing install.sh: %w", err)
+	if err := copyTreeWithoutBuild(filepath.Join(checkout, "_patch_lib"), filepath.Join(dst, "_patch_lib")); err != nil {
+		return fmt.Errorf("git fallback checkout missing Patch runtime: %w", err)
 	}
 	return nil
 }
@@ -518,9 +846,22 @@ func downloadAndExtract(ctx context.Context, revision, dst string) error {
 		}
 		repoRel := name[rootSlash+1:]
 		var target string
-		if repoRel == "vscode_tasks_menu" || repoRel == "install.sh" {
+		switch repoRel {
+		case "vscode_tasks_menu", "install.sh", "python_patch_entry.py", "test_python_patch_entry.py",
+			"run_python_patches.sh", "run_python_patches.ps1", "run_python_patches.bat":
 			target = filepath.Join(dst, repoRel)
-		} else if strings.HasPrefix(repoRel, "vscode_tasks_menu_go/") {
+		default:
+			if strings.HasPrefix(repoRel, "_patch_lib/") {
+				rel := strings.TrimPrefix(repoRel, "_patch_lib/")
+				if rel == "" {
+					continue
+				}
+				clean := filepath.Clean(filepath.FromSlash(rel))
+				if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) {
+					return fmt.Errorf("unsafe archive path %q", hdr.Name)
+				}
+				target = filepath.Join(dst, "_patch_lib", clean)
+			} else if strings.HasPrefix(repoRel, "vscode_tasks_menu_go/") {
 			rel := strings.TrimPrefix(repoRel, "vscode_tasks_menu_go/")
 			if rel == "" || strings.HasPrefix(rel, ".build/") || rel == ".build" {
 				continue
@@ -529,9 +870,10 @@ func downloadAndExtract(ctx context.Context, revision, dst string) error {
 			if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) {
 				return fmt.Errorf("unsafe archive path %q", hdr.Name)
 			}
-			target = filepath.Join(dst, "vscode_tasks_menu_go", clean)
-		} else {
-			continue
+				target = filepath.Join(dst, "vscode_tasks_menu_go", clean)
+			} else {
+				continue
+			}
 		}
 		switch hdr.Typeflag {
 		case tar.TypeDir:

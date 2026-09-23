@@ -190,8 +190,9 @@ Every phase must preserve:
 | Phase 1A CI path correction | DONE | 14adf537 | Fix CI working-directory path for the new Python routing contract; no runtime behavior change. |
 | Phase 1B TaskDeck CLI | DONE | 02b72b94 | Added shared Patch runtime resolver and `taskdeck patch`; bundled runtime wins, legacy project launcher remains a migration fallback. |
 | Phase 1C.1 versioned installer | DONE | 2e909a70 | Installer stages TaskDeck + Patch runtime as one immutable release and atomically switches `current` and the PATH symlink. |
-| Phase 1C.1 shell interpolation correction | DONE | this commit | Removed accidental literal backslashes before Bash `${...}` expansions introduced by commit orchestration; no design change. |
+| Phase 1C.1 shell interpolation correction | DONE | 02a80f37 | Removed accidental literal backslashes before Bash `${...}` expansions introduced by commit orchestration; no design change. |
+| Phase 1C.2a self-update release primitives | DONE | this commit | Added versioned release stage/install helpers, atomic symlink switching, Patch runtime source staging, and old-release preservation tests; main self-update flow not switched yet. |
 
 ## Next action
 
-Continue **Phase 1C.2**: teach in-app self-update to build/install the same versioned release bundle and atomically switch the global entrypoint.
+Continue **Phase 1C.2b**: wire `runSelfUpdate()` and update availability checks to the new versioned-release helpers, then verify daemon handoff uses the stable global symlink.
