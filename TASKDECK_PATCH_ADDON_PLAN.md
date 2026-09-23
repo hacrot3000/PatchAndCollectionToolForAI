@@ -117,13 +117,13 @@ Status: **DONE**
 - [x] Preserve interactive terminal behavior by inheriting stdin/stdout/stderr and child exit code.
 
 ### Phase 1C — Versioned global release layout
-Status: **IN PROGRESS**
+Status: **DONE**
 
 - [x] Installer creates `~/.local/lib/taskdeck/releases/<revision>/taskdeck`.
 - [x] Installer places the Patch Tool runtime beside it under `patchtool/`.
 - [x] Installer atomically switches `~/.local/lib/taskdeck/current`.
 - [x] Installer keeps `~/.local/bin/taskdeck` as the stable symlink entrypoint.
-- [ ] Update self-update/handoff to install and switch versioned releases.
+- [x] Self-update installs/switches versioned releases and daemon handoff resolves the stable global symlink.
 - [x] Installer never removes old release directories, so in-flight processes keep their runtime.
 
 ### Phase 1D — Dedicated Patch panel
@@ -192,8 +192,9 @@ Every phase must preserve:
 | Phase 1C.1 versioned installer | DONE | 2e909a70 | Installer stages TaskDeck + Patch runtime as one immutable release and atomically switches `current` and the PATH symlink. |
 | Phase 1C.1 shell interpolation correction | DONE | 02a80f37 | Removed accidental literal backslashes before Bash `${...}` expansions introduced by commit orchestration; no design change. |
 | Phase 1C.2a self-update release primitives | DONE | 0e2fc6a0 | Added versioned release stage/install helpers, atomic symlink switching, Patch runtime source staging, and old-release preservation tests; main self-update flow not switched yet. |
-| Phase 1C.2a support-file mode test correction | DONE | this commit | Test now distinguishes executable launchers from non-executable Python test/support files; runtime behavior unchanged. |
+| Phase 1C.2a support-file mode test correction | DONE | 52af3a60 | Test now distinguishes executable launchers from non-executable Python test/support files; runtime behavior unchanged. |
+| Phase 1C.2b self-update wiring | DONE | this commit | Self-update now requires a complete versioned TaskDeck + Patch release, installs it atomically, and hands the daemon off through the stable global entrypoint. |
 
 ## Next action
 
-Continue **Phase 1C.2b**: wire `runSelfUpdate()` and update availability checks to the new versioned-release helpers, then verify daemon handoff uses the stable global symlink.
+Implement **Phase 1D**: add a dedicated Patch Activity Bar panel that launches the built-in Patch add-on through TaskDeck, initially preserving the existing PTY terminal UI.

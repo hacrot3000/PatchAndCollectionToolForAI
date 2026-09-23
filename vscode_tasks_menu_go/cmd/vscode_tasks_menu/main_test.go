@@ -245,11 +245,10 @@ func TestSelfUpdateWarnsWhenMarkerClaimsLatestButBinaryDoesNot(t *testing.T) {
 	}
 	src := string(data)
 	for _, want := range []string{
-		"markerRevision := selfupdate.InstalledRevision(targetBinary)",
-		"installedRevision := markerRevision",
-		"installedRevision = effectiveInstalledRevision(buildRevision, markerRevision)",
+		"markerRevision := selfupdate.InstalledRevision(global)",
+		"installedRevision := effectiveInstalledRevision(buildRevision, markerRevision)",
 		"markerRevision == remote && installedRevision != remote",
-		"bỏ qua marker cũ và cập nhật lại binary",
+		"sẽ xác minh/cài lại release",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("self-update stale marker protection missing %q", want)
@@ -405,9 +404,10 @@ func TestGlobalTaskdeckIsPreferredForRestartAndHandoff(t *testing.T) {
 		"return selfupdate.PreferredBinary(exe), nil",
 		"func handoffToUpdatedDaemon",
 		"func startDaemonWithOptions",
-		"migrationPending := !selfupdate.SameExecutablePath(exe, global)",
-		"targetBinary = global",
-		"Đã chuyển daemon sang TaskDeck global:",
+		"migrationPending := !selfupdate.GlobalReleaseReady(remote) || !selfupdate.SameExecutablePath(exe, global)",
+		"selfupdate.PrepareGlobalRelease(ctx, remote, progress)",
+		"selfupdate.InstallGlobalRelease(prepared, remote)",
+		"Đã chuyển daemon sang TaskDeck global versioned release:",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("global TaskDeck migration flow missing %q", want)
@@ -566,6 +566,26 @@ func TestPatchCLIIsFirstClassSubcommand(t *testing.T) {
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("taskdeck patch flow missing %q", want)
+		}
+	}
+}
+
+
+func TestSelfUpdateRequiresCompleteVersionedRelease(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"releaseReady := selfupdate.GlobalReleaseReady(remote)",
+		"if !migratingToGlobal && releaseReady && installedRevision == remote",
+		"TaskDeck + Patch add-on",
+		"finalRelease, finalErr := selfupdate.GlobalReleaseDir(remote)",
+		"global TaskDeck release is not ready after installation",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("versioned release self-update flow missing %q", want)
 		}
 	}
 }
