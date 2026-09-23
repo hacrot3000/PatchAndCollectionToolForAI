@@ -287,7 +287,8 @@ Every phase must preserve:
 | Phase 2F.2b1 TaskDeck History protocol state/gate | DONE | 6fb41938 | TaskDeck retains history_snapshot/history_report and final FD4 writes require the active History prompt; history_detail stays reusable and does not consume that read-only prompt. |
 | Phase 2F.2b2 narrow History endpoint | DONE | 4b774b08 | Built-in History alone opts into TASKDECK_PATCH_NATIVE_HISTORY; /history-detail accepts only active-prompt advertised run_ids and writes through the final prompt-bound FD4 gate. |
 
-| Phase 2F.3 native History/report web browser | DONE | this commit | History is now a native primary Patch panel view; run selection uses only /history-detail, projected files/artifacts reuse safe Download/Open actions, and PTY remains explicit fallback/evidence. |
+| Phase 2F.3 native History/report web browser | DONE | b2846665 | History is now a native primary Patch panel view; run selection uses only /history-detail, projected files/artifacts reuse safe Download/Open actions, and PTY remains explicit fallback/evidence. |
+| Phase 2F.3 UI contract correction | DONE | this commit | Updated stale export expectations and scoped Queue/Failed anti-inference assertions so History may display Python-projected policy fields without permitting web-side policy decisions. |
 
 ## Next action
 
