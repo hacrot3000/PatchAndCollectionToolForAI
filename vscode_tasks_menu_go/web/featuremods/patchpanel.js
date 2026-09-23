@@ -43,6 +43,10 @@ function installPatchPanel(){
   .task-patch-run-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;padding:5px 6px;border-radius:4px;background:#171c23}
   .task-patch-run-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-run-status{font-weight:700}
+  .task-patch-progress{margin:0 0 6px;padding:6px;border-radius:4px;background:#171c23}
+  .task-patch-progress[hidden]{display:none}
+  .task-patch-progress-head{font-weight:700}
+  .task-patch-progress-detail{display:block;margin-top:2px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-artifacts{margin:0 0 10px;padding:8px;border:1px solid #30343b;border-radius:6px;background:#0d1015;font-size:11px}
   .task-patch-artifacts[hidden]{display:none}
   .task-patch-artifacts-title{font-weight:700;margin-bottom:6px}
@@ -67,6 +71,7 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-prompt-item{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-run{background:#f6f8fa;border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-run-item{background:#fff}
+  html[data-taskmenu-theme="light"] .task-patch-progress{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-artifacts{background:#f6f8fa;border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-artifact{background:#fff}
   `;
@@ -103,8 +108,12 @@ function installPatchPanel(){
 
   const runBox=document.createElement('div');runBox.className='task-patch-run';runBox.hidden=true;
   const runTitle=document.createElement('div');runTitle.className='task-patch-run-title';runTitle.textContent='Run status';
+  const progressNode=document.createElement('div');progressNode.className='task-patch-progress';progressNode.hidden=true;
+  const progressHead=document.createElement('div');progressHead.className='task-patch-progress-head';
+  const progressDetail=document.createElement('span');progressDetail.className='task-patch-progress-detail';
+  progressNode.append(progressHead,progressDetail);
   const runItems=document.createElement('div');runItems.className='task-patch-run-items';
-  runBox.append(runTitle,runItems);
+  runBox.append(runTitle,progressNode,runItems);
 
   const artifactBox=document.createElement('div');artifactBox.className='task-patch-artifacts';artifactBox.hidden=true;
   const artifactTitle=document.createElement('div');artifactTitle.className='task-patch-artifacts-title';artifactTitle.textContent='Artifacts';
@@ -182,6 +191,25 @@ function installPatchPanel(){
     }
     const warnings=Array.isArray(snapshot?.warnings)?snapshot.warnings:[];
     summaryWarnings.textContent=warnings.length?`${warnings.length} warning(s): ${warnings.slice(0,3).join(' | ')}`:'';
+  }
+
+  function renderProgress(progress){
+    if(!progress||typeof progress!=='object'){
+      progressNode.hidden=true;
+      progressHead.textContent='';
+      progressDetail.textContent='';
+      return;
+    }
+    const status=String(progress.status||'');
+    const phase=String(progress.phase||'');
+    const elapsed=Number(progress.elapsed_seconds||0);
+    const output=Number(progress.output_lines||0);
+    const item=String(progress.item_name||'');
+    progressHead.textContent=[item,status,phase,Number.isFinite(elapsed)?elapsed.toFixed(1)+'s':'',Number.isFinite(output)?output+' lines':''].filter(Boolean).join(' · ');
+    progressDetail.textContent=String(progress.detail||'');
+    progressDetail.title=progressDetail.textContent;
+    progressNode.hidden=false;
+    runBox.hidden=false;
   }
 
   function renderItemLifecycle(items){
@@ -360,6 +388,7 @@ function installPatchPanel(){
         haveSnapshot=true;
       }
       renderItemLifecycle(state?.items);
+      renderProgress(state?.progress);
       renderArtifacts(state?.artifacts);
       if(expectPrompt&&state?.commands_enabled===false&&haveSnapshot){
         summaryStatus.textContent+=' · Continue in PTY';
@@ -397,6 +426,7 @@ function installPatchPanel(){
         body:JSON.stringify({kind:'patch',patch_mode:mode}),
       });
       activeSessionId=meta.id;
+      renderProgress(null);
       renderArtifacts([]);
       app.attachSession(meta,true);
       window.dispatchEvent(new CustomEvent('taskmenu:patch-session-started',{detail:{mode,meta}}));
@@ -412,7 +442,7 @@ function installPatchPanel(){
   }
 
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,renderQueuePrompt,renderItemLifecycle,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,renderQueuePrompt,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 

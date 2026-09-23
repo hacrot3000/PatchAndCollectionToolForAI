@@ -28,6 +28,10 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"renderQueueSnapshot(state.queue_snapshot)",
 		"state?.prompt&&renderQueuePrompt(sessionId,state.prompt)",
 		"renderItemLifecycle(state?.items)",
+		"renderProgress(state?.progress)",
+		"progress.elapsed_seconds",
+		"progress.output_lines",
+		"task-patch-progress",
 		"renderArtifacts(state?.artifacts)",
 		"/api/files/download?path=",
 		"taskmenu:project-file-open-request",
@@ -44,7 +48,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"mode==='queue'",
 		"items.slice(0,50)",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,renderQueuePrompt,renderItemLifecycle,renderArtifacts",
+		"TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,renderQueuePrompt,renderItemLifecycle,renderProgress,renderArtifacts",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {

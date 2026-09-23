@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 )
@@ -35,6 +36,20 @@ type ProtocolItemState struct {
 	ElapsedSeconds *float64 `json:"elapsed_seconds,omitempty"`
 }
 
+type ProtocolProgressState struct {
+	Scope          string  `json:"scope"`
+	RunID          string  `json:"run_id,omitempty"`
+	Index          int     `json:"index,omitempty"`
+	Total          int     `json:"total,omitempty"`
+	ItemName       string  `json:"item_name,omitempty"`
+	ItemKind       string  `json:"item_kind,omitempty"`
+	Phase          string  `json:"phase"`
+	Status         string  `json:"status"`
+	ElapsedSeconds float64 `json:"elapsed_seconds"`
+	OutputLines    int     `json:"output_lines"`
+	Detail         string  `json:"detail,omitempty"`
+}
+
 type ProtocolArtifactState struct {
 	ArtifactKind string `json:"artifact_kind"`
 	Path         string `json:"path"`
@@ -56,6 +71,7 @@ type ProtocolState struct {
 	Prompt          json.RawMessage     `json:"prompt,omitempty"`
 	Items           []ProtocolItemState     `json:"items,omitempty"`
 	Artifacts       []ProtocolArtifactState `json:"artifacts,omitempty"`
+	Progress        *ProtocolProgressState   `json:"progress,omitempty"`
 	Error           string                  `json:"error,omitempty"`
 }
 
@@ -152,6 +168,64 @@ func upsertProtocolItem(items []ProtocolItemState, item ProtocolItemState) []Pro
 	items = append(items, item)
 	sort.Slice(items, func(i, j int) bool { return items[i].Index < items[j].Index })
 	return items
+}
+
+func protocolProgressEvent(data []byte) (ProtocolProgressState, error) {
+	var event struct {
+		Type           string  `json:"type"`
+		Scope          string  `json:"scope"`
+		RunID          string  `json:"run_id"`
+		Index          int     `json:"index"`
+		Total          int     `json:"total"`
+		ItemName       string  `json:"item_name"`
+		ItemKind       string  `json:"item_kind"`
+		Phase          string  `json:"phase"`
+		Status         string  `json:"status"`
+		ElapsedSeconds float64 `json:"elapsed_seconds"`
+		OutputLines    int     `json:"output_lines"`
+		Detail         string  `json:"detail"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return ProtocolProgressState{}, fmt.Errorf("invalid Patch progress event JSON: %w", err)
+	}
+	if event.Type != "progress" {
+		return ProtocolProgressState{}, fmt.Errorf("unsupported Patch progress event")
+	}
+	event.Scope = strings.TrimSpace(event.Scope)
+	event.RunID = strings.TrimSpace(event.RunID)
+	event.ItemName = strings.TrimSpace(event.ItemName)
+	event.ItemKind = strings.TrimSpace(event.ItemKind)
+	event.Phase = strings.TrimSpace(event.Phase)
+	event.Status = strings.TrimSpace(event.Status)
+	event.Detail = strings.TrimSpace(event.Detail)
+	if event.Scope == "" || len(event.Scope) > 64 || event.Phase == "" || len(event.Phase) > 128 || event.Status == "" || len(event.Status) > 64 {
+		return ProtocolProgressState{}, fmt.Errorf("Patch progress identity is invalid")
+	}
+	if len(event.RunID) > 256 || len(event.ItemName) > 1024 || len(event.ItemKind) > 128 || len(event.Detail) > 2048 {
+		return ProtocolProgressState{}, fmt.Errorf("Patch progress payload is too large")
+	}
+	if event.Index < 0 || event.Total < 0 || (event.Index == 0) != (event.Total == 0) {
+		return ProtocolProgressState{}, fmt.Errorf("Patch progress index/total is invalid")
+	}
+	if event.Index > 0 && (event.Total < event.Index || event.Total > maxProtocolItems) {
+		return ProtocolProgressState{}, fmt.Errorf("Patch progress index/total is out of bounds")
+	}
+	if event.OutputLines < 0 || event.ElapsedSeconds < 0 || math.IsNaN(event.ElapsedSeconds) || math.IsInf(event.ElapsedSeconds, 0) {
+		return ProtocolProgressState{}, fmt.Errorf("Patch progress counters are invalid")
+	}
+	return ProtocolProgressState{
+		Scope: event.Scope,
+		RunID: event.RunID,
+		Index: event.Index,
+		Total: event.Total,
+		ItemName: event.ItemName,
+		ItemKind: event.ItemKind,
+		Phase: event.Phase,
+		Status: event.Status,
+		ElapsedSeconds: event.ElapsedSeconds,
+		OutputLines: event.OutputLines,
+		Detail: event.Detail,
+	}, nil
 }
 
 func protocolArtifactEvent(data []byte) (ProtocolArtifactState, error) {
@@ -257,5 +331,9 @@ func cloneProtocolState(in ProtocolState) ProtocolState {
 	out.Prompt = append(json.RawMessage(nil), in.Prompt...)
 	out.Items = append([]ProtocolItemState(nil), in.Items...)
 	out.Artifacts = append([]ProtocolArtifactState(nil), in.Artifacts...)
+	if in.Progress != nil {
+		progress := *in.Progress
+		out.Progress = &progress
+	}
 	return out
 }

@@ -145,7 +145,7 @@ Status: **DONE**
 - [x] Interactive `--cleanup-legacy` and normal global-startup cleanup can migrate only a verified-safe runtime; unsafe runtime is retained.
 
 ### Phase 1.5 — Protocol v1
-Status: **IN PROGRESS**
+Status: **DONE**
 
 - [x] Add optional POSIX event FD/pipe to Python entrypoint via `TASKDECK_PATCH_EVENT_FD`; no FD keeps the historical `execv` path.
 - [x] Define optional POSIX command FD contract via `TASKDECK_PATCH_COMMAND_FD`; it requires a separate event FD.
@@ -162,6 +162,7 @@ Status: **IN PROGRESS**
 - [x] Session manager supports an opt-in FD 3 event pipe and bounded protocol state while PTY remains unchanged.
 - [x] TaskDeck retains up to 4096 item lifecycle entries and Patch panel shows native running/completed status with polling stopped when hidden.
 - [x] TaskDeck retains up to 256 validated artifact entries and Patch panel exposes native Download/Open actions from structured artifact events.
+- [x] TaskDeck retains the latest validated progress event and Patch panel renders native phase/status/elapsed/output/detail without parsing console text.
 - [x] Broker advertises `patch_protocol_events`, carries the opt-in flag and exposes protocol state; old brokers fall back to PTY-only.
 - [x] Patch panel polls bounded protocol state and renders a native queue summary while PTY remains the authoritative interactive surface.
 - [x] Patch panel renders Python-owned queue_selection prompts and submits only bounded select/cancel responses; PTY remains available as fallback.
@@ -236,8 +237,9 @@ Every phase must preserve:
 | Phase 1.5F.2 UI contract test correction | DONE | 8b087ceb | Updated the stale fixed-40-iteration assertion to the new bounded lifecycle polling contract; no runtime behavior change. |
 | Phase 1.5F.3a Python artifact events | DONE | 858f2293 | Emits fail handoff, AI sync and COLLECT result artifacts only after validating a real non-link file under project artifacts/; internal/history files are not exposed. |
 | Phase 1.5F.3b native artifact state/actions | DONE | 033af150 | TaskDeck retains a bounded validated artifact list; Patch panel offers existing safe download plus text-editor open actions without parsing terminal/history output. |
-| Phase 1.5G.1 Python COLLECT progress events | DONE | this commit | COLLECT progress supervisor emits bounded phase/status/elapsed/output/detail events over the inherited protocol FD; Go never parses console text. |
+| Phase 1.5G.1 Python COLLECT progress events | DONE | e5a55760 | COLLECT progress supervisor emits bounded phase/status/elapsed/output/detail events over the inherited protocol FD; Go never parses console text. |
+| Phase 1.5G.2 native progress state/UI | DONE | this commit | TaskDeck validates and retains only the latest bounded progress event; Patch panel renders native progress while PTY remains unchanged. |
 
 ## Next action
 
-Continue **Phase 1.5G.2**: validate and retain the latest bounded progress event in TaskDeck protocol state and render it in the Patch panel without changing PTY output.
+Begin **Phase 2A**: native Queue/Failed views backed by new stable Python protocol views; do not read internal history schemas from Go.
