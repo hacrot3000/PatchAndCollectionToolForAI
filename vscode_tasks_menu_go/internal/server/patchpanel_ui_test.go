@@ -29,6 +29,16 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"state?.prompt&&renderQueuePrompt(sessionId,state.prompt)",
 		"renderItemLifecycle(state?.items)",
 		"renderProgress(state?.progress)",
+		"if(state?.action_result)renderActionResult(state.action_result)",
+		"/item-action",
+		"response?.action_id",
+		"waitForActionResult",
+		"state?.action_result?.action_id===actionID",
+		"activeQueuePrompt?.item_actions",
+		"promptItemForQueueItem(item)",
+		"['inspect','preview','validate']",
+		"task-patch-action-result",
+		"task-patch-item-action",
 		"progress.elapsed_seconds",
 		"progress.output_lines",
 		"task-patch-progress",
@@ -54,7 +64,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"failure?.diagnosis_kind",
 		"snapshot?.group_counts",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,renderItemLifecycle,renderProgress,renderArtifacts",
+		"TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,submitItemAction,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {
@@ -168,6 +178,38 @@ func TestPatchPanelQueueFailedViewsUsePythonGroupingOnly(t *testing.T) {
 	} {
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("Queue/Failed UI must not infer Python failure policy: found %q", forbidden)
+		}
+	}
+}
+
+
+func TestPatchPanelNativeItemActionsArePromptAdvertisedAndCorrelated(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"activeQueuePrompt?.item_actions",
+		"promptItemForQueueItem(item)",
+		"String(item?.kind||'').toUpperCase()==='PATCH'",
+		"JSON.stringify({prompt_id:String(activeQueuePrompt.prompt_id||''),action,index})",
+		"response?.action_id",
+		"state?.action_result?.action_id===actionID",
+		"renderActionResult(state.action_result)",
+		"actionResultOutput.textContent=String(result.output||'')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native item action UI missing contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"AUTO STATUS:",
+		"READY_TO_APPLY",
+		"SOURCE_DRIFT",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("native item action UI must not infer action result from terminal text: found %q", forbidden)
 		}
 	}
 }

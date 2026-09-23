@@ -173,12 +173,12 @@ Status: **IN PROGRESS**
 - [x] Native Queue and Failed views.
   - [x] Phase 2A.1 Python-owned stable Queue/Failed protocol projection.
   - [x] Phase 2A.2 Web Queue/Failed views from queue_snapshot.
-- [ ] Native Inspect / Preview / Validate.
+- [x] Native Inspect / Preview / Validate.
   - [x] Phase 2B.1 Python-owned item_action/action_result protocol contract over the active Queue prompt.
   - [x] Phase 2B.2 TaskDeck backend endpoint/state for bounded native item actions.
     - [x] Phase 2B.2a session action_result state and stale-prompt write gate.
     - [x] Phase 2B.2b narrow public item-action endpoint.
-  - [ ] Phase 2B.3 Patch panel Inspect/Preview/Validate controls and result viewer.
+  - [x] Phase 2B.3 Patch panel Inspect/Preview/Validate controls and result viewer.
 - [ ] Native Run selection and confirmation prompts.
 - [ ] Native Running/progress view with console as secondary evidence.
 - [ ] Native Resume/recovery.
@@ -250,8 +250,9 @@ Every phase must preserve:
 | Phase 2A.2 native Queue/Failed web views | DONE | dd41c7b0 | Patch panel separates Queue/Failed strictly by Python snapshot group and renders bounded failure summaries; legacy snapshots remain Queue-only without inferred failure policy. |
 | Phase 2B.1 native item action protocol | DONE | c9fe4dfb | Active queue prompts accept bounded inspect/preview/validate item_action commands, execute the existing read-only Python runner path, emit correlated action_result events, then continue waiting for selection. |
 | Phase 2B.2a action result state/gate | DONE | 01e0936f | Session state validates/retains latest action_result, clears it on a new prompt/run, and binds item_action to the still-active prompt at the final FD4 write gate. |
-| Phase 2B.2b narrow item-action endpoint | DONE | this commit | Public API accepts only prompt-bound inspect/preview/validate + index, validates PATCH-only prompt items, generates action_id server-side and never exposes raw protocol command writes. |
+| Phase 2B.2b narrow item-action endpoint | DONE | 3bb89fe6 | Public API accepts only prompt-bound inspect/preview/validate + index, validates PATCH-only prompt items, generates action_id server-side and never exposes raw protocol command writes. |
+| Phase 2B.3 native item action UI | DONE | this commit | Queue/Failed PATCH rows expose only Python-advertised Inspect/Preview/Validate actions; result polling is correlated by action_id and rendered from structured action_result state. |
 
 ## Next action
 
-Continue **Phase 2B.3**: add Inspect/Preview/Validate controls to native Queue/Failed rows and a bounded action result viewer, polling by action_id while preserving Queue selection and PTY fallback.
+Continue **Phase 2C.1**: audit remaining Run-selection/confirmation decisions in the Python queue path and define native prompt contracts for any confirmations still handled only through terminal stdin, without duplicating execution policy in Go.
