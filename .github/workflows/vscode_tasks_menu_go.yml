@@ -8,6 +8,10 @@ on:
     paths:
       - "vscode_tasks_menu"
       - "install.sh"
+      - "python_patch_entry.py"
+      - "test_python_patch_entry.py"
+      - "run_python_patches.sh"
+      - "run_python_patches.ps1"
       - "vscode_tasks_menu_go/**"
       - ".github/workflows/vscode_tasks_menu_go.yml"
   workflow_dispatch:
@@ -44,6 +48,13 @@ jobs:
         run: |
           bash -n ../vscode_tasks_menu
           bash -n ../install.sh
+          bash -n ../run_python_patches.sh
+
+      - name: Patch entry routing contract
+        working-directory: .
+        run: |
+          python3 ../test_python_patch_entry.py
+          python3 -m py_compile ../python_patch_entry.py
 
       - name: JavaScript syntax
         run: |

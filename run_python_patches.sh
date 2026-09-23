@@ -1,172 +1,19 @@
 #!/usr/bin/env bash
-# Python Patch Tool v6.20.2 public launcher.
-# SANDBOX/worktree transaction mode is permanently disabled at this boundary.
+# Python Patch Tool compatibility launcher.
+# Canonical routing lives in python_patch_entry.py.
 set -euo pipefail
+
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$TOOLS_DIR/.." && pwd)"
-LIB_DIR="$TOOLS_DIR/_patch_lib"
-RUNNER="$LIB_DIR/python_patch_runner.py"
-COLLECTOR="$LIB_DIR/python_patch_readonly_collector.py"
-COLLECT_COMPAT="$LIB_DIR/python_patch_collect_compat.py"
-DISPATCHER="$LIB_DIR/python_patch_queue_dispatcher.py"
-COLLECT_PROGRESS="$LIB_DIR/python_patch_collect_progress_v6_7.py"
-COLLECT_REGEX_WORKER="$LIB_DIR/python_patch_collect_regex_worker.py"
-
-export PYTHONPATH="$LIB_DIR${PYTHONPATH:+:$PYTHONPATH}"
-# Keep the installed tool tree immutable during normal execution so Tool Health
-# does not warn about bytecode caches created by the tool itself.
-export PYTHONDONTWRITEBYTECODE=1
+ENTRY="$TOOLS_DIR/python_patch_entry.py"
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "ERROR: Python 3.10+ is required but python3 was not found in PATH." >&2
   exit 2
 fi
-if ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 3)' >/dev/null 2>&1; then
-  echo "ERROR: Python 3.10+ is required. Current python3 is too old." >&2
+if [ ! -f "$ENTRY" ]; then
+  echo "ERROR: Missing Patch Tool entrypoint: $ENTRY" >&2
   exit 2
 fi
 
-if [ "$#" -eq 0 ]; then
-  if [ ! -f "$DISPATCHER" ]; then
-    echo "ERROR: Missing queue dispatcher: $DISPATCHER" >&2
-    exit 2
-  fi
-  exec python3 "$DISPATCHER" --project-root "$PROJECT_ROOT"
-fi
-
-if [ "${1:-}" = "report" ] || [ "${1:-}" = "run" ] || [ "${1:-}" = "resume" ] || [ "${1:-}" = "plan" ]; then
-  command="$1"
-  shift
-  exec python3 "$DISPATCHER" --project-root "$PROJECT_ROOT" "$command" "$@"
-fi
-
-if [ "${1:-}" = "collect" ]; then
-  if [ ! -f "$COLLECT_COMPAT" ]; then
-    echo "ERROR: Missing COLLECT compatibility layer: $COLLECT_COMPAT" >&2
-    exit 2
-  fi
-  if [ ! -f "$COLLECT_PROGRESS" ]; then
-    echo "ERROR: Missing collect progress supervisor: $COLLECT_PROGRESS" >&2
-    exit 2
-  fi
-  if [ ! -f "$COLLECT_REGEX_WORKER" ]; then
-    echo "ERROR: Missing COLLECT regex worker: $COLLECT_REGEX_WORKER" >&2
-    exit 2
-  fi
-  shift
-  exec python3 "$COLLECT_PROGRESS" --project-root "$PROJECT_ROOT" --collector "$COLLECT_COMPAT" -- "$@"
-fi
-
-
-# Historical/non-interactive queue automation belongs to the dispatcher.
-# A single direct --patch remains a runner route for inspect/validate-style
-# compatibility; repeated --patch, --all/-a and --select are queue selection.
-automation_route=0
-patch_arg_count=0
-for arg in "$@"; do
-  case "${arg,,}" in
-    --patch) patch_arg_count=$((patch_arg_count + 1)) ;;
-    --all|-a|--select|--zip-failed|--keep-failed-zip|--move|-y) automation_route=1 ;;
-  esac
-done
-if [ "$patch_arg_count" -gt 1 ]; then automation_route=1; fi
-if [ "$automation_route" -eq 1 ]; then
-  dispatch_args=()
-  skip_tx=0
-  for arg in "$@"; do
-    lower="${arg,,}"
-    if [ "$skip_tx" -eq 1 ]; then
-      skip_tx=0
-      case "$lower" in off|auto|required) continue ;; esac
-    fi
-    case "$lower" in
-      --transaction) skip_tx=1 ;;
-      --transaction=*|--keep-failed-sandbox|--keep-failed-sandbox=*) ;;
-      *) dispatch_args+=("$arg") ;;
-    esac
-  done
-  exec python3 "$DISPATCHER" --project-root "$PROJECT_ROOT" run "${dispatch_args[@]}"
-fi
-
-if [ ! -f "$RUNNER" ]; then
-  echo "ERROR: Missing Patch Tool core: $RUNNER" >&2
-  exit 2
-fi
-
-# v6.20.2 invariant: SANDBOX/Git-worktree transaction execution is removed.
-# The installed private core may still expose historical transaction options,
-# so every documented PATCH execution route is forced to --transaction off.
-# Utility-only routes such as paths/help remain untouched.
-filtered=()
-force_inplace=0
-skip_transaction_value=0
-stripped_legacy_transaction=0
-for arg in "$@"; do
-  arg_lower="${arg,,}"
-  if [ "$skip_transaction_value" -eq 1 ]; then
-    skip_transaction_value=0
-    # Historical --transaction accepts only these values.  Do not consume a
-    # following PATCH option if the caller supplied malformed syntax such as
-    # "--transaction --all"; swallowing it could drop the in-place guard.
-    case "$arg_lower" in
-      off|auto|required)
-        continue
-        ;;
-    esac
-  fi
-  case "$arg_lower" in
-    --transaction)
-      stripped_legacy_transaction=1
-      skip_transaction_value=1
-      ;;
-    --transaction=*)
-      stripped_legacy_transaction=1
-      ;;
-    --keep-failed-sandbox|--keep-failed-sandbox=*)
-      stripped_legacy_transaction=1
-      ;;
-    --patch|--all|--select)
-      filtered+=("$arg")
-      force_inplace=1
-      ;;
-    *.zip|*.py|*.tar.gz|*.tgz)
-      filtered+=("$arg")
-      force_inplace=1
-      ;;
-    *)
-      filtered+=("$arg")
-      ;;
-  esac
-done
-
-# Any non-utility legacy invocation may execute PATCH work even when it uses
-# short/historical flags unknown to this overlay (for example `-a -y`).
-# Fail closed toward in-place execution: only a small documented utility
-# allowlist is permitted to reach the core without `--transaction off`.
-if [ "$force_inplace" -eq 0 ] && [ "${#filtered[@]}" -gt 0 ]; then
-  first_lower="${filtered[0],,}"
-  case "$first_lower" in
-    paths|health-search|help|--help|-h|version|--version)
-      ;;
-    *)
-      force_inplace=1
-      ;;
-  esac
-fi
-
-if [ "$force_inplace" -eq 1 ]; then
-  exec python3 "$RUNNER" "${filtered[@]}" --transaction off
-fi
-
-# Fail closed if an invocation contained only obsolete transaction/SANDBOX
-# switches.  Never strip them and then fall through to the legacy core with
-# zero arguments, because that core may consult an old transaction default.
-if [ "$stripped_legacy_transaction" -eq 1 ] && [ "${#filtered[@]}" -eq 0 ]; then
-  echo "ERROR: obsolete transaction/SANDBOX flags cannot be used as a standalone command." >&2
-  echo "Use ./tools/run_python_patches.sh with no arguments for the normal queue." >&2
-  exit 2
-fi
-
-# Non-execution utility commands (for example paths/help) are passed through
-# without adding execution-only arguments.
-exec python3 "$RUNNER" "${filtered[@]}"
+exec python3 "$ENTRY" --project-root "$PROJECT_ROOT" -- "$@"

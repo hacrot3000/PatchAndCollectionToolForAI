@@ -101,12 +101,12 @@ Status: **DONE**
 - [x] Record target architecture and non-regression invariants.
 
 ### Phase 1A — Canonical Python entrypoint
-Status: **TODO**
+Status: **DONE**
 
-- [ ] Add `python_patch_entry.py` as the canonical router.
-- [ ] Make `run_python_patches.sh` a thin compatibility wrapper.
-- [ ] Preserve zero-arg, report/run/resume/plan, collect, automation and direct runner semantics.
-- [ ] Add tests/contracts for route compatibility.
+- [x] Add `python_patch_entry.py` as the canonical router.
+- [x] Make POSIX and PowerShell launchers thin compatibility wrappers.
+- [x] Preserve zero-arg, report/run/resume/plan, collect, automation and direct runner semantics.
+- [x] Add routing-contract tests and CI syntax/compile checks.
 
 ### Phase 1B — TaskDeck CLI integration
 Status: **TODO**
@@ -185,8 +185,9 @@ Every phase must preserve:
 
 | Step | Status | Commit | Notes |
 | --- | --- | --- | --- |
-| Phase 0 roadmap | DONE | this commit | Architecture/recovery plan created before runtime changes. |
+| Phase 0 roadmap | DONE | 0ac231f2 | Architecture/recovery plan created before runtime changes. |
+| Phase 1A canonical entrypoint | DONE | this commit | Routing moved from shell/PowerShell to one Python entrypoint; wrappers remain compatible. |
 
 ## Next action
 
-Implement **Phase 1A**: introduce the canonical Python entrypoint while keeping `run_python_patches.sh` fully compatible.
+Implement **Phase 1B**: add `taskdeck patch [args...]` while the runtime is still discoverable from the development/legacy layout. Global versioned runtime installation follows in Phase 1C.
