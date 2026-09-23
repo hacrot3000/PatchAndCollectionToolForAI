@@ -653,7 +653,13 @@ def _pins_path(root: Path) -> Path:
 
 
 def _load_pinned_runs(root: Path) -> set[str]:
-    data = _load_json(_pins_path(root))
+    # Pin reads are part of History/list/report projections and must never
+    # materialize artifacts/patch_tool on an untouched project. Mutating
+    # Pin/Unpin operations still use _save_pinned_runs() -> _pins_path().
+    parent = _existing_artifact_subdir_readonly(root)
+    if parent is None:
+        return set()
+    data = _load_json(parent / "PINNED_RUNS.json")
     values = data.get("run_ids") if isinstance(data, dict) else None
     return {str(x) for x in values if isinstance(x, str) and x} if isinstance(values, list) else set()
 

@@ -280,7 +280,8 @@ Every phase must preserve:
 | Phase 2E.2b TaskDeck Resume endpoint/gate | DONE | 36d9cb75 | Built-in Resume explicitly opts into native mode; public API accepts only active-prompt advertised Resume actions, and session final-write gate consumes the prompt to reject stale/double submissions. |
 | Phase 2E.3 native Smart Resume UI | DONE | 2c36121d | Patch panel renders Python-owned Resume snapshot/options/failed-item capabilities, submits only through /resume-action, confirms destructive delete, and preserves PTY fallback/history handoff. |
 | Phase 2E.3 UI contract test correction | DONE | 1b3811df | Updated the legacy Running-view PTY activation assertion for native Resume; runtime behavior is unchanged. |
-| Phase 2F.1 History/report projection | DONE | this commit | Python exposes bounded meaningful-run summaries and one-run report detail views with verified project-relative files; report route emits history_snapshot additively and Go never sees raw history JSON. |
+| Phase 2F.1 History/report projection | DONE | 235847fb | Python exposes bounded meaningful-run summaries and one-run report detail views with verified project-relative files; report route emits history_snapshot additively and Go never sees raw history JSON. |
+| Phase 2F.1 read-only pin loader correction | DONE | this commit | History projections no longer materialize artifacts/patch_tool merely to read PINNED_RUNS; Pin/Unpin writes keep the existing mutating path. |
 
 ## Next action
 
