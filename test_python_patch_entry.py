@@ -234,6 +234,42 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertFalse(handled)
         self.assertIsNone(chosen)
 
+    def test_runtime_event_helper_is_opt_in_and_jsonl(self):
+        from python_patch_protocol import EVENT_FD_ENV, emit_runtime_event
+
+        old = os.environ.get(EVENT_FD_ENV)
+        read_fd, write_fd = os.pipe()
+        try:
+            os.environ[EVENT_FD_ENV] = str(write_fd)
+            self.assertTrue(emit_runtime_event("item_started", name="demo.zip", kind="PATCH"))
+            os.close(write_fd)
+            write_fd = -1
+            raw = os.read(read_fd, 65536).decode("utf-8")
+        finally:
+            if write_fd >= 0:
+                os.close(write_fd)
+            os.close(read_fd)
+            if old is None:
+                os.environ.pop(EVENT_FD_ENV, None)
+            else:
+                os.environ[EVENT_FD_ENV] = old
+        event = json.loads(raw.strip())
+        self.assertEqual(event["type"], "item_started")
+        self.assertEqual(event["name"], "demo.zip")
+        self.assertEqual(event["kind"], "PATCH")
+
+    def test_dispatcher_item_events_wrap_only_payload_execution(self):
+        dispatcher = (self.base / "_patch_lib" / "python_patch_queue_dispatcher.py").read_text(encoding="utf-8")
+        started = dispatcher.index('_emit_protocol_event(\n            "item_started"')
+        running = dispatcher.index('live_status.set_status(item.name, "RUNNING")')
+        child = dispatcher.index('rc, console_log, patch_result = _run_patch_child(', running)
+        finished = dispatcher.index('_emit_protocol_event(\n            "item_finished"')
+        details = dispatcher.index('_LAST_EXECUTION_DETAILS.append(detail)', child)
+        self.assertGreater(started, running)
+        self.assertLess(started, child)
+        self.assertGreater(finished, details)
+        self.assertNotIn('"item_started"', dispatcher[dispatcher.index('if item.kind == "PATCH" and preflight_detail is not None:'):running])
+
     def test_event_writer_emits_versioned_jsonl(self):
         from python_patch_protocol import EventWriter
 

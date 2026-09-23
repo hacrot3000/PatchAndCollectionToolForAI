@@ -5595,6 +5595,14 @@ def _collect_archive_postcondition(root: Path, item: QueueItem) -> tuple[bool, s
     return True, ""
 
 
+def _emit_protocol_event(event_type: str, **payload: object) -> bool:
+    try:
+        from python_patch_protocol import emit_runtime_event
+        return bool(emit_runtime_event(event_type, **payload))
+    except Exception:
+        return False
+
+
 def execute_items(
     root: Path,
     chosen: list[QueueItem],
@@ -5742,6 +5750,15 @@ def execute_items(
 
         if live_status is not None:
             live_status.set_status(item.name, "RUNNING")
+        _emit_protocol_event(
+            "item_started",
+            run_id=_ACTIVE_RUN_ID,
+            index=index + 1,
+            total=len(chosen),
+            name=item.name,
+            kind=item.kind,
+            started_at=item_started_at,
+        )
         compare_before = _capture_item_compare_before(root, _ACTIVE_RUN_ID or "run", index + 1, item, meta)
         try:
             try:
@@ -5850,6 +5867,18 @@ def execute_items(
                     try: detail["fail_handoff_text"] = handoff_text.relative_to(root).as_posix()
                     except ValueError: detail["fail_handoff_text"] = str(handoff_text)
         _LAST_EXECUTION_DETAILS.append(detail)
+        _emit_protocol_event(
+            "item_finished",
+            run_id=_ACTIVE_RUN_ID,
+            index=index + 1,
+            total=len(chosen),
+            name=item.name,
+            kind=item.kind,
+            status=str(detail.get("status") or ""),
+            rc=detail.get("rc"),
+            started_at=item_started_at,
+            elapsed_seconds=detail.get("elapsed_seconds"),
+        )
         if meta is not None:
             patch_status_by_id[meta.patch_id] = str(detail["status"])
             if rc and item.kind == "PATCH":

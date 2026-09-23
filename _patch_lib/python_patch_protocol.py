@@ -123,6 +123,37 @@ class EventWriter:
             pass
 
 
+def event_writer_from_env() -> EventWriter | None:
+    """Open the child event channel when available, otherwise fail open.
+
+    Runtime events are observational only. A missing/malformed machine channel
+    must never change PATCH/COLLECT execution semantics or terminal behavior.
+    """
+    raw = os.environ.get(EVENT_FD_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        fd = int(raw, 10)
+        if fd < 3:
+            return None
+        os.fstat(fd)
+        return EventWriter(fd)
+    except (OSError, ValueError):
+        return None
+
+
+def emit_runtime_event(event_type: str, **payload: Any) -> bool:
+    writer = event_writer_from_env()
+    if writer is None:
+        return False
+    try:
+        return writer.emit(event_type, **payload)
+    except Exception:
+        return False
+    finally:
+        writer.close()
+
+
 def prompt_channels_from_env() -> tuple[EventWriter | None, CommandReader | None]:
     """Open child prompt channels only when both machine FDs are present.
 

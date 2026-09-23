@@ -154,7 +154,8 @@ Status: **IN PROGRESS**
 - [x] TaskDeck retains the active Python prompt, exposes only a bounded prompt-response API, and enables commands for built-in Patch sessions.
 - [x] Define versioned JSONL envelope and initial `hello/run_started/run_finished/error` lifecycle events.
 - [x] Emit Python-owned `queue_snapshot` with stable item/warning/count fields before dispatcher-backed runs.
-- [ ] Emit item/progress/artifact events while terminal UI remains authoritative.
+- [x] Emit Python-owned item_started/item_finished events only around actual payload execution.
+- [ ] Emit progress/artifact events while terminal UI remains authoritative.
 - [x] Child Python processes emit into an internal pipe; the entrypoint relays them onto the TaskDeck event channel with one global sequence.
 - [x] Add protocol envelope/lifecycle/version tests.
 - [x] Session manager supports an opt-in FD 3 event pipe and bounded protocol state while PTY remains unchanged.
@@ -226,8 +227,9 @@ Every phase must preserve:
 | Phase 1.5E.2 queue selection prompt contract | DONE | c81046a2 | Added Python-owned queue_selection prompt/prompt_response handling with strict prompt-id/index/COLLECT validation and terminal fallback on protocol failure. |
 | Phase 1.5E.3 public prompt response backend | DONE | 3b047a68 | Stores active prompt state, enables built-in command channels, exposes only bounded prompt responses, and rejects stale/double responses before FD4 writes. |
 | Phase 1.5E.3 test import correction | DONE | 6d571371 | Added the missing os import required by the public prompt-response contract test; no runtime behavior change. |
-| Phase 1.5E.4 native queue selection UI | DONE | this commit | Patch panel renders queue_selection directly from Python prompt data and submits bounded select/cancel responses, with PTY fallback preserved. |
+| Phase 1.5E.4 native queue selection UI | DONE | 3160762d | Patch panel renders queue_selection directly from Python prompt data and submits bounded select/cancel responses, with PTY fallback preserved. |
+| Phase 1.5F.1 item lifecycle events | DONE | this commit | Dispatcher emits item_started/item_finished only for actual PATCH/COLLECT payload execution; preflight/blocked/duplicate skips are not misreported as started. |
 
 ## Next action
 
-Continue **Phase 1.5F.1**: define Python-owned item_started/item_finished events at the dispatcher execution boundary, without changing execution semantics or terminal logging.
+Continue **Phase 1.5F.2**: retain native item lifecycle state in TaskDeck and show running/completed item status in the Patch panel while terminal output remains secondary evidence.
