@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/config"
+	"bletonfc/vscode_tasks_menu/internal/patchtool"
 	"bletonfc/vscode_tasks_menu/internal/session"
 	"bletonfc/vscode_tasks_menu/internal/tasks"
 	"github.com/coder/websocket"
@@ -144,11 +145,12 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"sessions": s.withStoredTitles(s.Sessions.List())})
 	case http.MethodPost:
 		var req struct {
-			Kind   string            `json:"kind"`
-			TaskID int               `json:"task_id"`
-			Inputs map[string]string `json:"inputs,omitempty"`
-			Env    map[string]string `json:"env,omitempty"`
-			Cwd    string            `json:"cwd,omitempty"`
+			Kind      string            `json:"kind"`
+			TaskID    int               `json:"task_id"`
+			Inputs    map[string]string `json:"inputs,omitempty"`
+			Env       map[string]string `json:"env,omitempty"`
+			Cwd       string            `json:"cwd,omitempty"`
+			PatchMode string            `json:"patch_mode,omitempty"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -167,6 +169,23 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			}
 			if err := configureTerminalGitTextconv(s.Workspace, &spec); err != nil && s.Log != nil {
 				s.Log.Printf("terminal git textconv warning: %v", err)
+			}
+			meta, err := s.Sessions.Start(spec)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusCreated, meta)
+			return
+		case "patch":
+			spec, err := patchToolExecution(s.Workspace, req.PatchMode)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if err := tasks.ApplyEnvironmentOverrides(&spec, req.Env); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
 			}
 			meta, err := s.Sessions.Start(spec)
 			if err != nil {
@@ -216,6 +235,53 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func patchModeArguments(mode string) ([]string, string, error) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "queue":
+		return nil, "Queue", nil
+	case "resume":
+		return []string{"resume"}, "Resume", nil
+	case "history":
+		return []string{"report"}, "History", nil
+	case "plan":
+		return []string{"plan"}, "Plan", nil
+	default:
+		return nil, "", fmt.Errorf("unknown Patch Tool mode %q", mode)
+	}
+}
+
+func patchToolExecution(workspace, mode string) (tasks.Execution, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return tasks.Execution{}, fmt.Errorf("resolve TaskDeck executable: %w", err)
+	}
+	runtimeSpec, err := patchtool.Resolve(workspace, exe)
+	if err != nil {
+		return tasks.Execution{}, err
+	}
+	patchArgs, modeLabel, err := patchModeArguments(mode)
+	if err != nil {
+		return tasks.Execution{}, err
+	}
+	command, commandArgs, err := runtimeSpec.Command(workspace, patchArgs)
+	if err != nil {
+		return tasks.Execution{}, err
+	}
+	rawArgs := make([]any, len(commandArgs))
+	for i, arg := range commandArgs {
+		rawArgs[i] = arg
+	}
+	return tasks.ResolveExecution(tasks.Task{
+		ID:        -1,
+		Label:     "Patch Tool · " + modeLabel,
+		MenuLabel: "Patch Tool",
+		Detail:    "TaskDeck built-in Python Patch Tool add-on",
+		Type:      "process",
+		Command:   command,
+		Args:      rawArgs,
+	}, workspace)
 }
 
 func workspaceTerminalExecution(workspace string) (tasks.Execution, error) {
