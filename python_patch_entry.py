@@ -7,6 +7,8 @@ this file only preserves the historical public command routing contract.
 from __future__ import annotations
 
 import os
+import signal
+import subprocess
 import sys
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -24,6 +26,7 @@ AUTOMATION_FLAGS = {
 }
 UTILITY_COMMANDS = {"paths", "health-search", "help", "--help", "-h", "version", "--version"}
 PATCH_FILE_SUFFIXES = (".zip", ".py", ".tar.gz", ".tgz")
+EVENT_FD_ENV = "TASKDECK_PATCH_EVENT_FD"
 
 
 class EntryError(RuntimeError):
@@ -166,7 +169,95 @@ def _prepare_environment(base_dir: Path) -> None:
     lib_dir = str((base_dir / "_patch_lib").resolve())
     current = os.environ.get("PYTHONPATH", "")
     os.environ["PYTHONPATH"] = lib_dir if not current else lib_dir + os.pathsep + current
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
     os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+
+
+def classify_route(tool_args: Sequence[str]) -> str:
+    if not tool_args:
+        return "queue"
+    first = tool_args[0].lower()
+    if first in DISPATCH_COMMANDS:
+        return first
+    if first == "collect":
+        return "collect"
+    patch_arg_count = sum(1 for arg in tool_args if arg.lower() == "--patch")
+    if patch_arg_count > 1 or any(arg.lower() in AUTOMATION_FLAGS for arg in tool_args):
+        return "run"
+    if first in UTILITY_COMMANDS:
+        return "utility"
+    return "direct"
+
+
+def _protocol_writer_from_env():
+    raw = os.environ.get(EVENT_FD_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        fd = int(raw, 10)
+    except ValueError as exc:
+        raise EntryError(f"{EVENT_FD_ENV} must be an integer file descriptor") from exc
+    if fd < 3:
+        raise EntryError(f"{EVENT_FD_ENV} must be >= 3 so protocol data never shares stdin/stdout/stderr")
+    if os.name == "nt":
+        raise EntryError("Patch protocol FD transport is not available on Windows yet")
+    try:
+        from python_patch_protocol import EventWriter
+        return EventWriter(fd)
+    except (ImportError, OSError, ValueError) as exc:
+        raise EntryError(f"cannot open Patch protocol event channel fd={fd}: {exc}") from exc
+
+
+def _normalized_return_code(return_code: int) -> int:
+    return return_code if return_code >= 0 else 128 + (-return_code)
+
+
+def _run_with_protocol(writer, child_argv: Sequence[str], project_root: str, tool_args: Sequence[str]) -> int:
+    route = classify_route(tool_args)
+    writer.emit(
+        "hello",
+        project_root=project_root,
+        route=route,
+        capabilities=["events_v1"],
+    )
+    writer.emit("run_started", route=route)
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, *child_argv],
+            pass_fds=(writer.fd,),
+        )
+    except OSError as exc:
+        writer.emit("error", phase="spawn", message=str(exc))
+        writer.emit("run_finished", route=route, status="failed", exit_code=2)
+        writer.close()
+        return 2
+
+    previous_handlers: dict[int, object] = {}
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            previous_handlers[int(sig)] = signal.getsignal(sig)
+            signal.signal(sig, signal.SIG_IGN)
+        except (OSError, RuntimeError, ValueError):
+            pass
+    try:
+        return_code = proc.wait()
+    finally:
+        for sig_value, handler in previous_handlers.items():
+            try:
+                signal.signal(sig_value, handler)
+            except (OSError, RuntimeError, ValueError):
+                pass
+
+    exit_code = _normalized_return_code(return_code)
+    writer.emit(
+        "run_finished",
+        route=route,
+        status="success" if exit_code == 0 else "failed",
+        exit_code=exit_code,
+    )
+    writer.close()
+    return exit_code
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -180,16 +271,26 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     base_dir = Path(__file__).resolve().parent
     _prepare_environment(base_dir)
+    writer = None
     try:
+        writer = _protocol_writer_from_env()
         project_root, tool_args = parse_entry_args(sys.argv[1:] if argv is None else argv)
         child_argv, required = build_exec_argv(project_root, tool_args, base_dir)
         for path in required:
             if not path.is_file():
                 raise EntryError(f"Missing Patch Tool runtime file: {path}")
     except EntryError as exc:
+        if writer is not None:
+            writer.emit("error", phase="entry", message=str(exc))
+            writer.close()
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
+    if writer is not None:
+        return _run_with_protocol(writer, child_argv, project_root, tool_args)
+
+    # Critical compatibility invariant: without a machine event channel the
+    # historical terminal path remains an exec, not a supervising subprocess.
     os.execv(sys.executable, [sys.executable, *child_argv])
     return 127
 

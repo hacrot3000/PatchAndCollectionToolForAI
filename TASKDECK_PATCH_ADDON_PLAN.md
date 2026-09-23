@@ -145,12 +145,13 @@ Status: **DONE**
 - [x] Interactive `--cleanup-legacy` and normal global-startup cleanup can migrate only a verified-safe runtime; unsafe runtime is retained.
 
 ### Phase 1.5 — Protocol v1
-Status: **TODO**
+Status: **IN PROGRESS**
 
-- [ ] Add optional event FD/pipe to Python entrypoint.
+- [x] Add optional POSIX event FD/pipe to Python entrypoint via `TASKDECK_PATCH_EVENT_FD`; no FD keeps the historical `execv` path.
 - [ ] Add optional command FD/pipe.
+- [x] Define versioned JSONL envelope and initial `hello/run_started/run_finished/error` lifecycle events.
 - [ ] Emit queue/status/progress/artifact events while terminal UI remains authoritative.
-- [ ] Add protocol schema/version tests.
+- [x] Add protocol envelope/lifecycle/version tests.
 - [ ] TaskDeck consumes events for native summary while PTY remains visible.
 
 ### Phase 2 — Native Patch web UI
@@ -201,8 +202,9 @@ Every phase must preserve:
 | Phase 1E.1 migration safety plan | DONE | e9506386 | Added fail-closed SHA-256 comparison of legacy tools runtime against the active bundled release; modified/symlinked/unknown files block cleanup. |
 | Phase 1E.2a guarded migration apply | DONE | 6a7cbf1c | Revalidates hashes immediately before cleanup, installs compatibility launchers first, removes only verified runtime files, and keeps unrelated tools files. |
 | Phase 1E.2a migrated-shim recognition | DONE | 00072c0d | Planner treats TaskDeck-generated compatibility launchers as already migrated instead of locally modified legacy runtime. |
-| Phase 1E.2b cleanup wiring | DONE | this commit | Wired verified Patch runtime migration into interactive/global legacy cleanup, kept unsafe runtimes, and skipped the source repository. |
+| Phase 1E.2b cleanup wiring | DONE | 19f19167 | Wired verified Patch runtime migration into interactive/global legacy cleanup, kept unsafe runtimes, and skipped the source repository. |
+| Phase 1.5A protocol event channel | DONE | this commit | Added opt-in protocol v1 JSONL event FD with lifecycle events; no-protocol terminal path remains execv-compatible. |
 
 ## Next action
 
-Implement **Phase 1.5A**: add an optional versioned JSONL event channel to the Python entrypoint, starting with protocol hello/run lifecycle events while leaving stdout/stderr and terminal interaction unchanged.
+Continue **Phase 1.5B**: add Python-owned structured queue snapshot/status events through the same event channel without parsing terminal output in Go.
