@@ -160,6 +160,7 @@ Status: **IN PROGRESS**
 - [x] Session manager supports an opt-in FD 3 event pipe and bounded protocol state while PTY remains unchanged.
 - [x] Broker advertises `patch_protocol_events`, carries the opt-in flag and exposes protocol state; old brokers fall back to PTY-only.
 - [x] Patch panel polls bounded protocol state and renders a native queue summary while PTY remains the authoritative interactive surface.
+- [x] Patch panel renders Python-owned queue_selection prompts and submits only bounded select/cancel responses; PTY remains available as fallback.
 
 ### Phase 2 — Native Patch web UI
 Status: **TODO**
@@ -224,8 +225,9 @@ Every phase must preserve:
 | Phase 1.5E.1 lifecycle test scope correction | DONE | 7c146ccf | Updated the lifecycle-only protocol test to use a non-queue route; queue_snapshot behavior remains covered by its dedicated test. |
 | Phase 1.5E.2 queue selection prompt contract | DONE | c81046a2 | Added Python-owned queue_selection prompt/prompt_response handling with strict prompt-id/index/COLLECT validation and terminal fallback on protocol failure. |
 | Phase 1.5E.3 public prompt response backend | DONE | 3b047a68 | Stores active prompt state, enables built-in command channels, exposes only bounded prompt responses, and rejects stale/double responses before FD4 writes. |
-| Phase 1.5E.3 test import correction | DONE | this commit | Added the missing os import required by the public prompt-response contract test; no runtime behavior change. |
+| Phase 1.5E.3 test import correction | DONE | 6d571371 | Added the missing os import required by the public prompt-response contract test; no runtime behavior change. |
+| Phase 1.5E.4 native queue selection UI | DONE | this commit | Patch panel renders queue_selection directly from Python prompt data and submits bounded select/cancel responses, with PTY fallback preserved. |
 
 ## Next action
 
-Continue **Phase 1.5E.4**: render queue_selection prompts in the Patch panel and submit select/cancel responses through the bounded public endpoint while keeping PTY fallback intact.
+Continue **Phase 1.5F.1**: define Python-owned item_started/item_finished events at the dispatcher execution boundary, without changing execution semantics or terminal logging.

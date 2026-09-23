@@ -24,6 +24,18 @@ function installPatchPanel(){
   .task-patch-summary-name{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
   .task-patch-summary-detail{display:block;opacity:.62;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-summary-warning{margin-top:5px;opacity:.72}
+  .task-patch-prompt{margin:0 0 10px;padding:8px;border:1px solid #4b596d;border-radius:6px;background:#121923;font-size:11px}
+  .task-patch-prompt[hidden]{display:none}
+  .task-patch-prompt-title{font-weight:700;margin-bottom:3px}
+  .task-patch-prompt-note{opacity:.7;margin-bottom:7px}
+  .task-patch-prompt-items{display:grid;gap:4px;max-height:320px;overflow:auto}
+  .task-patch-prompt-item{display:flex;align-items:flex-start;gap:7px;padding:5px 6px;border-radius:4px;background:#171f2a;cursor:pointer}
+  .task-patch-prompt-item input{margin-top:2px}
+  .task-patch-prompt-copy{min-width:0;flex:1}
+  .task-patch-prompt-name{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .task-patch-prompt-detail{display:block;opacity:.62;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .task-patch-prompt-buttons{display:flex;gap:6px;margin-top:8px}
+  .task-patch-prompt-buttons button{flex:1}
   .task-patch-actions{display:grid;gap:7px}
   .task-patch-action{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:9px 10px;text-align:left}
   .task-patch-action strong{font-size:12px}
@@ -33,6 +45,8 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-summary{background:#f6f8fa;border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-summary-item{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-summary-count{border-color:#d0d7de}
+  html[data-taskmenu-theme="light"] .task-patch-prompt{background:#f6f8fa;border-color:#b9c0c8}
+  html[data-taskmenu-theme="light"] .task-patch-prompt-item{background:#fff}
   `;
   document.head.append(style);
 
@@ -57,8 +71,16 @@ function installPatchPanel(){
   const summaryWarnings=document.createElement('div');summaryWarnings.className='task-patch-summary-warning';
   summaryHead.append(summaryTitle,summaryStatus);
   summary.append(summaryHead,summaryCounts,summaryList,summaryWarnings);
+
+  const promptBox=document.createElement('div');promptBox.className='task-patch-prompt';promptBox.hidden=true;
+  const promptTitle=document.createElement('div');promptTitle.className='task-patch-prompt-title';
+  const promptNote=document.createElement('div');promptNote.className='task-patch-prompt-note';
+  const promptItems=document.createElement('div');promptItems.className='task-patch-prompt-items';
+  const promptButtons=document.createElement('div');promptButtons.className='task-patch-prompt-buttons';
+  promptBox.append(promptTitle,promptNote,promptItems,promptButtons);
+
   const actions=document.createElement('div');actions.className='task-patch-actions';
-  body.append(note,summary,actions);
+  body.append(note,summary,promptBox,actions);
   panel.append(head,body);
   document.body.append(panel);
 
@@ -126,8 +148,99 @@ function installPatchPanel(){
     summaryWarnings.textContent=warnings.length?`${warnings.length} warning(s): ${warnings.slice(0,3).join(' | ')}`:'';
   }
 
-  async function pollProtocol(sessionId){
+  function clearPrompt(){
+    promptBox.hidden=true;
+    promptTitle.textContent='';
+    promptNote.textContent='';
+    promptItems.replaceChildren();
+    promptButtons.replaceChildren();
+  }
+
+  function selectedPromptIndexes(){
+    return [...promptItems.querySelectorAll('input[type="checkbox"]:checked')]
+      .map(input=>Number(input.dataset.patchIndex))
+      .filter(index=>Number.isInteger(index)&&index>0);
+  }
+
+  function applyPromptConstraints(changed,prompt){
+    if(!changed?.checked)return;
+    const constraints=prompt?.constraints&&typeof prompt.constraints==='object'?prompt.constraints:{};
+    if(constraints.collect_exclusive!==true)return;
+    const changedKind=String(changed.dataset.patchKind||'').toUpperCase();
+    for(const input of promptItems.querySelectorAll('input[type="checkbox"]')){
+      if(input===changed||!input.checked)continue;
+      const kind=String(input.dataset.patchKind||'').toUpperCase();
+      if(changedKind==='COLLECT'||kind==='COLLECT')input.checked=false;
+    }
+  }
+
+  async function submitPromptResponse(sessionId,prompt,action){
+    const payload={prompt_id:String(prompt?.prompt_id||''),action};
+    if(action==='select')payload.indexes=selectedPromptIndexes();
+    for(const button of promptButtons.querySelectorAll('button'))button.disabled=true;
+    try{
+      await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/prompt-response`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(payload),
+      });
+      clearPrompt();
+      summaryStatus.textContent=action==='cancel'?'Cancelled':'Selection submitted';
+    }catch(error){
+      for(const button of promptButtons.querySelectorAll('button'))button.disabled=false;
+      throw error;
+    }
+  }
+
+  function renderQueuePrompt(sessionId,prompt){
+    if(prompt?.type!=='prompt'||prompt?.prompt_kind!=='queue_selection'||!prompt?.prompt_id)return false;
+    const items=Array.isArray(prompt.items)?prompt.items:[];
+    if(!items.length)return false;
+    const initial=new Set(Array.isArray(prompt.initial_selected)?prompt.initial_selected.map(Number):[]);
+    const actionsAllowed=new Set(Array.isArray(prompt.actions)?prompt.actions.map(String):[]);
+    clearPrompt();
+    promptBox.hidden=false;
+    promptTitle.textContent=String(prompt.title||'Choose PATCH/COLLECT work');
+    promptNote.textContent='Select work here, or use the terminal tab. Python validates the final selection.';
+    for(const item of items){
+      const index=Number(item?.index);
+      if(!Number.isInteger(index)||index<1)continue;
+      const label=document.createElement('label');label.className='task-patch-prompt-item';
+      const input=document.createElement('input');input.type='checkbox';input.dataset.patchIndex=String(index);input.dataset.patchKind=String(item?.kind||'');
+      input.checked=initial.has(index);
+      input.onchange=()=>applyPromptConstraints(input,prompt);
+      const copy=document.createElement('span');copy.className='task-patch-prompt-copy';
+      const name=document.createElement('span');name.className='task-patch-prompt-name';
+      name.textContent=`${index}. ${String(item?.name||'')}`;
+      const detail=document.createElement('span');detail.className='task-patch-prompt-detail';
+      detail.textContent=[item?.group,item?.kind,item?.detail].filter(Boolean).join(' · ');
+      copy.append(name,detail);
+      label.append(input,copy);
+      promptItems.append(label);
+    }
+    if(actionsAllowed.has('select')){
+      const select=document.createElement('button');select.type='button';select.textContent='Run selected';
+      select.onclick=()=>{
+        if(!selectedPromptIndexes().length){
+          promptNote.textContent='Select at least one item, or Cancel.';
+          return;
+        }
+        submitPromptResponse(sessionId,prompt,'select').catch(app.showError);
+      };
+      promptButtons.append(select);
+    }
+    if(actionsAllowed.has('cancel')){
+      const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';
+      cancel.onclick=()=>submitPromptResponse(sessionId,prompt,'cancel').catch(app.showError);
+      promptButtons.append(cancel);
+    }
+    return true;
+  }
+
+  async function pollProtocol(sessionId,expectPrompt=false){
     resetSummary('Loading…');
+    clearPrompt();
+    let haveSnapshot=false;
     for(let attempt=0;attempt<40;attempt+=1){
       let state;
       try{
@@ -141,18 +254,31 @@ function installPatchPanel(){
         resetSummary('PTY-only');
         return;
       }
-      if(state?.queue_snapshot){
+      if(state?.queue_snapshot&&!haveSnapshot){
         renderQueueSnapshot(state.queue_snapshot);
+        haveSnapshot=true;
+      }
+      if(expectPrompt&&state?.commands_enabled===false&&haveSnapshot){
+        summaryStatus.textContent+=' · Continue in PTY';
         return;
       }
+      if(expectPrompt&&state?.prompt&&renderQueuePrompt(sessionId,state.prompt)){
+        summaryStatus.textContent+=' · Awaiting selection';
+        return;
+      }
+      if(!expectPrompt&&haveSnapshot)return;
       if(state?.error){
-        resetSummary('Protocol error');
+        if(!haveSnapshot)resetSummary('Protocol error');
         summaryWarnings.textContent=String(state.error);
         return;
       }
       await new Promise(resolve=>setTimeout(resolve,250));
     }
-    resetSummary('Snapshot timeout');
+    if(haveSnapshot){
+      summaryStatus.textContent+=' · Continue in PTY';
+    }else{
+      resetSummary('Snapshot timeout · Continue in PTY');
+    }
   }
 
   async function start(mode,sourceButton=null){
@@ -166,7 +292,7 @@ function installPatchPanel(){
       app.attachSession(meta,true);
       window.dispatchEvent(new CustomEvent('taskmenu:patch-session-started',{detail:{mode,meta}}));
       if(mode==='queue'||mode==='resume'||mode==='plan'){
-        void pollProtocol(meta.id);
+        void pollProtocol(meta.id,mode==='queue');
       }else{
         resetSummary('History uses PTY');
       }
@@ -177,7 +303,7 @@ function installPatchPanel(){
   }
 
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,renderQueuePrompt,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 

@@ -25,9 +25,16 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"/protocol",
 		"for(let attempt=0;attempt<40;attempt+=1)",
 		"renderQueueSnapshot(state.queue_snapshot)",
+		"state?.prompt&&renderQueuePrompt(sessionId,state.prompt)",
+		"/prompt-response",
+		"submitPromptResponse(sessionId,prompt,'select')",
+		"submitPromptResponse(sessionId,prompt,'cancel')",
+		"prompt.initial_selected",
+		"constraints.collect_exclusive",
+		"mode==='queue'",
 		"items.slice(0,50)",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot",
+		"TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,renderQueuePrompt",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {
@@ -67,6 +74,28 @@ func TestPatchPanelNativeSummaryDoesNotParseTerminalOutput(t *testing.T) {
 	} {
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("Patch native summary must not parse or infer terminal output: found %q", forbidden)
+		}
+	}
+}
+
+
+func TestPatchPanelPromptUsesProtocolDataNotTerminalHeuristics(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"prompt?.prompt_kind!=='queue_selection'",
+		"item?.index",
+		"item?.kind",
+		"item?.group",
+		"prompt.actions",
+		"prompt.constraints",
+		"Python validates the final selection.",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native queue prompt missing protocol-driven contract %q", want)
 		}
 	}
 }
