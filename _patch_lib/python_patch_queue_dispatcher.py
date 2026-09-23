@@ -798,14 +798,27 @@ def _persistent_failed_queue_rows(root: Path, items: list[QueueItem], previous: 
     return out
 
 
+def _failed_queue_rows_by_name(
+    root: Path,
+    items: list[QueueItem],
+    previous: dict[str, object] | None,
+) -> dict[str, dict[str, object]]:
+    """Return the current queue package -> unresolved recovery row mapping."""
+    by_name = {item.name: item for item in items}
+    failed: dict[str, dict[str, object]] = {}
+    for row in _persistent_failed_queue_rows(root, items, previous):
+        queue_name = _recovery_row_queue_name(row) or str(row.get("name") or "")
+        item = by_name.get(queue_name)
+        if item is None or queue_name in failed:
+            continue
+        if _failure_row_matches_queue_item(root, row, item):
+            failed[queue_name] = row
+    return failed
+
+
 def _last_failed_queue_names(root: Path, items: list[QueueItem], previous: dict[str, object] | None) -> set[str]:
     """Return queued PATCH/COLLECT names with persistent unresolved state."""
-    by_name={item.name:item for item in items}; failed=set()
-    for row in _persistent_failed_queue_rows(root,items,previous):
-        queue_name=_recovery_row_queue_name(row) or str(row.get("name") or "")
-        item=by_name.get(queue_name)
-        if item is not None and _failure_row_matches_queue_item(root,row,item): failed.add(queue_name)
-    return failed
+    return set(_failed_queue_rows_by_name(root, items, previous))
 
 
 def _group_selector_items(items: list[QueueItem], failed_names: set[str] | None) -> list[QueueItem]:
@@ -3226,6 +3239,58 @@ def discover_queue(root: Path):
 
     items.sort(key=lambda x: natural_name_key(x.name))
     return items, warnings
+
+
+def _protocol_failure_summary(row: dict[str, object]) -> dict[str, object]:
+    result = row.get("patch_result") if isinstance(row.get("patch_result"), dict) else None
+    diagnosis = result.get("diagnosis") if isinstance(result, dict) and isinstance(result.get("diagnosis"), dict) else None
+    if diagnosis is None and isinstance(row.get("diagnosis"), dict):
+        diagnosis = row.get("diagnosis")
+    status = str(row.get("status") or "UNKNOWN").strip().upper()
+    if status == "PASS" and row.get("batch_rolled_back") is True:
+        status = "ROLLED_BACK"
+    raw_rc = row.get("rc")
+    rc = raw_rc if isinstance(raw_rc, int) and not isinstance(raw_rc, bool) else None
+    kind = str(diagnosis.get("kind") or "unknown") if isinstance(diagnosis, dict) else "unknown"
+    message = str(diagnosis.get("message") or "") if isinstance(diagnosis, dict) else ""
+    return {
+        "status": _safe_display(status)[:64],
+        "rc": rc,
+        "diagnosis_kind": _safe_display(kind)[:128],
+        "message": _safe_display(message)[:512],
+    }
+
+
+def protocol_queue_view(root: Path) -> dict[str, object]:
+    """Stable native Queue/Failed projection owned entirely by Python policy."""
+    items, warnings = discover_queue(root)
+    previous = _load_previous_run(root)
+    meaningful_previous = previous if _is_meaningful_run(previous) else None
+    failed_rows = _failed_queue_rows_by_name(root, items, meaningful_previous)
+    rows: list[dict[str, object]] = []
+    counts: dict[str, int] = {}
+    group_counts = {"new": 0, "failed": 0}
+    for item in items:
+        group = "failed" if item.name in failed_rows else "new"
+        row: dict[str, object] = {
+            "name": str(item.name),
+            "kind": str(item.kind),
+            "detail": str(item.detail or ""),
+            "group": group,
+        }
+        if group == "failed":
+            row["failure"] = _protocol_failure_summary(failed_rows[item.name])
+        rows.append(row)
+        counts[item.kind] = counts.get(item.kind, 0) + 1
+        group_counts[group] += 1
+    return {
+        "status": "runnable" if rows else "empty",
+        "items": rows,
+        "warnings": [str(value) for value in warnings],
+        "counts": counts,
+        "group_counts": group_counts,
+        "total": len(rows),
+    }
 
 
 def _read_key_posix(fd):

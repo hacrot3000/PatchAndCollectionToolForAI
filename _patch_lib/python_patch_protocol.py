@@ -240,29 +240,10 @@ def build_queue_snapshot(project_root: str) -> dict[str, Any]:
     or history schemas to TaskDeck.
     """
     from pathlib import Path
-    from python_patch_queue_dispatcher import discover_queue
+    from python_patch_queue_dispatcher import protocol_queue_view
 
     root = Path(project_root).expanduser().resolve()
-    items, warnings = discover_queue(root)
-    rows = [
-        {
-            "name": str(item.name),
-            "kind": str(item.kind),
-            "detail": str(item.detail or ""),
-        }
-        for item in items
-    ]
-    counts: dict[str, int] = {}
-    for row in rows:
-        kind = row["kind"]
-        counts[kind] = counts.get(kind, 0) + 1
-    return {
-        "status": "runnable" if rows else "empty",
-        "items": rows,
-        "warnings": [str(value) for value in warnings],
-        "counts": counts,
-        "total": len(rows),
-    }
+    return protocol_queue_view(root)
 
 
 def emit_queue_snapshot(writer: EventWriter, project_root: str) -> bool:

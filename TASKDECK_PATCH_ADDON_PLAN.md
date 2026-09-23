@@ -168,9 +168,11 @@ Status: **DONE**
 - [x] Patch panel renders Python-owned queue_selection prompts and submits only bounded select/cancel responses; PTY remains available as fallback.
 
 ### Phase 2 — Native Patch web UI
-Status: **TODO**
+Status: **IN PROGRESS**
 
 - [ ] Native Queue and Failed views.
+  - [x] Phase 2A.1 Python-owned stable Queue/Failed protocol projection.
+  - [ ] Phase 2A.2 Web Queue/Failed views from queue_snapshot.
 - [ ] Native Inspect / Preview / Validate.
 - [ ] Native Run selection and confirmation prompts.
 - [ ] Native Running/progress view with console as secondary evidence.
@@ -238,8 +240,9 @@ Every phase must preserve:
 | Phase 1.5F.3a Python artifact events | DONE | 858f2293 | Emits fail handoff, AI sync and COLLECT result artifacts only after validating a real non-link file under project artifacts/; internal/history files are not exposed. |
 | Phase 1.5F.3b native artifact state/actions | DONE | 033af150 | TaskDeck retains a bounded validated artifact list; Patch panel offers existing safe download plus text-editor open actions without parsing terminal/history output. |
 | Phase 1.5G.1 Python COLLECT progress events | DONE | e5a55760 | COLLECT progress supervisor emits bounded phase/status/elapsed/output/detail events over the inherited protocol FD; Go never parses console text. |
-| Phase 1.5G.2 native progress state/UI | DONE | this commit | TaskDeck validates and retains only the latest bounded progress event; Patch panel renders native progress while PTY remains unchanged. |
+| Phase 1.5G.2 native progress state/UI | DONE | 851611a4 | TaskDeck validates and retains only the latest bounded progress event; Patch panel renders native progress while PTY remains unchanged. |
+| Phase 2A.1 Queue/Failed protocol projection | DONE | this commit | Python dispatcher projects new/failed grouping and bounded failure summaries from the same unresolved policy used by the terminal selector; Go does not read history schemas. |
 
 ## Next action
 
-Begin **Phase 2A**: native Queue/Failed views backed by new stable Python protocol views; do not read internal history schemas from Go.
+Continue **Phase 2A.2**: render separate native Queue and Failed views from queue_snapshot.group/failure fields, preserving the existing Python-owned selection prompt and PTY fallback.

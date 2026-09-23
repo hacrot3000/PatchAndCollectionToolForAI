@@ -10,6 +10,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import python_patch_entry as entry
 
@@ -479,6 +480,54 @@ class ProtocolContractTests(unittest.TestCase):
             self.assertEqual(entry.classify_route(args), want)
 
 
+    def test_queue_snapshot_projects_new_and_failed_groups_from_python_policy(self):
+        import python_patch_queue_dispatcher as dispatcher
+        from python_patch_protocol import build_queue_snapshot
+
+        items = [
+            dispatcher.QueueItem("new.zip", "PATCH", "manifest"),
+            dispatcher.QueueItem("failed.zip", "PATCH", "manifest"),
+        ]
+        failed_row = {
+            "name": "failed.zip",
+            "status": "FAIL",
+            "rc": 2,
+            "patch_result": {
+                "diagnosis": {
+                    "kind": "build_failed",
+                    "message": "compiler rejected source\nsecond line",
+                }
+            },
+        }
+        with mock.patch.object(dispatcher, "discover_queue", return_value=(items, ["warning"])), \
+             mock.patch.object(dispatcher, "_load_previous_run", return_value={"selected": ["failed.zip"], "results": []}), \
+             mock.patch.object(dispatcher, "_is_meaningful_run", return_value=True), \
+             mock.patch.object(dispatcher, "_persistent_failed_queue_rows", return_value=[failed_row]), \
+             mock.patch.object(dispatcher, "_failure_row_matches_queue_item", side_effect=lambda _root, row, item: row.get("name") == item.name):
+            snapshot = build_queue_snapshot("/workspace")
+
+        self.assertEqual(snapshot["group_counts"], {"new": 1, "failed": 1})
+        rows = {row["name"]: row for row in snapshot["items"]}
+        self.assertEqual(rows["new.zip"]["group"], "new")
+        self.assertNotIn("failure", rows["new.zip"])
+        self.assertEqual(rows["failed.zip"]["group"], "failed")
+        self.assertEqual(rows["failed.zip"]["failure"]["status"], "FAIL")
+        self.assertEqual(rows["failed.zip"]["failure"]["rc"], 2)
+        self.assertEqual(rows["failed.zip"]["failure"]["diagnosis_kind"], "build_failed")
+        self.assertNotIn("\n", rows["failed.zip"]["failure"]["message"])
+
+    def test_failed_group_names_share_protocol_projection_mapping(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        items = [dispatcher.QueueItem("failed.zip", "PATCH", "manifest")]
+        row = {"name": "failed.zip", "status": "FAIL"}
+        with mock.patch.object(dispatcher, "_persistent_failed_queue_rows", return_value=[row]), \
+             mock.patch.object(dispatcher, "_failure_row_matches_queue_item", return_value=True):
+            mapping = dispatcher._failed_queue_rows_by_name(Path("/workspace"), items, None)
+            names = dispatcher._last_failed_queue_names(Path("/workspace"), items, None)
+        self.assertEqual(set(mapping), names)
+        self.assertEqual(names, {"failed.zip"})
+
     def test_queue_snapshot_uses_dispatcher_discovery_contract(self):
         from python_patch_protocol import build_queue_snapshot
 
@@ -488,6 +537,7 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertEqual(snapshot["items"], [])
         self.assertEqual(snapshot["warnings"], [])
         self.assertEqual(snapshot["counts"], {})
+        self.assertEqual(snapshot["group_counts"], {"new": 0, "failed": 0})
         self.assertEqual(snapshot["total"], 0)
 
     def test_protocol_supervisor_emits_snapshot_before_run_started(self):
