@@ -761,10 +761,15 @@ class ProtocolContractTests(unittest.TestCase):
         worker = threading.Thread(target=respond)
         worker.start()
         try:
-            with mock.patch.object(dispatcher, "_merged_failed_recovery_rows", return_value=[failed_row]), \
+            with tempfile.TemporaryDirectory(prefix="taskdeck-native-resume-") as td, \
+                 mock.patch.object(dispatcher, "_merged_failed_recovery_rows", return_value=[failed_row]), \
                  mock.patch.object(dispatcher, "_queued_failed_rows", return_value=[failed_row]), \
+                 mock.patch.object(dispatcher, "_bind_recovery_queue_row", return_value=failed_row), \
                  mock.patch.object(dispatcher, "_visible_history_entries", return_value=[]):
-                handled, decision = dispatcher._protocol_resume_selection(Path("/workspace"), items, previous)
+                root = Path(td)
+                (root / "patchs").mkdir()
+                (root / "patchs" / "failed.zip").write_bytes(b"fixture")
+                handled, decision = dispatcher._protocol_resume_selection(root, items, previous)
         finally:
             worker.join(timeout=2)
             if old_event is None: os.environ.pop(entry.EVENT_FD_ENV, None)
@@ -807,7 +812,13 @@ class ProtocolContractTests(unittest.TestCase):
         worker = threading.Thread(target=respond)
         worker.start()
         try:
-            handled, decision = dispatcher._protocol_resume_selection(Path("/workspace"), [], {"status": "FAIL", "results": []})
+            with tempfile.TemporaryDirectory(prefix="taskdeck-native-resume-invalid-") as td, \
+                 mock.patch.object(dispatcher, "_merged_failed_recovery_rows", return_value=[]), \
+                 mock.patch.object(dispatcher, "_queued_failed_rows", return_value=[]), \
+                 mock.patch.object(dispatcher, "_visible_history_entries", return_value=[]):
+                root = Path(td)
+                (root / "patchs").mkdir()
+                handled, decision = dispatcher._protocol_resume_selection(root, [], {"status": "FAIL", "results": []})
         finally:
             worker.join(timeout=2)
             if old_event is None: os.environ.pop(entry.EVENT_FD_ENV, None)

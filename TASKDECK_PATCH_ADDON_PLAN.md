@@ -270,7 +270,8 @@ Every phase must preserve:
 | Phase 2C.1 normal-run interaction audit | DONE | 6d7accbf | Verified queue_selection select/cancel is the only interactive normal-run confirmation boundary; added a regression contract preventing a second terminal-input gate before execute_items. Resume/delete/history interactions are explicitly deferred to their owning phases. |
 | Phase 2D.1 native Running primary view | DONE | 12a9dcdc | Queue PTY is attached without activation; after native selection the Patch panel prioritizes lifecycle/progress/artifacts, with explicit terminal-evidence fallback and post-finish return to Queue. |
 | Phase 2E.1 Resume projection/contract | DONE | 195ebd3a | Python emits a stable resume_snapshot from the exact Smart Resume boundary, shares action definitions with terminal Resume, defines resume_action contract, and TaskDeck retains the snapshot without changing terminal interaction. |
-| Phase 2E.2a native Resume Python command path | DONE | this commit | Python handles prompt-bound resume_action only when TASKDECK_PATCH_NATIVE_RESUME=1 and both protocol channels exist; malformed/unavailable native input falls back to the historical terminal Resume path. |
+| Phase 2E.2a native Resume Python command path | DONE | fee4eafa | Python handles prompt-bound resume_action only when TASKDECK_PATCH_NATIVE_RESUME=1 and both protocol channels exist; malformed/unavailable native input falls back to the historical terminal Resume path. |
+| Phase 2E.2a test fixture correction | DONE | this commit | Resume protocol tests now use an existing temp project and explicit recovery-row binding mocks; runtime behavior is unchanged. |
 
 ## Next action
 
