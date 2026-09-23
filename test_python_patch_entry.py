@@ -339,6 +339,32 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertLessEqual(len(bounded.encode("utf-8")), dispatcher._PROTOCOL_ACTION_OUTPUT_BYTES + 8)
         self.assertTrue(bounded.endswith("TAIL"))
 
+    def test_normal_queue_has_no_second_terminal_confirmation_after_selection(self):
+        dispatcher = (self.base / "_patch_lib" / "python_patch_queue_dispatcher.py").read_text(encoding="utf-8")
+        start = dispatcher.index('    if chosen is None:\n        print("Cancelled.")')
+        end = dispatcher.index('        rc, executed, remaining, late_duplicates, late_duplicate_warnings = execute_items(', start)
+        execution_path = dispatcher[start:end]
+        for forbidden in (
+            "input(",
+            "sys.stdin",
+            "_read_key(",
+            "_read_key_windows(",
+            "_interactive_choice_menu(",
+            "_select_failed_rows(",
+        ):
+            self.assertNotIn(forbidden, execution_path)
+        self.assertIn("resource_preflight_report = disk_preflight(", execution_path)
+        self.assertIn("_batch_preflight(", execution_path)
+
+    def test_noninteractive_auto_selection_remains_explicitly_confirmed_and_patch_only(self):
+        dispatcher = (self.base / "_patch_lib" / "python_patch_queue_dispatcher.py").read_text(encoding="utf-8")
+        start = dispatcher.index("def _configured_auto_selection(")
+        end = dispatcher.index("\ndef _normalize_subprocess_rc(", start)
+        block = dispatcher[start:end]
+        self.assertIn('cfg.get("non_interactive_confirmed", False)', block)
+        self.assertIn('any(item.kind != "PATCH" for item in items)', block)
+        self.assertIn('return None', block)
+
     def test_dispatcher_protocol_selector_absent_channels_falls_back(self):
         from python_patch_queue_dispatcher import QueueItem, _protocol_queue_selection
 

@@ -179,8 +179,19 @@ Status: **IN PROGRESS**
     - [x] Phase 2B.2a session action_result state and stale-prompt write gate.
     - [x] Phase 2B.2b narrow public item-action endpoint.
   - [x] Phase 2B.3 Patch panel Inspect/Preview/Validate controls and result viewer.
-- [ ] Native Run selection and confirmation prompts.
+- [x] Native Run selection and confirmation prompts.
+  - [x] Phase 2C.1 audit confirms the existing native queue_selection select/cancel response is the normal-run confirmation boundary; there is no second terminal confirmation after selection.
+  - [x] Existing non-interactive selection remains separately gated by non_interactive_confirmed and PATCH-only queue rules.
 - [ ] Native Running/progress view with console as secondary evidence.
+
+#### Phase 2C.1 interaction audit
+
+- **Normal Queue run:** native already. The Python-owned `queue_selection` prompt + `select/cancel` response is the explicit run-selection/confirmation boundary. After a valid selection, Python performs planner/resource/preflight/transaction safety gates and reaches `execute_items()` without another stdin/key confirmation.
+- **Configured non-interactive run:** intentionally not a web prompt. It executes only when project config has `non_interactive_confirmed=true`, and automatic selection remains PATCH-only; otherwise Python falls back to the normal prompt.
+- **Queue item delete:** terminal-only mutation/confirmation today; classify as Queue management rather than Run confirmation. Native support must preserve Python-owned delete safety semantics.
+- **Smart Resume choices / failed-row multi-select / collect_failed / delete_failed:** terminal-only today and belong to the dedicated Native Resume/recovery phase.
+- **History/report pagination and menus:** terminal-only today and belong to Native History/report browser.
+
 - [ ] Native Resume/recovery.
 - [ ] Native History/report browser.
 - [ ] Native artifact actions.
@@ -251,8 +262,9 @@ Every phase must preserve:
 | Phase 2B.1 native item action protocol | DONE | c9fe4dfb | Active queue prompts accept bounded inspect/preview/validate item_action commands, execute the existing read-only Python runner path, emit correlated action_result events, then continue waiting for selection. |
 | Phase 2B.2a action result state/gate | DONE | 01e0936f | Session state validates/retains latest action_result, clears it on a new prompt/run, and binds item_action to the still-active prompt at the final FD4 write gate. |
 | Phase 2B.2b narrow item-action endpoint | DONE | 3bb89fe6 | Public API accepts only prompt-bound inspect/preview/validate + index, validates PATCH-only prompt items, generates action_id server-side and never exposes raw protocol command writes. |
-| Phase 2B.3 native item action UI | DONE | this commit | Queue/Failed PATCH rows expose only Python-advertised Inspect/Preview/Validate actions; result polling is correlated by action_id and rendered from structured action_result state. |
+| Phase 2B.3 native item action UI | DONE | 39f59d45 | Queue/Failed PATCH rows expose only Python-advertised Inspect/Preview/Validate actions; result polling is correlated by action_id and rendered from structured action_result state. |
+| Phase 2C.1 normal-run interaction audit | DONE | this commit | Verified queue_selection select/cancel is the only interactive normal-run confirmation boundary; added a regression contract preventing a second terminal-input gate before execute_items. Resume/delete/history interactions are explicitly deferred to their owning phases. |
 
 ## Next action
 
-Continue **Phase 2C.1**: audit remaining Run-selection/confirmation decisions in the Python queue path and define native prompt contracts for any confirmations still handled only through terminal stdin, without duplicating execution policy in Go.
+Continue **Phase 2D.1**: make the native Running view the primary Patch-panel surface for an executing queue session (item lifecycle + progress + artifacts), while keeping the PTY session available as secondary evidence rather than removing it.
