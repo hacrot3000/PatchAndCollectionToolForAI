@@ -53,7 +53,7 @@ func main() {
 	handoffFD := flag.Int("handoff-fd", -1, "inherited listener fd (internal)")
 	listenAddr := flag.String("listen-addr", "", "listener address override (internal)")
 	selfUpdateID := flag.String("self-update-id", "", "self-update handoff id (internal)")
-	cleanupLegacy := flag.Bool("cleanup-legacy", false, "dọn vscode_tasks_menu và vscode_tasks_menu_go cũ trong workspace")
+	cleanupLegacy := flag.Bool("cleanup-legacy", false, "dọn thành phần TaskDeck/Patch Tool legacy đã xác minh trong workspace")
 	flag.Parse()
 
 	if *versionFlag {
@@ -72,7 +72,12 @@ func main() {
 	ws, err := resolveWorkspace(*workspace)
 	fatalIf(err)
 	if *cleanupLegacy {
+		if taskdeckSourceRepository(ws) {
+			fmt.Println("Bỏ qua cleanup: workspace hiện tại là source repo TaskDeck.")
+			return
+		}
 		fatalIf(cleanupLegacyTaskdeckArtifacts(ws, true))
+		fatalIf(cleanupLegacyPatchRuntime(ws, true))
 		return
 	}
 	if !*serve && !*sessionBroker && !*gitTextconv && !*selfUpdateAuto {
@@ -281,6 +286,83 @@ func cleanupLegacyTaskdeckArtifacts(workspace string, forcePrompt bool) error {
 	return nil
 }
 
+func printLegacyPatchPaths(label string, values []string) {
+	if len(values) == 0 {
+		return
+	}
+	fmt.Printf("%s (%d):\n", label, len(values))
+	limit := len(values)
+	if limit > 12 {
+		limit = 12
+	}
+	for _, value := range values[:limit] {
+		fmt.Println(" -", value)
+	}
+	if len(values) > limit {
+		fmt.Printf(" - ... và %d file khác\n", len(values)-limit)
+	}
+}
+
+func cleanupLegacyPatchRuntime(workspace string, forcePrompt bool) error {
+	if taskdeckSourceRepository(workspace) {
+		return nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		if forcePrompt {
+			return fmt.Errorf("resolve executable for Patch migration: %w", err)
+		}
+		return nil
+	}
+	plan, err := patchtool.PlanLegacyMigration(workspace, exe)
+	if err != nil {
+		if forcePrompt {
+			return fmt.Errorf("kiểm tra Patch Tool legacy: %w", err)
+		}
+		return nil
+	}
+	if !plan.Present {
+		if forcePrompt {
+			fmt.Println("Không còn Patch Tool runtime legacy cần migrate trong workspace.")
+		}
+		return nil
+	}
+	if !plan.Safe {
+		if forcePrompt {
+			fmt.Println("Giữ nguyên Patch Tool runtime legacy vì không thể xác minh an toàn toàn bộ nội dung.")
+			printLegacyPatchPaths("File đã sửa hoặc khác checksum", plan.Modified)
+			printLegacyPatchPaths("File lạ/không thuộc bundled runtime", plan.Unknown)
+		}
+		return nil
+	}
+
+	stdinInfo, err := os.Stdin.Stat()
+	if err != nil || stdinInfo.Mode()&os.ModeCharDevice == 0 {
+		if forcePrompt {
+			return fmt.Errorf("Patch runtime migration cần chạy từ terminal tương tác")
+		}
+		return nil
+	}
+	fmt.Printf("Phát hiện Patch Tool runtime legacy đã xác minh (%d file): %s\n", len(plan.Verified), plan.LegacyRoot)
+	fmt.Print("Chuyển sang TaskDeck global và giữ launcher tương thích taskdeck patch? [y/N]: ")
+	answer, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil {
+		return err
+	}
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "y", "yes":
+	default:
+		fmt.Println("Đã bỏ qua Patch runtime migration.")
+		return nil
+	}
+	applied, err := patchtool.ApplyLegacyMigration(workspace, exe)
+	if err != nil {
+		return fmt.Errorf("Patch runtime migration thất bại: %w", err)
+	}
+	fmt.Printf("Đã migrate Patch Tool legacy: %d file đã xác minh; launcher cũ (nếu có) nay chuyển tiếp sang taskdeck patch.\n", len(applied.Verified))
+	return nil
+}
+
 func maybeOfferLegacyCleanup(workspace string) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -300,6 +382,9 @@ func maybeOfferLegacyCleanup(workspace string) {
 	fmt.Println("TaskDeck đang chạy từ global app:", global)
 	if err := cleanupLegacyTaskdeckArtifacts(workspace, false); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: legacy cleanup: %v\n", err)
+	}
+	if err := cleanupLegacyPatchRuntime(workspace, false); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: Patch runtime migration: %v\n", err)
 	}
 }
 

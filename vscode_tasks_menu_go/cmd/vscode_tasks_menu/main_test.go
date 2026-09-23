@@ -445,6 +445,9 @@ func TestLegacyCleanupSkipsTaskdeckSourceRepository(t *testing.T) {
 	if !taskdeckSourceRepository(workspace) {
 		t.Fatal("TaskDeck source repository was not recognized")
 	}
+	if err := cleanupLegacyPatchRuntime(workspace, true); err != nil {
+		t.Fatalf("Patch runtime cleanup must skip source repository before runtime inspection: %v", err)
+	}
 }
 
 func TestLegacyCleanupFindsOnlyOldProjectArtifacts(t *testing.T) {
@@ -474,6 +477,9 @@ func TestLegacyCleanupRunsOnlyFromGlobalInteractiveEntry(t *testing.T) {
 		"stdinInfo.Mode()&os.ModeCharDevice",
 		"taskdeckSourceRepository(workspace)",
 		"cleanupLegacyTaskdeckArtifacts(workspace, false)",
+		"cleanupLegacyPatchRuntime(workspace, false)",
+		"patchtool.PlanLegacyMigration(workspace, exe)",
+		"patchtool.ApplyLegacyMigration(workspace, exe)",
 		"os.RemoveAll(path)",
 		"Dọn dẹp và xóa các thành phần cũ này? [y/N]:",
 	} {
@@ -511,7 +517,9 @@ func TestCleanupLegacyFlagExists(t *testing.T) {
 	for _, want := range []string{
 		`flag.Bool("cleanup-legacy"`,
 		"cleanupLegacyTaskdeckArtifacts(ws, true)",
+		"cleanupLegacyPatchRuntime(ws, true)",
 		"Không còn thành phần TaskDeck legacy trong workspace.",
+		"Không còn Patch Tool runtime legacy cần migrate trong workspace.",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("cleanup CLI missing %q", want)
@@ -586,6 +594,26 @@ func TestSelfUpdateRequiresCompleteVersionedRelease(t *testing.T) {
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("versioned release self-update flow missing %q", want)
+		}
+	}
+}
+
+
+func TestPatchLegacyCleanupIsFailClosedAndInteractive(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"if !plan.Safe",
+		"Giữ nguyên Patch Tool runtime legacy vì không thể xác minh an toàn toàn bộ nội dung.",
+		"stdinInfo.Mode()&os.ModeCharDevice",
+		"Chuyển sang TaskDeck global và giữ launcher tương thích taskdeck patch? [y/N]:",
+		"patchtool.ApplyLegacyMigration(workspace, exe)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("Patch legacy cleanup guard missing %q", want)
 		}
 	}
 }

@@ -135,14 +135,14 @@ Status: **DONE**
 - [x] Hide only the definite zero-argument legacy `tools/run_python_patches.sh` duplicate; parameterized/special tasks remain visible.
 
 ### Phase 1E — Legacy project runtime migration
-Status: **IN PROGRESS**
+Status: **DONE**
 
 - [x] Detect project-local Patch Tool runtime under `tools/`.
 - [x] Compare SHA-256 of candidate managed files against the bundled runtime from the active TaskDeck release.
 - [x] Any modified, symlinked or unknown file inside the legacy runtime blocks cleanup.
-- [ ] Never cleanup the PatchAndCollectionToolForAI source repository.
+- [x] Cleanup flow checks and skips the PatchAndCollectionToolForAI source repository before runtime inspection.
 - [x] Migration primitive replaces verified legacy launchers with tiny `taskdeck patch` compatibility shims and removes only revalidated runtime payload.
-- [ ] Wire migration into the interactive legacy-cleanup flow while always skipping the source repository.
+- [x] Interactive `--cleanup-legacy` and normal global-startup cleanup can migrate only a verified-safe runtime; unsafe runtime is retained.
 
 ### Phase 1.5 — Protocol v1
 Status: **TODO**
@@ -200,8 +200,9 @@ Every phase must preserve:
 | Phase 1D.3 legacy task de-dup | DONE | ae49e6ca | Task list hides only a zero-argument, exact legacy tools/run_python_patches.sh duplicate; customized/parameterized tasks remain visible. |
 | Phase 1E.1 migration safety plan | DONE | e9506386 | Added fail-closed SHA-256 comparison of legacy tools runtime against the active bundled release; modified/symlinked/unknown files block cleanup. |
 | Phase 1E.2a guarded migration apply | DONE | 6a7cbf1c | Revalidates hashes immediately before cleanup, installs compatibility launchers first, removes only verified runtime files, and keeps unrelated tools files. |
-| Phase 1E.2a migrated-shim recognition | DONE | this commit | Planner treats TaskDeck-generated compatibility launchers as already migrated instead of locally modified legacy runtime. |
+| Phase 1E.2a migrated-shim recognition | DONE | 00072c0d | Planner treats TaskDeck-generated compatibility launchers as already migrated instead of locally modified legacy runtime. |
+| Phase 1E.2b cleanup wiring | DONE | this commit | Wired verified Patch runtime migration into interactive/global legacy cleanup, kept unsafe runtimes, and skipped the source repository. |
 
 ## Next action
 
-Continue **Phase 1E.2b**: integrate the guarded Patch runtime migration into TaskDeck's interactive legacy cleanup and source-repository skip path.
+Implement **Phase 1.5A**: add an optional versioned JSONL event channel to the Python entrypoint, starting with protocol hello/run lifecycle events while leaving stdout/stderr and terminal interaction unchanged.
