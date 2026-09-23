@@ -5,14 +5,19 @@ REPOSITORY="hacrot3000/PatchAndCollectionToolForAI"
 BRANCH="main"
 API_URL="https://api.github.com/repos/$REPOSITORY/commits/$BRANCH"
 ARCHIVE_BASE_URL="https://codeload.github.com/$REPOSITORY/tar.gz"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALL_DIR="${TASKDECK_INSTALL_DIR:-${HOME}/.local/bin}"
-TARGET="$INSTALL_DIR/taskdeck"
+SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+BIN_DIR="\${TASKDECK_INSTALL_DIR:-\${HOME}/.local/bin}"
+APP_ROOT="\${TASKDECK_APP_DIR:-\${HOME}/.local/lib/taskdeck}"
+RELEASES_DIR="$APP_ROOT/releases"
+CURRENT_LINK="$APP_ROOT/current"
+TARGET="$BIN_DIR/taskdeck"
 MAX_ARCHIVE_BYTES=$((128 * 1024 * 1024))
 TMP_ROOT=""
+STAGED_RELEASE=""
 
 cleanup() {
-    [[ -n "${TMP_ROOT:-}" ]] && rm -rf -- "$TMP_ROOT"
+    [[ -n "\${STAGED_RELEASE:-}" && -d "$STAGED_RELEASE" ]] && rm -rf -- "$STAGED_RELEASE"
+    [[ -n "\${TMP_ROOT:-}" ]] && rm -rf -- "$TMP_ROOT"
 }
 trap cleanup EXIT
 
@@ -61,17 +66,46 @@ stage_with_git() {
     GIT_TERMINAL_PROMPT=0 git -C "$checkout" fetch -q --depth 1 origin "$revision" || return 1
     git -C "$checkout" checkout -q --detach FETCH_HEAD || return 1
     [[ -f "$checkout/vscode_tasks_menu_go/go.mod" ]] || return 1
-    printf '%s\n' "$checkout/vscode_tasks_menu_go"
+    printf '%s\n' "$checkout"
+}
+
+python_gate() {
+    command -v python3 >/dev/null 2>&1 || die "Cần Python 3.10+ trong PATH để dùng Patch add-on."
+    python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 3)' >/dev/null 2>&1 ||
+        die "Cần Python 3.10+ để dùng Patch add-on."
+}
+
+validate_release() {
+    local release="$1" revision="$2"
+    [[ -x "$release/taskdeck" ]] || return 1
+    [[ -f "$release/patchtool/python_patch_entry.py" ]] || return 1
+    [[ -f "$release/patchtool/_patch_lib/python_patch_queue_dispatcher.py" ]] || return 1
+    if [[ "$revision" != "dev" && "$revision" != dev-* ]]; then
+        "$release/taskdeck" --version 2>/dev/null | grep -Fq "$revision" || return 1
+    fi
+    return 0
+}
+
+atomic_symlink() {
+    local target="$1" link="$2"
+    local parent tmp
+    parent="$(dirname "$link")"
+    mkdir -p "$parent"
+    tmp="$parent/.$(basename "$link").new.$$"
+    rm -f -- "$tmp"
+    ln -s "$target" "$tmp"
+    mv -Tf -- "$tmp" "$link"
 }
 
 command -v go >/dev/null 2>&1 || die "Cần Go toolchain trong PATH để cài TaskDeck."
 command -v tar >/dev/null 2>&1 || die "Cần lệnh tar để cài TaskDeck."
-mkdir -p "$INSTALL_DIR"
+python_gate
+mkdir -p "$BIN_DIR" "$RELEASES_DIR"
 
-SOURCE=""
+SOURCE_ROOT=""
 REVISION=""
 if [[ -f "$SCRIPT_DIR/vscode_tasks_menu_go/go.mod" ]]; then
-    SOURCE="$SCRIPT_DIR/vscode_tasks_menu_go"
+    SOURCE_ROOT="$SCRIPT_DIR"
     if command -v git >/dev/null 2>&1 && git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         REVISION="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || true)"
         if [[ -n "$(git -C "$SCRIPT_DIR" status --porcelain --untracked-files=no 2>/dev/null || true)" ]]; then
@@ -80,9 +114,9 @@ if [[ -f "$SCRIPT_DIR/vscode_tasks_menu_go/go.mod" ]]; then
     fi
 fi
 
-if [[ -z "$SOURCE" ]]; then
+if [[ -z "$SOURCE_ROOT" ]]; then
     REVISION="$(remote_revision)"
-    TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/taskdeck-install.XXXXXX")"
+    TMP_ROOT="$(mktemp -d "\${TMPDIR:-/tmp}/taskdeck-install.XXXXXX")"
     archive="$TMP_ROOT/source.tar.gz"
     extract="$TMP_ROOT/extract"
     mkdir -p "$extract"
@@ -93,40 +127,77 @@ if [[ -z "$SOURCE" ]]; then
         tar --no-same-owner --no-same-permissions -xzf "$archive" -C "$extract"
         go_mod="$(find "$extract" -type f -path '*/vscode_tasks_menu_go/go.mod' -print -quit)"
         [[ -n "$go_mod" ]] || die "Archive thiếu vscode_tasks_menu_go/go.mod."
-        SOURCE="$(dirname "$go_mod")"
+        SOURCE_ROOT="$(dirname "$(dirname "$go_mod")")"
     else
         echo "Tải codeload thất bại; thử fallback bằng git..." >&2
-        SOURCE="$(stage_with_git "$REVISION" "$TMP_ROOT" || true)"
-        [[ -n "$SOURCE" ]] || die "Không tải được source qua codeload hoặc git."
+        SOURCE_ROOT="$(stage_with_git "$REVISION" "$TMP_ROOT" || true)"
+        [[ -n "$SOURCE_ROOT" ]] || die "Không tải được source qua codeload hoặc git."
     fi
 fi
 
 [[ -n "$REVISION" ]] || REVISION="$(remote_revision)"
+SOURCE="$SOURCE_ROOT/vscode_tasks_menu_go"
+for required in \
+    "$SOURCE/go.mod" \
+    "$SOURCE_ROOT/python_patch_entry.py" \
+    "$SOURCE_ROOT/run_python_patches.sh" \
+    "$SOURCE_ROOT/_patch_lib/python_patch_queue_dispatcher.py"; do
+    [[ -f "$required" ]] || die "Source thiếu runtime bắt buộc: $required"
+done
+
 echo "TaskDeck: chạy test trước khi cài..."
 (
     cd "$SOURCE"
     GOPROXY=off GOSUMDB=off go test ./...
 )
-
-staged="$(mktemp "$INSTALL_DIR/.taskdeck.new.XXXXXX")"
-rm -f "$staged"
-build_args=(build -buildvcs=false -trimpath)
-if [[ "$REVISION" != "dev" ]]; then
-    build_args+=(-ldflags "-X main.buildRevision=$REVISION")
-fi
-build_args+=(-o "$staged" ./cmd/vscode_tasks_menu)
 (
-    cd "$SOURCE"
-    GOPROXY=off GOSUMDB=off go "${build_args[@]}"
+    cd "$SOURCE_ROOT"
+    python3 test_python_patch_entry.py
+    python3 -m py_compile python_patch_entry.py
 )
-chmod 755 "$staged"
 
-version_output="$("$staged" --version)"
-if [[ "$REVISION" != "dev" && "$version_output" != *"$REVISION"* ]]; then
-    rm -f "$staged"
-    die "Binary validation thất bại: $version_output"
+RELEASE_ID="$REVISION"
+if [[ "$REVISION" == "dev" ]]; then
+    RELEASE_ID="dev-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 fi
-mv -f "$staged" "$TARGET"
+FINAL_RELEASE="$RELEASES_DIR/$RELEASE_ID"
+
+if validate_release "$FINAL_RELEASE" "$REVISION"; then
+    echo "TaskDeck release đã tồn tại và hợp lệ: $FINAL_RELEASE"
+else
+    if [[ -e "$FINAL_RELEASE" || -L "$FINAL_RELEASE" ]]; then
+        die "Release đích đã tồn tại nhưng không hợp lệ: $FINAL_RELEASE"
+    fi
+    STAGED_RELEASE="$RELEASES_DIR/.$RELEASE_ID.new.$$"
+    rm -rf -- "$STAGED_RELEASE"
+    mkdir -p "$STAGED_RELEASE/patchtool"
+
+    build_args=(build -buildvcs=false -trimpath)
+    if [[ "$REVISION" != "dev" ]]; then
+        build_args+=(-ldflags "-X main.buildRevision=$REVISION")
+    fi
+    build_args+=(-o "$STAGED_RELEASE/taskdeck" ./cmd/vscode_tasks_menu)
+    (
+        cd "$SOURCE"
+        GOPROXY=off GOSUMDB=off go "\${build_args[@]}"
+    )
+    chmod 755 "$STAGED_RELEASE/taskdeck"
+
+    cp "$SOURCE_ROOT/python_patch_entry.py" "$STAGED_RELEASE/patchtool/python_patch_entry.py"
+    cp "$SOURCE_ROOT/run_python_patches.sh" "$STAGED_RELEASE/patchtool/run_python_patches.sh"
+    [[ ! -f "$SOURCE_ROOT/run_python_patches.ps1" ]] || cp "$SOURCE_ROOT/run_python_patches.ps1" "$STAGED_RELEASE/patchtool/run_python_patches.ps1"
+    [[ ! -f "$SOURCE_ROOT/run_python_patches.bat" ]] || cp "$SOURCE_ROOT/run_python_patches.bat" "$STAGED_RELEASE/patchtool/run_python_patches.bat"
+    cp -a "$SOURCE_ROOT/_patch_lib" "$STAGED_RELEASE/patchtool/_patch_lib"
+    chmod 755 "$STAGED_RELEASE/patchtool/python_patch_entry.py" "$STAGED_RELEASE/patchtool/run_python_patches.sh"
+
+    validate_release "$STAGED_RELEASE" "$REVISION" || die "Release staging validation thất bại."
+    mv -- "$STAGED_RELEASE" "$FINAL_RELEASE"
+    STAGED_RELEASE=""
+fi
+
+atomic_symlink "$FINAL_RELEASE" "$CURRENT_LINK"
+atomic_symlink "$CURRENT_LINK/taskdeck" "$TARGET"
+
 if [[ "$REVISION" != "dev" ]]; then
     printf '%s\n' "$REVISION" > "$TARGET.revision.tmp"
     chmod 600 "$TARGET.revision.tmp"
@@ -135,8 +206,11 @@ else
     rm -f "$TARGET.revision"
 fi
 
-echo "Đã cài TaskDeck: $TARGET"
-case ":${PATH:-}:" in
-    *":$INSTALL_DIR:"*) ;;
-    *) echo "LƯU Ý: $INSTALL_DIR chưa có trong PATH. Hãy thêm nó để chạy lệnh: taskdeck" ;;
+echo "Đã cài TaskDeck release: $FINAL_RELEASE"
+echo "TaskDeck current: $CURRENT_LINK"
+echo "TaskDeck command: $TARGET"
+echo "Patch add-on: $CURRENT_LINK/patchtool"
+case ":\${PATH:-}:" in
+    *":$BIN_DIR:"*) ;;
+    *) echo "LƯU Ý: $BIN_DIR chưa có trong PATH. Hãy thêm nó để chạy lệnh: taskdeck" ;;
 esac

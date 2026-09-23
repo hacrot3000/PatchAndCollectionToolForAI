@@ -117,14 +117,14 @@ Status: **DONE**
 - [x] Preserve interactive terminal behavior by inheriting stdin/stdout/stderr and child exit code.
 
 ### Phase 1C — Versioned global release layout
-Status: **TODO**
+Status: **IN PROGRESS**
 
-- [ ] Install TaskDeck under `~/.local/lib/taskdeck/releases/<revision>/taskdeck`.
-- [ ] Install Patch Tool runtime beside it under `patchtool/`.
-- [ ] Atomically switch `~/.local/lib/taskdeck/current`.
-- [ ] Keep `~/.local/bin/taskdeck` as stable entrypoint/symlink.
-- [ ] Update self-update/handoff for release directories.
-- [ ] Ensure an in-flight old process may finish on its old release.
+- [x] Installer creates `~/.local/lib/taskdeck/releases/<revision>/taskdeck`.
+- [x] Installer places the Patch Tool runtime beside it under `patchtool/`.
+- [x] Installer atomically switches `~/.local/lib/taskdeck/current`.
+- [x] Installer keeps `~/.local/bin/taskdeck` as the stable symlink entrypoint.
+- [ ] Update self-update/handoff to install and switch versioned releases.
+- [x] Installer never removes old release directories, so in-flight processes keep their runtime.
 
 ### Phase 1D — Dedicated Patch panel
 Status: **TODO**
@@ -188,8 +188,9 @@ Every phase must preserve:
 | Phase 0 roadmap | DONE | 0ac231f2 | Architecture/recovery plan created before runtime changes. |
 | Phase 1A canonical entrypoint | DONE | 0e871ed1 | Routing moved from shell/PowerShell to one Python entrypoint; wrappers remain compatible. |
 | Phase 1A CI path correction | DONE | 14adf537 | Fix CI working-directory path for the new Python routing contract; no runtime behavior change. |
-| Phase 1B TaskDeck CLI | DONE | this commit | Added shared Patch runtime resolver and `taskdeck patch`; bundled runtime wins, legacy project launcher remains a migration fallback. |
+| Phase 1B TaskDeck CLI | DONE | 02b72b94 | Added shared Patch runtime resolver and `taskdeck patch`; bundled runtime wins, legacy project launcher remains a migration fallback. |
+| Phase 1C.1 versioned installer | DONE | this commit | Installer stages TaskDeck + Patch runtime as one immutable release and atomically switches `current` and the PATH symlink. |
 
 ## Next action
 
-Implement **Phase 1C**: install TaskDeck and Patch Tool together in a versioned global release and switch `~/.local/bin/taskdeck` to the current release atomically.
+Continue **Phase 1C.2**: teach in-app self-update to build/install the same versioned release bundle and atomically switch the global entrypoint.

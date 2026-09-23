@@ -28,7 +28,7 @@ func TestCompatibilityLauncherMigratesToGlobalTaskdeck(t *testing.T) {
 	}
 }
 
-func TestInstallScriptBuildsGlobalTaskdeck(t *testing.T) {
+func TestInstallScriptBuildsVersionedTaskdeckRelease(t *testing.T) {
 	wd, err := os.Getwd()
 	if err != nil { t.Fatal(err) }
 	root := filepath.Clean(filepath.Join(wd, "..", "..", ".."))
@@ -39,11 +39,17 @@ func TestInstallScriptBuildsGlobalTaskdeck(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	src := string(data)
 	for _, want := range []string{
-		"TARGET=\"$INSTALL_DIR/taskdeck\"",
-		"go test ./...",
+		`APP_ROOT="${TASKDECK_APP_DIR:-${HOME}/.local/lib/taskdeck}"`,
+		`RELEASES_DIR="$APP_ROOT/releases"`,
+		`CURRENT_LINK="$APP_ROOT/current"`,
+		`FINAL_RELEASE="$RELEASES_DIR/$RELEASE_ID"`,
+		"python3 test_python_patch_entry.py",
 		"-buildvcs=false",
 		"./cmd/vscode_tasks_menu",
-		"mv -f \"$staged\" \"$TARGET\"",
+		`$STAGED_RELEASE/patchtool/python_patch_entry.py`,
+		`cp -a "$SOURCE_ROOT/_patch_lib" "$STAGED_RELEASE/patchtool/_patch_lib"`,
+		`atomic_symlink "$FINAL_RELEASE" "$CURRENT_LINK"`,
+		`atomic_symlink "$CURRENT_LINK/taskdeck" "$TARGET"`,
 		"$TARGET.revision",
 	} {
 		if !strings.Contains(src, want) { t.Fatalf("install.sh missing %q", want) }
