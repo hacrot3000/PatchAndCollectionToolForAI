@@ -5,9 +5,9 @@ REPOSITORY="hacrot3000/PatchAndCollectionToolForAI"
 BRANCH="main"
 API_URL="https://api.github.com/repos/$REPOSITORY/commits/$BRANCH"
 ARCHIVE_BASE_URL="https://codeload.github.com/$REPOSITORY/tar.gz"
-SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-BIN_DIR="\${TASKDECK_INSTALL_DIR:-\${HOME}/.local/bin}"
-APP_ROOT="\${TASKDECK_APP_DIR:-\${HOME}/.local/lib/taskdeck}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BIN_DIR="${TASKDECK_INSTALL_DIR:-${HOME}/.local/bin}"
+APP_ROOT="${TASKDECK_APP_DIR:-${HOME}/.local/lib/taskdeck}"
 RELEASES_DIR="$APP_ROOT/releases"
 CURRENT_LINK="$APP_ROOT/current"
 TARGET="$BIN_DIR/taskdeck"
@@ -16,8 +16,8 @@ TMP_ROOT=""
 STAGED_RELEASE=""
 
 cleanup() {
-    [[ -n "\${STAGED_RELEASE:-}" && -d "$STAGED_RELEASE" ]] && rm -rf -- "$STAGED_RELEASE"
-    [[ -n "\${TMP_ROOT:-}" ]] && rm -rf -- "$TMP_ROOT"
+    [[ -n "${STAGED_RELEASE:-}" && -d "$STAGED_RELEASE" ]] && rm -rf -- "$STAGED_RELEASE"
+    [[ -n "${TMP_ROOT:-}" ]] && rm -rf -- "$TMP_ROOT"
 }
 trap cleanup EXIT
 
@@ -116,7 +116,7 @@ fi
 
 if [[ -z "$SOURCE_ROOT" ]]; then
     REVISION="$(remote_revision)"
-    TMP_ROOT="$(mktemp -d "\${TMPDIR:-/tmp}/taskdeck-install.XXXXXX")"
+    TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/taskdeck-install.XXXXXX")"
     archive="$TMP_ROOT/source.tar.gz"
     extract="$TMP_ROOT/extract"
     mkdir -p "$extract"
@@ -179,7 +179,7 @@ else
     build_args+=(-o "$STAGED_RELEASE/taskdeck" ./cmd/vscode_tasks_menu)
     (
         cd "$SOURCE"
-        GOPROXY=off GOSUMDB=off go "\${build_args[@]}"
+        GOPROXY=off GOSUMDB=off go "${build_args[@]}"
     )
     chmod 755 "$STAGED_RELEASE/taskdeck"
 
@@ -210,7 +210,7 @@ echo "Đã cài TaskDeck release: $FINAL_RELEASE"
 echo "TaskDeck current: $CURRENT_LINK"
 echo "TaskDeck command: $TARGET"
 echo "Patch add-on: $CURRENT_LINK/patchtool"
-case ":\${PATH:-}:" in
+case ":${PATH:-}:" in
     *":$BIN_DIR:"*) ;;
     *) echo "LƯU Ý: $BIN_DIR chưa có trong PATH. Hãy thêm nó để chạy lệnh: taskdeck" ;;
 esac

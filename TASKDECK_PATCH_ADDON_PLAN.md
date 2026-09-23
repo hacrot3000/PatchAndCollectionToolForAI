@@ -189,7 +189,8 @@ Every phase must preserve:
 | Phase 1A canonical entrypoint | DONE | 0e871ed1 | Routing moved from shell/PowerShell to one Python entrypoint; wrappers remain compatible. |
 | Phase 1A CI path correction | DONE | 14adf537 | Fix CI working-directory path for the new Python routing contract; no runtime behavior change. |
 | Phase 1B TaskDeck CLI | DONE | 02b72b94 | Added shared Patch runtime resolver and `taskdeck patch`; bundled runtime wins, legacy project launcher remains a migration fallback. |
-| Phase 1C.1 versioned installer | DONE | this commit | Installer stages TaskDeck + Patch runtime as one immutable release and atomically switches `current` and the PATH symlink. |
+| Phase 1C.1 versioned installer | DONE | 2e909a70 | Installer stages TaskDeck + Patch runtime as one immutable release and atomically switches `current` and the PATH symlink. |
+| Phase 1C.1 shell interpolation correction | DONE | this commit | Removed accidental literal backslashes before Bash `${...}` expansions introduced by commit orchestration; no design change. |
 
 ## Next action
 
