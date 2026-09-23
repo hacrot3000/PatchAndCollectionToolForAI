@@ -209,8 +209,9 @@ Every phase must preserve:
 | Phase 1.5A protocol event channel | DONE | 150f26b8 | Added opt-in protocol v1 JSONL event FD with lifecycle events; no-protocol terminal path remains execv-compatible. |
 | Phase 1.5B Python queue snapshot | DONE | 840ee91d | Protocol bridge calls authoritative dispatcher queue discovery directly and emits stable queue_snapshot data before terminal execution. |
 | Phase 1.5C.1a session protocol state | DONE | 3ae480a1 | Added opt-in FD 3 transport in the session manager and bounded latest-event/queue-snapshot state without changing PTY output. |
-| Phase 1.5C.1b broker protocol capability | DONE | this commit | Added capability-gated broker wire/API for protocol events with old-broker PTY-only fallback. |
+| Phase 1.5C.1b broker protocol capability | DONE | 5fd3a3d6 | Added capability-gated broker wire/API for protocol events with old-broker PTY-only fallback. |
+| Phase 1.5C.1c public Patch protocol API | DONE | this commit | Built-in Patch sessions now request protocol events and TaskDeck exposes optional per-session protocol state with legacy fallback. |
 
 ## Next action
 
-Continue **Phase 1.5C.1c**: enable protocol events on built-in Patch sessions and expose the optional protocol state through TaskDeck's public session API.
+Continue **Phase 1.5C.2**: render the latest queue_snapshot in the Patch Activity Bar panel with bounded polling, while keeping the PTY session as the authoritative interactive surface.

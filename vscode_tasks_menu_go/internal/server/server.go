@@ -273,7 +273,7 @@ func patchToolExecution(workspace, mode string) (tasks.Execution, error) {
 	for i, arg := range commandArgs {
 		rawArgs[i] = arg
 	}
-	return tasks.ResolveExecution(tasks.Task{
+	spec, err := tasks.ResolveExecution(tasks.Task{
 		ID:        -1,
 		Label:     "Patch Tool · " + modeLabel,
 		MenuLabel: "Patch Tool",
@@ -282,6 +282,11 @@ func patchToolExecution(workspace, mode string) (tasks.Execution, error) {
 		Command:   command,
 		Args:      rawArgs,
 	}, workspace)
+	if err != nil {
+		return tasks.Execution{}, err
+	}
+	spec.ProtocolEvents = true
+	return spec, nil
 }
 
 func workspaceTerminalExecution(workspace string) (tasks.Execution, error) {
@@ -393,6 +398,22 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 		}
 		meta.Title = title
 		writeJSON(w, http.StatusOK, meta)
+	case "protocol":
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		provider, ok := s.Sessions.(session.ProtocolStateProvider)
+		if !ok {
+			writeJSON(w, http.StatusOK, session.ProtocolState{Available: false})
+			return
+		}
+		state, err := provider.ProtocolState(id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, state)
 	case "resize":
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

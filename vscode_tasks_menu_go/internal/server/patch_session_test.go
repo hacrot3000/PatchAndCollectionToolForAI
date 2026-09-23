@@ -52,6 +52,9 @@ func TestPatchToolExecutionUsesBuiltinRuntimeAndReservedTaskID(t *testing.T) {
 	if spec.TaskID != -1 {
 		t.Fatalf("Patch Tool task id=%d want -1", spec.TaskID)
 	}
+	if !spec.ProtocolEvents {
+		t.Fatal("built-in Patch session must request the optional protocol event channel")
+	}
 	if spec.Label != "Patch Tool · Resume" {
 		t.Fatalf("label=%q", spec.Label)
 	}
@@ -83,6 +86,24 @@ func TestSessionsAPIHasBuiltinPatchKind(t *testing.T) {
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("Patch session API missing %q", want)
+		}
+	}
+}
+
+
+func TestSessionProtocolEndpointIsOptional(t *testing.T) {
+	data, err := os.ReadFile("server.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"case \"protocol\":",
+		"session.ProtocolStateProvider",
+		"session.ProtocolState{Available: false}",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("optional protocol endpoint missing %q", want)
 		}
 	}
 }
