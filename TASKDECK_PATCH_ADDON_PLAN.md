@@ -154,7 +154,7 @@ Status: **IN PROGRESS**
 - [ ] Emit item/progress/artifact events while terminal UI remains authoritative.
 - [x] Add protocol envelope/lifecycle/version tests.
 - [x] Session manager supports an opt-in FD 3 event pipe and bounded protocol state while PTY remains unchanged.
-- [ ] Broker exposes the protocol capability/state without breaking old brokers.
+- [x] Broker advertises `patch_protocol_events`, carries the opt-in flag and exposes protocol state; old brokers fall back to PTY-only.
 - [ ] Patch panel consumes protocol state for a native queue summary while PTY remains visible.
 
 ### Phase 2 — Native Patch web UI
@@ -208,8 +208,9 @@ Every phase must preserve:
 | Phase 1E.2b cleanup wiring | DONE | 19f19167 | Wired verified Patch runtime migration into interactive/global legacy cleanup, kept unsafe runtimes, and skipped the source repository. |
 | Phase 1.5A protocol event channel | DONE | 150f26b8 | Added opt-in protocol v1 JSONL event FD with lifecycle events; no-protocol terminal path remains execv-compatible. |
 | Phase 1.5B Python queue snapshot | DONE | 840ee91d | Protocol bridge calls authoritative dispatcher queue discovery directly and emits stable queue_snapshot data before terminal execution. |
-| Phase 1.5C.1a session protocol state | DONE | this commit | Added opt-in FD 3 transport in the session manager and bounded latest-event/queue-snapshot state without changing PTY output. |
+| Phase 1.5C.1a session protocol state | DONE | 3ae480a1 | Added opt-in FD 3 transport in the session manager and bounded latest-event/queue-snapshot state without changing PTY output. |
+| Phase 1.5C.1b broker protocol capability | DONE | this commit | Added capability-gated broker wire/API for protocol events with old-broker PTY-only fallback. |
 
 ## Next action
 
-Continue **Phase 1.5C.1b**: advertise broker protocol capability, carry the opt-in flag across the broker wire, and expose per-session protocol state with old-broker fallback.
+Continue **Phase 1.5C.1c**: enable protocol events on built-in Patch sessions and expose the optional protocol state through TaskDeck's public session API.

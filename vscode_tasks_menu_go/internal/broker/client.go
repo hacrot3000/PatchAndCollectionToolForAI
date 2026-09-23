@@ -68,13 +68,21 @@ func (c *Client) Close() {
 	}
 }
 
-func (c *Client) SupportsSessionTitle() bool {
+func (c *Client) supportsCapability(want string) bool {
 	for _, capability := range c.info.Capabilities {
-		if capability == CapabilitySessionTitle {
+		if capability == want {
 			return true
 		}
 	}
 	return false
+}
+
+func (c *Client) SupportsSessionTitle() bool {
+	return c.supportsCapability(CapabilitySessionTitle)
+}
+
+func (c *Client) SupportsPatchProtocolEvents() bool {
+	return c.supportsCapability(CapabilityPatchProtocolEvents)
 }
 
 func (c *Client) endpoint(path string) string {
@@ -146,8 +154,21 @@ func (c *Client) List() []session.Metadata {
 
 func (c *Client) Start(spec tasks.Execution) (session.Metadata, error) {
 	var meta session.Metadata
-	err := c.doJSON(http.MethodPost, "/v1/sessions", executionToWire(spec), &meta)
+	wire := executionToWire(spec)
+	if wire.ProtocolEvents && !c.SupportsPatchProtocolEvents() {
+		wire.ProtocolEvents = false
+	}
+	err := c.doJSON(http.MethodPost, "/v1/sessions", wire, &meta)
 	return meta, err
+}
+
+func (c *Client) ProtocolState(id string) (session.ProtocolState, error) {
+	if !c.SupportsPatchProtocolEvents() {
+		return session.ProtocolState{Available: false}, nil
+	}
+	var state session.ProtocolState
+	err := c.doJSON(http.MethodGet, "/v1/sessions/"+url.PathEscape(id)+"/protocol", nil, &state)
+	return state, err
 }
 
 func (c *Client) Metadata(id string) (session.Metadata, bool) {

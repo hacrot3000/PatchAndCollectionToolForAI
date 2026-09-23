@@ -29,6 +29,7 @@ func executionFromWire(spec ExecutionSpec) tasks.Execution {
 		TaskID: spec.TaskID, Label: spec.Label, Detail: spec.Detail,
 		Command: spec.Command, Args: append([]string(nil), spec.Args...),
 		Cwd: spec.Cwd, Env: append([]string(nil), spec.Env...), Preview: spec.Preview,
+		ProtocolEvents: spec.ProtocolEvents,
 	}
 }
 
@@ -37,6 +38,7 @@ func executionToWire(spec tasks.Execution) ExecutionSpec {
 		TaskID: spec.TaskID, Label: spec.Label, Detail: spec.Detail,
 		Command: spec.Command, Args: append([]string(nil), spec.Args...),
 		Cwd: spec.Cwd, Env: append([]string(nil), spec.Env...), Preview: spec.Preview,
+		ProtocolEvents: spec.ProtocolEvents,
 	}
 }
 
@@ -153,6 +155,17 @@ func (a *sessionAPI) sessionItem(w http.ResponseWriter, r *http.Request) {
 		a.simpleAction(w, r, id, a.manager.Kill)
 	case "clear":
 		a.simpleAction(w, r, id, a.manager.Clear)
+	case "protocol":
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		state, err := a.manager.ProtocolState(id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		writeBrokerJSON(w, http.StatusOK, state)
 	case "cwd":
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	runtimestate "bletonfc/vscode_tasks_menu/internal/state"
@@ -39,13 +40,17 @@ func LockPath(workspace string) string {
 }
 
 func NewInfo(workspace string) Info {
+	capabilities := []string{CapabilitySessionTitle}
+	if runtime.GOOS != "windows" {
+		capabilities = append(capabilities, CapabilityPatchProtocolEvents)
+	}
 	return Info{
 		ProtocolVersion: ProtocolVersion,
 		PID:             os.Getpid(),
 		Workspace:       workspace,
 		SocketPath:      SocketPath(workspace),
 		StartedAt:       time.Now().Format(time.RFC3339),
-		Capabilities:    []string{CapabilitySessionTitle},
+		Capabilities:    capabilities,
 	}
 }
 
