@@ -4778,6 +4778,87 @@ def _select_items_line(root: Path, items: list[QueueItem], initial_selection: st
     return []
 
 
+def _protocol_queue_selection(
+    items: list[QueueItem],
+    initial_selection: str,
+    failed_group_names: set[str] | None = None,
+) -> tuple[bool, list[QueueItem] | None]:
+    """Handle the narrow native queue-selection prompt when both channels exist.
+
+    Any malformed/unsupported response falls back to the existing terminal
+    selector instead of executing an inferred selection.
+    """
+    from python_patch_protocol import (
+        ProtocolCommandError,
+        prompt_channels_from_env,
+        request_prompt,
+    )
+
+    try:
+        writer, reader = prompt_channels_from_env()
+    except ProtocolCommandError:
+        return False, None
+    if writer is None or reader is None:
+        return False, None
+
+    try:
+        failed_names = set(failed_group_names or ())
+        initial = sorted(index + 1 for index in _initial_selected(items, initial_selection))
+        rows = [
+            {
+                "index": index,
+                "name": item.name,
+                "kind": item.kind,
+                "detail": item.detail,
+                "group": "failed" if item.name in failed_names else "new",
+            }
+            for index, item in enumerate(items, 1)
+        ]
+        response = request_prompt(
+            writer,
+            reader,
+            "queue_selection",
+            title="Choose PATCH/COLLECT work",
+            items=rows,
+            initial_selected=initial,
+            actions=["select", "cancel"],
+            constraints={
+                "index_base": 1,
+                "collect_exclusive": True,
+                "collect_max": 1,
+            },
+        )
+        action = str(response.get("action") or "")
+        if action == "cancel":
+            return True, None
+        if action != "select":
+            raise ProtocolCommandError(f"unsupported queue_selection action: {action!r}")
+        indexes = response.get("indexes")
+        if not isinstance(indexes, list) or not indexes:
+            raise ProtocolCommandError("queue_selection requires a non-empty indexes array")
+        normalized: list[int] = []
+        seen: set[int] = set()
+        for raw in indexes:
+            if isinstance(raw, bool) or not isinstance(raw, int):
+                raise ProtocolCommandError("queue_selection indexes must be integers")
+            if raw < 1 or raw > len(items):
+                raise ProtocolCommandError(f"queue_selection index out of range: {raw}")
+            if raw not in seen:
+                normalized.append(raw)
+                seen.add(raw)
+        chosen = [items[index - 1] for index in normalized]
+        contract_error = _selection_contract_error(chosen)
+        if contract_error:
+            raise ProtocolCommandError(contract_error)
+        return True, chosen
+    except (ProtocolCommandError, ValueError, TypeError) as exc:
+        writer.emit("error", phase="queue_selection_prompt", message=str(exc))
+        return False, None
+    finally:
+        reader.close()
+        writer.close()
+
+
 def select_items(root, items, *, initial_selection="none", selector_ui="auto", show_history: bool = False, failed_group_names: set[str] | None = None):
     if not items:
         if show_history and sys.stdin.isatty() and sys.stdout.isatty():
@@ -6859,14 +6940,22 @@ def _run_queue(
     if chosen is None:
         failed_group_names = _last_failed_queue_names(root, items, meaningful_previous)
         selector_items = _group_selector_items(items, failed_group_names)
-        try:
-            chosen = select_items(
-                root, selector_items, initial_selection=cfg.get("initial_selection", "none"),
-                selector_ui=cfg.get("selector_ui", "auto"), show_history=zero_argument_invocation,
-                failed_group_names=failed_group_names,
-            )
-        except KeyboardInterrupt:
-            print("\nCancelled by Ctrl+C."); return finish_report("CANCELLED", 130)
+        protocol_handled, protocol_chosen = _protocol_queue_selection(
+            selector_items,
+            str(cfg.get("initial_selection", "none")),
+            failed_group_names,
+        )
+        if protocol_handled:
+            chosen = protocol_chosen
+        else:
+            try:
+                chosen = select_items(
+                    root, selector_items, initial_selection=cfg.get("initial_selection", "none"),
+                    selector_ui=cfg.get("selector_ui", "auto"), show_history=zero_argument_invocation,
+                    failed_group_names=failed_group_names,
+                )
+            except KeyboardInterrupt:
+                print("\nCancelled by Ctrl+C."); return finish_report("CANCELLED", 130)
     if chosen is None:
         print("Cancelled."); _print_session_duplicate_removals(session_duplicates); return finish_report("CANCELLED", 0)
     if not chosen:

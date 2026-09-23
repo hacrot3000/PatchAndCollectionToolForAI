@@ -11,6 +11,8 @@ PROTOCOL_NAME = "taskdeck.patch"
 PROTOCOL_VERSION = 1
 MAX_COMMAND_BYTES = 1 << 20
 MAX_EVENT_BYTES = 1 << 20
+EVENT_FD_ENV = "TASKDECK_PATCH_EVENT_FD"
+COMMAND_FD_ENV = "TASKDECK_PATCH_COMMAND_FD"
 
 
 class ProtocolCommandError(RuntimeError):
@@ -119,6 +121,57 @@ class EventWriter:
             self._stream.close()
         except OSError:
             pass
+
+
+def prompt_channels_from_env() -> tuple[EventWriter | None, CommandReader | None]:
+    """Open child prompt channels only when both machine FDs are present.
+
+    Event-only sessions are deliberately ignored here so today's PTY selector
+    remains authoritative until TaskDeck explicitly enables protocol commands.
+    """
+    event_raw = os.environ.get(EVENT_FD_ENV, "").strip()
+    command_raw = os.environ.get(COMMAND_FD_ENV, "").strip()
+    if not event_raw or not command_raw:
+        return None, None
+    try:
+        event_fd = int(event_raw, 10)
+        command_fd = int(command_raw, 10)
+    except ValueError as exc:
+        raise ProtocolCommandError("Patch prompt channels require integer file descriptors") from exc
+    if event_fd < 3 or command_fd < 3 or event_fd == command_fd:
+        raise ProtocolCommandError("Patch prompt channels require distinct file descriptors >= 3")
+    try:
+        os.fstat(event_fd)
+        os.fstat(command_fd)
+    except OSError as exc:
+        raise ProtocolCommandError(f"Patch prompt channel is unavailable: {exc}") from exc
+    return EventWriter(event_fd), CommandReader(command_fd)
+
+
+def request_prompt(
+    writer: EventWriter,
+    reader: CommandReader,
+    prompt_kind: str,
+    **payload: Any,
+) -> dict[str, Any]:
+    prompt_id = os.urandom(12).hex()
+    writer.emit(
+        "prompt",
+        prompt_id=prompt_id,
+        prompt_kind=str(prompt_kind),
+        **payload,
+    )
+    command = reader.read()
+    if command is None:
+        raise ProtocolCommandError("Patch protocol command channel closed while waiting for prompt response")
+    if command.get("command") != "prompt_response":
+        raise ProtocolCommandError("Patch prompt requires a prompt_response command")
+    response = command.get("payload")
+    if not isinstance(response, dict):
+        raise ProtocolCommandError("Patch prompt_response payload must be an object")
+    if response.get("prompt_id") != prompt_id:
+        raise ProtocolCommandError("Patch prompt_response prompt_id does not match the active prompt")
+    return response
 
 
 def relay_event_fd(fd: int, writer: EventWriter) -> None:

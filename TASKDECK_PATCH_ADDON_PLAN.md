@@ -220,8 +220,9 @@ Every phase must preserve:
 | Phase 1.5D.2b broker command plumbing | DONE | 74279462 | Added capability-gated command flag and internal broker command endpoint; built-in Patch sessions remain command-disabled. |
 | Phase 1.5E.1 child event relay | DONE | 6b7ab13b | Child protocol events now use an internal pipe and are re-sequenced by the entrypoint before reaching TaskDeck. |
 | Phase 1.5E.1 protocol test discovery correction | DONE | 13c2848a | Moved unittest.main() after ProtocolContractTests so CI executes the complete protocol contract suite instead of routing tests only. |
-| Phase 1.5E.1 lifecycle test scope correction | DONE | this commit | Updated the lifecycle-only protocol test to use a non-queue route; queue_snapshot behavior remains covered by its dedicated test. |
+| Phase 1.5E.1 lifecycle test scope correction | DONE | 7c146ccf | Updated the lifecycle-only protocol test to use a non-queue route; queue_snapshot behavior remains covered by its dedicated test. |
+| Phase 1.5E.2 queue selection prompt contract | DONE | this commit | Added Python-owned queue_selection prompt/prompt_response handling with strict prompt-id/index/COLLECT validation and terminal fallback on protocol failure. |
 
 ## Next action
 
-Verify the corrected full Python protocol suite, then continue **Phase 1.5E.2** with conservative queue-selection prompt/response integration.
+Continue **Phase 1.5E.3**: store the latest prompt in TaskDeck protocol state and expose a bounded public prompt-response endpoint, then enable command channels only for built-in Patch sessions.

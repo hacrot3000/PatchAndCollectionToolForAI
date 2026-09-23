@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -119,6 +120,119 @@ class ProtocolContractTests(unittest.TestCase):
             reader.close()
             os.close(read_fd)
             os.close(write_fd)
+
+    def test_prompt_response_is_bound_to_active_prompt_id(self):
+        from python_patch_protocol import CommandReader, EventWriter, request_prompt
+
+        event_read, event_write = os.pipe()
+        command_read, command_write = os.pipe()
+        writer = EventWriter(event_write)
+        reader = CommandReader(command_read)
+        seen = {}
+
+        def respond():
+            with os.fdopen(os.dup(event_read), "r", encoding="utf-8") as stream:
+                prompt = json.loads(stream.readline())
+            seen.update(prompt)
+            response = {
+                "protocol": "taskdeck.patch",
+                "version": 1,
+                "type": "command",
+                "seq": 1,
+                "command": "prompt_response",
+                "payload": {
+                    "prompt_id": prompt["prompt_id"],
+                    "action": "select",
+                    "indexes": [1],
+                },
+            }
+            os.write(command_write, (json.dumps(response) + "\n").encode("utf-8"))
+
+        worker = threading.Thread(target=respond)
+        worker.start()
+        try:
+            response = request_prompt(writer, reader, "queue_selection", items=[])
+        finally:
+            worker.join(timeout=2)
+            reader.close()
+            writer.close()
+            for fd in (event_read, event_write, command_read, command_write):
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+        self.assertEqual(seen["type"], "prompt")
+        self.assertEqual(seen["prompt_kind"], "queue_selection")
+        self.assertEqual(response["action"], "select")
+        self.assertEqual(response["indexes"], [1])
+
+    def test_dispatcher_protocol_queue_selection_uses_existing_contract(self):
+        from python_patch_queue_dispatcher import QueueItem, _protocol_queue_selection
+
+        event_read, event_write = os.pipe()
+        command_read, command_write = os.pipe()
+        old_event = os.environ.get(entry.EVENT_FD_ENV)
+        old_command = os.environ.get(entry.COMMAND_FD_ENV)
+        os.environ[entry.EVENT_FD_ENV] = str(event_write)
+        os.environ[entry.COMMAND_FD_ENV] = str(command_read)
+
+        def respond():
+            with os.fdopen(os.dup(event_read), "r", encoding="utf-8") as stream:
+                prompt = json.loads(stream.readline())
+            response = {
+                "protocol": "taskdeck.patch",
+                "version": 1,
+                "type": "command",
+                "seq": 1,
+                "command": "prompt_response",
+                "payload": {
+                    "prompt_id": prompt["prompt_id"],
+                    "action": "select",
+                    "indexes": [1],
+                },
+            }
+            os.write(command_write, (json.dumps(response) + "\n").encode("utf-8"))
+
+        worker = threading.Thread(target=respond)
+        worker.start()
+        items = [
+            QueueItem("one.zip", "PATCH", "manifest"),
+            QueueItem("two.zip", "COLLECT", "request"),
+        ]
+        try:
+            handled, chosen = _protocol_queue_selection(items, "none", set())
+        finally:
+            worker.join(timeout=2)
+            if old_event is None:
+                os.environ.pop(entry.EVENT_FD_ENV, None)
+            else:
+                os.environ[entry.EVENT_FD_ENV] = old_event
+            if old_command is None:
+                os.environ.pop(entry.COMMAND_FD_ENV, None)
+            else:
+                os.environ[entry.COMMAND_FD_ENV] = old_command
+            for fd in (event_read, event_write, command_read, command_write):
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+        self.assertTrue(handled)
+        self.assertEqual([item.name for item in chosen], ["one.zip"])
+
+    def test_dispatcher_protocol_selector_absent_channels_falls_back(self):
+        from python_patch_queue_dispatcher import QueueItem, _protocol_queue_selection
+
+        old_event = os.environ.pop(entry.EVENT_FD_ENV, None)
+        old_command = os.environ.pop(entry.COMMAND_FD_ENV, None)
+        try:
+            handled, chosen = _protocol_queue_selection([QueueItem("one.zip", "PATCH")], "none", set())
+        finally:
+            if old_event is not None:
+                os.environ[entry.EVENT_FD_ENV] = old_event
+            if old_command is not None:
+                os.environ[entry.COMMAND_FD_ENV] = old_command
+        self.assertFalse(handled)
+        self.assertIsNone(chosen)
 
     def test_event_writer_emits_versioned_jsonl(self):
         from python_patch_protocol import EventWriter
