@@ -69,6 +69,44 @@ function installPatchPanel(){
   .task-patch-resume-option span{font-size:10px;opacity:.7}
   .task-patch-resume-option[disabled]{opacity:.45}
   .task-patch-resume-note{margin-top:6px;opacity:.72}
+  .task-patch-history{margin:0 0 10px;padding:8px;border:1px solid #4b596d;border-radius:6px;background:#121923;font-size:11px}
+  .task-patch-history[hidden]{display:none}
+  .task-patch-history-head{display:flex;align-items:center;gap:5px;margin-bottom:7px}
+  .task-patch-history-title{font-weight:700;flex:1}
+  .task-patch-history-status{opacity:.7}
+  .task-patch-history-head button{font-size:10px;padding:3px 6px}
+  .task-patch-history-runs{display:grid;gap:4px;max-height:260px;overflow:auto;margin-bottom:8px}
+  .task-patch-history-run{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:6px 7px;text-align:left;background:#171f2a}
+  .task-patch-history-run.active{border-color:#71839b;background:#202a37}
+  .task-patch-history-run-name{font-weight:600;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .task-patch-history-run-meta{font-size:10px;opacity:.68}
+  .task-patch-history-detail{border-top:1px solid #303946;padding-top:7px}
+  .task-patch-history-detail[hidden]{display:none}
+  .task-patch-history-detail-title{font-weight:700;margin-bottom:3px;overflow-wrap:anywhere}
+  .task-patch-history-detail-meta{opacity:.7;margin-bottom:6px}
+  .task-patch-history-files,.task-patch-history-items{display:grid;gap:5px}
+  .task-patch-history-files{margin-bottom:7px}
+  .task-patch-history-file,.task-patch-history-item{padding:6px;border-radius:4px;background:#171c23}
+  .task-patch-history-file-head{display:flex;align-items:center;gap:5px}
+  .task-patch-history-file-label{font-weight:600;min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .task-patch-history-upload{font-size:9px;padding:1px 4px;border:1px solid #7b6840;border-radius:999px}
+  .task-patch-history-path{display:block;margin-top:2px;opacity:.64;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .task-patch-history-file-actions{display:flex;gap:5px;margin-top:5px}
+  .task-patch-history-file-actions a,.task-patch-history-file-actions button{font-size:10px;padding:3px 6px}
+  .task-patch-history-item-head{display:flex;gap:5px;align-items:flex-start}
+  .task-patch-history-item-name{font-weight:600;min-width:0;flex:1;overflow-wrap:anywhere}
+  .task-patch-history-item-status{font-weight:700;white-space:nowrap}
+  .task-patch-history-item-detail{margin-top:2px;opacity:.7;overflow-wrap:anywhere}
+  .task-patch-history-warning{margin-top:6px;opacity:.72;overflow-wrap:anywhere}
+  .task-patch-panel.history .task-patch-panel-note,
+  .task-patch-panel.history .task-patch-summary,
+  .task-patch-panel.history .task-patch-action-result,
+  .task-patch-panel.history .task-patch-prompt,
+  .task-patch-panel.history .task-patch-resume,
+  .task-patch-panel.history .task-patch-running-head,
+  .task-patch-panel.history .task-patch-run,
+  .task-patch-panel.history .task-patch-artifacts,
+  .task-patch-panel.history .task-patch-actions{display:none!important}
   .task-patch-running-head{display:none;margin:0 0 10px;padding:8px;border:1px solid #4b596d;border-radius:6px;background:#121923;font-size:11px}
   .task-patch-panel.running .task-patch-running-head{display:block}
   .task-patch-running-title{font-weight:700;font-size:12px}
@@ -121,6 +159,12 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-resume{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-resume-item{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-resume-count{border-color:#d0d7de}
+  html[data-taskmenu-theme="light"] .task-patch-history{background:#f6f8fa;border-color:#b9c0c8}
+  html[data-taskmenu-theme="light"] .task-patch-history-run,
+  html[data-taskmenu-theme="light"] .task-patch-history-file,
+  html[data-taskmenu-theme="light"] .task-patch-history-item{background:#fff}
+  html[data-taskmenu-theme="light"] .task-patch-history-run.active{background:#e7eef7;border-color:#9aa9bc}
+  html[data-taskmenu-theme="light"] .task-patch-history-detail{border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-run{background:#f6f8fa;border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-run-item{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-progress{background:#fff}
@@ -181,6 +225,23 @@ function installPatchPanel(){
   const resumeNote=document.createElement('div');resumeNote.className='task-patch-resume-note';
   resumeBox.append(resumeHead,resumeCounts,resumeItems,resumeOptions,resumeNote);
 
+  const historyBox=document.createElement('div');historyBox.className='task-patch-history';historyBox.hidden=true;
+  const historyHead=document.createElement('div');historyHead.className='task-patch-history-head';
+  const historyTitle=document.createElement('div');historyTitle.className='task-patch-history-title';historyTitle.textContent='History';
+  const historyStatus=document.createElement('div');historyStatus.className='task-patch-history-status';
+  const historyTerminal=document.createElement('button');historyTerminal.type='button';historyTerminal.textContent='Terminal';historyTerminal.title='Open terminal evidence/fallback';
+  const historyBack=document.createElement('button');historyBack.type='button';historyBack.textContent='Back';
+  historyHead.append(historyTitle,historyStatus,historyTerminal,historyBack);
+  const historyRuns=document.createElement('div');historyRuns.className='task-patch-history-runs';
+  const historyDetail=document.createElement('div');historyDetail.className='task-patch-history-detail';historyDetail.hidden=true;
+  const historyDetailTitle=document.createElement('div');historyDetailTitle.className='task-patch-history-detail-title';
+  const historyDetailMeta=document.createElement('div');historyDetailMeta.className='task-patch-history-detail-meta';
+  const historyFiles=document.createElement('div');historyFiles.className='task-patch-history-files';
+  const historyItems=document.createElement('div');historyItems.className='task-patch-history-items';
+  const historyWarnings=document.createElement('div');historyWarnings.className='task-patch-history-warning';
+  historyDetail.append(historyDetailTitle,historyDetailMeta,historyFiles,historyItems,historyWarnings);
+  historyBox.append(historyHead,historyRuns,historyDetail);
+
   const runningHead=document.createElement('div');runningHead.className='task-patch-running-head';
   const runningTitle=document.createElement('div');runningTitle.className='task-patch-running-title';runningTitle.textContent='Running';
   const runningMeta=document.createElement('div');runningMeta.className='task-patch-running-meta';runningMeta.textContent='Waiting for Python execution state…';
@@ -205,7 +266,7 @@ function installPatchPanel(){
   artifactBox.append(artifactTitle,artifactList);
 
   const actions=document.createElement('div');actions.className='task-patch-actions';
-  body.append(note,summary,actionResultBox,promptBox,resumeBox,runningHead,runBox,artifactBox,actions);
+  body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,runningHead,runBox,artifactBox,actions);
   panel.append(head,body);
   document.body.append(panel);
 
@@ -226,6 +287,12 @@ function installPatchPanel(){
   let resumeBusy=false;
   let actionBusy=false;
   let actionPollGeneration=0;
+  let historyPollGeneration=0;
+  let latestHistorySnapshot=null;
+  let activeHistoryPrompt=null;
+  let activeHistoryRunID='';
+  let historyBusy=false;
+  let historyMode=false;
   let runningMode=false;
   let runningFinished=false;
   for(const [mode,label,detail] of actionDefs){
@@ -243,7 +310,7 @@ function installPatchPanel(){
   function setVisible(value){
     const visible=Boolean(value);
     panel.classList.toggle('visible',visible);
-    if(!visible){protocolPollGeneration+=1;actionPollGeneration+=1;}
+    if(!visible){protocolPollGeneration+=1;actionPollGeneration+=1;historyPollGeneration+=1;}
     if(visible&&activeSessionId)void pollProtocol(activeSessionId,!runningMode,true);
     window.dispatchEvent(new CustomEvent('taskmenu:patch-panel-visible',{detail:{visible}}));
   }
@@ -431,6 +498,198 @@ function installPatchPanel(){
     }
     resumeNote.textContent='Recovery policy and availability come from the Python Patch Tool.';
     return true;
+  }
+
+  function enterHistoryView(){
+    historyMode=true;
+    panel.classList.add('history');
+    historyBox.hidden=false;
+    historyStatus.textContent='Loading…';
+  }
+
+  function leaveHistoryView(){
+    historyMode=false;
+    panel.classList.remove('history');
+    historyBox.hidden=true;
+    latestHistorySnapshot=null;
+    activeHistoryPrompt=null;
+    activeHistoryRunID='';
+    historyBusy=false;
+    historyPollGeneration+=1;
+    historyRuns.replaceChildren();
+    historyDetail.hidden=true;
+    historyDetailTitle.textContent='';
+    historyDetailMeta.textContent='';
+    historyFiles.replaceChildren();
+    historyItems.replaceChildren();
+    historyWarnings.textContent='';
+  }
+
+  function historySafeProjectPath(value){
+    const path=String(value||'').trim();
+    if(!path||path.startsWith('/')||path.includes('\\'))return '';
+    const parts=path.split('/');
+    if(parts.some(part=>!part||part==='.'||part==='..'))return '';
+    return path;
+  }
+
+  function historyTextFile(path){
+    return /\.(?:txt|log|json|md|markdown|patch|diff|csv|xml|ya?ml|ini|cfg|conf)$/i.test(path);
+  }
+
+  function appendHistoryFile(host,file){
+    const path=historySafeProjectPath(file?.path);
+    if(!path)return;
+    const row=document.createElement('div');row.className='task-patch-history-file';
+    const head=document.createElement('div');head.className='task-patch-history-file-head';
+    const label=document.createElement('span');label.className='task-patch-history-file-label';label.textContent=String(file?.label||'File');
+    head.append(label);
+    if(file?.upload_required){
+      const badge=document.createElement('span');badge.className='task-patch-history-upload';badge.textContent='UPLOAD';head.append(badge);
+    }
+    const pathNode=document.createElement('span');pathNode.className='task-patch-history-path';pathNode.textContent=path;pathNode.title=path;
+    const actionsNode=document.createElement('div');actionsNode.className='task-patch-history-file-actions';
+    const download=document.createElement('a');download.textContent='Download';download.href='/api/files/download?path='+encodeURIComponent(path);download.download='';
+    actionsNode.append(download);
+    if(historyTextFile(path)){
+      const open=document.createElement('button');open.type='button';open.textContent='Open';
+      open.onclick=()=>window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path}}));
+      actionsNode.append(open);
+    }
+    row.append(head,pathNode,actionsNode);host.append(row);
+  }
+
+  function renderHistoryRuns(){
+    historyRuns.replaceChildren();
+    const runs=Array.isArray(latestHistorySnapshot?.runs)?latestHistorySnapshot.runs:[];
+    if(!runs.length){
+      const empty=document.createElement('div');empty.className='task-patch-summary-empty';empty.textContent='No Patch Tool history yet';historyRuns.append(empty);
+      return;
+    }
+    const allowed=new Set(Array.isArray(activeHistoryPrompt?.runs)?activeHistoryPrompt.runs.map(row=>String(row?.run_id||'')) : []);
+    for(const run of runs){
+      const runID=String(run?.run_id||'');
+      if(!runID)continue;
+      const button=document.createElement('button');button.type='button';button.className='task-patch-history-run';button.classList.toggle('active',runID===activeHistoryRunID);
+      button.disabled=historyBusy||!activeHistoryPrompt||!allowed.has(runID);
+      const name=document.createElement('span');name.className='task-patch-history-run-name';name.textContent=String(run?.primary_name||runID);
+      const elapsed=Number(run?.elapsed_seconds);
+      const meta=document.createElement('span');meta.className='task-patch-history-run-meta';
+      meta.textContent=[run?.display_time,run?.status,run?.pinned?'PINNED':'',Number.isFinite(elapsed)?elapsed.toFixed(1)+'s':'',run?.item_count===undefined?'':String(run.item_count)+' item(s)'].filter(Boolean).join(' · ');
+      button.append(name,meta);
+      button.onclick=()=>submitHistoryDetail(activeSessionId,activeHistoryPrompt,runID).catch(app.showError);
+      historyRuns.append(button);
+    }
+  }
+
+  function renderHistorySnapshot(snapshot){
+    latestHistorySnapshot=snapshot&&typeof snapshot==='object'?snapshot:{status:'empty',runs:[],total:0};
+    enterHistoryView();
+    const runs=Array.isArray(latestHistorySnapshot.runs)?latestHistorySnapshot.runs:[];
+    const total=Number(latestHistorySnapshot.total??runs.length);
+    historyStatus.textContent=latestHistorySnapshot.status==='empty'?'Empty':`${runs.length}/${Number.isFinite(total)?total:runs.length} run(s)`;
+    renderHistoryRuns();
+  }
+
+  function renderHistoryReport(report){
+    if(!report||typeof report!=='object')return false;
+    historyDetail.hidden=false;
+    historyFiles.replaceChildren();historyItems.replaceChildren();historyWarnings.textContent='';
+    if(report.status!=='available'){
+      historyDetailTitle.textContent='History run unavailable';
+      historyDetailMeta.textContent=String(report.run_id||'');
+      return false;
+    }
+    const run=report.run&&typeof report.run==='object'?report.run:{};
+    activeHistoryRunID=String(run.run_id||activeHistoryRunID);
+    const elapsed=Number(run.elapsed_seconds);
+    historyDetailTitle.textContent=String(run.primary_name||run.run_id||'History run');
+    historyDetailMeta.textContent=[run.display_time,run.status,run.pinned?'PINNED':'',Number.isFinite(elapsed)?elapsed.toFixed(2)+'s':'',run.failure_policy?('failure='+run.failure_policy):'',run.transaction_policy?('transaction='+run.transaction_policy):''].filter(Boolean).join(' · ');
+    for(const file of Array.isArray(report.files)?report.files:[])appendHistoryFile(historyFiles,file);
+    for(const item of Array.isArray(report.items)?report.items:[]){
+      const row=document.createElement('div');row.className='task-patch-history-item';
+      const head=document.createElement('div');head.className='task-patch-history-item-head';
+      const name=document.createElement('span');name.className='task-patch-history-item-name';name.textContent=`${Number(item?.index||0)}. ${String(item?.name||'')}`;
+      const status=document.createElement('span');status.className='task-patch-history-item-status';
+      status.textContent=[item?.status,item?.rc===undefined?'':('rc='+item.rc)].filter(Boolean).join(' ');
+      head.append(name,status);
+      const detail=document.createElement('div');detail.className='task-patch-history-item-detail';
+      const elapsedItem=Number(item?.elapsed_seconds);
+      detail.textContent=[item?.kind,item?.diagnosis,item?.summary,item?.batch_rolled_back?'rolled back':'',Number.isFinite(elapsedItem)?elapsedItem.toFixed(2)+'s':'',item?.changed_count===undefined?'':('changed='+item.changed_count)].filter(Boolean).join(' · ');
+      row.append(head,detail);
+      const artifacts=Array.isArray(item?.artifacts)?item.artifacts:[];
+      if(artifacts.length){
+        const files=document.createElement('div');files.className='task-patch-history-files';
+        for(const artifact of artifacts)appendHistoryFile(files,artifact);
+        row.append(files);
+      }
+      historyItems.append(row);
+    }
+    const totalItems=Number(report.total_items||0);
+    if(report.items_truncated)historyWarnings.textContent=`Showing bounded History detail; total items=${Number.isFinite(totalItems)?totalItems:'?'}.`;
+    const warnings=Array.isArray(report.warnings)?report.warnings:[];
+    if(warnings.length)historyWarnings.textContent=[historyWarnings.textContent,warnings.slice(0,10).join(' | ')].filter(Boolean).join(' ');
+    renderHistoryRuns();
+    return true;
+  }
+
+  async function waitForHistoryReport(sessionId,runID){
+    const generation=++historyPollGeneration;
+    for(let attempt=0;attempt<240;attempt+=1){
+      if(generation!==historyPollGeneration||!panel.classList.contains('visible')||sessionId!==activeSessionId)return null;
+      const state=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/protocol`);
+      const report=state?.history_report;
+      if(report?.status==='available'&&String(report?.run?.run_id||'')===runID){
+        renderHistoryReport(report);
+        return report;
+      }
+      if(state?.last_event?.type==='run_finished')throw new Error('Patch History session finished before detail arrived');
+      await new Promise(resolve=>setTimeout(resolve,250));
+    }
+    throw new Error('Timed out waiting for native Patch History detail');
+  }
+
+  async function submitHistoryDetail(sessionId,prompt,runID){
+    if(historyBusy||!sessionId||!prompt)return null;
+    const actionsAllowed=new Set(Array.isArray(prompt.actions)?prompt.actions.map(String):[]);
+    const advertised=new Set(Array.isArray(prompt.runs)?prompt.runs.map(row=>String(row?.run_id||'')):[]);
+    if(!actionsAllowed.has('detail')||!advertised.has(runID))throw new Error('History run is not advertised by the active Python prompt');
+    historyBusy=true;activeHistoryRunID=runID;renderHistoryRuns();
+    historyDetail.hidden=false;historyDetailTitle.textContent='Loading History run…';historyDetailMeta.textContent=runID;historyFiles.replaceChildren();historyItems.replaceChildren();historyWarnings.textContent='';
+    try{
+      await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/history-detail`,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({prompt_id:String(prompt.prompt_id||''),run_id:runID}),
+      });
+      return await waitForHistoryReport(sessionId,runID);
+    }finally{
+      historyBusy=false;renderHistoryRuns();
+    }
+  }
+
+  function renderHistoryPrompt(sessionId,prompt){
+    if(prompt?.type!=='prompt'||prompt?.prompt_kind!=='history_action'||!prompt?.prompt_id)return false;
+    activeHistoryPrompt=prompt;
+    enterHistoryView();
+    if(!latestHistorySnapshot)renderHistorySnapshot({status:Array.isArray(prompt.runs)&&prompt.runs.length?'available':'empty',runs:Array.isArray(prompt.runs)?prompt.runs:[],total:Array.isArray(prompt.runs)?prompt.runs.length:0,default_run_id:prompt.default_run_id||''});
+    else renderHistoryRuns();
+    historyStatus.textContent=(Array.isArray(prompt.runs)?prompt.runs.length:0)+' run(s) · native';
+    const defaultRun=String(prompt.default_run_id||latestHistorySnapshot?.default_run_id||'');
+    if(defaultRun&&!activeHistoryRunID&&!historyBusy){
+      void submitHistoryDetail(sessionId,prompt,defaultRun).catch(error=>{historyWarnings.textContent=String(error?.message||error);});
+    }
+    return true;
+  }
+
+  async function stopHistoryAndBack(){
+    const sessionId=activeSessionId;
+    historyPollGeneration+=1;protocolPollGeneration+=1;
+    if(sessionId){
+      try{await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/stop`,{method:'POST'});}catch{}
+    }
+    activeSessionId='';
+    leaveHistoryView();
+    resetSummary();
   }
 
   function enterRunningView(){
@@ -827,6 +1086,7 @@ function installPatchPanel(){
     clearPrompt();
     let haveSnapshot=false;
     let haveResumeSnapshot=false;
+    let haveHistorySnapshot=false;
     const maxAttempts=followLifecycle?7200:40;
     const delayMs=followLifecycle?1000:250;
     for(let attempt=0;attempt<maxAttempts;attempt+=1){
@@ -853,14 +1113,23 @@ function installPatchPanel(){
         renderResumeSnapshot(state.resume_snapshot);
         haveResumeSnapshot=true;
       }
+      if(state?.history_snapshot&&!haveHistorySnapshot){
+        renderHistorySnapshot(state.history_snapshot);
+        haveHistorySnapshot=true;
+      }
+      if(state?.history_report)renderHistoryReport(state.history_report);
       renderItemLifecycle(state?.items);
       renderProgress(state?.progress);
       if(state?.action_result)renderActionResult(state.action_result);
       renderArtifacts(state?.artifacts);
-      if(expectPrompt&&state?.commands_enabled===false&&(haveSnapshot||haveResumeSnapshot)){
+      if(expectPrompt&&state?.commands_enabled===false&&(haveSnapshot||haveResumeSnapshot||haveHistorySnapshot)){
         summaryStatus.textContent+=' · Continue in PTY';
         if(haveResumeSnapshot)resumeNote.textContent='Native Resume command channel unavailable. Continue in terminal.';
-        if(sessionId===activeSessionId)openTerminalEvidence();
+        if(haveHistorySnapshot)historyWarnings.textContent='Native History command channel unavailable. Use Terminal fallback.';
+        if(sessionId===activeSessionId&&!historyMode)openTerminalEvidence();
+        return;
+      }
+      if(expectPrompt&&state?.prompt&&renderHistoryPrompt(sessionId,state.prompt)){
         return;
       }
       if(expectPrompt&&state?.prompt&&renderResumePrompt(sessionId,state.prompt)){
@@ -884,13 +1153,14 @@ function installPatchPanel(){
       }
       await new Promise(resolve=>setTimeout(resolve,delayMs));
     }
-    if(haveSnapshot||haveResumeSnapshot){
+    if(haveSnapshot||haveResumeSnapshot||haveHistorySnapshot){
       summaryStatus.textContent+=' · Continue in PTY';
       if(haveResumeSnapshot)resumeNote.textContent='Native Resume prompt timed out. Continue in terminal.';
+      if(haveHistorySnapshot)historyWarnings.textContent='Native History prompt timed out. Use Terminal fallback.';
     }else{
       resetSummary('Snapshot timeout · Continue in PTY');
     }
-    if(sessionId===activeSessionId&&!runningMode)openTerminalEvidence();
+    if(sessionId===activeSessionId&&!runningMode&&!historyMode)openTerminalEvidence();
   }
 
   async function start(mode,sourceButton=null){
@@ -903,17 +1173,17 @@ function installPatchPanel(){
       });
       activeSessionId=meta.id;
       actionPollGeneration+=1;
+      historyPollGeneration+=1;
       leaveRunningView();
+      if(mode==='history')enterHistoryView();else leaveHistoryView();
       clearActionResult();
       clearResumeView();
       renderProgress(null);
       renderArtifacts([]);
-      app.attachSession(meta,mode!=='queue'&&mode!=='resume');
+      app.attachSession(meta,!['queue','resume','history'].includes(mode));
       window.dispatchEvent(new CustomEvent('taskmenu:patch-session-started',{detail:{mode,meta}}));
-      if(mode==='queue'||mode==='resume'||mode==='plan'){
-        void pollProtocol(meta.id,mode==='queue'||mode==='resume',mode==='resume'||mode==='plan');
-      }else{
-        resetSummary('History uses PTY');
+      if(mode==='queue'||mode==='resume'||mode==='history'||mode==='plan'){
+        void pollProtocol(meta.id,mode==='queue'||mode==='resume'||mode==='history',mode==='resume'||mode==='history'||mode==='plan');
       }
       return meta;
     }finally{
@@ -922,12 +1192,14 @@ function installPatchPanel(){
   }
 
   terminalEvidence.onclick=openTerminalEvidence;
+  historyTerminal.onclick=openTerminalEvidence;
+  historyBack.onclick=()=>stopHistoryAndBack().catch(app.showError);
   runningBack.onclick=()=>{if(runningFinished)leaveRunningView();};
   actionResultClose.onclick=clearActionResult;
   queueTab.onclick=()=>setQueueSummaryView('queue');
   failedTab.onclick=()=>setQueueSummaryView('failed');
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,renderResumeSnapshot,renderResumePrompt,submitResumeAction,submitItemAction,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitItemAction,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 

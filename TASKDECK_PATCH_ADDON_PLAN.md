@@ -193,17 +193,17 @@ Status: **IN PROGRESS**
 - **Smart Resume choices / failed-row multi-select / collect_failed / delete_failed:** terminal-only today and belong to the dedicated Native Resume/recovery phase.
 - **History/report pagination and menus:** terminal-only today and belong to Native History/report browser.
 
-- [ ] Native Resume/recovery.
+- [x] Native Resume/recovery.
   - [x] Phase 2E.1 Python-owned Resume snapshot/action contract + TaskDeck retained state; terminal Resume remains authoritative.
   - [x] Phase 2E.2 narrow Resume action endpoint and protocol prompt execution.
     - [x] Phase 2E.2a Python opt-in resume_action prompt/command path.
     - [x] Phase 2E.2b TaskDeck endpoint, final-write gate and built-in Resume opt-in.
   - [x] Phase 2E.3 native Resume/recovery web controls.
-- [ ] Native History/report browser.
+- [x] Native History/report browser.
   - [x] Phase 2F.1 Python-owned bounded History list/report projection + additive history_snapshot event.
-  - [ ] Phase 2F.2 native History detail command/state/endpoint.
-  - [ ] Phase 2F.3 native History/report web browser.
-- [ ] Native artifact actions.
+  - [x] Phase 2F.2 native History detail command/state/endpoint.
+  - [x] Phase 2F.3 native History/report web browser.
+- [x] Native artifact actions.
 - [ ] Remove default dependence on terminal rendering only after feature parity is proven.
 
 ## Non-regression gates
@@ -285,9 +285,10 @@ Every phase must preserve:
 | Phase 2F.2a native History Python command path | DONE | 3fa7e4e5 | Opt-in History sessions emit a read-only history_action prompt, accept only advertised prompt-bound history_detail run_ids, emit history_report, and leave terminal report behavior unchanged. |
 
 | Phase 2F.2b1 TaskDeck History protocol state/gate | DONE | 6fb41938 | TaskDeck retains history_snapshot/history_report and final FD4 writes require the active History prompt; history_detail stays reusable and does not consume that read-only prompt. |
+| Phase 2F.2b2 narrow History endpoint | DONE | 4b774b08 | Built-in History alone opts into TASKDECK_PATCH_NATIVE_HISTORY; /history-detail accepts only active-prompt advertised run_ids and writes through the final prompt-bound FD4 gate. |
 
-| Phase 2F.2b2 narrow History endpoint | DONE | this commit | Built-in History alone opts into TASKDECK_PATCH_NATIVE_HISTORY; /history-detail accepts only active-prompt advertised run_ids and writes through the final prompt-bound FD4 gate. |
+| Phase 2F.3 native History/report web browser | DONE | this commit | History is now a native primary Patch panel view; run selection uses only /history-detail, projected files/artifacts reuse safe Download/Open actions, and PTY remains explicit fallback/evidence. |
 
 ## Next action
 
-Continue **Phase 2F.3**: render the native History list/detail UI from history_snapshot/history_report, using only /history-detail for report selection and existing safe file actions for projected files/artifacts.
+Begin **Phase 2G**: close remaining terminal-only management gaps identified by the interaction audit (Queue item delete and History management/export actions) with Python-owned bounded commands before considering removal of default terminal dependence.

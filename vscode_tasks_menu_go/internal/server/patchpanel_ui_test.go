@@ -21,7 +21,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"['history','History'",
 		"['plan','Plan'",
 		"JSON.stringify({kind:'patch',patch_mode:mode})",
-		"app.attachSession(meta,mode!=='queue'&&mode!=='resume')",
+		"app.attachSession(meta,!['queue','resume','history'].includes(mode))",
 		"/protocol",
 		"const maxAttempts=followLifecycle?7200:40",
 		"for(let attempt=0;attempt<maxAttempts;attempt+=1)",
@@ -36,7 +36,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"can_retry",
 		"can_collect",
 		"can_delete",
-		"mode==='queue'||mode==='resume'",
+		"mode==='queue'||mode==='resume'||mode==='history'",
 		"renderItemLifecycle(state?.items)",
 		"enterRunningView()",
 		"finishRunningView()",
@@ -239,7 +239,7 @@ func TestPatchPanelRunningViewKeepsPTYAsSecondaryEvidence(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"if(action==='select')enterRunningView()",
-		"app.attachSession(meta,mode!=='queue'&&mode!=='resume')",
+		"app.attachSession(meta,!['queue','resume','history'].includes(mode))",
 		"function openTerminalEvidence()",
 		"app.views.has(activeSessionId)",
 		"app.activateView(activeSessionId)",
@@ -301,7 +301,7 @@ func TestPatchPanelNativeResumeKeepsPTYFallbackAndDestructiveConfirm(t *testing.
 	if err != nil { t.Fatal(err) }
 	js := string(data)
 	for _, want := range []string{
-		"app.attachSession(meta,mode!=='queue'&&mode!=='resume')",
+		"app.attachSession(meta,!['queue','resume','history'].includes(mode))",
 		"if(haveResumeSnapshot)resumeNote.textContent='Native Resume command channel unavailable. Continue in terminal.'",
 		"if(sessionId===activeSessionId)openTerminalEvidence()",
 		"action==='delete_failed'&&!window.confirm",
@@ -313,5 +313,62 @@ func TestPatchPanelNativeResumeKeepsPTYFallbackAndDestructiveConfirm(t *testing.
 		if !strings.Contains(js, want) {
 			t.Fatalf("native Resume fallback/safety contract missing %q", want)
 		}
+	}
+}
+
+
+func TestPatchPanelNativeHistoryUsesProjectedReadOnlyProtocol(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function renderHistorySnapshot(snapshot)",
+		"function renderHistoryPrompt(sessionId,prompt)",
+		"function renderHistoryReport(report)",
+		"function submitHistoryDetail(sessionId,prompt,runID)",
+		"prompt?.prompt_kind!=='history_action'",
+		"state?.history_snapshot",
+		"state?.history_report",
+		"/history-detail",
+		"waitForHistoryReport",
+		"prompt_id:String(prompt.prompt_id||'')",
+		"advertised.has(runID)",
+		"/api/files/download?path=",
+		"taskmenu:project-file-open-request",
+		"app.attachSession(meta,!['queue','resume','history'].includes(mode))",
+		"historyBack.onclick=()=>stopHistoryAndBack()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native History UI missing contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"LAST_RUN.json",
+		"PINNED_RUNS.json",
+		"unresolved_failures",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("native History UI must not read internal Patch Tool state %q", forbidden)
+		}
+	}
+}
+
+func TestPatchPanelHistoryKeepsTerminalAsFallbackNotPrimary(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"historyTerminal.onclick=openTerminalEvidence",
+		"Native History command channel unavailable. Use Terminal fallback.",
+		"Native History prompt timed out. Use Terminal fallback.",
+		"mode==='history'",
+		"renderHistoryPrompt(sessionId,state.prompt)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native History fallback contract missing %q", want)
+		}
+	}
+	if strings.Contains(js, "History uses PTY") {
+		t.Fatal("History must no longer default to PTY rendering")
 	}
 }
