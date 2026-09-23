@@ -239,7 +239,7 @@ func TestPatchPanelRunningViewKeepsPTYAsSecondaryEvidence(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"if(action==='select')enterRunningView()",
-		"app.attachSession(meta,mode!=='queue')",
+		"app.attachSession(meta,mode!=='queue'&&mode!=='resume')",
 		"function openTerminalEvidence()",
 		"app.views.has(activeSessionId)",
 		"app.activateView(activeSessionId)",

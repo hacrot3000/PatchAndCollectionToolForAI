@@ -275,7 +275,8 @@ Every phase must preserve:
 | Phase 2E.2a native Resume Python command path | DONE | fee4eafa | Python handles prompt-bound resume_action only when TASKDECK_PATCH_NATIVE_RESUME=1 and both protocol channels exist; malformed/unavailable native input falls back to the historical terminal Resume path. |
 | Phase 2E.2a test fixture correction | DONE | 9f8883bb | Resume protocol tests now use an existing temp project and explicit recovery-row binding mocks; runtime behavior is unchanged. |
 | Phase 2E.2b TaskDeck Resume endpoint/gate | DONE | 36d9cb75 | Built-in Resume explicitly opts into native mode; public API accepts only active-prompt advertised Resume actions, and session final-write gate consumes the prompt to reject stale/double submissions. |
-| Phase 2E.3 native Smart Resume UI | DONE | this commit | Patch panel renders Python-owned Resume snapshot/options/failed-item capabilities, submits only through /resume-action, confirms destructive delete, and preserves PTY fallback/history handoff. |
+| Phase 2E.3 native Smart Resume UI | DONE | 2c36121d | Patch panel renders Python-owned Resume snapshot/options/failed-item capabilities, submits only through /resume-action, confirms destructive delete, and preserves PTY fallback/history handoff. |
+| Phase 2E.3 UI contract test correction | DONE | this commit | Updated the legacy Running-view PTY activation assertion for native Resume; runtime behavior is unchanged. |
 
 ## Next action
 
