@@ -135,13 +135,13 @@ Status: **DONE**
 - [x] Hide only the definite zero-argument legacy `tools/run_python_patches.sh` duplicate; parameterized/special tasks remain visible.
 
 ### Phase 1E — Legacy project runtime migration
-Status: **TODO**
+Status: **IN PROGRESS**
 
-- [ ] Detect project-local official Patch Tool runtime.
-- [ ] Verify managed files/checksums before cleanup.
-- [ ] Never remove locally modified/unknown files.
+- [x] Detect project-local Patch Tool runtime under `tools/`.
+- [x] Compare SHA-256 of candidate managed files against the bundled runtime from the active TaskDeck release.
+- [x] Any modified, symlinked or unknown file inside the legacy runtime blocks cleanup.
 - [ ] Never cleanup the PatchAndCollectionToolForAI source repository.
-- [ ] Keep a compatibility path for old launchers.
+- [ ] Keep a compatibility path for old launchers while removing only verified runtime payload.
 
 ### Phase 1.5 — Protocol v1
 Status: **TODO**
@@ -196,8 +196,9 @@ Every phase must preserve:
 | Phase 1C.2b self-update wiring | DONE | 23ce9d21 | Self-update now requires a complete versioned TaskDeck + Patch release, installs it atomically, and hands the daemon off through the stable global entrypoint. |
 | Phase 1D.1 built-in Patch session backend | DONE | bc8e5b4a | Added bounded `kind:patch` session modes backed by the shared runtime resolver; Patch sessions use reserved task id -1 and do not depend on tasks.json. |
 | Phase 1D.2 Patch Activity Bar panel | DONE | 0d32d411 | Added Patch icon/panel with Queue/Resume/History/Plan actions; sessions use the existing TaskDeck PTY renderer. |
-| Phase 1D.3 legacy task de-dup | DONE | this commit | Task list hides only a zero-argument, exact legacy tools/run_python_patches.sh duplicate; customized/parameterized tasks remain visible. |
+| Phase 1D.3 legacy task de-dup | DONE | ae49e6ca | Task list hides only a zero-argument, exact legacy tools/run_python_patches.sh duplicate; customized/parameterized tasks remain visible. |
+| Phase 1E.1 migration safety plan | DONE | this commit | Added fail-closed SHA-256 comparison of legacy tools runtime against the active bundled release; modified/symlinked/unknown files block cleanup. |
 
 ## Next action
 
-Implement **Phase 1E**: add safe legacy project-runtime migration detection and checksum/managed-file guards before any cleanup action is offered.
+Continue **Phase 1E.2**: wire the verified migration plan into legacy cleanup, preserve source repositories, remove only verified payload, and replace the old shell launcher with a tiny `taskdeck patch` compatibility shim.
