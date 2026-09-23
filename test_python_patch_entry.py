@@ -151,7 +151,7 @@ class ProtocolContractTests(unittest.TestCase):
             read_fd, write_fd = os.pipe()
             try:
                 writer = EventWriter(write_fd)
-                rc = entry._run_with_protocol(writer, [str(child)], "/workspace", ["plan"])
+                rc = entry._run_with_protocol(writer, [str(child)], tmp, ["health-search"])
                 os.close(write_fd)
                 write_fd = -1
                 chunks = []
