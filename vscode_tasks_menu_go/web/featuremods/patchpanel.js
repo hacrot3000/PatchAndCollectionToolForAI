@@ -43,6 +43,17 @@ function installPatchPanel(){
   .task-patch-run-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;padding:5px 6px;border-radius:4px;background:#171c23}
   .task-patch-run-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-run-status{font-weight:700}
+  .task-patch-artifacts{margin:0 0 10px;padding:8px;border:1px solid #30343b;border-radius:6px;background:#0d1015;font-size:11px}
+  .task-patch-artifacts[hidden]{display:none}
+  .task-patch-artifacts-title{font-weight:700;margin-bottom:6px}
+  .task-patch-artifact-list{display:grid;gap:5px}
+  .task-patch-artifact{padding:6px;border-radius:4px;background:#171c23}
+  .task-patch-artifact-head{display:flex;align-items:center;gap:5px}
+  .task-patch-artifact-label{font-weight:600;min-width:0;flex:1}
+  .task-patch-artifact-primary{font-size:9px;padding:1px 4px;border:1px solid #6d7c91;border-radius:999px}
+  .task-patch-artifact-path{display:block;margin-top:3px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .task-patch-artifact-actions{display:flex;gap:5px;margin-top:5px}
+  .task-patch-artifact-actions a,.task-patch-artifact-actions button{font-size:10px;padding:3px 6px}
   .task-patch-actions{display:grid;gap:7px}
   .task-patch-action{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:9px 10px;text-align:left}
   .task-patch-action strong{font-size:12px}
@@ -56,6 +67,8 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-prompt-item{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-run{background:#f6f8fa;border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-run-item{background:#fff}
+  html[data-taskmenu-theme="light"] .task-patch-artifacts{background:#f6f8fa;border-color:#d0d7de}
+  html[data-taskmenu-theme="light"] .task-patch-artifact{background:#fff}
   `;
   document.head.append(style);
 
@@ -93,8 +106,13 @@ function installPatchPanel(){
   const runItems=document.createElement('div');runItems.className='task-patch-run-items';
   runBox.append(runTitle,runItems);
 
+  const artifactBox=document.createElement('div');artifactBox.className='task-patch-artifacts';artifactBox.hidden=true;
+  const artifactTitle=document.createElement('div');artifactTitle.className='task-patch-artifacts-title';artifactTitle.textContent='Artifacts';
+  const artifactList=document.createElement('div');artifactList.className='task-patch-artifact-list';
+  artifactBox.append(artifactTitle,artifactList);
+
   const actions=document.createElement('div');actions.className='task-patch-actions';
-  body.append(note,summary,promptBox,runBox,actions);
+  body.append(note,summary,promptBox,runBox,artifactBox,actions);
   panel.append(head,body);
   document.body.append(panel);
 
@@ -184,6 +202,46 @@ function installPatchPanel(){
       row.append(name,status);
       runItems.append(row);
     }
+  }
+
+  const artifactLabels={
+    fail_handoff_zip:'FAIL handoff ZIP',
+    fail_handoff_text:'FAIL handoff TXT',
+    ai_sync_zip:'AI sync ZIP',
+    ai_sync_text:'AI sync TXT',
+    collect_result_zip:'COLLECT result ZIP',
+    collect_result_text:'COLLECT result TXT',
+  };
+
+  function renderArtifacts(artifacts){
+    const rows=Array.isArray(artifacts)?artifacts:[];
+    artifactList.replaceChildren();
+    let rendered=0;
+    for(const artifact of rows){
+      const path=String(artifact?.path||'');
+      if(!path.startsWith('artifacts/')||path.includes('..')||path.includes('\\'))continue;
+      const kind=String(artifact?.artifact_kind||'');
+      const row=document.createElement('div');row.className='task-patch-artifact';
+      const head=document.createElement('div');head.className='task-patch-artifact-head';
+      const label=document.createElement('span');label.className='task-patch-artifact-label';label.textContent=artifactLabels[kind]||kind||'Artifact';
+      head.append(label);
+      if(artifact?.primary){
+        const badge=document.createElement('span');badge.className='task-patch-artifact-primary';badge.textContent='PRIMARY';head.append(badge);
+      }
+      const pathNode=document.createElement('span');pathNode.className='task-patch-artifact-path';pathNode.textContent=path;pathNode.title=path;
+      const actionsNode=document.createElement('div');actionsNode.className='task-patch-artifact-actions';
+      const download=document.createElement('a');download.textContent='Download';download.href='/api/files/download?path='+encodeURIComponent(path);download.download='';
+      actionsNode.append(download);
+      if(kind.endsWith('_text')){
+        const open=document.createElement('button');open.type='button';open.textContent='Open';
+        open.onclick=()=>window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path}}));
+        actionsNode.append(open);
+      }
+      row.append(head,pathNode,actionsNode);
+      artifactList.append(row);
+      rendered+=1;
+    }
+    artifactBox.hidden=rendered===0;
   }
 
   function clearPrompt(){
@@ -302,6 +360,7 @@ function installPatchPanel(){
         haveSnapshot=true;
       }
       renderItemLifecycle(state?.items);
+      renderArtifacts(state?.artifacts);
       if(expectPrompt&&state?.commands_enabled===false&&haveSnapshot){
         summaryStatus.textContent+=' · Continue in PTY';
         return;
@@ -338,6 +397,7 @@ function installPatchPanel(){
         body:JSON.stringify({kind:'patch',patch_mode:mode}),
       });
       activeSessionId=meta.id;
+      renderArtifacts([]);
       app.attachSession(meta,true);
       window.dispatchEvent(new CustomEvent('taskmenu:patch-session-started',{detail:{mode,meta}}));
       if(mode==='queue'||mode==='resume'||mode==='plan'){
@@ -352,7 +412,7 @@ function installPatchPanel(){
   }
 
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,renderQueuePrompt,renderItemLifecycle,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,renderQueuePrompt,renderItemLifecycle,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 

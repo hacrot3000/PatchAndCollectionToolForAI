@@ -14,6 +14,7 @@ const (
 	maxProtocolEventBytes   = 1 << 20
 	maxProtocolCommandBytes = 1 << 20
 	maxProtocolItems        = 4096
+	maxProtocolArtifacts    = 256
 )
 
 type protocolEnvelope struct {
@@ -34,6 +35,16 @@ type ProtocolItemState struct {
 	ElapsedSeconds *float64 `json:"elapsed_seconds,omitempty"`
 }
 
+type ProtocolArtifactState struct {
+	ArtifactKind string `json:"artifact_kind"`
+	Path         string `json:"path"`
+	Primary      bool   `json:"primary,omitempty"`
+	ItemName     string `json:"item_name,omitempty"`
+	ItemKind     string `json:"item_kind,omitempty"`
+	Index        int    `json:"index,omitempty"`
+	Total        int    `json:"total,omitempty"`
+}
+
 type ProtocolState struct {
 	Available       bool            `json:"available"`
 	Enabled         bool            `json:"enabled"`
@@ -43,8 +54,9 @@ type ProtocolState struct {
 	LastEvent       json.RawMessage `json:"last_event,omitempty"`
 	QueueSnapshot   json.RawMessage `json:"queue_snapshot,omitempty"`
 	Prompt          json.RawMessage     `json:"prompt,omitempty"`
-	Items           []ProtocolItemState `json:"items,omitempty"`
-	Error           string              `json:"error,omitempty"`
+	Items           []ProtocolItemState     `json:"items,omitempty"`
+	Artifacts       []ProtocolArtifactState `json:"artifacts,omitempty"`
+	Error           string                  `json:"error,omitempty"`
 }
 
 type ProtocolStateProvider interface {
@@ -142,6 +154,69 @@ func upsertProtocolItem(items []ProtocolItemState, item ProtocolItemState) []Pro
 	return items
 }
 
+func protocolArtifactEvent(data []byte) (ProtocolArtifactState, error) {
+	var event struct {
+		Type         string `json:"type"`
+		ArtifactKind string `json:"artifact_kind"`
+		Path         string `json:"path"`
+		Primary      bool   `json:"primary"`
+		ItemName     string `json:"item_name"`
+		ItemKind     string `json:"item_kind"`
+		Index        int    `json:"index"`
+		Total        int    `json:"total"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return ProtocolArtifactState{}, fmt.Errorf("invalid Patch artifact event JSON: %w", err)
+	}
+	if event.Type != "artifact" {
+		return ProtocolArtifactState{}, fmt.Errorf("unsupported Patch artifact event")
+	}
+	kind := strings.TrimSpace(event.ArtifactKind)
+	rel := strings.TrimSpace(event.Path)
+	if kind == "" || len(kind) > 128 {
+		return ProtocolArtifactState{}, fmt.Errorf("Patch artifact kind is invalid")
+	}
+	if rel == "" || len(rel) > 4096 || !strings.HasPrefix(rel, "artifacts/") || strings.ContainsRune(rel, '\x00') || strings.Contains(rel, "\\") {
+		return ProtocolArtifactState{}, fmt.Errorf("Patch artifact path is invalid")
+	}
+	for _, part := range strings.Split(rel, "/") {
+		if part == "" || part == "." || part == ".." {
+			return ProtocolArtifactState{}, fmt.Errorf("Patch artifact path is not project-relative")
+		}
+	}
+	if len(event.ItemName) > 1024 || len(event.ItemKind) > 128 {
+		return ProtocolArtifactState{}, fmt.Errorf("Patch artifact item identity is too large")
+	}
+	if event.Index < 0 || event.Total < 0 || (event.Index == 0) != (event.Total == 0) {
+		return ProtocolArtifactState{}, fmt.Errorf("Patch artifact index/total is invalid")
+	}
+	if event.Index > 0 && (event.Total < event.Index || event.Total > maxProtocolItems) {
+		return ProtocolArtifactState{}, fmt.Errorf("Patch artifact index/total is out of bounds")
+	}
+	return ProtocolArtifactState{
+		ArtifactKind: kind,
+		Path: rel,
+		Primary: event.Primary,
+		ItemName: strings.TrimSpace(event.ItemName),
+		ItemKind: strings.TrimSpace(event.ItemKind),
+		Index: event.Index,
+		Total: event.Total,
+	}, nil
+}
+
+func upsertProtocolArtifact(items []ProtocolArtifactState, artifact ProtocolArtifactState) []ProtocolArtifactState {
+	for i := range items {
+		if items[i].ArtifactKind == artifact.ArtifactKind && items[i].Path == artifact.Path {
+			items[i] = artifact
+			return items
+		}
+	}
+	if len(items) >= maxProtocolArtifacts {
+		return items
+	}
+	return append(items, artifact)
+}
+
 func protocolPromptID(data []byte) (string, error) {
 	var event struct {
 		Type     string `json:"type"`
@@ -181,5 +256,6 @@ func cloneProtocolState(in ProtocolState) ProtocolState {
 	out.QueueSnapshot = append(json.RawMessage(nil), in.QueueSnapshot...)
 	out.Prompt = append(json.RawMessage(nil), in.Prompt...)
 	out.Items = append([]ProtocolItemState(nil), in.Items...)
+	out.Artifacts = append([]ProtocolArtifactState(nil), in.Artifacts...)
 	return out
 }

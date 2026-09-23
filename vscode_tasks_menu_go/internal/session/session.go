@@ -166,6 +166,7 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 	}
 	raw := append(json.RawMessage(nil), line...)
 	var itemState ProtocolItemState
+	var artifactState ProtocolArtifactState
 	if envelope.Type == "prompt" {
 		if _, err := protocolPromptID(raw); err != nil {
 			s.setProtocolError(err.Error())
@@ -180,6 +181,14 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 			return
 		}
 	}
+	if envelope.Type == "artifact" {
+		var err error
+		artifactState, err = protocolArtifactEvent(raw)
+		if err != nil {
+			s.setProtocolError(err.Error())
+			return
+		}
+	}
 	s.mu.Lock()
 	s.protocol.EventCount++
 	s.protocol.LastSeq = envelope.Seq
@@ -188,12 +197,15 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 	switch envelope.Type {
 	case "run_started":
 		s.protocol.Items = nil
+		s.protocol.Artifacts = nil
 	case "queue_snapshot":
 		s.protocol.QueueSnapshot = append(json.RawMessage(nil), raw...)
 	case "prompt":
 		s.protocol.Prompt = append(json.RawMessage(nil), raw...)
 	case "item_started", "item_finished":
 		s.protocol.Items = upsertProtocolItem(s.protocol.Items, itemState)
+	case "artifact":
+		s.protocol.Artifacts = upsertProtocolArtifact(s.protocol.Artifacts, artifactState)
 	case "run_finished":
 		s.protocol.Prompt = nil
 	}

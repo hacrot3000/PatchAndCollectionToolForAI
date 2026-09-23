@@ -28,6 +28,11 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"renderQueueSnapshot(state.queue_snapshot)",
 		"state?.prompt&&renderQueuePrompt(sessionId,state.prompt)",
 		"renderItemLifecycle(state?.items)",
+		"renderArtifacts(state?.artifacts)",
+		"/api/files/download?path=",
+		"taskmenu:project-file-open-request",
+		"kind.endsWith('_text')",
+		"task-patch-artifacts",
 		"followLifecycle?7200:40",
 		"followLifecycle?1000:250",
 		"protocolPollGeneration",
@@ -39,7 +44,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"mode==='queue'",
 		"items.slice(0,50)",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,renderQueuePrompt,renderItemLifecycle",
+		"TaskMenuPatchPanel={open,close,toggle,start,renderQueueSnapshot,renderQueuePrompt,renderItemLifecycle,renderArtifacts",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {
@@ -101,6 +106,26 @@ func TestPatchPanelPromptUsesProtocolDataNotTerminalHeuristics(t *testing.T) {
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("native queue prompt missing protocol-driven contract %q", want)
+		}
+	}
+}
+
+
+func TestPatchPanelArtifactActionsUseStructuredProtocolOnly(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"artifact?.path",
+		"artifact?.artifact_kind",
+		"artifact?.primary",
+		"renderArtifacts(state?.artifacts)",
+		"download.href='/api/files/download?path='+encodeURIComponent(path)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("artifact UI missing structured protocol contract %q", want)
 		}
 	}
 }

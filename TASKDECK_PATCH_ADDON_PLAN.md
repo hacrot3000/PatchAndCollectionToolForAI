@@ -161,6 +161,7 @@ Status: **IN PROGRESS**
 - [x] Add protocol envelope/lifecycle/version tests.
 - [x] Session manager supports an opt-in FD 3 event pipe and bounded protocol state while PTY remains unchanged.
 - [x] TaskDeck retains up to 4096 item lifecycle entries and Patch panel shows native running/completed status with polling stopped when hidden.
+- [x] TaskDeck retains up to 256 validated artifact entries and Patch panel exposes native Download/Open actions from structured artifact events.
 - [x] Broker advertises `patch_protocol_events`, carries the opt-in flag and exposes protocol state; old brokers fall back to PTY-only.
 - [x] Patch panel polls bounded protocol state and renders a native queue summary while PTY remains the authoritative interactive surface.
 - [x] Patch panel renders Python-owned queue_selection prompts and submits only bounded select/cancel responses; PTY remains available as fallback.
@@ -233,8 +234,9 @@ Every phase must preserve:
 | Phase 1.5F.1 item lifecycle events | DONE | dff4ab05 | Dispatcher emits item_started/item_finished only for actual PATCH/COLLECT payload execution; preflight/blocked/duplicate skips are not misreported as started. |
 | Phase 1.5F.2 native item lifecycle state | DONE | 87efcaff | TaskDeck retains bounded item lifecycle state and Patch panel displays running/completed item status while PTY remains available. |
 | Phase 1.5F.2 UI contract test correction | DONE | 8b087ceb | Updated the stale fixed-40-iteration assertion to the new bounded lifecycle polling contract; no runtime behavior change. |
-| Phase 1.5F.3a Python artifact events | DONE | this commit | Emits fail handoff, AI sync and COLLECT result artifacts only after validating a real non-link file under project artifacts/; internal/history files are not exposed. |
+| Phase 1.5F.3a Python artifact events | DONE | 858f2293 | Emits fail handoff, AI sync and COLLECT result artifacts only after validating a real non-link file under project artifacts/; internal/history files are not exposed. |
+| Phase 1.5F.3b native artifact state/actions | DONE | this commit | TaskDeck retains a bounded validated artifact list; Patch panel offers existing safe download plus text-editor open actions without parsing terminal/history output. |
 
 ## Next action
 
-Continue **Phase 1.5F.3b**: retain a bounded artifact list in TaskDeck protocol state and render safe project-relative artifact actions in the Patch panel.
+Continue **Phase 1.5G.1**: define Python-owned progress events from existing bounded progress sources, keeping terminal output authoritative and avoiding Go-side console parsing.
