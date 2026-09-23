@@ -8,6 +8,57 @@ from typing import Any
 
 PROTOCOL_NAME = "taskdeck.patch"
 PROTOCOL_VERSION = 1
+MAX_COMMAND_BYTES = 1 << 20
+
+
+class ProtocolCommandError(RuntimeError):
+    pass
+
+
+class CommandReader:
+    """Bounded JSONL command reader for the future native TaskDeck frontend.
+
+    This class is intentionally unused by the current dispatcher. Defining the
+    transport separately from stdin preserves the PTY interaction contract until
+    prompt events and command semantics are explicitly introduced.
+    """
+
+    def __init__(self, fd: int):
+        if not isinstance(fd, int) or fd < 3:
+            raise ValueError("command fd must be an integer >= 3")
+        self.fd = fd
+        self._stream = os.fdopen(os.dup(fd), "r", encoding="utf-8", buffering=1)
+
+    def read(self) -> dict[str, Any] | None:
+        raw = self._stream.readline(MAX_COMMAND_BYTES + 1)
+        if raw == "":
+            return None
+        if len(raw.encode("utf-8")) > MAX_COMMAND_BYTES:
+            raise ProtocolCommandError("Patch protocol command exceeds size limit")
+        if not raw.endswith("\n"):
+            raise ProtocolCommandError("Patch protocol command must be one complete JSONL record")
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ProtocolCommandError(f"invalid Patch protocol command JSON: {exc}") from exc
+        if not isinstance(value, dict):
+            raise ProtocolCommandError("Patch protocol command must be a JSON object")
+        if value.get("protocol") != PROTOCOL_NAME or value.get("version") != PROTOCOL_VERSION:
+            raise ProtocolCommandError("unsupported Patch protocol command envelope")
+        if value.get("type") != "command":
+            raise ProtocolCommandError("Patch protocol command type must be 'command'")
+        if not isinstance(value.get("seq"), int) or int(value["seq"]) < 1:
+            raise ProtocolCommandError("Patch protocol command seq must be a positive integer")
+        command = value.get("command")
+        if not isinstance(command, str) or not command.strip():
+            raise ProtocolCommandError("Patch protocol command name is required")
+        return value
+
+    def close(self) -> None:
+        try:
+            self._stream.close()
+        except OSError:
+            pass
 
 
 class EventWriter:

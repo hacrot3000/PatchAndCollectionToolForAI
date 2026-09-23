@@ -148,7 +148,7 @@ Status: **DONE**
 Status: **IN PROGRESS**
 
 - [x] Add optional POSIX event FD/pipe to Python entrypoint via `TASKDECK_PATCH_EVENT_FD`; no FD keeps the historical `execv` path.
-- [ ] Add optional command FD/pipe.
+- [x] Define optional POSIX command FD contract via `TASKDECK_PATCH_COMMAND_FD`; it requires a separate event FD and is not enabled by TaskDeck yet.
 - [x] Define versioned JSONL envelope and initial `hello/run_started/run_finished/error` lifecycle events.
 - [x] Emit Python-owned `queue_snapshot` with stable item/warning/count fields before dispatcher-backed runs.
 - [ ] Emit item/progress/artifact events while terminal UI remains authoritative.
@@ -211,8 +211,9 @@ Every phase must preserve:
 | Phase 1.5C.1a session protocol state | DONE | 3ae480a1 | Added opt-in FD 3 transport in the session manager and bounded latest-event/queue-snapshot state without changing PTY output. |
 | Phase 1.5C.1b broker protocol capability | DONE | 5fd3a3d6 | Added capability-gated broker wire/API for protocol events with old-broker PTY-only fallback. |
 | Phase 1.5C.1c public Patch protocol API | DONE | 07b11200 | Built-in Patch sessions now request protocol events and TaskDeck exposes optional per-session protocol state with legacy fallback. |
-| Phase 1.5C.2 native queue summary | DONE | this commit | Patch panel renders bounded Python-owned queue_snapshot data, falls back to PTY-only, and never parses terminal text. |
+| Phase 1.5C.2 native queue summary | DONE | e24e619e | Patch panel renders bounded Python-owned queue_snapshot data, falls back to PTY-only, and never parses terminal text. |
+| Phase 1.5D.1 command channel contract | DONE | this commit | Added bounded versioned JSONL CommandReader and optional command FD pass-through contract; TaskDeck does not enable it yet. |
 
 ## Next action
 
-Continue **Phase 1.5D**: add an optional command channel foundation for native prompt/selection control, leaving it disabled by default until prompt events are defined.
+Continue **Phase 1.5D.2**: add disabled-by-default session/broker command-pipe plumbing and a bounded command write API, without enabling it for Patch sessions until prompt events exist.

@@ -27,6 +27,7 @@ AUTOMATION_FLAGS = {
 UTILITY_COMMANDS = {"paths", "health-search", "help", "--help", "-h", "version", "--version"}
 PATCH_FILE_SUFFIXES = (".zip", ".py", ".tar.gz", ".tgz")
 EVENT_FD_ENV = "TASKDECK_PATCH_EVENT_FD"
+COMMAND_FD_ENV = "TASKDECK_PATCH_COMMAND_FD"
 
 
 class EntryError(RuntimeError):
@@ -209,17 +210,49 @@ def _protocol_writer_from_env():
         raise EntryError(f"cannot open Patch protocol event channel fd={fd}: {exc}") from exc
 
 
+def _command_fd_from_env(event_fd: int | None) -> int | None:
+    raw = os.environ.get(COMMAND_FD_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        fd = int(raw, 10)
+    except ValueError as exc:
+        raise EntryError(f"{COMMAND_FD_ENV} must be an integer file descriptor") from exc
+    if fd < 3:
+        raise EntryError(f"{COMMAND_FD_ENV} must be >= 3 so commands never share stdin/stdout/stderr")
+    if os.name == "nt":
+        raise EntryError("Patch protocol command FD transport is not available on Windows yet")
+    if event_fd is None:
+        raise EntryError(f"{COMMAND_FD_ENV} requires {EVENT_FD_ENV}")
+    if fd == event_fd:
+        raise EntryError("Patch protocol event and command file descriptors must be different")
+    try:
+        os.fstat(fd)
+    except OSError as exc:
+        raise EntryError(f"cannot access Patch protocol command channel fd={fd}: {exc}") from exc
+    return fd
+
+
 def _normalized_return_code(return_code: int) -> int:
     return return_code if return_code >= 0 else 128 + (-return_code)
 
 
-def _run_with_protocol(writer, child_argv: Sequence[str], project_root: str, tool_args: Sequence[str]) -> int:
+def _run_with_protocol(
+    writer,
+    child_argv: Sequence[str],
+    project_root: str,
+    tool_args: Sequence[str],
+    command_fd: int | None = None,
+) -> int:
     route = classify_route(tool_args)
+    capabilities = ["events_v1", "queue_snapshot_v1"]
+    if command_fd is not None:
+        capabilities.append("commands_v1")
     writer.emit(
         "hello",
         project_root=project_root,
         route=route,
-        capabilities=["events_v1", "queue_snapshot_v1"],
+        capabilities=capabilities,
     )
     if route in {"queue", "run", "resume", "plan"}:
         try:
@@ -229,9 +262,10 @@ def _run_with_protocol(writer, child_argv: Sequence[str], project_root: str, too
             writer.emit("error", phase="queue_snapshot", message=f"{type(exc).__name__}: {exc}")
     writer.emit("run_started", route=route)
     try:
+        pass_fds = (writer.fd,) if command_fd is None else (writer.fd, command_fd)
         proc = subprocess.Popen(
             [sys.executable, *child_argv],
-            pass_fds=(writer.fd,),
+            pass_fds=pass_fds,
         )
     except OSError as exc:
         writer.emit("error", phase="spawn", message=str(exc))
@@ -278,8 +312,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     base_dir = Path(__file__).resolve().parent
     _prepare_environment(base_dir)
     writer = None
+    command_fd = None
     try:
         writer = _protocol_writer_from_env()
+        command_fd = _command_fd_from_env(writer.fd if writer is not None else None)
         project_root, tool_args = parse_entry_args(sys.argv[1:] if argv is None else argv)
         child_argv, required = build_exec_argv(project_root, tool_args, base_dir)
         for path in required:
@@ -293,7 +329,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     if writer is not None:
-        return _run_with_protocol(writer, child_argv, project_root, tool_args)
+        return _run_with_protocol(writer, child_argv, project_root, tool_args, command_fd)
 
     # Critical compatibility invariant: without a machine event channel the
     # historical terminal path remains an exec, not a supervising subprocess.

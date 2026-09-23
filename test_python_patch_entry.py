@@ -85,6 +85,45 @@ class ProtocolContractTests(unittest.TestCase):
             else:
                 os.environ.pop(entry.EVENT_FD_ENV, None)
 
+    def test_command_fd_requires_separate_event_channel(self):
+        read_fd, write_fd = os.pipe()
+        old_event = os.environ.pop(entry.EVENT_FD_ENV, None)
+        old_command = os.environ.get(entry.COMMAND_FD_ENV)
+        try:
+            os.environ[entry.COMMAND_FD_ENV] = str(read_fd)
+            with self.assertRaises(entry.EntryError):
+                entry._command_fd_from_env(None)
+            with self.assertRaises(entry.EntryError):
+                entry._command_fd_from_env(read_fd)
+            self.assertEqual(entry._command_fd_from_env(write_fd), read_fd)
+        finally:
+            if old_event is not None:
+                os.environ[entry.EVENT_FD_ENV] = old_event
+            if old_command is not None:
+                os.environ[entry.COMMAND_FD_ENV] = old_command
+            else:
+                os.environ.pop(entry.COMMAND_FD_ENV, None)
+            os.close(read_fd)
+            os.close(write_fd)
+
+    def test_command_reader_accepts_versioned_bounded_jsonl(self):
+        from python_patch_protocol import CommandReader
+
+        read_fd, write_fd = os.pipe()
+        reader = CommandReader(read_fd)
+        try:
+            os.write(
+                write_fd,
+                b'{"protocol":"taskdeck.patch","version":1,"type":"command","seq":1,"command":"future_prompt_response","payload":{"value":"yes"}}\n',
+            )
+            command = reader.read()
+            self.assertEqual(command["command"], "future_prompt_response")
+            self.assertEqual(command["payload"]["value"], "yes")
+        finally:
+            reader.close()
+            os.close(read_fd)
+            os.close(write_fd)
+
     def test_event_writer_emits_versioned_jsonl(self):
         from python_patch_protocol import EventWriter
 
