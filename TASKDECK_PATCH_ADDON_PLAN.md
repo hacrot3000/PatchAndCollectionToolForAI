@@ -186,7 +186,8 @@ Every phase must preserve:
 | Step | Status | Commit | Notes |
 | --- | --- | --- | --- |
 | Phase 0 roadmap | DONE | 0ac231f2 | Architecture/recovery plan created before runtime changes. |
-| Phase 1A canonical entrypoint | DONE | this commit | Routing moved from shell/PowerShell to one Python entrypoint; wrappers remain compatible. |
+| Phase 1A canonical entrypoint | DONE | 0e871ed1 | Routing moved from shell/PowerShell to one Python entrypoint; wrappers remain compatible. |
+| Phase 1A CI path correction | DONE | this commit | Fix CI working-directory path for the new Python routing contract; no runtime behavior change. |
 
 ## Next action
 
