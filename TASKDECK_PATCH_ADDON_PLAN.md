@@ -218,8 +218,9 @@ Every phase must preserve:
 | Phase 1.5D.1 command channel contract | DONE | 70eb2dc7 | Added bounded versioned JSONL CommandReader and optional command FD pass-through contract; TaskDeck does not enable it yet. |
 | Phase 1.5D.2a session command pipe | DONE | 1a6aa5f9 | Added opt-in FD4 command pipe, bounded envelope validation and session write primitive; Patch sessions still leave it disabled. |
 | Phase 1.5D.2b broker command plumbing | DONE | 74279462 | Added capability-gated command flag and internal broker command endpoint; built-in Patch sessions remain command-disabled. |
-| Phase 1.5E.1 child event relay | DONE | this commit | Child protocol events now use an internal pipe and are re-sequenced by the entrypoint before reaching TaskDeck. |
+| Phase 1.5E.1 child event relay | DONE | 6b7ab13b | Child protocol events now use an internal pipe and are re-sequenced by the entrypoint before reaching TaskDeck. |
+| Phase 1.5E.1 protocol test discovery correction | DONE | this commit | Moved unittest.main() after ProtocolContractTests so CI executes the complete protocol contract suite instead of routing tests only. |
 
 ## Next action
 
-Continue **Phase 1.5E.2**: define prompt/prompt_response helpers and integrate one conservative queue-selection path with command-channel-first, terminal fallback semantics.
+Verify the full Python protocol contract suite after the test-discovery correction, then continue **Phase 1.5E.2** with conservative queue-selection prompt/response integration.

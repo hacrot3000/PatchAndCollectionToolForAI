@@ -63,10 +63,6 @@ class RouteContractTests(unittest.TestCase):
         self.assertEqual(argv[-2:], ["run", "--all"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ProtocolContractTests(unittest.TestCase):
     def setUp(self):
         self.base = Path(__file__).resolve().parent
@@ -260,3 +256,7 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertEqual([event["type"] for event in events], ["hello", "queue_snapshot", "run_started", "run_finished"])
         self.assertEqual(events[1]["status"], "empty")
         self.assertEqual(events[1]["total"], 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
