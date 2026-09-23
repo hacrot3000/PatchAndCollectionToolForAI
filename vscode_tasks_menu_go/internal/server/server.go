@@ -286,7 +286,92 @@ func patchToolExecution(workspace, mode string) (tasks.Execution, error) {
 		return tasks.Execution{}, err
 	}
 	spec.ProtocolEvents = true
+	spec.ProtocolCommands = true
 	return spec, nil
+}
+
+type patchPromptResponseRequest struct {
+	PromptID string `json:"prompt_id"`
+	Action   string `json:"action"`
+	Indexes  []int  `json:"indexes,omitempty"`
+}
+
+func buildPatchPromptResponseCommand(state session.ProtocolState, req patchPromptResponseRequest) ([]byte, error) {
+	if !state.CommandsEnabled {
+		return nil, fmt.Errorf("Patch protocol command channel is not enabled")
+	}
+	if len(state.Prompt) == 0 {
+		return nil, fmt.Errorf("Patch session has no active prompt")
+	}
+	var prompt struct {
+		Protocol   string `json:"protocol"`
+		Version    int    `json:"version"`
+		Type       string `json:"type"`
+		PromptID   string `json:"prompt_id"`
+		PromptKind string `json:"prompt_kind"`
+		Actions    []string `json:"actions"`
+		Items      []struct {
+			Index int `json:"index"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(state.Prompt, &prompt); err != nil {
+		return nil, fmt.Errorf("invalid active Patch prompt: %w", err)
+	}
+	if prompt.Protocol != "taskdeck.patch" || prompt.Version != 1 || prompt.Type != "prompt" || prompt.PromptKind != "queue_selection" {
+		return nil, fmt.Errorf("unsupported active Patch prompt")
+	}
+	req.PromptID = strings.TrimSpace(req.PromptID)
+	if req.PromptID == "" || req.PromptID != prompt.PromptID {
+		return nil, fmt.Errorf("prompt response does not match the active prompt")
+	}
+	action := strings.ToLower(strings.TrimSpace(req.Action))
+	allowed := false
+	for _, value := range prompt.Actions {
+		if action == value {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return nil, fmt.Errorf("unsupported prompt action %q", action)
+	}
+	payload := map[string]any{"prompt_id": req.PromptID, "action": action}
+	switch action {
+	case "cancel":
+		if len(req.Indexes) != 0 {
+			return nil, fmt.Errorf("cancel prompt response must not include indexes")
+		}
+	case "select":
+		if len(req.Indexes) == 0 || len(req.Indexes) > 4096 {
+			return nil, fmt.Errorf("select prompt response requires a bounded non-empty indexes array")
+		}
+		valid := make(map[int]bool, len(prompt.Items))
+		for _, item := range prompt.Items {
+			if item.Index > 0 {
+				valid[item.Index] = true
+			}
+		}
+		for _, index := range req.Indexes {
+			if !valid[index] {
+				return nil, fmt.Errorf("prompt response index out of range: %d", index)
+			}
+		}
+		payload["indexes"] = req.Indexes
+	default:
+		return nil, fmt.Errorf("unsupported prompt action %q", action)
+	}
+	seq := time.Now().UnixNano()
+	if seq < 1 {
+		seq = 1
+	}
+	return json.Marshal(map[string]any{
+		"protocol": "taskdeck.patch",
+		"version": 1,
+		"type": "command",
+		"seq": seq,
+		"command": "prompt_response",
+		"payload": payload,
+	})
 }
 
 func workspaceTerminalExecution(workspace string) (tasks.Execution, error) {
@@ -398,6 +483,47 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 		}
 		meta.Title = title
 		writeJSON(w, http.StatusOK, meta)
+	case "prompt-response":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		provider, ok := s.Sessions.(session.ProtocolStateProvider)
+		if !ok {
+			http.Error(w, "Patch protocol state is unavailable", http.StatusConflict)
+			return
+		}
+		writer, ok := s.Sessions.(session.ProtocolCommandWriter)
+		if !ok {
+			http.Error(w, "Patch protocol commands are unavailable", http.StatusConflict)
+			return
+		}
+		state, err := provider.ProtocolState(id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if !state.CommandsEnabled {
+			http.Error(w, "Patch protocol command channel is not enabled", http.StatusConflict)
+			return
+		}
+		var req patchPromptResponseRequest
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			http.Error(w, "invalid prompt response JSON", http.StatusBadRequest)
+			return
+		}
+		command, err := buildPatchPromptResponseCommand(state, req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		if err := writer.ProtocolCommand(id, command); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
 	case "protocol":
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

@@ -150,7 +150,8 @@ Status: **IN PROGRESS**
 - [x] Add optional POSIX event FD/pipe to Python entrypoint via `TASKDECK_PATCH_EVENT_FD`; no FD keeps the historical `execv` path.
 - [x] Define optional POSIX command FD contract via `TASKDECK_PATCH_COMMAND_FD`; it requires a separate event FD.
 - [x] Session manager has disabled-by-default FD4 command plumbing with bounded/versioned envelope validation.
-- [x] Broker carries command capability/wire/internal writes with old-broker fallback; built-in Patch sessions still do not enable commands.
+- [x] Broker carries command capability/wire/internal writes with old-broker fallback.
+- [x] TaskDeck retains the active Python prompt, exposes only a bounded prompt-response API, and enables commands for built-in Patch sessions.
 - [x] Define versioned JSONL envelope and initial `hello/run_started/run_finished/error` lifecycle events.
 - [x] Emit Python-owned `queue_snapshot` with stable item/warning/count fields before dispatcher-backed runs.
 - [ ] Emit item/progress/artifact events while terminal UI remains authoritative.
@@ -221,8 +222,9 @@ Every phase must preserve:
 | Phase 1.5E.1 child event relay | DONE | 6b7ab13b | Child protocol events now use an internal pipe and are re-sequenced by the entrypoint before reaching TaskDeck. |
 | Phase 1.5E.1 protocol test discovery correction | DONE | 13c2848a | Moved unittest.main() after ProtocolContractTests so CI executes the complete protocol contract suite instead of routing tests only. |
 | Phase 1.5E.1 lifecycle test scope correction | DONE | 7c146ccf | Updated the lifecycle-only protocol test to use a non-queue route; queue_snapshot behavior remains covered by its dedicated test. |
-| Phase 1.5E.2 queue selection prompt contract | DONE | this commit | Added Python-owned queue_selection prompt/prompt_response handling with strict prompt-id/index/COLLECT validation and terminal fallback on protocol failure. |
+| Phase 1.5E.2 queue selection prompt contract | DONE | c81046a2 | Added Python-owned queue_selection prompt/prompt_response handling with strict prompt-id/index/COLLECT validation and terminal fallback on protocol failure. |
+| Phase 1.5E.3 public prompt response backend | DONE | this commit | Stores active prompt state, enables built-in command channels, exposes only bounded prompt responses, and rejects stale/double responses before FD4 writes. |
 
 ## Next action
 
-Continue **Phase 1.5E.3**: store the latest prompt in TaskDeck protocol state and expose a bounded public prompt-response endpoint, then enable command channels only for built-in Patch sessions.
+Continue **Phase 1.5E.4**: render queue_selection prompts in the Patch panel and submit select/cancel responses through the bounded public endpoint while keeping PTY fallback intact.

@@ -123,7 +123,7 @@ func (m *Manager) Start(spec tasks.Execution) (Metadata, error) {
 	s := &managedSession{
 		meta: Metadata{ID: id, TaskID: spec.TaskID, Label: spec.Label, CommandPreview: spec.Preview, Cwd: spec.Cwd, Status: "running", StartedAt: time.Now().Format(time.RFC3339)},
 		cmd: cmd, ptyFile: ptmx, scrollback: append([]byte(nil), header...), maxScrollback: m.maxScrollback, subscribers: map[chan []byte]struct{}{},
-		protocol: ProtocolState{Available: true, Enabled: protocolRead != nil},
+		protocol: ProtocolState{Available: true, Enabled: protocolRead != nil, CommandsEnabled: commandWrite != nil},
 		protocolCommand: commandWrite,
 	}
 	m.mu.Lock()
@@ -165,13 +165,24 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 		return
 	}
 	raw := append(json.RawMessage(nil), line...)
+	if envelope.Type == "prompt" {
+		if _, err := protocolPromptID(raw); err != nil {
+			s.setProtocolError(err.Error())
+			return
+		}
+	}
 	s.mu.Lock()
 	s.protocol.EventCount++
 	s.protocol.LastSeq = envelope.Seq
 	s.protocol.LastEvent = raw
 	s.protocol.Error = ""
-	if envelope.Type == "queue_snapshot" {
+	switch envelope.Type {
+	case "queue_snapshot":
 		s.protocol.QueueSnapshot = append(json.RawMessage(nil), raw...)
+	case "prompt":
+		s.protocol.Prompt = append(json.RawMessage(nil), raw...)
+	case "run_finished":
+		s.protocol.Prompt = nil
 	}
 	s.mu.Unlock()
 }
@@ -286,6 +297,10 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 	if err != nil {
 		return err
 	}
+	responsePromptID, isPromptResponse, err := protocolPromptResponseID(line)
+	if err != nil {
+		return err
+	}
 	s, ok := m.Get(id)
 	if !ok {
 		return fmt.Errorf("session not found")
@@ -295,8 +310,23 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 	if s.meta.Status != "running" || s.protocolCommand == nil {
 		return fmt.Errorf("Patch protocol command channel is not enabled")
 	}
+	if isPromptResponse {
+		if len(s.protocol.Prompt) == 0 {
+			return fmt.Errorf("Patch session has no active prompt")
+		}
+		activePromptID, err := protocolPromptID(s.protocol.Prompt)
+		if err != nil {
+			return err
+		}
+		if responsePromptID != activePromptID {
+			return fmt.Errorf("Patch prompt_response does not match the active prompt")
+		}
+	}
 	if _, err := s.protocolCommand.Write(append(line, '\n')); err != nil {
 		return fmt.Errorf("write Patch protocol command: %w", err)
+	}
+	if isPromptResponse {
+		s.protocol.Prompt = nil
 	}
 	return nil
 }

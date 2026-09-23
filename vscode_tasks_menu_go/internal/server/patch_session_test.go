@@ -55,8 +55,8 @@ func TestPatchToolExecutionUsesBuiltinRuntimeAndReservedTaskID(t *testing.T) {
 	if !spec.ProtocolEvents {
 		t.Fatal("built-in Patch session must request the optional protocol event channel")
 	}
-	if spec.ProtocolCommands {
-		t.Fatal("built-in Patch session must keep protocol commands disabled until prompt events are defined")
+	if !spec.ProtocolCommands {
+		t.Fatal("built-in Patch session must enable protocol commands now that queue_selection prompt events are defined")
 	}
 	if spec.Label != "Patch Tool · Resume" {
 		t.Fatalf("label=%q", spec.Label)

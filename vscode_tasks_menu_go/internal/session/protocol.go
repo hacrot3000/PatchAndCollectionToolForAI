@@ -22,13 +22,15 @@ type protocolEnvelope struct {
 }
 
 type ProtocolState struct {
-	Available     bool            `json:"available"`
-	Enabled       bool            `json:"enabled"`
-	EventCount    int             `json:"event_count"`
-	LastSeq       int64           `json:"last_seq,omitempty"`
-	LastEvent     json.RawMessage `json:"last_event,omitempty"`
-	QueueSnapshot json.RawMessage `json:"queue_snapshot,omitempty"`
-	Error         string          `json:"error,omitempty"`
+	Available       bool            `json:"available"`
+	Enabled         bool            `json:"enabled"`
+	CommandsEnabled bool            `json:"commands_enabled"`
+	EventCount      int             `json:"event_count"`
+	LastSeq         int64           `json:"last_seq,omitempty"`
+	LastEvent       json.RawMessage `json:"last_event,omitempty"`
+	QueueSnapshot   json.RawMessage `json:"queue_snapshot,omitempty"`
+	Prompt          json.RawMessage `json:"prompt,omitempty"`
+	Error           string          `json:"error,omitempty"`
 }
 
 type ProtocolStateProvider interface {
@@ -69,9 +71,43 @@ func validateProtocolCommand(data []byte) ([]byte, error) {
 	return json.Marshal(value)
 }
 
+func protocolPromptID(data []byte) (string, error) {
+	var event struct {
+		Type     string `json:"type"`
+		PromptID string `json:"prompt_id"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return "", fmt.Errorf("invalid Patch prompt JSON: %w", err)
+	}
+	if event.Type != "prompt" || strings.TrimSpace(event.PromptID) == "" {
+		return "", fmt.Errorf("invalid Patch prompt identity")
+	}
+	return event.PromptID, nil
+}
+
+func protocolPromptResponseID(data []byte) (string, bool, error) {
+	var command struct {
+		Command string `json:"command"`
+		Payload struct {
+			PromptID string `json:"prompt_id"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &command); err != nil {
+		return "", false, fmt.Errorf("invalid Patch protocol command JSON: %w", err)
+	}
+	if command.Command != "prompt_response" {
+		return "", false, nil
+	}
+	if strings.TrimSpace(command.Payload.PromptID) == "" {
+		return "", true, fmt.Errorf("Patch prompt_response prompt_id is required")
+	}
+	return command.Payload.PromptID, true, nil
+}
+
 func cloneProtocolState(in ProtocolState) ProtocolState {
 	out := in
 	out.LastEvent = append(json.RawMessage(nil), in.LastEvent...)
 	out.QueueSnapshot = append(json.RawMessage(nil), in.QueueSnapshot...)
+	out.Prompt = append(json.RawMessage(nil), in.Prompt...)
 	return out
 }
