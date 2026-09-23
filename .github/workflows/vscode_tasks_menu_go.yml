@@ -53,8 +53,8 @@ jobs:
       - name: Patch entry routing contract
         working-directory: .
         run: |
-          python3 ../test_python_patch_entry.py
-          python3 -m py_compile ../python_patch_entry.py
+          python3 test_python_patch_entry.py
+          python3 -m py_compile python_patch_entry.py
 
       - name: JavaScript syntax
         run: |
