@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -374,6 +376,81 @@ func buildPatchPromptResponseCommand(state session.ProtocolState, req patchPromp
 	})
 }
 
+type patchItemActionRequest struct {
+	PromptID string `json:"prompt_id"`
+	Action   string `json:"action"`
+	Index    int    `json:"index"`
+}
+
+func newPatchItemActionID() (string, error) {
+	var raw [12]byte
+	if _, err := cryptorand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("generate Patch item action id: %w", err)
+	}
+	return hex.EncodeToString(raw[:]), nil
+}
+
+func buildPatchItemActionCommand(state session.ProtocolState, req patchItemActionRequest) ([]byte, string, error) {
+	if !state.CommandsEnabled {
+		return nil, "", fmt.Errorf("Patch protocol command channel is not enabled")
+	}
+	if len(state.Prompt) == 0 {
+		return nil, "", fmt.Errorf("Patch session has no active prompt")
+	}
+	var prompt struct {
+		Protocol    string   `json:"protocol"`
+		Version     int      `json:"version"`
+		Type        string   `json:"type"`
+		PromptID    string   `json:"prompt_id"`
+		PromptKind  string   `json:"prompt_kind"`
+		ItemActions []string `json:"item_actions"`
+		Items       []struct {
+			Index int    `json:"index"`
+			Kind  string `json:"kind"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(state.Prompt, &prompt); err != nil {
+		return nil, "", fmt.Errorf("invalid active Patch prompt: %w", err)
+	}
+	if prompt.Protocol != "taskdeck.patch" || prompt.Version != 1 || prompt.Type != "prompt" || prompt.PromptKind != "queue_selection" {
+		return nil, "", fmt.Errorf("unsupported active Patch prompt")
+	}
+	req.PromptID = strings.TrimSpace(req.PromptID)
+	if req.PromptID == "" || req.PromptID != prompt.PromptID {
+		return nil, "", fmt.Errorf("item action does not match the active prompt")
+	}
+	action := strings.ToLower(strings.TrimSpace(req.Action))
+	allowed := false
+	for _, value := range prompt.ItemActions {
+		if action == strings.ToLower(strings.TrimSpace(value)) { allowed = true; break }
+	}
+	if !allowed {
+		return nil, "", fmt.Errorf("unsupported Patch item action %q", action)
+	}
+	if req.Index < 1 {
+		return nil, "", fmt.Errorf("Patch item action index is invalid")
+	}
+	selectedKind := ""
+	for _, item := range prompt.Items {
+		if item.Index == req.Index { selectedKind = strings.ToUpper(strings.TrimSpace(item.Kind)); break }
+	}
+	if selectedKind == "" {
+		return nil, "", fmt.Errorf("Patch item action index out of range: %d", req.Index)
+	}
+	if selectedKind != "PATCH" {
+		return nil, "", fmt.Errorf("native inspect/preview/validate applies only to PATCH items")
+	}
+	actionID, err := newPatchItemActionID()
+	if err != nil { return nil, "", err }
+	seq := time.Now().UnixNano()
+	if seq < 1 { seq = 1 }
+	command, err := json.Marshal(map[string]any{
+		"protocol": "taskdeck.patch", "version": 1, "type": "command", "seq": seq, "command": "item_action",
+		"payload": map[string]any{"prompt_id": req.PromptID, "action_id": actionID, "action": action, "index": req.Index},
+	})
+	if err != nil { return nil, "", err }
+	return command, actionID, nil
+}
 func workspaceTerminalExecution(workspace string) (tasks.Execution, error) {
 	candidates := []string{strings.TrimSpace(os.Getenv("SHELL")), "/bin/bash", "/bin/sh"}
 	seen := make(map[string]bool, len(candidates))
@@ -524,6 +601,43 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
+	case "item-action":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		provider, ok := s.Sessions.(session.ProtocolStateProvider)
+		if !ok {
+			http.Error(w, "Patch protocol state is unavailable", http.StatusConflict)
+			return
+		}
+		writer, ok := s.Sessions.(session.ProtocolCommandWriter)
+		if !ok {
+			http.Error(w, "Patch protocol commands are unavailable", http.StatusConflict)
+			return
+		}
+		state, err := provider.ProtocolState(id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		var req patchItemActionRequest
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			http.Error(w, "invalid Patch item action JSON", http.StatusBadRequest)
+			return
+		}
+		command, actionID, err := buildPatchItemActionCommand(state, req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		if err := writer.ProtocolCommand(id, command); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"accepted": true, "action_id": actionID})
 	case "protocol":
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
