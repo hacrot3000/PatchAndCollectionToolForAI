@@ -51,3 +51,50 @@ class EventWriter:
             self._stream.close()
         except OSError:
             pass
+
+
+def build_queue_snapshot(project_root: str) -> dict[str, Any]:
+    """Return the stable protocol view of the authoritative Python queue.
+
+    Queue discovery remains owned by python_patch_queue_dispatcher. This bridge
+    intentionally exposes only protocol fields and does not leak internal report
+    or history schemas to TaskDeck.
+    """
+    from pathlib import Path
+    from python_patch_queue_dispatcher import discover_queue
+
+    root = Path(project_root).expanduser().resolve()
+    items, warnings = discover_queue(root)
+    rows = [
+        {
+            "name": str(item.name),
+            "kind": str(item.kind),
+            "detail": str(item.detail or ""),
+        }
+        for item in items
+    ]
+    counts: dict[str, int] = {}
+    for row in rows:
+        kind = row["kind"]
+        counts[kind] = counts.get(kind, 0) + 1
+    return {
+        "status": "runnable" if rows else "empty",
+        "items": rows,
+        "warnings": [str(value) for value in warnings],
+        "counts": counts,
+        "total": len(rows),
+    }
+
+
+def emit_queue_snapshot(writer: EventWriter, project_root: str) -> bool:
+    try:
+        snapshot = build_queue_snapshot(project_root)
+    except Exception as exc:
+        writer.emit(
+            "error",
+            phase="queue_snapshot",
+            message=f"{type(exc).__name__}: {exc}",
+        )
+        return False
+    writer.emit("queue_snapshot", **snapshot)
+    return True

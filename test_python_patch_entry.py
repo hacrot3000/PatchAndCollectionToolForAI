@@ -147,3 +147,43 @@ class ProtocolContractTests(unittest.TestCase):
         ]
         for args, want in cases:
             self.assertEqual(entry.classify_route(args), want)
+
+
+    def test_queue_snapshot_uses_dispatcher_discovery_contract(self):
+        from python_patch_protocol import build_queue_snapshot
+
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot = build_queue_snapshot(tmp)
+        self.assertEqual(snapshot["status"], "empty")
+        self.assertEqual(snapshot["items"], [])
+        self.assertEqual(snapshot["warnings"], [])
+        self.assertEqual(snapshot["counts"], {})
+        self.assertEqual(snapshot["total"], 0)
+
+    def test_protocol_supervisor_emits_snapshot_before_run_started(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            child = Path(tmp) / "child.py"
+            child.write_text("raise SystemExit(0)\n", encoding="utf-8")
+            read_fd, write_fd = os.pipe()
+            try:
+                from python_patch_protocol import EventWriter
+                writer = EventWriter(write_fd)
+                rc = entry._run_with_protocol(writer, [str(child)], tmp, [])
+                os.close(write_fd)
+                write_fd = -1
+                chunks = []
+                while True:
+                    data = os.read(read_fd, 65536)
+                    if not data:
+                        break
+                    chunks.append(data)
+            finally:
+                if write_fd >= 0:
+                    os.close(write_fd)
+                os.close(read_fd)
+
+        events = [json.loads(line) for line in b"".join(chunks).decode("utf-8").splitlines()]
+        self.assertEqual(rc, 0)
+        self.assertEqual([event["type"] for event in events], ["hello", "queue_snapshot", "run_started", "run_finished"])
+        self.assertEqual(events[1]["status"], "empty")
+        self.assertEqual(events[1]["total"], 0)

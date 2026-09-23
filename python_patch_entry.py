@@ -219,8 +219,14 @@ def _run_with_protocol(writer, child_argv: Sequence[str], project_root: str, too
         "hello",
         project_root=project_root,
         route=route,
-        capabilities=["events_v1"],
+        capabilities=["events_v1", "queue_snapshot_v1"],
     )
+    if route in {"queue", "run", "resume", "plan"}:
+        try:
+            from python_patch_protocol import emit_queue_snapshot
+            emit_queue_snapshot(writer, project_root)
+        except Exception as exc:
+            writer.emit("error", phase="queue_snapshot", message=f"{type(exc).__name__}: {exc}")
     writer.emit("run_started", route=route)
     try:
         proc = subprocess.Popen(
