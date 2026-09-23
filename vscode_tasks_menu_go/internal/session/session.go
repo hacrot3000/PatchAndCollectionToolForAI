@@ -40,8 +40,9 @@ type managedSession struct {
 	scrollback    []byte
 	maxScrollback int
 	subscribers   map[chan []byte]struct{}
-	stopRequested bool
-	protocol      ProtocolState
+	stopRequested  bool
+	protocol       ProtocolState
+	protocolCommand *os.File
 }
 
 type Manager struct {
@@ -66,22 +67,52 @@ func (m *Manager) Start(spec tasks.Execution) (Metadata, error) {
 	cmd.Dir = spec.Cwd
 	cmd.Env = spec.Env
 
+	if spec.ProtocolCommands && !spec.ProtocolEvents {
+		return Metadata{}, fmt.Errorf("Patch protocol command channel requires protocol events")
+	}
+	if spec.ProtocolCommands && runtime.GOOS == "windows" {
+		return Metadata{}, fmt.Errorf("Patch protocol command channel is not available on Windows")
+	}
+
 	var protocolRead, protocolWrite *os.File
 	if spec.ProtocolEvents && runtime.GOOS != "windows" {
 		protocolRead, protocolWrite, err = os.Pipe()
 		if err != nil {
 			return Metadata{}, fmt.Errorf("create Patch protocol pipe for %s: %w", spec.Label, err)
 		}
-		cmd.ExtraFiles = []*os.File{protocolWrite}
+		cmd.ExtraFiles = append(cmd.ExtraFiles, protocolWrite)
 		cmd.Env = setEnvironmentValue(cmd.Env, "TASKDECK_PATCH_EVENT_FD", "3")
 	}
+
+	var commandRead, commandWrite *os.File
+	if spec.ProtocolCommands {
+		commandRead, commandWrite, err = os.Pipe()
+		if err != nil {
+			if protocolRead != nil {
+				_ = protocolRead.Close()
+			}
+			if protocolWrite != nil {
+				_ = protocolWrite.Close()
+			}
+			return Metadata{}, fmt.Errorf("create Patch protocol command pipe for %s: %w", spec.Label, err)
+		}
+		cmd.ExtraFiles = append(cmd.ExtraFiles, commandRead)
+		cmd.Env = setEnvironmentValue(cmd.Env, "TASKDECK_PATCH_COMMAND_FD", "4")
+	}
+
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 30, Cols: 120})
 	if protocolWrite != nil {
 		_ = protocolWrite.Close()
 	}
+	if commandRead != nil {
+		_ = commandRead.Close()
+	}
 	if err != nil {
 		if protocolRead != nil {
 			_ = protocolRead.Close()
+		}
+		if commandWrite != nil {
+			_ = commandWrite.Close()
 		}
 		return Metadata{}, fmt.Errorf("start PTY for %s: %w", spec.Label, err)
 	}
@@ -93,6 +124,7 @@ func (m *Manager) Start(spec tasks.Execution) (Metadata, error) {
 		meta: Metadata{ID: id, TaskID: spec.TaskID, Label: spec.Label, CommandPreview: spec.Preview, Cwd: spec.Cwd, Status: "running", StartedAt: time.Now().Format(time.RFC3339)},
 		cmd: cmd, ptyFile: ptmx, scrollback: append([]byte(nil), header...), maxScrollback: m.maxScrollback, subscribers: map[chan []byte]struct{}{},
 		protocol: ProtocolState{Available: true, Enabled: protocolRead != nil},
+		protocolCommand: commandWrite,
 	}
 	m.mu.Lock()
 	m.sessions[id] = s
@@ -248,6 +280,26 @@ func (m *Manager) SetTitle(id, title string) (Metadata, error) {
 	return meta, nil
 }
 
+
+func (m *Manager) ProtocolCommand(id string, data []byte) error {
+	line, err := validateProtocolCommand(data)
+	if err != nil {
+		return err
+	}
+	s, ok := m.Get(id)
+	if !ok {
+		return fmt.Errorf("session not found")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.meta.Status != "running" || s.protocolCommand == nil {
+		return fmt.Errorf("Patch protocol command channel is not enabled")
+	}
+	if _, err := s.protocolCommand.Write(append(line, '\n')); err != nil {
+		return fmt.Errorf("write Patch protocol command: %w", err)
+	}
+	return nil
+}
 
 func (m *Manager) Input(id string, data []byte) error {
 	s, ok := m.Get(id)
@@ -448,6 +500,10 @@ func (s *managedSession) readLoop() {
 	}
 	s.meta.ExitCode = &exitCode
 	s.meta.EndedAt = time.Now().Format(time.RFC3339)
+	if s.protocolCommand != nil {
+		_ = s.protocolCommand.Close()
+		s.protocolCommand = nil
+	}
 	for ch := range s.subscribers {
 		close(ch)
 		delete(s.subscribers, ch)

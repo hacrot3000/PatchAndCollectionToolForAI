@@ -1,11 +1,17 @@
 package session
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"strings"
+)
 
 const (
 	patchProtocolName     = "taskdeck.patch"
 	patchProtocolVersion  = 1
-	maxProtocolEventBytes = 1 << 20
+	maxProtocolEventBytes   = 1 << 20
+	maxProtocolCommandBytes = 1 << 20
 )
 
 type protocolEnvelope struct {
@@ -27,6 +33,40 @@ type ProtocolState struct {
 
 type ProtocolStateProvider interface {
 	ProtocolState(string) (ProtocolState, error)
+}
+
+type ProtocolCommandWriter interface {
+	ProtocolCommand(string, []byte) error
+}
+
+func validateProtocolCommand(data []byte) ([]byte, error) {
+	if len(data) == 0 || len(data) > maxProtocolCommandBytes {
+		return nil, fmt.Errorf("Patch protocol command size is invalid")
+	}
+	if bytes.IndexByte(data, '\n') >= 0 || bytes.IndexByte(data, '\r') >= 0 {
+		return nil, fmt.Errorf("Patch protocol command must be one JSONL record")
+	}
+	var envelope struct {
+		Protocol string `json:"protocol"`
+		Version  int    `json:"version"`
+		Type     string `json:"type"`
+		Seq      int64  `json:"seq"`
+		Command  string `json:"command"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return nil, fmt.Errorf("invalid Patch protocol command JSON: %w", err)
+	}
+	if envelope.Protocol != patchProtocolName || envelope.Version != patchProtocolVersion || envelope.Type != "command" {
+		return nil, fmt.Errorf("unsupported Patch protocol command envelope")
+	}
+	if envelope.Seq < 1 || strings.TrimSpace(envelope.Command) == "" {
+		return nil, fmt.Errorf("invalid Patch protocol command identity")
+	}
+	var value map[string]json.RawMessage
+	if err := json.Unmarshal(data, &value); err != nil {
+		return nil, fmt.Errorf("invalid Patch protocol command object: %w", err)
+	}
+	return json.Marshal(value)
 }
 
 func cloneProtocolState(in ProtocolState) ProtocolState {
