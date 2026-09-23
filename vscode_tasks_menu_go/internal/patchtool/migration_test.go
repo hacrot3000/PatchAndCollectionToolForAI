@@ -3,6 +3,7 @@ package patchtool
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -103,5 +104,79 @@ func TestPlanLegacyMigrationIgnoresProjectFilesOutsideRuntimeTree(t *testing.T) 
 	}
 	if !plan.Safe {
 		t.Fatalf("unrelated tools/ file must not block scoped runtime cleanup: %#v", plan)
+	}
+}
+
+
+func TestApplyLegacyMigrationKeepsLauncherShimAndProjectFiles(t *testing.T) {
+	exe, bundle := fakeBundledMigrationRuntime(t)
+	workspace := t.TempDir()
+	legacy := filepath.Join(workspace, "tools")
+	for _, rel := range []string{"python_patch_entry.py", "run_python_patches.sh", "_patch_lib/VERSION", "_patch_lib/python_patch_runner.py"} {
+		data, err := os.ReadFile(filepath.Join(bundle, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeRuntimeFile(t, legacy, rel, string(data))
+	}
+	writeRuntimeFile(t, legacy, "project_helper.sh", "keep me\n")
+
+	plan, err := ApplyLegacyMigration(workspace, exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.Safe {
+		t.Fatalf("plan unexpectedly unsafe: %#v", plan)
+	}
+	shim, err := os.ReadFile(filepath.Join(legacy, "run_python_patches.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(shim), "taskdeck patch") {
+		t.Fatalf("launcher was not replaced by TaskDeck compatibility shim: %q", shim)
+	}
+	for _, rel := range []string{"python_patch_entry.py", "_patch_lib/VERSION", "_patch_lib/python_patch_runner.py"} {
+		if _, err := os.Stat(filepath.Join(legacy, filepath.FromSlash(rel))); !os.IsNotExist(err) {
+			t.Fatalf("verified runtime payload still exists %s: %v", rel, err)
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(legacy, "project_helper.sh")); err != nil || string(data) != "keep me\n" {
+		t.Fatalf("project helper changed data=%q err=%v", data, err)
+	}
+}
+
+func TestApplyLegacyMigrationRefusesModifiedRuntimeWithoutWritingShim(t *testing.T) {
+	exe, bundle := fakeBundledMigrationRuntime(t)
+	workspace := t.TempDir()
+	legacy := filepath.Join(workspace, "tools")
+	for _, rel := range []string{"run_python_patches.sh", "_patch_lib/VERSION"} {
+		data, err := os.ReadFile(filepath.Join(bundle, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeRuntimeFile(t, legacy, rel, string(data))
+	}
+	writeRuntimeFile(t, legacy, "_patch_lib/VERSION", "custom-version\n")
+	before, err := os.ReadFile(filepath.Join(legacy, "run_python_patches.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyLegacyMigration(workspace, exe); err == nil {
+		t.Fatal("modified runtime migration should fail closed")
+	}
+	after, err := os.ReadFile(filepath.Join(legacy, "run_python_patches.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("launcher changed even though migration was unsafe")
+	}
+}
+
+func TestCompatibilityLaunchersForwardToTaskdeckPatch(t *testing.T) {
+	for name, spec := range compatibilityLaunchers {
+		if !strings.Contains(spec.body, "taskdeck") || !strings.Contains(spec.body, "patch") {
+			t.Fatalf("compatibility launcher %s does not forward to taskdeck patch", name)
+		}
 	}
 }

@@ -141,7 +141,8 @@ Status: **IN PROGRESS**
 - [x] Compare SHA-256 of candidate managed files against the bundled runtime from the active TaskDeck release.
 - [x] Any modified, symlinked or unknown file inside the legacy runtime blocks cleanup.
 - [ ] Never cleanup the PatchAndCollectionToolForAI source repository.
-- [ ] Keep a compatibility path for old launchers while removing only verified runtime payload.
+- [x] Migration primitive replaces verified legacy launchers with tiny `taskdeck patch` compatibility shims and removes only revalidated runtime payload.
+- [ ] Wire migration into the interactive legacy-cleanup flow while always skipping the source repository.
 
 ### Phase 1.5 — Protocol v1
 Status: **TODO**
@@ -197,8 +198,9 @@ Every phase must preserve:
 | Phase 1D.1 built-in Patch session backend | DONE | bc8e5b4a | Added bounded `kind:patch` session modes backed by the shared runtime resolver; Patch sessions use reserved task id -1 and do not depend on tasks.json. |
 | Phase 1D.2 Patch Activity Bar panel | DONE | 0d32d411 | Added Patch icon/panel with Queue/Resume/History/Plan actions; sessions use the existing TaskDeck PTY renderer. |
 | Phase 1D.3 legacy task de-dup | DONE | ae49e6ca | Task list hides only a zero-argument, exact legacy tools/run_python_patches.sh duplicate; customized/parameterized tasks remain visible. |
-| Phase 1E.1 migration safety plan | DONE | this commit | Added fail-closed SHA-256 comparison of legacy tools runtime against the active bundled release; modified/symlinked/unknown files block cleanup. |
+| Phase 1E.1 migration safety plan | DONE | e9506386 | Added fail-closed SHA-256 comparison of legacy tools runtime against the active bundled release; modified/symlinked/unknown files block cleanup. |
+| Phase 1E.2a guarded migration apply | DONE | this commit | Revalidates hashes immediately before cleanup, installs compatibility launchers first, removes only verified runtime files, and keeps unrelated tools files. |
 
 ## Next action
 
-Continue **Phase 1E.2**: wire the verified migration plan into legacy cleanup, preserve source repositories, remove only verified payload, and replace the old shell launcher with a tiny `taskdeck patch` compatibility shim.
+Continue **Phase 1E.2b**: integrate the guarded Patch runtime migration into TaskDeck's interactive legacy cleanup and source-repository skip path.
