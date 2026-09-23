@@ -50,6 +50,20 @@ type ProtocolProgressState struct {
 	Detail         string  `json:"detail,omitempty"`
 }
 
+type ProtocolActionResultState struct {
+	PromptID        string  `json:"prompt_id"`
+	ActionID        string  `json:"action_id"`
+	Action          string  `json:"action"`
+	Index           int     `json:"index"`
+	ItemName        string  `json:"item_name"`
+	ItemKind        string  `json:"item_kind"`
+	Status          string  `json:"status"`
+	RC              int     `json:"rc"`
+	TimedOut        bool    `json:"timed_out,omitempty"`
+	ElapsedSeconds  float64 `json:"elapsed_seconds"`
+	Output          string  `json:"output,omitempty"`
+	OutputTruncated bool    `json:"output_truncated,omitempty"`
+}
 type ProtocolArtifactState struct {
 	ArtifactKind string `json:"artifact_kind"`
 	Path         string `json:"path"`
@@ -71,8 +85,9 @@ type ProtocolState struct {
 	Prompt          json.RawMessage     `json:"prompt,omitempty"`
 	Items           []ProtocolItemState     `json:"items,omitempty"`
 	Artifacts       []ProtocolArtifactState `json:"artifacts,omitempty"`
-	Progress        *ProtocolProgressState   `json:"progress,omitempty"`
-	Error           string                  `json:"error,omitempty"`
+	Progress        *ProtocolProgressState     `json:"progress,omitempty"`
+	ActionResult    *ProtocolActionResultState `json:"action_result,omitempty"`
+	Error           string                    `json:"error,omitempty"`
 }
 
 type ProtocolStateProvider interface {
@@ -228,6 +243,60 @@ func protocolProgressEvent(data []byte) (ProtocolProgressState, error) {
 	}, nil
 }
 
+func protocolActionResultEvent(data []byte) (ProtocolActionResultState, error) {
+	var event struct {
+		Type            string  `json:"type"`
+		PromptID        string  `json:"prompt_id"`
+		ActionID        string  `json:"action_id"`
+		Action          string  `json:"action"`
+		Index           int     `json:"index"`
+		ItemName        string  `json:"item_name"`
+		ItemKind        string  `json:"item_kind"`
+		Status          string  `json:"status"`
+		RC              int     `json:"rc"`
+		TimedOut        bool    `json:"timed_out"`
+		ElapsedSeconds  float64 `json:"elapsed_seconds"`
+		Output          string  `json:"output"`
+		OutputTruncated bool    `json:"output_truncated"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return ProtocolActionResultState{}, fmt.Errorf("invalid Patch action_result JSON: %w", err)
+	}
+	if event.Type != "action_result" {
+		return ProtocolActionResultState{}, fmt.Errorf("unsupported Patch action result event")
+	}
+	event.PromptID = strings.TrimSpace(event.PromptID)
+	event.ActionID = strings.TrimSpace(event.ActionID)
+	event.Action = strings.ToLower(strings.TrimSpace(event.Action))
+	event.ItemName = strings.TrimSpace(event.ItemName)
+	event.ItemKind = strings.TrimSpace(event.ItemKind)
+	event.Status = strings.ToUpper(strings.TrimSpace(event.Status))
+	if event.PromptID == "" || len(event.PromptID) > 256 || event.ActionID == "" || len(event.ActionID) > 128 {
+		return ProtocolActionResultState{}, fmt.Errorf("Patch action_result identity is invalid")
+	}
+	if event.Action != "inspect" && event.Action != "preview" && event.Action != "validate" {
+		return ProtocolActionResultState{}, fmt.Errorf("Patch action_result action is unsupported")
+	}
+	if event.Index < 1 || event.Index > maxProtocolItems || event.ItemName == "" || len(event.ItemName) > 1024 || event.ItemKind == "" || len(event.ItemKind) > 128 {
+		return ProtocolActionResultState{}, fmt.Errorf("Patch action_result item identity is invalid")
+	}
+	switch event.Status {
+	case "PASS", "FAIL", "TIMEOUT", "UNSUPPORTED":
+	default:
+		return ProtocolActionResultState{}, fmt.Errorf("Patch action_result status is invalid")
+	}
+	if event.ElapsedSeconds < 0 || math.IsNaN(event.ElapsedSeconds) || math.IsInf(event.ElapsedSeconds, 0) {
+		return ProtocolActionResultState{}, fmt.Errorf("Patch action_result elapsed_seconds is invalid")
+	}
+	if len([]byte(event.Output)) > 128<<10 || strings.ContainsRune(event.Output, '\x00') {
+		return ProtocolActionResultState{}, fmt.Errorf("Patch action_result output is invalid")
+	}
+	return ProtocolActionResultState{
+		PromptID: event.PromptID, ActionID: event.ActionID, Action: event.Action, Index: event.Index,
+		ItemName: event.ItemName, ItemKind: event.ItemKind, Status: event.Status, RC: event.RC,
+		TimedOut: event.TimedOut, ElapsedSeconds: event.ElapsedSeconds, Output: event.Output, OutputTruncated: event.OutputTruncated,
+	}, nil
+}
 func protocolArtifactEvent(data []byte) (ProtocolArtifactState, error) {
 	var event struct {
 		Type         string `json:"type"`
@@ -305,6 +374,24 @@ func protocolPromptID(data []byte) (string, error) {
 	return event.PromptID, nil
 }
 
+func protocolItemActionPromptID(data []byte) (string, bool, error) {
+	var command struct {
+		Command string `json:"command"`
+		Payload struct {
+			PromptID string `json:"prompt_id"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &command); err != nil {
+		return "", false, fmt.Errorf("invalid Patch protocol command JSON: %w", err)
+	}
+	if command.Command != "item_action" {
+		return "", false, nil
+	}
+	if strings.TrimSpace(command.Payload.PromptID) == "" {
+		return "", true, fmt.Errorf("Patch item_action prompt_id is required")
+	}
+	return command.Payload.PromptID, true, nil
+}
 func protocolPromptResponseID(data []byte) (string, bool, error) {
 	var command struct {
 		Command string `json:"command"`
@@ -334,6 +421,10 @@ func cloneProtocolState(in ProtocolState) ProtocolState {
 	if in.Progress != nil {
 		progress := *in.Progress
 		out.Progress = &progress
+	}
+	if in.ActionResult != nil {
+		actionResult := *in.ActionResult
+		out.ActionResult = &actionResult
 	}
 	return out
 }

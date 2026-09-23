@@ -168,6 +168,7 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 	var itemState ProtocolItemState
 	var artifactState ProtocolArtifactState
 	var progressState ProtocolProgressState
+	var actionResultState ProtocolActionResultState
 	if envelope.Type == "prompt" {
 		if _, err := protocolPromptID(raw); err != nil {
 			s.setProtocolError(err.Error())
@@ -198,6 +199,14 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 			return
 		}
 	}
+	if envelope.Type == "action_result" {
+		var err error
+		actionResultState, err = protocolActionResultEvent(raw)
+		if err != nil {
+			s.setProtocolError(err.Error())
+			return
+		}
+	}
 	s.mu.Lock()
 	s.protocol.EventCount++
 	s.protocol.LastSeq = envelope.Seq
@@ -208,10 +217,12 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 		s.protocol.Items = nil
 		s.protocol.Artifacts = nil
 		s.protocol.Progress = nil
+		s.protocol.ActionResult = nil
 	case "queue_snapshot":
 		s.protocol.QueueSnapshot = append(json.RawMessage(nil), raw...)
 	case "prompt":
 		s.protocol.Prompt = append(json.RawMessage(nil), raw...)
+		s.protocol.ActionResult = nil
 	case "item_started", "item_finished":
 		s.protocol.Items = upsertProtocolItem(s.protocol.Items, itemState)
 	case "artifact":
@@ -219,6 +230,9 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 	case "progress":
 		progress := progressState
 		s.protocol.Progress = &progress
+	case "action_result":
+		actionResult := actionResultState
+		s.protocol.ActionResult = &actionResult
 	case "run_finished":
 		s.protocol.Prompt = nil
 	}
@@ -339,6 +353,10 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 	if err != nil {
 		return err
 	}
+	actionPromptID, isItemAction, err := protocolItemActionPromptID(line)
+	if err != nil {
+		return err
+	}
 	s, ok := m.Get(id)
 	if !ok {
 		return fmt.Errorf("session not found")
@@ -348,7 +366,7 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 	if s.meta.Status != "running" || s.protocolCommand == nil {
 		return fmt.Errorf("Patch protocol command channel is not enabled")
 	}
-	if isPromptResponse {
+	if isPromptResponse || isItemAction {
 		if len(s.protocol.Prompt) == 0 {
 			return fmt.Errorf("Patch session has no active prompt")
 		}
@@ -356,8 +374,14 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 		if err != nil {
 			return err
 		}
-		if responsePromptID != activePromptID {
-			return fmt.Errorf("Patch prompt_response does not match the active prompt")
+		boundPromptID := responsePromptID
+		commandName := "prompt_response"
+		if isItemAction {
+			boundPromptID = actionPromptID
+			commandName = "item_action"
+		}
+		if boundPromptID != activePromptID {
+			return fmt.Errorf("Patch %s does not match the active prompt", commandName)
 		}
 	}
 	if _, err := s.protocolCommand.Write(append(line, '\n')); err != nil {
