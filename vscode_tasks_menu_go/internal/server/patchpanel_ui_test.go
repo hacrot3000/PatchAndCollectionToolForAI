@@ -103,7 +103,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"failure?.diagnosis_kind",
 		"snapshot?.group_counts",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
+		"TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,submitHistoryCleanup,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {
@@ -736,6 +736,78 @@ func TestPatchPanelHistorySupportKeepsHistoryPromptReusable(t *testing.T) {
 	} {
 		if strings.Contains(block, forbidden) {
 			t.Fatalf("History Support must not consume/clear reusable History prompt: %q", forbidden)
+		}
+	}
+}
+
+
+func TestPatchPanelHistoryCleanupIsCapabilityDrivenAndUsesPythonCounts(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function historyCleanupProjection(prompt)",
+		"actions.has('cleanup')",
+		"destructive.has('cleanup')",
+		"constraints.cleanup",
+		"remove_unpinned_idle_then_oldest_unpinned_over_limit",
+		"cleanup.idle_eligible",
+		"cleanup.overflow_eligible",
+		"cleanup.pinned",
+		"cleanup.limit",
+		"historyCleanupButton.textContent=cleanup.eligible>0",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native History Cleanup capability UI missing %q", want)
+		}
+	}
+}
+
+func TestPatchPanelHistoryCleanupIsPromptBoundCorrelatedAndListFree(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"async function submitHistoryCleanup(sessionId,prompt)",
+		"/history-cleanup",
+		"body:JSON.stringify({prompt_id:promptID,confirmed:true})",
+		"response?.cleanup_id",
+		"async function waitForHistoryCleanup(sessionId,cleanupID,promptID,snapshotBefore)",
+		"result?.cleanup_id===cleanupID",
+		"String(result?.prompt_id||'')!==promptID",
+		"renderHistoryCleanupResult(result)",
+		"snapshotToken!==snapshotBefore",
+		"String(prompt?.prompt_id||'')!==promptID",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native History Cleanup correlation UI missing %q", want)
+		}
+	}
+	start := strings.Index(js, "async function submitHistoryCleanup")
+	endRel := strings.Index(js[start:], "function historyActionsForRun")
+	if start < 0 || endRel < 0 { t.Fatal("History Cleanup function bounds unavailable") }
+	block := js[start:start+endRel]
+	for _, forbidden := range []string{"run_id:", "run_ids", "candidates:", "paths:"} {
+		if strings.Contains(block, forbidden) {
+			t.Fatalf("History Cleanup browser request must not choose cleanup candidates: %q", forbidden)
+		}
+	}
+}
+
+func TestPatchPanelHistoryCleanupRequiresExplicitConfirmationAndPreservesPins(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"window.confirm(",
+		"Python reports",
+		"unpinned IDLE",
+		"oldest unpinned over limit",
+		"Pinned runs are preserved",
+		"newest meaningful History is kept to limit",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("History Cleanup confirmation missing %q", want)
 		}
 	}
 }

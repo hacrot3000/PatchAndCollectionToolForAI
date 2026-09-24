@@ -383,8 +383,9 @@ Every phase must preserve:
 | Phase 2H.6c reusable-prompt test scope correction | DONE | 24165f45 | Scoped the Support prompt-reuse assertion to submitHistorySupport only; unrelated History management reset logic is no longer falsely matched. |
 | Phase 2H.6d1 Python History cleanup contract | DONE | c1eb7b78 | Refactored terminal/native cleanup onto one Python plan, advertises top-level cleanup policy/counts, accepts no run list, requires explicit confirmation, and emits correlated cleanup result + refreshed History state. |
 | Phase 2H.6d1 History support fixture correction | DONE | cc440b98 | Updated the item-support projection fixture to mock the newly additive cleanup summary; runtime cleanup behavior is unchanged. |
-| Phase 2H.6d2 TaskDeck History cleanup gate/state | DONE | this commit | TaskDeck validates/retains correlated cleanup results, exposes only prompt_id+confirmed, generates cleanup_id server-side and rechecks the active prompt at final FD4 write; no run/candidate list is accepted. |
+| Phase 2H.6d2 TaskDeck History cleanup gate/state | DONE | c445aa26 | TaskDeck validates/retains correlated cleanup results, exposes only prompt_id+confirmed, generates cleanup_id server-side and rechecks the active prompt at final FD4 write; no run/candidate list is accepted. |
+| Phase 2H.6d3 native History Cleanup UI | DONE | this commit | History shows cleanup only from Python-advertised capability/policy/counts, requires explicit confirmation, sends no run/candidate list, correlates cleanup_id+prompt_id and redraws only from refreshed Python snapshot/prompt. |
 
 ## Next action
 
-Continue **Phase 2H.6d3**: add capability-driven native History Cleanup UI using only Python-projected cleanup counts/policy, explicit confirmation and refreshed snapshot/prompt correlation.
+Continue **Phase 2H.7**: rerun the native-cutover parity audit after History Support/Cleanup and identify any remaining terminal-only capabilities before making PTY secondary by default.

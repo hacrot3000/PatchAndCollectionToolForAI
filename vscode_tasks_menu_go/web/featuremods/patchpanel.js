@@ -84,6 +84,10 @@ function installPatchPanel(){
   .task-patch-history-title{font-weight:700;flex:1}
   .task-patch-history-status{opacity:.7}
   .task-patch-history-head button{font-size:10px;padding:3px 6px}
+  .task-patch-history-cleanup{display:flex;align-items:center;gap:6px;margin:0 0 8px;padding:6px;border:1px solid #554c3d;border-radius:5px;background:#17140f}
+  .task-patch-history-cleanup[hidden]{display:none}
+  .task-patch-history-cleanup-summary{min-width:0;flex:1;opacity:.78;overflow-wrap:anywhere}
+  .task-patch-history-cleanup button{font-size:10px;padding:3px 6px;border-color:#806a43}
   .task-patch-history-runs{display:grid;gap:4px;max-height:260px;overflow:auto;margin-bottom:8px}
   .task-patch-history-run-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px;align-items:stretch}
   .task-patch-history-run{display:flex;min-width:0;flex-direction:column;align-items:flex-start;gap:2px;padding:6px 7px;text-align:left;background:#171f2a}
@@ -251,6 +255,7 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-history-delete{background:#fff0f1;border-color:#c47780;color:#7b2029}
   html[data-taskmenu-theme="light"] .task-patch-history-delete:hover{background:#ffe5e7}
   html[data-taskmenu-theme="light"] .task-patch-history-management{background:#fff;border-color:#d0d7de}
+  html[data-taskmenu-theme="light"] .task-patch-history-cleanup{background:#fffaf0;border-color:#d8c69c}
   html[data-taskmenu-theme="light"] .task-patch-history-detail{border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-run{background:#f6f8fa;border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-run-item{background:#fff}
@@ -324,6 +329,10 @@ function installPatchPanel(){
   const historyTerminal=document.createElement('button');historyTerminal.type='button';historyTerminal.textContent='Terminal';historyTerminal.title='Open terminal evidence/fallback';
   const historyBack=document.createElement('button');historyBack.type='button';historyBack.textContent='Back';
   historyHead.append(historyTitle,historyStatus,historyTerminal,historyBack);
+  const historyCleanup=document.createElement('div');historyCleanup.className='task-patch-history-cleanup';historyCleanup.hidden=true;
+  const historyCleanupSummary=document.createElement('div');historyCleanupSummary.className='task-patch-history-cleanup-summary';
+  const historyCleanupButton=document.createElement('button');historyCleanupButton.type='button';historyCleanupButton.textContent='Cleanup';
+  historyCleanup.append(historyCleanupSummary,historyCleanupButton);
   const historyRuns=document.createElement('div');historyRuns.className='task-patch-history-runs';
   const historyManagement=document.createElement('div');historyManagement.className='task-patch-history-management';historyManagement.hidden=true;
   const historyManagementMessage=document.createElement('div');historyManagementMessage.className='task-patch-history-management-message';
@@ -336,7 +345,7 @@ function installPatchPanel(){
   const historyItems=document.createElement('div');historyItems.className='task-patch-history-items';
   const historyWarnings=document.createElement('div');historyWarnings.className='task-patch-history-warning';
   historyDetail.append(historyDetailTitle,historyDetailMeta,historyFiles,historyItems,historyWarnings);
-  historyBox.append(historyHead,historyRuns,historyManagement,historyDetail);
+  historyBox.append(historyHead,historyCleanup,historyRuns,historyManagement,historyDetail);
 
   const planBox=document.createElement('div');planBox.className='task-patch-plan';planBox.hidden=true;
   const planHead=document.createElement('div');planHead.className='task-patch-plan-head';
@@ -433,6 +442,8 @@ function installPatchPanel(){
   let historyManagementPollGeneration=0;
   let historySupportBusy=false;
   let historySupportPollGeneration=0;
+  let historyCleanupBusy=false;
+  let historyCleanupPollGeneration=0;
   let historyMode=false;
   let latestPlanSnapshot=null;
   let planMode=false;
@@ -455,7 +466,7 @@ function installPatchPanel(){
   function setVisible(value){
     const visible=Boolean(value);
     panel.classList.toggle('visible',visible);
-    if(!visible){protocolPollGeneration+=1;actionPollGeneration+=1;queueMutationPollGeneration+=1;historyPollGeneration+=1;historyManagementPollGeneration+=1;historySupportPollGeneration+=1;}
+    if(!visible){protocolPollGeneration+=1;actionPollGeneration+=1;queueMutationPollGeneration+=1;historyPollGeneration+=1;historyManagementPollGeneration+=1;historySupportPollGeneration+=1;historyCleanupPollGeneration+=1;}
     if(visible&&activeSessionId)void pollProtocol(activeSessionId,!runningMode&&!planMode&&!healthMode,true);
     window.dispatchEvent(new CustomEvent('taskmenu:patch-panel-visible',{detail:{visible}}));
   }
@@ -667,9 +678,14 @@ function installPatchPanel(){
     historyBusy=false;
     historyManagementBusy=false;
     historySupportBusy=false;
+    historyCleanupBusy=false;
     historyPollGeneration+=1;
     historyManagementPollGeneration+=1;
     historySupportPollGeneration+=1;
+    historyCleanupPollGeneration+=1;
+    historyCleanup.hidden=true;
+    historyCleanupSummary.textContent='';
+    historyCleanupButton.disabled=false;
     historyRuns.replaceChildren();
     historyManagement.hidden=true;
     historyManagementMessage.textContent='';
@@ -780,7 +796,7 @@ function installPatchPanel(){
   }
 
   async function submitHistorySupport(sessionId,prompt,runID,item,sourceButton){
-    if(historyBusy||historyManagementBusy||historySupportBusy||!sessionId||!prompt)return null;
+    if(historyBusy||historyManagementBusy||historySupportBusy||historyCleanupBusy||!sessionId||!prompt)return null;
     if(prompt?.prompt_kind!=='history_action'||String(prompt?.prompt_id||'')==='')throw new Error('Native History support requires the active History prompt');
     if(String(runID||'')!==activeHistoryRunID)throw new Error('History support requires the currently displayed report');
     if(!historyItemSupportAllowed(item))throw new Error('History Support is not advertised for this item');
@@ -811,6 +827,131 @@ function installPatchPanel(){
   function historyPromptRun(runID){
     const runs=Array.isArray(activeHistoryPrompt?.runs)?activeHistoryPrompt.runs:[];
     return runs.find(row=>String(row?.run_id||'')===String(runID||''))||null;
+  }
+
+  function historyCleanupProjection(prompt){
+    if(prompt?.type!=='prompt'||prompt?.prompt_kind!=='history_action'||!prompt?.prompt_id)return null;
+    const actions=new Set(Array.isArray(prompt.actions)?prompt.actions.map(value=>String(value).toLowerCase()):[]);
+    const constraints=prompt?.constraints&&typeof prompt.constraints==='object'?prompt.constraints:{};
+    const destructive=new Set(Array.isArray(constraints.destructive_actions)?constraints.destructive_actions.map(value=>String(value).toLowerCase()):[]);
+    const cleanup=constraints.cleanup&&typeof constraints.cleanup==='object'?constraints.cleanup:null;
+    if(!actions.has('cleanup')||!destructive.has('cleanup')||!cleanup)return null;
+    if(String(cleanup.policy||'')!=='remove_unpinned_idle_then_oldest_unpinned_over_limit')return null;
+    const fields=['eligible','idle_eligible','overflow_eligible','pinned','meaningful','limit'];
+    const values={};
+    for(const field of fields){
+      const value=Number(cleanup[field]);
+      if(!Number.isInteger(value)||value<0)return null;
+      values[field]=value;
+    }
+    return {...values,policy:String(cleanup.policy)};
+  }
+
+  function renderHistoryCleanupCapability(prompt){
+    const cleanup=historyCleanupProjection(prompt);
+    if(!cleanup){
+      historyCleanup.hidden=true;
+      historyCleanupSummary.textContent='';
+      historyCleanupButton.disabled=true;
+      return false;
+    }
+    historyCleanup.hidden=false;
+    historyCleanupSummary.textContent=[
+      `${cleanup.eligible} eligible`,
+      `${cleanup.idle_eligible} IDLE`,
+      `${cleanup.overflow_eligible} over limit`,
+      `${cleanup.pinned} pinned`,
+      `keep ${cleanup.limit} meaningful`,
+    ].join(' · ');
+    historyCleanupButton.textContent=cleanup.eligible>0?`Cleanup ${cleanup.eligible}`:'Nothing eligible';
+    historyCleanupButton.disabled=cleanup.eligible===0||historyBusy||historyManagementBusy||historySupportBusy||historyCleanupBusy;
+    return true;
+  }
+
+  function renderHistoryCleanupResult(result){
+    if(!result||typeof result!=='object')return false;
+    historyManagementMessage.textContent=[
+      String(result.message||'History cleanup result'),
+      `removed=${Number(result.removed||0)}`,
+      `pinned=${Number(result.pinned||0)}`,
+      `remaining=${Number(result.remaining||0)}`,
+    ].join(' · ');
+    historyManagementFiles.replaceChildren();
+    historyManagement.hidden=false;
+    return true;
+  }
+
+  async function waitForHistoryCleanup(sessionId,cleanupID,promptID,snapshotBefore){
+    const generation=++historyCleanupPollGeneration;
+    let matched=null;
+    for(let attempt=0;attempt<240;attempt+=1){
+      if(generation!==historyCleanupPollGeneration||!panel.classList.contains('visible')||sessionId!==activeSessionId)return null;
+      const state=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/protocol`);
+      const result=state?.history_cleanup_result;
+      if(result?.cleanup_id===cleanupID){
+        if(String(result?.prompt_id||'')!==promptID)throw new Error('Patch History cleanup result correlation mismatch');
+        matched=result;
+        renderHistoryCleanupResult(result);
+        if(result?.history_changed!==true)return result;
+      }
+      if(matched?.history_changed===true&&state?.history_snapshot){
+        const snapshotToken=JSON.stringify(state.history_snapshot);
+        if(snapshotToken!==snapshotBefore){
+          const prompt=state?.prompt;
+          const freshPrompt=prompt?.type==='prompt'&&prompt?.prompt_kind==='history_action'&&String(prompt?.prompt_id||'')!==promptID;
+          const finished=state?.last_event?.type==='run_finished';
+          if(freshPrompt||finished||!prompt){
+            renderHistorySnapshot(state.history_snapshot);
+            if(freshPrompt)renderHistoryPrompt(sessionId,prompt);
+            else{
+              activeHistoryPrompt=null;
+              activeHistoryRunID='';
+              latestHistoryReport=null;
+              historyDetail.hidden=true;
+              renderHistoryCleanupCapability(null);
+              renderHistoryRuns();
+            }
+            return matched;
+          }
+        }
+      }
+      if(state?.last_event?.type==='run_finished'&&!matched)throw new Error('Patch History session finished before cleanup result arrived');
+      await new Promise(resolve=>setTimeout(resolve,250));
+    }
+    throw new Error('Timed out waiting for native Patch History cleanup');
+  }
+
+  async function submitHistoryCleanup(sessionId,prompt){
+    if(historyBusy||historyManagementBusy||historySupportBusy||historyCleanupBusy||!sessionId||!prompt)return null;
+    const cleanup=historyCleanupProjection(prompt);
+    if(!cleanup)throw new Error('History Cleanup is not advertised by the active Python prompt');
+    if(cleanup.eligible<=0)return null;
+    const confirmed=window.confirm(
+      `Clean Patch Tool History? Python reports ${cleanup.eligible} eligible entries: ${cleanup.idle_eligible} unpinned IDLE and ${cleanup.overflow_eligible} oldest unpinned over limit. Pinned runs are preserved; newest meaningful History is kept to limit ${cleanup.limit}.`
+    );
+    if(!confirmed)return null;
+    const promptID=String(prompt.prompt_id||'');
+    const snapshotBefore=JSON.stringify(latestHistorySnapshot||{});
+    historyCleanupBusy=true;
+    historyManagement.hidden=false;
+    historyManagementFiles.replaceChildren();
+    historyManagementMessage.textContent='Cleaning History using Python retention policy…';
+    renderHistoryCleanupCapability(prompt);
+    renderHistoryRuns();
+    try{
+      const response=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/history-cleanup`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({prompt_id:promptID,confirmed:true}),
+      });
+      const cleanupID=String(response?.cleanup_id||'');
+      if(!cleanupID)throw new Error('TaskDeck did not return a cleanup_id');
+      return await waitForHistoryCleanup(sessionId,cleanupID,promptID,snapshotBefore);
+    }finally{
+      historyCleanupBusy=false;
+      renderHistoryCleanupCapability(activeHistoryPrompt);
+      renderHistoryRuns();
+    }
   }
 
   function historyActionsForRun(runID){
@@ -896,6 +1037,7 @@ function installPatchPanel(){
   }
 
   function renderHistoryRuns(){
+    renderHistoryCleanupCapability(activeHistoryPrompt);
     historyRuns.replaceChildren();
     const runs=Array.isArray(latestHistorySnapshot?.runs)?latestHistorySnapshot.runs:[];
     if(!runs.length){
@@ -908,7 +1050,7 @@ function installPatchPanel(){
       const allowed=historyActionsForRun(runID);
       const row=document.createElement('div');row.className='task-patch-history-run-row';
       const button=document.createElement('button');button.type='button';button.className='task-patch-history-run';button.classList.toggle('active',runID===activeHistoryRunID);
-      button.disabled=historyBusy||historyManagementBusy||historySupportBusy||!allowed.has('detail');
+      button.disabled=historyBusy||historyManagementBusy||historySupportBusy||historyCleanupBusy||!allowed.has('detail');
       const name=document.createElement('span');name.className='task-patch-history-run-name';name.textContent=String(run?.primary_name||runID);
       const elapsed=Number(run?.elapsed_seconds);
       const meta=document.createElement('span');meta.className='task-patch-history-run-meta';
@@ -921,7 +1063,7 @@ function installPatchPanel(){
         if(!allowed.has(action))continue;
         const manage=document.createElement('button');manage.type='button';manage.dataset.historyAction=action;
         manage.textContent={pin:'Pin',unpin:'Unpin',export:'Export',delete:'Delete'}[action]||action;
-        manage.disabled=historyBusy||historyManagementBusy||historySupportBusy;
+        manage.disabled=historyBusy||historyManagementBusy||historySupportBusy||historyCleanupBusy;
         if(action==='delete')manage.className='task-patch-history-delete';
         manage.onclick=()=>submitHistoryManagement(activeSessionId,activeHistoryPrompt,action,runID).catch(app.showError);
         managementActions.append(manage);
@@ -977,7 +1119,7 @@ function installPatchPanel(){
       if(historyItemSupportAllowed(item)){
         const itemActions=document.createElement('div');itemActions.className='task-patch-history-item-actions';
         const support=document.createElement('button');support.type='button';support.className='task-patch-history-support';support.textContent='Support';
-        support.disabled=historyBusy||historyManagementBusy||historySupportBusy;
+        support.disabled=historyBusy||historyManagementBusy||historySupportBusy||historyCleanupBusy;
         support.onclick=()=>submitHistorySupport(activeSessionId,activeHistoryPrompt,activeHistoryRunID,item,support).catch(app.showError);
         itemActions.append(support);row.append(itemActions);
       }
@@ -1008,7 +1150,7 @@ function installPatchPanel(){
   }
 
   async function submitHistoryDetail(sessionId,prompt,runID){
-    if(historyBusy||historyManagementBusy||historySupportBusy||!sessionId||!prompt)return null;
+    if(historyBusy||historyManagementBusy||historySupportBusy||historyCleanupBusy||!sessionId||!prompt)return null;
     const actionsAllowed=new Set(Array.isArray(prompt.actions)?prompt.actions.map(String):[]);
     const advertised=new Set(Array.isArray(prompt.runs)?prompt.runs.map(row=>String(row?.run_id||'')):[]);
     if(!actionsAllowed.has('detail')||!advertised.has(runID))throw new Error('History run is not advertised by the active Python prompt');
@@ -1029,6 +1171,7 @@ function installPatchPanel(){
     if(prompt?.type!=='prompt'||prompt?.prompt_kind!=='history_action'||!prompt?.prompt_id)return false;
     activeHistoryPrompt=prompt;
     enterHistoryView();
+    renderHistoryCleanupCapability(prompt);
     if(!latestHistorySnapshot)renderHistorySnapshot({status:Array.isArray(prompt.runs)&&prompt.runs.length?'available':'empty',runs:Array.isArray(prompt.runs)?prompt.runs:[],total:Array.isArray(prompt.runs)?prompt.runs.length:0,default_run_id:prompt.default_run_id||''});
     else renderHistoryRuns();
     historyStatus.textContent=(Array.isArray(prompt.runs)?prompt.runs.length:0)+' run(s) · native';
@@ -2018,7 +2161,9 @@ function installPatchPanel(){
       queueMutationBusy=false;
       historyPollGeneration+=1;
       historyManagementPollGeneration+=1;
+      historyCleanupPollGeneration+=1;
       historyManagementBusy=false;
+      historyCleanupBusy=false;
       leaveRunningView();
       if(mode==='history')enterHistoryView();else leaveHistoryView();
       if(mode==='plan')enterPlanView();else leavePlanView();
@@ -2040,6 +2185,7 @@ function installPatchPanel(){
 
   terminalEvidence.onclick=openTerminalEvidence;
   historyTerminal.onclick=openTerminalEvidence;
+  historyCleanupButton.onclick=()=>submitHistoryCleanup(activeSessionId,activeHistoryPrompt).catch(app.showError);
   historyBack.onclick=()=>stopHistoryAndBack().catch(app.showError);
   planTerminal.onclick=openTerminalEvidence;
   planBack.onclick=leavePlanView;
@@ -2052,7 +2198,7 @@ function installPatchPanel(){
   summarySearchInput.oninput=()=>setQueueSearchQuery(summarySearchInput.value);
   summarySearchClear.onclick=()=>{setQueueSearchQuery('');summarySearchInput.focus();};
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,submitHistoryCleanup,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 
