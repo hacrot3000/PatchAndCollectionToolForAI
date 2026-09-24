@@ -204,6 +204,11 @@ Status: **IN PROGRESS**
   - [x] Phase 2F.2 native History detail command/state/endpoint.
   - [x] Phase 2F.3 native History/report web browser.
 - [x] Native artifact actions.
+- [ ] Native Queue/History management parity.
+  - [x] Phase 2G.1a Python-owned prompt-bound Queue delete command, mutation result and refreshed snapshot/prompt.
+  - [ ] Phase 2G.1b TaskDeck Queue delete state/gate/endpoint.
+  - [ ] Phase 2G.1c Queue delete web control.
+  - [ ] Phase 2G.2 History Pin/Unpin/Delete/Export native management.
 - [ ] Remove default dependence on terminal rendering only after feature parity is proven.
 
 ## Non-regression gates
@@ -290,8 +295,9 @@ Every phase must preserve:
 | Phase 2F.3 native History/report web browser | DONE | b2846665 | History is now a native primary Patch panel view; run selection uses only /history-detail, projected files/artifacts reuse safe Download/Open actions, and PTY remains explicit fallback/evidence. |
 | Phase 2F.3 UI contract correction | DONE | 12337bc0 | Updated stale export expectations and scoped Queue/Failed anti-inference assertions so History may display Python-projected policy fields without permitting web-side policy decisions. |
 
-| Phase 2F.3 Queue/Failed assertion correction | DONE | this commit | Narrowed the remaining file-global Queue anti-inference assertion so History may display Python-projected failure_policy without allowing Queue-side policy inference. |
+| Phase 2F.3 Queue/Failed assertion correction | DONE | 709dec39 | Narrowed the remaining file-global Queue anti-inference assertion so History may display Python-projected failure_policy without allowing Queue-side policy inference. |
+| Phase 2G.1a Python Queue delete command | DONE | this commit | Active Queue prompt advertises delete; Python reuses _delete_indexes(), emits queue_mutation_result, refreshes queue_snapshot and issues a new prompt after index-changing deletion. |
 
 ## Next action
 
-Begin **Phase 2G**: close remaining terminal-only management gaps identified by the interaction audit (Queue item delete and History management/export actions) with Python-owned bounded commands before considering removal of default terminal dependence.
+Continue **Phase 2G.1b**: retain/validate queue_mutation_result in TaskDeck, add a prompt-bound queue-delete command gate and expose only a narrow /queue-delete endpoint.

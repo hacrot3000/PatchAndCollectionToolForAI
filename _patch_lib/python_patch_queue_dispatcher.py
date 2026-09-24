@@ -5209,10 +5209,11 @@ def _protocol_queue_selection(
     *,
     root: Path | None = None,
 ) -> tuple[bool, list[QueueItem] | None]:
-    """Handle the narrow native queue-selection prompt when both channels exist.
+    """Handle the native queue selector while preserving Python-owned mutation policy.
 
-    Any malformed/unsupported response falls back to the existing terminal
-    selector instead of executing an inferred selection.
+    Queue delete is prompt-bound and reuses _delete_indexes(). After a successful
+    delete, a fresh queue_snapshot and a new prompt are emitted so stale web
+    indexes can never be submitted against the modified queue.
     """
     from python_patch_protocol import (
         ProtocolCommandError,
@@ -5228,9 +5229,11 @@ def _protocol_queue_selection(
     if writer is None or reader is None:
         return False, None
 
-    try:
-        failed_names = set(failed_group_names or ())
-        initial = sorted(index + 1 for index in _initial_selected(items, initial_selection))
+    failed_names = set(failed_group_names or ())
+    selected = set(_initial_selected(items, initial_selection))
+    priorities: dict[int, int] = {}
+
+    def emit_queue_prompt() -> str:
         rows = [
             {
                 "index": index,
@@ -5241,20 +5244,24 @@ def _protocol_queue_selection(
             }
             for index, item in enumerate(items, 1)
         ]
-        prompt_id = emit_prompt(
+        return emit_prompt(
             writer,
             "queue_selection",
             title="Choose PATCH/COLLECT work",
             items=rows,
-            initial_selected=initial,
+            initial_selected=sorted(index + 1 for index in selected),
             actions=["select", "cancel"],
             item_actions=sorted(_PROTOCOL_ITEM_ACTIONS),
+            queue_actions=["delete"],
             constraints={
                 "index_base": 1,
                 "collect_exclusive": True,
                 "collect_max": 1,
             },
         )
+
+    try:
+        prompt_id = emit_queue_prompt()
         while True:
             command = reader.read()
             if command is None:
@@ -5265,37 +5272,80 @@ def _protocol_queue_selection(
                 except (ValueError, TypeError) as exc:
                     writer.emit("error", phase="item_action", message=str(exc))
                 continue
+            if command.get("command") == "queue_delete":
+                payload = command.get("payload")
+                try:
+                    if not isinstance(payload, dict):
+                        raise ValueError("queue_delete payload must be an object")
+                    if str(payload.get("prompt_id") or "") != prompt_id:
+                        raise ValueError("queue_delete prompt_id does not match the active prompt")
+                    mutation_id = str(payload.get("mutation_id") or "").strip()
+                    if not mutation_id or len(mutation_id) > 128:
+                        raise ValueError("queue_delete mutation_id is required and must be <=128 characters")
+                    raw_index = payload.get("index")
+                    if isinstance(raw_index, bool) or not isinstance(raw_index, int) or raw_index < 1 or raw_index > len(items):
+                        raise ValueError("queue_delete index is out of range")
+                    if root is None:
+                        raise ValueError("queue_delete project root is unavailable")
+                    victim = items[raw_index - 1]
+                    selected, priorities, deleted, failures = _delete_indexes(
+                        root, items, selected, {raw_index - 1}, priorities
+                    )
+                    deleted_ok = victim.name in deleted
+                    writer.emit(
+                        "queue_mutation_result",
+                        prompt_id=prompt_id,
+                        mutation_id=mutation_id,
+                        action="delete",
+                        index=raw_index,
+                        item_name=victim.name,
+                        item_kind=victim.kind,
+                        status="PASS" if deleted_ok else "FAIL",
+                        message=(f"Deleted {victim.name}" if deleted_ok else (failures[0] if failures else "Queue item was not deleted")),
+                        remaining=len(items),
+                    )
+                    if not deleted_ok:
+                        continue
+                    failed_names.discard(victim.name)
+                    try:
+                        writer.emit("queue_snapshot", **protocol_queue_view(root))
+                    except Exception as exc:
+                        writer.emit("error", phase="queue_delete_refresh", message=f"{type(exc).__name__}: {exc}")
+                    if not items:
+                        return True, []
+                    prompt_id = emit_queue_prompt()
+                except (ValueError, TypeError) as exc:
+                    writer.emit("error", phase="queue_delete", message=str(exc))
+                continue
             response = prompt_response_from_command(command, prompt_id)
-            break
-        action = str(response.get("action") or "")
-        if action == "cancel":
-            return True, None
-        if action != "select":
-            raise ProtocolCommandError(f"unsupported queue_selection action: {action!r}")
-        indexes = response.get("indexes")
-        if not isinstance(indexes, list) or not indexes:
-            raise ProtocolCommandError("queue_selection requires a non-empty indexes array")
-        normalized: list[int] = []
-        seen: set[int] = set()
-        for raw in indexes:
-            if isinstance(raw, bool) or not isinstance(raw, int):
-                raise ProtocolCommandError("queue_selection indexes must be integers")
-            if raw < 1 or raw > len(items):
-                raise ProtocolCommandError(f"queue_selection index out of range: {raw}")
-            if raw not in seen:
-                normalized.append(raw)
-                seen.add(raw)
-        chosen = [items[index - 1] for index in normalized]
-        contract_error = _selection_contract_error(chosen)
-        if contract_error:
-            raise ProtocolCommandError(contract_error)
-        return True, chosen
-    except (ProtocolCommandError, ValueError, TypeError) as exc:
-        writer.emit("error", phase="queue_selection_prompt", message=str(exc))
+            action = str(response.get("action") or "")
+            if action == "cancel":
+                return True, None
+            if action != "select":
+                raise ProtocolCommandError(f"unsupported queue_selection action: {action!r}")
+            indexes = response.get("indexes")
+            if not isinstance(indexes, list) or not indexes:
+                raise ProtocolCommandError("queue_selection requires a non-empty indexes array")
+            normalized: list[int] = []
+            seen: set[int] = set()
+            for raw in indexes:
+                if isinstance(raw, bool) or not isinstance(raw, int):
+                    raise ProtocolCommandError("queue_selection indexes must be integers")
+                if raw < 1 or raw > len(items):
+                    raise ProtocolCommandError(f"queue_selection index out of range: {raw}")
+                if raw not in seen:
+                    normalized.append(raw)
+                    seen.add(raw)
+            chosen = [items[index - 1] for index in normalized]
+            contract_error = _selection_contract_error(chosen)
+            if contract_error:
+                raise ProtocolCommandError(contract_error)
+            return True, chosen
+    except (ProtocolCommandError, OSError, ValueError, TypeError):
         return False, None
     finally:
-        reader.close()
         writer.close()
+        reader.close()
 
 
 def select_items(root, items, *, initial_selection="none", selector_ui="auto", show_history: bool = False, failed_group_names: set[str] | None = None):

@@ -223,6 +223,108 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertTrue(handled)
         self.assertEqual([item.name for item in chosen], ["one.zip"])
 
+    def test_dispatcher_protocol_queue_delete_refreshes_snapshot_and_prompt_indexes(self):
+        from python_patch_queue_dispatcher import QueueItem, _protocol_queue_selection
+        import python_patch_queue_dispatcher as dispatcher
+
+        with tempfile.TemporaryDirectory(prefix="taskdeck-queue-delete-") as tmp:
+            root = Path(tmp)
+            patchs = root / "patchs"
+            patchs.mkdir()
+            (patchs / "one.zip").write_bytes(b"one")
+            (patchs / "two.zip").write_bytes(b"two")
+
+            event_read, event_write = os.pipe()
+            command_read, command_write = os.pipe()
+            old_event = os.environ.get(entry.EVENT_FD_ENV)
+            old_command = os.environ.get(entry.COMMAND_FD_ENV)
+            os.environ[entry.EVENT_FD_ENV] = str(event_write)
+            os.environ[entry.COMMAND_FD_ENV] = str(command_read)
+            seen = {}
+
+            def respond():
+                with os.fdopen(os.dup(event_read), "r", encoding="utf-8") as stream:
+                    first_prompt = json.loads(stream.readline())
+                    seen["first_prompt"] = first_prompt
+                    delete = {
+                        "protocol": "taskdeck.patch",
+                        "version": 1,
+                        "type": "command",
+                        "seq": 1,
+                        "command": "queue_delete",
+                        "payload": {
+                            "prompt_id": first_prompt["prompt_id"],
+                            "mutation_id": "delete-1",
+                            "index": 1,
+                        },
+                    }
+                    os.write(command_write, (json.dumps(delete) + "\n").encode("utf-8"))
+                    seen["mutation"] = json.loads(stream.readline())
+                    seen["snapshot"] = json.loads(stream.readline())
+                    second_prompt = json.loads(stream.readline())
+                    seen["second_prompt"] = second_prompt
+                    response = {
+                        "protocol": "taskdeck.patch",
+                        "version": 1,
+                        "type": "command",
+                        "seq": 2,
+                        "command": "prompt_response",
+                        "payload": {
+                            "prompt_id": second_prompt["prompt_id"],
+                            "action": "select",
+                            "indexes": [1],
+                        },
+                    }
+                    os.write(command_write, (json.dumps(response) + "\n").encode("utf-8"))
+
+            worker = threading.Thread(target=respond)
+            worker.start()
+            items = [
+                QueueItem("one.zip", "PATCH", "manifest"),
+                QueueItem("two.zip", "PATCH", "manifest"),
+            ]
+            refreshed = {
+                "status": "runnable",
+                "items": [{"name": "two.zip", "kind": "PATCH", "detail": "manifest", "group": "new"}],
+                "warnings": [],
+                "counts": {"PATCH": 1},
+                "group_counts": {"new": 1, "failed": 0},
+                "total": 1,
+            }
+            try:
+                with mock.patch.object(dispatcher, "_unresolved_failure_rows", return_value=[]), \
+                     mock.patch.object(dispatcher, "protocol_queue_view", return_value=refreshed):
+                    handled, chosen = _protocol_queue_selection(items, "none", {"one.zip"}, root=root)
+            finally:
+                worker.join(timeout=2)
+                if old_event is None:
+                    os.environ.pop(entry.EVENT_FD_ENV, None)
+                else:
+                    os.environ[entry.EVENT_FD_ENV] = old_event
+                if old_command is None:
+                    os.environ.pop(entry.COMMAND_FD_ENV, None)
+                else:
+                    os.environ[entry.COMMAND_FD_ENV] = old_command
+                for fd in (event_read, event_write, command_read, command_write):
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+
+            self.assertTrue(handled)
+            self.assertEqual([item.name for item in chosen], ["two.zip"])
+            self.assertFalse((patchs / "one.zip").exists())
+            self.assertTrue((patchs / "two.zip").exists())
+            self.assertEqual(seen["first_prompt"]["queue_actions"], ["delete"])
+            self.assertNotEqual(seen["first_prompt"]["prompt_id"], seen["second_prompt"]["prompt_id"])
+            self.assertEqual(seen["mutation"]["type"], "queue_mutation_result")
+            self.assertEqual(seen["mutation"]["mutation_id"], "delete-1")
+            self.assertEqual(seen["mutation"]["status"], "PASS")
+            self.assertEqual(seen["snapshot"]["type"], "queue_snapshot")
+            self.assertEqual(seen["second_prompt"]["items"][0]["index"], 1)
+            self.assertEqual(seen["second_prompt"]["items"][0]["name"], "two.zip")
+            self.assertEqual(seen["second_prompt"]["initial_selected"], [1])
+
     def test_dispatcher_protocol_item_action_emits_result_and_keeps_prompt_active(self):
         from python_patch_queue_dispatcher import QueueItem, _protocol_queue_selection
         import python_patch_queue_dispatcher as dispatcher
@@ -294,6 +396,7 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertTrue(handled)
         self.assertEqual([item.name for item in chosen], ["one.zip"])
         self.assertEqual(seen["prompt"]["item_actions"], ["inspect", "preview", "validate"])
+        self.assertEqual(seen["prompt"]["queue_actions"], ["delete"])
         result = seen["result"]
         self.assertEqual(result["type"], "action_result")
         self.assertEqual(result["action_id"], "action-1")
