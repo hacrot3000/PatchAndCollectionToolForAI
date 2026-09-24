@@ -347,7 +347,8 @@ Every phase must preserve:
 | Phase 2H.1 native cutover parity audit | DONE | d213bac9 | Recorded the remaining terminal-only parity gaps and a fail-closed cutover rule; no runtime behavior changed. |
 | Phase 2H.2a Python Queue priority contract | DONE | fc3f5d8a | queue_selection optionally accepts bounded PATCH priorities 0-9 and routes final selection through the exact terminal _ordered_selection helper; COLLECT and unselected priority rows fail closed. |
 | Phase 2H.2b TaskDeck Queue priority gate | DONE | 600dd341 | Narrow prompt-response accepts priorities only when the active Python prompt advertises a safe 0-9 capability; selected-index/PATCH-only/duplicate/range checks run before the existing prompt-bound FD4 gate. |
-| Phase 2H.2c native Queue priority UI | DONE | this commit | Queue PATCH rows expose capability-driven priority 0-9 plus Select all PATCH/Clear selection; the browser submits priority metadata only and Python remains the sole execution-order authority. |
+| Phase 2H.2c native Queue priority UI | DONE | e75a2444 | Queue PATCH rows expose capability-driven priority 0-9 plus Select all PATCH/Clear selection; the browser submits priority metadata only and Python remains the sole execution-order authority. |
+| Phase 2H.2c UI export-contract correction | DONE | this commit | Updated the stale TaskMenuPatchPanel export assertion for the new priority helpers; runtime behavior unchanged. |
 
 ## Next action
 
