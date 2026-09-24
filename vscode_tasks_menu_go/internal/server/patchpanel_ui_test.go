@@ -84,7 +84,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"payload.priorities=priorities",
 		"Select all PATCH",
 		"Clear selection",
-		"input.checked=kind==='PATCH'",
+		"input.checked=!hidden&&kind==='PATCH'",
 		"clearPromptPriority(Number(input.dataset.patchIndex))",
 		"mode==='queue'",
 		"const visible=items.slice(0,50)",
