@@ -1,6 +1,6 @@
 # TaskDeck Patch Add-on Integration Plan
 
-Status: **IN PROGRESS**
+Status: **DONE**
 
 This file is the recovery/source-of-truth document for integrating Python Patch Tool into TaskDeck.
 Every implementation commit for this work must update this file so development can resume safely after an interruption.
@@ -237,6 +237,15 @@ Status: **DONE**
     - [x] Phase 2H.6d explicit History cleanup contract/state/UI.
   - [x] Phase 2H.7 final parity regression gate: all MUST-native surfaces pass; current Queue/Resume/History/Plan/Health sessions already attach PTY inactive and expose it explicitly as evidence/fallback.
 
+## Phase 2I — Integration closeout and user-facing cutover
+Status: **DONE**
+
+- [x] Document global TaskDeck + bundled Patch Tool as the recommended installation path.
+- [x] Document the native Patch panel as the primary web workflow and `taskdeck patch ...` as the first-class CLI workflow.
+- [x] Document that project data stays project-local while verified legacy `tools/run_python_patches.sh` launchers may become compatibility shims.
+- [x] Keep PTY/terminal and direct CLI compatibility; no runtime/protocol behavior changes in this closeout.
+- [x] Close this integration roadmap after the Phase 2H.7 parity audit PASS.
+
 ## Phase 2H.1 — Native cutover parity audit
 
 The main Queue/Failed, Inspect/Preview/Validate, normal Run, Running/progress/artifacts,
@@ -449,10 +458,11 @@ Every phase must preserve:
 | Phase 2H.6d2 TaskDeck History cleanup gate/state | DONE | c445aa26 | TaskDeck validates/retains correlated cleanup results, exposes only prompt_id+confirmed, generates cleanup_id server-side and rechecks the active prompt at final FD4 write; no run/candidate list is accepted. |
 | Phase 2H.6d3 native History Cleanup UI | DONE | 64dbe8e8 | History shows cleanup only from Python-advertised capability/policy/counts, requires explicit confirmation, sends no run/candidate list, correlates cleanup_id+prompt_id and redraws only from refreshed Python snapshot/prompt. |
 | Phase 2H.7 final native cutover parity audit | DONE | ff72e1f1 | Final MUST-native audit PASS; adds a consolidated regression gate, documents intentional CLI-only surfaces, and confirms PTY is already secondary by default for native flows. No runtime behavior change. |
+| Phase 2I integration closeout | DONE | this commit | Updated user-facing docs for global TaskDeck/Patch usage and closed the integration roadmap; no runtime/protocol behavior change. |
 
 ## Next action
 
-**Phase 2 is complete.** No MUST-native parity blocker remains. Keep PTY as an explicit
-evidence/fallback surface and preserve the terminal/CLI workflow. Start another phase only for
-new product requirements or optional presentation polish; do not remove CLI compatibility as
-part of this cutover.
+**Integration roadmap complete.** All original goals are implemented and the Phase 2H.7 native
+parity audit passes with no MUST-native blocker. Keep PTY as an explicit evidence/fallback surface,
+preserve `taskdeck patch ...` and compatibility launchers, and start a new roadmap only for a new
+product requirement or optional presentation polish.

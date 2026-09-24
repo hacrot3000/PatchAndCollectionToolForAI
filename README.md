@@ -20,6 +20,40 @@ Tài liệu chi tiết nằm trong `_patch_lib/docs/`. Hướng dẫn tiếng Vi
 
 ## Cài đặt / cập nhật
 
+### Khuyến nghị — TaskDeck global + Patch add-on
+
+Đường dùng chính hiện tại là **TaskDeck global**. Installer cài binary TaskDeck và đúng revision Python Patch Tool cùng một release versioned, nên web UI, `taskdeck patch` và runtime Python không bị lệch phiên bản.
+
+Từ root của repository này:
+
+```bash
+./install.sh
+```
+
+Mặc định cài vào:
+
+```text
+~/.local/bin/taskdeck
+~/.local/lib/taskdeck/current -> releases/<revision>/
+~/.local/lib/taskdeck/current/patchtool/
+```
+
+Sau đó, từ **project cần thao tác**:
+
+```bash
+cd PROJECT_ROOT
+taskdeck              # mở TaskDeck web UI; chọn panel Patch
+taskdeck patch        # chạy hàng đợi Patch Tool trong terminal
+taskdeck patch plan   # xem plan
+taskdeck patch report # xem history/report
+```
+
+Panel **Patch** là đường web chính cho Queue/Failed, Running/progress/artifacts, Resume, History, Plan và Health. PTY/terminal vẫn được giữ làm evidence/fallback; `taskdeck patch ...` vẫn là giao diện CLI được hỗ trợ chính thức.
+
+Dữ liệu project vẫn nằm trong project (`patchs/`, `artifacts/patch_tool/`, `artifacts/ptv_to_ai/`, `.python_patch_tool.json`). Runtime Patch Tool không cần nằm trong `PROJECT_ROOT/tools/` sau khi migrate. Launcher legacy đã xác minh có thể được TaskDeck thay bằng shim tương thích chuyển tiếp sang `taskdeck patch`.
+
+Các cách portable bên dưới vẫn được giữ để tương thích hoặc dùng độc lập khi chưa muốn cài TaskDeck global.
+
 ### Cách 1 — Clone repository
 
 Yêu cầu: Bash, Git và các tiện ích chuẩn `readlink`, `mktemp`, `cp`, `cmp`.
@@ -77,6 +111,17 @@ Bạn có thể gọi script từ bất kỳ working directory nào. **Target lu
 > `self-install-and-update.sh` dùng Bash và `readlink -f`; Linux/WSL là môi trường khuyến nghị. Trên Windows có thể dùng WSL/Git Bash tương thích để cài/update, sau đó chạy launcher Windows nếu cần.
 
 ## Chạy tool
+
+Cách khuyến nghị sau khi cài TaskDeck global:
+
+```bash
+cd PROJECT_ROOT
+taskdeck patch
+```
+
+Hoặc mở `taskdeck` và dùng panel **Patch** để thao tác native trên web. Các lệnh/flag nâng cao chưa có UI vẫn chạy qua `taskdeck patch ...`.
+
+Đường launcher project-local bên dưới là compatibility path và vẫn được giữ:
 
 Nếu Patch Tool được cài vào `PROJECT_ROOT/tools/`:
 
@@ -180,6 +225,40 @@ Detailed contracts are under `_patch_lib/docs/`.
 
 ### Install / update
 
+#### Recommended — global TaskDeck + Patch add-on
+
+The primary path is now the **global TaskDeck** installation. The installer ships the TaskDeck binary and the matching Python Patch Tool runtime in the same versioned release, preventing web/CLI/runtime revision skew.
+
+From this repository root:
+
+```bash
+./install.sh
+```
+
+Default layout:
+
+```text
+~/.local/bin/taskdeck
+~/.local/lib/taskdeck/current -> releases/<revision>/
+~/.local/lib/taskdeck/current/patchtool/
+```
+
+Then, from the project you want to operate on:
+
+```bash
+cd PROJECT_ROOT
+taskdeck              # open TaskDeck web UI; select the Patch panel
+taskdeck patch        # run the Patch Tool queue in a terminal
+taskdeck patch plan   # inspect the plan
+taskdeck patch report # inspect history/report
+```
+
+The **Patch** panel is the primary web path for Queue/Failed, Running/progress/artifacts, Resume, History, Plan, and Health. PTY/terminal remains an explicit evidence/fallback surface, and `taskdeck patch ...` remains a supported first-class CLI.
+
+Project data stays project-local (`patchs/`, `artifacts/patch_tool/`, `artifacts/ptv_to_ai/`, and `.python_patch_tool.json`). The Patch Tool runtime no longer needs to live under `PROJECT_ROOT/tools/` after migration. A verified legacy launcher may be replaced by a compatibility shim that forwards to `taskdeck patch`.
+
+The portable installation methods below remain supported for compatibility or standalone use.
+
 #### Option 1 — Clone the repository
 
 Requirements: Bash, Git, and standard `readlink`, `mktemp`, `cp`, and `cmp` utilities.
@@ -237,6 +316,17 @@ In portable mode it clones `main` into a temporary directory, replaces `_patch_l
 > `self-install-and-update.sh` uses Bash and `readlink -f`; Linux/WSL is the recommended environment. On Windows, use a compatible WSL/Git Bash environment for installation/update, then use the Windows launcher if desired.
 
 ### Run
+
+Recommended after installing global TaskDeck:
+
+```bash
+cd PROJECT_ROOT
+taskdeck patch
+```
+
+Or launch `taskdeck` and use the native **Patch** panel. Advanced commands/flags that intentionally remain CLI-only can still be invoked through `taskdeck patch ...`.
+
+The project-local launcher below remains a compatibility path:
 
 If installed under `PROJECT_ROOT/tools/`:
 

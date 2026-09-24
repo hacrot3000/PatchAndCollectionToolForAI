@@ -14,6 +14,46 @@ Công cụ luôn lấy workspace từ **thư mục hiện tại** khi gọi exec
 
 Vì vậy thay đổi `tasks.json` sẽ đổi menu ngay, không cần build lại Go. Nút **Reload tasks.json** trên web và phím `r` trong terminal mode sẽ đọc lại file.
 
+## TaskDeck global + Patch add-on
+
+Đường cài đặt chính hiện tại là global user app. Từ root repository:
+
+```bash
+./install.sh
+```
+
+Installer tạo một release versioned chứa cả TaskDeck và Python Patch Tool:
+
+```text
+~/.local/bin/taskdeck
+~/.local/lib/taskdeck/current -> releases/<revision>/
+├── taskdeck
+└── patchtool/
+    ├── python_patch_entry.py
+    ├── run_python_patches.sh
+    └── _patch_lib/
+```
+
+Từ project cần làm việc:
+
+```bash
+cd PROJECT_ROOT
+taskdeck
+```
+
+Web UI có panel **Patch** native cho Queue/Failed, Running/progress/artifacts, Resume, History, Plan và Health. Python vẫn sở hữu policy/business logic; TaskDeck chỉ dùng protocol có cấu trúc và giữ PTY làm evidence/fallback.
+
+CLI tương đương được giữ như first-class subcommand:
+
+```bash
+cd PROJECT_ROOT
+taskdeck patch
+taskdeck patch plan
+taskdeck patch report
+```
+
+Project-local Patch data vẫn ở project. Sau migration, runtime Python không cần nằm trong `tools/`; launcher legacy đã xác minh có thể được thay bằng shim chuyển tiếp sang `taskdeck patch`. Root launcher `./vscode_tasks_menu` vẫn được giữ làm bootstrap/compatibility entry và sẽ cài/chuyển tiếp sang global TaskDeck khi cần.
+
 ## Cài đặt một file / self-install
 
 Có thể cài mới chỉ bằng **một file** root `vscode_tasks_menu`. Không cần tải sẵn thư mục `vscode_tasks_menu_go`.
