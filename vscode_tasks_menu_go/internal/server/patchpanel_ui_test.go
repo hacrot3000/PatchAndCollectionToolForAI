@@ -87,7 +87,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"failure?.diagnosis_kind",
 		"snapshot?.group_counts",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
+		"TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {
@@ -333,6 +333,20 @@ func TestPatchPanelNativeHistoryUsesProjectedReadOnlyProtocol(t *testing.T) {
 		"function renderHistoryPrompt(sessionId,prompt)",
 		"function renderHistoryReport(report)",
 		"function submitHistoryDetail(sessionId,prompt,runID)",
+		"function submitHistoryManagement(sessionId,prompt,action,runID)",
+		"function waitForHistoryManagement(sessionId,managementID,promptID,runID,snapshotBefore)",
+		"historyActionsForRun(runID)",
+		"/history-manage",
+		"history_management_result",
+		"management_id",
+		"result?.history_changed!==true",
+		"snapshotToken!==snapshotBefore",
+		"String(prompt?.prompt_id||'')!==promptID",
+		"action==='delete'",
+		"window.confirm",
+		"confirmed",
+		"renderHistoryManagementResult",
+		"appendHistoryFile(historyManagementFiles,result.artifact)",
 		"prompt?.prompt_kind!=='history_action'",
 		"state?.history_snapshot",
 		"state?.history_report",
@@ -411,6 +425,42 @@ func TestPatchPanelNativeQueueDeleteWaitsForPythonRefresh(t *testing.T) {
 	} {
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("Queue delete UI must not locally mutate/reindex Python state: found %q", forbidden)
+		}
+	}
+}
+
+
+func TestPatchPanelHistoryManagementUsesOnlyAdvertisedPerRunCapabilities(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const allowed=historyActionsForRun(runID)",
+		"for(const action of ['pin','unpin','export','delete'])",
+		"if(!allowed.has(action))continue",
+		"manage.dataset.historyAction=action",
+		"historyManagementBusy||historyBusy",
+		"History action ${action} is not advertised for this run",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native History management capability gate missing %q", want)
+		}
+	}
+}
+
+func TestPatchPanelHistoryMutationWaitsForPythonRefresh(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"matched?.history_changed===true&&state?.history_snapshot",
+		"const snapshotToken=JSON.stringify(state.history_snapshot)",
+		"snapshotToken!==snapshotBefore&&(runs.length===0||freshPrompt)",
+		"renderHistorySnapshot(state.history_snapshot)",
+		"if(runs.length&&freshPrompt)renderHistoryPrompt(sessionId,prompt)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native History mutation refresh contract missing %q", want)
 		}
 	}
 }
