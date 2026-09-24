@@ -207,7 +207,7 @@ Status: **IN PROGRESS**
 - [ ] Native Queue/History management parity.
   - [x] Phase 2G.1a Python-owned prompt-bound Queue delete command, mutation result and refreshed snapshot/prompt.
   - [x] Phase 2G.1b TaskDeck Queue delete state/gate/endpoint.
-  - [ ] Phase 2G.1c Queue delete web control.
+  - [x] Phase 2G.1c Queue delete web control.
   - [ ] Phase 2G.2 History Pin/Unpin/Delete/Export native management.
 - [ ] Remove default dependence on terminal rendering only after feature parity is proven.
 
@@ -297,8 +297,9 @@ Every phase must preserve:
 
 | Phase 2F.3 Queue/Failed assertion correction | DONE | 709dec39 | Narrowed the remaining file-global Queue anti-inference assertion so History may display Python-projected failure_policy without allowing Queue-side policy inference. |
 | Phase 2G.1a Python Queue delete command | DONE | 52497bd8 | Active Queue prompt advertises delete; Python reuses _delete_indexes(), emits queue_mutation_result, refreshes queue_snapshot and issues a new prompt after index-changing deletion. |
-| Phase 2G.1b TaskDeck Queue delete state/gate | DONE | this commit | TaskDeck validates latest queue_mutation_result, exposes a narrow prompt/capability/index-bound /queue-delete endpoint, and rechecks prompt_id at the final FD4 write. |
+| Phase 2G.1b TaskDeck Queue delete state/gate | DONE | 1441835c | TaskDeck validates latest queue_mutation_result, exposes a narrow prompt/capability/index-bound /queue-delete endpoint, and rechecks prompt_id at the final FD4 write. |
+| Phase 2G.1c native Queue delete UI | DONE | this commit | Queue/Failed rows expose confirmed Delete only when Python advertises it; UI correlates mutation_id and redraws only after Python emits refreshed snapshot/prompt. |
 
 ## Next action
 
-Continue **Phase 2G.1c**: add a confirmed Delete control to native Queue/Failed rows, correlate queue_mutation_result by mutation_id, and refresh only from Python's new snapshot/prompt.
+Continue **Phase 2G.2a**: define Python-owned prompt-bound History Pin/Unpin/Delete/Export commands and bounded management results, reusing the existing terminal management helpers.

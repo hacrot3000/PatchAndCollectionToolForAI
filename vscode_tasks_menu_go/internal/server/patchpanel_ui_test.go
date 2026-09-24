@@ -51,7 +51,14 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"waitForActionResult",
 		"state?.action_result?.action_id===actionID",
 		"activeQueuePrompt?.item_actions",
+		"activeQueuePrompt?.queue_actions",
 		"promptItemForQueueItem(item)",
+		"/queue-delete",
+		"response?.mutation_id",
+		"waitForQueueMutation",
+		"state?.queue_mutation_result",
+		"window.confirm",
+		"task-patch-queue-delete",
 		"['inspect','preview','validate']",
 		"task-patch-action-result",
 		"task-patch-item-action",
@@ -80,7 +87,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"failure?.diagnosis_kind",
 		"snapshot?.group_counts",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitItemAction,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
+		"TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {
@@ -370,5 +377,40 @@ func TestPatchPanelHistoryKeepsTerminalAsFallbackNotPrimary(t *testing.T) {
 	}
 	if strings.Contains(js, "History uses PTY") {
 		t.Fatal("History must no longer default to PTY rendering")
+	}
+}
+
+func TestPatchPanelNativeQueueDeleteWaitsForPythonRefresh(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function queueActionAllowed(action)",
+		"activeQueuePrompt?.queue_actions",
+		"function submitQueueDelete(item,promptItem)",
+		"window.confirm(`Delete ${name} from patchs/? This cannot be undone.`)",
+		"JSON.stringify({prompt_id:promptID,index})",
+		"/queue-delete",
+		"response?.mutation_id",
+		"state?.queue_mutation_result",
+		"result?.mutation_id===mutationID",
+		"String(prompt.prompt_id)!==oldPromptID",
+		"renderQueueSnapshot(state.queue_snapshot)",
+		"renderQueuePrompt(sessionId,prompt)",
+		"Number(result.remaining)===0",
+		"items.length===0",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Queue delete UI missing contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"latestQueueSnapshot.items.splice",
+		"activeQueuePrompt.items.splice",
+		"promptItem.index--",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("Queue delete UI must not locally mutate/reindex Python state: found %q", forbidden)
+		}
 	}
 }

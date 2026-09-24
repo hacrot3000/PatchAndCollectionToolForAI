@@ -29,6 +29,8 @@ function installPatchPanel(){
   .task-patch-summary-failure{display:block;margin-top:3px;opacity:.82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-summary-item-actions{display:flex;gap:4px;margin-top:5px;flex-wrap:wrap}
   .task-patch-summary-item-actions button{font-size:10px;padding:3px 6px}
+  .task-patch-queue-delete{border-color:#81424a;background:#3b2025;color:#ffd9dd}
+  .task-patch-queue-delete:hover{background:#4a272d}
   .task-patch-summary-empty{padding:7px 6px;opacity:.62;text-align:center}
   .task-patch-summary-warning{margin-top:5px;opacity:.72}
   .task-patch-action-result{margin:0 0 10px;padding:8px;border:1px solid #3f4b5d;border-radius:6px;background:#0d1015;font-size:11px}
@@ -149,6 +151,8 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-panel-head{border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-summary{background:#f6f8fa;border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-summary-item{background:#fff}
+  html[data-taskmenu-theme="light"] .task-patch-queue-delete{background:#fff0f1;border-color:#c47780;color:#7b2029}
+  html[data-taskmenu-theme="light"] .task-patch-queue-delete:hover{background:#ffe5e7}
   html[data-taskmenu-theme="light"] .task-patch-summary-count{border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-summary-tab.active{background:#e7eef7;border-color:#9aa9bc;color:#1f2328}
   html[data-taskmenu-theme="light"] .task-patch-action-result{background:#f6f8fa;border-color:#b9c0c8}
@@ -287,6 +291,8 @@ function installPatchPanel(){
   let resumeBusy=false;
   let actionBusy=false;
   let actionPollGeneration=0;
+  let queueMutationBusy=false;
+  let queueMutationPollGeneration=0;
   let historyPollGeneration=0;
   let latestHistorySnapshot=null;
   let activeHistoryPrompt=null;
@@ -310,7 +316,7 @@ function installPatchPanel(){
   function setVisible(value){
     const visible=Boolean(value);
     panel.classList.toggle('visible',visible);
-    if(!visible){protocolPollGeneration+=1;actionPollGeneration+=1;historyPollGeneration+=1;}
+    if(!visible){protocolPollGeneration+=1;actionPollGeneration+=1;queueMutationPollGeneration+=1;historyPollGeneration+=1;}
     if(visible&&activeSessionId)void pollProtocol(activeSessionId,!runningMode,true);
     window.dispatchEvent(new CustomEvent('taskmenu:patch-panel-visible',{detail:{visible}}));
   }
@@ -769,9 +775,85 @@ function installPatchPanel(){
     return new Set(Array.isArray(activeQueuePrompt?.item_actions)?activeQueuePrompt.item_actions.map(String):[]).has(action);
   }
 
+  function queueActionAllowed(action){
+    return new Set(Array.isArray(activeQueuePrompt?.queue_actions)?activeQueuePrompt.queue_actions.map(String):[]).has(action);
+  }
+
   function refreshActionDisabledState(){
-    for(const button of summaryList.querySelectorAll('.task-patch-item-action'))button.disabled=actionBusy;
-    for(const button of promptButtons.querySelectorAll('button'))button.disabled=actionBusy;
+    const busy=actionBusy||queueMutationBusy;
+    for(const button of summaryList.querySelectorAll('.task-patch-item-action,.task-patch-queue-delete'))button.disabled=busy;
+    for(const button of promptButtons.querySelectorAll('button'))button.disabled=busy;
+    for(const input of promptItems.querySelectorAll('input[type="checkbox"]'))input.disabled=busy;
+  }
+
+  async function waitForQueueMutation(sessionId,mutationID,oldPromptID){
+    const generation=++queueMutationPollGeneration;
+    for(let attempt=0;attempt<240;attempt+=1){
+      if(generation!==queueMutationPollGeneration||!panel.classList.contains('visible')||sessionId!==activeSessionId)return null;
+      const state=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/protocol`);
+      const result=state?.queue_mutation_result;
+      if(result?.mutation_id===mutationID){
+        if(result.status!=='PASS'){
+          summaryWarnings.textContent=String(result.message||'Queue delete failed');
+          return result;
+        }
+        if(Number(result.remaining)===0){
+          const snapshot=state?.queue_snapshot;
+          const items=Array.isArray(snapshot?.items)?snapshot.items:[];
+          if(snapshot&&items.length===0){
+            renderQueueSnapshot(snapshot);
+            clearPrompt();
+            summaryWarnings.textContent=String(result.message||'Queue item deleted');
+            return result;
+          }
+        }else{
+          const prompt=state?.prompt;
+          if(prompt?.prompt_kind==='queue_selection'&&String(prompt?.prompt_id||'')&&String(prompt.prompt_id)!==oldPromptID&&state?.queue_snapshot){
+            renderQueueSnapshot(state.queue_snapshot);
+            renderQueuePrompt(sessionId,prompt);
+            summaryWarnings.textContent=String(result.message||'Queue item deleted');
+            return result;
+          }
+        }
+      }
+      if(state?.last_event?.type==='run_finished'){
+        if(result?.mutation_id===mutationID&&result.status==='PASS'){
+          if(state?.queue_snapshot)renderQueueSnapshot(state.queue_snapshot);
+          clearPrompt();
+          return result;
+        }
+        throw new Error('Patch session finished before Queue delete result arrived');
+      }
+      await new Promise(resolve=>setTimeout(resolve,250));
+    }
+    throw new Error('Timed out waiting for native Queue delete refresh');
+  }
+
+  async function submitQueueDelete(item,promptItem){
+    if(actionBusy||queueMutationBusy||!activeSessionId||!activeQueuePrompt)return null;
+    if(!queueActionAllowed('delete'))throw new Error('Queue delete is not advertised by the active Python prompt');
+    const index=Number(promptItem?.index);
+    if(!Number.isInteger(index)||index<1)throw new Error('Patch Queue delete index is unavailable');
+    const name=String(item?.name||'queue item');
+    if(!window.confirm(`Delete ${name} from patchs/? This cannot be undone.`))return null;
+    const promptID=String(activeQueuePrompt.prompt_id||'');
+    queueMutationBusy=true;
+    renderQueueRows();
+    refreshActionDisabledState();
+    try{
+      const response=await app.jsonFetch(`/api/sessions/${encodeURIComponent(activeSessionId)}/queue-delete`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({prompt_id:promptID,index}),
+      });
+      const mutationID=String(response?.mutation_id||'');
+      if(!mutationID)throw new Error('TaskDeck did not return a mutation_id');
+      return await waitForQueueMutation(activeSessionId,mutationID,promptID);
+    }finally{
+      queueMutationBusy=false;
+      renderQueueRows();
+      refreshActionDisabledState();
+    }
   }
 
   async function waitForActionResult(sessionId,actionID){
@@ -787,7 +869,7 @@ function installPatchPanel(){
   }
 
   async function submitItemAction(item,promptItem,action){
-    if(actionBusy||!activeSessionId||!activeQueuePrompt)return null;
+    if(actionBusy||queueMutationBusy||!activeSessionId||!activeQueuePrompt)return null;
     if(!actionAllowed(action))throw new Error(`Patch action ${action} is not advertised by the active Python prompt`);
     const index=Number(promptItem?.index);
     if(!Number.isInteger(index)||index<1)throw new Error('Patch item action index is unavailable');
@@ -863,13 +945,20 @@ function installPatchPanel(){
         if(failureLine.textContent)row.append(failureLine);
       }
       const promptItem=promptItemForQueueItem(item);
-      if(promptItem&&String(item?.kind||'').toUpperCase()==='PATCH'){
+      if(promptItem){
         const itemActions=document.createElement('div');itemActions.className='task-patch-summary-item-actions';
-        for(const action of ['inspect','preview','validate']){
-          if(!actionAllowed(action))continue;
-          const button=document.createElement('button');button.type='button';button.className='task-patch-item-action';button.textContent=action.charAt(0).toUpperCase()+action.slice(1);button.disabled=actionBusy;
-          button.onclick=()=>submitItemAction(item,promptItem,action).catch(app.showError);
-          itemActions.append(button);
+        if(String(item?.kind||'').toUpperCase()==='PATCH'){
+          for(const action of ['inspect','preview','validate']){
+            if(!actionAllowed(action))continue;
+            const button=document.createElement('button');button.type='button';button.className='task-patch-item-action';button.textContent=action.charAt(0).toUpperCase()+action.slice(1);button.disabled=actionBusy||queueMutationBusy;
+            button.onclick=()=>submitItemAction(item,promptItem,action).catch(app.showError);
+            itemActions.append(button);
+          }
+        }
+        if(queueActionAllowed('delete')){
+          const remove=document.createElement('button');remove.type='button';remove.className='task-patch-queue-delete';remove.textContent='Delete';remove.disabled=actionBusy||queueMutationBusy;
+          remove.onclick=()=>submitQueueDelete(item,promptItem).catch(app.showError);
+          itemActions.append(remove);
         }
         if(itemActions.childElementCount)row.append(itemActions);
       }
@@ -1173,6 +1262,8 @@ function installPatchPanel(){
       });
       activeSessionId=meta.id;
       actionPollGeneration+=1;
+      queueMutationPollGeneration+=1;
+      queueMutationBusy=false;
       historyPollGeneration+=1;
       leaveRunningView();
       if(mode==='history')enterHistoryView();else leaveHistoryView();
@@ -1199,7 +1290,7 @@ function installPatchPanel(){
   queueTab.onclick=()=>setQueueSummaryView('queue');
   failedTab.onclick=()=>setQueueSummaryView('failed');
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitItemAction,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 
