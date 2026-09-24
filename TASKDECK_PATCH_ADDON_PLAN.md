@@ -379,7 +379,8 @@ Every phase must preserve:
 | Phase 2H.6a Python History support ZIP | DONE | b0a3a736 | Native History advertises item-level support capability, accepts prompt/run/index-bound history_support, reuses _create_report_support_bundle(), and emits only a verified project-relative support artifact. |
 | Phase 2H.6a Python test fixture correction | DONE | 96858f1c | History support protocol tests now initialize the canonical _patch_lib import path before importing the dispatcher; runtime behavior unchanged. |
 | Phase 2H.6b TaskDeck History support gate/state | DONE | 37d216a7 | TaskDeck validates/retains history_support_result, exposes a narrow prompt/run/current-report/item-bound endpoint, and rechecks prompt_id at the final FD4 write without consuming the History prompt. |
-| Phase 2H.6c native History Support UI | DONE | this commit | History report items show Support only from Python-advertised prompt+item capabilities; support_id/prompt/run/index correlation gates result display and verified ZIP download while the prompt remains reusable. |
+| Phase 2H.6c native History Support UI | DONE | ea288f4a | History report items show Support only from Python-advertised prompt+item capabilities; support_id/prompt/run/index correlation gates result display and verified ZIP download while the prompt remains reusable. |
+| Phase 2H.6c reusable-prompt test scope correction | DONE | this commit | Scoped the Support prompt-reuse assertion to submitHistorySupport only; unrelated History management reset logic is no longer falsely matched. |
 
 ## Next action
 

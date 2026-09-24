@@ -726,7 +726,7 @@ func TestPatchPanelHistorySupportKeepsHistoryPromptReusable(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	js := string(data)
 	start := strings.Index(js, "async function submitHistorySupport")
-	endRel := strings.Index(js[start:], "function renderHistoryRuns")
+	endRel := strings.Index(js[start:], "function historyPromptRun")
 	if start < 0 || endRel < 0 { t.Fatal("History support function bounds unavailable") }
 	block := js[start:start+endRel]
 	for _, forbidden := range []string{
