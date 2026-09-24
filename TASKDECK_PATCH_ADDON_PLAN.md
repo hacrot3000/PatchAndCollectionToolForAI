@@ -168,7 +168,7 @@ Status: **DONE**
 - [x] Patch panel renders Python-owned queue_selection prompts and submits only bounded select/cancel responses; PTY remains available as fallback.
 
 ### Phase 2 — Native Patch web UI
-Status: **IN PROGRESS**
+Status: **DONE**
 
 - [x] Native Queue and Failed views.
   - [x] Phase 2A.1 Python-owned stable Queue/Failed protocol projection.
@@ -204,7 +204,7 @@ Status: **IN PROGRESS**
   - [x] Phase 2F.2 native History detail command/state/endpoint.
   - [x] Phase 2F.3 native History/report web browser.
 - [x] Native artifact actions.
-- [ ] Native Queue/History management parity.
+- [x] Native Queue/History management parity.
   - [x] Phase 2G.1a Python-owned prompt-bound Queue delete command, mutation result and refreshed snapshot/prompt.
   - [x] Phase 2G.1b TaskDeck Queue delete state/gate/endpoint.
   - [x] Phase 2G.1c Queue delete web control.
@@ -212,7 +212,7 @@ Status: **IN PROGRESS**
     - [x] Phase 2G.2a Python-owned prompt-bound management commands/results and refreshed History prompt.
     - [x] Phase 2G.2b TaskDeck management state/gate/endpoint.
     - [x] Phase 2G.2c History management web controls.
-- [ ] Remove default dependence on terminal rendering only after feature parity is proven.
+- [x] Native views are primary and PTY is retained as explicit secondary evidence/fallback after final parity proof.
   - [x] Phase 2H.1 native/terminal feature-parity audit and cutover gate definition.
   - [x] Phase 2H.2 Queue execution-order parity: native PATCH priority 0-9 plus select-all/none convenience without changing Python ordering policy.
     - [x] Phase 2H.2a Python queue_selection priority contract and canonical ordering.
@@ -230,12 +230,12 @@ Status: **IN PROGRESS**
     - [x] Phase 2H.5a2 Python health route + bounded health_snapshot.
     - [x] Phase 2H.5b TaskDeck Health protocol state.
     - [x] Phase 2H.5c native Health primary view + PTY fallback.
-  - [ ] Phase 2H.6 Advanced History parity: support ZIP creation and explicit cleanup; report subset filters may remain pure presentation over projected rows.
+  - [x] Phase 2H.6 Advanced History parity: support ZIP creation and explicit cleanup; report subset filters may remain pure presentation over projected rows.
     - [x] Phase 2H.6a Python-owned History item support-ZIP command/result contract using the existing terminal bundle helper.
     - [x] Phase 2H.6b TaskDeck support-ZIP result state, prompt-bound endpoint and final-write gate.
     - [x] Phase 2H.6c native History Support ZIP item control.
-    - [ ] Phase 2H.6d explicit History cleanup contract/state/UI.
-  - [ ] Phase 2H.7 final parity regression gate before changing any default PTY activation/fallback behavior.
+    - [x] Phase 2H.6d explicit History cleanup contract/state/UI.
+  - [x] Phase 2H.7 final parity regression gate: all MUST-native surfaces pass; current Queue/Resume/History/Plan/Health sessions already attach PTY inactive and expose it explicitly as evidence/fallback.
 
 ## Phase 2H.1 — Native cutover parity audit
 
@@ -265,6 +265,69 @@ The terminal remains an explicit fallback/evidence surface and must continue to 
 Cutover rule: TaskDeck must not stop activating or retaining PTY fallback merely because the
 main happy path is native. Default PTY dependence changes only after every **MUST native** row
 above has a structured Python-owned contract, TaskDeck validation/gate and web regression test.
+
+
+## Phase 2H.7 — Final native cutover parity audit (2026-09-24)
+
+Audited runtime: `64dbe8e8` plus all earlier Phase 2 checkpoints. This checkpoint changes
+documentation/tests only; it does not change Patch Tool execution, protocol semantics or PTY behavior.
+
+### Cutover result: PASS
+
+Every **MUST native** item from Phase 2H.1 now has all three required layers:
+Python-owned semantics/projection, TaskDeck validation/gating, and native web regression coverage.
+The PTY remains fully available as explicit evidence/fallback and the terminal/CLI workflow remains supported.
+
+| Terminal / operator surface | Native state after 2H.6 | Final classification |
+| --- | --- | --- |
+| Queue + Failed list, PATCH/COLLECT select/cancel | Native Python-owned snapshot/prompt | PASS |
+| PATCH priority 0-9 execution ordering | Native metadata; canonical ordering remains Python-owned | PASS |
+| Select all PATCH / clear selection | Native | PASS |
+| Queue search by name/id/summary/target | Native using Python-projected search text only | PASS |
+| Inspect / Preview / Validate | Native prompt-bound item actions | PASS |
+| Queue Delete | Native, destructive confirmation + refreshed Python snapshot/prompt | PASS |
+| Queue Health shortcut / Tool self-audit | Native Health primary view | PASS |
+| Queue History jump | Native History primary view | PASS |
+| Plan: policies/resources/conflicts/previews | Native read-only Plan primary view | PASS |
+| Running lifecycle / COLLECT progress / artifacts | Native Running view; PTY retained as evidence | PASS |
+| Smart Resume: all/failed/remaining/collect_failed/delete_failed/history | Native Python-owned Resume contract/UI | PASS |
+| History list/detail/item status/artifacts | Native | PASS |
+| History Run summary + Aggregate log | Native projected files with safe Open/Download | PASS |
+| History source diff | Native projected item artifact with safe Open/Download | PASS |
+| History Pin / Unpin / Delete / Export | Native capability-driven management | PASS |
+| History support ZIP | Native item capability + correlated support result | PASS |
+| History explicit cleanup | Native Python-owned cleanup plan/counts + explicit confirmation | PASS |
+| History PASS/problem/changed subset shortcuts | No dedicated buttons required; presentation-only over already projected rows | NON-BLOCKING |
+| Direct CLI automation / recipes / advanced flags | Intentionally remain CLI/terminal | NON-BLOCKING |
+| Runner utilities such as help/version/paths/health-search/direct package invocation | Intentionally remain CLI/terminal | NON-BLOCKING |
+
+### Direct CLI surfaces intentionally retained
+
+The following are not interactive web parity requirements and remain supported from
+`taskdeck patch ...` / legacy compatibility launchers:
+
+- dispatcher policy/automation flags such as `--failure-policy`, `--transaction-policy`,
+  `--resume-mode`, `--patch`, `--all`, `--select`, `-y`, `--zip-failed`,
+  `--keep-failed-zip`, `--move`, and `--no-validation`;
+- reproducibility recipe options `--recipe` and `--export-recipe`;
+- direct report automation options `--run-id`, `--list`, `--pin`, `--unpin`,
+  `--delete`, `--export`, `--cleanup`, and `--support-item`;
+- direct COLLECT/runner utility routes such as `collect`, `paths`, `health-search`,
+  help/version, and direct package invocation.
+
+These are explicit CLI/automation interfaces rather than missing web interactions, so they
+do not block native-primary TaskDeck use.
+
+### PTY cutover state
+
+No additional activation cutover is required. The current Patch panel already calls
+`attachSession(meta, false)` for Queue, Resume, History, Plan and Health, and native Running
+keeps an explicit **Open terminal evidence** action. Therefore the PTY is already secondary
+by default for the native operator flows while remaining available for fallback, diagnostics
+and terminal-only CLI work.
+
+The regression gate added with this audit protects that native-primary + explicit-PTY-fallback
+contract from accidental rollback.
 
 ## Non-regression gates
 
@@ -384,8 +447,12 @@ Every phase must preserve:
 | Phase 2H.6d1 Python History cleanup contract | DONE | c1eb7b78 | Refactored terminal/native cleanup onto one Python plan, advertises top-level cleanup policy/counts, accepts no run list, requires explicit confirmation, and emits correlated cleanup result + refreshed History state. |
 | Phase 2H.6d1 History support fixture correction | DONE | cc440b98 | Updated the item-support projection fixture to mock the newly additive cleanup summary; runtime cleanup behavior is unchanged. |
 | Phase 2H.6d2 TaskDeck History cleanup gate/state | DONE | c445aa26 | TaskDeck validates/retains correlated cleanup results, exposes only prompt_id+confirmed, generates cleanup_id server-side and rechecks the active prompt at final FD4 write; no run/candidate list is accepted. |
-| Phase 2H.6d3 native History Cleanup UI | DONE | this commit | History shows cleanup only from Python-advertised capability/policy/counts, requires explicit confirmation, sends no run/candidate list, correlates cleanup_id+prompt_id and redraws only from refreshed Python snapshot/prompt. |
+| Phase 2H.6d3 native History Cleanup UI | DONE | 64dbe8e8 | History shows cleanup only from Python-advertised capability/policy/counts, requires explicit confirmation, sends no run/candidate list, correlates cleanup_id+prompt_id and redraws only from refreshed Python snapshot/prompt. |
+| Phase 2H.7 final native cutover parity audit | DONE | this commit | Final MUST-native audit PASS; adds a consolidated regression gate, documents intentional CLI-only surfaces, and confirms PTY is already secondary by default for native flows. No runtime behavior change. |
 
 ## Next action
 
-Continue **Phase 2H.7**: rerun the native-cutover parity audit after History Support/Cleanup and identify any remaining terminal-only capabilities before making PTY secondary by default.
+**Phase 2 is complete.** No MUST-native parity blocker remains. Keep PTY as an explicit
+evidence/fallback surface and preserve the terminal/CLI workflow. Start another phase only for
+new product requirements or optional presentation polish; do not remove CLI compatibility as
+part of this cutover.
