@@ -44,10 +44,14 @@ function installPatchPanel(){
   .task-patch-prompt[hidden]{display:none}
   .task-patch-prompt-title{font-weight:700;margin-bottom:3px}
   .task-patch-prompt-note{opacity:.7;margin-bottom:7px}
+  .task-patch-prompt-tools{display:flex;gap:5px;margin-bottom:7px}
+  .task-patch-prompt-tools button{font-size:10px;padding:3px 6px}
   .task-patch-prompt-items{display:grid;gap:4px;max-height:320px;overflow:auto}
-  .task-patch-prompt-item{display:flex;align-items:flex-start;gap:7px;padding:5px 6px;border-radius:4px;background:#171f2a;cursor:pointer}
+  .task-patch-prompt-item{display:flex;align-items:flex-start;gap:7px;padding:5px 6px;border-radius:4px;background:#171f2a}
   .task-patch-prompt-item input{margin-top:2px}
-  .task-patch-prompt-copy{min-width:0;flex:1}
+  .task-patch-prompt-copy{min-width:0;flex:1;cursor:pointer}
+  .task-patch-prompt-priority{display:flex;align-items:center;gap:4px;font-size:10px;white-space:nowrap}
+  .task-patch-prompt-priority select{min-width:44px;padding:2px 3px;font-size:10px}
   .task-patch-prompt-name{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-prompt-detail{display:block;opacity:.62;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-prompt-buttons{display:flex;gap:6px;margin-top:8px}
@@ -226,9 +230,10 @@ function installPatchPanel(){
   const promptBox=document.createElement('div');promptBox.className='task-patch-prompt';promptBox.hidden=true;
   const promptTitle=document.createElement('div');promptTitle.className='task-patch-prompt-title';
   const promptNote=document.createElement('div');promptNote.className='task-patch-prompt-note';
+  const promptTools=document.createElement('div');promptTools.className='task-patch-prompt-tools';
   const promptItems=document.createElement('div');promptItems.className='task-patch-prompt-items';
   const promptButtons=document.createElement('div');promptButtons.className='task-patch-prompt-buttons';
-  promptBox.append(promptTitle,promptNote,promptItems,promptButtons);
+  promptBox.append(promptTitle,promptNote,promptTools,promptItems,promptButtons);
 
   const resumeBox=document.createElement('div');resumeBox.className='task-patch-resume';resumeBox.hidden=true;
   const resumeHead=document.createElement('div');resumeHead.className='task-patch-resume-head';
@@ -1223,6 +1228,7 @@ function installPatchPanel(){
     promptBox.hidden=true;
     promptTitle.textContent='';
     promptNote.textContent='';
+    promptTools.replaceChildren();
     promptItems.replaceChildren();
     promptButtons.replaceChildren();
     renderQueueRows();
@@ -1234,21 +1240,84 @@ function installPatchPanel(){
       .filter(index=>Number.isInteger(index)&&index>0);
   }
 
+  function patchPriorityCapability(prompt){
+    const raw=prompt?.constraints?.patch_priority;
+    if(!raw||typeof raw!=='object'||String(raw.response_field||'')!=='priorities')return null;
+    const min=Number(raw.min),max=Number(raw.max);
+    if(!Number.isInteger(min)||!Number.isInteger(max)||min<0||max>9||min>max)return null;
+    return {min,max};
+  }
+
+  function promptInputByIndex(index){
+    return promptItems.querySelector(`input[type="checkbox"][data-patch-index="${index}"]`);
+  }
+
+  function clearPromptPriority(index){
+    const select=promptItems.querySelector(`select[data-patch-priority-index="${index}"]`);
+    if(select)select.value='';
+  }
+
+  function selectedPromptPriorities(){
+    const rows=[];
+    for(const select of promptItems.querySelectorAll('select[data-patch-priority-index]')){
+      if(select.value==='')continue;
+      const index=Number(select.dataset.patchPriorityIndex);
+      const priority=Number(select.value);
+      const input=promptInputByIndex(index);
+      if(input?.checked&&Number.isInteger(index)&&index>0&&Number.isInteger(priority)&&priority>=0&&priority<=9){
+        rows.push({index,priority});
+      }
+    }
+    return rows;
+  }
+
+  function selectAllPromptPatches(prompt){
+    for(const input of promptItems.querySelectorAll('input[type="checkbox"]')){
+      const kind=String(input.dataset.patchKind||'').toUpperCase();
+      input.checked=kind==='PATCH';
+      clearPromptPriority(Number(input.dataset.patchIndex));
+    }
+    promptNote.textContent='All PATCH items selected in queue order. Priorities cleared.';
+  }
+
+  function clearPromptSelection(){
+    for(const input of promptItems.querySelectorAll('input[type="checkbox"]')){
+      input.checked=false;
+      clearPromptPriority(Number(input.dataset.patchIndex));
+    }
+    promptNote.textContent='Selection cleared.';
+  }
+
   function applyPromptConstraints(changed,prompt){
-    if(!changed?.checked)return;
+    if(!changed)return;
+    const changedIndex=Number(changed.dataset.patchIndex);
+    if(!changed.checked){
+      clearPromptPriority(changedIndex);
+      return;
+    }
     const constraints=prompt?.constraints&&typeof prompt.constraints==='object'?prompt.constraints:{};
     if(constraints.collect_exclusive!==true)return;
     const changedKind=String(changed.dataset.patchKind||'').toUpperCase();
     for(const input of promptItems.querySelectorAll('input[type="checkbox"]')){
       if(input===changed||!input.checked)continue;
       const kind=String(input.dataset.patchKind||'').toUpperCase();
-      if(changedKind==='COLLECT'||kind==='COLLECT')input.checked=false;
+      if(changedKind==='COLLECT'||kind==='COLLECT'){
+        input.checked=false;
+        clearPromptPriority(Number(input.dataset.patchIndex));
+      }
+    }
+    if(changedKind==='COLLECT'){
+      for(const select of promptItems.querySelectorAll('select[data-patch-priority-index]'))select.value='';
     }
   }
 
   async function submitPromptResponse(sessionId,prompt,action){
     const payload={prompt_id:String(prompt?.prompt_id||''),action};
-    if(action==='select')payload.indexes=selectedPromptIndexes();
+    if(action==='select'){
+      payload.indexes=selectedPromptIndexes();
+      const priorities=selectedPromptPriorities();
+      if(priorities.length)payload.priorities=priorities;
+    }
     for(const button of promptButtons.querySelectorAll('button'))button.disabled=true;
     try{
       await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/prompt-response`,{
@@ -1276,22 +1345,46 @@ function installPatchPanel(){
     activeQueuePrompt=prompt;
     promptBox.hidden=false;
     promptTitle.textContent=String(prompt.title||'Choose PATCH/COLLECT work');
-    promptNote.textContent='Select work here, or use the terminal tab. Python validates the final selection.';
+    const priorityCapability=patchPriorityCapability(prompt);
+    promptNote.textContent=priorityCapability
+      ? 'Select work and optionally assign PATCH priority 0–9. Python validates and orders the final selection.'
+      : 'Select work here, or use the terminal tab. Python validates the final selection.';
+    const selectAll=document.createElement('button');selectAll.type='button';selectAll.textContent='Select all PATCH';
+    selectAll.onclick=()=>selectAllPromptPatches(prompt);
+    const clearAll=document.createElement('button');clearAll.type='button';clearAll.textContent='Clear selection';
+    clearAll.onclick=clearPromptSelection;
+    promptTools.append(selectAll,clearAll);
     for(const item of items){
       const index=Number(item?.index);
       if(!Number.isInteger(index)||index<1)continue;
-      const label=document.createElement('label');label.className='task-patch-prompt-item';
+      const row=document.createElement('div');row.className='task-patch-prompt-item';
       const input=document.createElement('input');input.type='checkbox';input.dataset.patchIndex=String(index);input.dataset.patchKind=String(item?.kind||'');
       input.checked=initial.has(index);
       input.onchange=()=>applyPromptConstraints(input,prompt);
-      const copy=document.createElement('span');copy.className='task-patch-prompt-copy';
+      const copy=document.createElement('label');copy.className='task-patch-prompt-copy';
       const name=document.createElement('span');name.className='task-patch-prompt-name';
       name.textContent=`${index}. ${String(item?.name||'')}`;
       const detail=document.createElement('span');detail.className='task-patch-prompt-detail';
       detail.textContent=[item?.group,item?.kind,item?.detail].filter(Boolean).join(' · ');
       copy.append(name,detail);
-      label.append(input,copy);
-      promptItems.append(label);
+      row.append(input,copy);
+      if(priorityCapability&&String(item?.kind||'').toUpperCase()==='PATCH'){
+        const priorityWrap=document.createElement('label');priorityWrap.className='task-patch-prompt-priority';priorityWrap.textContent='Priority';
+        const priority=document.createElement('select');priority.dataset.patchPriorityIndex=String(index);
+        const none=document.createElement('option');none.value='';none.textContent='—';priority.append(none);
+        for(let value=priorityCapability.min;value<=priorityCapability.max;value+=1){
+          const option=document.createElement('option');option.value=String(value);option.textContent=String(value);priority.append(option);
+        }
+        priority.onchange=()=>{
+          if(priority.value!==''){
+            input.checked=true;
+            applyPromptConstraints(input,prompt);
+          }
+        };
+        priorityWrap.append(priority);
+        row.append(priorityWrap);
+      }
+      promptItems.append(row);
     }
     if(actionsAllowed.has('select')){
       const select=document.createElement('button');select.type='button';select.textContent='Run selected';
@@ -1438,7 +1531,7 @@ function installPatchPanel(){
   queueTab.onclick=()=>setQueueSummaryView('queue');
   failedTab.onclick=()=>setQueueSummaryView('failed');
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 

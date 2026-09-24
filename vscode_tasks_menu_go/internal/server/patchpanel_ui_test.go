@@ -78,6 +78,14 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"submitPromptResponse(sessionId,prompt,'cancel')",
 		"prompt.initial_selected",
 		"constraints.collect_exclusive",
+		"constraints?.patch_priority",
+		"data-patch-priority-index",
+		"selectedPromptPriorities()",
+		"payload.priorities=priorities",
+		"Select all PATCH",
+		"Clear selection",
+		"input.checked=kind==='PATCH'",
+		"clearPromptPriority(Number(input.dataset.patchIndex))",
 		"mode==='queue'",
 		"const visible=items.slice(0,50)",
 		"setQueueSummaryView('queue')",
@@ -461,6 +469,35 @@ func TestPatchPanelHistoryMutationWaitsForPythonRefresh(t *testing.T) {
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("native History mutation refresh contract missing %q", want)
+		}
+	}
+}
+
+
+func TestPatchPanelQueuePrioritiesAreCapabilityDrivenAndNeverOrderInWeb(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function patchPriorityCapability(prompt)",
+		"String(raw.response_field||'')!=='priorities'",
+		"min<0||max>9||min>max",
+		"function selectedPromptPriorities()",
+		"priority.onchange=()=>",
+		"input.checked=true",
+		"applyPromptConstraints(input,prompt)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Queue priority UI missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"priorities.sort(",
+		"selectedPromptPriorities().sort(",
+		"payload.indexes.sort(",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("web must not own Patch execution ordering: found %q", forbidden)
 		}
 	}
 }
