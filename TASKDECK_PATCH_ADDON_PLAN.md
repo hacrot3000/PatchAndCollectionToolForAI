@@ -370,7 +370,8 @@ Every phase must preserve:
 | Phase 2H.5a2 Python Health projection | DONE | ce534dc8 | Added read-only health route over the active runtime, bounded health_snapshot projection and terminal printing from the same single audit report. |
 | Phase 2H.5a2 source-fixture test correction | DONE | 4fcddd1e | Replaced the invalid full-repository Health PASS assumption with focused runtime-path compatibility checks; runtime behavior unchanged. |
 | Phase 2H.5b TaskDeck Health protocol state | DONE | 36de76b7 | TaskDeck validates bounded typed health_snapshot checks/summary/messages, rejects inconsistent counters, and retains an independent typed Health state. |
-| Phase 2H.5c native Health primary view | DONE | this commit | Patch panel renders typed Health status/version/summary/checks/messages as the primary read-only view; Health PTY is attached inactive and remains explicit fallback/evidence. |
+| Phase 2H.5c native Health primary view | DONE | c0c2779b | Patch panel renders typed Health status/version/summary/checks/messages as the primary read-only view; Health PTY is attached inactive and remains explicit fallback/evidence. |
+| Phase 2H.5c PTY contract test correction | DONE | this commit | Updated five stale PTY-inactive mode assertions to include native Health; runtime behavior unchanged. |
 
 ## Next action
 

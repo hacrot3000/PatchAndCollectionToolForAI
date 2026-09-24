@@ -21,7 +21,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"['history','History'",
 		"['plan','Plan'",
 		"JSON.stringify({kind:'patch',patch_mode:mode})",
-		"app.attachSession(meta,!['queue','resume','history','plan'].includes(mode))",
+		"app.attachSession(meta,!['queue','resume','history','plan','health'].includes(mode))",
 		"/protocol",
 		"const maxAttempts=followLifecycle?7200:40",
 		"for(let attempt=0;attempt<maxAttempts;attempt+=1)",
@@ -262,7 +262,7 @@ func TestPatchPanelRunningViewKeepsPTYAsSecondaryEvidence(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"if(action==='select')enterRunningView()",
-		"app.attachSession(meta,!['queue','resume','history','plan'].includes(mode))",
+		"app.attachSession(meta,!['queue','resume','history','plan','health'].includes(mode))",
 		"function openTerminalEvidence()",
 		"app.views.has(activeSessionId)",
 		"app.activateView(activeSessionId)",
@@ -324,7 +324,7 @@ func TestPatchPanelNativeResumeKeepsPTYFallbackAndDestructiveConfirm(t *testing.
 	if err != nil { t.Fatal(err) }
 	js := string(data)
 	for _, want := range []string{
-		"app.attachSession(meta,!['queue','resume','history','plan'].includes(mode))",
+		"app.attachSession(meta,!['queue','resume','history','plan','health'].includes(mode))",
 		"if(haveResumeSnapshot)resumeNote.textContent='Native Resume command channel unavailable. Continue in terminal.'",
 		"if(sessionId===activeSessionId)openTerminalEvidence()",
 		"action==='delete_failed'&&!window.confirm",
@@ -372,7 +372,7 @@ func TestPatchPanelNativeHistoryUsesProjectedReadOnlyProtocol(t *testing.T) {
 		"advertised.has(runID)",
 		"/api/files/download?path=",
 		"taskmenu:project-file-open-request",
-		"app.attachSession(meta,!['queue','resume','history','plan'].includes(mode))",
+		"app.attachSession(meta,!['queue','resume','history','plan','health'].includes(mode))",
 		"historyBack.onclick=()=>stopHistoryAndBack()",
 	} {
 		if !strings.Contains(js, want) {
@@ -570,7 +570,7 @@ func TestPatchPanelNativePlanIsReadOnlyPrimaryView(t *testing.T) {
 		"task-patch-panel.plan .task-patch-summary",
 		"planTerminal.onclick=openTerminalEvidence",
 		"planBack.onclick=leavePlanView",
-		"app.attachSession(meta,!['queue','resume','history','plan'].includes(mode))",
+		"app.attachSession(meta,!['queue','resume','history','plan','health'].includes(mode))",
 		"Native Plan snapshot unavailable or timed out. Use Terminal evidence/fallback.",
 	} {
 		if !strings.Contains(js, want) {
