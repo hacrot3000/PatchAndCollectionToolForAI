@@ -20,6 +20,8 @@ const (
 	maxProtocolPlanOverlap   = 64
 	maxProtocolPlanDepends   = 128
 	maxProtocolPlanWarnings  = 256
+	maxProtocolHealthChecks   = 512
+	maxProtocolHealthMessages = 256
 )
 
 type protocolEnvelope struct {
@@ -169,6 +171,35 @@ type ProtocolPlanSnapshotState struct {
 	Error                 *ProtocolPlanErrorState          `json:"error,omitempty"`
 }
 
+type ProtocolHealthCheckState struct {
+	Name           string `json:"name"`
+	Status         string `json:"status"`
+	Detail         string `json:"detail,omitempty"`
+	Entries        *int   `json:"entries,omitempty"`
+	Failures       *int   `json:"failures,omitempty"`
+	MissingManaged *int   `json:"missing_managed,omitempty"`
+	StaleManaged   *int   `json:"stale_managed,omitempty"`
+	Files          *int   `json:"files,omitempty"`
+	Dirs           *int   `json:"dirs,omitempty"`
+	Actual         *int   `json:"actual,omitempty"`
+}
+
+type ProtocolHealthSummaryState struct {
+	Pass  int `json:"pass"`
+	Warn  int `json:"warn"`
+	Fail  int `json:"fail"`
+	Total int `json:"total"`
+}
+
+type ProtocolHealthSnapshotState struct {
+	Status      string                     `json:"status"`
+	ToolVersion string                     `json:"tool_version"`
+	Summary     ProtocolHealthSummaryState `json:"summary"`
+	Checks      []ProtocolHealthCheckState `json:"checks,omitempty"`
+	Warnings    []string                   `json:"warnings,omitempty"`
+	Errors      []string                   `json:"errors,omitempty"`
+}
+
 type ProtocolState struct {
 	Available       bool            `json:"available"`
 	Enabled         bool            `json:"enabled"`
@@ -180,7 +211,8 @@ type ProtocolState struct {
 	ResumeSnapshot  json.RawMessage `json:"resume_snapshot,omitempty"`
 	HistorySnapshot json.RawMessage `json:"history_snapshot,omitempty"`
 	HistoryReport   json.RawMessage `json:"history_report,omitempty"`
-	PlanSnapshot    *ProtocolPlanSnapshotState `json:"plan_snapshot,omitempty"`
+	PlanSnapshot    *ProtocolPlanSnapshotState   `json:"plan_snapshot,omitempty"`
+	HealthSnapshot  *ProtocolHealthSnapshotState `json:"health_snapshot,omitempty"`
 	Prompt          json.RawMessage     `json:"prompt,omitempty"`
 	Items           []ProtocolItemState     `json:"items,omitempty"`
 	Artifacts       []ProtocolArtifactState `json:"artifacts,omitempty"`
@@ -227,6 +259,105 @@ func validateProtocolCommand(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("invalid Patch protocol command object: %w", err)
 	}
 	return json.Marshal(value)
+}
+
+func protocolHealthSnapshotEvent(data []byte) (ProtocolHealthSnapshotState, error) {
+	var event struct {
+		Type        string                     `json:"type"`
+		Status      string                     `json:"status"`
+		ToolVersion string                     `json:"tool_version"`
+		Summary     ProtocolHealthSummaryState `json:"summary"`
+		Checks      []ProtocolHealthCheckState `json:"checks"`
+		Warnings    []string                   `json:"warnings"`
+		Errors      []string                   `json:"errors"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return ProtocolHealthSnapshotState{}, fmt.Errorf("invalid Patch health_snapshot JSON: %w", err)
+	}
+	if event.Type != "health_snapshot" {
+		return ProtocolHealthSnapshotState{}, fmt.Errorf("unsupported Patch Health event")
+	}
+	event.Status = strings.ToUpper(strings.TrimSpace(event.Status))
+	switch event.Status {
+	case "PASS", "WARN", "FAIL":
+	default:
+		return ProtocolHealthSnapshotState{}, fmt.Errorf("Patch Health status is invalid")
+	}
+	event.ToolVersion = strings.TrimSpace(event.ToolVersion)
+	if event.ToolVersion == "" || len(event.ToolVersion) > 128 {
+		return ProtocolHealthSnapshotState{}, fmt.Errorf("Patch Health tool_version is invalid")
+	}
+	if len(event.Checks) > maxProtocolHealthChecks ||
+		len(event.Warnings) > maxProtocolHealthMessages ||
+		len(event.Errors) > maxProtocolHealthMessages {
+		return ProtocolHealthSnapshotState{}, fmt.Errorf("Patch Health collection is out of bounds")
+	}
+	if event.Summary.Pass < 0 || event.Summary.Warn < 0 || event.Summary.Fail < 0 || event.Summary.Total < 0 {
+		return ProtocolHealthSnapshotState{}, fmt.Errorf("Patch Health summary is invalid")
+	}
+
+	actualPass, actualWarn, actualFail := 0, 0, 0
+	for i := range event.Checks {
+		check := &event.Checks[i]
+		check.Name = strings.TrimSpace(check.Name)
+		check.Status = strings.ToUpper(strings.TrimSpace(check.Status))
+		check.Detail = strings.TrimSpace(check.Detail)
+		if check.Name == "" || len(check.Name) > 512 || len(check.Detail) > 512 {
+			return ProtocolHealthSnapshotState{}, fmt.Errorf("Patch Health check is invalid")
+		}
+		switch check.Status {
+		case "PASS":
+			actualPass++
+		case "WARN":
+			actualWarn++
+		case "FAIL":
+			actualFail++
+		default:
+			return ProtocolHealthSnapshotState{}, fmt.Errorf("Patch Health check status is invalid")
+		}
+		for _, value := range []*int{
+			check.Entries,
+			check.Failures,
+			check.MissingManaged,
+			check.StaleManaged,
+			check.Files,
+			check.Dirs,
+			check.Actual,
+		} {
+			if value != nil && *value < 0 {
+				return ProtocolHealthSnapshotState{}, fmt.Errorf("Patch Health check counter is invalid")
+			}
+		}
+	}
+	if event.Summary.Pass != actualPass ||
+		event.Summary.Warn != actualWarn ||
+		event.Summary.Fail != actualFail ||
+		event.Summary.Total != len(event.Checks) ||
+		event.Summary.Pass+event.Summary.Warn+event.Summary.Fail != event.Summary.Total {
+		return ProtocolHealthSnapshotState{}, fmt.Errorf("Patch Health summary does not match checks")
+	}
+
+	for i := range event.Warnings {
+		event.Warnings[i] = strings.TrimSpace(event.Warnings[i])
+		if event.Warnings[i] == "" || len(event.Warnings[i]) > 1024 {
+			return ProtocolHealthSnapshotState{}, fmt.Errorf("Patch Health warning is invalid")
+		}
+	}
+	for i := range event.Errors {
+		event.Errors[i] = strings.TrimSpace(event.Errors[i])
+		if event.Errors[i] == "" || len(event.Errors[i]) > 1024 {
+			return ProtocolHealthSnapshotState{}, fmt.Errorf("Patch Health error is invalid")
+		}
+	}
+
+	return ProtocolHealthSnapshotState{
+		Status:      event.Status,
+		ToolVersion: event.ToolVersion,
+		Summary:     event.Summary,
+		Checks:      event.Checks,
+		Warnings:    event.Warnings,
+		Errors:      event.Errors,
+	}, nil
 }
 
 func protocolPlanSnapshotEvent(data []byte) (ProtocolPlanSnapshotState, error) {
@@ -889,6 +1020,13 @@ func cloneProtocolState(in ProtocolState) ProtocolState {
 			planSnapshot.Error = &planError
 		}
 		out.PlanSnapshot = &planSnapshot
+	}
+	if in.HealthSnapshot != nil {
+		healthSnapshot := *in.HealthSnapshot
+		healthSnapshot.Checks = append([]ProtocolHealthCheckState(nil), in.HealthSnapshot.Checks...)
+		healthSnapshot.Warnings = append([]string(nil), in.HealthSnapshot.Warnings...)
+		healthSnapshot.Errors = append([]string(nil), in.HealthSnapshot.Errors...)
+		out.HealthSnapshot = &healthSnapshot
 	}
 	out.Prompt = append(json.RawMessage(nil), in.Prompt...)
 	out.Items = append([]ProtocolItemState(nil), in.Items...)
