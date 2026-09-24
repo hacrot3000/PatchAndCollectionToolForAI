@@ -116,6 +116,33 @@ function installPatchPanel(){
   .task-patch-history-item-status{font-weight:700;white-space:nowrap}
   .task-patch-history-item-detail{margin-top:2px;opacity:.7;overflow-wrap:anywhere}
   .task-patch-history-warning{margin-top:6px;opacity:.72;overflow-wrap:anywhere}
+  .task-patch-plan{margin:0 0 10px;padding:8px;border:1px solid #4b596d;border-radius:6px;background:#121923;font-size:11px}
+  .task-patch-plan[hidden]{display:none}
+  .task-patch-plan-head{display:flex;align-items:center;gap:5px;margin-bottom:7px}
+  .task-patch-plan-title{font-weight:700;flex:1}
+  .task-patch-plan-status{opacity:.72}
+  .task-patch-plan-head button{font-size:10px;padding:3px 6px}
+  .task-patch-plan-overview{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:7px}
+  .task-patch-plan-chip{padding:2px 5px;border:1px solid #3b4655;border-radius:999px}
+  .task-patch-plan-section{margin-top:8px}
+  .task-patch-plan-section-title{font-weight:700;margin-bottom:4px}
+  .task-patch-plan-list{display:grid;gap:4px}
+  .task-patch-plan-row{padding:6px;border-radius:4px;background:#171f2a}
+  .task-patch-plan-row-head{display:flex;align-items:flex-start;gap:5px}
+  .task-patch-plan-row-name{font-weight:600;min-width:0;flex:1;overflow-wrap:anywhere}
+  .task-patch-plan-row-status{font-weight:700;white-space:nowrap}
+  .task-patch-plan-row-detail{margin-top:2px;opacity:.7;overflow-wrap:anywhere}
+  .task-patch-plan-note{margin-top:6px;opacity:.72;overflow-wrap:anywhere}
+  .task-patch-panel.plan .task-patch-panel-note,
+  .task-patch-panel.plan .task-patch-summary,
+  .task-patch-panel.plan .task-patch-action-result,
+  .task-patch-panel.plan .task-patch-prompt,
+  .task-patch-panel.plan .task-patch-resume,
+  .task-patch-panel.plan .task-patch-history,
+  .task-patch-panel.plan .task-patch-running-head,
+  .task-patch-panel.plan .task-patch-run,
+  .task-patch-panel.plan .task-patch-artifacts,
+  .task-patch-panel.plan .task-patch-actions{display:none!important}
   .task-patch-panel.history .task-patch-panel-note,
   .task-patch-panel.history .task-patch-summary,
   .task-patch-panel.history .task-patch-action-result,
@@ -179,6 +206,9 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-resume{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-resume-item{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-resume-count{border-color:#d0d7de}
+  html[data-taskmenu-theme="light"] .task-patch-plan{background:#f6f8fa;border-color:#b9c0c8}
+  html[data-taskmenu-theme="light"] .task-patch-plan-row{background:#fff}
+  html[data-taskmenu-theme="light"] .task-patch-plan-chip{border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-history{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-history-run,
   html[data-taskmenu-theme="light"] .task-patch-history-file,
@@ -274,6 +304,30 @@ function installPatchPanel(){
   historyDetail.append(historyDetailTitle,historyDetailMeta,historyFiles,historyItems,historyWarnings);
   historyBox.append(historyHead,historyRuns,historyManagement,historyDetail);
 
+  const planBox=document.createElement('div');planBox.className='task-patch-plan';planBox.hidden=true;
+  const planHead=document.createElement('div');planHead.className='task-patch-plan-head';
+  const planTitle=document.createElement('div');planTitle.className='task-patch-plan-title';planTitle.textContent='Plan';
+  const planStatus=document.createElement('div');planStatus.className='task-patch-plan-status';
+  const planTerminal=document.createElement('button');planTerminal.type='button';planTerminal.textContent='Terminal';planTerminal.title='Open terminal evidence/fallback';
+  const planBack=document.createElement('button');planBack.type='button';planBack.textContent='Back';
+  planHead.append(planTitle,planStatus,planTerminal,planBack);
+  const planOverview=document.createElement('div');planOverview.className='task-patch-plan-overview';
+  const planPrevious=document.createElement('div');planPrevious.className='task-patch-plan-note';
+  const planItemsSection=document.createElement('div');planItemsSection.className='task-patch-plan-section';
+  const planItemsTitle=document.createElement('div');planItemsTitle.className='task-patch-plan-section-title';planItemsTitle.textContent='Ordered items';
+  const planItems=document.createElement('div');planItems.className='task-patch-plan-list';planItemsSection.append(planItemsTitle,planItems);
+  const planConflictsSection=document.createElement('div');planConflictsSection.className='task-patch-plan-section';
+  const planConflictsTitle=document.createElement('div');planConflictsTitle.className='task-patch-plan-section-title';planConflictsTitle.textContent='Static conflicts';
+  const planConflicts=document.createElement('div');planConflicts.className='task-patch-plan-list';planConflictsSection.append(planConflictsTitle,planConflicts);
+  const planResourcesSection=document.createElement('div');planResourcesSection.className='task-patch-plan-section';
+  const planResourcesTitle=document.createElement('div');planResourcesTitle.className='task-patch-plan-section-title';planResourcesTitle.textContent='Resources';
+  const planResources=document.createElement('div');planResources.className='task-patch-plan-list';planResourcesSection.append(planResourcesTitle,planResources);
+  const planPreviewsSection=document.createElement('div');planPreviewsSection.className='task-patch-plan-section';
+  const planPreviewsTitle=document.createElement('div');planPreviewsTitle.className='task-patch-plan-section-title';planPreviewsTitle.textContent='Previews';
+  const planPreviews=document.createElement('div');planPreviews.className='task-patch-plan-list';planPreviewsSection.append(planPreviewsTitle,planPreviews);
+  const planWarnings=document.createElement('div');planWarnings.className='task-patch-plan-note';
+  planBox.append(planHead,planOverview,planPrevious,planItemsSection,planConflictsSection,planResourcesSection,planPreviewsSection,planWarnings);
+
   const runningHead=document.createElement('div');runningHead.className='task-patch-running-head';
   const runningTitle=document.createElement('div');runningTitle.className='task-patch-running-title';runningTitle.textContent='Running';
   const runningMeta=document.createElement('div');runningMeta.className='task-patch-running-meta';runningMeta.textContent='Waiting for Python execution state…';
@@ -298,7 +352,7 @@ function installPatchPanel(){
   artifactBox.append(artifactTitle,artifactList);
 
   const actions=document.createElement('div');actions.className='task-patch-actions';
-  body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,runningHead,runBox,artifactBox,actions);
+  body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,planBox,runningHead,runBox,artifactBox,actions);
   panel.append(head,body);
   document.body.append(panel);
 
@@ -330,6 +384,8 @@ function installPatchPanel(){
   let historyManagementBusy=false;
   let historyManagementPollGeneration=0;
   let historyMode=false;
+  let latestPlanSnapshot=null;
+  let planMode=false;
   let runningMode=false;
   let runningFinished=false;
   for(const [mode,label,detail] of actionDefs){
@@ -348,7 +404,7 @@ function installPatchPanel(){
     const visible=Boolean(value);
     panel.classList.toggle('visible',visible);
     if(!visible){protocolPollGeneration+=1;actionPollGeneration+=1;queueMutationPollGeneration+=1;historyPollGeneration+=1;historyManagementPollGeneration+=1;}
-    if(visible&&activeSessionId)void pollProtocol(activeSessionId,!runningMode,true);
+    if(visible&&activeSessionId)void pollProtocol(activeSessionId,!runningMode&&!planMode,true);
     window.dispatchEvent(new CustomEvent('taskmenu:patch-panel-visible',{detail:{visible}}));
   }
   function open(){setVisible(true);}
@@ -858,6 +914,134 @@ function installPatchPanel(){
     activeSessionId='';
     leaveHistoryView();
     resetSummary();
+  }
+
+  function enterPlanView(){
+    planMode=true;
+    panel.classList.add('plan');
+    planBox.hidden=false;
+    planStatus.textContent='Loading…';
+    planWarnings.textContent='';
+  }
+
+  function leavePlanView(){
+    planMode=false;
+    panel.classList.remove('plan');
+    planBox.hidden=true;
+    latestPlanSnapshot=null;
+    planStatus.textContent='';
+    planOverview.replaceChildren();
+    planPrevious.textContent='';
+    planItems.replaceChildren();
+    planConflicts.replaceChildren();
+    planResources.replaceChildren();
+    planPreviews.replaceChildren();
+    planWarnings.textContent='';
+  }
+
+  function formatPlanBytes(value){
+    const bytes=Number(value);
+    if(!Number.isFinite(bytes)||bytes<0)return '';
+    if(bytes<1024)return bytes+' B';
+    const units=['KiB','MiB','GiB','TiB'];
+    let current=bytes/1024,unit=units[0];
+    for(let i=1;i<units.length&&current>=1024;i+=1){current/=1024;unit=units[i];}
+    return current.toFixed(current>=10?1:2)+' '+unit;
+  }
+
+  function appendPlanChip(label,value){
+    if(value===undefined||value===null||String(value)==='')return;
+    const chip=document.createElement('span');chip.className='task-patch-plan-chip';chip.textContent=`${label}: ${String(value)}`;planOverview.append(chip);
+  }
+
+  function appendPlanRow(host,name,status,detail){
+    const row=document.createElement('div');row.className='task-patch-plan-row';
+    const head=document.createElement('div');head.className='task-patch-plan-row-head';
+    const nameNode=document.createElement('span');nameNode.className='task-patch-plan-row-name';nameNode.textContent=String(name||'');
+    head.append(nameNode);
+    if(status!==undefined&&status!==null&&String(status)!==''){
+      const statusNode=document.createElement('span');statusNode.className='task-patch-plan-row-status';statusNode.textContent=String(status);head.append(statusNode);
+    }
+    row.append(head);
+    if(detail){
+      const detailNode=document.createElement('div');detailNode.className='task-patch-plan-row-detail';detailNode.textContent=String(detail);row.append(detailNode);
+    }
+    host.append(row);
+  }
+
+  function renderPlanSnapshot(snapshot){
+    if(!snapshot||typeof snapshot!=='object')return false;
+    latestPlanSnapshot=snapshot;
+    planBox.hidden=false;
+    planStatus.textContent=String(snapshot.status||'');
+    planOverview.replaceChildren();
+    appendPlanChip('Failure',snapshot.failure_policy);
+    appendPlanChip('Transaction',snapshot.transaction_policy);
+    appendPlanChip('Items',Array.isArray(snapshot.items)?snapshot.items.length:0);
+
+    const previous=snapshot.previous_failure_action&&typeof snapshot.previous_failure_action==='object'?snapshot.previous_failure_action:null;
+    planPrevious.textContent=previous
+      ? ['Previous failure action: '+String(previous.action||''),String(previous.reason||'')].filter(Boolean).join(' · ')
+      : '';
+
+    planItems.replaceChildren();
+    for(const item of (Array.isArray(snapshot.items)?snapshot.items:[])){
+      const deps=Array.isArray(item?.depends_on)?item.depends_on:[];
+      const detail=[
+        item?.patch_id?('id='+String(item.patch_id)):'',
+        Number.isFinite(Number(item?.target_count))?('targets='+Number(item.target_count)):'',
+        deps.length?('depends='+deps.join(', ')):'',
+        Number(item?.id_reuse_count)>0?('id reuse='+Number(item.id_reuse_count)):'',
+        item?.package_sha256?('sha256='+String(item.package_sha256).slice(0,12)+'…'):'',
+      ].filter(Boolean).join(' · ');
+      appendPlanRow(planItems,`${Number(item?.index||0)}. ${String(item?.name||'')}`,'',detail);
+    }
+    planItemsSection.hidden=planItems.childElementCount===0;
+
+    planConflicts.replaceChildren();
+    for(const row of (Array.isArray(snapshot.static_conflicts)?snapshot.static_conflicts:[])){
+      const overlap=Array.isArray(row?.overlap)?row.overlap:[];
+      const detail=[
+        String(row?.relation||''),
+        row?.dependency_ordered===true?'dependency ordered':'',
+        overlap.length?('overlap: '+overlap.join(', ')):'',
+      ].filter(Boolean).join(' · ');
+      appendPlanRow(planConflicts,`${String(row?.left||'')} ↔ ${String(row?.right||'')}`,'',detail);
+    }
+    planConflictsSection.hidden=planConflicts.childElementCount===0;
+
+    planResources.replaceChildren();
+    const resources=snapshot.resources&&typeof snapshot.resources==='object'?snapshot.resources:null;
+    if(resources){
+      const project=[formatPlanBytes(resources.actual_project_free_bytes),formatPlanBytes(resources.required_project_free_bytes)].filter(Boolean);
+      const temp=[formatPlanBytes(resources.actual_temp_free_bytes),formatPlanBytes(resources.required_temp_free_bytes)].filter(Boolean);
+      appendPlanRow(planResources,'Resource gate',resources.status,[
+        project.length?('project free/required: '+project.join(' / ')):'',
+        temp.length?('temp free/required: '+temp.join(' / ')):'',
+      ].filter(Boolean).join(' · '));
+    }
+    planResourcesSection.hidden=planResources.childElementCount===0;
+
+    planPreviews.replaceChildren();
+    for(const preview of (Array.isArray(snapshot.previews)?snapshot.previews:[])){
+      const detail=[
+        preview?.stage?('stage='+String(preview.stage)):'',
+        preview?.rc===undefined||preview?.rc===null?'':('rc='+String(preview.rc)),
+        Number.isFinite(Number(preview?.target_count))?('targets='+Number(preview.target_count)):'',
+        preview?.diagnosis_kind?String(preview.diagnosis_kind):'',
+        preview?.message?String(preview.message):'',
+      ].filter(Boolean).join(' · ');
+      appendPlanRow(planPreviews,String(preview?.name||''),preview?.status,detail);
+    }
+    planPreviewsSection.hidden=planPreviews.childElementCount===0;
+
+    const warnings=Array.isArray(snapshot.warnings)?snapshot.warnings:[];
+    const error=snapshot.error&&typeof snapshot.error==='object'?snapshot.error:null;
+    planWarnings.textContent=[
+      ...warnings.map(value=>'Warning: '+String(value)),
+      error?('Error: '+[error.kind,error.message].filter(Boolean).join(' · ')):'',
+    ].filter(Boolean).join(' | ');
+    return true;
   }
 
   function enterRunningView(){
@@ -1501,6 +1685,7 @@ function installPatchPanel(){
     let haveSnapshot=false;
     let haveResumeSnapshot=false;
     let haveHistorySnapshot=false;
+    let havePlanSnapshot=false;
     const maxAttempts=followLifecycle?7200:40;
     const delayMs=followLifecycle?1000:250;
     for(let attempt=0;attempt<maxAttempts;attempt+=1){
@@ -1515,6 +1700,11 @@ function installPatchPanel(){
         return;
       }
       if(state?.available===false){
+        if(planMode){
+          planStatus.textContent='PTY fallback';
+          planWarnings.textContent='Native Plan protocol state unavailable. Use Terminal evidence/fallback.';
+          return;
+        }
         resetSummary('PTY-only');
         if(sessionId===activeSessionId)openTerminalEvidence();
         return;
@@ -1532,6 +1722,10 @@ function installPatchPanel(){
         haveHistorySnapshot=true;
       }
       if(state?.history_report)renderHistoryReport(state.history_report);
+      if(state?.plan_snapshot&&!havePlanSnapshot){
+        renderPlanSnapshot(state.plan_snapshot);
+        havePlanSnapshot=true;
+      }
       if(state?.history_management_result)renderHistoryManagementResult(state.history_management_result);
       renderItemLifecycle(state?.items);
       renderProgress(state?.progress);
@@ -1560,13 +1754,24 @@ function installPatchPanel(){
         finishRunningView();
         return;
       }
+      if(!expectPrompt&&havePlanSnapshot)return;
       if(!expectPrompt&&haveSnapshot&&!followLifecycle)return;
       if(state?.error){
+        if(planMode){
+          planStatus.textContent='Protocol error';
+          planWarnings.textContent=String(state.error);
+          return;
+        }
         if(!haveSnapshot)resetSummary('Protocol error');
         summaryWarnings.textContent=String(state.error);
         return;
       }
       await new Promise(resolve=>setTimeout(resolve,delayMs));
+    }
+    if(planMode){
+      planStatus.textContent=havePlanSnapshot?planStatus.textContent:'PTY fallback';
+      if(!havePlanSnapshot)planWarnings.textContent='Native Plan snapshot unavailable or timed out. Use Terminal evidence/fallback.';
+      return;
     }
     if(haveSnapshot||haveResumeSnapshot||haveHistorySnapshot){
       summaryStatus.textContent+=' · Continue in PTY';
@@ -1595,11 +1800,12 @@ function installPatchPanel(){
       historyManagementBusy=false;
       leaveRunningView();
       if(mode==='history')enterHistoryView();else leaveHistoryView();
+      if(mode==='plan')enterPlanView();else leavePlanView();
       clearActionResult();
       clearResumeView();
       renderProgress(null);
       renderArtifacts([]);
-      app.attachSession(meta,!['queue','resume','history'].includes(mode));
+      app.attachSession(meta,!['queue','resume','history','plan'].includes(mode));
       window.dispatchEvent(new CustomEvent('taskmenu:patch-session-started',{detail:{mode,meta}}));
       if(mode==='queue'||mode==='resume'||mode==='history'||mode==='plan'){
         void pollProtocol(meta.id,mode==='queue'||mode==='resume'||mode==='history',mode==='resume'||mode==='history'||mode==='plan');
@@ -1613,6 +1819,8 @@ function installPatchPanel(){
   terminalEvidence.onclick=openTerminalEvidence;
   historyTerminal.onclick=openTerminalEvidence;
   historyBack.onclick=()=>stopHistoryAndBack().catch(app.showError);
+  planTerminal.onclick=openTerminalEvidence;
+  planBack.onclick=leavePlanView;
   runningBack.onclick=()=>{if(runningFinished)leaveRunningView();};
   actionResultClose.onclick=clearActionResult;
   queueTab.onclick=()=>setQueueSummaryView('queue');
@@ -1620,7 +1828,7 @@ function installPatchPanel(){
   summarySearchInput.oninput=()=>setQueueSearchQuery(summarySearchInput.value);
   summarySearchClear.onclick=()=>{setQueueSearchQuery('');summarySearchInput.focus();};
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,enterPlanView,leavePlanView,renderPlanSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 

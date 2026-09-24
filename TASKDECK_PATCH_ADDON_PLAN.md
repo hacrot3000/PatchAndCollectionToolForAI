@@ -221,10 +221,10 @@ Status: **IN PROGRESS**
   - [x] Phase 2H.3 Queue discovery parity: Python-owned filter/search fields and native filtering for large queues.
     - [x] Phase 2H.3a bounded Python-owned queue search projection.
     - [x] Phase 2H.3b native Queue/Failed search UI.
-  - [ ] Phase 2H.4 Native Plan projection/view; Plan must no longer require the PTY as its primary renderer.
+  - [x] Phase 2H.4 Native Plan projection/view; Plan no longer requires the PTY as its primary renderer.
     - [x] Phase 2H.4a Python-owned bounded Plan projection.
-    - [ ] Phase 2H.4b TaskDeck Plan protocol state.
-    - [ ] Phase 2H.4c native Plan web view + PTY fallback.
+    - [x] Phase 2H.4b TaskDeck Plan protocol state.
+    - [x] Phase 2H.4c native Plan web view + PTY fallback.
   - [ ] Phase 2H.5 Native Tool Health view/action.
   - [ ] Phase 2H.6 Advanced History parity: support ZIP creation and explicit cleanup; report subset filters may remain pure presentation over projected rows.
   - [ ] Phase 2H.7 final parity regression gate before changing any default PTY activation/fallback behavior.
@@ -359,8 +359,9 @@ Every phase must preserve:
 | Phase 2H.3b Go test offset correction | DONE | cc54692f | Fixed the search contract test to use Go's two-argument strings.Index API; runtime behavior unchanged. |
 | Phase 2H.3b select-all contract correction | DONE | 01227e3d | Updated the stale Select-all assertion for search-aware visible PATCH selection; runtime behavior unchanged. |
 | Phase 2H.4a Python native Plan projection | DONE | 7623e69b | Plan emits a bounded structured snapshot for ordered items, policy, static conflicts, resource gates and structured preview summaries while preserving historical read-only terminal output. |
-| Phase 2H.4b TaskDeck Plan protocol state | DONE | this commit | TaskDeck validates Plan policy/items/conflicts/resources/previews into typed bounded state and drops unknown raw planner fields before exposing session state. |
+| Phase 2H.4b TaskDeck Plan protocol state | DONE | 98b56539 | TaskDeck validates Plan policy/items/conflicts/resources/previews into typed bounded state and drops unknown raw planner fields before exposing session state. |
+| Phase 2H.4c native Plan primary view | DONE | this commit | Patch panel renders only validated plan_snapshot state as the primary Plan view; PTY is attached without activation and remains an explicit evidence/fallback surface. |
 
 ## Next action
 
-Continue **Phase 2H.4c**: render Plan as a native primary Patch panel view from plan_snapshot, attach the PTY without activating it, and keep an explicit terminal-evidence fallback.
+Continue **Phase 2H.5**: add a Python-owned Tool Health/self-audit projection and a native read-only Health view/action before final PTY cutover.
