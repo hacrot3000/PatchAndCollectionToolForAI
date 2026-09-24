@@ -231,6 +231,10 @@ Status: **IN PROGRESS**
     - [x] Phase 2H.5b TaskDeck Health protocol state.
     - [x] Phase 2H.5c native Health primary view + PTY fallback.
   - [ ] Phase 2H.6 Advanced History parity: support ZIP creation and explicit cleanup; report subset filters may remain pure presentation over projected rows.
+    - [x] Phase 2H.6a Python-owned History item support-ZIP command/result contract using the existing terminal bundle helper.
+    - [ ] Phase 2H.6b TaskDeck support-ZIP result state, prompt-bound endpoint and final-write gate.
+    - [ ] Phase 2H.6c native History Support ZIP item control.
+    - [ ] Phase 2H.6d explicit History cleanup contract/state/UI.
   - [ ] Phase 2H.7 final parity regression gate before changing any default PTY activation/fallback behavior.
 
 ## Phase 2H.1 — Native cutover parity audit
@@ -371,8 +375,9 @@ Every phase must preserve:
 | Phase 2H.5a2 source-fixture test correction | DONE | 4fcddd1e | Replaced the invalid full-repository Health PASS assumption with focused runtime-path compatibility checks; runtime behavior unchanged. |
 | Phase 2H.5b TaskDeck Health protocol state | DONE | 36de76b7 | TaskDeck validates bounded typed health_snapshot checks/summary/messages, rejects inconsistent counters, and retains an independent typed Health state. |
 | Phase 2H.5c native Health primary view | DONE | c0c2779b | Patch panel renders typed Health status/version/summary/checks/messages as the primary read-only view; Health PTY is attached inactive and remains explicit fallback/evidence. |
-| Phase 2H.5c PTY contract test correction | DONE | this commit | Updated five stale PTY-inactive mode assertions to include native Health; runtime behavior unchanged. |
+| Phase 2H.5c PTY contract test correction | DONE | a7063eda | Updated five stale PTY-inactive mode assertions to include native Health; runtime behavior unchanged. |
+| Phase 2H.6a Python History support ZIP | DONE | this commit | Native History advertises item-level support capability, accepts prompt/run/index-bound history_support, reuses _create_report_support_bundle(), and emits only a verified project-relative support artifact. |
 
 ## Next action
 
-Continue **Phase 2H.6a**: project native History support-ZIP creation through a Python-owned prompt/command/result contract before adding web controls.
+Continue **Phase 2H.6b**: validate/retain history_support_result in TaskDeck and expose a narrow prompt/run/item-bound endpoint with a final FD4 prompt gate.

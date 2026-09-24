@@ -4164,6 +4164,7 @@ def _protocol_history_item(root: Path, row: dict[str, object], index: int) -> di
         "name": _protocol_history_text(row.get("name") or "unknown", 512),
         "kind": _protocol_history_text(row.get("kind") or "PATCH", 64),
         "status": _protocol_history_text(str(row.get("status") or "UNKNOWN").upper(), 64),
+        "actions": ["support"],
         "summary": _protocol_history_text(_row_summary(row), 512),
         "diagnosis": _protocol_history_text(_row_diagnosis(row), 128),
         "batch_rolled_back": row.get("batch_rolled_back") is True,
@@ -4229,6 +4230,8 @@ def protocol_history_prompt_contract(root: Path) -> dict[str, object]:
             "run_id_source": "runs",
             "max_runs": 100,
             "destructive_actions": ["delete"],
+            "item_actions": ["support"],
+            "support_item_index_source": "history_report.items",
         },
     }
 
@@ -4299,6 +4302,63 @@ def _protocol_history_management(
     return True, changed
 
 
+def _protocol_history_support(
+    root: Path,
+    writer,
+    prompt_id: str,
+    allowed_run_ids: set[str],
+    command: dict[str, object],
+) -> None:
+    """Create one item support ZIP through the existing terminal helper."""
+    payload = command.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError("history_support payload must be an object")
+    if payload.get("prompt_id") != prompt_id:
+        raise ValueError("history_support prompt_id does not match the active prompt")
+    support_id = str(payload.get("support_id") or "").strip()
+    if not support_id or len(support_id) > 128:
+        raise ValueError("history_support support_id is required and must be <=128 characters")
+    run_id = str(payload.get("run_id") or "").strip()
+    if not run_id or len(run_id) > 128 or run_id not in allowed_run_ids:
+        raise ValueError("history_support run_id is not available in the active History prompt")
+    raw_index = payload.get("item_index")
+    if not isinstance(raw_index, int) or isinstance(raw_index, bool) or raw_index < 1 or raw_index > 512:
+        raise ValueError("history_support item_index must be an integer in 1..512")
+
+    found = _find_history_entry(root, run_id)
+    if found is None or not _is_meaningful_run(found[1]):
+        raise ValueError("history_support run is no longer available")
+    report = found[1]
+    rows = _report_rows(report)
+    if raw_index > min(len(rows), 512):
+        raise ValueError("history_support item_index is not available in the projected report")
+    row = rows[raw_index - 1]
+    item_name = _protocol_history_text(row.get("name") or "unknown", 512)
+
+    final = _create_report_support_bundle(root, report, raw_index - 1)
+    artifact = None
+    if final is not None:
+        rel = _protocol_project_file_rel(root, str(final))
+        if rel is not None and rel.startswith("artifacts/support/"):
+            artifact = {"label": "Support ZIP", "path": rel, "upload_required": False}
+
+    passed = artifact is not None
+    writer.emit(
+        "history_support_result",
+        prompt_id=prompt_id,
+        support_id=support_id,
+        run_id=run_id,
+        item_index=raw_index,
+        item_name=item_name,
+        status="PASS" if passed else "FAIL",
+        message=_protocol_history_text(
+            f"Created support ZIP for {item_name}" if passed else f"Support ZIP failed for {item_name}",
+            512,
+        ),
+        **({"artifact": artifact} if artifact is not None else {}),
+    )
+
+
 def _protocol_history_detail_session(root: Path) -> bool:
     """Serve native History detail and management only when TaskDeck opts in."""
     if os.environ.get("TASKDECK_PATCH_NATIVE_HISTORY", "").strip() != "1":
@@ -4339,6 +4399,7 @@ def _protocol_history_detail_session(root: Path) -> bool:
                 for row in runs
                 if isinstance(row, dict) and str(row.get("run_id") or "")
             }
+            allowed_run_ids = set(allowed_actions_by_run)
 
             refresh_prompt = False
             while not refresh_prompt:
@@ -4373,7 +4434,10 @@ def _protocol_history_detail_session(root: Path) -> bool:
                                 return True
                             refresh_prompt = True
                         continue
-                    raise ProtocolCommandError("native History requires a history_detail or history_manage command")
+                    if command_name == "history_support":
+                        _protocol_history_support(root, writer, prompt_id, allowed_run_ids, command)
+                        continue
+                    raise ProtocolCommandError("native History requires a history_detail, history_manage or history_support command")
                 except (ProtocolCommandError, ValueError, TypeError, QueueSafetyError) as exc:
                     writer.emit("error", phase="history_action", message=str(exc))
                     continue

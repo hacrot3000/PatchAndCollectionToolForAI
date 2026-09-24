@@ -76,6 +76,116 @@ class RouteContractTests(unittest.TestCase):
         self.assertEqual(argv[-2:], ["run", "--all"])
 
 
+class HistorySupportProtocolTests(unittest.TestCase):
+    def test_history_projection_advertises_item_support_only_at_item_level(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            row = {"name": "demo.zip", "kind": "PATCH", "status": "FAIL"}
+            item = dispatcher._protocol_history_item(root, row, 1)
+        self.assertEqual(item["actions"], ["support"])
+
+        fake_view = {
+            "runs": [{"run_id": "run-1", "pinned": False}],
+            "default_run_id": "run-1",
+        }
+        with mock.patch.object(dispatcher, "protocol_history_view", return_value=fake_view):
+            prompt = dispatcher.protocol_history_prompt_contract(Path("/workspace"))
+        self.assertIn("support", prompt["constraints"]["item_actions"])
+        self.assertNotIn("support", prompt["actions"])
+        self.assertNotIn("support", prompt["runs"][0]["actions"])
+
+    def test_history_support_uses_existing_bundle_helper_and_emits_verified_artifact(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        class Writer:
+            def __init__(self):
+                self.events = []
+            def emit(self, event_type, **payload):
+                self.events.append((event_type, payload))
+                return True
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "artifacts" / "support").mkdir(parents=True)
+            report = {
+                "run_id": "run-1",
+                "selected": ["demo.zip"],
+                "results": [{"name": "demo.zip", "kind": "PATCH", "status": "FAIL"}],
+            }
+            history_path = root / "history.json"
+            history_path.write_text("{}", encoding="utf-8")
+            final = root / "artifacts" / "support" / "PTV_SUPPORT_run-1_001_demo.zip"
+
+            def create_bundle(_root, got_report, row_index):
+                self.assertIs(got_report, report)
+                self.assertEqual(row_index, 0)
+                final.write_bytes(b"zip")
+                return final
+
+            writer = Writer()
+            command = {
+                "command": "history_support",
+                "payload": {
+                    "prompt_id": "prompt-1",
+                    "support_id": "support-1",
+                    "run_id": "run-1",
+                    "item_index": 1,
+                },
+            }
+            with mock.patch.object(dispatcher, "_find_history_entry", return_value=(history_path, report)), \
+                 mock.patch.object(dispatcher, "_is_meaningful_run", return_value=True), \
+                 mock.patch.object(dispatcher, "_create_report_support_bundle", side_effect=create_bundle):
+                dispatcher._protocol_history_support(root, writer, "prompt-1", {"run-1"}, command)
+
+            self.assertEqual(len(writer.events), 1)
+            event_type, payload = writer.events[0]
+            self.assertEqual(event_type, "history_support_result")
+            self.assertEqual(payload["status"], "PASS")
+            self.assertEqual(payload["support_id"], "support-1")
+            self.assertEqual(payload["run_id"], "run-1")
+            self.assertEqual(payload["item_index"], 1)
+            self.assertEqual(payload["artifact"]["path"], "artifacts/support/PTV_SUPPORT_run-1_001_demo.zip")
+
+    def test_history_support_rejects_stale_prompt_run_or_hidden_index(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        class Writer:
+            def emit(self, *_args, **_kwargs):
+                raise AssertionError("invalid support request must not emit a result")
+
+        report = {
+            "run_id": "run-1",
+            "selected": ["demo.zip"],
+            "results": [{"name": "demo.zip", "kind": "PATCH", "status": "FAIL"}],
+        }
+        base = {
+            "command": "history_support",
+            "payload": {
+                "prompt_id": "prompt-1",
+                "support_id": "support-1",
+                "run_id": "run-1",
+                "item_index": 1,
+            },
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            history_path = root / "history.json"
+            history_path.write_text("{}", encoding="utf-8")
+            with mock.patch.object(dispatcher, "_find_history_entry", return_value=(history_path, report)), \
+                 mock.patch.object(dispatcher, "_is_meaningful_run", return_value=True):
+                stale = json.loads(json.dumps(base)); stale["payload"]["prompt_id"] = "other"
+                with self.assertRaises(ValueError):
+                    dispatcher._protocol_history_support(root, Writer(), "prompt-1", {"run-1"}, stale)
+                wrong_run = json.loads(json.dumps(base)); wrong_run["payload"]["run_id"] = "run-2"
+                with self.assertRaises(ValueError):
+                    dispatcher._protocol_history_support(root, Writer(), "prompt-1", {"run-1"}, wrong_run)
+                hidden = json.loads(json.dumps(base)); hidden["payload"]["item_index"] = 2
+                with self.assertRaises(ValueError):
+                    dispatcher._protocol_history_support(root, Writer(), "prompt-1", {"run-1"}, hidden)
+
+
 class ProtocolContractTests(unittest.TestCase):
     def setUp(self):
         self.base = Path(__file__).resolve().parent

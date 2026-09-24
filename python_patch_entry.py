@@ -250,7 +250,7 @@ def _run_with_protocol(
     route = classify_route(tool_args)
     capabilities = ["events_v1", "queue_snapshot_v1", "child_event_relay_v1", "progress_v1", "item_actions_v1", "resume_snapshot_v1", "history_snapshot_v1", "history_report_v1", "health_snapshot_v1"]
     if command_fd is not None:
-        capabilities.extend(["commands_v1", "history_detail_v1"])
+        capabilities.extend(["commands_v1", "history_detail_v1", "history_support_v1"])
     writer.emit(
         "hello",
         project_root=project_root,
