@@ -225,15 +225,15 @@ Status: **IN PROGRESS**
     - [x] Phase 2H.4a Python-owned bounded Plan projection.
     - [x] Phase 2H.4b TaskDeck Plan protocol state.
     - [x] Phase 2H.4c native Plan web view + PTY fallback.
-  - [ ] Phase 2H.5 Native Tool Health view/action.
+  - [x] Phase 2H.5 Native Tool Health view/action.
     - [x] Phase 2H.5a1 runtime-directory Health audit compatibility for TaskDeck bundled patchtool/.
     - [x] Phase 2H.5a2 Python health route + bounded health_snapshot.
     - [x] Phase 2H.5b TaskDeck Health protocol state.
     - [x] Phase 2H.5c native Health primary view + PTY fallback.
   - [ ] Phase 2H.6 Advanced History parity: support ZIP creation and explicit cleanup; report subset filters may remain pure presentation over projected rows.
     - [x] Phase 2H.6a Python-owned History item support-ZIP command/result contract using the existing terminal bundle helper.
-    - [ ] Phase 2H.6b TaskDeck support-ZIP result state, prompt-bound endpoint and final-write gate.
-    - [ ] Phase 2H.6c native History Support ZIP item control.
+    - [x] Phase 2H.6b TaskDeck support-ZIP result state, prompt-bound endpoint and final-write gate.
+    - [x] Phase 2H.6c native History Support ZIP item control.
     - [ ] Phase 2H.6d explicit History cleanup contract/state/UI.
   - [ ] Phase 2H.7 final parity regression gate before changing any default PTY activation/fallback behavior.
 
@@ -378,8 +378,9 @@ Every phase must preserve:
 | Phase 2H.5c PTY contract test correction | DONE | a7063eda | Updated five stale PTY-inactive mode assertions to include native Health; runtime behavior unchanged. |
 | Phase 2H.6a Python History support ZIP | DONE | b0a3a736 | Native History advertises item-level support capability, accepts prompt/run/index-bound history_support, reuses _create_report_support_bundle(), and emits only a verified project-relative support artifact. |
 | Phase 2H.6a Python test fixture correction | DONE | 96858f1c | History support protocol tests now initialize the canonical _patch_lib import path before importing the dispatcher; runtime behavior unchanged. |
-| Phase 2H.6b TaskDeck History support gate/state | DONE | this commit | TaskDeck validates/retains history_support_result, exposes a narrow prompt/run/current-report/item-bound endpoint, and rechecks prompt_id at the final FD4 write without consuming the History prompt. |
+| Phase 2H.6b TaskDeck History support gate/state | DONE | 37d216a7 | TaskDeck validates/retains history_support_result, exposes a narrow prompt/run/current-report/item-bound endpoint, and rechecks prompt_id at the final FD4 write without consuming the History prompt. |
+| Phase 2H.6c native History Support UI | DONE | this commit | History report items show Support only from Python-advertised prompt+item capabilities; support_id/prompt/run/index correlation gates result display and verified ZIP download while the prompt remains reusable. |
 
 ## Next action
 
-Continue **Phase 2H.6c**: add capability-driven Support action to native History report items, correlate support_id, surface the verified support ZIP, and keep the History prompt reusable for multiple items.
+Continue **Phase 2H.6d**: define an explicit Python-owned History cleanup contract/state/UI using existing safe cleanup semantics; do not infer or bulk-delete from web state.

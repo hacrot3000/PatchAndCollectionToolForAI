@@ -115,6 +115,9 @@ function installPatchPanel(){
   .task-patch-history-item-name{font-weight:600;min-width:0;flex:1;overflow-wrap:anywhere}
   .task-patch-history-item-status{font-weight:700;white-space:nowrap}
   .task-patch-history-item-detail{margin-top:2px;opacity:.7;overflow-wrap:anywhere}
+  .task-patch-history-item-actions{display:flex;gap:5px;margin-top:5px}
+  .task-patch-history-item-actions button{font-size:10px;padding:3px 6px}
+  .task-patch-history-support{border-color:#4d6785}
   .task-patch-history-warning{margin-top:6px;opacity:.72;overflow-wrap:anywhere}
   .task-patch-plan{margin:0 0 10px;padding:8px;border:1px solid #4b596d;border-radius:6px;background:#121923;font-size:11px}
   .task-patch-plan[hidden]{display:none}
@@ -422,11 +425,14 @@ function installPatchPanel(){
   let queueMutationPollGeneration=0;
   let historyPollGeneration=0;
   let latestHistorySnapshot=null;
+  let latestHistoryReport=null;
   let activeHistoryPrompt=null;
   let activeHistoryRunID='';
   let historyBusy=false;
   let historyManagementBusy=false;
   let historyManagementPollGeneration=0;
+  let historySupportBusy=false;
+  let historySupportPollGeneration=0;
   let historyMode=false;
   let latestPlanSnapshot=null;
   let planMode=false;
@@ -449,7 +455,7 @@ function installPatchPanel(){
   function setVisible(value){
     const visible=Boolean(value);
     panel.classList.toggle('visible',visible);
-    if(!visible){protocolPollGeneration+=1;actionPollGeneration+=1;queueMutationPollGeneration+=1;historyPollGeneration+=1;historyManagementPollGeneration+=1;}
+    if(!visible){protocolPollGeneration+=1;actionPollGeneration+=1;queueMutationPollGeneration+=1;historyPollGeneration+=1;historyManagementPollGeneration+=1;historySupportPollGeneration+=1;}
     if(visible&&activeSessionId)void pollProtocol(activeSessionId,!runningMode&&!planMode&&!healthMode,true);
     window.dispatchEvent(new CustomEvent('taskmenu:patch-panel-visible',{detail:{visible}}));
   }
@@ -655,12 +661,15 @@ function installPatchPanel(){
     panel.classList.remove('history');
     historyBox.hidden=true;
     latestHistorySnapshot=null;
+    latestHistoryReport=null;
     activeHistoryPrompt=null;
     activeHistoryRunID='';
     historyBusy=false;
     historyManagementBusy=false;
+    historySupportBusy=false;
     historyPollGeneration+=1;
     historyManagementPollGeneration+=1;
+    historySupportPollGeneration+=1;
     historyRuns.replaceChildren();
     historyManagement.hidden=true;
     historyManagementMessage.textContent='';
@@ -729,6 +738,76 @@ function installPatchPanel(){
     return true;
   }
 
+  function renderHistorySupportResult(result){
+    if(!result||typeof result!=='object')return false;
+    historyManagementMessage.textContent=[
+      String(result.message||'History support result'),
+      String(result.status||''),
+      result.item_name?('item='+String(result.item_name)):'',
+    ].filter(Boolean).join(' · ');
+    historyManagementFiles.replaceChildren();
+    if(result.artifact&&typeof result.artifact==='object')appendHistoryFile(historyManagementFiles,result.artifact);
+    historyManagement.hidden=false;
+    return true;
+  }
+
+  function historyItemSupportAllowed(item){
+    const constraints=activeHistoryPrompt?.constraints&&typeof activeHistoryPrompt.constraints==='object'?activeHistoryPrompt.constraints:{};
+    const advertised=new Set(Array.isArray(constraints.item_actions)?constraints.item_actions.map(value=>String(value).toLowerCase()):[]);
+    const actions=new Set(Array.isArray(item?.actions)?item.actions.map(value=>String(value).toLowerCase()):[]);
+    return advertised.has('support')&&actions.has('support');
+  }
+
+  async function waitForHistorySupport(sessionId,supportID,promptID,runID,itemIndex){
+    const generation=++historySupportPollGeneration;
+    for(let attempt=0;attempt<1200;attempt+=1){
+      if(generation!==historySupportPollGeneration||!panel.classList.contains('visible')||sessionId!==activeSessionId)return null;
+      const state=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/protocol`);
+      const result=state?.history_support_result;
+      if(result?.support_id===supportID){
+        if(String(result?.prompt_id||'')!==promptID||
+           String(result?.run_id||'')!==runID||
+           Number(result?.item_index)!==itemIndex){
+          throw new Error('Patch History support result correlation mismatch');
+        }
+        renderHistorySupportResult(result);
+        return result;
+      }
+      if(state?.last_event?.type==='run_finished')throw new Error('Patch History session finished before support result arrived');
+      await new Promise(resolve=>setTimeout(resolve,250));
+    }
+    throw new Error('Timed out waiting for native Patch History support ZIP');
+  }
+
+  async function submitHistorySupport(sessionId,prompt,runID,item,sourceButton){
+    if(historyBusy||historyManagementBusy||historySupportBusy||!sessionId||!prompt)return null;
+    if(prompt?.prompt_kind!=='history_action'||String(prompt?.prompt_id||'')==='')throw new Error('Native History support requires the active History prompt');
+    if(String(runID||'')!==activeHistoryRunID)throw new Error('History support requires the currently displayed report');
+    if(!historyItemSupportAllowed(item))throw new Error('History Support is not advertised for this item');
+    const itemIndex=Number(item?.index);
+    if(!Number.isInteger(itemIndex)||itemIndex<1)throw new Error('History support item index is unavailable');
+    const promptID=String(prompt.prompt_id||'');
+    historySupportBusy=true;
+    if(sourceButton?.isConnected)sourceButton.disabled=true;
+    historyManagement.hidden=false;
+    historyManagementFiles.replaceChildren();
+    historyManagementMessage.textContent=`Creating support ZIP for ${String(item?.name||'item')}…`;
+    try{
+      const response=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/history-support`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({prompt_id:promptID,run_id:runID,item_index:itemIndex}),
+      });
+      const supportID=String(response?.support_id||'');
+      if(!supportID)throw new Error('TaskDeck did not return a support_id');
+      return await waitForHistorySupport(sessionId,supportID,promptID,runID,itemIndex);
+    }finally{
+      historySupportBusy=false;
+      if(sourceButton?.isConnected)sourceButton.disabled=false;
+      if(latestHistoryReport)renderHistoryReport(latestHistoryReport);
+    }
+  }
+
   function historyPromptRun(runID){
     const runs=Array.isArray(activeHistoryPrompt?.runs)?activeHistoryPrompt.runs:[];
     return runs.find(row=>String(row?.run_id||'')===String(runID||''))||null;
@@ -788,7 +867,7 @@ function installPatchPanel(){
   }
 
   async function submitHistoryManagement(sessionId,prompt,action,runID){
-    if(historyManagementBusy||historyBusy||!sessionId||!prompt)return null;
+    if(historyManagementBusy||historyBusy||historySupportBusy||!sessionId||!prompt)return null;
     action=String(action||'').toLowerCase();
     const allowed=historyActionsForRun(runID);
     if(!allowed.has(action))throw new Error(`History action ${action} is not advertised for this run`);
@@ -829,7 +908,7 @@ function installPatchPanel(){
       const allowed=historyActionsForRun(runID);
       const row=document.createElement('div');row.className='task-patch-history-run-row';
       const button=document.createElement('button');button.type='button';button.className='task-patch-history-run';button.classList.toggle('active',runID===activeHistoryRunID);
-      button.disabled=historyBusy||historyManagementBusy||!allowed.has('detail');
+      button.disabled=historyBusy||historyManagementBusy||historySupportBusy||!allowed.has('detail');
       const name=document.createElement('span');name.className='task-patch-history-run-name';name.textContent=String(run?.primary_name||runID);
       const elapsed=Number(run?.elapsed_seconds);
       const meta=document.createElement('span');meta.className='task-patch-history-run-meta';
@@ -842,7 +921,7 @@ function installPatchPanel(){
         if(!allowed.has(action))continue;
         const manage=document.createElement('button');manage.type='button';manage.dataset.historyAction=action;
         manage.textContent={pin:'Pin',unpin:'Unpin',export:'Export',delete:'Delete'}[action]||action;
-        manage.disabled=historyBusy||historyManagementBusy;
+        manage.disabled=historyBusy||historyManagementBusy||historySupportBusy;
         if(action==='delete')manage.className='task-patch-history-delete';
         manage.onclick=()=>submitHistoryManagement(activeSessionId,activeHistoryPrompt,action,runID).catch(app.showError);
         managementActions.append(manage);
@@ -863,9 +942,11 @@ function installPatchPanel(){
 
   function renderHistoryReport(report){
     if(!report||typeof report!=='object')return false;
+    latestHistoryReport=report;
     historyDetail.hidden=false;
     historyFiles.replaceChildren();historyItems.replaceChildren();historyWarnings.textContent='';
     if(report.status!=='available'){
+      latestHistoryReport=null;
       historyDetailTitle.textContent='History run unavailable';
       historyDetailMeta.textContent=String(report.run_id||'');
       return false;
@@ -892,6 +973,13 @@ function installPatchPanel(){
         const files=document.createElement('div');files.className='task-patch-history-files';
         for(const artifact of artifacts)appendHistoryFile(files,artifact);
         row.append(files);
+      }
+      if(historyItemSupportAllowed(item)){
+        const itemActions=document.createElement('div');itemActions.className='task-patch-history-item-actions';
+        const support=document.createElement('button');support.type='button';support.className='task-patch-history-support';support.textContent='Support';
+        support.disabled=historyBusy||historyManagementBusy||historySupportBusy;
+        support.onclick=()=>submitHistorySupport(activeSessionId,activeHistoryPrompt,activeHistoryRunID,item,support).catch(app.showError);
+        itemActions.append(support);row.append(itemActions);
       }
       historyItems.append(row);
     }
@@ -920,11 +1008,11 @@ function installPatchPanel(){
   }
 
   async function submitHistoryDetail(sessionId,prompt,runID){
-    if(historyBusy||historyManagementBusy||!sessionId||!prompt)return null;
+    if(historyBusy||historyManagementBusy||historySupportBusy||!sessionId||!prompt)return null;
     const actionsAllowed=new Set(Array.isArray(prompt.actions)?prompt.actions.map(String):[]);
     const advertised=new Set(Array.isArray(prompt.runs)?prompt.runs.map(row=>String(row?.run_id||'')):[]);
     if(!actionsAllowed.has('detail')||!advertised.has(runID))throw new Error('History run is not advertised by the active Python prompt');
-    historyBusy=true;activeHistoryRunID=runID;renderHistoryRuns();
+    historyBusy=true;activeHistoryRunID=runID;latestHistoryReport=null;renderHistoryRuns();
     historyDetail.hidden=false;historyDetailTitle.textContent='Loading History run…';historyDetailMeta.textContent=runID;historyFiles.replaceChildren();historyItems.replaceChildren();historyWarnings.textContent='';
     try{
       await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/history-detail`,{
@@ -1964,7 +2052,7 @@ function installPatchPanel(){
   summarySearchInput.oninput=()=>setQueueSearchQuery(summarySearchInput.value);
   summarySearchClear.onclick=()=>{setQueueSearchQuery('');summarySearchInput.focus();};
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 

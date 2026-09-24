@@ -103,7 +103,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"failure?.diagnosis_kind",
 		"snapshot?.group_counts",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
+		"TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {
@@ -677,6 +677,65 @@ func TestPatchPanelHealthKeepsPTYAsExplicitFallbackNotPrimary(t *testing.T) {
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("native Health fallback contract missing %q", want)
+		}
+	}
+}
+
+
+func TestPatchPanelHistorySupportIsCapabilityDrivenAndCorrelated(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function historyItemSupportAllowed(item)",
+		"activeHistoryPrompt?.constraints",
+		"constraints.item_actions",
+		"item?.actions",
+		"advertised.has('support')&&actions.has('support')",
+		"function submitHistorySupport(sessionId,prompt,runID,item,sourceButton)",
+		"/history-support",
+		"body:JSON.stringify({prompt_id:promptID,run_id:runID,item_index:itemIndex})",
+		"response?.support_id",
+		"function waitForHistorySupport(sessionId,supportID,promptID,runID,itemIndex)",
+		"result?.support_id===supportID",
+		"String(result?.prompt_id||'')!==promptID",
+		"String(result?.run_id||'')!==runID",
+		"Number(result?.item_index)!==itemIndex",
+		"renderHistorySupportResult(result)",
+		"appendHistoryFile(historyManagementFiles,result.artifact)",
+		"historySupportBusy",
+		"historySupportPollGeneration",
+		"support.textContent='Support'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native History Support UI missing contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"item?.status==='FAIL'&&",
+		"item?.kind==='PATCH'&&historyItemSupport",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("History Support must be capability-driven, found %q", forbidden)
+		}
+	}
+}
+
+func TestPatchPanelHistorySupportKeepsHistoryPromptReusable(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	start := strings.Index(js, "async function submitHistorySupport")
+	endRel := strings.Index(js[start:], "function renderHistoryRuns")
+	if start < 0 || endRel < 0 { t.Fatal("History support function bounds unavailable") }
+	block := js[start:start+endRel]
+	for _, forbidden := range []string{
+		"activeHistoryPrompt=null",
+		"clearPrompt()",
+		"leaveHistoryView()",
+	} {
+		if strings.Contains(block, forbidden) {
+			t.Fatalf("History Support must not consume/clear reusable History prompt: %q", forbidden)
 		}
 	}
 }
