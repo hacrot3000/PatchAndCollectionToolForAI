@@ -14,7 +14,7 @@ func queueSelectionState() session.ProtocolState {
 		Available: true,
 		Enabled: true,
 		CommandsEnabled: true,
-		Prompt: json.RawMessage(`{"protocol":"taskdeck.patch","version":1,"type":"prompt","seq":7,"prompt_id":"abc123","prompt_kind":"queue_selection","actions":["select","cancel"],"item_actions":["inspect","preview","validate"],"queue_actions":["delete"],"items":[{"index":1,"name":"a.zip","kind":"PATCH"},{"index":2,"name":"b.zip","kind":"COLLECT"}]}`),
+		Prompt: json.RawMessage(`{"protocol":"taskdeck.patch","version":1,"type":"prompt","seq":7,"prompt_id":"abc123","prompt_kind":"queue_selection","actions":["select","cancel"],"item_actions":["inspect","preview","validate"],"queue_actions":["delete"],"items":[{"index":1,"name":"a.zip","kind":"PATCH"},{"index":2,"name":"b.zip","kind":"COLLECT"}],"constraints":{"index_base":1,"collect_exclusive":true,"collect_max":1,"patch_priority":{"min":0,"max":9,"unprioritized_order":10,"response_field":"priorities"}}}`),
 	}
 }
 
@@ -60,6 +60,51 @@ func TestBuildPatchPromptResponseCommandIsNarrowAndPromptBound(t *testing.T) {
 	// indexes 1+2 are transport-valid and Python remains authoritative.
 }
 
+func TestBuildPatchPromptResponseCommandAcceptsAdvertisedPatchPriorities(t *testing.T) {
+	data, err := buildPatchPromptResponseCommand(queueSelectionState(), patchPromptResponseRequest{
+		PromptID: "abc123",
+		Action: "select",
+		Indexes: []int{1},
+		Priorities: []patchPromptPriorityRequest{{Index:1, Priority:0}},
+	})
+	if err != nil { t.Fatal(err) }
+	var command map[string]any
+	if err := json.Unmarshal(data, &command); err != nil { t.Fatal(err) }
+	payload := command["payload"].(map[string]any)
+	rows, ok := payload["priorities"].([]any)
+	if !ok || len(rows) != 1 {
+		t.Fatalf("missing priority payload: %#v", payload)
+	}
+	row := rows[0].(map[string]any)
+	if int(row["index"].(float64)) != 1 || int(row["priority"].(float64)) != 0 {
+		t.Fatalf("unexpected priority payload: %#v", row)
+	}
+}
+
+func TestBuildPatchPromptResponseCommandRejectsUnsafePriorities(t *testing.T) {
+	state := queueSelectionState()
+	tests := []patchPromptResponseRequest{
+		{PromptID:"abc123", Action:"select", Indexes:[]int{1}, Priorities:[]patchPromptPriorityRequest{{Index:1, Priority:10}}},
+		{PromptID:"abc123", Action:"select", Indexes:[]int{1}, Priorities:[]patchPromptPriorityRequest{{Index:2, Priority:0}}},
+		{PromptID:"abc123", Action:"select", Indexes:[]int{1,2}, Priorities:[]patchPromptPriorityRequest{{Index:2, Priority:0}}},
+		{PromptID:"abc123", Action:"select", Indexes:[]int{1}, Priorities:[]patchPromptPriorityRequest{{Index:1, Priority:0},{Index:1, Priority:1}}},
+		{PromptID:"abc123", Action:"cancel", Priorities:[]patchPromptPriorityRequest{{Index:1, Priority:0}}},
+	}
+	for _, req := range tests {
+		if _, err := buildPatchPromptResponseCommand(state, req); err == nil {
+			t.Fatalf("unsafe Patch priority accepted: %#v", req)
+		}
+	}
+
+	noCapability := queueSelectionState()
+	noCapability.Prompt = json.RawMessage(`{"protocol":"taskdeck.patch","version":1,"type":"prompt","prompt_id":"abc123","prompt_kind":"queue_selection","actions":["select","cancel"],"items":[{"index":1,"name":"a.zip","kind":"PATCH"}]}`)
+	if _, err := buildPatchPromptResponseCommand(noCapability, patchPromptResponseRequest{
+		PromptID:"abc123", Action:"select", Indexes:[]int{1}, Priorities:[]patchPromptPriorityRequest{{Index:1, Priority:0}},
+	}); err == nil {
+		t.Fatal("Patch priority accepted without Python-advertised capability")
+	}
+}
+
 func TestBuildPatchPromptResponseCommandRejectsStaleOrOutOfRangeInput(t *testing.T) {
 	state := queueSelectionState()
 	tests := []patchPromptResponseRequest{
@@ -85,7 +130,10 @@ func TestPublicPromptResponseEndpointDoesNotExposeRawCommand(t *testing.T) {
 	for _, want := range []string{
 		`case "prompt-response":`,
 		"patchPromptResponseRequest",
+		"patchPromptPriorityRequest",
 		"buildPatchPromptResponseCommand(state, req)",
+		"PatchPriority",
+		"payload[\"priorities\"] = req.Priorities",
 		"session.ProtocolCommandWriter",
 		"http.MaxBytesReader(w, r.Body, 64<<10)",
 	} {

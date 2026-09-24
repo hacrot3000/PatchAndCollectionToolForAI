@@ -302,10 +302,16 @@ func patchToolExecution(workspace, mode string) (tasks.Execution, error) {
 	return spec, nil
 }
 
+type patchPromptPriorityRequest struct {
+	Index    int `json:"index"`
+	Priority int `json:"priority"`
+}
+
 type patchPromptResponseRequest struct {
-	PromptID string `json:"prompt_id"`
-	Action   string `json:"action"`
-	Indexes  []int  `json:"indexes,omitempty"`
+	PromptID   string                       `json:"prompt_id"`
+	Action     string                       `json:"action"`
+	Indexes    []int                        `json:"indexes,omitempty"`
+	Priorities []patchPromptPriorityRequest `json:"priorities,omitempty"`
 }
 
 func buildPatchPromptResponseCommand(state session.ProtocolState, req patchPromptResponseRequest) ([]byte, error) {
@@ -323,8 +329,17 @@ func buildPatchPromptResponseCommand(state session.ProtocolState, req patchPromp
 		PromptKind string `json:"prompt_kind"`
 		Actions    []string `json:"actions"`
 		Items      []struct {
-			Index int `json:"index"`
+			Index int    `json:"index"`
+			Kind  string `json:"kind"`
 		} `json:"items"`
+		Constraints struct {
+			PatchPriority *struct {
+				Min               int    `json:"min"`
+				Max               int    `json:"max"`
+				UnprioritizedOrder int    `json:"unprioritized_order"`
+				ResponseField     string `json:"response_field"`
+			} `json:"patch_priority"`
+		} `json:"constraints"`
 	}
 	if err := json.Unmarshal(state.Prompt, &prompt); err != nil {
 		return nil, fmt.Errorf("invalid active Patch prompt: %w", err)
@@ -350,25 +365,56 @@ func buildPatchPromptResponseCommand(state session.ProtocolState, req patchPromp
 	payload := map[string]any{"prompt_id": req.PromptID, "action": action}
 	switch action {
 	case "cancel":
-		if len(req.Indexes) != 0 {
-			return nil, fmt.Errorf("cancel prompt response must not include indexes")
+		if len(req.Indexes) != 0 || len(req.Priorities) != 0 {
+			return nil, fmt.Errorf("cancel prompt response must not include indexes or priorities")
 		}
 	case "select":
 		if len(req.Indexes) == 0 || len(req.Indexes) > 4096 {
 			return nil, fmt.Errorf("select prompt response requires a bounded non-empty indexes array")
 		}
-		valid := make(map[int]bool, len(prompt.Items))
+		valid := make(map[int]string, len(prompt.Items))
 		for _, item := range prompt.Items {
 			if item.Index > 0 {
-				valid[item.Index] = true
+				valid[item.Index] = strings.ToUpper(strings.TrimSpace(item.Kind))
 			}
 		}
+		selected := make(map[int]bool, len(req.Indexes))
 		for _, index := range req.Indexes {
-			if !valid[index] {
+			if _, ok := valid[index]; !ok {
 				return nil, fmt.Errorf("prompt response index out of range: %d", index)
 			}
+			selected[index] = true
 		}
 		payload["indexes"] = req.Indexes
+		if len(req.Priorities) != 0 {
+			capability := prompt.Constraints.PatchPriority
+			if capability == nil || capability.ResponseField != "priorities" ||
+				capability.Min < 0 || capability.Max > 9 || capability.Min > capability.Max {
+				return nil, fmt.Errorf("Patch priority is not safely advertised by the active prompt")
+			}
+			if len(req.Priorities) > len(prompt.Items) || len(req.Priorities) > 4096 {
+				return nil, fmt.Errorf("Patch priorities must be a bounded array")
+			}
+			seenPriorityIndex := make(map[int]bool, len(req.Priorities))
+			for _, priority := range req.Priorities {
+				kind, exists := valid[priority.Index]
+				if !exists || !selected[priority.Index] {
+					return nil, fmt.Errorf("Patch priority index must also be selected: %d", priority.Index)
+				}
+				if kind != "PATCH" {
+					return nil, fmt.Errorf("Patch priorities apply only to PATCH items")
+				}
+				if priority.Priority < capability.Min || priority.Priority > capability.Max ||
+					priority.Priority < 0 || priority.Priority > 9 {
+					return nil, fmt.Errorf("Patch priority out of advertised range: %d", priority.Priority)
+				}
+				if seenPriorityIndex[priority.Index] {
+					return nil, fmt.Errorf("Patch priority index is duplicated: %d", priority.Index)
+				}
+				seenPriorityIndex[priority.Index] = true
+			}
+			payload["priorities"] = req.Priorities
+		}
 	default:
 		return nil, fmt.Errorf("unsupported prompt action %q", action)
 	}

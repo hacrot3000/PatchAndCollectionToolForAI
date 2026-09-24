@@ -216,7 +216,7 @@ Status: **IN PROGRESS**
   - [x] Phase 2H.1 native/terminal feature-parity audit and cutover gate definition.
   - [ ] Phase 2H.2 Queue execution-order parity: native PATCH priority 0-9 plus select-all/none convenience without changing Python ordering policy.
     - [x] Phase 2H.2a Python queue_selection priority contract and canonical ordering.
-    - [ ] Phase 2H.2b TaskDeck prompt-response priority validation/gate.
+    - [x] Phase 2H.2b TaskDeck prompt-response priority validation/gate.
     - [ ] Phase 2H.2c Web priority 0-9 + select-all/none controls.
   - [ ] Phase 2H.3 Queue discovery parity: Python-owned filter/search fields and native filtering for large queues.
   - [ ] Phase 2H.4 Native Plan projection/view; Plan must no longer require the PTY as its primary renderer.
@@ -345,8 +345,9 @@ Every phase must preserve:
 | Phase 2G.2b TaskDeck History management gate | DONE | d6c8a3f7 | TaskDeck validates correlated History management results/artifacts, exposes a narrow prompt/run/capability-bound endpoint, requires explicit delete confirmation, and rechecks prompt_id at final FD4 write. |
 | Phase 2G.2c native History management UI | DONE | 9197dc42 | History rows render only Python-advertised Pin/Unpin/Delete/Export controls, correlate management_id, wait for refreshed Python snapshot/prompt after mutations, confirm delete and surface verified export artifacts. |
 | Phase 2H.1 native cutover parity audit | DONE | d213bac9 | Recorded the remaining terminal-only parity gaps and a fail-closed cutover rule; no runtime behavior changed. |
-| Phase 2H.2a Python Queue priority contract | DONE | this commit | queue_selection optionally accepts bounded PATCH priorities 0-9 and routes final selection through the exact terminal _ordered_selection helper; COLLECT and unselected priority rows fail closed. |
+| Phase 2H.2a Python Queue priority contract | DONE | fc3f5d8a | queue_selection optionally accepts bounded PATCH priorities 0-9 and routes final selection through the exact terminal _ordered_selection helper; COLLECT and unselected priority rows fail closed. |
+| Phase 2H.2b TaskDeck Queue priority gate | DONE | this commit | Narrow prompt-response accepts priorities only when the active Python prompt advertises a safe 0-9 capability; selected-index/PATCH-only/duplicate/range checks run before the existing prompt-bound FD4 gate. |
 
 ## Next action
 
-Continue **Phase 2H.2b**: extend TaskDeck's narrow prompt-response request/gate to validate Python-advertised PATCH priorities 0-9 before the final FD4 write; raw protocol commands remain inaccessible.
+Continue **Phase 2H.2c**: add native priority 0-9 controls plus Select all PATCH/Clear selection convenience to the Queue prompt and submit only the validated priorities field.
