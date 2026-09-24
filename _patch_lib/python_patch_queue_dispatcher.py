@@ -841,43 +841,77 @@ def _find_history_entry(root: Path, run_id: str) -> tuple[Path, dict[str, object
     return None
 
 
-def _cleanup_history(root: Path) -> dict[str, int]:
+def _history_cleanup_plan(root: Path) -> dict[str, object]:
+    """Return the exact existing cleanup candidates without mutating history.
+
+    The terminal --cleanup path and native History cleanup both consume this
+    plan so retention/pin/IDLE semantics cannot diverge between interfaces.
+    """
     pins = _load_pinned_runs(root)
     entries = list(reversed(_history_entries(root)))  # oldest -> newest
-    removed = 0
+    candidates: list[tuple[Path, dict[str, object], str]] = []
+    candidate_keys: set[str] = set()
 
-    def remove_entry(path: Path, data: dict[str, object]) -> bool:
-        nonlocal removed
-        run_id = str(data.get("run_id") or "")
-        try:
-            path.unlink()
-            removed += 1
-        except OSError:
-            return False
-        run_dir = _batch_run_dir(root, run_id)
-        if run_dir.is_dir() and not run_dir.is_symlink():
-            try: shutil.rmtree(run_dir)
-            except OSError: pass
-        return True
+    def add_candidate(path: Path, data: dict[str, object], reason: str) -> None:
+        key = str(path)
+        if key in candidate_keys:
+            return
+        candidate_keys.add(key)
+        candidates.append((path, data, reason))
 
-    # Historical IDLE probes are not operator history.  Remove every unpinned
-    # one first so they cannot consume the 30-run meaningful-history budget.
-    for path, data in list(entries):
+    # Historical IDLE probes are not operator history. Remove every unpinned
+    # one first so they cannot consume the meaningful-history budget.
+    idle_eligible = 0
+    for path, data in entries:
         rid = str(data.get("run_id") or "")
         if rid not in pins and not _is_meaningful_run(data):
-            remove_entry(path, data)
+            add_candidate(path, data, "idle")
+            idle_eligible += 1
 
-    remaining_entries = list(reversed(_history_entries(root)))
-    meaningful = [(p, d) for p, d in remaining_entries if _is_meaningful_run(d)]
+    meaningful = [(p, d) for p, d in entries if _is_meaningful_run(d)]
     remove_count = max(0, len(meaningful) - RUN_HISTORY_LIMIT)
+    overflow_eligible = 0
     for path, data in meaningful:
         if remove_count <= 0:
             break
         if str(data.get("run_id") or "") in pins:
             continue
-        if remove_entry(path, data):
-            remove_count -= 1
-    return {"removed": removed, "pinned": len(pins), "remaining": len(_visible_history_entries(root))}
+        add_candidate(path, data, "over_limit")
+        overflow_eligible += 1
+        remove_count -= 1
+
+    return {
+        "candidates": candidates,
+        "eligible": len(candidates),
+        "idle_eligible": idle_eligible,
+        "overflow_eligible": overflow_eligible,
+        "pinned": len(pins),
+        "meaningful": len(meaningful),
+        "limit": RUN_HISTORY_LIMIT,
+    }
+
+
+def _cleanup_history(root: Path) -> dict[str, int]:
+    plan = _history_cleanup_plan(root)
+    removed = 0
+    for path, data, _reason in plan["candidates"]:
+        run_id = str(data.get("run_id") or "")
+        try:
+            path.unlink()
+            removed += 1
+        except OSError:
+            continue
+        run_dir = _batch_run_dir(root, run_id)
+        if run_dir.is_dir() and not run_dir.is_symlink():
+            try:
+                shutil.rmtree(run_dir)
+            except OSError:
+                pass
+    return {
+        "removed": removed,
+        "pinned": int(plan["pinned"]),
+        "remaining": len(_visible_history_entries(root)),
+    }
 
 
 
@@ -4207,9 +4241,23 @@ def protocol_history_report_view(root: Path, run_id: str) -> dict[str, object]:
     }
 
 
+def _protocol_history_cleanup_summary(root: Path) -> dict[str, object]:
+    plan = _history_cleanup_plan(root)
+    return {
+        "eligible": int(plan["eligible"]),
+        "idle_eligible": int(plan["idle_eligible"]),
+        "overflow_eligible": int(plan["overflow_eligible"]),
+        "pinned": int(plan["pinned"]),
+        "meaningful": int(plan["meaningful"]),
+        "limit": int(plan["limit"]),
+        "policy": "remove_unpinned_idle_then_oldest_unpinned_over_limit",
+    }
+
+
 def protocol_history_prompt_contract(root: Path) -> dict[str, object]:
     """Return the bounded native History prompt and per-run capabilities."""
     view = protocol_history_view(root)
+    cleanup = _protocol_history_cleanup_summary(root)
     source_runs = list(view.get("runs") or []) if isinstance(view.get("runs"), list) else []
     runs: list[dict[str, object]] = []
     for raw in source_runs:
@@ -4219,19 +4267,23 @@ def protocol_history_prompt_contract(root: Path) -> dict[str, object]:
         pinned = row.get("pinned") is True
         row["actions"] = ["detail", "unpin" if pinned else "pin", "delete", "export"]
         runs.append(row)
+    actions = ["detail", "pin", "unpin", "delete", "export"] if runs else []
+    if runs or int(cleanup.get("eligible") or 0) > 0:
+        actions.append("cleanup")
     return {
         "prompt_kind": "history_action",
         "title": "Patch Tool History",
-        "actions": ["detail", "pin", "unpin", "delete", "export"] if runs else [],
+        "actions": actions,
         "runs": runs,
         "default_run_id": _protocol_history_text(view.get("default_run_id") or "", 128),
         "constraints": {
             "detail_read_only": True,
             "run_id_source": "runs",
             "max_runs": 100,
-            "destructive_actions": ["delete"],
+            "destructive_actions": ["delete", "cleanup"],
             "item_actions": ["support"],
             "support_item_index_source": "history_report.items",
+            "cleanup": cleanup,
         },
     }
 
@@ -4300,6 +4352,53 @@ def _protocol_history_management(
         **({"artifact": artifact} if artifact is not None else {}),
     )
     return True, changed
+
+
+def _protocol_history_cleanup(
+    root: Path,
+    writer,
+    prompt_id: str,
+    cleanup_allowed: bool,
+    command: dict[str, object],
+) -> bool:
+    """Run the existing History cleanup helper; web never supplies run lists."""
+    payload = command.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError("history_cleanup payload must be an object")
+    if payload.get("prompt_id") != prompt_id:
+        raise ValueError("history_cleanup prompt_id does not match the active prompt")
+    cleanup_id = str(payload.get("cleanup_id") or "").strip()
+    if not cleanup_id or len(cleanup_id) > 128:
+        raise ValueError("history_cleanup cleanup_id is required and must be <=128 characters")
+    if payload.get("confirmed") is not True:
+        raise ValueError("history_cleanup requires confirmed=true")
+    if not cleanup_allowed:
+        raise ValueError("history_cleanup is not available in the active History prompt")
+    if set(payload) - {"prompt_id", "cleanup_id", "confirmed"}:
+        raise ValueError("history_cleanup does not accept run ids or cleanup candidate lists")
+
+    before = _protocol_history_cleanup_summary(root)
+    result = _cleanup_history(root)
+    changed = int(result.get("removed") or 0) > 0
+    writer.emit(
+        "history_cleanup_result",
+        prompt_id=prompt_id,
+        cleanup_id=cleanup_id,
+        status="PASS",
+        rc=0,
+        history_changed=changed,
+        removed=max(0, int(result.get("removed") or 0)),
+        pinned=max(0, int(result.get("pinned") or 0)),
+        remaining=max(0, int(result.get("remaining") or 0)),
+        policy=_protocol_history_text(before.get("policy") or "", 128),
+        eligible_before=max(0, int(before.get("eligible") or 0)),
+        message=_protocol_history_text(
+            f"History cleanup removed {max(0, int(result.get('removed') or 0))} entr"
+            + ("y" if max(0, int(result.get("removed") or 0)) == 1 else "ies"),
+            512,
+        ),
+    )
+    return changed
 
 
 def _protocol_history_support(
@@ -4378,7 +4477,8 @@ def _protocol_history_detail_session(root: Path) -> bool:
         while True:
             contract = protocol_history_prompt_contract(root)
             runs = contract["runs"]
-            if not runs:
+            cleanup_allowed = "cleanup" in set(contract.get("actions") or [])
+            if not runs and not cleanup_allowed:
                 return True
             prompt_id = emit_prompt(
                 writer,
@@ -4437,7 +4537,17 @@ def _protocol_history_detail_session(root: Path) -> bool:
                     if command_name == "history_support":
                         _protocol_history_support(root, writer, prompt_id, allowed_run_ids, command)
                         continue
-                    raise ProtocolCommandError("native History requires a history_detail, history_manage or history_support command")
+                    if command_name == "history_cleanup":
+                        changed = _protocol_history_cleanup(root, writer, prompt_id, cleanup_allowed, command)
+                        if changed:
+                            snapshot = protocol_history_view(root)
+                            writer.emit("history_snapshot", **snapshot)
+                            refreshed = protocol_history_prompt_contract(root)
+                            if not (refreshed.get("runs") or []) and "cleanup" not in set(refreshed.get("actions") or []):
+                                return True
+                            refresh_prompt = True
+                        continue
+                    raise ProtocolCommandError("native History requires a history_detail, history_manage, history_support or history_cleanup command")
                 except (ProtocolCommandError, ValueError, TypeError, QueueSafetyError) as exc:
                     writer.emit("error", phase="history_action", message=str(exc))
                     continue

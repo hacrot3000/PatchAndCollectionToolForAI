@@ -190,6 +190,101 @@ class HistorySupportProtocolTests(unittest.TestCase):
                     dispatcher._protocol_history_support(root, Writer(), "prompt-1", {"run-1"}, hidden)
 
 
+class HistoryCleanupProtocolTests(unittest.TestCase):
+    def setUp(self):
+        self.base = Path(__file__).resolve().parent
+        entry._prepare_environment(self.base)
+
+    def test_history_cleanup_plan_preserves_pins_and_shares_terminal_helper(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        with tempfile.TemporaryDirectory(prefix="taskdeck-history-cleanup-plan-") as td:
+            root = Path(td)
+            entries = []
+            for index in range(dispatcher.RUN_HISTORY_LIMIT + 2):
+                path = root / f"run-{index}.json"
+                path.write_text("{}", encoding="utf-8")
+                entries.append((path, {"run_id": f"run-{index}", "selected": ["demo.zip"], "results": [{"name": "demo.zip"}]}))
+            idle = root / "idle.json"
+            idle.write_text("{}", encoding="utf-8")
+            entries.append((idle, {"run_id": "idle-1", "selected": [], "results": []}))
+            pinned = {"run-0"}
+            with mock.patch.object(dispatcher, "_history_entries", return_value=list(reversed(entries))), \
+                 mock.patch.object(dispatcher, "_load_pinned_runs", return_value=pinned), \
+                 mock.patch.object(dispatcher, "_batch_run_dir", side_effect=lambda _root, rid: root / "runs" / rid), \
+                 mock.patch.object(dispatcher, "_visible_history_entries", return_value=[]):
+                plan = dispatcher._history_cleanup_plan(root)
+                self.assertEqual(plan["idle_eligible"], 1)
+                self.assertEqual(plan["overflow_eligible"], 2)
+                self.assertEqual(plan["eligible"], 3)
+                self.assertFalse(any(str(data.get("run_id")) == "run-0" for _path, data, _reason in plan["candidates"]))
+                result = dispatcher._cleanup_history(root)
+            self.assertEqual(result["removed"], 3)
+            self.assertEqual(result["pinned"], 1)
+            self.assertTrue((root / "run-0.json").exists())
+
+    def test_history_prompt_advertises_python_owned_cleanup_policy(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        fake_view = {"status": "available", "runs": [{"run_id": "run-1", "pinned": False}], "default_run_id": "run-1"}
+        fake_cleanup = {
+            "eligible": 4, "idle_eligible": 1, "overflow_eligible": 3,
+            "pinned": 2, "meaningful": 33, "limit": 30,
+            "policy": "remove_unpinned_idle_then_oldest_unpinned_over_limit",
+        }
+        with mock.patch.object(dispatcher, "protocol_history_view", return_value=fake_view), \
+             mock.patch.object(dispatcher, "_protocol_history_cleanup_summary", return_value=fake_cleanup):
+            prompt = dispatcher.protocol_history_prompt_contract(Path("/workspace"))
+        self.assertIn("cleanup", prompt["actions"])
+        self.assertIn("cleanup", prompt["constraints"]["destructive_actions"])
+        self.assertEqual(prompt["constraints"]["cleanup"], fake_cleanup)
+        self.assertNotIn("cleanup", prompt["runs"][0]["actions"])
+
+    def test_history_cleanup_command_accepts_no_web_candidate_list_and_emits_counts(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        class Writer:
+            def __init__(self):
+                self.events = []
+            def emit(self, event_type, **payload):
+                self.events.append((event_type, payload))
+                return True
+
+        writer = Writer()
+        command = {
+            "command": "history_cleanup",
+            "payload": {"prompt_id": "prompt-1", "cleanup_id": "cleanup-1", "confirmed": True},
+        }
+        with mock.patch.object(dispatcher, "_protocol_history_cleanup_summary", return_value={
+            "eligible": 3, "idle_eligible": 1, "overflow_eligible": 2, "pinned": 1,
+            "meaningful": 32, "limit": 30,
+            "policy": "remove_unpinned_idle_then_oldest_unpinned_over_limit",
+        }), mock.patch.object(dispatcher, "_cleanup_history", return_value={"removed": 3, "pinned": 1, "remaining": 30}):
+            changed = dispatcher._protocol_history_cleanup(Path("/workspace"), writer, "prompt-1", True, command)
+        self.assertTrue(changed)
+        self.assertEqual(len(writer.events), 1)
+        event_type, payload = writer.events[0]
+        self.assertEqual(event_type, "history_cleanup_result")
+        self.assertEqual(payload["cleanup_id"], "cleanup-1")
+        self.assertEqual(payload["removed"], 3)
+        self.assertEqual(payload["pinned"], 1)
+        self.assertEqual(payload["remaining"], 30)
+        self.assertTrue(payload["history_changed"])
+
+        bad = json.loads(json.dumps(command))
+        bad["payload"]["run_ids"] = ["run-1"]
+        with self.assertRaises(ValueError):
+            dispatcher._protocol_history_cleanup(Path("/workspace"), Writer(), "prompt-1", True, bad)
+        stale = json.loads(json.dumps(command))
+        stale["payload"]["prompt_id"] = "stale"
+        with self.assertRaises(ValueError):
+            dispatcher._protocol_history_cleanup(Path("/workspace"), Writer(), "prompt-1", True, stale)
+        unconfirmed = json.loads(json.dumps(command))
+        unconfirmed["payload"]["confirmed"] = False
+        with self.assertRaises(ValueError):
+            dispatcher._protocol_history_cleanup(Path("/workspace"), Writer(), "prompt-1", True, unconfirmed)
+
+
 class ProtocolContractTests(unittest.TestCase):
     def setUp(self):
         self.base = Path(__file__).resolve().parent
@@ -1468,9 +1563,9 @@ class ProtocolContractTests(unittest.TestCase):
                     except OSError: pass
 
         self.assertEqual(seen["prompt"]["prompt_kind"], "history_action")
-        self.assertEqual(seen["prompt"]["actions"], ["detail", "pin", "unpin", "delete", "export"])
+        self.assertEqual(seen["prompt"]["actions"], ["detail", "pin", "unpin", "delete", "export", "cleanup"])
         self.assertTrue(seen["prompt"]["constraints"]["detail_read_only"])
-        self.assertEqual(seen["prompt"]["constraints"]["destructive_actions"], ["delete"])
+        self.assertEqual(seen["prompt"]["constraints"]["destructive_actions"], ["delete", "cleanup"])
         self.assertIn("pin", seen["prompt"]["runs"][0]["actions"])
         self.assertNotIn("unpin", seen["prompt"]["runs"][0]["actions"])
         events = [json.loads(line) for line in remaining.splitlines() if line.strip()]
