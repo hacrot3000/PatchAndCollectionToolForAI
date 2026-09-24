@@ -887,6 +887,143 @@ func buildPatchHistoryManageCommand(state session.ProtocolState, req patchHistor
 	return command, managementID, nil
 }
 
+type patchHistorySupportRequest struct {
+	PromptID  string `json:"prompt_id"`
+	RunID     string `json:"run_id"`
+	ItemIndex int    `json:"item_index"`
+}
+
+func newPatchHistorySupportID() (string, error) {
+	var raw [12]byte
+	if _, err := cryptorand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("generate Patch History support id: %w", err)
+	}
+	return hex.EncodeToString(raw[:]), nil
+}
+
+func buildPatchHistorySupportCommand(state session.ProtocolState, req patchHistorySupportRequest) ([]byte, string, error) {
+	if !state.CommandsEnabled {
+		return nil, "", fmt.Errorf("Patch protocol command channel is not enabled")
+	}
+	if len(state.Prompt) == 0 {
+		return nil, "", fmt.Errorf("Patch session has no active prompt")
+	}
+	var prompt struct {
+		Protocol   string `json:"protocol"`
+		Version    int    `json:"version"`
+		Type       string `json:"type"`
+		PromptID   string `json:"prompt_id"`
+		PromptKind string `json:"prompt_kind"`
+		Runs       []struct {
+			RunID string `json:"run_id"`
+		} `json:"runs"`
+		Constraints struct {
+			ItemActions []string `json:"item_actions"`
+		} `json:"constraints"`
+	}
+	if err := json.Unmarshal(state.Prompt, &prompt); err != nil {
+		return nil, "", fmt.Errorf("invalid active Patch History prompt: %w", err)
+	}
+	if prompt.Protocol != "taskdeck.patch" || prompt.Version != 1 || prompt.Type != "prompt" || prompt.PromptKind != "history_action" {
+		return nil, "", fmt.Errorf("unsupported active Patch History prompt")
+	}
+	req.PromptID = strings.TrimSpace(req.PromptID)
+	if req.PromptID == "" || req.PromptID != prompt.PromptID {
+		return nil, "", fmt.Errorf("History support does not match the active prompt")
+	}
+	supportAdvertised := false
+	for _, action := range prompt.Constraints.ItemActions {
+		if strings.EqualFold(strings.TrimSpace(action), "support") {
+			supportAdvertised = true
+			break
+		}
+	}
+	if !supportAdvertised {
+		return nil, "", fmt.Errorf("Patch History support is not advertised by the active prompt")
+	}
+	req.RunID = strings.TrimSpace(req.RunID)
+	if req.RunID == "" || len(req.RunID) > 128 {
+		return nil, "", fmt.Errorf("Patch History support run_id is invalid")
+	}
+	runAvailable := false
+	for _, row := range prompt.Runs {
+		if strings.TrimSpace(row.RunID) == req.RunID {
+			runAvailable = true
+			break
+		}
+	}
+	if !runAvailable {
+		return nil, "", fmt.Errorf("Patch History support run_id is not available in the active prompt")
+	}
+	if req.ItemIndex < 1 || req.ItemIndex > 512 {
+		return nil, "", fmt.Errorf("Patch History support item_index is invalid")
+	}
+	if len(state.HistoryReport) == 0 {
+		return nil, "", fmt.Errorf("Patch History support requires the current History report")
+	}
+	var report struct {
+		Protocol string `json:"protocol"`
+		Version  int    `json:"version"`
+		Type     string `json:"type"`
+		PromptID string `json:"prompt_id"`
+		Status   string `json:"status"`
+		Run      struct {
+			RunID string `json:"run_id"`
+		} `json:"run"`
+		Items []struct {
+			Index   int      `json:"index"`
+			Actions []string `json:"actions"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(state.HistoryReport, &report); err != nil {
+		return nil, "", fmt.Errorf("invalid current Patch History report: %w", err)
+	}
+	if report.Protocol != "taskdeck.patch" || report.Version != 1 || report.Type != "history_report" ||
+		strings.TrimSpace(report.PromptID) != req.PromptID ||
+		strings.ToLower(strings.TrimSpace(report.Status)) != "available" ||
+		strings.TrimSpace(report.Run.RunID) != req.RunID {
+		return nil, "", fmt.Errorf("Patch History support requires the current report for the requested run")
+	}
+	itemAllowed := false
+	for _, item := range report.Items {
+		if item.Index != req.ItemIndex {
+			continue
+		}
+		for _, action := range item.Actions {
+			if strings.EqualFold(strings.TrimSpace(action), "support") {
+				itemAllowed = true
+				break
+			}
+		}
+		break
+	}
+	if !itemAllowed {
+		return nil, "", fmt.Errorf("Patch History support item is not available in the current report")
+	}
+	supportID, err := newPatchHistorySupportID()
+	if err != nil {
+		return nil, "", err
+	}
+	seq := time.Now().UnixNano()
+	if seq < 1 {
+		seq = 1
+	}
+	command, err := json.Marshal(map[string]any{
+		"protocol": "taskdeck.patch", "version": 1, "type": "command", "seq": seq,
+		"command": "history_support",
+		"payload": map[string]any{
+			"prompt_id": req.PromptID,
+			"support_id": supportID,
+			"run_id": req.RunID,
+			"item_index": req.ItemIndex,
+		},
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	return command, supportID, nil
+}
+
 func workspaceTerminalExecution(workspace string) (tasks.Execution, error) {
 	candidates := []string{strings.TrimSpace(os.Getenv("SHELL")), "/bin/bash", "/bin/sh"}
 	seen := make(map[string]bool, len(candidates))
@@ -1148,6 +1285,43 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
+	case "history-support":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		provider, ok := s.Sessions.(session.ProtocolStateProvider)
+		if !ok {
+			http.Error(w, "Patch protocol state is unavailable", http.StatusConflict)
+			return
+		}
+		writer, ok := s.Sessions.(session.ProtocolCommandWriter)
+		if !ok {
+			http.Error(w, "Patch protocol commands are unavailable", http.StatusConflict)
+			return
+		}
+		state, err := provider.ProtocolState(id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		var req patchHistorySupportRequest
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			http.Error(w, "invalid Patch History support JSON", http.StatusBadRequest)
+			return
+		}
+		command, supportID, err := buildPatchHistorySupportCommand(state, req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		if err := writer.ProtocolCommand(id, command); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"accepted": true, "support_id": supportID})
 	case "history-manage":
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

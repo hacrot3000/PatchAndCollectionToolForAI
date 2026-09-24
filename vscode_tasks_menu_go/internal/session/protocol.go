@@ -88,6 +88,23 @@ type ProtocolHistoryManagementResultState struct {
 	Artifact       *ProtocolHistoryManagementArtifact `json:"artifact,omitempty"`
 }
 
+type ProtocolHistorySupportArtifact struct {
+	Label          string `json:"label"`
+	Path           string `json:"path"`
+	UploadRequired bool   `json:"upload_required,omitempty"`
+}
+
+type ProtocolHistorySupportResultState struct {
+	PromptID  string                          `json:"prompt_id"`
+	SupportID string                          `json:"support_id"`
+	RunID     string                          `json:"run_id"`
+	ItemIndex int                             `json:"item_index"`
+	ItemName  string                          `json:"item_name"`
+	Status    string                          `json:"status"`
+	Message   string                          `json:"message,omitempty"`
+	Artifact  *ProtocolHistorySupportArtifact `json:"artifact,omitempty"`
+}
+
 type ProtocolQueueMutationResultState struct {
 	PromptID   string `json:"prompt_id"`
 	MutationID string `json:"mutation_id"`
@@ -220,6 +237,7 @@ type ProtocolState struct {
 	ActionResult    *ProtocolActionResultState       `json:"action_result,omitempty"`
 	QueueMutation     *ProtocolQueueMutationResultState     `json:"queue_mutation_result,omitempty"`
 	HistoryManagement *ProtocolHistoryManagementResultState `json:"history_management_result,omitempty"`
+	HistorySupport    *ProtocolHistorySupportResultState    `json:"history_support_result,omitempty"`
 	Error             string                                `json:"error,omitempty"`
 }
 
@@ -676,6 +694,76 @@ func protocolActionResultEvent(data []byte) (ProtocolActionResultState, error) {
 		TimedOut: event.TimedOut, ElapsedSeconds: event.ElapsedSeconds, Output: event.Output, OutputTruncated: event.OutputTruncated,
 	}, nil
 }
+func protocolHistorySupportResultEvent(data []byte) (ProtocolHistorySupportResultState, error) {
+	var event struct {
+		Type      string `json:"type"`
+		PromptID  string `json:"prompt_id"`
+		SupportID string `json:"support_id"`
+		RunID     string `json:"run_id"`
+		ItemIndex int    `json:"item_index"`
+		ItemName  string `json:"item_name"`
+		Status    string `json:"status"`
+		Message   string `json:"message"`
+		Artifact  *struct {
+			Label          string `json:"label"`
+			Path           string `json:"path"`
+			UploadRequired bool   `json:"upload_required"`
+		} `json:"artifact"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return ProtocolHistorySupportResultState{}, fmt.Errorf("invalid Patch history_support_result JSON: %w", err)
+	}
+	if event.Type != "history_support_result" {
+		return ProtocolHistorySupportResultState{}, fmt.Errorf("unsupported Patch History support event")
+	}
+	event.PromptID = strings.TrimSpace(event.PromptID)
+	event.SupportID = strings.TrimSpace(event.SupportID)
+	event.RunID = strings.TrimSpace(event.RunID)
+	event.ItemName = strings.TrimSpace(event.ItemName)
+	event.Status = strings.ToUpper(strings.TrimSpace(event.Status))
+	event.Message = strings.TrimSpace(event.Message)
+	if event.PromptID == "" || len(event.PromptID) > 256 ||
+		event.SupportID == "" || len(event.SupportID) > 128 ||
+		event.RunID == "" || len(event.RunID) > 128 {
+		return ProtocolHistorySupportResultState{}, fmt.Errorf("Patch History support identity is invalid")
+	}
+	if event.ItemIndex < 1 || event.ItemIndex > 512 ||
+		event.ItemName == "" || len(event.ItemName) > 512 ||
+		(event.Status != "PASS" && event.Status != "FAIL") {
+		return ProtocolHistorySupportResultState{}, fmt.Errorf("Patch History support result is invalid")
+	}
+	if len([]byte(event.Message)) > 4096 || strings.ContainsRune(event.Message, '\x00') {
+		return ProtocolHistorySupportResultState{}, fmt.Errorf("Patch History support message is invalid")
+	}
+	out := ProtocolHistorySupportResultState{
+		PromptID: event.PromptID, SupportID: event.SupportID, RunID: event.RunID,
+		ItemIndex: event.ItemIndex, ItemName: event.ItemName, Status: event.Status, Message: event.Message,
+	}
+	if event.Status == "PASS" {
+		if event.Artifact == nil {
+			return ProtocolHistorySupportResultState{}, fmt.Errorf("Patch History support PASS requires an artifact")
+		}
+		label := strings.TrimSpace(event.Artifact.Label)
+		rel := strings.TrimSpace(event.Artifact.Path)
+		if label == "" || len(label) > 128 ||
+			rel == "" || len(rel) > 4096 || !strings.HasPrefix(rel, "artifacts/support/") ||
+			strings.ContainsRune(rel, '\x00') || strings.Contains(rel, "\\") {
+			return ProtocolHistorySupportResultState{}, fmt.Errorf("Patch History support artifact is invalid")
+		}
+		for _, part := range strings.Split(rel, "/") {
+			if part == "" || part == "." || part == ".." {
+				return ProtocolHistorySupportResultState{}, fmt.Errorf("Patch History support artifact path is invalid")
+			}
+		}
+		out.Artifact = &ProtocolHistorySupportArtifact{
+			Label: label, Path: rel, UploadRequired: event.Artifact.UploadRequired,
+		}
+	} else if event.Artifact != nil {
+		return ProtocolHistorySupportResultState{}, fmt.Errorf("Patch History support FAIL must not carry an artifact")
+	}
+	return out, nil
+}
+
 func protocolHistoryManagementResultEvent(data []byte) (ProtocolHistoryManagementResultState, error) {
 	var event struct {
 		Type           string `json:"type"`
@@ -912,6 +1000,25 @@ func protocolQueueDeletePromptID(data []byte) (string, bool, error) {
 	return command.Payload.PromptID, true, nil
 }
 
+func protocolHistorySupportPromptID(data []byte) (string, bool, error) {
+	var command struct {
+		Command string `json:"command"`
+		Payload struct {
+			PromptID string `json:"prompt_id"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &command); err != nil {
+		return "", false, fmt.Errorf("invalid Patch protocol command JSON: %w", err)
+	}
+	if command.Command != "history_support" {
+		return "", false, nil
+	}
+	if strings.TrimSpace(command.Payload.PromptID) == "" {
+		return "", true, fmt.Errorf("Patch history_support prompt_id is required")
+	}
+	return command.Payload.PromptID, true, nil
+}
+
 func protocolHistoryManagePromptID(data []byte) (string, bool, error) {
 	var command struct {
 		Command string `json:"command"`
@@ -1050,6 +1157,14 @@ func cloneProtocolState(in ProtocolState) ProtocolState {
 			historyManagement.Artifact = &artifact
 		}
 		out.HistoryManagement = &historyManagement
+	}
+	if in.HistorySupport != nil {
+		historySupport := *in.HistorySupport
+		if in.HistorySupport.Artifact != nil {
+			artifact := *in.HistorySupport.Artifact
+			historySupport.Artifact = &artifact
+		}
+		out.HistorySupport = &historySupport
 	}
 	return out
 }

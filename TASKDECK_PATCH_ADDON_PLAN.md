@@ -377,8 +377,9 @@ Every phase must preserve:
 | Phase 2H.5c native Health primary view | DONE | c0c2779b | Patch panel renders typed Health status/version/summary/checks/messages as the primary read-only view; Health PTY is attached inactive and remains explicit fallback/evidence. |
 | Phase 2H.5c PTY contract test correction | DONE | a7063eda | Updated five stale PTY-inactive mode assertions to include native Health; runtime behavior unchanged. |
 | Phase 2H.6a Python History support ZIP | DONE | b0a3a736 | Native History advertises item-level support capability, accepts prompt/run/index-bound history_support, reuses _create_report_support_bundle(), and emits only a verified project-relative support artifact. |
-| Phase 2H.6a Python test fixture correction | DONE | this commit | History support protocol tests now initialize the canonical _patch_lib import path before importing the dispatcher; runtime behavior unchanged. |
+| Phase 2H.6a Python test fixture correction | DONE | 96858f1c | History support protocol tests now initialize the canonical _patch_lib import path before importing the dispatcher; runtime behavior unchanged. |
+| Phase 2H.6b TaskDeck History support gate/state | DONE | this commit | TaskDeck validates/retains history_support_result, exposes a narrow prompt/run/current-report/item-bound endpoint, and rechecks prompt_id at the final FD4 write without consuming the History prompt. |
 
 ## Next action
 
-Continue **Phase 2H.6b**: validate/retain history_support_result in TaskDeck and expose a narrow prompt/run/item-bound endpoint with a final FD4 prompt gate.
+Continue **Phase 2H.6c**: add capability-driven Support action to native History report items, correlate support_id, surface the verified support ZIP, and keep the History prompt reusable for multiple items.

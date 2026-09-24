@@ -408,3 +408,84 @@ func TestPublicHistoryDetailEndpointDoesNotExposeRawCommand(t *testing.T) {
 		t.Fatal("TaskDeck public API must not expose the raw protocol command endpoint")
 	}
 }
+
+
+func historySupportState() session.ProtocolState {
+	return session.ProtocolState{
+		Available:true, Enabled:true, CommandsEnabled:true,
+		Prompt: json.RawMessage(`{"protocol":"taskdeck.patch","version":1,"type":"prompt","seq":11,"prompt_id":"history123","prompt_kind":"history_action","runs":[{"run_id":"run-1"},{"run_id":"run-2"}],"constraints":{"item_actions":["support"],"support_item_index_source":"history_report.items"}}`),
+		HistoryReport: json.RawMessage(`{"protocol":"taskdeck.patch","version":1,"type":"history_report","seq":12,"prompt_id":"history123","status":"available","run":{"run_id":"run-1"},"items":[{"index":1,"name":"first.zip","actions":["support"]},{"index":2,"name":"second.zip","actions":["support"]}]}`),
+	}
+}
+
+func TestBuildPatchHistorySupportCommandIsPromptRunReportItemBound(t *testing.T) {
+	data, supportID, err := buildPatchHistorySupportCommand(historySupportState(), patchHistorySupportRequest{
+		PromptID:"history123", RunID:"run-1", ItemIndex:2,
+	})
+	if err != nil { t.Fatal(err) }
+	if supportID == "" { t.Fatal("missing support id") }
+	var command map[string]any
+	if err := json.Unmarshal(data, &command); err != nil { t.Fatal(err) }
+	if command["command"] != "history_support" || command["type"] != "command" {
+		t.Fatalf("unexpected History support command: %#v", command)
+	}
+	payload := command["payload"].(map[string]any)
+	if payload["prompt_id"] != "history123" || payload["support_id"] != supportID ||
+		payload["run_id"] != "run-1" || int(payload["item_index"].(float64)) != 2 {
+		t.Fatalf("unexpected History support payload: %#v", payload)
+	}
+}
+
+func TestBuildPatchHistorySupportCommandRejectsStaleCapabilityRunAndReportMismatch(t *testing.T) {
+	base := historySupportState()
+	tests := []struct {
+		name string
+		state session.ProtocolState
+		req patchHistorySupportRequest
+	}{
+		{"stale prompt", base, patchHistorySupportRequest{PromptID:"stale",RunID:"run-1",ItemIndex:1}},
+		{"run not in prompt", base, patchHistorySupportRequest{PromptID:"history123",RunID:"missing",ItemIndex:1}},
+		{"index absent", base, patchHistorySupportRequest{PromptID:"history123",RunID:"run-1",ItemIndex:3}},
+	}
+	noCapability := base
+	noCapability.Prompt = json.RawMessage(`{"protocol":"taskdeck.patch","version":1,"type":"prompt","prompt_id":"history123","prompt_kind":"history_action","runs":[{"run_id":"run-1"}],"constraints":{"item_actions":[]}}`)
+	tests = append(tests, struct {
+		name string; state session.ProtocolState; req patchHistorySupportRequest
+	}{"support not advertised", noCapability, patchHistorySupportRequest{PromptID:"history123",RunID:"run-1",ItemIndex:1}})
+	staleReport := base
+	staleReport.HistoryReport = json.RawMessage(`{"protocol":"taskdeck.patch","version":1,"type":"history_report","prompt_id":"history123","status":"available","run":{"run_id":"run-2"},"items":[{"index":1,"actions":["support"]}]}`)
+	tests = append(tests, struct {
+		name string; state session.ProtocolState; req patchHistorySupportRequest
+	}{"wrong current report", staleReport, patchHistorySupportRequest{PromptID:"history123",RunID:"run-1",ItemIndex:1}})
+	noItemCapability := base
+	noItemCapability.HistoryReport = json.RawMessage(`{"protocol":"taskdeck.patch","version":1,"type":"history_report","prompt_id":"history123","status":"available","run":{"run_id":"run-1"},"items":[{"index":1,"actions":[]}]}`)
+	tests = append(tests, struct {
+		name string; state session.ProtocolState; req patchHistorySupportRequest
+	}{"item support not advertised", noItemCapability, patchHistorySupportRequest{PromptID:"history123",RunID:"run-1",ItemIndex:1}})
+	for _, tc := range tests {
+		if _, _, err := buildPatchHistorySupportCommand(tc.state, tc.req); err == nil {
+			t.Fatalf("%s: invalid History support accepted", tc.name)
+		}
+	}
+}
+
+func TestPublicHistorySupportEndpointIsNarrowAndPromptBound(t *testing.T) {
+	data, err := os.ReadFile("server.go")
+	if err != nil { t.Fatal(err) }
+	src := string(data)
+	for _, want := range []string{
+		`case "history-support":`,
+		"patchHistorySupportRequest",
+		"buildPatchHistorySupportCommand(state, req)",
+		`"support_id": supportID`,
+		"session.ProtocolCommandWriter",
+		"http.MaxBytesReader(w, r.Body, 16<<10)",
+		"ItemActions []string",
+		"Actions []string",
+	} {
+		if !strings.Contains(src, want) { t.Fatalf("public History support contract missing %q", want) }
+	}
+	if strings.Contains(src, `case "command":`) {
+		t.Fatal("TaskDeck public API must not expose the raw protocol command endpoint")
+	}
+}
