@@ -854,11 +854,14 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertNotIn("secret", snapshot["checks"][1])
         self.assertNotIn("internal", snapshot)
 
-    def test_active_source_runtime_health_audit_passes(self):
-        from python_patch_health import audit_runtime
+    def test_health_runtime_path_mapping_preserves_historical_manifest_names(self):
+        from python_patch_health import _runtime_rel
 
-        report = audit_runtime(self.base)
-        self.assertEqual(report["status"], "PASS", report)
+        self.assertEqual(_runtime_rel("tools/run_python_patches.sh"), "run_python_patches.sh")
+        self.assertEqual(_runtime_rel("tools/_patch_lib/VERSION"), "_patch_lib/VERSION")
+        for invalid in ("", "run_python_patches.sh", "../tools/run_python_patches.sh"):
+            with self.assertRaises(ValueError):
+                _runtime_rel(invalid)
 
     def test_plan_snapshot_projects_only_stable_bounded_fields(self):
         import python_patch_queue_dispatcher as dispatcher

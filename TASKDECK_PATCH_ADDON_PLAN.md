@@ -367,7 +367,8 @@ Every phase must preserve:
 | Phase 2H.4c native Plan primary view | DONE | c28758aa | Patch panel renders only validated plan_snapshot state as the primary Plan view; PTY is attached without activation and remains an explicit evidence/fallback surface. |
 | Phase 2H.4c export-contract correction | DONE | 7219ae94 | Updated the stale TaskMenuPatchPanel export assertion for the new Plan renderer helpers; runtime behavior unchanged. |
 | Phase 2H.5a1 bundled runtime Health audit | DONE | 8fc4cab9 | Health can audit a runtime directory directly, so TaskDeck's versioned patchtool/ bundle uses the same checksum/schema policy as historical <project>/tools; audit_tool(project_root) remains compatible. |
-| Phase 2H.5a2 Python Health projection | DONE | this commit | Added read-only health route over the active runtime, bounded health_snapshot projection and terminal printing from the same single audit report. |
+| Phase 2H.5a2 Python Health projection | DONE | ce534dc8 | Added read-only health route over the active runtime, bounded health_snapshot projection and terminal printing from the same single audit report. |
+| Phase 2H.5a2 source-fixture test correction | DONE | this commit | Replaced the invalid full-repository Health PASS assumption with focused runtime-path compatibility checks; runtime behavior unchanged. |
 
 ## Next action
 
