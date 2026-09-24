@@ -94,7 +94,12 @@ class HistorySupportProtocolTests(unittest.TestCase):
             "runs": [{"run_id": "run-1", "pinned": False}],
             "default_run_id": "run-1",
         }
-        with mock.patch.object(dispatcher, "protocol_history_view", return_value=fake_view):
+        with mock.patch.object(dispatcher, "protocol_history_view", return_value=fake_view), \
+             mock.patch.object(dispatcher, "_protocol_history_cleanup_summary", return_value={
+                 "eligible": 0, "idle_eligible": 0, "overflow_eligible": 0,
+                 "pinned": 0, "meaningful": 1, "limit": dispatcher.RUN_HISTORY_LIMIT,
+                 "policy": "remove_unpinned_idle_then_oldest_unpinned_over_limit",
+             }):
             prompt = dispatcher.protocol_history_prompt_contract(Path("/workspace"))
         self.assertIn("support", prompt["constraints"]["item_actions"])
         self.assertNotIn("support", prompt["actions"])

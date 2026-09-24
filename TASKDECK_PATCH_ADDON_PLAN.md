@@ -381,7 +381,8 @@ Every phase must preserve:
 | Phase 2H.6b TaskDeck History support gate/state | DONE | 37d216a7 | TaskDeck validates/retains history_support_result, exposes a narrow prompt/run/current-report/item-bound endpoint, and rechecks prompt_id at the final FD4 write without consuming the History prompt. |
 | Phase 2H.6c native History Support UI | DONE | ea288f4a | History report items show Support only from Python-advertised prompt+item capabilities; support_id/prompt/run/index correlation gates result display and verified ZIP download while the prompt remains reusable. |
 | Phase 2H.6c reusable-prompt test scope correction | DONE | 24165f45 | Scoped the Support prompt-reuse assertion to submitHistorySupport only; unrelated History management reset logic is no longer falsely matched. |
-| Phase 2H.6d1 Python History cleanup contract | DONE | this commit | Refactored terminal/native cleanup onto one Python plan, advertises top-level cleanup policy/counts, accepts no run list, requires explicit confirmation, and emits correlated cleanup result + refreshed History state. |
+| Phase 2H.6d1 Python History cleanup contract | DONE | c1eb7b78 | Refactored terminal/native cleanup onto one Python plan, advertises top-level cleanup policy/counts, accepts no run list, requires explicit confirmation, and emits correlated cleanup result + refreshed History state. |
+| Phase 2H.6d1 History support fixture correction | DONE | this commit | Updated the item-support projection fixture to mock the newly additive cleanup summary; runtime cleanup behavior is unchanged. |
 
 ## Next action
 
