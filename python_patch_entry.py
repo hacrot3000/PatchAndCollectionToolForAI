@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 MIN_PYTHON = (3, 10)
-DISPATCH_COMMANDS = {"report", "run", "resume", "plan"}
+DISPATCH_COMMANDS = {"report", "run", "resume", "plan", "health"}
 AUTOMATION_FLAGS = {
     "--all",
     "-a",
@@ -248,7 +248,7 @@ def _run_with_protocol(
     from python_patch_protocol import relay_event_fd
 
     route = classify_route(tool_args)
-    capabilities = ["events_v1", "queue_snapshot_v1", "child_event_relay_v1", "progress_v1", "item_actions_v1", "resume_snapshot_v1", "history_snapshot_v1", "history_report_v1"]
+    capabilities = ["events_v1", "queue_snapshot_v1", "child_event_relay_v1", "progress_v1", "item_actions_v1", "resume_snapshot_v1", "history_snapshot_v1", "history_report_v1", "health_snapshot_v1"]
     if command_fd is not None:
         capabilities.extend(["commands_v1", "history_detail_v1"])
     writer.emit(

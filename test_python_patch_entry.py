@@ -55,6 +55,14 @@ class RouteContractTests(unittest.TestCase):
         argv, _ = self.route("--patch", "patchs/example.zip", "--transaction=required")
         self.assertEqual(argv[-4:], ["--patch", "patchs/example.zip", "--transaction", "off"])
 
+    def test_health_routes_to_read_only_dispatcher(self):
+        argv, _ = self.route("health")
+        self.assertEqual(argv, [
+            "/opt/taskdeck/patchtool/_patch_lib/python_patch_queue_dispatcher.py",
+            "--project-root", self.root,
+            "health",
+        ])
+
     def test_utility_does_not_gain_execution_flags(self):
         argv, _ = self.route("health-search")
         self.assertEqual(argv, ["/opt/taskdeck/patchtool/_patch_lib/python_patch_runner.py", "health-search"])
@@ -814,12 +822,43 @@ class ProtocolContractTests(unittest.TestCase):
             (["report"], "report"),
             (["collect", "search"], "collect"),
             (["--all"], "run"),
+            (["health"], "health"),
             (["health-search"], "utility"),
             (["example.zip"], "direct"),
         ]
         for args, want in cases:
             self.assertEqual(entry.classify_route(args), want)
 
+
+    def test_health_snapshot_projection_is_bounded_and_stable(self):
+        from python_patch_health import protocol_health_snapshot
+
+        report = {
+            "status": "WARN",
+            "tool_version": "6.20.2",
+            "checks": [
+                {"name": "version", "status": "PASS", "detail": "6.20.2", "private": "hide"},
+                {"name": "sha256sums", "status": "FAIL", "entries": 12, "failures": 1, "secret": "hide"},
+                {"name": "python_cache_hygiene", "status": "WARN", "files": 2, "dirs": 1},
+            ],
+            "warnings": ["cache files present"],
+            "errors": ["checksum mismatch"],
+            "internal": {"never": "expose"},
+        }
+        snapshot = protocol_health_snapshot(report)
+        self.assertEqual(snapshot["status"], "WARN")
+        self.assertEqual(snapshot["tool_version"], "6.20.2")
+        self.assertEqual(snapshot["summary"], {"pass": 1, "warn": 1, "fail": 1, "total": 3})
+        self.assertEqual(snapshot["checks"][0], {"name": "version", "status": "PASS", "detail": "6.20.2"})
+        self.assertNotIn("private", snapshot["checks"][0])
+        self.assertNotIn("secret", snapshot["checks"][1])
+        self.assertNotIn("internal", snapshot)
+
+    def test_active_source_runtime_health_audit_passes(self):
+        from python_patch_health import audit_runtime
+
+        report = audit_runtime(self.base)
+        self.assertEqual(report["status"], "PASS", report)
 
     def test_plan_snapshot_projects_only_stable_bounded_fields(self):
         import python_patch_queue_dispatcher as dispatcher

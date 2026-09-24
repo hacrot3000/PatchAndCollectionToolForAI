@@ -283,8 +283,51 @@ def audit_tool(root: Path) -> dict[str, object]:
     return audit_runtime(root.resolve()/'tools')
 
 
-def print_health(root: Path, *, compact: bool=False) -> int:
-    report=audit_tool(root)
+def protocol_health_snapshot(report: dict[str, object]) -> dict[str, object]:
+    checks_in = report.get('checks') if isinstance(report.get('checks'), list) else []
+    checks: list[dict[str, object]] = []
+    allowed_extra = ('detail','entries','failures','missing_managed','stale_managed','files','dirs','actual')
+    for raw in checks_in[:512]:
+        if not isinstance(raw, dict):
+            continue
+        name = str(raw.get('name') or '').strip()[:512]
+        status = str(raw.get('status') or '').strip().upper()[:32]
+        if not name or status not in {'PASS','WARN','FAIL'}:
+            continue
+        row: dict[str, object] = {'name': name, 'status': status}
+        for key in allowed_extra:
+            value = raw.get(key)
+            if isinstance(value, bool):
+                row[key] = value
+            elif isinstance(value, int):
+                row[key] = max(0, value)
+            elif isinstance(value, str) and value:
+                row[key] = value.strip()[:512]
+        checks.append(row)
+    counts = {
+        'pass': sum(1 for row in checks if row.get('status') == 'PASS'),
+        'warn': sum(1 for row in checks if row.get('status') == 'WARN'),
+        'fail': sum(1 for row in checks if row.get('status') == 'FAIL'),
+    }
+    def messages(key: str) -> list[str]:
+        raw = report.get(key)
+        if not isinstance(raw, list):
+            return []
+        return [str(value).strip()[:1024] for value in raw[:256] if str(value).strip()]
+    status = str(report.get('status') or '').strip().upper()
+    if status not in {'PASS','WARN','FAIL'}:
+        status = 'FAIL'
+    return {
+        'status': status,
+        'tool_version': str(report.get('tool_version') or VERSION).strip()[:128],
+        'summary': {**counts, 'total': len(checks)},
+        'checks': checks,
+        'warnings': messages('warnings'),
+        'errors': messages('errors'),
+    }
+
+
+def print_health_report(report: dict[str, object], *, compact: bool=False) -> int:
     status=report['status']
     checks=report['checks']
     passed=sum(1 for c in checks if c.get('status')=='PASS')
@@ -308,6 +351,10 @@ def print_health(root: Path, *, compact: bool=False) -> int:
             print(f"  ERROR: {msg}")
         print("=== END TOOL HEALTH ===")
     return 0 if status in {'PASS','WARN'} else 2
+
+
+def print_health(root: Path, *, compact: bool=False) -> int:
+    return print_health_report(audit_tool(root), compact=compact)
 
 
 def run_search_health(root: Path, *, compact: bool = False) -> int:

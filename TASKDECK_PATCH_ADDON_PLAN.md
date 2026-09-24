@@ -227,7 +227,7 @@ Status: **IN PROGRESS**
     - [x] Phase 2H.4c native Plan web view + PTY fallback.
   - [ ] Phase 2H.5 Native Tool Health view/action.
     - [x] Phase 2H.5a1 runtime-directory Health audit compatibility for TaskDeck bundled patchtool/.
-    - [ ] Phase 2H.5a2 Python health route + bounded health_snapshot.
+    - [x] Phase 2H.5a2 Python health route + bounded health_snapshot.
     - [ ] Phase 2H.5b TaskDeck Health protocol state.
     - [ ] Phase 2H.5c native Health primary view + PTY fallback.
   - [ ] Phase 2H.6 Advanced History parity: support ZIP creation and explicit cleanup; report subset filters may remain pure presentation over projected rows.
@@ -366,8 +366,9 @@ Every phase must preserve:
 | Phase 2H.4b TaskDeck Plan protocol state | DONE | 98b56539 | TaskDeck validates Plan policy/items/conflicts/resources/previews into typed bounded state and drops unknown raw planner fields before exposing session state. |
 | Phase 2H.4c native Plan primary view | DONE | c28758aa | Patch panel renders only validated plan_snapshot state as the primary Plan view; PTY is attached without activation and remains an explicit evidence/fallback surface. |
 | Phase 2H.4c export-contract correction | DONE | 7219ae94 | Updated the stale TaskMenuPatchPanel export assertion for the new Plan renderer helpers; runtime behavior unchanged. |
-| Phase 2H.5a1 bundled runtime Health audit | DONE | this commit | Health can audit a runtime directory directly, so TaskDeck's versioned patchtool/ bundle uses the same checksum/schema policy as historical <project>/tools; audit_tool(project_root) remains compatible. |
+| Phase 2H.5a1 bundled runtime Health audit | DONE | 8fc4cab9 | Health can audit a runtime directory directly, so TaskDeck's versioned patchtool/ bundle uses the same checksum/schema policy as historical <project>/tools; audit_tool(project_root) remains compatible. |
+| Phase 2H.5a2 Python Health projection | DONE | this commit | Added read-only health route over the active runtime, bounded health_snapshot projection and terminal printing from the same single audit report. |
 
 ## Next action
 
-Continue **Phase 2H.5a2**: add a read-only Python health route that audits the active bundled runtime once, emits a bounded health_snapshot, and preserves the historical terminal Health report.
+Continue **Phase 2H.5b**: validate and retain typed bounded health_snapshot state in TaskDeck before exposing a native Health primary view.

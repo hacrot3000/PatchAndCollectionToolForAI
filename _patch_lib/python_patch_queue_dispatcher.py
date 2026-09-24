@@ -8590,7 +8590,7 @@ def main(argv=None):
     zero_argument_invocation = _is_zero_argument_dispatch(raw_argv)
     ap = argparse.ArgumentParser()
     ap.add_argument("--project-root", required=True)
-    ap.add_argument("command", nargs="?", choices=["run", "resume", "report", "plan"], default="run")
+    ap.add_argument("command", nargs="?", choices=["run", "resume", "report", "plan", "health"], default="run")
     ap.add_argument("--failure-policy", choices=["fail_fast", "continue_independent"])
     ap.add_argument("--transaction-policy", choices=["patch", "batch"])
     ap.add_argument("--resume-mode", choices=["all", "failed", "remaining"])
@@ -8626,6 +8626,12 @@ def main(argv=None):
                     file=sys.stderr,
                 )
                 return 2
+        if ns.command == "health":
+            from python_patch_health import audit_runtime, print_health_report, protocol_health_snapshot
+            runtime_dir = Path(__file__).resolve().parent.parent
+            report = audit_runtime(runtime_dir)
+            _emit_protocol_event("health_snapshot", **protocol_health_snapshot(report))
+            return print_health_report(report, compact=False)
         if ns.command == "plan":
             return _plan_queue(
                 root, export_recipe=ns.export_recipe,
