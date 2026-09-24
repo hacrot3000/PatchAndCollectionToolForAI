@@ -468,6 +468,101 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertIn('any(item.kind != "PATCH" for item in items)', block)
         self.assertIn('return None', block)
 
+    def test_protocol_queue_priority_uses_terminal_ordering_semantics(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        items = [
+            dispatcher.QueueItem("a.zip", "PATCH", "manifest"),
+            dispatcher.QueueItem("b.zip", "PATCH", "manifest"),
+            dispatcher.QueueItem("c.zip", "PATCH", "manifest"),
+            dispatcher.QueueItem("d.zip", "PATCH", "manifest"),
+        ]
+        selected = {0, 1, 2, 3}
+        priorities = dispatcher._protocol_selection_priorities(
+            items,
+            selected,
+            [
+                {"index": 3, "priority": 5},
+                {"index": 2, "priority": 0},
+                {"index": 1, "priority": 5},
+            ],
+        )
+        chosen = dispatcher._ordered_selection(items, selected, priorities)
+        self.assertEqual(priorities, {2: 5, 1: 0, 0: 5})
+        self.assertEqual([item.name for item in chosen], ["b.zip", "a.zip", "c.zip", "d.zip"])
+
+    def test_protocol_queue_priority_ties_keep_original_queue_order(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        items = [
+            dispatcher.QueueItem("a.zip", "PATCH", "manifest"),
+            dispatcher.QueueItem("b.zip", "PATCH", "manifest"),
+            dispatcher.QueueItem("c.zip", "PATCH", "manifest"),
+        ]
+        selected = {0, 1, 2}
+        priorities = dispatcher._protocol_selection_priorities(
+            items,
+            selected,
+            [{"index": 2, "priority": 3}, {"index": 1, "priority": 3}],
+        )
+        self.assertEqual(
+            [item.name for item in dispatcher._ordered_selection(items, selected, priorities)],
+            ["a.zip", "b.zip", "c.zip"],
+        )
+
+    def test_protocol_queue_priority_rejects_invalid_or_nonpatch_rows(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        items = [
+            dispatcher.QueueItem("a.zip", "PATCH", "manifest"),
+            dispatcher.QueueItem("collect.zip", "COLLECT", "request"),
+        ]
+        invalid = [
+            ({0}, [{"index": 2, "priority": 0}]),
+            ({0}, [{"index": 1, "priority": 10}]),
+            ({0}, [{"index": 1, "priority": True}]),
+            ({0}, [{"index": 1, "priority": 0}, {"index": 1, "priority": 1}]),
+            ({0}, [{"index": 1, "priority": 0, "extra": "x"}]),
+            ({1}, [{"index": 2, "priority": 0}]),
+        ]
+        for selected, priorities in invalid:
+            with self.subTest(selected=selected, priorities=priorities):
+                with self.assertRaises(ValueError):
+                    dispatcher._protocol_selection_priorities(items, selected, priorities)
+
+    def test_protocol_queue_no_priority_uses_canonical_queue_order(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        items = [
+            dispatcher.QueueItem("a.zip", "PATCH", "manifest"),
+            dispatcher.QueueItem("b.zip", "PATCH", "manifest"),
+            dispatcher.QueueItem("c.zip", "PATCH", "manifest"),
+        ]
+        selected = {0, 2}
+        priorities = dispatcher._protocol_selection_priorities(items, selected, None)
+        self.assertEqual(priorities, {})
+        self.assertEqual(
+            [item.name for item in dispatcher._ordered_selection(items, selected, priorities)],
+            ["a.zip", "c.zip"],
+        )
+
+    def test_protocol_queue_prompt_advertises_patch_priority_contract(self):
+        dispatcher = (self.base / "_patch_lib" / "python_patch_queue_dispatcher.py").read_text(encoding="utf-8")
+        start = dispatcher.index('def _protocol_queue_selection(')
+        end = dispatcher.index('\ndef select_items(', start)
+        block = dispatcher[start:end]
+        for want in (
+            '"patch_priority": {',
+            '"min": 0',
+            '"max": 9',
+            '"unprioritized_order": 10',
+            '"response_field": "priorities"',
+            'response.get("priorities")',
+            '_protocol_selection_priorities(items, selected_indexes',
+            '_ordered_selection(items, selected_indexes, priorities)',
+        ):
+            self.assertIn(want, block)
+
     def test_dispatcher_protocol_selector_absent_channels_falls_back(self):
         from python_patch_queue_dispatcher import QueueItem, _protocol_queue_selection
 

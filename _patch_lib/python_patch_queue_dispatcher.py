@@ -4760,6 +4760,37 @@ def _ordered_selection(items: list[QueueItem], selected: set[int], priorities: d
     return [items[i] for i in indexes]
 
 
+def _protocol_selection_priorities(
+    items: list[QueueItem],
+    selected: set[int],
+    raw_priorities: object,
+) -> dict[int, int]:
+    """Validate optional 1-based web priorities and return terminal-style 0-based priorities."""
+    if raw_priorities is None:
+        return {}
+    if not isinstance(raw_priorities, list) or len(raw_priorities) > len(items):
+        raise ValueError("queue_selection priorities must be a bounded array")
+    priorities: dict[int, int] = {}
+    for row in raw_priorities:
+        if not isinstance(row, dict) or set(row) != {"index", "priority"}:
+            raise ValueError("queue_selection priority rows require exactly index and priority")
+        raw_index = row.get("index")
+        raw_priority = row.get("priority")
+        if isinstance(raw_index, bool) or not isinstance(raw_index, int) or raw_index < 1 or raw_index > len(items):
+            raise ValueError("queue_selection priority index is out of range")
+        if isinstance(raw_priority, bool) or not isinstance(raw_priority, int) or raw_priority < 0 or raw_priority > 9:
+            raise ValueError("queue_selection PATCH priority must be an integer from 0 to 9")
+        index = raw_index - 1
+        if index not in selected:
+            raise ValueError("queue_selection priority index must also be selected")
+        if items[index].kind != "PATCH":
+            raise ValueError("queue_selection priorities apply only to PATCH items")
+        if index in priorities:
+            raise ValueError("queue_selection priority index is duplicated")
+        priorities[index] = raw_priority
+    return priorities
+
+
 def _render(items, cursor, selected, priorities, msg, prev, *, show_history: bool = False, failed_group_names: set[str] | None = None):
     terminal_width, terminal_height = _selector_term_size()
 
@@ -5360,6 +5391,12 @@ def _protocol_queue_selection(
                 "index_base": 1,
                 "collect_exclusive": True,
                 "collect_max": 1,
+                "patch_priority": {
+                    "min": 0,
+                    "max": 9,
+                    "unprioritized_order": 10,
+                    "response_field": "priorities",
+                },
             },
         )
 
@@ -5439,7 +5476,9 @@ def _protocol_queue_selection(
                 if raw not in seen:
                     normalized.append(raw)
                     seen.add(raw)
-            chosen = [items[index - 1] for index in normalized]
+            selected_indexes = {index - 1 for index in normalized}
+            priorities = _protocol_selection_priorities(items, selected_indexes, response.get("priorities"))
+            chosen = _ordered_selection(items, selected_indexes, priorities)
             contract_error = _selection_contract_error(chosen)
             if contract_error:
                 raise ProtocolCommandError(contract_error)
