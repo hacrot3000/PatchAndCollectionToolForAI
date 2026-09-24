@@ -206,7 +206,7 @@ Status: **IN PROGRESS**
 - [x] Native artifact actions.
 - [ ] Native Queue/History management parity.
   - [x] Phase 2G.1a Python-owned prompt-bound Queue delete command, mutation result and refreshed snapshot/prompt.
-  - [ ] Phase 2G.1b TaskDeck Queue delete state/gate/endpoint.
+  - [x] Phase 2G.1b TaskDeck Queue delete state/gate/endpoint.
   - [ ] Phase 2G.1c Queue delete web control.
   - [ ] Phase 2G.2 History Pin/Unpin/Delete/Export native management.
 - [ ] Remove default dependence on terminal rendering only after feature parity is proven.
@@ -296,8 +296,9 @@ Every phase must preserve:
 | Phase 2F.3 UI contract correction | DONE | 12337bc0 | Updated stale export expectations and scoped Queue/Failed anti-inference assertions so History may display Python-projected policy fields without permitting web-side policy decisions. |
 
 | Phase 2F.3 Queue/Failed assertion correction | DONE | 709dec39 | Narrowed the remaining file-global Queue anti-inference assertion so History may display Python-projected failure_policy without allowing Queue-side policy inference. |
-| Phase 2G.1a Python Queue delete command | DONE | this commit | Active Queue prompt advertises delete; Python reuses _delete_indexes(), emits queue_mutation_result, refreshes queue_snapshot and issues a new prompt after index-changing deletion. |
+| Phase 2G.1a Python Queue delete command | DONE | 52497bd8 | Active Queue prompt advertises delete; Python reuses _delete_indexes(), emits queue_mutation_result, refreshes queue_snapshot and issues a new prompt after index-changing deletion. |
+| Phase 2G.1b TaskDeck Queue delete state/gate | DONE | this commit | TaskDeck validates latest queue_mutation_result, exposes a narrow prompt/capability/index-bound /queue-delete endpoint, and rechecks prompt_id at the final FD4 write. |
 
 ## Next action
 
-Continue **Phase 2G.1b**: retain/validate queue_mutation_result in TaskDeck, add a prompt-bound queue-delete command gate and expose only a narrow /queue-delete endpoint.
+Continue **Phase 2G.1c**: add a confirmed Delete control to native Queue/Failed rows, correlate queue_mutation_result by mutation_id, and refresh only from Python's new snapshot/prompt.

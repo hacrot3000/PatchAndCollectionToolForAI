@@ -169,6 +169,7 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 	var artifactState ProtocolArtifactState
 	var progressState ProtocolProgressState
 	var actionResultState ProtocolActionResultState
+	var queueMutationState ProtocolQueueMutationResultState
 	if envelope.Type == "prompt" {
 		if _, err := protocolPromptID(raw); err != nil {
 			s.setProtocolError(err.Error())
@@ -207,6 +208,14 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 			return
 		}
 	}
+	if envelope.Type == "queue_mutation_result" {
+		var err error
+		queueMutationState, err = protocolQueueMutationResultEvent(raw)
+		if err != nil {
+			s.setProtocolError(err.Error())
+			return
+		}
+	}
 	s.mu.Lock()
 	s.protocol.EventCount++
 	s.protocol.LastSeq = envelope.Seq
@@ -218,6 +227,7 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 		s.protocol.Artifacts = nil
 		s.protocol.Progress = nil
 		s.protocol.ActionResult = nil
+		s.protocol.QueueMutation = nil
 		s.protocol.HistoryReport = nil
 	case "queue_snapshot":
 		s.protocol.QueueSnapshot = append(json.RawMessage(nil), raw...)
@@ -241,6 +251,9 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 	case "action_result":
 		actionResult := actionResultState
 		s.protocol.ActionResult = &actionResult
+	case "queue_mutation_result":
+		queueMutation := queueMutationState
+		s.protocol.QueueMutation = &queueMutation
 	case "run_finished":
 		s.protocol.Prompt = nil
 	}
@@ -373,6 +386,10 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 	if err != nil {
 		return err
 	}
+	queueDeletePromptID, isQueueDelete, err := protocolQueueDeletePromptID(line)
+	if err != nil {
+		return err
+	}
 	s, ok := m.Get(id)
 	if !ok {
 		return fmt.Errorf("session not found")
@@ -382,7 +399,7 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 	if s.meta.Status != "running" || s.protocolCommand == nil {
 		return fmt.Errorf("Patch protocol command channel is not enabled")
 	}
-	if isPromptResponse || isItemAction || isResumeAction || isHistoryDetail {
+	if isPromptResponse || isItemAction || isResumeAction || isHistoryDetail || isQueueDelete {
 		if len(s.protocol.Prompt) == 0 {
 			return fmt.Errorf("Patch session has no active prompt")
 		}
@@ -401,6 +418,9 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 		} else if isHistoryDetail {
 			boundPromptID = historyPromptID
 			commandName = "history_detail"
+		} else if isQueueDelete {
+			boundPromptID = queueDeletePromptID
+			commandName = "queue_delete"
 		}
 		if boundPromptID != activePromptID {
 			return fmt.Errorf("Patch %s does not match the active prompt", commandName)

@@ -462,6 +462,98 @@ func buildPatchItemActionCommand(state session.ProtocolState, req patchItemActio
 	return command, actionID, nil
 }
 
+type patchQueueDeleteRequest struct {
+	PromptID string `json:"prompt_id"`
+	Index    int    `json:"index"`
+}
+
+func newPatchQueueMutationID() (string, error) {
+	var raw [12]byte
+	if _, err := cryptorand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("generate Patch queue mutation id: %w", err)
+	}
+	return hex.EncodeToString(raw[:]), nil
+}
+
+func buildPatchQueueDeleteCommand(state session.ProtocolState, req patchQueueDeleteRequest) ([]byte, string, error) {
+	if !state.CommandsEnabled {
+		return nil, "", fmt.Errorf("Patch protocol command channel is not enabled")
+	}
+	if len(state.Prompt) == 0 {
+		return nil, "", fmt.Errorf("Patch session has no active prompt")
+	}
+	var prompt struct {
+		Protocol     string   `json:"protocol"`
+		Version      int      `json:"version"`
+		Type         string   `json:"type"`
+		PromptID     string   `json:"prompt_id"`
+		PromptKind   string   `json:"prompt_kind"`
+		QueueActions []string `json:"queue_actions"`
+		Items        []struct {
+			Index int    `json:"index"`
+			Name  string `json:"name"`
+			Kind  string `json:"kind"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(state.Prompt, &prompt); err != nil {
+		return nil, "", fmt.Errorf("invalid active Patch queue prompt: %w", err)
+	}
+	if prompt.Protocol != "taskdeck.patch" || prompt.Version != 1 || prompt.Type != "prompt" || prompt.PromptKind != "queue_selection" {
+		return nil, "", fmt.Errorf("unsupported active Patch queue prompt")
+	}
+	req.PromptID = strings.TrimSpace(req.PromptID)
+	if req.PromptID == "" || req.PromptID != prompt.PromptID {
+		return nil, "", fmt.Errorf("Queue delete does not match the active prompt")
+	}
+	deleteAdvertised := false
+	for _, value := range prompt.QueueActions {
+		if strings.EqualFold(strings.TrimSpace(value), "delete") {
+			deleteAdvertised = true
+			break
+		}
+	}
+	if !deleteAdvertised {
+		return nil, "", fmt.Errorf("Patch Queue delete is not available")
+	}
+	if req.Index < 1 {
+		return nil, "", fmt.Errorf("Patch Queue delete index is invalid")
+	}
+	itemAvailable := false
+	for _, item := range prompt.Items {
+		if item.Index == req.Index && strings.TrimSpace(item.Name) != "" && strings.TrimSpace(item.Kind) != "" {
+			itemAvailable = true
+			break
+		}
+	}
+	if !itemAvailable {
+		return nil, "", fmt.Errorf("Patch Queue delete index is unavailable: %d", req.Index)
+	}
+	mutationID, err := newPatchQueueMutationID()
+	if err != nil {
+		return nil, "", err
+	}
+	seq := time.Now().UnixNano()
+	if seq < 1 {
+		seq = 1
+	}
+	command, err := json.Marshal(map[string]any{
+		"protocol": "taskdeck.patch",
+		"version": 1,
+		"type": "command",
+		"seq": seq,
+		"command": "queue_delete",
+		"payload": map[string]any{
+			"prompt_id": req.PromptID,
+			"mutation_id": mutationID,
+			"index": req.Index,
+		},
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	return command, mutationID, nil
+}
+
 type patchResumeActionRequest struct {
 	PromptID     string `json:"prompt_id"`
 	Action       string `json:"action"`
@@ -827,6 +919,43 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"accepted": true, "action_id": actionID})
+	case "queue-delete":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		provider, ok := s.Sessions.(session.ProtocolStateProvider)
+		if !ok {
+			http.Error(w, "Patch protocol state is unavailable", http.StatusConflict)
+			return
+		}
+		writer, ok := s.Sessions.(session.ProtocolCommandWriter)
+		if !ok {
+			http.Error(w, "Patch protocol commands are unavailable", http.StatusConflict)
+			return
+		}
+		state, err := provider.ProtocolState(id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		var req patchQueueDeleteRequest
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			http.Error(w, "invalid Patch Queue delete JSON", http.StatusBadRequest)
+			return
+		}
+		command, mutationID, err := buildPatchQueueDeleteCommand(state, req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		if err := writer.ProtocolCommand(id, command); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"accepted": true, "mutation_id": mutationID})
 	case "resume-action":
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

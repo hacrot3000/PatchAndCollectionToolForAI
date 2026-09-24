@@ -64,6 +64,18 @@ type ProtocolActionResultState struct {
 	Output          string  `json:"output,omitempty"`
 	OutputTruncated bool    `json:"output_truncated,omitempty"`
 }
+type ProtocolQueueMutationResultState struct {
+	PromptID   string `json:"prompt_id"`
+	MutationID string `json:"mutation_id"`
+	Action     string `json:"action"`
+	Index      int    `json:"index"`
+	ItemName   string `json:"item_name"`
+	ItemKind   string `json:"item_kind"`
+	Status     string `json:"status"`
+	Message    string `json:"message,omitempty"`
+	Remaining  int    `json:"remaining"`
+}
+
 type ProtocolArtifactState struct {
 	ArtifactKind string `json:"artifact_kind"`
 	Path         string `json:"path"`
@@ -89,8 +101,9 @@ type ProtocolState struct {
 	Items           []ProtocolItemState     `json:"items,omitempty"`
 	Artifacts       []ProtocolArtifactState `json:"artifacts,omitempty"`
 	Progress        *ProtocolProgressState     `json:"progress,omitempty"`
-	ActionResult    *ProtocolActionResultState `json:"action_result,omitempty"`
-	Error           string                    `json:"error,omitempty"`
+	ActionResult    *ProtocolActionResultState       `json:"action_result,omitempty"`
+	QueueMutation   *ProtocolQueueMutationResultState `json:"queue_mutation_result,omitempty"`
+	Error           string                           `json:"error,omitempty"`
 }
 
 type ProtocolStateProvider interface {
@@ -300,6 +313,60 @@ func protocolActionResultEvent(data []byte) (ProtocolActionResultState, error) {
 		TimedOut: event.TimedOut, ElapsedSeconds: event.ElapsedSeconds, Output: event.Output, OutputTruncated: event.OutputTruncated,
 	}, nil
 }
+func protocolQueueMutationResultEvent(data []byte) (ProtocolQueueMutationResultState, error) {
+	var event struct {
+		Type       string `json:"type"`
+		PromptID   string `json:"prompt_id"`
+		MutationID string `json:"mutation_id"`
+		Action     string `json:"action"`
+		Index      int    `json:"index"`
+		ItemName   string `json:"item_name"`
+		ItemKind   string `json:"item_kind"`
+		Status     string `json:"status"`
+		Message    string `json:"message"`
+		Remaining  int    `json:"remaining"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return ProtocolQueueMutationResultState{}, fmt.Errorf("invalid Patch queue_mutation_result JSON: %w", err)
+	}
+	if event.Type != "queue_mutation_result" {
+		return ProtocolQueueMutationResultState{}, fmt.Errorf("unsupported Patch queue mutation event")
+	}
+	event.PromptID = strings.TrimSpace(event.PromptID)
+	event.MutationID = strings.TrimSpace(event.MutationID)
+	event.Action = strings.ToLower(strings.TrimSpace(event.Action))
+	event.ItemName = strings.TrimSpace(event.ItemName)
+	event.ItemKind = strings.TrimSpace(event.ItemKind)
+	event.Status = strings.ToUpper(strings.TrimSpace(event.Status))
+	event.Message = strings.TrimSpace(event.Message)
+	if event.PromptID == "" || len(event.PromptID) > 256 || event.MutationID == "" || len(event.MutationID) > 128 {
+		return ProtocolQueueMutationResultState{}, fmt.Errorf("Patch queue mutation identity is invalid")
+	}
+	if event.Action != "delete" {
+		return ProtocolQueueMutationResultState{}, fmt.Errorf("Patch queue mutation action is unsupported")
+	}
+	if event.Index < 1 || event.Index > maxProtocolItems || event.ItemName == "" || len(event.ItemName) > 1024 || event.ItemKind == "" || len(event.ItemKind) > 128 {
+		return ProtocolQueueMutationResultState{}, fmt.Errorf("Patch queue mutation item identity is invalid")
+	}
+	if event.Status != "PASS" && event.Status != "FAIL" {
+		return ProtocolQueueMutationResultState{}, fmt.Errorf("Patch queue mutation status is invalid")
+	}
+	if event.Remaining < 0 || event.Remaining > maxProtocolItems || len([]byte(event.Message)) > 4096 || strings.ContainsRune(event.Message, '\x00') {
+		return ProtocolQueueMutationResultState{}, fmt.Errorf("Patch queue mutation result payload is invalid")
+	}
+	return ProtocolQueueMutationResultState{
+		PromptID: event.PromptID,
+		MutationID: event.MutationID,
+		Action: event.Action,
+		Index: event.Index,
+		ItemName: event.ItemName,
+		ItemKind: event.ItemKind,
+		Status: event.Status,
+		Message: event.Message,
+		Remaining: event.Remaining,
+	}, nil
+}
+
 func protocolArtifactEvent(data []byte) (ProtocolArtifactState, error) {
 	var event struct {
 		Type         string `json:"type"`
@@ -395,6 +462,25 @@ func protocolItemActionPromptID(data []byte) (string, bool, error) {
 	}
 	return command.Payload.PromptID, true, nil
 }
+func protocolQueueDeletePromptID(data []byte) (string, bool, error) {
+	var command struct {
+		Command string `json:"command"`
+		Payload struct {
+			PromptID string `json:"prompt_id"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &command); err != nil {
+		return "", false, fmt.Errorf("invalid Patch protocol command JSON: %w", err)
+	}
+	if command.Command != "queue_delete" {
+		return "", false, nil
+	}
+	if strings.TrimSpace(command.Payload.PromptID) == "" {
+		return "", true, fmt.Errorf("Patch queue_delete prompt_id is required")
+	}
+	return command.Payload.PromptID, true, nil
+}
+
 func protocolHistoryDetailPromptID(data []byte) (string, bool, error) {
 	var command struct {
 		Command string `json:"command"`
@@ -469,6 +555,10 @@ func cloneProtocolState(in ProtocolState) ProtocolState {
 	if in.ActionResult != nil {
 		actionResult := *in.ActionResult
 		out.ActionResult = &actionResult
+	}
+	if in.QueueMutation != nil {
+		queueMutation := *in.QueueMutation
+		out.QueueMutation = &queueMutation
 	}
 	return out
 }

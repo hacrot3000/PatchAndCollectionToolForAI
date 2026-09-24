@@ -14,7 +14,7 @@ func queueSelectionState() session.ProtocolState {
 		Available: true,
 		Enabled: true,
 		CommandsEnabled: true,
-		Prompt: json.RawMessage(`{"protocol":"taskdeck.patch","version":1,"type":"prompt","seq":7,"prompt_id":"abc123","prompt_kind":"queue_selection","actions":["select","cancel"],"item_actions":["inspect","preview","validate"],"items":[{"index":1,"name":"a.zip","kind":"PATCH"},{"index":2,"name":"b.zip","kind":"COLLECT"}]}`),
+		Prompt: json.RawMessage(`{"protocol":"taskdeck.patch","version":1,"type":"prompt","seq":7,"prompt_id":"abc123","prompt_kind":"queue_selection","actions":["select","cancel"],"item_actions":["inspect","preview","validate"],"queue_actions":["delete"],"items":[{"index":1,"name":"a.zip","kind":"PATCH"},{"index":2,"name":"b.zip","kind":"COLLECT"}]}`),
 	}
 }
 
@@ -131,6 +131,56 @@ func TestPublicItemActionEndpointDoesNotExposeRawCommand(t *testing.T) {
 	src := string(data)
 	for _, want := range []string{`case "item-action":`, "patchItemActionRequest", "buildPatchItemActionCommand(state, req)", `"action_id": actionID`, "session.ProtocolCommandWriter", "http.MaxBytesReader(w, r.Body, 16<<10)"} {
 		if !strings.Contains(src, want) { t.Fatalf("public item action contract missing %q", want) }
+	}
+	if strings.Contains(src, `case "command":`) { t.Fatal("TaskDeck public API must not expose the raw protocol command endpoint") }
+}
+
+
+func TestBuildPatchQueueDeleteCommandIsNarrowPromptBoundAndAdvertised(t *testing.T) {
+	data, mutationID, err := buildPatchQueueDeleteCommand(queueSelectionState(), patchQueueDeleteRequest{PromptID:"abc123", Index:2})
+	if err != nil { t.Fatal(err) }
+	if mutationID == "" { t.Fatal("missing mutation id") }
+	var command map[string]any
+	if err := json.Unmarshal(data, &command); err != nil { t.Fatal(err) }
+	if command["command"] != "queue_delete" || command["type"] != "command" {
+		t.Fatalf("unexpected Queue delete command: %#v", command)
+	}
+	payload := command["payload"].(map[string]any)
+	if payload["prompt_id"] != "abc123" || payload["mutation_id"] != mutationID || int(payload["index"].(float64)) != 2 {
+		t.Fatalf("unexpected Queue delete payload: %#v", payload)
+	}
+}
+
+func TestBuildPatchQueueDeleteCommandRejectsStaleUnavailableAndUnadvertised(t *testing.T) {
+	state := queueSelectionState()
+	for _, req := range []patchQueueDeleteRequest{
+		{PromptID:"stale", Index:1},
+		{PromptID:"abc123", Index:0},
+		{PromptID:"abc123", Index:3},
+	} {
+		if _, _, err := buildPatchQueueDeleteCommand(state, req); err == nil {
+			t.Fatalf("invalid Queue delete accepted: %#v", req)
+		}
+	}
+	state.Prompt = json.RawMessage(`{"protocol":"taskdeck.patch","version":1,"type":"prompt","prompt_id":"abc123","prompt_kind":"queue_selection","items":[{"index":1,"name":"a.zip","kind":"PATCH"}]}`)
+	if _, _, err := buildPatchQueueDeleteCommand(state, patchQueueDeleteRequest{PromptID:"abc123", Index:1}); err == nil {
+		t.Fatal("Queue delete accepted without advertised queue_actions capability")
+	}
+}
+
+func TestPublicQueueDeleteEndpointDoesNotExposeRawCommand(t *testing.T) {
+	data, err := os.ReadFile("server.go")
+	if err != nil { t.Fatal(err) }
+	src := string(data)
+	for _, want := range []string{
+		`case "queue-delete":`,
+		"patchQueueDeleteRequest",
+		"buildPatchQueueDeleteCommand(state, req)",
+		`"mutation_id": mutationID`,
+		"session.ProtocolCommandWriter",
+		"http.MaxBytesReader(w, r.Body, 16<<10)",
+	} {
+		if !strings.Contains(src, want) { t.Fatalf("public Queue delete contract missing %q", want) }
 	}
 	if strings.Contains(src, `case "command":`) { t.Fatal("TaskDeck public API must not expose the raw protocol command endpoint") }
 }
