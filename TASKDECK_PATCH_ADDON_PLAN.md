@@ -218,9 +218,9 @@ Status: **IN PROGRESS**
     - [x] Phase 2H.2a Python queue_selection priority contract and canonical ordering.
     - [x] Phase 2H.2b TaskDeck prompt-response priority validation/gate.
     - [x] Phase 2H.2c Web priority 0-9 + select-all/none controls.
-  - [ ] Phase 2H.3 Queue discovery parity: Python-owned filter/search fields and native filtering for large queues.
+  - [x] Phase 2H.3 Queue discovery parity: Python-owned filter/search fields and native filtering for large queues.
     - [x] Phase 2H.3a bounded Python-owned queue search projection.
-    - [ ] Phase 2H.3b native Queue/Failed search UI.
+    - [x] Phase 2H.3b native Queue/Failed search UI.
   - [ ] Phase 2H.4 Native Plan projection/view; Plan must no longer require the PTY as its primary renderer.
   - [ ] Phase 2H.5 Native Tool Health view/action.
   - [ ] Phase 2H.6 Advanced History parity: support ZIP creation and explicit cleanup; report subset filters may remain pure presentation over projected rows.
@@ -351,8 +351,9 @@ Every phase must preserve:
 | Phase 2H.2b TaskDeck Queue priority gate | DONE | 600dd341 | Narrow prompt-response accepts priorities only when the active Python prompt advertises a safe 0-9 capability; selected-index/PATCH-only/duplicate/range checks run before the existing prompt-bound FD4 gate. |
 | Phase 2H.2c native Queue priority UI | DONE | e75a2444 | Queue PATCH rows expose capability-driven priority 0-9 plus Select all PATCH/Clear selection; the browser submits priority metadata only and Python remains the sole execution-order authority. |
 | Phase 2H.2c UI export-contract correction | DONE | 4a13cb85 | Updated the stale TaskMenuPatchPanel export assertion for the new priority helpers; runtime behavior unchanged. |
-| Phase 2H.3a Python queue search projection | DONE | this commit | Queue snapshot now carries bounded casefold-normalized name/id/summary/target search text produced in Python; terminal kind/detail search remains unchanged and no ZIP/manifest internals are exposed to web. |
+| Phase 2H.3a Python queue search projection | DONE | 21c5af26 | Queue snapshot now carries bounded casefold-normalized name/id/summary/target search text produced in Python; terminal kind/detail search remains unchanged and no ZIP/manifest internals are exposed to web. |
+| Phase 2H.3b native Queue/Failed search UI | DONE | this commit | Queue/Failed filtering uses only Python-projected search.text; the same query hides nonmatching native selection rows without browser ZIP/manifest inspection or execution-policy inference. |
 
 ## Next action
 
-Continue **Phase 2H.3b**: add native Queue/Failed filtering over queue_snapshot.items[].search.text only, with no browser-side ZIP/manifest inspection and no mutation of Python selection policy.
+Continue **Phase 2H.4a**: define a bounded Python-owned native Plan projection covering execution order, resource estimates, static conflicts and preview-plan summaries without exposing internal planner/history schemas.

@@ -19,6 +19,9 @@ function installPatchPanel(){
   .task-patch-summary-status{opacity:.7}
   .task-patch-summary-tabs{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:0 0 7px}
   .task-patch-summary-tab{padding:5px 7px;font-size:11px;text-align:center}
+  .task-patch-summary-search{display:flex;gap:5px;margin:0 0 7px}
+  .task-patch-summary-search input{min-width:0;flex:1;padding:5px 7px;font-size:11px}
+  .task-patch-summary-search button{padding:5px 7px;font-size:10px}
   .task-patch-summary-tab.active{background:#283342;border-color:#526278;color:#fff}
   .task-patch-summary-counts{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 6px}
   .task-patch-summary-count{padding:2px 5px;border:1px solid #343a44;border-radius:999px}
@@ -213,11 +216,15 @@ function installPatchPanel(){
   const queueTab=document.createElement('button');queueTab.type='button';queueTab.className='task-patch-summary-tab active';queueTab.textContent='Queue';
   const failedTab=document.createElement('button');failedTab.type='button';failedTab.className='task-patch-summary-tab';failedTab.textContent='Failed';
   summaryTabs.append(queueTab,failedTab);
+  const summarySearch=document.createElement('div');summarySearch.className='task-patch-summary-search';
+  const summarySearchInput=document.createElement('input');summarySearchInput.type='search';summarySearchInput.placeholder='Search name / id / summary / target';summarySearchInput.autocomplete='off';summarySearchInput.spellcheck=false;summarySearchInput.setAttribute('aria-label','Filter Patch queue');
+  const summarySearchClear=document.createElement('button');summarySearchClear.type='button';summarySearchClear.textContent='Clear';summarySearchClear.title='Clear queue search';
+  summarySearch.append(summarySearchInput,summarySearchClear);
   const summaryCounts=document.createElement('div');summaryCounts.className='task-patch-summary-counts';
   const summaryList=document.createElement('div');summaryList.className='task-patch-summary-list';
   const summaryWarnings=document.createElement('div');summaryWarnings.className='task-patch-summary-warning';
   summaryHead.append(summaryTitle,summaryStatus);
-  summary.append(summaryHead,summaryTabs,summaryCounts,summaryList,summaryWarnings);
+  summary.append(summaryHead,summaryTabs,summarySearch,summaryCounts,summaryList,summaryWarnings);
 
   const actionResultBox=document.createElement('div');actionResultBox.className='task-patch-action-result';actionResultBox.hidden=true;
   const actionResultHead=document.createElement('div');actionResultHead.className='task-patch-action-result-head';
@@ -306,6 +313,7 @@ function installPatchPanel(){
   let protocolPollGeneration=0;
   let latestQueueSnapshot=null;
   let queueSummaryView='queue';
+  let queueSearchQuery='';
   let activeQueuePrompt=null;
   let latestResumeSnapshot=null;
   let activeResumePrompt=null;
@@ -349,6 +357,10 @@ function installPatchPanel(){
 
   function resetSummary(status='Not loaded'){
     latestQueueSnapshot=null;
+    queueSearchQuery='';
+    summarySearchInput.value='';
+    summarySearchInput.disabled=true;
+    summarySearchClear.disabled=true;
     summaryStatus.textContent=status;
     queueTab.textContent='Queue';
     failedTab.textContent='Failed';
@@ -988,6 +1000,7 @@ function installPatchPanel(){
     if(!window.confirm(`Delete ${name} from patchs/? This cannot be undone.`))return null;
     const promptID=String(activeQueuePrompt.prompt_id||'');
     queueMutationBusy=true;
+    applyQueuePromptSearch();
     renderQueueRows();
     refreshActionDisabledState();
     try{
@@ -1047,6 +1060,60 @@ function installPatchPanel(){
       refreshActionDisabledState();
     }
   }
+  function normalizeQueueSearchQuery(value){
+    return String(value||'').trim().toLocaleLowerCase();
+  }
+
+  function queueItemSearchText(item){
+    return String(item?.search?.text||'');
+  }
+
+  function queueItemMatchesSearch(item){
+    if(!queueSearchQuery)return true;
+    const text=queueItemSearchText(item);
+    return Boolean(text)&&text.includes(queueSearchQuery);
+  }
+
+  function queueSearchAvailable(snapshot){
+    const items=Array.isArray(snapshot?.items)?snapshot.items:[];
+    return items.length===0||items.some(item=>Boolean(queueItemSearchText(item)));
+  }
+
+  function snapshotItemForPromptItem(promptItem){
+    const rows=Array.isArray(latestQueueSnapshot?.items)?latestQueueSnapshot.items:[];
+    const name=String(promptItem?.name||'');
+    const kind=String(promptItem?.kind||'');
+    const group=String(promptItem?.group||'');
+    return rows.find(item=>
+      String(item?.name||'')===name&&
+      String(item?.kind||'')===kind&&
+      (!group||!item?.group||String(item.group)===group)
+    )||null;
+  }
+
+  function applyQueuePromptSearch(){
+    if(!activeQueuePrompt)return;
+    const promptRows=new Map((Array.isArray(activeQueuePrompt.items)?activeQueuePrompt.items:[]).map(item=>[Number(item?.index),item]));
+    for(const row of promptItems.querySelectorAll('.task-patch-prompt-item[data-patch-prompt-index]')){
+      const index=Number(row.dataset.patchPromptIndex);
+      const promptItem=promptRows.get(index);
+      const snapshotItem=snapshotItemForPromptItem(promptItem);
+      row.hidden=Boolean(queueSearchQuery)&&(!snapshotItem||!queueItemMatchesSearch(snapshotItem));
+      if(row.hidden){
+        const input=row.querySelector('input[type="checkbox"][data-patch-index]');
+        if(input)input.checked=false;
+        clearPromptPriority(index);
+      }
+    }
+  }
+
+  function setQueueSearchQuery(value){
+    queueSearchQuery=normalizeQueueSearchQuery(value);
+    summarySearchInput.value=String(value||'');
+    renderQueueRows();
+    applyQueuePromptSearch();
+  }
+
   function queueViewItems(snapshot,view){
     const items=Array.isArray(snapshot?.items)?snapshot.items:[];
     const hasGroups=items.some(item=>item?.group==='new'||item?.group==='failed');
@@ -1060,7 +1127,8 @@ function installPatchPanel(){
       summaryList.replaceChildren();
       return;
     }
-    const items=queueViewItems(snapshot,queueSummaryView);
+    const groupItems=queueViewItems(snapshot,queueSummaryView);
+    const items=groupItems.filter(queueItemMatchesSearch);
     const groupCounts=snapshot?.group_counts&&typeof snapshot.group_counts==='object'?snapshot.group_counts:{};
     const allItems=Array.isArray(snapshot?.items)?snapshot.items:[];
     const hasGroups=allItems.some(item=>item?.group==='new'||item?.group==='failed');
@@ -1071,7 +1139,9 @@ function installPatchPanel(){
     queueTab.classList.toggle('active',queueSummaryView==='queue');
     failedTab.classList.toggle('active',queueSummaryView==='failed');
     summaryTitle.textContent=queueSummaryView==='failed'?'Failed':'Queue';
-    summaryStatus.textContent=items.length?`${items.length} item(s)`:'Empty';
+    summaryStatus.textContent=queueSearchQuery
+      ? `${items.length}/${groupItems.length} match`
+      : (items.length?`${items.length} item(s)`:'Empty');
     summaryList.replaceChildren();
     const visible=items.slice(0,50);
     for(const item of visible){
@@ -1116,7 +1186,9 @@ function installPatchPanel(){
     }
     if(!visible.length){
       const empty=document.createElement('div');empty.className='task-patch-summary-empty';
-      empty.textContent=queueSummaryView==='failed'?'No unresolved failed item':'No new queue item';
+      empty.textContent=queueSearchQuery
+        ? 'No item matches search'
+        : (queueSummaryView==='failed'?'No unresolved failed item':'No new queue item');
       summaryList.append(empty);
     }else if(items.length>visible.length){
       const more=document.createElement('div');more.className='task-patch-summary-warning';more.textContent=`+${items.length-visible.length} more item(s)`;
@@ -1141,7 +1213,18 @@ function installPatchPanel(){
     }
     const warnings=Array.isArray(latestQueueSnapshot?.warnings)?latestQueueSnapshot.warnings:[];
     summaryWarnings.textContent=warnings.length?`${warnings.length} warning(s): ${warnings.slice(0,3).join(' | ')}`:'';
+    const searchReady=queueSearchAvailable(latestQueueSnapshot);
+    summarySearchInput.disabled=!searchReady;
+    summarySearchClear.disabled=!searchReady;
+    if(!searchReady){
+      queueSearchQuery='';
+      summarySearchInput.value='';
+      summarySearchInput.placeholder='Search unavailable — update Patch runtime';
+    }else{
+      summarySearchInput.placeholder='Search name / id / summary / target';
+    }
     renderQueueRows();
+    applyQueuePromptSearch();
   }
 
   function renderProgress(progress){
@@ -1236,6 +1319,7 @@ function installPatchPanel(){
 
   function selectedPromptIndexes(){
     return [...promptItems.querySelectorAll('input[type="checkbox"]:checked')]
+      .filter(input=>!input.closest('.task-patch-prompt-item')?.hidden)
       .map(input=>Number(input.dataset.patchIndex))
       .filter(index=>Number.isInteger(index)&&index>0);
   }
@@ -1264,7 +1348,7 @@ function installPatchPanel(){
       const index=Number(select.dataset.patchPriorityIndex);
       const priority=Number(select.value);
       const input=promptInputByIndex(index);
-      if(input?.checked&&Number.isInteger(index)&&index>0&&Number.isInteger(priority)&&priority>=0&&priority<=9){
+      if(input?.checked&&!input.closest('.task-patch-prompt-item')?.hidden&&Number.isInteger(index)&&index>0&&Number.isInteger(priority)&&priority>=0&&priority<=9){
         rows.push({index,priority});
       }
     }
@@ -1274,10 +1358,13 @@ function installPatchPanel(){
   function selectAllPromptPatches(prompt){
     for(const input of promptItems.querySelectorAll('input[type="checkbox"]')){
       const kind=String(input.dataset.patchKind||'').toUpperCase();
-      input.checked=kind==='PATCH';
+      const hidden=Boolean(input.closest('.task-patch-prompt-item')?.hidden);
+      input.checked=!hidden&&kind==='PATCH';
       clearPromptPriority(Number(input.dataset.patchIndex));
     }
-    promptNote.textContent='All PATCH items selected in queue order. Priorities cleared.';
+    promptNote.textContent=queueSearchQuery
+      ? 'All visible PATCH items selected. Priorities cleared.'
+      : 'All PATCH items selected in queue order. Priorities cleared.';
   }
 
   function clearPromptSelection(){
@@ -1357,7 +1444,7 @@ function installPatchPanel(){
     for(const item of items){
       const index=Number(item?.index);
       if(!Number.isInteger(index)||index<1)continue;
-      const row=document.createElement('div');row.className='task-patch-prompt-item';
+      const row=document.createElement('div');row.className='task-patch-prompt-item';row.dataset.patchPromptIndex=String(index);
       const input=document.createElement('input');input.type='checkbox';input.dataset.patchIndex=String(index);input.dataset.patchKind=String(item?.kind||'');
       input.checked=initial.has(index);
       input.onchange=()=>applyPromptConstraints(input,prompt);
@@ -1530,6 +1617,8 @@ function installPatchPanel(){
   actionResultClose.onclick=clearActionResult;
   queueTab.onclick=()=>setQueueSummaryView('queue');
   failedTab.onclick=()=>setQueueSummaryView('failed');
+  summarySearchInput.oninput=()=>setQueueSearchQuery(summarySearchInput.value);
+  summarySearchClear.onclick=()=>{setQueueSearchQuery('');summarySearchInput.focus();};
   closeButton.onclick=close;
   globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;

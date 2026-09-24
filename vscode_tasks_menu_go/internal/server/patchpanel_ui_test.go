@@ -90,6 +90,14 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"const visible=items.slice(0,50)",
 		"setQueueSummaryView('queue')",
 		"setQueueSummaryView('failed')",
+		"task-patch-summary-search",
+		"Search name / id / summary / target",
+		"String(item?.search?.text||'')",
+		"groupItems.filter(queueItemMatchesSearch)",
+		"applyQueuePromptSearch()",
+		"row.hidden=Boolean(queueSearchQuery)",
+		"summarySearchInput.oninput",
+		"No item matches search",
 		"item?.group==='failed'",
 		"item?.group==='new'",
 		"failure?.diagnosis_kind",
@@ -498,6 +506,39 @@ func TestPatchPanelQueuePrioritiesAreCapabilityDrivenAndNeverOrderInWeb(t *testi
 	} {
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("web must not own Patch execution ordering: found %q", forbidden)
+		}
+	}
+}
+
+
+func TestPatchPanelQueueSearchUsesOnlyPythonProjection(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	start := strings.Index(js, "function queueItemMatchesSearch(item)")
+	end := strings.Index(js, "function queueSearchAvailable", start)
+	if start < 0 || end < 0 || end <= start {
+		t.Fatal("queue search matcher block not found")
+	}
+	block := js[start:end]
+	if !strings.Contains(block, "queueItemSearchText(item)") {
+		t.Fatal("queue search matcher must use Python-projected search text")
+	}
+	for _, forbidden := range []string{"item?.name", "item?.detail", "item?.kind", "failure", "manifest", ".zip"} {
+		if strings.Contains(block, forbidden) {
+			t.Fatalf("queue search matcher must not infer/search browser fields directly: found %q", forbidden)
+		}
+	}
+	for _, want := range []string{
+		"function queueItemSearchText(item)",
+		"String(item?.search?.text||'')",
+		"function snapshotItemForPromptItem(promptItem)",
+		"applyQueuePromptSearch()",
+		"input.checked=false",
+		"clearPromptPriority(index)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Queue search missing contract %q", want)
 		}
 	}
 }
