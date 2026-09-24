@@ -352,7 +352,8 @@ Every phase must preserve:
 | Phase 2H.2c native Queue priority UI | DONE | e75a2444 | Queue PATCH rows expose capability-driven priority 0-9 plus Select all PATCH/Clear selection; the browser submits priority metadata only and Python remains the sole execution-order authority. |
 | Phase 2H.2c UI export-contract correction | DONE | 4a13cb85 | Updated the stale TaskMenuPatchPanel export assertion for the new priority helpers; runtime behavior unchanged. |
 | Phase 2H.3a Python queue search projection | DONE | 21c5af26 | Queue snapshot now carries bounded casefold-normalized name/id/summary/target search text produced in Python; terminal kind/detail search remains unchanged and no ZIP/manifest internals are exposed to web. |
-| Phase 2H.3b native Queue/Failed search UI | DONE | this commit | Queue/Failed filtering uses only Python-projected search.text; the same query hides nonmatching native selection rows without browser ZIP/manifest inspection or execution-policy inference. |
+| Phase 2H.3b native Queue/Failed search UI | DONE | 07921b90 | Queue/Failed filtering uses only Python-projected search.text; the same query hides nonmatching native selection rows without browser ZIP/manifest inspection or execution-policy inference. |
+| Phase 2H.3b Go test offset correction | DONE | this commit | Fixed the search contract test to use Go's two-argument strings.Index API; runtime behavior unchanged. |
 
 ## Next action
 

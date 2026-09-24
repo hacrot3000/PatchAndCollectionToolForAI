@@ -516,11 +516,15 @@ func TestPatchPanelQueueSearchUsesOnlyPythonProjection(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	js := string(data)
 	start := strings.Index(js, "function queueItemMatchesSearch(item)")
-	end := strings.Index(js, "function queueSearchAvailable", start)
-	if start < 0 || end < 0 || end <= start {
+	if start < 0 {
 		t.Fatal("queue search matcher block not found")
 	}
-	block := js[start:end]
+	rest := js[start:]
+	relEnd := strings.Index(rest, "function queueSearchAvailable")
+	if relEnd < 0 {
+		t.Fatal("queue search matcher end not found")
+	}
+	block := rest[:relEnd]
 	if !strings.Contains(block, "queueItemSearchText(item)") {
 		t.Fatal("queue search matcher must use Python-projected search text")
 	}
