@@ -448,7 +448,7 @@ Every phase must preserve:
 | Phase 2H.6d1 History support fixture correction | DONE | cc440b98 | Updated the item-support projection fixture to mock the newly additive cleanup summary; runtime cleanup behavior is unchanged. |
 | Phase 2H.6d2 TaskDeck History cleanup gate/state | DONE | c445aa26 | TaskDeck validates/retains correlated cleanup results, exposes only prompt_id+confirmed, generates cleanup_id server-side and rechecks the active prompt at final FD4 write; no run/candidate list is accepted. |
 | Phase 2H.6d3 native History Cleanup UI | DONE | 64dbe8e8 | History shows cleanup only from Python-advertised capability/policy/counts, requires explicit confirmation, sends no run/candidate list, correlates cleanup_id+prompt_id and redraws only from refreshed Python snapshot/prompt. |
-| Phase 2H.7 final native cutover parity audit | DONE | this commit | Final MUST-native audit PASS; adds a consolidated regression gate, documents intentional CLI-only surfaces, and confirms PTY is already secondary by default for native flows. No runtime behavior change. |
+| Phase 2H.7 final native cutover parity audit | DONE | ff72e1f1 | Final MUST-native audit PASS; adds a consolidated regression gate, documents intentional CLI-only surfaces, and confirms PTY is already secondary by default for native flows. No runtime behavior change. |
 
 ## Next action
 
