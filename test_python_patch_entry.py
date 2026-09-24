@@ -77,6 +77,10 @@ class RouteContractTests(unittest.TestCase):
 
 
 class HistorySupportProtocolTests(unittest.TestCase):
+    def setUp(self):
+        self.base = Path(__file__).resolve().parent
+        entry._prepare_environment(self.base)
+
     def test_history_projection_advertises_item_support_only_at_item_level(self):
         import python_patch_queue_dispatcher as dispatcher
 
