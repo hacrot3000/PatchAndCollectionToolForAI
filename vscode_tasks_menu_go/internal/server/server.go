@@ -732,6 +732,113 @@ func buildPatchHistoryDetailCommand(state session.ProtocolState, req patchHistor
 	})
 }
 
+type patchHistoryManageRequest struct {
+	PromptID  string `json:"prompt_id"`
+	Action    string `json:"action"`
+	RunID     string `json:"run_id"`
+	Confirmed bool   `json:"confirmed,omitempty"`
+}
+
+func newPatchHistoryManagementID() (string, error) {
+	var raw [12]byte
+	if _, err := cryptorand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("generate Patch History management id: %w", err)
+	}
+	return hex.EncodeToString(raw[:]), nil
+}
+
+func buildPatchHistoryManageCommand(state session.ProtocolState, req patchHistoryManageRequest) ([]byte, string, error) {
+	if !state.CommandsEnabled {
+		return nil, "", fmt.Errorf("Patch protocol command channel is not enabled")
+	}
+	if len(state.Prompt) == 0 {
+		return nil, "", fmt.Errorf("Patch session has no active prompt")
+	}
+	var prompt struct {
+		Protocol   string   `json:"protocol"`
+		Version    int      `json:"version"`
+		Type       string   `json:"type"`
+		PromptID   string   `json:"prompt_id"`
+		PromptKind string   `json:"prompt_kind"`
+		Actions    []string `json:"actions"`
+		Runs       []struct {
+			RunID   string   `json:"run_id"`
+			Actions []string `json:"actions"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal(state.Prompt, &prompt); err != nil {
+		return nil, "", fmt.Errorf("invalid active Patch History prompt: %w", err)
+	}
+	if prompt.Protocol != "taskdeck.patch" || prompt.Version != 1 || prompt.Type != "prompt" || prompt.PromptKind != "history_action" {
+		return nil, "", fmt.Errorf("unsupported active Patch History prompt")
+	}
+	req.PromptID = strings.TrimSpace(req.PromptID)
+	if req.PromptID == "" || req.PromptID != prompt.PromptID {
+		return nil, "", fmt.Errorf("History management does not match the active prompt")
+	}
+	action := strings.ToLower(strings.TrimSpace(req.Action))
+	switch action {
+	case "pin", "unpin", "delete", "export":
+	default:
+		return nil, "", fmt.Errorf("unsupported Patch History management action %q", action)
+	}
+	topLevel := false
+	for _, value := range prompt.Actions {
+		if strings.EqualFold(strings.TrimSpace(value), action) {
+			topLevel = true
+			break
+		}
+	}
+	if !topLevel {
+		return nil, "", fmt.Errorf("Patch History management action %q is not advertised", action)
+	}
+	req.RunID = strings.TrimSpace(req.RunID)
+	if req.RunID == "" || len(req.RunID) > 128 {
+		return nil, "", fmt.Errorf("Patch History run_id is invalid")
+	}
+	runAllowed := false
+	for _, row := range prompt.Runs {
+		if strings.TrimSpace(row.RunID) != req.RunID {
+			continue
+		}
+		for _, value := range row.Actions {
+			if strings.EqualFold(strings.TrimSpace(value), action) {
+				runAllowed = true
+				break
+			}
+		}
+		break
+	}
+	if !runAllowed {
+		return nil, "", fmt.Errorf("Patch History action %q is unavailable for run %s", action, req.RunID)
+	}
+	if action == "delete" && !req.Confirmed {
+		return nil, "", fmt.Errorf("Patch History delete requires explicit confirmation")
+	}
+	managementID, err := newPatchHistoryManagementID()
+	if err != nil {
+		return nil, "", err
+	}
+	seq := time.Now().UnixNano()
+	if seq < 1 {
+		seq = 1
+	}
+	command, err := json.Marshal(map[string]any{
+		"protocol": "taskdeck.patch", "version": 1, "type": "command", "seq": seq,
+		"command": "history_manage",
+		"payload": map[string]any{
+			"prompt_id": req.PromptID,
+			"management_id": managementID,
+			"action": action,
+			"run_id": req.RunID,
+		},
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	return command, managementID, nil
+}
+
 func workspaceTerminalExecution(workspace string) (tasks.Execution, error) {
 	candidates := []string{strings.TrimSpace(os.Getenv("SHELL")), "/bin/bash", "/bin/sh"}
 	seen := make(map[string]bool, len(candidates))
@@ -993,6 +1100,43 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
+	case "history-manage":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		provider, ok := s.Sessions.(session.ProtocolStateProvider)
+		if !ok {
+			http.Error(w, "Patch protocol state is unavailable", http.StatusConflict)
+			return
+		}
+		writer, ok := s.Sessions.(session.ProtocolCommandWriter)
+		if !ok {
+			http.Error(w, "Patch protocol commands are unavailable", http.StatusConflict)
+			return
+		}
+		state, err := provider.ProtocolState(id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		var req patchHistoryManageRequest
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			http.Error(w, "invalid Patch History management JSON", http.StatusBadRequest)
+			return
+		}
+		command, managementID, err := buildPatchHistoryManageCommand(state, req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		if err := writer.ProtocolCommand(id, command); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"accepted": true, "management_id": managementID})
 	case "history-detail":
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

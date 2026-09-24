@@ -23,7 +23,7 @@ func historyActionState() session.ProtocolState {
 		Available: true,
 		Enabled: true,
 		CommandsEnabled: true,
-		Prompt: json.RawMessage(`{"protocol":"taskdeck.patch","version":1,"type":"prompt","seq":11,"prompt_id":"history123","prompt_kind":"history_action","actions":["detail"],"runs":[{"run_id":"run-1"},{"run_id":"run-2"}],"constraints":{"read_only":true}}`),
+		Prompt: json.RawMessage(`{"protocol":"taskdeck.patch","version":1,"type":"prompt","seq":11,"prompt_id":"history123","prompt_kind":"history_action","actions":["detail","pin","unpin","delete","export"],"runs":[{"run_id":"run-1","actions":["detail","pin","delete","export"]},{"run_id":"run-2","actions":["detail","unpin","delete","export"]}],"constraints":{"detail_read_only":true,"destructive_actions":["delete"]}}`),
 	}
 }
 
@@ -248,6 +248,64 @@ func TestPublicResumeActionEndpointDoesNotExposeRawCommand(t *testing.T) {
 	if strings.Contains(src, `case "command":`) {
 		t.Fatal("TaskDeck public API must not expose the raw protocol command endpoint")
 	}
+}
+
+
+func TestBuildPatchHistoryManageCommandIsPromptRunCapabilityBound(t *testing.T) {
+	data, managementID, err := buildPatchHistoryManageCommand(historyActionState(), patchHistoryManageRequest{
+		PromptID:"history123", Action:"pin", RunID:"run-1",
+	})
+	if err != nil { t.Fatal(err) }
+	if managementID == "" { t.Fatal("missing management id") }
+	var command map[string]any
+	if err := json.Unmarshal(data, &command); err != nil { t.Fatal(err) }
+	if command["command"] != "history_manage" || command["type"] != "command" {
+		t.Fatalf("unexpected History management command: %#v", command)
+	}
+	payload := command["payload"].(map[string]any)
+	if payload["prompt_id"] != "history123" || payload["action"] != "pin" || payload["run_id"] != "run-1" || payload["management_id"] != managementID {
+		t.Fatalf("unexpected History management payload: %#v", payload)
+	}
+}
+
+func TestBuildPatchHistoryManageCommandRejectsStaleCapabilityMismatchAndUnconfirmedDelete(t *testing.T) {
+	state := historyActionState()
+	tests := []patchHistoryManageRequest{
+		{PromptID:"stale", Action:"pin", RunID:"run-1"},
+		{PromptID:"history123", Action:"other", RunID:"run-1"},
+		{PromptID:"history123", Action:"unpin", RunID:"run-1"},
+		{PromptID:"history123", Action:"pin", RunID:"run-2"},
+		{PromptID:"history123", Action:"export", RunID:"missing"},
+		{PromptID:"history123", Action:"delete", RunID:"run-1", Confirmed:false},
+	}
+	for _, req := range tests {
+		if _, _, err := buildPatchHistoryManageCommand(state, req); err == nil {
+			t.Fatalf("invalid History management accepted: %#v", req)
+		}
+	}
+	if _, _, err := buildPatchHistoryManageCommand(state, patchHistoryManageRequest{
+		PromptID:"history123", Action:"delete", RunID:"run-1", Confirmed:true,
+	}); err != nil {
+		t.Fatalf("confirmed advertised delete rejected: %v", err)
+	}
+}
+
+func TestPublicHistoryManageEndpointDoesNotExposeRawCommand(t *testing.T) {
+	data, err := os.ReadFile("server.go")
+	if err != nil { t.Fatal(err) }
+	src := string(data)
+	for _, want := range []string{
+		`case "history-manage":`,
+		"patchHistoryManageRequest",
+		"buildPatchHistoryManageCommand(state, req)",
+		`"management_id": managementID`,
+		"session.ProtocolCommandWriter",
+		"http.MaxBytesReader(w, r.Body, 16<<10)",
+		"delete requires explicit confirmation",
+	} {
+		if !strings.Contains(src, want) { t.Fatalf("public History management contract missing %q", want) }
+	}
+	if strings.Contains(src, `case "command":`) { t.Fatal("TaskDeck public API must not expose the raw protocol command endpoint") }
 }
 
 

@@ -210,7 +210,7 @@ Status: **IN PROGRESS**
   - [x] Phase 2G.1c Queue delete web control.
   - [ ] Phase 2G.2 History Pin/Unpin/Delete/Export native management.
     - [x] Phase 2G.2a Python-owned prompt-bound management commands/results and refreshed History prompt.
-    - [ ] Phase 2G.2b TaskDeck management state/gate/endpoint.
+    - [x] Phase 2G.2b TaskDeck management state/gate/endpoint.
     - [ ] Phase 2G.2c History management web controls.
 - [ ] Remove default dependence on terminal rendering only after feature parity is proven.
 
@@ -302,8 +302,9 @@ Every phase must preserve:
 | Phase 2G.1a Python Queue delete command | DONE | 52497bd8 | Active Queue prompt advertises delete; Python reuses _delete_indexes(), emits queue_mutation_result, refreshes queue_snapshot and issues a new prompt after index-changing deletion. |
 | Phase 2G.1b TaskDeck Queue delete state/gate | DONE | 1441835c | TaskDeck validates latest queue_mutation_result, exposes a narrow prompt/capability/index-bound /queue-delete endpoint, and rechecks prompt_id at the final FD4 write. |
 | Phase 2G.1c native Queue delete UI | DONE | 07eab1fd | Queue/Failed rows expose confirmed Delete only when Python advertises it; UI correlates mutation_id and redraws only after Python emits refreshed snapshot/prompt. |
-| Phase 2G.2a Python History management | DONE | this commit | Native History prompt advertises per-run Pin/Unpin/Delete/Export; Python reuses existing terminal helpers, emits correlated bounded results, refreshes snapshot/prompt after mutations, and verifies export artifact paths. |
+| Phase 2G.2a Python History management | DONE | 468156a4 | Native History prompt advertises per-run Pin/Unpin/Delete/Export; Python reuses existing terminal helpers, emits correlated bounded results, refreshes snapshot/prompt after mutations, and verifies export artifact paths. |
+| Phase 2G.2b TaskDeck History management gate | DONE | this commit | TaskDeck validates correlated History management results/artifacts, exposes a narrow prompt/run/capability-bound endpoint, requires explicit delete confirmation, and rechecks prompt_id at final FD4 write. |
 
 ## Next action
 
-Continue **Phase 2G.2b**: validate/retain history_management_result in TaskDeck, add a prompt/run/capability-bound management command gate and expose a narrow History management endpoint.
+Continue **Phase 2G.2c**: add native Pin/Unpin/Delete/Export controls to History, correlate management_id, refresh mutations only from Python's new snapshot/prompt, and surface verified export downloads.
