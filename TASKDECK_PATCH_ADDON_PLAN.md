@@ -213,6 +213,42 @@ Status: **IN PROGRESS**
     - [x] Phase 2G.2b TaskDeck management state/gate/endpoint.
     - [x] Phase 2G.2c History management web controls.
 - [ ] Remove default dependence on terminal rendering only after feature parity is proven.
+  - [x] Phase 2H.1 native/terminal feature-parity audit and cutover gate definition.
+  - [ ] Phase 2H.2 Queue execution-order parity: native PATCH priority 0-9 plus select-all/none convenience without changing Python ordering policy.
+  - [ ] Phase 2H.3 Queue discovery parity: Python-owned filter/search fields and native filtering for large queues.
+  - [ ] Phase 2H.4 Native Plan projection/view; Plan must no longer require the PTY as its primary renderer.
+  - [ ] Phase 2H.5 Native Tool Health view/action.
+  - [ ] Phase 2H.6 Advanced History parity: support ZIP creation and explicit cleanup; report subset filters may remain pure presentation over projected rows.
+  - [ ] Phase 2H.7 final parity regression gate before changing any default PTY activation/fallback behavior.
+
+## Phase 2H.1 — Native cutover parity audit
+
+The main Queue/Failed, Inspect/Preview/Validate, normal Run, Running/progress/artifacts,
+Smart Resume, History/report detail and Queue/History delete-management paths are now native.
+The terminal remains an explicit fallback/evidence surface and must continue to work.
+
+| Surface | Current web state | Cutover requirement |
+| --- | --- | --- |
+| Queue/Failed list + select/cancel | Native | PASS |
+| PATCH priority 0-9 execution order | Terminal only | **MUST native** — changes execution ordering semantics |
+| Select all PATCH / clear selection | Manual checkbox only | Native convenience together with priority |
+| Queue filter by name/id/summary/target | Terminal only | **MUST native** for large queues; Python must own searchable projection |
+| Inspect / Preview / Validate | Native | PASS |
+| Queue Delete | Native | PASS |
+| Tool Health / self-audit | Terminal only | **SHOULD native** before cutover |
+| Plan / resource/static-conflict/preview plan | PTY primary | **MUST native** before cutover |
+| Running lifecycle / COLLECT progress / artifacts | Native, PTY evidence available | PASS |
+| Smart Resume/recovery | Native | PASS |
+| History list/detail/files/source diff | Native | PASS |
+| History Pin/Unpin/Delete/Export | Native | PASS |
+| History support ZIP creation | Terminal only | **MUST native** because it is a recovery/support artifact workflow |
+| History explicit cleanup | Terminal only; automatic retention cleanup still exists | **SHOULD native** |
+| History PASS/problem/changed subsets | Terminal presentation shortcut | MAY be web-only filtering over projected rows |
+| Direct CLI/automation/advanced utility commands | Terminal/CLI | Intentionally remain terminal; not a web cutover blocker |
+
+Cutover rule: TaskDeck must not stop activating or retaining PTY fallback merely because the
+main happy path is native. Default PTY dependence changes only after every **MUST native** row
+above has a structured Python-owned contract, TaskDeck validation/gate and web regression test.
 
 ## Non-regression gates
 
@@ -304,8 +340,9 @@ Every phase must preserve:
 | Phase 2G.1c native Queue delete UI | DONE | 07eab1fd | Queue/Failed rows expose confirmed Delete only when Python advertises it; UI correlates mutation_id and redraws only after Python emits refreshed snapshot/prompt. |
 | Phase 2G.2a Python History management | DONE | 468156a4 | Native History prompt advertises per-run Pin/Unpin/Delete/Export; Python reuses existing terminal helpers, emits correlated bounded results, refreshes snapshot/prompt after mutations, and verifies export artifact paths. |
 | Phase 2G.2b TaskDeck History management gate | DONE | d6c8a3f7 | TaskDeck validates correlated History management results/artifacts, exposes a narrow prompt/run/capability-bound endpoint, requires explicit delete confirmation, and rechecks prompt_id at final FD4 write. |
-| Phase 2G.2c native History management UI | DONE | this commit | History rows render only Python-advertised Pin/Unpin/Delete/Export controls, correlate management_id, wait for refreshed Python snapshot/prompt after mutations, confirm delete and surface verified export artifacts. |
+| Phase 2G.2c native History management UI | DONE | 9197dc42 | History rows render only Python-advertised Pin/Unpin/Delete/Export controls, correlate management_id, wait for refreshed Python snapshot/prompt after mutations, confirm delete and surface verified export artifacts. |
+| Phase 2H.1 native cutover parity audit | DONE | this commit | Recorded the remaining terminal-only parity gaps and a fail-closed cutover rule; no runtime behavior changed. |
 
 ## Next action
 
-Continue **Phase 2H.1**: audit native feature parity and enumerate the remaining terminal-only surfaces before changing any default PTY behavior.
+Continue **Phase 2H.2a**: extend the Python-owned queue_selection prompt/response contract with optional PATCH priorities 0-9 while preserving the historical _ordered_selection semantics and COLLECT exclusivity.
