@@ -4205,21 +4205,100 @@ def protocol_history_report_view(root: Path, run_id: str) -> dict[str, object]:
 
 
 def protocol_history_prompt_contract(root: Path) -> dict[str, object]:
-    """Return the read-only native History prompt from the stable list projection."""
+    """Return the bounded native History prompt and per-run capabilities."""
     view = protocol_history_view(root)
-    runs = list(view.get("runs") or []) if isinstance(view.get("runs"), list) else []
+    source_runs = list(view.get("runs") or []) if isinstance(view.get("runs"), list) else []
+    runs: list[dict[str, object]] = []
+    for raw in source_runs:
+        if not isinstance(raw, dict):
+            continue
+        row = dict(raw)
+        pinned = row.get("pinned") is True
+        row["actions"] = ["detail", "unpin" if pinned else "pin", "delete", "export"]
+        runs.append(row)
     return {
         "prompt_kind": "history_action",
         "title": "Patch Tool History",
-        "actions": ["detail"] if runs else [],
+        "actions": ["detail", "pin", "unpin", "delete", "export"] if runs else [],
         "runs": runs,
         "default_run_id": _protocol_history_text(view.get("default_run_id") or "", 128),
-        "constraints": {"read_only": True, "run_id_source": "runs", "max_runs": 100},
+        "constraints": {
+            "detail_read_only": True,
+            "run_id_source": "runs",
+            "max_runs": 100,
+            "destructive_actions": ["delete"],
+        },
     }
 
 
+def _protocol_history_export_artifact(root: Path, run_id: str) -> dict[str, object] | None:
+    try:
+        final = _artifact_subdir(root, "exports") / f"PTV_RUN_{_safe_slug(run_id,64)}.zip"
+        rel = _protocol_project_file_rel(root, str(final))
+    except (OSError, ValueError, QueueSafetyError):
+        return None
+    if rel is None:
+        return None
+    return {"label": "History export", "path": rel, "upload_required": False}
+
+
+def _protocol_history_management(
+    root: Path,
+    writer,
+    prompt_id: str,
+    allowed_actions_by_run: dict[str, set[str]],
+    command: dict[str, object],
+) -> tuple[bool, bool]:
+    """Execute one existing History management helper.
+
+    Returns (handled, history_changed). Export is handled but does not change
+    the History list; Pin/Unpin/Delete refresh the projection and prompt.
+    """
+    payload = command.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError("history_manage payload must be an object")
+    if payload.get("prompt_id") != prompt_id:
+        raise ValueError("history_manage prompt_id does not match the active prompt")
+    management_id = str(payload.get("management_id") or "").strip()
+    if not management_id or len(management_id) > 128:
+        raise ValueError("history_manage management_id is required and must be <=128 characters")
+    action = str(payload.get("action") or "").strip().lower()
+    run_id = str(payload.get("run_id") or "").strip()
+    if action not in {"pin", "unpin", "delete", "export"}:
+        raise ValueError("history_manage action is unsupported")
+    if not run_id or len(run_id) > 128 or action not in allowed_actions_by_run.get(run_id, set()):
+        raise ValueError("history_manage action/run_id is not available in the active History prompt")
+
+    if action == "pin":
+        rc = _pin_history(root, run_id, True)
+    elif action == "unpin":
+        rc = _pin_history(root, run_id, False)
+    elif action == "delete":
+        rc = _delete_history(root, run_id)
+    else:
+        rc = _export_history(root, run_id)
+
+    passed = int(rc) == 0
+    changed = passed and action in {"pin", "unpin", "delete"}
+    artifact = _protocol_history_export_artifact(root, run_id) if passed and action == "export" else None
+    verb = {"pin": "Pinned", "unpin": "Unpinned", "delete": "Deleted", "export": "Exported"}[action]
+    writer.emit(
+        "history_management_result",
+        prompt_id=prompt_id,
+        management_id=management_id,
+        action=action,
+        run_id=run_id,
+        status="PASS" if passed else "FAIL",
+        rc=int(rc),
+        history_changed=changed,
+        message=_protocol_history_text(f"{verb} {run_id}" if passed else f"History {action} failed for {run_id}", 512),
+        **({"artifact": artifact} if artifact is not None else {}),
+    )
+    return True, changed
+
+
 def _protocol_history_detail_session(root: Path) -> bool:
-    """Serve native read-only History detail requests only when TaskDeck opts in."""
+    """Serve native History detail and management only when TaskDeck opts in."""
     if os.environ.get("TASKDECK_PATCH_NATIVE_HISTORY", "").strip() != "1":
         return False
 
@@ -4234,44 +4313,68 @@ def _protocol_history_detail_session(root: Path) -> bool:
 
     prompt_started = False
     try:
-        contract = protocol_history_prompt_contract(root)
-        runs = contract["runs"]
-        if not runs:
-            return True
-        prompt_id = emit_prompt(
-            writer,
-            "history_action",
-            title=contract["title"],
-            actions=contract["actions"],
-            runs=runs,
-            default_run_id=contract["default_run_id"],
-            constraints=contract["constraints"],
-        )
-        prompt_started = True
-        allowed_run_ids = {
-            str(row.get("run_id") or "")
-            for row in runs
-            if isinstance(row, dict) and str(row.get("run_id") or "")
-        }
         while True:
-            try:
-                command = reader.read()
-                if command is None:
-                    return True
-                if command.get("command") != "history_detail":
-                    raise ProtocolCommandError("native History requires a history_detail command")
-                payload = command.get("payload")
-                if not isinstance(payload, dict):
-                    raise ProtocolCommandError("history_detail payload must be an object")
-                if payload.get("prompt_id") != prompt_id:
-                    raise ProtocolCommandError("history_detail prompt_id does not match the active prompt")
-                run_id = str(payload.get("run_id") or "").strip()
-                if not run_id or len(run_id) > 128 or run_id not in allowed_run_ids:
-                    raise ProtocolCommandError("history_detail run_id is not available in the active History prompt")
-                writer.emit("history_report", prompt_id=prompt_id, **protocol_history_report_view(root, run_id))
-            except (ProtocolCommandError, ValueError, TypeError) as exc:
-                writer.emit("error", phase="history_detail", message=str(exc))
-                continue
+            contract = protocol_history_prompt_contract(root)
+            runs = contract["runs"]
+            if not runs:
+                return True
+            prompt_id = emit_prompt(
+                writer,
+                "history_action",
+                title=contract["title"],
+                actions=contract["actions"],
+                runs=runs,
+                default_run_id=contract["default_run_id"],
+                constraints=contract["constraints"],
+            )
+            prompt_started = True
+            allowed_actions_by_run = {
+                str(row.get("run_id") or ""): {
+                    str(value).strip().lower()
+                    for value in (row.get("actions") or [])
+                    if isinstance(value, str) and value.strip()
+                }
+                for row in runs
+                if isinstance(row, dict) and str(row.get("run_id") or "")
+            }
+
+            refresh_prompt = False
+            while not refresh_prompt:
+                try:
+                    command = reader.read()
+                    if command is None:
+                        return True
+                    command_name = str(command.get("command") or "")
+                    if command_name == "history_detail":
+                        payload = command.get("payload")
+                        if not isinstance(payload, dict):
+                            raise ProtocolCommandError("history_detail payload must be an object")
+                        if payload.get("prompt_id") != prompt_id:
+                            raise ProtocolCommandError("history_detail prompt_id does not match the active prompt")
+                        run_id = str(payload.get("run_id") or "").strip()
+                        if (
+                            not run_id
+                            or len(run_id) > 128
+                            or "detail" not in allowed_actions_by_run.get(run_id, set())
+                        ):
+                            raise ProtocolCommandError("history_detail run_id is not available in the active History prompt")
+                        writer.emit("history_report", prompt_id=prompt_id, **protocol_history_report_view(root, run_id))
+                        continue
+                    if command_name == "history_manage":
+                        _handled, changed = _protocol_history_management(
+                            root, writer, prompt_id, allowed_actions_by_run, command
+                        )
+                        if changed:
+                            snapshot = protocol_history_view(root)
+                            writer.emit("history_snapshot", **snapshot)
+                            if not (snapshot.get("runs") or []):
+                                return True
+                            refresh_prompt = True
+                        continue
+                    raise ProtocolCommandError("native History requires a history_detail or history_manage command")
+                except (ProtocolCommandError, ValueError, TypeError, QueueSafetyError) as exc:
+                    writer.emit("error", phase="history_action", message=str(exc))
+                    continue
     except (ProtocolCommandError, ValueError, TypeError, QueueSafetyError) as exc:
         writer.emit("error", phase="history_action_prompt", message=str(exc))
         return True if prompt_started else False
