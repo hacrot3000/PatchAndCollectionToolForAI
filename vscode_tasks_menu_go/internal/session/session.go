@@ -171,6 +171,7 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 	var actionResultState ProtocolActionResultState
 	var queueMutationState ProtocolQueueMutationResultState
 	var historyManagementState ProtocolHistoryManagementResultState
+	var planSnapshotState ProtocolPlanSnapshotState
 	if envelope.Type == "prompt" {
 		if _, err := protocolPromptID(raw); err != nil {
 			s.setProtocolError(err.Error())
@@ -225,6 +226,14 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 			return
 		}
 	}
+	if envelope.Type == "plan_snapshot" {
+		var err error
+		planSnapshotState, err = protocolPlanSnapshotEvent(raw)
+		if err != nil {
+			s.setProtocolError(err.Error())
+			return
+		}
+	}
 	s.mu.Lock()
 	s.protocol.EventCount++
 	s.protocol.LastSeq = envelope.Seq
@@ -239,6 +248,7 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 		s.protocol.QueueMutation = nil
 		s.protocol.HistoryManagement = nil
 		s.protocol.HistoryReport = nil
+		s.protocol.PlanSnapshot = nil
 	case "queue_snapshot":
 		s.protocol.QueueSnapshot = append(json.RawMessage(nil), raw...)
 	case "resume_snapshot":
@@ -247,6 +257,9 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 		s.protocol.HistorySnapshot = append(json.RawMessage(nil), raw...)
 	case "history_report":
 		s.protocol.HistoryReport = append(json.RawMessage(nil), raw...)
+	case "plan_snapshot":
+		planSnapshot := planSnapshotState
+		s.protocol.PlanSnapshot = &planSnapshot
 	case "prompt":
 		s.protocol.Prompt = append(json.RawMessage(nil), raw...)
 		s.protocol.ActionResult = nil

@@ -358,8 +358,9 @@ Every phase must preserve:
 | Phase 2H.3b native Queue/Failed search UI | DONE | 07921b90 | Queue/Failed filtering uses only Python-projected search.text; the same query hides nonmatching native selection rows without browser ZIP/manifest inspection or execution-policy inference. |
 | Phase 2H.3b Go test offset correction | DONE | cc54692f | Fixed the search contract test to use Go's two-argument strings.Index API; runtime behavior unchanged. |
 | Phase 2H.3b select-all contract correction | DONE | 01227e3d | Updated the stale Select-all assertion for search-aware visible PATCH selection; runtime behavior unchanged. |
-| Phase 2H.4a Python native Plan projection | DONE | this commit | Plan emits a bounded structured snapshot for ordered items, policy, static conflicts, resource gates and structured preview summaries while preserving historical read-only terminal output. |
+| Phase 2H.4a Python native Plan projection | DONE | 7623e69b | Plan emits a bounded structured snapshot for ordered items, policy, static conflicts, resource gates and structured preview summaries while preserving historical read-only terminal output. |
+| Phase 2H.4b TaskDeck Plan protocol state | DONE | this commit | TaskDeck validates Plan policy/items/conflicts/resources/previews into typed bounded state and drops unknown raw planner fields before exposing session state. |
 
 ## Next action
 
-Continue **Phase 2H.4b**: validate and retain the latest plan_snapshot in TaskDeck session state, with bounded item/conflict/preview/resource fields and no raw planner/history schema exposure.
+Continue **Phase 2H.4c**: render Plan as a native primary Patch panel view from plan_snapshot, attach the PTY without activating it, and keep an explicit terminal-evidence fallback.

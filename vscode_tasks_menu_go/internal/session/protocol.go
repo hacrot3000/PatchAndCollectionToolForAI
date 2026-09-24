@@ -16,6 +16,10 @@ const (
 	maxProtocolCommandBytes = 1 << 20
 	maxProtocolItems        = 4096
 	maxProtocolArtifacts    = 256
+	maxProtocolPlanConflicts = 1024
+	maxProtocolPlanOverlap   = 64
+	maxProtocolPlanDepends   = 128
+	maxProtocolPlanWarnings  = 256
 )
 
 type protocolEnvelope struct {
@@ -104,6 +108,67 @@ type ProtocolArtifactState struct {
 	Total        int    `json:"total,omitempty"`
 }
 
+type ProtocolPlanItemState struct {
+	Index          int      `json:"index"`
+	Name           string   `json:"name"`
+	PatchID        string   `json:"patch_id"`
+	PackageSHA256  string   `json:"package_sha256,omitempty"`
+	TargetCount    int      `json:"target_count"`
+	DependsOn      []string `json:"depends_on,omitempty"`
+	IDReuseCount   int      `json:"id_reuse_count"`
+}
+
+type ProtocolPlanPreviousActionState struct {
+	Action string `json:"action"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type ProtocolPlanConflictState struct {
+	Left              string   `json:"left"`
+	LeftPatchID       string   `json:"left_patch_id,omitempty"`
+	Right             string   `json:"right"`
+	RightPatchID      string   `json:"right_patch_id,omitempty"`
+	Relation          string   `json:"relation"`
+	DependencyOrdered bool     `json:"dependency_ordered"`
+	Overlap           []string `json:"overlap,omitempty"`
+}
+
+type ProtocolPlanResourceState struct {
+	Status                   string `json:"status"`
+	ActualProjectFreeBytes   *int64 `json:"actual_project_free_bytes,omitempty"`
+	RequiredProjectFreeBytes *int64 `json:"required_project_free_bytes,omitempty"`
+	ActualTempFreeBytes      *int64 `json:"actual_temp_free_bytes,omitempty"`
+	RequiredTempFreeBytes    *int64 `json:"required_temp_free_bytes,omitempty"`
+}
+
+type ProtocolPlanPreviewState struct {
+	Name          string `json:"name"`
+	Status        string `json:"status"`
+	RC            int    `json:"rc"`
+	Stage         string `json:"stage"`
+	DiagnosisKind string `json:"diagnosis_kind,omitempty"`
+	Message       string `json:"message,omitempty"`
+	TargetCount   int    `json:"target_count"`
+}
+
+type ProtocolPlanErrorState struct {
+	Kind    string `json:"kind"`
+	Message string `json:"message,omitempty"`
+}
+
+type ProtocolPlanSnapshotState struct {
+	Status                string                           `json:"status"`
+	FailurePolicy         string                           `json:"failure_policy"`
+	TransactionPolicy     string                           `json:"transaction_policy"`
+	Items                 []ProtocolPlanItemState          `json:"items,omitempty"`
+	PreviousFailureAction *ProtocolPlanPreviousActionState `json:"previous_failure_action,omitempty"`
+	StaticConflicts       []ProtocolPlanConflictState      `json:"static_conflicts,omitempty"`
+	Resources             *ProtocolPlanResourceState       `json:"resources,omitempty"`
+	Previews              []ProtocolPlanPreviewState       `json:"previews,omitempty"`
+	Warnings              []string                         `json:"warnings,omitempty"`
+	Error                 *ProtocolPlanErrorState          `json:"error,omitempty"`
+}
+
 type ProtocolState struct {
 	Available       bool            `json:"available"`
 	Enabled         bool            `json:"enabled"`
@@ -115,6 +180,7 @@ type ProtocolState struct {
 	ResumeSnapshot  json.RawMessage `json:"resume_snapshot,omitempty"`
 	HistorySnapshot json.RawMessage `json:"history_snapshot,omitempty"`
 	HistoryReport   json.RawMessage `json:"history_report,omitempty"`
+	PlanSnapshot    *ProtocolPlanSnapshotState `json:"plan_snapshot,omitempty"`
 	Prompt          json.RawMessage     `json:"prompt,omitempty"`
 	Items           []ProtocolItemState     `json:"items,omitempty"`
 	Artifacts       []ProtocolArtifactState `json:"artifacts,omitempty"`
@@ -161,6 +227,153 @@ func validateProtocolCommand(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("invalid Patch protocol command object: %w", err)
 	}
 	return json.Marshal(value)
+}
+
+func protocolPlanSnapshotEvent(data []byte) (ProtocolPlanSnapshotState, error) {
+	var event struct {
+		Type                  string                           `json:"type"`
+		Status                string                           `json:"status"`
+		FailurePolicy         string                           `json:"failure_policy"`
+		TransactionPolicy     string                           `json:"transaction_policy"`
+		Items                 []ProtocolPlanItemState          `json:"items"`
+		PreviousFailureAction *ProtocolPlanPreviousActionState `json:"previous_failure_action"`
+		StaticConflicts       []ProtocolPlanConflictState      `json:"static_conflicts"`
+		Resources             *ProtocolPlanResourceState       `json:"resources"`
+		Previews              []ProtocolPlanPreviewState       `json:"previews"`
+		Warnings              []string                         `json:"warnings"`
+		Error                 *ProtocolPlanErrorState          `json:"error"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return ProtocolPlanSnapshotState{}, fmt.Errorf("invalid Patch plan_snapshot JSON: %w", err)
+	}
+	if event.Type != "plan_snapshot" {
+		return ProtocolPlanSnapshotState{}, fmt.Errorf("unsupported Patch Plan event")
+	}
+	event.Status = strings.ToLower(strings.TrimSpace(event.Status))
+	switch event.Status {
+	case "ready", "empty", "blocked", "preview_failed":
+	default:
+		return ProtocolPlanSnapshotState{}, fmt.Errorf("Patch Plan status is invalid")
+	}
+	event.FailurePolicy = strings.TrimSpace(event.FailurePolicy)
+	if event.FailurePolicy != "fail_fast" && event.FailurePolicy != "continue_independent" {
+		return ProtocolPlanSnapshotState{}, fmt.Errorf("Patch Plan failure_policy is invalid")
+	}
+	event.TransactionPolicy = strings.TrimSpace(event.TransactionPolicy)
+	if event.TransactionPolicy != "patch" && event.TransactionPolicy != "batch" {
+		return ProtocolPlanSnapshotState{}, fmt.Errorf("Patch Plan transaction_policy is invalid")
+	}
+	if len(event.Items) > maxProtocolItems || len(event.Previews) > maxProtocolItems ||
+		len(event.StaticConflicts) > maxProtocolPlanConflicts || len(event.Warnings) > maxProtocolPlanWarnings {
+		return ProtocolPlanSnapshotState{}, fmt.Errorf("Patch Plan collection is out of bounds")
+	}
+
+	seenIndexes := make(map[int]bool, len(event.Items))
+	for i := range event.Items {
+		item := &event.Items[i]
+		item.Name = strings.TrimSpace(item.Name)
+		item.PatchID = strings.TrimSpace(item.PatchID)
+		item.PackageSHA256 = strings.TrimSpace(item.PackageSHA256)
+		if item.Index < 1 || item.Index > maxProtocolItems || seenIndexes[item.Index] ||
+			item.Name == "" || len(item.Name) > 1024 || len(item.PatchID) > 512 ||
+			len(item.PackageSHA256) > 64 || item.TargetCount < 0 || item.IDReuseCount < 0 ||
+			len(item.DependsOn) > maxProtocolPlanDepends {
+			return ProtocolPlanSnapshotState{}, fmt.Errorf("Patch Plan item is invalid")
+		}
+		seenIndexes[item.Index] = true
+		for j := range item.DependsOn {
+			item.DependsOn[j] = strings.TrimSpace(item.DependsOn[j])
+			if item.DependsOn[j] == "" || len(item.DependsOn[j]) > 512 {
+				return ProtocolPlanSnapshotState{}, fmt.Errorf("Patch Plan dependency is invalid")
+			}
+		}
+	}
+
+	if event.PreviousFailureAction != nil {
+		event.PreviousFailureAction.Action = strings.TrimSpace(event.PreviousFailureAction.Action)
+		event.PreviousFailureAction.Reason = strings.TrimSpace(event.PreviousFailureAction.Reason)
+		if len(event.PreviousFailureAction.Action) > 64 || len(event.PreviousFailureAction.Reason) > 512 {
+			return ProtocolPlanSnapshotState{}, fmt.Errorf("Patch Plan previous failure action is invalid")
+		}
+	}
+
+	for i := range event.StaticConflicts {
+		row := &event.StaticConflicts[i]
+		row.Left = strings.TrimSpace(row.Left)
+		row.LeftPatchID = strings.TrimSpace(row.LeftPatchID)
+		row.Right = strings.TrimSpace(row.Right)
+		row.RightPatchID = strings.TrimSpace(row.RightPatchID)
+		row.Relation = strings.TrimSpace(row.Relation)
+		if row.Left == "" || row.Right == "" || len(row.Left) > 1024 || len(row.Right) > 1024 ||
+			len(row.LeftPatchID) > 512 || len(row.RightPatchID) > 512 || len(row.Relation) > 128 ||
+			len(row.Overlap) > maxProtocolPlanOverlap {
+			return ProtocolPlanSnapshotState{}, fmt.Errorf("Patch Plan conflict is invalid")
+		}
+		for j := range row.Overlap {
+			row.Overlap[j] = strings.TrimSpace(row.Overlap[j])
+			if row.Overlap[j] == "" || len(row.Overlap[j]) > 1024 {
+				return ProtocolPlanSnapshotState{}, fmt.Errorf("Patch Plan conflict overlap is invalid")
+			}
+		}
+	}
+
+	if event.Resources != nil {
+		event.Resources.Status = strings.TrimSpace(event.Resources.Status)
+		if event.Resources.Status == "" || len(event.Resources.Status) > 64 {
+			return ProtocolPlanSnapshotState{}, fmt.Errorf("Patch Plan resource status is invalid")
+		}
+		for _, value := range []*int64{
+			event.Resources.ActualProjectFreeBytes,
+			event.Resources.RequiredProjectFreeBytes,
+			event.Resources.ActualTempFreeBytes,
+			event.Resources.RequiredTempFreeBytes,
+		} {
+			if value != nil && *value < 0 {
+				return ProtocolPlanSnapshotState{}, fmt.Errorf("Patch Plan resource bytes are invalid")
+			}
+		}
+	}
+
+	for i := range event.Previews {
+		row := &event.Previews[i]
+		row.Name = strings.TrimSpace(row.Name)
+		row.Status = strings.TrimSpace(row.Status)
+		row.Stage = strings.TrimSpace(row.Stage)
+		row.DiagnosisKind = strings.TrimSpace(row.DiagnosisKind)
+		row.Message = strings.TrimSpace(row.Message)
+		if row.Name == "" || len(row.Name) > 1024 || row.Status == "" || len(row.Status) > 64 ||
+			row.Stage == "" || len(row.Stage) > 64 || len(row.DiagnosisKind) > 128 ||
+			len(row.Message) > 1024 || row.TargetCount < 0 {
+			return ProtocolPlanSnapshotState{}, fmt.Errorf("Patch Plan preview is invalid")
+		}
+	}
+
+	for i := range event.Warnings {
+		event.Warnings[i] = strings.TrimSpace(event.Warnings[i])
+		if len(event.Warnings[i]) > 1024 || strings.ContainsRune(event.Warnings[i], '\x00') {
+			return ProtocolPlanSnapshotState{}, fmt.Errorf("Patch Plan warning is invalid")
+		}
+	}
+	if event.Error != nil {
+		event.Error.Kind = strings.TrimSpace(event.Error.Kind)
+		event.Error.Message = strings.TrimSpace(event.Error.Message)
+		if event.Error.Kind == "" || len(event.Error.Kind) > 128 || len(event.Error.Message) > 1024 {
+			return ProtocolPlanSnapshotState{}, fmt.Errorf("Patch Plan error is invalid")
+		}
+	}
+
+	return ProtocolPlanSnapshotState{
+		Status: event.Status,
+		FailurePolicy: event.FailurePolicy,
+		TransactionPolicy: event.TransactionPolicy,
+		Items: append([]ProtocolPlanItemState(nil), event.Items...),
+		PreviousFailureAction: event.PreviousFailureAction,
+		StaticConflicts: append([]ProtocolPlanConflictState(nil), event.StaticConflicts...),
+		Resources: event.Resources,
+		Previews: append([]ProtocolPlanPreviewState(nil), event.Previews...),
+		Warnings: append([]string(nil), event.Warnings...),
+		Error: event.Error,
+	}, nil
 }
 
 func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
@@ -651,6 +864,32 @@ func cloneProtocolState(in ProtocolState) ProtocolState {
 	out.ResumeSnapshot = append(json.RawMessage(nil), in.ResumeSnapshot...)
 	out.HistorySnapshot = append(json.RawMessage(nil), in.HistorySnapshot...)
 	out.HistoryReport = append(json.RawMessage(nil), in.HistoryReport...)
+	if in.PlanSnapshot != nil {
+		planSnapshot := *in.PlanSnapshot
+		planSnapshot.Items = append([]ProtocolPlanItemState(nil), in.PlanSnapshot.Items...)
+		for i := range planSnapshot.Items {
+			planSnapshot.Items[i].DependsOn = append([]string(nil), in.PlanSnapshot.Items[i].DependsOn...)
+		}
+		planSnapshot.StaticConflicts = append([]ProtocolPlanConflictState(nil), in.PlanSnapshot.StaticConflicts...)
+		for i := range planSnapshot.StaticConflicts {
+			planSnapshot.StaticConflicts[i].Overlap = append([]string(nil), in.PlanSnapshot.StaticConflicts[i].Overlap...)
+		}
+		planSnapshot.Previews = append([]ProtocolPlanPreviewState(nil), in.PlanSnapshot.Previews...)
+		planSnapshot.Warnings = append([]string(nil), in.PlanSnapshot.Warnings...)
+		if in.PlanSnapshot.PreviousFailureAction != nil {
+			previous := *in.PlanSnapshot.PreviousFailureAction
+			planSnapshot.PreviousFailureAction = &previous
+		}
+		if in.PlanSnapshot.Resources != nil {
+			resources := *in.PlanSnapshot.Resources
+			planSnapshot.Resources = &resources
+		}
+		if in.PlanSnapshot.Error != nil {
+			planError := *in.PlanSnapshot.Error
+			planSnapshot.Error = &planError
+		}
+		out.PlanSnapshot = &planSnapshot
+	}
 	out.Prompt = append(json.RawMessage(nil), in.Prompt...)
 	out.Items = append([]ProtocolItemState(nil), in.Items...)
 	out.Artifacts = append([]ProtocolArtifactState(nil), in.Artifacts...)
