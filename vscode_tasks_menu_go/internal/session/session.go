@@ -172,6 +172,7 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 	var queueMutationState ProtocolQueueMutationResultState
 	var historyManagementState ProtocolHistoryManagementResultState
 	var historySupportState ProtocolHistorySupportResultState
+	var historyCleanupState ProtocolHistoryCleanupResultState
 	var planSnapshotState ProtocolPlanSnapshotState
 	var healthSnapshotState ProtocolHealthSnapshotState
 	if envelope.Type == "prompt" {
@@ -231,6 +232,14 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 	if envelope.Type == "history_support_result" {
 		var err error
 		historySupportState, err = protocolHistorySupportResultEvent(raw)
+		if err != nil {
+			s.setProtocolError(err.Error())
+			return
+		}
+	}
+	if envelope.Type == "history_cleanup_result" {
+		var err error
+		historyCleanupState, err = protocolHistoryCleanupResultEvent(raw)
 		if err != nil {
 			s.setProtocolError(err.Error())
 			return
@@ -307,6 +316,9 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 	case "history_support_result":
 		historySupport := historySupportState
 		s.protocol.HistorySupport = &historySupport
+	case "history_cleanup_result":
+		historyCleanup := historyCleanupState
+		s.protocol.HistoryCleanup = &historyCleanup
 	case "run_finished":
 		s.protocol.Prompt = nil
 	}
@@ -451,6 +463,10 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 	if err != nil {
 		return err
 	}
+	historyCleanupPromptID, isHistoryCleanup, err := protocolHistoryCleanupPromptID(line)
+	if err != nil {
+		return err
+	}
 	s, ok := m.Get(id)
 	if !ok {
 		return fmt.Errorf("session not found")
@@ -460,7 +476,7 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 	if s.meta.Status != "running" || s.protocolCommand == nil {
 		return fmt.Errorf("Patch protocol command channel is not enabled")
 	}
-	if isPromptResponse || isItemAction || isResumeAction || isHistoryDetail || isQueueDelete || isHistoryManage || isHistorySupport {
+	if isPromptResponse || isItemAction || isResumeAction || isHistoryDetail || isQueueDelete || isHistoryManage || isHistorySupport || isHistoryCleanup {
 		if len(s.protocol.Prompt) == 0 {
 			return fmt.Errorf("Patch session has no active prompt")
 		}
@@ -488,6 +504,9 @@ func (m *Manager) ProtocolCommand(id string, data []byte) error {
 		} else if isHistorySupport {
 			boundPromptID = historySupportPromptID
 			commandName = "history_support"
+		} else if isHistoryCleanup {
+			boundPromptID = historyCleanupPromptID
+			commandName = "history_cleanup"
 		}
 		if boundPromptID != activePromptID {
 			return fmt.Errorf("Patch %s does not match the active prompt", commandName)

@@ -105,6 +105,20 @@ type ProtocolHistorySupportResultState struct {
 	Artifact  *ProtocolHistorySupportArtifact `json:"artifact,omitempty"`
 }
 
+type ProtocolHistoryCleanupResultState struct {
+	PromptID       string `json:"prompt_id"`
+	CleanupID      string `json:"cleanup_id"`
+	Status         string `json:"status"`
+	RC             int    `json:"rc"`
+	HistoryChanged bool   `json:"history_changed,omitempty"`
+	Removed        int    `json:"removed"`
+	Pinned         int    `json:"pinned"`
+	Remaining      int    `json:"remaining"`
+	Policy         string `json:"policy"`
+	EligibleBefore int    `json:"eligible_before"`
+	Message        string `json:"message,omitempty"`
+}
+
 type ProtocolQueueMutationResultState struct {
 	PromptID   string `json:"prompt_id"`
 	MutationID string `json:"mutation_id"`
@@ -238,6 +252,7 @@ type ProtocolState struct {
 	QueueMutation     *ProtocolQueueMutationResultState     `json:"queue_mutation_result,omitempty"`
 	HistoryManagement *ProtocolHistoryManagementResultState `json:"history_management_result,omitempty"`
 	HistorySupport    *ProtocolHistorySupportResultState    `json:"history_support_result,omitempty"`
+	HistoryCleanup    *ProtocolHistoryCleanupResultState    `json:"history_cleanup_result,omitempty"`
 	Error             string                                `json:"error,omitempty"`
 }
 
@@ -694,6 +709,57 @@ func protocolActionResultEvent(data []byte) (ProtocolActionResultState, error) {
 		TimedOut: event.TimedOut, ElapsedSeconds: event.ElapsedSeconds, Output: event.Output, OutputTruncated: event.OutputTruncated,
 	}, nil
 }
+func protocolHistoryCleanupResultEvent(data []byte) (ProtocolHistoryCleanupResultState, error) {
+	var event struct {
+		Type           string `json:"type"`
+		PromptID       string `json:"prompt_id"`
+		CleanupID      string `json:"cleanup_id"`
+		Status         string `json:"status"`
+		RC             int    `json:"rc"`
+		HistoryChanged bool   `json:"history_changed"`
+		Removed        int    `json:"removed"`
+		Pinned         int    `json:"pinned"`
+		Remaining      int    `json:"remaining"`
+		Policy         string `json:"policy"`
+		EligibleBefore int    `json:"eligible_before"`
+		Message        string `json:"message"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return ProtocolHistoryCleanupResultState{}, fmt.Errorf("invalid Patch history_cleanup_result JSON: %w", err)
+	}
+	if event.Type != "history_cleanup_result" {
+		return ProtocolHistoryCleanupResultState{}, fmt.Errorf("unsupported Patch History cleanup event")
+	}
+	event.PromptID = strings.TrimSpace(event.PromptID)
+	event.CleanupID = strings.TrimSpace(event.CleanupID)
+	event.Status = strings.ToUpper(strings.TrimSpace(event.Status))
+	event.Policy = strings.TrimSpace(event.Policy)
+	event.Message = strings.TrimSpace(event.Message)
+	if event.PromptID == "" || len(event.PromptID) > 256 ||
+		event.CleanupID == "" || len(event.CleanupID) > 128 {
+		return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup identity is invalid")
+	}
+	if event.Status != "PASS" || event.RC != 0 {
+		return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup result is invalid")
+	}
+	if event.Removed < 0 || event.Pinned < 0 || event.Remaining < 0 || event.EligibleBefore < 0 ||
+		event.Removed > event.EligibleBefore || event.HistoryChanged != (event.Removed > 0) {
+		return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup counters are inconsistent")
+	}
+	if event.Policy != "remove_unpinned_idle_then_oldest_unpinned_over_limit" {
+		return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup policy is unsupported")
+	}
+	if len([]byte(event.Message)) > 4096 || strings.ContainsRune(event.Message, '\x00') {
+		return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup message is invalid")
+	}
+	return ProtocolHistoryCleanupResultState{
+		PromptID: event.PromptID, CleanupID: event.CleanupID,
+		Status: event.Status, RC: event.RC, HistoryChanged: event.HistoryChanged,
+		Removed: event.Removed, Pinned: event.Pinned, Remaining: event.Remaining,
+		Policy: event.Policy, EligibleBefore: event.EligibleBefore, Message: event.Message,
+	}, nil
+}
+
 func protocolHistorySupportResultEvent(data []byte) (ProtocolHistorySupportResultState, error) {
 	var event struct {
 		Type      string `json:"type"`
@@ -1000,6 +1066,25 @@ func protocolQueueDeletePromptID(data []byte) (string, bool, error) {
 	return command.Payload.PromptID, true, nil
 }
 
+func protocolHistoryCleanupPromptID(data []byte) (string, bool, error) {
+	var command struct {
+		Command string `json:"command"`
+		Payload struct {
+			PromptID string `json:"prompt_id"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &command); err != nil {
+		return "", false, fmt.Errorf("invalid Patch protocol command JSON: %w", err)
+	}
+	if command.Command != "history_cleanup" {
+		return "", false, nil
+	}
+	if strings.TrimSpace(command.Payload.PromptID) == "" {
+		return "", true, fmt.Errorf("Patch history_cleanup prompt_id is required")
+	}
+	return command.Payload.PromptID, true, nil
+}
+
 func protocolHistorySupportPromptID(data []byte) (string, bool, error) {
 	var command struct {
 		Command string `json:"command"`
@@ -1165,6 +1250,10 @@ func cloneProtocolState(in ProtocolState) ProtocolState {
 			historySupport.Artifact = &artifact
 		}
 		out.HistorySupport = &historySupport
+	}
+	if in.HistoryCleanup != nil {
+		historyCleanup := *in.HistoryCleanup
+		out.HistoryCleanup = &historyCleanup
 	}
 	return out
 }
