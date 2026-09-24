@@ -103,7 +103,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"failure?.diagnosis_kind",
 		"snapshot?.group_counts",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,enterPlanView,leavePlanView,renderPlanSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
+		"TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {
@@ -610,6 +610,73 @@ func TestPatchPanelPlanKeepsPTYAsExplicitFallbackNotPrimary(t *testing.T) {
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("native Plan fallback contract missing %q", want)
+		}
+	}
+}
+
+
+func TestPatchPanelNativeHealthIsReadOnlyPrimaryView(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"['health','Health'",
+		"function enterHealthView()",
+		"panel.classList.add('health')",
+		"function leaveHealthView()",
+		"function renderHealthSnapshot(snapshot)",
+		"snapshot.status",
+		"snapshot.tool_version",
+		"snapshot.summary",
+		"snapshot.checks",
+		"snapshot.warnings",
+		"snapshot.errors",
+		"state?.health_snapshot&&!haveHealthSnapshot",
+		"renderHealthSnapshot(state.health_snapshot)",
+		"task-patch-panel.health .task-patch-summary",
+		"healthTerminal.onclick=openTerminalEvidence",
+		"healthBack.onclick=leaveHealthView",
+		"app.attachSession(meta,!['queue','resume','history','plan','health'].includes(mode))",
+		"Native Health snapshot unavailable or timed out. Use Terminal evidence/fallback.",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Health UI missing contract %q", want)
+		}
+	}
+	start := strings.Index(js, "function renderHealthSnapshot(snapshot)")
+	endOffset := strings.Index(js[start:], "function enterRunningView()")
+	if start < 0 || endOffset < 0 {
+		t.Fatal("native Health renderer bounds unavailable")
+	}
+	renderer := js[start : start+endOffset]
+	for _, forbidden := range []string{
+		"jsonFetch(",
+		"/health-action",
+		"window.confirm",
+		"prompt_response",
+		"SHA256SUMS",
+		"PACKAGE_CONTENTS",
+	} {
+		if strings.Contains(renderer, forbidden) {
+			t.Fatalf("native Health renderer must remain typed presentation-only: found %q", forbidden)
+		}
+	}
+}
+
+func TestPatchPanelHealthKeepsPTYAsExplicitFallbackNotPrimary(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"if(mode==='health')enterHealthView();else leaveHealthView();",
+		"if(healthMode){",
+		"healthStatus.textContent='PTY fallback';",
+		"Native Health protocol state unavailable. Use Terminal evidence/fallback.",
+		"app.views.has(activeSessionId)",
+		"app.activateView(activeSessionId)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Health fallback contract missing %q", want)
 		}
 	}
 }

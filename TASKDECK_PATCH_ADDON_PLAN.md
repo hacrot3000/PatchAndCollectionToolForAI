@@ -229,7 +229,7 @@ Status: **IN PROGRESS**
     - [x] Phase 2H.5a1 runtime-directory Health audit compatibility for TaskDeck bundled patchtool/.
     - [x] Phase 2H.5a2 Python health route + bounded health_snapshot.
     - [x] Phase 2H.5b TaskDeck Health protocol state.
-    - [ ] Phase 2H.5c native Health primary view + PTY fallback.
+    - [x] Phase 2H.5c native Health primary view + PTY fallback.
   - [ ] Phase 2H.6 Advanced History parity: support ZIP creation and explicit cleanup; report subset filters may remain pure presentation over projected rows.
   - [ ] Phase 2H.7 final parity regression gate before changing any default PTY activation/fallback behavior.
 
@@ -369,8 +369,9 @@ Every phase must preserve:
 | Phase 2H.5a1 bundled runtime Health audit | DONE | 8fc4cab9 | Health can audit a runtime directory directly, so TaskDeck's versioned patchtool/ bundle uses the same checksum/schema policy as historical <project>/tools; audit_tool(project_root) remains compatible. |
 | Phase 2H.5a2 Python Health projection | DONE | ce534dc8 | Added read-only health route over the active runtime, bounded health_snapshot projection and terminal printing from the same single audit report. |
 | Phase 2H.5a2 source-fixture test correction | DONE | 4fcddd1e | Replaced the invalid full-repository Health PASS assumption with focused runtime-path compatibility checks; runtime behavior unchanged. |
-| Phase 2H.5b TaskDeck Health protocol state | DONE | this commit | TaskDeck validates bounded typed health_snapshot checks/summary/messages, rejects inconsistent counters, and retains an independent typed Health state. |
+| Phase 2H.5b TaskDeck Health protocol state | DONE | 36de76b7 | TaskDeck validates bounded typed health_snapshot checks/summary/messages, rejects inconsistent counters, and retains an independent typed Health state. |
+| Phase 2H.5c native Health primary view | DONE | this commit | Patch panel renders typed Health status/version/summary/checks/messages as the primary read-only view; Health PTY is attached inactive and remains explicit fallback/evidence. |
 
 ## Next action
 
-Continue **Phase 2H.5c**: render native Health as the primary Patch panel view from typed health_snapshot state, with PTY kept as explicit fallback/evidence.
+Continue **Phase 2H.6a**: project native History support-ZIP creation through a Python-owned prompt/command/result contract before adding web controls.

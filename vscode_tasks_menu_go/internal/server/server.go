@@ -249,6 +249,8 @@ func patchModeArguments(mode string) ([]string, string, error) {
 		return []string{"report"}, "History", nil
 	case "plan":
 		return []string{"plan"}, "Plan", nil
+	case "health":
+		return []string{"health"}, "Health", nil
 	default:
 		return nil, "", fmt.Errorf("unknown Patch Tool mode %q", mode)
 	}
@@ -288,7 +290,7 @@ func patchToolExecution(workspace, mode string) (tasks.Execution, error) {
 		return tasks.Execution{}, err
 	}
 	spec.ProtocolEvents = true
-	spec.ProtocolCommands = true
+	spec.ProtocolCommands = !strings.EqualFold(strings.TrimSpace(mode), "health")
 	if strings.EqualFold(strings.TrimSpace(mode), "resume") {
 		if err := tasks.ApplyEnvironmentOverrides(&spec, map[string]string{"TASKDECK_PATCH_NATIVE_RESUME": "1"}); err != nil {
 			return tasks.Execution{}, err

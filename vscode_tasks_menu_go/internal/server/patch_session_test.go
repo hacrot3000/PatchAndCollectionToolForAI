@@ -17,6 +17,7 @@ func TestPatchModeArgumentsAreBounded(t *testing.T) {
 		{"resume", []string{"resume"}},
 		{"history", []string{"report"}},
 		{"plan", []string{"plan"}},
+		{"health", []string{"health"}},
 	}
 	for _, tc := range tests {
 		got, _, err := patchModeArguments(tc.mode)
@@ -168,5 +169,29 @@ func TestPatchHistoryOptsIntoNativeHistoryOnly(t *testing.T) {
 		if item == "TASKDECK_PATCH_NATIVE_HISTORY=1" {
 			t.Fatal("ordinary Queue session must not opt into native History")
 		}
+	}
+}
+
+
+func TestPatchHealthIsReadOnlyProtocolSession(t *testing.T) {
+	workspace := t.TempDir()
+	runtimeRoot := t.TempDir()
+	entry := filepath.Join(runtimeRoot, "python_patch_entry.py")
+	python := filepath.Join(runtimeRoot, "python3")
+	for _, path := range []string{entry, python} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil { t.Fatal(err) }
+	}
+	t.Setenv("TASKDECK_PATCH_RUNTIME", entry)
+	t.Setenv("TASKDECK_PATCH_PYTHON", python)
+	spec, err := patchToolExecution(workspace, "health")
+	if err != nil { t.Fatal(err) }
+	if !spec.ProtocolEvents {
+		t.Fatal("Health must keep structured protocol events enabled")
+	}
+	if spec.ProtocolCommands {
+		t.Fatal("Health is read-only and must not allocate the protocol command channel")
+	}
+	if spec.Label != "Patch Tool · Health" {
+		t.Fatalf("unexpected Health label %q", spec.Label)
 	}
 }

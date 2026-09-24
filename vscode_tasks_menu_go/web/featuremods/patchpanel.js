@@ -133,6 +133,22 @@ function installPatchPanel(){
   .task-patch-plan-row-status{font-weight:700;white-space:nowrap}
   .task-patch-plan-row-detail{margin-top:2px;opacity:.7;overflow-wrap:anywhere}
   .task-patch-plan-note{margin-top:6px;opacity:.72;overflow-wrap:anywhere}
+  .task-patch-health{margin:0 0 10px;padding:8px;border:1px solid #4b596d;border-radius:6px;background:#121923;font-size:11px}
+  .task-patch-health[hidden]{display:none}
+  .task-patch-health-head{display:flex;align-items:center;gap:5px;margin-bottom:7px}
+  .task-patch-health-title{font-weight:700;flex:1}
+  .task-patch-health-status{opacity:.72}
+  .task-patch-health-head button{font-size:10px;padding:3px 6px}
+  .task-patch-health-overview{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:7px}
+  .task-patch-health-chip{padding:2px 5px;border:1px solid #3b4655;border-radius:999px}
+  .task-patch-health-checks{display:grid;gap:4px}
+  .task-patch-health-row{padding:6px;border-radius:4px;background:#171f2a}
+  .task-patch-health-row-head{display:flex;align-items:flex-start;gap:5px}
+  .task-patch-health-row-name{font-weight:600;min-width:0;flex:1;overflow-wrap:anywhere}
+  .task-patch-health-row-status{font-weight:700;white-space:nowrap}
+  .task-patch-health-row-detail{margin-top:2px;opacity:.7;overflow-wrap:anywhere}
+  .task-patch-health-messages{margin-top:7px;opacity:.78;overflow-wrap:anywhere}
+  .task-patch-panel.plan .task-patch-health{display:none!important}
   .task-patch-panel.plan .task-patch-panel-note,
   .task-patch-panel.plan .task-patch-summary,
   .task-patch-panel.plan .task-patch-action-result,
@@ -143,6 +159,18 @@ function installPatchPanel(){
   .task-patch-panel.plan .task-patch-run,
   .task-patch-panel.plan .task-patch-artifacts,
   .task-patch-panel.plan .task-patch-actions{display:none!important}
+  .task-patch-panel.health .task-patch-panel-note,
+  .task-patch-panel.health .task-patch-summary,
+  .task-patch-panel.health .task-patch-action-result,
+  .task-patch-panel.health .task-patch-prompt,
+  .task-patch-panel.health .task-patch-resume,
+  .task-patch-panel.health .task-patch-history,
+  .task-patch-panel.health .task-patch-plan,
+  .task-patch-panel.health .task-patch-running-head,
+  .task-patch-panel.health .task-patch-run,
+  .task-patch-panel.health .task-patch-artifacts,
+  .task-patch-panel.health .task-patch-actions{display:none!important}
+  .task-patch-panel.history .task-patch-health{display:none!important}
   .task-patch-panel.history .task-patch-panel-note,
   .task-patch-panel.history .task-patch-summary,
   .task-patch-panel.history .task-patch-action-result,
@@ -209,6 +237,9 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-plan{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-plan-row{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-plan-chip{border-color:#d0d7de}
+  html[data-taskmenu-theme="light"] .task-patch-health{background:#f6f8fa;border-color:#b9c0c8}
+  html[data-taskmenu-theme="light"] .task-patch-health-row{background:#fff}
+  html[data-taskmenu-theme="light"] .task-patch-health-chip{border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-history{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-history-run,
   html[data-taskmenu-theme="light"] .task-patch-history-file,
@@ -328,6 +359,18 @@ function installPatchPanel(){
   const planWarnings=document.createElement('div');planWarnings.className='task-patch-plan-note';
   planBox.append(planHead,planOverview,planPrevious,planItemsSection,planConflictsSection,planResourcesSection,planPreviewsSection,planWarnings);
 
+  const healthBox=document.createElement('div');healthBox.className='task-patch-health';healthBox.hidden=true;
+  const healthHead=document.createElement('div');healthHead.className='task-patch-health-head';
+  const healthTitle=document.createElement('div');healthTitle.className='task-patch-health-title';healthTitle.textContent='Tool Health';
+  const healthStatus=document.createElement('div');healthStatus.className='task-patch-health-status';
+  const healthTerminal=document.createElement('button');healthTerminal.type='button';healthTerminal.textContent='Terminal';healthTerminal.title='Open terminal evidence/fallback';
+  const healthBack=document.createElement('button');healthBack.type='button';healthBack.textContent='Back';
+  healthHead.append(healthTitle,healthStatus,healthTerminal,healthBack);
+  const healthOverview=document.createElement('div');healthOverview.className='task-patch-health-overview';
+  const healthChecks=document.createElement('div');healthChecks.className='task-patch-health-checks';
+  const healthMessages=document.createElement('div');healthMessages.className='task-patch-health-messages';
+  healthBox.append(healthHead,healthOverview,healthChecks,healthMessages);
+
   const runningHead=document.createElement('div');runningHead.className='task-patch-running-head';
   const runningTitle=document.createElement('div');runningTitle.className='task-patch-running-title';runningTitle.textContent='Running';
   const runningMeta=document.createElement('div');runningMeta.className='task-patch-running-meta';runningMeta.textContent='Waiting for Python execution state…';
@@ -352,7 +395,7 @@ function installPatchPanel(){
   artifactBox.append(artifactTitle,artifactList);
 
   const actions=document.createElement('div');actions.className='task-patch-actions';
-  body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,planBox,runningHead,runBox,artifactBox,actions);
+  body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,planBox,healthBox,runningHead,runBox,artifactBox,actions);
   panel.append(head,body);
   document.body.append(panel);
 
@@ -361,6 +404,7 @@ function installPatchPanel(){
     ['resume','Resume','Continue an interrupted or failed run'],
     ['history','History','Open Patch Tool reports/history'],
     ['plan','Plan','Inspect the execution plan without replacing the Python engine'],
+    ['health','Health','Audit the active bundled Patch Tool runtime'],
   ];
   const buttons=[];
   let activeSessionId='';
@@ -386,6 +430,8 @@ function installPatchPanel(){
   let historyMode=false;
   let latestPlanSnapshot=null;
   let planMode=false;
+  let latestHealthSnapshot=null;
+  let healthMode=false;
   let runningMode=false;
   let runningFinished=false;
   for(const [mode,label,detail] of actionDefs){
@@ -404,7 +450,7 @@ function installPatchPanel(){
     const visible=Boolean(value);
     panel.classList.toggle('visible',visible);
     if(!visible){protocolPollGeneration+=1;actionPollGeneration+=1;queueMutationPollGeneration+=1;historyPollGeneration+=1;historyManagementPollGeneration+=1;}
-    if(visible&&activeSessionId)void pollProtocol(activeSessionId,!runningMode&&!planMode,true);
+    if(visible&&activeSessionId)void pollProtocol(activeSessionId,!runningMode&&!planMode&&!healthMode,true);
     window.dispatchEvent(new CustomEvent('taskmenu:patch-panel-visible',{detail:{visible}}));
   }
   function open(){setVisible(true);}
@@ -1041,6 +1087,72 @@ function installPatchPanel(){
       ...warnings.map(value=>'Warning: '+String(value)),
       error?('Error: '+[error.kind,error.message].filter(Boolean).join(' · ')):'',
     ].filter(Boolean).join(' | ');
+    return true;
+  }
+
+  function enterHealthView(){
+    healthMode=true;
+    panel.classList.add('health');
+    healthBox.hidden=false;
+    healthStatus.textContent='Loading…';
+    healthMessages.textContent='';
+  }
+
+  function leaveHealthView(){
+    healthMode=false;
+    panel.classList.remove('health');
+    healthBox.hidden=true;
+    latestHealthSnapshot=null;
+    healthStatus.textContent='';
+    healthOverview.replaceChildren();
+    healthChecks.replaceChildren();
+    healthMessages.textContent='';
+  }
+
+  function appendHealthChip(label,value){
+    const chip=document.createElement('span');chip.className='task-patch-health-chip';chip.textContent=`${label}: ${String(value)}`;healthOverview.append(chip);
+  }
+
+  function renderHealthSnapshot(snapshot){
+    if(!snapshot||typeof snapshot!=='object')return false;
+    latestHealthSnapshot=snapshot;
+    healthBox.hidden=false;
+    healthStatus.textContent=[String(snapshot.status||''),String(snapshot.tool_version||'')].filter(Boolean).join(' · ');
+    healthOverview.replaceChildren();
+    const summary=snapshot.summary&&typeof snapshot.summary==='object'?snapshot.summary:{};
+    appendHealthChip('PASS',Number(summary.pass||0));
+    appendHealthChip('WARN',Number(summary.warn||0));
+    appendHealthChip('FAIL',Number(summary.fail||0));
+    appendHealthChip('Total',Number(summary.total||0));
+
+    healthChecks.replaceChildren();
+    for(const check of (Array.isArray(snapshot.checks)?snapshot.checks:[])){
+      const row=document.createElement('div');row.className='task-patch-health-row';
+      const rowHead=document.createElement('div');rowHead.className='task-patch-health-row-head';
+      const name=document.createElement('span');name.className='task-patch-health-row-name';name.textContent=String(check?.name||'');
+      const status=document.createElement('span');status.className='task-patch-health-row-status';status.textContent=String(check?.status||'');
+      rowHead.append(name,status);row.append(rowHead);
+      const detail=[
+        check?.detail?String(check.detail):'',
+        check?.entries===undefined?'':('entries='+String(check.entries)),
+        check?.failures===undefined?'':('failures='+String(check.failures)),
+        check?.missing_managed===undefined?'':('missing='+String(check.missing_managed)),
+        check?.stale_managed===undefined?'':('stale='+String(check.stale_managed)),
+        check?.files===undefined?'':('files='+String(check.files)),
+        check?.dirs===undefined?'':('dirs='+String(check.dirs)),
+        check?.actual===undefined?'':('actual='+String(check.actual)),
+      ].filter(Boolean).join(' · ');
+      if(detail){
+        const detailNode=document.createElement('div');detailNode.className='task-patch-health-row-detail';detailNode.textContent=detail;row.append(detailNode);
+      }
+      healthChecks.append(row);
+    }
+    const warnings=Array.isArray(snapshot.warnings)?snapshot.warnings:[];
+    const errors=Array.isArray(snapshot.errors)?snapshot.errors:[];
+    healthMessages.textContent=[
+      ...warnings.map(value=>'Warning: '+String(value)),
+      ...errors.map(value=>'Error: '+String(value)),
+    ].join(' | ');
     return true;
   }
 
@@ -1686,6 +1798,7 @@ function installPatchPanel(){
     let haveResumeSnapshot=false;
     let haveHistorySnapshot=false;
     let havePlanSnapshot=false;
+    let haveHealthSnapshot=false;
     const maxAttempts=followLifecycle?7200:40;
     const delayMs=followLifecycle?1000:250;
     for(let attempt=0;attempt<maxAttempts;attempt+=1){
@@ -1700,6 +1813,11 @@ function installPatchPanel(){
         return;
       }
       if(state?.available===false){
+        if(healthMode){
+          healthStatus.textContent='PTY fallback';
+          healthMessages.textContent='Native Health protocol state unavailable. Use Terminal evidence/fallback.';
+          return;
+        }
         if(planMode){
           planStatus.textContent='PTY fallback';
           planWarnings.textContent='Native Plan protocol state unavailable. Use Terminal evidence/fallback.';
@@ -1725,6 +1843,10 @@ function installPatchPanel(){
       if(state?.plan_snapshot&&!havePlanSnapshot){
         renderPlanSnapshot(state.plan_snapshot);
         havePlanSnapshot=true;
+      }
+      if(state?.health_snapshot&&!haveHealthSnapshot){
+        renderHealthSnapshot(state.health_snapshot);
+        haveHealthSnapshot=true;
       }
       if(state?.history_management_result)renderHistoryManagementResult(state.history_management_result);
       renderItemLifecycle(state?.items);
@@ -1755,8 +1877,14 @@ function installPatchPanel(){
         return;
       }
       if(!expectPrompt&&havePlanSnapshot)return;
+      if(!expectPrompt&&haveHealthSnapshot)return;
       if(!expectPrompt&&haveSnapshot&&!followLifecycle)return;
       if(state?.error){
+        if(healthMode){
+          healthStatus.textContent='Protocol error';
+          healthMessages.textContent=String(state.error);
+          return;
+        }
         if(planMode){
           planStatus.textContent='Protocol error';
           planWarnings.textContent=String(state.error);
@@ -1767,6 +1895,11 @@ function installPatchPanel(){
         return;
       }
       await new Promise(resolve=>setTimeout(resolve,delayMs));
+    }
+    if(healthMode){
+      healthStatus.textContent=haveHealthSnapshot?healthStatus.textContent:'PTY fallback';
+      if(!haveHealthSnapshot)healthMessages.textContent='Native Health snapshot unavailable or timed out. Use Terminal evidence/fallback.';
+      return;
     }
     if(planMode){
       planStatus.textContent=havePlanSnapshot?planStatus.textContent:'PTY fallback';
@@ -1801,14 +1934,15 @@ function installPatchPanel(){
       leaveRunningView();
       if(mode==='history')enterHistoryView();else leaveHistoryView();
       if(mode==='plan')enterPlanView();else leavePlanView();
+      if(mode==='health')enterHealthView();else leaveHealthView();
       clearActionResult();
       clearResumeView();
       renderProgress(null);
       renderArtifacts([]);
-      app.attachSession(meta,!['queue','resume','history','plan'].includes(mode));
+      app.attachSession(meta,!['queue','resume','history','plan','health'].includes(mode));
       window.dispatchEvent(new CustomEvent('taskmenu:patch-session-started',{detail:{mode,meta}}));
-      if(mode==='queue'||mode==='resume'||mode==='history'||mode==='plan'){
-        void pollProtocol(meta.id,mode==='queue'||mode==='resume'||mode==='history',mode==='resume'||mode==='history'||mode==='plan');
+      if(mode==='queue'||mode==='resume'||mode==='history'||mode==='plan'||mode==='health'){
+        void pollProtocol(meta.id,mode==='queue'||mode==='resume'||mode==='history',mode==='resume'||mode==='history'||mode==='plan'||mode==='health');
       }
       return meta;
     }finally{
@@ -1821,6 +1955,8 @@ function installPatchPanel(){
   historyBack.onclick=()=>stopHistoryAndBack().catch(app.showError);
   planTerminal.onclick=openTerminalEvidence;
   planBack.onclick=leavePlanView;
+  healthTerminal.onclick=openTerminalEvidence;
+  healthBack.onclick=leaveHealthView;
   runningBack.onclick=()=>{if(runningFinished)leaveRunningView();};
   actionResultClose.onclick=clearActionResult;
   queueTab.onclick=()=>setQueueSummaryView('queue');
@@ -1828,7 +1964,7 @@ function installPatchPanel(){
   summarySearchInput.oninput=()=>setQueueSearchQuery(summarySearchInput.value);
   summarySearchClear.onclick=()=>{setQueueSearchQuery('');summarySearchInput.focus();};
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,enterPlanView,leavePlanView,renderPlanSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 
