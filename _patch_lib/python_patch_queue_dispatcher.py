@@ -7658,6 +7658,153 @@ def _load_batch_recipe(root: Path, path: Path, items: list[QueueItem]) -> tuple[
     return chosen, failure, transaction
 
 
+_PROTOCOL_PLAN_ITEMS = 4096
+_PROTOCOL_PLAN_CONFLICTS = 1024
+_PROTOCOL_PLAN_OVERLAP = 64
+_PROTOCOL_PLAN_DEPENDS = 128
+_PROTOCOL_PLAN_WARNINGS = 256
+
+
+def _plan_resource_projection(resources: dict[str, object] | None) -> dict[str, object] | None:
+    if not isinstance(resources, dict):
+        return None
+    out: dict[str, object] = {"status": _safe_display(str(resources.get("status") or "UNKNOWN"))[:64]}
+    for key in (
+        "actual_project_free_bytes",
+        "required_project_free_bytes",
+        "actual_temp_free_bytes",
+        "required_temp_free_bytes",
+    ):
+        value = resources.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            out[key] = value
+    return out
+
+
+def _plan_previous_action_projection(action: dict[str, object] | None) -> dict[str, object] | None:
+    if not isinstance(action, dict):
+        return None
+    return {
+        "action": _safe_display(str(action.get("action") or ""))[:64],
+        "reason": _safe_display(str(action.get("reason") or ""))[:512],
+    }
+
+
+def _plan_conflict_projection(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    out: list[dict[str, object]] = []
+    for row in rows[:_PROTOCOL_PLAN_CONFLICTS]:
+        if not isinstance(row, dict):
+            continue
+        overlap = [
+            _safe_display(str(value))[:1024]
+            for value in (row.get("overlap") or [])[:_PROTOCOL_PLAN_OVERLAP]
+            if isinstance(value, str)
+        ]
+        out.append({
+            "left": _safe_display(str(row.get("left") or ""))[:1024],
+            "left_patch_id": _safe_display(str(row.get("left_patch_id") or ""))[:512],
+            "right": _safe_display(str(row.get("right") or ""))[:1024],
+            "right_patch_id": _safe_display(str(row.get("right_patch_id") or ""))[:512],
+            "relation": _safe_display(str(row.get("relation") or ""))[:128],
+            "dependency_ordered": bool(row.get("dependency_ordered")),
+            "overlap": overlap,
+        })
+    return out
+
+
+def _plan_item_projection(index: int, item: QueueItem, meta: PatchMeta, id_reuse_count: int) -> dict[str, object]:
+    return {
+        "index": index,
+        "name": _safe_display(item.name)[:1024],
+        "patch_id": _safe_display(str(meta.patch_id or ""))[:512],
+        "package_sha256": str(meta.package_sha256 or "")[:64],
+        "target_count": len(meta.effective_targets),
+        "depends_on": [
+            _safe_display(str(value))[:512]
+            for value in list(meta.depends_on)[:_PROTOCOL_PLAN_DEPENDS]
+        ],
+        "id_reuse_count": max(0, int(id_reuse_count)),
+    }
+
+
+def _plan_preview_projection(item: QueueItem, rc: int, result: dict[str, object] | None) -> dict[str, object]:
+    result = result if isinstance(result, dict) else {}
+    diagnosis = result.get("diagnosis") if isinstance(result.get("diagnosis"), dict) else {}
+    preflight = result.get("preflight") if isinstance(result.get("preflight"), dict) else {}
+    targets = [value for value in (preflight.get("target_paths") or []) if isinstance(value, str)]
+    status = _safe_display(str(result.get("status") or ("PASS" if rc == 0 else "FAIL")))[:64]
+    result_rc = result.get("rc")
+    safe_rc = int(result_rc) if isinstance(result_rc, int) and not isinstance(result_rc, bool) else int(rc)
+    return {
+        "name": _safe_display(item.name)[:1024],
+        "status": status,
+        "rc": safe_rc,
+        "stage": _safe_display(str(result.get("stage") or "preview"))[:64],
+        "diagnosis_kind": _safe_display(str(diagnosis.get("kind") or ""))[:128],
+        "message": _safe_display(str(diagnosis.get("message") or ""))[:1024],
+        "target_count": len(targets),
+    }
+
+
+def _plan_preview_item(root: Path, item: QueueItem) -> tuple[int, dict[str, object] | None]:
+    """Run the historical read-only preview while capturing its existing structured result."""
+    if item.kind != "PATCH":
+        print("PREVIEW: chỉ áp dụng cho PATCH.")
+        return 2, None
+    with tempfile.TemporaryDirectory(prefix="ptv-plan-preview-") as temp_dir:
+        result_path = Path(temp_dir) / "preview-result.json"
+        env = dict(os.environ)
+        env["PTV_PATCH_RESULT_FILE"] = str(result_path)
+        try:
+            rc = _run_foreground_child(
+                root,
+                _runner_command(root, "preview", item),
+                env=env,
+                timeout=1830,
+                label="PATCH preview",
+            )
+        except KeyboardInterrupt:
+            return 130, None
+        result = _load_json(result_path) if result_path.is_file() else None
+        return rc, result if isinstance(result, dict) else None
+
+
+def _emit_plan_snapshot(
+    *,
+    status: str,
+    failure_policy: str,
+    transaction_policy: str,
+    items: list[dict[str, object]] | None = None,
+    previous_failure_action: dict[str, object] | None = None,
+    static_conflicts: list[dict[str, object]] | None = None,
+    resources: dict[str, object] | None = None,
+    previews: list[dict[str, object]] | None = None,
+    warnings: list[str] | None = None,
+    error_kind: str = "",
+    error_message: str = "",
+) -> None:
+    payload: dict[str, object] = {
+        "status": _safe_display(status)[:64],
+        "failure_policy": _safe_display(failure_policy)[:64],
+        "transaction_policy": _safe_display(transaction_policy)[:64],
+        "items": list(items or [])[:_PROTOCOL_PLAN_ITEMS],
+        "previous_failure_action": previous_failure_action,
+        "static_conflicts": list(static_conflicts or [])[:_PROTOCOL_PLAN_CONFLICTS],
+        "resources": resources,
+        "previews": list(previews or [])[:_PROTOCOL_PLAN_ITEMS],
+        "warnings": [
+            _safe_display(str(value))[:1024]
+            for value in list(warnings or [])[:_PROTOCOL_PLAN_WARNINGS]
+        ],
+    }
+    if error_kind or error_message:
+        payload["error"] = {
+            "kind": _safe_display(error_kind or "plan_failed")[:128],
+            "message": _safe_display(error_message)[:1024],
+        }
+    _emit_protocol_event("plan_snapshot", **payload)
+
+
 def _plan_queue(
     root: Path, *, export_recipe: str | None = None,
     failure_policy_override: str | None = None, transaction_policy_override: str | None = None,
@@ -7667,23 +7814,48 @@ def _plan_queue(
     cfg, config_warnings = _load_zero_argument_config(root)
     failure_policy = failure_policy_override or str(cfg.get("failure_policy") or "continue_independent")
     transaction_policy = transaction_policy_override or str(cfg.get("transaction_policy") or "patch")
+    all_warnings = list(config_warnings)
     for warning in config_warnings:
         print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}")
     try:
         items, warnings = discover_queue(root)
     except QueueSafetyError as exc:
         print(f"PLAN FAIL — queue safety: {_safe_display(str(exc))}", file=sys.stderr)
+        _emit_plan_snapshot(
+            status="blocked",
+            failure_policy=failure_policy,
+            transaction_policy=transaction_policy,
+            warnings=all_warnings,
+            error_kind="queue_safety",
+            error_message=str(exc),
+        )
         return 2
+    all_warnings.extend(warnings)
     for warning in warnings:
         print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}")
     chosen = [x for x in items if x.kind == "PATCH"]
     if not chosen:
         print("PLAN: no PATCH package is waiting in patchs/.")
+        _emit_plan_snapshot(
+            status="empty",
+            failure_policy=failure_policy,
+            transaction_policy=transaction_policy,
+            warnings=all_warnings,
+        )
         return 0
     try:
         chosen, metas, previous_action = _build_batch_plan(root, chosen, items, _planning_previous(root, previous))
     except Exception as exc:
-        print(f"PLAN FAIL — {getattr(exc,'kind','batch_plan_invalid')}: {_safe_display(str(exc))}", file=sys.stderr)
+        kind = getattr(exc, "kind", "batch_plan_invalid")
+        print(f"PLAN FAIL — {kind}: {_safe_display(str(exc))}", file=sys.stderr)
+        _emit_plan_snapshot(
+            status="blocked",
+            failure_policy=failure_policy,
+            transaction_policy=transaction_policy,
+            warnings=all_warnings,
+            error_kind=str(kind),
+            error_message=str(exc),
+        )
         return 2
     ordered_metas = [metas[x.name] for x in chosen if x.name in metas]
     tx_issues = transaction_compatibility(ordered_metas, transaction_policy)
@@ -7691,8 +7863,19 @@ def _plan_queue(
         print(f"BATCH PLAN FAIL — transaction_policy={transaction_policy} is incompatible:", file=sys.stderr)
         for issue in tx_issues:
             print(f"  - {_safe_display(issue)}", file=sys.stderr)
+        _emit_plan_snapshot(
+            status="blocked",
+            failure_policy=failure_policy,
+            transaction_policy=transaction_policy,
+            previous_failure_action=_plan_previous_action_projection(previous_action),
+            warnings=all_warnings,
+            error_kind="transaction_incompatible",
+            error_message=" | ".join(str(issue) for issue in tx_issues[:16]),
+        )
         return 2
+
     conflicts = analyze_static_conflicts(ordered_metas)
+    plan_items: list[dict[str, object]] = []
     print("BATCH PLAN — READ ONLY")
     print(f"BATCH POLICY: failure={failure_policy} | transaction={transaction_policy}")
     for i,item in enumerate(chosen,1):
@@ -7700,6 +7883,7 @@ def _plan_queue(
         deps = ",".join(meta.depends_on) if meta.depends_on else "-"
         print(f"  {i}. {_safe_display(item.name)} | id={_safe_display(meta.patch_id)} | sha={str(meta.package_sha256)[:12]} | targets={len(meta.effective_targets)} | depends_on={deps}")
         old = ledger_id_reuse(root, meta.patch_id, str(meta.package_sha256 or "")) if meta.package_sha256 else []
+        plan_items.append(_plan_item_projection(i, item, meta, len(old)))
         if old:
             print(f"     WARNING PATCH ID REUSE: {len(old)} prior SHA variant(s)")
     if previous_action:
@@ -7714,25 +7898,66 @@ def _plan_queue(
     targets = sorted({rel for meta in ordered_metas for rel in meta.effective_targets})
     resources = disk_preflight(root,[root/"patchs"/x.name for x in chosen],targets)
     print(f"RESOURCE PREFLIGHT: {resources.get('status')} | project_free={resources.get('actual_project_free_bytes')} required={resources.get('required_project_free_bytes')} | temp_free={resources.get('actual_temp_free_bytes')} required={resources.get('required_temp_free_bytes')}")
-    # Do not enter mirror preview when the resource gate already proves the plan
-    # cannot be executed safely.  In particular, copying very large/sparse
-    # targets into the preview mirror could itself consume the space the gate
-    # is intended to protect.
+    resource_projection = _plan_resource_projection(resources)
+    conflict_projection = _plan_conflict_projection(conflicts)
+    previous_projection = _plan_previous_action_projection(previous_action)
     if resources.get("status") != "PASS":
+        _emit_plan_snapshot(
+            status="blocked",
+            failure_policy=failure_policy,
+            transaction_policy=transaction_policy,
+            items=plan_items,
+            previous_failure_action=previous_projection,
+            static_conflicts=conflict_projection,
+            resources=resource_projection,
+            warnings=all_warnings,
+            error_kind="insufficient_disk_space",
+            error_message="resource preflight did not pass",
+        )
         return 2
+
     preview_rc = 0
+    preview_rows: list[dict[str, object]] = []
     for item in chosen:
         print(f"\n--- PREVIEW {item.name} ---")
-        rc = _preview_item(root,item)
-        if rc and not preview_rc: preview_rc = rc
+        rc, structured = _plan_preview_item(root,item)
+        preview_rows.append(_plan_preview_projection(item, rc, structured))
+        if rc and not preview_rc:
+            preview_rc = rc
+
     if export_recipe is not None:
         try:
             _write_batch_recipe(root, Path(export_recipe), chosen, metas, failure_policy=failure_policy, transaction_policy=transaction_policy)
         except Exception as exc:
             print(f"PLAN FAIL — recipe export: {type(exc).__name__}: {exc}",file=sys.stderr)
+            _emit_plan_snapshot(
+                status="blocked",
+                failure_policy=failure_policy,
+                transaction_policy=transaction_policy,
+                items=plan_items,
+                previous_failure_action=previous_projection,
+                static_conflicts=conflict_projection,
+                resources=resource_projection,
+                previews=preview_rows,
+                warnings=all_warnings,
+                error_kind="recipe_export_failed",
+                error_message=f"{type(exc).__name__}: {exc}",
+            )
             return 2
-    if resources.get("status") != "PASS":
-        return 2
+
+    _emit_plan_snapshot(
+        status="ready" if preview_rc == 0 else "preview_failed",
+        failure_policy=failure_policy,
+        transaction_policy=transaction_policy,
+        items=plan_items,
+        previous_failure_action=previous_projection,
+        static_conflicts=conflict_projection,
+        resources=resource_projection,
+        previews=preview_rows,
+        warnings=all_warnings,
+        error_kind="preview_failed" if preview_rc else "",
+        error_message="one or more PATCH previews failed" if preview_rc else "",
+    )
     return preview_rc
 
 

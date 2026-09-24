@@ -821,6 +821,105 @@ class ProtocolContractTests(unittest.TestCase):
             self.assertEqual(entry.classify_route(args), want)
 
 
+    def test_plan_snapshot_projects_only_stable_bounded_fields(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        root = Path("/workspace")
+        item = dispatcher.QueueItem("demo.zip", "PATCH", "manifest")
+        meta = mock.Mock()
+        meta.patch_id = "patch.demo"
+        meta.package_sha256 = "a" * 64
+        meta.effective_targets = ["src/a.ts", "src/b.ts"]
+        meta.depends_on = ["patch.base"]
+        preview_result = {
+            "status": "PASS",
+            "rc": 0,
+            "stage": "preview",
+            "preflight": {"target_paths": ["src/a.ts", "src/b.ts"], "_private": "hide"},
+            "diagnosis": {
+                "kind": "ready_to_apply",
+                "message": "project unchanged; predicted_changed=2",
+                "private": "hide",
+            },
+            "raw_internal": {"secret": True},
+        }
+        events = []
+
+        with mock.patch.object(dispatcher, "_load_previous_run", return_value=None), \
+             mock.patch.object(dispatcher, "_load_zero_argument_config", return_value=({"failure_policy":"continue_independent","transaction_policy":"patch"}, [])), \
+             mock.patch.object(dispatcher, "discover_queue", return_value=([item], [])), \
+             mock.patch.object(dispatcher, "_planning_previous", return_value=None), \
+             mock.patch.object(dispatcher, "_build_batch_plan", return_value=([item], {"demo.zip": meta}, None)), \
+             mock.patch.object(dispatcher, "transaction_compatibility", return_value=[]), \
+             mock.patch.object(dispatcher, "analyze_static_conflicts", return_value=[{
+                 "left":"demo.zip","left_patch_id":"patch.demo","right":"other.zip","right_patch_id":"patch.other",
+                 "overlap":["src/a.ts"],"relation":"order_dependent_overlap","dependency_ordered":False,
+             }]), \
+             mock.patch.object(dispatcher, "ledger_id_reuse", return_value=[{"sha256":"old"}]), \
+             mock.patch.object(dispatcher, "disk_preflight", return_value={
+                 "status":"PASS",
+                 "actual_project_free_bytes":1000,
+                 "required_project_free_bytes":100,
+                 "actual_temp_free_bytes":900,
+                 "required_temp_free_bytes":50,
+                 "private_internal":"hide",
+             }), \
+             mock.patch.object(dispatcher, "_plan_preview_item", return_value=(0, preview_result)), \
+             mock.patch.object(dispatcher, "_emit_protocol_event", side_effect=lambda event_type, **payload: events.append((event_type,payload)) or True):
+            rc = dispatcher._plan_queue(root)
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(events), 1)
+        event_type, snapshot = events[0]
+        self.assertEqual(event_type, "plan_snapshot")
+        self.assertEqual(snapshot["status"], "ready")
+        self.assertEqual(snapshot["items"][0], {
+            "index":1,"name":"demo.zip","patch_id":"patch.demo","package_sha256":"a"*64,
+            "target_count":2,"depends_on":["patch.base"],"id_reuse_count":1,
+        })
+        self.assertEqual(snapshot["resources"], {
+            "status":"PASS",
+            "actual_project_free_bytes":1000,
+            "required_project_free_bytes":100,
+            "actual_temp_free_bytes":900,
+            "required_temp_free_bytes":50,
+        })
+        self.assertEqual(snapshot["previews"][0]["status"], "PASS")
+        self.assertEqual(snapshot["previews"][0]["target_count"], 2)
+        serialized = json.dumps(snapshot, sort_keys=True)
+        self.assertNotIn("raw_internal", serialized)
+        self.assertNotIn("private_internal", serialized)
+        self.assertNotIn('"_private"', serialized)
+
+    def test_plan_snapshot_emits_blocked_resource_gate_without_preview(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        item = dispatcher.QueueItem("demo.zip", "PATCH", "manifest")
+        meta = mock.Mock()
+        meta.patch_id = "patch.demo"
+        meta.package_sha256 = "b" * 64
+        meta.effective_targets = ["src/a.ts"]
+        meta.depends_on = []
+        events = []
+        with mock.patch.object(dispatcher, "_load_previous_run", return_value=None), \
+             mock.patch.object(dispatcher, "_load_zero_argument_config", return_value=({}, [])), \
+             mock.patch.object(dispatcher, "discover_queue", return_value=([item], [])), \
+             mock.patch.object(dispatcher, "_planning_previous", return_value=None), \
+             mock.patch.object(dispatcher, "_build_batch_plan", return_value=([item], {"demo.zip": meta}, None)), \
+             mock.patch.object(dispatcher, "transaction_compatibility", return_value=[]), \
+             mock.patch.object(dispatcher, "analyze_static_conflicts", return_value=[]), \
+             mock.patch.object(dispatcher, "ledger_id_reuse", return_value=[]), \
+             mock.patch.object(dispatcher, "disk_preflight", return_value={"status":"FAIL","actual_project_free_bytes":1,"required_project_free_bytes":2}), \
+             mock.patch.object(dispatcher, "_plan_preview_item") as preview, \
+             mock.patch.object(dispatcher, "_emit_protocol_event", side_effect=lambda event_type, **payload: events.append((event_type,payload)) or True):
+            rc = dispatcher._plan_queue(Path("/workspace"))
+
+        self.assertEqual(rc, 2)
+        preview.assert_not_called()
+        self.assertEqual(events[-1][0], "plan_snapshot")
+        self.assertEqual(events[-1][1]["status"], "blocked")
+        self.assertEqual(events[-1][1]["error"]["kind"], "insufficient_disk_space")
+
     def test_queue_search_projection_is_bounded_and_manifest_free(self):
         import python_patch_queue_dispatcher as dispatcher
 

@@ -222,6 +222,9 @@ Status: **IN PROGRESS**
     - [x] Phase 2H.3a bounded Python-owned queue search projection.
     - [x] Phase 2H.3b native Queue/Failed search UI.
   - [ ] Phase 2H.4 Native Plan projection/view; Plan must no longer require the PTY as its primary renderer.
+    - [x] Phase 2H.4a Python-owned bounded Plan projection.
+    - [ ] Phase 2H.4b TaskDeck Plan protocol state.
+    - [ ] Phase 2H.4c native Plan web view + PTY fallback.
   - [ ] Phase 2H.5 Native Tool Health view/action.
   - [ ] Phase 2H.6 Advanced History parity: support ZIP creation and explicit cleanup; report subset filters may remain pure presentation over projected rows.
   - [ ] Phase 2H.7 final parity regression gate before changing any default PTY activation/fallback behavior.
@@ -354,8 +357,9 @@ Every phase must preserve:
 | Phase 2H.3a Python queue search projection | DONE | 21c5af26 | Queue snapshot now carries bounded casefold-normalized name/id/summary/target search text produced in Python; terminal kind/detail search remains unchanged and no ZIP/manifest internals are exposed to web. |
 | Phase 2H.3b native Queue/Failed search UI | DONE | 07921b90 | Queue/Failed filtering uses only Python-projected search.text; the same query hides nonmatching native selection rows without browser ZIP/manifest inspection or execution-policy inference. |
 | Phase 2H.3b Go test offset correction | DONE | cc54692f | Fixed the search contract test to use Go's two-argument strings.Index API; runtime behavior unchanged. |
-| Phase 2H.3b select-all contract correction | DONE | this commit | Updated the stale Select-all assertion for search-aware visible PATCH selection; runtime behavior unchanged. |
+| Phase 2H.3b select-all contract correction | DONE | 01227e3d | Updated the stale Select-all assertion for search-aware visible PATCH selection; runtime behavior unchanged. |
+| Phase 2H.4a Python native Plan projection | DONE | this commit | Plan emits a bounded structured snapshot for ordered items, policy, static conflicts, resource gates and structured preview summaries while preserving historical read-only terminal output. |
 
 ## Next action
 
-Continue **Phase 2H.4a**: define a bounded Python-owned native Plan projection covering execution order, resource estimates, static conflicts and preview-plan summaries without exposing internal planner/history schemas.
+Continue **Phase 2H.4b**: validate and retain the latest plan_snapshot in TaskDeck session state, with bounded item/conflict/preview/resource fields and no raw planner/history schema exposure.
