@@ -98,9 +98,23 @@ def _safe_regular(root: Path, rel: str) -> bool:
     return True
 
 
-def audit_tool(root: Path) -> dict[str, object]:
-    root=root.resolve()
-    lib=root/'tools'/'_patch_lib'
+def _runtime_rel(rel: str) -> str:
+    path = Path(rel)
+    parts = path.parts
+    if not parts or parts[0] != "tools" or len(parts) < 2:
+        raise ValueError(f"managed runtime path must start with tools/: {rel}")
+    return Path(*parts[1:]).as_posix()
+
+
+def audit_runtime(tool_dir: Path) -> dict[str, object]:
+    """Audit one installed Patch Tool runtime directory directly.
+
+    This supports both the historical <project>/tools layout and TaskDeck's
+    versioned <release>/patchtool bundle without changing checksum semantics:
+    manifests still use their historical tools/... paths.
+    """
+    tool_dir=tool_dir.resolve()
+    lib=tool_dir/'_patch_lib'
     errors: list[str]=[]
     warnings: list[str]=[]
     checks: list[dict[str, object]]=[]
@@ -116,15 +130,16 @@ def audit_tool(root: Path) -> dict[str, object]:
     checks.append({'name':'version','status':'PASS' if installed==VERSION else 'FAIL','detail':installed})
 
     for rel in REQUIRED_RUNTIME:
-        path=root/rel
-        ok=_safe_regular(root,rel)
+        local_rel=_runtime_rel(rel)
+        path=tool_dir/local_rel
+        ok=_safe_regular(tool_dir,local_rel)
         checks.append({'name':f'file:{rel}','status':'PASS' if ok else 'FAIL'})
         if not ok:
             errors.append(f"missing/unsafe required file or symlinked ancestor: {rel}")
 
-    sh_launcher=root/'tools'/'run_python_patches.sh'
-    ps_launcher=root/'tools'/'run_python_patches.ps1'
-    bat_launcher=root/'tools'/'run_python_patches.bat'
+    sh_launcher=tool_dir/'run_python_patches.sh'
+    ps_launcher=tool_dir/'run_python_patches.ps1'
+    bat_launcher=tool_dir/'run_python_patches.bat'
     if os.name=='nt':
         executable=ps_launcher.is_file() and bat_launcher.is_file()
         launcher_detail='windows:.bat+.ps1'
@@ -144,7 +159,7 @@ def audit_tool(root: Path) -> dict[str, object]:
     # excludes repository metadata (.git), repo-only helpers/README, cache
     # artifacts and SHA256SUMS itself.
     try:
-        actual_managed=set(managed_relpaths(root/'tools'))
+        actual_managed=set(managed_relpaths(tool_dir))
     except OSError as exc:
         actual_managed=set()
         errors.append(f"managed tools tree unavailable: {type(exc).__name__}: {exc}")
@@ -164,8 +179,9 @@ def audit_tool(root: Path) -> dict[str, object]:
                 checksum_failures+=1
                 continue
             seen.add(rel); manifest_entries+=1
-            path=root/rel
-            if not _safe_regular(root,rel):
+            local_rel=_runtime_rel(rel)
+            path=tool_dir/local_rel
+            if not _safe_regular(tool_dir,local_rel):
                 errors.append(f"checksum target missing/unsafe or symlinked ancestor: {rel}")
                 checksum_failures+=1
                 continue
@@ -252,14 +268,19 @@ def audit_tool(root: Path) -> dict[str, object]:
         checks.append({'name':f'schema:{name}','status':'PASS' if ok else 'FAIL'})
 
     # Extra cache files do not break runtime, but release/install hygiene should surface them.
-    caches=[p.relative_to(root).as_posix() for p in (root/'tools').rglob('*') if p.is_file() and p.suffix=='.pyc']
-    pycache_dirs=[p.relative_to(root).as_posix() for p in (root/'tools').rglob('__pycache__') if p.is_dir()]
+    caches=['tools/' + p.relative_to(tool_dir).as_posix() for p in tool_dir.rglob('*') if p.is_file() and p.suffix=='.pyc']
+    pycache_dirs=['tools/' + p.relative_to(tool_dir).as_posix() for p in tool_dir.rglob('__pycache__') if p.is_dir()]
     if caches or pycache_dirs:
         warnings.append(f"Python cache artifacts present: files={len(caches)} dirs={len(pycache_dirs)}")
     checks.append({'name':'python_cache_hygiene','status':'WARN' if caches or pycache_dirs else 'PASS','files':len(caches),'dirs':len(pycache_dirs)})
 
     status='FAIL' if errors else ('WARN' if warnings else 'PASS')
     return {'format':'python-patch-tool-health','format_version':1,'tool_version':VERSION,'status':status,'checks':checks,'errors':errors,'warnings':warnings}
+
+
+def audit_tool(root: Path) -> dict[str, object]:
+    """Historical project-root API: audit <root>/tools exactly as before."""
+    return audit_runtime(root.resolve()/'tools')
 
 
 def print_health(root: Path, *, compact: bool=False) -> int:

@@ -226,6 +226,10 @@ Status: **IN PROGRESS**
     - [x] Phase 2H.4b TaskDeck Plan protocol state.
     - [x] Phase 2H.4c native Plan web view + PTY fallback.
   - [ ] Phase 2H.5 Native Tool Health view/action.
+    - [x] Phase 2H.5a1 runtime-directory Health audit compatibility for TaskDeck bundled patchtool/.
+    - [ ] Phase 2H.5a2 Python health route + bounded health_snapshot.
+    - [ ] Phase 2H.5b TaskDeck Health protocol state.
+    - [ ] Phase 2H.5c native Health primary view + PTY fallback.
   - [ ] Phase 2H.6 Advanced History parity: support ZIP creation and explicit cleanup; report subset filters may remain pure presentation over projected rows.
   - [ ] Phase 2H.7 final parity regression gate before changing any default PTY activation/fallback behavior.
 
@@ -361,8 +365,9 @@ Every phase must preserve:
 | Phase 2H.4a Python native Plan projection | DONE | 7623e69b | Plan emits a bounded structured snapshot for ordered items, policy, static conflicts, resource gates and structured preview summaries while preserving historical read-only terminal output. |
 | Phase 2H.4b TaskDeck Plan protocol state | DONE | 98b56539 | TaskDeck validates Plan policy/items/conflicts/resources/previews into typed bounded state and drops unknown raw planner fields before exposing session state. |
 | Phase 2H.4c native Plan primary view | DONE | c28758aa | Patch panel renders only validated plan_snapshot state as the primary Plan view; PTY is attached without activation and remains an explicit evidence/fallback surface. |
-| Phase 2H.4c export-contract correction | DONE | this commit | Updated the stale TaskMenuPatchPanel export assertion for the new Plan renderer helpers; runtime behavior unchanged. |
+| Phase 2H.4c export-contract correction | DONE | 7219ae94 | Updated the stale TaskMenuPatchPanel export assertion for the new Plan renderer helpers; runtime behavior unchanged. |
+| Phase 2H.5a1 bundled runtime Health audit | DONE | this commit | Health can audit a runtime directory directly, so TaskDeck's versioned patchtool/ bundle uses the same checksum/schema policy as historical <project>/tools; audit_tool(project_root) remains compatible. |
 
 ## Next action
 
-Continue **Phase 2H.5**: add a Python-owned Tool Health/self-audit projection and a native read-only Health view/action before final PTY cutover.
+Continue **Phase 2H.5a2**: add a read-only Python health route that audits the active bundled runtime once, emits a bounded health_snapshot, and preserves the historical terminal Health report.

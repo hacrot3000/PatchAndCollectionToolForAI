@@ -15,6 +15,8 @@ assert h.VERSION=='6.20.2'
 root=TOOLS.parent
 report=h.audit_tool(root)
 assert report['status']=='PASS',report
+runtime_report=h.audit_runtime(TOOLS)
+assert runtime_report==report,(runtime_report,report)
 
 # A corrupted managed runtime file must be detected by SHA256SUMS.
 with tempfile.TemporaryDirectory(prefix='ptv614_health_corrupt_') as td:
