@@ -3276,6 +3276,7 @@ def protocol_queue_view(root: Path) -> dict[str, object]:
     rows: list[dict[str, object]] = []
     counts: dict[str, int] = {}
     group_counts = {"new": 0, "failed": 0}
+    search_cache: dict[str, object] = {}
     for item in items:
         group = "failed" if item.name in failed_rows else "new"
         row: dict[str, object] = {
@@ -3283,6 +3284,7 @@ def protocol_queue_view(root: Path) -> dict[str, object]:
             "kind": str(item.kind),
             "detail": str(item.detail or ""),
             "group": group,
+            "search": _selector_search_projection(root, item, search_cache),
         }
         if group == "failed":
             row["failure"] = _protocol_failure_summary(failed_rows[item.name])
@@ -5075,24 +5077,88 @@ def _delete_indexes(
     return selected, priorities, list(reversed(deleted)), list(reversed(failures))
 
 
-def _selector_search_blob(root: Path, item: QueueItem, cache: dict[str,str]) -> str:
-    cached = cache.get(item.name)
-    if cached is not None:
+_PROTOCOL_SEARCH_NAME_CHARS = 1024
+_PROTOCOL_SEARCH_ID_CHARS = 512
+_PROTOCOL_SEARCH_SUMMARY_CHARS = 2048
+_PROTOCOL_SEARCH_TARGETS = 64
+_PROTOCOL_SEARCH_TARGET_CHARS = 512
+_PROTOCOL_SEARCH_TEXT_CHARS = 32768
+
+
+def _bounded_search_text(value: object, limit: int) -> str:
+    text = str(value or "").casefold()
+    return text[: max(0, int(limit))]
+
+
+def _selector_search_projection(
+    root: Path,
+    item: QueueItem,
+    cache: dict[str, object],
+) -> dict[str, object]:
+    """Bounded searchable fields for native Queue filtering.
+
+    This is deliberately a projection, not manifest exposure. PATCH metadata is
+    read only here in Python, and the browser receives normalized text only.
+    """
+    key = "projection\x00" + item.name
+    cached = cache.get(key)
+    if isinstance(cached, dict):
         return cached
-    parts = [item.name, item.kind, item.detail]
+
+    search_id = ""
+    summary = item.detail if item.kind != "PATCH" else ""
+    targets: list[str] = []
     if item.kind == "PATCH":
         try:
             meta = load_patch_meta(root, item.name)
-            parts.extend([meta.patch_id, str((meta.manifest.get("patch") or {}).get("summary") or "")])
-            parts.extend(meta.effective_targets)
+            search_id = str(meta.patch_id or "")
+            summary = str((meta.manifest.get("patch") or {}).get("summary") or "")
+            targets = [str(value) for value in list(meta.effective_targets)[:_PROTOCOL_SEARCH_TARGETS]]
         except Exception:
             pass
-    blob = "\n".join(str(x) for x in parts).casefold()
-    cache[item.name] = blob
+
+    projection: dict[str, object] = {
+        "name": _bounded_search_text(item.name, _PROTOCOL_SEARCH_NAME_CHARS),
+        "id": _bounded_search_text(search_id, _PROTOCOL_SEARCH_ID_CHARS),
+        "summary": _bounded_search_text(summary, _PROTOCOL_SEARCH_SUMMARY_CHARS),
+        "targets": [
+            _bounded_search_text(value, _PROTOCOL_SEARCH_TARGET_CHARS)
+            for value in targets
+        ],
+    }
+    projection["text"] = "\n".join([
+        str(projection["name"]),
+        str(projection["id"]),
+        str(projection["summary"]),
+        *[str(value) for value in projection["targets"]],
+    ])[:_PROTOCOL_SEARCH_TEXT_CHARS]
+    cache[key] = projection
+    return projection
+
+
+def _selector_search_blob(root: Path, item: QueueItem, cache: dict[str, object]) -> str:
+    key = "blob\x00" + item.name
+    cached = cache.get(key)
+    if isinstance(cached, str):
+        return cached
+
+    projection = _selector_search_projection(root, item, cache)
+    # Preserve the historical terminal selector's kind/detail coverage. Native
+    # cutover parity is intentionally defined for name/id/summary/targets only.
+    parts = [
+        projection["name"],
+        str(item.kind).casefold(),
+        str(item.detail).casefold(),
+        projection["id"],
+        projection["summary"],
+        *projection["targets"],
+    ]
+    blob = "\n".join(str(value) for value in parts)
+    cache[key] = blob
     return blob
 
 
-def _filter_selector_items(root: Path, items: list[QueueItem], query: str, cache: dict[str,str]) -> list[QueueItem]:
+def _filter_selector_items(root: Path, items: list[QueueItem], query: str, cache: dict[str, object]) -> list[QueueItem]:
     q = query.strip().casefold()
     if not q:
         return list(items)
@@ -5101,7 +5167,7 @@ def _filter_selector_items(root: Path, items: list[QueueItem], query: str, cache
 
 def _select_items_line(root: Path, items: list[QueueItem], initial_selection: str, *, show_history: bool = False, failed_group_names: set[str] | None = None):
     all_items = list(items)
-    search_cache: dict[str,str] = {}
+    search_cache: dict[str, object] = {}
     selected = _initial_selected(items, initial_selection)
     failed_group_names = set(failed_group_names or ())
     while items:

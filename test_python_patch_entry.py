@@ -821,6 +821,104 @@ class ProtocolContractTests(unittest.TestCase):
             self.assertEqual(entry.classify_route(args), want)
 
 
+    def test_queue_search_projection_is_bounded_and_manifest_free(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        patch = dispatcher.QueueItem("Feature_DEMO.zip", "PATCH", "manifest")
+        collect = dispatcher.QueueItem("collect_demo.zip", "COLLECT", "VIN lookup request")
+        meta = mock.Mock()
+        meta.patch_id = "PATCH-ID-ABC"
+        meta.manifest = {
+            "patch": {
+                "summary": "Fix Hero Formation",
+                "private_internal_field": "must not leak",
+            },
+            "other": {"secret": "must not leak"},
+        }
+        meta.effective_targets = ["Client/Hero.ts", "Server/HeroService.java"]
+
+        cache: dict[str, object] = {}
+        with mock.patch.object(dispatcher, "load_patch_meta", return_value=meta):
+            patch_search = dispatcher._selector_search_projection(Path("/workspace"), patch, cache)
+            collect_search = dispatcher._selector_search_projection(Path("/workspace"), collect, cache)
+
+        self.assertEqual(
+            set(patch_search),
+            {"name", "id", "summary", "targets", "text"},
+        )
+        self.assertEqual(patch_search["name"], "feature_demo.zip")
+        self.assertEqual(patch_search["id"], "patch-id-abc")
+        self.assertEqual(patch_search["summary"], "fix hero formation")
+        self.assertEqual(
+            patch_search["targets"],
+            ["client/hero.ts", "server/heroservice.java"],
+        )
+        self.assertNotIn("private_internal_field", json.dumps(patch_search))
+        self.assertNotIn("must not leak", json.dumps(patch_search))
+        self.assertEqual(collect_search["summary"], "vin lookup request")
+        self.assertEqual(collect_search["id"], "")
+        self.assertEqual(collect_search["targets"], [])
+
+    def test_native_search_projection_matches_terminal_for_cutover_fields(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        patch = dispatcher.QueueItem("Feature_DEMO.zip", "PATCH", "manifest")
+        collect = dispatcher.QueueItem("collect_demo.zip", "COLLECT", "VIN lookup request")
+        items = [patch, collect]
+        meta = mock.Mock()
+        meta.patch_id = "PATCH-ID-ABC"
+        meta.manifest = {"patch": {"summary": "Fix Hero Formation"}}
+        meta.effective_targets = ["Client/Hero.ts", "Server/HeroService.java"]
+
+        with mock.patch.object(dispatcher, "load_patch_meta", return_value=meta):
+            for query in [
+                "feature_demo",
+                "patch-id-abc",
+                "hero formation",
+                "client/hero.ts",
+                "vin lookup",
+            ]:
+                terminal = [
+                    item.name
+                    for item in dispatcher._filter_selector_items(
+                        Path("/workspace"), items, query, {}
+                    )
+                ]
+                projection_cache: dict[str, object] = {}
+                native = [
+                    item.name
+                    for item in items
+                    if query.strip().casefold()
+                    in str(
+                        dispatcher._selector_search_projection(
+                            Path("/workspace"), item, projection_cache
+                        )["text"]
+                    )
+                ]
+                self.assertEqual(native, terminal, query)
+
+    def test_queue_protocol_view_contains_only_bounded_search_projection(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        item = dispatcher.QueueItem("demo.zip", "PATCH", "manifest")
+        meta = mock.Mock()
+        meta.patch_id = "ID-1"
+        meta.manifest = {"patch": {"summary": "Summary"}}
+        meta.effective_targets = ["src/main.ts"]
+        with mock.patch.object(dispatcher, "discover_queue", return_value=([item], [])), \
+             mock.patch.object(dispatcher, "_load_previous_run", return_value=None), \
+             mock.patch.object(dispatcher, "_failed_queue_rows_by_name", return_value={}), \
+             mock.patch.object(dispatcher, "load_patch_meta", return_value=meta):
+            view = dispatcher.protocol_queue_view(Path("/workspace"))
+
+        self.assertEqual(view["items"][0]["search"], {
+            "name": "demo.zip",
+            "id": "id-1",
+            "summary": "summary",
+            "targets": ["src/main.ts"],
+            "text": "demo.zip\nid-1\nsummary\nsrc/main.ts",
+        })
+
     def test_queue_snapshot_projects_new_and_failed_groups_from_python_policy(self):
         import python_patch_queue_dispatcher as dispatcher
         from python_patch_protocol import build_queue_snapshot
