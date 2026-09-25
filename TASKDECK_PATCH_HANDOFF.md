@@ -103,6 +103,8 @@ The gate now checks product-level invariants rather than merely renderer/protoco
 
 Minimum code checkpoint for this smoke: the installed TaskDeck revision must contain `15711d4d` (or be a later descendant on `main`). Older installed revisions are not valid evidence for Phase 2E.2.
 
+Checkpoint `15711d4d` passed GitHub Actions run `36087008801`.
+
 After TaskDeck is self-updated/restarted to a build containing the corrected Phase 2 commits,
 verify in the real browser UI:
 
@@ -144,7 +146,7 @@ Only after Phase 2E.2 passes:
 | `7d199813` | Add CI guard against premature handoff/roadmap completion |
 | `9096299f` | Point implementing.md to the TaskDeck recovery handoff |
 | `8c9f1882` | Remove self-invalidating “current head” field from handoff |
-| `15711d4d` | Clarify explicit-only terminal fallback wording |
+| `15711d4d` | Clarify explicit-only terminal fallback wording — CI 36087008801 PASS |
 
 ## Non-regression invariants
 
