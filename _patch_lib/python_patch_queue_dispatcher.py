@@ -4629,7 +4629,26 @@ def _protocol_history_cleanup(
 
     plan = _history_age_cleanup_plan(root, older_than_days, cutoff_at=cutoff_at)
     if str(plan.get("candidate_digest") or "").lower() != expected_digest:
-        raise ValueError("History changed after cleanup preview; preview again before deleting")
+        writer.emit(
+            "history_cleanup_result",
+            prompt_id=prompt_id,
+            cleanup_id=cleanup_id,
+            preview_cleanup_id=preview_cleanup_id,
+            mode="delete",
+            status="FAIL",
+            rc=2,
+            history_changed=False,
+            removed=0,
+            pinned=max(0, int(plan.get("pinned") or 0)),
+            remaining=max(0, int(plan.get("remaining") or 0)),
+            policy=_protocol_history_text(plan.get("policy") or "", 128),
+            eligible_before=max(0, int(plan.get("eligible") or 0)),
+            older_than_days=older_than_days,
+            cutoff_at=_protocol_history_text(plan.get("cutoff_at") or "", 128),
+            candidate_digest=_protocol_history_text(plan.get("candidate_digest") or "", 64),
+            message="History changed after cleanup preview; preview again before deleting",
+        )
+        return False
     result = _cleanup_history_age(root, plan)
     changed = int(result.get("removed") or 0) > 0
     writer.emit(
