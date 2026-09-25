@@ -27,6 +27,13 @@ type fakeSQLiteState struct {
 	journalMode    string
 	execs          []string
 	queries        []string
+	queryResponses []fakeSQLiteQueryResponse
+}
+
+type fakeSQLiteQueryResponse struct {
+	contains string
+	columns  []string
+	values   [][]driver.Value
 }
 
 type fakeSQLiteDriver struct{}
@@ -91,9 +98,16 @@ func (c *fakeSQLiteConn) QueryContext(_ context.Context, query string, _ []drive
 			columns: []string{"version"},
 			values:  [][]driver.Value{{c.state.currentVersion}},
 		}, nil
-	default:
-		return nil, errors.New("unexpected fake SQLite query: " + query)
 	}
+	for _, response := range c.state.queryResponses {
+		if strings.Contains(normalized, strings.ToUpper(response.contains)) {
+			return &fakeSQLiteRows{
+				columns: append([]string(nil), response.columns...),
+				values:  append([][]driver.Value(nil), response.values...),
+			}, nil
+		}
+	}
+	return nil, errors.New("unexpected fake SQLite query: " + query)
 }
 
 type fakeSQLiteRows struct {
