@@ -617,3 +617,26 @@ func TestPatchLegacyCleanupIsFailClosedAndInteractive(t *testing.T) {
 		}
 	}
 }
+
+
+func TestServeForegroundUsesPatchProtocolCompatibilityService(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"sessionService := broker.NewCompatibilityService(brokerClient)",
+		"defer sessionService.Close()",
+		"sessionService.NeedsPatchProtocolFallback()",
+		"Sessions: sessionService",
+		"preserving broker-owned terminals and using daemon-local Patch protocol sessions",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("serveForeground missing broker compatibility wiring %q", want)
+		}
+	}
+	if strings.Contains(src, "Sessions: brokerClient}") {
+		t.Fatal("HTTP server must not bypass the Patch protocol compatibility service")
+	}
+}

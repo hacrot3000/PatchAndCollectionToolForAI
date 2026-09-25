@@ -474,7 +474,12 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 		return err
 	}
 	defer brokerClient.Close()
-	srv := &server.Server{Workspace: ws, Config: cfg, Log: logger, Sessions: brokerClient}
+	sessionService := broker.NewCompatibilityService(brokerClient)
+	defer sessionService.Close()
+	if sessionService.NeedsPatchProtocolFallback() {
+		logger.Printf("session broker predates Patch protocol capabilities; preserving broker-owned terminals and using daemon-local Patch protocol sessions")
+	}
+	srv := &server.Server{Workspace: ws, Config: cfg, Log: logger, Sessions: sessionService}
 	server.RegisterSelfUpdateCheck(srv, checkSelfUpdate)
 	defer server.RegisterSelfUpdateCheck(srv, nil)
 	server.RegisterSelfUpdateStart(srv, func() error { return startAutoSelfUpdate(ws) })
