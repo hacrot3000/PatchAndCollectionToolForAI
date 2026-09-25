@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -235,6 +236,15 @@ func cachedAIPackMatches(path, fingerprint string) bool {
 	return false
 }
 
+func replaceAIPackFile(temp, target string) error {
+	if runtime.GOOS == "windows" {
+		if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return os.Rename(temp, target)
+}
+
 func writeJSONAtomic(path string, value any) error {
 	raw, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
@@ -259,7 +269,7 @@ func writeJSONAtomic(path string, value any) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(name, path)
+	return replaceAIPackFile(name, path)
 }
 
 func writeAIPackZip(path string, docs []aiPackFile, guide []byte, prompts map[string]string, manifest aiPackManifest) error {
@@ -323,7 +333,7 @@ func writeAIPackZip(path string, docs []aiPackFile, guide []byte, prompts map[st
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(name, path); err != nil {
+	if err := replaceAIPackFile(name, path); err != nil {
 		return err
 	}
 	return nil
