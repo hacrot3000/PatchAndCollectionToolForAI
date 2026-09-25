@@ -41,6 +41,10 @@ function installPatchPanel(){
   .task-patch-queue-delete:hover{background:#4a272d}
   .task-patch-summary-empty{padding:7px 6px;opacity:.62;text-align:center}
   .task-patch-summary-warning{margin-top:5px;opacity:.72}
+  .task-patch-summary.prompt-active .task-patch-summary-tabs,
+  .task-patch-summary.prompt-active .task-patch-summary-search,
+  .task-patch-summary.prompt-active .task-patch-summary-list{display:none}
+  .task-patch-summary.prompt-active .task-patch-summary-counts{margin-bottom:0}
   .task-patch-action-result{margin:0 0 10px;padding:8px;border:1px solid #3f4b5d;border-radius:6px;background:#0d1015;font-size:11px}
   .task-patch-action-result[hidden]{display:none}
   .task-patch-action-result-head{display:flex;align-items:center;gap:6px;margin-bottom:5px}
@@ -1937,6 +1941,7 @@ function installPatchPanel(){
 
   function clearPrompt(){
     activeQueuePrompt=null;
+    summary.classList.remove('prompt-active');
     promptBox.hidden=true;
     promptTitle.textContent='';
     promptNote.textContent='';
@@ -2059,6 +2064,8 @@ function installPatchPanel(){
     const actionsAllowed=new Set(Array.isArray(prompt.actions)?prompt.actions.map(String):[]);
     clearPrompt();
     activeQueuePrompt=prompt;
+    summary.classList.add('prompt-active');
+    summaryTitle.textContent='Queue overview';
     promptBox.hidden=false;
     promptTitle.textContent=String(prompt.title||'Choose PATCH/COLLECT work');
     const priorityCapability=patchPriorityCapability(prompt);

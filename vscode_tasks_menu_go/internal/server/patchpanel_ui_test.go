@@ -985,3 +985,22 @@ func TestPatchFallbackCopyIsExplicitOnly(t *testing.T) {
 		}
 	}
 }
+
+
+func TestPatchQueuePromptDoesNotDuplicateActionableItems(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		".task-patch-summary.prompt-active .task-patch-summary-tabs",
+		".task-patch-summary.prompt-active .task-patch-summary-search",
+		".task-patch-summary.prompt-active .task-patch-summary-list{display:none}",
+		"summary.classList.add('prompt-active')",
+		"summaryTitle.textContent='Queue overview'",
+		"summary.classList.remove('prompt-active')",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("queue prompt duplicate suppression missing %q",want)
+		}
+	}
+}
