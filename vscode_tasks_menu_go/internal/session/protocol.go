@@ -789,7 +789,9 @@ func protocolHistoryCleanupResultEvent(data []byte) (ProtocolHistoryCleanupResul
 		event.CleanupID == "" || len(event.CleanupID) > 128 {
 		return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup identity is invalid")
 	}
-	if event.Status != "PASS" || event.RC != 0 {
+	if (event.Status != "PASS" && event.Status != "FAIL") ||
+		(event.Status == "PASS" && event.RC != 0) ||
+		(event.Status == "FAIL" && event.RC == 0) {
 		return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup result is invalid")
 	}
 	if event.Removed < 0 || event.Pinned < 0 || event.Remaining < 0 || event.EligibleBefore < 0 ||
@@ -836,7 +838,7 @@ func protocolHistoryCleanupResultEvent(data []byte) (ProtocolHistoryCleanupResul
 			}
 		}
 		if event.Mode == "preview" {
-			if event.HistoryChanged || event.Removed != 0 || event.PreviewCleanupID != "" ||
+			if event.Status != "PASS" || event.HistoryChanged || event.Removed != 0 || event.PreviewCleanupID != "" ||
 				len(event.Candidates) > event.EligibleBefore ||
 				(!event.CandidatesTruncated && len(event.Candidates) != event.EligibleBefore) {
 				return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup preview is inconsistent")
@@ -844,6 +846,9 @@ func protocolHistoryCleanupResultEvent(data []byte) (ProtocolHistoryCleanupResul
 		} else {
 			if event.PreviewCleanupID == "" || len(event.PreviewCleanupID) > 128 || len(event.Candidates) != 0 || event.CandidatesTruncated {
 				return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup delete binding is invalid")
+			}
+			if event.Status == "FAIL" && (event.HistoryChanged || event.Removed != 0) {
+				return ProtocolHistoryCleanupResultState{}, fmt.Errorf("failed Patch History cleanup must not mutate History")
 			}
 		}
 	default:
