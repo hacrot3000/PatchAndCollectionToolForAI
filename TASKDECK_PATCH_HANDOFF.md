@@ -101,7 +101,7 @@ The gate now checks product-level invariants rather than merely renderer/protoco
 
 **This is the current blocking acceptance task.**
 
-Minimum native-UI code checkpoint remains `15711d4d`, but revision `a0b774c8` cannot be installed through self-update because the repository-document guard was mistakenly placed inside `go test ./...`. **For self-update/browser smoke, install `afbb82be` or a later descendant on `main`.**
+Minimum native-UI code checkpoint remains `15711d4d`, but revision `a0b774c8` cannot be installed through self-update because the repository-document guard was mistakenly placed inside `go test ./...`. **For self-update/browser smoke, install `19c2ebc3` or a later descendant on `main`.**
 
 Checkpoint `15711d4d` passed GitHub Actions run `36087008801`. The self-update staging regression is fixed by `5b9a37e2` + `572368a1` + `3dbf06fb`, with a non-regression guard added in `afbb82be`.
 
@@ -151,6 +151,7 @@ Only after Phase 2E.2 passes:
 | `572368a1` | Move Patch handoff guard to repository-level test |
 | `3dbf06fb` | Run handoff guard only in repository CI and trigger it on docs changes |
 | `afbb82be` | Guard self-update Go tests from repository-only document dependencies |
+| `19c2ebc3` | Add CI gate that runs Go tests from the exact self-update staged source layout — CI 36087734095 PASS |
 
 ## Resolved self-update failure
 
@@ -166,7 +167,7 @@ Resolution:
 - `3dbf06fb`: run that guard in GitHub Actions from repository root and trigger CI on the relevant docs;
 - `afbb82be`: add a self-update regression test preventing Go tests from depending on repository-only Patch docs.
 
-This failure is considered fixed only on `afbb82be` or a later descendant.
+This failure is considered fixed on `19c2ebc3` or a later descendant. GitHub Actions run `36087734095` PASSed both Go 1.19 and 1.23, including the dedicated `Self-update staged Go tests` step that reproduces the updater's docs-free staged source layout.
 
 ## Non-regression invariants
 
