@@ -153,6 +153,7 @@ func TestActivityBarAlwaysVisibleViewsStayInFixedSidebar(t *testing.T) {
 		"const active=button.dataset.view===activeView",
 		"if(!enabled()){",
 		"showTasks()",
+		"if(!enabled())restoreHistoryToTasks()",
 	} {
 		if !strings.Contains(js,want) {
 			t.Fatalf("always-visible fixed sidebar view missing %q",want)
