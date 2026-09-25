@@ -53,6 +53,13 @@ type aiPackCacheMeta struct {
 	Source      string `json:"source"`
 }
 
+type aiPackPrompts struct {
+	Version int    `json:"version"`
+	VI      string `json:"vi"`
+	EN      string `json:"en"`
+	RU      string `json:"ru"`
+}
+
 func regularAIPackFile(path string) bool {
 	info, err := os.Lstat(path)
 	return err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0
