@@ -72,6 +72,21 @@ jobs:
         working-directory: .
         run: python3 test_taskdeck_patch_handoff_state.py
 
+      - name: Self-update staged Go tests
+        working-directory: .
+        run: |
+          stage="$(mktemp -d)"
+          trap 'rm -rf "$stage"' EXIT
+          cp -a vscode_tasks_menu_go "$stage/vscode_tasks_menu_go"
+          cp -a _patch_lib "$stage/_patch_lib"
+          for file in             vscode_tasks_menu             install.sh             python_patch_entry.py             test_python_patch_entry.py             run_python_patches.sh             run_python_patches.ps1             run_python_patches.bat; do
+            cp -a "$file" "$stage/$file"
+          done
+          (
+            cd "$stage/vscode_tasks_menu_go"
+            go test ./...
+          )
+
       - name: Test
         run: go test ./...
 
