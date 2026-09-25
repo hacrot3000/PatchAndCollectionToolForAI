@@ -811,18 +811,16 @@ func TestPatchPanelHistoryCleanupRequiresExplicitConfirmationAndPreservesPins(t 
 	js := string(data)
 	for _, want := range []string{
 		"window.confirm(",
-		"Python reports",
-		"unpinned IDLE",
-		"oldest unpinned over limit",
-		"Pinned runs are preserved",
-		"newest meaningful History is kept to limit",
+		"Delete '+eligible+' unpinned Patch Tool History entr",
+		"Only the entries shown in the reviewed preview are eligible",
+		"pinned runs are preserved",
+		"Select an age and preview before deleting.",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("History Cleanup confirmation missing %q", want)
 		}
 	}
 }
-
 
 func TestPatchStartSeparatesNativeHeadlessAndLegacyTerminalModes(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
