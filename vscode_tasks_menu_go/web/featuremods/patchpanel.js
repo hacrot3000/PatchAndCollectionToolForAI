@@ -1418,10 +1418,15 @@ function installPatchPanel(){
     if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);
   }
 
-  function openTerminalEvidence(){
-    if(!activeSessionId||!app.views.has(activeSessionId))return;
+  async function openTerminalEvidence(){
+    if(!activeSessionId)return false;
+    if(!app.views.has(activeSessionId)){
+      const meta=await app.jsonFetch(`/api/sessions/${encodeURIComponent(activeSessionId)}`);
+      app.materializeSession(meta,false);
+    }
     app.activateView(activeSessionId);
     close();
+    return true;
   }
 
   function clearActionResult(){
@@ -2040,7 +2045,7 @@ function installPatchPanel(){
       }catch(error){
         resetSummary('PTY-only');
         console.warn('Patch protocol state unavailable:',error);
-        if(sessionId===activeSessionId)openTerminalEvidence();
+        summaryWarnings.textContent='Patch protocol state unavailable. Open terminal evidence/fallback if needed.';
         return;
       }
       if(state?.available===false){
@@ -2054,8 +2059,8 @@ function installPatchPanel(){
           planWarnings.textContent='Native Plan protocol state unavailable. Use Terminal evidence/fallback.';
           return;
         }
-        resetSummary('PTY-only');
-        if(sessionId===activeSessionId)openTerminalEvidence();
+        resetSummary('Native unavailable · Terminal fallback available');
+        summaryWarnings.textContent='Open terminal evidence/fallback if needed.';
         return;
       }
       if(state?.queue_snapshot&&!haveSnapshot){
@@ -2088,7 +2093,7 @@ function installPatchPanel(){
         summaryStatus.textContent+=' · Continue in PTY';
         if(haveResumeSnapshot)resumeNote.textContent='Native Resume command channel unavailable. Continue in terminal.';
         if(haveHistorySnapshot)historyWarnings.textContent='Native History command channel unavailable. Use Terminal fallback.';
-        if(sessionId===activeSessionId&&!historyMode)openTerminalEvidence();
+        if(!historyMode)summaryWarnings.textContent='Native command channel unavailable. Open terminal evidence/fallback if needed.';
         return;
       }
       if(expectPrompt&&state?.prompt&&renderHistoryPrompt(sessionId,state.prompt)){
@@ -2144,7 +2149,9 @@ function installPatchPanel(){
     }else{
       resetSummary('Snapshot timeout · Continue in PTY');
     }
-    if(sessionId===activeSessionId&&!runningMode&&!historyMode)openTerminalEvidence();
+    if(sessionId===activeSessionId&&!runningMode&&!historyMode){
+      summaryWarnings.textContent='Native state timed out. Open terminal evidence/fallback if needed.';
+    }
   }
 
   async function start(mode,sourceButton=null){
@@ -2172,7 +2179,6 @@ function installPatchPanel(){
       clearResumeView();
       renderProgress(null);
       renderArtifacts([]);
-      app.attachSession(meta,!['queue','resume','history','plan','health'].includes(mode));
       window.dispatchEvent(new CustomEvent('taskmenu:patch-session-started',{detail:{mode,meta}}));
       if(mode==='queue'||mode==='resume'||mode==='history'||mode==='plan'||mode==='health'){
         void pollProtocol(meta.id,mode==='queue'||mode==='resume'||mode==='history',mode==='resume'||mode==='history'||mode==='plan'||mode==='health');
@@ -2183,13 +2189,13 @@ function installPatchPanel(){
     }
   }
 
-  terminalEvidence.onclick=openTerminalEvidence;
-  historyTerminal.onclick=openTerminalEvidence;
+  terminalEvidence.onclick=()=>openTerminalEvidence().catch(app.showError);
+  historyTerminal.onclick=()=>openTerminalEvidence().catch(app.showError);
   historyCleanupButton.onclick=()=>submitHistoryCleanup(activeSessionId,activeHistoryPrompt).catch(app.showError);
   historyBack.onclick=()=>stopHistoryAndBack().catch(app.showError);
-  planTerminal.onclick=openTerminalEvidence;
+  planTerminal.onclick=()=>openTerminalEvidence().catch(app.showError);
   planBack.onclick=leavePlanView;
-  healthTerminal.onclick=openTerminalEvidence;
+  healthTerminal.onclick=()=>openTerminalEvidence().catch(app.showError);
   healthBack.onclick=leaveHealthView;
   runningBack.onclick=()=>{if(runningFinished)leaveRunningView();};
   actionResultClose.onclick=clearActionResult;

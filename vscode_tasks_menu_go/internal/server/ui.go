@@ -461,11 +461,27 @@ function updateMeta(meta){
   window.dispatchEvent(new CustomEvent('taskmenu:session',{detail:{view,meta}}));
 }
 
+function autoAttachSession(meta){
+  // task_id=-1 is reserved for the built-in Patch add-on. Its PTY is a
+  // headless compatibility/evidence backing session until the operator
+  // explicitly asks to materialize it as a terminal tab.
+  return Number(meta?.task_id)!==-1;
+}
+
+function materializeSession(meta,activate=true){
+  if(!meta?.id)throw new Error('Session metadata is required');
+  hidden.delete(meta.id);
+  const view=attach(meta,false);
+  if(activate)activateView(meta.id);
+  return view;
+}
+
 async function syncSessions(){
   const data=await jsonFetch('/api/sessions');const seen=new Set();
   for(const meta of data.sessions){
     seen.add(meta.id);if(hidden.has(meta.id))continue;
-    if(views.has(meta.id))updateMeta(meta);else attach(meta,false);
+    if(views.has(meta.id))updateMeta(meta);
+    else if(autoAttachSession(meta))attach(meta,false);
   }
   for(const id of [...views.keys()])if(!seen.has(id))teardownView(id);
   if(!active&&views.size)activateView(views.keys().next().value);
@@ -478,7 +494,7 @@ globalThis.TaskMenuApp={
   get browserLease(){return browserLease;},
   get browserLeaseLost(){return browserLeaseLost;},
   get layoutProfile(){return layoutProfile;},
-  views,jsonFetch,fetchWithLease,showError,consoleText,startTask,startTerminal,activateView,activateExternalView,loadTasks,syncSessions,attachSession:attach,addOutputFilter
+  views,jsonFetch,fetchWithLease,showError,consoleText,startTask,startTerminal,activateView,activateExternalView,loadTasks,syncSessions,attachSession:attach,materializeSession,addOutputFilter
 };
 document.querySelector('#open-terminal').onclick=()=>startTerminal().catch(showError);
 document.querySelector('#edit-title').onclick=()=>{try{editPageTitle();}catch(e){showError(e);}};

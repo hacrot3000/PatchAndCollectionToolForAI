@@ -192,7 +192,7 @@ Phase 2 is complete only when all of these are true in the actual TaskDeck UI:
 
 #### Actual Phase 2 implementation
 
-- [ ] **Phase 2A — Headless Patch backing sessions.** Keep the PTY/protocol engine but exclude built-in Patch sessions from normal terminal-tab synchronization; materialize evidence on demand only.
+- [x] **Phase 2A — Headless Patch backing sessions.** Keep the PTY/protocol engine but exclude built-in Patch sessions from normal terminal-tab synchronization; materialize evidence on demand only.
 - [ ] **Phase 2B — Native Patch workspace view.** Promote Patch from the narrow Phase-1 menu/sidebar shell to a dedicated native workspace surface.
 - [ ] **Phase 2C — Native navigation/lifecycle.** Keep Queue → Running → Resume/History/Plan/Health transitions inside the native Patch surface, including Resume → History.
 - [ ] **Phase 2D — Explicit fallback only.** Protocol loss/timeouts show an actionable fallback state without automatically opening a terminal tab.
@@ -494,10 +494,11 @@ Every phase must preserve:
 | Phase 2H.6d3 native History Cleanup UI | DONE | 64dbe8e8 | History shows cleanup only from Python-advertised capability/policy/counts, requires explicit confirmation, sends no run/candidate list, correlates cleanup_id+prompt_id and redraws only from refreshed Python snapshot/prompt. |
 | Phase 2H.7 final native cutover parity audit | INVALIDATED | ff72e1f1 | Protocol/control parity evidence only. The gate incorrectly accepted normal terminal-tab attachment and did not prove product-level native cutover. |
 | Phase 2I integration closeout | INVALIDATED | 74a4aa8f | Premature closeout based on the invalid Phase 2H.7 UI acceptance assumption. |
+| Corrected Phase 2A headless backing session | DONE | this commit | Built-in Patch task_id=-1 sessions remain in the broker/session manager but normal sync no longer creates terminal tabs; explicit terminal evidence materializes the tab on demand. |
 
 ## Next action
 
-Continue **real Phase 2A**: make built-in Patch sessions headless from the normal terminal-tab
-surface while preserving the backing PTY/protocol and `taskdeck patch ...` compatibility. The
-terminal view must be materialized only by an explicit evidence/fallback action. Then proceed to
-the dedicated native workspace view and rerun product-level acceptance before any closeout.
+Phase 2A is implemented. Continue **Phase 2B — Native Patch workspace view**: promote Patch from
+the narrow Phase-1 sidebar shell to a dedicated native workspace surface while keeping the backing
+PTY headless. Then complete native navigation/fallback behavior and rerun product-level acceptance
+before any closeout.
