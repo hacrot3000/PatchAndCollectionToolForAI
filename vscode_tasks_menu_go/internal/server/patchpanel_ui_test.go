@@ -889,3 +889,22 @@ func TestPatchNativeNavigationDoesNotImplicitlyOpenTerminal(t *testing.T) {
 		if !strings.Contains(py,want) { t.Fatalf("Python native Resume navigation contract missing %q",want) }
 	}
 }
+
+
+func TestPatchStartFailsClosedWhenBackendLosesHeadlessContract(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"async function assertHeadlessNativeSession(meta)",
+		"if(Number(meta.task_id)!==-1)",
+		"Native Patch invariant failed: backend returned a non-headless session",
+		"if(app.views.has(meta.id))",
+		"Native Patch invariant failed: session was materialized as a terminal tab",
+		"await assertHeadlessNativeSession(meta);",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("headless runtime invariant missing %q",want)
+		}
+	}
+}

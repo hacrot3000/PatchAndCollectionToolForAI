@@ -143,6 +143,7 @@ func TestPatchNativeProductAcceptanceGate(t *testing.T) {
 		t.Fatal("Patch native start still materializes a terminal tab")
 	}
 	for _, want := range []string{
+		"await assertHeadlessNativeSession(meta);",
 		"app.activateExternalView('patch')",
 		"body.task-patch-workspace-active main>section{visibility:hidden}",
 		".task-patch-panel{display:none;position:fixed;top:52px;bottom:0;left:48px;right:0;z-index:1850;width:auto",

@@ -2178,6 +2178,18 @@ function installPatchPanel(){
     }
   }
 
+  async function assertHeadlessNativeSession(meta){
+    if(!meta?.id)throw new Error('Patch session metadata is incomplete');
+    if(Number(meta.task_id)!==-1){
+      try{await app.jsonFetch(`/api/sessions/${encodeURIComponent(meta.id)}/stop`,{method:'POST'});}catch{}
+      throw new Error('Native Patch invariant failed: backend returned a non-headless session');
+    }
+    if(app.views.has(meta.id)){
+      throw new Error('Native Patch invariant failed: session was materialized as a terminal tab');
+    }
+    return meta;
+  }
+
   async function start(mode,sourceButton=null){
     if(sourceButton)sourceButton.disabled=true;
     try{
@@ -2186,6 +2198,7 @@ function installPatchPanel(){
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({kind:'patch',patch_mode:mode}),
       });
+      await assertHeadlessNativeSession(meta);
       activeSessionId=meta.id;
       actionPollGeneration+=1;
       queueMutationPollGeneration+=1;
