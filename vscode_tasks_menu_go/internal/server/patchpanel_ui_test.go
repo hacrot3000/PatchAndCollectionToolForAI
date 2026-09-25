@@ -760,6 +760,8 @@ func TestPatchPanelHistoryCleanupIsCapabilityDrivenAndUsesPythonCounts(t *testin
 		"populateHistoryCleanupDays(cleanup)",
 		"historyCleanupPreviewButton",
 		"historyCleanupDelete",
+		"Array.isArray(candidate?.search_names)&&candidate.search_names.length",
+		"candidateNames.map(value=>String(value||'')).filter(Boolean).join(', ')",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("native History age Cleanup capability UI missing %q", want)
