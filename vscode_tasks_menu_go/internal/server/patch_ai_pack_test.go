@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
@@ -66,5 +67,16 @@ func TestPatchAIPackEndpointIsPostOnly(t *testing.T) {
 	s.patchAIPack(res, req)
 	if res.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("GET status=%d want %d", res.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+
+func TestPatchAIPackRouteIsRegistered(t *testing.T) {
+	raw, err := os.ReadFile("server.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `mux.HandleFunc("/api/patch/ai-pack", s.patchAIPack)`) {
+		t.Fatal("Patch AI Pack API route is not registered")
 	}
 }
