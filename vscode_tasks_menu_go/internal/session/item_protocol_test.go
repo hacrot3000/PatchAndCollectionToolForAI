@@ -35,7 +35,7 @@ func TestProtocolItemLifecycleRejectsUnboundedIndex(t *testing.T) {
 
 func TestProtocolItemLifecycleCarriesBoundedFailureEvidence(t *testing.T) {
 	s := &managedSession{protocol: ProtocolState{Available: true, Enabled: true}}
-	s.applyProtocolLine([]byte(`{"protocol":"taskdeck.patch","version":1,"type":"item_finished","seq":1,"index":1,"total":1,"name":"collect.zip","kind":"COLLECT","status":"FAIL","rc":2,"diagnosis_kind":"collect_failed","failure_reason":"expected source missing","output_tail":"line one\\nline two"}`))
+	s.applyProtocolLine([]byte(`{"protocol":"taskdeck.patch","version":1,"type":"item_finished","seq":1,"index":1,"total":1,"name":"collect.zip","kind":"COLLECT","status":"FAIL","rc":2,"diagnosis_kind":"collect_failed","failure_reason":"expected source missing","output_tail":"line one\nline two"}`))
 
 	state := cloneProtocolState(s.protocol)
 	if len(state.Items) != 1 {
