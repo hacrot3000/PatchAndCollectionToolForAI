@@ -22,6 +22,7 @@ function installPatchPanel(){
   .task-patch-summary-head{display:flex;align-items:center;gap:6px;margin-bottom:6px}
   .task-patch-summary-title{font-weight:700;flex:1}
   .task-patch-summary-status{opacity:.7}
+  .task-patch-summary-refresh{font-size:10px;padding:3px 7px}
   .task-patch-summary-tabs{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:0 0 7px}
   .task-patch-summary-tab{padding:5px 7px;font-size:11px;text-align:center}
   .task-patch-summary-search{display:flex;gap:5px;margin:0 0 7px}
@@ -49,7 +50,9 @@ function installPatchPanel(){
   .task-patch-summary-empty{padding:7px 6px;opacity:.62;text-align:center}
   .task-patch-summary-warning{margin-top:5px;opacity:.72}
   .task-patch-summary-warning-title{font-weight:600;margin-bottom:2px}
-  .task-patch-summary-warning-line{display:block;margin-top:2px;overflow-wrap:anywhere}
+  .task-patch-summary-warning-line{display:flex;align-items:flex-start;gap:6px;margin-top:4px;overflow-wrap:anywhere}
+  .task-patch-summary-warning-text{min-width:0;flex:1}
+  .task-patch-summary-warning-delete{flex:0 0 auto;font-size:10px;padding:2px 6px;border-color:#81424a;background:#3b2025;color:#ffd9dd}
   .task-patch-summary.prompt-active .task-patch-summary-tabs,
   .task-patch-summary.prompt-active .task-patch-summary-search,
   .task-patch-summary.prompt-active .task-patch-summary-list{display:none}
@@ -72,6 +75,9 @@ function installPatchPanel(){
   .task-patch-prompt-item.failed{border:1px solid #8a414b;background:#32191f;box-shadow:0 0 0 1px rgba(180,90,102,.08) inset}
   .task-patch-prompt-item.failed .task-patch-prompt-name{color:#ffd7dc;font-weight:700}
   .task-patch-prompt-item.failed .task-patch-prompt-detail{color:#ffadb6;opacity:1}
+  .task-patch-prompt-item.skipped{border:1px solid #7b6736;background:#2a2415}
+  .task-patch-prompt-item.skipped .task-patch-prompt-name{color:#ffe4a0;font-weight:700}
+  .task-patch-prompt-item.skipped .task-patch-prompt-detail{color:#e6c46e;opacity:1}
   .task-patch-prompt-item input{margin-top:2px}
   .task-patch-prompt-copy{min-width:0;flex:1;cursor:pointer}
   .task-patch-prompt-priority{display:flex;align-items:center;gap:4px;font-size:10px;white-space:nowrap}
@@ -303,6 +309,9 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-prompt-item.failed{background:#fff1f2;border-color:#c47780}
   html[data-taskmenu-theme="light"] .task-patch-prompt-item.failed .task-patch-prompt-name{color:#7b2029}
   html[data-taskmenu-theme="light"] .task-patch-prompt-item.failed .task-patch-prompt-detail{color:#9d2632}
+  html[data-taskmenu-theme="light"] .task-patch-prompt-item.skipped{background:#fff9e8;border-color:#c8aa58}
+  html[data-taskmenu-theme="light"] .task-patch-prompt-item.skipped .task-patch-prompt-name{color:#72580b}
+  html[data-taskmenu-theme="light"] .task-patch-prompt-item.skipped .task-patch-prompt-detail{color:#8b6d13}
   html[data-taskmenu-theme="light"] .task-patch-resume{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-resume-item{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-resume-count{border-color:#d0d7de}
@@ -353,6 +362,7 @@ function installPatchPanel(){
   const summaryHead=document.createElement('div');summaryHead.className='task-patch-summary-head';
   const summaryTitle=document.createElement('div');summaryTitle.className='task-patch-summary-title';summaryTitle.textContent='Queue snapshot';
   const summaryStatus=document.createElement('div');summaryStatus.className='task-patch-summary-status';summaryStatus.textContent='Not loaded';
+  const summaryRefresh=document.createElement('button');summaryRefresh.type='button';summaryRefresh.className='task-patch-summary-refresh';summaryRefresh.textContent='Refresh Queue';summaryRefresh.title='Reload PATCH/COLLECT queue, including when it is empty';
   const summaryTabs=document.createElement('div');summaryTabs.className='task-patch-summary-tabs';
   const queueTab=document.createElement('button');queueTab.type='button';queueTab.className='task-patch-summary-tab active';queueTab.textContent='Queue';
   const failedTab=document.createElement('button');failedTab.type='button';failedTab.className='task-patch-summary-tab';failedTab.textContent='Failed';
@@ -364,7 +374,7 @@ function installPatchPanel(){
   const summaryCounts=document.createElement('div');summaryCounts.className='task-patch-summary-counts';
   const summaryList=document.createElement('div');summaryList.className='task-patch-summary-list';
   const summaryWarnings=document.createElement('div');summaryWarnings.className='task-patch-summary-warning';
-  summaryHead.append(summaryTitle,summaryStatus);
+  summaryHead.append(summaryTitle,summaryStatus,summaryRefresh);
   summary.append(summaryHead,summaryTabs,summarySearch,summaryCounts,summaryList,summaryWarnings);
 
   const actionResultBox=document.createElement('div');actionResultBox.className='task-patch-action-result';actionResultBox.hidden=true;
@@ -1720,6 +1730,7 @@ function installPatchPanel(){
 
   function refreshActionDisabledState(){
     const busy=actionBusy||queueMutationBusy||parallelCollectBusy;
+    summaryRefresh.disabled=busy;
     for(const button of summaryList.querySelectorAll('.task-patch-item-action,.task-patch-queue-delete'))button.disabled=busy;
     for(const button of promptItems.querySelectorAll('.task-patch-prompt-delete'))button.disabled=busy||button.dataset.patchLocked==='1';
     for(const button of promptButtons.querySelectorAll('button'))button.disabled=busy;
@@ -1994,11 +2005,22 @@ function installPatchPanel(){
       summaryCounts.append(chip);
     }
     const warnings=Array.isArray(latestQueueSnapshot?.warnings)?latestQueueSnapshot.warnings:[];
+    const skippedRows=Array.isArray(latestQueueSnapshot?.skipped)?latestQueueSnapshot.skipped:[];
+    const skippedByWarning=new Map(skippedRows.map(row=>[String(row?.warning||''),row]));
     summaryWarnings.replaceChildren();
     if(warnings.length){
-      const title=document.createElement('div');title.className='task-patch-summary-warning-title';title.textContent=`${warnings.length} warning(s):`;summaryWarnings.append(title);
+      const title=document.createElement('div');title.className='task-patch-summary-warning-title';title.textContent=String(warnings.length)+' warning(s):';summaryWarnings.append(title);
       for(const warning of warnings){
-        const line=document.createElement('div');line.className='task-patch-summary-warning-line';line.textContent=String(warning||'');summaryWarnings.append(line);
+        const warningText=String(warning||'');
+        const line=document.createElement('div');line.className='task-patch-summary-warning-line';
+        const text=document.createElement('span');text.className='task-patch-summary-warning-text';text.textContent=warningText;line.append(text);
+        const skipped=skippedByWarning.get(warningText);
+        const promptItem=skipped?promptItemForQueueItem(skipped):null;
+        if(skipped&&promptItem&&queueActionAllowed('delete')){
+          const remove=document.createElement('button');remove.type='button';remove.className='task-patch-summary-warning-delete';remove.textContent='Delete';
+          remove.onclick=()=>submitQueueDelete(skipped,promptItem).catch(app.showError);line.append(remove);
+        }
+        summaryWarnings.append(line);
       }
     }
     const searchReady=queueSearchAvailable(latestQueueSnapshot);
@@ -2490,6 +2512,12 @@ function installPatchPanel(){
     if(parallelCollectRuns.size)void pollParallelCollectRuns();
   }
 
+  async function refreshQueueFromSummary(){
+    if(actionBusy||queueMutationBusy||parallelCollectBusy)return;
+    if(activeSessionId)return refreshQueueSession(activeSessionId);
+    return start('queue');
+  }
+
   async function refreshQueueSession(sessionId){
     sessionId=String(sessionId||'');
     if(sessionId&&sessionId===activeSessionId){
@@ -2502,6 +2530,8 @@ function installPatchPanel(){
     renderParallelCollectRuns();
     if(parallelCollectRuns.size)void pollParallelCollectRuns();
   }
+
+  summaryRefresh.onclick=()=>refreshQueueFromSummary().catch(app.showError);
 
   async function removeRunFromActive(key,run,sourceButton){
     if(sourceButton)sourceButton.disabled=true;
@@ -2671,7 +2701,7 @@ function installPatchPanel(){
   function renderQueuePrompt(sessionId,prompt){
     if(prompt?.type!=='prompt'||prompt?.prompt_kind!=='queue_selection'||!prompt?.prompt_id)return false;
     const items=Array.isArray(prompt.items)?prompt.items:[];
-    if(!items.length)return false;
+    const runnableItems=items.filter(item=>String(item?.kind||'').toUpperCase()!=='SKIPPED'&&item?.selectable!==false);
     const initial=new Set(Array.isArray(prompt.initial_selected)?prompt.initial_selected.map(Number):[]);
     const actionsAllowed=new Set(Array.isArray(prompt.actions)?prompt.actions.map(String):[]);
     clearPrompt();
@@ -2684,36 +2714,39 @@ function installPatchPanel(){
     const parallelCollect=parallelCollectCapability(prompt);
     const addingWhileRuns=activeRunningRunCount()>0;
     const runningNames=activeRunningNames();
-    promptNote.textContent=addingWhileRuns
-      ? 'Active run(s) continue in the background. This Queue is add-mode: start additional COLLECT only; PATCH items stay locked until active runs finish.'
-      : (parallelCollect?'PATCH keeps normal priority rules. Multiple COLLECT requests may be selected and TaskDeck will run each in its own independent process.':(priorityCapability?'Select work and optionally assign PATCH priority 0–9. Python validates and orders the final selection.':'Select work here, or use the terminal tab. Python validates the final selection.'));
-    const selectAll=document.createElement('button');selectAll.type='button';selectAll.textContent='Select all PATCH';selectAll.dataset.patchLocked=addingWhileRuns?'1':'0';selectAll.disabled=addingWhileRuns;
+    promptNote.textContent=!runnableItems.length
+      ? 'No runnable PATCH/COLLECT item is currently available. Refresh Queue to detect newly added work. SKIPPED files can be deleted below.'
+      : (addingWhileRuns
+        ? 'Active run(s) continue in the background. This Queue is add-mode: start additional COLLECT only; PATCH items stay locked until active runs finish.'
+        : (parallelCollect?'PATCH keeps normal priority rules. Multiple COLLECT requests may be selected and TaskDeck will run each in its own independent process.':(priorityCapability?'Select work and optionally assign PATCH priority 0–9. Python validates and orders the final selection.':'Select work here, or use the terminal tab. Python validates the final selection.')));
+    const selectAll=document.createElement('button');selectAll.type='button';selectAll.textContent='Select all PATCH';selectAll.dataset.patchLocked=(addingWhileRuns||!runnableItems.length)?'1':'0';selectAll.disabled=addingWhileRuns||!runnableItems.length;
     selectAll.onclick=()=>selectAllPromptPatches(prompt);
     const clearAll=document.createElement('button');clearAll.type='button';clearAll.textContent='Clear selection';
     clearAll.onclick=clearPromptSelection;
     promptTools.append(selectAll);
-    if(parallelCollect){const selectCollect=document.createElement('button');selectCollect.type='button';selectCollect.textContent='Select all COLLECT (parallel)';selectCollect.onclick=()=>selectAllPromptCollects(prompt);promptTools.append(selectCollect);}
+    if(parallelCollect&&runnableItems.some(item=>String(item?.kind||'').toUpperCase()==='COLLECT')){const selectCollect=document.createElement('button');selectCollect.type='button';selectCollect.textContent='Select all COLLECT (parallel)';selectCollect.onclick=()=>selectAllPromptCollects(prompt);promptTools.append(selectCollect);}
     promptTools.append(clearAll);
     const refresh=document.createElement('button');refresh.type='button';refresh.textContent='Refresh Queue';refresh.onclick=()=>refreshQueueSession(sessionId).catch(app.showError);promptTools.append(refresh);
     for(const item of items){
       const index=Number(item?.index);
       if(!Number.isInteger(index)||index<1)continue;
       const itemGroup=String(item?.group||'').toLowerCase();
-      const row=document.createElement('div');row.className='task-patch-prompt-item';row.dataset.patchPromptIndex=String(index);row.classList.toggle('failed',itemGroup==='failed');
-      const itemName=String(item?.name||'');
       const itemKind=String(item?.kind||'').toUpperCase();
+      const skipped=itemKind==='SKIPPED'||item?.selectable===false;
+      const row=document.createElement('div');row.className='task-patch-prompt-item';row.dataset.patchPromptIndex=String(index);row.classList.toggle('failed',itemGroup==='failed');row.classList.toggle('skipped',skipped);
+      const itemName=String(item?.name||'');
       const duplicateRunning=runningNames.has(itemName);
       const addModePatch=addingWhileRuns&&itemKind==='PATCH';
-      const locked=duplicateRunning||addModePatch;
+      const locked=skipped||duplicateRunning||addModePatch;
       const input=document.createElement('input');input.type='checkbox';input.dataset.patchIndex=String(index);input.dataset.patchKind=String(item?.kind||'');input.dataset.patchLocked=locked?'1':'0';
-      input.disabled=locked;
+      input.disabled=locked;input.hidden=skipped;
       input.checked=!locked&&initial.has(index);
       input.onchange=()=>applyPromptConstraints(input,prompt);
       const copy=document.createElement('label');copy.className='task-patch-prompt-copy';
       const name=document.createElement('span');name.className='task-patch-prompt-name';
       name.textContent=`${index}. ${itemName}`;
       const detail=document.createElement('span');detail.className='task-patch-prompt-detail';
-      detail.textContent=[itemGroup==='failed'?'FAILED':item?.group,item?.kind,item?.detail,duplicateRunning?'already running':(addModePatch?'locked while active run exists':'')].filter(Boolean).join(' · ');
+      detail.textContent=[skipped?'SKIPPED':(itemGroup==='failed'?'FAILED':item?.group),item?.kind,item?.detail,duplicateRunning?'already running':(addModePatch?'locked while active run exists':'')].filter(Boolean).join(' · ');
       copy.append(name,detail);
       row.append(input,copy);
       if(priorityCapability&&String(item?.kind||'').toUpperCase()==='PATCH'){
@@ -2739,7 +2772,7 @@ function installPatchPanel(){
       }
       promptItems.append(row);
     }
-    if(actionsAllowed.has('select')){
+    if(actionsAllowed.has('select')&&runnableItems.length){
       const select=document.createElement('button');select.type='button';select.textContent='Run selected';
       select.onclick=()=>{
         const indexes=selectedPromptIndexes();
