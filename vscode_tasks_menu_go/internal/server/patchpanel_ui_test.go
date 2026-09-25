@@ -85,7 +85,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"payload.priorities=priorities",
 		"Select all PATCH",
 		"Clear selection",
-		"input.checked=!hidden&&kind==='PATCH'",
+		"input.checked=!hidden&&!input.disabled&&kind==='PATCH'",
 		"clearPromptPriority(Number(input.dataset.patchIndex))",
 		"mode==='queue'",
 		"const visible=items.slice(0,50)",
@@ -1093,7 +1093,7 @@ func TestPatchNativeParallelCollectUsesIndependentSessions(t *testing.T) {
 		"/parallel-collect",
 		"function pollParallelCollectRuns()",
 		"parallelCollectRuns=new Map()",
-		"Parallel COLLECT running",
+		"runningTitle.textContent=finished===parallelCollectRuns.size?'Active runs finished':'Active runs'",
 		"appendProtocolArtifactGroups(artifacts,run.state?.artifacts)",
 		"openTerminalEvidenceForSession(run.sessionId)",
 	} {
@@ -1110,7 +1110,7 @@ func TestPatchParallelCollectSelectionDoesNotBreakSingleCollectInvariant(t *test
 		"selectedCollects.length>parallel.max",
 		"kind==='PATCH'",
 		"kind==='COLLECT'",
-		"indexes.length>1&&parallel&&kinds.every(kind=>kind==='COLLECT')",
+		"parallel&&kinds.every(kind=>kind==='COLLECT')&&(indexes.length>1||activeRunningRunCount()>0)",
 		"submitPromptResponse(sessionId,prompt,'select')",
 	} {
 		if !strings.Contains(js,want) { t.Fatalf("parallel/single COLLECT selection contract missing %q",want) }
