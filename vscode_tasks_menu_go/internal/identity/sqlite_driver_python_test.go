@@ -127,9 +127,9 @@ func TestPythonSQLiteDriverMultiProcessWALBusyTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
 
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		_ = conn.Close()
 		t.Fatal(err)
 	}
 	committed := false
@@ -155,9 +155,13 @@ func TestPythonSQLiteDriverMultiProcessWALBusyTimeout(t *testing.T) {
 	}
 
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		_ = conn.Close()
 		t.Fatal(err)
 	}
 	committed = true
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	select {
 	case err := <-writeDone:
