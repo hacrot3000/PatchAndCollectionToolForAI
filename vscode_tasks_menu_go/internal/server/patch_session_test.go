@@ -195,3 +195,53 @@ func TestPatchHealthIsReadOnlyProtocolSession(t *testing.T) {
 		t.Fatalf("unexpected Health label %q", spec.Label)
 	}
 }
+
+
+func TestPatchToolTerminalUIModeDisablesNativeProtocol(t *testing.T) {
+	workspace := t.TempDir()
+	runtimeRoot := t.TempDir()
+	entry := filepath.Join(runtimeRoot, "python_patch_entry.py")
+	python := filepath.Join(runtimeRoot, "python3")
+	for _, path := range []string{entry, python} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil { t.Fatal(err) }
+	}
+	t.Setenv("TASKDECK_PATCH_RUNTIME", entry)
+	t.Setenv("TASKDECK_PATCH_PYTHON", python)
+
+	spec, err := patchToolExecutionForUI(workspace, "resume", "terminal")
+	if err != nil { t.Fatal(err) }
+	if spec.ProtocolEvents || spec.ProtocolCommands {
+		t.Fatalf("terminal legacy mode must not allocate Patch protocol channels: events=%v commands=%v", spec.ProtocolEvents, spec.ProtocolCommands)
+	}
+	for _, item := range spec.Env {
+		if strings.HasPrefix(item, "TASKDECK_PATCH_NATIVE_") {
+			t.Fatalf("terminal legacy mode must not opt into native Python routes: %q", item)
+		}
+	}
+}
+
+func TestPatchToolNativeUIModeKeepsProtocol(t *testing.T) {
+	workspace := t.TempDir()
+	runtimeRoot := t.TempDir()
+	entry := filepath.Join(runtimeRoot, "python_patch_entry.py")
+	python := filepath.Join(runtimeRoot, "python3")
+	for _, path := range []string{entry, python} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil { t.Fatal(err) }
+	}
+	t.Setenv("TASKDECK_PATCH_RUNTIME", entry)
+	t.Setenv("TASKDECK_PATCH_PYTHON", python)
+
+	spec, err := patchToolExecutionForUI(workspace, "history", "native")
+	if err != nil { t.Fatal(err) }
+	if !spec.ProtocolEvents || !spec.ProtocolCommands {
+		t.Fatalf("native mode must keep Patch protocol channels: events=%v commands=%v", spec.ProtocolEvents, spec.ProtocolCommands)
+	}
+	found := false
+	for _, item := range spec.Env {
+		if item == "TASKDECK_PATCH_NATIVE_HISTORY=1" { found = true }
+	}
+	if !found { t.Fatal("native History must opt into TASKDECK_PATCH_NATIVE_HISTORY") }
+	if _, err := patchToolExecutionForUI(workspace, "queue", "unexpected"); err == nil {
+		t.Fatal("unknown Patch UI mode must be rejected")
+	}
+}
