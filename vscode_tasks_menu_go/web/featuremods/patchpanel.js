@@ -1893,7 +1893,7 @@ function installPatchPanel(){
     aiPackBox.hidden=false;
     aiPackStatus.textContent=result.cached===true?'Cache current':'Rebuilt';
     aiPackMeta.textContent=[
-      docCount+' docs',
+      docCount+' essential docs',
       'fingerprint '+fingerprint.slice(0,12)+'…',
       result.source?('source '+String(result.source)):'',
       result.generated_at?String(result.generated_at):'',
@@ -1913,7 +1913,7 @@ function installPatchPanel(){
     aiPackRefresh.disabled=true;
     aiPackBox.hidden=false;
     aiPackStatus.textContent='Checking current docs…';
-    aiPackMeta.textContent='Hashing the active Patch Tool docs and standard prompts. ZIP is rebuilt only when the fingerprint changes.';
+    aiPackMeta.textContent='Hashing only the core PATCH/COLLECT contract docs. ZIP is rebuilt only when those packaged docs change.';
     try{
       const result=await app.jsonFetch('/api/patch/ai-pack',{method:'POST'});
       renderAIPack(result);
