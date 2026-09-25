@@ -1365,3 +1365,26 @@ func TestPatchLatestCompletedForegroundIsProminent(t *testing.T) {
 		if !strings.Contains(js,want) { t.Fatalf("foreground/latest visual priority missing %q",want) }
 	}
 }
+
+
+func TestPatchPanelFailedRunShowsCopyableProtocolEvidence(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function failureEvidenceText(item)",
+		"function copyFailureEvidence(item,button)",
+		"item?.failure_reason",
+		"item?.diagnosis_kind",
+		"item?.output_tail",
+		"Copy failure details",
+		"Copy failure reason and recent console output",
+		"Recent console output",
+		"row.classList.toggle('failed',failed)",
+		"task-patch-run-failure-reason",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("failed-run evidence UI missing %q", want)
+		}
+	}
+}

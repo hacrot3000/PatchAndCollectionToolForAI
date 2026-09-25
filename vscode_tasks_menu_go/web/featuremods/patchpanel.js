@@ -235,8 +235,17 @@ function installPatchPanel(){
   .task-patch-run-title{font-weight:700;margin-bottom:6px}
   .task-patch-run-items{display:grid;gap:4px}
   .task-patch-run-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;padding:5px 6px;border-radius:4px;background:#171c23}
+  .task-patch-run-item.failed{border:1px solid #8a414b;background:#2d171c}
   .task-patch-run-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-run-status{font-weight:700}
+  .task-patch-run-item.failed .task-patch-run-status{color:#ff9da8}
+  .task-patch-run-failure{grid-column:1/-1;display:grid;gap:5px;padding-top:5px;border-top:1px solid #613139}
+  .task-patch-run-failure-reason{font-weight:600;color:#ffd5da;overflow-wrap:anywhere}
+  .task-patch-run-failure-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+  .task-patch-run-failure-actions button{font-size:10px;padding:3px 6px}
+  .task-patch-run-failure-console{grid-column:1/-1}
+  .task-patch-run-failure-console summary{cursor:pointer;opacity:.78}
+  .task-patch-run-failure-console pre{margin:5px 0 0;max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:#120c0e;border:1px solid #4d2b31;border-radius:4px;padding:6px;font:10px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
   .task-patch-progress{margin:0 0 6px;padding:6px;border-radius:4px;background:#171c23}
   .task-patch-progress[hidden]{display:none}
   .task-patch-progress-head{font-weight:700}
@@ -297,6 +306,11 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-parallel-run{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-run{background:#f6f8fa;border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-run-item{background:#fff}
+  html[data-taskmenu-theme="light"] .task-patch-run-item.failed{background:#fff1f2;border-color:#c47780}
+  html[data-taskmenu-theme="light"] .task-patch-run-item.failed .task-patch-run-status{color:#9d2632}
+  html[data-taskmenu-theme="light"] .task-patch-run-failure{border-color:#e0a8ae}
+  html[data-taskmenu-theme="light"] .task-patch-run-failure-reason{color:#7b2029}
+  html[data-taskmenu-theme="light"] .task-patch-run-failure-console pre{background:#fff;border-color:#e0a8ae}
   html[data-taskmenu-theme="light"] .task-patch-progress{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-artifacts{background:#f6f8fa;border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-artifact{background:#fff}
@@ -2049,6 +2063,41 @@ function installPatchPanel(){
     runBox.hidden=false;
   }
 
+  function failureEvidenceText(item){
+    const status=String(item?.status||'FAIL');
+    const rc=item?.rc;
+    const lines=[
+      [String(item?.name||''),String(item?.kind||''),status,rc===undefined||rc===null?'':`rc=${rc}`].filter(Boolean).join(' · '),
+    ];
+    const diagnosis=String(item?.diagnosis_kind||'').trim();
+    const reason=String(item?.failure_reason||'').trim();
+    const outputTail=String(item?.output_tail||'').trim();
+    if(diagnosis)lines.push('Diagnosis: '+diagnosis);
+    if(reason)lines.push('Reason: '+reason);
+    if(outputTail)lines.push('', 'Recent console output:', outputTail);
+    return lines.join('\n').trim();
+  }
+
+  async function copyFailureEvidence(item,button){
+    const text=failureEvidenceText(item);
+    if(!text)return false;
+    let copied=false;
+    if(navigator.clipboard&&window.isSecureContext){
+      try{await navigator.clipboard.writeText(text);copied=true;}catch{}
+    }
+    if(!copied){
+      const area=document.createElement('textarea');area.value=text;area.setAttribute('readonly','');area.style.position='fixed';area.style.left='-9999px';area.style.top='0';
+      document.body.append(area);area.select();
+      try{copied=document.execCommand('copy');}finally{area.remove();}
+    }
+    if(!copied)throw new Error('Cannot copy Patch failure details');
+    if(button){
+      const original=button.textContent;button.textContent='✓ Copied';
+      setTimeout(()=>{if(button.isConnected)button.textContent=original;},1200);
+    }
+    return true;
+  }
+
   function renderItemLifecycle(items){
     const rows=Array.isArray(items)?items:[];
     runItems.replaceChildren();
@@ -2058,13 +2107,36 @@ function installPatchPanel(){
     }
     runBox.hidden=false;
     for(const item of rows){
+      const itemStatus=String(item?.status||'');
+      const failed=itemStatus.toUpperCase()==='FAIL';
       const row=document.createElement('div');row.className='task-patch-run-item';
+      row.classList.toggle('failed',failed);
       const name=document.createElement('span');name.className='task-patch-run-name';
       name.textContent=`${Number(item?.index||0)}. ${String(item?.name||'')} · ${String(item?.kind||'')}`;
       const status=document.createElement('span');status.className='task-patch-run-status';
       const rc=item?.rc;
-      status.textContent=rc===undefined||rc===null?String(item?.status||''): `${String(item?.status||'')} (rc=${rc})`;
+      status.textContent=rc===undefined||rc===null?itemStatus: `${itemStatus} (rc=${rc})`;
       row.append(name,status);
+      if(failed){
+        const failure=document.createElement('div');failure.className='task-patch-run-failure';
+        const reason=document.createElement('div');reason.className='task-patch-run-failure-reason';
+        const diagnosis=String(item?.diagnosis_kind||'').trim();
+        const failureReason=String(item?.failure_reason||'').trim();
+        reason.textContent=failureReason||diagnosis||`${String(item?.kind||'Work')} failed${rc===undefined||rc===null?'':` (rc=${rc})`}`;
+        const failureActions=document.createElement('div');failureActions.className='task-patch-run-failure-actions';
+        const copy=document.createElement('button');copy.type='button';copy.textContent='Copy failure details';copy.title='Copy failure reason and recent console output';
+        copy.onclick=()=>copyFailureEvidence(item,copy).catch(app.showError);
+        failureActions.append(copy);
+        failure.append(reason,failureActions);
+        const outputTail=String(item?.output_tail||'').trim();
+        if(outputTail){
+          const details=document.createElement('details');details.className='task-patch-run-failure-console';
+          const summary=document.createElement('summary');summary.textContent='Recent console output';
+          const pre=document.createElement('pre');pre.textContent=outputTail;
+          details.append(summary,pre);failure.append(details);
+        }
+        row.append(failure);
+      }
       runItems.append(row);
     }
   }
