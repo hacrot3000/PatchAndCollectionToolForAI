@@ -1,6 +1,7 @@
 package session
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -28,5 +29,28 @@ func TestProtocolItemLifecycleRejectsUnboundedIndex(t *testing.T) {
 	s.applyProtocolLine([]byte(`{"protocol":"taskdeck.patch","version":1,"type":"item_started","seq":1,"index":4097,"total":4097,"name":"x.zip","kind":"PATCH"}`))
 	if len(s.protocol.Items) != 0 || s.protocol.Error == "" {
 		t.Fatalf("unbounded item event accepted: %#v", s.protocol)
+	}
+}
+
+
+func TestProtocolItemLifecycleCarriesBoundedFailureEvidence(t *testing.T) {
+	s := &managedSession{protocol: ProtocolState{Available: true, Enabled: true}}
+	s.applyProtocolLine([]byte(`{"protocol":"taskdeck.patch","version":1,"type":"item_finished","seq":1,"index":1,"total":1,"name":"collect.zip","kind":"COLLECT","status":"FAIL","rc":2,"diagnosis_kind":"collect_failed","failure_reason":"expected source missing","output_tail":"line one\\nline two"}`))
+
+	state := cloneProtocolState(s.protocol)
+	if len(state.Items) != 1 {
+		t.Fatalf("items=%#v error=%q", state.Items, state.Error)
+	}
+	item := state.Items[0]
+	if item.DiagnosisKind != "collect_failed" || item.FailureReason != "expected source missing" || item.OutputTail != "line one\nline two" {
+		t.Fatalf("failure evidence not retained: %#v", item)
+	}
+}
+
+func TestProtocolItemLifecycleRejectsOversizedFailureEvidence(t *testing.T) {
+	payload := `{"type":"item_finished","index":1,"total":1,"name":"x.zip","kind":"PATCH","status":"FAIL","rc":2,"output_tail":"` +
+		strings.Repeat("x", 16385) + `"}`
+	if _, _, err := protocolItemEvent([]byte(payload)); err == nil {
+		t.Fatal("oversized item failure evidence accepted")
 	}
 }

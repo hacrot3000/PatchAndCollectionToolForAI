@@ -884,7 +884,10 @@ def main(argv: list[str] | None = None) -> int:
         result_meta["failure_reason"] = failure_reason
         output_tail = "\n".join(failure_lines)
         if output_tail:
-            result_meta["output_tail"] = output_tail[-16384:]
+            output_tail_bytes = output_tail.encode("utf-8", errors="replace")
+            if len(output_tail_bytes) > 16384:
+                output_tail = output_tail_bytes[-16384:].decode("utf-8", errors="ignore")
+            result_meta["output_tail"] = output_tail
     _write_collect_run_result(result_meta)
     if protocol_writer is not None:
         _emit_direct_collect_artifacts(protocol_writer, root, protocol_context, result_meta)

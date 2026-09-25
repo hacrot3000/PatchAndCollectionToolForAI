@@ -40,6 +40,9 @@ type ProtocolItemState struct {
 	RC             *int     `json:"rc,omitempty"`
 	StartedAt      string   `json:"started_at,omitempty"`
 	ElapsedSeconds *float64 `json:"elapsed_seconds,omitempty"`
+	DiagnosisKind  string   `json:"diagnosis_kind,omitempty"`
+	FailureReason  string   `json:"failure_reason,omitempty"`
+	OutputTail     string   `json:"output_tail,omitempty"`
 }
 
 type ProtocolProgressState struct {
@@ -551,6 +554,9 @@ func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
 		RC             *int     `json:"rc"`
 		StartedAt      string   `json:"started_at"`
 		ElapsedSeconds *float64 `json:"elapsed_seconds"`
+		DiagnosisKind  string   `json:"diagnosis_kind"`
+		FailureReason  string   `json:"failure_reason"`
+		OutputTail     string   `json:"output_tail"`
 	}
 	if err := json.Unmarshal(data, &event); err != nil {
 		return ProtocolItemState{}, "", fmt.Errorf("invalid Patch item event JSON: %w", err)
@@ -565,8 +571,22 @@ func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
 		return ProtocolItemState{}, "", fmt.Errorf("Patch item event identity is incomplete")
 	}
 	status := strings.TrimSpace(event.Status)
+	event.DiagnosisKind = strings.TrimSpace(event.DiagnosisKind)
+	event.FailureReason = strings.TrimSpace(event.FailureReason)
+	event.OutputTail = strings.TrimSpace(event.OutputTail)
+	if len([]byte(event.DiagnosisKind)) > 512 ||
+		len([]byte(event.FailureReason)) > 8192 ||
+		len([]byte(event.OutputTail)) > 16384 ||
+		strings.ContainsRune(event.DiagnosisKind, '\x00') ||
+		strings.ContainsRune(event.FailureReason, '\x00') ||
+		strings.ContainsRune(event.OutputTail, '\x00') {
+		return ProtocolItemState{}, "", fmt.Errorf("Patch item failure evidence is invalid")
+	}
 	if event.Type == "item_started" {
 		status = "RUNNING"
+		event.DiagnosisKind = ""
+		event.FailureReason = ""
+		event.OutputTail = ""
 	} else if status == "" {
 		return ProtocolItemState{}, "", fmt.Errorf("Patch item_finished status is required")
 	}
@@ -579,6 +599,9 @@ func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
 		RC: event.RC,
 		StartedAt: event.StartedAt,
 		ElapsedSeconds: event.ElapsedSeconds,
+		DiagnosisKind: event.DiagnosisKind,
+		FailureReason: event.FailureReason,
+		OutputTail: event.OutputTail,
 	}, event.Type, nil
 }
 

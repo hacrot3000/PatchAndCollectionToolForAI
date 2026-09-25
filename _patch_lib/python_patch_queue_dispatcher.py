@@ -2508,6 +2508,16 @@ def _safe_display(value: str) -> str:
     return "".join(out)
 
 
+def _bounded_failure_output_tail(value: object, max_bytes: int = 16384) -> str:
+    clean = _LivePatchStatus._sanitize_log_text(str(value or "")).strip()
+    if not clean:
+        return ""
+    raw = clean.encode("utf-8", errors="replace")
+    if len(raw) > max_bytes:
+        clean = raw[-max_bytes:].decode("utf-8", errors="ignore")
+    return clean.strip()
+
+
 def natural_name_key(value: str):
     return tuple(int(x) if x.isdigit() else x for x in re.split(r"(\d+)", value.lower()))
 
@@ -6851,13 +6861,11 @@ def execute_items(
                 diagnosis = result.get("diagnosis") if isinstance(result.get("diagnosis"), dict) else {}
                 diagnosis_kind = _safe_display(str(diagnosis.get("kind") or ""))[:128]
                 failure_reason = _safe_display(str(diagnosis.get("message") or "")).strip()[:2048]
-                clean_console = _LivePatchStatus._sanitize_log_text(console_log).strip()
-                if clean_console:
-                    output_tail = clean_console[-16384:]
+                output_tail = _bounded_failure_output_tail(console_log)
             elif item.kind == "COLLECT" and isinstance(collect_result, dict):
                 diagnosis_kind = "collect_failed"
                 failure_reason = _safe_display(str(collect_result.get("failure_reason") or "")).strip()[:2048]
-                output_tail = str(collect_result.get("output_tail") or "").strip()[-16384:]
+                output_tail = _bounded_failure_output_tail(collect_result.get("output_tail"))
             if not failure_reason:
                 failure_reason = f"{item.kind} failed (rc={detail.get('rc')})"
             finished_payload["failure_reason"] = failure_reason
