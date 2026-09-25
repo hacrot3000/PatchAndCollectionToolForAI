@@ -210,6 +210,10 @@ function installPatchPanel(){
   .task-patch-ai-pack-prompt{margin-top:8px}
   .task-patch-ai-pack-prompt summary{cursor:pointer;font-weight:600}
   .task-patch-ai-pack-prompt pre{margin:6px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:#0d1015;border:1px solid #30343b;border-radius:4px;padding:7px;font:10px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
+  .task-patch-panel.plan .task-patch-ai-pack,
+  .task-patch-panel.health .task-patch-ai-pack,
+  .task-patch-panel.history .task-patch-ai-pack,
+  .task-patch-panel.running .task-patch-ai-pack{display:none!important}
   .task-patch-panel.plan .task-patch-health{display:none!important}
   .task-patch-panel.plan .task-patch-panel-note,
   .task-patch-panel.plan .task-patch-summary,
@@ -1862,6 +1866,10 @@ function installPatchPanel(){
       const result=await app.jsonFetch('/api/patch/ai-pack',{method:'POST'});
       renderAIPack(result);
       return result;
+    }catch(error){
+      aiPackStatus.textContent='Failed';
+      aiPackMeta.textContent=String(error?.message||error);
+      throw error;
     }finally{
       aiPackBusy=false;
       aiPackRefresh.disabled=false;
