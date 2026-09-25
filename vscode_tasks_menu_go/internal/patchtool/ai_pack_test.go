@@ -147,3 +147,21 @@ func TestBuildAIPackRejectsMissingGuideInsteadOfUsingStaleEmbeddedPrompt(t *test
 		t.Fatalf("missing guide should fail closed, err=%v", err)
 	}
 }
+
+
+func TestTaskDeckInstallerBundlesGuideNeededByAIPack(t *testing.T) {
+	raw, err := os.ReadFile("../../../install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(raw)
+	for _, want := range []string{
+		`[[ -f "$release/patchtool/HUONG_DAN_PYTHON_PATCH_TOOL.html" ]] || return 1`,
+		`"$SOURCE_ROOT/HUONG_DAN_PYTHON_PATCH_TOOL.html"`,
+		`cp "$SOURCE_ROOT/HUONG_DAN_PYTHON_PATCH_TOOL.html" "$STAGED_RELEASE/patchtool/HUONG_DAN_PYTHON_PATCH_TOOL.html"`,
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("TaskDeck installer must bundle current Patch Tool guide: missing %q", want)
+		}
+	}
+}
