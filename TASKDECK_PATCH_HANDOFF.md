@@ -329,6 +329,47 @@ Verification: GitHub Actions run `36095759264` PASS on Go 1.19 and Go 1.23, incl
 Patch entry routing/direct-COLLECT protocol tests, JavaScript syntax, exact self-update staged-source
 tests, full tests, vet and build.
 
+## Phase 2E.2 UX: reopen Queue while runs remain active
+
+Installed feedback exposed a lifecycle gap in the first parallel-COLLECT UI: selecting several COLLECTs
+at once worked, but once any PATCH/COLLECT was already running there was no path back to a fresh
+Queue without abandoning the run view.
+
+The native UI now treats execution and queue selection as independent surfaces:
+
+- **Back to Queue / Add more** is available immediately while a run is active; it does **not** stop
+  that session.
+- The foreground session is moved into the persistent in-page **Active runs** dashboard and gets its
+  own protocol polling, status, progress, artifacts and explicit terminal-evidence action.
+- TaskDeck starts a fresh headless Queue session, so newly arrived files under `patchs/` can be
+  discovered while earlier work continues.
+- **Refresh Queue** stops/replaces only the waiting Queue selector session. Active PATCH/COLLECT
+  sessions are untouched.
+- While at least one run is still active, the fresh Queue enters conservative **add-mode**:
+  - PATCH checkboxes are locked;
+  - an item already running is locked and cannot be Run/Delete selected again;
+  - additional COLLECT requests remain selectable.
+- A single additional COLLECT is allowed through the same prompt-bound independent-worker endpoint
+  used for multi-COLLECT fan-out. The server accepts 1..16 advertised COLLECT indexes, while Python's
+  one-COLLECT-per-process invariant remains unchanged.
+- When no active run remains, a refreshed Queue restores the normal PATCH/COLLECT selection rules.
+
+Safety rationale:
+- PATCH mutation remains serialized by the existing Python project mutation lock.
+- The browser does not start a second PATCH in add-mode.
+- COLLECT stays read-only and is launched only from a current Python-advertised, prompt-bound Queue
+  item.
+- Returning to Queue never sends `/stop` to the running execution session.
+
+Checkpoints:
+- `e2b67fe9` — allow one prompt-bound independent COLLECT worker.
+- `0e7e38c0` — preserve foreground/background active runs, add fresh Queue and add-mode locking.
+- `a2251226` / `1beb18a0` — refresh source/product gates for the new lifecycle.
+
+Verification: GitHub Actions run `36096780483` PASS on Go 1.19 and Go 1.23, including
+launcher/entry routing, JavaScript syntax, handoff guard, exact self-update staged-source tests,
+full tests, vet and build.
+
 ## Non-regression invariants
 
 - Python remains authoritative for Patch Tool policy/business logic.
@@ -339,6 +380,8 @@ tests, full tests, vet and build.
 - Switching from the active Patch pane to a terminal/editor/Activity Bar view must deactivate the pane but preserve the `Patch Tool` tab until explicit close.
 - In Native UI mode, a terminal tab may be materialized only by an explicit evidence/fallback action.
 - Parallel COLLECT workers must remain independent `task_id=-1` sessions; do not weaken Python's one-COLLECT-per-invocation safety contract.
+- **Back to Queue / Add more** must never stop an active execution session; only a waiting Queue selector may be replaced by Refresh Queue.
+- While active executions exist, Queue add-mode must not permit launching another PATCH or re-running/deleting an already-running item.
 - Native parallel COLLECT state/results must come from typed protocol events, never console-text parsing.
 - In **Terminal (legacy)** mode, materializing a normal terminal tab is intentional and required; that session must not opt into native FD3/FD4/Python routes.
 - Patch start must fail closed if backend metadata is not reserved `task_id=-1` or if the new session is already materialized in `app.views`.

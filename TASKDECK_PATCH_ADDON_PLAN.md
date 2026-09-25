@@ -512,10 +512,11 @@ Every phase must preserve:
 | Phase 2E.2 smoke defect: grouped-menu bootstrap before task data | FIXED, NEEDS INSTALLED SMOKE | 945f9514 | Settings/header menus now defer workspace-scoped initialization until `taskmenu:tasks`; direct `app.taskData.workspace` access removed from featuremods. CI 36091412442 PASS on Go 1.19/1.23. |
 | Phase 2E.2 UX defects: queue clarity + COLLECT liveness + tab persistence | FIXED, NEEDS INSTALLED SMOKE | 890cddfe / 58e83be6 / 1184e152 / b3bd40e0 / f6303342 | Suppress duplicate actionable Queue rows while queue prompt is active; preserve Patch tab when switching views; Running view shows elapsed/protocol activity and typed COLLECT phase/output; nested FD3 COLLECT progress relay integration test added. CI 36092673478 PASS on Go 1.19/1.23. |
 | Phase 2E.2 UX: warnings/delete + paired artifact variants + parallel COLLECT | IMPLEMENTED, NEEDS INSTALLED SMOKE | 1c3ec879 / 8d7c0819 / 21eef976 / d16ee44d / f9b4737b | Warnings render one per line; selector rows expose prompt-bound Delete; ZIP/TXT variants share one logical result row with format-specific actions; Python advertises independent-process fan-out (max 16) while retaining one-COLLECT-per-invocation; TaskDeck launches/polls one headless worker per selected COLLECT and renders each worker's typed progress/artifacts. CI 36095759264 PASS on Go 1.19/1.23. |
+| Phase 2E.2 UX: reopen Queue while active runs continue | IMPLEMENTED, NEEDS INSTALLED SMOKE | e2b67fe9 / 0e7e38c0 / a2251226 / 1beb18a0 | Running view exposes Back to Queue / Add more without stopping execution; foreground sessions move into Active runs and keep typed polling/artifacts; fresh Queue/Refresh Queue discovers new requests; while any run is active, PATCH and already-running items are locked while extra COLLECT remains selectable; a single additional COLLECT can launch as an independent prompt-bound worker. CI 36096780483 PASS Go 1.19/1.23. |
 
 ## Next action
 
 Phase 2A–2D and the automated Phase 2E.1 product gate are implemented. **Do not close Phase 2 yet.**
-Next is Phase 2E.2 installed-runtime browser smoke after TaskDeck self-update to **`f9b4737b` or a later descendant**: verify the actual UI
+Next is Phase 2E.2 installed-runtime browser smoke after TaskDeck self-update to **`1beb18a0` or a later descendant**: verify the actual UI
 does not create a terminal tab for Queue/Resume/History/Plan/Health, while explicit terminal
 evidence still materializes one. Only after that passes may Phase 2F closeout be marked DONE.
