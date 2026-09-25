@@ -101,7 +101,7 @@ The gate now checks product-level invariants rather than merely renderer/protoco
 
 **This is the current blocking acceptance task.**
 
-Minimum native-UI code checkpoint remains `15711d4d`, but revision `a0b774c8` cannot be installed through self-update because the repository-document guard was mistakenly placed inside `go test ./...`. **For self-update/browser smoke, install `f6303342` or a later descendant on `main`.**
+Minimum native-UI code checkpoint remains `15711d4d`, but revision `a0b774c8` cannot be installed through self-update because the repository-document guard was mistakenly placed inside `go test ./...`. **For self-update/browser smoke, install `f9b4737b` or a later descendant on `main`.**
 
 Checkpoint `15711d4d` passed GitHub Actions run `36087008801`. The self-update staging regression is fixed by `5b9a37e2` + `572368a1` + `3dbf06fb`, with a non-regression guard added in `afbb82be`.
 
@@ -285,6 +285,50 @@ Installed smoke found three native-UI defects and they are now source/CI fixed:
 Verification: GitHub Actions run `36092673478` PASS on Go 1.19 and Go 1.23, including JavaScript
 syntax, repository handoff guard, exact self-update staged-source tests, full tests, vet and build.
 
+## Phase 2E.2 UX: per-line warnings, selector delete, paired artifacts, parallel COLLECT
+
+Installed feedback added four native UX requirements without changing Python authority:
+
+1. **Queue warnings are line-oriented**
+   - Queue warnings are no longer concatenated with ` | `.
+   - Each skipped/non-runnable queue warning is rendered on its own line under the warning count.
+
+2. **Delete is available on the authoritative selector row**
+   - Every item in **Choose PATCH/COLLECT work** gets a right-aligned **Delete** button when Python
+     advertises the existing `queue_actions: ["delete"]` capability.
+   - The button uses the same prompt-bound `queue-delete` command and refresh contract as the
+     earlier Queue summary action; no browser-side filesystem delete was introduced.
+
+3. **ZIP/TXT variants are grouped as one logical result**
+   - Live protocol artifacts group `collect_result_zip/text`, `fail_handoff_zip/text`, and
+     `ai_sync_zip/text` by logical family + item.
+   - History artifacts group matching `.zip` / `.txt` stems the same way.
+   - Each format keeps separate, explicit actions: **ZIP Download**, **ZIP Copy path**,
+     **TXT Download**, **TXT Copy path**. **Open TXT** appears only on TXT.
+
+4. **Multiple COLLECT requests can run concurrently in native UI**
+   - Python's existing safety invariant remains unchanged: one dispatcher invocation accepts at most
+     one COLLECT and cannot mix COLLECT with PATCH.
+   - Python now advertises `parallel_collect_processes = {strategy: independent_processes, max: 16}`.
+   - When 2–16 COLLECT items are selected, TaskDeck cancels only the selector prompt and launches
+     one independent reserved `task_id=-1` COLLECT worker per request.
+   - Each worker has its own typed progress, item lifecycle and artifact events. The native dashboard
+     shows status, elapsed time, phase, output-line count, protocol activity, explicit Terminal
+     evidence, and its own grouped result ZIP/TXT.
+   - Direct COLLECT workers emit structured artifact events from the existing COLLECT result
+     metadata; browser code never parses terminal output to discover results.
+
+Checkpoints:
+- `1c3ec879` — per-line warnings + per-item selector Delete.
+- `8d7c0819` — pair ZIP/TXT variants in live Artifacts and History.
+- `21eef976` — prompt-bound server/Python independent COLLECT worker contract and direct artifact events.
+- `d16ee44d` — multi-COLLECT selection + native per-worker dashboard.
+- `bc2137bd` / `f9b4737b` — refresh product/source gates for grouped artifacts and generic explicit evidence path.
+
+Verification: GitHub Actions run `36095759264` PASS on Go 1.19 and Go 1.23, including
+Patch entry routing/direct-COLLECT protocol tests, JavaScript syntax, exact self-update staged-source
+tests, full tests, vet and build.
+
 ## Non-regression invariants
 
 - Python remains authoritative for Patch Tool policy/business logic.
@@ -294,6 +338,8 @@ syntax, repository handoff guard, exact self-update staged-source tests, full te
 - In **Native UI** mode, Patch actions must not create ordinary terminal tabs by default.
 - Switching from the active Patch pane to a terminal/editor/Activity Bar view must deactivate the pane but preserve the `Patch Tool` tab until explicit close.
 - In Native UI mode, a terminal tab may be materialized only by an explicit evidence/fallback action.
+- Parallel COLLECT workers must remain independent `task_id=-1` sessions; do not weaken Python's one-COLLECT-per-invocation safety contract.
+- Native parallel COLLECT state/results must come from typed protocol events, never console-text parsing.
 - In **Terminal (legacy)** mode, materializing a normal terminal tab is intentional and required; that session must not opt into native FD3/FD4/Python routes.
 - Patch start must fail closed if backend metadata is not reserved `task_id=-1` or if the new session is already materialized in `app.views`.
 - Never infer Phase 2 completion from the existence of native renderers or protocol endpoints.
