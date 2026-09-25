@@ -276,3 +276,46 @@ func TestPatchCollectExecutionUsesDirectHeadlessProtocol(t *testing.T) {
 		if _, err := patchCollectExecution(workspace, invalid); err == nil { t.Fatalf("unsafe direct COLLECT name accepted: %q",invalid) }
 	}
 }
+
+
+func TestPatchToolTerminalHistoryUsesInteractiveHistoryCommand(t *testing.T) {
+	workspace := t.TempDir()
+	runtimeRoot := t.TempDir()
+	entry := filepath.Join(runtimeRoot, "python_patch_entry.py")
+	python := filepath.Join(runtimeRoot, "python3")
+	for _, path := range []string{entry, python} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil { t.Fatal(err) }
+	}
+	t.Setenv("TASKDECK_PATCH_RUNTIME", entry)
+	t.Setenv("TASKDECK_PATCH_PYTHON", python)
+
+	terminal, err := patchToolExecutionForUI(workspace, "history", "terminal")
+	if err != nil { t.Fatal(err) }
+	if terminal.ProtocolEvents || terminal.ProtocolCommands {
+		t.Fatalf("terminal History must stay legacy/no-protocol: events=%v commands=%v", terminal.ProtocolEvents, terminal.ProtocolCommands)
+	}
+	terminalArgs := strings.Join(terminal.Args, "\n")
+	if !strings.Contains(terminalArgs, "\nhistory") && !strings.HasSuffix(terminalArgs, "history") {
+		t.Fatalf("terminal History args=%v do not use explicit history browser command", terminal.Args)
+	}
+	if strings.Contains(terminalArgs, "\nreport") || strings.HasSuffix(terminalArgs, "report") {
+		t.Fatalf("terminal History must not use native report route: %v", terminal.Args)
+	}
+	for _, item := range terminal.Env {
+		if strings.HasPrefix(item, "TASKDECK_PATCH_NATIVE_") {
+			t.Fatalf("terminal History must not opt into native Python route: %q", item)
+		}
+	}
+
+	native, err := patchToolExecutionForUI(workspace, "history", "native")
+	if err != nil { t.Fatal(err) }
+	nativeArgs := strings.Join(native.Args, "\n")
+	if !strings.Contains(nativeArgs, "\nreport") && !strings.HasSuffix(nativeArgs, "report") {
+		t.Fatalf("native History must keep report protocol route: %v", native.Args)
+	}
+	found := false
+	for _, item := range native.Env {
+		if item == "TASKDECK_PATCH_NATIVE_HISTORY=1" { found = true }
+	}
+	if !found { t.Fatal("native History lost TASKDECK_PATCH_NATIVE_HISTORY") }
+}

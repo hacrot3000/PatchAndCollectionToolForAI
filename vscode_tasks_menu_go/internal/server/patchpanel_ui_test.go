@@ -104,7 +104,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"failure?.diagnosis_kind",
 		"snapshot?.group_counts",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,deactivate,toggle,start,openQueueWhileRunning,refreshQueueSession,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,submitHistoryCleanup,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
+		"TaskMenuPatchPanel={open,close,deactivate,toggle,start,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,submitHistoryCleanup,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {
@@ -396,7 +396,7 @@ func TestPatchPanelHistoryKeepsTerminalAsFallbackNotPrimary(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	js := string(data)
 	for _, want := range []string{
-		"historyTerminal.onclick=()=>openTerminalEvidence().catch(app.showError)",
+		"historyTerminal.onclick=()=>openLegacyHistoryTerminal().catch(app.showError)",
 		"Native History command channel unavailable. Open terminal fallback if needed.",
 		"Native History prompt timed out. Open terminal fallback if needed.",
 		"mode==='history'",
@@ -1225,5 +1225,33 @@ func TestPatchPairedArtifactActionOrderIsFormatClear(t *testing.T) {
 	open:=strings.Index(block,"Open TXT")
 	if download<0||copy<0||open<0||!(download<copy&&copy<open) {
 		t.Fatal("combined artifact actions must render downloads first, copies second, Open TXT last")
+	}
+}
+
+
+func TestPatchHistoryTerminalStartsSeparateLegacyBrowserSession(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"async function openLegacyHistoryTerminal()",
+		"body:JSON.stringify({kind:'patch',patch_mode:'history',patch_ui:'terminal'})",
+		"app.materializeSession(meta,true)",
+		"historyTerminal.onclick=()=>openLegacyHistoryTerminal().catch(app.showError)",
+		"openLegacyHistoryTerminal,openQueueWhileRunning",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("legacy terminal History launcher missing %q",want) }
+	}
+	start:=strings.Index(js,"async function openLegacyHistoryTerminal()")
+	endRel:=strings.Index(js[start:],"function clearActionResult()")
+	if start<0||endRel<0 { t.Fatal("legacy History terminal helper bounds unavailable") }
+	block:=js[start:start+endRel]
+	for _, forbidden:=range []string{
+		"openTerminalEvidenceForSession(activeSessionId)",
+		"encodeURIComponent(activeSessionId)",
+	} {
+		if strings.Contains(block,forbidden) {
+			t.Fatalf("History Terminal must not materialize the native backing History session: %q",forbidden)
+		}
 	}
 }

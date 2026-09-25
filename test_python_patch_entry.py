@@ -36,6 +36,16 @@ class RouteContractTests(unittest.TestCase):
         argv, _ = self.route("report", "--list")
         self.assertEqual(argv[-2:], ["report", "--list"])
 
+    def test_history_routes_to_dispatcher_browser_command(self):
+        argv, required = self.route("history")
+        self.assertEqual(argv, [
+            "/opt/taskdeck/patchtool/_patch_lib/python_patch_queue_dispatcher.py",
+            "--project-root", self.root,
+            "history",
+        ])
+        self.assertEqual(required, ["/opt/taskdeck/patchtool/_patch_lib/python_patch_queue_dispatcher.py"])
+        self.assertEqual(entry.classify_route(["history"]), "history")
+
     def test_collect_uses_progress_supervisor(self):
         argv, required = self.route("collect", "search", "needle")
         self.assertIn("python_patch_collect_progress_v6_7.py", argv[0])
@@ -74,6 +84,21 @@ class RouteContractTests(unittest.TestCase):
     def test_malformed_transaction_does_not_swallow_following_automation_flag(self):
         argv, _ = self.route("--transaction", "--all")
         self.assertEqual(argv[-2:], ["run", "--all"])
+
+
+class TerminalHistoryCommandTests(unittest.TestCase):
+    def setUp(self):
+        self.base = Path(__file__).resolve().parent
+        entry._prepare_environment(self.base)
+
+    def test_explicit_history_command_uses_history_browser(self):
+        import python_patch_queue_dispatcher as dispatcher
+        with tempfile.TemporaryDirectory(prefix="taskdeck-terminal-history-") as td:
+            root = Path(td).resolve()
+            with mock.patch.object(dispatcher, "_history_browser", return_value=17) as browser:
+                rc = dispatcher.main(["--project-root", str(root), "history"])
+        self.assertEqual(rc, 17)
+        browser.assert_called_once_with(root)
 
 
 class HistorySupportProtocolTests(unittest.TestCase):
