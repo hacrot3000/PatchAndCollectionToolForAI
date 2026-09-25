@@ -101,6 +101,8 @@ The gate now checks product-level invariants rather than merely renderer/protoco
 
 **This is the current blocking acceptance task.**
 
+Minimum code checkpoint for this smoke: the installed TaskDeck revision must contain `15711d4d` (or be a later descendant on `main`). Older installed revisions are not valid evidence for Phase 2E.2.
+
 After TaskDeck is self-updated/restarted to a build containing the corrected Phase 2 commits,
 verify in the real browser UI:
 
