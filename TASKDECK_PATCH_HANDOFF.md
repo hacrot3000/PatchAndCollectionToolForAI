@@ -1,6 +1,7 @@
 # TaskDeck Patch Native UI — Handoff / Recovery State
 
 Last updated: 2026-09-25  
+Current recovery head when this handoff was refreshed: `0072c13a`  
 Repository: `hacrot3000/PatchAndCollectionToolForAI`  
 Branch: `main`
 
@@ -83,6 +84,8 @@ Commit: `e0b41a4a`
 
 Commit: `eec38265`  
 GitHub Actions run: `36084258908` — PASS.
+
+Additional runtime hardening: `89d3a458` — CI run `36086689002` PASS. Patch start now fails closed if backend metadata is not reserved `task_id=-1` or if the new session is unexpectedly already materialized as a terminal tab.
 
 The gate now checks product-level invariants rather than merely renderer/protocol presence:
 

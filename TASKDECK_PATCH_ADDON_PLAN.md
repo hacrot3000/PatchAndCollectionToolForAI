@@ -501,9 +501,9 @@ Every phase must preserve:
 | Corrected Phase 2B native workspace surface | DONE | 634b1a2f | Patch activates an external native workspace, spans the work area instead of the 310px sidebar, hides the underlying terminal workspace, and restores the previous view on close. |
 | Corrected Phase 2C native Resume→History navigation | DONE | e0b41a4a | Native Resume history selection exits the Resume Python route without entering _history_browser(); TaskDeck opens a dedicated native History session instead. |
 | Corrected Phase 2D explicit-only terminal fallback | DONE | e0b41a4a | Removed remaining automatic terminal materialization; protocol loss/timeouts stay in native UI and only explicit evidence buttons create a terminal tab. |
-| Corrected Phase 2B return-view fix | DONE | this commit | Native workspace now reads the actual exported app.active state instead of nonexistent app.activeSessionId before restoring the previous view. |
+| Corrected Phase 2B return-view fix | DONE | eec38265 | Native workspace now reads the actual exported app.active state instead of nonexistent app.activeSessionId before restoring the previous view. |
 | Corrected Phase 2E.1 automated product acceptance gate | DONE | eec38265 | Dedicated regression gate rejects implicit terminal tabs, enforces headless reload sync/full workspace/native Resume→History, and allows materialization only in the explicit evidence path. |
-| Phase 2E.1b fail-closed runtime session invariant | DONE | 89d3a458 | Patch start rejects/stops any backend session that loses reserved headless task_id=-1 and rejects an unexpectedly materialized terminal view. |
+| Phase 2E.1b fail-closed runtime session invariant | DONE | 89d3a458 | Patch start rejects/stops any backend session that loses reserved headless task_id=-1 and rejects an unexpectedly materialized terminal view. CI run 36086689002 PASS. |
 
 ## Next action
 
