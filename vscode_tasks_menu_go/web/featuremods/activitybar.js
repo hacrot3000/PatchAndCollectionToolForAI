@@ -186,7 +186,7 @@ function installActivityBar(){
   function showTasks(){
     activeView='tasks';
     closeExplorer();
-    deactivatePatchPanel();
+    if(enabled())deactivatePatchPanel();
     closeHistoryPanel();
     restoreHistoryToTasks();
     document.body.classList.toggle('task-sidebar-panel-open',enabled());
@@ -196,7 +196,7 @@ function installActivityBar(){
   function showExplorer(){
     activeView='explorer';
     hideTasksPanel();
-    deactivatePatchPanel();
+    if(enabled())deactivatePatchPanel();
     closeHistoryPanel();
     try{globalThis.TaskMenuExplorer?.open();}catch(error){console.warn('Auto sidebar could not open Explorer',error);}
     updateButtons();
@@ -215,7 +215,7 @@ function installActivityBar(){
     activeView='history';
     hideTasksPanel();
     closeExplorer();
-    deactivatePatchPanel();
+    if(enabled())deactivatePatchPanel();
     adoptHistoryFromTasks();
     historyPanel.classList.add('visible');
     updateButtons();
