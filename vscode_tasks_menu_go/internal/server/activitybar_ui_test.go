@@ -102,7 +102,10 @@ func TestActivityBarPatchIconIsIdempotentWorkspaceNavigation(t *testing.T) {
 		"if(activeView===view){",
 		"if(view==='patch'){showPatch();return;}",
 		"Patch Tool is a workspace tab with its own close button",
-		"if(view==='patch'){",
+		"if(!enabled()){",
+		"if(view==='tasks')showTasks()",
+		"if(view==='explorer')showExplorer()",
+		"if(view==='history')showHistory()",
 		"globalThis.TaskMenuPatchPanel?.open()",
 	} {
 		if !strings.Contains(js,want) {
@@ -115,5 +118,62 @@ func TestActivityBarPatchIconIsIdempotentWorkspaceNavigation(t *testing.T) {
 	block:=js[blockStart:blockStart+blockEndRel]
 	if strings.Contains(block,"if(activeView===view){closeActive();return;}") {
 		t.Fatal("Patch Activity Bar icon must not use the generic toggle-close path")
+	}
+}
+
+
+func TestActivityBarAlwaysVisibleUsesHorizontalNavigationRow(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/activitybar.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"body:not(.task-sidebar-auto-hide) .task-activity-bar{display:flex;position:fixed;top:52px;left:0",
+		"width:var(--taskmenu-sidebar-inline-width,310px)",
+		"height:46px",
+		"flex-direction:row",
+		"body:not(.task-sidebar-auto-hide) #menu{padding-top:56px}",
+		"body.task-sidebar-auto-hide .task-activity-bar{display:flex}",
+		"flex-direction:column",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("always-visible horizontal sidebar navigation missing %q",want)
+		}
+	}
+}
+
+func TestActivityBarAlwaysVisibleViewsStayInFixedSidebar(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/activitybar.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"body:not(.task-sidebar-auto-hide) .project-explorer{top:98px!important;left:0!important",
+		"body:not(.task-sidebar-auto-hide) .task-history-panel{top:98px;left:0",
+		"activeView=on?'':'tasks'",
+		"restoreHistoryToTasks()",
+		"const active=button.dataset.view===activeView",
+		"if(!enabled()){",
+		"showTasks()",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("always-visible fixed sidebar view missing %q",want)
+		}
+	}
+}
+
+func TestActivityBarFixedSidebarWidthTracksResizableMenu(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/activitybar.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function syncInlineSidebarWidth()",
+		"menu.getBoundingClientRect().width",
+		"new ResizeObserver(syncInlineSidebarWidth)",
+		"sidebarResizeObserver.observe(menu)",
+		"document.documentElement.style.setProperty('--taskmenu-sidebar-inline-width'",
+		"document.documentElement.style.setProperty('--taskmenu-sidebar-panel-width'",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("fixed sidebar width synchronization missing %q",want)
+		}
 	}
 }
