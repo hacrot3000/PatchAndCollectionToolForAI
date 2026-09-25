@@ -421,6 +421,8 @@ function installPatchPanel(){
   const patchTabClose=document.createElement('span');patchTabClose.className='close';patchTabClose.textContent='×';patchTabClose.title='Close Patch Tool';
   patchTab.append(patchTabLabel,patchTabClose);tabsHost.append(patchTab);
 
+  function patchUIMode(){return globalThis.TaskMenuPatchUISettings?.mode==='terminal'?'terminal':'native';}
+
   const actionDefs=[
     ['queue','Queue','Open the normal PATCH/COLLECT queue'],
     ['resume','Resume','Continue an interrupted or failed run'],
@@ -494,6 +496,10 @@ function installPatchPanel(){
     if(!first.done)app.activateView(first.value);
   }
   function open(){
+    if(patchUIMode()==='terminal'){
+      start('queue').catch(app.showError);
+      return;
+    }
     if(!panel.classList.contains('visible'))rememberReturnView();
     patchTab.hidden=false;
     app.activateExternalView('patch');
@@ -511,6 +517,13 @@ function installPatchPanel(){
   function toggle(){panel.classList.contains('visible')?close():open();}
   patchTab.onclick=()=>open();
   patchTabClose.onclick=event=>{event.stopPropagation();close();};
+  window.addEventListener('taskmenu:patch-ui-mode',event=>{
+    if(String(event.detail?.mode||'')==='terminal'){
+      setVisible(false);
+      patchTab.hidden=true;
+      restoreReturnView();
+    }
+  });
   window.addEventListener('taskmenu:view-activated',event=>{
     const kind=String(event.detail?.kind||'');
     const id=String(event.detail?.id||'');
@@ -2256,8 +2269,15 @@ function installPatchPanel(){
       const meta=await app.jsonFetch('/api/sessions',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({kind:'patch',patch_mode:mode}),
+        body:JSON.stringify({kind:'patch',patch_mode:mode,patch_ui:patchUIMode()}),
       });
+      if(patchUIMode()==='terminal'){
+        activeSessionId=meta.id;
+        patchTab.hidden=true;
+        setVisible(false);
+        app.materializeSession(meta,true);
+        return meta;
+      }
       await assertHeadlessNativeSession(meta);
       activeSessionId=meta.id;
       actionPollGeneration+=1;
