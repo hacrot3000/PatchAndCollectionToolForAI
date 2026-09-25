@@ -29,7 +29,20 @@ open_browser = true
 # tls_key = /absolute/path/to/server.key
 
 [auth]
-# Bắt buộc khi bind ra ngoài loopback.
+# Legacy/local auth. Chỉ là nguồn đăng nhập khi shared_server.enabled=false.
+# Bắt buộc khi bind ra ngoài loopback trong legacy mode.
 enabled = false
 username = admin
 password = change-me
+
+[shared_server]
+# Multi-user shared-project mode. Mặc định false để giữ nguyên behavior hiện tại.
+enabled = false
+
+# Bắt buộc khi enabled=true. ID ổn định này dùng để scope membership/quyền theo project.
+# Không dùng port hoặc workspace path làm project identity.
+# project_id = m3-client
+
+# Optional absolute path tới identity DB dùng chung giữa nhiều TaskDeck process trên cùng host.
+# Nếu bỏ trống, shared mode sẽ resolve platform data-dir mặc định khi identity layer được bật.
+# identity_db = /var/lib/taskdeck/identity.db
