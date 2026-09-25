@@ -182,7 +182,7 @@ func TestPatchPanelArtifactActionsUseStructuredProtocolOnly(t *testing.T) {
 		"artifact?.artifact_kind",
 		"artifact?.primary",
 		"renderArtifacts(state?.artifacts)",
-		"download.href='/api/files/download?path='+encodeURIComponent(path)",
+		"download.href='/api/files/download?path='+encodeURIComponent(row.path)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("artifact UI missing structured protocol contract %q", want)
@@ -901,7 +901,7 @@ func TestPatchFileActionsOpenEditorAndCopyFullPath(t *testing.T) {
 		"String(app.taskData?.workspace||'')",
 		"async function copyFullPath(path,button)",
 		"navigator.clipboard.writeText(text)",
-		"copyPath.textContent=format+' Copy path'",
+		"copyPath.textContent=String(row.format||'FILE')+' Copy path'",
 		"copyPath.title='Copy full project path'",
 		"function openProjectFile(path)",
 		"globalThis.TaskMenuEditor",
