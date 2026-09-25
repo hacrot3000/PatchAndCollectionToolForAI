@@ -345,6 +345,72 @@ func TestGlobalReleaseDirRejectsUnsafeRevision(t *testing.T) {
 }
 
 
+func TestRestoreGlobalActivationReturnsToPreviousRelease(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	appDir := filepath.Join(root, "lib", "taskdeck")
+	t.Setenv("TASKDECK_INSTALL_DIR", binDir)
+	t.Setenv("TASKDECK_APP_DIR", appDir)
+
+	rev1 := "1111111111111111111111111111111111111111"
+	rev2 := "2222222222222222222222222222222222222222"
+
+	release1, err := GlobalReleaseDir(rev1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage1 := filepath.Join(filepath.Dir(release1), ".rollback-stage-one")
+	makeFakeRelease(t, stage1)
+	if err := InstallGlobalRelease(stage1, rev1); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := CaptureGlobalActivation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Executable != filepath.Join(release1, "taskdeck") || snapshot.Revision != rev1 {
+		t.Fatalf("snapshot=%#v", snapshot)
+	}
+
+	release2, err := GlobalReleaseDir(rev2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage2 := filepath.Join(filepath.Dir(release2), ".rollback-stage-two")
+	makeFakeRelease(t, stage2)
+	if err := InstallGlobalRelease(stage2, rev2); err != nil {
+		t.Fatal(err)
+	}
+	if !GlobalReleaseReady(rev2) {
+		t.Fatal("second release should be active before rollback")
+	}
+
+	if err := RestoreGlobalActivation(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	global, err := GlobalBinaryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != filepath.Join(release1, "taskdeck") {
+		t.Fatalf("rollback resolved=%q want %q", resolved, filepath.Join(release1, "taskdeck"))
+	}
+	if InstalledRevision(global) != rev1 {
+		t.Fatalf("rollback marker=%q want %q", InstalledRevision(global), rev1)
+	}
+	if !GlobalReleaseReady(rev1) {
+		t.Fatal("previous release should be active after rollback")
+	}
+	if _, err := os.Stat(filepath.Join(release2, "taskdeck")); err != nil {
+		t.Fatalf("rollback must keep validated new release for diagnostics/retry: %v", err)
+	}
+}
+
+
 func TestGoTestsDoNotDependOnRepositoryOnlyPatchDocs(t *testing.T) {
 	moduleRoot := filepath.Clean(filepath.Join("..", ".."))
 	forbidden := strings.Join([]string{"TASKDECK", "_PATCH", "_HANDOFF", ".md"}, "")

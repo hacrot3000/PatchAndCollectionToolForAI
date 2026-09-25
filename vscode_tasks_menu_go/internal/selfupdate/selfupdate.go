@@ -623,6 +623,89 @@ func writeRevisionMarker(binary, revision string) error {
 	return os.Rename(tmp, MarkerPath(binary))
 }
 
+type GlobalActivationSnapshot struct {
+	Executable string
+	Revision   string
+}
+
+func CaptureGlobalActivation() (GlobalActivationSnapshot, error) {
+	global, err := GlobalBinaryPath()
+	if err != nil {
+		return GlobalActivationSnapshot{}, err
+	}
+	resolved, err := filepath.EvalSymlinks(global)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return GlobalActivationSnapshot{}, nil
+		}
+		return GlobalActivationSnapshot{}, fmt.Errorf("resolve current global TaskDeck: %w", err)
+	}
+	if !ExecutableExists(resolved) {
+		return GlobalActivationSnapshot{}, fmt.Errorf("current global TaskDeck is not executable: %s", resolved)
+	}
+	return GlobalActivationSnapshot{
+		Executable: resolved,
+		Revision:   InstalledRevision(global),
+	}, nil
+}
+
+func RestoreGlobalActivation(snapshot GlobalActivationSnapshot) error {
+	previous := filepath.Clean(strings.TrimSpace(snapshot.Executable))
+	if previous == "" || previous == "." {
+		return fmt.Errorf("previous global TaskDeck release is unavailable")
+	}
+	if !ExecutableExists(previous) {
+		return fmt.Errorf("previous TaskDeck executable is unavailable: %s", previous)
+	}
+
+	global, err := GlobalBinaryPath()
+	if err != nil {
+		return err
+	}
+	current, err := GlobalCurrentLink()
+	if err != nil {
+		return err
+	}
+	appRoot, err := GlobalAppRoot()
+	if err != nil {
+		return err
+	}
+
+	releaseDir := filepath.Dir(previous)
+	releasesRoot := filepath.Join(appRoot, "releases")
+	relative, relErr := filepath.Rel(releasesRoot, releaseDir)
+	versionedRelease := relErr == nil &&
+		relative != "." &&
+		relative != ".." &&
+		!strings.HasPrefix(relative, ".."+string(os.PathSeparator)) &&
+		!strings.Contains(relative, string(os.PathSeparator)) &&
+		filepath.Base(previous) == "taskdeck"
+
+	if versionedRelease {
+		if err := atomicSymlink(releaseDir, current); err != nil {
+			return fmt.Errorf("restore current release: %w", err)
+		}
+		if err := atomicSymlink(filepath.Join(current, "taskdeck"), global); err != nil {
+			return fmt.Errorf("restore global taskdeck entry: %w", err)
+		}
+	} else {
+		if err := atomicSymlink(previous, global); err != nil {
+			return fmt.Errorf("restore global taskdeck executable: %w", err)
+		}
+	}
+
+	if strings.TrimSpace(snapshot.Revision) == "" {
+		if err := os.Remove(MarkerPath(global)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove stale revision marker: %w", err)
+		}
+		return nil
+	}
+	if err := writeRevisionMarker(global, snapshot.Revision); err != nil {
+		return fmt.Errorf("restore revision marker: %w", err)
+	}
+	return nil
+}
+
 func InstallGlobalRelease(prepared, revision string) error {
 	if prepared == "" {
 		return fmt.Errorf("invalid prepared release path")
