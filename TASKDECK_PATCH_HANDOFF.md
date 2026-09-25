@@ -370,6 +370,30 @@ Verification: GitHub Actions run `36096780483` PASS on Go 1.19 and Go 1.23, incl
 launcher/entry routing, JavaScript syntax, handoff guard, exact self-update staged-source tests,
 full tests, vet and build.
 
+## Phase 2E.2 UX correction: paired artifacts are one visual row
+
+Installed History smoke showed that the prior ZIP/TXT grouping was only logical: the renderer still
+created one nested variant row for TXT and one nested variant row for ZIP. This still looked like
+two results.
+
+The renderer now enforces one visual row per paired result/handoff:
+
+- Exact pairing is by artifact stem, not only by family/item.
+- A TXT+ZIP pair displays one combined path, e.g. `.../RESULT_NAME.{txt|zip}`.
+- The single row exposes format-specific actions in a clear order:
+  **TXT Download**, **ZIP Download**, **TXT Copy path**, **ZIP Copy path**, **Open TXT**.
+- **Open TXT** is emitted once and always targets the TXT member.
+- The same combined-row renderer contract applies to live protocol Artifacts and native History.
+- Single-file artifacts (run summary, batch log, request archive, support ZIP, etc.) remain individual
+  rows.
+
+Checkpoints:
+- `41e2eb39` — replace per-variant subrows with a combined artifact/history row and exact-stem pairing.
+- `9c91cc84` / `2377149e` — refresh source contracts for combined download/copy/Open TXT helpers.
+
+Verification: GitHub Actions run `36104471672` PASS on Go 1.19 and Go 1.23, including
+JavaScript syntax, staged self-update tests, full tests, vet and build.
+
 ## Non-regression invariants
 
 - Python remains authoritative for Patch Tool policy/business logic.
