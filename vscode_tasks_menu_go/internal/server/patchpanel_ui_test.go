@@ -21,7 +21,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"['resume','Resume'",
 		"['history','History'",
 		"['plan','Plan'",
-		"JSON.stringify({kind:'patch',patch_mode:mode})",
+		"JSON.stringify({kind:'patch',patch_mode:mode,patch_ui:patchUIMode()})",
 		"app.materializeSession(meta,false)",
 		"/protocol",
 		"const maxAttempts=followLifecycle?7200:40",
@@ -814,7 +814,7 @@ func TestPatchPanelHistoryCleanupRequiresExplicitConfirmationAndPreservesPins(t 
 }
 
 
-func TestPatchNativeStartDoesNotCreateTerminalTab(t *testing.T) {
+func TestPatchStartSeparatesNativeHeadlessAndLegacyTerminalModes(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
 	if err != nil { t.Fatal(err) }
 	js := string(data)
@@ -822,12 +822,40 @@ func TestPatchNativeStartDoesNotCreateTerminalTab(t *testing.T) {
 	endRel := strings.Index(js[start:], "terminalEvidence.onclick")
 	if start < 0 || endRel < 0 { t.Fatal("Patch start function bounds unavailable") }
 	block := js[start:start+endRel]
-	if strings.Contains(block, "attachSession(") || strings.Contains(block, "materializeSession(") {
-		t.Fatal("native Patch start must keep the backing PTY headless")
+
+	for _, want := range []string{
+		"if(patchUIMode()==='terminal'){",
+		"app.materializeSession(meta,true)",
+		"await assertHeadlessNativeSession(meta);",
+		"patch_ui:patchUIMode()",
+	} {
+		if !strings.Contains(block,want) { t.Fatalf("Patch UI mode routing missing %q",want) }
+	}
+	nativeStart := strings.Index(block,"await assertHeadlessNativeSession(meta);")
+	if nativeStart < 0 { t.Fatal("native Patch start branch unavailable") }
+	nativeBlock := block[nativeStart:]
+	if strings.Contains(nativeBlock,"materializeSession(") {
+		t.Fatal("native Patch branch must keep its backing PTY headless")
 	}
 	if !strings.Contains(js, "async function openTerminalEvidence()") ||
 		!strings.Contains(js, "app.materializeSession(meta,false)") {
-		t.Fatal("terminal evidence must be materialized only by the explicit fallback action")
+		t.Fatal("native terminal evidence fallback path is unavailable")
+	}
+}
+
+func TestPatchPanelHonorsInterfaceSetting(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function patchUIMode()",
+		"TaskMenuPatchUISettings?.mode==='terminal'",
+		"if(patchUIMode()==='terminal'){",
+		"start('queue').catch(app.showError)",
+		"taskmenu:patch-ui-mode",
+		"patchTab.hidden=true",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("Patch interface setting wiring missing %q",want) }
 	}
 }
 
