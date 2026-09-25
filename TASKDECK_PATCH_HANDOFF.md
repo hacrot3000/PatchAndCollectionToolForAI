@@ -131,6 +131,9 @@ Only after Phase 2E.2 passes:
 | `634b1a2f` | Promote Patch to native workspace |
 | `e0b41a4a` | Keep Resume/History navigation native; explicit-only fallback |
 | `eec38265` | Add product acceptance gate; fix previous-view state |
+| `592c4dc9` | Add accurate recovery handoff |
+| `082a8b72` | Correct README native-completion claims |
+| `89d3a458` | Fail closed if Patch loses headless session invariant |
 
 ## Non-regression invariants
 
@@ -140,6 +143,7 @@ Only after Phase 2E.2 passes:
 - PTY/backing session may remain available for compatibility/evidence.
 - Native Patch actions must not create ordinary terminal tabs by default.
 - A terminal tab may be materialized only by an explicit user evidence/fallback action.
+- Patch start must fail closed if backend metadata is not reserved `task_id=-1` or if the new session is already materialized in `app.views`.
 - Never infer Phase 2 completion from the existence of native renderers or protocol endpoints.
 
 ## Commit discipline
@@ -150,6 +154,6 @@ Do not accumulate multiple recovery-critical changes before committing. Update t
 
 ## Next action
 
-Continue Phase 2E.2 installed-runtime browser smoke. If smoke exposes a UI/runtime defect, fix it in
+Phase 2E.1b runtime invariant hardening is committed. Continue Phase 2E.2 installed-runtime browser smoke. If smoke exposes a UI/runtime defect, fix it in
 a small commit, update this handoff, rerun CI, and repeat the smoke. Only after the real browser
 behavior passes all Phase 2E.2 checks should Phase 2F closeout begin.
