@@ -13,6 +13,12 @@ on:
       - "run_python_patches.sh"
       - "run_python_patches.ps1"
       - "vscode_tasks_menu_go/**"
+      - "TASKDECK_PATCH_HANDOFF.md"
+      - "TASKDECK_PATCH_ADDON_PLAN.md"
+      - "TASKDECK_PATCH_NATIVE_PARITY_AUDIT.md"
+      - "README.md"
+      - "implementing.md"
+      - "test_taskdeck_patch_handoff_state.py"
       - ".github/workflows/vscode_tasks_menu_go.yml"
   workflow_dispatch:
 
@@ -61,6 +67,10 @@ jobs:
           find web -type f -name '*.js' -print0 | while IFS= read -r -d '' file; do
             node --input-type=module --check < "$file"
           done
+
+      - name: TaskDeck Patch handoff state
+        working-directory: .
+        run: python3 test_taskdeck_patch_handoff_state.py
 
       - name: Test
         run: go test ./...
