@@ -606,6 +606,9 @@ function installPatchPanel(){
     patchTab.hidden=false;
     app.activateExternalView('patch');
     setVisible(true);
+    if(!activeSessionId&&!latestQueueSnapshot&&!runningMode&&!historyMode&&!planMode&&!healthMode){
+      void start('queue').catch(app.showError);
+    }
   }
   function deactivate(){
     if(panel.classList.contains('visible'))setVisible(false);
@@ -2751,6 +2754,18 @@ function installPatchPanel(){
     const actionsAllowed=new Set(Array.isArray(prompt.actions)?prompt.actions.map(String):[]);
     clearPrompt();
     activeQueuePrompt=prompt;
+
+    // SKIPPED entries stay inside the Python-owned prompt only as hidden
+    // mutation identities for safe Delete. They are rendered once in the
+    // Queue warning list, never duplicated in the runnable work selector.
+    if(!runnableItems.length){
+      summary.classList.remove('prompt-active');
+      promptBox.hidden=true;
+      if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);else renderQueueRows();
+      refreshActionDisabledState();
+      return 'empty';
+    }
+
     summary.classList.add('prompt-active');
     summaryTitle.textContent='Queue overview';
     promptBox.hidden=false;
@@ -2759,42 +2774,40 @@ function installPatchPanel(){
     const parallelCollect=parallelCollectCapability(prompt);
     const addingWhileRuns=activeRunningRunCount()>0;
     const runningNames=activeRunningNames();
-    promptNote.textContent=!runnableItems.length
-      ? 'No runnable PATCH/COLLECT item is currently available. Refresh Queue to detect newly added work. SKIPPED files can be deleted below.'
-      : (addingWhileRuns
-        ? 'Active run(s) continue in the background. This Queue is add-mode: start additional COLLECT only; PATCH items stay locked until active runs finish.'
-        : (parallelCollect?'PATCH keeps normal priority rules. Multiple COLLECT requests may be selected and TaskDeck will run each in its own independent process.':(priorityCapability?'Select work and optionally assign PATCH priority 0–9. Python validates and orders the final selection.':'Select work here, or use the terminal tab. Python validates the final selection.')));
-    const selectAll=document.createElement('button');selectAll.type='button';selectAll.textContent='Select all PATCH';selectAll.dataset.patchLocked=(addingWhileRuns||!runnableItems.length)?'1':'0';selectAll.disabled=addingWhileRuns||!runnableItems.length;
+    promptNote.textContent=addingWhileRuns
+      ? 'Active run(s) continue in the background. This Queue is add-mode: start additional COLLECT only; PATCH items stay locked until active runs finish.'
+      : (parallelCollect?'PATCH keeps normal priority rules. Multiple COLLECT requests may be selected and TaskDeck will run each in its own independent process.':(priorityCapability?'Select work and optionally assign PATCH priority 0–9. Python validates and orders the final selection.':'Select work here, or use the terminal tab. Python validates the final selection.'));
+    const selectAll=document.createElement('button');selectAll.type='button';selectAll.textContent='Select all PATCH';selectAll.dataset.patchLocked=addingWhileRuns?'1':'0';selectAll.disabled=addingWhileRuns;
     selectAll.onclick=()=>selectAllPromptPatches(prompt);
     const clearAll=document.createElement('button');clearAll.type='button';clearAll.textContent='Clear selection';
     clearAll.onclick=clearPromptSelection;
     promptTools.append(selectAll);
-    if(parallelCollect&&runnableItems.some(item=>String(item?.kind||'').toUpperCase()==='COLLECT')){const selectCollect=document.createElement('button');selectCollect.type='button';selectCollect.textContent='Select all COLLECT (parallel)';selectCollect.onclick=()=>selectAllPromptCollects(prompt);promptTools.append(selectCollect);}
+    if(parallelCollect&&runnableItems.some(item=>String(item?.kind||'').toUpperCase()==='COLLECT')){
+      const selectCollect=document.createElement('button');selectCollect.type='button';selectCollect.textContent='Select all COLLECT (parallel)';selectCollect.onclick=()=>selectAllPromptCollects(prompt);promptTools.append(selectCollect);
+    }
     promptTools.append(clearAll);
-    const refresh=document.createElement('button');refresh.type='button';refresh.textContent='Refresh Queue';refresh.onclick=()=>refreshQueueSession(sessionId).catch(app.showError);promptTools.append(refresh);
-    for(const item of items){
+    for(const item of runnableItems){
       const index=Number(item?.index);
       if(!Number.isInteger(index)||index<1)continue;
       const itemGroup=String(item?.group||'').toLowerCase();
-      const itemKind=String(item?.kind||'').toUpperCase();
-      const skipped=itemKind==='SKIPPED'||item?.selectable===false;
-      const row=document.createElement('div');row.className='task-patch-prompt-item';row.dataset.patchPromptIndex=String(index);row.classList.toggle('failed',itemGroup==='failed');row.classList.toggle('skipped',skipped);
       const itemName=String(item?.name||'');
+      const itemKind=String(item?.kind||'').toUpperCase();
+      const row=document.createElement('div');row.className='task-patch-prompt-item';row.dataset.patchPromptIndex=String(index);row.classList.toggle('failed',itemGroup==='failed');
       const duplicateRunning=runningNames.has(itemName);
       const addModePatch=addingWhileRuns&&itemKind==='PATCH';
-      const locked=skipped||duplicateRunning||addModePatch;
+      const locked=duplicateRunning||addModePatch;
       const input=document.createElement('input');input.type='checkbox';input.dataset.patchIndex=String(index);input.dataset.patchKind=String(item?.kind||'');input.dataset.patchLocked=locked?'1':'0';
-      input.disabled=locked;input.hidden=skipped;
+      input.disabled=locked;
       input.checked=!locked&&initial.has(index);
       input.onchange=()=>applyPromptConstraints(input,prompt);
       const copy=document.createElement('label');copy.className='task-patch-prompt-copy';
       const name=document.createElement('span');name.className='task-patch-prompt-name';
       name.textContent=`${index}. ${itemName}`;
       const detail=document.createElement('span');detail.className='task-patch-prompt-detail';
-      detail.textContent=[skipped?'SKIPPED':(itemGroup==='failed'?'FAILED':item?.group),item?.kind,item?.detail,duplicateRunning?'already running':(addModePatch?'locked while active run exists':'')].filter(Boolean).join(' · ');
+      detail.textContent=[itemGroup==='failed'?'FAILED':item?.group,item?.kind,item?.detail,duplicateRunning?'already running':(addModePatch?'locked while active run exists':'')].filter(Boolean).join(' · ');
       copy.append(name,detail);
       row.append(input,copy);
-      if(priorityCapability&&String(item?.kind||'').toUpperCase()==='PATCH'){
+      if(priorityCapability&&itemKind==='PATCH'){
         const priorityWrap=document.createElement('label');priorityWrap.className='task-patch-prompt-priority';priorityWrap.textContent='Priority';
         const priority=document.createElement('select');priority.dataset.patchPriorityIndex=String(index);priority.dataset.patchLocked=locked?'1':'0';priority.disabled=locked;
         const none=document.createElement('option');none.value='';none.textContent='—';priority.append(none);
@@ -2817,7 +2830,7 @@ function installPatchPanel(){
       }
       promptItems.append(row);
     }
-    if(actionsAllowed.has('select')&&runnableItems.length){
+    if(actionsAllowed.has('select')){
       const select=document.createElement('button');select.type='button';select.textContent='Run selected';
       select.onclick=()=>{
         const indexes=selectedPromptIndexes();
@@ -2842,7 +2855,7 @@ function installPatchPanel(){
     }
     if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);else renderQueueRows();
     refreshActionDisabledState();
-    return true;
+    return 'selection';
   }
 
   async function pollProtocol(sessionId,expectPrompt=false,followLifecycle=false){
@@ -2924,9 +2937,12 @@ function installPatchPanel(){
         summaryStatus.textContent+=' · Smart Resume';
         return;
       }
-      if(expectPrompt&&state?.prompt&&renderQueuePrompt(sessionId,state.prompt)){
-        summaryStatus.textContent+=' · Awaiting selection';
-        return;
+      if(expectPrompt&&state?.prompt){
+        const queuePromptMode=renderQueuePrompt(sessionId,state.prompt);
+        if(queuePromptMode){
+          if(queuePromptMode==='selection')summaryStatus.textContent+=' · Awaiting selection';
+          return;
+        }
       }
       if(state?.last_event?.type==='run_finished'){
         if(haveSnapshot)summaryStatus.textContent+=' · Finished';
