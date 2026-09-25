@@ -104,7 +104,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"failure?.diagnosis_kind",
 		"snapshot?.group_counts",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,deactivate,toggle,start,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,submitHistoryCleanup,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
+		"TaskMenuPatchPanel={open,close,deactivate,toggle,start,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,submitHistoryCleanup,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {
@@ -1110,7 +1110,7 @@ func TestPatchNativeParallelCollectUsesIndependentSessions(t *testing.T) {
 		"/parallel-collect",
 		"function pollParallelCollectRuns()",
 		"parallelCollectRuns=new Map()",
-		"runningTitle.textContent=finished===parallelCollectRuns.size?'Active runs finished':'Active runs'",
+		"runningTitle.textContent='Active runs'",
 		"appendProtocolArtifactGroups(artifacts,run.state?.artifacts)",
 		"openTerminalEvidenceForSession(run.sessionId)",
 	} {
@@ -1143,10 +1143,10 @@ func TestPatchRunningCanReturnToFreshQueueWithoutStoppingRun(t *testing.T) {
 		"runningBack.textContent='Back to Queue / Add more'",
 		"runningBack.hidden=false",
 		"async function openQueueWhileRunning()",
-		"if(activeSessionId&&runningMode)rememberForegroundRun(activeSessionId)",
+		"if(activeSessionId&&runningMode)await rememberForegroundRun(activeSessionId)",
 		"protocolPollGeneration+=1",
 		"await start('queue')",
-		"function rememberForegroundRun(sessionId)",
+		"async function rememberForegroundRun(sessionId)",
 		"parallelCollectRuns.set(key,run)",
 		"function activeRunningRunCount()",
 		"Active run(s) continue in the background",
@@ -1253,5 +1253,66 @@ func TestPatchHistoryTerminalStartsSeparateLegacyBrowserSession(t *testing.T) {
 		if strings.Contains(block,forbidden) {
 			t.Fatalf("History Terminal must not materialize the native backing History session: %q",forbidden)
 		}
+	}
+}
+
+
+func TestPatchActiveRunsPruneExitedSessionsAndFinishedForeground(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function sessionMetadataRunning(meta)",
+		"String(meta?.status||'').toLowerCase()==='running'",
+		"async function rememberForegroundRun(sessionId)",
+		"meta=await app.jsonFetch('/api/sessions/'+encodeURIComponent(sessionId))",
+		"if((meta&&!sessionMetadataRunning(meta))||runningFinished||protocolRunFinished(state))",
+		"parallelCollectRuns.delete(key)",
+		"for(const [key,run] of [...parallelCollectRuns.entries()])",
+		"if(!sessionMetadataRunning(meta)){",
+		"activeRunningRunCount()===0",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("active-run terminal pruning missing %q",want) }
+	}
+	renderStart:=strings.Index(js,"function renderParallelCollectRuns()")
+	renderEndRel:=strings.Index(js[renderStart:],"async function pollParallelCollectRuns()")
+	if renderStart<0||renderEndRel<0 { t.Fatal("Active runs renderer bounds unavailable") }
+	renderBlock:=js[renderStart:renderStart+renderEndRel]
+	if strings.Contains(renderBlock,"for(const run of parallelCollectRuns.values())") {
+		t.Fatal("Active runs renderer must not render the entire historical run map")
+	}
+	if !strings.Contains(renderBlock,"const entries=activeRunningEntries()") {
+		t.Fatal("Active runs renderer must render only active entries")
+	}
+}
+
+func TestPatchActiveRunManualRemovalRequiresBackendNotRunning(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"async function removeRunFromActive(key,run,sourceButton)",
+		"const meta=await app.jsonFetch('/api/sessions/'+encodeURIComponent(run.sessionId))",
+		"if(sessionMetadataRunning(meta))",
+		"This session is still running. It cannot be removed from Active runs yet.",
+		"remove.textContent='Remove from Active'",
+		"removeRunFromActive(key,run,remove).catch(app.showError)",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("safe Remove from Active contract missing %q",want) }
+	}
+}
+
+func TestPatchParallelCollectLimitCountsExistingActiveRuns(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const availableSlots=Math.max(0,capability.max-activeRunningRunCount())",
+		"if(indexes.length>availableSlots)",
+		"Parallel COLLECT limit reached:",
+		"const limit=Math.max(0,capability.max-activeRunningRunCount())",
+		"selected<limit",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("global active COLLECT limit missing %q",want) }
 	}
 }

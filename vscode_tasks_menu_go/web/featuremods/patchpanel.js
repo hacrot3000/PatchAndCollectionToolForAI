@@ -2203,15 +2203,16 @@ function installPatchPanel(){
     const capability=parallelCollectCapability(prompt);
     if(!capability)return;
     let selected=0;
+    const limit=Math.max(0,capability.max-activeRunningRunCount());
     for(const input of promptItems.querySelectorAll('input[type="checkbox"]')){
       const kind=String(input.dataset.patchKind||'').toUpperCase();
       const hidden=Boolean(input.closest('.task-patch-prompt-item')?.hidden);
-      input.checked=!hidden&&!input.disabled&&kind==='COLLECT'&&selected<capability.max;
+      input.checked=!hidden&&!input.disabled&&kind==='COLLECT'&&selected<limit;
       if(input.checked)selected+=1;
       clearPromptPriority(Number(input.dataset.patchIndex));
     }
     for(const select of promptItems.querySelectorAll('select[data-patch-priority-index]'))select.value='';
-    promptNote.textContent='Selected '+selected+' COLLECT request(s). They will run as independent parallel processes.'+(selected===capability.max?' Maximum '+capability.max+' reached.':'');
+    promptNote.textContent='Selected '+selected+' COLLECT request(s). They will run as independent parallel processes.'+(limit===0?' No parallel slot is currently available.':(selected===limit?' '+limit+' available slot(s) selected.':''));
   }
 
   function selectAllPromptPatches(prompt){
@@ -2273,11 +2274,21 @@ function installPatchPanel(){
     if(changedKind==='COLLECT')for(const select of promptItems.querySelectorAll('select[data-patch-priority-index]'))select.value='';
   }
 
-  function activeRunningRuns(){
-    return [...parallelCollectRuns.values()].filter(run=>!run.finished&&!run.error);
+  function activeRunningEntries(){
+    return [...parallelCollectRuns.entries()].filter(([_key,run])=>run&&run.active!==false&&!run.error);
   }
 
-  function activeRunningRunCount(){return activeRunningRuns().length;}
+  function activeRunningRuns(){return activeRunningEntries().map(([_key,run])=>run);}
+
+  function activeRunningRunCount(){return activeRunningEntries().length;}
+
+  function sessionMetadataRunning(meta){
+    return String(meta?.status||'').toLowerCase()==='running';
+  }
+
+  function protocolRunFinished(state){
+    return state?.last_event?.type==='run_finished';
+  }
 
   function activeRunningNames(){
     const names=new Set();
@@ -2299,10 +2310,21 @@ function installPatchPanel(){
     };
   }
 
-  function rememberForegroundRun(sessionId){
+  async function rememberForegroundRun(sessionId){
     sessionId=String(sessionId||'');
     if(!sessionId)return null;
     const state=foregroundProtocolState&&typeof foregroundProtocolState==='object'?foregroundProtocolState:null;
+    const key='session:'+sessionId;
+    let meta=null;
+    try{meta=await app.jsonFetch('/api/sessions/'+encodeURIComponent(sessionId));}
+    catch(error){
+      if(runningFinished||protocolRunFinished(state)){parallelCollectRuns.delete(key);return null;}
+      console.warn('Active run metadata unavailable while returning to Queue:',error);
+    }
+    if((meta&&!sessionMetadataRunning(meta))||runningFinished||protocolRunFinished(state)){
+      parallelCollectRuns.delete(key);
+      return null;
+    }
     const stateItems=Array.isArray(state?.items)?state.items:[];
     const names=(Array.isArray(foregroundRunDescriptor?.names)&&foregroundRunDescriptor.names.length
       ? foregroundRunDescriptor.names
@@ -2311,19 +2333,18 @@ function installPatchPanel(){
       ? foregroundRunDescriptor.kinds
       : stateItems.map(item=>String(item?.kind||'').toUpperCase()).filter(Boolean));
     const label=names.length===1?names[0]:(names.length?((kinds[0]||'PATCH')+' batch · '+names.length+' items'):'Patch Tool run');
-    const key='session:'+sessionId;
     const existing=parallelCollectRuns.get(key);
     const eventCount=Number(state?.event_count||0);
-    const finished=state?.last_event?.type==='run_finished'||runningFinished;
     const run={
       ...(existing||{}),
+      active:true,
       name:label,
       names,
       kinds,
       sessionId,
       error:String(existing?.error||''),
+      metadata:meta||existing?.metadata||null,
       state:state||existing?.state||null,
-      finished:Boolean(finished||existing?.finished),
       startedAt:Number(existing?.startedAt||runningStartedAtMs||Date.now()),
       lastEventCount:Number.isFinite(eventCount)?eventCount:Number(existing?.lastEventCount??-1),
       lastEventAt:Number(existing?.lastEventAt||runningLastEventAtMs||Date.now()),
@@ -2333,7 +2354,7 @@ function installPatchPanel(){
   }
 
   async function openQueueWhileRunning(){
-    if(activeSessionId&&runningMode)rememberForegroundRun(activeSessionId);
+    if(activeSessionId&&runningMode)await rememberForegroundRun(activeSessionId);
     protocolPollGeneration+=1;
     activeSessionId='';
     runningMode=false;
@@ -2362,6 +2383,25 @@ function installPatchPanel(){
     if(parallelCollectRuns.size)void pollParallelCollectRuns();
   }
 
+  async function removeRunFromActive(key,run,sourceButton){
+    if(sourceButton)sourceButton.disabled=true;
+    try{
+      if(run?.sessionId){
+        const meta=await app.jsonFetch('/api/sessions/'+encodeURIComponent(run.sessionId));
+        run.metadata=meta;
+        if(sessionMetadataRunning(meta)){
+          throw new Error('This session is still running. It cannot be removed from Active runs yet.');
+        }
+      }
+      parallelCollectRuns.delete(key);
+      renderParallelCollectRuns();
+      refreshActionDisabledState();
+      return true;
+    }finally{
+      if(sourceButton?.isConnected)sourceButton.disabled=false;
+    }
+  }
+
   function resetParallelCollectRuns(){
     parallelCollectPollGeneration+=1;
     parallelCollectBusy=false;
@@ -2375,49 +2415,49 @@ function installPatchPanel(){
     const items=Array.isArray(run.state?.items)?run.state.items:[];
     const item=items.find(row=>String(row?.status||'').toUpperCase()==='RUNNING')||items.find(row=>['FAIL','FAILED','INCOMPLETE'].includes(String(row?.status||'').toUpperCase()))||items[items.length-1]||null;
     const status=String(item?.status||run.state?.progress?.status||'').toUpperCase();
-    if(!run.finished&&status)return status;
-    if(run.finished)return String(run.state?.last_event?.status||status||'FINISHED').toUpperCase();
+    if(status)return status;
     return run.sessionId?'RUNNING':'STARTING';
   }
 
   function renderParallelCollectRuns(){
     parallelCollectList.replaceChildren();
-    let finished=0,failed=0;
-    for(const run of parallelCollectRuns.values()){
+    const entries=activeRunningEntries();
+    for(const [key,run] of entries){
       const card=document.createElement('div');card.className='task-patch-parallel-run';
       const head=document.createElement('div');head.className='task-patch-parallel-run-head';
       const name=document.createElement('span');name.className='task-patch-parallel-run-name';name.textContent=run.name;
       const statusValue=parallelRunStatus(run);
       const status=document.createElement('span');status.className='task-patch-parallel-run-status';status.textContent=statusValue;
       head.append(name,status);card.append(head);
-      if(run.error){
-        const meta=document.createElement('div');meta.className='task-patch-parallel-run-meta stale';meta.textContent=run.error;card.append(meta);
-      }else{
-        const now=Date.now();
-        const progress=run.state?.progress&&typeof run.state.progress==='object'?run.state.progress:null;
-        const elapsedValue=Number(progress?.elapsed_seconds);
-        const elapsed=Number.isFinite(elapsedValue)?elapsedValue:Math.max(0,(now-run.startedAt)/1000);
-        const age=Math.max(0,(now-run.lastEventAt)/1000);
-        const parts=[elapsed.toFixed(1)+'s'];
-        if(progress?.phase)parts.push('phase '+String(progress.phase));
-        if(Number.isFinite(Number(progress?.output_lines)))parts.push(Number(progress.output_lines)+' lines');
-        parts.push('events '+Math.max(0,Number(run.state?.event_count||0)));
-        if(!run.finished)parts.push(age>=5?'no new event '+Math.floor(age)+'s':'activity '+age.toFixed(1)+'s ago');
-        const meta=document.createElement('div');meta.className='task-patch-parallel-run-meta';meta.classList.toggle('stale',!run.finished&&age>=10);meta.textContent=parts.join(' · ');card.append(meta);
-        if(run.sessionId){const actionsNode=document.createElement('div');actionsNode.className='task-patch-parallel-run-actions';const terminal=document.createElement('button');terminal.type='button';terminal.textContent='Terminal evidence';terminal.onclick=()=>openTerminalEvidenceForSession(run.sessionId).catch(app.showError);actionsNode.append(terminal);card.append(actionsNode);}
-        const artifacts=document.createElement('div');artifacts.className='task-patch-parallel-artifacts';
-        if(appendProtocolArtifactGroups(artifacts,run.state?.artifacts)>0)card.append(artifacts);
+      const now=Date.now();
+      const progress=run.state?.progress&&typeof run.state.progress==='object'?run.state.progress:null;
+      const elapsedValue=Number(progress?.elapsed_seconds);
+      const elapsed=Number.isFinite(elapsedValue)?elapsedValue:Math.max(0,(now-run.startedAt)/1000);
+      const age=Math.max(0,(now-run.lastEventAt)/1000);
+      const parts=[elapsed.toFixed(1)+'s'];
+      if(progress?.phase)parts.push('phase '+String(progress.phase));
+      if(Number.isFinite(Number(progress?.output_lines)))parts.push(Number(progress.output_lines)+' lines');
+      parts.push('events '+Math.max(0,Number(run.state?.event_count||0)));
+      if(run.protocolError)parts.push('protocol warning');
+      parts.push(age>=5?'no new event '+Math.floor(age)+'s':'activity '+age.toFixed(1)+'s ago');
+      const meta=document.createElement('div');meta.className='task-patch-parallel-run-meta';meta.classList.toggle('stale',age>=10||Boolean(run.protocolError));meta.textContent=parts.join(' · ');card.append(meta);
+      const actionsNode=document.createElement('div');actionsNode.className='task-patch-parallel-run-actions';
+      if(run.sessionId){
+        const terminal=document.createElement('button');terminal.type='button';terminal.textContent='Terminal evidence';terminal.onclick=()=>openTerminalEvidenceForSession(run.sessionId).catch(app.showError);actionsNode.append(terminal);
+        const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from Active';remove.title='Remove only after TaskDeck confirms this session is no longer running';remove.onclick=()=>removeRunFromActive(key,run,remove).catch(app.showError);actionsNode.append(remove);
       }
-      if(run.finished||run.error)finished+=1;
-      if(run.error||['FAIL','INCOMPLETE','FAILED'].includes(statusValue))failed+=1;
+      if(actionsNode.childNodes.length)card.append(actionsNode);
+      const artifacts=document.createElement('div');artifacts.className='task-patch-parallel-artifacts';
+      if(appendProtocolArtifactGroups(artifacts,run.state?.artifacts)>0)card.append(artifacts);
       parallelCollectList.append(card);
     }
-    parallelCollectBox.hidden=parallelCollectRuns.size===0;
-    if(parallelCollectRuns.size){
+    parallelCollectBox.hidden=entries.length===0;
+    if(entries.length&&runningMode){
       runBox.hidden=true;artifactBox.hidden=true;terminalEvidence.hidden=true;
-      if(runningMode)runningTitle.textContent=finished===parallelCollectRuns.size?'Active runs finished':'Active runs';
-      if(runningMode){runningMeta.classList.remove('stale');runningMeta.textContent=finished+'/'+parallelCollectRuns.size+' finished'+(failed?' · '+failed+' failed/incomplete':'');runningBack.hidden=false;}
-      if(runningMode&&finished===parallelCollectRuns.size)runningFinished=true;
+      runningTitle.textContent='Active runs';
+      runningMeta.classList.remove('stale');
+      runningMeta.textContent=entries.length+' active';
+      runningBack.hidden=false;
     }
   }
 
@@ -2426,19 +2466,37 @@ function installPatchPanel(){
     const generation=++parallelCollectPollGeneration;
     while(generation===parallelCollectPollGeneration&&panel.classList.contains('visible')){
       let pending=0;
-      for(const run of parallelCollectRuns.values()){
-        if(run.finished||run.error||!run.sessionId)continue;
+      for(const [key,run] of [...parallelCollectRuns.entries()]){
+        if(run.error||!run.sessionId){parallelCollectRuns.delete(key);continue;}
+        let meta;
+        try{
+          meta=await app.jsonFetch('/api/sessions/'+encodeURIComponent(run.sessionId));
+          run.metadata=meta;
+          run.metadataError='';
+        }catch(error){
+          run.metadataError=String(error?.message||error);
+          console.warn('Active run metadata unavailable:',error);
+          pending+=1;
+          continue;
+        }
+        if(!sessionMetadataRunning(meta)){
+          parallelCollectRuns.delete(key);
+          continue;
+        }
         pending+=1;
         try{
           const state=await app.jsonFetch('/api/sessions/'+encodeURIComponent(run.sessionId)+'/protocol');
           const eventCount=Number(state?.event_count||0);
           if(eventCount!==run.lastEventCount){run.lastEventCount=eventCount;run.lastEventAt=Date.now();}
           run.state=state;
-          if(state?.last_event?.type==='run_finished')run.finished=true;
-        }catch(error){run.error='Protocol state unavailable: '+String(error?.message||error);run.finished=true;}
+          run.protocolError='';
+        }catch(error){
+          run.protocolError='Protocol state unavailable: '+String(error?.message||error);
+        }
       }
       renderParallelCollectRuns();
-      if(!pending||[...parallelCollectRuns.values()].every(run=>run.finished||run.error))return;
+      refreshActionDisabledState();
+      if(!pending||activeRunningRunCount()===0)return;
       await new Promise(resolve=>setTimeout(resolve,1000));
     }
   }
@@ -2446,6 +2504,8 @@ function installPatchPanel(){
   async function launchParallelCollect(sessionId,prompt,indexes){
     const capability=parallelCollectCapability(prompt);
     if(!capability||indexes.length<1||indexes.length>capability.max)throw new Error('Independent COLLECT worker selection is outside the advertised capability');
+    const availableSlots=Math.max(0,capability.max-activeRunningRunCount());
+    if(indexes.length>availableSlots)throw new Error('Parallel COLLECT limit reached: '+activeRunningRunCount()+' active, '+availableSlots+' slot(s) available.');
     parallelCollectBusy=true;refreshActionDisabledState();
     try{
       const response=await app.jsonFetch('/api/sessions/'+encodeURIComponent(sessionId)+'/parallel-collect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt_id:String(prompt?.prompt_id||''),indexes})});
@@ -2455,9 +2515,11 @@ function installPatchPanel(){
         const sessionId=String(row?.session?.id||'');
         const name=String(row?.name||'COLLECT');
         const key=sessionId?('session:'+sessionId):('launch-failed:'+Date.now()+':'+String(row?.index||parallelCollectRuns.size+1));
-        parallelCollectRuns.set(key,{index:Number(row?.index)||0,name,names:[name],kinds:['COLLECT'],sessionId,error:String(row?.error||''),state:null,finished:Boolean(row?.error),startedAt:Date.now(),lastEventCount:-1,lastEventAt:Date.now()});
+        const launchError=String(row?.error||'');
+        if(launchError){console.warn('Parallel COLLECT launch failed:',name,launchError);continue;}
+        parallelCollectRuns.set(key,{active:true,index:Number(row?.index)||0,name,names:[name],kinds:['COLLECT'],sessionId,error:'',metadata:row?.session||null,state:null,startedAt:Date.now(),lastEventCount:-1,lastEventAt:Date.now(),protocolError:''});
       }
-      if(!parallelCollectRuns.size)throw new Error('Parallel COLLECT launch returned no workers');
+      if(activeRunningRunCount()===0)throw new Error('Parallel COLLECT launch returned no active workers');
       renderParallelCollectRuns();void pollParallelCollectRuns();
       return response;
     }catch(error){parallelCollectBusy=false;refreshActionDisabledState();throw error;}
@@ -2787,7 +2849,7 @@ function installPatchPanel(){
   summarySearchInput.oninput=()=>setQueueSearchQuery(summarySearchInput.value);
   summarySearchClear.onclick=()=>{setQueueSearchQuery('');summarySearchInput.focus();};
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,submitHistoryCleanup,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,submitHistoryCleanup,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 
