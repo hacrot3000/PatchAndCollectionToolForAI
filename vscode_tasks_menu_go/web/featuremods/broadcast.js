@@ -128,7 +128,16 @@ function renderHeaderMenu(){
 
 function closeHeaderMenu(){if(headerMenu)headerMenu.classList.remove('open');}
 function installHeaderMenu(){
-  const host=document.querySelector('.header-action-menus');if(!host||host.querySelector('.broadcast-menu'))return;
+  const host=document.querySelector('.header-action-menus');
+  if(!host)return false;
+  const existing=host.querySelector('.broadcast-menu');
+  if(existing){
+    headerMenu=existing;
+    headerTrigger=existing.querySelector('.taskmenu-menu-trigger');
+    headerPop=existing.querySelector('.taskmenu-menu-popover');
+    renderHeaderMenu();
+    return true;
+  }
   headerMenu=document.createElement('div');headerMenu.className='taskmenu-menu broadcast-menu';
   headerTrigger=document.createElement('button');headerTrigger.className='taskmenu-menu-trigger';
   headerPop=document.createElement('div');headerPop.className='taskmenu-menu-popover';
@@ -142,6 +151,7 @@ function installHeaderMenu(){
   headerMenu.append(headerTrigger,headerPop);
   host.prepend(headerMenu);
   renderHeaderMenu();
+  return true;
 }
 
 document.addEventListener('pointerdown',event=>{
@@ -294,7 +304,9 @@ function installInputHook(view){
 
 window.addEventListener('taskmenu:session',event=>{const view=event.detail?.view;if(view)installInputHook(view);});
 for(const view of app.views.values())installInputHook(view);
-installHeaderMenu();
+if(!installHeaderMenu()){
+  window.addEventListener('taskmenu:tasks',()=>installHeaderMenu(),{once:true});
+}
 await refreshState().catch(error=>console.warn('Cannot load broadcast state',error));
 setInterval(()=>refreshState().catch(()=>{}),2000);
 
