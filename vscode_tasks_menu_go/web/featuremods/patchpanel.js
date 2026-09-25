@@ -632,8 +632,13 @@ function installPatchPanel(){
   window.addEventListener('taskmenu:view-activated',event=>{
     const kind=String(event.detail?.kind||'');
     const id=String(event.detail?.id||'');
-    if(kind==='external'&&id==='patch'){patchTab.hidden=false;setVisible(true);return;}
-    if(kind==='terminal'||kind==='external')deactivate();
+    const active=String(app.active||'');
+    if(active==='external:patch'||(kind==='external'&&id==='patch')){
+      patchTab.hidden=false;
+      setVisible(true);
+      return;
+    }
+    if((kind==='terminal'||kind==='external')&&active!=='external:patch')deactivate();
   });
 
   function resetSummary(status='Not loaded'){
@@ -1762,7 +1767,8 @@ function installPatchPanel(){
       const result=state?.queue_mutation_result;
       if(result?.mutation_id===mutationID){
         if(result.status!=='PASS'){
-          summaryWarnings.textContent=String(result.message||'Queue delete failed');
+          summaryStatus.textContent='Delete failed';
+          summaryStatus.title=String(result.message||'Queue delete failed');
           return result;
         }
         if(Number(result.remaining)===0){
@@ -1771,7 +1777,7 @@ function installPatchPanel(){
           if(snapshot&&items.length===0){
             renderQueueSnapshot(snapshot);
             clearPrompt();
-            summaryWarnings.textContent=String(result.message||'Queue item deleted');
+            summaryStatus.title=String(result.message||'Queue item deleted');
             return result;
           }
         }else{
@@ -1779,7 +1785,7 @@ function installPatchPanel(){
           if(prompt?.prompt_kind==='queue_selection'&&String(prompt?.prompt_id||'')&&String(prompt.prompt_id)!==oldPromptID&&state?.queue_snapshot){
             renderQueueSnapshot(state.queue_snapshot);
             renderQueuePrompt(sessionId,prompt);
-            summaryWarnings.textContent=String(result.message||'Queue item deleted');
+            summaryStatus.title=String(result.message||'Queue item deleted');
             return result;
           }
         }
