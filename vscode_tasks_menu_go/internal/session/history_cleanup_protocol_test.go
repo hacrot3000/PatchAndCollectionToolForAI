@@ -24,7 +24,7 @@ func TestProtocolHistoryCleanupLegacyResultIsValidatedRetainedAndCloned(t *testi
 
 func TestProtocolHistoryAgeCleanupPreviewIsValidatedRetainedAndDeepCloned(t *testing.T) {
 	digest := strings.Repeat("a",64)
-	line := `{"protocol":"taskdeck.patch","version":1,"type":"history_cleanup_result","seq":2,"prompt_id":"p1","cleanup_id":"preview-1","mode":"preview","status":"PASS","rc":0,"history_changed":false,"removed":0,"pinned":1,"remaining":4,"policy":"remove_unpinned_older_than_days","eligible_before":2,"older_than_days":30,"cutoff_at":"2026-08-26T10:00:00+00:00","candidate_digest":"`+digest+`","candidates":[{"run_id":"r1","status":"PASS","started_at":"2026-07-01T00:00:00+00:00","display_time":"2026-07-01 07:00:00","primary_name":"patch_a.zip","item_count":1},{"run_id":"r2","status":"FAIL","started_at":"2026-07-02T00:00:00+00:00","display_time":"2026-07-02 07:00:00","primary_name":"CODE_COLLECTION_REQUEST_b.zip","item_count":2}],"message":"2 unpinned History entries are older than 30 days"}`
+	line := `{"protocol":"taskdeck.patch","version":1,"type":"history_cleanup_result","seq":2,"prompt_id":"p1","cleanup_id":"preview-1","mode":"preview","status":"PASS","rc":0,"history_changed":false,"removed":0,"pinned":1,"remaining":4,"policy":"remove_unpinned_older_than_days","eligible_before":2,"older_than_days":30,"cutoff_at":"2026-08-26T10:00:00+00:00","candidate_digest":"`+digest+`","candidates":[{"run_id":"r1","status":"PASS","started_at":"2026-07-01T00:00:00+00:00","display_time":"2026-07-01 07:00:00","primary_name":"patch_a.zip","search_names":["patch_a.zip","CODE_COLLECTION_REQUEST_a.zip"],"item_count":1},{"run_id":"r2","status":"FAIL","started_at":"2026-07-02T00:00:00+00:00","display_time":"2026-07-02 07:00:00","primary_name":"CODE_COLLECTION_REQUEST_b.zip","item_count":2}],"message":"2 unpinned History entries are older than 30 days"}`
 	s := &managedSession{protocol: ProtocolState{Available:true, Enabled:true}}
 	s.applyProtocolLine([]byte(line))
 	if s.protocol.Error != "" || s.protocol.HistoryCleanup == nil {
@@ -40,9 +40,14 @@ func TestProtocolHistoryAgeCleanupPreviewIsValidatedRetainedAndDeepCloned(t *tes
 	if clone.HistoryCleanup == nil || len(clone.HistoryCleanup.Candidates)!=2 {
 		t.Fatal("cloned protocol state lost cleanup candidates")
 	}
+	if len(got.Candidates[0].SearchNames)!=2 || got.Candidates[0].SearchNames[1]!="CODE_COLLECTION_REQUEST_a.zip" {
+		t.Fatalf("cleanup candidate file names were not retained: %#v", got.Candidates[0])
+	}
 	clone.HistoryCleanup.Candidates[0].PrimaryName = "changed"
-	if s.protocol.HistoryCleanup.Candidates[0].PrimaryName != "patch_a.zip" {
-		t.Fatal("cleanup candidate slice was shallow-cloned")
+	clone.HistoryCleanup.Candidates[0].SearchNames[0] = "changed.zip"
+	if s.protocol.HistoryCleanup.Candidates[0].PrimaryName != "patch_a.zip" ||
+		s.protocol.HistoryCleanup.Candidates[0].SearchNames[0] != "patch_a.zip" {
+		t.Fatal("cleanup candidate state was shallow-cloned")
 	}
 }
 
