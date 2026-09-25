@@ -60,6 +60,20 @@ func TestProtocolHistoryAgeCleanupDeleteIsValidated(t *testing.T) {
 	}
 }
 
+func TestProtocolHistoryAgeCleanupStalePreviewFailureIsRetainedWithoutMutation(t *testing.T) {
+	digest := strings.Repeat("d",64)
+	line := `{"protocol":"taskdeck.patch","version":1,"type":"history_cleanup_result","seq":4,"prompt_id":"p1","cleanup_id":"delete-2","preview_cleanup_id":"preview-1","mode":"delete","status":"FAIL","rc":2,"history_changed":false,"removed":0,"pinned":1,"remaining":4,"policy":"remove_unpinned_older_than_days","eligible_before":1,"older_than_days":30,"cutoff_at":"2026-08-26T10:00:00+00:00","candidate_digest":"`+digest+`","message":"History changed after cleanup preview; preview again before deleting"}`
+	s := &managedSession{protocol: ProtocolState{Available:true, Enabled:true}}
+	s.applyProtocolLine([]byte(line))
+	if s.protocol.Error != "" || s.protocol.HistoryCleanup == nil {
+		t.Fatalf("valid stale-preview cleanup failure rejected: %#v", s.protocol)
+	}
+	got := s.protocol.HistoryCleanup
+	if got.Status!="FAIL" || got.RC!=2 || got.Removed!=0 || got.HistoryChanged {
+		t.Fatalf("stale-preview cleanup failure mutated state: %#v", got)
+	}
+}
+
 func TestProtocolHistoryCleanupResultRejectsInconsistentPayload(t *testing.T) {
 	digest := strings.Repeat("c",64)
 	for _, line := range []string{
