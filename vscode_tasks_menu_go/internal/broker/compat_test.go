@@ -74,7 +74,7 @@ func TestCompatibilityServiceLegacyBrokerDeliversPatchProtocolState(t *testing.T
 	service := NewCompatibilityService(legacy)
 	defer service.Close()
 
-	event := "{"protocol":"taskdeck.patch","version":1,"type":"health_snapshot","seq":1,"status":"PASS","tool_version":"compat-test","summary":{"pass":1,"warn":0,"fail":0,"total":1},"checks":[{"name":"fallback","status":"PASS"}]}"
+	event := `{"protocol":"taskdeck.patch","version":1,"type":"health_snapshot","seq":1,"status":"PASS","tool_version":"compat-test","summary":{"pass":1,"warn":0,"fail":0,"total":1},"checks":[{"name":"fallback","status":"PASS"}]}`
 	meta, err := service.Start(tasks.Execution{
 		TaskID: -1,
 		Label: "Patch Tool · Health test",
