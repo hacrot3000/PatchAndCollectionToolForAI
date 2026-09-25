@@ -6,12 +6,14 @@ function installPatchPanel(){
 
   const style=document.createElement('style');
   style.textContent=`
-  .task-patch-panel{display:none;position:fixed;top:52px;bottom:0;left:48px;z-index:1800;width:min(var(--taskmenu-sidebar-panel-width,310px),calc(100vw - 48px));background:#11151b;border-right:1px solid #3b414d;box-shadow:10px 0 28px rgba(0,0,0,.28);flex-direction:column}
+  .task-patch-panel{display:none;position:fixed;top:52px;bottom:0;left:48px;right:0;z-index:1850;width:auto;background:#11151b;border:0;box-shadow:none;flex-direction:column}
+  body:not(.task-sidebar-auto-hide) .task-patch-panel{left:0}
+  body.task-patch-workspace-active main>section{visibility:hidden}
   .task-patch-panel.visible{display:flex}
-  .task-patch-panel-head{height:42px;display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #30343b}
-  .task-patch-panel-title{font-size:12px;font-weight:700;letter-spacing:.04em;flex:1}
-  .task-patch-panel-close{padding:4px 7px;font-size:11px}
-  .task-patch-panel-body{padding:10px;overflow:auto}
+  .task-patch-panel-head{height:46px;display:flex;align-items:center;gap:8px;padding:7px 14px;border-bottom:1px solid #30343b}
+  .task-patch-panel-title{font-size:13px;font-weight:700;letter-spacing:.04em;flex:1}
+  .task-patch-panel-close{padding:5px 9px;font-size:12px}
+  .task-patch-panel-body{padding:16px 18px 24px;overflow:auto;width:100%;max-width:1600px;margin:0 auto}
   .task-patch-panel-note{font-size:12px;line-height:1.45;opacity:.72;margin:0 0 10px}
   .task-patch-summary{margin:0 0 10px;padding:8px;border:1px solid #30343b;border-radius:6px;background:#0d1015;font-size:11px}
   .task-patch-summary-head{display:flex;align-items:center;gap:6px;margin-bottom:6px}
@@ -25,7 +27,7 @@ function installPatchPanel(){
   .task-patch-summary-tab.active{background:#283342;border-color:#526278;color:#fff}
   .task-patch-summary-counts{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 6px}
   .task-patch-summary-count{padding:2px 5px;border:1px solid #343a44;border-radius:999px}
-  .task-patch-summary-list{display:grid;gap:4px}
+  .task-patch-summary-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:6px}
   .task-patch-summary-item{padding:5px 6px;border-radius:4px;background:#171c23;overflow:hidden}
   .task-patch-summary-name{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
   .task-patch-summary-detail{display:block;opacity:.62;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -49,7 +51,7 @@ function installPatchPanel(){
   .task-patch-prompt-note{opacity:.7;margin-bottom:7px}
   .task-patch-prompt-tools{display:flex;gap:5px;margin-bottom:7px}
   .task-patch-prompt-tools button{font-size:10px;padding:3px 6px}
-  .task-patch-prompt-items{display:grid;gap:4px;max-height:320px;overflow:auto}
+  .task-patch-prompt-items{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:6px;max-height:46vh;overflow:auto}
   .task-patch-prompt-item{display:flex;align-items:flex-start;gap:7px;padding:5px 6px;border-radius:4px;background:#171f2a}
   .task-patch-prompt-item input{margin-top:2px}
   .task-patch-prompt-copy{min-width:0;flex:1;cursor:pointer}
@@ -221,8 +223,8 @@ function installPatchPanel(){
   .task-patch-artifact-path{display:block;margin-top:3px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-artifact-actions{display:flex;gap:5px;margin-top:5px}
   .task-patch-artifact-actions a,.task-patch-artifact-actions button{font-size:10px;padding:3px 6px}
-  .task-patch-actions{display:grid;gap:7px}
-  .task-patch-action{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:9px 10px;text-align:left}
+  .task-patch-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+  .task-patch-action{display:flex;flex-direction:column;align-items:flex-start;gap:3px;width:100%;min-height:70px;padding:11px 12px;text-align:left}
   .task-patch-action strong{font-size:12px}
   .task-patch-action span{font-size:11px;opacity:.65}
   html[data-taskmenu-theme="light"] .task-patch-panel{background:#fff;border-color:#b9c0c8;box-shadow:10px 0 28px rgba(0,0,0,.12)}
@@ -420,6 +422,7 @@ function installPatchPanel(){
   ];
   const buttons=[];
   let activeSessionId='';
+  let returnViewId='';
   let protocolPollGeneration=0;
   let latestQueueSnapshot=null;
   let queueSummaryView='queue';
@@ -466,13 +469,33 @@ function installPatchPanel(){
   function setVisible(value){
     const visible=Boolean(value);
     panel.classList.toggle('visible',visible);
+    document.body.classList.toggle('task-patch-workspace-active',visible);
     if(!visible){protocolPollGeneration+=1;actionPollGeneration+=1;queueMutationPollGeneration+=1;historyPollGeneration+=1;historyManagementPollGeneration+=1;historySupportPollGeneration+=1;historyCleanupPollGeneration+=1;}
     if(visible&&activeSessionId)void pollProtocol(activeSessionId,!runningMode&&!planMode&&!healthMode,true);
     window.dispatchEvent(new CustomEvent('taskmenu:patch-panel-visible',{detail:{visible}}));
   }
-  function open(){setVisible(true);}
-  function close(){setVisible(false);}
-  function toggle(){setVisible(!panel.classList.contains('visible'));}
+  function rememberReturnView(){
+    const current=String(app.activeSessionId||'');
+    if(current&&current!=='external:patch')returnViewId=current;
+  }
+  function restoreReturnView(){
+    const target=String(returnViewId||'');
+    if(target&&app.views.has(target)){app.activateView(target);return;}
+    if(target.startsWith('external:')){app.activateExternalView(target.slice('external:'.length));return;}
+    const first=app.views.keys().next();
+    if(!first.done)app.activateView(first.value);
+  }
+  function open(){
+    if(!panel.classList.contains('visible'))rememberReturnView();
+    app.activateExternalView('patch');
+    setVisible(true);
+  }
+  function close(){
+    const wasVisible=panel.classList.contains('visible');
+    setVisible(false);
+    if(wasVisible)restoreReturnView();
+  }
+  function toggle(){panel.classList.contains('visible')?close():open();}
 
   function resetSummary(status='Not loaded'){
     latestQueueSnapshot=null;
@@ -1424,8 +1447,9 @@ function installPatchPanel(){
       const meta=await app.jsonFetch(`/api/sessions/${encodeURIComponent(activeSessionId)}`);
       app.materializeSession(meta,false);
     }
+    setVisible(false);
     app.activateView(activeSessionId);
-    close();
+    returnViewId=activeSessionId;
     return true;
   }
 

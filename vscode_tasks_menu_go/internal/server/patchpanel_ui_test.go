@@ -829,3 +829,24 @@ func TestPatchNativeStartDoesNotCreateTerminalTab(t *testing.T) {
 		t.Fatal("terminal evidence must be materialized only by the explicit fallback action")
 	}
 }
+
+
+func TestPatchPanelOwnsNativeWorkspaceSurface(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		".task-patch-panel{display:none;position:fixed;top:52px;bottom:0;left:48px;right:0;z-index:1850;width:auto",
+		"body:not(.task-sidebar-auto-hide) .task-patch-panel{left:0}",
+		"body.task-patch-workspace-active main>section{visibility:hidden}",
+		"document.body.classList.toggle('task-patch-workspace-active',visible)",
+		"function rememberReturnView()",
+		"function restoreReturnView()",
+		"app.activateExternalView('patch')",
+		"panel.classList.contains('visible')?close():open()",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("native Patch workspace surface missing %q",want)
+		}
+	}
+}
