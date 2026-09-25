@@ -5,6 +5,7 @@ on:
     branches:
       - "main"
       - "IDE_tool"
+      - "feat/multi-user-shared-server"
     paths:
       - "vscode_tasks_menu"
       - "install.sh"
