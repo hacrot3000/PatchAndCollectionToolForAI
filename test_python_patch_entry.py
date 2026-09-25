@@ -854,11 +854,15 @@ class ProtocolContractTests(unittest.TestCase):
         started = dispatcher.index('_emit_protocol_event(\n            "item_started"')
         running = dispatcher.index('live_status.set_status(item.name, "RUNNING")')
         child = dispatcher.index('rc, console_log, patch_result = _run_patch_child(', running)
-        finished = dispatcher.index('_emit_protocol_event(\n            "item_finished"')
         details = dispatcher.index('_LAST_EXECUTION_DETAILS.append(detail)', child)
+        finished_payload = dispatcher.index('finished_payload: dict[str, object] = {', details)
+        finished = dispatcher.index('_emit_protocol_event("item_finished", **finished_payload)', finished_payload)
         self.assertGreater(started, running)
         self.assertLess(started, child)
-        self.assertGreater(finished, details)
+        self.assertGreater(finished_payload, details)
+        self.assertGreater(finished, finished_payload)
+        self.assertIn('"failure_reason"', dispatcher[finished_payload:finished])
+        self.assertIn('"output_tail"', dispatcher[finished_payload:finished])
         self.assertNotIn('"item_started"', dispatcher[dispatcher.index('if item.kind == "PATCH" and preflight_detail is not None:'):running])
 
     def test_dispatcher_artifact_rows_only_publish_real_project_artifacts(self):
