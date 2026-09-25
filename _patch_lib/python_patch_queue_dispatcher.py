@@ -6965,13 +6965,16 @@ def execute_items(
             "started_at": item_started_at,
             "elapsed_seconds": detail.get("elapsed_seconds"),
         }
-        if str(detail.get("status") or "").upper() == "FAIL":
+        failure_status = str(detail.get("status") or "").upper()
+        if failure_status in {"FAIL", "FAILED", "PREFLIGHT_FAIL", "INCOMPLETE"}:
             failure_reason = ""
             diagnosis_kind = ""
             output_tail = ""
             if item.kind == "PATCH":
                 result = patch_result if isinstance(patch_result, dict) else {}
                 diagnosis = result.get("diagnosis") if isinstance(result.get("diagnosis"), dict) else {}
+                if not diagnosis and isinstance(detail.get("diagnosis"), dict):
+                    diagnosis = detail.get("diagnosis")
                 diagnosis_kind = _safe_display(str(diagnosis.get("kind") or ""))[:128]
                 failure_reason = _safe_display(str(diagnosis.get("message") or "")).strip()[:2048]
                 output_tail = _bounded_failure_output_tail(console_log)
