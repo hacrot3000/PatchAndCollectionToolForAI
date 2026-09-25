@@ -262,11 +262,11 @@ func TestPatchPanelRunningViewKeepsPTYAsSecondaryEvidence(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		"if(action==='select')enterRunningView()",
+		"if(action==='select'){resetParallelCollectRuns();enterRunningView();}",
 		"app.materializeSession(meta,false)",
 		"async function openTerminalEvidence()",
-		"app.views.has(activeSessionId)",
-		"app.activateView(activeSessionId)",
+		"app.views.has(sessionId)",
+		"app.activateView(sessionId)",
 		"finishRunningView();",
 		"runningBack.onclick=()=>{if(runningFinished)leaveRunningView();}",
 		"task-patch-panel.running .task-patch-summary",
@@ -606,8 +606,8 @@ func TestPatchPanelPlanKeepsPTYAsExplicitFallbackNotPrimary(t *testing.T) {
 		"if(planMode){",
 		"planStatus.textContent='PTY fallback';",
 		"Use Terminal evidence/fallback.",
-		"app.views.has(activeSessionId)",
-		"app.activateView(activeSessionId)",
+		"app.views.has(sessionId)",
+		"app.activateView(sessionId)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("native Plan fallback contract missing %q", want)
@@ -673,8 +673,8 @@ func TestPatchPanelHealthKeepsPTYAsExplicitFallbackNotPrimary(t *testing.T) {
 		"if(healthMode){",
 		"healthStatus.textContent='PTY fallback';",
 		"Native Health protocol state unavailable. Use Terminal evidence/fallback.",
-		"app.views.has(activeSessionId)",
-		"app.activateView(activeSessionId)",
+		"app.views.has(sessionId)",
+		"app.activateView(sessionId)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("native Health fallback contract missing %q", want)

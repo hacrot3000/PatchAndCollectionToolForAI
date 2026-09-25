@@ -103,13 +103,13 @@ func TestPatchProtocolParityAndHeadlessBackingGate(t *testing.T) {
 	if strings.Contains(startBlock[nativeStart:], "materializeSession(") {
 		t.Fatal("starting a native Patch action must keep its backing PTY headless")
 	}
-	fallbackStart := strings.Index(js, "async function openTerminalEvidence()")
-	fallbackEnd := strings.Index(js[fallbackStart:], "function clearActionResult()")
+	fallbackStart := strings.Index(js, "async function openTerminalEvidenceForSession(sessionId)")
+	fallbackEnd := strings.Index(js[fallbackStart:], "async function openTerminalEvidence()")
 	if fallbackStart < 0 || fallbackEnd < 0 {
 		t.Fatal("explicit terminal evidence function bounds unavailable")
 	}
 	fallbackBlock := js[fallbackStart : fallbackStart+fallbackEnd]
-	for _, want := range []string{"app.materializeSession(meta,false)", "app.activateView(activeSessionId)"} {
+	for _, want := range []string{"app.materializeSession(meta,false)", "app.activateView(sessionId)"} {
 		if !strings.Contains(fallbackBlock, want) {
 			t.Fatalf("explicit terminal evidence path missing %q", want)
 		}
@@ -181,6 +181,9 @@ func TestPatchNativeProductAcceptanceGate(t *testing.T) {
 	}
 	if got:=strings.Count(js,"app.materializeSession(meta,true)"); got!=1 {
 		t.Fatalf("legacy terminal materialization paths=%d want 1",got)
+	}
+	if !strings.Contains(js,"openTerminalEvidenceForSession(run.sessionId)") {
+		t.Fatal("parallel COLLECT terminal evidence must use the same explicit materialization path")
 	}
 	if strings.Contains(js,"openTerminalEvidence();") {
 		t.Fatal("implicit terminal evidence call remains in normal Patch navigation")
