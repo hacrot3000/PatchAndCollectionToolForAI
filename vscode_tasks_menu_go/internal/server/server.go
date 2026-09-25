@@ -1043,8 +1043,10 @@ func buildPatchHistoryManageCommand(state session.ProtocolState, req patchHistor
 }
 
 type patchHistoryCleanupRequest struct {
-	PromptID  string `json:"prompt_id"`
-	Confirmed bool   `json:"confirmed"`
+	PromptID         string `json:"prompt_id"`
+	OlderThanDays    int    `json:"older_than_days"`
+	Confirmed        bool   `json:"confirmed"`
+	PreviewCleanupID string `json:"preview_cleanup_id,omitempty"`
 }
 
 func newPatchHistoryCleanupID() (string, error) {
@@ -1072,8 +1074,9 @@ func buildPatchHistoryCleanupCommand(state session.ProtocolState, req patchHisto
 		Constraints struct {
 			DestructiveActions []string `json:"destructive_actions"`
 			Cleanup struct {
-				Eligible int    `json:"eligible"`
-				Policy   string `json:"policy"`
+				AgePolicy string `json:"age_policy"`
+				MinDays   int    `json:"min_days"`
+				MaxDays   int    `json:"max_days"`
 			} `json:"cleanup"`
 		} `json:"constraints"`
 	}
@@ -1107,17 +1110,43 @@ func buildPatchHistoryCleanupCommand(state session.ProtocolState, req patchHisto
 	if !destructiveAdvertised {
 		return nil, "", fmt.Errorf("Patch History cleanup destructive capability is not advertised")
 	}
-	if prompt.Constraints.Cleanup.Eligible < 0 ||
-		strings.TrimSpace(prompt.Constraints.Cleanup.Policy) != "remove_unpinned_idle_then_oldest_unpinned_over_limit" {
-		return nil, "", fmt.Errorf("Patch History cleanup policy is invalid")
+	if strings.TrimSpace(prompt.Constraints.Cleanup.AgePolicy) != "remove_unpinned_older_than_days" ||
+		prompt.Constraints.Cleanup.MinDays < 1 || prompt.Constraints.Cleanup.MaxDays < prompt.Constraints.Cleanup.MinDays {
+		return nil, "", fmt.Errorf("Patch History age cleanup policy is invalid")
 	}
-	if !req.Confirmed {
-		return nil, "", fmt.Errorf("Patch History cleanup requires explicit confirmation")
+	if req.OlderThanDays < prompt.Constraints.Cleanup.MinDays || req.OlderThanDays > prompt.Constraints.Cleanup.MaxDays {
+		return nil, "", fmt.Errorf("Patch History older_than_days is outside the advertised range")
 	}
+
+	payload := map[string]any{
+		"prompt_id": req.PromptID,
+		"confirmed": req.Confirmed,
+		"older_than_days": req.OlderThanDays,
+	}
+	if req.Confirmed {
+		req.PreviewCleanupID = strings.TrimSpace(req.PreviewCleanupID)
+		preview := state.HistoryCleanup
+		if req.PreviewCleanupID == "" || preview == nil ||
+			preview.Mode != "preview" ||
+			preview.Policy != "remove_unpinned_older_than_days" ||
+			preview.PromptID != req.PromptID ||
+			preview.CleanupID != req.PreviewCleanupID ||
+			preview.OlderThanDays != req.OlderThanDays ||
+			preview.CutoffAt == "" || preview.CandidateDigest == "" {
+			return nil, "", fmt.Errorf("Patch History cleanup confirmation requires the current matching preview")
+		}
+		payload["preview_cleanup_id"] = preview.CleanupID
+		payload["cutoff_at"] = preview.CutoffAt
+		payload["candidate_digest"] = preview.CandidateDigest
+	} else if strings.TrimSpace(req.PreviewCleanupID) != "" {
+		return nil, "", fmt.Errorf("Patch History cleanup preview must not include preview_cleanup_id")
+	}
+
 	cleanupID, err := newPatchHistoryCleanupID()
 	if err != nil {
 		return nil, "", err
 	}
+	payload["cleanup_id"] = cleanupID
 	seq := time.Now().UnixNano()
 	if seq < 1 {
 		seq = 1
@@ -1125,11 +1154,7 @@ func buildPatchHistoryCleanupCommand(state session.ProtocolState, req patchHisto
 	command, err := json.Marshal(map[string]any{
 		"protocol": "taskdeck.patch", "version": 1, "type": "command", "seq": seq,
 		"command": "history_cleanup",
-		"payload": map[string]any{
-			"prompt_id": req.PromptID,
-			"cleanup_id": cleanupID,
-			"confirmed": true,
-		},
+		"payload": payload,
 	})
 	if err != nil {
 		return nil, "", err
