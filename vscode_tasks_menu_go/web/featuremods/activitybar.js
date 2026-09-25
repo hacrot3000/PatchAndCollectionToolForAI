@@ -100,10 +100,15 @@ function installActivityBar(){
   }
   function syncInlineSidebarWidth(){
     const width=Math.round(menu.getBoundingClientRect().width);
-    if(width>0)main.style.setProperty('--taskmenu-sidebar-inline-width',width+'px');
+    if(width>0){
+      main.style.setProperty('--taskmenu-sidebar-inline-width',width+'px');
+      document.documentElement.style.setProperty('--taskmenu-sidebar-inline-width',width+'px');
+    }
   }
   function refreshPanelWidth(){
-    main.style.setProperty('--taskmenu-sidebar-panel-width',sidebarWidth()+'px');
+    const width=sidebarWidth()+'px';
+    main.style.setProperty('--taskmenu-sidebar-panel-width',width);
+    document.documentElement.style.setProperty('--taskmenu-sidebar-panel-width',width);
     syncInlineSidebarWidth();
   }
   const sidebarResizeObserver=new ResizeObserver(syncInlineSidebarWidth);
