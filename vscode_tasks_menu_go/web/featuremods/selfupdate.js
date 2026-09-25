@@ -27,9 +27,10 @@ const revision=document.createElement('div');revision.className='self-update-rev
 const status=document.createElement('div');status.className='self-update-status';
 const actions=document.createElement('div');actions.className='self-update-actions';
 const cancel=document.createElement('button');cancel.className='self-update-cancel';cancel.textContent='Cancel';
+const copyError=document.createElement('button');copyError.textContent='Copy error details';copyError.style.display='none';copyError.title='Copy revision and full self-update error details';
 const dismiss=document.createElement('button');dismiss.textContent='Close';dismiss.style.display='none';
 const confirm=document.createElement('button');confirm.className='self-update-confirm';confirm.textContent='Update now';
-actions.append(cancel,dismiss,confirm);dialog.append(title,intro,revision,status,actions);overlay.append(dialog);document.body.append(overlay);
+actions.append(cancel,copyError,dismiss,confirm);dialog.append(title,intro,revision,status,actions);overlay.append(dialog);document.body.append(overlay);
 
 const checkUpdate=document.createElement('button');
 checkUpdate.id='self-update-check';
@@ -59,6 +60,23 @@ const arrivingID=updatedQueryID();if(arrivingID){try{sessionStorage.setItem(comp
 
 function terminalRestore(){return globalThis.TaskMenuTerminalRestore;}
 function resumeTerminalPersistence(){terminalRestore()?.resumeAfterSelfUpdate?.();}
+function selfUpdateErrorDetails(req){
+  const lines=['VS Code Tasks Menu update'];
+  if(req?.revision)lines.push('Revision: '+String(req.revision));
+  lines.push('Candidate validation or activation failed. The current TaskDeck remains usable.');
+  lines.push(statusText(req));
+  return lines.join('\n\n');
+}
+async function copyText(text){
+  const value=String(text||'');
+  if(!value)return false;
+  if(navigator.clipboard&&window.isSecureContext){
+    try{await navigator.clipboard.writeText(value);return true;}catch{}
+  }
+  const area=document.createElement('textarea');area.value=value;area.setAttribute('readonly','');area.style.position='fixed';area.style.left='-9999px';area.style.top='0';
+  document.body.append(area);area.select();
+  try{return document.execCommand('copy');}finally{area.remove();}
+}
 function statusText(req){
   if(req?.error)return 'Update failed: '+req.error;
   const labels={
@@ -87,7 +105,9 @@ function show(req){
   status.textContent=statusText(req);
   cancel.style.display=waiting?'':'none';
   confirm.style.display=waiting?'':'none';
+  copyError.style.display=failed?'':'none';
   dismiss.style.display=failed?'':'none';
+  copyError.dataset.details=failed?selfUpdateErrorDetails(req):'';
   actions.style.display=(waiting||failed)?'flex':'none';
   intro.textContent=waiting
     ?'A new VS Code Tasks Menu version is available. The candidate will be downloaded, tested and built before the running release is changed.'
@@ -95,7 +115,7 @@ function show(req){
       ?'Candidate validation or activation failed. The current TaskDeck remains usable; close this notice and continue working.'
       :'Validating the candidate before activation. This page will reconnect automatically only after the new release is ready.';
 }
-function hide(){overlay.classList.remove('visible','nonblocking');currentID='';}
+function hide(){overlay.classList.remove('visible','nonblocking');currentID='';copyError.dataset.details='';}
 
 async function checkAndStartUpdate(){
   if(startingFromSettings)return;
@@ -144,6 +164,19 @@ confirm.onclick=async()=>{
     const req=await postAction('confirm',currentID);show(req);
   }catch(e){
     app.showError(e);confirm.disabled=false;cancel.disabled=false;
+  }
+};
+copyError.onclick=async()=>{
+  const details=String(copyError.dataset.details||'');
+  if(!details)return;
+  const original=copyError.textContent;
+  try{
+    const copied=await copyText(details);
+    if(!copied)throw new Error('Clipboard copy failed');
+    copyError.textContent='✓ Copied';
+    setTimeout(()=>{if(copyError.isConnected)copyError.textContent=original;},1200);
+  }catch(e){
+    app.showError(e);
   }
 };
 cancel.onclick=async()=>{
