@@ -92,3 +92,28 @@ func TestActivityBarDoesNotClosePatchTabWhenSwitchingViews(t *testing.T) {
 		t.Fatal("activity bar must not hard-close the native Patch tab when switching views")
 	}
 }
+
+
+func TestActivityBarPatchIconIsIdempotentWorkspaceNavigation(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/activitybar.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"if(activeView===view){",
+		"if(view==='patch'){showPatch();return;}",
+		"Patch Tool is a workspace tab with its own close button",
+		"if(view==='patch'){",
+		"globalThis.TaskMenuPatchPanel?.open()",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("Patch Activity Bar idempotent navigation missing %q",want)
+		}
+	}
+	blockStart:=strings.Index(js,"function activate(view){")
+	blockEndRel:=strings.Index(js[blockStart:],"tasksButton.onclick")
+	if blockStart<0||blockEndRel<0 { t.Fatal("activitybar activate() bounds unavailable") }
+	block:=js[blockStart:blockStart+blockEndRel]
+	if strings.Contains(block,"if(activeView===view){closeActive();return;}") {
+		t.Fatal("Patch Activity Bar icon must not use the generic toggle-close path")
+	}
+}
