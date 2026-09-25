@@ -26,8 +26,17 @@ func TestPatchAIPackEndpointBuildsAndThenReusesCache(t *testing.T) {
 	if err := os.WriteFile(entry, []byte("# test\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(runtimeRoot, "_patch_lib", "docs", "AI_USAGE_CONTRACT.md"), []byte("current docs\n"), 0o644); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{
+		"AI_USAGE_CONTRACT.md",
+		"CODE_COLLECTION_GUIDE.md",
+		"COLLECT_ACTION_SCHEMA.json",
+		"PATCH_PACKAGE_GUIDE.md",
+		"PATCH_PACKAGE_SCHEMA.json",
+		"PATCH_PACKAGE_CHECKLIST.json",
+	} {
+		if err := os.WriteFile(filepath.Join(runtimeRoot, "_patch_lib", "docs", name), []byte("current "+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	prompts, err := json.MarshalIndent(map[string]any{
 		"version": 1,
@@ -60,7 +69,7 @@ func TestPatchAIPackEndpointBuildsAndThenReusesCache(t *testing.T) {
 	}
 
 	first := call()
-	if first.Cached || first.Prompt != "Read current docs before work." || first.DocCount != 2 {
+	if first.Cached || first.Prompt != "Read current docs before work." || first.DocCount != 6 {
 		t.Fatalf("unexpected first AI Pack response: %+v", first)
 	}
 	second := call()
