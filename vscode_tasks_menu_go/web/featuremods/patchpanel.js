@@ -221,7 +221,8 @@ function installPatchPanel(){
   .task-patch-panel.history .task-patch-actions{display:none!important}
   .task-patch-running-head{display:none;margin:0 0 8px;padding:10px;border:1px solid #647996;border-radius:6px;background:#121923;font-size:11px;box-shadow:0 0 0 1px rgba(120,151,191,.08) inset}
   .task-patch-panel.running .task-patch-running-head{display:block}
-  .task-patch-running-head.finished{border-color:#5e8668}
+  .task-patch-running-head.finished{border-color:#5e8668;background:#132219}
+  .task-patch-running-head.failed{border-color:#9a4652;background:#2b171c}
   .task-patch-running-title{font-weight:700;font-size:12px;overflow-wrap:anywhere}
   .task-patch-running-meta{margin-top:3px;opacity:.72}
   .task-patch-running-meta.stale{color:#e4be63;opacity:1}
@@ -250,11 +251,17 @@ function installPatchPanel(){
   .task-patch-run[hidden]{display:none}
   .task-patch-run-title{font-weight:700;margin-bottom:6px}
   .task-patch-run-items{display:grid;gap:4px}
-  .task-patch-run-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;padding:5px 6px;border-radius:4px;background:#171c23}
-  .task-patch-run-item.failed{border:1px solid #8a414b;background:#2d171c}
+  .task-patch-run-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;padding:5px 6px;border-radius:4px;background:#171c23;border:1px solid transparent}
+  .task-patch-run-item.running{border-color:#546f95;background:#182536}
+  .task-patch-run-item.passed{border-color:#4f7d5c;background:#17281c}
+  .task-patch-run-item.failed{border-color:#8a414b;background:#2d171c}
+  .task-patch-run-item.warning{border-color:#8b7338;background:#292313}
   .task-patch-run-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-run-status{font-weight:700}
+  .task-patch-run-item.running .task-patch-run-status{color:#9fc8ff}
+  .task-patch-run-item.passed .task-patch-run-status{color:#9fe2ae}
   .task-patch-run-item.failed .task-patch-run-status{color:#ff9da8}
+  .task-patch-run-item.warning .task-patch-run-status{color:#f0cc76}
   .task-patch-run-failure{grid-column:1/-1;display:grid;gap:5px;padding-top:5px;border-top:1px solid #613139}
   .task-patch-run-failure-reason{font-weight:600;color:#ffd5da;overflow-wrap:anywhere}
   .task-patch-run-failure-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
@@ -303,7 +310,8 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-action-result{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-action-result-output{background:#fff;border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-running-head{background:#f6f8fa;border-color:#9aa9bc}
-  html[data-taskmenu-theme="light"] .task-patch-running-head.finished{border-color:#6f9a78}
+  html[data-taskmenu-theme="light"] .task-patch-running-head.finished{border-color:#6f9a78;background:#edf8f0}
+  html[data-taskmenu-theme="light"] .task-patch-running-head.failed{border-color:#c47780;background:#fff1f2}
   html[data-taskmenu-theme="light"] .task-patch-prompt{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-prompt-item{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-prompt-item.failed{background:#fff1f2;border-color:#c47780}
@@ -335,7 +343,10 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-parallel-run{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-run{background:#f6f8fa;border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-run-item{background:#fff}
+  html[data-taskmenu-theme="light"] .task-patch-run-item.running{background:#eef5ff;border-color:#8caed8}
+  html[data-taskmenu-theme="light"] .task-patch-run-item.passed{background:#eef9f0;border-color:#83ad8c}
   html[data-taskmenu-theme="light"] .task-patch-run-item.failed{background:#fff1f2;border-color:#c47780}
+  html[data-taskmenu-theme="light"] .task-patch-run-item.warning{background:#fff9e8;border-color:#c8aa58}
   html[data-taskmenu-theme="light"] .task-patch-run-item.failed .task-patch-run-status{color:#9d2632}
   html[data-taskmenu-theme="light"] .task-patch-run-failure{border-color:#e0a8ae}
   html[data-taskmenu-theme="light"] .task-patch-run-failure-reason{color:#7b2029}
@@ -1613,7 +1624,7 @@ function installPatchPanel(){
     runningLastEventAtMs=runningStartedAtMs;
     panel.classList.add('running');
     runningTitle.textContent='Current run';
-    runningHead.classList.remove('finished');
+    runningHead.classList.remove('finished','failed');
     runningMeta.classList.remove('stale');
     runningMeta.textContent='Starting Python execution…';
     terminalEvidence.hidden=false;
@@ -1628,7 +1639,8 @@ function installPatchPanel(){
     updateForegroundHeading(foregroundProtocolState);
     runningMeta.classList.remove('stale');
     const completedName=foregroundRunName(foregroundProtocolState);
-    runningMeta.textContent=(completedName?completedName+' · ':'')+'completed. Result and artifacts below are the latest foreground run.';
+    const failed=stateHasFailure(foregroundProtocolState);
+    runningMeta.textContent=(completedName?completedName+' · ':'')+(failed?'failed. Failure reason, recent console output, and handoff/artifacts are available below.':'completed successfully. Result and artifacts below are the latest foreground run.');
     runningBack.hidden=false;
   }
 
@@ -1640,7 +1652,7 @@ function installPatchPanel(){
     runningLastEventAtMs=0;
     panel.classList.remove('running');
     runningTitle.textContent='Current run';
-    runningHead.classList.remove('finished');
+    runningHead.classList.remove('finished','failed');
     runningMeta.classList.remove('stale');
     runningMeta.textContent='Waiting for Python execution state…';
     runningBack.hidden=true;
@@ -2046,15 +2058,28 @@ function installPatchPanel(){
     return String(latest?.name||descriptorNames[0]||'');
   }
 
+  function normalizedLifecycleStatus(value){return String(value||'').trim().toUpperCase();}
+  function lifecycleState(value){
+    const status=normalizedLifecycleStatus(value);
+    if(['RUNNING','STARTING'].includes(status))return 'running';
+    if(['PASS','PASSED','SUCCESS'].includes(status))return 'passed';
+    if(['FAIL','FAILED','PREFLIGHT_FAIL','INCOMPLETE'].includes(status))return 'failed';
+    if(['BLOCKED','NOT_EXECUTED','CANCELLED'].includes(status))return 'warning';
+    return '';
+  }
+  function stateHasFailure(state){return (Array.isArray(state?.items)?state.items:[]).some(item=>lifecycleState(item?.status)==='failed');}
+
   function updateForegroundHeading(state=foregroundProtocolState){
     const name=foregroundRunName(state);
+    const failed=stateHasFailure(state);
     if(runningFinished){
-      runningTitle.textContent=name?'Latest completed · '+name:'Latest completed';
-      runningHead.classList.add('finished');
+      runningTitle.textContent=failed?(name?'Latest failed · '+name:'Latest failed'):(name?'Latest completed · '+name:'Latest completed');
+      runningHead.classList.toggle('finished',!failed);
+      runningHead.classList.toggle('failed',failed);
       return;
     }
     runningTitle.textContent=name?'Current run · '+name:'Current run';
-    runningHead.classList.remove('finished');
+    runningHead.classList.remove('finished','failed');
   }
 
   function renderRunningHeartbeat(state){
@@ -2107,6 +2132,15 @@ function installPatchPanel(){
     runBox.hidden=false;
   }
 
+  function failureArtifactsForItem(item){
+    const itemName=String(item?.name||'');
+    return (Array.isArray(foregroundProtocolState?.artifacts)?foregroundProtocolState.artifacts:[]).filter(artifact=>{
+      if(itemName&&String(artifact?.item_name||'')!==itemName)return false;
+      const family=String(artifact?.artifact_kind||'').replace(/_(?:zip|text)$/i,'');
+      return family==='fail_handoff'||family==='ai_sync';
+    });
+  }
+
   function failureEvidenceText(item){
     const status=String(item?.status||'FAIL');
     const rc=item?.rc;
@@ -2119,6 +2153,11 @@ function installPatchPanel(){
     if(diagnosis)lines.push('Diagnosis: '+diagnosis);
     if(reason)lines.push('Reason: '+reason);
     if(outputTail)lines.push('', 'Recent console output:', outputTail);
+    const artifacts=failureArtifactsForItem(item);
+    if(artifacts.length){
+      lines.push('', 'Failure handoff / AI artifacts:');
+      for(const artifact of artifacts)lines.push('- '+String(artifact?.path||''));
+    }
     return lines.join('\n').trim();
   }
 
@@ -2152,9 +2191,10 @@ function installPatchPanel(){
     runBox.hidden=false;
     for(const item of rows){
       const itemStatus=String(item?.status||'');
-      const failed=itemStatus.toUpperCase()==='FAIL';
+      const lifecycle=lifecycleState(itemStatus);
+      const failed=lifecycle==='failed';
       const row=document.createElement('div');row.className='task-patch-run-item';
-      row.classList.toggle('failed',failed);
+      if(lifecycle)row.classList.add(lifecycle);
       const name=document.createElement('span');name.className='task-patch-run-name';
       name.textContent=`${Number(item?.index||0)}. ${String(item?.name||'')} · ${String(item?.kind||'')}`;
       const status=document.createElement('span');status.className='task-patch-run-status';
@@ -2168,9 +2208,14 @@ function installPatchPanel(){
         const failureReason=String(item?.failure_reason||'').trim();
         reason.textContent=failureReason||diagnosis||`${String(item?.kind||'Work')} failed${rc===undefined||rc===null?'':` (rc=${rc})`}`;
         const failureActions=document.createElement('div');failureActions.className='task-patch-run-failure-actions';
-        const copy=document.createElement('button');copy.type='button';copy.textContent='Copy failure details';copy.title='Copy failure reason and recent console output';
+        const copy=document.createElement('button');copy.type='button';copy.textContent='Copy failure + handoff';copy.title='Copy failure reason, recent console output, and published handoff paths';
         copy.onclick=()=>copyFailureEvidence(item,copy).catch(app.showError);
         failureActions.append(copy);
+        if(failureArtifactsForItem(item).length){
+          const viewArtifacts=document.createElement('button');viewArtifacts.type='button';viewArtifacts.textContent='View handoff / artifacts';
+          viewArtifacts.onclick=()=>{artifactBox.hidden=false;artifactBox.scrollIntoView({behavior:'smooth',block:'nearest'});};
+          failureActions.append(viewArtifacts);
+        }
         failure.append(reason,failureActions);
         const outputTail=String(item?.output_tail||'').trim();
         if(outputTail){
