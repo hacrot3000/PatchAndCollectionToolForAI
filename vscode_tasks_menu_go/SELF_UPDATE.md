@@ -22,17 +22,35 @@ vscode_tasks_menu --self-update
 
 1. Query revision mới nhất của branch `main` qua GitHub HTTPS API.
 2. Nếu revision hiện tại đã trùng bản mới nhất thì thoát ngay.
-3. Nếu daemon của workspace đang chạy, tạo một self-update request và chờ người dùng xác nhận trên web UI.
-4. Browser hiển thị dialog update. Khi người dùng bấm **Update now**, browser flush terminal project state ngay trước khi xác nhận.
-5. CLI tải source đúng revision từ GitHub vào thư mục tạm. Không `git pull`, `git reset` hoặc sửa working tree hiện tại.
-6. Chỉ extract subtree `vscode_tasks_menu_go`; path traversal và archive vượt giới hạn bị từ chối.
-7. Chạy `go test ./...` trên source mới với dependency đã vendor/offline.
-8. Compile binary mới vào file staging trong cùng thư mục với binary hiện tại.
-9. Chạy binary staging với `--version` để xác minh revision vừa build.
-10. Chỉ sau khi test/build/validation thành công mới atomic-replace `.build/vscode_tasks_menu`.
-11. Nếu daemon đang chạy, ưu tiên handoff chính TCP listener hiện tại sang daemon mới. Cách này giữ nguyên URL/port kể cả khi config dùng `port = 0`.
-12. Nếu listener handoff không khả dụng, fallback dừng daemon cũ và thử bind lại đúng địa chỉ/port cũ. Chỉ khi cách đó cũng không dùng được mới cho config chọn port mới.
-13. Browser poll trạng thái update. Nếu URL giữ nguyên thì reload; nếu URL thay đổi thì redirect sang URL mới.
+3. Nếu daemon của workspace đang chạy, tạo self-update request và chờ xác nhận trên web UI.
+4. Browser chỉ **persist snapshot** terminal/layout; không freeze UI hay terminal persistence trong lúc kiểm tra candidate.
+5. **Dry-run/staging:** tải đúng source revision vào thư mục tạm, chạy `go test ./...`, Patch entry tests, compile candidate và chạy `--version` để xác minh binary.
+6. Trong toàn bộ bước dry-run, daemon/release hiện tại vẫn chạy. Nếu download/test/build/validation lỗi thì không activate candidate; UI hiện lỗi dạng non-blocking và có thể đóng để tiếp tục làm việc.
+7. Chỉ khi candidate PASS toàn bộ dry-run mới cài vào versioned release và atomic-switch global activation.
+8. Trước activation, updater snapshot executable + revision global hiện tại. Nếu activation, handoff hoặc startup daemon mới thất bại, updater restore activation cũ; nếu daemon cũ đã rời listener thì restart trực tiếp executable cũ.
+9. Khi release mới đã sẵn sàng, terminal snapshot mới được bảo vệ khỏi teardown writes trong cửa sổ `ready_restart/restarting`.
+10. Nếu daemon đang chạy, ưu tiên handoff chính TCP listener hiện tại sang daemon mới để giữ URL/port.
+11. Nếu listener handoff không khả dụng, fallback detach daemon nhưng giữ session broker rồi restart cùng địa chỉ cũ; legacy stop chỉ là last resort.
+12. Browser chỉ reload/redirect sau khi daemon mới thật sự healthy.
+
+Luồng an toàn:
+
+```text
+current release keeps serving
+        |
+        +--> candidate download/test/build/validate  [DRY-RUN]
+        |         |
+        |         +--> FAIL -> discard staging, keep current daemon, UI remains usable
+        |
+        +--> PASS -> snapshot current activation
+                    -> atomic activate candidate
+                    -> handoff/start new daemon
+                            |
+                            +--> PASS -> keep candidate
+                            |
+                            +--> FAIL -> restore previous activation
+                                        -> restart previous daemon if needed
+```
 
 ## Terminal/session khi update
 
@@ -148,7 +166,9 @@ failed
 cancelled
 ```
 
-Nếu update lỗi trước khi binary được thay, daemon hiện tại tiếp tục chạy. Nếu lỗi xảy ra trong giai đoạn restart/handoff, CLI cố fallback sang restart thường và giữ port cũ trước khi cho phép đổi URL.
+Nếu dry-run lỗi, release/daemon hiện tại tiếp tục chạy và terminal persistence không bị freeze. Trạng thái `failed` được hiển thị non-blocking; người dùng có thể đóng thông báo và tiếp tục làm việc.
+
+Nếu lỗi xảy ra sau khi candidate đã được activate, updater restore global activation trước đó. Nếu daemon cũ đã rời listener, updater khởi động lại trực tiếp executable cũ; candidate đã build vẫn được giữ trong thư mục versioned release để chẩn đoán hoặc retry sau.
 
 
 ## TLS identity khi self-update

@@ -554,7 +554,7 @@ func PrepareGlobalRelease(ctx context.Context, revision string, progress func(st
 	}
 	defer os.RemoveAll(tmpRoot)
 
-	progress("downloading", "Đang tải source TaskDeck + Patch add-on từ GitHub…")
+	progress("downloading", "Dry-run: đang tải candidate TaskDeck + Patch add-on từ GitHub…")
 	if err := downloadSource(ctx, revision, tmpRoot); err != nil {
 		return "", err
 	}
@@ -566,7 +566,7 @@ func PrepareGlobalRelease(ctx context.Context, revision string, progress func(st
 		return "", fmt.Errorf("archive thiếu Patch add-on runtime")
 	}
 
-	progress("testing", "Đang chạy Go và Patch entry tests trước khi cài…")
+	progress("testing", "Dry-run: đang chạy Go và Patch entry tests; release hiện tại chưa bị thay đổi…")
 	if out, err := runGo(ctx, source, "test", "./..."); err != nil {
 		return "", fmt.Errorf("go test failed: %w\n%s", err, trimOutput(out))
 	}
@@ -574,7 +574,7 @@ func PrepareGlobalRelease(ctx context.Context, revision string, progress func(st
 		return "", err
 	}
 
-	progress("building", "Đang compile TaskDeck release mới…")
+	progress("building", "Dry-run: đang compile và xác minh candidate TaskDeck release…")
 	ldflags := "-X main.buildRevision=" + revision
 	if out, err := runGo(ctx, source, "build", "-buildvcs=false", "-trimpath", "-ldflags", ldflags, "-o", filepath.Join(staged, "taskdeck"), "./cmd/vscode_tasks_menu"); err != nil {
 		return "", fmt.Errorf("go build failed: %w\n%s", err, trimOutput(out))
