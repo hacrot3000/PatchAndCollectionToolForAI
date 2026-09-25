@@ -93,6 +93,35 @@ func TestActivityBarDoesNotClosePatchTabWhenSwitchingViews(t *testing.T) {
 	}
 }
 
+func TestAlwaysVisibleSidebarSwitchKeepsPatchWorkspaceVisible(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/activitybar.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function showTasks(){",
+		"function showExplorer(){",
+		"function showHistory(){",
+		"if(enabled())deactivatePatchPanel()",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("always-visible Patch persistence missing %q",want)
+		}
+	}
+	for _, name := range []string{"showTasks","showExplorer","showHistory"} {
+		start:=strings.Index(js,"function "+name+"(){")
+		if start<0 { t.Fatalf("%s unavailable",name) }
+		endRel:=strings.Index(js[start:],"\n  function ")
+		if endRel<0 { endRel=len(js)-start }
+		block:=js[start:start+endRel]
+		if strings.Contains(block,"\n    deactivatePatchPanel();") {
+			t.Fatalf("%s must not unconditionally deactivate Patch in Always visible mode",name)
+		}
+		if !strings.Contains(block,"if(enabled())deactivatePatchPanel()") {
+			t.Fatalf("%s must deactivate Patch only in Auto-hide mode",name)
+		}
+	}
+}
+
 
 func TestActivityBarPatchIconIsIdempotentWorkspaceNavigation(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/activitybar.js")
