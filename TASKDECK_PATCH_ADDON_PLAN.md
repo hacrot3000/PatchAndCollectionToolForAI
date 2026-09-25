@@ -1,6 +1,13 @@
 # TaskDeck Patch Add-on Integration Plan
 
-Status: **DONE**
+Status: **IN PROGRESS**
+
+> **Correction 2026-09-25:** the previous Phase 2 completion/closeout was incorrect. The
+> structured protocol and native renderers existed, but every built-in Patch action still created
+> an ordinary terminal session/tab through `app.attachSession(...)` and the global
+> `syncSessions()` loop. That is Phase 1/1.5 scaffolding, not a completed native-UI cutover.
+> The 2026-09-24 Phase 2H.7 PASS and Phase 2I closeout are therefore invalidated as product/UI
+> acceptance results. Their implementation history is retained below for provenance.
 
 This file is the recovery/source-of-truth document for integrating Python Patch Tool into TaskDeck.
 Every implementation commit for this work must update this file so development can resume safely after an interruption.
@@ -168,7 +175,35 @@ Status: **DONE**
 - [x] Patch panel renders Python-owned queue_selection prompts and submits only bounded select/cancel responses; PTY remains available as fallback.
 
 ### Phase 2 — Native Patch web UI
-Status: **DONE**
+Status: **IN PROGRESS**
+
+#### Real Phase 2 acceptance criteria
+
+Phase 2 is complete only when all of these are true in the actual TaskDeck UI:
+
+- [ ] Clicking Patch Queue/Resume/History/Plan/Health does **not** create an ordinary terminal tab.
+- [ ] Python may keep a backing PTY/session for compatibility, but it stays headless/hidden from normal terminal tabs.
+- [ ] A terminal tab is materialized only after an explicit **Open terminal evidence/fallback** user action.
+- [ ] Native Patch content owns the primary workspace view instead of behaving as a thin sidebar over a hidden task tab.
+- [ ] Queue selection, Running/progress/artifacts, Resume, History, Plan and Health remain in the native Patch view through normal navigation.
+- [ ] Resume → History remains native and does not hand off to the terminal.
+- [ ] Browser reload/session synchronization does not auto-materialize hidden Patch backing sessions as terminal tabs.
+- [ ] A regression gate tests the user-visible cutover behavior above, not merely protocol/rendering parity.
+
+#### Actual Phase 2 implementation
+
+- [ ] **Phase 2A — Headless Patch backing sessions.** Keep the PTY/protocol engine but exclude built-in Patch sessions from normal terminal-tab synchronization; materialize evidence on demand only.
+- [ ] **Phase 2B — Native Patch workspace view.** Promote Patch from the narrow Phase-1 menu/sidebar shell to a dedicated native workspace surface.
+- [ ] **Phase 2C — Native navigation/lifecycle.** Keep Queue → Running → Resume/History/Plan/Health transitions inside the native Patch surface, including Resume → History.
+- [ ] **Phase 2D — Explicit fallback only.** Protocol loss/timeouts show an actionable fallback state without automatically opening a terminal tab.
+- [ ] **Phase 2E — Product acceptance regression + smoke gate.** Verify no implicit Patch terminal tabs and rerun functional parity checks.
+- [ ] **Phase 2F — Cutover closeout.** Update user docs and mark the integration complete only after Phase 2E passes.
+
+#### Existing protocol/control scaffolding (historically labeled Phase 2A–2H)
+
+The checked items below are retained as implementation history. They prove that Python-owned
+structured controls/renderers exist, but **do not by themselves satisfy the real Phase 2 UI
+acceptance criteria above**.
 
 - [x] Native Queue and Failed views.
   - [x] Phase 2A.1 Python-owned stable Queue/Failed protocol projection.
@@ -235,16 +270,16 @@ Status: **DONE**
     - [x] Phase 2H.6b TaskDeck support-ZIP result state, prompt-bound endpoint and final-write gate.
     - [x] Phase 2H.6c native History Support ZIP item control.
     - [x] Phase 2H.6d explicit History cleanup contract/state/UI.
-  - [x] Phase 2H.7 final parity regression gate: all MUST-native surfaces pass; current Queue/Resume/History/Plan/Health sessions already attach PTY inactive and expose it explicitly as evidence/fallback.
+  - [ ] Phase 2H.7 historical parity regression gate — **INVALIDATED 2026-09-25** because it explicitly accepted `app.attachSession(...)` and therefore did not test native UI cutover.
 
-## Phase 2I — Integration closeout and user-facing cutover
-Status: **DONE**
+## Historical Phase 2I — Integration closeout and user-facing cutover
+Status: **INVALIDATED 2026-09-25**
 
 - [x] Document global TaskDeck + bundled Patch Tool as the recommended installation path.
 - [x] Document the native Patch panel as the primary web workflow and `taskdeck patch ...` as the first-class CLI workflow.
 - [x] Document that project data stays project-local while verified legacy `tools/run_python_patches.sh` launchers may become compatibility shims.
 - [x] Keep PTY/terminal and direct CLI compatibility; no runtime/protocol behavior changes in this closeout.
-- [x] Close this integration roadmap after the Phase 2H.7 parity audit PASS.
+- [ ] Close this integration roadmap only after the corrected real Phase 2 acceptance gate passes.
 
 ## Phase 2H.1 — Native cutover parity audit
 
@@ -457,12 +492,12 @@ Every phase must preserve:
 | Phase 2H.6d1 History support fixture correction | DONE | cc440b98 | Updated the item-support projection fixture to mock the newly additive cleanup summary; runtime cleanup behavior is unchanged. |
 | Phase 2H.6d2 TaskDeck History cleanup gate/state | DONE | c445aa26 | TaskDeck validates/retains correlated cleanup results, exposes only prompt_id+confirmed, generates cleanup_id server-side and rechecks the active prompt at final FD4 write; no run/candidate list is accepted. |
 | Phase 2H.6d3 native History Cleanup UI | DONE | 64dbe8e8 | History shows cleanup only from Python-advertised capability/policy/counts, requires explicit confirmation, sends no run/candidate list, correlates cleanup_id+prompt_id and redraws only from refreshed Python snapshot/prompt. |
-| Phase 2H.7 final native cutover parity audit | DONE | ff72e1f1 | Final MUST-native audit PASS; adds a consolidated regression gate, documents intentional CLI-only surfaces, and confirms PTY is already secondary by default for native flows. No runtime behavior change. |
-| Phase 2I integration closeout | DONE | 74a4aa8f | Updated user-facing docs for global TaskDeck/Patch usage and closed the integration roadmap; no runtime/protocol behavior change. |
+| Phase 2H.7 final native cutover parity audit | INVALIDATED | ff72e1f1 | Protocol/control parity evidence only. The gate incorrectly accepted normal terminal-tab attachment and did not prove product-level native cutover. |
+| Phase 2I integration closeout | INVALIDATED | 74a4aa8f | Premature closeout based on the invalid Phase 2H.7 UI acceptance assumption. |
 
 ## Next action
 
-**Integration roadmap complete.** All original goals are implemented and the Phase 2H.7 native
-parity audit passes with no MUST-native blocker. Keep PTY as an explicit evidence/fallback surface,
-preserve `taskdeck patch ...` and compatibility launchers, and start a new roadmap only for a new
-product requirement or optional presentation polish.
+Continue **real Phase 2A**: make built-in Patch sessions headless from the normal terminal-tab
+surface while preserving the backing PTY/protocol and `taskdeck patch ...` compatibility. The
+terminal view must be materialized only by an explicit evidence/fallback action. Then proceed to
+the dedicated native workspace view and rerun product-level acceptance before any closeout.

@@ -5,9 +5,20 @@ Audited baseline: `64dbe8e8` (`Add native History cleanup UI`)
 Scope: Phase 2H.7 final native/terminal parity gate  
 Runtime changes in this checkpoint: **none**
 
-## Result
+## 2026-09-25 correction — INVALIDATED AS A NATIVE-UI CUTOVER GATE
 
-**PASS — no MUST-native blocker remains.**
+The 2026-09-24 PASS below validated structured protocol/control parity, but it missed a product-level
+UI requirement: built-in Patch actions still created normal TaskDeck terminal tabs. The Patch panel
+called `app.attachSession(...)`, and the global `syncSessions()` loop would also auto-attach those
+sessions. Therefore the audit did **not** prove that Patch ran as a native TaskDeck UI.
+
+Treat the matrix below as historical protocol/control parity evidence only. A replacement Phase 2
+gate must require that built-in Patch backing sessions stay headless by default and that a terminal
+view is materialized only through an explicit evidence/fallback action.
+
+## Historical result
+
+**INVALIDATED — previously reported as PASS.**
 
 TaskDeck now covers the interactive operator surfaces that previously required the Patch Tool
 terminal UI. Python remains authoritative for queue/recovery/history policy. TaskDeck consumes
@@ -16,7 +27,7 @@ bounded structured protocol state and sends only narrow prompt-bound actions.
 The PTY is not removed. It remains a supported evidence/fallback surface and the direct
 `taskdeck patch ...` CLI remains supported.
 
-## Interactive parity matrix
+## Historical protocol/control parity matrix
 
 | Terminal capability | Native TaskDeck equivalent | Result |
 | --- | --- | --- |
@@ -60,11 +71,9 @@ native interactions.
 
 Native-primary must never mean terminal removal:
 
-1. Queue, Resume, History, Plan and Health keep their PTY session attached but inactive.
-2. Running keeps an explicit terminal-evidence action.
-3. Protocol loss/unsupported capability continues to fail back to PTY instead of reimplementing
-   Python policy in JavaScript or Go.
+1. Queue, Resume, History, Plan and Health may keep a backing PTY/session, but it must remain headless and must not create a normal terminal tab by default.
+2. Running keeps an explicit terminal-evidence action; that action is the point where a terminal tab may be materialized.
+3. Protocol loss/unsupported capability exposes an explicit fallback state; it must not silently or automatically open a terminal tab. Python policy must still not be reimplemented in JavaScript or Go.
 4. `taskdeck patch` and compatibility launchers continue to work from a terminal.
 
-The consolidated Go regression test for this audit guards these invariants plus the major
-MUST-native controls/endpoints.
+The old consolidated Go regression test is itself part of the invalidation: it explicitly required `app.attachSession(...)`. Replace it with a product-level gate that rejects implicit Patch terminal tabs.
