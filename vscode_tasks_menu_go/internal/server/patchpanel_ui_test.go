@@ -28,7 +28,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"for(let attempt=0;attempt<maxAttempts;attempt+=1)",
 		"renderQueueSnapshot(state.queue_snapshot)",
 		"state?.prompt&&renderResumePrompt(sessionId,state.prompt)",
-		"state?.prompt&&renderQueuePrompt(sessionId,state.prompt)",
+		"const queuePromptMode=renderQueuePrompt(sessionId,state.prompt)",
 		"renderResumeSnapshot(state.resume_snapshot)",
 		"/resume-action",
 		"submitResumeAction",
