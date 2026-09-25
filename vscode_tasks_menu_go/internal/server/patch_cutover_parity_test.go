@@ -8,7 +8,7 @@ import (
 	webassets "bletonfc/vscode_tasks_menu/web"
 )
 
-func TestPatchFinalNativeCutoverParityGate(t *testing.T) {
+func TestPatchProtocolParityAndHeadlessBackingGate(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestPatchFinalNativeCutoverParityGate(t *testing.T) {
 		"app.materializeSession(meta,false)",
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("final native parity gate missing web contract %q", want)
+			t.Fatalf("Patch protocol/headless gate missing web contract %q", want)
 		}
 	}
 
@@ -63,12 +63,12 @@ func TestPatchFinalNativeCutoverParityGate(t *testing.T) {
 		`case "history-cleanup":`,
 	} {
 		if !strings.Contains(serverSrc, want) {
-			t.Fatalf("final native parity gate missing server endpoint %q", want)
+			t.Fatalf("Patch protocol/headless gate missing server endpoint %q", want)
 		}
 	}
 
 	if strings.Contains(js, "views.delete(activeSessionId)") {
-		t.Fatal("native cutover must retain PTY session as evidence/fallback")
+		t.Fatal("headless native backing must retain PTY session as evidence/fallback")
 	}
 
 	uiData, err := os.ReadFile("ui.go")

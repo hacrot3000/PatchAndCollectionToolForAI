@@ -494,7 +494,8 @@ Every phase must preserve:
 | Phase 2H.6d3 native History Cleanup UI | DONE | 64dbe8e8 | History shows cleanup only from Python-advertised capability/policy/counts, requires explicit confirmation, sends no run/candidate list, correlates cleanup_id+prompt_id and redraws only from refreshed Python snapshot/prompt. |
 | Phase 2H.7 final native cutover parity audit | INVALIDATED | ff72e1f1 | Protocol/control parity evidence only. The gate incorrectly accepted normal terminal-tab attachment and did not prove product-level native cutover. |
 | Phase 2I integration closeout | INVALIDATED | 74a4aa8f | Premature closeout based on the invalid Phase 2H.7 UI acceptance assumption. |
-| Corrected Phase 2A headless backing session | DONE | this commit | Built-in Patch task_id=-1 sessions remain in the broker/session manager but normal sync no longer creates terminal tabs; explicit terminal evidence materializes the tab on demand. |
+| Corrected Phase 2A headless backing session | DONE | 355676a3 | Built-in Patch task_id=-1 sessions remain in the broker/session manager but normal sync no longer creates terminal tabs; explicit terminal evidence materializes the tab on demand. |
+| Corrected Phase 2A UI-test fixture update | DONE | this commit | Updated stale PTY-attachment assertions for async explicit evidence materialization; runtime behavior unchanged. |
 
 ## Next action
 

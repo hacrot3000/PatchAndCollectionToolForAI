@@ -263,7 +263,7 @@ func TestPatchPanelRunningViewKeepsPTYAsSecondaryEvidence(t *testing.T) {
 	for _, want := range []string{
 		"if(action==='select')enterRunningView()",
 		"app.materializeSession(meta,false)",
-		"function openTerminalEvidence()",
+		"async function openTerminalEvidence()",
 		"app.views.has(activeSessionId)",
 		"app.activateView(activeSessionId)",
 		"finishRunningView();",
@@ -395,7 +395,7 @@ func TestPatchPanelHistoryKeepsTerminalAsFallbackNotPrimary(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	js := string(data)
 	for _, want := range []string{
-		"historyTerminal.onclick=openTerminalEvidence",
+		"historyTerminal.onclick=()=>openTerminalEvidence().catch(app.showError)",
 		"Native History command channel unavailable. Use Terminal fallback.",
 		"Native History prompt timed out. Use Terminal fallback.",
 		"mode==='history'",
@@ -568,7 +568,7 @@ func TestPatchPanelNativePlanIsReadOnlyPrimaryView(t *testing.T) {
 		"state?.plan_snapshot&&!havePlanSnapshot",
 		"renderPlanSnapshot(state.plan_snapshot)",
 		"task-patch-panel.plan .task-patch-summary",
-		"planTerminal.onclick=openTerminalEvidence",
+		"planTerminal.onclick=()=>openTerminalEvidence().catch(app.showError)",
 		"planBack.onclick=leavePlanView",
 		"app.materializeSession(meta,false)",
 		"Native Plan snapshot unavailable or timed out. Use Terminal evidence/fallback.",
@@ -634,7 +634,7 @@ func TestPatchPanelNativeHealthIsReadOnlyPrimaryView(t *testing.T) {
 		"state?.health_snapshot&&!haveHealthSnapshot",
 		"renderHealthSnapshot(state.health_snapshot)",
 		"task-patch-panel.health .task-patch-summary",
-		"healthTerminal.onclick=openTerminalEvidence",
+		"healthTerminal.onclick=()=>openTerminalEvidence().catch(app.showError)",
 		"healthBack.onclick=leaveHealthView",
 		"app.materializeSession(meta,false)",
 		"Native Health snapshot unavailable or timed out. Use Terminal evidence/fallback.",
