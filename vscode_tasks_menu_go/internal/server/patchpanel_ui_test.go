@@ -760,6 +760,7 @@ func TestPatchPanelHistoryCleanupIsCapabilityDrivenAndUsesPythonCounts(t *testin
 		"populateHistoryCleanupDays(cleanup)",
 		"historyCleanupPreviewButton",
 		"historyCleanupDelete",
+		"historyCleanupDelete.disabled=historyCleanupBusy||historyBusy||historyManagementBusy||historySupportBusy||eligible<=0||latestHistoryCleanupPreview.candidates_truncated===true",
 		"Array.isArray(candidate?.search_names)&&candidate.search_names.length",
 		"candidateNames.map(value=>String(value||'')).filter(Boolean).join(', ')",
 	} {
