@@ -1,5 +1,13 @@
 # v6.20.2 mandatory continuity gate — NO SILENT REMOVAL
 
+> **TaskDeck Patch native UI continuity note (2026-09-25):** the Python Patch Tool capability
+> ledger below can be COMPLETE while the TaskDeck native-UI integration is still incomplete.
+> For TaskDeck work, read `TASKDECK_PATCH_HANDOFF.md` first and then
+> `TASKDECK_PATCH_ADDON_PLAN.md`. Current TaskDeck Phase 2 is **IN PROGRESS**; installed-runtime
+> browser smoke (Phase 2E.2) is still pending. Do not infer TaskDeck native completion from this
+> file's Python Patch Tool COMPLETE status.
+
+
 ## COMPLETE — Cryptographic provenance / signature trust
 
 The accepted provenance/signature task is complete: self-contained strict Ed25519 verification, canonical manifest+package-file binding, operator-local trust store, optional fail-closed `require_signature` policy (including legacy PATCH), pre-payload enforcement, AI-sync/documentation coverage, Tool Health/package-required coverage, and permanent master regression. Scope intentionally stops at verification/trust; no private-key manager, signer, PKI, remote registry, COLLECT signing, or reproducible ZIP-byte feature was introduced.
