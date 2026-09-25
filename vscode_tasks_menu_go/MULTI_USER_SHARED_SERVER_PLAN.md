@@ -791,14 +791,21 @@ No login/RBAC behavior change yet.
 
 - [x] Introduce identity package/domain model/interfaces.
 - [x] Secure durable data-directory/path resolution outside the workspace.
-- [ ] SQLite open/configure/migration infrastructure.
+- [x] Add driver-independent SQLite open/configure/migration infrastructure on Go stdlib `database/sql`.
 - [x] Initial schema: users/projects/roles/permissions/memberships/member overrides/sessions/audit.
-- [ ] WAL/busy-timeout and multi-process DB tests.
+- [x] Implement the SQL-backed Store surface: Reader, SessionStore, AuditStore and AdminStore.
+- [ ] Select and vendor a concrete portable SQLite driver; no network package install may be required by build/self-update.
+- [ ] Run real SQLite WAL/busy-timeout and multi-process DB tests using the selected driver.
 - [ ] Password hashing helper using Argon2id.
 
-Implementation note: TaskDeck currently keeps its Go dependency surface very small and locally replaced/vendored. The SQLite driver must preserve portable/self-update builds rather than silently introducing a network-only build dependency. Driver integration is therefore isolated as its own checkpoint after the store boundary/schema are stable.
+Implementation notes:
 
-No HTTP login change until this layer is tested.
+- The driver-independent layer and Store implementation use only the Go standard library and are covered by an internal fake `database/sql/driver`, so CI/self-update remains `GOPROXY=off`.
+- TaskDeck currently keeps its Go dependency surface very small and locally replaced/vendored. Go stdlib provides `database/sql` but does not provide SQLite itself, so a concrete SQLite driver is one of the cases where an external dependency may be genuinely necessary.
+- The concrete driver checkpoint must preserve Go 1.19 compatibility, portable/offline self-update builds and multi-process WAL semantics. Prefer a pure-Go driver so TaskDeck does not silently acquire a C compiler/CGO installation requirement.
+- No npm dependency is permitted for this feature while a viable Go/non-npm implementation exists.
+
+No HTTP login change until the real SQLite layer and password hashing are tested.
 
 ### Phase 3 — Authentication
 
