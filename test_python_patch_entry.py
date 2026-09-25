@@ -572,6 +572,137 @@ class ProtocolContractTests(unittest.TestCase):
             self.assertEqual(seen["second_prompt"]["items"][0]["name"], "two.zip")
             self.assertEqual(seen["second_prompt"]["initial_selected"], [1])
 
+    def test_queue_protocol_view_projects_deletable_skipped_candidates(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        with tempfile.TemporaryDirectory(prefix="taskdeck-skipped-view-") as tmp:
+            root = Path(tmp)
+            patchs = root / "patchs"
+            patchs.mkdir()
+            skipped = patchs / "helper.py"
+            skipped.write_text("print('not a patch')\n", encoding="utf-8")
+            warnings = [
+                "SKIPPED non-patch candidate: patchs/helper.py (no_patch_signature)",
+            ]
+            with mock.patch.object(dispatcher, "discover_queue", return_value=([], warnings)), \
+                 mock.patch.object(dispatcher, "_load_previous_run", return_value=None), \
+                 mock.patch.object(dispatcher, "_failed_queue_rows_by_name", return_value={}):
+                view = dispatcher.protocol_queue_view(root)
+
+            self.assertEqual(view["items"], [])
+            self.assertEqual(view["skipped"], [{
+                "name": "helper.py",
+                "kind": "SKIPPED",
+                "reason": "no_patch_signature",
+                "warning": warnings[0],
+            }])
+
+    def test_dispatcher_protocol_queue_delete_removes_skipped_item_when_no_runnable_items(self):
+        from python_patch_queue_dispatcher import _protocol_queue_selection
+        import python_patch_queue_dispatcher as dispatcher
+
+        with tempfile.TemporaryDirectory(prefix="taskdeck-skipped-delete-") as tmp:
+            root = Path(tmp)
+            patchs = root / "patchs"
+            patchs.mkdir()
+            skipped = patchs / "helper.py"
+            skipped.write_text("print('not a patch')\n", encoding="utf-8")
+
+            event_read, event_write = os.pipe()
+            command_read, command_write = os.pipe()
+            old_event = os.environ.get(entry.EVENT_FD_ENV)
+            old_command = os.environ.get(entry.COMMAND_FD_ENV)
+            os.environ[entry.EVENT_FD_ENV] = str(event_write)
+            os.environ[entry.COMMAND_FD_ENV] = str(command_read)
+            seen = {}
+
+            def fake_view(_root):
+                if skipped.exists():
+                    warning = "SKIPPED non-patch candidate: patchs/helper.py (no_patch_signature)"
+                    return {
+                        "status": "empty",
+                        "items": [],
+                        "skipped": [{
+                            "name": "helper.py",
+                            "kind": "SKIPPED",
+                            "reason": "no_patch_signature",
+                            "warning": warning,
+                        }],
+                        "warnings": [warning],
+                        "counts": {},
+                        "group_counts": {"new": 0, "failed": 0},
+                        "total": 0,
+                    }
+                return {
+                    "status": "empty",
+                    "items": [],
+                    "skipped": [],
+                    "warnings": [],
+                    "counts": {},
+                    "group_counts": {"new": 0, "failed": 0},
+                    "total": 0,
+                }
+
+            def respond():
+                with os.fdopen(os.dup(event_read), "r", encoding="utf-8") as stream:
+                    prompt = json.loads(stream.readline())
+                    seen["prompt"] = prompt
+                    delete = {
+                        "protocol": "taskdeck.patch",
+                        "version": 1,
+                        "type": "command",
+                        "seq": 1,
+                        "command": "queue_delete",
+                        "payload": {
+                            "prompt_id": prompt["prompt_id"],
+                            "mutation_id": "delete-skipped-1",
+                            "index": 1,
+                        },
+                    }
+                    os.write(command_write, (json.dumps(delete) + "\n").encode("utf-8"))
+                    seen["mutation"] = json.loads(stream.readline())
+                    seen["snapshot"] = json.loads(stream.readline())
+
+            worker = threading.Thread(target=respond)
+            worker.start()
+            try:
+                with mock.patch.object(dispatcher, "protocol_queue_view", side_effect=fake_view), \
+                     mock.patch.object(
+                         dispatcher,
+                         "discover_queue",
+                         side_effect=lambda _root: (
+                             [],
+                             ["SKIPPED non-patch candidate: patchs/helper.py (no_patch_signature)"] if skipped.exists() else [],
+                         ),
+                     ):
+                    handled, chosen = _protocol_queue_selection([], "none", set(), root=root)
+            finally:
+                worker.join(timeout=2)
+                if old_event is None:
+                    os.environ.pop(entry.EVENT_FD_ENV, None)
+                else:
+                    os.environ[entry.EVENT_FD_ENV] = old_event
+                if old_command is None:
+                    os.environ.pop(entry.COMMAND_FD_ENV, None)
+                else:
+                    os.environ[entry.COMMAND_FD_ENV] = old_command
+                for fd in (event_read, event_write, command_read, command_write):
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+
+            self.assertTrue(handled)
+            self.assertEqual(chosen, [])
+            self.assertFalse(skipped.exists())
+            self.assertEqual(seen["prompt"]["items"][0]["kind"], "SKIPPED")
+            self.assertFalse(seen["prompt"]["items"][0]["selectable"])
+            self.assertEqual(seen["mutation"]["status"], "PASS")
+            self.assertEqual(seen["mutation"]["item_kind"], "SKIPPED")
+            self.assertEqual(seen["mutation"]["remaining"], 0)
+            self.assertEqual(seen["snapshot"]["skipped"], [])
+
+
     def test_dispatcher_protocol_item_action_emits_result_and_keeps_prompt_active(self):
         from python_patch_queue_dispatcher import QueueItem, _protocol_queue_selection
         import python_patch_queue_dispatcher as dispatcher
