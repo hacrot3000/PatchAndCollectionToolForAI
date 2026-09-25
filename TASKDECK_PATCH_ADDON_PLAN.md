@@ -504,6 +504,8 @@ Every phase must preserve:
 | Corrected Phase 2B return-view fix | DONE | eec38265 | Native workspace now reads the actual exported app.active state instead of nonexistent app.activeSessionId before restoring the previous view. |
 | Corrected Phase 2E.1 automated product acceptance gate | DONE | eec38265 | Dedicated regression gate rejects implicit terminal tabs, enforces headless reload sync/full workspace/native Resume→History, and allows materialization only in the explicit evidence path. |
 | Phase 2E.1b fail-closed runtime session invariant | DONE | 89d3a458 | Patch start rejects/stops any backend session that loses reserved headless task_id=-1 and rejects an unexpectedly materialized terminal view. CI run 36086689002 PASS. |
+| Phase 2E.1c explicit fallback copy | DONE | 15711d4d | Removed stale “Continue in PTY/terminal” wording; native failures/timeouts now advertise terminal fallback as an explicit optional action only. |
+| Phase 2 recovery-document guard | DONE | 7d199813 | CI rejects handoff/roadmap/README states that prematurely claim native integration complete while Phase 2E.2 is pending. CI run 36086873370 PASS. |
 
 ## Next action
 
