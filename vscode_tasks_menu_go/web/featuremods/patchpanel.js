@@ -199,6 +199,17 @@ function installPatchPanel(){
   .task-patch-health-row-status{font-weight:700;white-space:nowrap}
   .task-patch-health-row-detail{margin-top:2px;opacity:.7;overflow-wrap:anywhere}
   .task-patch-health-messages{margin-top:7px;opacity:.78;overflow-wrap:anywhere}
+  .task-patch-ai-pack{margin:0 0 10px;padding:9px;border:1px solid #4b596d;border-radius:6px;background:#121923;font-size:11px}
+  .task-patch-ai-pack[hidden]{display:none}
+  .task-patch-ai-pack-head{display:flex;align-items:center;gap:6px}
+  .task-patch-ai-pack-title{font-weight:700;flex:1}
+  .task-patch-ai-pack-status{opacity:.75}
+  .task-patch-ai-pack-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .task-patch-ai-pack-actions button,.task-patch-ai-pack-actions a{font-size:10px;padding:4px 7px}
+  .task-patch-ai-pack-meta{margin-top:6px;opacity:.72;overflow-wrap:anywhere}
+  .task-patch-ai-pack-prompt{margin-top:8px}
+  .task-patch-ai-pack-prompt summary{cursor:pointer;font-weight:600}
+  .task-patch-ai-pack-prompt pre{margin:6px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:#0d1015;border:1px solid #30343b;border-radius:4px;padding:7px;font:10px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
   .task-patch-panel.plan .task-patch-health{display:none!important}
   .task-patch-panel.plan .task-patch-panel-note,
   .task-patch-panel.plan .task-patch-summary,
@@ -502,6 +513,25 @@ function installPatchPanel(){
   const healthMessages=document.createElement('div');healthMessages.className='task-patch-health-messages';
   healthBox.append(healthHead,healthOverview,healthChecks,healthMessages);
 
+  const aiPackBox=document.createElement('div');aiPackBox.className='task-patch-ai-pack';aiPackBox.hidden=true;
+  const aiPackHead=document.createElement('div');aiPackHead.className='task-patch-ai-pack-head';
+  const aiPackTitle=document.createElement('div');aiPackTitle.className='task-patch-ai-pack-title';aiPackTitle.textContent='AI Pack';
+  const aiPackStatus=document.createElement('div');aiPackStatus.className='task-patch-ai-pack-status';
+  const aiPackClose=document.createElement('button');aiPackClose.type='button';aiPackClose.textContent='Close';
+  aiPackHead.append(aiPackTitle,aiPackStatus,aiPackClose);
+  const aiPackMeta=document.createElement('div');aiPackMeta.className='task-patch-ai-pack-meta';
+  const aiPackActions=document.createElement('div');aiPackActions.className='task-patch-ai-pack-actions';
+  const aiPackRefresh=document.createElement('button');aiPackRefresh.type='button';aiPackRefresh.textContent='Prepare / Refresh';
+  const aiPackCopyPrompt=document.createElement('button');aiPackCopyPrompt.type='button';aiPackCopyPrompt.textContent='Copy Prompt';aiPackCopyPrompt.disabled=true;
+  const aiPackDownload=document.createElement('a');aiPackDownload.textContent='Download ZIP';aiPackDownload.hidden=true;aiPackDownload.download='';
+  const aiPackCopyPath=document.createElement('button');aiPackCopyPath.type='button';aiPackCopyPath.textContent='Copy path';aiPackCopyPath.disabled=true;
+  aiPackActions.append(aiPackRefresh,aiPackCopyPrompt,aiPackDownload,aiPackCopyPath);
+  const aiPackPrompt=document.createElement('details');aiPackPrompt.className='task-patch-ai-pack-prompt';
+  const aiPackPromptSummary=document.createElement('summary');aiPackPromptSummary.textContent='Standard prompt · Vietnamese';
+  const aiPackPromptText=document.createElement('pre');
+  aiPackPrompt.append(aiPackPromptSummary,aiPackPromptText);
+  aiPackBox.append(aiPackHead,aiPackMeta,aiPackActions,aiPackPrompt);
+
   const runningHead=document.createElement('div');runningHead.className='task-patch-running-head';
   const runningTitle=document.createElement('div');runningTitle.className='task-patch-running-title';runningTitle.textContent='Running';
   const runningMeta=document.createElement('div');runningMeta.className='task-patch-running-meta';runningMeta.textContent='Waiting for Python execution state…';
@@ -531,7 +561,7 @@ function installPatchPanel(){
   artifactBox.append(artifactTitle,artifactList);
 
   const actions=document.createElement('div');actions.className='task-patch-actions';
-  body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,planBox,healthBox,runningHead,runBox,artifactBox,parallelCollectBox,actions);
+  body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,planBox,healthBox,aiPackBox,runningHead,runBox,artifactBox,parallelCollectBox,actions);
   panel.append(head,body);
   panesHost.append(panel);
 
@@ -548,6 +578,7 @@ function installPatchPanel(){
     ['history','History','Open Patch Tool reports/history'],
     ['plan','Plan','Inspect the execution plan without replacing the Python engine'],
     ['health','Health','Audit the active bundled Patch Tool runtime'],
+    ['ai-pack','AI Pack','Package current docs + standard prompt for a new AI chat'],
   ];
   const buttons=[];
   let activeSessionId='';
@@ -583,6 +614,8 @@ function installPatchPanel(){
   let planMode=false;
   let latestHealthSnapshot=null;
   let healthMode=false;
+  let aiPackBusy=false;
+  let latestAIPack=null;
   let runningMode=false;
   let runningFinished=false;
   let runningStartedAtMs=0;
@@ -601,7 +634,7 @@ function installPatchPanel(){
     const strong=document.createElement('strong');strong.textContent=label;
     const span=document.createElement('span');span.textContent=detail;
     button.append(strong,span);
-    button.onclick=()=>start(mode,button).catch(app.showError);
+    button.onclick=()=>mode==='ai-pack'?prepareAIPack(button).catch(app.showError):start(mode,button).catch(app.showError);
     actions.append(button);buttons.push(button);
   }
 
@@ -1769,6 +1802,71 @@ function installPatchPanel(){
       ...errors.map(value=>'Error: '+String(value)),
     ].join(' | ');
     return true;
+  }
+
+  async function copyAIPackPrompt(button){
+    const text=String(latestAIPack?.prompt||'');
+    if(!text)return false;
+    let copied=false;
+    if(navigator.clipboard&&window.isSecureContext){
+      try{await navigator.clipboard.writeText(text);copied=true;}catch{}
+    }
+    if(!copied){
+      const area=document.createElement('textarea');area.value=text;area.setAttribute('readonly','');area.style.position='fixed';area.style.left='-9999px';area.style.top='0';
+      document.body.append(area);area.select();
+      try{copied=document.execCommand('copy');}finally{area.remove();}
+    }
+    if(!copied)throw new Error('Cannot copy Patch Tool AI prompt');
+    if(button){
+      const original=button.textContent;button.textContent='✓ Copied';
+      setTimeout(()=>{if(button.isConnected)button.textContent=original;},1200);
+    }
+    return true;
+  }
+
+  function renderAIPack(result){
+    if(!result||typeof result!=='object')return false;
+    const path=historySafeProjectPath(result.path);
+    const prompt=String(result.prompt||'').trim();
+    const fingerprint=String(result.fingerprint||'').trim().toLowerCase();
+    const docCount=Number(result.doc_count||0);
+    if(!path||!prompt||!/^[0-9a-f]{64}$/.test(fingerprint)||!Number.isInteger(docCount)||docCount<1){
+      throw new Error('TaskDeck returned an invalid AI Pack result');
+    }
+    latestAIPack={...result,path,prompt,fingerprint,doc_count:docCount};
+    aiPackBox.hidden=false;
+    aiPackStatus.textContent=result.cached===true?'Cache current':'Rebuilt';
+    aiPackMeta.textContent=[
+      docCount+' docs',
+      'fingerprint '+fingerprint.slice(0,12)+'…',
+      result.source?('source '+String(result.source)):'',
+      result.generated_at?String(result.generated_at):'',
+    ].filter(Boolean).join(' · ');
+    aiPackPromptText.textContent=prompt;
+    aiPackCopyPrompt.disabled=false;
+    aiPackCopyPath.disabled=false;
+    aiPackDownload.href='/api/files/download?path='+encodeURIComponent(path);
+    aiPackDownload.hidden=false;
+    return true;
+  }
+
+  async function prepareAIPack(sourceButton=null){
+    if(aiPackBusy)return latestAIPack;
+    aiPackBusy=true;
+    if(sourceButton?.isConnected)sourceButton.disabled=true;
+    aiPackRefresh.disabled=true;
+    aiPackBox.hidden=false;
+    aiPackStatus.textContent='Checking current docs…';
+    aiPackMeta.textContent='Hashing the active Patch Tool docs and guide. ZIP is rebuilt only when the fingerprint changes.';
+    try{
+      const result=await app.jsonFetch('/api/patch/ai-pack',{method:'POST'});
+      renderAIPack(result);
+      return result;
+    }finally{
+      aiPackBusy=false;
+      aiPackRefresh.disabled=false;
+      if(sourceButton?.isConnected)sourceButton.disabled=false;
+    }
   }
 
   function enterRunningView(){
@@ -3219,6 +3317,10 @@ function installPatchPanel(){
   planBack.onclick=leavePlanView;
   healthTerminal.onclick=()=>openTerminalEvidence().catch(app.showError);
   healthBack.onclick=leaveHealthView;
+  aiPackRefresh.onclick=()=>prepareAIPack(aiPackRefresh).catch(app.showError);
+  aiPackCopyPrompt.onclick=()=>copyAIPackPrompt(aiPackCopyPrompt).catch(app.showError);
+  aiPackCopyPath.onclick=()=>latestAIPack&&copyFullPath(latestAIPack.path,aiPackCopyPath).catch(app.showError);
+  aiPackClose.onclick=()=>{aiPackBox.hidden=true;};
   runningBack.onclick=()=>openQueueWhileRunning().catch(app.showError);
   actionResultClose.onclick=clearActionResult;
   queueTab.onclick=()=>setQueueSummaryView('queue');
@@ -3226,7 +3328,7 @@ function installPatchPanel(){
   summarySearchInput.oninput=()=>setQueueSearchQuery(summarySearchInput.value);
   summarySearchClear.onclick=()=>{setQueueSearchQuery('');summarySearchInput.focus();};
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,prepareAIPack,renderAIPack,copyAIPackPrompt,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 
