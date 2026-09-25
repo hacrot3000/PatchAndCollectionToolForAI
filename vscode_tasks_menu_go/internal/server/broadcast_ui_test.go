@@ -16,6 +16,9 @@ func TestBroadcastFeatureModule(t *testing.T) {
 	for _, want := range []string{
 		"Broadcast: '+label+' ▾'",
 		"host.prepend(headerMenu)",
+		"if(!host)return false;",
+		"window.addEventListener('taskmenu:tasks',()=>installHeaderMenu(),{once:true})",
+		"const existing=host.querySelector('.broadcast-menu')",
 		"for(const mode of ['none','all','group'])",
 		"term.onData(data=>queueBroadcast(view,data))",
 		"action:'input',source_id:view.meta.id,data",
