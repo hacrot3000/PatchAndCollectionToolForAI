@@ -284,6 +284,7 @@ function installActivityBar(){
         closeHistoryPanel();
       }else if(activeView==='explorer'){
         activeView=enabled()?'':'tasks';
+        if(!enabled())restoreHistoryToTasks();
       }
       updateButtons();
     });
