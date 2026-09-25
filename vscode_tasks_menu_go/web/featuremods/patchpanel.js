@@ -200,6 +200,7 @@ function installPatchPanel(){
   .task-patch-panel.running .task-patch-running-head{display:block}
   .task-patch-running-title{font-weight:700;font-size:12px}
   .task-patch-running-meta{margin-top:3px;opacity:.72}
+  .task-patch-running-meta.stale{color:#e4be63;opacity:1}
   .task-patch-running-actions{display:flex;gap:6px;margin-top:8px}
   .task-patch-running-actions button{flex:1}
   .task-patch-panel.running .task-patch-panel-note,
@@ -468,6 +469,9 @@ function installPatchPanel(){
   let healthMode=false;
   let runningMode=false;
   let runningFinished=false;
+  let runningStartedAtMs=0;
+  let runningLastEventCount=-1;
+  let runningLastEventAtMs=0;
   for(const [mode,label,detail] of actionDefs){
     const button=document.createElement('button');
     button.type='button';
@@ -1488,9 +1492,13 @@ function installPatchPanel(){
   function enterRunningView(){
     runningMode=true;
     runningFinished=false;
+    runningStartedAtMs=Date.now();
+    runningLastEventCount=-1;
+    runningLastEventAtMs=runningStartedAtMs;
     panel.classList.add('running');
     runningTitle.textContent='Running';
-    runningMeta.textContent='Python is preparing or executing the selected work…';
+    runningMeta.classList.remove('stale');
+    runningMeta.textContent='Starting Python execution…';
     runningBack.hidden=true;
     runBox.hidden=false;
   }
@@ -1499,6 +1507,7 @@ function installPatchPanel(){
     if(!runningMode)return;
     runningFinished=true;
     runningTitle.textContent='Finished';
+    runningMeta.classList.remove('stale');
     runningMeta.textContent='Native run state is complete. Terminal evidence remains available.';
     runningBack.hidden=false;
   }
@@ -1506,8 +1515,12 @@ function installPatchPanel(){
   function leaveRunningView(){
     runningMode=false;
     runningFinished=false;
+    runningStartedAtMs=0;
+    runningLastEventCount=-1;
+    runningLastEventAtMs=0;
     panel.classList.remove('running');
     runningTitle.textContent='Running';
+    runningMeta.classList.remove('stale');
     runningMeta.textContent='Waiting for Python execution state…';
     runningBack.hidden=true;
     renderProgress(null);
@@ -1858,6 +1871,36 @@ function installPatchPanel(){
     applyQueuePromptSearch();
   }
 
+  function renderRunningHeartbeat(state){
+    if(!runningMode||runningFinished)return;
+    const now=Date.now();
+    if(!runningStartedAtMs)runningStartedAtMs=now;
+    const eventCount=Number(state?.event_count||0);
+    if(eventCount!==runningLastEventCount){
+      runningLastEventCount=eventCount;
+      runningLastEventAtMs=now;
+    }else if(!runningLastEventAtMs){
+      runningLastEventAtMs=now;
+    }
+    const activityAge=Math.max(0,(now-runningLastEventAtMs)/1000);
+    const progress=state?.progress&&typeof state.progress==='object'?state.progress:null;
+    const runningItem=Array.isArray(state?.items)?state.items.find(item=>String(item?.status||'').toUpperCase()==='RUNNING'):null;
+    const localElapsed=Math.max(0,(now-runningStartedAtMs)/1000);
+    const progressElapsed=Number(progress?.elapsed_seconds);
+    const elapsed=progress&&Number.isFinite(progressElapsed)?Math.max(localElapsed,progressElapsed):localElapsed;
+    const kind=String(progress?.item_kind||runningItem?.kind||'Work');
+    const phase=String(progress?.phase||'');
+    const output=Number(progress?.output_lines);
+    const parts=[kind+' running',elapsed.toFixed(1)+'s elapsed'];
+    if(phase)parts.push('phase '+phase);
+    if(progress&&Number.isFinite(output))parts.push(Math.max(0,output)+' output lines');
+    parts.push('protocol events '+Math.max(0,eventCount));
+    if(activityAge>=5)parts.push('no new protocol event for '+Math.floor(activityAge)+'s');
+    else parts.push('last activity '+activityAge.toFixed(1)+'s ago');
+    runningMeta.textContent=parts.join(' · ');
+    runningMeta.classList.toggle('stale',activityAge>=10);
+  }
+
   function renderProgress(progress){
     if(!progress||typeof progress!=='object'){
       progressNode.hidden=true;
@@ -2191,6 +2234,7 @@ function installPatchPanel(){
       if(state?.history_management_result)renderHistoryManagementResult(state.history_management_result);
       renderItemLifecycle(state?.items);
       renderProgress(state?.progress);
+      renderRunningHeartbeat(state);
       if(state?.action_result)renderActionResult(state.action_result);
       renderArtifacts(state?.artifacts);
       if(expectPrompt&&state?.commands_enabled===false&&(haveSnapshot||haveResumeSnapshot||haveHistorySnapshot)){

@@ -1024,3 +1024,26 @@ func TestPatchDeactivateKeepsTabAvailable(t *testing.T) {
 		if !strings.Contains(js,want) { t.Fatalf("Patch deactivate contract missing %q",want) }
 	}
 }
+
+
+func TestPatchRunningViewShowsLiveProtocolHeartbeat(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"let runningStartedAtMs=0",
+		"let runningLastEventCount=-1",
+		"function renderRunningHeartbeat(state)",
+		"eventCount!==runningLastEventCount",
+		"phase '+phase",
+		"output lines",
+		"protocol events ",
+		"no new protocol event for ",
+		"runningMeta.classList.toggle('stale',activityAge>=10)",
+		"renderRunningHeartbeat(state);",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("running heartbeat UI missing %q",want)
+		}
+	}
+}
