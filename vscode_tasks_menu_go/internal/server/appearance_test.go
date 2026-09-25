@@ -59,3 +59,23 @@ func TestDesktopAppearanceMigratesLegacyStorageWithoutFeedingMobile(t *testing.T
 		}
 	}
 }
+
+
+func TestAppearanceDefersWorkspaceStorageUntilTasksLoaded(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/appearance.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function workspaceName(){return String(app.taskData?.workspace||'').trim();}",
+		"if(!key)return fallback",
+		"if(app.taskData?.workspace)reloadWorkspaceAppearance()",
+		"window.addEventListener('taskmenu:tasks',reloadWorkspaceAppearance,{once:true})",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("appearance bootstrap guard missing %q", want)
+		}
+	}
+	if strings.Contains(js, "app.taskData.workspace") {
+		t.Fatal("appearance.js must not dereference taskData.workspace before /api/tasks has loaded")
+	}
+}

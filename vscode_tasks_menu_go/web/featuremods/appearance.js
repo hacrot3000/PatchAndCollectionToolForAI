@@ -18,15 +18,19 @@ html[data-taskmenu-theme="light"] .git-status-pill.dirty{background:#fff3cd;bord
 `;
 document.head.append(style);
 
-const workspaceKey=name=>'vscode-tasks-menu:'+name+':'+(app.layoutProfile||'desktop')+':'+app.taskData.workspace;
-const legacyWorkspaceKey=name=>'vscode-tasks-menu:'+name+':'+app.taskData.workspace;
+function workspaceName(){return String(app.taskData?.workspace||'').trim();}
+const workspaceKey=name=>{const workspace=workspaceName();return workspace?'vscode-tasks-menu:'+name+':'+(app.layoutProfile||'desktop')+':'+workspace:'';};
+const legacyWorkspaceKey=name=>{const workspace=workspaceName();return workspace?'vscode-tasks-menu:'+name+':'+workspace:'';};
 const families={default:'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',dejavu:'DejaVu Sans Mono, monospace',liberation:'Liberation Mono, monospace',mono:'monospace'};
 function read(name,fallback){
   try{
     const key=workspaceKey(name);
+    if(!key)return fallback;
     const current=localStorage.getItem(key);
     if(current!=null)return current;
     if(app.layoutProfile==='desktop'){
+      const legacyKey=legacyWorkspaceKey(name);
+      if(!legacyKey)return fallback;
       const legacy=localStorage.getItem(legacyWorkspaceKey(name));
       if(legacy!=null){
         localStorage.setItem(key,legacy);
@@ -36,7 +40,7 @@ function read(name,fallback){
   }catch(e){console.warn('Cannot read appearance setting',e);}
   return fallback;
 }
-function write(name,value){try{localStorage.setItem(workspaceKey(name),String(value));}catch(e){console.warn('Cannot persist appearance setting',e);}}
+function write(name,value){try{const key=workspaceKey(name);if(!key)return;localStorage.setItem(key,String(value));}catch(e){console.warn('Cannot persist appearance setting',e);}}
 
 let theme=read('theme','dark');if(theme!=='light')theme='dark';
 let fontKey=read('terminal-font','default');if(!families[fontKey])fontKey='default';
@@ -65,7 +69,15 @@ function applyAll(){
 function setTheme(value){theme=value==='light'?'light':'dark';write('theme',theme);applyAll();}
 function setFont(value){fontKey=families[value]?value:'default';write('terminal-font',fontKey);applyAll();}
 function setFontSize(value){fontSize=Math.max(10,Math.min(24,value));write('terminal-font-size',fontSize);applyAll();}
+function reloadWorkspaceAppearance(){
+  theme=read('theme','dark');if(theme!=='light')theme='dark';
+  fontKey=read('terminal-font','default');if(!families[fontKey])fontKey='default';
+  fontSize=Math.max(10,Math.min(24,Number(read('terminal-font-size','13'))||13));
+  themeSelect.value=theme;fontSelect.value=fontKey;applyAll();
+}
 
 themeSelect.onchange=()=>setTheme(themeSelect.value);fontSelect.onchange=()=>setFont(fontSelect.value);smaller.onclick=()=>setFontSize(fontSize-1);larger.onclick=()=>setFontSize(fontSize+1);
 window.addEventListener('taskmenu:session',event=>{const view=event.detail?.view;if(view)applyView(view);});
+if(app.taskData?.workspace)reloadWorkspaceAppearance();
+else window.addEventListener('taskmenu:tasks',reloadWorkspaceAppearance,{once:true});
 applyAll();

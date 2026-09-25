@@ -75,3 +75,21 @@ func TestProgressiveFeaturesConsoleFindAndSaveLog(t *testing.T) {
 		}
 	}
 }
+
+
+func TestProgressiveStateDefersLegacyWorkspaceAccessUntilTasksLoaded(t *testing.T) {
+	js := progressiveJS(t)
+	for _, want := range []string{
+		"String(app.taskData?.workspace||'').trim()",
+		"const taskDataReady=app.taskData?.workspace?Promise.resolve():new Promise",
+		"window.addEventListener('taskmenu:tasks',resolve,{once:true})",
+		"const projectStateReady=taskDataReady.then(()=>loadProjectState())",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("progressive bootstrap guard missing %q", want)
+		}
+	}
+	if strings.Contains(js, "app.taskData.workspace") {
+		t.Fatal("progressive feature module must not dereference taskData.workspace before tasks load")
+	}
+}

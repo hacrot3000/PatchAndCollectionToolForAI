@@ -28,9 +28,9 @@ let projectState=emptyProjectState();
 let projectStateLoaded=false;
 let projectStateSaveChain=Promise.resolve();
 
-function legacyStorageKey(name){return 'vscode-tasks-menu:'+name+':'+app.taskData.workspace;}
+function legacyStorageKey(name){const workspace=String(app.taskData?.workspace||'').trim();return workspace?'vscode-tasks-menu:'+name+':'+workspace:'';}
 function legacyRead(name,fallback){
-  try{const value=JSON.parse(localStorage.getItem(legacyStorageKey(name))||'null');return value??fallback;}catch{return fallback;}
+  try{const key=legacyStorageKey(name);if(!key)return fallback;const value=JSON.parse(localStorage.getItem(key)||'null');return value??fallback;}catch{return fallback;}
 }
 function normalizeIDs(values,limit){
   const out=[];const seen=new Set();
@@ -57,7 +57,7 @@ function normalizeProjectState(raw){
 }
 function projectStateHasData(state){return state.favorites.length>0||state.recent.length>0||state.history.length>0;}
 function clearLegacyProjectState(){
-  try{for(const name of ['favorites','recent','history'])localStorage.removeItem(legacyStorageKey(name));}catch(e){console.warn('Cannot clear legacy task state',e);}
+  try{for(const name of ['favorites','recent','history']){const key=legacyStorageKey(name);if(key)localStorage.removeItem(key);}}catch(e){console.warn('Cannot clear legacy task state',e);}
 }
 function queueProjectStateSave(){
   const snapshot=normalizeProjectState(projectState);projectState=snapshot;
@@ -75,7 +75,8 @@ async function loadProjectState(){
   clearLegacyProjectState();
   projectStateLoaded=true;refresh();
 }
-const projectStateReady=loadProjectState().catch(e=>{
+const taskDataReady=app.taskData?.workspace?Promise.resolve():new Promise(resolve=>window.addEventListener('taskmenu:tasks',resolve,{once:true}));
+const projectStateReady=taskDataReady.then(()=>loadProjectState()).catch(e=>{
   console.warn('Cannot load project task state; using legacy browser state for this page',e);
   projectState=normalizeProjectState({favorites:legacyRead('favorites',[]),recent:legacyRead('recent',[]),history:legacyRead('history',[])});
   projectStateLoaded=true;refresh();
