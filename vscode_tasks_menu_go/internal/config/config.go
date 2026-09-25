@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -14,6 +16,23 @@ import (
 const (
 	ProtocolHTTP  = "http"
 	ProtocolHTTPS = "https"
+)
+
+var sharedProjectIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}package config
+
+import (
+	"bufio"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"bletonfc/vscode_tasks_menu/internal/projectfiles"
+)
+
 )
 
 type Config struct {
@@ -128,6 +147,15 @@ func (c Config) Validate() error {
 	}
 	if c.AuthEnabled && (strings.TrimSpace(c.Username) == "" || c.Password == "" || c.Password == "change-me") {
 		return fmt.Errorf("[auth] enabled=true yêu cầu username/password riêng; không được dùng password mặc định change-me")
+	}
+	if c.SharedServerEnabled {
+		projectID := strings.TrimSpace(c.SharedProjectID)
+		if !sharedProjectIDPattern.MatchString(projectID) {
+			return fmt.Errorf("[shared_server] enabled=true yêu cầu project_id hợp lệ (1-128 ký tự: chữ, số, '.', '_' hoặc '-')")
+		}
+		if identityDB := strings.TrimSpace(c.SharedIdentityDB); identityDB != "" && !filepath.IsAbs(identityDB) {
+			return fmt.Errorf("[shared_server] identity_db phải là đường dẫn tuyệt đối khi được cấu hình")
+		}
 	}
 	if err := c.validateRemoteAuthHost(c.Bind); err != nil {
 		return err
