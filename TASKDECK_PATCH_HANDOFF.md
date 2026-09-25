@@ -101,7 +101,7 @@ The gate now checks product-level invariants rather than merely renderer/protoco
 
 **This is the current blocking acceptance task.**
 
-Minimum native-UI code checkpoint remains `15711d4d`, but revision `a0b774c8` cannot be installed through self-update because the repository-document guard was mistakenly placed inside `go test ./...`. **For self-update/browser smoke, install `30d1b069` or a later descendant on `main`.**
+Minimum native-UI code checkpoint remains `15711d4d`, but revision `a0b774c8` cannot be installed through self-update because the repository-document guard was mistakenly placed inside `go test ./...`. **For self-update/browser smoke, install `945f9514` or a later descendant on `main`.**
 
 Checkpoint `15711d4d` passed GitHub Actions run `36087008801`. The self-update staging regression is fixed by `5b9a37e2` + `572368a1` + `3dbf06fb`, with a non-regression guard added in `afbb82be`.
 
@@ -234,6 +234,22 @@ Installed-runtime feedback changed the intended desktop interaction without chan
 
 Verification: GitHub Actions run `36090834860` PASS on Go 1.19 and Go 1.23, including
 `Self-update staged Go tests`, full tests, vet and build.
+
+## Resolved grouped-menu bootstrap crash
+
+After adding the Patch Tool interface selector, `menus.js` created its workspace-scoped localStorage
+key during module evaluation. Because `app.js` uses top-level await while loading `/api/tasks`,
+sibling feature modules may execute before `app.taskData` is populated. That produced:
+
+`TypeError: can't access property "workspace", app.taskData is null`
+
+Fix `945f9514` makes `installHeaderMenus()` fail closed until
+`app.taskData?.workspace` exists, then retries exactly once on `taskmenu:tasks`. The module no
+longer contains a direct `app.taskData.workspace` dereference. A repository search also found no
+remaining direct `taskData.workspace` access under `web/featuremods/`.
+
+GitHub Actions run `36091412442` PASS on Go 1.19 and 1.23, including staged self-update tests,
+full tests, vet and build.
 
 ## Non-regression invariants
 

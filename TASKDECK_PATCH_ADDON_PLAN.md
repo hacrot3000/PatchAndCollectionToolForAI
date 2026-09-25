@@ -509,10 +509,11 @@ Every phase must preserve:
 | Self-update repo-doc test fix | DONE | 5b9a37e2 / afbb82be / 19c2ebc3 | Removed the invalid Go test dependency on root docs, moved the doc guard to repository CI, added a module non-regression check, and added a CI lane that runs `go test ./...` from the exact docs-free self-update staged source. Run 36087734095 PASS on Go 1.19/1.23. |
 | Phase 2E.2 smoke defect: pre-capability broker loses Patch protocol | FIXED, NEEDS INSTALLED SMOKE | 0ef148e8 / 973af90b / f22cf21e / 114a9222 | Legacy broker can survive self-update with protocol_version=1 but no Patch protocol capabilities. CompatibilityService preserves broker-owned terminals while routing only unsupported Patch protocol sessions to a local Manager; FD3 Health fallback integration test and staged-source CI run 36088980153 PASS on Go 1.19/1.23. Bootstrap taskData=null noise fixed separately. |
 | Phase 2E.2 UX correction: native tab + file actions + selectable legacy UI | IMPLEMENTED, NEEDS INSTALLED SMOKE | ae9acfcf / b917de9f / 94715c30 / 459c5f06 / 30d1b069 | Native Patch is a real switchable workspace tab; Open reveals editor; Copy path copies absolute workspace path; Settings can select Native UI or Terminal (legacy). Legacy mode disables protocol/native Python flags. CI 36090834860 PASS on Go 1.19/1.23. |
+| Phase 2E.2 smoke defect: grouped-menu bootstrap before task data | FIXED, NEEDS INSTALLED SMOKE | 945f9514 | Settings/header menus now defer workspace-scoped initialization until `taskmenu:tasks`; direct `app.taskData.workspace` access removed from featuremods. CI 36091412442 PASS on Go 1.19/1.23. |
 
 ## Next action
 
 Phase 2A–2D and the automated Phase 2E.1 product gate are implemented. **Do not close Phase 2 yet.**
-Next is Phase 2E.2 installed-runtime browser smoke after TaskDeck self-update to **`30d1b069` or a later descendant**: verify the actual UI
+Next is Phase 2E.2 installed-runtime browser smoke after TaskDeck self-update to **`945f9514` or a later descendant**: verify the actual UI
 does not create a terminal tab for Queue/Resume/History/Plan/Health, while explicit terminal
 evidence still materializes one. Only after that passes may Phase 2F closeout be marked DONE.
