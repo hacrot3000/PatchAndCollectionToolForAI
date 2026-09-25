@@ -48,7 +48,7 @@ taskdeck patch plan   # xem plan
 taskdeck patch report # xem history/report
 ```
 
-Panel **Patch** là đường web chính cho Queue/Failed, Running/progress/artifacts, Resume, History, Plan và Health. PTY/terminal vẫn được giữ làm evidence/fallback; `taskdeck patch ...` vẫn là giao diện CLI được hỗ trợ chính thức.
+Panel **Patch** đang được chuyển sang native workspace cho Queue/Failed, Running/progress/artifacts, Resume, History, Plan và Health. Phần code cutover Phase 2 đã được triển khai và CI kiểm tra, nhưng **browser smoke trên bản TaskDeck đã self-update vẫn còn pending**; vì vậy chưa được phép coi tích hợp native UI là hoàn tất. PTY/terminal vẫn được giữ làm evidence/fallback; `taskdeck patch ...` vẫn là giao diện CLI được hỗ trợ chính thức. Trạng thái recovery chính xác nằm trong `TASKDECK_PATCH_HANDOFF.md`.
 
 Dữ liệu project vẫn nằm trong project (`patchs/`, `artifacts/patch_tool/`, `artifacts/ptv_to_ai/`, `.python_patch_tool.json`). Runtime Patch Tool không cần nằm trong `PROJECT_ROOT/tools/` sau khi migrate. Launcher legacy đã xác minh có thể được TaskDeck thay bằng shim tương thích chuyển tiếp sang `taskdeck patch`.
 
@@ -119,7 +119,7 @@ cd PROJECT_ROOT
 taskdeck patch
 ```
 
-Hoặc mở `taskdeck` và dùng panel **Patch** để thao tác native trên web. Các lệnh/flag nâng cao chưa có UI vẫn chạy qua `taskdeck patch ...`.
+Hoặc mở `taskdeck` và dùng panel **Patch** để kiểm tra luồng native đang được cut over. Cho đến khi Phase 2E.2 browser smoke PASS, không được suy ra rằng toàn bộ native UI đã hoàn tất chỉ vì các renderer/protocol tồn tại. Các lệnh/flag nâng cao chưa có UI vẫn chạy qua `taskdeck patch ...`.
 
 Đường launcher project-local bên dưới là compatibility path và vẫn được giữ:
 
@@ -253,7 +253,7 @@ taskdeck patch plan   # inspect the plan
 taskdeck patch report # inspect history/report
 ```
 
-The **Patch** panel is the primary web path for Queue/Failed, Running/progress/artifacts, Resume, History, Plan, and Health. PTY/terminal remains an explicit evidence/fallback surface, and `taskdeck patch ...` remains a supported first-class CLI.
+The **Patch** panel is being cut over to a native workspace for Queue/Failed, Running/progress/artifacts, Resume, History, Plan, and Health. The corrected Phase 2 code path is implemented and covered by CI, but **installed-runtime browser smoke after self-update is still pending**, so the native UI integration must not yet be treated as complete. PTY/terminal remains an explicit evidence/fallback surface, and `taskdeck patch ...` remains a supported first-class CLI. See `TASKDECK_PATCH_HANDOFF.md` for the current recovery state.
 
 Project data stays project-local (`patchs/`, `artifacts/patch_tool/`, `artifacts/ptv_to_ai/`, and `.python_patch_tool.json`). The Patch Tool runtime no longer needs to live under `PROJECT_ROOT/tools/` after migration. A verified legacy launcher may be replaced by a compatibility shim that forwards to `taskdeck patch`.
 
@@ -324,7 +324,7 @@ cd PROJECT_ROOT
 taskdeck patch
 ```
 
-Or launch `taskdeck` and use the native **Patch** panel. Advanced commands/flags that intentionally remain CLI-only can still be invoked through `taskdeck patch ...`.
+Or launch `taskdeck` and exercise the **Patch** panel's native cutover path. Until Phase 2E.2 browser smoke passes, do not infer full native-UI completion merely from the presence of renderers/protocol endpoints. Advanced commands/flags that intentionally remain CLI-only can still be invoked through `taskdeck patch ...`.
 
 The project-local launcher below remains a compatibility path:
 
