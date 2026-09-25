@@ -145,8 +145,8 @@ func derivePasswordScrypt(ctx context.Context, password, salt []byte) ([]byte, e
 		return nil, err
 	}
 	request := passwordScryptRequest{
-		Password: base64.RawStdEncoding.EncodeToString(password),
-		Salt:     base64.RawStdEncoding.EncodeToString(salt),
+		Password: base64.StdEncoding.EncodeToString(password),
+		Salt:     base64.StdEncoding.EncodeToString(salt),
 		N:        1 << passwordScryptLogN,
 		R:        passwordScryptR,
 		P:        passwordScryptP,
