@@ -104,7 +104,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"failure?.diagnosis_kind",
 		"snapshot?.group_counts",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,deactivate,toggle,start,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,submitHistoryCleanup,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
+		"TaskMenuPatchPanel={open,close,deactivate,toggle,start,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {
@@ -752,15 +752,17 @@ func TestPatchPanelHistoryCleanupIsCapabilityDrivenAndUsesPythonCounts(t *testin
 		"actions.has('cleanup')",
 		"destructive.has('cleanup')",
 		"constraints.cleanup",
-		"remove_unpinned_idle_then_oldest_unpinned_over_limit",
-		"cleanup.idle_eligible",
-		"cleanup.overflow_eligible",
+		"remove_unpinned_older_than_days",
+		"cleanup.min_days",
+		"cleanup.max_days",
+		"cleanup.day_options",
 		"cleanup.pinned",
-		"cleanup.limit",
-		"historyCleanupButton.textContent=cleanup.eligible>0",
+		"populateHistoryCleanupDays(cleanup)",
+		"historyCleanupPreviewButton",
+		"historyCleanupDelete",
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("native History Cleanup capability UI missing %q", want)
+			t.Fatalf("native History age Cleanup capability UI missing %q", want)
 		}
 	}
 }
@@ -770,9 +772,13 @@ func TestPatchPanelHistoryCleanupIsPromptBoundCorrelatedAndListFree(t *testing.T
 	if err != nil { t.Fatal(err) }
 	js := string(data)
 	for _, want := range []string{
-		"async function submitHistoryCleanup(sessionId,prompt)",
+		"async function submitHistoryCleanupPreview(sessionId,prompt)",
+		"async function submitHistoryCleanupDelete(sessionId,prompt)",
 		"/history-cleanup",
-		"body:JSON.stringify({prompt_id:promptID,confirmed:true})",
+		"older_than_days:olderThanDays",
+		"confirmed:false",
+		"confirmed:true",
+		"preview_cleanup_id:String(preview.cleanup_id||'')",
 		"response?.cleanup_id",
 		"async function waitForHistoryCleanup(sessionId,cleanupID,promptID,snapshotBefore)",
 		"result?.cleanup_id===cleanupID",
@@ -785,13 +791,13 @@ func TestPatchPanelHistoryCleanupIsPromptBoundCorrelatedAndListFree(t *testing.T
 			t.Fatalf("native History Cleanup correlation UI missing %q", want)
 		}
 	}
-	start := strings.Index(js, "async function submitHistoryCleanup")
+	start := strings.Index(js, "async function submitHistoryCleanupPreview")
 	endRel := strings.Index(js[start:], "function historyActionsForRun")
 	if start < 0 || endRel < 0 { t.Fatal("History Cleanup function bounds unavailable") }
 	block := js[start:start+endRel]
-	for _, forbidden := range []string{"run_id:", "run_ids", "candidates:", "paths:"} {
+	for _, forbidden := range []string{"run_id:", "run_ids", "candidates:", "paths:", "cutoff_at:", "candidate_digest:"} {
 		if strings.Contains(block, forbidden) {
-			t.Fatalf("History Cleanup browser request must not choose cleanup candidates: %q", forbidden)
+			t.Fatalf("History Cleanup browser request must not choose cleanup candidates or integrity binding: %q", forbidden)
 		}
 	}
 }
@@ -1509,6 +1515,27 @@ func TestPatchPanelAutoLoadsQueueOnFirstNativeOpen(t *testing.T) {
 	} {
 		if !strings.Contains(js,want) {
 			t.Fatalf("first native Patch open must auto-load Queue: missing %q",want)
+		}
+	}
+}
+
+func TestPatchPanelHistorySearchFiltersByAnyProjectedFileName(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"Filter PATCH/COLLECT by file name…",
+		"function historyRunMatchesSearch(run)",
+		"Array.isArray(run?.search_names)?run.search_names:[run?.primary_name]",
+		"toLocaleLowerCase().includes(query)",
+		"function setHistorySearchQuery(value)",
+		"const filteredRuns=runs.filter(historyRunMatchesSearch)",
+		"historySearchInput.oninput=()=>setHistorySearchQuery(historySearchInput.value)",
+		"historySearchClear.onclick=()=>{setHistorySearchQuery('');historySearchInput.focus();}",
+		"No History run matches this file name",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native History search missing %q", want)
 		}
 	}
 }
