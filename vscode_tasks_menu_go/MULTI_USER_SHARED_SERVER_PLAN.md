@@ -794,15 +794,15 @@ No login/RBAC behavior change yet.
 - [x] Add driver-independent SQLite open/configure/migration infrastructure on Go stdlib `database/sql`.
 - [x] Initial schema: users/projects/roles/permissions/memberships/member overrides/sessions/audit.
 - [x] Implement the SQL-backed Store surface: Reader, SessionStore, AuditStore and AdminStore.
-- [ ] Select and vendor a concrete portable SQLite driver; no network package install may be required by build/self-update.
-- [ ] Run real SQLite WAL/busy-timeout and multi-process DB tests using the selected driver.
+- [x] Provide a concrete portable SQLite driver without a Go third-party dependency: a long-lived Python 3.10+ stdlib `sqlite3` helper behind `database/sql`.
+- [x] Run real SQLite WAL/busy-timeout and multi-process DB tests using separate helper processes.
 - [ ] Password hashing helper using Argon2id.
 
 Implementation notes:
 
 - The driver-independent layer and Store implementation use only the Go standard library and are covered by an internal fake `database/sql/driver`, so CI/self-update remains `GOPROXY=off`.
 - TaskDeck currently keeps its Go dependency surface very small and locally replaced/vendored. Go stdlib provides `database/sql` but does not provide SQLite itself, so a concrete SQLite driver is one of the cases where an external dependency may be genuinely necessary.
-- The concrete driver checkpoint must preserve Go 1.19 compatibility, portable/offline self-update builds and multi-process WAL semantics. Prefer a pure-Go driver so TaskDeck does not silently acquire a C compiler/CGO installation requirement.
+- The concrete driver uses the already-supported Python runtime and its stdlib `sqlite3`; it does not require CGO, a C compiler, `go get`, pip or npm. Shared mode fails closed when Python 3.10+ / `sqlite3` is unavailable, while legacy mode does not initialize this driver.
 - No npm dependency is permitted for this feature while a viable Go/non-npm implementation exists.
 
 No HTTP login change until the real SQLite layer and password hashing are tested.
