@@ -528,7 +528,7 @@ function installPatchPanel(){
   const aiPackRefresh=document.createElement('button');aiPackRefresh.type='button';aiPackRefresh.textContent='Prepare / Refresh';
   const aiPackCopyPrompt=document.createElement('button');aiPackCopyPrompt.type='button';aiPackCopyPrompt.textContent='Copy Prompt';aiPackCopyPrompt.disabled=true;
   const aiPackDownload=document.createElement('a');aiPackDownload.textContent='Download ZIP';aiPackDownload.hidden=true;aiPackDownload.download='';
-  const aiPackCopyPath=document.createElement('button');aiPackCopyPath.type='button';aiPackCopyPath.textContent='Copy path';aiPackCopyPath.disabled=true;
+  const aiPackCopyPath=document.createElement('button');aiPackCopyPath.type='button';aiPackCopyPath.textContent='Copy ZIP path';aiPackCopyPath.title='Copy absolute ZIP path on the TaskDeck host';aiPackCopyPath.disabled=true;
   aiPackActions.append(aiPackRefresh,aiPackCopyPrompt,aiPackDownload,aiPackCopyPath);
   const aiPackPrompt=document.createElement('details');aiPackPrompt.className='task-patch-ai-pack-prompt';
   const aiPackPromptSummary=document.createElement('summary');aiPackPromptSummary.textContent='Standard prompt · Vietnamese';
