@@ -777,12 +777,14 @@ No login/RBAC behavior change yet.
 
 ### Phase 2 — Identity store foundation
 
-1. Introduce identity package/interfaces.
-2. Secure data-directory/path resolution.
-3. SQLite open/configure/migration infrastructure.
-4. Initial schema: users/projects/roles/permissions/memberships/member overrides/sessions/audit.
-5. WAL/busy-timeout and multi-process DB tests.
-6. Password hashing helper using Argon2id.
+- [x] Introduce identity package/domain model/interfaces.
+- [x] Secure durable data-directory/path resolution outside the workspace.
+- [ ] SQLite open/configure/migration infrastructure.
+- [x] Initial schema: users/projects/roles/permissions/memberships/member overrides/sessions/audit.
+- [ ] WAL/busy-timeout and multi-process DB tests.
+- [ ] Password hashing helper using Argon2id.
+
+Implementation note: TaskDeck currently keeps its Go dependency surface very small and locally replaced/vendored. The SQLite driver must preserve portable/self-update builds rather than silently introducing a network-only build dependency. Driver integration is therefore isolated as its own checkpoint after the store boundary/schema are stable.
 
 No HTTP login change until this layer is tested.
 
