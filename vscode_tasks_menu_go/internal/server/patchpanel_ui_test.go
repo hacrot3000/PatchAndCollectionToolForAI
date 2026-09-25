@@ -998,13 +998,14 @@ func TestPatchQueuePromptDoesNotDuplicateActionableItems(t *testing.T) {
 		"summary.classList.add('prompt-active')",
 		"summaryTitle.textContent='Queue overview'",
 		"summary.classList.remove('prompt-active')",
+		"for(const item of runnableItems)",
+		"promptBox.hidden=true",
 	} {
 		if !strings.Contains(js,want) {
 			t.Fatalf("queue prompt duplicate suppression missing %q",want)
 		}
 	}
 }
-
 
 func TestPatchDeactivateKeepsTabAvailable(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
@@ -1173,7 +1174,7 @@ func TestPatchAddModeAllowsCollectButLocksPatchAndRunningItems(t *testing.T) {
 		"input.disabled=locked",
 		"already running",
 		"locked while active run exists",
-		"selectAll.dataset.patchLocked=(addingWhileRuns||!runnableItems.length)?'1':'0'",
+		"selectAll.dataset.patchLocked=addingWhileRuns?'1':'0'",
 		"remove.dataset.patchLocked=duplicateRunning?'1':'0'",
 		"activeRunningRunCount()>0",
 	} {
@@ -1186,14 +1187,19 @@ func TestPatchQueueCanRefreshWhileBackgroundRunsContinue(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	js := string(data)
 	for _, want := range []string{
-		"refresh.textContent='Refresh Queue'",
-		"refreshQueueSession(sessionId).catch(app.showError)",
+		"summaryRefresh.textContent='Refresh Queue'",
+		"summaryRefresh.onclick=()=>refreshQueueFromSummary().catch(app.showError)",
+		"async function refreshQueueFromSummary()",
+		"if(activeSessionId)return refreshQueueSession(activeSessionId)",
 		"async function refreshQueueSession(sessionId)",
 		"/stop',{method:'POST'}",
 		"await start('queue')",
 		"if(parallelCollectRuns.size)void pollParallelCollectRuns()",
 	} {
 		if !strings.Contains(js,want) { t.Fatalf("Queue refresh contract missing %q",want) }
+	}
+	if strings.Contains(js,"const refresh=document.createElement('button');refresh.type='button';refresh.textContent='Refresh Queue'") {
+		t.Fatal("Queue selector must not duplicate the persistent Refresh Queue button")
 	}
 }
 
@@ -1426,7 +1432,10 @@ func TestPatchQueueRefreshRemainsAvailableWhenEmpty(t *testing.T) {
 		"async function refreshQueueFromSummary()",
 		"summaryRefresh.onclick=()=>refreshQueueFromSummary().catch(app.showError)",
 		"const runnableItems=items.filter",
-		"No runnable PATCH/COLLECT item is currently available. Refresh Queue to detect newly added work.",
+		"if(!runnableItems.length){",
+		"promptBox.hidden=true",
+		"return 'empty'",
+		"if(queuePromptMode==='selection')summaryStatus.textContent+=' · Awaiting selection'",
 	} {
 		if !strings.Contains(js,want) {
 			t.Fatalf("empty Queue refresh UI missing %q",want)
@@ -1441,15 +1450,25 @@ func TestPatchQueueSkippedFilesHaveSafeDeleteUI(t *testing.T) {
 	for _, want := range []string{
 		"const skippedRows=Array.isArray(latestQueueSnapshot?.skipped)",
 		"task-patch-summary-warning-delete",
-		"const skipped=itemKind==='SKIPPED'||item?.selectable===false",
-		"row.classList.toggle('skipped',skipped)",
-		"input.disabled=locked;input.hidden=skipped",
-		"skipped?'SKIPPED'",
 		"submitQueueDelete(skipped,promptItem)",
+		"const runnableItems=items.filter(item=>String(item?.kind||'').toUpperCase()!=='SKIPPED'&&item?.selectable!==false)",
+		"for(const item of runnableItems)",
+		"SKIPPED entries stay inside the Python-owned prompt only as hidden",
+		"if(!runnableItems.length){",
+		"promptBox.hidden=true",
 		"if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);else renderQueueRows()",
 	} {
 		if !strings.Contains(js,want) {
 			t.Fatalf("SKIPPED Queue delete UI missing %q",want)
+		}
+	}
+	for _, forbidden := range []string{
+		"row.classList.toggle('skipped',skipped)",
+		"input.disabled=locked;input.hidden=skipped",
+		"skipped?'SKIPPED'",
+	} {
+		if strings.Contains(js,forbidden) {
+			t.Fatalf("SKIPPED entries must not be duplicated in runnable selector: %q",forbidden)
 		}
 	}
 }
@@ -1471,6 +1490,22 @@ func TestPatchRunLifecycleUsesDistinctStatusColors(t *testing.T) {
 	} {
 		if !strings.Contains(js,want) {
 			t.Fatalf("Patch lifecycle status styling missing %q",want)
+		}
+	}
+}
+
+
+func TestPatchPanelAutoLoadsQueueOnFirstNativeOpen(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function open(){",
+		"if(!activeSessionId&&!latestQueueSnapshot&&!runningMode&&!historyMode&&!planMode&&!healthMode)",
+		"void start('queue').catch(app.showError)",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("first native Patch open must auto-load Queue: missing %q",want)
 		}
 	}
 }
