@@ -1078,3 +1078,41 @@ func TestPatchArtifactsGroupZipAndTxtWithSeparateActions(t *testing.T) {
 	}
 	if strings.Contains(js,"label.textContent=artifactLabels[kind]") { t.Fatal("artifact UI still renders ZIP/TXT as separate logical rows") }
 }
+
+
+func TestPatchNativeParallelCollectUsesIndependentSessions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function parallelCollectCapability(prompt)",
+		"String(raw.strategy||'')!=='independent_processes'",
+		"max>16",
+		"Select all COLLECT (parallel)",
+		"function launchParallelCollect(sessionId,prompt,indexes)",
+		"/parallel-collect",
+		"function pollParallelCollectRuns()",
+		"parallelCollectRuns=new Map()",
+		"Parallel COLLECT running",
+		"appendProtocolArtifactGroups(artifacts,run.state?.artifacts)",
+		"openTerminalEvidenceForSession(run.sessionId)",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("parallel COLLECT UI missing %q",want) }
+	}
+	if strings.Contains(js,"terminal.write") { t.Fatal("parallel COLLECT native UI must not infer state from terminal text") }
+}
+
+func TestPatchParallelCollectSelectionDoesNotBreakSingleCollectInvariant(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"selectedCollects.length>parallel.max",
+		"kind==='PATCH'",
+		"kind==='COLLECT'",
+		"indexes.length>1&&parallel&&kinds.every(kind=>kind==='COLLECT')",
+		"submitPromptResponse(sessionId,prompt,'select')",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("parallel/single COLLECT selection contract missing %q",want) }
+	}
+}

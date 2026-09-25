@@ -216,6 +216,19 @@ function installPatchPanel(){
   .task-patch-panel.running .task-patch-prompt,
   .task-patch-panel.running .task-patch-resume,
   .task-patch-panel.running .task-patch-actions{display:none!important}
+  .task-patch-parallel{margin:0 0 10px;padding:8px;border:1px solid #30343b;border-radius:6px;background:#0d1015;font-size:11px}
+  .task-patch-parallel[hidden]{display:none}
+  .task-patch-parallel-title{font-weight:700;margin-bottom:6px}
+  .task-patch-parallel-list{display:grid;gap:7px}
+  .task-patch-parallel-run{padding:7px;border-radius:5px;background:#171c23}
+  .task-patch-parallel-run-head{display:flex;align-items:flex-start;gap:7px}
+  .task-patch-parallel-run-name{min-width:0;flex:1;font-weight:600;overflow-wrap:anywhere}
+  .task-patch-parallel-run-status{font-weight:700;white-space:nowrap}
+  .task-patch-parallel-run-meta{margin-top:3px;opacity:.72;overflow-wrap:anywhere}
+  .task-patch-parallel-run-meta.stale{color:#e4be63;opacity:1}
+  .task-patch-parallel-run-actions{display:flex;gap:5px;margin-top:5px}
+  .task-patch-parallel-run-actions button{font-size:10px;padding:3px 6px}
+  .task-patch-parallel-artifacts{display:grid;gap:5px;margin-top:6px}
   .task-patch-run{margin:0 0 10px;padding:8px;border:1px solid #30343b;border-radius:6px;background:#0d1015;font-size:11px}
   .task-patch-run[hidden]{display:none}
   .task-patch-run-title{font-weight:700;margin-bottom:6px}
@@ -278,6 +291,8 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-history-management{background:#fff;border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-history-cleanup{background:#fffaf0;border-color:#d8c69c}
   html[data-taskmenu-theme="light"] .task-patch-history-detail{border-color:#d0d7de}
+  html[data-taskmenu-theme="light"] .task-patch-parallel{background:#f6f8fa;border-color:#d0d7de}
+  html[data-taskmenu-theme="light"] .task-patch-parallel-run{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-run{background:#f6f8fa;border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-run-item{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-progress{background:#fff}
@@ -413,6 +428,11 @@ function installPatchPanel(){
   runningActions.append(terminalEvidence,runningBack);
   runningHead.append(runningTitle,runningMeta,runningActions);
 
+  const parallelCollectBox=document.createElement('div');parallelCollectBox.className='task-patch-parallel';parallelCollectBox.hidden=true;
+  const parallelCollectTitle=document.createElement('div');parallelCollectTitle.className='task-patch-parallel-title';parallelCollectTitle.textContent='Parallel COLLECT';
+  const parallelCollectList=document.createElement('div');parallelCollectList.className='task-patch-parallel-list';
+  parallelCollectBox.append(parallelCollectTitle,parallelCollectList);
+
   const runBox=document.createElement('div');runBox.className='task-patch-run';runBox.hidden=true;
   const runTitle=document.createElement('div');runTitle.className='task-patch-run-title';runTitle.textContent='Run status';
   const progressNode=document.createElement('div');progressNode.className='task-patch-progress';progressNode.hidden=true;
@@ -428,7 +448,7 @@ function installPatchPanel(){
   artifactBox.append(artifactTitle,artifactList);
 
   const actions=document.createElement('div');actions.className='task-patch-actions';
-  body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,planBox,healthBox,runningHead,runBox,artifactBox,actions);
+  body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,planBox,healthBox,runningHead,parallelCollectBox,runBox,artifactBox,actions);
   panel.append(head,body);
   panesHost.append(panel);
 
@@ -483,6 +503,9 @@ function installPatchPanel(){
   let runningStartedAtMs=0;
   let runningLastEventCount=-1;
   let runningLastEventAtMs=0;
+  let parallelCollectBusy=false;
+  let parallelCollectPollGeneration=0;
+  const parallelCollectRuns=new Map();
   for(const [mode,label,detail] of actionDefs){
     const button=document.createElement('button');
     button.type='button';
@@ -499,8 +522,9 @@ function installPatchPanel(){
     const visible=Boolean(value);
     panel.classList.toggle('visible',visible);
     patchTab.classList.toggle('active',visible);
-    if(!visible){protocolPollGeneration+=1;actionPollGeneration+=1;queueMutationPollGeneration+=1;historyPollGeneration+=1;historyManagementPollGeneration+=1;historySupportPollGeneration+=1;historyCleanupPollGeneration+=1;}
+    if(!visible){protocolPollGeneration+=1;actionPollGeneration+=1;queueMutationPollGeneration+=1;historyPollGeneration+=1;historyManagementPollGeneration+=1;historySupportPollGeneration+=1;historyCleanupPollGeneration+=1;parallelCollectPollGeneration+=1;}
     if(visible&&activeSessionId)void pollProtocol(activeSessionId,!runningMode&&!planMode&&!healthMode,true);
+    if(visible&&parallelCollectRuns.size)void pollParallelCollectRuns();
     window.dispatchEvent(new CustomEvent('taskmenu:patch-panel-visible',{detail:{visible}}));
   }
   function rememberReturnView(){
@@ -1539,6 +1563,7 @@ function installPatchPanel(){
     runningTitle.textContent='Running';
     runningMeta.classList.remove('stale');
     runningMeta.textContent='Starting Python execution…';
+    terminalEvidence.hidden=false;
     runningBack.hidden=true;
     runBox.hidden=false;
   }
@@ -1563,22 +1588,28 @@ function installPatchPanel(){
     runningMeta.classList.remove('stale');
     runningMeta.textContent='Waiting for Python execution state…';
     runningBack.hidden=true;
+    terminalEvidence.hidden=false;
+    resetParallelCollectRuns();
     renderProgress(null);
     renderItemLifecycle([]);
     renderArtifacts([]);
     if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);
   }
 
-  async function openTerminalEvidence(){
-    if(!activeSessionId)return false;
-    if(!app.views.has(activeSessionId)){
-      const meta=await app.jsonFetch(`/api/sessions/${encodeURIComponent(activeSessionId)}`);
+  async function openTerminalEvidenceForSession(sessionId){
+    if(!sessionId)return false;
+    if(!app.views.has(sessionId)){
+      const meta=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
       app.materializeSession(meta,false);
     }
     setVisible(false);
-    app.activateView(activeSessionId);
-    returnViewId=activeSessionId;
+    app.activateView(sessionId);
+    returnViewId=sessionId;
     return true;
+  }
+
+  async function openTerminalEvidence(){
+    return openTerminalEvidenceForSession(activeSessionId);
   }
 
   function clearActionResult(){
@@ -1626,7 +1657,7 @@ function installPatchPanel(){
   }
 
   function refreshActionDisabledState(){
-    const busy=actionBusy||queueMutationBusy;
+    const busy=actionBusy||queueMutationBusy||parallelCollectBusy;
     for(const button of summaryList.querySelectorAll('.task-patch-item-action,.task-patch-queue-delete'))button.disabled=busy;
     for(const button of promptItems.querySelectorAll('.task-patch-prompt-delete'))button.disabled=busy;
     for(const button of promptButtons.querySelectorAll('button'))button.disabled=busy;
@@ -2032,9 +2063,9 @@ function installPatchPanel(){
     line.append(formatNode,pathNode,actionsNode);host.append(line);
   }
 
-  function renderArtifacts(artifacts){
+  function appendProtocolArtifactGroups(host,artifacts){
     const groups=groupProtocolArtifacts(artifacts);
-    artifactList.replaceChildren();
+    host.replaceChildren();
     for(const group of groups){
       const row=document.createElement('div');row.className='task-patch-artifact';
       const head=document.createElement('div');head.className='task-patch-artifact-head';
@@ -2045,9 +2076,13 @@ function installPatchPanel(){
       const variants=document.createElement('div');variants.className='task-patch-artifact-variants';
       group.variants.sort((a,b)=>String(a.format).localeCompare(String(b.format)));
       for(const variant of group.variants)appendArtifactVariant(variants,variant);
-      row.append(head,variants);artifactList.append(row);
+      row.append(head,variants);host.append(row);
     }
-    artifactBox.hidden=groups.length===0;
+    return groups.length;
+  }
+
+  function renderArtifacts(artifacts){
+    artifactBox.hidden=appendProtocolArtifactGroups(artifactList,artifacts)===0;
   }
 
   function clearPrompt(){
@@ -2100,6 +2135,35 @@ function installPatchPanel(){
     return rows;
   }
 
+  function parallelCollectCapability(prompt){
+    const raw=prompt?.constraints?.parallel_collect_processes;
+    if(!raw||typeof raw!=='object'||String(raw.strategy||'')!=='independent_processes')return null;
+    const max=Number(raw.max);
+    if(!Number.isInteger(max)||max<2||max>16)return null;
+    return {max};
+  }
+
+  function selectedPromptInputs(){
+    return [...promptItems.querySelectorAll('input[type="checkbox"]:checked')].filter(input=>!input.closest('.task-patch-prompt-item')?.hidden);
+  }
+
+  function selectedPromptKinds(){return selectedPromptInputs().map(input=>String(input.dataset.patchKind||'').toUpperCase());}
+
+  function selectAllPromptCollects(prompt){
+    const capability=parallelCollectCapability(prompt);
+    if(!capability)return;
+    let selected=0;
+    for(const input of promptItems.querySelectorAll('input[type="checkbox"]')){
+      const kind=String(input.dataset.patchKind||'').toUpperCase();
+      const hidden=Boolean(input.closest('.task-patch-prompt-item')?.hidden);
+      input.checked=!hidden&&kind==='COLLECT'&&selected<capability.max;
+      if(input.checked)selected+=1;
+      clearPromptPriority(Number(input.dataset.patchIndex));
+    }
+    for(const select of promptItems.querySelectorAll('select[data-patch-priority-index]'))select.value='';
+    promptNote.textContent='Selected '+selected+' COLLECT request(s). They will run as independent parallel processes.'+(selected===capability.max?' Maximum '+capability.max+' reached.':'');
+  }
+
   function selectAllPromptPatches(prompt){
     for(const input of promptItems.querySelectorAll('input[type="checkbox"]')){
       const kind=String(input.dataset.patchKind||'').toUpperCase();
@@ -2123,24 +2187,138 @@ function installPatchPanel(){
   function applyPromptConstraints(changed,prompt){
     if(!changed)return;
     const changedIndex=Number(changed.dataset.patchIndex);
-    if(!changed.checked){
-      clearPromptPriority(changedIndex);
-      return;
-    }
+    if(!changed.checked){clearPromptPriority(changedIndex);return;}
     const constraints=prompt?.constraints&&typeof prompt.constraints==='object'?prompt.constraints:{};
     if(constraints.collect_exclusive!==true)return;
     const changedKind=String(changed.dataset.patchKind||'').toUpperCase();
+    const parallel=parallelCollectCapability(prompt);
+    if(parallel){
+      if(changedKind==='COLLECT'){
+        for(const input of promptItems.querySelectorAll('input[type="checkbox"]')){
+          if(input===changed||!input.checked)continue;
+          if(String(input.dataset.patchKind||'').toUpperCase()==='PATCH'){input.checked=false;clearPromptPriority(Number(input.dataset.patchIndex));}
+        }
+        const selectedCollects=selectedPromptInputs().filter(input=>String(input.dataset.patchKind||'').toUpperCase()==='COLLECT');
+        if(selectedCollects.length>parallel.max){
+          changed.checked=false;
+          promptNote.textContent='Parallel COLLECT limit is '+parallel.max+' independent requests.';
+          return;
+        }
+        for(const select of promptItems.querySelectorAll('select[data-patch-priority-index]'))select.value='';
+        promptNote.textContent=selectedCollects.length>1?selectedCollects.length+' COLLECT requests selected for parallel execution.':'COLLECT runs independently; select more COLLECT requests to run them in parallel.';
+        return;
+      }
+      if(changedKind==='PATCH'){
+        for(const input of promptItems.querySelectorAll('input[type="checkbox"]')){
+          if(input!==changed&&input.checked&&String(input.dataset.patchKind||'').toUpperCase()==='COLLECT')input.checked=false;
+        }
+        return;
+      }
+    }
     for(const input of promptItems.querySelectorAll('input[type="checkbox"]')){
       if(input===changed||!input.checked)continue;
       const kind=String(input.dataset.patchKind||'').toUpperCase();
-      if(changedKind==='COLLECT'||kind==='COLLECT'){
-        input.checked=false;
-        clearPromptPriority(Number(input.dataset.patchIndex));
+      if(changedKind==='COLLECT'||kind==='COLLECT'){input.checked=false;clearPromptPriority(Number(input.dataset.patchIndex));}
+    }
+    if(changedKind==='COLLECT')for(const select of promptItems.querySelectorAll('select[data-patch-priority-index]'))select.value='';
+  }
+
+  function resetParallelCollectRuns(){
+    parallelCollectPollGeneration+=1;
+    parallelCollectBusy=false;
+    parallelCollectRuns.clear();
+    parallelCollectList.replaceChildren();
+    parallelCollectBox.hidden=true;
+  }
+
+  function parallelRunStatus(run){
+    if(run.error)return 'LAUNCH FAILED';
+    const item=Array.isArray(run.state?.items)?run.state.items[0]:null;
+    const status=String(item?.status||run.state?.progress?.status||'').toUpperCase();
+    if(status)return status;
+    if(run.finished)return String(run.state?.last_event?.status||'FINISHED').toUpperCase();
+    return run.sessionId?'RUNNING':'STARTING';
+  }
+
+  function renderParallelCollectRuns(){
+    parallelCollectList.replaceChildren();
+    let finished=0,failed=0;
+    for(const run of parallelCollectRuns.values()){
+      const card=document.createElement('div');card.className='task-patch-parallel-run';
+      const head=document.createElement('div');head.className='task-patch-parallel-run-head';
+      const name=document.createElement('span');name.className='task-patch-parallel-run-name';name.textContent=run.name;
+      const statusValue=parallelRunStatus(run);
+      const status=document.createElement('span');status.className='task-patch-parallel-run-status';status.textContent=statusValue;
+      head.append(name,status);card.append(head);
+      if(run.error){
+        const meta=document.createElement('div');meta.className='task-patch-parallel-run-meta stale';meta.textContent=run.error;card.append(meta);
+      }else{
+        const now=Date.now();
+        const progress=run.state?.progress&&typeof run.state.progress==='object'?run.state.progress:null;
+        const elapsedValue=Number(progress?.elapsed_seconds);
+        const elapsed=Number.isFinite(elapsedValue)?elapsedValue:Math.max(0,(now-run.startedAt)/1000);
+        const age=Math.max(0,(now-run.lastEventAt)/1000);
+        const parts=[elapsed.toFixed(1)+'s'];
+        if(progress?.phase)parts.push('phase '+String(progress.phase));
+        if(Number.isFinite(Number(progress?.output_lines)))parts.push(Number(progress.output_lines)+' lines');
+        parts.push('events '+Math.max(0,Number(run.state?.event_count||0)));
+        if(!run.finished)parts.push(age>=5?'no new event '+Math.floor(age)+'s':'activity '+age.toFixed(1)+'s ago');
+        const meta=document.createElement('div');meta.className='task-patch-parallel-run-meta';meta.classList.toggle('stale',!run.finished&&age>=10);meta.textContent=parts.join(' · ');card.append(meta);
+        if(run.sessionId){const actionsNode=document.createElement('div');actionsNode.className='task-patch-parallel-run-actions';const terminal=document.createElement('button');terminal.type='button';terminal.textContent='Terminal evidence';terminal.onclick=()=>openTerminalEvidenceForSession(run.sessionId).catch(app.showError);actionsNode.append(terminal);card.append(actionsNode);}
+        const artifacts=document.createElement('div');artifacts.className='task-patch-parallel-artifacts';
+        if(appendProtocolArtifactGroups(artifacts,run.state?.artifacts)>0)card.append(artifacts);
       }
+      if(run.finished||run.error)finished+=1;
+      if(run.error||['FAIL','INCOMPLETE','FAILED'].includes(statusValue))failed+=1;
+      parallelCollectList.append(card);
     }
-    if(changedKind==='COLLECT'){
-      for(const select of promptItems.querySelectorAll('select[data-patch-priority-index]'))select.value='';
+    parallelCollectBox.hidden=parallelCollectRuns.size===0;
+    if(parallelCollectRuns.size){
+      runBox.hidden=true;artifactBox.hidden=true;terminalEvidence.hidden=true;
+      runningTitle.textContent=finished===parallelCollectRuns.size?'Parallel COLLECT finished':'Parallel COLLECT running';
+      runningMeta.classList.remove('stale');runningMeta.textContent=finished+'/'+parallelCollectRuns.size+' finished'+(failed?' · '+failed+' failed/incomplete':'');
+      if(finished===parallelCollectRuns.size){runningFinished=true;runningBack.hidden=false;}
     }
+  }
+
+  async function pollParallelCollectRuns(){
+    if(!parallelCollectRuns.size)return;
+    const generation=++parallelCollectPollGeneration;
+    while(generation===parallelCollectPollGeneration&&panel.classList.contains('visible')){
+      let pending=0;
+      for(const run of parallelCollectRuns.values()){
+        if(run.finished||run.error||!run.sessionId)continue;
+        pending+=1;
+        try{
+          const state=await app.jsonFetch('/api/sessions/'+encodeURIComponent(run.sessionId)+'/protocol');
+          const eventCount=Number(state?.event_count||0);
+          if(eventCount!==run.lastEventCount){run.lastEventCount=eventCount;run.lastEventAt=Date.now();}
+          run.state=state;
+          if(state?.last_event?.type==='run_finished')run.finished=true;
+        }catch(error){run.error='Protocol state unavailable: '+String(error?.message||error);run.finished=true;}
+      }
+      renderParallelCollectRuns();
+      if(!pending||[...parallelCollectRuns.values()].every(run=>run.finished||run.error))return;
+      await new Promise(resolve=>setTimeout(resolve,1000));
+    }
+  }
+
+  async function launchParallelCollect(sessionId,prompt,indexes){
+    const capability=parallelCollectCapability(prompt);
+    if(!capability||indexes.length<2||indexes.length>capability.max)throw new Error('Parallel COLLECT selection is outside the advertised capability');
+    parallelCollectBusy=true;refreshActionDisabledState();
+    try{
+      const response=await app.jsonFetch('/api/sessions/'+encodeURIComponent(sessionId)+'/parallel-collect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt_id:String(prompt?.prompt_id||''),indexes})});
+      clearPrompt();activeSessionId='';
+      enterRunningView();resetParallelCollectRuns();parallelCollectBusy=false;
+      for(const row of (Array.isArray(response?.runs)?response.runs:[])){
+        const sessionId=String(row?.session?.id||'');
+        parallelCollectRuns.set(Number(row?.index)||parallelCollectRuns.size+1,{index:Number(row?.index)||0,name:String(row?.name||'COLLECT'),sessionId,error:String(row?.error||''),state:null,finished:Boolean(row?.error),startedAt:Date.now(),lastEventCount:-1,lastEventAt:Date.now()});
+      }
+      if(!parallelCollectRuns.size)throw new Error('Parallel COLLECT launch returned no workers');
+      renderParallelCollectRuns();void pollParallelCollectRuns();
+      return response;
+    }catch(error){parallelCollectBusy=false;refreshActionDisabledState();throw error;}
   }
 
   async function submitPromptResponse(sessionId,prompt,action){
@@ -2159,7 +2337,7 @@ function installPatchPanel(){
       });
       clearPrompt();
       summaryStatus.textContent=action==='cancel'?'Cancelled':'Selection submitted';
-      if(action==='select')enterRunningView();
+      if(action==='select'){resetParallelCollectRuns();enterRunningView();}
       void pollProtocol(sessionId,false,true);
     }catch(error){
       for(const button of promptButtons.querySelectorAll('button'))button.disabled=false;
@@ -2180,14 +2358,17 @@ function installPatchPanel(){
     promptBox.hidden=false;
     promptTitle.textContent=String(prompt.title||'Choose PATCH/COLLECT work');
     const priorityCapability=patchPriorityCapability(prompt);
-    promptNote.textContent=priorityCapability
-      ? 'Select work and optionally assign PATCH priority 0–9. Python validates and orders the final selection.'
-      : 'Select work here, or use the terminal tab. Python validates the final selection.';
+    const parallelCollect=parallelCollectCapability(prompt);
+    promptNote.textContent=parallelCollect
+      ? 'PATCH keeps normal priority rules. Multiple COLLECT requests may be selected and TaskDeck will run each in its own independent process.'
+      : (priorityCapability?'Select work and optionally assign PATCH priority 0–9. Python validates and orders the final selection.':'Select work here, or use the terminal tab. Python validates the final selection.');
     const selectAll=document.createElement('button');selectAll.type='button';selectAll.textContent='Select all PATCH';
     selectAll.onclick=()=>selectAllPromptPatches(prompt);
     const clearAll=document.createElement('button');clearAll.type='button';clearAll.textContent='Clear selection';
     clearAll.onclick=clearPromptSelection;
-    promptTools.append(selectAll,clearAll);
+    promptTools.append(selectAll);
+    if(parallelCollect){const selectCollect=document.createElement('button');selectCollect.type='button';selectCollect.textContent='Select all COLLECT (parallel)';selectCollect.onclick=()=>selectAllPromptCollects(prompt);promptTools.append(selectCollect);}
+    promptTools.append(clearAll);
     for(const item of items){
       const index=Number(item?.index);
       if(!Number.isInteger(index)||index<1)continue;
@@ -2228,8 +2409,15 @@ function installPatchPanel(){
     if(actionsAllowed.has('select')){
       const select=document.createElement('button');select.type='button';select.textContent='Run selected';
       select.onclick=()=>{
-        if(!selectedPromptIndexes().length){
+        const indexes=selectedPromptIndexes();
+        if(!indexes.length){
           promptNote.textContent='Select at least one item, or Cancel.';
+          return;
+        }
+        const kinds=selectedPromptKinds();
+        const parallel=parallelCollectCapability(prompt);
+        if(indexes.length>1&&parallel&&kinds.every(kind=>kind==='COLLECT')){
+          launchParallelCollect(sessionId,prompt,indexes).catch(app.showError);
           return;
         }
         submitPromptResponse(sessionId,prompt,'select').catch(app.showError);
@@ -2445,7 +2633,7 @@ function installPatchPanel(){
   summarySearchInput.oninput=()=>setQueueSearchQuery(summarySearchInput.value);
   summarySearchClear.onclick=()=>{setQueueSearchQuery('');summarySearchInput.focus();};
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,submitHistoryCleanup,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,submitHistoryCleanup,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 
