@@ -8336,6 +8336,21 @@ def _run_queue(
     # opens the existing HISTORY browser after status/health.  Reviewing history
     # must not manufacture an IDLE run or overwrite LAST_RUN.
     if zero_argument_invocation and recipe_path is None and queue_safety_error is None and not items:
+        # Native TaskDeck Queue must stay command-responsive even when there is
+        # no runnable item.  This keeps Refresh Queue available and gives
+        # structured SKIPPED rows a safe Python-owned Delete action.  Terminal
+        # invocations retain the historical zero-work History landing.
+        if os.environ.get("TASKDECK_PATCH_COMMAND_FD", "").strip():
+            native_handled, _native_choice = _protocol_queue_selection(
+                [],
+                "none",
+                set(),
+                root=root,
+            )
+            if native_handled:
+                _ACTIVE_RUN_ID = None
+                _LAST_EXECUTION_DETAILS = []
+                return 0
         for warning in warnings:
             print(f"[PTV v{VERSION} WARNING] {_safe_display(warning)}")
         print("AUTO STATUS: IDLE — no runnable patch/collect package is waiting in patchs/.")
