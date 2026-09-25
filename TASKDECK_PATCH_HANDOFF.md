@@ -101,7 +101,7 @@ The gate now checks product-level invariants rather than merely renderer/protoco
 
 **This is the current blocking acceptance task.**
 
-Minimum native-UI code checkpoint remains `15711d4d`, but revision `a0b774c8` cannot be installed through self-update because the repository-document guard was mistakenly placed inside `go test ./...`. **For self-update/browser smoke, install `114a9222` or a later descendant on `main`.**
+Minimum native-UI code checkpoint remains `15711d4d`, but revision `a0b774c8` cannot be installed through self-update because the repository-document guard was mistakenly placed inside `go test ./...`. **For self-update/browser smoke, install `30d1b069` or a later descendant on `main`.**
 
 Checkpoint `15711d4d` passed GitHub Actions run `36087008801`. The self-update staging regression is fixed by `5b9a37e2` + `572368a1` + `3dbf06fb`, with a non-regression guard added in `afbb82be`.
 
@@ -157,6 +157,11 @@ Only after Phase 2E.2 passes:
 | `973af90b` | Wire daemon through compatibility service so stale broker terminals are preserved while native Patch uses a protocol-capable local manager |
 | `f22cf21e` / `84900727` | Add and correct end-to-end FD3 Health protocol fallback test |
 | `114a9222` | Correct project-state bootstrap contract test; CI 36088980153 PASS on Go 1.19/1.23 |
+| `ae9acfcf` | Render native Patch inside `#panes` with a real switchable `Patch Tool` tab; fix file Open visibility and add full-path Copy |
+| `b917de9f` / `fb0b7fc5` | Add backend `native` / `terminal` Patch session mode; terminal mode disables FD3/FD4 and native Python flags |
+| `94715c30` / `b3915538` | Add Settings → PATCH TOOL → Interface: Native UI / Terminal (legacy) |
+| `459c5f06` / `9a491503` / `9f35e6ee` | Wire interface setting into Patch launcher and update native/legacy acceptance gates |
+| `4c7ddeaa` / `30d1b069` | Correct test fixtures; CI 36090834860 PASS on Go 1.19/1.23 |
 
 ## Resolved self-update failure
 
@@ -208,14 +213,37 @@ Verification:
 - GitHub Actions run `36088980153`: PASS on Go 1.19 and 1.23, including
   `Self-update staged Go tests`, full `go test ./...`, vet and build.
 
+## Native tab, file actions, and selectable terminal UI
+
+Installed-runtime feedback changed the intended desktop interaction without changing Python policy:
+
+- Native Patch is now a first-class `Patch Tool` tab in the normal TaskDeck tab strip.
+  Switching to a terminal or editor hides the Patch pane but leaves its tab available for switching back.
+- Patch no longer uses a fixed overlay that obscures the tab strip.
+- History/artifact **Open** now opens through `TaskMenuEditor.openFile()`; activating the editor
+  deactivates the Patch pane, so the file is actually visible.
+- History/artifact rows now include **Copy path**, which copies the full absolute path rooted at the
+  current workspace.
+- Settings now has **PATCH TOOL → Interface** with:
+  - **Native UI** (default): protocol-backed native tab, backing PTY remains headless;
+  - **Terminal (legacy)**: launches the historical terminal UI. The server disables protocol event/
+    command channels and does not set `TASKDECK_PATCH_NATIVE_*`, so Python falls back to its
+    original terminal selector/history behavior.
+- Changing to Terminal mode closes/hides the native Patch tab; opening Patch in Terminal mode
+  launches the Queue/selector directly as a normal terminal tab.
+
+Verification: GitHub Actions run `36090834860` PASS on Go 1.19 and Go 1.23, including
+`Self-update staged Go tests`, full tests, vet and build.
+
 ## Non-regression invariants
 
 - Python remains authoritative for Patch Tool policy/business logic.
 - Do not parse console text to drive native behavior.
 - Direct `taskdeck patch ...` terminal usage remains supported.
 - PTY/backing session may remain available for compatibility/evidence.
-- Native Patch actions must not create ordinary terminal tabs by default.
-- A terminal tab may be materialized only by an explicit user evidence/fallback action.
+- In **Native UI** mode, Patch actions must not create ordinary terminal tabs by default.
+- In Native UI mode, a terminal tab may be materialized only by an explicit evidence/fallback action.
+- In **Terminal (legacy)** mode, materializing a normal terminal tab is intentional and required; that session must not opt into native FD3/FD4/Python routes.
 - Patch start must fail closed if backend metadata is not reserved `task_id=-1` or if the new session is already materialized in `app.views`.
 - Never infer Phase 2 completion from the existence of native renderers or protocol endpoints.
 
