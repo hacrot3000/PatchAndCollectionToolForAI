@@ -8771,7 +8771,7 @@ def main(argv=None):
     zero_argument_invocation = _is_zero_argument_dispatch(raw_argv)
     ap = argparse.ArgumentParser()
     ap.add_argument("--project-root", required=True)
-    ap.add_argument("command", nargs="?", choices=["run", "resume", "report", "plan", "health"], default="run")
+    ap.add_argument("command", nargs="?", choices=["run", "resume", "history", "report", "plan", "health"], default="run")
     ap.add_argument("--failure-policy", choices=["fail_fast", "continue_independent"])
     ap.add_argument("--transaction-policy", choices=["patch", "batch"])
     ap.add_argument("--resume-mode", choices=["all", "failed", "remaining"])
@@ -8818,6 +8818,8 @@ def main(argv=None):
                 root, export_recipe=ns.export_recipe,
                 failure_policy_override=ns.failure_policy, transaction_policy_override=ns.transaction_policy,
             )
+        if ns.command == "history":
+            return _history_browser(root)
         if ns.command == "report":
             return _report_command(
                 root, ns.run_id, list_runs=ns.list_runs, pin_run=ns.pin, unpin_run=ns.unpin,

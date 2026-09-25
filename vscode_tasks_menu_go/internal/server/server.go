@@ -418,6 +418,9 @@ func patchToolExecutionForUI(workspace, mode, uiMode string) (tasks.Execution, e
 	if err != nil {
 		return tasks.Execution{}, err
 	}
+	if uiMode == "terminal" && strings.EqualFold(strings.TrimSpace(mode), "history") {
+		patchArgs = []string{"history"}
+	}
 	command, commandArgs, err := runtimeSpec.Command(workspace, patchArgs)
 	if err != nil {
 		return tasks.Execution{}, err

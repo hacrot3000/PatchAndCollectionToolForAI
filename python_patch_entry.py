@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 MIN_PYTHON = (3, 10)
-DISPATCH_COMMANDS = {"report", "run", "resume", "plan", "health"}
+DISPATCH_COMMANDS = {"history", "report", "run", "resume", "plan", "health"}
 AUTOMATION_FLAGS = {
     "--all",
     "-a",

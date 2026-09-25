@@ -1622,6 +1622,19 @@ function installPatchPanel(){
     return openTerminalEvidenceForSession(activeSessionId);
   }
 
+  async function openLegacyHistoryTerminal(){
+    const meta=await app.jsonFetch('/api/sessions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({kind:'patch',patch_mode:'history',patch_ui:'terminal'}),
+    });
+    if(!meta?.id)throw new Error('Terminal History session metadata is incomplete');
+    setVisible(false);
+    app.materializeSession(meta,true);
+    returnViewId=String(meta.id);
+    return meta;
+  }
+
   function clearActionResult(){
     actionResultBox.hidden=true;
     actionResultTitle.textContent='';
@@ -2760,7 +2773,7 @@ function installPatchPanel(){
   }
 
   terminalEvidence.onclick=()=>openTerminalEvidence().catch(app.showError);
-  historyTerminal.onclick=()=>openTerminalEvidence().catch(app.showError);
+  historyTerminal.onclick=()=>openLegacyHistoryTerminal().catch(app.showError);
   historyCleanupButton.onclick=()=>submitHistoryCleanup(activeSessionId,activeHistoryPrompt).catch(app.showError);
   historyBack.onclick=()=>stopHistoryAndBack().catch(app.showError);
   planTerminal.onclick=()=>openTerminalEvidence().catch(app.showError);
@@ -2774,7 +2787,7 @@ function installPatchPanel(){
   summarySearchInput.oninput=()=>setQueueSearchQuery(summarySearchInput.value);
   summarySearchClear.onclick=()=>{setQueueSearchQuery('');summarySearchInput.focus();};
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,openQueueWhileRunning,refreshQueueSession,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,submitHistoryCleanup,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,submitHistoryCleanup,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 
