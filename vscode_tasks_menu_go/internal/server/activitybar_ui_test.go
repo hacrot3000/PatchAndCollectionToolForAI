@@ -34,6 +34,8 @@ func TestActivityBarIsAdditiveAndFailureIsolated(t *testing.T) {
 		"TaskMenuPatchPanel?.deactivate()",
 		"document.addEventListener('pointerdown'",
 		"rail.contains(target)",
+		"const headerMenus=document.querySelector('.header-action-menus')",
+		"if(headerMenus?.contains(target))return",
 		"activeView==='tasks'&&menu.contains(target)",
 		"activeView==='explorer'&&explorerPanel?.contains(target)",
 		"activeView==='patch'&&globalThis.TaskMenuPatchPanel?.panel?.contains(target)",
