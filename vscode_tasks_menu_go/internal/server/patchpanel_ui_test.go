@@ -1552,7 +1552,7 @@ func TestPatchPanelAIPackIsOnDemandCachedAndCopyable(t *testing.T) {
 		"mode==='ai-pack'?prepareAIPack(button)",
 		"async function prepareAIPack(sourceButton=null)",
 		"app.jsonFetch('/api/patch/ai-pack',{method:'POST'})",
-		"Hashing the active Patch Tool docs and guide. ZIP is rebuilt only when the fingerprint changes.",
+		"Hashing the active Patch Tool docs and standard prompts. ZIP is rebuilt only when the fingerprint changes.",
 		"result.cached===true?'Cache current':'Rebuilt'",
 		"Copy Prompt",
 		"Download ZIP",

@@ -80,7 +80,6 @@ validate_release() {
     [[ -x "$release/taskdeck" ]] || return 1
     [[ -f "$release/patchtool/python_patch_entry.py" ]] || return 1
     [[ -f "$release/patchtool/_patch_lib/python_patch_queue_dispatcher.py" ]] || return 1
-    [[ -f "$release/patchtool/HUONG_DAN_PYTHON_PATCH_TOOL.html" ]] || return 1
     if [[ "$revision" != "dev" && "$revision" != dev-* ]]; then
         "$release/taskdeck" --version 2>/dev/null | grep -Fq "$revision" || return 1
     fi
@@ -142,8 +141,7 @@ for required in \
     "$SOURCE/go.mod" \
     "$SOURCE_ROOT/python_patch_entry.py" \
     "$SOURCE_ROOT/run_python_patches.sh" \
-    "$SOURCE_ROOT/_patch_lib/python_patch_queue_dispatcher.py" \
-    "$SOURCE_ROOT/HUONG_DAN_PYTHON_PATCH_TOOL.html"; do
+    "$SOURCE_ROOT/_patch_lib/python_patch_queue_dispatcher.py"; do
     [[ -f "$required" ]] || die "Source thiếu runtime bắt buộc: $required"
 done
 
@@ -190,7 +188,6 @@ else
     [[ ! -f "$SOURCE_ROOT/run_python_patches.ps1" ]] || cp "$SOURCE_ROOT/run_python_patches.ps1" "$STAGED_RELEASE/patchtool/run_python_patches.ps1"
     [[ ! -f "$SOURCE_ROOT/run_python_patches.bat" ]] || cp "$SOURCE_ROOT/run_python_patches.bat" "$STAGED_RELEASE/patchtool/run_python_patches.bat"
     cp -a "$SOURCE_ROOT/_patch_lib" "$STAGED_RELEASE/patchtool/_patch_lib"
-    cp "$SOURCE_ROOT/HUONG_DAN_PYTHON_PATCH_TOOL.html" "$STAGED_RELEASE/patchtool/HUONG_DAN_PYTHON_PATCH_TOOL.html"
     chmod 755 "$STAGED_RELEASE/patchtool/python_patch_entry.py" "$STAGED_RELEASE/patchtool/run_python_patches.sh"
 
     validate_release "$STAGED_RELEASE" "$REVISION" || die "Release staging validation thất bại."

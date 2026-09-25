@@ -1861,7 +1861,7 @@ function installPatchPanel(){
     aiPackRefresh.disabled=true;
     aiPackBox.hidden=false;
     aiPackStatus.textContent='Checking current docs…';
-    aiPackMeta.textContent='Hashing the active Patch Tool docs and guide. ZIP is rebuilt only when the fingerprint changes.';
+    aiPackMeta.textContent='Hashing the active Patch Tool docs and standard prompts. ZIP is rebuilt only when the fingerprint changes.';
     try{
       const result=await app.jsonFetch('/api/patch/ai-pack',{method:'POST'});
       renderAIPack(result);

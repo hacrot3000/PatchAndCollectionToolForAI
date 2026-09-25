@@ -6,11 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"html"
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -18,8 +16,8 @@ import (
 )
 
 const (
-	aiPackGuideName = "HUONG_DAN_PYTHON_PATCH_TOOL.html"
-	aiPackZipName   = "PATCH_TOOL_AI_PACK.zip"
+	aiPackPromptDocName = "AI_STANDARD_PROMPTS.json"
+	aiPackZipName       = "PATCH_TOOL_AI_PACK.zip"
 	aiPackMetaName  = "PATCH_TOOL_AI_PACK.cache.json"
 	aiPackMaxFiles  = 512
 	aiPackMaxBytes  = 32 << 20
@@ -56,8 +54,6 @@ type aiPackManifest struct {
 	Documents   []string `json:"documents"`
 	Prompts     []string `json:"prompts"`
 }
-
-var aiPackTagRE = regexp.MustCompile(`(?is)<[^>]+>`)
 
 func regularAIPackFile(path string) bool {
 	info, err := os.Lstat(path)
@@ -126,29 +122,45 @@ func collectAIPackDocs(root string) ([]aiPackFile, error) {
 	return files, nil
 }
 
-func extractAIPackPrompt(raw []byte, id string) (string, error) {
-	quoted := regexp.QuoteMeta(id)
-	re, err := regexp.Compile(`(?is)<pre[^>]*\bid\s*=\s*["']` + quoted + `["'][^>]*>(.*?)</pre>`)
-	if err != nil {
-		return "", err
-	}
-	match := re.FindSubmatch(raw)
-	if len(match) != 2 {
-		return "", fmt.Errorf("standard prompt %q was not found in %s", id, aiPackGuideName)
-	}
-	body := strings.ReplaceAll(string(match[1]), "\r\n", "\n")
-	body = strings.ReplaceAll(body, "\r", "\n")
-	body = regexp.MustCompile(`(?i)<br\s*/?>`).ReplaceAllString(body, "\n")
-	body = aiPackTagRE.ReplaceAllString(body, "")
-	body = html.UnescapeString(body)
-	body = strings.TrimSpace(body)
-	if body == "" {
-		return "", fmt.Errorf("standard prompt %q is empty", id)
-	}
-	return body, nil
+type aiPackPrompts struct {
+	Version int    `json:"version"`
+	VI      string `json:"vi"`
+	EN      string `json:"en"`
+	RU      string `json:"ru"`
 }
 
-func aiPackFingerprint(docs []aiPackFile, guide []byte) string {
+func parseAIPackPrompts(docs []aiPackFile) (map[string]string, error) {
+	var raw []byte
+	for _, file := range docs {
+		if file.Rel == aiPackPromptDocName {
+			raw = file.Data
+			break
+		}
+	}
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("%s is missing from the active Patch Tool docs", aiPackPromptDocName)
+	}
+	var doc aiPackPrompts
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", aiPackPromptDocName, err)
+	}
+	if doc.Version != 1 {
+		return nil, fmt.Errorf("%s version is unsupported", aiPackPromptDocName)
+	}
+	prompts := map[string]string{
+		"prompt-vi": strings.TrimSpace(doc.VI),
+		"prompt-en": strings.TrimSpace(doc.EN),
+		"prompt-ru": strings.TrimSpace(doc.RU),
+	}
+	for id, prompt := range prompts {
+		if prompt == "" {
+			return nil, fmt.Errorf("%s prompt %q is empty", aiPackPromptDocName, id)
+		}
+	}
+	return prompts, nil
+}
+
+func aiPackFingerprint(docs []aiPackFile) string {
 	h := sha256.New()
 	_, _ = io.WriteString(h, "taskdeck-patch-ai-pack-v1\x00")
 	for _, file := range docs {
@@ -157,9 +169,6 @@ func aiPackFingerprint(docs []aiPackFile, guide []byte) string {
 		_, _ = h.Write(file.Data)
 		_, _ = h.Write([]byte{0})
 	}
-	_, _ = io.WriteString(h, aiPackGuideName)
-	_, _ = h.Write([]byte{0})
-	_, _ = h.Write(guide)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -272,7 +281,7 @@ func writeJSONAtomic(path string, value any) error {
 	return replaceAIPackFile(name, path)
 }
 
-func writeAIPackZip(path string, docs []aiPackFile, guide []byte, prompts map[string]string, manifest aiPackManifest) error {
+func writeAIPackZip(path string, docs []aiPackFile, prompts map[string]string, manifest aiPackManifest) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
 	if err != nil {
@@ -307,9 +316,6 @@ func writeAIPackZip(path string, docs []aiPackFile, guide []byte, prompts map[st
 		if err := write(prefix+name, []byte(prompt+"\n")); err != nil {
 			_ = zw.Close(); _ = tmp.Close(); return err
 		}
-	}
-	if err := write(prefix+aiPackGuideName, guide); err != nil {
-		_ = zw.Close(); _ = tmp.Close(); return err
 	}
 	for _, file := range docs {
 		if err := write(prefix+"docs/"+file.Rel, file.Data); err != nil {
@@ -349,28 +355,12 @@ func BuildAIPack(workspace, executable string) (AIPackResult, error) {
 	if err != nil {
 		return AIPackResult{}, err
 	}
-	guidePath := filepath.Join(sourceRoot, aiPackGuideName)
-	if !regularAIPackFile(guidePath) {
-		return AIPackResult{}, fmt.Errorf("%s is missing from the active Patch Tool runtime", aiPackGuideName)
-	}
-	guide, err := os.ReadFile(guidePath)
+	prompts, err := parseAIPackPrompts(docs)
 	if err != nil {
 		return AIPackResult{}, err
 	}
-	if len(guide) > 8<<20 {
-		return AIPackResult{}, fmt.Errorf("%s is unexpectedly large", aiPackGuideName)
-	}
-	promptVI, err := extractAIPackPrompt(guide, "prompt-vi")
-	if err != nil {
-		return AIPackResult{}, err
-	}
-	prompts := map[string]string{"prompt-vi": promptVI}
-	for _, id := range []string{"prompt-en", "prompt-ru"} {
-		if prompt, err := extractAIPackPrompt(guide, id); err == nil {
-			prompts[id] = prompt
-		}
-	}
-	fingerprint := aiPackFingerprint(docs, guide)
+	promptVI := prompts["prompt-vi"]
+	fingerprint := aiPackFingerprint(docs)
 	cacheDir, err := ensureAIPackCacheDir(workspace)
 	if err != nil {
 		return AIPackResult{}, err
@@ -401,7 +391,7 @@ func BuildAIPack(workspace, executable string) (AIPackResult, error) {
 		Format: "taskdeck-patch-ai-pack", Version: 1, Fingerprint: fingerprint,
 		GeneratedAt: generatedAt, Source: string(runtimeSpec.Kind), Documents: docNames, Prompts: promptNames,
 	}
-	if err := writeAIPackZip(zipPath, docs, guide, prompts, manifest); err != nil {
+	if err := writeAIPackZip(zipPath, docs, prompts, manifest); err != nil {
 		return AIPackResult{}, err
 	}
 	if err := writeJSONAtomic(metaPath, aiPackCacheMeta{
