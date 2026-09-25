@@ -506,8 +506,7 @@ func TestParallelCollectSelectionIsPromptBoundAndCollectOnly(t *testing.T) {
 	}
 	for _, req := range []patchParallelCollectRequest{
 		{PromptID:"stale",Indexes:[]int{1,2}},
-		{PromptID:"queue123",Indexes:[]int{1}},
-		{PromptID:"queue123",Indexes:[]int{1,1}},
+				{PromptID:"queue123",Indexes:[]int{1,1}},
 		{PromptID:"queue123",Indexes:[]int{1,3}},
 		{PromptID:"queue123",Indexes:[]int{1,99}},
 	} {
@@ -521,5 +520,14 @@ func TestParallelCollectEndpointIsNarrowAndPromptBound(t *testing.T) {
 	src := string(data)
 	for _, want := range []string{`case "parallel-collect":`,"patchParallelCollectItems(state, req)","patchCollectExecution(s.Workspace, item.Name)","buildPatchPromptResponseCommand(state, patchPromptResponseRequest{PromptID: req.PromptID, Action: \"cancel\"})"} {
 		if !strings.Contains(src,want) { t.Fatalf("parallel COLLECT endpoint missing %q",want) }
+	}
+}
+
+
+func TestParallelCollectAllowsSingleIndependentWorker(t *testing.T) {
+	items, err := patchParallelCollectItems(parallelCollectState(), patchParallelCollectRequest{PromptID:"queue123",Indexes:[]int{2}})
+	if err != nil { t.Fatal(err) }
+	if len(items)!=1 || items[0].Index!=2 || items[0].Name!="CODE_COLLECTION_REQUEST_b.zip" {
+		t.Fatalf("unexpected single independent COLLECT item: %#v",items)
 	}
 }

@@ -316,8 +316,8 @@ func patchParallelCollectItems(state session.ProtocolState, req patchParallelCol
 	if capability == nil || capability.Strategy != "independent_processes" || capability.Max < 2 || capability.Max > maxParallelCollectRuns {
 		return nil, fmt.Errorf("parallel COLLECT is not safely advertised by Python")
 	}
-	if len(req.Indexes) < 2 || len(req.Indexes) > capability.Max {
-		return nil, fmt.Errorf("parallel COLLECT requires 2..%d selected requests", capability.Max)
+	if len(req.Indexes) < 1 || len(req.Indexes) > capability.Max {
+		return nil, fmt.Errorf("independent COLLECT worker request requires 1..%d selected requests", capability.Max)
 	}
 	byIndex := make(map[int]patchParallelCollectItem, len(prompt.Items))
 	for _, item := range prompt.Items {
