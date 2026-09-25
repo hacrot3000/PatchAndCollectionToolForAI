@@ -101,7 +101,7 @@ The gate now checks product-level invariants rather than merely renderer/protoco
 
 **This is the current blocking acceptance task.**
 
-Minimum native-UI code checkpoint remains `15711d4d`, but revision `a0b774c8` cannot be installed through self-update because the repository-document guard was mistakenly placed inside `go test ./...`. **For self-update/browser smoke, install `945f9514` or a later descendant on `main`.**
+Minimum native-UI code checkpoint remains `15711d4d`, but revision `a0b774c8` cannot be installed through self-update because the repository-document guard was mistakenly placed inside `go test ./...`. **For self-update/browser smoke, install `f6303342` or a later descendant on `main`.**
 
 Checkpoint `15711d4d` passed GitHub Actions run `36087008801`. The self-update staging regression is fixed by `5b9a37e2` + `572368a1` + `3dbf06fb`, with a non-regression guard added in `afbb82be`.
 
@@ -251,6 +251,40 @@ remaining direct `taskData.workspace` access under `web/featuremods/`.
 GitHub Actions run `36091412442` PASS on Go 1.19 and 1.23, including staged self-update tests,
 full tests, vet and build.
 
+## Phase 2E.2 UX smoke fixes: queue clarity, run liveness, tab persistence
+
+Installed smoke found three native-UI defects and they are now source/CI fixed:
+
+1. **Duplicate Queue presentation**
+   - The same runnable item was visible once in Queue summary (including a destructive Delete action)
+     and again in the authoritative `queue_selection` prompt.
+   - While a queue prompt is active, the summary now keeps only overview counts/warnings; the
+     actionable item list exists only in **Choose PATCH/COLLECT work**.
+   - This removes the misleading second Delete surface.
+
+2. **Running COLLECT looked frozen**
+   - The Python COLLECT supervisor already emits typed `progress` heartbeats (default ~0.8s)
+     containing phase, elapsed time, output-line count and detail.
+   - Native Running now also renders a per-poll liveness line with elapsed time, protocol event
+     count and last-activity age. If typed progress is present it adds phase/output counts.
+   - After 5s without a new protocol event it explicitly reports the quiet interval; after 10s it
+     highlights the liveness line as stale. It does not infer terminal text or claim that the process
+     is hung.
+   - `b3bd40e0` adds an end-to-end Unix integration test through the real nested path:
+     TaskDeck entry writer → child relay → dispatcher `_run_foreground_child` → real COLLECT
+     progress supervisor → FD3 → outer relay. The test requires multiple RUNNING progress events,
+     elapsed time, search/zip phase evidence, final PASS and contiguous re-sequencing.
+
+3. **Patch tab disappeared when switching to another tab**
+   - Root cause was Activity Bar code retaining old sidebar semantics and calling
+     `TaskMenuPatchPanel.close()` whenever another view became active.
+   - Activity Bar now calls `deactivate()`, which hides only the Patch pane. The `Patch Tool`
+     tab remains available for switching back.
+   - Only the explicit Patch `×` close action (or switching to Terminal legacy mode) hides the tab.
+
+Verification: GitHub Actions run `36092673478` PASS on Go 1.19 and Go 1.23, including JavaScript
+syntax, repository handoff guard, exact self-update staged-source tests, full tests, vet and build.
+
 ## Non-regression invariants
 
 - Python remains authoritative for Patch Tool policy/business logic.
@@ -258,6 +292,7 @@ full tests, vet and build.
 - Direct `taskdeck patch ...` terminal usage remains supported.
 - PTY/backing session may remain available for compatibility/evidence.
 - In **Native UI** mode, Patch actions must not create ordinary terminal tabs by default.
+- Switching from the active Patch pane to a terminal/editor/Activity Bar view must deactivate the pane but preserve the `Patch Tool` tab until explicit close.
 - In Native UI mode, a terminal tab may be materialized only by an explicit evidence/fallback action.
 - In **Terminal (legacy)** mode, materializing a normal terminal tab is intentional and required; that session must not opt into native FD3/FD4/Python routes.
 - Patch start must fail closed if backend metadata is not reserved `task_id=-1` or if the new session is already materialized in `app.views`.
