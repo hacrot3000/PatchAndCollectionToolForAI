@@ -202,9 +202,19 @@ function installActivityBar(){
       if(view==='explorer'){
         try{globalThis.TaskMenuExplorer?.open();}catch(error){console.warn('Explorer unavailable',error);}
       }
+      if(view==='patch'){
+        try{globalThis.TaskMenuPatchPanel?.open();}catch(error){console.warn('Patch Tool unavailable',error);}
+      }
       return;
     }
-    if(activeView===view){closeActive();return;}
+    if(activeView===view){
+      // Patch Tool is a workspace tab with its own close button, not a
+      // collapsible sidebar panel. Re-clicking its Activity Bar icon must keep
+      // the tab active instead of leaving an orphaned visible tab with no pane.
+      if(view==='patch'){showPatch();return;}
+      closeActive();
+      return;
+    }
     if(view==='tasks')showTasks();
     if(view==='explorer')showExplorer();
     if(view==='patch')showPatch();
