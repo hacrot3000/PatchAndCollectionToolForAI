@@ -1004,3 +1004,23 @@ func TestPatchQueuePromptDoesNotDuplicateActionableItems(t *testing.T) {
 		}
 	}
 }
+
+
+func TestPatchDeactivateKeepsTabAvailable(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	start := strings.Index(js,"function deactivate(){")
+	end := strings.Index(js[start:],"function close(){")
+	if start < 0 || end < 0 { t.Fatal("Patch deactivate/close functions unavailable") }
+	block := js[start:start+end]
+	if strings.Contains(block,"patchTab.hidden=true") || strings.Contains(block,"patchTab.remove(") {
+		t.Fatal("deactivating Patch must not hide/remove the Patch tab")
+	}
+	for _, want := range []string{
+		"if(panel.classList.contains('visible'))setVisible(false)",
+		"globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("Patch deactivate contract missing %q",want) }
+	}
+}

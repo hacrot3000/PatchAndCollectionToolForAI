@@ -31,6 +31,7 @@ func TestActivityBarIsAdditiveAndFailureIsolated(t *testing.T) {
 		"appearance.append(toggle)",
 		"TaskMenuExplorer?.open()",
 		"TaskMenuExplorer?.close()",
+		"TaskMenuPatchPanel?.deactivate()",
 		"document.addEventListener('pointerdown'",
 		"rail.contains(target)",
 		"activeView==='tasks'&&menu.contains(target)",
@@ -65,5 +66,27 @@ func TestActivityBarLoadsAfterAllExistingFeatureModules(t *testing.T) {
 		if pos < 0 || activity < 0 || pos > activity {
 			t.Fatalf("activity bar must load after existing module %q", existing)
 		}
+	}
+}
+
+
+func TestActivityBarDoesNotClosePatchTabWhenSwitchingViews(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/activitybar.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function deactivatePatchPanel()",
+		"globalThis.TaskMenuPatchPanel?.deactivate()",
+		"if(previous==='patch')deactivatePatchPanel()",
+		"showTasks()",
+		"showExplorer()",
+		"showHistory()",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("activity bar Patch tab persistence missing %q",want)
+		}
+	}
+	if strings.Contains(js,"TaskMenuPatchPanel?.close()") {
+		t.Fatal("activity bar must not hard-close the native Patch tab when switching views")
 	}
 }

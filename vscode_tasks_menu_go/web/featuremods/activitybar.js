@@ -147,15 +147,15 @@ function installActivityBar(){
   function closeExplorer(){
     try{globalThis.TaskMenuExplorer?.close();}catch(error){console.warn('Auto sidebar could not close Explorer',error);}
   }
-  function closePatchPanel(){
-    try{globalThis.TaskMenuPatchPanel?.close();}catch(error){console.warn('Auto sidebar could not close Patch Tool',error);}
+  function deactivatePatchPanel(){
+    try{globalThis.TaskMenuPatchPanel?.deactivate();}catch(error){console.warn('Auto sidebar could not deactivate Patch Tool',error);}
   }
   function closeActive(){
     const previous=activeView;
     activeView='';
     hideTasksPanel();
     if(previous==='explorer')closeExplorer();
-    if(previous==='patch')closePatchPanel();
+    if(previous==='patch')deactivatePatchPanel();
     if(previous==='history')closeHistoryPanel();
     updateButtons();
     fitTerminals();
@@ -163,7 +163,7 @@ function installActivityBar(){
   function showTasks(){
     activeView='tasks';
     closeExplorer();
-    closePatchPanel();
+    deactivatePatchPanel();
     closeHistoryPanel();
     document.body.classList.add('task-sidebar-panel-open');
     updateButtons();
@@ -172,7 +172,7 @@ function installActivityBar(){
   function showExplorer(){
     activeView='explorer';
     hideTasksPanel();
-    closePatchPanel();
+    deactivatePatchPanel();
     closeHistoryPanel();
     try{globalThis.TaskMenuExplorer?.open();}catch(error){console.warn('Auto sidebar could not open Explorer',error);}
     updateButtons();
@@ -191,7 +191,7 @@ function installActivityBar(){
     activeView='history';
     hideTasksPanel();
     closeExplorer();
-    closePatchPanel();
+    deactivatePatchPanel();
     adoptHistoryFromTasks();
     historyPanel.classList.add('visible');
     updateButtons();
@@ -264,7 +264,7 @@ function installActivityBar(){
     activeView='';
     hideTasksPanel();
     closeExplorer();
-    closePatchPanel();
+    deactivatePatchPanel();
     closeHistoryPanel();
     refreshPanelWidth();
     document.body.classList.toggle('task-sidebar-auto-hide',on);
