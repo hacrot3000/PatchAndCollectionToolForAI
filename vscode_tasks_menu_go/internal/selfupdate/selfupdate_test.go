@@ -3,6 +3,7 @@ package selfupdate
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -340,5 +341,30 @@ func TestGlobalReleaseDirRejectsUnsafeRevision(t *testing.T) {
 		if _, err := GlobalReleaseDir(revision); err == nil {
 			t.Fatalf("unsafe revision accepted: %q", revision)
 		}
+	}
+}
+
+
+func TestGoTestsDoNotDependOnRepositoryOnlyPatchDocs(t *testing.T) {
+	moduleRoot := filepath.Clean(filepath.Join("..", ".."))
+	forbidden := strings.Join([]string{"TASKDECK", "_PATCH", "_HANDOFF", ".md"}, "")
+	err := filepath.Walk(moduleRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if strings.Contains(string(data), forbidden) {
+			t.Fatalf("Go test %s depends on repository-only document %s; self-update stages only the Go module plus bounded runtime support files", path, forbidden)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
