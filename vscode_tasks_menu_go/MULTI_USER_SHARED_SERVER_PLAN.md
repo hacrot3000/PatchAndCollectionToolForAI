@@ -766,10 +766,12 @@ All implementation work should use small checkpoint commits.
 
 Small commits:
 
-1. Add `SharedServerEnabled`, `SharedProjectID`, `SharedIdentityDB` to config.
-2. Parse/write default `[shared_server]` section with `enabled=false`.
-3. Add validation preserving existing legacy mode.
-4. Add config tests for both modes.
+- [x] Add `SharedServerEnabled`, `SharedProjectID`, `SharedIdentityDB` to config.
+- [x] Parse/write default `[shared_server]` section with `enabled=false`.
+- [x] Add validation preserving existing legacy mode.
+- [x] Add config tests for both modes.
+
+Implementation note: shared mode does not yet bypass the existing remote Basic Auth guard. That guard is intentionally kept until shared authentication middleware exists, so an intermediate feature-branch revision cannot expose an unauthenticated remote listener.
 
 No login/RBAC behavior change yet.
 
