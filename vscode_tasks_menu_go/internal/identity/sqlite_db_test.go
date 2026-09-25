@@ -28,12 +28,19 @@ type fakeSQLiteState struct {
 	execs          []string
 	queries        []string
 	queryResponses []fakeSQLiteQueryResponse
+	execResponses  []fakeSQLiteExecResponse
 }
 
 type fakeSQLiteQueryResponse struct {
 	contains string
 	columns  []string
 	values   [][]driver.Value
+}
+
+type fakeSQLiteExecResponse struct {
+	contains string
+	affected int64
+	err      error
 }
 
 type fakeSQLiteDriver struct{}
@@ -73,6 +80,14 @@ func (c *fakeSQLiteConn) ExecContext(_ context.Context, query string, args []dri
 			return nil, errors.New("fake migration version is not int64")
 		}
 		c.state.currentVersion = version
+	}
+	for _, response := range c.state.execResponses {
+		if strings.Contains(normalized, strings.ToUpper(response.contains)) {
+			if response.err != nil {
+				return nil, response.err
+			}
+			return driver.RowsAffected(response.affected), nil
+		}
 	}
 	return driver.RowsAffected(1), nil
 }
