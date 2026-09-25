@@ -101,9 +101,9 @@ The gate now checks product-level invariants rather than merely renderer/protoco
 
 **This is the current blocking acceptance task.**
 
-Minimum code checkpoint for this smoke: the installed TaskDeck revision must contain `15711d4d` (or be a later descendant on `main`). Older installed revisions are not valid evidence for Phase 2E.2.
+Minimum native-UI code checkpoint remains `15711d4d`, but revision `a0b774c8` cannot be installed through self-update because the repository-document guard was mistakenly placed inside `go test ./...`. **For self-update/browser smoke, install `afbb82be` or a later descendant on `main`.**
 
-Checkpoint `15711d4d` passed GitHub Actions run `36087008801`.
+Checkpoint `15711d4d` passed GitHub Actions run `36087008801`. The self-update staging regression is fixed by `5b9a37e2` + `572368a1` + `3dbf06fb`, with a non-regression guard added in `afbb82be`.
 
 After TaskDeck is self-updated/restarted to a build containing the corrected Phase 2 commits,
 verify in the real browser UI:
@@ -147,6 +147,26 @@ Only after Phase 2E.2 passes:
 | `9096299f` | Point implementing.md to the TaskDeck recovery handoff |
 | `8c9f1882` | Remove self-invalidating “current head” field from handoff |
 | `15711d4d` | Clarify explicit-only terminal fallback wording — CI 36087008801 PASS |
+| `5b9a37e2` | Remove repo-doc guard from self-update Go tests |
+| `572368a1` | Move Patch handoff guard to repository-level test |
+| `3dbf06fb` | Run handoff guard only in repository CI and trigger it on docs changes |
+| `afbb82be` | Guard self-update Go tests from repository-only document dependencies |
+
+## Resolved self-update failure
+
+Revision `a0b774c8` failed self-update during `go test ./...` because
+`vscode_tasks_menu_go/internal/server/patch_handoff_state_test.go` tried to read
+`../../../TASKDECK_PATCH_HANDOFF.md`. Self-update intentionally stages only the Go module plus a
+bounded set of runtime-support root files, so repository documentation is absent there.
+
+Resolution:
+
+- `5b9a37e2`: remove the repository-doc assertion from Go runtime tests;
+- `572368a1`: recreate it as a repository-level Python test;
+- `3dbf06fb`: run that guard in GitHub Actions from repository root and trigger CI on the relevant docs;
+- `afbb82be`: add a self-update regression test preventing Go tests from depending on repository-only Patch docs.
+
+This failure is considered fixed only on `afbb82be` or a later descendant.
 
 ## Non-regression invariants
 

@@ -505,11 +505,12 @@ Every phase must preserve:
 | Corrected Phase 2E.1 automated product acceptance gate | DONE | eec38265 | Dedicated regression gate rejects implicit terminal tabs, enforces headless reload sync/full workspace/native Resume→History, and allows materialization only in the explicit evidence path. |
 | Phase 2E.1b fail-closed runtime session invariant | DONE | 89d3a458 | Patch start rejects/stops any backend session that loses reserved headless task_id=-1 and rejects an unexpectedly materialized terminal view. CI run 36086689002 PASS. |
 | Phase 2E.1c explicit fallback copy | DONE | 15711d4d | Removed stale “Continue in PTY/terminal” wording; native failures/timeouts now advertise terminal fallback as an explicit optional action only. CI run 36087008801 PASS. |
-| Phase 2 recovery-document guard | DONE | 7d199813 | CI rejects handoff/roadmap/README states that prematurely claim native integration complete while Phase 2E.2 is pending. CI run 36086873370 PASS. |
+| Phase 2 recovery-document guard | DONE | 572368a1 / 3dbf06fb | Repository-level guard validates handoff/roadmap/README state in CI without entering self-update `go test`; docs changes trigger the workflow. |
+| Self-update repo-doc test fix | DONE | 5b9a37e2 / afbb82be | Removed the invalid Go test dependency on root docs and added a module regression preventing future `_test.go` files from depending on repository-only Patch handoff docs. |
 
 ## Next action
 
 Phase 2A–2D and the automated Phase 2E.1 product gate are implemented. **Do not close Phase 2 yet.**
-Next is Phase 2E.2 installed-runtime browser smoke after TaskDeck self-update: verify the actual UI
+Next is Phase 2E.2 installed-runtime browser smoke after TaskDeck self-update to **`afbb82be` or a later descendant**: verify the actual UI
 does not create a terminal tab for Queue/Resume/History/Plan/Health, while explicit terminal
 evidence still materializes one. Only after that passes may Phase 2F closeout be marked DONE.
