@@ -284,6 +284,8 @@ function installActivityBar(){
     const target=event.target;
     if(!(target instanceof Node))return;
     if(rail.contains(target))return;
+    const headerMenus=document.querySelector('.header-action-menus');
+    if(headerMenus?.contains(target))return;
     if(activeView==='tasks'&&menu.contains(target))return;
     if(activeView==='explorer'&&explorerPanel?.contains(target))return;
     if(activeView==='patch'&&globalThis.TaskMenuPatchPanel?.panel?.contains(target))return;
