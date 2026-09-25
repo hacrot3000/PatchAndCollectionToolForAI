@@ -120,6 +120,17 @@ func configureSQLite(ctx context.Context, db *sql.DB, busyTimeout time.Duration)
 		busyTimeout = defaultSQLiteBusyTimeout
 	}
 
+	timeoutMS := busyTimeout / time.Millisecond
+	if timeoutMS < 1 {
+		timeoutMS = 1
+	}
+	// Configure the busy handler before any pragma that may need to acquire a
+	// database lock. In particular, two project daemons can race while the
+	// identity DB is first being switched to WAL mode.
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout = %d", timeoutMS)); err != nil {
+		return fmt.Errorf("configure SQLite busy timeout: %w", err)
+	}
+
 	var journalMode string
 	if err := db.QueryRowContext(ctx, "PRAGMA journal_mode = WAL").Scan(&journalMode); err != nil {
 		return fmt.Errorf("enable SQLite WAL: %w", err)
@@ -130,13 +141,6 @@ func configureSQLite(ctx context.Context, db *sql.DB, busyTimeout time.Duration)
 
 	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
 		return fmt.Errorf("enable SQLite foreign keys: %w", err)
-	}
-	timeoutMS := busyTimeout / time.Millisecond
-	if timeoutMS < 1 {
-		timeoutMS = 1
-	}
-	if _, err := db.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout = %d", timeoutMS)); err != nil {
-		return fmt.Errorf("configure SQLite busy timeout: %w", err)
 	}
 	return nil
 }
