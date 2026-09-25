@@ -18,6 +18,14 @@ func TestSelfUpdateBrowserWorkflow(t *testing.T) {
 		"resumeAfterSelfUpdate",
 		"nonblocking",
 		"Close",
+		"Copy error details",
+		"Copy revision and full self-update error details",
+		"function selfUpdateErrorDetails(req)",
+		"function copyText(text)",
+		"navigator.clipboard.writeText(value)",
+		"document.execCommand('copy')",
+		"copyError.dataset.details=failed?selfUpdateErrorDetails(req):''",
+		"copyError.onclick=async()=>",
 		"postAction('ack',id)",
 		"action='+encodeURIComponent(action)",
 		"postAction('ack',req.id)",
@@ -72,5 +80,26 @@ func TestSelfUpdateRemoteBrowserKeepsReachableOrigin(t *testing.T) {
 	}
 	if strings.Contains(js, "const target=String(req.target_url||location.origin)") {
 		t.Fatal("self-update must not blindly replace the browser origin with daemon target_url")
+	}
+}
+
+func TestSelfUpdateFailureCopyIncludesRevisionAndFullError(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/selfupdate.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	start:=strings.Index(js,"function selfUpdateErrorDetails(req)")
+	endRel:=strings.Index(js[start:],"async function copyText(text)")
+	if start<0||endRel<0 { t.Fatal("self-update error detail formatter bounds unavailable") }
+	block:=js[start:start+endRel]
+	for _, want:=range []string{
+		"'VS Code Tasks Menu update'",
+		"'Revision: '+String(req.revision)",
+		"Candidate validation or activation failed. The current TaskDeck remains usable.",
+		"statusText(req)",
+		"lines.join('\\n\\n')",
+	} {
+		if !strings.Contains(block,want) {
+			t.Fatalf("self-update copied failure details missing %q",want)
+		}
 	}
 }
