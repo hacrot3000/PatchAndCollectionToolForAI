@@ -507,10 +507,11 @@ Every phase must preserve:
 | Phase 2E.1c explicit fallback copy | DONE | 15711d4d | Removed stale “Continue in PTY/terminal” wording; native failures/timeouts now advertise terminal fallback as an explicit optional action only. CI run 36087008801 PASS. |
 | Phase 2 recovery-document guard | DONE | 572368a1 / 3dbf06fb | Repository-level guard validates handoff/roadmap/README state in CI without entering self-update `go test`; docs changes trigger the workflow. |
 | Self-update repo-doc test fix | DONE | 5b9a37e2 / afbb82be / 19c2ebc3 | Removed the invalid Go test dependency on root docs, moved the doc guard to repository CI, added a module non-regression check, and added a CI lane that runs `go test ./...` from the exact docs-free self-update staged source. Run 36087734095 PASS on Go 1.19/1.23. |
+| Phase 2E.2 smoke defect: pre-capability broker loses Patch protocol | FIXED, NEEDS INSTALLED SMOKE | 0ef148e8 / 973af90b / f22cf21e / 114a9222 | Legacy broker can survive self-update with protocol_version=1 but no Patch protocol capabilities. CompatibilityService preserves broker-owned terminals while routing only unsupported Patch protocol sessions to a local Manager; FD3 Health fallback integration test and staged-source CI run 36088980153 PASS on Go 1.19/1.23. Bootstrap taskData=null noise fixed separately. |
 
 ## Next action
 
 Phase 2A–2D and the automated Phase 2E.1 product gate are implemented. **Do not close Phase 2 yet.**
-Next is Phase 2E.2 installed-runtime browser smoke after TaskDeck self-update to **`19c2ebc3` or a later descendant**: verify the actual UI
+Next is Phase 2E.2 installed-runtime browser smoke after TaskDeck self-update to **`114a9222` or a later descendant**: verify the actual UI
 does not create a terminal tab for Queue/Resume/History/Plan/Health, while explicit terminal
 evidence still materializes one. Only after that passes may Phase 2F closeout be marked DONE.

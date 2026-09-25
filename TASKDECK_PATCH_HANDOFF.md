@@ -101,7 +101,7 @@ The gate now checks product-level invariants rather than merely renderer/protoco
 
 **This is the current blocking acceptance task.**
 
-Minimum native-UI code checkpoint remains `15711d4d`, but revision `a0b774c8` cannot be installed through self-update because the repository-document guard was mistakenly placed inside `go test ./...`. **For self-update/browser smoke, install `19c2ebc3` or a later descendant on `main`.**
+Minimum native-UI code checkpoint remains `15711d4d`, but revision `a0b774c8` cannot be installed through self-update because the repository-document guard was mistakenly placed inside `go test ./...`. **For self-update/browser smoke, install `114a9222` or a later descendant on `main`.**
 
 Checkpoint `15711d4d` passed GitHub Actions run `36087008801`. The self-update staging regression is fixed by `5b9a37e2` + `572368a1` + `3dbf06fb`, with a non-regression guard added in `afbb82be`.
 
@@ -152,6 +152,11 @@ Only after Phase 2E.2 passes:
 | `3dbf06fb` | Run handoff guard only in repository CI and trigger it on docs changes |
 | `afbb82be` | Guard self-update Go tests from repository-only document dependencies |
 | `19c2ebc3` | Add CI gate that runs Go tests from the exact self-update staged source layout — CI 36087734095 PASS |
+| `0ef148e8` | Defer appearance/project-state workspace access until `taskmenu:tasks`; removes `taskData=null` bootstrap errors |
+| `1cb1fc0b` / `f5fe1382` | Add legacy-broker compatibility service and routing tests |
+| `973af90b` | Wire daemon through compatibility service so stale broker terminals are preserved while native Patch uses a protocol-capable local manager |
+| `f22cf21e` / `84900727` | Add and correct end-to-end FD3 Health protocol fallback test |
+| `114a9222` | Correct project-state bootstrap contract test; CI 36088980153 PASS on Go 1.19/1.23 |
 
 ## Resolved self-update failure
 
@@ -168,6 +173,40 @@ Resolution:
 - `afbb82be`: add a self-update regression test preventing Go tests from depending on repository-only Patch docs.
 
 This failure is considered fixed on `19c2ebc3` or a later descendant. GitHub Actions run `36087734095` PASSed both Go 1.19 and 1.23, including the dedicated `Self-update staged Go tests` step that reproduces the updater's docs-free staged source layout.
+
+## Resolved stale broker Patch protocol failure
+
+Installed-runtime smoke exposed a second issue after the self-update staging fix: History remained at
+`Loading…` and Health reported `Native Health protocol state unavailable`.
+
+Root cause:
+
+- the long-lived session broker intentionally survives daemon/self-update handoff to preserve
+  terminal processes, IDs and scrollback;
+- older broker processes can still use broker `protocol_version=1` but predate
+  `patch_protocol_events` / `patch_protocol_commands` capabilities;
+- `EnsureClient()` therefore reused a healthy-but-legacy broker;
+- `broker.Client.Start()` correctly stripped unsupported protocol flags, which left native Patch
+  sessions without FD3/FD4 state even though the newly updated web daemon supported them.
+
+The fix does **not** kill/restart that legacy broker, because doing so would lose user terminal
+sessions. Instead, `broker.CompatibilityService` keeps ordinary terminal/task sessions on the
+existing broker and routes only executions requiring missing Patch protocol capabilities to a
+daemon-local `session.Manager`. The wrapper also routes metadata, PTY streaming, protocol state
+and protocol commands by session ID, so explicit terminal evidence continues to work.
+
+Related bootstrap noise was fixed independently: appearance and legacy project-state migration now
+wait for `taskmenu:tasks` before reading the workspace, avoiding
+`app.taskData.workspace` dereferences while `taskData` is still null.
+
+Verification:
+
+- `0ef148e8`: bootstrap guard;
+- `973af90b`: daemon compatibility-service wiring;
+- `f22cf21e` + `84900727`: real FD3 Health event integration test through a legacy-broker fallback;
+- `114a9222`: final test correction;
+- GitHub Actions run `36088980153`: PASS on Go 1.19 and 1.23, including
+  `Self-update staged Go tests`, full `go test ./...`, vet and build.
 
 ## Non-regression invariants
 
