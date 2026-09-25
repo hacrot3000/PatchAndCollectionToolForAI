@@ -8374,9 +8374,12 @@ def _run_queue(
                     print("\nCancelled by Ctrl+C.")
                     return finish_report("CANCELLED", 130)
             if isinstance(decision, dict) and str(decision.get("action") or "") == "history":
-                _history_browser(root)
+                # Native Resume owns only the navigation decision. TaskDeck opens
+                # a dedicated native History session, so never enter the terminal
+                # history browser on the native command path.
                 if native_resume_handled:
                     return finish_report("CANCELLED", 0)
+                _history_browser(root)
                 continue
             break
         if isinstance(decision, dict):

@@ -637,7 +637,7 @@ function installPatchPanel(){
       resumeBox.hidden=true;
       resumeBusy=false;
       if(action==='history'){
-        openTerminalEvidence();
+        await start('history');
         return true;
       }
       if(['all','failed','remaining','collect_failed'].includes(action)){

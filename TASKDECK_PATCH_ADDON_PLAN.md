@@ -194,8 +194,8 @@ Phase 2 is complete only when all of these are true in the actual TaskDeck UI:
 
 - [x] **Phase 2A — Headless Patch backing sessions.** Keep the PTY/protocol engine but exclude built-in Patch sessions from normal terminal-tab synchronization; materialize evidence on demand only.
 - [x] **Phase 2B — Native Patch workspace view.** Promote Patch from the narrow Phase-1 menu/sidebar shell to a dedicated native workspace surface.
-- [ ] **Phase 2C — Native navigation/lifecycle.** Keep Queue → Running → Resume/History/Plan/Health transitions inside the native Patch surface, including Resume → History.
-- [ ] **Phase 2D — Explicit fallback only.** Protocol loss/timeouts show an actionable fallback state without automatically opening a terminal tab.
+- [x] **Phase 2C — Native navigation/lifecycle.** Keep Queue → Running → Resume/History/Plan/Health transitions inside the native Patch surface, including Resume → History.
+- [x] **Phase 2D — Explicit fallback only.** Protocol loss/timeouts show an actionable fallback state without automatically opening a terminal tab.
 - [ ] **Phase 2E — Product acceptance regression + smoke gate.** Verify no implicit Patch terminal tabs and rerun functional parity checks.
 - [ ] **Phase 2F — Cutover closeout.** Update user docs and mark the integration complete only after Phase 2E passes.
 
@@ -496,11 +496,13 @@ Every phase must preserve:
 | Phase 2I integration closeout | INVALIDATED | 74a4aa8f | Premature closeout based on the invalid Phase 2H.7 UI acceptance assumption. |
 | Corrected Phase 2A headless backing session | DONE | 355676a3 | Built-in Patch task_id=-1 sessions remain in the broker/session manager but normal sync no longer creates terminal tabs; explicit terminal evidence materializes the tab on demand. |
 | Corrected Phase 2A UI-test fixture update | DONE | bc978abe | Updated stale PTY-attachment assertions for async explicit evidence materialization; runtime behavior unchanged. |
-| Corrected Phase 2B native workspace surface | DONE | this commit | Patch activates an external native workspace, spans the work area instead of the 310px sidebar, hides the underlying terminal workspace, and restores the previous view on close. |
+| Corrected Phase 2B native workspace surface | DONE | 634b1a2f | Patch activates an external native workspace, spans the work area instead of the 310px sidebar, hides the underlying terminal workspace, and restores the previous view on close. |
+| Corrected Phase 2C native Resume→History navigation | DONE | this commit | Native Resume history selection exits the Resume Python route without entering _history_browser(); TaskDeck opens a dedicated native History session instead. |
+| Corrected Phase 2D explicit-only terminal fallback | DONE | this commit | Removed remaining automatic terminal materialization; protocol loss/timeouts stay in native UI and only explicit evidence buttons create a terminal tab. |
 
 ## Next action
 
-Phase 2A and 2B are implemented. Continue **Phase 2C — Native navigation/lifecycle**: remove the
-remaining terminal handoff from Resume → History and keep normal Patch transitions inside the
-native workspace. Then finish explicit-only fallback behavior and rerun product-level acceptance
-before any closeout.
+Phase 2A–2D are implemented. Continue **Phase 2E — Product acceptance regression + smoke gate**:
+verify the real user-visible behavior (no implicit Patch terminal tabs, full native workspace,
+native Resume → History, explicit-only evidence fallback), audit remaining session/lifecycle edge
+cases, and only then consider Phase 2F closeout.

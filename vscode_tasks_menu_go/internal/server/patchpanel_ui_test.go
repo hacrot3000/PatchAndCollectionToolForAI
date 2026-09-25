@@ -1,6 +1,7 @@
 package server
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -329,7 +330,7 @@ func TestPatchPanelNativeResumeKeepsPTYFallbackAndDestructiveConfirm(t *testing.
 		"Native command channel unavailable. Open terminal evidence/fallback if needed.",
 		"action==='delete_failed'&&!window.confirm",
 		"if(action==='history')",
-		"openTerminalEvidence();",
+		"await start('history');",
 		"['all','failed','remaining','collect_failed'].includes(action)",
 		"void pollProtocol(sessionId,true,true)",
 	} {
@@ -848,5 +849,39 @@ func TestPatchPanelOwnsNativeWorkspaceSurface(t *testing.T) {
 		if !strings.Contains(js,want) {
 			t.Fatalf("native Patch workspace surface missing %q",want)
 		}
+	}
+}
+
+
+func TestPatchNativeNavigationDoesNotImplicitlyOpenTerminal(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	if strings.Contains(js,"openTerminalEvidence();") {
+		t.Fatal("normal native Patch navigation must not implicitly materialize terminal evidence")
+	}
+	for _, want := range []string{
+		"if(action==='history'){",
+		"await start('history');",
+		"terminalEvidence.onclick=()=>openTerminalEvidence().catch(app.showError)",
+		"historyTerminal.onclick=()=>openTerminalEvidence().catch(app.showError)",
+		"planTerminal.onclick=()=>openTerminalEvidence().catch(app.showError)",
+		"healthTerminal.onclick=()=>openTerminalEvidence().catch(app.showError)",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("native navigation/fallback contract missing %q",want) }
+	}
+
+	dispatcher, err := os.ReadFile("../../../_patch_lib/python_patch_queue_dispatcher.py")
+	if err != nil { t.Fatal(err) }
+	py := string(dispatcher)
+	oldOrder := "if isinstance(decision, dict) and str(decision.get(\"action\") or \"\") == \"history\":\n                _history_browser(root)\n                if native_resume_handled:"
+	if strings.Contains(py,oldOrder) {
+		t.Fatal("native Resume must not enter the terminal history browser before TaskDeck navigation")
+	}
+	for _, want := range []string{
+		"if native_resume_handled:\n                    return finish_report(\"CANCELLED\", 0)\n                _history_browser(root)",
+		"TaskDeck opens\n                # a dedicated native History session",
+	} {
+		if !strings.Contains(py,want) { t.Fatalf("Python native Resume navigation contract missing %q",want) }
 	}
 }
