@@ -162,7 +162,7 @@ func parseAIPackPrompts(docs []aiPackFile) (map[string]string, error) {
 
 func aiPackFingerprint(docs []aiPackFile) string {
 	h := sha256.New()
-	_, _ = io.WriteString(h, "taskdeck-patch-ai-pack-v1\x00")
+	_, _ = io.WriteString(h, "taskdeck-patch-ai-pack-v2\x00")
 	for _, file := range docs {
 		_, _ = io.WriteString(h, file.Rel)
 		_, _ = h.Write([]byte{0})
@@ -303,7 +303,7 @@ func writeAIPackZip(path string, docs []aiPackFile, prompts map[string]string, m
 	prefix := "PATCH_TOOL_AI_PACK/"
 	start := "# Patch Tool AI Pack\n\n" +
 		"Upload this ZIP to the new AI chat, then paste PROMPT_VI.txt (or another prompt language).\n" +
-		"The AI must read every file under docs/ before creating PATCH/COLLECT artifacts.\n" +
+		"The AI must read every file under tools/_patch_lib/docs/ before creating PATCH/COLLECT artifacts.\n" +
 		"This pack was generated on demand from the currently installed Patch Tool documentation.\n"
 	if err := write(prefix+"START_HERE.md", []byte(start)); err != nil {
 		_ = zw.Close(); _ = tmp.Close(); return err
@@ -318,7 +318,7 @@ func writeAIPackZip(path string, docs []aiPackFile, prompts map[string]string, m
 		}
 	}
 	for _, file := range docs {
-		if err := write(prefix+"docs/"+file.Rel, file.Data); err != nil {
+		if err := write(prefix+"tools/_patch_lib/docs/"+file.Rel, file.Data); err != nil {
 			_ = zw.Close(); _ = tmp.Close(); return err
 		}
 	}
@@ -388,7 +388,7 @@ func BuildAIPack(workspace, executable string) (AIPackResult, error) {
 	}
 	sort.Strings(promptNames)
 	manifest := aiPackManifest{
-		Format: "taskdeck-patch-ai-pack", Version: 1, Fingerprint: fingerprint,
+		Format: "taskdeck-patch-ai-pack", Version: 2, Fingerprint: fingerprint,
 		GeneratedAt: generatedAt, Source: string(runtimeSpec.Kind), Documents: docNames, Prompts: promptNames,
 	}
 	if err := writeAIPackZip(zipPath, docs, prompts, manifest); err != nil {

@@ -75,9 +75,9 @@ func TestBuildAIPackBuildsOnDemandThenReusesMatchingCache(t *testing.T) {
 		"PATCH_TOOL_AI_PACK/PROMPT_VI.txt",
 		"PATCH_TOOL_AI_PACK/PROMPT_EN.txt",
 		"PATCH_TOOL_AI_PACK/PROMPT_RU.txt",
-		"PATCH_TOOL_AI_PACK/docs/AI_USAGE_CONTRACT.md",
-		"PATCH_TOOL_AI_PACK/docs/" + aiPackPromptDocName,
-		"PATCH_TOOL_AI_PACK/docs/nested.json",
+		"PATCH_TOOL_AI_PACK/tools/_patch_lib/docs/AI_USAGE_CONTRACT.md",
+		"PATCH_TOOL_AI_PACK/tools/_patch_lib/docs/" + aiPackPromptDocName,
+		"PATCH_TOOL_AI_PACK/tools/_patch_lib/docs/nested.json",
 		"PATCH_TOOL_AI_PACK/MANIFEST.json",
 	} {
 		if !names[want] {
