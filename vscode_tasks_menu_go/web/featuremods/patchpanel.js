@@ -429,7 +429,7 @@ function installPatchPanel(){
   runningHead.append(runningTitle,runningMeta,runningActions);
 
   const parallelCollectBox=document.createElement('div');parallelCollectBox.className='task-patch-parallel';parallelCollectBox.hidden=true;
-  const parallelCollectTitle=document.createElement('div');parallelCollectTitle.className='task-patch-parallel-title';parallelCollectTitle.textContent='Parallel COLLECT';
+  const parallelCollectTitle=document.createElement('div');parallelCollectTitle.className='task-patch-parallel-title';parallelCollectTitle.textContent='Active runs';
   const parallelCollectList=document.createElement('div');parallelCollectList.className='task-patch-parallel-list';
   parallelCollectBox.append(parallelCollectTitle,parallelCollectList);
 
@@ -506,6 +506,8 @@ function installPatchPanel(){
   let parallelCollectBusy=false;
   let parallelCollectPollGeneration=0;
   const parallelCollectRuns=new Map();
+  let foregroundRunDescriptor=null;
+  let foregroundProtocolState=null;
   for(const [mode,label,detail] of actionDefs){
     const button=document.createElement('button');
     button.type='button';
@@ -1564,7 +1566,8 @@ function installPatchPanel(){
     runningMeta.classList.remove('stale');
     runningMeta.textContent='Starting Python execution…';
     terminalEvidence.hidden=false;
-    runningBack.hidden=true;
+    runningBack.textContent='Back to Queue / Add more';
+    runningBack.hidden=false;
     runBox.hidden=false;
   }
 
@@ -1589,11 +1592,14 @@ function installPatchPanel(){
     runningMeta.textContent='Waiting for Python execution state…';
     runningBack.hidden=true;
     terminalEvidence.hidden=false;
-    resetParallelCollectRuns();
+    foregroundRunDescriptor=null;
+    foregroundProtocolState=null;
     renderProgress(null);
     renderItemLifecycle([]);
     renderArtifacts([]);
     if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);
+    renderParallelCollectRuns();
+    if(parallelCollectRuns.size)void pollParallelCollectRuns();
   }
 
   async function openTerminalEvidenceForSession(sessionId){
@@ -1659,9 +1665,11 @@ function installPatchPanel(){
   function refreshActionDisabledState(){
     const busy=actionBusy||queueMutationBusy||parallelCollectBusy;
     for(const button of summaryList.querySelectorAll('.task-patch-item-action,.task-patch-queue-delete'))button.disabled=busy;
-    for(const button of promptItems.querySelectorAll('.task-patch-prompt-delete'))button.disabled=busy;
+    for(const button of promptItems.querySelectorAll('.task-patch-prompt-delete'))button.disabled=busy||button.dataset.patchLocked==='1';
     for(const button of promptButtons.querySelectorAll('button'))button.disabled=busy;
-    for(const input of promptItems.querySelectorAll('input[type="checkbox"]'))input.disabled=busy;
+    for(const button of promptTools.querySelectorAll('button'))button.disabled=busy||button.dataset.patchLocked==='1';
+    for(const input of promptItems.querySelectorAll('input[type="checkbox"]'))input.disabled=busy||input.dataset.patchLocked==='1';
+    for(const select of promptItems.querySelectorAll('select[data-patch-priority-index]'))select.disabled=busy||select.dataset.patchLocked==='1';
   }
 
   async function waitForQueueMutation(sessionId,mutationID,oldPromptID){
@@ -2144,7 +2152,7 @@ function installPatchPanel(){
   }
 
   function selectedPromptInputs(){
-    return [...promptItems.querySelectorAll('input[type="checkbox"]:checked')].filter(input=>!input.closest('.task-patch-prompt-item')?.hidden);
+    return [...promptItems.querySelectorAll('input[type="checkbox"]:checked')].filter(input=>!input.disabled&&!input.closest('.task-patch-prompt-item')?.hidden);
   }
 
   function selectedPromptKinds(){return selectedPromptInputs().map(input=>String(input.dataset.patchKind||'').toUpperCase());}
@@ -2156,7 +2164,7 @@ function installPatchPanel(){
     for(const input of promptItems.querySelectorAll('input[type="checkbox"]')){
       const kind=String(input.dataset.patchKind||'').toUpperCase();
       const hidden=Boolean(input.closest('.task-patch-prompt-item')?.hidden);
-      input.checked=!hidden&&kind==='COLLECT'&&selected<capability.max;
+      input.checked=!hidden&&!input.disabled&&kind==='COLLECT'&&selected<capability.max;
       if(input.checked)selected+=1;
       clearPromptPriority(Number(input.dataset.patchIndex));
     }
@@ -2168,7 +2176,7 @@ function installPatchPanel(){
     for(const input of promptItems.querySelectorAll('input[type="checkbox"]')){
       const kind=String(input.dataset.patchKind||'').toUpperCase();
       const hidden=Boolean(input.closest('.task-patch-prompt-item')?.hidden);
-      input.checked=!hidden&&kind==='PATCH';
+      input.checked=!hidden&&!input.disabled&&kind==='PATCH';
       clearPromptPriority(Number(input.dataset.patchIndex));
     }
     promptNote.textContent=queueSearchQuery
@@ -2223,6 +2231,95 @@ function installPatchPanel(){
     if(changedKind==='COLLECT')for(const select of promptItems.querySelectorAll('select[data-patch-priority-index]'))select.value='';
   }
 
+  function activeRunningRuns(){
+    return [...parallelCollectRuns.values()].filter(run=>!run.finished&&!run.error);
+  }
+
+  function activeRunningRunCount(){return activeRunningRuns().length;}
+
+  function activeRunningNames(){
+    const names=new Set();
+    for(const run of activeRunningRuns()){
+      for(const name of (Array.isArray(run.names)?run.names:[run.name])){
+        const value=String(name||'').trim();
+        if(value)names.add(value);
+      }
+    }
+    return names;
+  }
+
+  function foregroundDescriptorFromPrompt(prompt,indexes){
+    const selected=new Set(Array.isArray(indexes)?indexes.map(Number):[]);
+    const rows=(Array.isArray(prompt?.items)?prompt.items:[]).filter(item=>selected.has(Number(item?.index)));
+    return {
+      names:rows.map(item=>String(item?.name||'')).filter(Boolean),
+      kinds:rows.map(item=>String(item?.kind||'').toUpperCase()).filter(Boolean),
+    };
+  }
+
+  function rememberForegroundRun(sessionId){
+    sessionId=String(sessionId||'');
+    if(!sessionId)return null;
+    const state=foregroundProtocolState&&typeof foregroundProtocolState==='object'?foregroundProtocolState:null;
+    const stateItems=Array.isArray(state?.items)?state.items:[];
+    const names=(Array.isArray(foregroundRunDescriptor?.names)&&foregroundRunDescriptor.names.length
+      ? foregroundRunDescriptor.names
+      : stateItems.map(item=>String(item?.name||'')).filter(Boolean));
+    const kinds=(Array.isArray(foregroundRunDescriptor?.kinds)&&foregroundRunDescriptor.kinds.length
+      ? foregroundRunDescriptor.kinds
+      : stateItems.map(item=>String(item?.kind||'').toUpperCase()).filter(Boolean));
+    const label=names.length===1?names[0]:(names.length?((kinds[0]||'PATCH')+' batch · '+names.length+' items'):'Patch Tool run');
+    const key='session:'+sessionId;
+    const existing=parallelCollectRuns.get(key);
+    const eventCount=Number(state?.event_count||0);
+    const finished=state?.last_event?.type==='run_finished'||runningFinished;
+    const run={
+      ...(existing||{}),
+      name:label,
+      names,
+      kinds,
+      sessionId,
+      error:String(existing?.error||''),
+      state:state||existing?.state||null,
+      finished:Boolean(finished||existing?.finished),
+      startedAt:Number(existing?.startedAt||runningStartedAtMs||Date.now()),
+      lastEventCount:Number.isFinite(eventCount)?eventCount:Number(existing?.lastEventCount??-1),
+      lastEventAt:Number(existing?.lastEventAt||runningLastEventAtMs||Date.now()),
+    };
+    parallelCollectRuns.set(key,run);
+    return run;
+  }
+
+  async function openQueueWhileRunning(){
+    if(activeSessionId&&runningMode)rememberForegroundRun(activeSessionId);
+    protocolPollGeneration+=1;
+    activeSessionId='';
+    runningMode=false;
+    runningFinished=false;
+    panel.classList.remove('running');
+    runBox.hidden=true;
+    artifactBox.hidden=true;
+    terminalEvidence.hidden=false;
+    foregroundRunDescriptor=null;
+    foregroundProtocolState=null;
+    await start('queue');
+    renderParallelCollectRuns();
+    if(parallelCollectRuns.size)void pollParallelCollectRuns();
+  }
+
+  async function refreshQueueSession(sessionId){
+    sessionId=String(sessionId||'');
+    if(sessionId&&sessionId===activeSessionId){
+      protocolPollGeneration+=1;
+      try{await app.jsonFetch('/api/sessions/'+encodeURIComponent(sessionId)+'/stop',{method:'POST'});}catch{}
+      activeSessionId='';
+    }
+    clearPrompt();
+    await start('queue');
+    renderParallelCollectRuns();
+    if(parallelCollectRuns.size)void pollParallelCollectRuns();
+  }
+
   function resetParallelCollectRuns(){
     parallelCollectPollGeneration+=1;
     parallelCollectBusy=false;
@@ -2233,10 +2330,11 @@ function installPatchPanel(){
 
   function parallelRunStatus(run){
     if(run.error)return 'LAUNCH FAILED';
-    const item=Array.isArray(run.state?.items)?run.state.items[0]:null;
+    const items=Array.isArray(run.state?.items)?run.state.items:[];
+    const item=items.find(row=>String(row?.status||'').toUpperCase()==='RUNNING')||items.find(row=>['FAIL','FAILED','INCOMPLETE'].includes(String(row?.status||'').toUpperCase()))||items[items.length-1]||null;
     const status=String(item?.status||run.state?.progress?.status||'').toUpperCase();
-    if(status)return status;
-    if(run.finished)return String(run.state?.last_event?.status||'FINISHED').toUpperCase();
+    if(!run.finished&&status)return status;
+    if(run.finished)return String(run.state?.last_event?.status||status||'FINISHED').toUpperCase();
     return run.sessionId?'RUNNING':'STARTING';
   }
 
@@ -2275,9 +2373,9 @@ function installPatchPanel(){
     parallelCollectBox.hidden=parallelCollectRuns.size===0;
     if(parallelCollectRuns.size){
       runBox.hidden=true;artifactBox.hidden=true;terminalEvidence.hidden=true;
-      runningTitle.textContent=finished===parallelCollectRuns.size?'Parallel COLLECT finished':'Parallel COLLECT running';
-      runningMeta.classList.remove('stale');runningMeta.textContent=finished+'/'+parallelCollectRuns.size+' finished'+(failed?' · '+failed+' failed/incomplete':'');
-      if(finished===parallelCollectRuns.size){runningFinished=true;runningBack.hidden=false;}
+      if(runningMode)runningTitle.textContent=finished===parallelCollectRuns.size?'Active runs finished':'Active runs';
+      if(runningMode){runningMeta.classList.remove('stale');runningMeta.textContent=finished+'/'+parallelCollectRuns.size+' finished'+(failed?' · '+failed+' failed/incomplete':'');runningBack.hidden=false;}
+      if(runningMode&&finished===parallelCollectRuns.size)runningFinished=true;
     }
   }
 
@@ -2305,15 +2403,17 @@ function installPatchPanel(){
 
   async function launchParallelCollect(sessionId,prompt,indexes){
     const capability=parallelCollectCapability(prompt);
-    if(!capability||indexes.length<2||indexes.length>capability.max)throw new Error('Parallel COLLECT selection is outside the advertised capability');
+    if(!capability||indexes.length<1||indexes.length>capability.max)throw new Error('Independent COLLECT worker selection is outside the advertised capability');
     parallelCollectBusy=true;refreshActionDisabledState();
     try{
       const response=await app.jsonFetch('/api/sessions/'+encodeURIComponent(sessionId)+'/parallel-collect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt_id:String(prompt?.prompt_id||''),indexes})});
-      clearPrompt();activeSessionId='';
-      enterRunningView();resetParallelCollectRuns();parallelCollectBusy=false;
+      clearPrompt();activeSessionId='';foregroundRunDescriptor=null;foregroundProtocolState=null;
+      enterRunningView();parallelCollectBusy=false;
       for(const row of (Array.isArray(response?.runs)?response.runs:[])){
         const sessionId=String(row?.session?.id||'');
-        parallelCollectRuns.set(Number(row?.index)||parallelCollectRuns.size+1,{index:Number(row?.index)||0,name:String(row?.name||'COLLECT'),sessionId,error:String(row?.error||''),state:null,finished:Boolean(row?.error),startedAt:Date.now(),lastEventCount:-1,lastEventAt:Date.now()});
+        const name=String(row?.name||'COLLECT');
+        const key=sessionId?('session:'+sessionId):('launch-failed:'+Date.now()+':'+String(row?.index||parallelCollectRuns.size+1));
+        parallelCollectRuns.set(key,{index:Number(row?.index)||0,name,names:[name],kinds:['COLLECT'],sessionId,error:String(row?.error||''),state:null,finished:Boolean(row?.error),startedAt:Date.now(),lastEventCount:-1,lastEventAt:Date.now()});
       }
       if(!parallelCollectRuns.size)throw new Error('Parallel COLLECT launch returned no workers');
       renderParallelCollectRuns();void pollParallelCollectRuns();
@@ -2323,8 +2423,10 @@ function installPatchPanel(){
 
   async function submitPromptResponse(sessionId,prompt,action){
     const payload={prompt_id:String(prompt?.prompt_id||''),action};
+    let selectedDescriptor=null;
     if(action==='select'){
       payload.indexes=selectedPromptIndexes();
+      selectedDescriptor=foregroundDescriptorFromPrompt(prompt,payload.indexes);
       const priorities=selectedPromptPriorities();
       if(priorities.length)payload.priorities=priorities;
     }
@@ -2337,7 +2439,7 @@ function installPatchPanel(){
       });
       clearPrompt();
       summaryStatus.textContent=action==='cancel'?'Cancelled':'Selection submitted';
-      if(action==='select'){resetParallelCollectRuns();enterRunningView();}
+      if(action==='select'){foregroundRunDescriptor=selectedDescriptor;foregroundProtocolState=null;enterRunningView();}
       void pollProtocol(sessionId,false,true);
     }catch(error){
       for(const button of promptButtons.querySelectorAll('button'))button.disabled=false;
@@ -2359,33 +2461,42 @@ function installPatchPanel(){
     promptTitle.textContent=String(prompt.title||'Choose PATCH/COLLECT work');
     const priorityCapability=patchPriorityCapability(prompt);
     const parallelCollect=parallelCollectCapability(prompt);
-    promptNote.textContent=parallelCollect
-      ? 'PATCH keeps normal priority rules. Multiple COLLECT requests may be selected and TaskDeck will run each in its own independent process.'
-      : (priorityCapability?'Select work and optionally assign PATCH priority 0–9. Python validates and orders the final selection.':'Select work here, or use the terminal tab. Python validates the final selection.');
-    const selectAll=document.createElement('button');selectAll.type='button';selectAll.textContent='Select all PATCH';
+    const addingWhileRuns=activeRunningRunCount()>0;
+    const runningNames=activeRunningNames();
+    promptNote.textContent=addingWhileRuns
+      ? 'Active run(s) continue in the background. This Queue is add-mode: start additional COLLECT only; PATCH items stay locked until active runs finish.'
+      : (parallelCollect?'PATCH keeps normal priority rules. Multiple COLLECT requests may be selected and TaskDeck will run each in its own independent process.':(priorityCapability?'Select work and optionally assign PATCH priority 0–9. Python validates and orders the final selection.':'Select work here, or use the terminal tab. Python validates the final selection.'));
+    const selectAll=document.createElement('button');selectAll.type='button';selectAll.textContent='Select all PATCH';selectAll.dataset.patchLocked=addingWhileRuns?'1':'0';selectAll.disabled=addingWhileRuns;
     selectAll.onclick=()=>selectAllPromptPatches(prompt);
     const clearAll=document.createElement('button');clearAll.type='button';clearAll.textContent='Clear selection';
     clearAll.onclick=clearPromptSelection;
     promptTools.append(selectAll);
     if(parallelCollect){const selectCollect=document.createElement('button');selectCollect.type='button';selectCollect.textContent='Select all COLLECT (parallel)';selectCollect.onclick=()=>selectAllPromptCollects(prompt);promptTools.append(selectCollect);}
     promptTools.append(clearAll);
+    const refresh=document.createElement('button');refresh.type='button';refresh.textContent='Refresh Queue';refresh.onclick=()=>refreshQueueSession(sessionId).catch(app.showError);promptTools.append(refresh);
     for(const item of items){
       const index=Number(item?.index);
       if(!Number.isInteger(index)||index<1)continue;
       const row=document.createElement('div');row.className='task-patch-prompt-item';row.dataset.patchPromptIndex=String(index);
-      const input=document.createElement('input');input.type='checkbox';input.dataset.patchIndex=String(index);input.dataset.patchKind=String(item?.kind||'');
-      input.checked=initial.has(index);
+      const itemName=String(item?.name||'');
+      const itemKind=String(item?.kind||'').toUpperCase();
+      const duplicateRunning=runningNames.has(itemName);
+      const addModePatch=addingWhileRuns&&itemKind==='PATCH';
+      const locked=duplicateRunning||addModePatch;
+      const input=document.createElement('input');input.type='checkbox';input.dataset.patchIndex=String(index);input.dataset.patchKind=String(item?.kind||'');input.dataset.patchLocked=locked?'1':'0';
+      input.disabled=locked;
+      input.checked=!locked&&initial.has(index);
       input.onchange=()=>applyPromptConstraints(input,prompt);
       const copy=document.createElement('label');copy.className='task-patch-prompt-copy';
       const name=document.createElement('span');name.className='task-patch-prompt-name';
-      name.textContent=`${index}. ${String(item?.name||'')}`;
+      name.textContent=`${index}. ${itemName}`;
       const detail=document.createElement('span');detail.className='task-patch-prompt-detail';
-      detail.textContent=[item?.group,item?.kind,item?.detail].filter(Boolean).join(' · ');
+      detail.textContent=[item?.group,item?.kind,item?.detail,duplicateRunning?'already running':(addModePatch?'locked while active run exists':'')].filter(Boolean).join(' · ');
       copy.append(name,detail);
       row.append(input,copy);
       if(priorityCapability&&String(item?.kind||'').toUpperCase()==='PATCH'){
         const priorityWrap=document.createElement('label');priorityWrap.className='task-patch-prompt-priority';priorityWrap.textContent='Priority';
-        const priority=document.createElement('select');priority.dataset.patchPriorityIndex=String(index);
+        const priority=document.createElement('select');priority.dataset.patchPriorityIndex=String(index);priority.dataset.patchLocked=locked?'1':'0';priority.disabled=locked;
         const none=document.createElement('option');none.value='';none.textContent='—';priority.append(none);
         for(let value=priorityCapability.min;value<=priorityCapability.max;value+=1){
           const option=document.createElement('option');option.value=String(value);option.textContent=String(value);priority.append(option);
@@ -2400,7 +2511,7 @@ function installPatchPanel(){
         row.append(priorityWrap);
       }
       if(queueActionAllowed('delete')){
-        const remove=document.createElement('button');remove.type='button';remove.className='task-patch-prompt-delete';remove.textContent='Delete';
+        const remove=document.createElement('button');remove.type='button';remove.className='task-patch-prompt-delete';remove.textContent='Delete';remove.dataset.patchLocked=duplicateRunning?'1':'0';remove.disabled=duplicateRunning;
         remove.onclick=()=>submitQueueDelete(item,item).catch(app.showError);
         row.append(remove);
       }
@@ -2416,7 +2527,7 @@ function installPatchPanel(){
         }
         const kinds=selectedPromptKinds();
         const parallel=parallelCollectCapability(prompt);
-        if(indexes.length>1&&parallel&&kinds.every(kind=>kind==='COLLECT')){
+        if(parallel&&kinds.every(kind=>kind==='COLLECT')&&(indexes.length>1||activeRunningRunCount()>0)){
           launchParallelCollect(sessionId,prompt,indexes).catch(app.showError);
           return;
         }
@@ -2493,6 +2604,7 @@ function installPatchPanel(){
         haveHealthSnapshot=true;
       }
       if(state?.history_management_result)renderHistoryManagementResult(state.history_management_result);
+      if(runningMode&&sessionId===activeSessionId)foregroundProtocolState=state;
       renderItemLifecycle(state?.items);
       renderProgress(state?.progress);
       renderRunningHeartbeat(state);
@@ -2626,14 +2738,14 @@ function installPatchPanel(){
   planBack.onclick=leavePlanView;
   healthTerminal.onclick=()=>openTerminalEvidence().catch(app.showError);
   healthBack.onclick=leaveHealthView;
-  runningBack.onclick=()=>{if(runningFinished)leaveRunningView();};
+  runningBack.onclick=()=>openQueueWhileRunning().catch(app.showError);
   actionResultClose.onclick=clearActionResult;
   queueTab.onclick=()=>setQueueSummaryView('queue');
   failedTab.onclick=()=>setQueueSummaryView('failed');
   summarySearchInput.oninput=()=>setQueueSearchQuery(summarySearchInput.value);
   summarySearchClear.onclick=()=>{setQueueSearchQuery('');summarySearchInput.focus();};
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,submitHistoryCleanup,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,openQueueWhileRunning,refreshQueueSession,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,submitHistoryCleanup,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 

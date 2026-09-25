@@ -262,13 +262,13 @@ func TestPatchPanelRunningViewKeepsPTYAsSecondaryEvidence(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		"if(action==='select'){resetParallelCollectRuns();enterRunningView();}",
+		"if(action==='select'){foregroundRunDescriptor=selectedDescriptor;foregroundProtocolState=null;enterRunningView();}",
 		"app.materializeSession(meta,false)",
 		"async function openTerminalEvidence()",
 		"app.views.has(sessionId)",
 		"app.activateView(sessionId)",
 		"finishRunningView();",
-		"runningBack.onclick=()=>{if(runningFinished)leaveRunningView();}",
+		"runningBack.onclick=()=>openQueueWhileRunning().catch(app.showError)",
 		"task-patch-panel.running .task-patch-summary",
 		"task-patch-panel.running .task-patch-prompt",
 		"task-patch-panel.running .task-patch-actions",
@@ -1114,5 +1114,82 @@ func TestPatchParallelCollectSelectionDoesNotBreakSingleCollectInvariant(t *test
 		"submitPromptResponse(sessionId,prompt,'select')",
 	} {
 		if !strings.Contains(js,want) { t.Fatalf("parallel/single COLLECT selection contract missing %q",want) }
+	}
+}
+
+
+func TestPatchRunningCanReturnToFreshQueueWithoutStoppingRun(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"runningBack.textContent='Back to Queue / Add more'",
+		"runningBack.hidden=false",
+		"async function openQueueWhileRunning()",
+		"if(activeSessionId&&runningMode)rememberForegroundRun(activeSessionId)",
+		"protocolPollGeneration+=1",
+		"await start('queue')",
+		"function rememberForegroundRun(sessionId)",
+		"parallelCollectRuns.set(key,run)",
+		"function activeRunningRunCount()",
+		"Active run(s) continue in the background",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("background Queue continuation missing %q",want) }
+	}
+	blockStart:=strings.Index(js,"async function openQueueWhileRunning()")
+	blockEnd:=strings.Index(js[blockStart:],"async function refreshQueueSession")
+	if blockStart<0||blockEnd<0 { t.Fatal("openQueueWhileRunning bounds unavailable") }
+	block:=js[blockStart:blockStart+blockEnd]
+	if strings.Contains(block,"/stop") { t.Fatal("Back to Queue must not stop the active run") }
+}
+
+func TestPatchAddModeAllowsCollectButLocksPatchAndRunningItems(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const addingWhileRuns=activeRunningRunCount()>0",
+		"const runningNames=activeRunningNames()",
+		"const duplicateRunning=runningNames.has(itemName)",
+		"const addModePatch=addingWhileRuns&&itemKind==='PATCH'",
+		"input.dataset.patchLocked=locked?'1':'0'",
+		"input.disabled=locked",
+		"already running",
+		"locked while active run exists",
+		"selectAll.dataset.patchLocked=addingWhileRuns?'1':'0'",
+		"remove.dataset.patchLocked=duplicateRunning?'1':'0'",
+		"activeRunningRunCount()>0",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("active-run add-mode safety missing %q",want) }
+	}
+}
+
+func TestPatchQueueCanRefreshWhileBackgroundRunsContinue(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"refresh.textContent='Refresh Queue'",
+		"refreshQueueSession(sessionId).catch(app.showError)",
+		"async function refreshQueueSession(sessionId)",
+		"/stop',{method:'POST'}",
+		"await start('queue')",
+		"if(parallelCollectRuns.size)void pollParallelCollectRuns()",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("Queue refresh contract missing %q",want) }
+	}
+}
+
+func TestPatchSingleAdditionalCollectUsesIndependentWorker(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"indexes.length<1||indexes.length>capability.max",
+		"parallel&&kinds.every(kind=>kind==='COLLECT')&&(indexes.length>1||activeRunningRunCount()>0)",
+		"const key=sessionId?('session:'+sessionId)",
+		"names:[name],kinds:['COLLECT']",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("single additional COLLECT worker UI missing %q",want) }
 	}
 }
