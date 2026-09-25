@@ -94,9 +94,11 @@ func TestSessionsAPIHasBuiltinPatchKind(t *testing.T) {
 	src := string(data)
 	for _, want := range []string{
 		"case \"patch\":",
-		"patchToolExecution(s.Workspace, req.PatchMode)",
+		"patchToolExecutionForUI(s.Workspace, req.PatchMode, req.PatchUI)",
 		"PatchMode string",
 		"json:\"patch_mode,omitempty\"",
+		"PatchUI   string",
+		"json:\"patch_ui,omitempty\"",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("Patch session API missing %q", want)
