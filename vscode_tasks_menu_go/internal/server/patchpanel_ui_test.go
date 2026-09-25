@@ -832,31 +832,59 @@ func TestPatchNativeStartDoesNotCreateTerminalTab(t *testing.T) {
 }
 
 
-func TestPatchPanelOwnsNativeWorkspaceSurface(t *testing.T) {
+func TestPatchPanelOwnsTabbedNativeWorkspaceSurface(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
 	if err != nil { t.Fatal(err) }
 	js := string(data)
 	for _, want := range []string{
-		".task-patch-panel{display:none;position:fixed;top:52px;bottom:0;left:48px;right:0;z-index:1850;width:auto",
-		"body:not(.task-sidebar-auto-hide) .task-patch-panel{left:0}",
-		"body.task-patch-workspace-active main>section{visibility:hidden}",
-		"document.body.classList.toggle('task-patch-workspace-active',visible)",
-		"function rememberReturnView()",
-		"const current=String(app.active||'')",
-		"function restoreReturnView()",
+		"const tabsHost=document.querySelector('#tabs')",
+		"const panesHost=document.querySelector('#panes')",
+		".task-patch-panel{display:none;position:absolute;inset:0",
+		"patchTab.className='tab task-patch-tab'",
+		"patchTabLabel.textContent='Patch Tool'",
+		"patchTab.onclick=()=>open()",
+		"patchTabClose.onclick=event=>{event.stopPropagation();close();}",
+		"patchTab.classList.toggle('active',visible)",
 		"app.activateExternalView('patch')",
-		"panel.classList.contains('visible')?close():open()",
+		"window.addEventListener('taskmenu:view-activated'",
+		"if(kind==='terminal'||kind==='external')deactivate()",
 	} {
 		if !strings.Contains(js,want) {
-			t.Fatalf("native Patch workspace surface missing %q",want)
+			t.Fatalf("native Patch tab surface missing %q",want)
 		}
 	}
-	if strings.Contains(js,"app.activeSessionId") {
-		t.Fatal("Patch workspace must use TaskMenuApp.active; activeSessionId is not exported")
+	for _, forbidden := range []string{
+		"position:fixed;top:52px",
+		"body.task-patch-workspace-active main>section{visibility:hidden}",
+		"document.body.classList.toggle('task-patch-workspace-active'",
+	} {
+		if strings.Contains(js,forbidden) {
+			t.Fatalf("native Patch must no longer obscure the workspace tab strip: %q",forbidden)
+		}
 	}
 }
 
-
+func TestPatchFileActionsOpenEditorAndCopyFullPath(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function fullProjectPath(path)",
+		"String(app.taskData?.workspace||'')",
+		"async function copyFullPath(path,button)",
+		"navigator.clipboard.writeText(text)",
+		"copyPath.textContent='Copy path'",
+		"copyPath.title='Copy full project path'",
+		"function openProjectFile(path)",
+		"globalThis.TaskMenuEditor",
+		"editor.openFile(path).catch(app.showError)",
+		"open.onclick=()=>openProjectFile(path)",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("Patch file action contract missing %q",want)
+		}
+	}
+}
 func TestPatchNativeNavigationDoesNotImplicitlyOpenTerminal(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
 	if err != nil { t.Fatal(err) }

@@ -4,11 +4,14 @@ function installPatchPanel(){
   if(!app||app.layoutProfile==='mobile'||!app.taskData?.workspace)return false;
   if(globalThis.TaskMenuPatchPanel)return true;
 
+  const tabsHost=document.querySelector('#tabs');
+  const panesHost=document.querySelector('#panes');
+  if(!tabsHost||!panesHost)return false;
+
   const style=document.createElement('style');
   style.textContent=`
-  .task-patch-panel{display:none;position:fixed;top:52px;bottom:0;left:48px;right:0;z-index:1850;width:auto;background:#11151b;border:0;box-shadow:none;flex-direction:column}
-  body:not(.task-sidebar-auto-hide) .task-patch-panel{left:0}
-  body.task-patch-workspace-active main>section{visibility:hidden}
+  .task-patch-panel{display:none;position:absolute;inset:0;z-index:20;width:auto;background:#11151b;border:0;box-shadow:none;flex-direction:column}
+  .task-patch-tab[hidden]{display:none}
   .task-patch-panel.visible{display:flex}
   .task-patch-panel-head{height:46px;display:flex;align-items:center;gap:8px;padding:7px 14px;border-bottom:1px solid #30343b}
   .task-patch-panel-title{font-size:13px;font-weight:700;letter-spacing:.04em;flex:1}
@@ -411,7 +414,12 @@ function installPatchPanel(){
   const actions=document.createElement('div');actions.className='task-patch-actions';
   body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,planBox,healthBox,runningHead,runBox,artifactBox,actions);
   panel.append(head,body);
-  document.body.append(panel);
+  panesHost.append(panel);
+
+  const patchTab=document.createElement('button');patchTab.type='button';patchTab.className='tab task-patch-tab';patchTab.hidden=true;
+  const patchTabLabel=document.createElement('span');patchTabLabel.textContent='Patch Tool';
+  const patchTabClose=document.createElement('span');patchTabClose.className='close';patchTabClose.textContent='×';patchTabClose.title='Close Patch Tool';
+  patchTab.append(patchTabLabel,patchTabClose);tabsHost.append(patchTab);
 
   const actionDefs=[
     ['queue','Queue','Open the normal PATCH/COLLECT queue'],
@@ -469,7 +477,7 @@ function installPatchPanel(){
   function setVisible(value){
     const visible=Boolean(value);
     panel.classList.toggle('visible',visible);
-    document.body.classList.toggle('task-patch-workspace-active',visible);
+    patchTab.classList.toggle('active',visible);
     if(!visible){protocolPollGeneration+=1;actionPollGeneration+=1;queueMutationPollGeneration+=1;historyPollGeneration+=1;historyManagementPollGeneration+=1;historySupportPollGeneration+=1;historyCleanupPollGeneration+=1;}
     if(visible&&activeSessionId)void pollProtocol(activeSessionId,!runningMode&&!planMode&&!healthMode,true);
     window.dispatchEvent(new CustomEvent('taskmenu:patch-panel-visible',{detail:{visible}}));
@@ -487,15 +495,28 @@ function installPatchPanel(){
   }
   function open(){
     if(!panel.classList.contains('visible'))rememberReturnView();
+    patchTab.hidden=false;
     app.activateExternalView('patch');
     setVisible(true);
+  }
+  function deactivate(){
+    if(panel.classList.contains('visible'))setVisible(false);
   }
   function close(){
     const wasVisible=panel.classList.contains('visible');
     setVisible(false);
-    if(wasVisible)restoreReturnView();
+    patchTab.hidden=true;
+    if(wasVisible||String(app.active||'')==='external:patch')restoreReturnView();
   }
   function toggle(){panel.classList.contains('visible')?close():open();}
+  patchTab.onclick=()=>open();
+  patchTabClose.onclick=event=>{event.stopPropagation();close();};
+  window.addEventListener('taskmenu:view-activated',event=>{
+    const kind=String(event.detail?.kind||'');
+    const id=String(event.detail?.id||'');
+    if(kind==='external'&&id==='patch'){patchTab.hidden=false;setVisible(true);return;}
+    if(kind==='terminal'||kind==='external')deactivate();
+  });
 
   function resetSummary(status='Not loaded'){
     latestQueueSnapshot=null;
@@ -733,6 +754,41 @@ function installPatchPanel(){
     return /\.(?:txt|log|json|md|markdown|patch|diff|csv|xml|ya?ml|ini|cfg|conf)$/i.test(path);
   }
 
+  function fullProjectPath(path){
+    const root=String(app.taskData?.workspace||'').replace(/[\\/]+$/,'');
+    const rel=String(path||'').replace(/^\/+/, '');
+    return root&&rel?root+'/'+rel:rel;
+  }
+
+  async function copyFullPath(path,button){
+    const text=fullProjectPath(path);
+    if(!text)return false;
+    let copied=false;
+    if(navigator.clipboard&&window.isSecureContext){
+      try{await navigator.clipboard.writeText(text);copied=true;}catch{}
+    }
+    if(!copied){
+      const area=document.createElement('textarea');area.value=text;area.setAttribute('readonly','');area.style.position='fixed';area.style.left='-9999px';area.style.top='0';
+      document.body.append(area);area.select();
+      try{copied=document.execCommand('copy');}finally{area.remove();}
+    }
+    if(!copied)throw new Error('Cannot copy full path');
+    if(button){
+      const original=button.textContent;button.textContent='✓ Copied';
+      setTimeout(()=>{if(button.isConnected)button.textContent=original;},1200);
+    }
+    return true;
+  }
+
+  function openProjectFile(path){
+    const editor=globalThis.TaskMenuEditor;
+    if(editor?.openFile){
+      editor.openFile(path).catch(app.showError);
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path}}));
+  }
+
   function appendHistoryFile(host,file){
     const path=historySafeProjectPath(file?.path);
     if(!path)return;
@@ -747,9 +803,11 @@ function installPatchPanel(){
     const actionsNode=document.createElement('div');actionsNode.className='task-patch-history-file-actions';
     const download=document.createElement('a');download.textContent='Download';download.href='/api/files/download?path='+encodeURIComponent(path);download.download='';
     actionsNode.append(download);
+    const copyPath=document.createElement('button');copyPath.type='button';copyPath.textContent='Copy path';copyPath.title='Copy full project path';
+    copyPath.onclick=()=>copyFullPath(path,copyPath).catch(app.showError);actionsNode.append(copyPath);
     if(historyTextFile(path)){
       const open=document.createElement('button');open.type='button';open.textContent='Open';
-      open.onclick=()=>window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path}}));
+      open.onclick=()=>openProjectFile(path);
       actionsNode.append(open);
     }
     row.append(head,pathNode,actionsNode);host.append(row);
@@ -1850,9 +1908,11 @@ function installPatchPanel(){
       const actionsNode=document.createElement('div');actionsNode.className='task-patch-artifact-actions';
       const download=document.createElement('a');download.textContent='Download';download.href='/api/files/download?path='+encodeURIComponent(path);download.download='';
       actionsNode.append(download);
+      const copyPath=document.createElement('button');copyPath.type='button';copyPath.textContent='Copy path';copyPath.title='Copy full project path';
+      copyPath.onclick=()=>copyFullPath(path,copyPath).catch(app.showError);actionsNode.append(copyPath);
       if(kind.endsWith('_text')){
         const open=document.createElement('button');open.type='button';open.textContent='Open';
-        open.onclick=()=>window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path}}));
+        open.onclick=()=>openProjectFile(path);
         actionsNode.append(open);
       }
       row.append(head,pathNode,actionsNode);
