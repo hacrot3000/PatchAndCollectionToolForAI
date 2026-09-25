@@ -30,7 +30,11 @@ func init() {
 // Shared-server mode fails closed if no suitable Python 3 runtime with sqlite3
 // support is available. Legacy mode never calls this function.
 func OpenSQLiteStore(ctx context.Context, dbPath string) (Store, error) {
-	return openSQLiteDatabase(ctx, pythonSQLiteDriverName, dbPath)
+	db, err := openSQLiteDatabase(ctx, pythonSQLiteDriverName, dbPath)
+	if err != nil {
+		return nil, err
+	}
+	return db, nil
 }
 
 type pythonSQLiteDriver struct{}
