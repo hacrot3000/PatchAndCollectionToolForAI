@@ -1047,3 +1047,23 @@ func TestPatchRunningViewShowsLiveProtocolHeartbeat(t *testing.T) {
 		}
 	}
 }
+
+
+func TestPatchQueueWarningsRenderOnePerLine(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{"task-patch-summary-warning-title","task-patch-summary-warning-line","for(const warning of warnings)"} {
+		if !strings.Contains(js,want) { t.Fatalf("queue warning line rendering missing %q",want) }
+	}
+	if strings.Contains(js,"warnings.slice(0,3).join(' | ')") { t.Fatal("queue warnings must not be collapsed into one line") }
+}
+
+func TestPatchQueuePromptHasPerItemDelete(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{"task-patch-prompt-delete","if(queueActionAllowed('delete'))","remove.onclick=()=>submitQueueDelete(item,item).catch(app.showError)","promptItems.querySelectorAll('.task-patch-prompt-delete')"} {
+		if !strings.Contains(js,want) { t.Fatalf("queue prompt delete missing %q",want) }
+	}
+}

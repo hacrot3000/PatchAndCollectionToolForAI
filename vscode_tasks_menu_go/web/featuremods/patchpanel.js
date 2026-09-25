@@ -41,6 +41,8 @@ function installPatchPanel(){
   .task-patch-queue-delete:hover{background:#4a272d}
   .task-patch-summary-empty{padding:7px 6px;opacity:.62;text-align:center}
   .task-patch-summary-warning{margin-top:5px;opacity:.72}
+  .task-patch-summary-warning-title{font-weight:600;margin-bottom:2px}
+  .task-patch-summary-warning-line{display:block;margin-top:2px;overflow-wrap:anywhere}
   .task-patch-summary.prompt-active .task-patch-summary-tabs,
   .task-patch-summary.prompt-active .task-patch-summary-search,
   .task-patch-summary.prompt-active .task-patch-summary-list{display:none}
@@ -67,6 +69,8 @@ function installPatchPanel(){
   .task-patch-prompt-name{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-prompt-detail{display:block;opacity:.62;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-prompt-buttons{display:flex;gap:6px;margin-top:8px}
+  .task-patch-prompt-delete{margin-left:auto;border-color:#81424a;background:#3b2025;color:#ffd9dd;white-space:nowrap}
+  .task-patch-prompt-delete:hover{background:#4a272d}
   .task-patch-prompt-buttons button{flex:1}
   .task-patch-resume{margin:0 0 10px;padding:8px;border:1px solid #4b596d;border-radius:6px;background:#121923;font-size:11px}
   .task-patch-resume[hidden]{display:none}
@@ -1588,6 +1592,7 @@ function installPatchPanel(){
   function refreshActionDisabledState(){
     const busy=actionBusy||queueMutationBusy;
     for(const button of summaryList.querySelectorAll('.task-patch-item-action,.task-patch-queue-delete'))button.disabled=busy;
+    for(const button of promptItems.querySelectorAll('.task-patch-prompt-delete'))button.disabled=busy;
     for(const button of promptButtons.querySelectorAll('button'))button.disabled=busy;
     for(const input of promptItems.querySelectorAll('input[type="checkbox"]'))input.disabled=busy;
   }
@@ -1856,7 +1861,13 @@ function installPatchPanel(){
       summaryCounts.append(chip);
     }
     const warnings=Array.isArray(latestQueueSnapshot?.warnings)?latestQueueSnapshot.warnings:[];
-    summaryWarnings.textContent=warnings.length?`${warnings.length} warning(s): ${warnings.slice(0,3).join(' | ')}`:'';
+    summaryWarnings.replaceChildren();
+    if(warnings.length){
+      const title=document.createElement('div');title.className='task-patch-summary-warning-title';title.textContent=`${warnings.length} warning(s):`;summaryWarnings.append(title);
+      for(const warning of warnings){
+        const line=document.createElement('div');line.className='task-patch-summary-warning-line';line.textContent=String(warning||'');summaryWarnings.append(line);
+      }
+    }
     const searchReady=queueSearchAvailable(latestQueueSnapshot);
     summarySearchInput.disabled=!searchReady;
     summarySearchClear.disabled=!searchReady;
@@ -2149,6 +2160,11 @@ function installPatchPanel(){
         };
         priorityWrap.append(priority);
         row.append(priorityWrap);
+      }
+      if(queueActionAllowed('delete')){
+        const remove=document.createElement('button');remove.type='button';remove.className='task-patch-prompt-delete';remove.textContent='Delete';
+        remove.onclick=()=>submitQueueDelete(item,item).catch(app.showError);
+        row.append(remove);
       }
       promptItems.append(row);
     }
