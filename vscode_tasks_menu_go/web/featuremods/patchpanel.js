@@ -565,7 +565,8 @@ function installPatchPanel(){
   artifactBox.append(artifactTitle,artifactList);
 
   const actions=document.createElement('div');actions.className='task-patch-actions';
-  body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,planBox,healthBox,aiPackBox,runningHead,runBox,artifactBox,parallelCollectBox,actions);
+  body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,planBox,healthBox,runningHead,runBox,artifactBox,parallelCollectBox,actions);
+  body.insertBefore(aiPackBox,runningHead);
   panel.append(head,body);
   panesHost.append(panel);
 
@@ -1808,6 +1809,57 @@ function installPatchPanel(){
     return true;
   }
 
+  function enterRunningView(){
+    runningMode=true;
+    runningFinished=false;
+    runningStartedAtMs=Date.now();
+    runningLastEventCount=-1;
+    runningLastEventAtMs=runningStartedAtMs;
+    panel.classList.add('running');
+    runningTitle.textContent='Current run';
+    runningHead.classList.remove('finished','failed');
+    runningMeta.classList.remove('stale');
+    runningMeta.textContent='Starting Python execution…';
+    terminalEvidence.hidden=false;
+    runningBack.textContent='Back to Queue / Add more';
+    runningBack.hidden=false;
+    runBox.hidden=false;
+  }
+
+  function finishRunningView(){
+    if(!runningMode)return;
+    runningFinished=true;
+    updateForegroundHeading(foregroundProtocolState);
+    runningMeta.classList.remove('stale');
+    const completedName=foregroundRunName(foregroundProtocolState);
+    const failed=stateHasFailure(foregroundProtocolState);
+    runningMeta.textContent=(completedName?completedName+' · ':'')+(failed?'failed. Failure reason, recent console output, and handoff/artifacts are available below.':'completed successfully. Result and artifacts below are the latest foreground run.');
+    runningBack.hidden=false;
+  }
+
+  function leaveRunningView(){
+    runningMode=false;
+    runningFinished=false;
+    runningStartedAtMs=0;
+    runningLastEventCount=-1;
+    runningLastEventAtMs=0;
+    panel.classList.remove('running');
+    runningTitle.textContent='Current run';
+    runningHead.classList.remove('finished','failed');
+    runningMeta.classList.remove('stale');
+    runningMeta.textContent='Waiting for Python execution state…';
+    runningBack.hidden=true;
+    terminalEvidence.hidden=false;
+    foregroundRunDescriptor=null;
+    foregroundProtocolState=null;
+    renderProgress(null);
+    renderItemLifecycle([]);
+    renderArtifacts([]);
+    if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);
+    renderParallelCollectRuns();
+    if(parallelCollectRuns.size)void pollParallelCollectRuns();
+  }
+
   async function copyAIPackPrompt(button){
     const text=String(latestAIPack?.prompt||'');
     if(!text)return false;
@@ -1875,57 +1927,6 @@ function installPatchPanel(){
       aiPackRefresh.disabled=false;
       if(sourceButton?.isConnected)sourceButton.disabled=false;
     }
-  }
-
-  function enterRunningView(){
-    runningMode=true;
-    runningFinished=false;
-    runningStartedAtMs=Date.now();
-    runningLastEventCount=-1;
-    runningLastEventAtMs=runningStartedAtMs;
-    panel.classList.add('running');
-    runningTitle.textContent='Current run';
-    runningHead.classList.remove('finished','failed');
-    runningMeta.classList.remove('stale');
-    runningMeta.textContent='Starting Python execution…';
-    terminalEvidence.hidden=false;
-    runningBack.textContent='Back to Queue / Add more';
-    runningBack.hidden=false;
-    runBox.hidden=false;
-  }
-
-  function finishRunningView(){
-    if(!runningMode)return;
-    runningFinished=true;
-    updateForegroundHeading(foregroundProtocolState);
-    runningMeta.classList.remove('stale');
-    const completedName=foregroundRunName(foregroundProtocolState);
-    const failed=stateHasFailure(foregroundProtocolState);
-    runningMeta.textContent=(completedName?completedName+' · ':'')+(failed?'failed. Failure reason, recent console output, and handoff/artifacts are available below.':'completed successfully. Result and artifacts below are the latest foreground run.');
-    runningBack.hidden=false;
-  }
-
-  function leaveRunningView(){
-    runningMode=false;
-    runningFinished=false;
-    runningStartedAtMs=0;
-    runningLastEventCount=-1;
-    runningLastEventAtMs=0;
-    panel.classList.remove('running');
-    runningTitle.textContent='Current run';
-    runningHead.classList.remove('finished','failed');
-    runningMeta.classList.remove('stale');
-    runningMeta.textContent='Waiting for Python execution state…';
-    runningBack.hidden=true;
-    terminalEvidence.hidden=false;
-    foregroundRunDescriptor=null;
-    foregroundProtocolState=null;
-    renderProgress(null);
-    renderItemLifecycle([]);
-    renderArtifacts([]);
-    if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);
-    renderParallelCollectRuns();
-    if(parallelCollectRuns.size)void pollParallelCollectRuns();
   }
 
   async function openTerminalEvidenceForSession(sessionId){
