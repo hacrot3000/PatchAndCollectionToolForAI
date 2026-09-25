@@ -3291,6 +3291,76 @@ def discover_queue(root: Path):
     return items, warnings
 
 
+def _protocol_skipped_candidates(root: Path, warnings: list[str]) -> list[dict[str, str]]:
+    """Project deletable skipped queue entries without turning warnings into arbitrary paths."""
+    patterns = (
+        (re.compile(r"^SKIPPED non-patch candidate: patchs/(.+) \((.+)\)$"), "non_patch"),
+        (re.compile(r"^SKIPPED symlink queue entry: patchs/(.+)$"), "symlink"),
+        (re.compile(r"^SKIPPED unreadable entry: patchs/(.+) \((.+)\)$"), "unreadable"),
+        (re.compile(r"^RAW JSON REJECTED: patchs/(.+)$"), "raw_json_rejected"),
+    )
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    patch_root = root / "patchs"
+    try:
+        patch_root_real = patch_root.resolve(strict=True)
+    except OSError:
+        return rows
+    for raw in warnings:
+        warning = str(raw or "")
+        name = ""
+        reason = ""
+        for pattern, default_reason in patterns:
+            match = pattern.match(warning)
+            if match is None:
+                continue
+            name = str(match.group(1) or "").strip()
+            reason = str(match.group(2) or default_reason).strip() if match.lastindex and match.lastindex >= 2 else default_reason
+            break
+        if not name or name in seen or Path(name).name != name or "\x00" in name:
+            continue
+        candidate = patch_root / name
+        try:
+            if candidate.parent.resolve(strict=True) != patch_root_real:
+                continue
+            if not (candidate.is_symlink() or candidate.is_file()):
+                continue
+        except OSError:
+            continue
+        seen.add(name)
+        rows.append({
+            "name": name,
+            "kind": "SKIPPED",
+            "reason": _safe_display(reason)[:256],
+            "warning": _safe_display(warning)[:1024],
+        })
+    rows.sort(key=lambda row: natural_name_key(row["name"]))
+    return rows
+
+
+def _delete_protocol_skipped_candidate(root: Path, name: str) -> tuple[bool, str]:
+    """Delete only an entry that current Python queue discovery still advertises as skipped."""
+    name = str(name or "").strip()
+    if not name or Path(name).name != name or "\x00" in name:
+        return False, "Skipped queue filename is invalid"
+    _items, warnings = discover_queue(root)
+    advertised = {row["name"] for row in _protocol_skipped_candidates(root, warnings)}
+    if name not in advertised:
+        return False, f"Skipped queue entry is no longer available: {name}"
+    patch_root = root / "patchs"
+    candidate = patch_root / name
+    try:
+        patch_root_real = patch_root.resolve(strict=True)
+        if candidate.parent.resolve(strict=True) != patch_root_real:
+            return False, "Skipped queue entry escapes patchs/"
+        if not (candidate.is_symlink() or candidate.is_file()):
+            return False, f"Skipped queue entry is not a deletable file: {name}"
+        candidate.unlink()
+    except OSError as exc:
+        return False, f"Could not delete skipped queue entry {name}: {type(exc).__name__}: {exc}"
+    return True, f"Deleted skipped queue entry {name}"
+
+
 def _protocol_failure_summary(row: dict[str, object]) -> dict[str, object]:
     result = row.get("patch_result") if isinstance(row.get("patch_result"), dict) else None
     diagnosis = result.get("diagnosis") if isinstance(result, dict) and isinstance(result.get("diagnosis"), dict) else None
@@ -3338,6 +3408,7 @@ def protocol_queue_view(root: Path) -> dict[str, object]:
     return {
         "status": "runnable" if rows else "empty",
         "items": rows,
+        "skipped": _protocol_skipped_candidates(root, warnings),
         "warnings": [str(value) for value in warnings],
         "counts": counts,
         "group_counts": group_counts,
@@ -5628,6 +5699,26 @@ def _protocol_queue_selection(
             }
             for index, item in enumerate(items, 1)
         ]
+        if root is not None:
+            try:
+                skipped_rows = protocol_queue_view(root).get("skipped")
+            except Exception:
+                skipped_rows = []
+            if isinstance(skipped_rows, list):
+                for offset, skipped in enumerate(skipped_rows, len(rows) + 1):
+                    if not isinstance(skipped, dict):
+                        continue
+                    name = str(skipped.get("name") or "").strip()
+                    if not name:
+                        continue
+                    rows.append({
+                        "index": offset,
+                        "name": name,
+                        "kind": "SKIPPED",
+                        "detail": str(skipped.get("reason") or "not runnable"),
+                        "group": "skipped",
+                        "selectable": False,
+                    })
         return emit_prompt(
             writer,
             "queue_selection",
@@ -5677,35 +5768,57 @@ def _protocol_queue_selection(
                     if not mutation_id or len(mutation_id) > 128:
                         raise ValueError("queue_delete mutation_id is required and must be <=128 characters")
                     raw_index = payload.get("index")
-                    if isinstance(raw_index, bool) or not isinstance(raw_index, int) or raw_index < 1 or raw_index > len(items):
+                    if isinstance(raw_index, bool) or not isinstance(raw_index, int) or raw_index < 1:
                         raise ValueError("queue_delete index is out of range")
                     if root is None:
                         raise ValueError("queue_delete project root is unavailable")
-                    victim = items[raw_index - 1]
-                    selected, priorities, deleted, failures = _delete_indexes(
-                        root, items, selected, {raw_index - 1}, priorities
-                    )
-                    deleted_ok = victim.name in deleted
+
+                    if raw_index <= len(items):
+                        victim = items[raw_index - 1]
+                        selected, priorities, deleted, failures = _delete_indexes(
+                            root, items, selected, {raw_index - 1}, priorities
+                        )
+                        deleted_ok = victim.name in deleted
+                        item_name = victim.name
+                        item_kind = victim.kind
+                        message = f"Deleted {victim.name}" if deleted_ok else (failures[0] if failures else "Queue item was not deleted")
+                        if deleted_ok:
+                            failed_names.discard(victim.name)
+                    else:
+                        snapshot_before = protocol_queue_view(root)
+                        skipped_rows = snapshot_before.get("skipped") if isinstance(snapshot_before, dict) else []
+                        skipped_index = raw_index - len(items) - 1
+                        if not isinstance(skipped_rows, list) or skipped_index < 0 or skipped_index >= len(skipped_rows):
+                            raise ValueError("queue_delete skipped index is out of range")
+                        skipped = skipped_rows[skipped_index]
+                        if not isinstance(skipped, dict):
+                            raise ValueError("queue_delete skipped item is invalid")
+                        item_name = str(skipped.get("name") or "")
+                        item_kind = "SKIPPED"
+                        deleted_ok, message = _delete_protocol_skipped_candidate(root, item_name)
+
+                    snapshot_after = protocol_queue_view(root)
+                    skipped_after = snapshot_after.get("skipped") if isinstance(snapshot_after.get("skipped"), list) else []
+                    remaining = len(items) + len(skipped_after)
                     writer.emit(
                         "queue_mutation_result",
                         prompt_id=prompt_id,
                         mutation_id=mutation_id,
                         action="delete",
                         index=raw_index,
-                        item_name=victim.name,
-                        item_kind=victim.kind,
+                        item_name=item_name,
+                        item_kind=item_kind,
                         status="PASS" if deleted_ok else "FAIL",
-                        message=(f"Deleted {victim.name}" if deleted_ok else (failures[0] if failures else "Queue item was not deleted")),
-                        remaining=len(items),
+                        message=message,
+                        remaining=remaining,
                     )
                     if not deleted_ok:
                         continue
-                    failed_names.discard(victim.name)
                     try:
-                        writer.emit("queue_snapshot", **protocol_queue_view(root))
+                        writer.emit("queue_snapshot", **snapshot_after)
                     except Exception as exc:
                         writer.emit("error", phase="queue_delete_refresh", message=f"{type(exc).__name__}: {exc}")
-                    if not items:
+                    if not items and not skipped_after:
                         return True, []
                     prompt_id = emit_queue_prompt()
                 except (ValueError, TypeError) as exc:
