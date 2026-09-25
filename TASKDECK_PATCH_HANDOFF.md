@@ -1,7 +1,6 @@
 # TaskDeck Patch Native UI — Handoff / Recovery State
 
 Last updated: 2026-09-25  
-Current recovery head when this handoff was refreshed: `0072c13a`  
 Repository: `hacrot3000/PatchAndCollectionToolForAI`  
 Branch: `main`
 
@@ -137,6 +136,9 @@ Only after Phase 2E.2 passes:
 | `592c4dc9` | Add accurate recovery handoff |
 | `082a8b72` | Correct README native-completion claims |
 | `89d3a458` | Fail closed if Patch loses headless session invariant |
+| `14a259fb` | Record verified Phase 2E.1 recovery checkpoint |
+| `7d199813` | Add CI guard against premature handoff/roadmap completion |
+| `9096299f` | Point implementing.md to the TaskDeck recovery handoff |
 
 ## Non-regression invariants
 
