@@ -2,6 +2,7 @@ package patchtool
 
 import (
 	"archive/zip"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"time"
 )
@@ -18,10 +18,18 @@ import (
 const (
 	aiPackPromptDocName = "AI_STANDARD_PROMPTS.json"
 	aiPackZipName       = "PATCH_TOOL_AI_PACK.zip"
-	aiPackMetaName  = "PATCH_TOOL_AI_PACK.cache.json"
-	aiPackMaxFiles  = 512
-	aiPackMaxBytes  = 32 << 20
+	aiPackMetaName      = "PATCH_TOOL_AI_PACK.cache.json"
+	aiPackMaxBytes      = 32 << 20
 )
+
+var aiPackRequiredDocs = []string{
+	"AI_USAGE_CONTRACT.md",
+	"CODE_COLLECTION_GUIDE.md",
+	"COLLECT_ACTION_SCHEMA.json",
+	"PATCH_PACKAGE_GUIDE.md",
+	"PATCH_PACKAGE_SCHEMA.json",
+	"PATCH_PACKAGE_CHECKLIST.json",
+}
 
 type AIPackResult struct {
 	Path        string `json:"path"`
@@ -45,16 +53,6 @@ type aiPackCacheMeta struct {
 	Source      string `json:"source"`
 }
 
-type aiPackManifest struct {
-	Format      string   `json:"format"`
-	Version     int      `json:"version"`
-	Fingerprint string   `json:"fingerprint"`
-	GeneratedAt string   `json:"generated_at"`
-	Source      string   `json:"source"`
-	Documents   []string `json:"documents"`
-	Prompts     []string `json:"prompts"`
-}
-
 func regularAIPackFile(path string) bool {
 	info, err := os.Lstat(path)
 	return err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0
@@ -68,77 +66,37 @@ func collectAIPackDocs(root string) ([]aiPackFile, error) {
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return nil, fmt.Errorf("Patch Tool docs path is not a real directory")
 	}
-	var files []aiPackFile
+	files := make([]aiPackFile, 0, len(aiPackRequiredDocs))
 	total := 0
-	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if path == root {
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("Patch Tool docs contains symlink: %s", path)
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("Patch Tool docs contains non-regular file: %s", path)
-		}
-		if len(files) >= aiPackMaxFiles {
-			return fmt.Errorf("Patch Tool docs exceeds %d files", aiPackMaxFiles)
+	for _, rel := range aiPackRequiredDocs {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if !regularAIPackFile(path) {
+			return nil, fmt.Errorf("required AI Pack document is missing or unsafe: %s", rel)
 		}
 		raw, err := os.ReadFile(path)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		total += len(raw)
 		if total > aiPackMaxBytes {
-			return fmt.Errorf("Patch Tool docs exceeds %d bytes", aiPackMaxBytes)
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-		if rel == "." || strings.HasPrefix(rel, "../") || strings.Contains(rel, "/../") {
-			return fmt.Errorf("Patch Tool docs path escapes source root")
+			return nil, fmt.Errorf("essential AI Pack docs exceed %d bytes", aiPackMaxBytes)
 		}
 		files = append(files, aiPackFile{Rel: rel, Data: raw})
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
-	if len(files) == 0 {
-		return nil, fmt.Errorf("Patch Tool docs directory is empty")
-	}
-	sort.Slice(files, func(i, j int) bool { return files[i].Rel < files[j].Rel })
 	return files, nil
 }
 
-type aiPackPrompts struct {
-	Version int    `json:"version"`
-	VI      string `json:"vi"`
-	EN      string `json:"en"`
-	RU      string `json:"ru"`
-}
-
-func parseAIPackPrompts(docs []aiPackFile) (map[string]string, error) {
-	var raw []byte
-	for _, file := range docs {
-		if file.Rel == aiPackPromptDocName {
-			raw = file.Data
-			break
-		}
-	}
-	if len(raw) == 0 {
+func loadAIPackPrompts(root string) (map[string]string, error) {
+	path := filepath.Join(root, aiPackPromptDocName)
+	if !regularAIPackFile(path) {
 		return nil, fmt.Errorf("%s is missing from the active Patch Tool docs", aiPackPromptDocName)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > 1<<20 {
+		return nil, fmt.Errorf("%s is unexpectedly large", aiPackPromptDocName)
 	}
 	var doc aiPackPrompts
 	if err := json.Unmarshal(raw, &doc); err != nil {
@@ -162,7 +120,7 @@ func parseAIPackPrompts(docs []aiPackFile) (map[string]string, error) {
 
 func aiPackFingerprint(docs []aiPackFile) string {
 	h := sha256.New()
-	_, _ = io.WriteString(h, "taskdeck-patch-ai-pack-v2\x00")
+	_, _ = io.WriteString(h, "taskdeck-patch-ai-pack-v3\x00")
 	for _, file := range docs {
 		_, _ = io.WriteString(h, file.Rel)
 		_, _ = h.Write([]byte{0})
@@ -217,7 +175,7 @@ func readAIPackCacheMeta(path string) (aiPackCacheMeta, bool) {
 	return meta, true
 }
 
-func cachedAIPackMatches(path, fingerprint string) bool {
+func cachedAIPackMatches(path string, docs []aiPackFile) bool {
 	if !regularAIPackFile(path) {
 		return false
 	}
@@ -226,23 +184,30 @@ func cachedAIPackMatches(path, fingerprint string) bool {
 		return false
 	}
 	defer zr.Close()
+	if len(zr.File) != len(docs) {
+		return false
+	}
+	expected := make(map[string][]byte, len(docs))
+	for _, doc := range docs {
+		expected[doc.Rel] = doc.Data
+	}
 	for _, file := range zr.File {
-		if file.Name != "PATCH_TOOL_AI_PACK/MANIFEST.json" {
-			continue
+		want, ok := expected[file.Name]
+		if !ok || file.FileInfo().IsDir() {
+			return false
 		}
 		rc, err := file.Open()
 		if err != nil {
 			return false
 		}
-		raw, err := io.ReadAll(io.LimitReader(rc, 1<<20))
+		raw, err := io.ReadAll(io.LimitReader(rc, int64(len(want))+1))
 		_ = rc.Close()
-		if err != nil {
+		if err != nil || !bytes.Equal(raw, want) {
 			return false
 		}
-		var manifest aiPackManifest
-		return json.Unmarshal(raw, &manifest) == nil && manifest.Fingerprint == fingerprint
+		delete(expected, file.Name)
 	}
-	return false
+	return len(expected) == 0
 }
 
 func replaceAIPackFile(temp, target string) error {
@@ -281,7 +246,7 @@ func writeJSONAtomic(path string, value any) error {
 	return replaceAIPackFile(name, path)
 }
 
-func writeAIPackZip(path string, docs []aiPackFile, prompts map[string]string, manifest aiPackManifest) error {
+func writeAIPackZip(path string, docs []aiPackFile) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
 	if err != nil {
@@ -290,59 +255,33 @@ func writeAIPackZip(path string, docs []aiPackFile, prompts map[string]string, m
 	name := tmp.Name()
 	defer os.Remove(name)
 	zw := zip.NewWriter(tmp)
-	write := func(name string, data []byte) error {
-		header := &zip.FileHeader{Name: name, Method: zip.Deflate}
+	for _, file := range docs {
+		header := &zip.FileHeader{Name: file.Rel, Method: zip.Deflate}
 		header.SetMode(0o644)
 		w, err := zw.CreateHeader(header)
 		if err != nil {
+			_ = zw.Close()
+			_ = tmp.Close()
 			return err
 		}
-		_, err = w.Write(data)
-		return err
-	}
-	prefix := "PATCH_TOOL_AI_PACK/"
-	start := "# Patch Tool AI Pack\n\n" +
-		"Upload this ZIP to the new AI chat, then paste PROMPT_VI.txt (or another prompt language).\n" +
-		"The AI must read every file under tools/_patch_lib/docs/ before creating PATCH/COLLECT artifacts.\n" +
-		"This pack was generated on demand from the currently installed Patch Tool documentation.\n"
-	if err := write(prefix+"START_HERE.md", []byte(start)); err != nil {
-		_ = zw.Close(); _ = tmp.Close(); return err
-	}
-	for id, prompt := range prompts {
-		name := map[string]string{"prompt-vi":"PROMPT_VI.txt", "prompt-en":"PROMPT_EN.txt", "prompt-ru":"PROMPT_RU.txt"}[id]
-		if name == "" {
-			continue
+		if _, err := w.Write(file.Data); err != nil {
+			_ = zw.Close()
+			_ = tmp.Close()
+			return err
 		}
-		if err := write(prefix+name, []byte(prompt+"\n")); err != nil {
-			_ = zw.Close(); _ = tmp.Close(); return err
-		}
-	}
-	for _, file := range docs {
-		if err := write(prefix+"tools/_patch_lib/docs/"+file.Rel, file.Data); err != nil {
-			_ = zw.Close(); _ = tmp.Close(); return err
-		}
-	}
-	manifestRaw, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		_ = zw.Close(); _ = tmp.Close(); return err
-	}
-	manifestRaw = append(manifestRaw, '\n')
-	if err := write(prefix+"MANIFEST.json", manifestRaw); err != nil {
-		_ = zw.Close(); _ = tmp.Close(); return err
 	}
 	if err := zw.Close(); err != nil {
-		_ = tmp.Close(); return err
+		_ = tmp.Close()
+		return err
 	}
 	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close(); return err
+		_ = tmp.Close()
+		return err
 	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := replaceAIPackFile(name, path); err != nil {
-		return err
-	}
-	return nil
+	return replaceAIPackFile(name, path)
 }
 
 func BuildAIPack(workspace, executable string) (AIPackResult, error) {
@@ -351,11 +290,12 @@ func BuildAIPack(workspace, executable string) (AIPackResult, error) {
 		return AIPackResult{}, err
 	}
 	sourceRoot := filepath.Dir(runtimeSpec.Path)
-	docs, err := collectAIPackDocs(filepath.Join(sourceRoot, "_patch_lib", "docs"))
+	docsRoot := filepath.Join(sourceRoot, "_patch_lib", "docs")
+	docs, err := collectAIPackDocs(docsRoot)
 	if err != nil {
 		return AIPackResult{}, err
 	}
-	prompts, err := parseAIPackPrompts(docs)
+	prompts, err := loadAIPackPrompts(docsRoot)
 	if err != nil {
 		return AIPackResult{}, err
 	}
@@ -369,29 +309,15 @@ func BuildAIPack(workspace, executable string) (AIPackResult, error) {
 	metaPath := filepath.Join(cacheDir, aiPackMetaName)
 	if meta, ok := readAIPackCacheMeta(metaPath); ok &&
 		meta.Fingerprint == fingerprint &&
-		cachedAIPackMatches(zipPath, fingerprint) {
+		cachedAIPackMatches(zipPath, docs) {
 		rel, _ := filepath.Rel(workspace, zipPath)
 		return AIPackResult{
 			Path: filepath.ToSlash(rel), Prompt: promptVI, Fingerprint: fingerprint,
 			Cached: true, DocCount: len(docs), Source: string(runtimeSpec.Kind), GeneratedAt: meta.GeneratedAt,
 		}, nil
 	}
-
 	generatedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	docNames := make([]string, 0, len(docs))
-	for _, file := range docs {
-		docNames = append(docNames, file.Rel)
-	}
-	promptNames := make([]string, 0, len(prompts))
-	for id := range prompts {
-		promptNames = append(promptNames, id)
-	}
-	sort.Strings(promptNames)
-	manifest := aiPackManifest{
-		Format: "taskdeck-patch-ai-pack", Version: 2, Fingerprint: fingerprint,
-		GeneratedAt: generatedAt, Source: string(runtimeSpec.Kind), Documents: docNames, Prompts: promptNames,
-	}
-	if err := writeAIPackZip(zipPath, docs, prompts, manifest); err != nil {
+	if err := writeAIPackZip(zipPath, docs); err != nil {
 		return AIPackResult{}, err
 	}
 	if err := writeJSONAtomic(metaPath, aiPackCacheMeta{
