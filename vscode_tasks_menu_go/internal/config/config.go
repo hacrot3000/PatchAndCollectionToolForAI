@@ -24,9 +24,12 @@ type Config struct {
 	OpenBrowser   bool
 	TLSCert       string
 	TLSKey        string
-	AuthEnabled   bool
-	Username      string
-	Password      string
+	AuthEnabled        bool
+	Username           string
+	Password           string
+	SharedServerEnabled bool
+	SharedProjectID     string
+	SharedIdentityDB    string
 }
 
 func Default() Config {
