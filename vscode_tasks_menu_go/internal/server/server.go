@@ -68,6 +68,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/broadcast", s.broadcastStateAPI)
 	mux.HandleFunc("/api/command-presets", s.commandPresets)
 	mux.HandleFunc("/api/git/status", s.gitStatus)
+	mux.HandleFunc("/api/patch/ai-pack", s.patchAIPack)
 	mux.HandleFunc("/api/files/selection", s.filesSelection)
 	mux.HandleFunc("/api/files/download", s.fileDownload)
 	mux.HandleFunc("/api/files/upload", s.fileUpload)
