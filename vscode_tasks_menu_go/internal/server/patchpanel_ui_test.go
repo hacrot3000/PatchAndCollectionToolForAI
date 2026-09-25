@@ -21,6 +21,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"['resume','Resume'",
 		"['history','History'",
 		"['plan','Plan'",
+		"['ai-pack','AI Pack'",
 		"JSON.stringify({kind:'patch',patch_mode:mode,patch_ui:patchUIMode()})",
 		"app.materializeSession(meta,false)",
 		"/protocol",
@@ -104,7 +105,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"failure?.diagnosis_kind",
 		"snapshot?.group_counts",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,deactivate,toggle,start,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
+		"TaskMenuPatchPanel={open,close,deactivate,toggle,start,prepareAIPack,renderAIPack,copyAIPackPrompt,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {
@@ -1537,6 +1538,45 @@ func TestPatchPanelHistorySearchFiltersByAnyProjectedFileName(t *testing.T) {
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("native History search missing %q", want)
+		}
+	}
+}
+
+
+func TestPatchPanelAIPackIsOnDemandCachedAndCopyable(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"['ai-pack','AI Pack','Package current docs + standard prompt for a new AI chat']",
+		"mode==='ai-pack'?prepareAIPack(button)",
+		"async function prepareAIPack(sourceButton=null)",
+		"app.jsonFetch('/api/patch/ai-pack',{method:'POST'})",
+		"Hashing the active Patch Tool docs and guide. ZIP is rebuilt only when the fingerprint changes.",
+		"result.cached===true?'Cache current':'Rebuilt'",
+		"Copy Prompt",
+		"Download ZIP",
+		"Copy path",
+		"/api/files/download?path=",
+		"async function copyAIPackPrompt(button)",
+		"historySafeProjectPath(result.path)",
+		"/^[0-9a-f]{64}$/.test(fingerprint)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("AI Pack UI missing %q", want)
+		}
+	}
+	start:=strings.Index(js,"async function prepareAIPack")
+	endRel:=strings.Index(js[start:],"function enterRunningView")
+	if start<0||endRel<0 { t.Fatal("AI Pack function bounds unavailable") }
+	block:=js[start:start+endRel]
+	for _, forbidden:=range []string{
+		"/api/sessions",
+		"patch_mode:'ai-pack'",
+		"github.com/",
+	} {
+		if strings.Contains(block,forbidden) {
+			t.Fatalf("AI Pack must be local on-demand packaging, found %q",forbidden)
 		}
 	}
 }
