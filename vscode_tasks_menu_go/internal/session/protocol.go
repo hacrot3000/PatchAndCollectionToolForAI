@@ -109,12 +109,13 @@ type ProtocolHistorySupportResultState struct {
 }
 
 type ProtocolHistoryCleanupCandidateState struct {
-	RunID       string `json:"run_id"`
-	Status      string `json:"status"`
-	StartedAt   string `json:"started_at,omitempty"`
-	DisplayTime string `json:"display_time,omitempty"`
-	PrimaryName string `json:"primary_name"`
-	ItemCount   int    `json:"item_count"`
+	RunID       string   `json:"run_id"`
+	Status      string   `json:"status"`
+	StartedAt   string   `json:"started_at,omitempty"`
+	DisplayTime string   `json:"display_time,omitempty"`
+	PrimaryName string   `json:"primary_name"`
+	SearchNames []string `json:"search_names,omitempty"`
+	ItemCount   int      `json:"item_count"`
 }
 
 type ProtocolHistoryCleanupResultState struct {
@@ -833,8 +834,14 @@ func protocolHistoryCleanupResultEvent(data []byte) (ProtocolHistoryCleanupResul
 			if row.RunID == "" || len(row.RunID) > 128 ||
 				row.PrimaryName == "" || len(row.PrimaryName) > 256 ||
 				len(row.Status) > 64 || len(row.StartedAt) > 128 ||
-				len(row.DisplayTime) > 64 || row.ItemCount < 0 {
+				len(row.DisplayTime) > 64 || row.ItemCount < 0 || len(row.SearchNames) > 64 {
 				return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup candidate is invalid")
+			}
+			for j := range row.SearchNames {
+				row.SearchNames[j] = strings.TrimSpace(row.SearchNames[j])
+				if row.SearchNames[j] == "" || len(row.SearchNames[j]) > 256 {
+					return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup candidate search name is invalid")
+				}
 			}
 		}
 		if event.Mode == "preview" {
@@ -1360,6 +1367,9 @@ func cloneProtocolState(in ProtocolState) ProtocolState {
 	if in.HistoryCleanup != nil {
 		historyCleanup := *in.HistoryCleanup
 		historyCleanup.Candidates = append([]ProtocolHistoryCleanupCandidateState(nil), in.HistoryCleanup.Candidates...)
+		for i := range historyCleanup.Candidates {
+			historyCleanup.Candidates[i].SearchNames = append([]string(nil), in.HistoryCleanup.Candidates[i].SearchNames...)
+		}
 		out.HistoryCleanup = &historyCleanup
 	}
 	return out
