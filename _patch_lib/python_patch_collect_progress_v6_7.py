@@ -870,22 +870,41 @@ def main(argv: list[str] | None = None) -> int:
         "elapsed_seconds": round(elapsed, 3),
         "output_lines": output_lines,
     })
+    if final_rc != 0 and not (collect_incomplete and final_rc == 3):
+        failure_lines = []
+        for line in list(tail)[-30:]:
+            clean = _sanitize_terminal_text(line).strip()
+            if clean:
+                failure_lines.append(clean)
+        failure_reason = _protocol_progress_detail(last_detail, limit=2048)
+        if not failure_reason and failure_lines:
+            failure_reason = failure_lines[-1][:2048]
+        if not failure_reason:
+            failure_reason = f"COLLECT failed in phase {phase} (rc={final_rc})"
+        result_meta["failure_reason"] = failure_reason
+        output_tail = "\n".join(failure_lines)
+        if output_tail:
+            result_meta["output_tail"] = output_tail[-16384:]
     _write_collect_run_result(result_meta)
     if protocol_writer is not None:
         _emit_direct_collect_artifacts(protocol_writer, root, protocol_context, result_meta)
         if direct_collect_protocol:
             try:
-                protocol_writer.emit(
-                    "item_finished",
-                    run_id=str(protocol_context.get("run_id") or ""),
-                    index=int(protocol_context.get("index") or 1),
-                    total=int(protocol_context.get("total") or 1),
-                    name=str(protocol_context.get("item_name") or "COLLECT"),
-                    kind=str(protocol_context.get("item_kind") or "COLLECT"),
-                    status=str(result_meta["status"]),
-                    rc=int(final_rc),
-                    elapsed_seconds=round(elapsed, 3),
-                )
+                finished_payload = {
+                    "run_id": str(protocol_context.get("run_id") or ""),
+                    "index": int(protocol_context.get("index") or 1),
+                    "total": int(protocol_context.get("total") or 1),
+                    "name": str(protocol_context.get("item_name") or "COLLECT"),
+                    "kind": str(protocol_context.get("item_kind") or "COLLECT"),
+                    "status": str(result_meta["status"]),
+                    "rc": int(final_rc),
+                    "elapsed_seconds": round(elapsed, 3),
+                }
+                if result_meta.get("failure_reason"):
+                    finished_payload["failure_reason"] = str(result_meta["failure_reason"])
+                if result_meta.get("output_tail"):
+                    finished_payload["output_tail"] = str(result_meta["output_tail"])
+                protocol_writer.emit("item_finished", **finished_payload)
             except Exception:
                 pass
         try:
