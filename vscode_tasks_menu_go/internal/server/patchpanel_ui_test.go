@@ -1067,3 +1067,14 @@ func TestPatchQueuePromptHasPerItemDelete(t *testing.T) {
 		if !strings.Contains(js,want) { t.Fatalf("queue prompt delete missing %q",want) }
 	}
 }
+
+
+func TestPatchArtifactsGroupZipAndTxtWithSeparateActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{"function groupProtocolArtifacts(artifacts)","task-patch-artifact-variants","format+' Download'","format+' Copy path'","open.textContent='Open TXT'","function groupHistoryFiles(files)","function appendHistoryFiles(host,files)","appendHistoryFiles(files,artifacts)"} {
+		if !strings.Contains(js,want) { t.Fatalf("paired artifact UI missing %q",want) }
+	}
+	if strings.Contains(js,"label.textContent=artifactLabels[kind]") { t.Fatal("artifact UI still renders ZIP/TXT as separate logical rows") }
+}

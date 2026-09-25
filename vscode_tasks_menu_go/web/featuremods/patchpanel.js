@@ -126,7 +126,10 @@ function installPatchPanel(){
   .task-patch-history-file-label{font-weight:600;min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .task-patch-history-upload{font-size:9px;padding:1px 4px;border:1px solid #7b6840;border-radius:999px}
   .task-patch-history-path{display:block;margin-top:2px;opacity:.64;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .task-patch-history-file-actions{display:flex;gap:5px;margin-top:5px}
+  .task-patch-history-variants{display:grid;gap:5px;margin-top:5px}
+  .task-patch-history-variant{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px;align-items:center;padding-top:4px;border-top:1px solid #29303a}
+  .task-patch-history-format{font-weight:700;min-width:28px}
+  .task-patch-history-file-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
   .task-patch-history-file-actions a,.task-patch-history-file-actions button{font-size:10px;padding:3px 6px}
   .task-patch-history-item-head{display:flex;gap:5px;align-items:flex-start}
   .task-patch-history-item-name{font-weight:600;min-width:0;flex:1;overflow-wrap:anywhere}
@@ -233,7 +236,11 @@ function installPatchPanel(){
   .task-patch-artifact-label{font-weight:600;min-width:0;flex:1}
   .task-patch-artifact-primary{font-size:9px;padding:1px 4px;border:1px solid #6d7c91;border-radius:999px}
   .task-patch-artifact-path{display:block;margin-top:3px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .task-patch-artifact-actions{display:flex;gap:5px;margin-top:5px}
+  .task-patch-artifact-variants{display:grid;gap:5px;margin-top:5px}
+  .task-patch-artifact-variant{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px;align-items:center;padding-top:4px;border-top:1px solid #29303a}
+  .task-patch-artifact-format{font-weight:700;min-width:28px}
+  .task-patch-artifact-variant-path{min-width:0;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .task-patch-artifact-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
   .task-patch-artifact-actions a,.task-patch-artifact-actions button{font-size:10px;padding:3px 6px}
   .task-patch-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
   .task-patch-action{display:flex;flex-direction:column;align-items:flex-start;gap:3px;width:100%;min-height:70px;padding:11px 12px;text-align:left}
@@ -814,29 +821,58 @@ function installPatchPanel(){
     window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path}}));
   }
 
-  function appendHistoryFile(host,file){
-    const path=historySafeProjectPath(file?.path);
-    if(!path)return;
-    const row=document.createElement('div');row.className='task-patch-history-file';
-    const head=document.createElement('div');head.className='task-patch-history-file-head';
-    const label=document.createElement('span');label.className='task-patch-history-file-label';label.textContent=String(file?.label||'File');
-    head.append(label);
-    if(file?.upload_required){
-      const badge=document.createElement('span');badge.className='task-patch-history-upload';badge.textContent='UPLOAD';head.append(badge);
-    }
-    const pathNode=document.createElement('span');pathNode.className='task-patch-history-path';pathNode.textContent=path;pathNode.title=path;
-    const actionsNode=document.createElement('div');actionsNode.className='task-patch-history-file-actions';
-    const download=document.createElement('a');download.textContent='Download';download.href='/api/files/download?path='+encodeURIComponent(path);download.download='';
-    actionsNode.append(download);
-    const copyPath=document.createElement('button');copyPath.type='button';copyPath.textContent='Copy path';copyPath.title='Copy full project path';
-    copyPath.onclick=()=>copyFullPath(path,copyPath).catch(app.showError);actionsNode.append(copyPath);
-    if(historyTextFile(path)){
-      const open=document.createElement('button');open.type='button';open.textContent='Open';
-      open.onclick=()=>openProjectFile(path);
-      actionsNode.append(open);
-    }
-    row.append(head,pathNode,actionsNode);host.append(row);
+  function historyArtifactFormat(path){
+    if(/\.zip$/i.test(String(path||'')))return 'ZIP';
+    if(historyTextFile(path))return 'TXT';
+    return 'FILE';
   }
+
+  function historyArtifactGroupLabel(files){
+    const labels=files.map(file=>String(file?.label||''));
+    if(labels.some(value=>/^FAIL handoff/i.test(value)))return 'FAIL handoff';
+    if(labels.some(value=>/^COLLECT (?:result|text|ZIP)/i.test(value)))return 'COLLECT result';
+    if(labels.some(value=>/^AI sync/i.test(value)))return 'AI sync';
+    const first=labels.find(Boolean)||'File';
+    return first.replace(/\s+(?:TXT|ZIP|text)$/i,'');
+  }
+
+  function groupHistoryFiles(files){
+    const groups=new Map();
+    for(const file of (Array.isArray(files)?files:[])){
+      const path=historySafeProjectPath(file?.path);
+      if(!path)continue;
+      const format=historyArtifactFormat(path);
+      const stem=(format==='ZIP'||format==='TXT')?path.replace(/\.(?:zip|txt)$/i,''):path;
+      let group=groups.get(stem);
+      if(!group){group={files:[],upload:false};groups.set(stem,group);}
+      group.files.push({...file,path,format});group.upload=group.upload||file?.upload_required===true;
+    }
+    return [...groups.values()];
+  }
+
+  function appendHistoryFiles(host,files){
+    for(const group of groupHistoryFiles(files)){
+      const row=document.createElement('div');row.className='task-patch-history-file';
+      const head=document.createElement('div');head.className='task-patch-history-file-head';
+      const label=document.createElement('span');label.className='task-patch-history-file-label';label.textContent=historyArtifactGroupLabel(group.files);head.append(label);
+      if(group.upload){const badge=document.createElement('span');badge.className='task-patch-history-upload';badge.textContent='UPLOAD';head.append(badge);}
+      const variants=document.createElement('div');variants.className='task-patch-history-variants';
+      group.files.sort((a,b)=>String(a.format).localeCompare(String(b.format)));
+      for(const file of group.files){
+        const line=document.createElement('div');line.className='task-patch-history-variant';
+        const format=document.createElement('span');format.className='task-patch-history-format';format.textContent=file.format;
+        const pathNode=document.createElement('span');pathNode.className='task-patch-history-path';pathNode.textContent=file.path;pathNode.title=file.path;
+        const actionsNode=document.createElement('div');actionsNode.className='task-patch-history-file-actions';
+        const download=document.createElement('a');download.textContent=file.format+' Download';download.href='/api/files/download?path='+encodeURIComponent(file.path);download.download='';actionsNode.append(download);
+        const copyPath=document.createElement('button');copyPath.type='button';copyPath.textContent=file.format+' Copy path';copyPath.title='Copy full project path';copyPath.onclick=()=>copyFullPath(file.path,copyPath).catch(app.showError);actionsNode.append(copyPath);
+        if(file.format==='TXT'){const open=document.createElement('button');open.type='button';open.textContent='Open TXT';open.onclick=()=>openProjectFile(file.path);actionsNode.append(open);}
+        line.append(format,pathNode,actionsNode);variants.append(line);
+      }
+      row.append(head,variants);host.append(row);
+    }
+  }
+
+  function appendHistoryFile(host,file){appendHistoryFiles(host,[file]);}
 
   function clearHistoryManagementResult(){
     historyManagement.hidden=true;
@@ -1204,7 +1240,7 @@ function installPatchPanel(){
     const elapsed=Number(run.elapsed_seconds);
     historyDetailTitle.textContent=String(run.primary_name||run.run_id||'History run');
     historyDetailMeta.textContent=[run.display_time,run.status,run.pinned?'PINNED':'',Number.isFinite(elapsed)?elapsed.toFixed(2)+'s':'',run.failure_policy?('failure='+run.failure_policy):'',run.transaction_policy?('transaction='+run.transaction_policy):''].filter(Boolean).join(' · ');
-    for(const file of Array.isArray(report.files)?report.files:[])appendHistoryFile(historyFiles,file);
+    appendHistoryFiles(historyFiles,Array.isArray(report.files)?report.files:[]);
     for(const item of Array.isArray(report.items)?report.items:[]){
       const row=document.createElement('div');row.className='task-patch-history-item';
       const head=document.createElement('div');head.className='task-patch-history-item-head';
@@ -1219,7 +1255,7 @@ function installPatchPanel(){
       const artifacts=Array.isArray(item?.artifacts)?item.artifacts:[];
       if(artifacts.length){
         const files=document.createElement('div');files.className='task-patch-history-files';
-        for(const artifact of artifacts)appendHistoryFile(files,artifact);
+        appendHistoryFiles(files,artifacts);
         row.append(files);
       }
       if(historyItemSupportAllowed(item)){
@@ -1951,46 +1987,67 @@ function installPatchPanel(){
     }
   }
 
-  const artifactLabels={
-    fail_handoff_zip:'FAIL handoff ZIP',
-    fail_handoff_text:'FAIL handoff TXT',
-    ai_sync_zip:'AI sync ZIP',
-    ai_sync_text:'AI sync TXT',
-    collect_result_zip:'COLLECT result ZIP',
-    collect_result_text:'COLLECT result TXT',
+  const artifactFamilyLabels={
+    fail_handoff:'FAIL handoff',
+    ai_sync:'AI sync',
+    collect_result:'COLLECT result',
   };
 
-  function renderArtifacts(artifacts){
-    const rows=Array.isArray(artifacts)?artifacts:[];
-    artifactList.replaceChildren();
-    let rendered=0;
-    for(const artifact of rows){
+  function artifactFormat(kind,path){
+    const normalized=String(kind||'').toLowerCase();
+    if(normalized.endsWith('_zip')||/\.zip$/i.test(String(path||'')))return 'ZIP';
+    if(normalized.endsWith('_text')||/\.txt$/i.test(String(path||'')))return 'TXT';
+    return 'FILE';
+  }
+
+  function artifactFamily(kind){return String(kind||'').replace(/_(?:zip|text)$/i,'')||'artifact';}
+
+  function groupProtocolArtifacts(artifacts){
+    const groups=new Map();
+    for(const artifact of (Array.isArray(artifacts)?artifacts:[])){
       const path=String(artifact?.path||'');
       if(!path.startsWith('artifacts/')||path.includes('..')||path.includes('\\'))continue;
-      const kind=String(artifact?.artifact_kind||'');
+      const family=artifactFamily(artifact?.artifact_kind);
+      const item=String(artifact?.item_name||'');
+      const index=Number(artifact?.index||0);
+      const key=[family,item,index].join('\u0000');
+      let group=groups.get(key);
+      if(!group){group={family,item,index,primary:false,variants:[]};groups.set(key,group);}
+      group.primary=group.primary||artifact?.primary===true;
+      group.variants.push({...artifact,path,format:artifactFormat(artifact?.artifact_kind,path)});
+    }
+    return [...groups.values()];
+  }
+
+  function appendArtifactVariant(host,variant){
+    const path=variant.path;
+    const format=variant.format;
+    const line=document.createElement('div');line.className='task-patch-artifact-variant';
+    const formatNode=document.createElement('span');formatNode.className='task-patch-artifact-format';formatNode.textContent=format;
+    const pathNode=document.createElement('span');pathNode.className='task-patch-artifact-variant-path';pathNode.textContent=path;pathNode.title=path;
+    const actionsNode=document.createElement('div');actionsNode.className='task-patch-artifact-actions';
+    const download=document.createElement('a');download.textContent=format+' Download';download.href='/api/files/download?path='+encodeURIComponent(path);download.download='';actionsNode.append(download);
+    const copyPath=document.createElement('button');copyPath.type='button';copyPath.textContent=format+' Copy path';copyPath.title='Copy full project path';copyPath.onclick=()=>copyFullPath(path,copyPath).catch(app.showError);actionsNode.append(copyPath);
+    if(format==='TXT'){const open=document.createElement('button');open.type='button';open.textContent='Open TXT';open.onclick=()=>openProjectFile(path);actionsNode.append(open);}
+    line.append(formatNode,pathNode,actionsNode);host.append(line);
+  }
+
+  function renderArtifacts(artifacts){
+    const groups=groupProtocolArtifacts(artifacts);
+    artifactList.replaceChildren();
+    for(const group of groups){
       const row=document.createElement('div');row.className='task-patch-artifact';
       const head=document.createElement('div');head.className='task-patch-artifact-head';
-      const label=document.createElement('span');label.className='task-patch-artifact-label';label.textContent=artifactLabels[kind]||kind||'Artifact';
-      head.append(label);
-      if(artifact?.primary){
-        const badge=document.createElement('span');badge.className='task-patch-artifact-primary';badge.textContent='PRIMARY';head.append(badge);
-      }
-      const pathNode=document.createElement('span');pathNode.className='task-patch-artifact-path';pathNode.textContent=path;pathNode.title=path;
-      const actionsNode=document.createElement('div');actionsNode.className='task-patch-artifact-actions';
-      const download=document.createElement('a');download.textContent='Download';download.href='/api/files/download?path='+encodeURIComponent(path);download.download='';
-      actionsNode.append(download);
-      const copyPath=document.createElement('button');copyPath.type='button';copyPath.textContent='Copy path';copyPath.title='Copy full project path';
-      copyPath.onclick=()=>copyFullPath(path,copyPath).catch(app.showError);actionsNode.append(copyPath);
-      if(kind.endsWith('_text')){
-        const open=document.createElement('button');open.type='button';open.textContent='Open';
-        open.onclick=()=>openProjectFile(path);
-        actionsNode.append(open);
-      }
-      row.append(head,pathNode,actionsNode);
-      artifactList.append(row);
-      rendered+=1;
+      const label=document.createElement('span');label.className='task-patch-artifact-label';
+      const baseLabel=artifactFamilyLabels[group.family]||group.family||'Artifact';
+      label.textContent=group.item?baseLabel+' · '+group.item:baseLabel;head.append(label);
+      if(group.primary){const badge=document.createElement('span');badge.className='task-patch-artifact-primary';badge.textContent='PRIMARY';head.append(badge);}
+      const variants=document.createElement('div');variants.className='task-patch-artifact-variants';
+      group.variants.sort((a,b)=>String(a.format).localeCompare(String(b.format)));
+      for(const variant of group.variants)appendArtifactVariant(variants,variant);
+      row.append(head,variants);artifactList.append(row);
     }
-    artifactBox.hidden=rendered===0;
+    artifactBox.hidden=groups.length===0;
   }
 
   function clearPrompt(){
