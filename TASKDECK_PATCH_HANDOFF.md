@@ -394,6 +394,40 @@ Checkpoints:
 Verification: GitHub Actions run `36104471672` PASS on Go 1.19 and Go 1.23, including
 JavaScript syntax, staged self-update tests, full tests, vet and build.
 
+## Phase 2E.2 UX correction: History Terminal opens real terminal browser
+
+Installed smoke showed that the native History **Terminal** button materialized the backing native
+History PTY. That session intentionally runs the structured native `report` route, so its PTY may
+contain only the TaskDeck launch header instead of the interactive terminal History browser.
+
+The explicit fallback is now separated correctly:
+
+- Native History continues to use `report` with FD3/FD4 and
+  `TASKDECK_PATCH_NATIVE_HISTORY=1`.
+- Python exposes a bounded read-only `history` dispatcher command that calls
+  `_history_browser(root)` directly.
+- Server maps `patch_mode=history, patch_ui=terminal` to `history`, not `report`.
+- Native **History → Terminal** creates a new explicit legacy terminal History session and
+  materializes that session.
+- It does not materialize the native History backing `activeSessionId`.
+- Other explicit terminal-evidence buttons retain their existing backing-session evidence behavior.
+
+Expected installed command after clicking History → Terminal:
+
+`python_patch_entry.py --project-root <workspace> -- history`
+
+not:
+
+`python_patch_entry.py --project-root <workspace> -- report`
+
+Checkpoints:
+- `3f25556a` — add explicit Python `history` route, terminal-only server mapping, and separate UI launcher.
+- `1134bdb2` — entry/server/UI regression tests.
+- `e934b3cd` — update product acceptance/navigation gates for the explicit History legacy session.
+
+Verification: GitHub Actions run `36105569250` PASS on Go 1.19 and Go 1.23, including
+entry routing, JavaScript syntax, exact staged self-update tests, full tests, vet and build.
+
 ## Non-regression invariants
 
 - Python remains authoritative for Patch Tool policy/business logic.
@@ -403,6 +437,7 @@ JavaScript syntax, staged self-update tests, full tests, vet and build.
 - In **Native UI** mode, Patch actions must not create ordinary terminal tabs by default.
 - Switching from the active Patch pane to a terminal/editor/Activity Bar view must deactivate the pane but preserve the `Patch Tool` tab until explicit close.
 - In Native UI mode, a terminal tab may be materialized only by an explicit evidence/fallback action.
+- **History → Terminal** is an explicit legacy History browser session (`history` command), not a materialized native History backing PTY (`report`).
 - Parallel COLLECT workers must remain independent `task_id=-1` sessions; do not weaken Python's one-COLLECT-per-invocation safety contract.
 - **Back to Queue / Add more** must never stop an active execution session; only a waiting Queue selector may be replaced by Refresh Queue.
 - While active executions exist, Queue add-mode must not permit launching another PATCH or re-running/deleting an already-running item.
