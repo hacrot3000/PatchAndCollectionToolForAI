@@ -345,6 +345,50 @@ func TestGlobalReleaseDirRejectsUnsafeRevision(t *testing.T) {
 }
 
 
+func TestRestoreGlobalActivationRemovesGlobalEntryWhenPreviouslyAbsent(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	appDir := filepath.Join(root, "lib", "taskdeck")
+	t.Setenv("TASKDECK_INSTALL_DIR", binDir)
+	t.Setenv("TASKDECK_APP_DIR", appDir)
+
+	snapshot, err := CaptureGlobalActivation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Present {
+		t.Fatalf("unexpected pre-existing global activation: %#v", snapshot)
+	}
+
+	rev := "3333333333333333333333333333333333333333"
+	release, err := GlobalReleaseDir(rev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage := filepath.Join(filepath.Dir(release), ".rollback-stage-new")
+	makeFakeRelease(t, stage)
+	if err := InstallGlobalRelease(stage, rev); err != nil {
+		t.Fatal(err)
+	}
+	if !GlobalReleaseReady(rev) {
+		t.Fatal("new release should be active before rollback")
+	}
+	if err := RestoreGlobalActivation(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	global, err := GlobalBinaryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(global); !os.IsNotExist(err) {
+		t.Fatalf("global entry should be removed after rollback to absent state: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(release, "taskdeck")); err != nil {
+		t.Fatalf("validated release should remain available after rollback: %v", err)
+	}
+}
+
+
 func TestRestoreGlobalActivationReturnsToPreviousRelease(t *testing.T) {
 	root := t.TempDir()
 	binDir := filepath.Join(root, "bin")
@@ -368,7 +412,7 @@ func TestRestoreGlobalActivationReturnsToPreviousRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Executable != filepath.Join(release1, "taskdeck") || snapshot.Revision != rev1 {
+	if !snapshot.Present || snapshot.Executable != filepath.Join(release1, "taskdeck") || snapshot.Revision != rev1 {
 		t.Fatalf("snapshot=%#v", snapshot)
 	}
 

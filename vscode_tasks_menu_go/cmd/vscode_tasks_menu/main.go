@@ -677,12 +677,19 @@ func startDaemon(ws string) error {
 }
 
 func startDaemonWithOptions(ws, listenAddr, updateID string) error {
-	if err := state.EnsureDir(ws); err != nil {
-		return err
-	}
 	exe, err := preferredTaskdeckExecutable()
 	if err != nil {
 		return err
+	}
+	return startDaemonExecutableWithOptions(exe, ws, listenAddr, updateID)
+}
+
+func startDaemonExecutableWithOptions(exe, ws, listenAddr, updateID string) error {
+	if err := state.EnsureDir(ws); err != nil {
+		return err
+	}
+	if !selfupdate.ExecutableExists(exe) {
+		return fmt.Errorf("TaskDeck executable is unavailable: %s", exe)
 	}
 	logFile, err := os.OpenFile(state.LogPath(ws), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
@@ -986,9 +993,19 @@ func runSelfUpdate(ws string, cfg config.Config, autoConfirm bool) (err error) {
 	if err != nil {
 		return err
 	}
+	activationBefore, err := selfupdate.CaptureGlobalActivation()
+	if err != nil {
+		return fmt.Errorf("snapshot current TaskDeck activation: %w", err)
+	}
 
 	oldState, stateErr := state.Load(ws)
 	daemonRunning := stateErr == nil && state.Healthy(oldState)
+	oldDaemonExecutable := exe
+	if daemonRunning && runtime.GOOS == "linux" {
+		if runningExe, readErr := os.Readlink(fmt.Sprintf("/proc/%d/exe", oldState.PID)); readErr == nil && selfupdate.ExecutableExists(runningExe) {
+			oldDaemonExecutable = runningExe
+		}
+	}
 	migratingToGlobal := !selfupdate.SameExecutablePath(exe, global)
 	if daemonRunning && daemonNeedsGlobalMigration(oldState, global) {
 		migratingToGlobal = true
@@ -1062,6 +1079,9 @@ func runSelfUpdate(ws string, cfg config.Config, autoConfirm bool) (err error) {
 		}
 		progress("installing", "Đang cài TaskDeck + Patch add-on vào versioned release…")
 		if installErr := selfupdate.InstallGlobalRelease(prepared, remote); installErr != nil {
+			if rollbackErr := selfupdate.RestoreGlobalActivation(activationBefore); rollbackErr != nil {
+				return fail(fmt.Errorf("%v; rollback previous release failed: %w", installErr, rollbackErr))
+			}
 			return fail(installErr)
 		}
 		releaseReady = true
@@ -1084,6 +1104,9 @@ func runSelfUpdate(ws string, cfg config.Config, autoConfirm bool) (err error) {
 	if err := requestDaemonHandoff(cfg, oldState, req.ID); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: socket handoff unavailable: %v; fallback restart cùng port.\n", err)
 		if err := fallbackRestartAfterUpdate(ws, cfg, oldState, req.ID); err != nil {
+			if recoveryErr := recoverPreviousSelfUpdate(ws, oldState, oldDaemonExecutable, activationBefore); recoveryErr != nil {
+				return fail(fmt.Errorf("%v; previous release recovery failed: %w", err, recoveryErr))
+			}
 			return fail(err)
 		}
 	}
@@ -1096,6 +1119,9 @@ func runSelfUpdate(ws string, cfg config.Config, autoConfirm bool) (err error) {
 		}
 	}
 	if err != nil {
+		if recoveryErr := recoverPreviousSelfUpdate(ws, oldState, oldDaemonExecutable, activationBefore); recoveryErr != nil {
+			return fail(fmt.Errorf("%v; previous release recovery failed: %w", err, recoveryErr))
+		}
 		return fail(err)
 	}
 
@@ -1110,6 +1136,30 @@ func runSelfUpdate(ws string, cfg config.Config, autoConfirm bool) (err error) {
 	}
 	return nil
 }
+func recoverPreviousSelfUpdate(ws string, old state.State, oldExecutable string, activation selfupdate.GlobalActivationSnapshot) error {
+	if err := selfupdate.RestoreGlobalActivation(activation); err != nil {
+		return err
+	}
+	if current, err := state.Load(ws); err == nil && state.Healthy(current) {
+		return nil
+	}
+
+	if old.PID > 0 {
+		_ = waitForDaemonStateRelease(ws, old.PID, 5*time.Second)
+	}
+	state.Remove(ws)
+	if !selfupdate.ExecutableExists(oldExecutable) {
+		return fmt.Errorf("previous daemon executable is unavailable: %s", oldExecutable)
+	}
+	if err := startDaemonExecutableWithOptions(oldExecutable, ws, old.Address, ""); err != nil {
+		return fmt.Errorf("restart previous daemon: %w", err)
+	}
+	if _, err := waitForDaemon(ws, 10*time.Second, 0); err != nil {
+		return fmt.Errorf("previous daemon did not recover: %w", err)
+	}
+	return nil
+}
+
 func requestDaemonAction(cfg config.Config, st state.State, id, action string) error {
 	base := strings.TrimRight(st.HealthURL, "/")
 	if base == "" {

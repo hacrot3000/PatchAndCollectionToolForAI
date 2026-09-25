@@ -624,6 +624,7 @@ func writeRevisionMarker(binary, revision string) error {
 }
 
 type GlobalActivationSnapshot struct {
+	Present    bool
 	Executable string
 	Revision   string
 }
@@ -644,12 +645,27 @@ func CaptureGlobalActivation() (GlobalActivationSnapshot, error) {
 		return GlobalActivationSnapshot{}, fmt.Errorf("current global TaskDeck is not executable: %s", resolved)
 	}
 	return GlobalActivationSnapshot{
+		Present:    true,
 		Executable: resolved,
 		Revision:   InstalledRevision(global),
 	}, nil
 }
 
 func RestoreGlobalActivation(snapshot GlobalActivationSnapshot) error {
+	global, err := GlobalBinaryPath()
+	if err != nil {
+		return err
+	}
+	if !snapshot.Present {
+		if err := os.Remove(global); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove newly-created global TaskDeck entry: %w", err)
+		}
+		if err := os.Remove(MarkerPath(global)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove newly-created revision marker: %w", err)
+		}
+		return nil
+	}
+
 	previous := filepath.Clean(strings.TrimSpace(snapshot.Executable))
 	if previous == "" || previous == "." {
 		return fmt.Errorf("previous global TaskDeck release is unavailable")
@@ -658,10 +674,6 @@ func RestoreGlobalActivation(snapshot GlobalActivationSnapshot) error {
 		return fmt.Errorf("previous TaskDeck executable is unavailable: %s", previous)
 	}
 
-	global, err := GlobalBinaryPath()
-	if err != nil {
-		return err
-	}
 	current, err := GlobalCurrentLink()
 	if err != nil {
 		return err
