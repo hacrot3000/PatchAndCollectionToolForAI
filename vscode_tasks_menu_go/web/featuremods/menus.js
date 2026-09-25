@@ -3,7 +3,7 @@ if(!app)throw new Error('TaskMenuApp unavailable for grouped menus');
 
 const style=document.createElement('style');
 style.textContent=`
-.taskmenu-menu{position:relative;display:inline-flex;align-items:center}.taskmenu-menu-trigger{white-space:nowrap;padding:6px 9px}.taskmenu-menu-popover{display:none;position:absolute;top:calc(100% + 6px);right:0;z-index:1200;min-width:220px;max-width:min(440px,90vw);padding:8px;border:1px solid #3b414d;border-radius:8px;background:#171a20;box-shadow:0 10px 28px rgba(0,0,0,.35);gap:6px}.taskmenu-menu.open>.taskmenu-menu-popover{display:flex;flex-direction:column}.taskmenu-menu-popover>button,.taskmenu-menu-popover>select{width:100%;text-align:left}.taskmenu-menu-popover>.copy-console{margin-left:0;max-width:100%}.taskmenu-menu-popover>.appearance-controls{display:grid;grid-template-columns:1fr 1fr auto auto auto;gap:5px;align-items:center}.taskmenu-menu-popover .appearance-controls select,.taskmenu-menu-popover .appearance-controls button{width:auto}.taskmenu-menu-label{font-size:10px;font-weight:700;letter-spacing:.06em;opacity:.55;padding:2px 3px 0}.header-action-menus{display:flex;align-items:center;gap:6px;white-space:nowrap}.header-action-menus .git-status-pill{margin:0}.pane-action-menus{display:flex;align-items:center;gap:5px;white-space:nowrap;margin-left:auto}.pane-action-menus .taskmenu-menu-popover{top:calc(100% + 4px)}.pane-action-menus .taskmenu-menu-trigger{padding:5px 8px;font-size:11px}.pane-action-menus .taskmenu-menu-popover button{font-size:11px;padding:5px 8px}.pane-action-menus .taskmenu-menu-popover .stop{background:#3b2528;border-color:#684047}
+.taskmenu-menu{position:relative;display:inline-flex;align-items:center}.taskmenu-menu-trigger{white-space:nowrap;padding:6px 9px}.taskmenu-menu-popover{display:none;position:absolute;top:calc(100% + 6px);right:0;z-index:1200;min-width:220px;max-width:min(440px,90vw);padding:8px;border:1px solid #3b414d;border-radius:8px;background:#171a20;box-shadow:0 10px 28px rgba(0,0,0,.35);gap:6px}.taskmenu-menu.open>.taskmenu-menu-popover{display:flex;flex-direction:column}.taskmenu-menu-popover>button,.taskmenu-menu-popover>select{width:100%;text-align:left}.taskmenu-menu-popover>.copy-console{margin-left:0;max-width:100%}.taskmenu-menu-popover>.appearance-controls{display:grid;grid-template-columns:1fr 1fr auto auto auto;gap:5px;align-items:center}.taskmenu-menu-popover .appearance-controls select,.taskmenu-menu-popover .appearance-controls button{width:auto}.taskmenu-menu-label{font-size:10px;font-weight:700;letter-spacing:.06em;opacity:.55;padding:2px 3px 0}.patch-ui-mode-control{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;font-size:11px}.patch-ui-mode-control select{min-width:145px}.header-action-menus{display:flex;align-items:center;gap:6px;white-space:nowrap}.header-action-menus .git-status-pill{margin:0}.pane-action-menus{display:flex;align-items:center;gap:5px;white-space:nowrap;margin-left:auto}.pane-action-menus .taskmenu-menu-popover{top:calc(100% + 4px)}.pane-action-menus .taskmenu-menu-trigger{padding:5px 8px;font-size:11px}.pane-action-menus .taskmenu-menu-popover button{font-size:11px;padding:5px 8px}.pane-action-menus .taskmenu-menu-popover .stop{background:#3b2528;border-color:#684047}
 .pane-action-menus .taskmenu-menu-popover .copy-console{background:#203b58;border-color:#35648d;color:#d9ecff}.pane-action-menus .taskmenu-menu-popover .console-search-btn{background:#332a55;border-color:#594a8e;color:#eee7ff}.pane-action-menus .taskmenu-menu-popover .console-save-btn{background:#203f31;border-color:#3a7058;color:#dcf6e7}.pane-action-menus .taskmenu-menu-popover .session-clear-console{background:#4a252a;border-color:#7a4048;color:#ffe2e4}
 html[data-taskmenu-theme="light"] .taskmenu-menu-popover{background:#fff;border-color:#b9c0c8;box-shadow:0 10px 28px rgba(0,0,0,.15)}
 html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .copy-console{background:#e8f2ff;border-color:#8db7df;color:#194b78}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .console-search-btn{background:#f0ebff;border-color:#afa1da;color:#493b78}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .console-save-btn{background:#e9f7ef;border-color:#87bf9f;color:#23583b}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .session-clear-console{background:#fff0f1;border-color:#d7989e;color:#7b3037}
@@ -45,6 +45,26 @@ function installHeaderMenus(){
   host.append(terminal.menu);
 
   const settings=makeMenu('Settings','Tool settings');
+  const patchUIKey='vscode-tasks-menu:patch-ui-mode:'+app.taskData.workspace;
+  const patchUIControl=document.createElement('label');patchUIControl.className='patch-ui-mode-control';
+  const patchUILabel=document.createElement('span');patchUILabel.textContent='Interface';
+  const patchUISelect=document.createElement('select');patchUISelect.id='patch-ui-mode';patchUISelect.title='Choose Patch Tool interface';
+  for(const [value,label] of [['native','Native UI'],['terminal','Terminal (legacy)']]){
+    const option=document.createElement('option');option.value=value;option.textContent=label;patchUISelect.append(option);
+  }
+  let patchUIMode='native';
+  try{const saved=localStorage.getItem(patchUIKey);if(saved==='terminal')patchUIMode='terminal';}catch{}
+  patchUISelect.value=patchUIMode;
+  patchUISelect.onchange=()=>{
+    patchUIMode=patchUISelect.value==='terminal'?'terminal':'native';
+    try{localStorage.setItem(patchUIKey,patchUIMode);}catch(error){console.warn('Cannot persist Patch Tool UI mode',error);}
+    window.dispatchEvent(new CustomEvent('taskmenu:patch-ui-mode',{detail:{mode:patchUIMode}}));
+    closeAll();
+  };
+  patchUIControl.append(patchUILabel,patchUISelect);
+  globalThis.TaskMenuPatchUISettings={get mode(){return patchUIMode;}};
+
+  addSection(settings.pop,'PATCH TOOL',[patchUIControl]);
   addSection(settings.pop,'ENVIRONMENT',[document.querySelector('#env-profile'),document.querySelector('#env-profile-manage')]);
   addSection(settings.pop,'NOTIFICATIONS',[document.querySelector('#notifications-toggle')]);
   addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls'),document.querySelector('#self-update-check')]);
