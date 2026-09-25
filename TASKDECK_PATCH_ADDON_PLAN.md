@@ -9,8 +9,8 @@ Status: **IN PROGRESS**
 > The 2026-09-24 Phase 2H.7 PASS and Phase 2I closeout are therefore invalidated as product/UI
 > acceptance results. Their implementation history is retained below for provenance.
 
-This file is the recovery/source-of-truth document for integrating Python Patch Tool into TaskDeck.
-Every implementation commit for this work must update this file so development can resume safely after an interruption.
+`TASKDECK_PATCH_HANDOFF.md` is the concise recovery entrypoint; this file is the detailed roadmap/checkpoint ledger.
+Both must agree on current phase state. Every implementation checkpoint for this work must update them so development can resume safely after an interruption.
 
 ## Goals
 
@@ -502,7 +502,8 @@ Every phase must preserve:
 | Corrected Phase 2C native Resume→History navigation | DONE | e0b41a4a | Native Resume history selection exits the Resume Python route without entering _history_browser(); TaskDeck opens a dedicated native History session instead. |
 | Corrected Phase 2D explicit-only terminal fallback | DONE | e0b41a4a | Removed remaining automatic terminal materialization; protocol loss/timeouts stay in native UI and only explicit evidence buttons create a terminal tab. |
 | Corrected Phase 2B return-view fix | DONE | this commit | Native workspace now reads the actual exported app.active state instead of nonexistent app.activeSessionId before restoring the previous view. |
-| Corrected Phase 2E.1 automated product acceptance gate | DONE | this commit | Dedicated regression gate rejects implicit terminal tabs, enforces headless reload sync/full workspace/native Resume→History, and allows materialization only in the explicit evidence path. |
+| Corrected Phase 2E.1 automated product acceptance gate | DONE | eec38265 | Dedicated regression gate rejects implicit terminal tabs, enforces headless reload sync/full workspace/native Resume→History, and allows materialization only in the explicit evidence path. |
+| Phase 2E.1b fail-closed runtime session invariant | DONE | 89d3a458 | Patch start rejects/stops any backend session that loses reserved headless task_id=-1 and rejects an unexpectedly materialized terminal view. |
 
 ## Next action
 
