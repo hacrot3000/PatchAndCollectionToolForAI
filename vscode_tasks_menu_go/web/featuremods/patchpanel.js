@@ -1164,6 +1164,10 @@ function installPatchPanel(){
     populateHistoryCleanupDays(cleanup);
     historyCleanupToggle.disabled=historyBusy||historyManagementBusy||historySupportBusy||historyCleanupBusy;
     historyCleanupPreviewButton.disabled=historyCleanupBusy||historyBusy||historyManagementBusy||historySupportBusy;
+    if(latestHistoryCleanupPreview){
+      const eligible=Number(latestHistoryCleanupPreview.eligible_before||0);
+      historyCleanupDelete.disabled=historyCleanupBusy||historyBusy||historyManagementBusy||historySupportBusy||eligible<=0||latestHistoryCleanupPreview.candidates_truncated===true;
+    }
     if(historyCleanup.hidden)return true;
     if(!latestHistoryCleanupPreview){
       historyCleanupSummary.textContent='Pinned runs are preserved'+(cleanup.pinned?(' · '+cleanup.pinned+' pinned'):'')+'. Select an age and preview before deleting.';
