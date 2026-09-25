@@ -126,9 +126,9 @@ function installPatchPanel(){
   .task-patch-history-file-label{font-weight:600;min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .task-patch-history-upload{font-size:9px;padding:1px 4px;border:1px solid #7b6840;border-radius:999px}
   .task-patch-history-path{display:block;margin-top:2px;opacity:.64;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .task-patch-history-variants{display:grid;gap:5px;margin-top:5px}
+  .task-patch-history-variants{margin-top:5px}
   .task-patch-history-variant{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px;align-items:center;padding-top:4px;border-top:1px solid #29303a}
-  .task-patch-history-format{font-weight:700;min-width:28px}
+  .task-patch-history-format{font-weight:700;min-width:54px}
   .task-patch-history-file-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
   .task-patch-history-file-actions a,.task-patch-history-file-actions button{font-size:10px;padding:3px 6px}
   .task-patch-history-item-head{display:flex;gap:5px;align-items:flex-start}
@@ -249,9 +249,9 @@ function installPatchPanel(){
   .task-patch-artifact-label{font-weight:600;min-width:0;flex:1}
   .task-patch-artifact-primary{font-size:9px;padding:1px 4px;border:1px solid #6d7c91;border-radius:999px}
   .task-patch-artifact-path{display:block;margin-top:3px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .task-patch-artifact-variants{display:grid;gap:5px;margin-top:5px}
+  .task-patch-artifact-variants{margin-top:5px}
   .task-patch-artifact-variant{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px;align-items:center;padding-top:4px;border-top:1px solid #29303a}
-  .task-patch-artifact-format{font-weight:700;min-width:28px}
+  .task-patch-artifact-format{font-weight:700;min-width:54px}
   .task-patch-artifact-variant-path{min-width:0;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-artifact-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
   .task-patch-artifact-actions a,.task-patch-artifact-actions button{font-size:10px;padding:3px 6px}
@@ -883,17 +883,21 @@ function installPatchPanel(){
       const label=document.createElement('span');label.className='task-patch-history-file-label';label.textContent=historyArtifactGroupLabel(group.files);head.append(label);
       if(group.upload){const badge=document.createElement('span');badge.className='task-patch-history-upload';badge.textContent='UPLOAD';head.append(badge);}
       const variants=document.createElement('div');variants.className='task-patch-history-variants';
-      group.files.sort((a,b)=>String(a.format).localeCompare(String(b.format)));
-      for(const file of group.files){
-        const line=document.createElement('div');line.className='task-patch-history-variant';
-        const format=document.createElement('span');format.className='task-patch-history-format';format.textContent=file.format;
-        const pathNode=document.createElement('span');pathNode.className='task-patch-history-path';pathNode.textContent=file.path;pathNode.title=file.path;
-        const actionsNode=document.createElement('div');actionsNode.className='task-patch-history-file-actions';
+      const filesSorted=group.files.slice().sort((a,b)=>String(a.format).localeCompare(String(b.format)));
+      const line=document.createElement('div');line.className='task-patch-history-variant';
+      const format=document.createElement('span');format.className='task-patch-history-format';format.textContent=filesSorted.map(file=>String(file.format||'FILE')).join(' / ');
+      const displayPath=pairedVariantPath(filesSorted);
+      const pathNode=document.createElement('span');pathNode.className='task-patch-history-path';pathNode.textContent=displayPath;pathNode.title=filesSorted.map(file=>String(file.path||'')).join('\n');
+      const actionsNode=document.createElement('div');actionsNode.className='task-patch-history-file-actions';
+      for(const file of filesSorted){
         const download=document.createElement('a');download.textContent=file.format+' Download';download.href='/api/files/download?path='+encodeURIComponent(file.path);download.download='';actionsNode.append(download);
-        const copyPath=document.createElement('button');copyPath.type='button';copyPath.textContent=file.format+' Copy path';copyPath.title='Copy full project path';copyPath.onclick=()=>copyFullPath(file.path,copyPath).catch(app.showError);actionsNode.append(copyPath);
-        if(file.format==='TXT'){const open=document.createElement('button');open.type='button';open.textContent='Open TXT';open.onclick=()=>openProjectFile(file.path);actionsNode.append(open);}
-        line.append(format,pathNode,actionsNode);variants.append(line);
       }
+      for(const file of filesSorted){
+        const copyPath=document.createElement('button');copyPath.type='button';copyPath.textContent=file.format+' Copy path';copyPath.title='Copy full project path';copyPath.onclick=()=>copyFullPath(file.path,copyPath).catch(app.showError);actionsNode.append(copyPath);
+      }
+      const textFile=filesSorted.find(file=>file.format==='TXT');
+      if(textFile){const open=document.createElement('button');open.type='button';open.textContent='Open TXT';open.onclick=()=>openProjectFile(textFile.path);actionsNode.append(open);}
+      line.append(format,pathNode,actionsNode);variants.append(line);
       row.append(head,variants);host.append(row);
     }
   }
@@ -2049,7 +2053,9 @@ function installPatchPanel(){
       const family=artifactFamily(artifact?.artifact_kind);
       const item=String(artifact?.item_name||'');
       const index=Number(artifact?.index||0);
-      const key=[family,item,index].join('\u0000');
+      const format=artifactFormat(artifact?.artifact_kind,path);
+      const stem=(format==='ZIP'||format==='TXT')?path.replace(/\.(?:zip|txt)$/i,''):path;
+      const key=[family,item,index,stem].join('\u0000');
       let group=groups.get(key);
       if(!group){group={family,item,index,primary:false,variants:[]};groups.set(key,group);}
       group.primary=group.primary||artifact?.primary===true;
@@ -2058,16 +2064,40 @@ function installPatchPanel(){
     return [...groups.values()];
   }
 
-  function appendArtifactVariant(host,variant){
-    const path=variant.path;
-    const format=variant.format;
+  function pairedVariantPath(variants){
+    const rows=Array.isArray(variants)?variants:[];
+    if(!rows.length)return '';
+    if(rows.length===1)return String(rows[0]?.path||'');
+    const stems=new Set(rows.map(row=>{
+      const path=String(row?.path||'');
+      const format=String(row?.format||'');
+      return (format==='ZIP'||format==='TXT')?path.replace(/\.(?:zip|txt)$/i,''):path;
+    }));
+    if(stems.size===1){
+      const stem=[...stems][0];
+      const extensions=rows.map(row=>String(row?.format||'').toLowerCase()).filter(Boolean);
+      return stem+'.{'+extensions.join('|')+'}';
+    }
+    return rows.map(row=>String(row?.path||'')).filter(Boolean).join(' · ');
+  }
+
+  function appendArtifactVariantGroup(host,variants){
+    const rows=(Array.isArray(variants)?variants:[]).slice().sort((a,b)=>String(a.format).localeCompare(String(b.format)));
+    if(!rows.length)return;
     const line=document.createElement('div');line.className='task-patch-artifact-variant';
-    const formatNode=document.createElement('span');formatNode.className='task-patch-artifact-format';formatNode.textContent=format;
-    const pathNode=document.createElement('span');pathNode.className='task-patch-artifact-variant-path';pathNode.textContent=path;pathNode.title=path;
+    const formats=rows.map(row=>String(row.format||'FILE'));
+    const formatNode=document.createElement('span');formatNode.className='task-patch-artifact-format';formatNode.textContent=formats.join(' / ');
+    const displayPath=pairedVariantPath(rows);
+    const pathNode=document.createElement('span');pathNode.className='task-patch-artifact-variant-path';pathNode.textContent=displayPath;pathNode.title=rows.map(row=>String(row.path||'')).join('\n');
     const actionsNode=document.createElement('div');actionsNode.className='task-patch-artifact-actions';
-    const download=document.createElement('a');download.textContent=format+' Download';download.href='/api/files/download?path='+encodeURIComponent(path);download.download='';actionsNode.append(download);
-    const copyPath=document.createElement('button');copyPath.type='button';copyPath.textContent=format+' Copy path';copyPath.title='Copy full project path';copyPath.onclick=()=>copyFullPath(path,copyPath).catch(app.showError);actionsNode.append(copyPath);
-    if(format==='TXT'){const open=document.createElement('button');open.type='button';open.textContent='Open TXT';open.onclick=()=>openProjectFile(path);actionsNode.append(open);}
+    for(const row of rows){
+      const download=document.createElement('a');download.textContent=String(row.format||'FILE')+' Download';download.href='/api/files/download?path='+encodeURIComponent(row.path);download.download='';actionsNode.append(download);
+    }
+    for(const row of rows){
+      const copyPath=document.createElement('button');copyPath.type='button';copyPath.textContent=String(row.format||'FILE')+' Copy path';copyPath.title='Copy full project path';copyPath.onclick=()=>copyFullPath(row.path,copyPath).catch(app.showError);actionsNode.append(copyPath);
+    }
+    const textVariant=rows.find(row=>String(row.format)==='TXT');
+    if(textVariant){const open=document.createElement('button');open.type='button';open.textContent='Open TXT';open.onclick=()=>openProjectFile(textVariant.path);actionsNode.append(open);}
     line.append(formatNode,pathNode,actionsNode);host.append(line);
   }
 
@@ -2082,8 +2112,7 @@ function installPatchPanel(){
       label.textContent=group.item?baseLabel+' · '+group.item:baseLabel;head.append(label);
       if(group.primary){const badge=document.createElement('span');badge.className='task-patch-artifact-primary';badge.textContent='PRIMARY';head.append(badge);}
       const variants=document.createElement('div');variants.className='task-patch-artifact-variants';
-      group.variants.sort((a,b)=>String(a.format).localeCompare(String(b.format)));
-      for(const variant of group.variants)appendArtifactVariant(variants,variant);
+      appendArtifactVariantGroup(variants,group.variants);
       row.append(head,variants);host.append(row);
     }
     return groups.length;

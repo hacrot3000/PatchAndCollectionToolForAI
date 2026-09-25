@@ -1069,14 +1069,31 @@ func TestPatchQueuePromptHasPerItemDelete(t *testing.T) {
 }
 
 
-func TestPatchArtifactsGroupZipAndTxtWithSeparateActions(t *testing.T) {
+func TestPatchArtifactsGroupZipAndTxtOnOneRowWithSeparateActions(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
 	if err != nil { t.Fatal(err) }
 	js := string(data)
-	for _, want := range []string{"function groupProtocolArtifacts(artifacts)","task-patch-artifact-variants","format+' Download'","format+' Copy path'","open.textContent='Open TXT'","function groupHistoryFiles(files)","function appendHistoryFiles(host,files)","appendHistoryFiles(files,artifacts)"} {
-		if !strings.Contains(js,want) { t.Fatalf("paired artifact UI missing %q",want) }
+	for _, want := range []string{
+		"function groupProtocolArtifacts(artifacts)",
+		"const key=[family,item,index,stem].join('\\u0000')",
+		"function pairedVariantPath(variants)",
+		"return stem+'.{'+extensions.join('|')+'}'",
+		"function appendArtifactVariantGroup(host,variants)",
+		"formatNode.textContent=formats.join(' / ')",
+		"appendArtifactVariantGroup(variants,group.variants)",
+		"const filesSorted=group.files.slice().sort",
+		"format.textContent=filesSorted.map(file=>String(file.format||'FILE')).join(' / ')",
+		"const textFile=filesSorted.find(file=>file.format==='TXT')",
+		"open.textContent='Open TXT'",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("single-row paired artifact UI missing %q",want) }
 	}
-	if strings.Contains(js,"label.textContent=artifactLabels[kind]") { t.Fatal("artifact UI still renders ZIP/TXT as separate logical rows") }
+	for _, forbidden := range []string{
+		"for(const variant of group.variants)appendArtifactVariant",
+		"for(const file of group.files){\n        const line=document.createElement('div');line.className='task-patch-history-variant'",
+	} {
+		if strings.Contains(js,forbidden) { t.Fatalf("paired artifact still creates one visual row per variant: %q",forbidden) }
+	}
 }
 
 
@@ -1191,5 +1208,22 @@ func TestPatchSingleAdditionalCollectUsesIndependentWorker(t *testing.T) {
 		"names:[name],kinds:['COLLECT']",
 	} {
 		if !strings.Contains(js,want) { t.Fatalf("single additional COLLECT worker UI missing %q",want) }
+	}
+}
+
+
+func TestPatchPairedArtifactActionOrderIsFormatClear(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	start:=strings.Index(js,"function appendArtifactVariantGroup(host,variants)")
+	endRel:=strings.Index(js[start:],"function appendProtocolArtifactGroups")
+	if start<0||endRel<0 { t.Fatal("combined live artifact renderer bounds unavailable") }
+	block:=js[start:start+endRel]
+	download:=strings.Index(block,"+' Download'")
+	copy:=strings.Index(block,"+' Copy path'")
+	open:=strings.Index(block,"Open TXT")
+	if download<0||copy<0||open<0||!(download<copy&&copy<open) {
+		t.Fatal("combined artifact actions must render downloads first, copies second, Open TXT last")
 	}
 }
