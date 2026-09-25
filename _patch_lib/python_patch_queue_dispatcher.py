@@ -17,7 +17,7 @@ import textwrap
 import time
 import shutil
 from itertools import islice
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import unicodedata
 import zipfile
 from dataclasses import dataclass
@@ -4188,6 +4188,19 @@ def _protocol_history_run_summary(report: dict[str, object], *, pinned: bool) ->
         else None
     )
     selected = report.get("selected") if isinstance(report.get("selected"), list) else []
+    search_names: list[str] = []
+    for value in selected:
+        if isinstance(value, str) and value and value not in search_names:
+            search_names.append(_protocol_history_text(value, 256))
+        if len(search_names) >= 64:
+            break
+    if not search_names:
+        for row in rows:
+            value = row.get("name") if isinstance(row, dict) else None
+            if isinstance(value, str) and value and value not in search_names:
+                search_names.append(_protocol_history_text(value, 256))
+            if len(search_names) >= 64:
+                break
     return {
         "run_id": _protocol_history_text(report.get("run_id"), 128),
         "status": _protocol_history_text(str(report.get("status") or "UNKNOWN").upper(), 64),
@@ -4195,6 +4208,7 @@ def _protocol_history_run_summary(report: dict[str, object], *, pinned: bool) ->
         "ended_at": _protocol_history_text(report.get("ended_at"), 128),
         "display_time": _protocol_history_text(_history_display_time(report.get("started_at")), 32),
         "primary_name": _protocol_history_text(_history_primary_name(report), 256),
+        "search_names": search_names,
         "pinned": bool(pinned),
         "selected_count": len([value for value in selected if isinstance(value, str) and value]),
         "item_count": len(rows),
@@ -4335,6 +4349,101 @@ def _protocol_history_cleanup_summary(root: Path) -> dict[str, object]:
     }
 
 
+def _history_started_at_utc(report: dict[str, object]) -> datetime | None:
+    text = str(report.get("started_at") or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _history_age_cleanup_plan(
+    root: Path,
+    older_than_days: int,
+    *,
+    cutoff_at: str | None = None,
+) -> dict[str, object]:
+    if isinstance(older_than_days, bool) or not isinstance(older_than_days, int) or not 1 <= older_than_days <= 3650:
+        raise ValueError("History cleanup older_than_days must be an integer in 1..3650")
+    if cutoff_at is None:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+    else:
+        try:
+            cutoff = datetime.fromisoformat(str(cutoff_at).replace("Z", "+00:00"))
+            if cutoff.tzinfo is None:
+                cutoff = cutoff.replace(tzinfo=timezone.utc)
+            cutoff = cutoff.astimezone(timezone.utc)
+        except Exception as exc:
+            raise ValueError("History cleanup cutoff_at is invalid") from exc
+
+    pins = _load_pinned_runs(root)
+    candidates: list[tuple[Path, dict[str, object]]] = []
+    for path, report in _visible_history_entries(root):
+        run_id = str(report.get("run_id") or "")
+        if not run_id or run_id in pins:
+            continue
+        started = _history_started_at_utc(report)
+        if started is None or started >= cutoff:
+            continue
+        candidates.append((path, report))
+
+    digest_source = "\n".join(
+        sorted(f"{path.name}\0{str(report.get('run_id') or '')}" for path, report in candidates)
+    ).encode("utf-8", errors="strict")
+    return {
+        "candidates": candidates,
+        "eligible": len(candidates),
+        "pinned": len(pins),
+        "remaining": len(_visible_history_entries(root)),
+        "older_than_days": older_than_days,
+        "cutoff_at": cutoff.isoformat(),
+        "candidate_digest": hashlib.sha256(digest_source).hexdigest(),
+        "policy": "remove_unpinned_older_than_days",
+    }
+
+
+def _cleanup_history_age(root: Path, plan: dict[str, object]) -> dict[str, int]:
+    removed = 0
+    removed_run_ids: set[str] = set()
+    candidates = plan.get("candidates") if isinstance(plan.get("candidates"), list) else []
+    for candidate in candidates:
+        if not isinstance(candidate, tuple) or len(candidate) != 2:
+            continue
+        path, report = candidate
+        if not isinstance(path, Path) or not isinstance(report, dict):
+            continue
+        run_id = str(report.get("run_id") or "")
+        try:
+            path.unlink()
+            removed += 1
+            if run_id:
+                removed_run_ids.add(run_id)
+        except OSError:
+            continue
+        if run_id:
+            run_dir = _batch_run_dir(root, run_id)
+            if run_dir.is_dir() and not run_dir.is_symlink():
+                shutil.rmtree(run_dir, ignore_errors=True)
+
+    if removed_run_ids:
+        last = _load_previous_run(root)
+        if isinstance(last, dict) and str(last.get("run_id") or "") in removed_run_ids:
+            try:
+                (_artifact_run_root(root) / "LAST_RUN.json").unlink()
+            except OSError:
+                pass
+    return {
+        "removed": removed,
+        "pinned": int(plan.get("pinned") or 0),
+        "remaining": len(_visible_history_entries(root)),
+    }
+
+
 def protocol_history_prompt_contract(root: Path) -> dict[str, object]:
     """Return the bounded native History prompt and per-run capabilities."""
     view = protocol_history_view(root)
@@ -4364,7 +4473,13 @@ def protocol_history_prompt_contract(root: Path) -> dict[str, object]:
             "destructive_actions": ["delete", "cleanup"],
             "item_actions": ["support"],
             "support_item_index_source": "history_report.items",
-            "cleanup": cleanup,
+            "cleanup": {
+                **cleanup,
+                "age_policy": "remove_unpinned_older_than_days",
+                "min_days": 1,
+                "max_days": 3650,
+                "day_options": [7, 14, 30, 60, 90, 180, 365],
+            },
         },
     }
 
@@ -4442,7 +4557,7 @@ def _protocol_history_cleanup(
     cleanup_allowed: bool,
     command: dict[str, object],
 ) -> bool:
-    """Run the existing History cleanup helper; web never supplies run lists."""
+    """Preview or execute age-based History cleanup without accepting run lists."""
     payload = command.get("payload")
     if not isinstance(payload, dict):
         raise ValueError("history_cleanup payload must be an object")
@@ -4451,31 +4566,94 @@ def _protocol_history_cleanup(
     cleanup_id = str(payload.get("cleanup_id") or "").strip()
     if not cleanup_id or len(cleanup_id) > 128:
         raise ValueError("history_cleanup cleanup_id is required and must be <=128 characters")
-    if payload.get("confirmed") is not True:
-        raise ValueError("history_cleanup requires confirmed=true")
     if not cleanup_allowed:
         raise ValueError("history_cleanup is not available in the active History prompt")
-    if set(payload) - {"prompt_id", "cleanup_id", "confirmed"}:
-        raise ValueError("history_cleanup does not accept run ids or cleanup candidate lists")
+    older_than_days = payload.get("older_than_days")
+    if isinstance(older_than_days, bool) or not isinstance(older_than_days, int) or not 1 <= older_than_days <= 3650:
+        raise ValueError("history_cleanup older_than_days must be an integer in 1..3650")
 
-    before = _protocol_history_cleanup_summary(root)
-    result = _cleanup_history(root)
+    confirmed = payload.get("confirmed")
+    if confirmed not in {True, False}:
+        raise ValueError("history_cleanup confirmed must be boolean")
+
+    if confirmed is False:
+        if set(payload) - {"prompt_id", "cleanup_id", "confirmed", "older_than_days"}:
+            raise ValueError("history_cleanup preview does not accept run ids, paths, or cleanup candidate lists")
+        plan = _history_age_cleanup_plan(root, older_than_days)
+        candidates = list(plan.get("candidates") or [])
+        visible_candidates = candidates[:200]
+        writer.emit(
+            "history_cleanup_result",
+            prompt_id=prompt_id,
+            cleanup_id=cleanup_id,
+            mode="preview",
+            status="PASS",
+            rc=0,
+            history_changed=False,
+            removed=0,
+            pinned=max(0, int(plan.get("pinned") or 0)),
+            remaining=max(0, int(plan.get("remaining") or 0)),
+            policy=_protocol_history_text(plan.get("policy") or "", 128),
+            eligible_before=max(0, int(plan.get("eligible") or 0)),
+            older_than_days=older_than_days,
+            cutoff_at=_protocol_history_text(plan.get("cutoff_at") or "", 128),
+            candidate_digest=_protocol_history_text(plan.get("candidate_digest") or "", 64),
+            candidates=[
+                _protocol_history_run_summary(report, pinned=False)
+                for _path, report in visible_candidates
+            ],
+            candidates_truncated=len(candidates) > len(visible_candidates),
+            message=_protocol_history_text(
+                f"{len(candidates)} unpinned History entr"
+                + ("y is" if len(candidates) == 1 else "ies are")
+                + f" older than {older_than_days} day"
+                + ("" if older_than_days == 1 else "s"),
+                512,
+            ),
+        )
+        return False
+
+    allowed = {
+        "prompt_id", "cleanup_id", "confirmed", "older_than_days",
+        "preview_cleanup_id", "cutoff_at", "candidate_digest",
+    }
+    if set(payload) - allowed:
+        raise ValueError("history_cleanup delete does not accept run ids, paths, or cleanup candidate lists")
+    preview_cleanup_id = str(payload.get("preview_cleanup_id") or "").strip()
+    cutoff_at = str(payload.get("cutoff_at") or "").strip()
+    expected_digest = str(payload.get("candidate_digest") or "").strip().lower()
+    if not preview_cleanup_id or len(preview_cleanup_id) > 128:
+        raise ValueError("history_cleanup delete requires a valid preview_cleanup_id")
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_digest):
+        raise ValueError("history_cleanup candidate_digest is invalid")
+
+    plan = _history_age_cleanup_plan(root, older_than_days, cutoff_at=cutoff_at)
+    if str(plan.get("candidate_digest") or "").lower() != expected_digest:
+        raise ValueError("History changed after cleanup preview; preview again before deleting")
+    result = _cleanup_history_age(root, plan)
     changed = int(result.get("removed") or 0) > 0
     writer.emit(
         "history_cleanup_result",
         prompt_id=prompt_id,
         cleanup_id=cleanup_id,
+        preview_cleanup_id=preview_cleanup_id,
+        mode="delete",
         status="PASS",
         rc=0,
         history_changed=changed,
         removed=max(0, int(result.get("removed") or 0)),
         pinned=max(0, int(result.get("pinned") or 0)),
         remaining=max(0, int(result.get("remaining") or 0)),
-        policy=_protocol_history_text(before.get("policy") or "", 128),
-        eligible_before=max(0, int(before.get("eligible") or 0)),
+        policy=_protocol_history_text(plan.get("policy") or "", 128),
+        eligible_before=max(0, int(plan.get("eligible") or 0)),
+        older_than_days=older_than_days,
+        cutoff_at=_protocol_history_text(plan.get("cutoff_at") or "", 128),
+        candidate_digest=expected_digest,
         message=_protocol_history_text(
             f"History cleanup removed {max(0, int(result.get('removed') or 0))} entr"
-            + ("y" if max(0, int(result.get("removed") or 0)) == 1 else "ies"),
+            + ("y" if max(0, int(result.get("removed") or 0)) == 1 else "ies")
+            + f" older than {older_than_days} day"
+            + ("" if older_than_days == 1 else "s"),
             512,
         ),
     )
