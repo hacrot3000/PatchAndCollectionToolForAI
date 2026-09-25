@@ -99,6 +99,12 @@ func Load(workspace string) (Config, string, error) {
 			cfg.Username = value
 		case "auth.password":
 			cfg.Password = value
+		case "shared_server.enabled":
+			cfg.SharedServerEnabled = parseBool(value, false)
+		case "shared_server.project_id":
+			cfg.SharedProjectID = value
+		case "shared_server.identity_db":
+			cfg.SharedIdentityDB = value
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -194,6 +200,14 @@ open_browser = %t
 enabled = false
 username = %s
 password = change-me
+
+[shared_server]
+# Multi-user shared-project mode. Mặc định tắt để giữ nguyên behavior hiện tại.
+enabled = false
+# Bắt buộc khi enabled=true. Đây là project identity ổn định trong shared identity DB.
+# project_id = my-project
+# Optional absolute path tới identity DB dùng chung giữa nhiều TaskDeck process.
+# identity_db = /var/lib/taskdeck/identity.db
 `, cfg.Protocol, cfg.Bind, cfg.Port, cfg.OpenBrowser, cfg.Username)
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("tạo %s: %w", path, err)
