@@ -906,7 +906,7 @@ func TestPatchFileActionsOpenEditorAndCopyFullPath(t *testing.T) {
 		"function openProjectFile(path)",
 		"globalThis.TaskMenuEditor",
 		"editor.openFile(path).catch(app.showError)",
-		"open.onclick=()=>openProjectFile(path)",
+		"open.onclick=()=>openProjectFile(textVariant.path)",
 	} {
 		if !strings.Contains(js,want) {
 			t.Fatalf("Patch file action contract missing %q",want)
