@@ -491,6 +491,32 @@ Checkpoint:
 Verification: GitHub Actions run `36108438961` PASS on Go 1.19 and Go 1.23, including
 JavaScript syntax, staged self-update tests, full tests, vet and build.
 
+## Self-update TLS identity stability
+
+Installed behavior showed self-update could stall at **Waiting for the new daemon to start…** even
+after the new daemon was live because auto self-signed TLS identity changed during restart. The
+browser then blocked polling/reload on the new certificate.
+
+Root cause: wildcard HTTPS bind included every live interface address in the desired SAN set.
+A newly appearing DHCP/IPv6/VPN/Tailscale address made the old pair fail `reusableAutoPair()`,
+forcing a new leaf certificate/fingerprint during daemon replacement.
+
+Fix:
+- `tlscert.ResolveForSelfUpdate()` reuses the currently serving auto certificate/key during an
+  update handoff as long as the pair is still valid.
+- Auto-certificate reuse on normal startup now checks only stable required SANs. Interface inventory
+  remains opportunistic generation input, not a rotation trigger.
+- Explicit configured stable SAN changes can still rotate the certificate on a normal startup.
+- Missing/corrupt/expired certificate material still regenerates; that exceptional case may require
+  browser trust again.
+
+Checkpoint:
+- `3b408e26` — preserve TLS identity across self-update handoff and remove volatile interface SANs
+  from certificate-reuse requirements.
+
+Verification: GitHub Actions run `36111251392` PASS on Go 1.19 and Go 1.23, including staged
+self-update tests, full tests, vet and build.
+
 ## Non-regression invariants
 
 - Python remains authoritative for Patch Tool policy/business logic.
@@ -501,6 +527,7 @@ JavaScript syntax, staged self-update tests, full tests, vet and build.
 - Switching from the active Patch pane to a terminal/editor/Activity Bar view must deactivate the pane but preserve the `Patch Tool` tab until explicit close.
 - In Native UI mode, a terminal tab may be materialized only by an explicit evidence/fallback action.
 - **History → Terminal** is an explicit legacy History browser session (`history` command), not a materialized native History backing PTY (`report`).
+- Self-update must preserve the currently serving valid auto TLS certificate identity; volatile interface-address changes must not rotate the leaf certificate during handoff.
 - Parallel COLLECT workers must remain independent `task_id=-1` sessions; do not weaken Python's one-COLLECT-per-invocation safety contract.
 - **Back to Queue / Add more** must never stop an active execution session; only a waiting Queue selector may be replaced by Refresh Queue.
 - While active executions exist, Queue add-mode must not permit launching another PATCH or re-running/deleting an already-running item.

@@ -517,10 +517,11 @@ Every phase must preserve:
 | Phase 2E.2 UX correction: History Terminal real browser | FIXED, NEEDS INSTALLED SMOKE | 3f25556a / 1134bdb2 / e934b3cd | Native History remains structured `report`; explicit History Terminal now starts a separate legacy session using bounded Python `history` command → `_history_browser()`, rather than materializing the native History PTY. CI 36105569250 PASS Go 1.19/1.23. |
 | Phase 2E.2 UX correction: Active runs live-session pruning | FIXED, NEEDS INSTALLED SMOKE | 27cfd572 | Active runs now revalidates TaskDeck session metadata and keeps only `status=running`; foreground runs already finished are not re-added after Back to Queue; background exited/stopped sessions are pruned; safe Remove from Active refuses live sessions; total active+new parallel COLLECT workers cannot exceed advertised max. CI 36107744970 PASS Go 1.19/1.23. |
 | Phase 2E.2 UX correction: foreground run visual priority | FIXED, NEEDS INSTALLED SMOKE | 96faca77 | Foreground Current run / Latest completed status and artifacts render before Other active runs; background renderer no longer hides foreground UI; Other active runs sorted newest-first. CI 36108438961 PASS Go 1.19/1.23. |
+| Self-update TLS identity stability | FIXED, NEEDS INSTALLED SMOKE | 3b408e26 | Self-update replacement daemon reuses the currently serving valid auto self-signed certificate; volatile wildcard-interface SAN changes no longer force certificate rotation/retrust. Explicit stable SAN changes still apply on normal startup. CI 36111251392 PASS Go 1.19/1.23. |
 
 ## Next action
 
 Phase 2A–2D and the automated Phase 2E.1 product gate are implemented. **Do not close Phase 2 yet.**
-Next is Phase 2E.2 installed-runtime browser smoke after TaskDeck self-update to **`96faca77` or a later descendant**: verify the actual UI
+Next is Phase 2E.2 installed-runtime browser smoke after TaskDeck self-update to **`3b408e26` or a later descendant**: verify the actual UI
 does not create a terminal tab for Queue/Resume/History/Plan/Health, while explicit terminal
 evidence still materializes one. Only after that passes may Phase 2F closeout be marked DONE.

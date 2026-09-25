@@ -149,3 +149,23 @@ cancelled
 ```
 
 Nếu update lỗi trước khi binary được thay, daemon hiện tại tiếp tục chạy. Nếu lỗi xảy ra trong giai đoạn restart/handoff, CLI cố fallback sang restart thường và giữ port cũ trước khi cho phép đổi URL.
+
+
+## TLS identity khi self-update
+
+Khi dùng HTTPS auto self-signed, TaskDeck lưu certificate/key theo workspace trong config directory
+và tái sử dụng chúng qua các lần chạy.
+
+Self-update có yêu cầu mạnh hơn startup thông thường: daemon replacement phải ưu tiên giữ nguyên
+certificate identity đang phục vụ browser. Binary mới dùng `ResolveForSelfUpdate` để reuse pair hiện
+tại miễn certificate/key còn hợp lệ. Việc tập network interface thay đổi (DHCP, IPv6 privacy address,
+VPN, Tailscale...) không được phép tự làm đổi fingerprint trong self-update handoff.
+
+Với wildcard bind (`0.0.0.0` / `::`), các interface address hiện tại vẫn có thể được thêm vào SAN
+khi tạo certificate mới, nhưng chúng không còn là SAN bắt buộc để quyết định reuse certificate cũ.
+Các SAN cấu hình ổn định như `advertise_host`, bind cụ thể, hostname và loopback vẫn được dùng để
+quyết định rotation ở startup bình thường.
+
+Certificate chỉ có thể thay trong self-update khi pair hiện tại thực sự không còn dùng được, ví dụ
+file bị hỏng/mất hoặc certificate đã hết hạn. Trường hợp đó browser có thể yêu cầu trust lại
+certificate mới.
