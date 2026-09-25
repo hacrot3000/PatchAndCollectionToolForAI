@@ -29,8 +29,17 @@ func TestPatchAIPackEndpointBuildsAndThenReusesCache(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(runtimeRoot, "_patch_lib", "docs", "AI_USAGE_CONTRACT.md"), []byte("current docs\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	guide := `<pre id="prompt-vi">Read current docs before work.</pre>`
-	if err := os.WriteFile(filepath.Join(runtimeRoot, "HUONG_DAN_PYTHON_PATCH_TOOL.html"), []byte(guide), 0o644); err != nil {
+	prompts, err := json.MarshalIndent(map[string]any{
+		"version": 1,
+		"vi": "Read current docs before work.",
+		"en": "Read current docs before work.",
+		"ru": "Read current docs before work.",
+	}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompts = append(prompts, '\n')
+	if err := os.WriteFile(filepath.Join(runtimeRoot, "_patch_lib", "docs", "AI_STANDARD_PROMPTS.json"), prompts, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("TASKDECK_PATCH_RUNTIME", entry)
@@ -51,7 +60,7 @@ func TestPatchAIPackEndpointBuildsAndThenReusesCache(t *testing.T) {
 	}
 
 	first := call()
-	if first.Cached || first.Prompt != "Read current docs before work." || first.DocCount != 1 {
+	if first.Cached || first.Prompt != "Read current docs before work." || first.DocCount != 2 {
 		t.Fatalf("unexpected first AI Pack response: %+v", first)
 	}
 	second := call()
