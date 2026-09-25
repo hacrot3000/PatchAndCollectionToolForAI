@@ -75,6 +75,18 @@ enabled = false
 
 No identity database is required or initialized merely by running TaskDeck in the default mode.
 
+## 2.4 Dependency policy
+
+Implementation should prefer the Go standard library and code already present in this repository.
+
+Rules:
+
+- Do not add a third-party library when a reasonable standard-library or existing-code solution exists.
+- Any new third-party dependency must be isolated, justified by a capability unavailable in the standard library, and kept to the smallest practical surface.
+- Do not add npm packages when any viable non-npm implementation exists.
+- Shared-server work must preserve offline/self-update builds; a runtime or build path must not silently start depending on network package installation.
+- SQLite is a special case: Go's standard library provides `database/sql` but no SQLite driver. Build the SQL/migration layer against stdlib first, and isolate the eventual concrete SQLite driver decision as a separate checkpoint.
+
 ## 3. Compatibility modes
 
 TaskDeck has two authentication modes determined by `[shared_server].enabled`.
