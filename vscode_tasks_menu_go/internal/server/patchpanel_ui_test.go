@@ -1110,7 +1110,7 @@ func TestPatchNativeParallelCollectUsesIndependentSessions(t *testing.T) {
 		"/parallel-collect",
 		"function pollParallelCollectRuns()",
 		"parallelCollectRuns=new Map()",
-		"runningTitle.textContent='Active runs'",
+		"parallelCollectTitle.textContent=runningMode?'Other active runs':'Active runs'",
 		"appendProtocolArtifactGroups(artifacts,run.state?.artifacts)",
 		"openTerminalEvidenceForSession(run.sessionId)",
 	} {
@@ -1314,5 +1314,54 @@ func TestPatchParallelCollectLimitCountsExistingActiveRuns(t *testing.T) {
 		"selected<limit",
 	} {
 		if !strings.Contains(js,want) { t.Fatalf("global active COLLECT limit missing %q",want) }
+	}
+}
+
+
+func TestPatchForegroundRunStaysAboveBackgroundActiveRuns(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	order := "body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,planBox,healthBox,runningHead,runBox,artifactBox,parallelCollectBox,actions)"
+	if !strings.Contains(js,order) {
+		t.Fatal("foreground run/result must be ordered before background Active runs")
+	}
+	start:=strings.Index(js,"function renderParallelCollectRuns()")
+	endRel:=strings.Index(js[start:],"async function pollParallelCollectRuns()")
+	if start<0||endRel<0 { t.Fatal("Active runs renderer bounds unavailable") }
+	block:=js[start:start+endRel]
+	for _, forbidden:=range []string{
+		"runBox.hidden=true",
+		"artifactBox.hidden=true",
+		"terminalEvidence.hidden=true",
+		"runningTitle.textContent='Active runs'",
+	} {
+		if strings.Contains(block,forbidden) {
+			t.Fatalf("background Active runs must not hide/replace foreground run UI: %q",forbidden)
+		}
+	}
+	for _, want:=range []string{
+		"activeRunningEntries().sort((a,b)=>Number(b[1]?.startedAt||0)-Number(a[1]?.startedAt||0))",
+		"parallelCollectTitle.textContent=runningMode?'Other active runs':'Active runs'",
+	} {
+		if !strings.Contains(block,want) { t.Fatalf("background Active runs hierarchy missing %q",want) }
+	}
+}
+
+func TestPatchLatestCompletedForegroundIsProminent(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want:=range []string{
+		"function foregroundRunName(state=foregroundProtocolState)",
+		"function updateForegroundHeading(state=foregroundProtocolState)",
+		"runningTitle.textContent=name?'Latest completed · '+name:'Latest completed'",
+		"runningTitle.textContent=name?'Current run · '+name:'Current run'",
+		"runningHead.classList.add('finished')",
+		"Result and artifacts below are the latest foreground run.",
+		"runTitle.textContent='Current run status'",
+		"artifactTitle.textContent='Current run artifacts'",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("foreground/latest visual priority missing %q",want) }
 	}
 }

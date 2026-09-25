@@ -203,9 +203,10 @@ function installPatchPanel(){
   .task-patch-panel.history .task-patch-run,
   .task-patch-panel.history .task-patch-artifacts,
   .task-patch-panel.history .task-patch-actions{display:none!important}
-  .task-patch-running-head{display:none;margin:0 0 10px;padding:8px;border:1px solid #4b596d;border-radius:6px;background:#121923;font-size:11px}
+  .task-patch-running-head{display:none;margin:0 0 8px;padding:10px;border:1px solid #647996;border-radius:6px;background:#121923;font-size:11px;box-shadow:0 0 0 1px rgba(120,151,191,.08) inset}
   .task-patch-panel.running .task-patch-running-head{display:block}
-  .task-patch-running-title{font-weight:700;font-size:12px}
+  .task-patch-running-head.finished{border-color:#5e8668}
+  .task-patch-running-title{font-weight:700;font-size:12px;overflow-wrap:anywhere}
   .task-patch-running-meta{margin-top:3px;opacity:.72}
   .task-patch-running-meta.stale{color:#e4be63;opacity:1}
   .task-patch-running-actions{display:flex;gap:6px;margin-top:8px}
@@ -269,7 +270,8 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-summary-tab.active{background:#e7eef7;border-color:#9aa9bc;color:#1f2328}
   html[data-taskmenu-theme="light"] .task-patch-action-result{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-action-result-output{background:#fff;border-color:#d0d7de}
-  html[data-taskmenu-theme="light"] .task-patch-running-head{background:#f6f8fa;border-color:#b9c0c8}
+  html[data-taskmenu-theme="light"] .task-patch-running-head{background:#f6f8fa;border-color:#9aa9bc}
+  html[data-taskmenu-theme="light"] .task-patch-running-head.finished{border-color:#6f9a78}
   html[data-taskmenu-theme="light"] .task-patch-prompt{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-prompt-item{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-resume{background:#f6f8fa;border-color:#b9c0c8}
@@ -429,12 +431,12 @@ function installPatchPanel(){
   runningHead.append(runningTitle,runningMeta,runningActions);
 
   const parallelCollectBox=document.createElement('div');parallelCollectBox.className='task-patch-parallel';parallelCollectBox.hidden=true;
-  const parallelCollectTitle=document.createElement('div');parallelCollectTitle.className='task-patch-parallel-title';parallelCollectTitle.textContent='Active runs';
+  const parallelCollectTitle=document.createElement('div');parallelCollectTitle.className='task-patch-parallel-title';parallelCollectTitle.textContent='Other active runs';
   const parallelCollectList=document.createElement('div');parallelCollectList.className='task-patch-parallel-list';
   parallelCollectBox.append(parallelCollectTitle,parallelCollectList);
 
   const runBox=document.createElement('div');runBox.className='task-patch-run';runBox.hidden=true;
-  const runTitle=document.createElement('div');runTitle.className='task-patch-run-title';runTitle.textContent='Run status';
+  const runTitle=document.createElement('div');runTitle.className='task-patch-run-title';runTitle.textContent='Current run status';
   const progressNode=document.createElement('div');progressNode.className='task-patch-progress';progressNode.hidden=true;
   const progressHead=document.createElement('div');progressHead.className='task-patch-progress-head';
   const progressDetail=document.createElement('span');progressDetail.className='task-patch-progress-detail';
@@ -443,12 +445,12 @@ function installPatchPanel(){
   runBox.append(runTitle,progressNode,runItems);
 
   const artifactBox=document.createElement('div');artifactBox.className='task-patch-artifacts';artifactBox.hidden=true;
-  const artifactTitle=document.createElement('div');artifactTitle.className='task-patch-artifacts-title';artifactTitle.textContent='Artifacts';
+  const artifactTitle=document.createElement('div');artifactTitle.className='task-patch-artifacts-title';artifactTitle.textContent='Current run artifacts';
   const artifactList=document.createElement('div');artifactList.className='task-patch-artifact-list';
   artifactBox.append(artifactTitle,artifactList);
 
   const actions=document.createElement('div');actions.className='task-patch-actions';
-  body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,planBox,healthBox,runningHead,parallelCollectBox,runBox,artifactBox,actions);
+  body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,planBox,healthBox,runningHead,runBox,artifactBox,parallelCollectBox,actions);
   panel.append(head,body);
   panesHost.append(panel);
 
@@ -1566,7 +1568,8 @@ function installPatchPanel(){
     runningLastEventCount=-1;
     runningLastEventAtMs=runningStartedAtMs;
     panel.classList.add('running');
-    runningTitle.textContent='Running';
+    runningTitle.textContent='Current run';
+    runningHead.classList.remove('finished');
     runningMeta.classList.remove('stale');
     runningMeta.textContent='Starting Python execution…';
     terminalEvidence.hidden=false;
@@ -1578,9 +1581,10 @@ function installPatchPanel(){
   function finishRunningView(){
     if(!runningMode)return;
     runningFinished=true;
-    runningTitle.textContent='Finished';
+    updateForegroundHeading(foregroundProtocolState);
     runningMeta.classList.remove('stale');
-    runningMeta.textContent='Native run state is complete. Terminal evidence remains available.';
+    const completedName=foregroundRunName(foregroundProtocolState);
+    runningMeta.textContent=(completedName?completedName+' · ':'')+'completed. Result and artifacts below are the latest foreground run.';
     runningBack.hidden=false;
   }
 
@@ -1591,7 +1595,8 @@ function installPatchPanel(){
     runningLastEventCount=-1;
     runningLastEventAtMs=0;
     panel.classList.remove('running');
-    runningTitle.textContent='Running';
+    runningTitle.textContent='Current run';
+    runningHead.classList.remove('finished');
     runningMeta.classList.remove('stale');
     runningMeta.textContent='Waiting for Python execution state…';
     runningBack.hidden=true;
@@ -1974,8 +1979,29 @@ function installPatchPanel(){
     applyQueuePromptSearch();
   }
 
+  function foregroundRunName(state=foregroundProtocolState){
+    const descriptorNames=Array.isArray(foregroundRunDescriptor?.names)?foregroundRunDescriptor.names.filter(Boolean):[];
+    if(descriptorNames.length===1)return String(descriptorNames[0]);
+    const items=Array.isArray(state?.items)?state.items:[];
+    const running=items.find(item=>String(item?.status||'').toUpperCase()==='RUNNING');
+    const latest=running||items[items.length-1];
+    return String(latest?.name||descriptorNames[0]||'');
+  }
+
+  function updateForegroundHeading(state=foregroundProtocolState){
+    const name=foregroundRunName(state);
+    if(runningFinished){
+      runningTitle.textContent=name?'Latest completed · '+name:'Latest completed';
+      runningHead.classList.add('finished');
+      return;
+    }
+    runningTitle.textContent=name?'Current run · '+name:'Current run';
+    runningHead.classList.remove('finished');
+  }
+
   function renderRunningHeartbeat(state){
     if(!runningMode||runningFinished)return;
+    updateForegroundHeading(state);
     const now=Date.now();
     if(!runningStartedAtMs)runningStartedAtMs=now;
     const eventCount=Number(state?.event_count||0);
@@ -2421,7 +2447,8 @@ function installPatchPanel(){
 
   function renderParallelCollectRuns(){
     parallelCollectList.replaceChildren();
-    const entries=activeRunningEntries();
+    const entries=activeRunningEntries().sort((a,b)=>Number(b[1]?.startedAt||0)-Number(a[1]?.startedAt||0));
+    parallelCollectTitle.textContent=runningMode?'Other active runs':'Active runs';
     for(const [key,run] of entries){
       const card=document.createElement('div');card.className='task-patch-parallel-run';
       const head=document.createElement('div');head.className='task-patch-parallel-run-head';
@@ -2453,10 +2480,6 @@ function installPatchPanel(){
     }
     parallelCollectBox.hidden=entries.length===0;
     if(entries.length&&runningMode){
-      runBox.hidden=true;artifactBox.hidden=true;terminalEvidence.hidden=true;
-      runningTitle.textContent='Active runs';
-      runningMeta.classList.remove('stale');
-      runningMeta.textContent=entries.length+' active';
       runningBack.hidden=false;
     }
   }
@@ -2708,7 +2731,7 @@ function installPatchPanel(){
         haveHealthSnapshot=true;
       }
       if(state?.history_management_result)renderHistoryManagementResult(state.history_management_result);
-      if(runningMode&&sessionId===activeSessionId)foregroundProtocolState=state;
+      if(runningMode&&sessionId===activeSessionId){foregroundProtocolState=state;updateForegroundHeading(state);}
       renderItemLifecycle(state?.items);
       renderProgress(state?.progress);
       renderRunningHeartbeat(state);
