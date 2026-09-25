@@ -267,10 +267,49 @@ class HistoryCleanupProtocolTests(unittest.TestCase):
             prompt = dispatcher.protocol_history_prompt_contract(Path("/workspace"))
         self.assertIn("cleanup", prompt["actions"])
         self.assertIn("cleanup", prompt["constraints"]["destructive_actions"])
-        self.assertEqual(prompt["constraints"]["cleanup"], fake_cleanup)
+        cleanup = prompt["constraints"]["cleanup"]
+        for key, value in fake_cleanup.items():
+            self.assertEqual(cleanup[key], value)
+        self.assertEqual(cleanup["age_policy"], "remove_unpinned_older_than_days")
+        self.assertEqual(cleanup["min_days"], 1)
+        self.assertEqual(cleanup["max_days"], 3650)
+        self.assertEqual(cleanup["day_options"], [7, 14, 30, 60, 90, 180, 365])
         self.assertNotIn("cleanup", prompt["runs"][0]["actions"])
 
-    def test_history_cleanup_command_accepts_no_web_candidate_list_and_emits_counts(self):
+
+    def test_history_age_cleanup_plan_filters_cutoff_pins_and_invalid_dates(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        entries = [
+            (Path("/history/old.json"), {
+                "run_id": "old", "started_at": "2026-07-01T00:00:00+00:00",
+                "selected": ["patch_old.zip"], "results": [{"name": "patch_old.zip"}],
+            }),
+            (Path("/history/pinned.json"), {
+                "run_id": "pinned", "started_at": "2026-07-02T00:00:00+00:00",
+                "selected": ["patch_pinned.zip"], "results": [{"name": "patch_pinned.zip"}],
+            }),
+            (Path("/history/new.json"), {
+                "run_id": "new", "started_at": "2026-09-20T00:00:00+00:00",
+                "selected": ["patch_new.zip"], "results": [{"name": "patch_new.zip"}],
+            }),
+            (Path("/history/bad.json"), {
+                "run_id": "bad", "started_at": "not-a-date",
+                "selected": ["patch_bad.zip"], "results": [{"name": "patch_bad.zip"}],
+            }),
+        ]
+        with mock.patch.object(dispatcher, "_visible_history_entries", return_value=entries), \
+             mock.patch.object(dispatcher, "_load_pinned_runs", return_value={"pinned"}):
+            plan = dispatcher._history_age_cleanup_plan(
+                Path("/workspace"), 30, cutoff_at="2026-08-26T10:00:00+00:00"
+            )
+        self.assertEqual(plan["eligible"], 1)
+        self.assertEqual(plan["candidates"][0][1]["run_id"], "old")
+        self.assertEqual(plan["pinned"], 1)
+        self.assertEqual(plan["policy"], "remove_unpinned_older_than_days")
+        self.assertEqual(len(plan["candidate_digest"]), 64)
+
+    def test_history_cleanup_command_previews_then_deletes_bound_plan_without_web_candidate_list(self):
         import python_patch_queue_dispatcher as dispatcher
 
         class Writer:
@@ -280,39 +319,115 @@ class HistoryCleanupProtocolTests(unittest.TestCase):
                 self.events.append((event_type, payload))
                 return True
 
-        writer = Writer()
-        command = {
-            "command": "history_cleanup",
-            "payload": {"prompt_id": "prompt-1", "cleanup_id": "cleanup-1", "confirmed": True},
+        root = Path("/workspace")
+        candidate_path = Path("/history/old.json")
+        report = {
+            "run_id": "old", "status": "PASS",
+            "started_at": "2026-07-01T00:00:00+00:00",
+            "selected": ["patch_old.zip", "CODE_COLLECTION_REQUEST_old.zip"],
+            "results": [
+                {"name": "patch_old.zip", "kind": "PATCH", "status": "PASS"},
+                {"name": "CODE_COLLECTION_REQUEST_old.zip", "kind": "COLLECT", "status": "PASS"},
+            ],
         }
-        with mock.patch.object(dispatcher, "_protocol_history_cleanup_summary", return_value={
-            "eligible": 3, "idle_eligible": 1, "overflow_eligible": 2, "pinned": 1,
-            "meaningful": 32, "limit": 30,
-            "policy": "remove_unpinned_idle_then_oldest_unpinned_over_limit",
-        }), mock.patch.object(dispatcher, "_cleanup_history", return_value={"removed": 3, "pinned": 1, "remaining": 30}):
-            changed = dispatcher._protocol_history_cleanup(Path("/workspace"), writer, "prompt-1", True, command)
-        self.assertTrue(changed)
-        self.assertEqual(len(writer.events), 1)
-        event_type, payload = writer.events[0]
-        self.assertEqual(event_type, "history_cleanup_result")
-        self.assertEqual(payload["cleanup_id"], "cleanup-1")
-        self.assertEqual(payload["removed"], 3)
-        self.assertEqual(payload["pinned"], 1)
-        self.assertEqual(payload["remaining"], 30)
-        self.assertTrue(payload["history_changed"])
+        plan = {
+            "candidates": [(candidate_path, report)],
+            "eligible": 1, "pinned": 2, "remaining": 5, "older_than_days": 30,
+            "cutoff_at": "2026-08-26T10:00:00+00:00",
+            "candidate_digest": "a" * 64,
+            "policy": "remove_unpinned_older_than_days",
+        }
 
-        bad = json.loads(json.dumps(command))
-        bad["payload"]["run_ids"] = ["run-1"]
+        preview_writer = Writer()
+        preview_command = {
+            "command": "history_cleanup",
+            "payload": {
+                "prompt_id": "prompt-1", "cleanup_id": "preview-1",
+                "older_than_days": 30, "confirmed": False,
+            },
+        }
+        with mock.patch.object(dispatcher, "_history_age_cleanup_plan", return_value=plan):
+            changed = dispatcher._protocol_history_cleanup(root, preview_writer, "prompt-1", True, preview_command)
+        self.assertFalse(changed)
+        self.assertEqual(len(preview_writer.events), 1)
+        event_type, preview = preview_writer.events[0]
+        self.assertEqual(event_type, "history_cleanup_result")
+        self.assertEqual(preview["mode"], "preview")
+        self.assertEqual(preview["eligible_before"], 1)
+        self.assertEqual(preview["older_than_days"], 30)
+        self.assertEqual(preview["candidate_digest"], "a" * 64)
+        self.assertEqual(preview["candidates"][0]["search_names"], [
+            "patch_old.zip", "CODE_COLLECTION_REQUEST_old.zip",
+        ])
+
+        delete_writer = Writer()
+        delete_command = {
+            "command": "history_cleanup",
+            "payload": {
+                "prompt_id": "prompt-1", "cleanup_id": "delete-1",
+                "older_than_days": 30, "confirmed": True,
+                "preview_cleanup_id": "preview-1",
+                "cutoff_at": plan["cutoff_at"],
+                "candidate_digest": plan["candidate_digest"],
+            },
+        }
+        with mock.patch.object(dispatcher, "_history_age_cleanup_plan", return_value=plan), \
+             mock.patch.object(dispatcher, "_cleanup_history_age", return_value={"removed": 1, "pinned": 2, "remaining": 4}):
+            changed = dispatcher._protocol_history_cleanup(root, delete_writer, "prompt-1", True, delete_command)
+        self.assertTrue(changed)
+        result = delete_writer.events[0][1]
+        self.assertEqual(result["mode"], "delete")
+        self.assertEqual(result["preview_cleanup_id"], "preview-1")
+        self.assertEqual(result["removed"], 1)
+        self.assertTrue(result["history_changed"])
+
+        bad = json.loads(json.dumps(preview_command))
+        bad["payload"]["run_ids"] = ["old"]
         with self.assertRaises(ValueError):
-            dispatcher._protocol_history_cleanup(Path("/workspace"), Writer(), "prompt-1", True, bad)
-        stale = json.loads(json.dumps(command))
+            dispatcher._protocol_history_cleanup(root, Writer(), "prompt-1", True, bad)
+        stale = json.loads(json.dumps(preview_command))
         stale["payload"]["prompt_id"] = "stale"
         with self.assertRaises(ValueError):
-            dispatcher._protocol_history_cleanup(Path("/workspace"), Writer(), "prompt-1", True, stale)
-        unconfirmed = json.loads(json.dumps(command))
-        unconfirmed["payload"]["confirmed"] = False
-        with self.assertRaises(ValueError):
-            dispatcher._protocol_history_cleanup(Path("/workspace"), Writer(), "prompt-1", True, unconfirmed)
+            dispatcher._protocol_history_cleanup(root, Writer(), "prompt-1", True, stale)
+
+    def test_history_cleanup_stale_preview_fails_without_deleting(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        class Writer:
+            def __init__(self):
+                self.events = []
+            def emit(self, event_type, **payload):
+                self.events.append((event_type, payload))
+                return True
+
+        plan = {
+            "candidates": [],
+            "eligible": 0, "pinned": 1, "remaining": 4, "older_than_days": 30,
+            "cutoff_at": "2026-08-26T10:00:00+00:00",
+            "candidate_digest": "b" * 64,
+            "policy": "remove_unpinned_older_than_days",
+        }
+        command = {
+            "command": "history_cleanup",
+            "payload": {
+                "prompt_id": "prompt-1", "cleanup_id": "delete-2",
+                "older_than_days": 30, "confirmed": True,
+                "preview_cleanup_id": "preview-1",
+                "cutoff_at": plan["cutoff_at"],
+                "candidate_digest": "a" * 64,
+            },
+        }
+        writer = Writer()
+        with mock.patch.object(dispatcher, "_history_age_cleanup_plan", return_value=plan), \
+             mock.patch.object(dispatcher, "_cleanup_history_age") as cleanup:
+            changed = dispatcher._protocol_history_cleanup(Path("/workspace"), writer, "prompt-1", True, command)
+        self.assertFalse(changed)
+        cleanup.assert_not_called()
+        result = writer.events[0][1]
+        self.assertEqual(result["status"], "FAIL")
+        self.assertEqual(result["rc"], 2)
+        self.assertFalse(result["history_changed"])
+        self.assertEqual(result["removed"], 0)
 
 
 class ProtocolContractTests(unittest.TestCase):
