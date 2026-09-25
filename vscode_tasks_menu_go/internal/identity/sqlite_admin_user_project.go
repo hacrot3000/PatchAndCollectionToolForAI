@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -151,4 +152,15 @@ func encodeDBBool(value bool) int64 {
 		return 1
 	}
 	return 0
+}
+
+func requireChangedRow(result sql.Result, resource string) error {
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read changed %s count: %w", resource, err)
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
