@@ -25,7 +25,8 @@ func TestQuickTaskStateUsesProjectPersistence(t *testing.T) {
 		"legacyRead('favorites',[])",
 		"legacyRead('recent',[])",
 		"legacyRead('history',[])",
-		"localStorage.removeItem(legacyStorageKey(name))",
+		"const key=legacyStorageKey(name);if(key)localStorage.removeItem(key)",
+		"const taskDataReady=app.taskData?.workspace?Promise.resolve():new Promise",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("project state UI missing %q", want)
