@@ -14,8 +14,11 @@ func TestSelfUpdateBrowserWorkflow(t *testing.T) {
 	for _, want := range []string{
 		"/api/state/tasks?scope=self-update",
 		"Update now",
-		"freezeForSelfUpdate",
+		"persistSnapshot",
 		"resumeAfterSelfUpdate",
+		"nonblocking",
+		"Close",
+		"postAction('ack',id)",
 		"action='+encodeURIComponent(action)",
 		"postAction('ack',req.id)",
 		"awaiting_confirmation",

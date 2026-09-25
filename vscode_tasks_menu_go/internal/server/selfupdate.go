@@ -180,8 +180,10 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, req)
 	case "ack":
-		if req.Status != "completed" {
-			http.Error(w, "only completed updates can be acknowledged", http.StatusConflict)
+		switch req.Status {
+		case "completed", "failed", "cancelled":
+		default:
+			http.Error(w, "only terminal self-update states can be acknowledged", http.StatusConflict)
 			return
 		}
 		if err := os.Remove(updater.RequestPath(s.Workspace)); err != nil && !os.IsNotExist(err) {

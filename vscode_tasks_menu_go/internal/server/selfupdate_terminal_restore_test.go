@@ -9,7 +9,7 @@ import (
 	webassets "bletonfc/vscode_tasks_menu/web"
 )
 
-func TestSelfUpdateProtectsTerminalStateFromTeardownSnapshot(t *testing.T) {
+func TestSelfUpdateProtectsTerminalStateOnlyDuringActivation(t *testing.T) {
 	workspace := t.TempDir()
 	original := projectTerminalState{
 		Version:     2,
@@ -26,39 +26,45 @@ func TestSelfUpdateProtectsTerminalStateFromTeardownSnapshot(t *testing.T) {
 	}
 
 	s := &Server{Workspace: workspace}
-	r := httptest.NewRequest("PUT", "/api/state/tasks?scope=terminals", strings.NewReader(`{"session_ids":[],"active_session_id":"","splits":[]}`))
-	w := httptest.NewRecorder()
-	s.taskState(w, r)
-	if w.Code != 200 {
-		t.Fatalf("protected terminal PUT status=%d body=%s", w.Code, w.Body.String())
+	putEmpty := func() projectTerminalState {
+		r := httptest.NewRequest("PUT", "/api/state/tasks?scope=terminals", strings.NewReader(`{"session_ids":[],"active_session_id":"","splits":[]}`))
+		w := httptest.NewRecorder()
+		s.taskState(w, r)
+		if w.Code != 200 {
+			t.Fatalf("terminal PUT status=%d body=%s", w.Code, w.Body.String())
+		}
+		got, err := readProjectTerminalState(workspace)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
 	}
-	got, err := readProjectTerminalState(workspace)
-	if err != nil {
+
+	// Confirmed/downloading/testing/building are dry-run phases. Normal browser
+	// persistence must remain writable so a failed candidate never freezes work.
+	if got := putEmpty(); len(got.Terminals) != 0 {
+		t.Fatalf("dry-run unexpectedly protected terminal writes: %#v", got)
+	}
+
+	if err := writeProjectTerminalState(workspace, original); err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Terminals) != 2 || len(got.Splits) != 1 || got.ActiveIndex != 1 {
-		t.Fatalf("self-update teardown overwrote saved terminal layout: %#v", got)
+	if _, err := updater.Update(workspace, req.ID, "ready_restart", "ready", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := putEmpty(); len(got.Terminals) != 2 || len(got.Splits) != 1 || got.ActiveIndex != 1 {
+		t.Fatalf("activation teardown overwrote saved terminal layout: %#v", got)
 	}
 
 	if _, err := updater.Update(workspace, req.ID, "failed", "failed", "", "test"); err != nil {
 		t.Fatal(err)
 	}
-	r = httptest.NewRequest("PUT", "/api/state/tasks?scope=terminals", strings.NewReader(`{"session_ids":[],"active_session_id":"","splits":[]}`))
-	w = httptest.NewRecorder()
-	s.taskState(w, r)
-	if w.Code != 200 {
-		t.Fatalf("unprotected terminal PUT status=%d body=%s", w.Code, w.Body.String())
-	}
-	got, err = readProjectTerminalState(workspace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got.Terminals) != 0 {
+	if got := putEmpty(); len(got.Terminals) != 0 {
 		t.Fatalf("terminal writes did not resume after failed update: %#v", got)
 	}
 }
 
-func TestSelfUpdateUIFreezesTerminalPersistenceBeforeConfirm(t *testing.T) {
+func TestSelfUpdateUIDoesNotFreezeTerminalPersistenceDuringDryRun(t *testing.T) {
 	restoreData, err := webassets.Files.ReadFile("featuremods/terminalrestore.js")
 	if err != nil {
 		t.Fatal(err)
@@ -67,9 +73,7 @@ func TestSelfUpdateUIFreezesTerminalPersistenceBeforeConfirm(t *testing.T) {
 	for _, want := range []string{
 		"freezeForSelfUpdate",
 		"persistenceFrozen=true",
-		"if(restoring||persistenceFrozen)return",
 		"resumeAfterSelfUpdate",
-		"if(restoring||persistenceFrozen)return;",
 	} {
 		if !strings.Contains(restoreJS, want) {
 			t.Fatalf("terminalrestore.js missing %q", want)
@@ -81,16 +85,16 @@ func TestSelfUpdateUIFreezesTerminalPersistenceBeforeConfirm(t *testing.T) {
 		t.Fatal(err)
 	}
 	updateJS := string(updateData)
-	freezeAt := strings.Index(updateJS, "freezeForSelfUpdate")
-	confirmAt := strings.Index(updateJS, "postAction('confirm'")
-	if freezeAt < 0 || confirmAt < 0 || freezeAt > confirmAt {
-		t.Fatalf("self-update must freeze terminal persistence before confirm: freeze=%d confirm=%d", freezeAt, confirmAt)
+	if strings.Contains(updateJS, ".freezeForSelfUpdate(") {
+		t.Fatal("self-update UI must not freeze terminal persistence during candidate validation")
+	}
+	if !strings.Contains(updateJS, "persistSnapshot") {
+		t.Fatal("self-update UI must persist a recovery snapshot before starting")
 	}
 	if !strings.Contains(updateJS, "resumeAfterSelfUpdate") {
-		t.Fatal("self-update must resume terminal persistence after failure/cancel")
+		t.Fatal("self-update UI must remain compatible with older pages that may already be frozen")
 	}
 }
-
 
 func TestSelfUpdateGuardProtectsRequestedMobileProfileWithoutTouchingDesktop(t *testing.T) {
 	workspace := t.TempDir()

@@ -11,6 +11,8 @@ const style=document.createElement('style');
 style.textContent=`
 .self-update-overlay{position:fixed;inset:0;z-index:4000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.58);padding:20px}
 .self-update-overlay.visible{display:flex}
+.self-update-overlay.nonblocking{inset:auto 16px 16px auto;display:block;background:transparent;padding:0;pointer-events:none}
+.self-update-overlay.nonblocking .self-update-dialog{width:min(560px,calc(100vw - 32px));pointer-events:auto}
 .self-update-dialog{width:min(560px,96vw);background:#171a20;border:1px solid #48515f;border-radius:10px;box-shadow:0 18px 55px rgba(0,0,0,.5);padding:18px}
 .self-update-dialog h3{margin:0 0 8px;font-size:16px}.self-update-dialog p{margin:7px 0;line-height:1.45}.self-update-revision{font-family:ui-monospace,monospace;font-size:12px;opacity:.75;word-break:break-all}.self-update-status{margin-top:12px;padding:9px 10px;border-radius:6px;background:#0d1117;border:1px solid #30343b;font-size:12px;white-space:pre-wrap}.self-update-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.self-update-confirm{background:#24472f;border-color:#3b7850}.self-update-cancel{background:#3b2528;border-color:#684047}.self-update-error{color:#ff8994}
 html[data-taskmenu-theme="light"] .self-update-dialog{background:#fff;border-color:#b9c0c8}html[data-taskmenu-theme="light"] .self-update-status{background:#f5f6f8;border-color:#c8ced6}
@@ -25,8 +27,9 @@ const revision=document.createElement('div');revision.className='self-update-rev
 const status=document.createElement('div');status.className='self-update-status';
 const actions=document.createElement('div');actions.className='self-update-actions';
 const cancel=document.createElement('button');cancel.className='self-update-cancel';cancel.textContent='Cancel';
+const dismiss=document.createElement('button');dismiss.textContent='Close';dismiss.style.display='none';
 const confirm=document.createElement('button');confirm.className='self-update-confirm';confirm.textContent='Update now';
-actions.append(cancel,confirm);dialog.append(title,intro,revision,status,actions);overlay.append(dialog);document.body.append(overlay);
+actions.append(cancel,dismiss,confirm);dialog.append(title,intro,revision,status,actions);overlay.append(dialog);document.body.append(overlay);
 
 const checkUpdate=document.createElement('button');
 checkUpdate.id='self-update-check';
@@ -76,22 +79,28 @@ function statusText(req){
 
 function show(req){
   currentID=req.id||'';overlay.classList.add('visible');
-  revision.textContent=req.revision?'Revision: '+req.revision:'';
-  status.classList.toggle('self-update-error',req.status==='failed');
-  status.textContent=statusText(req);
   const waiting=req.status==='awaiting_confirmation';
-  actions.style.display=waiting?'flex':'none';
+  const failed=req.status==='failed';
+  overlay.classList.toggle('nonblocking',failed);
+  revision.textContent=req.revision?'Revision: '+req.revision:'';
+  status.classList.toggle('self-update-error',failed);
+  status.textContent=statusText(req);
+  cancel.style.display=waiting?'':'none';
+  confirm.style.display=waiting?'':'none';
+  dismiss.style.display=failed?'':'none';
+  actions.style.display=(waiting||failed)?'flex':'none';
   intro.textContent=waiting
-    ?'A new VS Code Tasks Menu version is available. Terminal tabs, order, CWD, and split layout will be saved before updating. The daemon will try to keep the same URL and port; running task processes cannot be reattached after the daemon is replaced.'
-    :'Updating. This page will reconnect automatically when the new daemon is ready.';
+    ?'A new VS Code Tasks Menu version is available. The candidate will be downloaded, tested and built before the running release is changed.'
+    :failed
+      ?'Candidate validation or activation failed. The current TaskDeck remains usable; close this notice and continue working.'
+      :'Validating the candidate before activation. This page will reconnect automatically only after the new release is ready.';
 }
-function hide(){overlay.classList.remove('visible');currentID='';}
+function hide(){overlay.classList.remove('visible','nonblocking');currentID='';}
 
 async function checkAndStartUpdate(){
   if(startingFromSettings)return;
   checkUpdate.disabled=true;
   checkUpdate.textContent='Checking…';
-  let frozen=false;
   try{
     const result=await app.jsonFetch(endpoint+'&action=check');
     if(!result?.available){
@@ -100,9 +109,7 @@ async function checkAndStartUpdate(){
       return;
     }
 
-    const restore=terminalRestore();
-    if(restore?.freezeForSelfUpdate){await restore.freezeForSelfUpdate();frozen=true;}
-    else await restore?.persistSnapshot?.();
+    await terminalRestore()?.persistSnapshot?.();
 
     startingFromSettings=true;
     settingsStartDeadline=Date.now()+10000;
@@ -117,7 +124,6 @@ async function checkAndStartUpdate(){
   }catch(e){
     startingFromSettings=false;
     settingsStartDeadline=0;
-    if(frozen)resumeTerminalPersistence();
     resetCheckUpdateButton();
     hide();
     app.showError(e);
@@ -133,14 +139,10 @@ async function postAction(action,id){
 confirm.onclick=async()=>{
   if(!currentID)return;
   confirm.disabled=true;cancel.disabled=true;
-  let frozen=false;
   try{
-    const restore=terminalRestore();
-    if(restore?.freezeForSelfUpdate){await restore.freezeForSelfUpdate();frozen=true;}
-    else await restore?.persistSnapshot?.();
+    await terminalRestore()?.persistSnapshot?.();
     const req=await postAction('confirm',currentID);show(req);
   }catch(e){
-    if(frozen)resumeTerminalPersistence();
     app.showError(e);confirm.disabled=false;cancel.disabled=false;
   }
 };
@@ -148,6 +150,18 @@ cancel.onclick=async()=>{
   if(!currentID)return;
   cancel.disabled=true;confirm.disabled=true;
   try{await postAction('cancel',currentID);resumeTerminalPersistence();hide();}catch(e){app.showError(e);cancel.disabled=false;confirm.disabled=false;}
+};
+dismiss.onclick=async()=>{
+  const id=currentID;
+  if(!id){hide();return;}
+  dismiss.disabled=true;
+  try{
+    await postAction('ack',id);
+    startingFromSettings=false;settingsStartDeadline=0;
+    resumeTerminalPersistence();resetCheckUpdateButton();hide();
+  }catch(e){
+    app.showError(e);dismiss.disabled=false;
+  }
 };
 
 function isLoopbackHostname(hostname){
@@ -211,7 +225,7 @@ async function poll(){
     }
     if(req.status==='cancelled'){startingFromSettings=false;settingsStartDeadline=0;resumeTerminalPersistence();resetCheckUpdateButton();if(req.id===currentID)hide();return;}
     if(req.status==='completed'){show(req);redirectAfterUpdate(req);return;}
-    if(req.status==='failed'){startingFromSettings=false;settingsStartDeadline=0;resumeTerminalPersistence();resetCheckUpdateButton();show(req);actions.style.display='none';return;}
+    if(req.status==='failed'){startingFromSettings=false;settingsStartDeadline=0;resumeTerminalPersistence();resetCheckUpdateButton();show(req);return;}
     show(req);
   }catch(e){
     if(currentID){overlay.classList.add('visible');status.textContent='Waiting for the new daemon to start…';actions.style.display='none';}

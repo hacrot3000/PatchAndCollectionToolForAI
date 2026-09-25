@@ -32,6 +32,28 @@ func TestSelfUpdateAckRemovesCompletedRequest(t *testing.T) {
 	}
 }
 
+func TestSelfUpdateAckRemovesFailedRequest(t *testing.T) {
+	workspace := t.TempDir()
+	req, err := updater.CreateRequest(workspace, "0123456789abcdef", "http://127.0.0.1:1234", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := updater.Update(workspace, req.ID, "failed", "validation failed", "", "test failure"); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &Server{Workspace: workspace}
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/state/tasks?scope=self-update&action=ack", strings.NewReader(`{"id":"`+req.ID+`"}`))
+	rr := httptest.NewRecorder()
+	s.selfUpdateState(rr, httpReq)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("ack failed status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if _, err := os.Stat(updater.RequestPath(workspace)); !os.IsNotExist(err) {
+		t.Fatalf("failed request still exists after ack: %v", err)
+	}
+}
+
 func TestSelfUpdateAckRejectsIncompleteRequest(t *testing.T) {
 	workspace := t.TempDir()
 	req, err := updater.CreateRequest(workspace, "0123456789abcdef", "http://127.0.0.1:1234", true)

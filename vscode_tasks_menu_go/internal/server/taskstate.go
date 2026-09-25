@@ -169,7 +169,7 @@ func terminalStateProtectedBySelfUpdate(workspace string) bool {
 		return false
 	}
 	switch req.Status {
-	case "confirmed", "downloading", "testing", "building", "installing", "ready_restart", "restarting":
+	case "ready_restart", "restarting":
 	default:
 		return false
 	}
