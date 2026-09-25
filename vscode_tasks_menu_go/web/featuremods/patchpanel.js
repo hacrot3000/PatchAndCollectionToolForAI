@@ -2840,7 +2840,7 @@ function installPatchPanel(){
       cancel.onclick=()=>submitPromptResponse(sessionId,prompt,'cancel').catch(app.showError);
       promptButtons.append(cancel);
     }
-    renderQueueRows();
+    if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);else renderQueueRows();
     refreshActionDisabledState();
     return true;
   }
