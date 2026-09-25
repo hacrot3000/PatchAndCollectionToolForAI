@@ -273,3 +273,67 @@ func TestResolveCustomTLSPathsAreRelativeToWorkspace(t *testing.T) {
 		t.Fatalf("relative custom TLS paths not workspace-relative: %#v", result)
 	}
 }
+
+
+func TestResolveForSelfUpdatePreservesExistingCertificateIdentity(t *testing.T) {
+	t.Setenv("VSCODE_TASKS_MENU_CONFIG_DIR", t.TempDir())
+	workspace := t.TempDir()
+	cfg := config.Default()
+
+	first, err := Resolve(workspace, cfg)
+	if err != nil { t.Fatal(err) }
+	before, err := os.ReadFile(first.CertPath)
+	if err != nil { t.Fatal(err) }
+
+	changed := cfg
+	changed.AdvertiseHost = "new-host.example.test"
+	handoff, err := ResolveForSelfUpdate(workspace, changed)
+	if err != nil { t.Fatal(err) }
+	if handoff.Created {
+		t.Fatal("self-update handoff must not rotate a still-valid auto certificate")
+	}
+	duringUpdate, err := os.ReadFile(handoff.CertPath)
+	if err != nil { t.Fatal(err) }
+	if sha256.Sum256(before) != sha256.Sum256(duringUpdate) {
+		t.Fatal("self-update changed TLS certificate identity")
+	}
+
+	normal, err := Resolve(workspace, changed)
+	if err != nil { t.Fatal(err) }
+	if !normal.Created {
+		t.Fatal("normal startup should rotate when a configured stable SAN was added")
+	}
+	afterNormal, err := os.ReadFile(normal.CertPath)
+	if err != nil { t.Fatal(err) }
+	if sha256.Sum256(before) == sha256.Sum256(afterNormal) {
+		t.Fatal("normal SAN-changing startup did not rotate certificate")
+	}
+}
+
+func TestRequiredSANsExcludeWildcardInterfaceInventory(t *testing.T) {
+	cfg := config.Default()
+	cfg.Bind = "0.0.0.0"
+	cfg.AdvertiseHost = "stable.example.test"
+	requiredDNS, requiredIPs := requiredSANs(cfg)
+	if !containsString(requiredDNS, "localhost") || !containsString(requiredDNS, "stable.example.test") {
+		t.Fatalf("stable required DNS SANs missing: %v", requiredDNS)
+	}
+	for _, want := range []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")} {
+		found := false
+		for _, got := range requiredIPs {
+			if got.Equal(want) { found = true; break }
+		}
+		if !found { t.Fatalf("required loopback SAN missing %s in %v", want, requiredIPs) }
+	}
+	desiredDNS, desiredIPs := desiredSANs(cfg)
+	if len(desiredDNS) < len(requiredDNS) || len(desiredIPs) < len(requiredIPs) {
+		t.Fatalf("generated SAN inventory must include stable required SANs: required=%v/%v desired=%v/%v", requiredDNS, requiredIPs, desiredDNS, desiredIPs)
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want { return true }
+	}
+	return false
+}

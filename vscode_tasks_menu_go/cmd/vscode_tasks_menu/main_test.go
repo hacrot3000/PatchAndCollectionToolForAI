@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"net"
 	"os"
 	"path/filepath"
@@ -638,5 +639,35 @@ func TestServeForegroundUsesPatchProtocolCompatibilityService(t *testing.T) {
 	}
 	if strings.Contains(src, "Sessions: brokerClient}") {
 		t.Fatal("HTTP server must not bypass the Patch protocol compatibility service")
+	}
+}
+
+
+func TestSelfUpdateTLSResolvePreservesServingCertificateIdentity(t *testing.T) {
+	t.Setenv("VSCODE_TASKS_MENU_CONFIG_DIR", t.TempDir())
+	workspace := t.TempDir()
+	cfg := config.Default()
+
+	first, err := resolveTLSForServe(workspace, cfg, "")
+	if err != nil { t.Fatal(err) }
+	before, err := os.ReadFile(first.CertPath)
+	if err != nil { t.Fatal(err) }
+
+	changed := cfg
+	changed.AdvertiseHost = "handoff-new-san.example.test"
+	reused, err := resolveTLSForServe(workspace, changed, "update-123")
+	if err != nil { t.Fatal(err) }
+	during, err := os.ReadFile(reused.CertPath)
+	if err != nil { t.Fatal(err) }
+	if reused.Created || sha256.Sum256(before) != sha256.Sum256(during) {
+		t.Fatal("self-update serve path must preserve the currently serving auto TLS identity")
+	}
+
+	rotated, err := resolveTLSForServe(workspace, changed, "")
+	if err != nil { t.Fatal(err) }
+	after, err := os.ReadFile(rotated.CertPath)
+	if err != nil { t.Fatal(err) }
+	if !rotated.Created || sha256.Sum256(before) == sha256.Sum256(after) {
+		t.Fatal("normal serve path must still apply explicit stable SAN changes")
 	}
 }

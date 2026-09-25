@@ -70,6 +70,26 @@ func Resolve(workspace string, cfg config.Config) (Result, error) {
 	return ensureAuto(workspace, cfg)
 }
 
+func ResolveForSelfUpdate(workspace string, cfg config.Config) (Result, error) {
+	if !cfg.TLS() || cfg.CustomTLS() {
+		return Resolve(workspace, cfg)
+	}
+	certPath, keyPath, err := AutoPaths(workspace)
+	if err != nil {
+		return Result{}, err
+	}
+	if reusableExistingAutoPair(certPath, keyPath, time.Now()) {
+		if err := os.Chmod(certPath, 0o600); err != nil {
+			return Result{}, fmt.Errorf("protect self-signed certificate: %w", err)
+		}
+		if err := os.Chmod(keyPath, 0o600); err != nil {
+			return Result{}, fmt.Errorf("protect self-signed private key: %w", err)
+		}
+		return Result{CertPath: certPath, KeyPath: keyPath, Auto: true}, nil
+	}
+	return ensureAuto(workspace, cfg)
+}
+
 func resolveConfiguredPath(workspace, value string) string {
 	value = strings.TrimSpace(value)
 	if filepath.IsAbs(value) {
@@ -119,8 +139,9 @@ func ensureAuto(workspace string, cfg config.Config) (Result, error) {
 	certPath := filepath.Join(dir, autoCertFile)
 	keyPath := filepath.Join(dir, autoKeyFile)
 	dnsNames, ipAddresses := desiredSANs(cfg)
+	requiredDNSNames, requiredIPAddresses := requiredSANs(cfg)
 
-	if reusableAutoPair(certPath, keyPath, dnsNames, ipAddresses, time.Now()) {
+	if reusableAutoPair(certPath, keyPath, requiredDNSNames, requiredIPAddresses, time.Now()) {
 		if err := os.Chmod(certPath, 0o600); err != nil {
 			return Result{}, fmt.Errorf("protect self-signed certificate: %w", err)
 		}
@@ -148,7 +169,15 @@ func ensureAuto(workspace string, cfg config.Config) (Result, error) {
 	return Result{CertPath: certPath, KeyPath: keyPath, Auto: true, Created: true}, nil
 }
 
+func requiredSANs(cfg config.Config) ([]string, []net.IP) {
+	return collectSANs(cfg, false)
+}
+
 func desiredSANs(cfg config.Config) ([]string, []net.IP) {
+	return collectSANs(cfg, true)
+}
+
+func collectSANs(cfg config.Config, includeInterfaceAddrs bool) ([]string, []net.IP) {
 	dnsSet := map[string]bool{"localhost": true}
 	ipSet := map[string]net.IP{
 		net.ParseIP("127.0.0.1").String(): net.ParseIP("127.0.0.1"),
@@ -170,7 +199,7 @@ func desiredSANs(cfg config.Config) ([]string, []net.IP) {
 	if host, err := os.Hostname(); err == nil {
 		addHost(host)
 	}
-	if cfg.Bind == "0.0.0.0" || cfg.Bind == "::" || cfg.Bind == "[::]" {
+	if includeInterfaceAddrs && (cfg.Bind == "0.0.0.0" || cfg.Bind == "::" || cfg.Bind == "[::]") {
 		if addrs, err := net.InterfaceAddrs(); err == nil {
 			for _, addr := range addrs {
 				var raw string
@@ -205,6 +234,18 @@ func desiredSANs(cfg config.Config) ([]string, []net.IP) {
 		ips = append(ips, ipSet[key])
 	}
 	return dnsNames, ips
+}
+
+func reusableExistingAutoPair(certPath, keyPath string, now time.Time) bool {
+	pair, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil || len(pair.Certificate) == 0 {
+		return false
+	}
+	cert, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil {
+		return false
+	}
+	return !now.Before(cert.NotBefore) && cert.NotAfter.After(now)
 }
 
 func reusableAutoPair(certPath, keyPath string, dnsNames []string, ips []net.IP, now time.Time) bool {

@@ -406,6 +406,13 @@ func resolveWorkspace(value string) (string, error) {
 	return abs, nil
 }
 
+func resolveTLSForServe(workspace string, cfg config.Config, updateID string) (tlscert.Result, error) {
+	if strings.TrimSpace(updateID) != "" {
+		return tlscert.ResolveForSelfUpdate(workspace, cfg)
+	}
+	return tlscert.Resolve(workspace, cfg)
+}
+
 func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int, listenAddr, updateID string) error {
 	activeWorkspaceForUpdateCheck = ws
 	defer func() { activeWorkspaceForUpdateCheck = "" }()
@@ -418,7 +425,7 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	}
 	defer daemonLock.Close()
 
-	tlsResult, err := tlscert.Resolve(ws, cfg)
+	tlsResult, err := resolveTLSForServe(ws, cfg, updateID)
 	if err != nil {
 		return err
 	}
