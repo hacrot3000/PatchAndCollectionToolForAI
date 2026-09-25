@@ -1189,7 +1189,9 @@ function installPatchPanel(){
       ].filter(Boolean).join(' · ');
       for(const candidate of candidates){
         const row=document.createElement('div');row.className='task-patch-history-cleanup-candidate';
-        const name=document.createElement('span');name.className='task-patch-history-cleanup-candidate-name';name.textContent=String(candidate?.primary_name||candidate?.run_id||'');
+        const candidateNames=Array.isArray(candidate?.search_names)&&candidate.search_names.length?candidate.search_names:[candidate?.primary_name||candidate?.run_id||''];
+        const name=document.createElement('span');name.className='task-patch-history-cleanup-candidate-name';name.textContent=candidateNames.map(value=>String(value||'')).filter(Boolean).join(', ');
+        name.title=name.textContent;
         const meta=document.createElement('span');meta.className='task-patch-history-cleanup-candidate-meta';
         meta.textContent=[candidate?.display_time,candidate?.status,candidate?.item_count===undefined?'':String(candidate.item_count)+' item(s)'].filter(Boolean).join(' · ');
         row.append(name,meta);historyCleanupCandidates.append(row);
