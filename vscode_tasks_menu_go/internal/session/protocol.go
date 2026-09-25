@@ -108,18 +108,34 @@ type ProtocolHistorySupportResultState struct {
 	Artifact  *ProtocolHistorySupportArtifact `json:"artifact,omitempty"`
 }
 
+type ProtocolHistoryCleanupCandidateState struct {
+	RunID       string `json:"run_id"`
+	Status      string `json:"status"`
+	StartedAt   string `json:"started_at,omitempty"`
+	DisplayTime string `json:"display_time,omitempty"`
+	PrimaryName string `json:"primary_name"`
+	ItemCount   int    `json:"item_count"`
+}
+
 type ProtocolHistoryCleanupResultState struct {
-	PromptID       string `json:"prompt_id"`
-	CleanupID      string `json:"cleanup_id"`
-	Status         string `json:"status"`
-	RC             int    `json:"rc"`
-	HistoryChanged bool   `json:"history_changed,omitempty"`
-	Removed        int    `json:"removed"`
-	Pinned         int    `json:"pinned"`
-	Remaining      int    `json:"remaining"`
-	Policy         string `json:"policy"`
-	EligibleBefore int    `json:"eligible_before"`
-	Message        string `json:"message,omitempty"`
+	PromptID            string                                 `json:"prompt_id"`
+	CleanupID           string                                 `json:"cleanup_id"`
+	PreviewCleanupID    string                                 `json:"preview_cleanup_id,omitempty"`
+	Mode                string                                 `json:"mode,omitempty"`
+	Status              string                                 `json:"status"`
+	RC                  int                                    `json:"rc"`
+	HistoryChanged      bool                                   `json:"history_changed,omitempty"`
+	Removed             int                                    `json:"removed"`
+	Pinned              int                                    `json:"pinned"`
+	Remaining           int                                    `json:"remaining"`
+	Policy              string                                 `json:"policy"`
+	EligibleBefore      int                                    `json:"eligible_before"`
+	OlderThanDays       int                                    `json:"older_than_days,omitempty"`
+	CutoffAt            string                                 `json:"cutoff_at,omitempty"`
+	CandidateDigest     string                                 `json:"candidate_digest,omitempty"`
+	Candidates          []ProtocolHistoryCleanupCandidateState `json:"candidates,omitempty"`
+	CandidatesTruncated bool                                   `json:"candidates_truncated,omitempty"`
+	Message             string                                 `json:"message,omitempty"`
 }
 
 type ProtocolQueueMutationResultState struct {
@@ -734,18 +750,25 @@ func protocolActionResultEvent(data []byte) (ProtocolActionResultState, error) {
 }
 func protocolHistoryCleanupResultEvent(data []byte) (ProtocolHistoryCleanupResultState, error) {
 	var event struct {
-		Type           string `json:"type"`
-		PromptID       string `json:"prompt_id"`
-		CleanupID      string `json:"cleanup_id"`
-		Status         string `json:"status"`
-		RC             int    `json:"rc"`
-		HistoryChanged bool   `json:"history_changed"`
-		Removed        int    `json:"removed"`
-		Pinned         int    `json:"pinned"`
-		Remaining      int    `json:"remaining"`
-		Policy         string `json:"policy"`
-		EligibleBefore int    `json:"eligible_before"`
-		Message        string `json:"message"`
+		Type                string                                 `json:"type"`
+		PromptID            string                                 `json:"prompt_id"`
+		CleanupID           string                                 `json:"cleanup_id"`
+		PreviewCleanupID    string                                 `json:"preview_cleanup_id"`
+		Mode                string                                 `json:"mode"`
+		Status              string                                 `json:"status"`
+		RC                  int                                    `json:"rc"`
+		HistoryChanged      bool                                   `json:"history_changed"`
+		Removed             int                                    `json:"removed"`
+		Pinned              int                                    `json:"pinned"`
+		Remaining           int                                    `json:"remaining"`
+		Policy              string                                 `json:"policy"`
+		EligibleBefore      int                                    `json:"eligible_before"`
+		OlderThanDays       int                                    `json:"older_than_days"`
+		CutoffAt            string                                 `json:"cutoff_at"`
+		CandidateDigest     string                                 `json:"candidate_digest"`
+		Candidates          []ProtocolHistoryCleanupCandidateState `json:"candidates"`
+		CandidatesTruncated bool                                   `json:"candidates_truncated"`
+		Message             string                                 `json:"message"`
 	}
 	if err := json.Unmarshal(data, &event); err != nil {
 		return ProtocolHistoryCleanupResultState{}, fmt.Errorf("invalid Patch history_cleanup_result JSON: %w", err)
@@ -755,8 +778,12 @@ func protocolHistoryCleanupResultEvent(data []byte) (ProtocolHistoryCleanupResul
 	}
 	event.PromptID = strings.TrimSpace(event.PromptID)
 	event.CleanupID = strings.TrimSpace(event.CleanupID)
+	event.PreviewCleanupID = strings.TrimSpace(event.PreviewCleanupID)
+	event.Mode = strings.ToLower(strings.TrimSpace(event.Mode))
 	event.Status = strings.ToUpper(strings.TrimSpace(event.Status))
 	event.Policy = strings.TrimSpace(event.Policy)
+	event.CutoffAt = strings.TrimSpace(event.CutoffAt)
+	event.CandidateDigest = strings.ToLower(strings.TrimSpace(event.CandidateDigest))
 	event.Message = strings.TrimSpace(event.Message)
 	if event.PromptID == "" || len(event.PromptID) > 256 ||
 		event.CleanupID == "" || len(event.CleanupID) > 128 {
@@ -769,17 +796,68 @@ func protocolHistoryCleanupResultEvent(data []byte) (ProtocolHistoryCleanupResul
 		event.Removed > event.EligibleBefore || event.HistoryChanged != (event.Removed > 0) {
 		return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup counters are inconsistent")
 	}
-	if event.Policy != "remove_unpinned_idle_then_oldest_unpinned_over_limit" {
-		return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup policy is unsupported")
-	}
 	if len([]byte(event.Message)) > 4096 || strings.ContainsRune(event.Message, '\x00') {
 		return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup message is invalid")
 	}
+
+	switch event.Policy {
+	case "remove_unpinned_idle_then_oldest_unpinned_over_limit":
+		if event.Mode == "" {
+			event.Mode = "retention"
+		}
+		if event.Mode != "retention" || event.OlderThanDays != 0 || event.CutoffAt != "" ||
+			event.CandidateDigest != "" || event.PreviewCleanupID != "" || len(event.Candidates) != 0 {
+			return ProtocolHistoryCleanupResultState{}, fmt.Errorf("legacy Patch History cleanup payload is inconsistent")
+		}
+	case "remove_unpinned_older_than_days":
+		if event.Mode != "preview" && event.Mode != "delete" {
+			return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History age cleanup mode is invalid")
+		}
+		if event.OlderThanDays < 1 || event.OlderThanDays > 3650 ||
+			event.CutoffAt == "" || len(event.CutoffAt) > 128 || strings.ContainsRune(event.CutoffAt, '\x00') ||
+			len(event.CandidateDigest) != 64 || strings.Trim(event.CandidateDigest, "0123456789abcdef") != "" {
+			return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History age cleanup binding is invalid")
+		}
+		if len(event.Candidates) > 200 {
+			return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup candidate list is out of bounds")
+		}
+		for i := range event.Candidates {
+			row := &event.Candidates[i]
+			row.RunID = strings.TrimSpace(row.RunID)
+			row.Status = strings.ToUpper(strings.TrimSpace(row.Status))
+			row.StartedAt = strings.TrimSpace(row.StartedAt)
+			row.DisplayTime = strings.TrimSpace(row.DisplayTime)
+			row.PrimaryName = strings.TrimSpace(row.PrimaryName)
+			if row.RunID == "" || len(row.RunID) > 128 ||
+				row.PrimaryName == "" || len(row.PrimaryName) > 256 ||
+				len(row.Status) > 64 || len(row.StartedAt) > 128 ||
+				len(row.DisplayTime) > 64 || row.ItemCount < 0 {
+				return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup candidate is invalid")
+			}
+		}
+		if event.Mode == "preview" {
+			if event.HistoryChanged || event.Removed != 0 || event.PreviewCleanupID != "" ||
+				len(event.Candidates) > event.EligibleBefore ||
+				(!event.CandidatesTruncated && len(event.Candidates) != event.EligibleBefore) {
+				return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup preview is inconsistent")
+			}
+		} else {
+			if event.PreviewCleanupID == "" || len(event.PreviewCleanupID) > 128 || len(event.Candidates) != 0 || event.CandidatesTruncated {
+				return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup delete binding is invalid")
+			}
+		}
+	default:
+		return ProtocolHistoryCleanupResultState{}, fmt.Errorf("Patch History cleanup policy is unsupported")
+	}
+
 	return ProtocolHistoryCleanupResultState{
-		PromptID: event.PromptID, CleanupID: event.CleanupID,
-		Status: event.Status, RC: event.RC, HistoryChanged: event.HistoryChanged,
+		PromptID: event.PromptID, CleanupID: event.CleanupID, PreviewCleanupID: event.PreviewCleanupID,
+		Mode: event.Mode, Status: event.Status, RC: event.RC, HistoryChanged: event.HistoryChanged,
 		Removed: event.Removed, Pinned: event.Pinned, Remaining: event.Remaining,
-		Policy: event.Policy, EligibleBefore: event.EligibleBefore, Message: event.Message,
+		Policy: event.Policy, EligibleBefore: event.EligibleBefore, OlderThanDays: event.OlderThanDays,
+		CutoffAt: event.CutoffAt, CandidateDigest: event.CandidateDigest,
+		Candidates: event.Candidates, CandidatesTruncated: event.CandidatesTruncated,
+		Message: event.Message,
 	}, nil
 }
 
@@ -1276,6 +1354,7 @@ func cloneProtocolState(in ProtocolState) ProtocolState {
 	}
 	if in.HistoryCleanup != nil {
 		historyCleanup := *in.HistoryCleanup
+		historyCleanup.Candidates = append([]ProtocolHistoryCleanupCandidateState(nil), in.HistoryCleanup.Candidates...)
 		out.HistoryCleanup = &historyCleanup
 	}
 	return out
