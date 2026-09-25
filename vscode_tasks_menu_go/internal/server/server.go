@@ -153,6 +153,7 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			Env       map[string]string `json:"env,omitempty"`
 			Cwd       string            `json:"cwd,omitempty"`
 			PatchMode string            `json:"patch_mode,omitempty"`
+			PatchUI   string            `json:"patch_ui,omitempty"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -180,7 +181,7 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusCreated, meta)
 			return
 		case "patch":
-			spec, err := patchToolExecution(s.Workspace, req.PatchMode)
+			spec, err := patchToolExecutionForUI(s.Workspace, req.PatchMode, req.PatchUI)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
@@ -257,6 +258,18 @@ func patchModeArguments(mode string) ([]string, string, error) {
 }
 
 func patchToolExecution(workspace, mode string) (tasks.Execution, error) {
+	return patchToolExecutionForUI(workspace, mode, "native")
+}
+
+func patchToolExecutionForUI(workspace, mode, uiMode string) (tasks.Execution, error) {
+	uiMode = strings.ToLower(strings.TrimSpace(uiMode))
+	if uiMode == "" {
+		uiMode = "native"
+	}
+	if uiMode != "native" && uiMode != "terminal" {
+		return tasks.Execution{}, fmt.Errorf("unknown Patch Tool UI mode %q", uiMode)
+	}
+
 	exe, err := os.Executable()
 	if err != nil {
 		return tasks.Execution{}, fmt.Errorf("resolve TaskDeck executable: %w", err)
@@ -288,6 +301,9 @@ func patchToolExecution(workspace, mode string) (tasks.Execution, error) {
 	}, workspace)
 	if err != nil {
 		return tasks.Execution{}, err
+	}
+	if uiMode == "terminal" {
+		return spec, nil
 	}
 	spec.ProtocolEvents = true
 	spec.ProtocolCommands = !strings.EqualFold(strings.TrimSpace(mode), "health")
