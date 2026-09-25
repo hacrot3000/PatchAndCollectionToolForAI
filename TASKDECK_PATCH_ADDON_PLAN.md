@@ -516,10 +516,11 @@ Every phase must preserve:
 | Phase 2E.2 UX correction: paired artifacts render as one visual row | FIXED, NEEDS INSTALLED SMOKE | 41e2eb39 / 9c91cc84 / 2377149e | Previous grouping still produced one nested TXT row plus one nested ZIP row. Live Artifacts and History now pair exact stems and render one row with combined path plus separate TXT/ZIP Download/Copy actions and a single Open TXT action. CI 36104471672 PASS Go 1.19/1.23. |
 | Phase 2E.2 UX correction: History Terminal real browser | FIXED, NEEDS INSTALLED SMOKE | 3f25556a / 1134bdb2 / e934b3cd | Native History remains structured `report`; explicit History Terminal now starts a separate legacy session using bounded Python `history` command → `_history_browser()`, rather than materializing the native History PTY. CI 36105569250 PASS Go 1.19/1.23. |
 | Phase 2E.2 UX correction: Active runs live-session pruning | FIXED, NEEDS INSTALLED SMOKE | 27cfd572 | Active runs now revalidates TaskDeck session metadata and keeps only `status=running`; foreground runs already finished are not re-added after Back to Queue; background exited/stopped sessions are pruned; safe Remove from Active refuses live sessions; total active+new parallel COLLECT workers cannot exceed advertised max. CI 36107744970 PASS Go 1.19/1.23. |
+| Phase 2E.2 UX correction: foreground run visual priority | FIXED, NEEDS INSTALLED SMOKE | 96faca77 | Foreground Current run / Latest completed status and artifacts render before Other active runs; background renderer no longer hides foreground UI; Other active runs sorted newest-first. CI 36108438961 PASS Go 1.19/1.23. |
 
 ## Next action
 
 Phase 2A–2D and the automated Phase 2E.1 product gate are implemented. **Do not close Phase 2 yet.**
-Next is Phase 2E.2 installed-runtime browser smoke after TaskDeck self-update to **`27cfd572` or a later descendant**: verify the actual UI
+Next is Phase 2E.2 installed-runtime browser smoke after TaskDeck self-update to **`96faca77` or a later descendant**: verify the actual UI
 does not create a terminal tab for Queue/Resume/History/Plan/Health, while explicit terminal
 evidence still materializes one. Only after that passes may Phase 2F closeout be marked DONE.

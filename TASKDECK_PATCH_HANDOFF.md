@@ -458,6 +458,39 @@ Checkpoint:
 Verification: GitHub Actions run `36107744970` PASS on Go 1.19 and Go 1.23, including
 JavaScript syntax, staged self-update tests, full tests, vet and build.
 
+## Phase 2E.2 UX correction: foreground run is visually first
+
+Installed smoke showed the foreground run/result was rendered below background Active runs, and the
+Active-run renderer could even hide the foreground run/artifact boxes while background sessions
+existed. This made a newly started or very fast completed COLLECT hard to identify.
+
+The native running hierarchy is now:
+
+1. **Current run · <item>** while the foreground job is running.
+2. Foreground **Current run status**.
+3. Foreground **Current run artifacts**.
+4. **Other active runs** (background workers), newest first.
+
+When the foreground session finishes, the top heading changes to:
+
+**Latest completed · <item>**
+
+and its final status/result artifacts remain directly underneath. Background sessions no longer
+hide or rename the foreground section.
+
+Additional behavior:
+- Other active runs are sorted by `startedAt` descending, so the newest background COLLECT is first.
+- Foreground current/latest section has a stronger visual border; completed state uses a distinct
+  finished border.
+- Active-run rendering is secondary only; it must never set `runBox.hidden=true`,
+  `artifactBox.hidden=true`, or replace the foreground heading.
+
+Checkpoint:
+- `96faca77` — foreground/current/latest result first, background Active runs secondary/newest-first.
+
+Verification: GitHub Actions run `36108438961` PASS on Go 1.19 and Go 1.23, including
+JavaScript syntax, staged self-update tests, full tests, vet and build.
+
 ## Non-regression invariants
 
 - Python remains authoritative for Patch Tool policy/business logic.
@@ -472,6 +505,8 @@ JavaScript syntax, staged self-update tests, full tests, vet and build.
 - **Back to Queue / Add more** must never stop an active execution session; only a waiting Queue selector may be replaced by Refresh Queue.
 - While active executions exist, Queue add-mode must not permit launching another PATCH or re-running/deleting an already-running item.
 - Active runs must contain only TaskDeck sessions whose metadata status is `running`; completed/stopped sessions must be pruned rather than retained as UI history.
+- Foreground current/latest run must render before Other active runs; background rendering must never hide the foreground status or artifacts.
+- Other active runs must be ordered newest-first.
 - Manual removal from Active runs must fail closed while backend metadata still reports `running`.
 - Native parallel COLLECT state/results must come from typed protocol events, never console-text parsing.
 - In **Terminal (legacy)** mode, materializing a normal terminal tab is intentional and required; that session must not opt into native FD3/FD4/Python routes.
