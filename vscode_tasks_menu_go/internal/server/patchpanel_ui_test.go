@@ -1567,7 +1567,7 @@ func TestPatchPanelAIPackIsOnDemandCachedAndCopyable(t *testing.T) {
 		}
 	}
 	start:=strings.Index(js,"async function prepareAIPack")
-	endRel:=strings.Index(js[start:],"function enterRunningView")
+	endRel:=strings.Index(js[start:],"async function openTerminalEvidenceForSession")
 	if start<0||endRel<0 { t.Fatal("AI Pack function bounds unavailable") }
 	block:=js[start:start+endRel]
 	for _, forbidden:=range []string{
