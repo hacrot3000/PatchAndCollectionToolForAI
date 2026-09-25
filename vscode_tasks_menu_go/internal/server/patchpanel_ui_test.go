@@ -1173,7 +1173,7 @@ func TestPatchAddModeAllowsCollectButLocksPatchAndRunningItems(t *testing.T) {
 		"input.disabled=locked",
 		"already running",
 		"locked while active run exists",
-		"selectAll.dataset.patchLocked=addingWhileRuns?'1':'0'",
+		"selectAll.dataset.patchLocked=(addingWhileRuns||!runnableItems.length)?'1':'0'",
 		"remove.dataset.patchLocked=duplicateRunning?'1':'0'",
 		"activeRunningRunCount()>0",
 	} {
@@ -1355,10 +1355,14 @@ func TestPatchLatestCompletedForegroundIsProminent(t *testing.T) {
 	for _, want:=range []string{
 		"function foregroundRunName(state=foregroundProtocolState)",
 		"function updateForegroundHeading(state=foregroundProtocolState)",
-		"runningTitle.textContent=name?'Latest completed · '+name:'Latest completed'",
+		"function stateHasFailure(state)",
+		"Latest failed · ",
+		"Latest completed · ",
 		"runningTitle.textContent=name?'Current run · '+name:'Current run'",
-		"runningHead.classList.add('finished')",
-		"Result and artifacts below are the latest foreground run.",
+		"runningHead.classList.toggle('finished',!failed)",
+		"runningHead.classList.toggle('failed',failed)",
+		"failed. Failure reason, recent console output, and handoff/artifacts are available below.",
+		"completed successfully. Result and artifacts below are the latest foreground run.",
 		"runTitle.textContent='Current run status'",
 		"artifactTitle.textContent='Current run artifacts'",
 	} {
@@ -1366,21 +1370,24 @@ func TestPatchLatestCompletedForegroundIsProminent(t *testing.T) {
 	}
 }
 
-
 func TestPatchPanelFailedRunShowsCopyableProtocolEvidence(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
 	if err != nil { t.Fatal(err) }
 	js := string(data)
 	for _, want := range []string{
+		"function failureArtifactsForItem(item)",
 		"function failureEvidenceText(item)",
 		"function copyFailureEvidence(item,button)",
 		"item?.failure_reason",
 		"item?.diagnosis_kind",
 		"item?.output_tail",
-		"Copy failure details",
-		"Copy failure reason and recent console output",
+		"Failure handoff / AI artifacts:",
+		"family==='fail_handoff'||family==='ai_sync'",
+		"Copy failure + handoff",
+		"Copy failure reason, recent console output, and published handoff paths",
+		"View handoff / artifacts",
 		"Recent console output",
-		"row.classList.toggle('failed',failed)",
+		"if(lifecycle)row.classList.add(lifecycle)",
 		"task-patch-run-failure-reason",
 	} {
 		if !strings.Contains(js, want) {
@@ -1388,7 +1395,6 @@ func TestPatchPanelFailedRunShowsCopyableProtocolEvidence(t *testing.T) {
 		}
 	}
 }
-
 
 func TestPatchPanelQueueMakesFailedItemsVisuallyProminent(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
@@ -1405,6 +1411,66 @@ func TestPatchPanelQueueMakesFailedItemsVisuallyProminent(t *testing.T) {
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("failed queue emphasis missing %q", want)
+		}
+	}
+}
+
+
+func TestPatchQueueRefreshRemainsAvailableWhenEmpty(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"summaryRefresh.textContent='Refresh Queue'",
+		"Reload PATCH/COLLECT queue, including when it is empty",
+		"async function refreshQueueFromSummary()",
+		"summaryRefresh.onclick=()=>refreshQueueFromSummary().catch(app.showError)",
+		"const runnableItems=items.filter",
+		"No runnable PATCH/COLLECT item is currently available. Refresh Queue to detect newly added work.",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("empty Queue refresh UI missing %q",want)
+		}
+	}
+}
+
+func TestPatchQueueSkippedFilesHaveSafeDeleteUI(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const skippedRows=Array.isArray(latestQueueSnapshot?.skipped)",
+		"task-patch-summary-warning-delete",
+		"const skipped=itemKind==='SKIPPED'||item?.selectable===false",
+		"row.classList.toggle('skipped',skipped)",
+		"input.disabled=locked;input.hidden=skipped",
+		"skipped?'SKIPPED'",
+		"submitQueueDelete(skipped,promptItem)",
+		"if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);else renderQueueRows()",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("SKIPPED Queue delete UI missing %q",want)
+		}
+	}
+}
+
+func TestPatchRunLifecycleUsesDistinctStatusColors(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		".task-patch-run-item.running",
+		".task-patch-run-item.passed",
+		".task-patch-run-item.failed",
+		".task-patch-run-item.warning",
+		"function lifecycleState(value)",
+		"['RUNNING','STARTING'].includes(status)",
+		"['PASS','PASSED','SUCCESS'].includes(status)",
+		"['FAIL','FAILED','PREFLIGHT_FAIL','INCOMPLETE'].includes(status)",
+		"['BLOCKED','NOT_EXECUTED','CANCELLED'].includes(status)",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("Patch lifecycle status styling missing %q",want)
 		}
 	}
 }
