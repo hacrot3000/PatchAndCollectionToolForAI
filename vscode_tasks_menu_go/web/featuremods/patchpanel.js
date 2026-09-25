@@ -28,13 +28,20 @@ function installPatchPanel(){
   .task-patch-summary-search input{min-width:0;flex:1;padding:5px 7px;font-size:11px}
   .task-patch-summary-search button{padding:5px 7px;font-size:10px}
   .task-patch-summary-tab.active{background:#283342;border-color:#526278;color:#fff}
+  .task-patch-summary-tab.has-failures{border-color:#8a414b;color:#ffadb6}
+  .task-patch-summary-tab.has-failures:not(.active){background:#29161a}
+  .task-patch-summary-tab.has-failures.active{background:#4a2027;border-color:#b45a66;color:#fff}
   .task-patch-summary-counts{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 6px}
   .task-patch-summary-count{padding:2px 5px;border:1px solid #343a44;border-radius:999px}
   .task-patch-summary-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:6px}
   .task-patch-summary-item{padding:5px 6px;border-radius:4px;background:#171c23;overflow:hidden}
+  .task-patch-summary-item.failed{border:1px solid #8a414b;background:#32191f;box-shadow:0 0 0 1px rgba(180,90,102,.08) inset}
   .task-patch-summary-name{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+  .task-patch-summary-item.failed .task-patch-summary-name{color:#ffd7dc;font-weight:700}
   .task-patch-summary-detail{display:block;opacity:.62;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .task-patch-summary-item.failed .task-patch-summary-detail{color:#ffadb6;opacity:1}
   .task-patch-summary-failure{display:block;margin-top:3px;opacity:.82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .task-patch-summary-item.failed .task-patch-summary-failure{color:#ffc2c9;opacity:1}
   .task-patch-summary-item-actions{display:flex;gap:4px;margin-top:5px;flex-wrap:wrap}
   .task-patch-summary-item-actions button{font-size:10px;padding:3px 6px}
   .task-patch-queue-delete{border-color:#81424a;background:#3b2025;color:#ffd9dd}
@@ -62,6 +69,9 @@ function installPatchPanel(){
   .task-patch-prompt-tools button{font-size:10px;padding:3px 6px}
   .task-patch-prompt-items{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:6px;max-height:46vh;overflow:auto}
   .task-patch-prompt-item{display:flex;align-items:flex-start;gap:7px;padding:5px 6px;border-radius:4px;background:#171f2a}
+  .task-patch-prompt-item.failed{border:1px solid #8a414b;background:#32191f;box-shadow:0 0 0 1px rgba(180,90,102,.08) inset}
+  .task-patch-prompt-item.failed .task-patch-prompt-name{color:#ffd7dc;font-weight:700}
+  .task-patch-prompt-item.failed .task-patch-prompt-detail{color:#ffadb6;opacity:1}
   .task-patch-prompt-item input{margin-top:2px}
   .task-patch-prompt-copy{min-width:0;flex:1;cursor:pointer}
   .task-patch-prompt-priority{display:flex;align-items:center;gap:4px;font-size:10px;white-space:nowrap}
@@ -273,16 +283,26 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-panel-head{border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-summary{background:#f6f8fa;border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-summary-item{background:#fff}
+  html[data-taskmenu-theme="light"] .task-patch-summary-item.failed{background:#fff1f2;border-color:#c47780}
+  html[data-taskmenu-theme="light"] .task-patch-summary-item.failed .task-patch-summary-name{color:#7b2029}
+  html[data-taskmenu-theme="light"] .task-patch-summary-item.failed .task-patch-summary-detail,
+  html[data-taskmenu-theme="light"] .task-patch-summary-item.failed .task-patch-summary-failure{color:#9d2632}
   html[data-taskmenu-theme="light"] .task-patch-queue-delete{background:#fff0f1;border-color:#c47780;color:#7b2029}
   html[data-taskmenu-theme="light"] .task-patch-queue-delete:hover{background:#ffe5e7}
   html[data-taskmenu-theme="light"] .task-patch-summary-count{border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-summary-tab.active{background:#e7eef7;border-color:#9aa9bc;color:#1f2328}
+  html[data-taskmenu-theme="light"] .task-patch-summary-tab.has-failures{border-color:#c47780;color:#9d2632}
+  html[data-taskmenu-theme="light"] .task-patch-summary-tab.has-failures:not(.active){background:#fff1f2}
+  html[data-taskmenu-theme="light"] .task-patch-summary-tab.has-failures.active{background:#ffe1e4;border-color:#b85b66;color:#7b2029}
   html[data-taskmenu-theme="light"] .task-patch-action-result{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-action-result-output{background:#fff;border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-running-head{background:#f6f8fa;border-color:#9aa9bc}
   html[data-taskmenu-theme="light"] .task-patch-running-head.finished{border-color:#6f9a78}
   html[data-taskmenu-theme="light"] .task-patch-prompt{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-prompt-item{background:#fff}
+  html[data-taskmenu-theme="light"] .task-patch-prompt-item.failed{background:#fff1f2;border-color:#c47780}
+  html[data-taskmenu-theme="light"] .task-patch-prompt-item.failed .task-patch-prompt-name{color:#7b2029}
+  html[data-taskmenu-theme="light"] .task-patch-prompt-item.failed .task-patch-prompt-detail{color:#9d2632}
   html[data-taskmenu-theme="light"] .task-patch-resume{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-resume-item{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-resume-count{border-color:#d0d7de}
@@ -1898,6 +1918,7 @@ function installPatchPanel(){
     failedTab.textContent=`Failed (${failedCount})`;
     queueTab.classList.toggle('active',queueSummaryView==='queue');
     failedTab.classList.toggle('active',queueSummaryView==='failed');
+    failedTab.classList.toggle('has-failures',failedCount>0);
     summaryTitle.textContent=queueSummaryView==='failed'?'Failed':'Queue';
     summaryStatus.textContent=queueSearchQuery
       ? `${items.length}/${groupItems.length} match`
@@ -1905,7 +1926,8 @@ function installPatchPanel(){
     summaryList.replaceChildren();
     const visible=items.slice(0,50);
     for(const item of visible){
-      const row=document.createElement('div');row.className='task-patch-summary-item';
+      const itemFailed=String(item?.group||'').toLowerCase()==='failed';
+      const row=document.createElement('div');row.className='task-patch-summary-item';row.classList.toggle('failed',itemFailed);
       const name=document.createElement('span');name.className='task-patch-summary-name';name.textContent=String(item?.name||'');
       const detail=document.createElement('span');detail.className='task-patch-summary-detail';
       detail.textContent=[item?.kind,item?.detail].filter(Boolean).join(' · ');
@@ -2676,7 +2698,8 @@ function installPatchPanel(){
     for(const item of items){
       const index=Number(item?.index);
       if(!Number.isInteger(index)||index<1)continue;
-      const row=document.createElement('div');row.className='task-patch-prompt-item';row.dataset.patchPromptIndex=String(index);
+      const itemGroup=String(item?.group||'').toLowerCase();
+      const row=document.createElement('div');row.className='task-patch-prompt-item';row.dataset.patchPromptIndex=String(index);row.classList.toggle('failed',itemGroup==='failed');
       const itemName=String(item?.name||'');
       const itemKind=String(item?.kind||'').toUpperCase();
       const duplicateRunning=runningNames.has(itemName);
@@ -2690,7 +2713,7 @@ function installPatchPanel(){
       const name=document.createElement('span');name.className='task-patch-prompt-name';
       name.textContent=`${index}. ${itemName}`;
       const detail=document.createElement('span');detail.className='task-patch-prompt-detail';
-      detail.textContent=[item?.group,item?.kind,item?.detail,duplicateRunning?'already running':(addModePatch?'locked while active run exists':'')].filter(Boolean).join(' · ');
+      detail.textContent=[itemGroup==='failed'?'FAILED':item?.group,item?.kind,item?.detail,duplicateRunning?'already running':(addModePatch?'locked while active run exists':'')].filter(Boolean).join(' · ');
       copy.append(name,detail);
       row.append(input,copy);
       if(priorityCapability&&String(item?.kind||'').toUpperCase()==='PATCH'){

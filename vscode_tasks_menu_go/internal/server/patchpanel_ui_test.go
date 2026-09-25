@@ -1388,3 +1388,23 @@ func TestPatchPanelFailedRunShowsCopyableProtocolEvidence(t *testing.T) {
 		}
 	}
 }
+
+
+func TestPatchPanelQueueMakesFailedItemsVisuallyProminent(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		".task-patch-summary-item.failed",
+		".task-patch-prompt-item.failed",
+		".task-patch-summary-tab.has-failures",
+		"failedTab.classList.toggle('has-failures',failedCount>0)",
+		"row.classList.toggle('failed',itemFailed)",
+		"row.classList.toggle('failed',itemGroup==='failed')",
+		"itemGroup==='failed'?'FAILED':item?.group",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("failed queue emphasis missing %q", want)
+		}
+	}
+}
