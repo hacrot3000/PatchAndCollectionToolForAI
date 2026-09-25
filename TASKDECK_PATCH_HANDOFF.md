@@ -86,6 +86,8 @@ GitHub Actions run: `36084258908` — PASS.
 
 Additional runtime hardening: `89d3a458` — CI run `36086689002` PASS. Patch start now fails closed if backend metadata is not reserved `task_id=-1` or if the new session is unexpectedly already materialized as a terminal tab.
 
+Recovery-document consistency guard: `7d199813` — CI run `36086873370` PASS.
+
 The gate now checks product-level invariants rather than merely renderer/protocol presence:
 
 - no implicit terminal tab on Patch start;
@@ -139,6 +141,8 @@ Only after Phase 2E.2 passes:
 | `14a259fb` | Record verified Phase 2E.1 recovery checkpoint |
 | `7d199813` | Add CI guard against premature handoff/roadmap completion |
 | `9096299f` | Point implementing.md to the TaskDeck recovery handoff |
+| `8c9f1882` | Remove self-invalidating “current head” field from handoff |
+| `15711d4d` | Clarify explicit-only terminal fallback wording |
 
 ## Non-regression invariants
 
