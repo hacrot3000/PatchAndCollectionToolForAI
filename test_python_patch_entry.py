@@ -1944,5 +1944,80 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertEqual(events[1]["total"], 0)
 
 
+class CollectProgressRelayTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "posix", "FD relay integration is Unix-only")
+    def test_nested_collect_supervisor_emits_live_progress_through_entry_relay(self):
+        base = Path(__file__).resolve().parent
+        entry._prepare_environment(base)
+        progress = base / "_patch_lib" / "python_patch_collect_progress_v6_7.py"
+
+        with tempfile.TemporaryDirectory(prefix="taskdeck-collect-progress-") as td:
+            root = Path(td)
+            collector = root / "collector.py"
+            result_zip = root / "artifacts" / "collect-live.zip"
+            collector.write_text(
+                "import json,time,zipfile\n"
+                "from pathlib import Path\n"
+                f"out=Path({str(result_zip)!r})\n"
+                "print('search candidates', flush=True)\n"
+                "time.sleep(0.45)\n"
+                "print('compressing ZIP archive', flush=True)\n"
+                "time.sleep(0.45)\n"
+                "out.parent.mkdir(parents=True, exist_ok=True)\n"
+                "with zipfile.ZipFile(out, 'w') as zf:\n"
+                "    zf.writestr('COLLECTION_MANIFEST.json', json.dumps({'file_count':0,'files':[]}))\n"
+                "print(f'ZIP : {out}', flush=True)\n",
+                encoding="utf-8",
+            )
+
+            bridge = root / "bridge.py"
+            bridge.write_text(
+                "import os,sys\n"
+                "from pathlib import Path\n"
+                "from python_patch_queue_dispatcher import _run_foreground_child\n"
+                f"root=Path({str(root)!r})\n"
+                f"progress=Path({str(progress)!r})\n"
+                f"collector=Path({str(collector)!r})\n"
+                "env=dict(os.environ)\n"
+                "env['PTV_COLLECT_HEARTBEAT_SECONDS']='0.2'\n"
+                "env['TASKDECK_PATCH_PROGRESS_RUN_ID']='run-live'\n"
+                "env['TASKDECK_PATCH_PROGRESS_INDEX']='1'\n"
+                "env['TASKDECK_PATCH_PROGRESS_TOTAL']='1'\n"
+                "env['TASKDECK_PATCH_PROGRESS_ITEM_NAME']='request.zip'\n"
+                "env['TASKDECK_PATCH_PROGRESS_ITEM_KIND']='COLLECT'\n"
+                "cmd=[sys.executable,str(progress),'--project-root',str(root),'--collector',str(collector),'--','request','request.zip']\n"
+                "raise SystemExit(_run_foreground_child(root,cmd,env=env,timeout=None,label='COLLECT'))\n",
+                encoding="utf-8",
+            )
+
+            read_fd, write_fd = os.pipe()
+            try:
+                from python_patch_protocol import EventWriter
+                writer = EventWriter(write_fd)
+                rc = entry._run_with_protocol(writer, [str(bridge)], str(root), ["run"])
+                os.close(write_fd)
+                write_fd = -1
+                chunks = []
+                while True:
+                    data = os.read(read_fd, 65536)
+                    if not data:
+                        break
+                    chunks.append(data)
+            finally:
+                if write_fd >= 0:
+                    os.close(write_fd)
+                os.close(read_fd)
+
+        events = [json.loads(line) for line in b"".join(chunks).decode("utf-8").splitlines()]
+        progress_events = [event for event in events if event.get("type") == "progress"]
+        running = [event for event in progress_events if event.get("status") == "RUNNING"]
+        self.assertEqual(rc, 0)
+        self.assertGreaterEqual(len(running), 2, progress_events)
+        self.assertTrue(any(float(event.get("elapsed_seconds", 0)) > 0 for event in running))
+        self.assertTrue(any(event.get("phase") in {"search", "zip"} for event in running), progress_events)
+        self.assertTrue(any(event.get("status") == "PASS" for event in progress_events), progress_events)
+        self.assertEqual([event["seq"] for event in events], list(range(1, len(events) + 1)))
+
+
 if __name__ == "__main__":
     unittest.main()
