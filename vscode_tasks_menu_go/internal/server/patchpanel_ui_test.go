@@ -326,7 +326,7 @@ func TestPatchPanelNativeResumeKeepsPTYFallbackAndDestructiveConfirm(t *testing.
 	js := string(data)
 	for _, want := range []string{
 		"app.materializeSession(meta,false)",
-		"if(haveResumeSnapshot)resumeNote.textContent='Native Resume command channel unavailable. Continue in terminal.'",
+		"if(haveResumeSnapshot)resumeNote.textContent='Native Resume command channel unavailable. Open terminal fallback if needed.'",
 		"Native command channel unavailable. Open terminal evidence/fallback if needed.",
 		"action==='delete_failed'&&!window.confirm",
 		"if(action==='history')",
@@ -397,8 +397,8 @@ func TestPatchPanelHistoryKeepsTerminalAsFallbackNotPrimary(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"historyTerminal.onclick=()=>openTerminalEvidence().catch(app.showError)",
-		"Native History command channel unavailable. Use Terminal fallback.",
-		"Native History prompt timed out. Use Terminal fallback.",
+		"Native History command channel unavailable. Open terminal fallback if needed.",
+		"Native History prompt timed out. Open terminal fallback if needed.",
 		"mode==='history'",
 		"renderHistoryPrompt(sessionId,state.prompt)",
 	} {
@@ -905,6 +905,27 @@ func TestPatchStartFailsClosedWhenBackendLosesHeadlessContract(t *testing.T) {
 	} {
 		if !strings.Contains(js,want) {
 			t.Fatalf("headless runtime invariant missing %q",want)
+		}
+	}
+}
+
+
+func TestPatchFallbackCopyIsExplicitOnly(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, forbidden := range []string{"Continue in PTY","Continue in terminal.","Use Terminal fallback.","PTY-only"} {
+		if strings.Contains(js,forbidden) {
+			t.Fatalf("native Patch fallback copy still implies automatic terminal handoff: %q",forbidden)
+		}
+	}
+	for _, want := range []string{
+		"Terminal fallback available",
+		"Open terminal fallback if needed.",
+		"Open terminal evidence/fallback if needed.",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("explicit terminal fallback copy missing %q",want)
 		}
 	}
 }

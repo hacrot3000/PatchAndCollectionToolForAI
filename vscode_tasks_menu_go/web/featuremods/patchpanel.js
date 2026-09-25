@@ -2067,7 +2067,7 @@ function installPatchPanel(){
       try{
         state=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/protocol`);
       }catch(error){
-        resetSummary('PTY-only');
+        resetSummary('Native state unavailable · Terminal fallback available');
         console.warn('Patch protocol state unavailable:',error);
         summaryWarnings.textContent='Patch protocol state unavailable. Open terminal evidence/fallback if needed.';
         return;
@@ -2114,9 +2114,9 @@ function installPatchPanel(){
       if(state?.action_result)renderActionResult(state.action_result);
       renderArtifacts(state?.artifacts);
       if(expectPrompt&&state?.commands_enabled===false&&(haveSnapshot||haveResumeSnapshot||haveHistorySnapshot)){
-        summaryStatus.textContent+=' · Continue in PTY';
-        if(haveResumeSnapshot)resumeNote.textContent='Native Resume command channel unavailable. Continue in terminal.';
-        if(haveHistorySnapshot)historyWarnings.textContent='Native History command channel unavailable. Use Terminal fallback.';
+        summaryStatus.textContent+=' · Terminal fallback available';
+        if(haveResumeSnapshot)resumeNote.textContent='Native Resume command channel unavailable. Open terminal fallback if needed.';
+        if(haveHistorySnapshot)historyWarnings.textContent='Native History command channel unavailable. Open terminal fallback if needed.';
         if(!historyMode)summaryWarnings.textContent='Native command channel unavailable. Open terminal evidence/fallback if needed.';
         return;
       }
@@ -2167,11 +2167,11 @@ function installPatchPanel(){
       return;
     }
     if(haveSnapshot||haveResumeSnapshot||haveHistorySnapshot){
-      summaryStatus.textContent+=' · Continue in PTY';
-      if(haveResumeSnapshot)resumeNote.textContent='Native Resume prompt timed out. Continue in terminal.';
-      if(haveHistorySnapshot)historyWarnings.textContent='Native History prompt timed out. Use Terminal fallback.';
+      summaryStatus.textContent+=' · Terminal fallback available';
+      if(haveResumeSnapshot)resumeNote.textContent='Native Resume prompt timed out. Open terminal fallback if needed.';
+      if(haveHistorySnapshot)historyWarnings.textContent='Native History prompt timed out. Open terminal fallback if needed.';
     }else{
-      resetSummary('Snapshot timeout · Continue in PTY');
+      resetSummary('Snapshot timeout · Terminal fallback available');
     }
     if(sessionId===activeSessionId&&!runningMode&&!historyMode){
       summaryWarnings.textContent='Native state timed out. Open terminal evidence/fallback if needed.';
