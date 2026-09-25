@@ -430,6 +430,7 @@ func TestPatchPanelNativeQueueDeleteWaitsForPythonRefresh(t *testing.T) {
 		"renderQueuePrompt(sessionId,prompt)",
 		"Number(result.remaining)===0",
 		"items.length===0",
+		"summaryStatus.title=String(result.message||'Queue item deleted')",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("native Queue delete UI missing contract %q", want)
@@ -439,13 +440,13 @@ func TestPatchPanelNativeQueueDeleteWaitsForPythonRefresh(t *testing.T) {
 		"latestQueueSnapshot.items.splice",
 		"activeQueuePrompt.items.splice",
 		"promptItem.index--",
+		"summaryWarnings.textContent=String(result.message||'Queue item deleted')",
 	} {
 		if strings.Contains(js, forbidden) {
-			t.Fatalf("Queue delete UI must not locally mutate/reindex Python state: found %q", forbidden)
+			t.Fatalf("Queue delete UI must preserve Python-rendered queue state: found %q", forbidden)
 		}
 	}
 }
-
 
 func TestPatchPanelHistoryManagementUsesOnlyAdvertisedPerRunCapabilities(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
@@ -875,7 +876,9 @@ func TestPatchPanelOwnsTabbedNativeWorkspaceSurface(t *testing.T) {
 		"patchTab.classList.toggle('active',visible)",
 		"app.activateExternalView('patch')",
 		"window.addEventListener('taskmenu:view-activated'",
-		"if(kind==='terminal'||kind==='external')deactivate()",
+		"const active=String(app.active||'')",
+		"if(active==='external:patch'||(kind==='external'&&id==='patch'))",
+		"if((kind==='terminal'||kind==='external')&&active!=='external:patch')deactivate()",
 	} {
 		if !strings.Contains(js,want) {
 			t.Fatalf("native Patch tab surface missing %q",want)
