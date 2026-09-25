@@ -417,6 +417,31 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertEqual(response["action"], "select")
         self.assertEqual(response["indexes"], [1])
 
+    def test_dispatcher_zero_work_native_queue_stays_interactive(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        with tempfile.TemporaryDirectory(prefix="taskdeck-empty-native-queue-") as tmp:
+            root = Path(tmp)
+            (root / "patchs").mkdir()
+            old_command = os.environ.get("TASKDECK_PATCH_COMMAND_FD")
+            os.environ["TASKDECK_PATCH_COMMAND_FD"] = "99"
+            try:
+                with mock.patch.object(dispatcher, "_protocol_queue_selection", return_value=(True, [])) as native, \
+                     mock.patch.object(dispatcher, "_zero_work_history_landing") as history:
+                    rc = dispatcher._run_queue(root, zero_argument_invocation=True)
+            finally:
+                if old_command is None:
+                    os.environ.pop("TASKDECK_PATCH_COMMAND_FD", None)
+                else:
+                    os.environ["TASKDECK_PATCH_COMMAND_FD"] = old_command
+
+            self.assertEqual(rc, 0)
+            native.assert_called_once()
+            self.assertEqual(native.call_args.args[0], [])
+            self.assertEqual(native.call_args.kwargs["root"], root)
+            history.assert_not_called()
+
+
     def test_dispatcher_protocol_queue_selection_uses_existing_contract(self):
         from python_patch_queue_dispatcher import QueueItem, _protocol_queue_selection
 
