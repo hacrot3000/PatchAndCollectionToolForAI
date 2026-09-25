@@ -6831,18 +6831,41 @@ def execute_items(
                     except ValueError: detail["fail_handoff_text"] = str(handoff_text)
         _LAST_EXECUTION_DETAILS.append(detail)
         _emit_detail_artifacts(root, item, detail, index=index + 1, total=len(chosen))
-        _emit_protocol_event(
-            "item_finished",
-            run_id=_ACTIVE_RUN_ID,
-            index=index + 1,
-            total=len(chosen),
-            name=item.name,
-            kind=item.kind,
-            status=str(detail.get("status") or ""),
-            rc=detail.get("rc"),
-            started_at=item_started_at,
-            elapsed_seconds=detail.get("elapsed_seconds"),
-        )
+        finished_payload: dict[str, object] = {
+            "run_id": _ACTIVE_RUN_ID,
+            "index": index + 1,
+            "total": len(chosen),
+            "name": item.name,
+            "kind": item.kind,
+            "status": str(detail.get("status") or ""),
+            "rc": detail.get("rc"),
+            "started_at": item_started_at,
+            "elapsed_seconds": detail.get("elapsed_seconds"),
+        }
+        if str(detail.get("status") or "").upper() == "FAIL":
+            failure_reason = ""
+            diagnosis_kind = ""
+            output_tail = ""
+            if item.kind == "PATCH":
+                result = patch_result if isinstance(patch_result, dict) else {}
+                diagnosis = result.get("diagnosis") if isinstance(result.get("diagnosis"), dict) else {}
+                diagnosis_kind = _safe_display(str(diagnosis.get("kind") or ""))[:128]
+                failure_reason = _safe_display(str(diagnosis.get("message") or "")).strip()[:2048]
+                clean_console = _LivePatchStatus._sanitize_log_text(console_log).strip()
+                if clean_console:
+                    output_tail = clean_console[-16384:]
+            elif item.kind == "COLLECT" and isinstance(collect_result, dict):
+                diagnosis_kind = "collect_failed"
+                failure_reason = _safe_display(str(collect_result.get("failure_reason") or "")).strip()[:2048]
+                output_tail = str(collect_result.get("output_tail") or "").strip()[-16384:]
+            if not failure_reason:
+                failure_reason = f"{item.kind} failed (rc={detail.get('rc')})"
+            finished_payload["failure_reason"] = failure_reason
+            if diagnosis_kind:
+                finished_payload["diagnosis_kind"] = diagnosis_kind
+            if output_tail:
+                finished_payload["output_tail"] = output_tail
+        _emit_protocol_event("item_finished", **finished_payload)
         if meta is not None:
             patch_status_by_id[meta.patch_id] = str(detail["status"])
             if rc and item.kind == "PATCH":
