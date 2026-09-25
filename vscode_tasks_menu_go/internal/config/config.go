@@ -18,22 +18,7 @@ const (
 	ProtocolHTTPS = "https"
 )
 
-var sharedProjectIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}package config
-
-import (
-	"bufio"
-	"fmt"
-	"net"
-	"os"
-	"path/filepath"
-	"regexp"
-	"strconv"
-	"strings"
-
-	"bletonfc/vscode_tasks_menu/internal/projectfiles"
-)
-
-)
+var sharedProjectIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 type Config struct {
 	Protocol      string
