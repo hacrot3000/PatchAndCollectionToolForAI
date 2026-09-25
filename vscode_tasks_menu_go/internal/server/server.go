@@ -261,6 +261,142 @@ func patchToolExecution(workspace, mode string) (tasks.Execution, error) {
 	return patchToolExecutionForUI(workspace, mode, "native")
 }
 
+const maxParallelCollectRuns = 16
+
+type patchParallelCollectRequest struct {
+	PromptID string `json:"prompt_id"`
+	Indexes  []int  `json:"indexes"`
+}
+
+type patchParallelCollectItem struct {
+	Index int
+	Name  string
+}
+
+type patchParallelCollectLaunch struct {
+	Index   int               `json:"index"`
+	Name    string            `json:"name"`
+	Session *session.Metadata `json:"session,omitempty"`
+	Error   string            `json:"error,omitempty"`
+}
+
+func patchParallelCollectItems(state session.ProtocolState, req patchParallelCollectRequest) ([]patchParallelCollectItem, error) {
+	if !state.CommandsEnabled || len(state.Prompt) == 0 {
+		return nil, fmt.Errorf("Patch queue command channel is unavailable")
+	}
+	var prompt struct {
+		Protocol   string `json:"protocol"`
+		Version    int    `json:"version"`
+		Type       string `json:"type"`
+		PromptID   string `json:"prompt_id"`
+		PromptKind string `json:"prompt_kind"`
+		Items      []struct {
+			Index int    `json:"index"`
+			Name  string `json:"name"`
+			Kind  string `json:"kind"`
+		} `json:"items"`
+		Constraints struct {
+			ParallelCollectProcesses *struct {
+				Strategy string `json:"strategy"`
+				Max      int    `json:"max"`
+			} `json:"parallel_collect_processes"`
+		} `json:"constraints"`
+	}
+	if err := json.Unmarshal(state.Prompt, &prompt); err != nil {
+		return nil, fmt.Errorf("invalid active Patch queue prompt: %w", err)
+	}
+	if prompt.Protocol != "taskdeck.patch" || prompt.Version != 1 || prompt.Type != "prompt" || prompt.PromptKind != "queue_selection" {
+		return nil, fmt.Errorf("unsupported active Patch queue prompt")
+	}
+	req.PromptID = strings.TrimSpace(req.PromptID)
+	if req.PromptID == "" || req.PromptID != prompt.PromptID {
+		return nil, fmt.Errorf("parallel COLLECT request does not match the active prompt")
+	}
+	capability := prompt.Constraints.ParallelCollectProcesses
+	if capability == nil || capability.Strategy != "independent_processes" || capability.Max < 2 || capability.Max > maxParallelCollectRuns {
+		return nil, fmt.Errorf("parallel COLLECT is not safely advertised by Python")
+	}
+	if len(req.Indexes) < 2 || len(req.Indexes) > capability.Max {
+		return nil, fmt.Errorf("parallel COLLECT requires 2..%d selected requests", capability.Max)
+	}
+	byIndex := make(map[int]patchParallelCollectItem, len(prompt.Items))
+	for _, item := range prompt.Items {
+		name := strings.TrimSpace(item.Name)
+		if item.Index < 1 || name == "" {
+			continue
+		}
+		if strings.ToUpper(strings.TrimSpace(item.Kind)) == "COLLECT" {
+			byIndex[item.Index] = patchParallelCollectItem{Index: item.Index, Name: name}
+		}
+	}
+	seen := make(map[int]bool, len(req.Indexes))
+	out := make([]patchParallelCollectItem, 0, len(req.Indexes))
+	for _, index := range req.Indexes {
+		if seen[index] {
+			return nil, fmt.Errorf("parallel COLLECT index is duplicated: %d", index)
+		}
+		seen[index] = true
+		item, ok := byIndex[index]
+		if !ok {
+			return nil, fmt.Errorf("parallel COLLECT index is not an advertised COLLECT item: %d", index)
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func patchCollectExecution(workspace, requestName string) (tasks.Execution, error) {
+	requestName = strings.TrimSpace(requestName)
+	if requestName == "" || len(requestName) > 1024 || strings.ContainsAny(requestName, "/\\") ||
+		requestName == "." || requestName == ".." || !strings.HasSuffix(strings.ToLower(requestName), ".zip") {
+		return tasks.Execution{}, fmt.Errorf("invalid COLLECT request name")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return tasks.Execution{}, fmt.Errorf("resolve TaskDeck executable: %w", err)
+	}
+	runtimeSpec, err := patchtool.Resolve(workspace, exe)
+	if err != nil {
+		return tasks.Execution{}, err
+	}
+	command, commandArgs, err := runtimeSpec.Command(workspace, []string{"collect", "request", "patchs/" + requestName})
+	if err != nil {
+		return tasks.Execution{}, err
+	}
+	rawArgs := make([]any, len(commandArgs))
+	for i, arg := range commandArgs {
+		rawArgs[i] = arg
+	}
+	labelName := requestName
+	if len(labelName) > 80 {
+		labelName = labelName[:80] + "…"
+	}
+	spec, err := tasks.ResolveExecution(tasks.Task{
+		ID:        -1,
+		Label:     "Patch Tool · COLLECT · " + labelName,
+		MenuLabel: "Patch Tool",
+		Detail:    "TaskDeck native parallel COLLECT worker",
+		Type:      "process",
+		Command:   command,
+		Args:      rawArgs,
+	}, workspace)
+	if err != nil {
+		return tasks.Execution{}, err
+	}
+	spec.ProtocolEvents = true
+	spec.ProtocolCommands = false
+	if err := tasks.ApplyEnvironmentOverrides(&spec, map[string]string{
+		"TASKDECK_PATCH_DIRECT_COLLECT":          "1",
+		"TASKDECK_PATCH_PROGRESS_INDEX":          "1",
+		"TASKDECK_PATCH_PROGRESS_TOTAL":          "1",
+		"TASKDECK_PATCH_PROGRESS_ITEM_NAME":      requestName,
+		"TASKDECK_PATCH_PROGRESS_ITEM_KIND":      "COLLECT",
+	}); err != nil {
+		return tasks.Execution{}, err
+	}
+	return spec, nil
+}
+
 func patchToolExecutionForUI(workspace, mode, uiMode string) (tasks.Execution, error) {
 	uiMode = strings.ToLower(strings.TrimSpace(uiMode))
 	if uiMode == "" {
@@ -1285,6 +1421,71 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
+	case "parallel-collect":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		provider, ok := s.Sessions.(session.ProtocolStateProvider)
+		if !ok {
+			http.Error(w, "Patch protocol state is unavailable", http.StatusConflict)
+			return
+		}
+		writer, ok := s.Sessions.(session.ProtocolCommandWriter)
+		if !ok {
+			http.Error(w, "Patch protocol commands are unavailable", http.StatusConflict)
+			return
+		}
+		state, err := provider.ProtocolState(id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		var req patchParallelCollectRequest
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			http.Error(w, "invalid parallel COLLECT JSON", http.StatusBadRequest)
+			return
+		}
+		items, err := patchParallelCollectItems(state, req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		type collectPlan struct {
+			item patchParallelCollectItem
+			spec tasks.Execution
+		}
+		plans := make([]collectPlan, 0, len(items))
+		for _, item := range items {
+			spec, err := patchCollectExecution(s.Workspace, item.Name)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			plans = append(plans, collectPlan{item: item, spec: spec})
+		}
+		cancel, err := buildPatchPromptResponseCommand(state, patchPromptResponseRequest{PromptID: req.PromptID, Action: "cancel"})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		if err := writer.ProtocolCommand(id, cancel); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		results := make([]patchParallelCollectLaunch, 0, len(plans))
+		for _, plan := range plans {
+			meta, startErr := s.Sessions.Start(plan.spec)
+			if startErr != nil {
+				results = append(results, patchParallelCollectLaunch{Index: plan.item.Index, Name: plan.item.Name, Error: startErr.Error()})
+				continue
+			}
+			metaCopy := meta
+			results = append(results, patchParallelCollectLaunch{Index: plan.item.Index, Name: plan.item.Name, Session: &metaCopy})
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"accepted": true, "runs": results})
 	case "item-action":
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

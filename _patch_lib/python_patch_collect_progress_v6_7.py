@@ -530,6 +530,56 @@ def _protocol_progress_writer():
         return None
 
 
+def _direct_collect_protocol_enabled() -> bool:
+    return os.environ.get("TASKDECK_PATCH_DIRECT_COLLECT", "").strip() == "1"
+
+
+def _protocol_project_artifact_path(root: Path, raw: object) -> str | None:
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        root_real = root.resolve(strict=True)
+        path = Path(raw).expanduser()
+        if not path.is_absolute():
+            path = root_real / path
+        path = path.resolve(strict=True)
+        rel = path.relative_to(root_real)
+        if not rel.parts or rel.parts[0] != "artifacts" or not path.is_file() or path.is_symlink():
+            return None
+        return rel.as_posix()
+    except (OSError, ValueError):
+        return None
+
+
+def _emit_direct_collect_artifacts(writer, root: Path, context: dict[str, object], result_meta: dict[str, object]) -> None:
+    if writer is None or not _direct_collect_protocol_enabled():
+        return
+    item_name = str(context.get("item_name") or "")
+    item_kind = str(context.get("item_kind") or "COLLECT")
+    index = int(context.get("index") or 1)
+    total = int(context.get("total") or 1)
+    for artifact_kind, key, primary in (
+        ("collect_result_zip", "result_zip", True),
+        ("collect_result_text", "result_text", False),
+    ):
+        rel = _protocol_project_artifact_path(root, result_meta.get(key))
+        if rel is None:
+            continue
+        try:
+            writer.emit(
+                "artifact",
+                artifact_kind=artifact_kind,
+                path=rel,
+                primary=primary,
+                item_name=item_name,
+                item_kind=item_kind,
+                index=index,
+                total=total,
+            )
+        except Exception:
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Python Patch Tool v6.17.8 COLLECT one-line progress supervisor")
     ap.add_argument("--project-root", required=True)
@@ -607,6 +657,20 @@ def main(argv: list[str] | None = None) -> int:
     is_tty = bool(getattr(sys.stdout, "isatty", lambda: False)())
     protocol_writer = _protocol_progress_writer()
     protocol_context = _protocol_progress_context()
+    direct_collect_protocol = _direct_collect_protocol_enabled()
+    if protocol_writer is not None and direct_collect_protocol:
+        try:
+            protocol_writer.emit(
+                "item_started",
+                run_id=str(protocol_context.get("run_id") or ""),
+                index=int(protocol_context.get("index") or 1),
+                total=int(protocol_context.get("total") or 1),
+                name=str(protocol_context.get("item_name") or "COLLECT"),
+                kind=str(protocol_context.get("item_kind") or "COLLECT"),
+                started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            )
+        except Exception:
+            pass
 
     def emit_protocol_progress(status: str, elapsed_seconds: float) -> None:
         if protocol_writer is None:
@@ -808,6 +872,22 @@ def main(argv: list[str] | None = None) -> int:
     })
     _write_collect_run_result(result_meta)
     if protocol_writer is not None:
+        _emit_direct_collect_artifacts(protocol_writer, root, protocol_context, result_meta)
+        if direct_collect_protocol:
+            try:
+                protocol_writer.emit(
+                    "item_finished",
+                    run_id=str(protocol_context.get("run_id") or ""),
+                    index=int(protocol_context.get("index") or 1),
+                    total=int(protocol_context.get("total") or 1),
+                    name=str(protocol_context.get("item_name") or "COLLECT"),
+                    kind=str(protocol_context.get("item_kind") or "COLLECT"),
+                    status=str(result_meta["status"]),
+                    rc=int(final_rc),
+                    elapsed_seconds=round(elapsed, 3),
+                )
+            except Exception:
+                pass
         try:
             protocol_writer.close()
         except Exception:

@@ -2019,5 +2019,57 @@ class CollectProgressRelayTests(unittest.TestCase):
         self.assertEqual([event["seq"] for event in events], list(range(1, len(events) + 1)))
 
 
+    @unittest.skipUnless(os.name == "posix", "FD relay integration is Unix-only")
+    def test_direct_collect_progress_emits_item_and_artifact_events(self):
+        base = Path(__file__).resolve().parent
+        entry._prepare_environment(base)
+        progress = base / "_patch_lib" / "python_patch_collect_progress_v6_7.py"
+        with tempfile.TemporaryDirectory(prefix="taskdeck-direct-collect-") as td:
+            root = Path(td)
+            collector = root / "collector.py"
+            result_zip = root / "artifacts" / "direct-result.zip"
+            result_txt = root / "artifacts" / "direct-result.txt"
+            collector.write_text(
+                "import json,zipfile\n"
+                "from pathlib import Path\n"
+                f"z=Path({str(result_zip)!r}); t=Path({str(result_txt)!r})\n"
+                "z.parent.mkdir(parents=True,exist_ok=True)\n"
+                "with zipfile.ZipFile(z,'w') as zf: zf.writestr('COLLECTION_MANIFEST.json',json.dumps({'file_count':0,'files':[]}))\n"
+                "t.write_text('result',encoding='utf-8')\n"
+                "print(f'ZIP : {z}',flush=True)\n",
+                encoding="utf-8",
+            )
+            read_fd, write_fd = os.pipe()
+            old = dict(os.environ)
+            try:
+                os.environ["TASKDECK_PATCH_EVENT_FD"] = str(write_fd)
+                os.environ["TASKDECK_PATCH_DIRECT_COLLECT"] = "1"
+                os.environ["TASKDECK_PATCH_PROGRESS_INDEX"] = "1"
+                os.environ["TASKDECK_PATCH_PROGRESS_TOTAL"] = "1"
+                os.environ["TASKDECK_PATCH_PROGRESS_ITEM_NAME"] = "CODE_COLLECTION_REQUEST_demo.zip"
+                os.environ["TASKDECK_PATCH_PROGRESS_ITEM_KIND"] = "COLLECT"
+                cp = subprocess.run([
+                    sys.executable,str(progress),"--project-root",str(root),"--collector",str(collector),"--","request","dummy.zip"
+                ],env=dict(os.environ),stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=10,pass_fds=(write_fd,))
+                os.close(write_fd); write_fd=-1
+                chunks=[]
+                while True:
+                    data=os.read(read_fd,65536)
+                    if not data: break
+                    chunks.append(data)
+            finally:
+                os.environ.clear(); os.environ.update(old)
+                if write_fd>=0: os.close(write_fd)
+                os.close(read_fd)
+            events=[json.loads(line) for line in b"".join(chunks).decode("utf-8").splitlines()]
+        self.assertEqual(cp.returncode,0,(cp.stdout,cp.stderr))
+        types=[event["type"] for event in events]
+        self.assertIn("item_started",types)
+        self.assertIn("item_finished",types)
+        artifacts=[event for event in events if event["type"]=="artifact"]
+        self.assertEqual({row["artifact_kind"] for row in artifacts},{"collect_result_zip","collect_result_text"})
+        self.assertTrue(all(row["item_name"]=="CODE_COLLECTION_REQUEST_demo.zip" for row in artifacts))
+
+
 if __name__ == "__main__":
     unittest.main()

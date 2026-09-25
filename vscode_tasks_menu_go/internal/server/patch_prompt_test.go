@@ -489,3 +489,37 @@ func TestPublicHistorySupportEndpointIsNarrowAndPromptBound(t *testing.T) {
 		t.Fatal("TaskDeck public API must not expose the raw protocol command endpoint")
 	}
 }
+
+
+func parallelCollectState() session.ProtocolState {
+	return session.ProtocolState{
+		Available:true, Enabled:true, CommandsEnabled:true,
+		Prompt: json.RawMessage(`{"protocol":"taskdeck.patch","version":1,"type":"prompt","seq":1,"prompt_id":"queue123","prompt_kind":"queue_selection","actions":["select","cancel"],"items":[{"index":1,"name":"CODE_COLLECTION_REQUEST_a.zip","kind":"COLLECT"},{"index":2,"name":"CODE_COLLECTION_REQUEST_b.zip","kind":"COLLECT"},{"index":3,"name":"patch.zip","kind":"PATCH"}],"constraints":{"collect_exclusive":true,"collect_max":1,"parallel_collect_processes":{"strategy":"independent_processes","max":16}}}`),
+	}
+}
+
+func TestParallelCollectSelectionIsPromptBoundAndCollectOnly(t *testing.T) {
+	items, err := patchParallelCollectItems(parallelCollectState(), patchParallelCollectRequest{PromptID:"queue123",Indexes:[]int{1,2}})
+	if err != nil { t.Fatal(err) }
+	if len(items)!=2 || items[0].Name!="CODE_COLLECTION_REQUEST_a.zip" || items[1].Name!="CODE_COLLECTION_REQUEST_b.zip" {
+		t.Fatalf("unexpected parallel COLLECT items: %#v",items)
+	}
+	for _, req := range []patchParallelCollectRequest{
+		{PromptID:"stale",Indexes:[]int{1,2}},
+		{PromptID:"queue123",Indexes:[]int{1}},
+		{PromptID:"queue123",Indexes:[]int{1,1}},
+		{PromptID:"queue123",Indexes:[]int{1,3}},
+		{PromptID:"queue123",Indexes:[]int{1,99}},
+	} {
+		if _, err := patchParallelCollectItems(parallelCollectState(),req); err == nil { t.Fatalf("invalid parallel COLLECT accepted: %#v",req) }
+	}
+}
+
+func TestParallelCollectEndpointIsNarrowAndPromptBound(t *testing.T) {
+	data, err := os.ReadFile("server.go")
+	if err != nil { t.Fatal(err) }
+	src := string(data)
+	for _, want := range []string{`case "parallel-collect":`,"patchParallelCollectItems(state, req)","patchCollectExecution(s.Workspace, item.Name)","buildPatchPromptResponseCommand(state, patchPromptResponseRequest{PromptID: req.PromptID, Action: \"cancel\"})"} {
+		if !strings.Contains(src,want) { t.Fatalf("parallel COLLECT endpoint missing %q",want) }
+	}
+}

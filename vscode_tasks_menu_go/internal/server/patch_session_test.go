@@ -247,3 +247,32 @@ func TestPatchToolNativeUIModeKeepsProtocol(t *testing.T) {
 		t.Fatal("unknown Patch UI mode must be rejected")
 	}
 }
+
+
+func TestPatchCollectExecutionUsesDirectHeadlessProtocol(t *testing.T) {
+	workspace := t.TempDir()
+	runtimeRoot := t.TempDir()
+	entry := filepath.Join(runtimeRoot, "python_patch_entry.py")
+	python := filepath.Join(runtimeRoot, "python3")
+	for _, path := range []string{entry, python} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil { t.Fatal(err) }
+	}
+	t.Setenv("TASKDECK_PATCH_RUNTIME", entry)
+	t.Setenv("TASKDECK_PATCH_PYTHON", python)
+	spec, err := patchCollectExecution(workspace, "CODE_COLLECTION_REQUEST_demo.zip")
+	if err != nil { t.Fatal(err) }
+	if spec.TaskID != -1 || !spec.ProtocolEvents || spec.ProtocolCommands {
+		t.Fatalf("direct COLLECT execution contract lost: task=%d events=%v commands=%v", spec.TaskID, spec.ProtocolEvents, spec.ProtocolCommands)
+	}
+	joined := strings.Join(spec.Args, "\n")
+	for _, want := range []string{"collect", "request", "patchs/CODE_COLLECTION_REQUEST_demo.zip"} {
+		if !strings.Contains(joined, want) { t.Fatalf("direct COLLECT args missing %q: %v", want, spec.Args) }
+	}
+	env := strings.Join(spec.Env, "\n")
+	for _, want := range []string{"TASKDECK_PATCH_DIRECT_COLLECT=1","TASKDECK_PATCH_PROGRESS_ITEM_NAME=CODE_COLLECTION_REQUEST_demo.zip","TASKDECK_PATCH_PROGRESS_ITEM_KIND=COLLECT"} {
+		if !strings.Contains(env,want) { t.Fatalf("direct COLLECT env missing %q",want) }
+	}
+	for _, invalid := range []string{"../escape.zip","sub/request.zip","request.txt",""} {
+		if _, err := patchCollectExecution(workspace, invalid); err == nil { t.Fatalf("unsafe direct COLLECT name accepted: %q",invalid) }
+	}
+}

@@ -5631,6 +5631,10 @@ def _protocol_queue_selection(
                 "index_base": 1,
                 "collect_exclusive": True,
                 "collect_max": 1,
+                "parallel_collect_processes": {
+                    "strategy": "independent_processes",
+                    "max": 16,
+                },
                 "patch_priority": {
                     "min": 0,
                     "max": 9,
