@@ -57,3 +57,24 @@ func TestGroupedMenusFeature(t *testing.T) {
 		t.Fatal("index must load featuremods/next.js")
 	}
 }
+
+
+func TestGroupedMenusDefersWorkspaceSettingsUntilTasksLoaded(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/menus.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const projectWorkspace=String(app.taskData?.workspace||'').trim();",
+		"if(!projectWorkspace)return false;",
+		"vscode-tasks-menu:patch-ui-mode:'+projectWorkspace",
+		"if(!installHeaderMenus()){",
+		"window.addEventListener('taskmenu:tasks',()=>installHeaderMenus(),{once:true})",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("menus bootstrap guard missing %q",want)
+		}
+	}
+	if strings.Contains(js,"app.taskData.workspace") {
+		t.Fatal("menus.js must not dereference taskData.workspace before /api/tasks has loaded")
+	}
+}

@@ -29,7 +29,9 @@ document.addEventListener('click',()=>closeAll());
 document.addEventListener('keydown',event=>{if(event.key==='Escape')closeAll();});
 
 function installHeaderMenus(){
-  const header=document.querySelector('header'),workspace=document.querySelector('#workspace');if(!header||!workspace||header.querySelector('.header-action-menus'))return;
+  const projectWorkspace=String(app.taskData?.workspace||'').trim();
+  if(!projectWorkspace)return false;
+  const header=document.querySelector('header'),workspace=document.querySelector('#workspace');if(!header||!workspace||header.querySelector('.header-action-menus'))return false;
   const host=document.createElement('div');host.className='header-action-menus';header.append(host);
 
   const files=makeMenu('Files','Project files');
@@ -45,7 +47,7 @@ function installHeaderMenus(){
   host.append(terminal.menu);
 
   const settings=makeMenu('Settings','Tool settings');
-  const patchUIKey='vscode-tasks-menu:patch-ui-mode:'+app.taskData.workspace;
+  const patchUIKey='vscode-tasks-menu:patch-ui-mode:'+projectWorkspace;
   const patchUIControl=document.createElement('label');patchUIControl.className='patch-ui-mode-control';
   const patchUILabel=document.createElement('span');patchUILabel.textContent='Interface';
   const patchUISelect=document.createElement('select');patchUISelect.id='patch-ui-mode';patchUISelect.title='Choose Patch Tool interface';
@@ -72,6 +74,7 @@ function installHeaderMenus(){
   host.append(settings.menu);
 
   const git=document.querySelector('.git-status-pill');if(git)host.append(git);
+  return true;
 }
 
 function paneMenu(view,label,selectorPairs){
@@ -97,4 +100,6 @@ function decoratePane(view){
 
 window.addEventListener('taskmenu:session',event=>{const view=event.detail?.view;if(view)setTimeout(()=>decoratePane(view),0);});
 for(const view of app.views.values())decoratePane(view);
-installHeaderMenus();
+if(!installHeaderMenus()){
+  window.addEventListener('taskmenu:tasks',()=>installHeaderMenus(),{once:true});
+}
