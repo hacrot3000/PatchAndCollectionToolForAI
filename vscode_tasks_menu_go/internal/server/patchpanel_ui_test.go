@@ -924,7 +924,7 @@ func TestPatchNativeNavigationDoesNotImplicitlyOpenTerminal(t *testing.T) {
 		"if(action==='history'){",
 		"await start('history');",
 		"terminalEvidence.onclick=()=>openTerminalEvidence().catch(app.showError)",
-		"historyTerminal.onclick=()=>openTerminalEvidence().catch(app.showError)",
+		"historyTerminal.onclick=()=>openLegacyHistoryTerminal().catch(app.showError)",
 		"planTerminal.onclick=()=>openTerminalEvidence().catch(app.showError)",
 		"healthTerminal.onclick=()=>openTerminalEvidence().catch(app.showError)",
 	} {

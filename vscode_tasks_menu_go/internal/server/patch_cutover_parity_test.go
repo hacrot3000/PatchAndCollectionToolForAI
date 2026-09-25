@@ -179,8 +179,8 @@ func TestPatchNativeProductAcceptanceGate(t *testing.T) {
 	if got:=strings.Count(js,"app.materializeSession(meta,false)"); got!=1 {
 		t.Fatalf("native evidence materialization paths=%d want 1",got)
 	}
-	if got:=strings.Count(js,"app.materializeSession(meta,true)"); got!=1 {
-		t.Fatalf("legacy terminal materialization paths=%d want 1",got)
+	if got:=strings.Count(js,"app.materializeSession(meta,true)"); got!=2 {
+		t.Fatalf("explicit legacy terminal materialization paths=%d want 2 (global legacy UI + History Terminal)",got)
 	}
 	if !strings.Contains(js,"openTerminalEvidenceForSession(run.sessionId)") {
 		t.Fatal("parallel COLLECT terminal evidence must use the same explicit materialization path")
@@ -188,8 +188,11 @@ func TestPatchNativeProductAcceptanceGate(t *testing.T) {
 	if strings.Contains(js,"openTerminalEvidence();") {
 		t.Fatal("implicit terminal evidence call remains in normal Patch navigation")
 	}
-	if got:=strings.Count(js,"openTerminalEvidence().catch(app.showError)"); got!=4 {
-		t.Fatalf("explicit evidence button bindings=%d want 4",got)
+	if got:=strings.Count(js,"openTerminalEvidence().catch(app.showError)"); got!=3 {
+		t.Fatalf("explicit backing-evidence button bindings=%d want 3",got)
+	}
+	if !strings.Contains(js,"historyTerminal.onclick=()=>openLegacyHistoryTerminal().catch(app.showError)") {
+		t.Fatal("History Terminal must launch a separate explicit legacy History session")
 	}
 
 	// Reload/session polling must keep headless Patch sessions out of normal tabs.
