@@ -77,3 +77,27 @@ Native-primary must never mean terminal removal:
 4. `taskdeck patch` and compatibility launchers continue to work from a terminal.
 
 The old consolidated Go regression test is itself part of the invalidation: it explicitly required `app.attachSession(...)`. Replace it with a product-level gate that rejects implicit Patch terminal tabs.
+
+
+## 2026-09-25 corrected automated product gate
+
+Status: **AUTOMATED GATE IMPLEMENTED; INSTALLED-RUNTIME BROWSER SMOKE PENDING**
+
+The corrected Phase 2 implementation changes the user-visible architecture rather than merely
+adding protocol renderers:
+
+1. Built-in Patch sessions use reserved `task_id=-1` and remain headless during normal
+   `syncSessions()`; reload/polling does not create terminal tabs for them.
+2. Starting Queue/Resume/History/Plan/Health does not call terminal attach/materialize APIs.
+3. Patch activates `activateExternalView('patch')` and owns the main workspace surface.
+4. Native Resume → History starts the native History route; the Python native Resume path exits
+   before the terminal `_history_browser()`.
+5. Protocol loss/timeouts remain in the native UI with an explicit fallback message.
+6. `materializeSession(...)` is permitted only inside the explicit terminal-evidence function.
+
+The new Go acceptance gate checks these structural invariants directly, in addition to the earlier
+functional protocol/control tests. This is stronger than the invalidated 2026-09-24 gate.
+
+**Not yet claimed:** installed-browser acceptance. Phase 2 must remain IN PROGRESS until an updated
+TaskDeck build is exercised in the browser and confirms that normal Patch actions create no
+terminal tabs while the explicit evidence action still creates one.

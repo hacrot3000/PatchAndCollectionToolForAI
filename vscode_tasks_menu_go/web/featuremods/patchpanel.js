@@ -475,7 +475,7 @@ function installPatchPanel(){
     window.dispatchEvent(new CustomEvent('taskmenu:patch-panel-visible',{detail:{visible}}));
   }
   function rememberReturnView(){
-    const current=String(app.activeSessionId||'');
+    const current=String(app.active||'');
     if(current&&current!=='external:patch')returnViewId=current;
   }
   function restoreReturnView(){

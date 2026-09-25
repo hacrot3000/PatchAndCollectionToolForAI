@@ -842,6 +842,7 @@ func TestPatchPanelOwnsNativeWorkspaceSurface(t *testing.T) {
 		"body.task-patch-workspace-active main>section{visibility:hidden}",
 		"document.body.classList.toggle('task-patch-workspace-active',visible)",
 		"function rememberReturnView()",
+		"const current=String(app.active||'')",
 		"function restoreReturnView()",
 		"app.activateExternalView('patch')",
 		"panel.classList.contains('visible')?close():open()",
@@ -849,6 +850,9 @@ func TestPatchPanelOwnsNativeWorkspaceSurface(t *testing.T) {
 		if !strings.Contains(js,want) {
 			t.Fatalf("native Patch workspace surface missing %q",want)
 		}
+	}
+	if strings.Contains(js,"app.activeSessionId") {
+		t.Fatal("Patch workspace must use TaskMenuApp.active; activeSessionId is not exported")
 	}
 }
 

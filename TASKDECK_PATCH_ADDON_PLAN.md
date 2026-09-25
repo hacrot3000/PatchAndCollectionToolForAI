@@ -197,6 +197,8 @@ Phase 2 is complete only when all of these are true in the actual TaskDeck UI:
 - [x] **Phase 2C — Native navigation/lifecycle.** Keep Queue → Running → Resume/History/Plan/Health transitions inside the native Patch surface, including Resume → History.
 - [x] **Phase 2D — Explicit fallback only.** Protocol loss/timeouts show an actionable fallback state without automatically opening a terminal tab.
 - [ ] **Phase 2E — Product acceptance regression + smoke gate.** Verify no implicit Patch terminal tabs and rerun functional parity checks.
+  - [x] Phase 2E.1 automated product-level regression gate: headless sync, full native workspace, native Resume → History, and explicit-only terminal materialization.
+  - [ ] Phase 2E.2 installed-runtime browser smoke after self-update: visually confirm Queue/Resume/History/Plan/Health do not create terminal tabs and explicit evidence does.
 - [ ] **Phase 2F — Cutover closeout.** Update user docs and mark the integration complete only after Phase 2E passes.
 
 #### Existing protocol/control scaffolding (historically labeled Phase 2A–2H)
@@ -497,12 +499,14 @@ Every phase must preserve:
 | Corrected Phase 2A headless backing session | DONE | 355676a3 | Built-in Patch task_id=-1 sessions remain in the broker/session manager but normal sync no longer creates terminal tabs; explicit terminal evidence materializes the tab on demand. |
 | Corrected Phase 2A UI-test fixture update | DONE | bc978abe | Updated stale PTY-attachment assertions for async explicit evidence materialization; runtime behavior unchanged. |
 | Corrected Phase 2B native workspace surface | DONE | 634b1a2f | Patch activates an external native workspace, spans the work area instead of the 310px sidebar, hides the underlying terminal workspace, and restores the previous view on close. |
-| Corrected Phase 2C native Resume→History navigation | DONE | this commit | Native Resume history selection exits the Resume Python route without entering _history_browser(); TaskDeck opens a dedicated native History session instead. |
-| Corrected Phase 2D explicit-only terminal fallback | DONE | this commit | Removed remaining automatic terminal materialization; protocol loss/timeouts stay in native UI and only explicit evidence buttons create a terminal tab. |
+| Corrected Phase 2C native Resume→History navigation | DONE | e0b41a4a | Native Resume history selection exits the Resume Python route without entering _history_browser(); TaskDeck opens a dedicated native History session instead. |
+| Corrected Phase 2D explicit-only terminal fallback | DONE | e0b41a4a | Removed remaining automatic terminal materialization; protocol loss/timeouts stay in native UI and only explicit evidence buttons create a terminal tab. |
+| Corrected Phase 2B return-view fix | DONE | this commit | Native workspace now reads the actual exported app.active state instead of nonexistent app.activeSessionId before restoring the previous view. |
+| Corrected Phase 2E.1 automated product acceptance gate | DONE | this commit | Dedicated regression gate rejects implicit terminal tabs, enforces headless reload sync/full workspace/native Resume→History, and allows materialization only in the explicit evidence path. |
 
 ## Next action
 
-Phase 2A–2D are implemented. Continue **Phase 2E — Product acceptance regression + smoke gate**:
-verify the real user-visible behavior (no implicit Patch terminal tabs, full native workspace,
-native Resume → History, explicit-only evidence fallback), audit remaining session/lifecycle edge
-cases, and only then consider Phase 2F closeout.
+Phase 2A–2D and the automated Phase 2E.1 product gate are implemented. **Do not close Phase 2 yet.**
+Next is Phase 2E.2 installed-runtime browser smoke after TaskDeck self-update: verify the actual UI
+does not create a terminal tab for Queue/Resume/History/Plan/Health, while explicit terminal
+evidence still materializes one. Only after that passes may Phase 2F closeout be marked DONE.
