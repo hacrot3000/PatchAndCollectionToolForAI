@@ -33,7 +33,6 @@ func TestSelfUpdateBrowserWorkflow(t *testing.T) {
 		"endpoint+'&action=check'",
 		"endpoint+'&action=start'",
 		"checkAndStartUpdate",
-		"freezeForSelfUpdate",
 		"startingFromSettings",
 		"Automatic self-update did not start.",
 	} {

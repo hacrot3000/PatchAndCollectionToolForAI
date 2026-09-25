@@ -189,9 +189,9 @@ func (s *Server) taskState(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Query().Get("scope") {
 	case "terminals":
 		if r.Method == http.MethodPut && terminalStateProtectedBySelfUpdate(s.Workspace) {
-			// The confirmed snapshot is the recovery source for the replacement
-			// daemon. Ignore teardown writes from the old browser/daemon so a
-			// disappearing PTY set cannot overwrite it with an empty layout.
+			// The last persisted snapshot is the recovery source for the
+			// replacement daemon. Protect it only during activation/restart so
+			// candidate validation never blocks normal browser persistence.
 			profile := normalizeTerminalLayoutProfile(r.URL.Query().Get("profile"))
 			state, err := readProjectTerminalStateProfile(s.Workspace, profile)
 			if err != nil {

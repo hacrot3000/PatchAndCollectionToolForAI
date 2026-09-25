@@ -115,7 +115,11 @@ func TestSelfUpdateGuardProtectsRequestedMobileProfileWithoutTouchingDesktop(t *
 	if err := writeProjectTerminalStateProfile(workspace, "mobile", mobile); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := updater.CreateRequest(workspace, "0123456789abcdef", "http://127.0.0.1:1234", true); err != nil {
+	req, err := updater.CreateRequest(workspace, "0123456789abcdef", "http://127.0.0.1:1234", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := updater.Update(workspace, req.ID, "ready_restart", "ready", "", ""); err != nil {
 		t.Fatal(err)
 	}
 
