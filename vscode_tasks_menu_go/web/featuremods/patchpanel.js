@@ -113,10 +113,22 @@ function installPatchPanel(){
   .task-patch-history-title{font-weight:700;flex:1}
   .task-patch-history-status{opacity:.7}
   .task-patch-history-head button{font-size:10px;padding:3px 6px}
-  .task-patch-history-cleanup{display:flex;align-items:center;gap:6px;margin:0 0 8px;padding:6px;border:1px solid #554c3d;border-radius:5px;background:#17140f}
+  .task-patch-history-tools{display:flex;align-items:center;gap:6px;margin:0 0 8px}
+  .task-patch-history-search{display:flex;align-items:center;gap:4px;min-width:0;flex:1}
+  .task-patch-history-search input{min-width:0;flex:1;padding:5px 7px;font-size:11px}
+  .task-patch-history-search button,.task-patch-history-cleanup-toggle{font-size:10px;padding:4px 7px}
+  .task-patch-history-cleanup{display:grid;gap:7px;margin:0 0 8px;padding:7px;border:1px solid #554c3d;border-radius:5px;background:#17140f}
   .task-patch-history-cleanup[hidden]{display:none}
-  .task-patch-history-cleanup-summary{min-width:0;flex:1;opacity:.78;overflow-wrap:anywhere}
-  .task-patch-history-cleanup button{font-size:10px;padding:3px 6px;border-color:#806a43}
+  .task-patch-history-cleanup-controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .task-patch-history-cleanup-controls label{opacity:.75}
+  .task-patch-history-cleanup-controls select{padding:4px 6px;font-size:11px}
+  .task-patch-history-cleanup-controls button{font-size:10px;padding:3px 6px;border-color:#806a43}
+  .task-patch-history-cleanup-summary{min-width:0;opacity:.78;overflow-wrap:anywhere}
+  .task-patch-history-cleanup-candidates{display:grid;gap:4px;max-height:220px;overflow:auto}
+  .task-patch-history-cleanup-candidate{padding:5px 6px;border-radius:4px;background:#211d16}
+  .task-patch-history-cleanup-candidate-name{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .task-patch-history-cleanup-candidate-meta{display:block;font-size:10px;opacity:.7}
+  .task-patch-history-cleanup-delete{justify-self:start;border-color:#81424a!important;background:#3b2025;color:#ffd9dd}
   .task-patch-history-runs{display:grid;gap:4px;max-height:260px;overflow:auto;margin-bottom:8px}
   .task-patch-history-run-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px;align-items:stretch}
   .task-patch-history-run{display:flex;min-width:0;flex-direction:column;align-items:flex-start;gap:2px;padding:6px 7px;text-align:left;background:#171f2a}
@@ -422,10 +434,24 @@ function installPatchPanel(){
   const historyTerminal=document.createElement('button');historyTerminal.type='button';historyTerminal.textContent='Terminal';historyTerminal.title='Open terminal evidence/fallback';
   const historyBack=document.createElement('button');historyBack.type='button';historyBack.textContent='Back';
   historyHead.append(historyTitle,historyStatus,historyTerminal,historyBack);
+  const historyTools=document.createElement('div');historyTools.className='task-patch-history-tools';
+  const historySearch=document.createElement('div');historySearch.className='task-patch-history-search';
+  const historySearchInput=document.createElement('input');historySearchInput.type='search';historySearchInput.placeholder='Filter PATCH/COLLECT by file name…';historySearchInput.autocomplete='off';
+  const historySearchClear=document.createElement('button');historySearchClear.type='button';historySearchClear.textContent='×';historySearchClear.title='Clear History search';historySearchClear.disabled=true;
+  historySearch.append(historySearchInput,historySearchClear);
+  const historyCleanupToggle=document.createElement('button');historyCleanupToggle.type='button';historyCleanupToggle.className='task-patch-history-cleanup-toggle';historyCleanupToggle.textContent='Cleanup…';
+  historyTools.append(historySearch,historyCleanupToggle);
   const historyCleanup=document.createElement('div');historyCleanup.className='task-patch-history-cleanup';historyCleanup.hidden=true;
+  const historyCleanupControls=document.createElement('div');historyCleanupControls.className='task-patch-history-cleanup-controls';
+  const historyCleanupLabel=document.createElement('label');historyCleanupLabel.textContent='Older than';
+  const historyCleanupDays=document.createElement('select');historyCleanupDays.setAttribute('aria-label','History cleanup age');
+  const historyCleanupPreviewButton=document.createElement('button');historyCleanupPreviewButton.type='button';historyCleanupPreviewButton.textContent='Preview';
+  const historyCleanupClose=document.createElement('button');historyCleanupClose.type='button';historyCleanupClose.textContent='Close';
+  historyCleanupControls.append(historyCleanupLabel,historyCleanupDays,historyCleanupPreviewButton,historyCleanupClose);
   const historyCleanupSummary=document.createElement('div');historyCleanupSummary.className='task-patch-history-cleanup-summary';
-  const historyCleanupButton=document.createElement('button');historyCleanupButton.type='button';historyCleanupButton.textContent='Cleanup';
-  historyCleanup.append(historyCleanupSummary,historyCleanupButton);
+  const historyCleanupCandidates=document.createElement('div');historyCleanupCandidates.className='task-patch-history-cleanup-candidates';
+  const historyCleanupDelete=document.createElement('button');historyCleanupDelete.type='button';historyCleanupDelete.className='task-patch-history-cleanup-delete';historyCleanupDelete.hidden=true;
+  historyCleanup.append(historyCleanupControls,historyCleanupSummary,historyCleanupCandidates,historyCleanupDelete);
   const historyRuns=document.createElement('div');historyRuns.className='task-patch-history-runs';
   const historyManagement=document.createElement('div');historyManagement.className='task-patch-history-management';historyManagement.hidden=true;
   const historyManagementMessage=document.createElement('div');historyManagementMessage.className='task-patch-history-management-message';
@@ -438,7 +464,7 @@ function installPatchPanel(){
   const historyItems=document.createElement('div');historyItems.className='task-patch-history-items';
   const historyWarnings=document.createElement('div');historyWarnings.className='task-patch-history-warning';
   historyDetail.append(historyDetailTitle,historyDetailMeta,historyFiles,historyItems,historyWarnings);
-  historyBox.append(historyHead,historyCleanup,historyRuns,historyManagement,historyDetail);
+  historyBox.append(historyHead,historyTools,historyCleanup,historyRuns,historyManagement,historyDetail);
 
   const planBox=document.createElement('div');planBox.className='task-patch-plan';planBox.hidden=true;
   const planHead=document.createElement('div');planHead.className='task-patch-plan-head';
@@ -543,6 +569,8 @@ function installPatchPanel(){
   let latestHistoryReport=null;
   let activeHistoryPrompt=null;
   let activeHistoryRunID='';
+  let historySearchQuery='';
+  let latestHistoryCleanupPreview=null;
   let historyBusy=false;
   let historyManagementBusy=false;
   let historyManagementPollGeneration=0;
@@ -846,13 +874,20 @@ function installPatchPanel(){
     historyManagementBusy=false;
     historySupportBusy=false;
     historyCleanupBusy=false;
+    historySearchQuery='';
+    latestHistoryCleanupPreview=null;
+    historySearchInput.value='';
+    historySearchClear.disabled=true;
     historyPollGeneration+=1;
     historyManagementPollGeneration+=1;
     historySupportPollGeneration+=1;
     historyCleanupPollGeneration+=1;
     historyCleanup.hidden=true;
     historyCleanupSummary.textContent='';
-    historyCleanupButton.disabled=false;
+    historyCleanupCandidates.replaceChildren();
+    historyCleanupDelete.hidden=true;
+    historyCleanupToggle.disabled=false;
+    historyCleanupPreviewButton.disabled=false;
     historyRuns.replaceChildren();
     historyManagement.hidden=true;
     historyManagementMessage.textContent='';
@@ -1073,45 +1108,107 @@ function installPatchPanel(){
     const destructive=new Set(Array.isArray(constraints.destructive_actions)?constraints.destructive_actions.map(value=>String(value).toLowerCase()):[]);
     const cleanup=constraints.cleanup&&typeof constraints.cleanup==='object'?constraints.cleanup:null;
     if(!actions.has('cleanup')||!destructive.has('cleanup')||!cleanup)return null;
-    if(String(cleanup.policy||'')!=='remove_unpinned_idle_then_oldest_unpinned_over_limit')return null;
-    const fields=['eligible','idle_eligible','overflow_eligible','pinned','meaningful','limit'];
-    const values={};
-    for(const field of fields){
-      const value=Number(cleanup[field]);
-      if(!Number.isInteger(value)||value<0)return null;
-      values[field]=value;
+    if(String(cleanup.age_policy||'')!=='remove_unpinned_older_than_days')return null;
+    const minDays=Number(cleanup.min_days);
+    const maxDays=Number(cleanup.max_days);
+    if(!Number.isInteger(minDays)||!Number.isInteger(maxDays)||minDays<1||maxDays<minDays)return null;
+    const advertised=Array.isArray(cleanup.day_options)?cleanup.day_options.map(Number):[];
+    const dayOptions=[...new Set(advertised.filter(value=>Number.isInteger(value)&&value>=minDays&&value<=maxDays))];
+    if(!dayOptions.length)dayOptions.push(Math.min(maxDays,Math.max(minDays,30)));
+    return {
+      agePolicy:String(cleanup.age_policy),
+      minDays,maxDays,dayOptions,
+      pinned:Number.isInteger(Number(cleanup.pinned))?Math.max(0,Number(cleanup.pinned)):0,
+    };
+  }
+
+  function historyRunMatchesSearch(run){
+    const query=historySearchQuery.trim().toLocaleLowerCase();
+    if(!query)return true;
+    const names=Array.isArray(run?.search_names)?run.search_names:[run?.primary_name];
+    return names.some(value=>String(value||'').toLocaleLowerCase().includes(query));
+  }
+
+  function setHistorySearchQuery(value){
+    historySearchQuery=String(value||'');
+    historySearchInput.value=historySearchQuery;
+    historySearchClear.disabled=!historySearchQuery;
+    renderHistoryRuns();
+  }
+
+  function populateHistoryCleanupDays(cleanup){
+    const current=Number(historyCleanupDays.value);
+    const options=cleanup?.dayOptions||[];
+    const signature=options.join(',');
+    if(historyCleanupDays.dataset.options===signature)return;
+    historyCleanupDays.replaceChildren();
+    for(const days of options){
+      const option=document.createElement('option');option.value=String(days);option.textContent=days+' day'+(days===1?'':'s');historyCleanupDays.append(option);
     }
-    return {...values,policy:String(cleanup.policy)};
+    historyCleanupDays.dataset.options=signature;
+    const preferred=options.includes(current)?current:(options.includes(30)?30:options[0]);
+    historyCleanupDays.value=String(preferred);
   }
 
   function renderHistoryCleanupCapability(prompt){
     const cleanup=historyCleanupProjection(prompt);
+    historyCleanupToggle.hidden=!cleanup;
     if(!cleanup){
       historyCleanup.hidden=true;
       historyCleanupSummary.textContent='';
-      historyCleanupButton.disabled=true;
+      historyCleanupCandidates.replaceChildren();
+      historyCleanupDelete.hidden=true;
+      latestHistoryCleanupPreview=null;
       return false;
     }
-    historyCleanup.hidden=false;
-    historyCleanupSummary.textContent=[
-      `${cleanup.eligible} eligible`,
-      `${cleanup.idle_eligible} IDLE`,
-      `${cleanup.overflow_eligible} over limit`,
-      `${cleanup.pinned} pinned`,
-      `keep ${cleanup.limit} meaningful`,
-    ].join(' · ');
-    historyCleanupButton.textContent=cleanup.eligible>0?`Cleanup ${cleanup.eligible}`:'Nothing eligible';
-    historyCleanupButton.disabled=cleanup.eligible===0||historyBusy||historyManagementBusy||historySupportBusy||historyCleanupBusy;
+    populateHistoryCleanupDays(cleanup);
+    historyCleanupToggle.disabled=historyBusy||historyManagementBusy||historySupportBusy||historyCleanupBusy;
+    historyCleanupPreviewButton.disabled=historyCleanupBusy||historyBusy||historyManagementBusy||historySupportBusy;
+    if(historyCleanup.hidden)return true;
+    if(!latestHistoryCleanupPreview){
+      historyCleanupSummary.textContent='Pinned runs are preserved'+(cleanup.pinned?(' · '+cleanup.pinned+' pinned'):'')+'. Select an age and preview before deleting.';
+      historyCleanupCandidates.replaceChildren();
+      historyCleanupDelete.hidden=true;
+    }
     return true;
   }
 
   function renderHistoryCleanupResult(result){
     if(!result||typeof result!=='object')return false;
+    const mode=String(result.mode||'');
+    if(mode==='preview'){
+      latestHistoryCleanupPreview=result;
+      historyCleanup.hidden=false;
+      historyCleanupCandidates.replaceChildren();
+      const candidates=Array.isArray(result.candidates)?result.candidates:[];
+      historyCleanupSummary.textContent=[
+        String(result.message||'Cleanup preview'),
+        String(Number(result.eligible_before||0))+' eligible',
+        String(Number(result.pinned||0))+' pinned preserved',
+        result.candidates_truncated===true?'preview truncated':'',
+      ].filter(Boolean).join(' · ');
+      for(const candidate of candidates){
+        const row=document.createElement('div');row.className='task-patch-history-cleanup-candidate';
+        const name=document.createElement('span');name.className='task-patch-history-cleanup-candidate-name';name.textContent=String(candidate?.primary_name||candidate?.run_id||'');
+        const meta=document.createElement('span');meta.className='task-patch-history-cleanup-candidate-meta';
+        meta.textContent=[candidate?.display_time,candidate?.status,candidate?.item_count===undefined?'':String(candidate.item_count)+' item(s)'].filter(Boolean).join(' · ');
+        row.append(name,meta);historyCleanupCandidates.append(row);
+      }
+      const eligible=Number(result.eligible_before||0);
+      historyCleanupDelete.textContent='Delete '+eligible+' entr'+(eligible===1?'y':'ies');
+      historyCleanupDelete.hidden=eligible<=0||result.candidates_truncated===true;
+      historyCleanupDelete.disabled=historyCleanupBusy;
+      return true;
+    }
+
+    latestHistoryCleanupPreview=null;
+    historyCleanupCandidates.replaceChildren();
+    historyCleanupDelete.hidden=true;
     historyManagementMessage.textContent=[
       String(result.message||'History cleanup result'),
-      `removed=${Number(result.removed||0)}`,
-      `pinned=${Number(result.pinned||0)}`,
-      `remaining=${Number(result.remaining||0)}`,
+      'removed='+Number(result.removed||0),
+      'pinned='+Number(result.pinned||0),
+      'remaining='+Number(result.remaining||0),
     ].join(' · ');
     historyManagementFiles.replaceChildren();
     historyManagement.hidden=false;
@@ -1158,28 +1255,64 @@ function installPatchPanel(){
     throw new Error('Timed out waiting for native Patch History cleanup');
   }
 
-  async function submitHistoryCleanup(sessionId,prompt){
+  async function submitHistoryCleanupPreview(sessionId,prompt){
     if(historyBusy||historyManagementBusy||historySupportBusy||historyCleanupBusy||!sessionId||!prompt)return null;
     const cleanup=historyCleanupProjection(prompt);
     if(!cleanup)throw new Error('History Cleanup is not advertised by the active Python prompt');
-    if(cleanup.eligible<=0)return null;
-    const confirmed=window.confirm(
-      `Clean Patch Tool History? Python reports ${cleanup.eligible} eligible entries: ${cleanup.idle_eligible} unpinned IDLE and ${cleanup.overflow_eligible} oldest unpinned over limit. Pinned runs are preserved; newest meaningful History is kept to limit ${cleanup.limit}.`
-    );
-    if(!confirmed)return null;
+    const olderThanDays=Number(historyCleanupDays.value);
+    if(!Number.isInteger(olderThanDays)||olderThanDays<cleanup.minDays||olderThanDays>cleanup.maxDays)throw new Error('Invalid History cleanup age');
     const promptID=String(prompt.prompt_id||'');
     const snapshotBefore=JSON.stringify(latestHistorySnapshot||{});
     historyCleanupBusy=true;
-    historyManagement.hidden=false;
-    historyManagementFiles.replaceChildren();
-    historyManagementMessage.textContent='Cleaning History using Python retention policy…';
+    latestHistoryCleanupPreview=null;
+    historyCleanupCandidates.replaceChildren();
+    historyCleanupDelete.hidden=true;
+    historyCleanupSummary.textContent='Finding unpinned History older than '+olderThanDays+' days…';
     renderHistoryCleanupCapability(prompt);
     renderHistoryRuns();
     try{
       const response=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/history-cleanup`,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({prompt_id:promptID,confirmed:true}),
+        body:JSON.stringify({prompt_id:promptID,older_than_days:olderThanDays,confirmed:false}),
+      });
+      const cleanupID=String(response?.cleanup_id||'');
+      if(!cleanupID)throw new Error('TaskDeck did not return a cleanup_id');
+      return await waitForHistoryCleanup(sessionId,cleanupID,promptID,snapshotBefore);
+    }finally{
+      historyCleanupBusy=false;
+      renderHistoryCleanupCapability(activeHistoryPrompt);
+      renderHistoryRuns();
+    }
+  }
+
+  async function submitHistoryCleanupDelete(sessionId,prompt){
+    const preview=latestHistoryCleanupPreview;
+    if(historyBusy||historyManagementBusy||historySupportBusy||historyCleanupBusy||!sessionId||!prompt||!preview)return null;
+    const eligible=Number(preview.eligible_before||0);
+    const olderThanDays=Number(preview.older_than_days);
+    if(!Number.isInteger(eligible)||eligible<=0||!Number.isInteger(olderThanDays))return null;
+    const confirmed=window.confirm(
+      'Delete '+eligible+' unpinned Patch Tool History entr'+(eligible===1?'y':'ies')+' older than '+olderThanDays+' day'+(olderThanDays===1?'':'s')+'? Only the entries shown in the reviewed preview are eligible; pinned runs are preserved.'
+    );
+    if(!confirmed)return null;
+    const promptID=String(prompt.prompt_id||'');
+    const snapshotBefore=JSON.stringify(latestHistorySnapshot||{});
+    historyCleanupBusy=true;
+    historyCleanupDelete.disabled=true;
+    historyCleanupSummary.textContent='Deleting reviewed History entries…';
+    renderHistoryCleanupCapability(prompt);
+    renderHistoryRuns();
+    try{
+      const response=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/history-cleanup`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          prompt_id:promptID,
+          older_than_days:olderThanDays,
+          confirmed:true,
+          preview_cleanup_id:String(preview.cleanup_id||''),
+        }),
       });
       const cleanupID=String(response?.cleanup_id||'');
       if(!cleanupID)throw new Error('TaskDeck did not return a cleanup_id');
@@ -1277,11 +1410,20 @@ function installPatchPanel(){
     renderHistoryCleanupCapability(activeHistoryPrompt);
     historyRuns.replaceChildren();
     const runs=Array.isArray(latestHistorySnapshot?.runs)?latestHistorySnapshot.runs:[];
+    const filteredRuns=runs.filter(historyRunMatchesSearch);
+    const total=Number(latestHistorySnapshot?.total??runs.length);
+    historyStatus.textContent=historySearchQuery
+      ? `${filteredRuns.length}/${runs.length} shown · ${Number.isFinite(total)?total:runs.length} total`
+      : `${runs.length}/${Number.isFinite(total)?total:runs.length} run(s) · native`;
     if(!runs.length){
       const empty=document.createElement('div');empty.className='task-patch-summary-empty';empty.textContent='No Patch Tool history yet';historyRuns.append(empty);
       return;
     }
-    for(const run of runs){
+    if(!filteredRuns.length){
+      const empty=document.createElement('div');empty.className='task-patch-summary-empty';empty.textContent='No History run matches this file name';historyRuns.append(empty);
+      return;
+    }
+    for(const run of filteredRuns){
       const runID=String(run?.run_id||'');
       if(!runID)continue;
       const allowed=historyActionsForRun(runID);
@@ -1411,7 +1553,6 @@ function installPatchPanel(){
     renderHistoryCleanupCapability(prompt);
     if(!latestHistorySnapshot)renderHistorySnapshot({status:Array.isArray(prompt.runs)&&prompt.runs.length?'available':'empty',runs:Array.isArray(prompt.runs)?prompt.runs:[],total:Array.isArray(prompt.runs)?prompt.runs.length:0,default_run_id:prompt.default_run_id||''});
     else renderHistoryRuns();
-    historyStatus.textContent=(Array.isArray(prompt.runs)?prompt.runs.length:0)+' run(s) · native';
     const defaultRun=String(prompt.default_run_id||latestHistorySnapshot?.default_run_id||'');
     if(defaultRun&&!activeHistoryRunID&&!historyBusy){
       void submitHistoryDetail(sessionId,prompt,defaultRun).catch(error=>{historyWarnings.textContent=String(error?.message||error);});
@@ -3054,7 +3195,19 @@ function installPatchPanel(){
 
   terminalEvidence.onclick=()=>openTerminalEvidence().catch(app.showError);
   historyTerminal.onclick=()=>openLegacyHistoryTerminal().catch(app.showError);
-  historyCleanupButton.onclick=()=>submitHistoryCleanup(activeSessionId,activeHistoryPrompt).catch(app.showError);
+  historySearchInput.oninput=()=>setHistorySearchQuery(historySearchInput.value);
+  historySearchClear.onclick=()=>{setHistorySearchQuery('');historySearchInput.focus();};
+  historyCleanupToggle.onclick=()=>{
+    historyCleanup.hidden=!historyCleanup.hidden;
+    if(!historyCleanup.hidden){
+      latestHistoryCleanupPreview=null;
+      renderHistoryCleanupCapability(activeHistoryPrompt);
+    }
+  };
+  historyCleanupClose.onclick=()=>{historyCleanup.hidden=true;latestHistoryCleanupPreview=null;historyCleanupCandidates.replaceChildren();historyCleanupDelete.hidden=true;};
+  historyCleanupDays.onchange=()=>{latestHistoryCleanupPreview=null;historyCleanupCandidates.replaceChildren();historyCleanupDelete.hidden=true;renderHistoryCleanupCapability(activeHistoryPrompt);};
+  historyCleanupPreviewButton.onclick=()=>submitHistoryCleanupPreview(activeSessionId,activeHistoryPrompt).catch(app.showError);
+  historyCleanupDelete.onclick=()=>submitHistoryCleanupDelete(activeSessionId,activeHistoryPrompt).catch(app.showError);
   historyBack.onclick=()=>stopHistoryAndBack().catch(app.showError);
   planTerminal.onclick=()=>openTerminalEvidence().catch(app.showError);
   planBack.onclick=leavePlanView;
@@ -3067,7 +3220,7 @@ function installPatchPanel(){
   summarySearchInput.oninput=()=>setQueueSearchQuery(summarySearchInput.value);
   summarySearchClear.onclick=()=>{setQueueSearchQuery('');summarySearchInput.focus();};
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,submitHistoryCleanup,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
   return true;
 }
 
