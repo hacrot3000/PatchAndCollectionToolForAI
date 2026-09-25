@@ -428,6 +428,36 @@ Checkpoints:
 Verification: GitHub Actions run `36105569250` PASS on Go 1.19 and Go 1.23, including
 entry routing, JavaScript syntax, exact staged self-update tests, full tests, vet and build.
 
+## Phase 2E.2 UX correction: Active runs tracks only live sessions
+
+Installed smoke exposed that the in-browser run map was being rendered as if it were an activity list:
+completed COLLECT/PATCH sessions stayed visible under **Active runs** after repeated
+**Back to Queue / Add more** cycles.
+
+The native UI now treats **Active runs** as a live-session projection:
+
+- TaskDeck session metadata is authoritative for liveness:
+  only `status=running` remains Active.
+- `exited` / `stopped` sessions are pruned from the run map automatically.
+- When returning from a foreground run, the UI re-checks session metadata before adding it to
+  Active runs. A foreground run already finished is not re-added.
+- Background workers are revalidated every poll via `/api/sessions/<id>`; protocol state is used
+  for progress/details, not for deciding whether a process is still alive.
+- Transient protocol errors no longer make the UI invent a finished state while the underlying
+  session is still running.
+- Each active card has **Remove from Active** as a safe recovery action. It re-checks session
+  metadata and refuses removal while the process is still `running`; therefore manual cleanup
+  cannot silently hide a live PATCH/COLLECT and weaken add-mode safety.
+- The parallel COLLECT cap is now global to the page: existing active workers plus newly selected
+  workers cannot exceed Python's advertised maximum (currently 16).
+
+Checkpoint:
+- `27cfd572` — backend-authoritative Active runs pruning, safe manual removal, and total parallel
+  slot accounting.
+
+Verification: GitHub Actions run `36107744970` PASS on Go 1.19 and Go 1.23, including
+JavaScript syntax, staged self-update tests, full tests, vet and build.
+
 ## Non-regression invariants
 
 - Python remains authoritative for Patch Tool policy/business logic.
@@ -441,6 +471,8 @@ entry routing, JavaScript syntax, exact staged self-update tests, full tests, ve
 - Parallel COLLECT workers must remain independent `task_id=-1` sessions; do not weaken Python's one-COLLECT-per-invocation safety contract.
 - **Back to Queue / Add more** must never stop an active execution session; only a waiting Queue selector may be replaced by Refresh Queue.
 - While active executions exist, Queue add-mode must not permit launching another PATCH or re-running/deleting an already-running item.
+- Active runs must contain only TaskDeck sessions whose metadata status is `running`; completed/stopped sessions must be pruned rather than retained as UI history.
+- Manual removal from Active runs must fail closed while backend metadata still reports `running`.
 - Native parallel COLLECT state/results must come from typed protocol events, never console-text parsing.
 - In **Terminal (legacy)** mode, materializing a normal terminal tab is intentional and required; that session must not opt into native FD3/FD4/Python routes.
 - Patch start must fail closed if backend metadata is not reserved `task_id=-1` or if the new session is already materialized in `app.views`.
