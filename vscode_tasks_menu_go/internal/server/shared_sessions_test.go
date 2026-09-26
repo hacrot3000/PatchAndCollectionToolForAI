@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -307,5 +308,70 @@ func TestSharedSessionWebSocketSeparatesViewAndControl(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("controller input did not reach session")
+	}
+}
+
+func TestSharedSessionAuthorizationDenialsAreAudited(t *testing.T) {
+	ctx := context.Background()
+	store, err := identity.OpenSQLiteStore(ctx, filepath.Join(t.TempDir(), "identity", "identity.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	hash, err := identity.HashPassword(ctx, "private-admin-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal, err := store.BootstrapFirstAdmin(ctx, "project-key", "alice", hash, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SeedSystemRoles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	service := &ownershipTestService{supported: true, items: []session.Metadata{{
+		ID: "terminal-1", Kind: tasks.SessionKindTerminal, OwnerUserID: "bob",
+		ProjectID: string(principal.ProjectID), Status: "running",
+	}}}
+	s := sharedSessionTestServer(t, service)
+	s.Identity = store
+	principal.Permissions = map[string]bool{identity.PermissionTasksRun: true}
+
+	create := sharedSessionRequest(http.MethodPost, "/api/sessions", `{"kind":"terminal"}`, principal)
+	create.RemoteAddr = "127.0.0.1:12345"
+	createRecorder := httptest.NewRecorder()
+	s.sessionsRoot(createRecorder, create)
+	if createRecorder.Code != http.StatusForbidden {
+		t.Fatalf("create denial status=%d body=%s", createRecorder.Code, createRecorder.Body.String())
+	}
+
+	view := sharedSessionRequest(http.MethodGet, "/api/sessions/terminal-1", "", principal)
+	view.RemoteAddr = "127.0.0.1:12345"
+	viewRecorder := httptest.NewRecorder()
+	s.sessionItem(viewRecorder, view)
+	if viewRecorder.Code != http.StatusForbidden {
+		t.Fatalf("session denial status=%d body=%s", viewRecorder.Code, viewRecorder.Body.String())
+	}
+
+	events, err := store.ListAudit(ctx, identity.AuditQuery{
+		ProjectID: principal.ProjectID,
+		UserID: principal.UserID,
+		Action: "authorization.denied",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var createAudit, sessionAudit bool
+	for _, event := range events {
+		switch {
+		case event.ResourceType == "session_create" && event.ResourceID == tasks.SessionKindTerminal:
+			createAudit = strings.Contains(event.Details, identity.PermissionTerminalCreate)
+		case event.ResourceType == "session" && event.ResourceID == "terminal-1":
+			sessionAudit = strings.Contains(event.Details, `"kind":"terminal"`)
+		}
+	}
+	if !createAudit || !sessionAudit {
+		t.Fatalf("missing session authorization audits: %+v", events)
 	}
 }

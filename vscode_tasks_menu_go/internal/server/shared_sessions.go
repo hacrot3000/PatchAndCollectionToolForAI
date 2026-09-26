@@ -41,6 +41,11 @@ func (s *Server) prepareSharedSession(w http.ResponseWriter, r *http.Request, sp
 	}
 	permission := sharedSessionCreatePermission(kind)
 	if permission == "" || !principal.Allowed(permission) {
+		details := map[string]any{"kind": kind}
+		if permission != "" {
+			details["required_permission"] = permission
+		}
+		s.appendSharedAudit(r, &principal, nil, "authorization.denied", "session_create", kind, "denied", details)
 		writePermissionDenied(w)
 		return false
 	}
@@ -176,6 +181,11 @@ func (s *Server) authorizeSharedSessionItem(w http.ResponseWriter, r *http.Reque
 		return false
 	}
 	if !sharedSessionActionAllowed(principal, meta, r.Method, action) {
+		s.appendSharedAudit(r, &principal, nil, "authorization.denied", "session", id, "denied", map[string]any{
+			"method": r.Method,
+			"action": action,
+			"kind":   meta.Kind,
+		})
 		writePermissionDenied(w)
 		return false
 	}
