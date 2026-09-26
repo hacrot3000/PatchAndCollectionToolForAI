@@ -75,7 +75,10 @@ func RestoreSQLiteFile(ctx context.Context, targetPath, backupPath string, now t
 		return "", fmt.Errorf("create pre-restore identity backup: %w", err)
 	}
 	if err := runSQLiteBackup(ctx, backupPath, targetPath); err != nil {
-		if rollbackErr := runSQLiteBackup(context.Background(), safetyPath, targetPath); rollbackErr != nil {
+		rollbackCtx, cancelRollback := context.WithTimeout(context.Background(), 30*time.Second)
+		rollbackErr := runSQLiteBackup(rollbackCtx, safetyPath, targetPath)
+		cancelRollback()
+		if rollbackErr != nil {
 			return safetyPath, fmt.Errorf("restore identity DB: %v; rollback from %s failed: %w", err, safetyPath, rollbackErr)
 		}
 		return safetyPath, fmt.Errorf("restore identity DB: %w", err)
