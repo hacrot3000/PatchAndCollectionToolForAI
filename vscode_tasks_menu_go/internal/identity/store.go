@@ -24,6 +24,7 @@ type Reader interface {
 // SessionStore persists only hashes of opaque browser session tokens.
 type SessionStore interface {
 	CreateAuthSession(ctx context.Context, session AuthSession) error
+	CreateLoginSession(ctx context.Context, session AuthSession, projectID ID, verifiedPasswordHash string) error
 	AuthSessionByTokenHash(ctx context.Context, tokenHash string) (AuthSession, error)
 	TouchAuthSession(ctx context.Context, sessionID ID, seenAt time.Time) error
 	RevokeAuthSession(ctx context.Context, sessionID ID, revokedAt time.Time) error

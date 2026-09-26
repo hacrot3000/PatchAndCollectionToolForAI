@@ -169,7 +169,7 @@ func (s *Server) sharedLogin(w http.ResponseWriter, r *http.Request) {
 		sharedAuthError(w, err)
 		return
 	}
-	token, session, err := identity.CreateBrowserSession(ctx, s.Identity, user.ID, time.Now())
+	token, session, err := identity.CreateLoginBrowserSession(ctx, s.Identity, principal, user.PasswordHash, time.Now())
 	if err != nil {
 		sharedAuthError(w, err)
 		return

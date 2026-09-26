@@ -33,6 +33,31 @@ func randomID() (ID, error) {
 // CreateBrowserSession returns the raw token only to the caller setting the
 // cookie. Neither the stored session nor its ID contains that bearer token.
 func CreateBrowserSession(ctx context.Context, store SessionStore, userID ID, now time.Time) (string, AuthSession, error) {
+	token, session, err := newBrowserSession(userID, now)
+	if err != nil {
+		return "", AuthSession{}, err
+	}
+	if err := store.CreateAuthSession(ctx, session); err != nil {
+		return "", AuthSession{}, err
+	}
+	return token, session, nil
+}
+
+// CreateLoginBrowserSession atomically checks the verified credentials and
+// project access again when persisting the new session, closing the window in
+// which a password reset/disable could occur during the expensive verifier.
+func CreateLoginBrowserSession(ctx context.Context, store SessionStore, principal Principal, verifiedPasswordHash string, now time.Time) (string, AuthSession, error) {
+	token, session, err := newBrowserSession(principal.UserID, now)
+	if err != nil {
+		return "", AuthSession{}, err
+	}
+	if err := store.CreateLoginSession(ctx, session, principal.ProjectID, verifiedPasswordHash); err != nil {
+		return "", AuthSession{}, err
+	}
+	return token, session, nil
+}
+
+func newBrowserSession(userID ID, now time.Time) (string, AuthSession, error) {
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return "", AuthSession{}, err
@@ -46,9 +71,6 @@ func CreateBrowserSession(ctx context.Context, store SessionStore, userID ID, no
 	session := AuthSession{
 		ID: id, UserID: userID, TokenHash: hash,
 		CreatedAt: now.UTC(), LastSeenAt: now.UTC(), ExpiresAt: now.UTC().Add(SessionLifetime),
-	}
-	if err := store.CreateAuthSession(ctx, session); err != nil {
-		return "", AuthSession{}, err
 	}
 	return token, session, nil
 }
