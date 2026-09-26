@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 
 	updater "bletonfc/vscode_tasks_menu/internal/selfupdate"
 )
+
+const InternalControlHeader = "X-TaskDeck-Internal-Control"
 
 type SelfUpdateCheckResult struct {
 	Available        bool   `json:"available"`
@@ -212,8 +215,8 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 		s.sharedMutation.releaseOperation("selfupdate.run")
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": req.ID})
 	case "detach":
-		if !loopbackRemote(r.RemoteAddr) {
-			http.Error(w, "detach is restricted to loopback", http.StatusForbidden)
+		if !s.internalControlRequest(r) {
+			http.Error(w, "detach requires authenticated local control", http.StatusForbidden)
 			return
 		}
 		switch req.Status {
@@ -248,8 +251,8 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 			}
 		}()
 	case "handoff":
-		if !loopbackRemote(r.RemoteAddr) {
-			http.Error(w, "handoff is restricted to loopback", http.StatusForbidden)
+		if !s.internalControlRequest(r) {
+			http.Error(w, "handoff requires authenticated local control", http.StatusForbidden)
 			return
 		}
 		if req.Status != "ready_restart" {
@@ -296,6 +299,18 @@ func loopbackRemote(remote string) bool {
 	}
 	ip := net.ParseIP(strings.Trim(host, "[]"))
 	return ip != nil && ip.IsLoopback()
+}
+
+func (s *Server) internalControlRequest(r *http.Request) bool {
+	if !loopbackRemote(r.RemoteAddr) {
+		return false
+	}
+	expected := strings.TrimSpace(s.InternalControlToken)
+	provided := strings.TrimSpace(r.Header.Get(InternalControlHeader))
+	if expected == "" || len(expected) != len(provided) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(provided)) == 1
 }
 
 func (s *Server) ensureSharedSelfUpdateMutation(w http.ResponseWriter, r *http.Request, resourceID string) bool {

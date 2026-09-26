@@ -31,6 +31,7 @@ type Server struct {
 	Log       *log.Logger
 	Sessions  session.Service
 	Identity  identity.Store
+	InternalControlToken string
 
 	projectIndexMu         sync.Mutex
 	projectIndex           *projectFileIndex
