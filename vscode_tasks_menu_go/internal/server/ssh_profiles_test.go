@@ -193,3 +193,49 @@ func TestSSHProfileAPIRejectsSecretForAgent(t *testing.T) {
 		t.Fatalf("status=%d want 400 body=%s", rr.Code, rr.Body.String())
 	}
 }
+
+func TestSSHProfileAPIRejectsUnsafeAuthenticationSecret(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		secret string
+	}{
+		{name: "line break", secret: "first\nsecond"},
+		{name: "carriage return", secret: "first\rsecond"},
+		{name: "nul", secret: "first\x00second"},
+		{name: "too large", secret: strings.Repeat("x", maxSSHAuthenticationSecretBytes+1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, store, secrets := newSSHProfileAPITestServer(t)
+			body, err := json.Marshal(map[string]any{
+				"name":        "Production",
+				"host":        "prod.example.com",
+				"username":    "deploy",
+				"auth_method": "password",
+				"secret":      tc.secret,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/api/ssh/profiles", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+			s.Handler().ServeHTTP(rr, req)
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d want 400 body=%s", rr.Code, rr.Body.String())
+			}
+			profiles, err := store.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(profiles) != 0 {
+				t.Fatalf("unsafe secret created %d profiles", len(profiles))
+			}
+			secrets.mu.Lock()
+			count := len(secrets.records)
+			secrets.mu.Unlock()
+			if count != 0 {
+				t.Fatalf("unsafe secret created %d secret records", count)
+			}
+		})
+	}
+}
