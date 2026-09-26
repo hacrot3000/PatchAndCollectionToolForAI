@@ -87,6 +87,14 @@ type AuditEvent struct {
 	Details      string
 }
 
+type AuditQuery struct {
+	ProjectID ID
+	UserID    ID
+	Action    string
+	Before    *time.Time
+	Limit     int
+}
+
 // Principal is the request-scoped identity/authorization projection consumed by
 // HTTP handlers. Permissions are project-scoped and already resolved.
 type Principal struct {

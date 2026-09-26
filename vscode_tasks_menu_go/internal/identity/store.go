@@ -35,6 +35,7 @@ type SessionStore interface {
 // plaintext passwords, raw session tokens or other secrets in AuditEvent.
 type AuditStore interface {
 	AppendAudit(ctx context.Context, event AuditEvent) error
+	ListAudit(ctx context.Context, query AuditQuery) ([]AuditEvent, error)
 }
 
 // AdminStore is intentionally project-aware from the first implementation so a

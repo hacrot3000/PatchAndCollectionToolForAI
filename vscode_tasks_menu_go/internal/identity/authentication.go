@@ -30,6 +30,10 @@ func randomID() (ID, error) {
 	return ID(hex.EncodeToString(raw[:])), nil
 }
 
+// NewID returns a cryptographically random opaque ID for identity-domain
+// records created outside this package, such as HTTP audit events.
+func NewID() (ID, error) { return randomID() }
+
 // CreateBrowserSession returns the raw token only to the caller setting the
 // cookie. Neither the stored session nor its ID contains that bearer token.
 func CreateBrowserSession(ctx context.Context, store SessionStore, userID ID, now time.Time) (string, AuthSession, error) {

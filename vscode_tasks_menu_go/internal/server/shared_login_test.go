@@ -98,6 +98,45 @@ func TestSharedLoginCookieRotationAndLogout(t *testing.T) {
 	}
 }
 
+func TestSharedLoginAuditOmitsCredentialsAndTokens(t *testing.T) {
+	s := sharedLoginTestServer(t)
+	bad := loginRequest(`{"username":"alice","password":"wrong-password"}`)
+	badRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(badRecorder, bad)
+	if badRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("bad login status=%d", badRecorder.Code)
+	}
+	cookie := sharedAPILogin(t, s, "alice")
+	logout := httptest.NewRequest(http.MethodPost, "https://taskdeck.test/api/auth/logout", strings.NewReader(`{}`))
+	logout.Header.Set("Content-Type", "application/json")
+	logout.AddCookie(cookie)
+	logoutRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(logoutRecorder, logout)
+	if logoutRecorder.Code != http.StatusNoContent {
+		t.Fatalf("logout status=%d body=%s", logoutRecorder.Code, logoutRecorder.Body.String())
+	}
+	project, err := s.Identity.ProjectByKey(context.Background(), s.Config.SharedProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := s.Identity.ListAudit(context.Background(), identity.AuditQuery{ProjectID: project.ID, Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := map[string]bool{}
+	for _, event := range events {
+		results[event.Action+":"+event.Result] = true
+		if strings.Contains(event.Details, "wrong-password") || strings.Contains(event.Details, cookie.Value) {
+			t.Fatalf("audit leaked credential material: %#v", event)
+		}
+	}
+	for _, want := range []string{"auth.login:denied", "auth.login:success", "auth.logout:success"} {
+		if !results[want] {
+			t.Fatalf("missing audit result %s in %#v", want, results)
+		}
+	}
+}
+
 func TestSharedLoginGenericFailureAndRateLimit(t *testing.T) {
 	s := sharedLoginTestServer(t)
 	for i := 0; i < authFailureLimit; i++ {

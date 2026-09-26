@@ -110,10 +110,12 @@ func (s *Server) sharedLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if blocked, retry := s.authBlocked(r.RemoteAddr, time.Now()); blocked {
+		s.appendSharedAudit(r, nil, nil, "auth.login", "user", "", "denied", map[string]any{"reason": "rate_limited"})
 		writeAuthRateLimit(w, retry)
 		return
 	}
 	if !s.beginSharedLogin() {
+		s.appendSharedAudit(r, nil, nil, "auth.login", "user", "", "denied", map[string]any{"reason": "login_capacity"})
 		writeAuthRateLimit(w, time.Second)
 		return
 	}
@@ -128,6 +130,7 @@ func (s *Server) sharedLogin(w http.ResponseWriter, r *http.Request) {
 	request.Username = strings.TrimSpace(request.Username)
 	if err != nil || decoder.Decode(new(any)) != io.EOF || request.Username == "" || len(request.Username) > 128 || len(request.Password) == 0 || len(request.Password) > 4096 {
 		s.authRecordFailure(r.RemoteAddr, time.Now())
+		s.appendSharedAudit(r, nil, nil, "auth.login", "user", "", "denied", map[string]any{"reason": "invalid_request"})
 		http.Error(w, "invalid login request", http.StatusBadRequest)
 		return
 	}
@@ -138,6 +141,7 @@ func (s *Server) sharedLogin(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	user, lookupErr := s.Identity.UserByUsername(ctx, request.Username)
 	if lookupErr != nil && !errors.Is(lookupErr, identity.ErrNotFound) {
+		s.appendSharedAudit(r, nil, nil, "auth.login", "user", "", "error", map[string]any{"reason": "identity_lookup"})
 		sharedAuthError(w, lookupErr)
 		return
 	}
@@ -148,16 +152,25 @@ func (s *Server) sharedLogin(w http.ResponseWriter, r *http.Request) {
 	verified, err := identity.VerifyPassword(ctx, request.Password, hash)
 	request.Password = ""
 	if err != nil {
+		s.appendSharedAudit(r, nil, nil, "auth.login", "user", "", "error", map[string]any{"reason": "password_verifier"})
 		sharedAuthError(w, err)
 		return
 	}
 	if lookupErr != nil || !verified || !user.Enabled {
+		var auditUserID *identity.ID
+		if lookupErr == nil {
+			value := user.ID
+			auditUserID = &value
+		}
+		s.appendSharedAudit(r, nil, auditUserID, "auth.login", "user", "", "denied", map[string]any{"reason": "invalid_credentials"})
 		http.Error(w, "invalid username or password", http.StatusUnauthorized)
 		return
 	}
 	principal, err := identity.ResolveUserPrincipal(ctx, s.Identity, s.Config.SharedProjectID, user)
 	if err != nil {
 		if errors.Is(err, identity.ErrUnauthenticated) {
+			value := user.ID
+			s.appendSharedAudit(r, nil, &value, "auth.login", "user", string(user.ID), "denied", map[string]any{"reason": "project_access"})
 			http.Error(w, "invalid username or password", http.StatusUnauthorized)
 		} else {
 			sharedAuthError(w, err)
@@ -165,15 +178,18 @@ func (s *Server) sharedLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := identity.RevokeBrowserSession(ctx, s.Identity, s.sharedCookieToken(r), time.Now()); err != nil {
+		s.appendSharedAudit(r, &principal, nil, "auth.login", "user", string(user.ID), "error", map[string]any{"reason": "session_rotation"})
 		sharedAuthError(w, err)
 		return
 	}
 	token, session, err := identity.CreateLoginBrowserSession(ctx, s.Identity, principal, user.PasswordHash, time.Now())
 	if err != nil {
+		s.appendSharedAudit(r, &principal, nil, "auth.login", "user", string(user.ID), "error", map[string]any{"reason": "session_create"})
 		sharedAuthError(w, err)
 		return
 	}
 	s.authRecordSuccess(r.RemoteAddr)
+	s.appendSharedAudit(r, &principal, nil, "auth.login", "user", string(user.ID), "success", nil)
 	s.setSharedCookie(w, token, session.ExpiresAt)
 	writeJSON(w, http.StatusOK, sharedPrincipalView(principal))
 }
@@ -188,10 +204,16 @@ func (s *Server) sharedLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+	var principal *identity.Principal
+	if resolved, _, authErr := identity.AuthenticateBrowserSession(ctx, s.Identity, s.Config.SharedProjectID, s.sharedCookieToken(r), time.Now()); authErr == nil {
+		principal = &resolved
+	}
 	if err := identity.RevokeBrowserSession(ctx, s.Identity, s.sharedCookieToken(r), time.Now()); err != nil {
+		s.appendSharedAudit(r, principal, nil, "auth.logout", "session", "", "error", nil)
 		sharedAuthError(w, err)
 		return
 	}
 	s.setSharedCookie(w, "", time.Unix(1, 0))
+	s.appendSharedAudit(r, principal, nil, "auth.logout", "session", "", "success", nil)
 	w.WriteHeader(http.StatusNoContent)
 }
