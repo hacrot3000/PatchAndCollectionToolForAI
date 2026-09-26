@@ -231,6 +231,12 @@ func (s *Server) sharedPasswordChange(w http.ResponseWriter, r *http.Request) {
 		sharedAuthError(w, identity.ErrUnauthenticated)
 		return
 	}
+	rateKey := "password-change:" + string(principal.UserID) + ":" + authRemoteKey(r.RemoteAddr)
+	if blocked, retry := s.authBlockedKey(rateKey, time.Now()); blocked {
+		s.appendSharedAudit(r, &principal, nil, "auth.password_change", "user", string(principal.UserID), "denied", map[string]any{"reason": "rate_limited"})
+		writeAuthRateLimit(w, retry)
+		return
+	}
 	if !s.beginSharedLogin() {
 		s.appendSharedAudit(r, &principal, nil, "auth.password_change", "user", string(principal.UserID), "denied", map[string]any{"reason": "scrypt_capacity"})
 		writeAuthRateLimit(w, time.Second)
@@ -274,6 +280,7 @@ func (s *Server) sharedPasswordChange(w http.ResponseWriter, r *http.Request) {
 		sharedAuthError(w, err)
 		return
 	}
+	s.authRecordFailureKey(rateKey, time.Now())
 	verified, err := identity.VerifyPassword(ctx, request.CurrentPassword, user.PasswordHash)
 	request.CurrentPassword = ""
 	if err != nil {
@@ -288,6 +295,7 @@ func (s *Server) sharedPasswordChange(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "current password is incorrect", http.StatusUnauthorized)
 		return
 	}
+	s.authRecordSuccessKey(rateKey)
 
 	nextHash, err := identity.HashPassword(ctx, request.NewPassword)
 	request.NewPassword = ""
