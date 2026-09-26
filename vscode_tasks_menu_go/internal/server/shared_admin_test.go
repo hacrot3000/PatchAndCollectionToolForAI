@@ -379,3 +379,94 @@ func TestSharedAdminRejectsSelfAccessAndPermissionModification(t *testing.T) {
 		t.Fatalf("self modification removed users.manage: %v", effective)
 	}
 }
+
+func TestSharedAdminCustomRolesStayProjectScoped(t *testing.T) {
+	s := sharedLoginTestServer(t)
+	ctx := context.Background()
+	cookie := sharedAPILogin(t, s, "alice")
+	project, err := s.Identity.ProjectByKey(ctx, s.Config.SharedProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	other, err := s.Identity.EnsureProject(ctx, identity.Project{ID: "other-project", Key: "other-project", Enabled: true, CreatedAt: now, UpdatedAt: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Identity.CreateProjectRole(ctx, other.ID, identity.Role{ID: "custom:other", Name: "other-only"}); err != nil {
+		t.Fatal(err)
+	}
+
+	create := httptest.NewRequest(http.MethodPost, "https://taskdeck.test/api/admin/roles", strings.NewReader(`{"name":"qa","description":"QA role"}`))
+	create.Header.Set("Content-Type", "application/json")
+	create.AddCookie(cookie)
+	createRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(createRecorder, create)
+	if createRecorder.Code != http.StatusCreated {
+		t.Fatalf("create role status=%d body=%s", createRecorder.Code, createRecorder.Body.String())
+	}
+	var created struct {
+		Role sharedAdminRoleView `json:"role"`
+	}
+	if err := json.Unmarshal(createRecorder.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Role.ID == "" || created.Role.SystemRole || created.Role.Name != "qa" {
+		t.Fatalf("unexpected created role: %+v", created.Role)
+	}
+
+	update := httptest.NewRequest(http.MethodPatch, "https://taskdeck.test/api/admin/roles", strings.NewReader(`{
+		"role_id":"`+string(created.Role.ID)+`",
+		"permissions":["tasks.view","files.read","tasks.view"]
+	}`))
+	update.Header.Set("Content-Type", "application/json")
+	update.AddCookie(cookie)
+	updateRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(updateRecorder, update)
+	if updateRecorder.Code != http.StatusNoContent {
+		t.Fatalf("update role status=%d body=%s", updateRecorder.Code, updateRecorder.Body.String())
+	}
+
+	roles, err := s.Identity.ListProjectRoles(ctx, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var custom *identity.RoleDetails
+	for i := range roles {
+		if roles[i].ID == created.Role.ID {
+			custom = &roles[i]
+		}
+		if roles[i].ID == "custom:other" {
+			t.Fatalf("cross-project role leaked into current project: %+v", roles[i])
+		}
+	}
+	if custom == nil || len(custom.Permissions) != 2 {
+		t.Fatalf("custom role permissions not saved: %+v", custom)
+	}
+
+	systemUpdate := httptest.NewRequest(http.MethodPatch, "https://taskdeck.test/api/admin/roles", strings.NewReader(`{"role_id":"system:admin","permissions":["tasks.view"]}`))
+	systemUpdate.Header.Set("Content-Type", "application/json")
+	systemUpdate.AddCookie(cookie)
+	systemRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(systemRecorder, systemUpdate)
+	if systemRecorder.Code != http.StatusConflict {
+		t.Fatalf("system role update status=%d body=%s", systemRecorder.Code, systemRecorder.Body.String())
+	}
+
+	alice, err := s.Identity.UserByUsername(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossRole := httptest.NewRequest(http.MethodPatch, "https://taskdeck.test/api/admin/users/access", strings.NewReader(`{
+		"user_id":"`+string(alice.ID)+`",
+		"role_id":"custom:other",
+		"enabled":true
+	}`))
+	crossRole.Header.Set("Content-Type", "application/json")
+	crossRole.AddCookie(cookie)
+	crossRoleRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(crossRoleRecorder, crossRole)
+	if crossRoleRecorder.Code != http.StatusConflict {
+		t.Fatalf("self access guard should win before role scope check, status=%d", crossRoleRecorder.Code)
+	}
+}

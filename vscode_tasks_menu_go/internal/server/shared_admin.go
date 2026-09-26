@@ -83,6 +83,16 @@ type sharedAdminRevokeSessionRequest struct {
 	SessionID identity.ID `json:"session_id"`
 }
 
+type sharedAdminCreateRoleRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type sharedAdminRolePermissionsRequest struct {
+	RoleID      identity.ID `json:"role_id"`
+	Permissions []string    `json:"permissions"`
+}
+
 func (s *Server) sharedAdminReady(w http.ResponseWriter, r *http.Request) bool {
 	if !s.Config.SharedServerEnabled {
 		http.NotFound(w, r)
@@ -190,7 +200,7 @@ func (s *Server) sharedAdminUserCreate(w http.ResponseWriter, r *http.Request) {
 		sharedAuthError(w, identity.ErrUnauthenticated)
 		return
 	}
-	roles, err := s.Identity.ListRoles(ctx)
+	roles, err := s.Identity.ListProjectRoles(ctx, principal.ProjectID)
 	if err != nil {
 		request.Password = ""
 		sharedAuthError(w, err)
@@ -301,7 +311,7 @@ func (s *Server) sharedAdminUserAccess(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "project member not found", http.StatusNotFound)
 		return
 	}
-	roles, err := s.Identity.ListRoles(ctx)
+	roles, err := s.Identity.ListProjectRoles(ctx, principal.ProjectID)
 	if err != nil {
 		sharedAuthError(w, err)
 		return
@@ -416,13 +426,26 @@ func (s *Server) sharedAdminRoles(w http.ResponseWriter, r *http.Request) {
 	if !s.sharedAdminReady(w, r) {
 		return
 	}
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		s.sharedAdminRolesList(w, r)
+	case http.MethodPost:
+		s.sharedAdminRoleCreate(w, r)
+	case http.MethodPatch:
+		s.sharedAdminRolePermissionsUpdate(w, r)
+	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) sharedAdminRolesList(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel, principal, ok := sharedAdminContext(r)
+	defer cancel()
+	if !ok {
+		sharedAuthError(w, identity.ErrUnauthenticated)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	roles, err := s.Identity.ListRoles(ctx)
+	roles, err := s.Identity.ListProjectRoles(ctx, principal.ProjectID)
 	if err != nil {
 		sharedAuthError(w, err)
 		return
@@ -432,6 +455,95 @@ func (s *Server) sharedAdminRoles(w http.ResponseWriter, r *http.Request) {
 		views = append(views, sharedAdminRoleView{ID: role.ID, Name: role.Name, Description: role.Description, SystemRole: role.SystemRole, Permissions: role.Permissions})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"roles": views})
+}
+
+func (s *Server) sharedAdminRoleCreate(w http.ResponseWriter, r *http.Request) {
+	if !requireSharedJSON(w, r) {
+		return
+	}
+	var request sharedAdminCreateRoleRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10))
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&request)
+	request.Name = strings.TrimSpace(request.Name)
+	request.Description = strings.TrimSpace(request.Description)
+	if err != nil || decoder.Decode(new(any)) != io.EOF ||
+		request.Name == "" || len(request.Name) > 128 || !utf8.ValidString(request.Name) || strings.ContainsAny(request.Name, "\r\n\x00") ||
+		len(request.Description) > 512 || !utf8.ValidString(request.Description) || strings.ContainsRune(request.Description, '\x00') {
+		http.Error(w, "invalid role request", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel, principal, ok := sharedAdminContext(r)
+	defer cancel()
+	if !ok {
+		sharedAuthError(w, identity.ErrUnauthenticated)
+		return
+	}
+	id, err := identity.NewID()
+	if err != nil {
+		sharedAuthError(w, err)
+		return
+	}
+	roleID := identity.ID("custom:" + string(id))
+	role := identity.Role{ID: roleID, Name: request.Name, Description: request.Description}
+	if err := s.Identity.CreateProjectRole(ctx, principal.ProjectID, role); err != nil {
+		if errors.Is(err, identity.ErrConflict) {
+			s.appendSharedAudit(r, &principal, nil, "admin.role.create", "role", "", "denied", map[string]any{"reason": "role_conflict", "name": request.Name})
+			http.Error(w, "role name already exists", http.StatusConflict)
+			return
+		}
+		s.appendSharedAudit(r, &principal, nil, "admin.role.create", "role", "", "error", map[string]any{"reason": "identity_store"})
+		sharedAuthError(w, err)
+		return
+	}
+	s.appendSharedAudit(r, &principal, nil, "admin.role.create", "role", string(roleID), "success", map[string]any{"name": request.Name})
+	writeJSON(w, http.StatusCreated, map[string]any{"role": sharedAdminRoleView{
+		ID: roleID, Name: request.Name, Description: request.Description, Permissions: []string{},
+	}})
+}
+
+func (s *Server) sharedAdminRolePermissionsUpdate(w http.ResponseWriter, r *http.Request) {
+	if !requireSharedJSON(w, r) {
+		return
+	}
+	var request sharedAdminRolePermissionsRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<10))
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&request)
+	request.RoleID = identity.ID(strings.TrimSpace(string(request.RoleID)))
+	if err != nil || decoder.Decode(new(any)) != io.EOF || request.RoleID == "" || len(request.Permissions) > len(identity.PermissionRegistry()) {
+		http.Error(w, "invalid role permissions request", http.StatusBadRequest)
+		return
+	}
+	for i := range request.Permissions {
+		request.Permissions[i] = strings.TrimSpace(request.Permissions[i])
+		if !identity.KnownPermission(request.Permissions[i]) {
+			http.Error(w, "invalid role permission", http.StatusBadRequest)
+			return
+		}
+	}
+	ctx, cancel, principal, ok := sharedAdminContext(r)
+	defer cancel()
+	if !ok {
+		sharedAuthError(w, identity.ErrUnauthenticated)
+		return
+	}
+	err = s.Identity.SetProjectRolePermissions(ctx, principal.ProjectID, request.RoleID, request.Permissions)
+	switch {
+	case errors.Is(err, identity.ErrNotFound):
+		http.Error(w, "project role not found", http.StatusNotFound)
+		return
+	case errors.Is(err, identity.ErrConflict):
+		s.appendSharedAudit(r, &principal, nil, "admin.role.permissions.update", "role", string(request.RoleID), "denied", map[string]any{"reason": "system_role_read_only"})
+		http.Error(w, "system roles are read-only", http.StatusConflict)
+		return
+	case err != nil:
+		s.appendSharedAudit(r, &principal, nil, "admin.role.permissions.update", "role", string(request.RoleID), "error", map[string]any{"reason": "identity_store"})
+		sharedAuthError(w, err)
+		return
+	}
+	s.appendSharedAudit(r, &principal, nil, "admin.role.permissions.update", "role", string(request.RoleID), "success", map[string]any{"permissions": request.Permissions})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) sharedAdminPermissions(w http.ResponseWriter, r *http.Request) {
