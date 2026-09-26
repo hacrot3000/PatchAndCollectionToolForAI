@@ -32,7 +32,7 @@ func TestRemoteBootstrapAppliesHomePresetsAndLoginShell(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`cd -- '/srv/app'\"'\"'s current' || exit 1`,
+		`cd -- '/srv/app'"'"'s current' || exit 1`,
 		"export APP_ENV=prod",
 		`cd -- '/srv/logs' || exit 1`,
 		"pwd",
