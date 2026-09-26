@@ -72,6 +72,7 @@ function installActivityBar(){
 
   const tasksButton=makeButton('tasks','Tasks',`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h2M10 6h9M5 12h2M10 12h9M5 18h2M10 18h9"/></svg>`);
   const explorerButton=makeButton('explorer','Explorer',`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l2 2h9v10h-17z"/><path d="M3.5 8.5h17"/></svg>`);
+  const connectionsButton=makeButton('connections','Connections',`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7V4M16 7V4M6 7h12v4a6 6 0 0 1-6 6v3"/><path d="M9 11h6"/></svg>`);
   const patchButton=makeButton('patch','Patch Tool',`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h10v14H7z"/><path d="M9.5 8.5h5M9.5 12h5M9.5 15.5h3"/></svg>`);
   const historyButton=makeButton('history','History',`<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3 2"/></svg>`);
   main.prepend(rail);
@@ -117,7 +118,7 @@ function installActivityBar(){
     return document.body.classList.contains('task-sidebar-auto-hide');
   }
   function updateButtons(){
-    for(const button of [tasksButton,explorerButton,patchButton,historyButton]){
+    for(const button of [tasksButton,explorerButton,connectionsButton,patchButton,historyButton]){
       const active=button.dataset.view===activeView;
       button.classList.toggle('active',active);
       button.setAttribute('aria-pressed',active?'true':'false');
@@ -169,6 +170,9 @@ function installActivityBar(){
   function deactivatePatchPanel(){
     try{globalThis.TaskMenuPatchPanel?.deactivate();}catch(error){console.warn('Auto sidebar could not deactivate Patch Tool',error);}
   }
+  function closeConnections(){
+    try{globalThis.TaskMenuConnections?.close();}catch(error){console.warn('Auto sidebar could not close Connections',error);}
+  }
   function closeActive(){
     if(!enabled()){
       showTasks();
@@ -178,6 +182,7 @@ function installActivityBar(){
     activeView='';
     hideTasksPanel();
     if(previous==='explorer')closeExplorer();
+    if(previous==='connections')closeConnections();
     if(previous==='patch')deactivatePatchPanel();
     if(previous==='history')closeHistoryPanel();
     updateButtons();
@@ -186,6 +191,7 @@ function installActivityBar(){
   function showTasks(){
     activeView='tasks';
     closeExplorer();
+    closeConnections();
     if(enabled())deactivatePatchPanel();
     closeHistoryPanel();
     restoreHistoryToTasks();
@@ -196,9 +202,20 @@ function installActivityBar(){
   function showExplorer(){
     activeView='explorer';
     hideTasksPanel();
+    closeConnections();
     if(enabled())deactivatePatchPanel();
     closeHistoryPanel();
     try{globalThis.TaskMenuExplorer?.open();}catch(error){console.warn('Auto sidebar could not open Explorer',error);}
+    updateButtons();
+    fitTerminals();
+  }
+  function showConnections(){
+    activeView='connections';
+    hideTasksPanel();
+    closeExplorer();
+    if(enabled())deactivatePatchPanel();
+    closeHistoryPanel();
+    try{globalThis.TaskMenuConnections?.open();}catch(error){console.warn('Auto sidebar could not open Connections',error);}
     updateButtons();
     fitTerminals();
   }
@@ -206,6 +223,7 @@ function installActivityBar(){
     activeView='patch';
     hideTasksPanel();
     closeExplorer();
+    closeConnections();
     closeHistoryPanel();
     try{globalThis.TaskMenuPatchPanel?.open();}catch(error){console.warn('Auto sidebar could not open Patch Tool',error);}
     updateButtons();
@@ -215,6 +233,7 @@ function installActivityBar(){
     activeView='history';
     hideTasksPanel();
     closeExplorer();
+    closeConnections();
     if(enabled())deactivatePatchPanel();
     adoptHistoryFromTasks();
     historyPanel.classList.add('visible');
@@ -231,6 +250,7 @@ function installActivityBar(){
       if(!enabled()){
         if(view==='tasks')showTasks();
         if(view==='explorer')showExplorer();
+        if(view==='connections')showConnections();
         if(view==='history')showHistory();
         return;
       }
@@ -239,12 +259,14 @@ function installActivityBar(){
     }
     if(view==='tasks')showTasks();
     if(view==='explorer')showExplorer();
+    if(view==='connections')showConnections();
     if(view==='patch')showPatch();
     if(view==='history')showHistory();
   }
 
   tasksButton.onclick=()=>activate('tasks');
   explorerButton.onclick=()=>activate('explorer');
+  connectionsButton.onclick=()=>activate('connections');
   patchButton.onclick=()=>activate('patch');
   historyButton.onclick=()=>activate('history');
   historyPanelClose.onclick=()=>{if(activeView==='history')closeActive();else closeHistoryPanel();};
@@ -260,12 +282,27 @@ function installActivityBar(){
     },0);
   });
 
+  window.addEventListener('taskmenu:connections-visible',event=>{
+    const visible=Boolean(event.detail?.visible);
+    if(visible){
+      activeView='connections';
+      hideTasksPanel();
+      closeExplorer();
+      if(enabled())deactivatePatchPanel();
+      closeHistoryPanel();
+    }else if(activeView==='connections'){
+      activeView=enabled()?'':'tasks';
+    }
+    updateButtons();
+  });
+
   window.addEventListener('taskmenu:patch-panel-visible',event=>{
     const visible=Boolean(event.detail?.visible);
     if(visible){
       activeView='patch';
       hideTasksPanel();
       closeExplorer();
+      closeConnections();
       closeHistoryPanel();
     }else if(activeView==='patch'){
       activeView=enabled()?'':'tasks';
@@ -281,6 +318,7 @@ function installActivityBar(){
       if(visible){
         activeView='explorer';
         hideTasksPanel();
+        closeConnections();
         closeHistoryPanel();
       }else if(activeView==='explorer'){
         activeView=enabled()?'':'tasks';
@@ -296,6 +334,7 @@ function installActivityBar(){
     activeView=on?'':'tasks';
     hideTasksPanel();
     closeExplorer();
+    closeConnections();
     deactivatePatchPanel();
     closeHistoryPanel();
     restoreHistoryToTasks();
@@ -320,13 +359,14 @@ function installActivityBar(){
     if(headerMenus?.contains(target))return;
     if(activeView==='tasks'&&menu.contains(target))return;
     if(activeView==='explorer'&&explorerPanel?.contains(target))return;
+    if(activeView==='connections'&&globalThis.TaskMenuConnections?.panel?.contains(target))return;
     if(activeView==='patch'&&globalThis.TaskMenuPatchPanel?.panel?.contains(target))return;
     if(activeView==='history'&&historyPanel.contains(target))return;
     closeActive();
   },true);
 
   document.addEventListener('keydown',event=>{
-    if(event.key==='Escape'&&enabled()&&(activeView==='tasks'||activeView==='patch'||activeView==='history'))closeActive();
+    if(event.key==='Escape'&&enabled()&&(activeView==='tasks'||activeView==='connections'||activeView==='patch'||activeView==='history'))closeActive();
   });
   window.addEventListener('resize',()=>{if(enabled())refreshPanelWidth();});
 
