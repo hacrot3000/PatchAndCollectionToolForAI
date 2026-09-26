@@ -328,7 +328,7 @@ Never place password, raw session token or secret values in audit details.
 
 ### 6.1 Password storage
 
-Use Argon2id password hashing.
+Use scrypt password hashing via Python 3.10+ standard-library `hashlib.scrypt` (no new Go/npm dependency).
 
 Never provide:
 
@@ -796,7 +796,7 @@ No login/RBAC behavior change yet.
 - [x] Implement the SQL-backed Store surface: Reader, SessionStore, AuditStore and AdminStore.
 - [x] Provide a concrete portable SQLite driver without a Go third-party dependency: a long-lived Python 3.10+ stdlib `sqlite3` helper behind `database/sql`.
 - [x] Run real SQLite WAL/busy-timeout and multi-process DB tests using separate helper processes.
-- [ ] Password hashing helper using Argon2id.
+- [x] Password hashing helper using stdlib-backed scrypt.
 
 Implementation notes:
 
