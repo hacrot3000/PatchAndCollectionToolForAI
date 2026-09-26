@@ -45,6 +45,10 @@ func (s *Server) sharedAuthorize(next http.Handler) http.Handler {
 				return
 			}
 			next.ServeHTTP(w, r)
+		case r.URL.Path == "/api/health" && r.Method == http.MethodGet && loopbackRemote(r.RemoteAddr):
+			// sharedAuth deliberately permits only loopback health probes without
+			// a browser session; preserve that exception through authorization.
+			next.ServeHTTP(w, r)
 		case r.URL.Path == "/api/browser/lease":
 			next.ServeHTTP(w, r)
 		case r.URL.Path == "/api/mutation-lock":

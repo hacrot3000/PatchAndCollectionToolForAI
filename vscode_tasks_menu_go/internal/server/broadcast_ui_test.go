@@ -88,3 +88,20 @@ func TestBroadcastLoadsBetweenMenusAndTabContext(t *testing.T) {
 		t.Fatalf("broadcast must load after menus and before tab context: menus=%d broadcast=%d context=%d", menus, broadcast, context)
 	}
 }
+
+func TestBroadcastUIStaysDisabledInSharedMode(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/broadcast.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"if(app.sharedMode)return state",
+		"Broadcast is unavailable in shared-server mode",
+		"if(!app.sharedMode){",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("broadcast shared-mode guard missing %q", want)
+		}
+	}
+}

@@ -176,8 +176,12 @@ function applyState(next){
   window.dispatchEvent(new CustomEvent('taskmenu:broadcast-state',{detail:{state}}));
 }
 
-async function refreshState(){applyState(await app.jsonFetch('/api/broadcast'));return state;}
+async function refreshState(){
+  if(app.sharedMode)return state;
+  applyState(await app.jsonFetch('/api/broadcast'));return state;
+}
 async function mutate(payload){
+  if(app.sharedMode)throw new Error('Broadcast is unavailable in shared-server mode');
   const next=await app.jsonFetch('/api/broadcast',{
     method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
   });
@@ -302,13 +306,15 @@ function installInputHook(view){
   applyTabStyle(view);
 }
 
-window.addEventListener('taskmenu:session',event=>{const view=event.detail?.view;if(view)installInputHook(view);});
-for(const view of app.views.values())installInputHook(view);
-if(!installHeaderMenu()){
-  window.addEventListener('taskmenu:tasks',()=>installHeaderMenu(),{once:true});
+if(!app.sharedMode){
+  window.addEventListener('taskmenu:session',event=>{const view=event.detail?.view;if(view)installInputHook(view);});
+  for(const view of app.views.values())installInputHook(view);
+  if(!installHeaderMenu()){
+    window.addEventListener('taskmenu:tasks',()=>installHeaderMenu(),{once:true});
+  }
+  await refreshState().catch(error=>console.warn('Cannot load broadcast state',error));
+  setInterval(()=>refreshState().catch(()=>{}),2000);
 }
-await refreshState().catch(error=>console.warn('Cannot load broadcast state',error));
-setInterval(()=>refreshState().catch(()=>{}),2000);
 
 globalThis.TaskMenuBroadcast={
   get state(){return state;},

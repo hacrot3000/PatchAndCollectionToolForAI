@@ -175,3 +175,23 @@ func TestSharedIdentityRequiresProvisionedEnabledProject(t *testing.T) {
 		t.Fatal("missing project ready")
 	}
 }
+
+func TestSharedLoopbackHealthProbeSurvivesAuthorizationLayer(t *testing.T) {
+	s := sharedLoginTestServer(t)
+
+	loopback := httptest.NewRequest(http.MethodGet, "https://taskdeck.test/api/health", nil)
+	loopback.RemoteAddr = "127.0.0.1:43123"
+	loopbackRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(loopbackRecorder, loopback)
+	if loopbackRecorder.Code != http.StatusOK {
+		t.Fatalf("loopback health status=%d body=%s", loopbackRecorder.Code, loopbackRecorder.Body.String())
+	}
+
+	remote := httptest.NewRequest(http.MethodGet, "https://taskdeck.test/api/health", nil)
+	remote.RemoteAddr = "192.0.2.40:43123"
+	remoteRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(remoteRecorder, remote)
+	if remoteRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("remote unauthenticated health status=%d body=%s", remoteRecorder.Code, remoteRecorder.Body.String())
+	}
+}

@@ -77,6 +77,8 @@ func TestSharedRoutePermissionsSeparateReadWriteAndGitViews(t *testing.T) {
 		{http.MethodGet, "/api/admin/sessions", []string{identity.PermissionSessionsManage}},
 		{http.MethodDelete, "/api/admin/sessions", []string{identity.PermissionSessionsManage}},
 		{http.MethodGet, "/api/admin/audit", []string{identity.PermissionAuditView}},
+		{http.MethodGet, "/api/broadcast", nil},
+		{http.MethodPost, "/api/broadcast", nil},
 		{http.MethodGet, "/api/unknown", nil},
 	}
 	for _, test := range tests {
