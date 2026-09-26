@@ -259,6 +259,56 @@ async function renderUsers(){
   }
   table.append(body);wrap.append(table);content.append(wrap);
 }
+function formatTime(value){
+  if(!value)return '—';
+  const date=new Date(value);
+  return Number.isNaN(date.getTime())?String(value):date.toLocaleString();
+}
+async function renderSessions(){
+  currentView='sessions';
+  content.replaceChildren();
+  const title=node('h2','Active sessions');
+  const toolbar=node('div',null,'toolbar');
+  const refresh=node('button','Refresh');refresh.type='button';
+  const status=node('span','Loading…','muted');
+  refresh.onclick=()=>renderSessions();
+  toolbar.append(refresh,status);content.append(title,toolbar);
+  let sessions=[];
+  try{sessions=(await api('/api/admin/sessions')).sessions||[];}
+  catch(error){setStatus(status,'ERROR: '+error.message,'error');return;}
+  setStatus(status,sessions.length?sessions.length+' active session(s)':'No active sessions');
+  if(!sessions.length)return;
+  const wrap=node('div',null,'table-wrap');
+  const table=document.createElement('table');
+  const head=document.createElement('thead'),hr=document.createElement('tr');
+  for(const label of ['User','Created','Last seen','Expires','Client','Action'])hr.append(node('th',label));
+  head.append(hr);table.append(head);
+  const body=document.createElement('tbody');
+  for(const session of sessions){
+    const row=document.createElement('tr');
+    row.append(
+      node('td',session.username||session.user_id),
+      node('td',formatTime(session.created_at)),
+      node('td',formatTime(session.last_seen_at)),
+      node('td',formatTime(session.expires_at)),
+      node('td',session.client_metadata||'—','permissions')
+    );
+    const action=document.createElement('td');
+    const revoke=node('button','Force logout');revoke.type='button';
+    const message=node('span','', 'muted');
+    revoke.onclick=async()=>{
+      if(!window.confirm('Revoke this login session?'))return;
+      revoke.disabled=true;setStatus(message,'Revoking…');
+      try{
+        await api('/api/admin/sessions',{method:'DELETE',body:JSON.stringify({session_id:session.id})});
+        setStatus(message,'Revoked','success');await renderSessions();
+      }catch(error){setStatus(message,'ERROR: '+error.message,'error');}
+      finally{revoke.disabled=false;}
+    };
+    action.append(revoke,message);row.append(action);body.append(row);
+  }
+  table.append(body);wrap.append(table);content.append(wrap);
+}
 function renderPlaceholder(view){
   currentView=view;
   const labels={sessions:'Active sessions',audit:'Audit log'};
@@ -269,6 +319,7 @@ function selectView(view){
   if(!canOpen(view))return;
   for(const button of document.querySelectorAll('nav button'))button.classList.toggle('active',button.dataset.view===view);
   if(view==='users')renderUsers();
+  else if(view==='sessions')renderSessions();
   else renderPlaceholder(view);
 }
 async function start(){
