@@ -103,6 +103,16 @@ func (s *Server) fileUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot finalize upload", http.StatusInternalServerError)
 		return
 	}
+	resourceID := name
+	if root, rootErr := s.projectRoot(); rootErr == nil {
+		if rel, relErr := filepath.Rel(root, target); relErr == nil {
+			resourceID = filepath.ToSlash(rel)
+		}
+	}
+	s.auditSharedSuccess(r, "file.upload", "file", resourceID, map[string]any{
+		"overwrite": overwrite,
+		"size":      n,
+	})
 
 	writeJSON(w, http.StatusCreated, downloadableFile{
 		Path: target,

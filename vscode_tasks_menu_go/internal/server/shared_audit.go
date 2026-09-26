@@ -60,3 +60,14 @@ func (s *Server) appendSharedAudit(r *http.Request, principal *identity.Principa
 		s.Log.Printf("audit append warning action=%s result=%s: %v", action, result, err)
 	}
 }
+
+func (s *Server) auditSharedSuccess(r *http.Request, action, resourceType, resourceID string, details map[string]any) {
+	if !s.Config.SharedServerEnabled {
+		return
+	}
+	principal, ok := PrincipalFromContext(r.Context())
+	if !ok {
+		return
+	}
+	s.appendSharedAudit(r, &principal, nil, action, resourceType, resourceID, "success", details)
+}

@@ -166,6 +166,9 @@ func (s *Server) projectFileSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	savedHash := sha256.Sum256(next)
+	s.auditSharedSuccess(r, "file.write", "file", rel, map[string]any{
+		"size": savedInfo.Size(),
+	})
 	text := next
 	if bom {
 		text = text[3:]
