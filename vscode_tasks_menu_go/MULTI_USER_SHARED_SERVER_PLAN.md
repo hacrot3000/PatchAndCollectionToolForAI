@@ -1,6 +1,6 @@
 # TaskDeck Multi-user / Shared Server Plan
 
-Status: Phase 9 shared-workspace coordination implemented; Phase 10 hardening in progress
+Status: Phase 10 shared-server hardening implemented; CI/acceptance verification in progress
 
 Branch: `feat/multi-user-shared-server`
 
@@ -882,6 +882,8 @@ Checkpoint history (2026-09-26):
 | `6bf4924a`–`dc32cf54` | Audit foundation, administration APIs/UI, custom roles and security-event coverage |
 | `806d1ebe`–`a8e8c063` | File/settings/self-update/session/Patch mutation audit completion |
 | `73a92346`–`039c40f9` | Workspace mutation lock, Patch/file/self-update coordination and lock-status UI |
+| `d8775c62`–`e33b0edd` | Password hardening, backup/restore, proxy trust boundary, rate limits and public-route review |
+| `07d75901`–`70ea482c` | Maintenance command exclusivity and bounded restore rollback |
 
 Authorization, ownership, administration and workspace mutation coordination
 are now active. Legacy mode remains on the existing Basic Auth path.
@@ -956,12 +958,29 @@ one daemon = one workspace. Multiple project daemons use different workspaces.
 
 ### Phase 10 — Shared-server hardening
 
-- [x] Initial session expiration policy: 30-minute idle / 12-hour absolute expiry.
-- [ ] Password policy/change/reset flows beyond first-admin bootstrap.
-- [ ] Backup/restore identity DB.
-- [ ] Reverse-proxy/deployment documentation and explicit trust model.
-- [ ] Additional abuse/rate limits beyond login throttling/concurrency bounds.
-- [ ] Final security review of all public endpoints/WebSockets.
+- [x] Session expiration policy: 30-minute idle / 12-hour absolute expiry.
+- [x] Central password policy, authenticated self-service password change, and
+      host-operator password reset; password change/reset revokes all user sessions atomically.
+- [x] Consistent SQLite online backup/restore with integrity checks, private files,
+      pre-restore safety snapshot and bounded rollback.
+- [x] Reverse-proxy/deployment documentation and explicit trust model.
+- [x] Additional abuse/rate limits: bounded login failures, global scrypt concurrency,
+      and user+peer-scoped current-password failure limiting.
+- [x] Public endpoint/WebSocket security review with regression tests.
+
+Hardening notes:
+
+- Shared mode requires real HTTPS on the TaskDeck listener; forwarded protocol
+  headers are not authentication evidence.
+- Reverse-proxy loopback is not trusted as internal daemon control. Self-update
+  handoff/detach requires both loopback transport and a random 256-bit control
+  token stored only in the private daemon runtime state.
+- Broadcast keyboard fan-out remains deny-by-default and hidden in shared mode
+  until it has a dedicated cross-session ownership/permission design.
+- Identity backups/reset are local operator maintenance operations, not project
+  admin web capabilities, because the underlying identity is global across projects.
+- Phase 10 implementation is complete, but first-release acceptance remains open
+  until the branch CI matrix and final acceptance checks pass.
 
 ### Phase 11 — Future central management / Hub
 
