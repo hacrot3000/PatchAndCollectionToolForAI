@@ -158,8 +158,9 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			TaskID    int               `json:"task_id"`
 			Inputs    map[string]string `json:"inputs,omitempty"`
 			Env       map[string]string `json:"env,omitempty"`
-			Cwd       string            `json:"cwd,omitempty"`
-			PatchMode string            `json:"patch_mode,omitempty"`
+			Cwd          string            `json:"cwd,omitempty"`
+			SSHProfileID string            `json:"ssh_profile_id,omitempty"`
+			PatchMode    string            `json:"patch_mode,omitempty"`
 			PatchUI   string            `json:"patch_ui,omitempty"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&req); err != nil {
@@ -168,7 +169,17 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 		}
 		switch strings.TrimSpace(req.Kind) {
 		case "terminal":
-			spec, err := workspaceTerminalExecutionAt(s.Workspace, req.Cwd)
+			var spec tasks.Execution
+			var err error
+			if strings.TrimSpace(req.SSHProfileID) != "" {
+				if strings.TrimSpace(req.Cwd) != "" {
+					http.Error(w, "cwd is only valid for local terminals", http.StatusBadRequest)
+					return
+				}
+				spec, err = s.sshTerminalExecution(req.SSHProfileID)
+			} else {
+				spec, err = workspaceTerminalExecutionAt(s.Workspace, req.Cwd)
+			}
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
@@ -177,8 +188,10 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			if err := configureTerminalGitTextconv(s.Workspace, &spec); err != nil && s.Log != nil {
-				s.Log.Printf("terminal git textconv warning: %v", err)
+			if strings.TrimSpace(req.SSHProfileID) == "" {
+				if err := configureTerminalGitTextconv(s.Workspace, &spec); err != nil && s.Log != nil {
+					s.Log.Printf("terminal git textconv warning: %v", err)
+				}
 			}
 			meta, err := s.Sessions.Start(spec)
 			if err != nil {
