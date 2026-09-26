@@ -2,10 +2,14 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"bletonfc/vscode_tasks_menu/internal/identity"
 )
@@ -56,6 +60,13 @@ type sharedAdminAuditView struct {
 	Details      string       `json:"details"`
 }
 
+type sharedAdminCreateUserRequest struct {
+	Username    string      `json:"username"`
+	DisplayName string      `json:"display_name"`
+	Password    string      `json:"password"`
+	RoleID      identity.ID `json:"role_id"`
+}
+
 func (s *Server) sharedAdminReady(w http.ResponseWriter, r *http.Request) bool {
 	if !s.Config.SharedServerEnabled {
 		http.NotFound(w, r)
@@ -88,10 +99,17 @@ func (s *Server) sharedAdminUsers(w http.ResponseWriter, r *http.Request) {
 	if !s.sharedAdminReady(w, r) {
 		return
 	}
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		s.sharedAdminUsersList(w, r)
+	case http.MethodPost:
+		s.sharedAdminUserCreate(w, r)
+	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
 	}
+}
+
+func (s *Server) sharedAdminUsersList(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel, principal, ok := sharedAdminContext(r)
 	defer cancel()
 	if !ok {
@@ -119,6 +137,103 @@ func (s *Server) sharedAdminUsers(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"users": views})
+}
+
+func (s *Server) sharedAdminUserCreate(w http.ResponseWriter, r *http.Request) {
+	if !requireSharedJSON(w, r) {
+		return
+	}
+	var request sharedAdminCreateUserRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&request)
+	request.Username = strings.TrimSpace(request.Username)
+	request.DisplayName = strings.TrimSpace(request.DisplayName)
+	request.RoleID = identity.ID(strings.TrimSpace(string(request.RoleID)))
+	if err != nil || decoder.Decode(new(any)) != io.EOF ||
+		request.Username == "" || len(request.Username) > 128 ||
+		!utf8.ValidString(request.Username) || strings.ContainsAny(request.Username, " \t\r\n\x00") ||
+		len(request.DisplayName) > 256 || !utf8.ValidString(request.DisplayName) || strings.ContainsRune(request.DisplayName, '\x00') ||
+		request.RoleID == "" ||
+		!utf8.ValidString(request.Password) || utf8.RuneCountInString(request.Password) < 12 ||
+		len(request.Password) > 4096 || strings.ContainsAny(request.Password, "\r\n\x00") {
+		request.Password = ""
+		http.Error(w, "invalid user request", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel, principal, ok := sharedAdminContext(r)
+	defer cancel()
+	if !ok {
+		request.Password = ""
+		sharedAuthError(w, identity.ErrUnauthenticated)
+		return
+	}
+	roles, err := s.Identity.ListRoles(ctx)
+	if err != nil {
+		request.Password = ""
+		sharedAuthError(w, err)
+		return
+	}
+	roleName := ""
+	for _, role := range roles {
+		if role.ID == request.RoleID {
+			roleName = role.Name
+			break
+		}
+	}
+	if roleName == "" {
+		request.Password = ""
+		http.Error(w, "invalid role", http.StatusBadRequest)
+		return
+	}
+
+	passwordHash, err := identity.HashPassword(ctx, request.Password)
+	request.Password = ""
+	if err != nil {
+		s.appendSharedAudit(r, &principal, nil, "admin.user.create", "user", "", "error", map[string]any{"reason": "password_hash"})
+		sharedAuthError(w, err)
+		return
+	}
+	now := time.Now().UTC()
+	userID, err := identity.NewID()
+	if err != nil {
+		s.appendSharedAudit(r, &principal, nil, "admin.user.create", "user", "", "error", map[string]any{"reason": "user_id"})
+		sharedAuthError(w, err)
+		return
+	}
+	user := identity.User{
+		ID: userID, Username: request.Username, DisplayName: request.DisplayName,
+		PasswordHash: passwordHash, Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	member := identity.ProjectMember{
+		ProjectID: principal.ProjectID, UserID: userID, RoleID: request.RoleID,
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := s.Identity.CreateProjectUser(ctx, user, member); err != nil {
+		if errors.Is(err, identity.ErrConflict) {
+			s.appendSharedAudit(r, &principal, nil, "admin.user.create", "user", "", "denied", map[string]any{"reason": "username_conflict", "username": request.Username})
+			http.Error(w, "username already exists", http.StatusConflict)
+			return
+		}
+		s.appendSharedAudit(r, &principal, nil, "admin.user.create", "user", "", "error", map[string]any{"reason": "identity_store"})
+		sharedAuthError(w, err)
+		return
+	}
+	effective, err := s.Identity.EffectivePermissions(ctx, principal.ProjectID, userID)
+	if err != nil {
+		s.appendSharedAudit(r, &principal, nil, "admin.user.create", "user", string(userID), "error", map[string]any{"reason": "permission_read"})
+		sharedAuthError(w, err)
+		return
+	}
+	changedAt := now
+	s.appendSharedAudit(r, &principal, nil, "admin.user.create", "user", string(userID), "success", map[string]any{"username": request.Username, "role_id": string(request.RoleID)})
+	writeJSON(w, http.StatusCreated, map[string]any{"user": sharedAdminUserView{
+		ID: userID, Username: request.Username, DisplayName: request.DisplayName,
+		UserEnabled: true, MemberEnabled: true, RoleID: request.RoleID, RoleName: roleName,
+		PasswordChangedAt: &changedAt, PermissionOverrides: map[string]identity.PermissionEffect{},
+		EffectivePermissions: permissionKeys(effective),
+	}})
 }
 
 func (s *Server) sharedAdminRoles(w http.ResponseWriter, r *http.Request) {
