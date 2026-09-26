@@ -36,8 +36,10 @@ type Server struct {
 	projectIndex           *projectFileIndex
 	projectIndexRefreshing bool
 
-	authMu       sync.Mutex
-	authFailures map[string]authFailureState
+	authMu        sync.Mutex
+	authFailures  map[string]authFailureState
+	sharedLoginMu sync.Mutex
+	sharedLogins  int
 
 	browserLeaseMu sync.Mutex
 	browserLease   *browserLease
@@ -391,11 +393,11 @@ func patchCollectExecution(workspace, requestName string) (tasks.Execution, erro
 	spec.ProtocolEvents = true
 	spec.ProtocolCommands = false
 	if err := tasks.ApplyEnvironmentOverrides(&spec, map[string]string{
-		"TASKDECK_PATCH_DIRECT_COLLECT":          "1",
-		"TASKDECK_PATCH_PROGRESS_INDEX":          "1",
-		"TASKDECK_PATCH_PROGRESS_TOTAL":          "1",
-		"TASKDECK_PATCH_PROGRESS_ITEM_NAME":      requestName,
-		"TASKDECK_PATCH_PROGRESS_ITEM_KIND":      "COLLECT",
+		"TASKDECK_PATCH_DIRECT_COLLECT":     "1",
+		"TASKDECK_PATCH_PROGRESS_INDEX":     "1",
+		"TASKDECK_PATCH_PROGRESS_TOTAL":     "1",
+		"TASKDECK_PATCH_PROGRESS_ITEM_NAME": requestName,
+		"TASKDECK_PATCH_PROGRESS_ITEM_KIND": "COLLECT",
 	}); err != nil {
 		return tasks.Execution{}, err
 	}
@@ -484,11 +486,11 @@ func buildPatchPromptResponseCommand(state session.ProtocolState, req patchPromp
 		return nil, fmt.Errorf("Patch session has no active prompt")
 	}
 	var prompt struct {
-		Protocol   string `json:"protocol"`
-		Version    int    `json:"version"`
-		Type       string `json:"type"`
-		PromptID   string `json:"prompt_id"`
-		PromptKind string `json:"prompt_kind"`
+		Protocol   string   `json:"protocol"`
+		Version    int      `json:"version"`
+		Type       string   `json:"type"`
+		PromptID   string   `json:"prompt_id"`
+		PromptKind string   `json:"prompt_kind"`
 		Actions    []string `json:"actions"`
 		Items      []struct {
 			Index int    `json:"index"`
@@ -496,10 +498,10 @@ func buildPatchPromptResponseCommand(state session.ProtocolState, req patchPromp
 		} `json:"items"`
 		Constraints struct {
 			PatchPriority *struct {
-				Min               int    `json:"min"`
-				Max               int    `json:"max"`
+				Min                int    `json:"min"`
+				Max                int    `json:"max"`
 				UnprioritizedOrder int    `json:"unprioritized_order"`
-				ResponseField     string `json:"response_field"`
+				ResponseField      string `json:"response_field"`
 			} `json:"patch_priority"`
 		} `json:"constraints"`
 	}
@@ -586,11 +588,11 @@ func buildPatchPromptResponseCommand(state session.ProtocolState, req patchPromp
 	}
 	return json.Marshal(map[string]any{
 		"protocol": "taskdeck.patch",
-		"version": 1,
-		"type": "command",
-		"seq": seq,
-		"command": "prompt_response",
-		"payload": payload,
+		"version":  1,
+		"type":     "command",
+		"seq":      seq,
+		"command":  "prompt_response",
+		"payload":  payload,
 	})
 }
 
@@ -640,7 +642,10 @@ func buildPatchItemActionCommand(state session.ProtocolState, req patchItemActio
 	action := strings.ToLower(strings.TrimSpace(req.Action))
 	allowed := false
 	for _, value := range prompt.ItemActions {
-		if action == strings.ToLower(strings.TrimSpace(value)) { allowed = true; break }
+		if action == strings.ToLower(strings.TrimSpace(value)) {
+			allowed = true
+			break
+		}
 	}
 	if !allowed {
 		return nil, "", fmt.Errorf("unsupported Patch item action %q", action)
@@ -650,7 +655,10 @@ func buildPatchItemActionCommand(state session.ProtocolState, req patchItemActio
 	}
 	selectedKind := ""
 	for _, item := range prompt.Items {
-		if item.Index == req.Index { selectedKind = strings.ToUpper(strings.TrimSpace(item.Kind)); break }
+		if item.Index == req.Index {
+			selectedKind = strings.ToUpper(strings.TrimSpace(item.Kind))
+			break
+		}
 	}
 	if selectedKind == "" {
 		return nil, "", fmt.Errorf("Patch item action index out of range: %d", req.Index)
@@ -659,14 +667,20 @@ func buildPatchItemActionCommand(state session.ProtocolState, req patchItemActio
 		return nil, "", fmt.Errorf("native inspect/preview/validate applies only to PATCH items")
 	}
 	actionID, err := newPatchItemActionID()
-	if err != nil { return nil, "", err }
+	if err != nil {
+		return nil, "", err
+	}
 	seq := time.Now().UnixNano()
-	if seq < 1 { seq = 1 }
+	if seq < 1 {
+		seq = 1
+	}
 	command, err := json.Marshal(map[string]any{
 		"protocol": "taskdeck.patch", "version": 1, "type": "command", "seq": seq, "command": "item_action",
 		"payload": map[string]any{"prompt_id": req.PromptID, "action_id": actionID, "action": action, "index": req.Index},
 	})
-	if err != nil { return nil, "", err }
+	if err != nil {
+		return nil, "", err
+	}
 	return command, actionID, nil
 }
 
@@ -746,14 +760,14 @@ func buildPatchQueueDeleteCommand(state session.ProtocolState, req patchQueueDel
 	}
 	command, err := json.Marshal(map[string]any{
 		"protocol": "taskdeck.patch",
-		"version": 1,
-		"type": "command",
-		"seq": seq,
-		"command": "queue_delete",
+		"version":  1,
+		"type":     "command",
+		"seq":      seq,
+		"command":  "queue_delete",
 		"payload": map[string]any{
-			"prompt_id": req.PromptID,
+			"prompt_id":   req.PromptID,
 			"mutation_id": mutationID,
-			"index": req.Index,
+			"index":       req.Index,
 		},
 	})
 	if err != nil {
@@ -763,9 +777,9 @@ func buildPatchQueueDeleteCommand(state session.ProtocolState, req patchQueueDel
 }
 
 type patchResumeActionRequest struct {
-	PromptID     string `json:"prompt_id"`
-	Action       string `json:"action"`
-	FailedIndexes []int `json:"failed_indexes,omitempty"`
+	PromptID      string `json:"prompt_id"`
+	Action        string `json:"action"`
+	FailedIndexes []int  `json:"failed_indexes,omitempty"`
 }
 
 func buildPatchResumeActionCommand(state session.ProtocolState, req patchResumeActionRequest) ([]byte, error) {
@@ -776,12 +790,12 @@ func buildPatchResumeActionCommand(state session.ProtocolState, req patchResumeA
 		return nil, fmt.Errorf("Patch session has no active prompt")
 	}
 	var prompt struct {
-		Protocol   string   `json:"protocol"`
-		Version    int      `json:"version"`
-		Type       string   `json:"type"`
-		PromptID   string   `json:"prompt_id"`
-		PromptKind string   `json:"prompt_kind"`
-		Actions    []string `json:"actions"`
+		Protocol    string   `json:"protocol"`
+		Version     int      `json:"version"`
+		Type        string   `json:"type"`
+		PromptID    string   `json:"prompt_id"`
+		PromptKind  string   `json:"prompt_kind"`
+		Actions     []string `json:"actions"`
 		FailedItems []struct {
 			Index      int  `json:"index"`
 			CanRetry   bool `json:"can_retry"`
@@ -866,11 +880,11 @@ func buildPatchResumeActionCommand(state session.ProtocolState, req patchResumeA
 	}
 	return json.Marshal(map[string]any{
 		"protocol": "taskdeck.patch",
-		"version": 1,
-		"type": "command",
-		"seq": seq,
-		"command": "resume_action",
-		"payload": payload,
+		"version":  1,
+		"type":     "command",
+		"seq":      seq,
+		"command":  "resume_action",
+		"payload":  payload,
 	})
 }
 
@@ -932,7 +946,9 @@ func buildPatchHistoryDetailCommand(state session.ProtocolState, req patchHistor
 		return nil, fmt.Errorf("Patch History run_id is not available in the active prompt")
 	}
 	seq := time.Now().UnixNano()
-	if seq < 1 { seq = 1 }
+	if seq < 1 {
+		seq = 1
+	}
 	return json.Marshal(map[string]any{
 		"protocol": "taskdeck.patch", "version": 1, "type": "command", "seq": seq,
 		"command": "history_detail",
@@ -1035,10 +1051,10 @@ func buildPatchHistoryManageCommand(state session.ProtocolState, req patchHistor
 		"protocol": "taskdeck.patch", "version": 1, "type": "command", "seq": seq,
 		"command": "history_manage",
 		"payload": map[string]any{
-			"prompt_id": req.PromptID,
+			"prompt_id":     req.PromptID,
 			"management_id": managementID,
-			"action": action,
-			"run_id": req.RunID,
+			"action":        action,
+			"run_id":        req.RunID,
 		},
 	})
 	if err != nil {
@@ -1070,15 +1086,15 @@ func buildPatchHistoryCleanupCommand(state session.ProtocolState, req patchHisto
 		return nil, "", fmt.Errorf("Patch session has no active prompt")
 	}
 	var prompt struct {
-		Protocol   string   `json:"protocol"`
-		Version    int      `json:"version"`
-		Type       string   `json:"type"`
-		PromptID   string   `json:"prompt_id"`
-		PromptKind string   `json:"prompt_kind"`
-		Actions    []string `json:"actions"`
+		Protocol    string   `json:"protocol"`
+		Version     int      `json:"version"`
+		Type        string   `json:"type"`
+		PromptID    string   `json:"prompt_id"`
+		PromptKind  string   `json:"prompt_kind"`
+		Actions     []string `json:"actions"`
 		Constraints struct {
 			DestructiveActions []string `json:"destructive_actions"`
-			Cleanup struct {
+			Cleanup            struct {
 				AgePolicy string `json:"age_policy"`
 				MinDays   int    `json:"min_days"`
 				MaxDays   int    `json:"max_days"`
@@ -1124,8 +1140,8 @@ func buildPatchHistoryCleanupCommand(state session.ProtocolState, req patchHisto
 	}
 
 	payload := map[string]any{
-		"prompt_id": req.PromptID,
-		"confirmed": req.Confirmed,
+		"prompt_id":       req.PromptID,
+		"confirmed":       req.Confirmed,
 		"older_than_days": req.OlderThanDays,
 	}
 	if req.Confirmed {
@@ -1292,9 +1308,9 @@ func buildPatchHistorySupportCommand(state session.ProtocolState, req patchHisto
 		"protocol": "taskdeck.patch", "version": 1, "type": "command", "seq": seq,
 		"command": "history_support",
 		"payload": map[string]any{
-			"prompt_id": req.PromptID,
+			"prompt_id":  req.PromptID,
 			"support_id": supportID,
-			"run_id": req.RunID,
+			"run_id":     req.RunID,
 			"item_index": req.ItemIndex,
 		},
 	})
