@@ -71,13 +71,20 @@ func BuildCommand(executable string, profile sshprofile.Profile) (Command, error
 		return Command{}, err
 	}
 
+	hostKeyPolicy := "ask"
+	if p.SecretRef != "" {
+		// SSH_ASKPASS_REQUIRE=force also captures confirmation prompts. Use
+		// OpenSSH's TOFU mode for stored-secret sessions: new keys are accepted,
+		// but changed host keys remain rejected.
+		hostKeyPolicy = "accept-new"
+	}
 	args := []string{
 		"-tt",
 		"-p", strconv.Itoa(p.Port),
 		"-o", "ConnectTimeout=" + strconv.Itoa(p.ConnectTimeoutSeconds),
 		"-o", "ServerAliveInterval=" + strconv.Itoa(p.ServerAliveIntervalSeconds),
 		"-o", "ServerAliveCountMax=" + strconv.Itoa(p.ServerAliveCountMax),
-		"-o", "StrictHostKeyChecking=ask",
+		"-o", "StrictHostKeyChecking=" + hostKeyPolicy,
 	}
 	if p.ProxyJump != "" {
 		args = append(args, "-J", p.ProxyJump)
