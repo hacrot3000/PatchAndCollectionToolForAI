@@ -202,7 +202,9 @@ func validateHost(value string) error {
 	if err := validateText("ssh host", value, maxHostLen, true); err != nil {
 		return err
 	}
-	if strings.HasPrefix(value, "-") {\n\t\treturn fmt.Errorf("ssh host must not start with -")\n\t}\n	if strings.ContainsAny(value, " 	/@") {
+	if strings.HasPrefix(value, "-") {
+		return fmt.Errorf("ssh host must not start with -")
+	}\n	if strings.ContainsAny(value, " 	/@") {
 		return fmt.Errorf("ssh host must not contain whitespace, slash, or @")
 	}
 	return nil
@@ -212,7 +214,9 @@ func validateUsername(value string) error {
 	if err := validateText("ssh username", value, maxUsernameLen, true); err != nil {
 		return err
 	}
-	if strings.HasPrefix(value, "-") {\n\t\treturn fmt.Errorf("ssh username must not start with -")\n\t}\n	if strings.ContainsAny(value, " 	@/") {
+	if strings.HasPrefix(value, "-") {
+		return fmt.Errorf("ssh username must not start with -")
+	}\n	if strings.ContainsAny(value, " 	@/") {
 		return fmt.Errorf("ssh username must not contain whitespace, slash, or @")
 	}
 	return nil
