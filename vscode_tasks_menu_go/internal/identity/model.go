@@ -98,5 +98,5 @@ type Principal struct {
 }
 
 func (p Principal) Allowed(permission string) bool {
-	return p.Permissions != nil && p.Permissions[permission]
+	return KnownPermission(permission) && p.Permissions != nil && p.Permissions[permission]
 }
