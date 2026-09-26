@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"bletonfc/vscode_tasks_menu/internal/config"
@@ -39,5 +40,23 @@ func TestSharedAdminUIIsAbsentInLegacyMode(t *testing.T) {
 	s.sharedAdminUI(recorder, request)
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("legacy admin UI status=%d", recorder.Code)
+	}
+}
+
+func TestSharedAdminUIUsersScriptUsesPermissionGatedAPIs(t *testing.T) {
+	for _, path := range []string{
+		"/api/admin/users",
+		"/api/admin/roles",
+		"/api/admin/users/access",
+	} {
+		if !strings.Contains(sharedAdminJS, path) {
+			t.Fatalf("admin UI script missing %s", path)
+		}
+	}
+	if strings.Contains(sharedAdminJS, "innerHTML") {
+		t.Fatal("admin UI should build user-controlled content with DOM text nodes")
+	}
+	if strings.Contains(sharedAdminJS, "npm") {
+		t.Fatal("admin UI unexpectedly references npm")
 	}
 }

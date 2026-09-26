@@ -91,35 +91,148 @@ const sharedAdminHTML = `<!doctype html>
 </body>
 </html>`
 
-const sharedAdminCSS = `:root{font-family:system-ui,sans-serif;color-scheme:dark;background:#101216;color:#e8eaed}*{box-sizing:border-box}body{margin:0}header{height:52px;display:flex;gap:14px;align-items:center;padding:0 16px;border-bottom:1px solid #30343b}header a{color:#9fc8f5;text-decoration:none}header strong{font-size:16px}#admin-identity{margin-left:auto;font-size:12px;opacity:.75}main{max-width:1180px;margin:0 auto;padding:20px}nav{display:flex;gap:8px;margin-bottom:18px}button{background:#252a33;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:8px 12px;cursor:pointer}button.active{background:#29445f;border-color:#47759e}#admin-content{border:1px solid #30343b;border-radius:10px;min-height:240px;padding:18px;background:#15181e}.muted{opacity:.7}`
+const sharedAdminCSS = `:root{font-family:system-ui,sans-serif;color-scheme:dark;background:#101216;color:#e8eaed}*{box-sizing:border-box}body{margin:0}header{height:52px;display:flex;gap:14px;align-items:center;padding:0 16px;border-bottom:1px solid #30343b}header a{color:#9fc8f5;text-decoration:none}header strong{font-size:16px}#admin-identity{margin-left:auto;font-size:12px;opacity:.75}main{max-width:1180px;margin:0 auto;padding:20px}nav{display:flex;gap:8px;margin-bottom:18px}button,input,select{font:inherit;background:#252a33;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:8px 10px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}button.active{background:#29445f;border-color:#47759e}#admin-content{border:1px solid #30343b;border-radius:10px;min-height:240px;padding:18px;background:#15181e}.muted{opacity:.7}.error{color:#ffb4b4}.success{color:#9ee7b0}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 14px}.create-user{display:grid;grid-template-columns:1fr 1fr 1.2fr 1fr auto;gap:8px;margin:12px 0 20px}.table-wrap{overflow:auto;border:1px solid #30343b;border-radius:8px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px;border-bottom:1px solid #2a2e35;text-align:left;vertical-align:top}th{background:#1d2128;position:sticky;top:0}tr:last-child td{border-bottom:0}.permissions{max-width:360px;white-space:normal;font-size:11px;opacity:.8}.access-controls{display:flex;gap:7px;align-items:center;min-width:270px}.access-controls select{min-width:125px}.access-controls label{display:flex;gap:5px;align-items:center}.access-controls input[type=checkbox]{width:auto}.self-note{font-size:11px;opacity:.65}@media(max-width:900px){.create-user{grid-template-columns:1fr}.access-controls{min-width:230px}}`
 
 const sharedAdminJS = `const content=document.querySelector('#admin-content');
 const identity=document.querySelector('#admin-identity');
 let currentUser=null;
+let permissionSet=new Set();
+let currentView='';
 
-function has(permission){return new Set(currentUser?.permissions||[]).has(permission);}
+function has(permission){return permissionSet.has(permission);}
 function canOpen(view){
   if(view==='users')return has('users.view')||has('users.manage')||has('roles.view')||has('roles.manage');
   if(view==='sessions')return has('sessions.manage');
   if(view==='audit')return has('audit.view');
   return false;
 }
-function renderPlaceholder(view){
-  const labels={users:'Users and project access',sessions:'Active sessions',audit:'Audit log'};
+function node(tag,text,className){
+  const value=document.createElement(tag);
+  if(text!=null)value.textContent=text;
+  if(className)value.className=className;
+  return value;
+}
+async function api(path,options={}){
+  const headers=new Headers(options.headers||{});
+  if(options.body!=null&&!headers.has('Content-Type'))headers.set('Content-Type','application/json');
+  const response=await fetch(path,{cache:'no-store',...options,headers});
+  if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
+  if(response.status===204)return null;
+  return response.json();
+}
+function setStatus(host,message,kind='muted'){
+  host.textContent=message;
+  host.className=kind;
+}
+function roleSelect(roles,selected){
+  const select=document.createElement('select');
+  for(const role of roles){
+    const option=document.createElement('option');
+    option.value=role.id;option.textContent=role.name+(role.system_role?' · system':'');
+    option.selected=role.id===selected;
+    select.append(option);
+  }
+  return select;
+}
+async function renderUsers(){
+  currentView='users';
   content.replaceChildren();
-  const title=document.createElement('h2');title.textContent=labels[view]||'Administration';
-  const note=document.createElement('p');note.className='muted';note.textContent='This administration section is being loaded from permission-gated server APIs.';
-  content.append(title,note);
+  const title=node('h2','Users and project access');
+  const status=node('p','Loading…','muted');
+  content.append(title,status);
+  let users=[],roles=[];
+  try{
+    if(has('users.view'))users=(await api('/api/admin/users')).users||[];
+    if(has('roles.view'))roles=(await api('/api/admin/roles')).roles||[];
+  }catch(error){setStatus(status,'ERROR: '+error.message,'error');return;}
+  status.remove();
+
+  if(has('users.manage')&&roles.length){
+    const form=document.createElement('form');form.className='create-user';
+    const username=document.createElement('input');username.required=true;username.maxLength=128;username.placeholder='Username';username.autocomplete='off';
+    const display=document.createElement('input');display.maxLength=256;display.placeholder='Display name';
+    const password=document.createElement('input');password.required=true;password.type='password';password.minLength=12;password.maxLength=4096;password.placeholder='Initial password (12+ chars)';password.autocomplete='new-password';
+    const role=roleSelect(roles,'system:viewer');
+    const submit=node('button','Create user');submit.type='submit';
+    const feedback=node('div','', 'muted');feedback.style.gridColumn='1/-1';
+    form.append(username,display,password,role,submit,feedback);
+    form.onsubmit=async event=>{
+      event.preventDefault();submit.disabled=true;setStatus(feedback,'Creating…');
+      try{
+        await api('/api/admin/users',{method:'POST',body:JSON.stringify({username:username.value,display_name:display.value,password:password.value,role_id:role.value})});
+        password.value='';setStatus(feedback,'User created.','success');
+        await renderUsers();
+      }catch(error){password.value='';setStatus(feedback,'ERROR: '+error.message,'error');}
+      finally{submit.disabled=false;}
+    };
+    content.append(form);
+  }else if(has('users.manage')&&!roles.length){
+    content.append(node('p','Role visibility is required before a role can be selected for a new user.','muted'));
+  }
+
+  if(!has('users.view')){
+    content.append(node('p','You do not have users.view, so existing project members are hidden.','muted'));
+    return;
+  }
+  if(!users.length){
+    content.append(node('p','No project users found.','muted'));
+    return;
+  }
+  const wrap=node('div',null,'table-wrap');
+  const table=document.createElement('table');
+  const head=document.createElement('thead');
+  const hr=document.createElement('tr');
+  for(const label of ['User','Role','Status','Effective permissions','Project access'])hr.append(node('th',label));
+  head.append(hr);table.append(head);
+  const body=document.createElement('tbody');
+  for(const user of users){
+    const row=document.createElement('tr');
+    const userCell=document.createElement('td');
+    userCell.append(node('strong',user.username));
+    if(user.display_name)userCell.append(document.createElement('br'),node('span',user.display_name,'muted'));
+    row.append(userCell,node('td',user.role_name||user.role_id),node('td',(user.user_enabled?'user enabled':'user disabled')+' · '+(user.member_enabled?'access enabled':'access disabled')));
+    row.append(node('td',(user.effective_permissions||[]).join(', '),'permissions'));
+    const access=document.createElement('td');
+    if(has('users.manage')&&roles.length&&user.id!==currentUser.user_id){
+      const controls=node('div',null,'access-controls');
+      const select=roleSelect(roles,user.role_id);
+      const enabled=document.createElement('input');enabled.type='checkbox';enabled.checked=Boolean(user.member_enabled);
+      const enabledLabel=document.createElement('label');enabledLabel.append(enabled,document.createTextNode('Enabled'));
+      const save=node('button','Save');save.type='button';
+      const message=node('span','', 'muted');
+      save.onclick=async()=>{
+        save.disabled=true;setStatus(message,'Saving…');
+        try{
+          await api('/api/admin/users/access',{method:'PATCH',body:JSON.stringify({user_id:user.id,role_id:select.value,enabled:enabled.checked})});
+          setStatus(message,'Saved','success');await renderUsers();
+        }catch(error){setStatus(message,'ERROR: '+error.message,'error');}
+        finally{save.disabled=false;}
+      };
+      controls.append(select,enabledLabel,save,message);access.append(controls);
+    }else if(user.id===currentUser.user_id){
+      access.append(node('span','Current account cannot modify its own project access.','self-note'));
+    }else{
+      access.append(node('span','Read only','muted'));
+    }
+    row.append(access);body.append(row);
+  }
+  table.append(body);wrap.append(table);content.append(wrap);
+}
+function renderPlaceholder(view){
+  currentView=view;
+  const labels={sessions:'Active sessions',audit:'Audit log'};
+  content.replaceChildren();
+  content.append(node('h2',labels[view]||'Administration'),node('p','This section will load from its permission-gated API.','muted'));
 }
 function selectView(view){
   if(!canOpen(view))return;
   for(const button of document.querySelectorAll('nav button'))button.classList.toggle('active',button.dataset.view===view);
-  renderPlaceholder(view);
+  if(view==='users')renderUsers();
+  else renderPlaceholder(view);
 }
 async function start(){
-  const response=await fetch('/api/auth/me',{cache:'no-store'});
-  if(!response.ok)throw new Error((await response.text())||response.statusText);
-  currentUser=await response.json();
+  currentUser=await api('/api/auth/me');
+  permissionSet=new Set(currentUser.permissions||[]);
   identity.textContent=currentUser.username+' · '+currentUser.project_key;
   const buttons=[...document.querySelectorAll('nav button')];
   for(const button of buttons){
