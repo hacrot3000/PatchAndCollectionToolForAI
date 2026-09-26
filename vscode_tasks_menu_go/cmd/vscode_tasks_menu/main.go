@@ -483,7 +483,13 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	}
 	url := publicURLForListener(cfg, ln)
 	healthURL := healthURLForListener(cfg, ln)
+	controlToken, err := state.NewControlToken()
+	if err != nil {
+		_ = ln.Close()
+		return err
+	}
 	st := state.New(ws, url, healthURL, ln.Addr().String())
+	st.ControlToken = controlToken
 	if err := state.Save(st); err != nil {
 		_ = ln.Close()
 		return err
@@ -540,7 +546,10 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 		defer identityStore.Close()
 		logger.Printf("shared-server project=%s identity_db=%s", cfg.SharedProjectID, dbPath)
 	}
-	srv := &server.Server{Workspace: ws, Config: cfg, Log: logger, Sessions: sessionService, Identity: identityStore}
+	srv := &server.Server{
+		Workspace: ws, Config: cfg, Log: logger, Sessions: sessionService, Identity: identityStore,
+		InternalControlToken: controlToken,
+	}
 	server.RegisterSelfUpdateCheck(srv, checkSelfUpdate)
 	defer server.RegisterSelfUpdateCheck(srv, nil)
 	server.RegisterSelfUpdateStart(srv, func() error { return startAutoSelfUpdate(ws) })
@@ -1226,6 +1235,9 @@ func requestDaemonAction(cfg config.Config, st state.State, id, action string) e
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if token := strings.TrimSpace(st.ControlToken); token != "" {
+		req.Header.Set(server.InternalControlHeader, token)
+	}
 	if cfg.AuthEnabled {
 		req.SetBasicAuth(cfg.Username, cfg.Password)
 	}
