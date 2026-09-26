@@ -15,7 +15,6 @@ func (s *Server) pageTitle(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		s.auditSharedSuccess(r, "settings.page_title.update", "setting", "page_title", nil)
 		writeJSON(w, http.StatusOK, map[string]string{"title": title})
 	case http.MethodPut:
 		var req struct {
@@ -35,6 +34,7 @@ func (s *Server) pageTitle(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditSharedSuccess(r, "settings.page_title.update", "setting", "page_title", nil)
 		writeJSON(w, http.StatusOK, map[string]string{"title": title})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
