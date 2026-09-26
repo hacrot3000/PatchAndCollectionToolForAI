@@ -57,11 +57,30 @@ func (s *Server) sharedAuthorize(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/api/"):
 			permissions := sharedRoutePermissions(r)
+			principal, ok := PrincipalFromContext(r.Context())
+			if !ok {
+				sharedAuthError(w, identity.ErrUnauthenticated)
+				return
+			}
 			if len(permissions) == 0 {
+				s.appendSharedAudit(r, &principal, nil, "authorization.denied", "http_route", r.URL.Path, "denied", map[string]any{
+					"method": r.Method,
+					"reason": "unmapped_route",
+				})
 				writePermissionDenied(w)
 				return
 			}
-			requireAllPermissions(permissions, next).ServeHTTP(w, r)
+			for _, permission := range permissions {
+				if !principal.Allowed(permission) {
+					s.appendSharedAudit(r, &principal, nil, "authorization.denied", "http_route", r.URL.Path, "denied", map[string]any{
+						"method":              r.Method,
+						"required_permission": permission,
+					})
+					writePermissionDenied(w)
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
 		default:
 			next.ServeHTTP(w, r)
 		}

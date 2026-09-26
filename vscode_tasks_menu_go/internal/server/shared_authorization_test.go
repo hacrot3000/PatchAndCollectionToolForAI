@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"bletonfc/vscode_tasks_menu/internal/identity"
@@ -120,5 +121,50 @@ func TestSharedAuthorizationChecksBeforeHandlerAndRequiresAll(t *testing.T) {
 	}
 	if called != 4 {
 		t.Fatalf("handler called %d times", called)
+	}
+}
+
+func TestSharedAuthorizationAuditsRoutePermissionDenial(t *testing.T) {
+	s := sharedLoginTestServer(t)
+	ctx := context.Background()
+	alice, err := s.Identity.UserByUsername(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := s.Identity.ProjectByKey(ctx, s.Config.SharedProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Identity.SetMemberPermission(ctx, identity.MemberPermission{
+		ProjectID: project.ID,
+		UserID: alice.ID,
+		PermissionID: identity.PermissionSettingsWrite,
+		Effect: identity.PermissionDeny,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cookie := sharedAPILogin(t, s, "alice")
+	request := httptest.NewRequest(http.MethodPut, "https://taskdeck.test/api/config/page-title", strings.NewReader(`{"title":"blocked"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	recorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("denied route status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	events, err := s.Identity.ListAudit(ctx, identity.AuditQuery{
+		ProjectID: project.ID,
+		UserID: alice.ID,
+		Action: "authorization.denied",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].ResourceType != "http_route" || events[0].ResourceID != "/api/config/page-title" || events[0].Result != "denied" {
+		t.Fatalf("unexpected authorization audit: %+v", events)
+	}
+	if !strings.Contains(events[0].Details, identity.PermissionSettingsWrite) || strings.Contains(events[0].Details, "blocked") {
+		t.Fatalf("unexpected authorization audit details: %s", events[0].Details)
 	}
 }
