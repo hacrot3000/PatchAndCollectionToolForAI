@@ -309,6 +309,49 @@ async function renderSessions(){
   }
   table.append(body);wrap.append(table);content.append(wrap);
 }
+async function renderAudit(filters={}){
+  currentView='audit';
+  content.replaceChildren();
+  const title=node('h2','Audit log');
+  const toolbar=node('form',null,'toolbar');
+  const action=document.createElement('input');action.placeholder='Action filter';action.maxLength=128;action.value=filters.action||'';
+  const user=document.createElement('input');user.placeholder='User ID filter';user.maxLength=128;user.value=filters.user_id||'';
+  const submit=node('button','Apply');submit.type='submit';
+  const refresh=node('button','Refresh');refresh.type='button';
+  const status=node('span','Loading…','muted');
+  toolbar.append(action,user,submit,refresh,status);content.append(title,toolbar);
+  toolbar.onsubmit=event=>{event.preventDefault();renderAudit({action:action.value.trim(),user_id:user.value.trim()});};
+  refresh.onclick=()=>renderAudit({action:action.value.trim(),user_id:user.value.trim()});
+  const query=new URLSearchParams({limit:'100'});
+  if(action.value.trim())query.set('action',action.value.trim());
+  if(user.value.trim())query.set('user_id',user.value.trim());
+  let events=[];
+  try{events=(await api('/api/admin/audit?'+query.toString())).events||[];}
+  catch(error){setStatus(status,'ERROR: '+error.message,'error');return;}
+  setStatus(status,events.length?events.length+' event(s)':'No audit events');
+  if(!events.length)return;
+  const wrap=node('div',null,'table-wrap');
+  const table=document.createElement('table');
+  const head=document.createElement('thead'),hr=document.createElement('tr');
+  for(const label of ['Time','Actor','Action','Resource','Result','Client IP','Details'])hr.append(node('th',label));
+  head.append(hr);table.append(head);
+  const body=document.createElement('tbody');
+  for(const event of events){
+    const resource=(event.resource_type||'')+(event.resource_id?' · '+event.resource_id:'');
+    const row=document.createElement('tr');
+    row.append(
+      node('td',formatTime(event.timestamp)),
+      node('td',event.user_id||'system'),
+      node('td',event.action),
+      node('td',resource||'—'),
+      node('td',event.result||'—'),
+      node('td',event.client_ip||'—'),
+      node('td',event.details||'{}','permissions')
+    );
+    body.append(row);
+  }
+  table.append(body);wrap.append(table);content.append(wrap);
+}
 function renderPlaceholder(view){
   currentView=view;
   const labels={sessions:'Active sessions',audit:'Audit log'};
@@ -320,6 +363,7 @@ function selectView(view){
   for(const button of document.querySelectorAll('nav button'))button.classList.toggle('active',button.dataset.view===view);
   if(view==='users')renderUsers();
   else if(view==='sessions')renderSessions();
+  else if(view==='audit')renderAudit();
   else renderPlaceholder(view);
 }
 async function start(){
