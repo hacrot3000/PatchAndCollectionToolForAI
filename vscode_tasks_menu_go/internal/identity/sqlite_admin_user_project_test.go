@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -185,7 +186,7 @@ func TestSQLiteChangeUserPasswordHashRevokesSessionsAtomically(t *testing.T) {
 	}
 
 	changedAt := now.Add(time.Minute)
-	if err := db.ChangeUserPasswordHash(ctx, "password-user", newHash, changedAt); err != nil {
+	if err := db.ChangeUserPasswordHash(ctx, "password-user", oldHash, newHash, changedAt); err != nil {
 		t.Fatal(err)
 	}
 	value, err := db.UserByID(ctx, "password-user")
@@ -218,7 +219,7 @@ func TestSQLiteChangeUserPasswordHashRejectsInvalidHash(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.ChangeUserPasswordHash(ctx, "password-user", "invalid-hash", now.Add(time.Minute)); err == nil {
+	if err := db.ChangeUserPasswordHash(ctx, "password-user", oldHash, "invalid-hash", now.Add(time.Minute)); err == nil {
 		t.Fatal("invalid password hash accepted")
 	}
 	value, err := db.UserByID(ctx, "password-user")
@@ -227,5 +228,42 @@ func TestSQLiteChangeUserPasswordHashRejectsInvalidHash(t *testing.T) {
 	}
 	if value.PasswordHash != oldHash {
 		t.Fatal("invalid password change mutated user")
+	}
+}
+
+func TestSQLiteChangeUserPasswordHashRejectsStaleVerifiedHash(t *testing.T) {
+	ctx := context.Background()
+	db := openRealSQLiteDatabase(t, filepath.Join(t.TempDir(), identityDBName))
+	now := time.Date(2026, 9, 26, 14, 0, 0, 0, time.UTC)
+
+	currentHash, err := HashPassword(ctx, strings.Repeat("c", 16))
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleHash, err := HashPassword(ctx, strings.Repeat("s", 16))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextHash, err := HashPassword(ctx, strings.Repeat("n", 16))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateUser(ctx, User{
+		ID: "password-user", Username: "password-user", PasswordHash: currentHash,
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err = db.ChangeUserPasswordHash(ctx, "password-user", staleHash, nextHash, now.Add(time.Minute))
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale verified hash error=%v want conflict", err)
+	}
+	value, err := db.UserByID(ctx, "password-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value.PasswordHash != currentHash {
+		t.Fatal("stale password change mutated user")
 	}
 }
