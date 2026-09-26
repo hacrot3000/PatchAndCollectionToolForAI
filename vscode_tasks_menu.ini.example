@@ -37,6 +37,8 @@ password = change-me
 
 [shared_server]
 # Multi-user shared-project mode. Mặc định false để giữ nguyên behavior hiện tại.
+# Yêu cầu protocol=https và Python 3.10+ (stdlib sqlite3/hashlib.scrypt).
+# Phase 3 mới hỗ trợ login/logout; API workspace còn đóng chờ RBAC/ownership.
 enabled = false
 
 # Bắt buộc khi enabled=true. ID ổn định này dùng để scope membership/quyền theo project.
@@ -44,5 +46,10 @@ enabled = false
 # project_id = m3-client
 
 # Optional absolute path tới identity DB dùng chung giữa nhiều TaskDeck process trên cùng host.
-# Nếu bỏ trống, shared mode sẽ resolve platform data-dir mặc định khi identity layer được bật.
+# DB phải nằm ngoài workspace, kể cả khi đi qua symlink.
+# Nếu bỏ trống, shared mode dùng platform data-dir mặc định.
 # identity_db = /var/lib/taskdeck/identity.db
+
+# Sau khi cấu hình, tạo admin đầu tiên bằng nhập password ẩn:
+# ./vscode_tasks_menu --shared-admin-bootstrap admin
+# Lệnh chỉ chạy khi identity DB chưa có user; không tự chuyển password [auth].

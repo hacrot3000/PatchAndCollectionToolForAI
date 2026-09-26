@@ -1,6 +1,7 @@
 # TaskDeck Multi-user / Shared Server Plan
 
-Status: design baseline  
+Status: Phase 3 authentication implemented; project APIs closed pending authorization/ownership
+
 Branch: `feat/multi-user-shared-server`
 
 ## 1. Purpose
@@ -362,6 +363,14 @@ The identity DB stores only a token hash.
 
 Logout or force-logout revokes the server-side session.
 
+Phase 3 uses a 256-bit random token and stores its SHA-256 hash. Cookies use a
+`__Host-taskdeck-<project-key-hash>` name to avoid collisions between different
+project daemons on the same hostname; no Domain attribute is set.
+Sessions expire after 12 hours absolutely or 30 minutes without an authenticated
+request. Activity is persisted at most once per minute. Every authenticated
+request rechecks user/project/membership state, password-change time and session
+revocation. Password/access changes racing with login prevent session creation.
+
 ### 6.3 Request principal
 
 Authentication middleware resolves every shared-mode request to a principal such as:
@@ -671,13 +680,13 @@ Authorization data must not depend on TCP port. Multiple ports are only process 
 - Generic login failure messages.
 - No credential disclosure endpoint.
 - Session revocation.
-- Idle/absolute expiration policy to be defined before production shared deployment.
+- Initial expiration policy: 30 minutes idle / 12 hours absolute; operational tuning remains in Phase 10.
 
 ### Network
 
-- Shared mode is intended for HTTPS.
+- Shared mode requires direct HTTPS, including loopback deployments.
 - Existing self-signed TLS may remain useful for private deployments.
-- Reverse proxy support can be added without weakening direct-server validation.
+- TLS-terminating reverse proxies are not supported in Phase 3; forwarded TLS headers are not trusted. Proxy support remains a Phase 10 deployment decision.
 - Cookie security must follow the effective HTTPS deployment.
 
 ### Authorization
@@ -739,14 +748,32 @@ Bootstrap of the first admin must be an explicit flow and is a separate implemen
 
 Do not put an initial plaintext admin password in the shared INI.
 
-Preferred direction:
+Implemented local command (run from the configured project):
 
-- explicit CLI/bootstrap command
-- only works while no usable shared admin exists, unless invoked by an already authorized admin
-- password is entered interactively or provided through a safe non-persistent mechanism
-- stores only Argon2id hash
+```sh
+./vscode_tasks_menu --shared-admin-bootstrap admin
+```
 
-Exact command/UI syntax will be finalized in the implementation phase.
+- Enable `[shared_server]`, set a stable `project_id`, keep `server.protocol=https`,
+  and choose an identity DB outside the workspace before running the command.
+- The default prompt hides input and asks for confirmation using Python stdlib
+  `getpass`; it refuses to fall back to echoing input. For a private input pipe,
+  explicitly add `--shared-admin-password-stdin`. No password argument/env option
+  is provided; no plaintext password is written to the INI or logs.
+- Initial passwords require at least 12 characters, at most 4096 UTF-8 bytes, and
+  no NUL/line breaks. Only the existing stdlib-backed scrypt hash is stored.
+- This first-admin command requires **no users in the identity DB**. Re-running
+  it refuses even if the existing admin is disabled. It never resets an account,
+  overwrites a project, or silently grants an existing user a new project.
+- User, project, bootstrap admin role, `project.admin` capability, membership and
+  bootstrap audit event are created in one `BEGIN IMMEDIATE` transaction. Two
+  processes cannot both win the first-admin check; failure rolls back all rows.
+- Additional projects/accounts, other system-role bundles and recovery are later
+  administration flows. The shared multi-project schema is unchanged.
+
+After bootstrap, start TaskDeck normally and visit `/login`. This checkpoint
+supports authentication only; the page reports that workspace access is not yet
+available. Shared mode is not yet a completed multi-user deployment.
 
 ## 17. Migration and backward compatibility
 
@@ -783,9 +810,9 @@ Small commits:
 - [x] Add validation preserving existing legacy mode.
 - [x] Add config tests for both modes.
 
-Implementation note: shared mode does not yet bypass the existing remote Basic Auth guard. That guard is intentionally kept until shared authentication middleware exists, so an intermediate feature-branch revision cannot expose an unauthenticated remote listener.
-
-No login/RBAC behavior change yet.
+The initial checkpoint retained the remote Basic Auth guard. Phase 3 replaces it
+with shared authentication and mandatory HTTPS only when shared mode is enabled.
+Legacy validation/authentication remain unchanged when it is disabled.
 
 ### Phase 2 — Identity store foundation
 
@@ -805,20 +832,55 @@ Implementation notes:
 - The concrete driver uses the already-supported Python runtime and its stdlib `sqlite3`; it does not require CGO, a C compiler, `go get`, pip or npm. Shared mode fails closed when Python 3.10+ / `sqlite3` is unavailable, while legacy mode does not initialize this driver.
 - No npm dependency is permitted for this feature while a viable Go/non-npm implementation exists.
 
-No HTTP login change until the real SQLite layer and password hashing are tested.
+The real SQLite layer and password hashing passed before HTTP login was enabled.
 
 ### Phase 3 — Authentication
 
-Checkpoint 3.0: the daemon opens/closes the identity store. Until the session
-middleware is complete, shared HTTP access fails closed (503), never falling
-back to legacy Basic Auth. Only the existing loopback health probe is exempt.
+- [x] Shared-mode `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`.
+- [x] Session token generation/hash/storage/revocation and initial expiration policy.
+- [x] Secure, HttpOnly, SameSite=Strict cookies; successful login rotates an existing cookie/session.
+- [x] Request Principal middleware, with project membership checked on each request.
+- [x] Explicit first-admin bootstrap with atomic empty-store guard.
+- [x] Login rate limiting: bounded per-IP failure state, 8 failures/minute followed by a 5-minute block, and at most 2 scrypt helpers per daemon.
+- [x] Minimal `/login` page with login, current-user status and logout; no new dependency.
+- [x] Reject workspace-contained identity DB paths, including symlinked ancestors.
 
-1. Shared-mode login/logout/current-user API.
-2. Session token generation/hash/storage/revocation.
-3. Secure cookie handling.
-4. Request Principal middleware.
-5. Explicit first-admin bootstrap.
-6. Login rate limiting.
+Security/compatibility decisions:
+
+- Shared mode never falls back to Basic Auth, including DB errors. An unprovisioned
+  or disabled project prevents server startup. Only loopback health probes remain
+  unauthenticated.
+- Auth APIs bypass the legacy single-browser lease, so multiple users can keep
+  separate authenticated sessions. Shared terminals are not enabled yet.
+- Login/logout require JSON. Shared requests enforce exact HTTPS Origin (including
+  port) and reject cross-site/same-site mutations from other origins. Forwarded
+  protocol headers are not accepted as evidence of HTTPS.
+- Auth responses return a dedicated current-user projection, never User records,
+  password hashes, session hashes or raw tokens. Unknown-user/wrong-password login
+  failures use the same response and both perform scrypt.
+- All project APIs/WebSocket entry points remain closed with 503 after successful
+  authentication until module authorization and session ownership are implemented.
+  `project_access_ready=false` describes this explicitly. The bootstrap admin has
+  only the initial `project.admin` capability; full role/permission seeding belongs
+  to Phase 4. No temporary allow-all admin bypass is installed.
+
+Checkpoint history (2026-09-26):
+
+| Commit | Change |
+| --- | --- |
+| `36d328a` | Intermediate shared-mode fail-closed guard |
+| `5834867` | Browser sessions and project principal resolution |
+| `8636f0a` | Atomic first-admin bootstrap |
+| `f3df643` | Identity DB outside workspace, including symlink checks |
+| `87ca554` | Bootstrap CLI and private password input |
+| `0b9d8f9` | Bounded login and cookie logout |
+| `80a5f89` | HTTP middleware, current-user API and HTTPS validation |
+| `43a633b` | Minimal browser sign-in/sign-out page |
+| `92202c8` | Atomic credential/access recheck when creating a login session |
+
+Next: Phase 4 central permission registry and complete system-role seeding, then
+module enforcement and session ownership. Preserve the project API gate until
+those authorization boundaries are safe to open.
 
 Legacy mode remains on the existing Basic Auth path.
 
