@@ -37,6 +37,14 @@ button{cursor:pointer;margin-top:20px;background:#285680;color:white}button:disa
 <button id="sign-in" type="submit">Sign in</button></form>
 <section id="signed-in" hidden><p id="identity"></p><p>Authentication succeeded. Workspace access is governed by your project permissions.</p>
 <a id="open-workspace" href="/">Open workspace</a>
+<button id="change-password" type="button" class="secondary">Change password</button>
+<form id="password-form" hidden>
+<label for="current-password">Current password</label><input id="current-password" type="password" autocomplete="current-password" maxlength="4096" required>
+<label for="new-password">New password</label><input id="new-password" type="password" autocomplete="new-password" minlength="12" maxlength="4096" required>
+<label for="confirm-password">Confirm new password</label><input id="confirm-password" type="password" autocomplete="new-password" minlength="12" maxlength="4096" required>
+<p>Changing your password signs out all of your TaskDeck login sessions across projects.</p>
+<button id="save-password" type="submit">Change password and sign out</button>
+</form>
 <button id="check-access" type="button" class="secondary">Refresh access</button><button id="sign-out" type="button">Sign out</button></section>
 <p id="message" role="status" aria-live="polite"></p></main><script src="/login.js" defer></script></body></html>`
 
@@ -45,9 +53,17 @@ const form=document.getElementById('login-form');
 const signedIn=document.getElementById('signed-in');
 const message=document.getElementById('message');
 const password=document.getElementById('password');
+const passwordForm=document.getElementById('password-form');
+const currentPassword=document.getElementById('current-password');
+const newPassword=document.getElementById('new-password');
+const confirmPassword=document.getElementById('confirm-password');
+function clearPasswordChangeForm(){
+  currentPassword.value='';newPassword.value='';confirmPassword.value='';passwordForm.hidden=true;
+}
 function showUser(user){
   form.hidden=!!user;signedIn.hidden=!user;message.textContent='';
   document.getElementById('identity').textContent=user?'Signed in as '+user.username+' · '+user.project_key:'';
+  if(!user)clearPasswordChangeForm();
 }
 async function request(path,options={}){
   const response=await fetch(path,{credentials:'same-origin',cache:'no-store',...options});
@@ -63,6 +79,24 @@ form.addEventListener('submit',async event=>{
   try{showUser(await request('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('username').value,password:password.value})}));}
   catch(error){message.textContent=error.message;}
   finally{password.value='';button.disabled=false;}
+});
+document.getElementById('change-password').addEventListener('click',()=>{
+  passwordForm.hidden=!passwordForm.hidden;
+  if(!passwordForm.hidden)currentPassword.focus();
+});
+passwordForm.addEventListener('submit',async event=>{
+  event.preventDefault();
+  const button=document.getElementById('save-password');
+  if(newPassword.value!==confirmPassword.value){message.textContent='New password confirmation does not match.';confirmPassword.focus();return;}
+  button.disabled=true;message.textContent='Changing password…';
+  try{
+    await request('/api/auth/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_password:currentPassword.value,new_password:newPassword.value})});
+    clearPasswordChangeForm();
+    showUser(null);
+    message.textContent='Password changed. All login sessions were signed out. Sign in again with the new password.';
+    document.getElementById('username').focus();
+  }catch(error){message.textContent=error.message;}
+  finally{clearPasswordChangeForm();button.disabled=false;}
 });
 document.getElementById('sign-out').addEventListener('click',async event=>{
   const button=event.currentTarget;button.disabled=true;
