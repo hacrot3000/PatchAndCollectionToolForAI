@@ -10,16 +10,18 @@ import (
 )
 
 type Execution struct {
-	TaskID  int      `json:"task_id"`
-	Label   string   `json:"label"`
-	Detail  string   `json:"detail,omitempty"`
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
-	Cwd     string   `json:"cwd"`
-	Env            []string `json:"-"`
-	Preview        string   `json:"preview"`
-	ProtocolEvents   bool `json:"-"`
-	ProtocolCommands bool `json:"-"`
+	TaskID          int      `json:"task_id"`
+	Label           string   `json:"label"`
+	Detail          string   `json:"detail,omitempty"`
+	Command         string   `json:"command"`
+	Args            []string `json:"args"`
+	Cwd             string   `json:"cwd"`
+	Env             []string `json:"-"`
+	Preview         string   `json:"preview"`
+	TargetType      string   `json:"-"`
+	TargetProfileID string   `json:"-"`
+	ProtocolEvents   bool     `json:"-"`
+	ProtocolCommands bool     `json:"-"`
 }
 
 var envVariablePattern = regexp.MustCompile(`\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}`)
