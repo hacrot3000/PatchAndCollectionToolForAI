@@ -44,6 +44,31 @@ func TestSQLiteAdminReaderListsSafeProjectViews(t *testing.T) {
 	if len(roles) < 4 || len(roles[0].Permissions) == 0 {
 		t.Fatalf("unexpected roles: %#v", roles)
 	}
+
+	projectTwo, err := db.EnsureProject(ctx, Project{ID: "project-two-id", Key: "project-two", Enabled: true, CreatedAt: now, UpdatedAt: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateRole(ctx, Role{ID: "role:one", Name: "project-one-custom"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateRole(ctx, Role{ID: "role:two", Name: "project-two-custom"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.db.ExecContext(ctx, "INSERT INTO project_roles(role_id, project_id) VALUES (?, ?), (?, ?)", "role:one", string(project.ID), "role:two", string(projectTwo.ID)); err != nil {
+		t.Fatal(err)
+	}
+	projectRoles, err := db.ListProjectRoles(ctx, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roleNames := map[string]bool{}
+	for _, role := range projectRoles {
+		roleNames[role.Name] = true
+	}
+	if !roleNames["admin"] || !roleNames["project-one-custom"] || roleNames["project-two-custom"] {
+		t.Fatalf("unexpected scoped roles: %#v", projectRoles)
+	}
 	if err := db.CreateAuthSession(ctx, AuthSession{ID: "session-bob", UserID: "bob", TokenHash: "internal-token-hash", CreatedAt: now, ExpiresAt: now.Add(time.Hour), LastSeenAt: now}); err != nil {
 		t.Fatal(err)
 	}

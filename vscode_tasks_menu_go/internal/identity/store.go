@@ -61,6 +61,7 @@ type AdminStore interface {
 type AdminReader interface {
 	ListProjectMembers(ctx context.Context, projectID ID) ([]ProjectMemberDetails, error)
 	ListRoles(ctx context.Context) ([]RoleDetails, error)
+	ListProjectRoles(ctx context.Context, projectID ID) ([]RoleDetails, error)
 	ListAuthSessions(ctx context.Context, query AuthSessionQuery) ([]AuthSession, error)
 	AuthSessionForProject(ctx context.Context, projectID, sessionID ID) (AuthSession, error)
 }

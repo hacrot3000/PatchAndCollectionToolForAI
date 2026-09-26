@@ -189,6 +189,74 @@ ORDER BY role_permissions.role_id, permissions.permission_key
 	return roles, nil
 }
 
+func (d *sqliteDatabase) ListProjectRoles(ctx context.Context, projectID ID) ([]RoleDetails, error) {
+	if d == nil || d.db == nil {
+		return nil, fmt.Errorf("identity DB is not open")
+	}
+	if projectID == "" {
+		return nil, fmt.Errorf("list project roles requires project_id")
+	}
+	rows, err := d.db.QueryContext(ctx, `
+SELECT roles.id, roles.name, roles.description, roles.system_role
+FROM roles
+LEFT JOIN project_roles ON project_roles.role_id = roles.id
+WHERE roles.system_role = 1 OR project_roles.project_id = ?
+ORDER BY roles.system_role DESC, roles.name COLLATE NOCASE, roles.id
+`, string(projectID))
+	if err != nil {
+		return nil, fmt.Errorf("query project roles: %w", err)
+	}
+	roles := make([]RoleDetails, 0)
+	byID := make(map[ID]int)
+	for rows.Next() {
+		var role RoleDetails
+		var id string
+		var systemRole int64
+		if err := rows.Scan(&id, &role.Name, &role.Description, &systemRole); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan project role: %w", err)
+		}
+		role.ID = ID(id)
+		if role.SystemRole, err = decodeDBBool(systemRole); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		role.Permissions = []string{}
+		byID[role.ID] = len(roles)
+		roles = append(roles, role)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("iterate project roles: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close project roles: %w", err)
+	}
+	permissions, err := d.db.QueryContext(ctx, `
+SELECT role_permissions.role_id, permissions.permission_key
+FROM role_permissions
+JOIN permissions ON permissions.id = role_permissions.permission_id
+ORDER BY role_permissions.role_id, permissions.permission_key
+`)
+	if err != nil {
+		return nil, fmt.Errorf("query project role permissions: %w", err)
+	}
+	defer permissions.Close()
+	for permissions.Next() {
+		var roleID, key string
+		if err := permissions.Scan(&roleID, &key); err != nil {
+			return nil, fmt.Errorf("scan project role permission: %w", err)
+		}
+		if index, ok := byID[ID(roleID)]; ok {
+			roles[index].Permissions = append(roles[index].Permissions, key)
+		}
+	}
+	if err := permissions.Err(); err != nil {
+		return nil, fmt.Errorf("iterate project role permissions: %w", err)
+	}
+	return roles, nil
+}
+
 func (d *sqliteDatabase) ListAuthSessions(ctx context.Context, query AuthSessionQuery) ([]AuthSession, error) {
 	if d == nil || d.db == nil {
 		return nil, fmt.Errorf("identity DB is not open")
