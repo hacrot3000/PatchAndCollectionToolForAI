@@ -20,16 +20,18 @@ import (
 )
 
 type Metadata struct {
-	ID             string `json:"id"`
-	TaskID         int    `json:"task_id"`
-	Label          string `json:"label"`
-	Title          string `json:"title,omitempty"`
-	CommandPreview string `json:"command_preview"`
-	Cwd            string `json:"cwd"`
-	Status         string `json:"status"`
-	ExitCode       *int   `json:"exit_code,omitempty"`
-	StartedAt      string `json:"started_at"`
-	EndedAt        string `json:"ended_at,omitempty"`
+	ID              string `json:"id"`
+	TaskID          int    `json:"task_id"`
+	Label           string `json:"label"`
+	Title           string `json:"title,omitempty"`
+	CommandPreview  string `json:"command_preview"`
+	Cwd             string `json:"cwd"`
+	TargetType      string `json:"target_type,omitempty"`
+	TargetProfileID string `json:"target_profile_id,omitempty"`
+	Status          string `json:"status"`
+	ExitCode        *int   `json:"exit_code,omitempty"`
+	StartedAt       string `json:"started_at"`
+	EndedAt         string `json:"ended_at,omitempty"`
 }
 
 type managedSession struct {
@@ -121,7 +123,7 @@ func (m *Manager) Start(spec tasks.Execution) (Metadata, error) {
 		header = header[len(header)-m.maxScrollback:]
 	}
 	s := &managedSession{
-		meta: Metadata{ID: id, TaskID: spec.TaskID, Label: spec.Label, CommandPreview: spec.Preview, Cwd: spec.Cwd, Status: "running", StartedAt: time.Now().Format(time.RFC3339)},
+		meta: Metadata{ID: id, TaskID: spec.TaskID, Label: spec.Label, CommandPreview: spec.Preview, Cwd: spec.Cwd, TargetType: spec.TargetType, TargetProfileID: spec.TargetProfileID, Status: "running", StartedAt: time.Now().Format(time.RFC3339)},
 		cmd: cmd, ptyFile: ptmx, scrollback: append([]byte(nil), header...), maxScrollback: m.maxScrollback, subscribers: map[chan []byte]struct{}{},
 		protocol: ProtocolState{Available: true, Enabled: protocolRead != nil, CommandsEnabled: commandWrite != nil},
 		protocolCommand: commandWrite,
