@@ -105,6 +105,30 @@ func (l *sharedMutationLock) releaseResource(operation, resourceID string) bool 
 	return true
 }
 
+func (l *sharedMutationLock) bindOperationResource(operation, resourceID string) bool {
+	operation = strings.TrimSpace(operation)
+	resourceID = strings.TrimSpace(resourceID)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.holder == nil || l.holder.Operation != operation {
+		return false
+	}
+	l.holder.ResourceID = resourceID
+	return true
+}
+
+func (l *sharedMutationLock) releaseOperation(operation string) bool {
+	operation = strings.TrimSpace(operation)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.holder == nil || l.holder.Operation != operation {
+		return false
+	}
+	l.token = ""
+	l.holder = nil
+	return true
+}
+
 func sharedPatchMutationRequired(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "history", "plan", "health":
@@ -116,12 +140,20 @@ func sharedPatchMutationRequired(mode string) bool {
 
 func (s *Server) refreshSharedMutationLock() {
 	holder, ok := s.sharedMutation.snapshot()
-	if !ok || holder.Operation != "patch.run" || holder.ResourceID == "" || s.Sessions == nil {
+	if !ok {
 		return
 	}
-	meta, exists := s.Sessions.Metadata(holder.ResourceID)
-	if !exists || meta.Status != "running" {
-		s.sharedMutation.releaseResource(holder.Operation, holder.ResourceID)
+	switch holder.Operation {
+	case "patch.run":
+		if holder.ResourceID == "" || s.Sessions == nil {
+			return
+		}
+		meta, exists := s.Sessions.Metadata(holder.ResourceID)
+		if !exists || meta.Status != "running" {
+			s.sharedMutation.releaseResource(holder.Operation, holder.ResourceID)
+		}
+	case "selfupdate.run":
+		s.refreshSharedSelfUpdateMutationLock(holder)
 	}
 }
 
