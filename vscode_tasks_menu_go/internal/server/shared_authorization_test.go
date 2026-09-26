@@ -50,3 +50,64 @@ func TestRequirePermissionRejectsUnregisteredPolicy(t *testing.T) {
 	}()
 	_ = requirePermission("invented.allow_all", http.NotFoundHandler())
 }
+
+func TestSharedRoutePermissionsSeparateReadWriteAndGitViews(t *testing.T) {
+	tests := []struct {
+		method string
+		path   string
+		want   []string
+	}{
+		{http.MethodGet, "/api/project/file", []string{identity.PermissionFilesRead}},
+		{http.MethodPut, "/api/project/file", []string{identity.PermissionFilesWrite}},
+		{http.MethodPost, "/api/files/upload", []string{identity.PermissionFilesUpload}},
+		{http.MethodPost, "/api/files/upload?overwrite=1", []string{identity.PermissionFilesUpload, identity.PermissionFilesWrite}},
+		{http.MethodGet, "/api/git/status?view=log", []string{identity.PermissionGitLog}},
+		{http.MethodGet, "/api/git/status?view=diff", []string{identity.PermissionGitDiff}},
+		{http.MethodPost, "/api/git/status", nil},
+		{http.MethodGet, "/api/config/page-title", []string{identity.PermissionSettingsRead}},
+		{http.MethodPut, "/api/config/page-title", []string{identity.PermissionSettingsWrite}},
+		{http.MethodGet, "/api/sessions", nil},
+		{http.MethodGet, "/api/unknown", nil},
+	}
+	for _, test := range tests {
+		req := httptest.NewRequest(test.method, test.path, nil)
+		got := sharedRoutePermissions(req)
+		if len(got) != len(test.want) {
+			t.Fatalf("%s %s permissions=%v want=%v", test.method, test.path, got, test.want)
+		}
+		for i := range got {
+			if got[i] != test.want[i] {
+				t.Fatalf("%s %s permissions=%v want=%v", test.method, test.path, got, test.want)
+			}
+		}
+	}
+}
+
+func TestSharedAuthorizationChecksBeforeHandlerAndRequiresAll(t *testing.T) {
+	called := 0
+	s := &Server{}
+	handler := s.sharedAuthorize(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	principal := identity.Principal{Permissions: map[string]bool{identity.PermissionFilesUpload: true}}
+	for _, test := range []struct {
+		path string
+		want int
+	}{
+		{"/api/files/upload", http.StatusNoContent},
+		{"/api/files/upload?overwrite=1", http.StatusForbidden},
+		{"/api/sessions", http.StatusForbidden},
+	} {
+		req := httptest.NewRequest(http.MethodPost, test.path, nil)
+		req = req.WithContext(context.WithValue(req.Context(), sharedPrincipalContextKey{}, principal))
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != test.want {
+			t.Fatalf("%s status=%d want=%d", test.path, rr.Code, test.want)
+		}
+	}
+	if called != 1 {
+		t.Fatalf("handler called %d times", called)
+	}
+}
