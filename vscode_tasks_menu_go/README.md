@@ -420,7 +420,9 @@ Remote client không có credential chỉ nhận `401`; `/api/health` chỉ anon
 
 Backend chặn cross-origin request làm thay đổi trạng thái và gửi security header. Khi HTTPS bật, server yêu cầu TLS 1.2+ và gửi HSTS. CSP không cho phép tải script từ CDN ngoài; browser chỉ dùng asset do chính daemon phục vụ.
 
-Nếu dùng HTTPS reverse proxy thay vì TLS trực tiếp của tool, nên bind tool vào loopback và vẫn giữ `auth.enabled=true`, hoặc để reverse proxy tự enforce authentication.
+Nếu dùng HTTPS reverse proxy với **legacy mode**, nên bind tool vào loopback và vẫn giữ `auth.enabled=true`; proxy auth chỉ nên là lớp bổ sung.
+
+Với **shared-server mode**, TaskDeck identity/permission vẫn là authoritative và upstream proxy → TaskDeck cũng phải dùng HTTPS. Không dùng `X-Forwarded-Proto` để thay thế TLS backend. Xem cấu hình, trust model, backup/restore và nginx mẫu tại [SHARED_SERVER_DEPLOYMENT.md](SHARED_SERVER_DEPLOYMENT.md).
 
 ## Menu từ tasks.json
 
