@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,6 +17,13 @@ import (
 func sharedLoginTestServer(t *testing.T) *Server {
 	t.Helper()
 	s := authTestServer()
+	s.Workspace = t.TempDir()
+	if err := os.MkdirAll(filepath.Join(s.Workspace, ".vscode"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.Workspace, ".vscode", "tasks.json"), []byte(`{"version":"2.0.0","tasks":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	s.Config.SharedServerEnabled = true
 	s.Config.SharedProjectID = "test-project"
 	store, err := identity.OpenSQLiteStore(context.Background(), filepath.Join(t.TempDir(), "identity", "identity.db"))
@@ -29,6 +37,9 @@ func sharedLoginTestServer(t *testing.T) *Server {
 		t.Fatal(err)
 	}
 	if _, err := store.BootstrapFirstAdmin(context.Background(), s.Config.SharedProjectID, "alice", hash, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.validateSharedIdentity(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	return s

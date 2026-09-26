@@ -90,6 +90,7 @@ func (s *Server) Handler() http.Handler {
 	handler = s.requireBrowserLease(handler)
 	handler = s.sameOriginMutations(handler)
 	if s.Config.SharedServerEnabled {
+		handler = s.sharedAuthorize(handler)
 		handler = s.sharedAuth(handler)
 	} else if s.Config.AuthEnabled {
 		handler = s.basicAuth(handler)

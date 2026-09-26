@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -67,13 +68,6 @@ func (s *Server) sharedAuth(next http.Handler) http.Handler {
 			return
 		}
 		switch r.URL.Path {
-		case "/", "/index.html":
-			if r.Method != http.MethodGet && r.Method != http.MethodHead {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
-			return
 		case "/login", "/login.js":
 			sharedLoginPage(w, r)
 			return
@@ -88,6 +82,10 @@ func (s *Server) sharedAuth(next http.Handler) http.Handler {
 		defer cancel()
 		principal, _, err := identity.AuthenticateBrowserSession(ctx, s.Identity, s.Config.SharedProjectID, s.sharedCookieToken(r), time.Now())
 		if err != nil {
+			if (r.URL.Path == "/" || r.URL.Path == "/index.html") && errors.Is(err, identity.ErrUnauthenticated) {
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+				return
+			}
 			sharedAuthError(w, err)
 			return
 		}
@@ -96,7 +94,7 @@ func (s *Server) sharedAuth(next http.Handler) http.Handler {
 			s.sharedCurrentUser(w, r)
 			return
 		}
-		http.Error(w, "shared project APIs await module authorization and session ownership", http.StatusServiceUnavailable)
+		next.ServeHTTP(w, r)
 	})
 }
 

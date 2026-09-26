@@ -124,6 +124,10 @@ func internalLoopbackLeaseExempt(r *http.Request) bool {
 
 func (s *Server) requireBrowserLease(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.Config.SharedServerEnabled {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if r.URL.Path == "/api/browser/lease" || r.URL.Path == "/api/health" || internalLoopbackLeaseExempt(r) {
 			next.ServeHTTP(w, r)
 			return
