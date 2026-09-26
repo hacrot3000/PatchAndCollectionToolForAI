@@ -80,7 +80,8 @@ func main() {
 	fatalIf(err)
 	if *sharedIdentityBackup != "" || *sharedIdentityRestore != "" {
 		if (*sharedIdentityBackup != "" && *sharedIdentityRestore != "") ||
-			*sharedAdmin != "" || *sharedPasswordStdin || *serve || *sessionBroker || *terminal ||
+			*sharedAdmin != "" || *sharedPasswordStdin || *sharedPasswordReset != "" || *sharedPasswordResetStdin ||
+			*serve || *sessionBroker || *terminal ||
 			*selfUpdateFlag || *selfUpdateAuto || *cleanupLegacy || *statusOnly || *stopDaemonFlag ||
 			*restartDaemon || *reloadConfigFlag || *noBrowser || *handoffFD != -1 ||
 			strings.TrimSpace(*listenAddr) != "" || strings.TrimSpace(*selfUpdateID) != "" ||
@@ -129,7 +130,12 @@ func main() {
 		return
 	}
 	if *sharedAdmin != "" || *sharedPasswordStdin {
-		if *sharedAdmin == "" || *serve || *sessionBroker || *terminal || *selfUpdateFlag || *selfUpdateAuto || *cleanupLegacy || *statusOnly || *stopDaemonFlag || *restartDaemon || *reloadConfigFlag || flag.NArg() != 0 {
+		if *sharedAdmin == "" || *sharedIdentityBackup != "" || *sharedIdentityRestore != "" ||
+			*sharedPasswordReset != "" || *sharedPasswordResetStdin || *serve || *sessionBroker ||
+			*terminal || *selfUpdateFlag || *selfUpdateAuto || *cleanupLegacy || *statusOnly ||
+			*stopDaemonFlag || *restartDaemon || *reloadConfigFlag || *noBrowser || *handoffFD != -1 ||
+			strings.TrimSpace(*listenAddr) != "" || strings.TrimSpace(*selfUpdateID) != "" ||
+			patchCommand || flag.NArg() != 0 {
 			fatalIf(fmt.Errorf("--shared-admin-bootstrap requires a username and cannot be combined with other commands"))
 		}
 		cfg, _, err := config.Load(ws)
