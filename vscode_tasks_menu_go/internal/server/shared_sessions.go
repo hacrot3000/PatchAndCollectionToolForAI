@@ -59,6 +59,30 @@ func stampSharedSession(principal identity.Principal, spec *tasks.Execution, kin
 	spec.ProjectID = string(principal.ProjectID)
 }
 
+func (s *Server) auditSharedSessionStart(r *http.Request, meta session.Metadata, details map[string]any) {
+	if !s.Config.SharedServerEnabled {
+		return
+	}
+	principal, ok := PrincipalFromContext(r.Context())
+	if !ok {
+		return
+	}
+	action := "session.create"
+	switch meta.Kind {
+	case tasks.SessionKindTerminal:
+		action = "terminal.create"
+	case tasks.SessionKindTask:
+		action = "task.run"
+	case tasks.SessionKindPatch:
+		action = "patch.run"
+	}
+	if details == nil {
+		details = map[string]any{}
+	}
+	details["kind"] = meta.Kind
+	s.appendSharedAudit(r, &principal, nil, action, "session", meta.ID, "success", details)
+}
+
 func sharedSessionVisible(principal identity.Principal, meta session.Metadata) bool {
 	if meta.ProjectID == "" || meta.ProjectID != string(principal.ProjectID) {
 		return false

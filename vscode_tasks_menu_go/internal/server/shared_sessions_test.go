@@ -375,3 +375,43 @@ func TestSharedSessionAuthorizationDenialsAreAudited(t *testing.T) {
 		t.Fatalf("missing session authorization audits: %+v", events)
 	}
 }
+
+func TestSharedSessionStartAuditUsesKindSpecificActionsWithoutSecrets(t *testing.T) {
+	ctx := context.Background()
+	store, err := identity.OpenSQLiteStore(ctx, filepath.Join(t.TempDir(), "identity", "identity.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	principal, err := store.BootstrapFirstAdmin(ctx, "project-key", "alice", "$scrypt$v=1,ln=17,r=8,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := sharedSessionTestServer(t, &ownershipTestService{supported: true})
+	s.Identity = store
+	request := sharedSessionRequest(http.MethodPost, "/api/sessions", "", principal)
+	request.RemoteAddr = "127.0.0.1:12345"
+
+	for _, item := range []struct {
+		kind   string
+		id     string
+		action string
+		detail map[string]any
+	}{
+		{kind: tasks.SessionKindTerminal, id: "terminal-audit", action: "terminal.create", detail: map[string]any{"cwd": "subdir"}},
+		{kind: tasks.SessionKindTask, id: "task-audit", action: "task.run", detail: map[string]any{"task_id": 7}},
+		{kind: tasks.SessionKindPatch, id: "patch-audit", action: "patch.run", detail: map[string]any{"patch_mode": "queue"}},
+	} {
+		s.auditSharedSessionStart(request, session.Metadata{ID: item.id, Kind: item.kind}, item.detail)
+		events, err := store.ListAudit(ctx, identity.AuditQuery{ProjectID: principal.ProjectID, UserID: principal.UserID, Action: item.action, Limit: 10})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(events) != 1 || events[0].ResourceID != item.id || events[0].Result != "success" {
+			t.Fatalf("%s audit=%+v", item.action, events)
+		}
+		if strings.Contains(events[0].Details, "password") || strings.Contains(events[0].Details, "secret") {
+			t.Fatalf("%s audit leaked secret-looking detail: %s", item.action, events[0].Details)
+		}
+	}
+}

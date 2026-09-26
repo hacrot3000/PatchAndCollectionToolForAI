@@ -224,6 +224,7 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+			s.auditSharedSessionStart(r, meta, map[string]any{"cwd": strings.TrimSpace(req.Cwd)})
 			writeJSON(w, http.StatusCreated, meta)
 			return
 		case "patch":
@@ -244,6 +245,7 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+			s.auditSharedSessionStart(r, meta, map[string]any{"patch_mode": strings.TrimSpace(req.PatchMode)})
 			writeJSON(w, http.StatusCreated, meta)
 			return
 		case "", "task":
@@ -286,6 +288,7 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditSharedSessionStart(r, meta, map[string]any{"task_id": req.TaskID})
 		writeJSON(w, http.StatusCreated, meta)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
