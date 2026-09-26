@@ -53,6 +53,8 @@ type AdminStore interface {
 
 	CreateRole(ctx context.Context, role Role) error
 	SetRolePermissions(ctx context.Context, roleID ID, permissionKeys []string) error
+	CreateProjectRole(ctx context.Context, projectID ID, role Role) error
+	SetProjectRolePermissions(ctx context.Context, projectID, roleID ID, permissionKeys []string) error
 	UpsertProjectMember(ctx context.Context, member ProjectMember) error
 	SetMemberPermission(ctx context.Context, override MemberPermission) error
 	DeleteMemberPermission(ctx context.Context, projectID, userID, permissionID ID) error

@@ -105,6 +105,129 @@ SELECT ?, id FROM permissions WHERE permission_key = ?
 	return nil
 }
 
+func (d *sqliteDatabase) CreateProjectRole(ctx context.Context, projectID ID, role Role) error {
+	if d == nil || d.db == nil {
+		return fmt.Errorf("identity DB is not open")
+	}
+	role.Name = strings.TrimSpace(role.Name)
+	if projectID == "" || role.ID == "" || role.Name == "" {
+		return fmt.Errorf("project role requires project_id, id and name")
+	}
+	if role.SystemRole {
+		return fmt.Errorf("%w: project custom role cannot be a system role", ErrConflict)
+	}
+	conn, err := d.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("reserve project role connection: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return fmt.Errorf("begin project role create: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+	var exists int
+	if err := conn.QueryRowContext(ctx, "SELECT 1 FROM projects WHERE id = ?", string(projectID)).Scan(&exists); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("read project for role: %w", err)
+	}
+	result, err := conn.ExecContext(ctx, `
+INSERT INTO roles(id, name, description, system_role)
+VALUES (?, ?, ?, 0)
+ON CONFLICT(name) DO NOTHING
+`, string(role.ID), role.Name, role.Description)
+	if err != nil {
+		return fmt.Errorf("create project role: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read created project role count: %w", err)
+	}
+	if affected == 0 {
+		return ErrConflict
+	}
+	if _, err := conn.ExecContext(ctx, "INSERT INTO project_roles(role_id, project_id) VALUES (?, ?)", string(role.ID), string(projectID)); err != nil {
+		return fmt.Errorf("associate project role: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return fmt.Errorf("commit project role create: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+func (d *sqliteDatabase) SetProjectRolePermissions(ctx context.Context, projectID, roleID ID, permissionKeys []string) error {
+	if d == nil || d.db == nil {
+		return fmt.Errorf("identity DB is not open")
+	}
+	if projectID == "" || roleID == "" {
+		return fmt.Errorf("set project role permissions requires project_id and role_id")
+	}
+	keys, err := normalizePermissionKeys(permissionKeys)
+	if err != nil {
+		return err
+	}
+	conn, err := d.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("reserve project role permission connection: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return fmt.Errorf("begin project role permission update: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+	var systemRole int64
+	err = conn.QueryRowContext(ctx, `
+SELECT roles.system_role
+FROM roles
+LEFT JOIN project_roles ON project_roles.role_id = roles.id
+WHERE roles.id = ? AND (roles.system_role = 1 OR project_roles.project_id = ?)
+`, string(roleID), string(projectID)).Scan(&systemRole)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("read project role: %w", err)
+	}
+	if systemRole != 0 {
+		return fmt.Errorf("%w: system roles are read-only", ErrConflict)
+	}
+	if _, err := conn.ExecContext(ctx, "DELETE FROM role_permissions WHERE role_id = ?", string(roleID)); err != nil {
+		return fmt.Errorf("clear project role permissions: %w", err)
+	}
+	for _, key := range keys {
+		result, err := conn.ExecContext(ctx, `
+INSERT INTO role_permissions(role_id, permission_id)
+SELECT ?, id FROM permissions WHERE permission_key = ?
+`, string(roleID), key)
+		if err != nil {
+			return fmt.Errorf("add project role permission %q: %w", key, err)
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("read project role permission %q count: %w", key, err)
+		}
+		if affected == 0 {
+			return fmt.Errorf("%w: permission %q", ErrNotFound, key)
+		}
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return fmt.Errorf("commit project role permission update: %w", err)
+	}
+	committed = true
+	return nil
+}
+
 func (d *sqliteDatabase) UpsertProjectMember(ctx context.Context, member ProjectMember) error {
 	if d == nil || d.db == nil {
 		return fmt.Errorf("identity DB is not open")

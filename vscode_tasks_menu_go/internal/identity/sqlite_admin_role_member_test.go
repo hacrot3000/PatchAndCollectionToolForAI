@@ -121,3 +121,60 @@ func TestNormalizePermissionKeysRejectsEmpty(t *testing.T) {
 		t.Fatal("empty permission key accepted")
 	}
 }
+
+func TestSQLiteProjectRolesAreScopedAndSystemRolesAreReadOnly(t *testing.T) {
+	ctx := context.Background()
+	db := openRealSQLiteDatabase(t, t.TempDir()+"/identity.db")
+	now := time.Date(2026, 9, 26, 18, 0, 0, 0, time.UTC)
+	if _, err := db.BootstrapFirstAdmin(ctx, "project-one", "alice", "$scrypt$v=1,ln=17,r=8,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SeedSystemRoles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	projectOne, err := db.ProjectByKey(ctx, "project-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectTwo, err := db.EnsureProject(ctx, Project{ID: "project-two-id", Key: "project-two", Enabled: true, CreatedAt: now, UpdatedAt: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateProjectRole(ctx, projectOne.ID, Role{ID: "custom:one", Name: "project-one-developer", Description: "Project one custom role"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetProjectRolePermissions(ctx, projectOne.ID, "custom:one", []string{PermissionTasksView, PermissionFilesRead}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetProjectRolePermissions(ctx, projectTwo.ID, "custom:one", []string{PermissionTasksView}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross-project role update err=%v want ErrNotFound", err)
+	}
+	if err := db.SetProjectRolePermissions(ctx, projectOne.ID, "system:admin", []string{PermissionTasksView}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("system role update err=%v want ErrConflict", err)
+	}
+	if err := db.CreateProjectRole(ctx, projectTwo.ID, Role{ID: "custom:duplicate", Name: "project-one-developer"}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate role name err=%v want ErrConflict", err)
+	}
+	rolesOne, err := db.ListProjectRoles(ctx, projectOne.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rolesTwo, err := db.ListProjectRoles(ctx, projectTwo.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oneFound, twoFound bool
+	for _, role := range rolesOne {
+		if role.ID == "custom:one" {
+			oneFound = len(role.Permissions) == 2
+		}
+	}
+	for _, role := range rolesTwo {
+		if role.ID == "custom:one" || role.ID == "custom:duplicate" {
+			twoFound = true
+		}
+	}
+	if !oneFound || twoFound {
+		t.Fatalf("project role scope one=%#v two=%#v", rolesOne, rolesTwo)
+	}
+}
