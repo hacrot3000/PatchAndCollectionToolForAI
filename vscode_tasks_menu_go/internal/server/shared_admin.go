@@ -79,6 +79,10 @@ type sharedAdminPermissionRequest struct {
 	Effect        identity.PermissionEffect `json:"effect,omitempty"`
 }
 
+type sharedAdminRevokeSessionRequest struct {
+	SessionID identity.ID `json:"session_id"`
+}
+
 func (s *Server) sharedAdminReady(w http.ResponseWriter, r *http.Request) bool {
 	if !s.Config.SharedServerEnabled {
 		http.NotFound(w, r)
@@ -431,10 +435,17 @@ func (s *Server) sharedAdminSessions(w http.ResponseWriter, r *http.Request) {
 	if !s.sharedAdminReady(w, r) {
 		return
 	}
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		s.sharedAdminSessionsList(w, r)
+	case http.MethodDelete:
+		s.sharedAdminSessionRevoke(w, r)
+	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
 	}
+}
+
+func (s *Server) sharedAdminSessionsList(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel, principal, ok := sharedAdminContext(r)
 	defer cancel()
 	if !ok {
@@ -464,6 +475,45 @@ func (s *Server) sharedAdminSessions(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": views})
+}
+
+func (s *Server) sharedAdminSessionRevoke(w http.ResponseWriter, r *http.Request) {
+	if !requireSharedJSON(w, r) {
+		return
+	}
+	var request sharedAdminRevokeSessionRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&request)
+	request.SessionID = identity.ID(strings.TrimSpace(string(request.SessionID)))
+	if err != nil || decoder.Decode(new(any)) != io.EOF || request.SessionID == "" {
+		http.Error(w, "invalid session revoke request", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel, principal, ok := sharedAdminContext(r)
+	defer cancel()
+	if !ok {
+		sharedAuthError(w, identity.ErrUnauthenticated)
+		return
+	}
+	session, err := s.Identity.AuthSessionForProject(ctx, principal.ProjectID, request.SessionID)
+	if errors.Is(err, identity.ErrNotFound) {
+		http.Error(w, "auth session not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		sharedAuthError(w, err)
+		return
+	}
+	if session.RevokedAt == nil {
+		if err := s.Identity.RevokeAuthSession(ctx, session.ID, time.Now().UTC()); err != nil {
+			s.appendSharedAudit(r, &principal, nil, "admin.session.revoke", "auth_session", string(session.ID), "error", map[string]any{"target_user_id": string(session.UserID)})
+			sharedAuthError(w, err)
+			return
+		}
+	}
+	s.appendSharedAudit(r, &principal, nil, "admin.session.revoke", "auth_session", string(session.ID), "success", map[string]any{"target_user_id": string(session.UserID)})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) sharedAdminAudit(w http.ResponseWriter, r *http.Request) {

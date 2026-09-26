@@ -270,3 +270,58 @@ func TestSharedAdminMemberPermissionOverridesTakeEffect(t *testing.T) {
 		t.Fatalf("unexpected permission audit counts set=%d delete=%d", setCount, deleteCount)
 	}
 }
+
+func TestSharedAdminRevokesProjectMemberSession(t *testing.T) {
+	s := sharedLoginTestServer(t)
+	ctx := context.Background()
+	alice, err := s.Identity.UserByUsername(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := s.Identity.ProjectByKey(ctx, s.Config.SharedProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	bobID, err := identity.NewID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Identity.CreateProjectUser(ctx,
+		identity.User{ID: bobID, Username: "bob", PasswordHash: alice.PasswordHash, Enabled: true, CreatedAt: now, UpdatedAt: now},
+		identity.ProjectMember{ProjectID: project.ID, UserID: bobID, RoleID: "system:viewer", Enabled: true, CreatedAt: now, UpdatedAt: now},
+	); err != nil {
+		t.Fatal(err)
+	}
+	bobCookie := sharedAPILogin(t, s, "bob")
+	adminCookie := sharedAPILogin(t, s, "alice")
+	sessions, err := s.Identity.ListAuthSessions(ctx, identity.AuthSessionQuery{ProjectID: project.ID, UserID: bobID, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("bob session count=%d", len(sessions))
+	}
+	request := httptest.NewRequest(http.MethodDelete, "https://taskdeck.test/api/admin/sessions", strings.NewReader(`{"session_id":"`+string(sessions[0].ID)+`"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(adminCookie)
+	recorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("revoke session status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	me := httptest.NewRequest(http.MethodGet, "https://taskdeck.test/api/auth/me", nil)
+	me.AddCookie(bobCookie)
+	meRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(meRecorder, me)
+	if meRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked session still authenticated: %d %s", meRecorder.Code, meRecorder.Body.String())
+	}
+	events, err := s.Identity.ListAudit(ctx, identity.AuditQuery{ProjectID: project.ID, UserID: alice.ID, Action: "admin.session.revoke", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Result != "success" || events[0].ResourceID != string(sessions[0].ID) {
+		t.Fatalf("missing revoke audit event: %+v", events)
+	}
+}
