@@ -81,6 +81,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/project/files/search", s.projectFileSearch)
 	mux.HandleFunc("/api/project/content/search", s.projectContentSearch)
 	mux.HandleFunc("/api/admin/users", s.sharedAdminUsers)
+	mux.HandleFunc("/api/admin/users/access", s.sharedAdminUserAccess)
 	mux.HandleFunc("/api/admin/roles", s.sharedAdminRoles)
 	mux.HandleFunc("/api/admin/permissions", s.sharedAdminPermissions)
 	mux.HandleFunc("/api/admin/sessions", s.sharedAdminSessions)

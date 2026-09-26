@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/identity"
 )
@@ -109,5 +110,73 @@ func TestSharedAdminCreatesProjectUserAndMembership(t *testing.T) {
 	s.Handler().ServeHTTP(duplicateRecorder, duplicate)
 	if duplicateRecorder.Code != http.StatusConflict {
 		t.Fatalf("duplicate status=%d body=%s", duplicateRecorder.Code, duplicateRecorder.Body.String())
+	}
+}
+
+func TestSharedAdminUpdatesProjectMembershipAccess(t *testing.T) {
+	s := sharedLoginTestServer(t)
+	ctx := context.Background()
+	alice, err := s.Identity.UserByUsername(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := s.Identity.ProjectByKey(ctx, s.Config.SharedProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	bobID, err := identity.NewID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Identity.CreateProjectUser(ctx,
+		identity.User{ID: bobID, Username: "bob", PasswordHash: alice.PasswordHash, Enabled: true, CreatedAt: now, UpdatedAt: now},
+		identity.ProjectMember{ProjectID: project.ID, UserID: bobID, RoleID: "system:viewer", Enabled: true, CreatedAt: now, UpdatedAt: now},
+	); err != nil {
+		t.Fatal(err)
+	}
+	bobCookie := sharedAPILogin(t, s, "bob")
+	adminCookie := sharedAPILogin(t, s, "alice")
+
+	request := httptest.NewRequest(http.MethodPatch, "https://taskdeck.test/api/admin/users/access", strings.NewReader(`{
+		"user_id":"`+string(bobID)+`",
+		"role_id":"system:developer",
+		"enabled":false
+	}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(adminCookie)
+	recorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("update access status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	member, err := s.Identity.ProjectMember(ctx, project.ID, bobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if member.RoleID != "system:developer" || member.Enabled {
+		t.Fatalf("unexpected updated membership: %+v", member)
+	}
+	bob, err := s.Identity.UserByID(ctx, bobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bob.Enabled {
+		t.Fatal("project membership update disabled the global user")
+	}
+
+	me := httptest.NewRequest(http.MethodGet, "https://taskdeck.test/api/auth/me", nil)
+	me.AddCookie(bobCookie)
+	meRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(meRecorder, me)
+	if meRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("disabled member still authenticated: %d %s", meRecorder.Code, meRecorder.Body.String())
+	}
+	events, err := s.Identity.ListAudit(ctx, identity.AuditQuery{ProjectID: project.ID, UserID: alice.ID, Action: "admin.member.update", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Result != "success" || events[0].ResourceID != string(bobID) {
+		t.Fatalf("missing membership audit event: %+v", events)
 	}
 }
