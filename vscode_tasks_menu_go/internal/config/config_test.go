@@ -22,7 +22,6 @@ func TestRemoteRequiresAuth(t *testing.T) {
 	}
 }
 
-
 func TestLoadProtectsExistingConfigPermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX permission bits are not meaningful on Windows")
@@ -45,7 +44,6 @@ func TestLoadProtectsExistingConfigPermissions(t *testing.T) {
 		t.Fatalf("config mode=%#o want 0600", got)
 	}
 }
-
 
 func TestEffectiveRemoteListenerRequiresAuthEvenWhenConfigBindIsLoopback(t *testing.T) {
 	cfg := Default()
@@ -71,7 +69,6 @@ func TestEffectiveRemoteListenerRequiresAuthEvenWhenConfigBindIsLoopback(t *test
 	}
 }
 
-
 func TestAuthEnabledRejectsDefaultPasswordEvenOnLoopback(t *testing.T) {
 	cfg := Default()
 	cfg.AuthEnabled = true
@@ -83,7 +80,6 @@ func TestAuthEnabledRejectsDefaultPasswordEvenOnLoopback(t *testing.T) {
 		t.Fatalf("loopback auth with custom password rejected: %v", err)
 	}
 }
-
 
 func TestHTTPSIsDefaultProtocol(t *testing.T) {
 	cfg := Default()
@@ -123,7 +119,6 @@ func TestHTTPProtocolRejectsTLSCertificateFields(t *testing.T) {
 	}
 }
 
-
 func TestProtocolIsCaseInsensitive(t *testing.T) {
 	cfg := Default()
 	cfg.Protocol = "HTTPS"
@@ -142,7 +137,6 @@ func TestProtocolIsCaseInsensitive(t *testing.T) {
 	}
 }
 
-
 func TestNewConfigFileWritesHTTPSProtocol(t *testing.T) {
 	workspace := t.TempDir()
 	cfg, path, err := Load(workspace)
@@ -160,7 +154,6 @@ func TestNewConfigFileWritesHTTPSProtocol(t *testing.T) {
 		t.Fatalf("generated config missing HTTPS protocol:\n%s", data)
 	}
 }
-
 
 func TestLoadMigratesLegacyConfigIntoVSCode(t *testing.T) {
 	workspace := t.TempDir()
@@ -262,19 +255,28 @@ func TestSharedServerIdentityDBMustBeAbsoluteWhenConfigured(t *testing.T) {
 	}
 }
 
-func TestSharedServerConfigFoundationDoesNotWeakenRemoteAuthGuard(t *testing.T) {
+func TestSharedServerRequiresHTTPSAndIgnoresLegacyCredentials(t *testing.T) {
 	cfg := Default()
 	cfg.Bind = "0.0.0.0"
 	cfg.SharedServerEnabled = true
 	cfg.SharedProjectID = "m3-client"
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("shared config alone must not expose remote listener before shared auth middleware exists")
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("shared HTTPS should use identity authentication: %v", err)
 	}
 	cfg.AuthEnabled = true
 	cfg.Username = "admin"
-	cfg.Password = "temporary-legacy-guard"
+	cfg.Password = "change-me"
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("remote shared config with current legacy guard rejected: %v", err)
+		t.Fatalf("irrelevant legacy credentials rejected: %v", err)
+	}
+	cfg.Protocol = ProtocolHTTP
+	for _, bind := range []string{"0.0.0.0", "127.0.0.1"} {
+		cfg.Bind = bind
+		if err := cfg.Validate(); err == nil {
+			t.Fatal("shared HTTP accepted")
+		}
+		if err := cfg.ValidateListenerAddress(bind + ":42881"); err == nil {
+			t.Fatal("shared HTTP listener accepted")
+		}
 	}
 }
-

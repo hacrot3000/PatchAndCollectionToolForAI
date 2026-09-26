@@ -112,6 +112,15 @@ func (s *Server) Serve(listener net.Listener) error {
 		_ = listener.Close()
 		return fmt.Errorf("HTTPS certificate/key chưa được resolve trước khi serve")
 	}
+	if s.Config.SharedServerEnabled {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err := s.validateSharedIdentity(ctx)
+		cancel()
+		if err != nil {
+			_ = listener.Close()
+			return err
+		}
+	}
 	httpServer := &http.Server{
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -120,6 +129,10 @@ func (s *Server) Serve(listener net.Listener) error {
 		TLSConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		},
+	}
+	if s.Config.SharedServerEnabled {
+		// Bound slow login bodies while shared mode only exposes auth APIs.
+		httpServer.ReadTimeout = 15 * time.Second
 	}
 	if s.Config.TLS() {
 		return httpServer.ServeTLS(listener, s.Config.TLSCert, s.Config.TLSKey)

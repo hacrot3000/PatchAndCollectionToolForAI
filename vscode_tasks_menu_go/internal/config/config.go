@@ -21,16 +21,16 @@ const (
 var sharedProjectIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 type Config struct {
-	Protocol      string
-	Bind          string
-	Port          int
-	AdvertiseHost string
-	OpenBrowser   bool
-	TLSCert       string
-	TLSKey        string
-	AuthEnabled        bool
-	Username           string
-	Password           string
+	Protocol            string
+	Bind                string
+	Port                int
+	AdvertiseHost       string
+	OpenBrowser         bool
+	TLSCert             string
+	TLSKey              string
+	AuthEnabled         bool
+	Username            string
+	Password            string
 	SharedServerEnabled bool
 	SharedProjectID     string
 	SharedIdentityDB    string
@@ -130,10 +130,13 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Bind) == "" {
 		return fmt.Errorf("server.bind không được để trống")
 	}
-	if c.AuthEnabled && (strings.TrimSpace(c.Username) == "" || c.Password == "" || c.Password == "change-me") {
+	if !c.SharedServerEnabled && c.AuthEnabled && (strings.TrimSpace(c.Username) == "" || c.Password == "" || c.Password == "change-me") {
 		return fmt.Errorf("[auth] enabled=true yêu cầu username/password riêng; không được dùng password mặc định change-me")
 	}
 	if c.SharedServerEnabled {
+		if !c.TLS() {
+			return fmt.Errorf("[shared_server] enabled=true yêu cầu server.protocol=https")
+		}
 		projectID := strings.TrimSpace(c.SharedProjectID)
 		if !sharedProjectIDPattern.MatchString(projectID) {
 			return fmt.Errorf("[shared_server] enabled=true yêu cầu project_id hợp lệ (1-128 ký tự: chữ, số, '.', '_' hoặc '-')")
@@ -155,6 +158,12 @@ func (c Config) Validate() error {
 }
 
 func (c Config) validateRemoteAuthHost(host string) error {
+	if c.SharedServerEnabled {
+		if !c.TLS() {
+			return fmt.Errorf("shared-server listener requires HTTPS")
+		}
+		return nil
+	}
 	if isLoopbackBind(host) {
 		return nil
 	}
