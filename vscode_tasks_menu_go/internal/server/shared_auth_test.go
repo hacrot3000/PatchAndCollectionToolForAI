@@ -85,10 +85,14 @@ func TestSharedHTTPConcurrentUsersAndMembershipIsolation(t *testing.T) {
 		if w := sharedRequest(t, s, "/api/tasks", cookie); w.Code != http.StatusOK {
 			t.Fatalf("authorized task list rejected: %d %s", w.Code, w.Body.String())
 		}
-		for _, path := range []string{"/api/sessions", "/api/sessions/x/ws", "/api/state/tasks"} {
-			if w := sharedRequest(t, s, path, cookie); w.Code != http.StatusForbidden {
-				t.Fatalf("unmapped project route %s: %d", path, w.Code)
-			}
+		if w := sharedRequest(t, s, "/api/sessions", cookie); w.Code != http.StatusOK {
+			t.Fatalf("authorized session list rejected: %d %s", w.Code, w.Body.String())
+		}
+		if w := sharedRequest(t, s, "/api/state/tasks", cookie); w.Code != http.StatusOK {
+			t.Fatalf("authorized task state rejected: %d %s", w.Code, w.Body.String())
+		}
+		if w := sharedRequest(t, s, "/api/sessions/x/ws", cookie); w.Code != http.StatusForbidden {
+			t.Fatalf("unmapped session item route: %d", w.Code)
 		}
 	}
 	member.Enabled = false

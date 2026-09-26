@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/identity"
+	"bletonfc/vscode_tasks_menu/internal/session"
 )
 
 func sharedLoginTestServer(t *testing.T) *Server {
@@ -32,6 +33,9 @@ func sharedLoginTestServer(t *testing.T) *Server {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	s.Identity = store
+	sessions := session.NewManager(64 << 10)
+	s.Sessions = sessions
+	t.Cleanup(func() { sessions.Shutdown(2 * time.Second) })
 	hash, err := identity.HashPassword(context.Background(), "private-admin-password")
 	if err != nil {
 		t.Fatal(err)

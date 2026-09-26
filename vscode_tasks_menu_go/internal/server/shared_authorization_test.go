@@ -97,7 +97,7 @@ func TestSharedAuthorizationChecksBeforeHandlerAndRequiresAll(t *testing.T) {
 	}{
 		{"/api/files/upload", http.StatusNoContent},
 		{"/api/files/upload?overwrite=1", http.StatusForbidden},
-		{"/api/sessions", http.StatusForbidden},
+		{"/api/sessions", http.StatusNoContent},
 	} {
 		req := httptest.NewRequest(http.MethodPost, test.path, nil)
 		req = req.WithContext(context.WithValue(req.Context(), sharedPrincipalContextKey{}, principal))
@@ -107,7 +107,7 @@ func TestSharedAuthorizationChecksBeforeHandlerAndRequiresAll(t *testing.T) {
 			t.Fatalf("%s status=%d want=%d", test.path, rr.Code, test.want)
 		}
 	}
-	if called != 1 {
+	if called != 2 {
 		t.Fatalf("handler called %d times", called)
 	}
 }

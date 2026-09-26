@@ -163,9 +163,21 @@ func (s *Server) tasks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
+	if s.Config.SharedServerEnabled && !s.sharedSessionOwnershipReady(w) {
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, map[string]any{"sessions": s.withStoredTitles(s.Sessions.List())})
+		items := s.Sessions.List()
+		if s.Config.SharedServerEnabled {
+			principal, ok := PrincipalFromContext(r.Context())
+			if !ok {
+				sharedAuthError(w, identity.ErrUnauthenticated)
+				return
+			}
+			items = filterSharedSessions(principal, items)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"sessions": s.withStoredTitles(items)})
 	case http.MethodPost:
 		var req struct {
 			Kind      string            `json:"kind"`
@@ -194,6 +206,9 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			if err := configureTerminalGitTextconv(s.Workspace, &spec); err != nil && s.Log != nil {
 				s.Log.Printf("terminal git textconv warning: %v", err)
 			}
+			if !s.prepareSharedSession(w, r, &spec, tasks.SessionKindTerminal) {
+				return
+			}
 			meta, err := s.Sessions.Start(spec)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -209,6 +224,9 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			}
 			if err := tasks.ApplyEnvironmentOverrides(&spec, req.Env); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if !s.prepareSharedSession(w, r, &spec, tasks.SessionKindPatch) {
 				return
 			}
 			meta, err := s.Sessions.Start(spec)
@@ -248,6 +266,9 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := tasks.ApplyEnvironmentOverrides(&spec, req.Env); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if !s.prepareSharedSession(w, r, &spec, tasks.SessionKindTask) {
 			return
 		}
 		meta, err := s.Sessions.Start(spec)
