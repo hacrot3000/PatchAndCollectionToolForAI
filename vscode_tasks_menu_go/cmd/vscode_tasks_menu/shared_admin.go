@@ -9,7 +9,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unicode/utf8"
 
 	"bletonfc/vscode_tasks_menu/internal/config"
 	"bletonfc/vscode_tasks_menu/internal/identity"
@@ -28,10 +27,7 @@ func readBootstrapPassword(input io.Reader) (string, error) {
 }
 
 func validateBootstrapPassword(password string) error {
-	if !utf8.ValidString(password) || utf8.RuneCountInString(password) < 12 || len(password) > 4096 || strings.ContainsAny(password, "\r\n\x00") {
-		return fmt.Errorf("admin password must contain at least 12 characters, at most 4096 bytes, and no line breaks or NUL")
-	}
-	return nil
+	return identity.ValidateNewPassword(password)
 }
 
 func runSharedAdminBootstrap(workspace string, cfg config.Config, username string, fromStdin bool) error {

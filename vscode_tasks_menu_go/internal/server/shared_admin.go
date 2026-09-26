@@ -185,11 +185,14 @@ func (s *Server) sharedAdminUserCreate(w http.ResponseWriter, r *http.Request) {
 		request.Username == "" || len(request.Username) > 128 ||
 		!utf8.ValidString(request.Username) || strings.ContainsAny(request.Username, " \t\r\n\x00") ||
 		len(request.DisplayName) > 256 || !utf8.ValidString(request.DisplayName) || strings.ContainsRune(request.DisplayName, '\x00') ||
-		request.RoleID == "" ||
-		!utf8.ValidString(request.Password) || utf8.RuneCountInString(request.Password) < 12 ||
-		len(request.Password) > 4096 || strings.ContainsAny(request.Password, "\r\n\x00") {
+		request.RoleID == "" {
 		request.Password = ""
 		http.Error(w, "invalid user request", http.StatusBadRequest)
+		return
+	}
+	if err := identity.ValidateNewPassword(request.Password); err != nil {
+		request.Password = ""
+		http.Error(w, "invalid user password", http.StatusBadRequest)
 		return
 	}
 
