@@ -15,6 +15,9 @@ func (s *Server) sessionForceKill(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !s.authorizeSharedSessionItem(w, r, id, "kill") {
+		return
+	}
 	if err := s.Sessions.Kill(id); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -34,6 +37,9 @@ func (s *Server) sessionClearConsole(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := sessionActionID(w, r)
 	if !ok {
+		return
+	}
+	if !s.authorizeSharedSessionItem(w, r, id, "clear") {
 		return
 	}
 	if err := s.Sessions.Clear(id); err != nil {

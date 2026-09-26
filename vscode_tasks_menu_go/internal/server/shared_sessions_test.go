@@ -22,6 +22,8 @@ type ownershipTestService struct {
 	items     []session.Metadata
 	started   []tasks.Execution
 	stopped   []string
+	killed    []string
+	cleared   []string
 }
 
 type sharedWebSocketTestService struct {
@@ -49,6 +51,16 @@ func (s *ownershipTestService) Metadata(id string) (session.Metadata, bool) {
 
 func (s *ownershipTestService) Stop(id string) error {
 	s.stopped = append(s.stopped, id)
+	return nil
+}
+
+func (s *ownershipTestService) Kill(id string) error {
+	s.killed = append(s.killed, id)
+	return nil
+}
+
+func (s *ownershipTestService) Clear(id string) error {
+	s.cleared = append(s.cleared, id)
 	return nil
 }
 
@@ -178,6 +190,31 @@ func TestSharedSessionItemUsesOwnAndAllTerminalPermissions(t *testing.T) {
 	s.sessionItem(rr, sharedSessionRequest(http.MethodPost, "/api/sessions/other/stop", "", controller))
 	if rr.Code != http.StatusForbidden || len(service.stopped) != 1 {
 		t.Fatalf("other terminal control status=%d stopped=%v", rr.Code, service.stopped)
+	}
+}
+
+func TestSharedForceKillAndClearRequireSessionControl(t *testing.T) {
+	service := &ownershipTestService{supported: true, items: []session.Metadata{{
+		ID: "terminal-1", Kind: tasks.SessionKindTerminal, OwnerUserID: "alice", ProjectID: "project-1", Status: "running",
+	}}}
+	s := sharedSessionTestServer(t, service)
+	viewer := identity.Principal{UserID: "alice", ProjectID: "project-1", Permissions: map[string]bool{identity.PermissionTerminalViewOwn: true}}
+	controller := identity.Principal{UserID: "alice", ProjectID: "project-1", Permissions: map[string]bool{identity.PermissionTerminalControlOwn: true}}
+
+	rr := httptest.NewRecorder()
+	s.sessionForceKill(rr, sharedSessionRequest(http.MethodPost, "/api/sessions/force-kill", `{"id":"terminal-1"}`, viewer))
+	if rr.Code != http.StatusForbidden || len(service.killed) != 0 {
+		t.Fatalf("viewer force-kill status=%d calls=%v", rr.Code, service.killed)
+	}
+	rr = httptest.NewRecorder()
+	s.sessionForceKill(rr, sharedSessionRequest(http.MethodPost, "/api/sessions/force-kill", `{"id":"terminal-1"}`, controller))
+	if rr.Code != http.StatusOK || len(service.killed) != 1 {
+		t.Fatalf("controller force-kill status=%d calls=%v", rr.Code, service.killed)
+	}
+	rr = httptest.NewRecorder()
+	s.sessionClearConsole(rr, sharedSessionRequest(http.MethodPost, "/api/sessions/clear-console", `{"id":"terminal-1"}`, controller))
+	if rr.Code != http.StatusOK || len(service.cleared) != 1 {
+		t.Fatalf("controller clear status=%d calls=%v", rr.Code, service.cleared)
 	}
 }
 

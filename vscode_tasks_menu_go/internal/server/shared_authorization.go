@@ -69,7 +69,7 @@ func (s *Server) sharedAuthorize(next http.Handler) http.Handler {
 }
 
 func sharedSessionItemPath(path string) bool {
-	return strings.HasPrefix(path, "/api/sessions/") && path != "/api/sessions/force-kill" && path != "/api/sessions/clear-console"
+	return strings.HasPrefix(path, "/api/sessions/")
 }
 
 func sharedRoutePermissions(r *http.Request) []string {

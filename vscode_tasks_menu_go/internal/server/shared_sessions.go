@@ -120,7 +120,7 @@ func sharedSessionActionAllowed(principal identity.Principal, meta session.Metad
 			return sharedSessionViewAllowed(principal, meta)
 		}
 		switch action {
-		case "", "stop", "title", "resize":
+		case "", "stop", "kill", "clear", "title", "resize":
 			return sharedTerminalControlAllowed(principal, meta)
 		default:
 			return false
@@ -130,7 +130,7 @@ func sharedSessionActionAllowed(principal identity.Principal, meta session.Metad
 			return principal.Allowed(identity.PermissionTasksView)
 		}
 		switch action {
-		case "", "stop", "title", "resize":
+		case "", "stop", "kill", "clear", "title", "resize":
 			return principal.Allowed(identity.PermissionTasksRun)
 		default:
 			return false
@@ -142,7 +142,7 @@ func sharedSessionActionAllowed(principal identity.Principal, meta session.Metad
 				return principal.Allowed(identity.PermissionPatchRun)
 			}
 			return principal.Allowed(identity.PermissionPatchView) || principal.Allowed(identity.PermissionPatchHistory)
-		case "stop", "title", "resize", "prompt-response", "item-action", "queue-delete", "resume-action":
+		case "stop", "kill", "clear", "title", "resize", "prompt-response", "item-action", "queue-delete", "resume-action":
 			return principal.Allowed(identity.PermissionPatchRun)
 		case "parallel-collect":
 			return principal.Allowed(identity.PermissionPatchCollect)
