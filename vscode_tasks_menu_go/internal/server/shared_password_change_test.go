@@ -115,3 +115,35 @@ func TestSharedPasswordChangeValidatesNewPasswordAndAuditsWithoutSecrets(t *test
 		t.Fatalf("missing successful password-change audit: %+v", events)
 	}
 }
+
+func TestSharedPasswordChangeRateLimitDoesNotPoisonLoginBucket(t *testing.T) {
+	s := sharedLoginTestServer(t)
+	cookie := sharedAPILogin(t, s, "alice")
+	const remote = "198.51.100.42:4242"
+
+	for i := 0; i < authFailureLimit; i++ {
+		req := passwordChangeRequest(cookie, `{"current_password":"incorrect-current-password","new_password":"replacement-admin-password"}`)
+		req.RemoteAddr = remote
+		recorder := httptest.NewRecorder()
+		s.Handler().ServeHTTP(recorder, req)
+		if recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("failure %d status=%d body=%s", i, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	blocked := passwordChangeRequest(cookie, `{"current_password":"private-admin-password","new_password":"replacement-admin-password"}`)
+	blocked.RemoteAddr = remote
+	blockedRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(blockedRecorder, blocked)
+	if blockedRecorder.Code != http.StatusTooManyRequests || blockedRecorder.Header().Get("Retry-After") == "" {
+		t.Fatalf("password-change rate limit status=%d body=%s", blockedRecorder.Code, blockedRecorder.Body.String())
+	}
+
+	login := loginRequest(`{"username":"alice","password":"private-admin-password"}`)
+	login.RemoteAddr = remote
+	loginRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(loginRecorder, login)
+	if loginRecorder.Code != http.StatusOK {
+		t.Fatalf("password-change failures poisoned login bucket: status=%d body=%s", loginRecorder.Code, loginRecorder.Body.String())
+	}
+}
