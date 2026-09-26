@@ -87,6 +87,21 @@ func newSSHSecretRef(profileID string) (string, error) {
 	return "ssh/" + profileID + "/auth/" + suffix, nil
 }
 
+const maxSSHAuthenticationSecretBytes = 4096
+
+func validateSSHAuthenticationSecret(value string) error {
+	if value == "" {
+		return errors.New("ssh authentication secret is empty")
+	}
+	if len(value) > maxSSHAuthenticationSecretBytes {
+		return fmt.Errorf("ssh authentication secret exceeds %d bytes", maxSSHAuthenticationSecretBytes)
+	}
+	if strings.ContainsAny(value, "\x00\r\n") {
+		return errors.New("ssh authentication secret must not contain NUL or line breaks")
+	}
+	return nil
+}
+
 func (s *Server) sshProfiles(w http.ResponseWriter, r *http.Request) {
 	store, err := s.sshProfileStore()
 	if err != nil {
@@ -121,6 +136,10 @@ func (s *Server) sshProfiles(w http.ResponseWriter, r *http.Request) {
 		var secretRef string
 		var secretValue []byte
 		if req.Secret != nil && *req.Secret != "" {
+			if err := validateSSHAuthenticationSecret(*req.Secret); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 			if req.AuthMethod == sshprofile.AuthAgent {
 				http.Error(w, "agent authentication must not include a secret", http.StatusBadRequest)
 				return
@@ -211,6 +230,10 @@ func (s *Server) sshProfileItem(w http.ResponseWriter, r *http.Request) {
 		var newSecretRef string
 		var newSecret []byte
 		if req.Secret != nil && *req.Secret != "" {
+			if err := validateSSHAuthenticationSecret(*req.Secret); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 			if req.AuthMethod == sshprofile.AuthAgent {
 				http.Error(w, "agent authentication must not include a secret", http.StatusBadRequest)
 				return
