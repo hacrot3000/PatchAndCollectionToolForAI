@@ -63,8 +63,7 @@ func sharedPrincipalView(p identity.Principal) sharedPrincipalResponse {
 		}
 	}
 	sort.Strings(keys)
-	// Project APIs remain closed until module RBAC and session ownership land.
-	return sharedPrincipalResponse{UserID: p.UserID, Username: p.Username, ProjectID: p.ProjectID, ProjectKey: p.ProjectKey, Permissions: keys}
+	return sharedPrincipalResponse{UserID: p.UserID, Username: p.Username, ProjectID: p.ProjectID, ProjectKey: p.ProjectKey, Permissions: keys, ProjectAccessReady: true}
 }
 
 func sharedAuthError(w http.ResponseWriter, err error) {
