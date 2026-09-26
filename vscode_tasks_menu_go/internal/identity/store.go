@@ -61,5 +61,6 @@ type Store interface {
 	SessionStore
 	AuditStore
 	AdminStore
+	BootstrapStore
 	Close() error
 }
