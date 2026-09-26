@@ -1,6 +1,6 @@
 # TaskDeck Multi-user / Shared Server Plan
 
-Status: Phase 3 authentication implemented; project APIs closed pending authorization/ownership
+Status: Phase 9 shared-workspace coordination implemented; Phase 10 hardening in progress
 
 Branch: `feat/multi-user-shared-server`
 
@@ -851,18 +851,18 @@ Security/compatibility decisions:
   or disabled project prevents server startup. Only loopback health probes remain
   unauthenticated.
 - Auth APIs bypass the legacy single-browser lease, so multiple users can keep
-  separate authenticated sessions. Shared terminals are not enabled yet.
+  separate authenticated sessions. Shared terminals are enabled only through
+  server-side permission and ownership checks.
 - Login/logout require JSON. Shared requests enforce exact HTTPS Origin (including
   port) and reject cross-site/same-site mutations from other origins. Forwarded
   protocol headers are not accepted as evidence of HTTPS.
 - Auth responses return a dedicated current-user projection, never User records,
   password hashes, session hashes or raw tokens. Unknown-user/wrong-password login
   failures use the same response and both perform scrypt.
-- All project APIs/WebSocket entry points remain closed with 503 after successful
-  authentication until module authorization and session ownership are implemented.
-  `project_access_ready=false` describes this explicitly. The bootstrap admin has
-  only the initial `project.admin` capability; full role/permission seeding belongs
-  to Phase 4. No temporary allow-all admin bypass is installed.
+- Project APIs and WebSocket entry points are now opened through explicit
+  permission and ownership checks. `project_access_ready=true` is returned only
+  after these authorization boundaries are active. Unknown shared API routes deny
+  by default; no temporary allow-all admin bypass is installed.
 
 Checkpoint history (2026-09-26):
 
@@ -878,78 +878,90 @@ Checkpoint history (2026-09-26):
 | `43a633b` | Minimal browser sign-in/sign-out page |
 | `92202c8` | Atomic credential/access recheck when creating a login session |
 
-Next: Phase 4 central permission registry and complete system-role seeding, then
-module enforcement and session ownership. Preserve the project API gate until
-those authorization boundaries are safe to open.
+| `bd2413cb`–`c9f7cf3e` | Permission registry, system roles, module enforcement, session ownership and capability-driven UI |
+| `6bf4924a`–`dc32cf54` | Audit foundation, administration APIs/UI, custom roles and security-event coverage |
+| `806d1ebe`–`a8e8c063` | File/settings/self-update/session/Patch mutation audit completion |
+| `73a92346`–`039c40f9` | Workspace mutation lock, Patch/file/self-update coordination and lock-status UI |
 
-Legacy mode remains on the existing Basic Auth path.
+Authorization, ownership, administration and workspace mutation coordination
+are now active. Legacy mode remains on the existing Basic Auth path.
 
 ### Phase 4 — Authorization core
 
-1. Central permission registry.
-2. Seed system roles/permissions.
-3. Project membership resolution.
-4. `RequirePermission` helpers.
-5. Deny-by-default tests.
-6. Current-user capabilities endpoint for UI.
+- [x] Central permission registry.
+- [x] Seed system roles/permissions without resetting administrator changes.
+- [x] Project membership resolution.
+- [x] Fail-closed permission middleware/helpers.
+- [x] Deny-by-default tests and authorization-denial audit.
+- [x] Current-user capability projection for UI.
 
 ### Phase 5 — Module permissions
 
-Apply authorization in small slices:
+- [x] Tasks view/run.
+- [x] Terminal create.
+- [x] Terminal subscribe/input/resize/stop/kill.
+- [x] Patch Tool read/run/collect/history/cleanup.
+- [x] Files/project explorer read/download/upload/write.
+- [x] Git read-only status/log/diff endpoints.
+- [x] Settings read/write.
+- [x] Self-update check/run.
 
-1. Tasks.
-2. Terminal create.
-3. Terminal subscribe/input/resize/stop/kill.
-4. Patch Tool read/run/collect/history/cleanup.
-5. Files/project explorer.
-6. Git read-only endpoints.
-7. Settings.
-8. Self-update.
-
-Each slice includes backend tests before frontend hiding.
+Backend authorization is authoritative. Frontend hiding is capability-driven UX
+only and never substitutes for API/WebSocket checks.
 
 ### Phase 6 — Session ownership
 
-1. Add owner/project metadata.
-2. Own/all authorization rules.
-3. Terminal privacy.
-4. Session listing visibility filters.
-5. Admin control permissions.
+- [x] Owner/project metadata carried through the broker/session model.
+- [x] Own/all authorization rules.
+- [x] Terminal privacy and separate view/control permissions.
+- [x] Session listing visibility filters.
+- [x] Administrative session control permissions.
 
 ### Phase 7 — Audit
 
-1. Audit writer.
-2. Authentication/security events.
-3. Task/Terminal/Patch/File/admin actions.
-4. Authorization denials.
-5. Audit query API with permission checks.
+- [x] Structured audit writer with secret-safe details.
+- [x] Authentication/security events.
+- [x] Task/Terminal/Patch/File/settings/self-update/admin actions.
+- [x] Route/session authorization denials and mutation-lock conflicts.
+- [x] Project-scoped audit query API with permission checks and UI viewer.
+
+Keystrokes and high-frequency resize/poll operations are deliberately not audited.
 
 ### Phase 8 — Administration UI
 
-1. Users.
-2. Roles.
-3. Project membership.
-4. Permission overrides.
-5. Active sessions / force logout.
-6. Audit log.
-7. Module visibility based on current-user capabilities.
+- [x] Users and atomic project-user creation.
+- [x] Project-scoped custom roles.
+- [x] Project membership role/enable controls.
+- [x] Per-member ALLOW/DENY permission overrides.
+- [x] Active sessions and permission-gated force logout.
+- [x] Audit log.
+- [x] Module visibility based on current-user capabilities.
+
+Project administration avoids global account mutations where they would silently
+affect the same identity in another project.
 
 ### Phase 9 — Shared-workspace mutation coordination
 
-1. Project mutation lock service.
-2. Patch mutation lock.
-3. Relevant file mutation locks.
-4. Lock owner/status UI.
-5. Audit/timeout/recovery behavior.
+- [x] Process-local project mutation lock service for the daemon-owned workspace.
+- [x] Mutating Patch queue/resume sessions hold the lock for their lifetime;
+      history/plan/health remain read-only and do not acquire it.
+- [x] Relevant file upload/overwrite/editor-save mutations acquire request-scoped locks.
+- [x] Self-update holds the workspace lock across its lifecycle and restart handoff.
+- [x] Authenticated lock status API and header badge expose safe holder metadata.
+- [x] Lock conflicts are audited; completed/stopped Patch runs and terminal/stale
+      self-update states recover/release stale locks.
+
+This lock is intentionally process-local because the architecture invariant remains
+one daemon = one workspace. Multiple project daemons use different workspaces.
 
 ### Phase 10 — Shared-server hardening
 
-1. Session expiration policy.
-2. Password policy/reset flow.
-3. Backup/restore identity DB.
-4. Reverse-proxy/deployment documentation.
-5. Additional abuse/rate limits.
-6. Security review of all public endpoints/WebSockets.
+- [x] Initial session expiration policy: 30-minute idle / 12-hour absolute expiry.
+- [ ] Password policy/change/reset flows beyond first-admin bootstrap.
+- [ ] Backup/restore identity DB.
+- [ ] Reverse-proxy/deployment documentation and explicit trust model.
+- [ ] Additional abuse/rate limits beyond login throttling/concurrency bounds.
+- [ ] Final security review of all public endpoints/WebSockets.
 
 ### Phase 11 — Future central management / Hub
 
