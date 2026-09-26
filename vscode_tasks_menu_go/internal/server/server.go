@@ -19,7 +19,9 @@ import (
 
 	"bletonfc/vscode_tasks_menu/internal/config"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
+	"bletonfc/vscode_tasks_menu/internal/secretstore"
 	"bletonfc/vscode_tasks_menu/internal/session"
+	"bletonfc/vscode_tasks_menu/internal/sshprofile"
 	"bletonfc/vscode_tasks_menu/internal/tasks"
 	"github.com/coder/websocket"
 )
@@ -28,7 +30,9 @@ type Server struct {
 	Workspace string
 	Config    config.Config
 	Log       *log.Logger
-	Sessions  session.Service
+	Sessions           session.Service
+	SSHProfiles        *sshprofile.Store
+	ConnectionSecrets  secretstore.Store
 
 	projectIndexMu         sync.Mutex
 	projectIndex           *projectFileIndex
