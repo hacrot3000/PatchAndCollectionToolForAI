@@ -64,3 +64,14 @@ func TestSharedAdminUIUsersScriptUsesPermissionGatedAPIs(t *testing.T) {
 		t.Fatal("admin UI unexpectedly references npm")
 	}
 }
+
+func TestSharedAdminUIIncludesRoleAdministrationView(t *testing.T) {
+	if !strings.Contains(sharedAdminHTML, `data-view="roles"`) {
+		t.Fatal("admin UI missing Roles navigation")
+	}
+	for _, fragment := range []string{"renderRoles", "Create custom role", "Save permissions", "System roles are read-only"} {
+		if !strings.Contains(sharedAdminJS, fragment) {
+			t.Fatalf("admin role UI missing %q", fragment)
+		}
+	}
+}

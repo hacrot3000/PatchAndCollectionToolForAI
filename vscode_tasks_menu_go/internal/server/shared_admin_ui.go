@@ -82,6 +82,7 @@ const sharedAdminHTML = `<!doctype html>
   <main>
     <nav aria-label="Administration sections">
       <button type="button" data-view="users">Users</button>
+      <button type="button" data-view="roles">Roles</button>
       <button type="button" data-view="sessions">Sessions</button>
       <button type="button" data-view="audit">Audit Log</button>
     </nav>
@@ -91,7 +92,7 @@ const sharedAdminHTML = `<!doctype html>
 </body>
 </html>`
 
-const sharedAdminCSS = `:root{font-family:system-ui,sans-serif;color-scheme:dark;background:#101216;color:#e8eaed}*{box-sizing:border-box}body{margin:0}header{height:52px;display:flex;gap:14px;align-items:center;padding:0 16px;border-bottom:1px solid #30343b}header a{color:#9fc8f5;text-decoration:none}header strong{font-size:16px}#admin-identity{margin-left:auto;font-size:12px;opacity:.75}main{max-width:1180px;margin:0 auto;padding:20px}nav{display:flex;gap:8px;margin-bottom:18px}button,input,select{font:inherit;background:#252a33;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:8px 10px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}button.active{background:#29445f;border-color:#47759e}#admin-content{border:1px solid #30343b;border-radius:10px;min-height:240px;padding:18px;background:#15181e}.muted{opacity:.7}.error{color:#ffb4b4}.success{color:#9ee7b0}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 14px}.create-user{display:grid;grid-template-columns:1fr 1fr 1.2fr 1fr auto;gap:8px;margin:12px 0 20px}.table-wrap{overflow:auto;border:1px solid #30343b;border-radius:8px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px;border-bottom:1px solid #2a2e35;text-align:left;vertical-align:top}th{background:#1d2128;position:sticky;top:0}tr:last-child td{border-bottom:0}.permissions{max-width:360px;white-space:normal;font-size:11px;opacity:.8}.access-controls,.override-controls{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:7px;min-width:270px}.access-controls select{min-width:125px}.override-controls select{max-width:180px}.access-controls label{display:flex;gap:5px;align-items:center}.access-controls input[type=checkbox]{width:auto}.self-note{font-size:11px;opacity:.65}@media(max-width:900px){.create-user{grid-template-columns:1fr}.access-controls{min-width:230px}}`
+const sharedAdminCSS = `:root{font-family:system-ui,sans-serif;color-scheme:dark;background:#101216;color:#e8eaed}*{box-sizing:border-box}body{margin:0}header{height:52px;display:flex;gap:14px;align-items:center;padding:0 16px;border-bottom:1px solid #30343b}header a{color:#9fc8f5;text-decoration:none}header strong{font-size:16px}#admin-identity{margin-left:auto;font-size:12px;opacity:.75}main{max-width:1180px;margin:0 auto;padding:20px}nav{display:flex;gap:8px;margin-bottom:18px}button,input,select{font:inherit;background:#252a33;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:8px 10px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}button.active{background:#29445f;border-color:#47759e}#admin-content{border:1px solid #30343b;border-radius:10px;min-height:240px;padding:18px;background:#15181e}.muted{opacity:.7}.error{color:#ffb4b4}.success{color:#9ee7b0}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 14px}.create-user{display:grid;grid-template-columns:1fr 1fr 1.2fr 1fr auto;gap:8px;margin:12px 0 20px}.table-wrap{overflow:auto;border:1px solid #30343b;border-radius:8px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px;border-bottom:1px solid #2a2e35;text-align:left;vertical-align:top}th{background:#1d2128;position:sticky;top:0}tr:last-child td{border-bottom:0}.permissions{max-width:360px;white-space:normal;font-size:11px;opacity:.8}.access-controls,.override-controls{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:7px;min-width:270px}.role-permission-editor{display:flex;gap:8px;align-items:flex-start;min-width:330px}.role-permission-editor select{min-width:220px}.access-controls select{min-width:125px}.override-controls select{max-width:180px}.access-controls label{display:flex;gap:5px;align-items:center}.access-controls input[type=checkbox]{width:auto}.self-note{font-size:11px;opacity:.65}@media(max-width:900px){.create-user{grid-template-columns:1fr}.access-controls{min-width:230px}}`
 
 const sharedAdminJS = `const content=document.querySelector('#admin-content');
 const identity=document.querySelector('#admin-identity');
@@ -101,7 +102,8 @@ let currentView='';
 
 function has(permission){return permissionSet.has(permission);}
 function canOpen(view){
-  if(view==='users')return has('users.view')||has('users.manage')||has('roles.view')||has('roles.manage');
+  if(view==='users')return has('users.view')||has('users.manage');
+  if(view==='roles')return has('roles.view');
   if(view==='sessions')return has('sessions.manage');
   if(view==='audit')return has('audit.view');
   return false;
@@ -259,6 +261,78 @@ async function renderUsers(){
   }
   table.append(body);wrap.append(table);content.append(wrap);
 }
+async function renderRoles(){
+  currentView='roles';
+  content.replaceChildren();
+  const title=node('h2','Roles');
+  const status=node('p','Loading…','muted');
+  content.append(title,status);
+  let roles=[],permissions=[];
+  try{
+    roles=(await api('/api/admin/roles')).roles||[];
+    permissions=(await api('/api/admin/permissions')).permissions||[];
+  }catch(error){setStatus(status,'ERROR: '+error.message,'error');return;}
+  status.remove();
+
+  if(has('roles.manage')){
+    const form=document.createElement('form');form.className='create-user';
+    const name=document.createElement('input');name.required=true;name.maxLength=128;name.placeholder='Custom role name';
+    const description=document.createElement('input');description.maxLength=512;description.placeholder='Description';
+    const submit=node('button','Create custom role');submit.type='submit';
+    const feedback=node('div','', 'muted');feedback.style.gridColumn='1/-1';
+    form.append(name,description,submit,feedback);
+    form.onsubmit=async event=>{
+      event.preventDefault();submit.disabled=true;setStatus(feedback,'Creating…');
+      try{
+        await api('/api/admin/roles',{method:'POST',body:JSON.stringify({name:name.value,description:description.value})});
+        setStatus(feedback,'Role created.','success');await renderRoles();
+      }catch(error){setStatus(feedback,'ERROR: '+error.message,'error');}
+      finally{submit.disabled=false;}
+    };
+    content.append(form);
+  }
+
+  const wrap=node('div',null,'table-wrap');
+  const table=document.createElement('table');
+  const head=document.createElement('thead'),hr=document.createElement('tr');
+  for(const label of ['Role','Type','Description','Permissions','Edit permissions'])hr.append(node('th',label));
+  head.append(hr);table.append(head);
+  const body=document.createElement('tbody');
+  for(const role of roles){
+    const row=document.createElement('tr');
+    row.append(
+      node('td',role.name),
+      node('td',role.system_role?'system':'custom'),
+      node('td',role.description||'—'),
+      node('td',(role.permissions||[]).join(', ')||'none','permissions')
+    );
+    const edit=document.createElement('td');
+    if(has('roles.manage')&&!role.system_role){
+      const controls=node('div',null,'role-permission-editor');
+      const select=document.createElement('select');select.multiple=true;select.size=Math.min(10,Math.max(5,permissions.length));
+      const selected=new Set(role.permissions||[]);
+      for(const permission of permissions){
+        const option=document.createElement('option');option.value=permission.key;option.textContent=permission.key;option.selected=selected.has(permission.key);select.append(option);
+      }
+      const save=node('button','Save permissions');save.type='button';
+      const message=node('span','', 'muted');
+      save.onclick=async()=>{
+        save.disabled=true;setStatus(message,'Saving…');
+        const values=[...select.selectedOptions].map(option=>option.value);
+        try{
+          await api('/api/admin/roles',{method:'PATCH',body:JSON.stringify({role_id:role.id,permissions:values})});
+          setStatus(message,'Saved','success');await renderRoles();
+        }catch(error){setStatus(message,'ERROR: '+error.message,'error');}
+        finally{save.disabled=false;}
+      };
+      controls.append(select,save,message);edit.append(controls);
+    }else{
+      edit.append(node('span',role.system_role?'System roles are read-only.':'Read only','muted'));
+    }
+    row.append(edit);body.append(row);
+  }
+  table.append(body);wrap.append(table);content.append(wrap);
+}
 function formatTime(value){
   if(!value)return '—';
   const date=new Date(value);
@@ -362,6 +436,7 @@ function selectView(view){
   if(!canOpen(view))return;
   for(const button of document.querySelectorAll('nav button'))button.classList.toggle('active',button.dataset.view===view);
   if(view==='users')renderUsers();
+  else if(view==='roles')renderRoles();
   else if(view==='sessions')renderSessions();
   else if(view==='audit')renderAudit();
   else renderPlaceholder(view);
