@@ -123,7 +123,9 @@ window.fetch=async function(input,init={}){
     const url=new URL(rawURL,location.href);
     if(method==='POST'&&url.origin===location.origin&&url.pathname==='/api/sessions'&&typeof init.body==='string'){
       const payload=JSON.parse(init.body);
-      if(payload.kind==='terminal')init={...init,body:JSON.stringify({...payload,cwd:selectedCWD()})};
+      if(payload.kind==='terminal'&&!payload.ssh_profile_id&&!Object.prototype.hasOwnProperty.call(payload,'cwd')){
+        init={...init,body:JSON.stringify({...payload,cwd:selectedCWD()})};
+      }
     }
   }catch(error){console.warn('Terminal cwd injection skipped',error);}
   return nativeFetch(input,init);
