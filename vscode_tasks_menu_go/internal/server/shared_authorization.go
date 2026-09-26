@@ -47,6 +47,12 @@ func (s *Server) sharedAuthorize(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		case r.URL.Path == "/api/browser/lease":
 			next.ServeHTTP(w, r)
+		case r.URL.Path == "/api/mutation-lock":
+			if _, ok := PrincipalFromContext(r.Context()); !ok {
+				sharedAuthError(w, identity.ErrUnauthenticated)
+				return
+			}
+			next.ServeHTTP(w, r)
 		case r.URL.Path == "/api/sessions":
 			// Session list/create authorization depends on session metadata or
 			// the requested kind and is enforced inside sessionsRoot.

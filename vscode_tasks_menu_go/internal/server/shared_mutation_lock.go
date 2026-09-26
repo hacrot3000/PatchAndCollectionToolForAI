@@ -199,3 +199,26 @@ func (s *Server) releaseSharedMutation(lease sharedMutationLease) {
 		s.sharedMutation.release(lease.token)
 	}
 }
+
+type sharedMutationStatusResponse struct {
+	Locked bool                 `json:"locked"`
+	Holder *sharedMutationOwner `json:"holder,omitempty"`
+}
+
+func (s *Server) sharedMutationStatus(w http.ResponseWriter, r *http.Request) {
+	if !s.Config.SharedServerEnabled {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.refreshSharedMutationLock()
+	holder, ok := s.sharedMutation.snapshot()
+	if !ok {
+		writeJSON(w, http.StatusOK, sharedMutationStatusResponse{Locked: false})
+		return
+	}
+	writeJSON(w, http.StatusOK, sharedMutationStatusResponse{Locked: true, Holder: &holder})
+}

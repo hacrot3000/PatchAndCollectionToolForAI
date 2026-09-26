@@ -67,6 +67,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", s.health)
 	mux.HandleFunc("/api/browser/lease", s.browserLeaseAPI)
+	mux.HandleFunc("/api/mutation-lock", s.sharedMutationStatus)
 	mux.HandleFunc("/api/tasks", s.tasks)
 	mux.HandleFunc("/api/state/tasks", s.taskState)
 	mux.HandleFunc("/api/config/page-title", s.pageTitle)

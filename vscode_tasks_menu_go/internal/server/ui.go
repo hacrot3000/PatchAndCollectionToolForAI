@@ -70,7 +70,7 @@ const indexHTML = `<!doctype html>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <header><strong>TaskDeck</strong><span id="workspace"></span><span id="identity" hidden></span><a id="shared-admin" href="/admin/access" hidden>Users & Access</a><button id="logout" hidden>Sign out</button><button id="open-terminal" title="Open an interactive shell at the project root">Open Terminal</button><button id="edit-title" title="Edit the browser page title">Edit title</button><button id="reload">Reload tasks.json</button></header>
+  <header><strong>TaskDeck</strong><span id="workspace"></span><span id="mutation-lock" hidden></span><span id="identity" hidden></span><a id="shared-admin" href="/admin/access" hidden>Users & Access</a><button id="logout" hidden>Sign out</button><button id="open-terminal" title="Open an interactive shell at the project root">Open Terminal</button><button id="edit-title" title="Edit the browser page title">Edit title</button><button id="reload">Reload tasks.json</button></header>
   <main><aside id="menu"></aside><section><div id="tabs"></div><div id="panes"></div></section></main>
   <script src="/vendor/xterm.js"></script>
   <script src="/vendor/addon-fit.js"></script>
@@ -82,7 +82,7 @@ const indexHTML = `<!doctype html>
 </body>
 </html>`
 
-const appCSS = `:root{font-family:system-ui,sans-serif;color-scheme:dark;background:#101216;color:#e8eaed}*{box-sizing:border-box}body{margin:0}header{height:52px;display:flex;align-items:center;gap:16px;padding:0 16px;border-bottom:1px solid #30343b}header #workspace{opacity:.65;flex:1;font-size:12px}#identity{font-size:12px;opacity:.8;white-space:nowrap}#shared-admin{color:#d8e9ff;text-decoration:none;border:1px solid #3b5169;border-radius:6px;padding:7px 10px;white-space:nowrap}#logout{white-space:nowrap}button,select{background:#252a33;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:7px 10px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}#open-terminal{background:#223b55;border-color:#365f84;white-space:nowrap}#edit-title{white-space:nowrap}main{display:grid;grid-template-columns:310px 1fr;height:calc(100vh - 52px)}aside{overflow:auto;border-right:1px solid #30343b;padding:10px}.group{margin:5px 0}.group>button,.task{width:100%;text-align:left}.children{padding-left:14px}.task{margin:2px 0;background:#171a20}.task:hover{background:#242a34}section{min-width:0;display:flex;flex-direction:column}#tabs{height:42px;border-bottom:1px solid #30343b;display:flex;align-items:end;overflow:auto;white-space:nowrap}.tab{border-radius:6px 6px 0 0;border-bottom:0;margin-left:4px}.tab.active{background:#343b48}.tab .status{opacity:.65;margin-left:6px}.tab .close{margin-left:8px}#panes{flex:1;min-height:0;position:relative}.pane{position:absolute;inset:0;display:flex;flex-direction:column}.pane.hidden{display:none}.pane-head{display:flex;gap:8px;align-items:center;padding:7px 10px;border-bottom:1px solid #30343b}.pane-head .command{font-family:ui-monospace,monospace;font-size:12px;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.download-select{max-width:280px;min-width:140px}.download{white-space:nowrap;background:#24472f;border-color:#3b7850}.copy-console{margin-left:24px;white-space:nowrap}.terminal{flex:1;min-height:0;padding:6px;background:#050607}.browser-lease-lost>header,.browser-lease-lost>main{filter:blur(1px);opacity:.45;pointer-events:none}.browser-lease-overlay{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px;background:rgba(4,6,9,.72)}.browser-lease-card{width:min(520px,100%);padding:22px;border:1px solid #48515f;border-radius:12px;background:#171a20;box-shadow:0 18px 55px rgba(0,0,0,.45);text-align:center}.browser-lease-card strong{display:block;font-size:18px;margin-bottom:10px}.browser-lease-card p{margin:8px 0;line-height:1.45}.browser-lease-card .browser-lease-hint{font-size:12px;opacity:.7}.browser-lease-card button{margin-top:10px;background:#244c70;border-color:#3f79a8;padding:10px 14px}`
+const appCSS = `:root{font-family:system-ui,sans-serif;color-scheme:dark;background:#101216;color:#e8eaed}*{box-sizing:border-box}body{margin:0}header{height:52px;display:flex;align-items:center;gap:16px;padding:0 16px;border-bottom:1px solid #30343b}header #workspace{opacity:.65;flex:1;font-size:12px}#identity{font-size:12px;opacity:.8;white-space:nowrap}#mutation-lock{font-size:12px;white-space:nowrap;padding:4px 7px;border:1px solid #7a6233;border-radius:999px;background:#3b2f18;color:#f5d98a;max-width:360px;overflow:hidden;text-overflow:ellipsis}#shared-admin{color:#d8e9ff;text-decoration:none;border:1px solid #3b5169;border-radius:6px;padding:7px 10px;white-space:nowrap}#logout{white-space:nowrap}button,select{background:#252a33;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:7px 10px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}#open-terminal{background:#223b55;border-color:#365f84;white-space:nowrap}#edit-title{white-space:nowrap}main{display:grid;grid-template-columns:310px 1fr;height:calc(100vh - 52px)}aside{overflow:auto;border-right:1px solid #30343b;padding:10px}.group{margin:5px 0}.group>button,.task{width:100%;text-align:left}.children{padding-left:14px}.task{margin:2px 0;background:#171a20}.task:hover{background:#242a34}section{min-width:0;display:flex;flex-direction:column}#tabs{height:42px;border-bottom:1px solid #30343b;display:flex;align-items:end;overflow:auto;white-space:nowrap}.tab{border-radius:6px 6px 0 0;border-bottom:0;margin-left:4px}.tab.active{background:#343b48}.tab .status{opacity:.65;margin-left:6px}.tab .close{margin-left:8px}#panes{flex:1;min-height:0;position:relative}.pane{position:absolute;inset:0;display:flex;flex-direction:column}.pane.hidden{display:none}.pane-head{display:flex;gap:8px;align-items:center;padding:7px 10px;border-bottom:1px solid #30343b}.pane-head .command{font-family:ui-monospace,monospace;font-size:12px;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.download-select{max-width:280px;min-width:140px}.download{white-space:nowrap;background:#24472f;border-color:#3b7850}.copy-console{margin-left:24px;white-space:nowrap}.terminal{flex:1;min-height:0;padding:6px;background:#050607}.browser-lease-lost>header,.browser-lease-lost>main{filter:blur(1px);opacity:.45;pointer-events:none}.browser-lease-overlay{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px;background:rgba(4,6,9,.72)}.browser-lease-card{width:min(520px,100%);padding:22px;border:1px solid #48515f;border-radius:12px;background:#171a20;box-shadow:0 18px 55px rgba(0,0,0,.45);text-align:center}.browser-lease-card strong{display:block;font-size:18px;margin-bottom:10px}.browser-lease-card p{margin:8px 0;line-height:1.45}.browser-lease-card .browser-lease-hint{font-size:12px;opacity:.7}.browser-lease-card button{margin-top:10px;background:#244c70;border-color:#3f79a8;padding:10px 14px}`
 
 const appJS = `const TerminalCtor=globalThis.Terminal;
 const FitAddonCtor=globalThis.FitAddon?.FitAddon;
@@ -210,6 +210,29 @@ async function fetchWithLease(url,opts={}){
   return response;
 }
 
+function mutationOwnerText(holder){
+  if(!holder)return 'another operation';
+  const who=holder.username||holder.user_id||'another user';
+  const operation=holder.operation||'workspace mutation';
+  const resource=holder.resource_id?' · '+holder.resource_id:'';
+  return who+' · '+operation+resource;
+}
+
+function renderMutationLock(status){
+  const badge=document.querySelector('#mutation-lock');
+  if(!badge)return;
+  if(!sharedMode||!status?.locked||!status.holder){badge.hidden=true;badge.textContent='';badge.title='';return;}
+  badge.textContent='Workspace locked · '+mutationOwnerText(status.holder);
+  badge.title=status.holder.acquired_at?'Locked since '+status.holder.acquired_at:badge.textContent;
+  badge.hidden=false;
+}
+
+async function refreshMutationLock(){
+  if(!sharedMode){renderMutationLock(null);return;}
+  const status=await jsonFetch('/api/mutation-lock');
+  renderMutationLock(status);
+}
+
 async function jsonFetch(url,opts={}){
   const r=await fetchWithLease(url,{cache:'no-store',...opts});
   if(!r.ok){
@@ -219,6 +242,16 @@ async function jsonFetch(url,opts={}){
       const error=new Error('Browser control lease revoked');
       error.browserLeaseRevoked=true;
       throw error;
+    }
+    if(r.status===409){
+      let conflict=null;
+      try{conflict=JSON.parse(message);}catch{}
+      if(conflict?.error==='workspace mutation locked'&&conflict.holder){
+        renderMutationLock({locked:true,holder:conflict.holder});
+        const error=new Error('Workspace mutation locked · '+mutationOwnerText(conflict.holder));
+        error.mutationLocked=true;
+        throw error;
+      }
     }
     throw new Error(message);
   }
@@ -550,6 +583,7 @@ document.querySelector('#open-terminal').onclick=()=>startTerminal().catch(showE
 document.querySelector('#logout').onclick=()=>logout().catch(showError);
 document.querySelector('#edit-title').onclick=()=>{try{editPageTitle();}catch(e){showError(e);}};
 document.querySelector('#reload').onclick=()=>loadTasks().catch(showError);
-await loadCurrentUser();await acquireBrowserLease();await loadTasks();await syncSessions();
+await loadCurrentUser();await acquireBrowserLease();await loadTasks();await syncSessions();await refreshMutationLock();
 setInterval(()=>{if(!browserLeaseLost)syncSessions().catch(()=>{});},1000);
+setInterval(()=>{if(!browserLeaseLost)refreshMutationLock().catch(()=>{});},2000);
 browserLeaseHeartbeat=setInterval(()=>checkBrowserLease().catch(e=>console.warn('Browser lease heartbeat failed',e)),1000);`
