@@ -28,14 +28,16 @@ h1{font-size:25px;margin:8px 0 24px}p{line-height:1.5;color:#afb9c7}label{displa
 input,button{width:100%;padding:12px;border-radius:7px;font:inherit;border:1px solid #48515f}
 input{background:#101216;color:inherit}input:focus-visible,button:focus-visible{outline:2px solid #80bcf4;outline-offset:3px}
 button{cursor:pointer;margin-top:20px;background:#285680;color:white}button:disabled{opacity:.5;cursor:wait}
+#open-workspace{display:block;margin-top:20px;padding:12px;border-radius:7px;background:#285680;color:white;text-align:center;text-decoration:none}
 .secondary{background:transparent}#message{min-height:24px;overflow-wrap:anywhere;color:#f2cb84}
 [hidden]{display:none!important}.brand{color:#8ec6f5;font-weight:700;letter-spacing:.03em}
 </style></head><body><main><div class="brand">TaskDeck</div><h1>Shared workspace</h1>
 <form id="login-form"><label for="username">Username</label><input id="username" name="username" autocomplete="username" maxlength="128" required autofocus>
 <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required>
 <button id="sign-in" type="submit">Sign in</button></form>
-<section id="signed-in" hidden><p id="identity"></p><p>Workspace access is not available yet.</p>
-<button id="check-access" type="button" class="secondary">Check access</button><button id="sign-out" type="button">Sign out</button></section>
+<section id="signed-in" hidden><p id="identity"></p><p>Authentication succeeded. Workspace access is governed by your project permissions.</p>
+<a id="open-workspace" href="/">Open workspace</a>
+<button id="check-access" type="button" class="secondary">Refresh access</button><button id="sign-out" type="button">Sign out</button></section>
 <p id="message" role="status" aria-live="polite"></p></main><script src="/login.js" defer></script></body></html>`
 
 const sharedLoginJS = `'use strict';

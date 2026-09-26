@@ -50,8 +50,8 @@ func sharedSameOrigin(r *http.Request) bool {
 }
 
 // Authentication precedes every project route, including WebSocket upgrades.
-// Auth routes bypass the legacy single-browser lease. Project operations remain
-// unavailable until module authorization and session ownership are implemented.
+// Auth routes bypass the legacy single-browser lease. Project operations are
+// opened only after shared authorization and session ownership checks.
 func (s *Server) sharedAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/api/health" && loopbackRemote(r.RemoteAddr) {
