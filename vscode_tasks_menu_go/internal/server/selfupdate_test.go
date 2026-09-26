@@ -17,7 +17,7 @@ func TestSelfUpdateConfirmAndHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{Workspace: workspace}
+	s := &Server{Workspace: workspace, InternalControlToken: "test-control-token"}
 
 	confirm := httptest.NewRequest(http.MethodPost, "/api/state/tasks?scope=self-update&action=confirm", strings.NewReader(`{"id":"`+req.ID+`"}`))
 	confirm.RemoteAddr = "127.0.0.1:50000"
@@ -40,6 +40,7 @@ func TestSelfUpdateConfirmAndHandoff(t *testing.T) {
 
 	handoff := httptest.NewRequest(http.MethodPost, "/api/state/tasks?scope=self-update&action=handoff", strings.NewReader(`{"id":"`+req.ID+`"}`))
 	handoff.RemoteAddr = "127.0.0.1:50001"
+	handoff.Header.Set(InternalControlHeader, s.InternalControlToken)
 	handoffRR := httptest.NewRecorder()
 	s.selfUpdateState(handoffRR, handoff)
 	if handoffRR.Code != http.StatusAccepted {
@@ -58,9 +59,10 @@ func TestSelfUpdateHandoffRejectsRemoteClient(t *testing.T) {
 	req, err := updater.CreateRequest(workspace, "0123456789abcdef", "", true)
 	if err != nil { t.Fatal(err) }
 	if _, err := updater.Update(workspace, req.ID, "ready_restart", "ready", "", ""); err != nil { t.Fatal(err) }
-	s := &Server{Workspace: workspace}
+	s := &Server{Workspace: workspace, InternalControlToken: "test-control-token"}
 	request := httptest.NewRequest(http.MethodPost, "/api/state/tasks?scope=self-update&action=handoff", strings.NewReader(`{"id":"`+req.ID+`"}`))
 	request.RemoteAddr = "192.0.2.10:50000"
+	request.Header.Set(InternalControlHeader, s.InternalControlToken)
 	rr := httptest.NewRecorder()
 	s.selfUpdateState(rr, request)
 	if rr.Code != http.StatusForbidden {
@@ -77,13 +79,14 @@ func TestSelfUpdateDetachPreservesBrokerControlPath(t *testing.T) {
 	if _, err := updater.Update(workspace, req.ID, "ready_restart", "ready", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{Workspace: workspace}
+	s := &Server{Workspace: workspace, InternalControlToken: "test-control-token"}
 	called := make(chan string, 1)
 	RegisterSelfUpdateDetach(s, func(id string) error { called <- id; return nil })
 	defer RegisterSelfUpdateDetach(s, nil)
 
 	request := httptest.NewRequest(http.MethodPost, "/api/state/tasks?scope=self-update&action=detach", strings.NewReader(`{"id":"`+req.ID+`"}`))
 	request.RemoteAddr = "127.0.0.1:50100"
+	request.Header.Set(InternalControlHeader, s.InternalControlToken)
 	rr := httptest.NewRecorder()
 	s.selfUpdateState(rr, request)
 	if rr.Code != http.StatusAccepted {
@@ -115,12 +118,13 @@ func TestSelfUpdateDetachRejectsRemoteClient(t *testing.T) {
 	if _, err := updater.Update(workspace, req.ID, "ready_restart", "ready", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{Workspace: workspace}
+	s := &Server{Workspace: workspace, InternalControlToken: "test-control-token"}
 	RegisterSelfUpdateDetach(s, func(string) error { return nil })
 	defer RegisterSelfUpdateDetach(s, nil)
 
 	request := httptest.NewRequest(http.MethodPost, "/api/state/tasks?scope=self-update&action=detach", strings.NewReader(`{"id":"`+req.ID+`"}`))
 	request.RemoteAddr = "192.0.2.10:50100"
+	request.Header.Set(InternalControlHeader, s.InternalControlToken)
 	rr := httptest.NewRecorder()
 	s.selfUpdateState(rr, request)
 	if rr.Code != http.StatusForbidden {
@@ -192,5 +196,27 @@ func TestSelfUpdateStartRejectsConcurrentActiveRequest(t *testing.T) {
 	}
 	if called {
 		t.Fatal("start callback must not run while update request is active")
+	}
+}
+
+func TestSelfUpdateHandoffRejectsLoopbackWithoutControlToken(t *testing.T) {
+	workspace := t.TempDir()
+	req, err := updater.CreateRequest(workspace, "0123456789abcdef", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := updater.Update(workspace, req.ID, "ready_restart", "ready", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: workspace, InternalControlToken: "test-control-token"}
+	RegisterSelfUpdateHandoff(s, func(string) error { return nil })
+	defer RegisterSelfUpdateHandoff(s, nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/state/tasks?scope=self-update&action=handoff", strings.NewReader(`{"id":"`+req.ID+`"}`))
+	request.RemoteAddr = "127.0.0.1:50000"
+	recorder := httptest.NewRecorder()
+	s.selfUpdateState(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("loopback request without control token status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }

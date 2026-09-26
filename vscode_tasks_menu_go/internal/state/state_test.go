@@ -22,3 +22,20 @@ func TestRemoveIfPIDPreservesReplacementDaemonState(t *testing.T) {
 		t.Fatal("matching daemon pid did not remove state")
 	}
 }
+
+func TestNewControlTokenIsRandomAndOpaque(t *testing.T) {
+	first, err := NewControlToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewControlToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == "" || second == "" || first == second {
+		t.Fatalf("invalid control tokens first=%q second=%q", first, second)
+	}
+	if len(first) < 40 || len(second) < 40 {
+		t.Fatal("daemon control token is unexpectedly short")
+	}
+}

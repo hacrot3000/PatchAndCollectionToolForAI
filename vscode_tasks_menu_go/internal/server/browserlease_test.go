@@ -166,7 +166,7 @@ func TestBrowserLeaseUIClaimsControlAndStopsReconnectAfterRevocation(t *testing.
 }
 
 func TestBrowserLeaseAllowsOnlyLoopbackSelfUpdateTransportActions(t *testing.T) {
-	s := &Server{}
+	s := &Server{InternalControlToken: "test-control-token"}
 	if _, err := s.browserLeaseState().acquire(); err != nil {
 		t.Fatal(err)
 	}
@@ -180,17 +180,22 @@ func TestBrowserLeaseAllowsOnlyLoopbackSelfUpdateTransportActions(t *testing.T) 
 		name       string
 		target     string
 		remoteAddr string
+		control    bool
 		want       int
 	}{
-		{"loopback handoff", "/api/state/tasks?scope=self-update&action=handoff", "127.0.0.1:43120", http.StatusAccepted},
-		{"loopback detach", "/api/state/tasks?scope=self-update&action=detach", "[::1]:43120", http.StatusAccepted},
-		{"remote handoff", "/api/state/tasks?scope=self-update&action=handoff", "192.168.1.20:43120", http.StatusConflict},
-		{"browser confirm still protected", "/api/state/tasks?scope=self-update&action=confirm", "127.0.0.1:43120", http.StatusConflict},
+		{"loopback handoff", "/api/state/tasks?scope=self-update&action=handoff", "127.0.0.1:43120", true, http.StatusAccepted},
+		{"loopback detach", "/api/state/tasks?scope=self-update&action=detach", "[::1]:43120", true, http.StatusAccepted},
+		{"proxied loopback without token", "/api/state/tasks?scope=self-update&action=handoff", "127.0.0.1:43120", false, http.StatusConflict},
+		{"remote handoff", "/api/state/tasks?scope=self-update&action=handoff", "192.168.1.20:43120", true, http.StatusConflict},
+		{"browser confirm still protected", "/api/state/tasks?scope=self-update&action=confirm", "127.0.0.1:43120", true, http.StatusConflict},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, tc.target, nil)
 			req.RemoteAddr = tc.remoteAddr
+			if tc.control {
+				req.Header.Set(InternalControlHeader, s.InternalControlToken)
+			}
 			rr := httptest.NewRecorder()
 			h.ServeHTTP(rr, req)
 			if rr.Code != tc.want {
