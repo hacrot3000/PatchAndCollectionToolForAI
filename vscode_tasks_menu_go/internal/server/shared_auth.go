@@ -67,6 +67,16 @@ func (s *Server) sharedAuth(next http.Handler) http.Handler {
 			return
 		}
 		switch r.URL.Path {
+		case "/", "/index.html":
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		case "/login", "/login.js":
+			sharedLoginPage(w, r)
+			return
 		case "/api/auth/login":
 			s.sharedLogin(w, r)
 			return
