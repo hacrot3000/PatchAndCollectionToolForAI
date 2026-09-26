@@ -23,6 +23,7 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/broker"
 	"bletonfc/vscode_tasks_menu/internal/config"
 	"bletonfc/vscode_tasks_menu/internal/gittextconv"
+	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 	"bletonfc/vscode_tasks_menu/internal/selfupdate"
 	"bletonfc/vscode_tasks_menu/internal/server"
@@ -486,7 +487,22 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	if sessionService.NeedsPatchProtocolFallback() {
 		logger.Printf("session broker predates Patch protocol capabilities; preserving broker-owned terminals and using daemon-local Patch protocol sessions")
 	}
-	srv := &server.Server{Workspace: ws, Config: cfg, Log: logger, Sessions: sessionService}
+	var identityStore identity.Store
+	if cfg.SharedServerEnabled {
+		dbPath, resolveErr := identity.ResolveDBPath(cfg.SharedIdentityDB)
+		if resolveErr != nil {
+			_ = ln.Close()
+			return fmt.Errorf("resolve shared identity DB: %w", resolveErr)
+		}
+		identityStore, err = identity.OpenSQLiteStore(context.Background(), dbPath)
+		if err != nil {
+			_ = ln.Close()
+			return fmt.Errorf("open shared identity DB: %w", err)
+		}
+		defer identityStore.Close()
+		logger.Printf("shared-server project=%s identity_db=%s", cfg.SharedProjectID, dbPath)
+	}
+	srv := &server.Server{Workspace: ws, Config: cfg, Log: logger, Sessions: sessionService, Identity: identityStore}
 	server.RegisterSelfUpdateCheck(srv, checkSelfUpdate)
 	defer server.RegisterSelfUpdateCheck(srv, nil)
 	server.RegisterSelfUpdateStart(srv, func() error { return startAutoSelfUpdate(ws) })
