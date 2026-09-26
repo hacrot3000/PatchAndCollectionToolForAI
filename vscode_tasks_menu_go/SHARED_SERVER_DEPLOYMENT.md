@@ -77,6 +77,25 @@ The account password belongs to the global identity, not to only one project.
 Changing it from **Account → Change password** revokes all login sessions for
 that identity across projects.
 
+If a user cannot sign in to change their own password, a host operator can reset
+the global identity from a trusted local terminal:
+
+```bash
+./vscode_tasks_menu --shared-password-reset username
+```
+
+For protected non-interactive stdin:
+
+```bash
+printf '%s\n' "$TASKDECK_RESET_PASSWORD" |
+  ./vscode_tasks_menu --shared-password-reset username --shared-password-reset-stdin
+```
+
+This reset also revokes every active login session for that identity across all
+projects. It is intentionally a host-operator command rather than a project-admin
+web action because the user/password record is global while project roles are
+project-scoped.
+
 ## Reverse proxy requirements
 
 Shared mode does **not** accept plaintext HTTP from a TLS-terminating proxy as
