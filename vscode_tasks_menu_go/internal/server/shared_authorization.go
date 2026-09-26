@@ -74,6 +74,20 @@ func sharedSessionItemPath(path string) bool {
 
 func sharedRoutePermissions(r *http.Request) []string {
 	switch r.URL.Path {
+	case "/api/admin/users":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionUsersView}
+		}
+		return []string{identity.PermissionUsersManage}
+	case "/api/admin/roles", "/api/admin/permissions":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionRolesView}
+		}
+		return []string{identity.PermissionRolesManage}
+	case "/api/admin/sessions":
+		return []string{identity.PermissionSessionsManage}
+	case "/api/admin/audit":
+		return []string{identity.PermissionAuditView}
 	case "/api/tasks":
 		return []string{identity.PermissionTasksView}
 	case "/api/config/page-title", "/api/config/terminal-cwds", "/api/command-presets":
