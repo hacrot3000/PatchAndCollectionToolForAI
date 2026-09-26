@@ -73,6 +73,12 @@ type sharedAdminUpdateAccessRequest struct {
 	Enabled *bool       `json:"enabled"`
 }
 
+type sharedAdminPermissionRequest struct {
+	UserID        identity.ID                `json:"user_id"`
+	PermissionKey string                     `json:"permission_key"`
+	Effect        identity.PermissionEffect `json:"effect,omitempty"`
+}
+
 func (s *Server) sharedAdminReady(w http.ResponseWriter, r *http.Request) bool {
 	if !s.Config.SharedServerEnabled {
 		http.NotFound(w, r)
@@ -317,6 +323,74 @@ func (s *Server) sharedAdminUserAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.appendSharedAudit(r, &principal, nil, "admin.member.update", "user", string(request.UserID), "success", map[string]any{"role_id": string(request.RoleID), "enabled": *request.Enabled})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) sharedAdminUserPermission(w http.ResponseWriter, r *http.Request) {
+	if !s.sharedAdminReady(w, r) {
+		return
+	}
+	if r.Method != http.MethodPut && r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !requireSharedJSON(w, r) {
+		return
+	}
+	var request sharedAdminPermissionRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&request)
+	request.UserID = identity.ID(strings.TrimSpace(string(request.UserID)))
+	request.PermissionKey = strings.TrimSpace(request.PermissionKey)
+	if err != nil || decoder.Decode(new(any)) != io.EOF || request.UserID == "" || !identity.KnownPermission(request.PermissionKey) {
+		http.Error(w, "invalid member permission request", http.StatusBadRequest)
+		return
+	}
+	if r.Method == http.MethodPut && request.Effect != identity.PermissionAllow && request.Effect != identity.PermissionDeny {
+		http.Error(w, "invalid member permission effect", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel, principal, ok := sharedAdminContext(r)
+	defer cancel()
+	if !ok {
+		sharedAuthError(w, identity.ErrUnauthenticated)
+		return
+	}
+	if _, err := s.Identity.ProjectMember(ctx, principal.ProjectID, request.UserID); err != nil {
+		if errors.Is(err, identity.ErrNotFound) {
+			http.Error(w, "project member not found", http.StatusNotFound)
+			return
+		}
+		sharedAuthError(w, err)
+		return
+	}
+	permissionID := identity.ID(request.PermissionKey)
+	action := "admin.member_permission.set"
+	details := map[string]any{"permission": request.PermissionKey}
+	if r.Method == http.MethodDelete {
+		action = "admin.member_permission.delete"
+		err = s.Identity.DeleteMemberPermission(ctx, principal.ProjectID, request.UserID, permissionID)
+		if errors.Is(err, identity.ErrNotFound) {
+			http.Error(w, "member permission override not found", http.StatusNotFound)
+			return
+		}
+	} else {
+		details["effect"] = string(request.Effect)
+		err = s.Identity.SetMemberPermission(ctx, identity.MemberPermission{
+			ProjectID: principal.ProjectID,
+			UserID: request.UserID,
+			PermissionID: permissionID,
+			Effect: request.Effect,
+		})
+	}
+	if err != nil {
+		s.appendSharedAudit(r, &principal, nil, action, "user", string(request.UserID), "error", map[string]any{"permission": request.PermissionKey})
+		sharedAuthError(w, err)
+		return
+	}
+	s.appendSharedAudit(r, &principal, nil, action, "user", string(request.UserID), "success", details)
 	w.WriteHeader(http.StatusNoContent)
 }
 

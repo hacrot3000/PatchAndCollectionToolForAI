@@ -74,7 +74,7 @@ func sharedSessionItemPath(path string) bool {
 
 func sharedRoutePermissions(r *http.Request) []string {
 	switch r.URL.Path {
-	case "/api/admin/users", "/api/admin/users/access":
+	case "/api/admin/users", "/api/admin/users/access", "/api/admin/users/permission":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionUsersView}
 		}

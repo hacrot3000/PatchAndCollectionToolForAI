@@ -180,3 +180,93 @@ func TestSharedAdminUpdatesProjectMembershipAccess(t *testing.T) {
 		t.Fatalf("missing membership audit event: %+v", events)
 	}
 }
+
+func TestSharedAdminMemberPermissionOverridesTakeEffect(t *testing.T) {
+	s := sharedLoginTestServer(t)
+	ctx := context.Background()
+	alice, err := s.Identity.UserByUsername(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := s.Identity.ProjectByKey(ctx, s.Config.SharedProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	bobID, err := identity.NewID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Identity.CreateProjectUser(ctx,
+		identity.User{ID: bobID, Username: "bob", PasswordHash: alice.PasswordHash, Enabled: true, CreatedAt: now, UpdatedAt: now},
+		identity.ProjectMember{ProjectID: project.ID, UserID: bobID, RoleID: "system:viewer", Enabled: true, CreatedAt: now, UpdatedAt: now},
+	); err != nil {
+		t.Fatal(err)
+	}
+	adminCookie := sharedAPILogin(t, s, "alice")
+	bobCookie := sharedAPILogin(t, s, "bob")
+
+	setOverride := func(method, permission, effect string, want int) {
+		t.Helper()
+		body := `{"user_id":"`+string(bobID)+`","permission_key":"`+permission+`"`
+		if method == http.MethodPut {
+			body += `,"effect":"`+effect+`"`
+		}
+		body += `}`
+		request := httptest.NewRequest(method, "https://taskdeck.test/api/admin/users/permission", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(adminCookie)
+		recorder := httptest.NewRecorder()
+		s.Handler().ServeHTTP(recorder, request)
+		if recorder.Code != want {
+			t.Fatalf("%s %s status=%d body=%s", method, permission, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	setOverride(http.MethodPut, identity.PermissionFilesRead, string(identity.PermissionDeny), http.StatusNoContent)
+	setOverride(http.MethodPut, identity.PermissionSettingsWrite, string(identity.PermissionAllow), http.StatusNoContent)
+
+	me := httptest.NewRequest(http.MethodGet, "https://taskdeck.test/api/auth/me", nil)
+	me.AddCookie(bobCookie)
+	meRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(meRecorder, me)
+	if meRecorder.Code != http.StatusOK {
+		t.Fatalf("current user status=%d body=%s", meRecorder.Code, meRecorder.Body.String())
+	}
+	var current sharedPrincipalResponse
+	if err := json.Unmarshal(meRecorder.Body.Bytes(), &current); err != nil {
+		t.Fatal(err)
+	}
+	permissions := map[string]bool{}
+	for _, key := range current.Permissions {
+		permissions[key] = true
+	}
+	if permissions[identity.PermissionFilesRead] || !permissions[identity.PermissionSettingsWrite] {
+		t.Fatalf("override permissions not applied: %v", current.Permissions)
+	}
+
+	setOverride(http.MethodDelete, identity.PermissionFilesRead, "", http.StatusNoContent)
+	effective, err := s.Identity.EffectivePermissions(ctx, project.ID, bobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !effective[identity.PermissionFilesRead] {
+		t.Fatalf("deleting DENY did not restore role permission: %v", effective)
+	}
+	events, err := s.Identity.ListAudit(ctx, identity.AuditQuery{ProjectID: project.ID, UserID: alice.ID, Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var setCount, deleteCount int
+	for _, event := range events {
+		switch event.Action {
+		case "admin.member_permission.set":
+			setCount++
+		case "admin.member_permission.delete":
+			deleteCount++
+		}
+	}
+	if setCount != 2 || deleteCount != 1 {
+		t.Fatalf("unexpected permission audit counts set=%d delete=%d", setCount, deleteCount)
+	}
+}
