@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 )
 
 const (
@@ -15,8 +17,12 @@ const (
 	maxProfiles       = 128
 )
 
+var ErrProfileNotFound = errors.New("ssh profile not found")
+
 type Store struct {
-	path string
+	path     string
+	lockPath string
+	mu       sync.Mutex
 }
 
 type storedProfile struct {
@@ -48,7 +54,8 @@ func NewStore(path string) (*Store, error) {
 	if !filepath.IsAbs(path) {
 		return nil, errors.New("ssh profile store path must be absolute")
 	}
-	return &Store{path: filepath.Clean(path)}, nil
+	path = filepath.Clean(path)
+	return &Store{path: path, lockPath: path + ".lock"}, nil
 }
 
 func DefaultStore() (*Store, error) {
@@ -67,9 +74,150 @@ func (s *Store) Path() string {
 }
 
 func (s *Store) Load() ([]Profile, error) {
-	if s == nil || s.path == "" {
-		return nil, errors.New("ssh profile store is not initialized")
+	var out []Profile
+	err := s.withExclusiveLock(func() error {
+		var err error
+		out, err = s.loadLocked()
+		return err
+	})
+	return out, err
+}
+
+func (s *Store) Save(profiles []Profile) error {
+	return s.withExclusiveLock(func() error {
+		return s.saveLocked(profiles)
+	})
+}
+
+func (s *Store) Create(profile Profile) (Profile, error) {
+	var created Profile
+	err := s.withExclusiveLock(func() error {
+		profiles, err := s.loadLocked()
+		if err != nil {
+			return err
+		}
+		normalized, err := Normalize(profile)
+		if err != nil {
+			return err
+		}
+		for _, existing := range profiles {
+			if existing.ID == normalized.ID {
+				return fmt.Errorf("ssh profile id %q already exists", normalized.ID)
+			}
+		}
+		profiles = append(profiles, normalized)
+		if err := s.saveLocked(profiles); err != nil {
+			return err
+		}
+		created = normalized
+		return nil
+	})
+	return created, err
+}
+
+func (s *Store) Replace(id string, profile Profile) (Profile, error) {
+	id = strings.TrimSpace(id)
+	if err := validateID("profile id", id); err != nil {
+		return Profile{}, err
 	}
+	var updated Profile
+	err := s.withExclusiveLock(func() error {
+		profiles, err := s.loadLocked()
+		if err != nil {
+			return err
+		}
+		profile.ID = id
+		normalized, err := Normalize(profile)
+		if err != nil {
+			return err
+		}
+		for i := range profiles {
+			if profiles[i].ID != id {
+				continue
+			}
+			profiles[i] = normalized
+			if err := s.saveLocked(profiles); err != nil {
+				return err
+			}
+			updated = normalized
+			return nil
+		}
+		return ErrProfileNotFound
+	})
+	return updated, err
+}
+
+func (s *Store) Delete(id string) (Profile, error) {
+	id = strings.TrimSpace(id)
+	if err := validateID("profile id", id); err != nil {
+		return Profile{}, err
+	}
+	var deleted Profile
+	err := s.withExclusiveLock(func() error {
+		profiles, err := s.loadLocked()
+		if err != nil {
+			return err
+		}
+		for i := range profiles {
+			if profiles[i].ID != id {
+				continue
+			}
+			deleted = profiles[i]
+			profiles = append(profiles[:i], profiles[i+1:]...)
+			return s.saveLocked(profiles)
+		}
+		return ErrProfileNotFound
+	})
+	return deleted, err
+}
+
+func (s *Store) Get(id string) (Profile, error) {
+	id = strings.TrimSpace(id)
+	if err := validateID("profile id", id); err != nil {
+		return Profile{}, err
+	}
+	profiles, err := s.Load()
+	if err != nil {
+		return Profile{}, err
+	}
+	for _, profile := range profiles {
+		if profile.ID == id {
+			return profile, nil
+		}
+	}
+	return Profile{}, ErrProfileNotFound
+}
+
+func (s *Store) withExclusiveLock(fn func() error) error {
+	if s == nil || s.path == "" || s.lockPath == "" {
+		return errors.New("ssh profile store is not initialized")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	dir := filepath.Dir(s.path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create ssh profile store dir: %w", err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("protect ssh profile store dir: %w", err)
+	}
+	lock, err := os.OpenFile(s.lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("open ssh profile store lock: %w", err)
+	}
+	defer lock.Close()
+	if err := lock.Chmod(0o600); err != nil {
+		return fmt.Errorf("protect ssh profile store lock: %w", err)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("lock ssh profile store: %w", err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	return fn()
+}
+
+func (s *Store) loadLocked() ([]Profile, error) {
 	info, err := os.Stat(s.path)
 	if os.IsNotExist(err) {
 		return []Profile{}, nil
@@ -119,14 +267,10 @@ func (s *Store) Load() ([]Profile, error) {
 	return out, nil
 }
 
-func (s *Store) Save(profiles []Profile) error {
-	if s == nil || s.path == "" {
-		return errors.New("ssh profile store is not initialized")
-	}
+func (s *Store) saveLocked(profiles []Profile) error {
 	if len(profiles) > maxProfiles {
 		return fmt.Errorf("ssh profiles exceed %d entries", maxProfiles)
 	}
-
 	disk := storeFile{
 		Version:  storeVersion,
 		Profiles: make([]storedProfile, 0, len(profiles)),
@@ -157,13 +301,6 @@ func (s *Store) Save(profiles []Profile) error {
 	}
 
 	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create ssh profile store dir: %w", err)
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		return fmt.Errorf("protect ssh profile store dir: %w", err)
-	}
-
 	tmp, err := os.CreateTemp(dir, ".ssh_profiles.*.tmp")
 	if err != nil {
 		return fmt.Errorf("create ssh profile temp file: %w", err)
@@ -188,8 +325,5 @@ func (s *Store) Save(profiles []Profile) error {
 	if err := os.Rename(tmpPath, s.path); err != nil {
 		return fmt.Errorf("replace ssh profile store: %w", err)
 	}
-	if err := os.Chmod(s.path, 0o600); err != nil {
-		return fmt.Errorf("protect ssh profile store: %w", err)
-	}
-	return nil
+	return os.Chmod(s.path, 0o600)
 }
