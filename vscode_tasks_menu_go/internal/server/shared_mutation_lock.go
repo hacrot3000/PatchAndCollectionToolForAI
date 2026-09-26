@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -89,4 +90,42 @@ func (l *sharedMutationLock) snapshot() (sharedMutationOwner, bool) {
 		return sharedMutationOwner{}, false
 	}
 	return *l.holder, true
+}
+
+func (s *Server) acquireSharedMutation(w http.ResponseWriter, r *http.Request, operation, resourceID string) (sharedMutationLease, bool) {
+	if !s.Config.SharedServerEnabled {
+		return sharedMutationLease{}, true
+	}
+	principal, ok := PrincipalFromContext(r.Context())
+	if !ok {
+		sharedAuthError(w, identity.ErrUnauthenticated)
+		return sharedMutationLease{}, false
+	}
+	lease, conflict, err := s.sharedMutation.acquire(principal, operation, resourceID, time.Now().UTC())
+	if err != nil {
+		http.Error(w, "workspace mutation lock unavailable", http.StatusServiceUnavailable)
+		return sharedMutationLease{}, false
+	}
+	if conflict != nil {
+		s.appendSharedAudit(r, &principal, nil, "mutation.lock_conflict", "workspace", resourceID, "denied", map[string]any{
+			"requested_operation": operation,
+			"holder_user_id":      conflict.UserID,
+			"holder_username":     conflict.Username,
+			"holder_operation":    conflict.Operation,
+			"holder_resource_id":  conflict.ResourceID,
+			"holder_acquired_at":  conflict.AcquiredAt,
+		})
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":  "workspace mutation locked",
+			"holder": conflict,
+		})
+		return sharedMutationLease{}, false
+	}
+	return lease, true
+}
+
+func (s *Server) releaseSharedMutation(lease sharedMutationLease) {
+	if lease.token != "" {
+		s.sharedMutation.release(lease.token)
+	}
 }

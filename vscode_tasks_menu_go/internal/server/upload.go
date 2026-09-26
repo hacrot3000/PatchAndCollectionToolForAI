@@ -55,6 +55,18 @@ func (s *Server) fileUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	resourceID := name
+	if root, rootErr := s.projectRoot(); rootErr == nil {
+		if rel, relErr := filepath.Rel(root, target); relErr == nil {
+			resourceID = filepath.ToSlash(rel)
+		}
+	}
+	lease, ok := s.acquireSharedMutation(w, r, "file.upload", resourceID)
+	if !ok {
+		return
+	}
+	defer s.releaseSharedMutation(lease)
+
 	tmp, err := os.CreateTemp(dir, ".task-menu-upload-*")
 	if err != nil {
 		http.Error(w, "cannot create upload file", http.StatusInternalServerError)
@@ -102,12 +114,6 @@ func (s *Server) fileUpload(w http.ResponseWriter, r *http.Request) {
 		_ = os.Remove(tmpName)
 		http.Error(w, "cannot finalize upload", http.StatusInternalServerError)
 		return
-	}
-	resourceID := name
-	if root, rootErr := s.projectRoot(); rootErr == nil {
-		if rel, relErr := filepath.Rel(root, target); relErr == nil {
-			resourceID = filepath.ToSlash(rel)
-		}
 	}
 	s.auditSharedSuccess(r, "file.upload", "file", resourceID, map[string]any{
 		"overwrite": overwrite,

@@ -142,6 +142,12 @@ func (s *Server) projectFileSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	lease, ok := s.acquireSharedMutation(w, r, "file.write", rel)
+	if !ok {
+		return
+	}
+	defer s.releaseSharedMutation(lease)
+
 	if err := pinned.writeTemp(next, info); err != nil {
 		http.Error(w, "cannot prepare editor save file", http.StatusInternalServerError)
 		return
