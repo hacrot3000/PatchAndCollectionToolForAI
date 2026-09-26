@@ -55,6 +55,8 @@ func (s *Server) sshTerminalExecution(profileID string) (tasks.Execution, error)
 	if err != nil {
 		return tasks.Execution{}, err
 	}
+	spec.TargetType = "ssh"
+	spec.TargetProfileID = profile.ID
 
 	if profile.SecretRef != "" {
 		secrets, err := s.connectionSecretStore()
