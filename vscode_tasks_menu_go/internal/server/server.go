@@ -171,9 +171,14 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 		case "terminal":
 			var spec tasks.Execution
 			var err error
-			if strings.TrimSpace(req.SSHProfileID) != "" {
+			remoteSSH := strings.TrimSpace(req.SSHProfileID) != ""
+			if remoteSSH {
 				if strings.TrimSpace(req.Cwd) != "" {
 					http.Error(w, "cwd is only valid for local terminals", http.StatusBadRequest)
+					return
+				}
+				if len(req.Env) != 0 {
+					http.Error(w, "environment overrides are not accepted for remote SSH terminals", http.StatusBadRequest)
 					return
 				}
 				spec, err = s.sshTerminalExecution(req.SSHProfileID)
@@ -184,11 +189,13 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			if err := tasks.ApplyEnvironmentOverrides(&spec, req.Env); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
+			if !remoteSSH {
+				if err := tasks.ApplyEnvironmentOverrides(&spec, req.Env); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
 			}
-			if strings.TrimSpace(req.SSHProfileID) == "" {
+			if !remoteSSH {
 				if err := configureTerminalGitTextconv(s.Workspace, &spec); err != nil && s.Log != nil {
 					s.Log.Printf("terminal git textconv warning: %v", err)
 				}
