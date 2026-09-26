@@ -94,6 +94,10 @@ func (s *Server) sharedAuth(next http.Handler) http.Handler {
 			s.sharedCurrentUser(w, r)
 			return
 		}
+		if r.URL.Path == "/api/auth/password" {
+			s.sharedPasswordChange(w, r)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }

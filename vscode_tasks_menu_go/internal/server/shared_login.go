@@ -217,3 +217,99 @@ func (s *Server) sharedLogout(w http.ResponseWriter, r *http.Request) {
 	s.appendSharedAudit(r, principal, nil, "auth.logout", "session", "", "success", nil)
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (s *Server) sharedPasswordChange(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !requireSharedJSON(w, r) {
+		return
+	}
+	principal, ok := PrincipalFromContext(r.Context())
+	if !ok {
+		sharedAuthError(w, identity.ErrUnauthenticated)
+		return
+	}
+	if !s.beginSharedLogin() {
+		s.appendSharedAudit(r, &principal, nil, "auth.password_change", "user", string(principal.UserID), "denied", map[string]any{"reason": "scrypt_capacity"})
+		writeAuthRateLimit(w, time.Second)
+		return
+	}
+	defer s.endSharedLogin()
+
+	var request struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&request)
+	if err != nil || decoder.Decode(new(any)) != io.EOF || request.CurrentPassword == "" {
+		request.CurrentPassword = ""
+		request.NewPassword = ""
+		http.Error(w, "invalid password change request", http.StatusBadRequest)
+		return
+	}
+	if err := identity.ValidateNewPassword(request.NewPassword); err != nil {
+		request.CurrentPassword = ""
+		request.NewPassword = ""
+		http.Error(w, "invalid new password", http.StatusBadRequest)
+		return
+	}
+	if request.CurrentPassword == request.NewPassword {
+		request.CurrentPassword = ""
+		request.NewPassword = ""
+		http.Error(w, "new password must differ from current password", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	user, err := s.Identity.UserByID(ctx, principal.UserID)
+	if err != nil {
+		request.CurrentPassword = ""
+		request.NewPassword = ""
+		s.appendSharedAudit(r, &principal, nil, "auth.password_change", "user", string(principal.UserID), "error", map[string]any{"reason": "identity_lookup"})
+		sharedAuthError(w, err)
+		return
+	}
+	verified, err := identity.VerifyPassword(ctx, request.CurrentPassword, user.PasswordHash)
+	request.CurrentPassword = ""
+	if err != nil {
+		request.NewPassword = ""
+		s.appendSharedAudit(r, &principal, nil, "auth.password_change", "user", string(principal.UserID), "error", map[string]any{"reason": "password_verifier"})
+		sharedAuthError(w, err)
+		return
+	}
+	if !verified {
+		request.NewPassword = ""
+		s.appendSharedAudit(r, &principal, nil, "auth.password_change", "user", string(principal.UserID), "denied", map[string]any{"reason": "invalid_current_password"})
+		http.Error(w, "current password is incorrect", http.StatusUnauthorized)
+		return
+	}
+
+	nextHash, err := identity.HashPassword(ctx, request.NewPassword)
+	request.NewPassword = ""
+	if err != nil {
+		s.appendSharedAudit(r, &principal, nil, "auth.password_change", "user", string(principal.UserID), "error", map[string]any{"reason": "password_hash"})
+		sharedAuthError(w, err)
+		return
+	}
+	changedAt := time.Now().UTC()
+	if err := s.Identity.ChangeUserPasswordHash(ctx, principal.UserID, user.PasswordHash, nextHash, changedAt); err != nil {
+		if errors.Is(err, identity.ErrConflict) {
+			s.setSharedCookie(w, "", time.Unix(1, 0))
+			s.appendSharedAudit(r, &principal, nil, "auth.password_change", "user", string(principal.UserID), "denied", map[string]any{"reason": "concurrent_change"})
+			http.Error(w, "password changed concurrently; sign in again", http.StatusConflict)
+			return
+		}
+		s.appendSharedAudit(r, &principal, nil, "auth.password_change", "user", string(principal.UserID), "error", map[string]any{"reason": "identity_store"})
+		sharedAuthError(w, err)
+		return
+	}
+
+	s.appendSharedAudit(r, &principal, nil, "auth.password_change", "user", string(principal.UserID), "success", nil)
+	s.setSharedCookie(w, "", time.Unix(1, 0))
+	w.WriteHeader(http.StatusNoContent)
+}
