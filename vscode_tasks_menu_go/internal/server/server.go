@@ -242,9 +242,24 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			if !s.prepareSharedSession(w, r, &spec, tasks.SessionKindPatch) {
 				return
 			}
+			var mutationLease sharedMutationLease
+			if sharedPatchMutationRequired(req.PatchMode) {
+				var ok bool
+				mutationLease, ok = s.acquireSharedMutation(w, r, "patch.run", "")
+				if !ok {
+					return
+				}
+			}
 			meta, err := s.Sessions.Start(spec)
 			if err != nil {
+				s.releaseSharedMutation(mutationLease)
 				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if mutationLease.token != "" && !s.sharedMutation.bindResource(mutationLease.token, meta.ID) {
+				_ = s.Sessions.Stop(meta.ID)
+				s.releaseSharedMutation(mutationLease)
+				http.Error(w, "workspace mutation lock lost while starting Patch session", http.StatusServiceUnavailable)
 				return
 			}
 			s.auditSharedSessionStart(r, meta, map[string]any{"patch_mode": strings.TrimSpace(req.PatchMode)})
@@ -1425,6 +1440,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusConflict)
 				return
 			}
+			s.releaseSharedMutationForSession(id)
 			s.auditSharedSuccess(r, "session.delete", "session", id, nil)
 			if err := removeStoredSessionTitle(s.Workspace, id); err != nil && s.Log != nil {
 				s.Log.Printf("session title cleanup warning: %v", err)
@@ -1450,6 +1466,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		meta, _ := s.Sessions.Metadata(id)
+		s.releaseSharedMutationForSession(id)
 		s.auditSharedSuccess(r, "session.stop", "session", id, map[string]any{"kind": meta.Kind})
 		writeJSON(w, http.StatusOK, s.withStoredTitle(meta))
 	case "title":

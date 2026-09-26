@@ -27,6 +27,7 @@ func (s *Server) sessionForceKill(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	s.releaseSharedMutationForSession(id)
 	s.auditSharedSuccess(r, "session.kill", "session", id, map[string]any{"kind": meta.Kind})
 	writeJSON(w, http.StatusOK, meta)
 }

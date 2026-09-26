@@ -92,10 +92,48 @@ func (l *sharedMutationLock) snapshot() (sharedMutationOwner, bool) {
 	return *l.holder, true
 }
 
+func (l *sharedMutationLock) releaseResource(operation, resourceID string) bool {
+	operation = strings.TrimSpace(operation)
+	resourceID = strings.TrimSpace(resourceID)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.holder == nil || l.holder.Operation != operation || l.holder.ResourceID != resourceID {
+		return false
+	}
+	l.token = ""
+	l.holder = nil
+	return true
+}
+
+func sharedPatchMutationRequired(mode string) bool {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "history", "plan", "health":
+		return false
+	default:
+		return true
+	}
+}
+
+func (s *Server) refreshSharedMutationLock() {
+	holder, ok := s.sharedMutation.snapshot()
+	if !ok || holder.Operation != "patch.run" || holder.ResourceID == "" || s.Sessions == nil {
+		return
+	}
+	meta, exists := s.Sessions.Metadata(holder.ResourceID)
+	if !exists || meta.Status != "running" {
+		s.sharedMutation.releaseResource(holder.Operation, holder.ResourceID)
+	}
+}
+
+func (s *Server) releaseSharedMutationForSession(sessionID string) {
+	s.sharedMutation.releaseResource("patch.run", strings.TrimSpace(sessionID))
+}
+
 func (s *Server) acquireSharedMutation(w http.ResponseWriter, r *http.Request, operation, resourceID string) (sharedMutationLease, bool) {
 	if !s.Config.SharedServerEnabled {
 		return sharedMutationLease{}, true
 	}
+	s.refreshSharedMutationLock()
 	principal, ok := PrincipalFromContext(r.Context())
 	if !ok {
 		sharedAuthError(w, identity.ErrUnauthenticated)
