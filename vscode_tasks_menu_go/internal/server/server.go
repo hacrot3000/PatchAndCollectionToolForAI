@@ -1423,6 +1423,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusConflict)
 				return
 			}
+			s.auditSharedSuccess(r, "session.delete", "session", id, nil)
 			if err := removeStoredSessionTitle(s.Workspace, id); err != nil && s.Log != nil {
 				s.Log.Printf("session title cleanup warning: %v", err)
 			}
@@ -1447,6 +1448,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		meta, _ := s.Sessions.Metadata(id)
+		s.auditSharedSuccess(r, "session.stop", "session", id, map[string]any{"kind": meta.Kind})
 		writeJSON(w, http.StatusOK, s.withStoredTitle(meta))
 	case "title":
 		if r.Method != http.MethodPost {
@@ -1487,6 +1489,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		meta.Title = title
+		s.auditSharedSuccess(r, "session.title", "session", id, map[string]any{"kind": meta.Kind})
 		writeJSON(w, http.StatusOK, meta)
 	case "prompt-response":
 		if r.Method != http.MethodPost {
@@ -1528,6 +1531,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		s.auditSharedSuccess(r, "patch.prompt_response", "session", id, nil)
 		writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
 	case "parallel-collect":
 		if r.Method != http.MethodPost {
@@ -1595,8 +1599,10 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			metaCopy := meta
+			s.auditSharedSessionStart(r, metaCopy, map[string]any{"parent_session_id": id, "parallel_collect": true})
 			results = append(results, patchParallelCollectLaunch{Index: plan.item.Index, Name: plan.item.Name, Session: &metaCopy})
 		}
+		s.auditSharedSuccess(r, "patch.parallel_collect", "session", id, map[string]any{"run_count": len(results)})
 		writeJSON(w, http.StatusCreated, map[string]any{"accepted": true, "runs": results})
 	case "item-action":
 		if r.Method != http.MethodPost {
@@ -1634,6 +1640,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		s.auditSharedSuccess(r, "patch.item_action", "session", id, map[string]any{"action_id": actionID})
 		writeJSON(w, http.StatusOK, map[string]any{"accepted": true, "action_id": actionID})
 	case "queue-delete":
 		if r.Method != http.MethodPost {
@@ -1671,6 +1678,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		s.auditSharedSuccess(r, "patch.queue_delete", "session", id, map[string]any{"mutation_id": mutationID})
 		writeJSON(w, http.StatusOK, map[string]any{"accepted": true, "mutation_id": mutationID})
 	case "resume-action":
 		if r.Method != http.MethodPost {
@@ -1708,6 +1716,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		s.auditSharedSuccess(r, "patch.resume_action", "session", id, nil)
 		writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
 	case "history-cleanup":
 		if r.Method != http.MethodPost {
@@ -1745,6 +1754,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		s.auditSharedSuccess(r, "patch.history_cleanup", "session", id, map[string]any{"cleanup_id": cleanupID})
 		writeJSON(w, http.StatusOK, map[string]any{"accepted": true, "cleanup_id": cleanupID})
 	case "history-support":
 		if r.Method != http.MethodPost {
@@ -1782,6 +1792,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		s.auditSharedSuccess(r, "patch.history_support", "session", id, map[string]any{"support_id": supportID})
 		writeJSON(w, http.StatusOK, map[string]any{"accepted": true, "support_id": supportID})
 	case "history-manage":
 		if r.Method != http.MethodPost {
@@ -1819,6 +1830,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		s.auditSharedSuccess(r, "patch.history_manage", "session", id, map[string]any{"management_id": managementID})
 		writeJSON(w, http.StatusOK, map[string]any{"accepted": true, "management_id": managementID})
 	case "history-detail":
 		if r.Method != http.MethodPost {

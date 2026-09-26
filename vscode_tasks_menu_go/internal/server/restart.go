@@ -27,6 +27,7 @@ func (s *Server) sessionForceKill(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	s.auditSharedSuccess(r, "session.kill", "session", id, map[string]any{"kind": meta.Kind})
 	writeJSON(w, http.StatusOK, meta)
 }
 
@@ -46,6 +47,7 @@ func (s *Server) sessionClearConsole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	s.auditSharedSuccess(r, "session.clear", "session", id, nil)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
