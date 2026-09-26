@@ -55,6 +55,8 @@ func main() {
 	listenAddr := flag.String("listen-addr", "", "listener address override (internal)")
 	selfUpdateID := flag.String("self-update-id", "", "self-update handoff id (internal)")
 	cleanupLegacy := flag.Bool("cleanup-legacy", false, "dọn thành phần TaskDeck/Patch Tool legacy đã xác minh trong workspace")
+	sharedAdmin := flag.String("shared-admin-bootstrap", "", "tạo admin đầu tiên trong identity DB trống (username)")
+	sharedPasswordStdin := flag.Bool("shared-admin-password-stdin", false, "đọc password bootstrap từ stdin riêng thay vì nhập ẩn")
 	flag.Parse()
 
 	if *versionFlag {
@@ -72,6 +74,15 @@ func main() {
 	patchCommand := flag.NArg() > 0 && flag.Arg(0) == "patch"
 	ws, err := resolveWorkspace(*workspace)
 	fatalIf(err)
+	if *sharedAdmin != "" || *sharedPasswordStdin {
+		if *sharedAdmin == "" || *serve || *sessionBroker || *terminal || *selfUpdateFlag || *selfUpdateAuto || *cleanupLegacy || *statusOnly || *stopDaemonFlag || *restartDaemon || *reloadConfigFlag || flag.NArg() != 0 {
+			fatalIf(fmt.Errorf("--shared-admin-bootstrap requires a username and cannot be combined with other commands"))
+		}
+		cfg, _, err := config.Load(ws)
+		fatalIf(err)
+		fatalIf(runSharedAdminBootstrap(ws, cfg, *sharedAdmin, *sharedPasswordStdin))
+		return
+	}
 	if *cleanupLegacy {
 		if taskdeckSourceRepository(ws) {
 			fmt.Println("Bỏ qua cleanup: workspace hiện tại là source repo TaskDeck.")
