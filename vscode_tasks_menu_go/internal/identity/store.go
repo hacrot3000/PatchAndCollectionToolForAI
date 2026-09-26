@@ -47,7 +47,7 @@ type AdminStore interface {
 	SetUserEnabled(ctx context.Context, userID ID, enabled bool, updatedAt time.Time) error
 	SetUserDisplayName(ctx context.Context, userID ID, displayName string, updatedAt time.Time) error
 	SetUserPasswordHash(ctx context.Context, userID ID, passwordHash string, changedAt time.Time) error
-	ChangeUserPasswordHash(ctx context.Context, userID ID, passwordHash string, changedAt time.Time) error
+	ChangeUserPasswordHash(ctx context.Context, userID ID, expectedPasswordHash, passwordHash string, changedAt time.Time) error
 
 	EnsureProject(ctx context.Context, project Project) (Project, error)
 	SetProjectEnabled(ctx context.Context, projectID ID, enabled bool, updatedAt time.Time) error
