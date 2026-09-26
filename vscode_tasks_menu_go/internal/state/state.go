@@ -1,8 +1,10 @@
 package state
 
 import (
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -19,8 +21,9 @@ type State struct {
 	Workspace string `json:"workspace"`
 	URL       string `json:"url"`
 	HealthURL string `json:"health_url,omitempty"`
-	Address   string `json:"address"`
-	StartedAt string `json:"started_at"`
+	Address      string `json:"address"`
+	StartedAt    string `json:"started_at"`
+	ControlToken string `json:"control_token,omitempty"`
 }
 
 func Dir(workspace string) string {
@@ -97,6 +100,14 @@ func Healthy(s State) bool {
 
 func New(workspace, url, healthURL, address string) State {
 	return State{PID: os.Getpid(), Workspace: workspace, URL: url, HealthURL: healthURL, Address: address, StartedAt: time.Now().Format(time.RFC3339)}
+}
+
+func NewControlToken() (string, error) {
+	var raw [32]byte
+	if _, err := cryptorand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("generate daemon control token: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(raw[:]), nil
 }
 
 func EnsureDir(workspace string) error {
