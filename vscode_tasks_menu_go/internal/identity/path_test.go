@@ -8,6 +8,36 @@ import (
 	"testing"
 )
 
+func TestWorkspaceIdentityPathRejectsDirectAndSymlinkedChildren(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "project")
+	if err := os.Mkdir(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{workspace, filepath.Join(workspace, "new", "identity.db")} {
+		if _, err := ResolveDBPathForWorkspace(path, workspace); err == nil {
+			t.Fatalf("accepted project path %s", path)
+		}
+	}
+	outside := filepath.Join(root, "identity", "identity.db")
+	if got, err := ResolveDBPathForWorkspace(outside, workspace); err != nil || got != outside {
+		t.Fatalf("external path: %s %v", got, err)
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(workspace, alias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := ResolveDBPathForWorkspace(filepath.Join(alias, "new", "identity.db"), workspace); err == nil {
+		t.Fatal("symlink bypass accepted")
+	}
+	if _, err := ResolveDBPathForWorkspace(filepath.Join(workspace, "identity.db"), alias); err == nil {
+		t.Fatal("symlinked workspace bypass accepted")
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "new")); !os.IsNotExist(err) {
+		t.Fatal("path validation created a directory")
+	}
+}
+
 func TestResolveDBPathAcceptsConfiguredAbsolutePath(t *testing.T) {
 	root := t.TempDir()
 	want := filepath.Join(root, "identity.db")

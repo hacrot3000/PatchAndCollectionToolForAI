@@ -489,7 +489,7 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	}
 	var identityStore identity.Store
 	if cfg.SharedServerEnabled {
-		dbPath, resolveErr := identity.ResolveDBPath(cfg.SharedIdentityDB)
+		dbPath, resolveErr := identity.ResolveDBPathForWorkspace(cfg.SharedIdentityDB, ws)
 		if resolveErr != nil {
 			_ = ln.Close()
 			return fmt.Errorf("resolve shared identity DB: %w", resolveErr)

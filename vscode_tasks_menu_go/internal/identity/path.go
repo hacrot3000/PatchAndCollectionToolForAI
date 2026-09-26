@@ -10,6 +10,59 @@ import (
 
 const identityDBName = "identity.db"
 
+// ResolveDBPathForWorkspace rejects configured paths inside the served project,
+// including paths through symlinked ancestors and not-yet-created directories.
+func ResolveDBPathForWorkspace(configured, workspace string) (string, error) {
+	dbPath, err := ResolveDBPath(configured)
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(dbPath) {
+		return "", fmt.Errorf("identity DB path must be absolute")
+	}
+	root, err := filepath.Abs(workspace)
+	if err != nil {
+		return "", err
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace: %w", err)
+	}
+	// Resolve the closest existing ancestor without creating anything.
+	existing := dbPath
+	var suffix []string
+	for {
+		_, err := os.Lstat(existing)
+		if err == nil {
+			break
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return "", fmt.Errorf("cannot resolve identity DB ancestor")
+		}
+		suffix = append(suffix, filepath.Base(existing))
+		existing = parent
+	}
+	resolved, err := filepath.EvalSymlinks(existing)
+	if err != nil {
+		return "", fmt.Errorf("resolve identity DB ancestor: %w", err)
+	}
+	for i := len(suffix) - 1; i >= 0; i-- {
+		resolved = filepath.Join(resolved, suffix[i])
+	}
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil {
+		return "", err
+	}
+	if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("shared identity DB must be outside the workspace")
+	}
+	return dbPath, nil
+}
+
 // ResolveDBPath returns the durable identity DB path. A configured path must be
 // absolute. With no configured path, TaskDeck uses a platform user data
 // directory outside any project workspace.
