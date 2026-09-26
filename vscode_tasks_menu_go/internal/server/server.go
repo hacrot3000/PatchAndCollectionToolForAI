@@ -46,6 +46,8 @@ type Server struct {
 
 	terminalStateMu     sync.RWMutex
 	terminalStateFrozen bool
+
+	sharedMutation sharedMutationLock
 }
 
 func (s *Server) FreezeTerminalStatePersistence() {
