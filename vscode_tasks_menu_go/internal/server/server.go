@@ -1890,6 +1890,10 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) sessionWebSocket(w http.ResponseWriter, r *http.Request, id string) {
+	if s.Config.SharedServerEnabled {
+		s.sharedSessionWebSocket(w, r, id)
+		return
+	}
 	leaseToken := strings.TrimSpace(r.URL.Query().Get("lease"))
 	revoked, ok := s.browserLeaseState().watch(leaseToken)
 	if !ok {
@@ -1935,6 +1939,73 @@ func (s *Server) sessionWebSocket(w http.ResponseWriter, r *http.Request, id str
 			_ = conn.Close(websocket.StatusPolicyViolation, "browser control lease revoked")
 			return
 		case <-readDone:
+			return
+		case data, ok := <-stream:
+			if !ok {
+				return
+			}
+			if err := conn.Write(ctx, websocket.MessageBinary, data); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func (s *Server) sharedSessionWebSocket(w http.ResponseWriter, r *http.Request, id string) {
+	principal, ok := PrincipalFromContext(r.Context())
+	if !ok {
+		sharedAuthError(w, identity.ErrUnauthenticated)
+		return
+	}
+	meta, ok := s.Sessions.Metadata(id)
+	if !ok || !sharedSessionVisible(principal, meta) {
+		writePermissionDenied(w)
+		return
+	}
+	canControl := sharedSessionControlAllowed(principal, meta)
+	backlog, stream, unsubscribe, err := s.Sessions.Subscribe(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	defer unsubscribe()
+	conn, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return
+	}
+	conn.SetReadLimit(32 << 10)
+	defer conn.Close(websocket.StatusNormalClosure, "session closed")
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	if len(backlog) > 0 {
+		if err := conn.Write(ctx, websocket.MessageBinary, backlog); err != nil {
+			return
+		}
+	}
+	readDone := make(chan bool, 1)
+	go func() {
+		for {
+			_, data, err := conn.Read(ctx)
+			if err != nil {
+				readDone <- false
+				return
+			}
+			if !canControl {
+				readDone <- true
+				return
+			}
+			if err := s.Sessions.Input(id, data); err != nil {
+				readDone <- false
+				return
+			}
+		}
+	}()
+	for {
+		select {
+		case controlDenied := <-readDone:
+			if controlDenied {
+				_ = conn.Close(websocket.StatusPolicyViolation, "session is read-only")
+			}
 			return
 		case data, ok := <-stream:
 			if !ok {

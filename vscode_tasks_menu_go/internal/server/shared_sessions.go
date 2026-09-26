@@ -87,6 +87,25 @@ func sharedTerminalControlAllowed(principal identity.Principal, meta session.Met
 	return meta.OwnerUserID == string(principal.UserID) && principal.Allowed(identity.PermissionTerminalControlOwn)
 }
 
+func sharedSessionControlAllowed(principal identity.Principal, meta session.Metadata) bool {
+	if meta.ProjectID == "" || meta.ProjectID != string(principal.ProjectID) {
+		return false
+	}
+	if principal.Allowed(identity.PermissionSessionsManage) {
+		return true
+	}
+	switch meta.Kind {
+	case tasks.SessionKindTerminal:
+		return sharedTerminalControlAllowed(principal, meta)
+	case tasks.SessionKindTask:
+		return principal.Allowed(identity.PermissionTasksRun)
+	case tasks.SessionKindPatch:
+		return principal.Allowed(identity.PermissionPatchRun)
+	default:
+		return false
+	}
+}
+
 func sharedSessionActionAllowed(principal identity.Principal, meta session.Metadata, method, action string) bool {
 	if meta.ProjectID == "" || meta.ProjectID != string(principal.ProjectID) {
 		return false

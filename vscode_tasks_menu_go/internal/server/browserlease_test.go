@@ -85,6 +85,26 @@ func TestBrowserLeaseAPILatestBrowserWins(t *testing.T) {
 	check(second, http.StatusOK)
 }
 
+func TestSharedBrowserLeaseDoesNotRevokeConcurrentUsers(t *testing.T) {
+	s := &Server{}
+	s.Config.SharedServerEnabled = true
+	for i := 0; i < 2; i++ {
+		rr := httptest.NewRecorder()
+		s.browserLeaseAPI(rr, httptest.NewRequest(http.MethodPost, "/api/browser/lease", nil))
+		if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"lease":"shared"`) {
+			t.Fatalf("shared lease acquire status=%d body=%s", rr.Code, rr.Body.String())
+		}
+	}
+	if s.browserLease != nil {
+		t.Fatal("shared lease endpoint created a single-browser lease")
+	}
+	rr := httptest.NewRecorder()
+	s.browserLeaseAPI(rr, httptest.NewRequest(http.MethodGet, "/api/browser/lease", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("shared lease heartbeat status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestBrowserLeaseBlocksStaleMutationsButNotLegacyBeforeFirstAcquire(t *testing.T) {
 	s := &Server{}
 	called := 0
@@ -125,7 +145,6 @@ func TestBrowserLeaseBlocksStaleMutationsButNotLegacyBeforeFirstAcquire(t *testi
 	}
 }
 
-
 func TestBrowserLeaseUIClaimsControlAndStopsReconnectAfterRevocation(t *testing.T) {
 	for _, want := range []string{
 		"await acquireBrowserLease();await loadTasks();await syncSessions();",
@@ -145,7 +164,6 @@ func TestBrowserLeaseUIClaimsControlAndStopsReconnectAfterRevocation(t *testing.
 		t.Fatal("browser lease takeover UI overlay is missing")
 	}
 }
-
 
 func TestBrowserLeaseAllowsOnlyLoopbackSelfUpdateTransportActions(t *testing.T) {
 	s := &Server{}
@@ -184,7 +202,6 @@ func TestBrowserLeaseAllowsOnlyLoopbackSelfUpdateTransportActions(t *testing.T) 
 		t.Fatalf("inner handler called=%d want 2", called)
 	}
 }
-
 
 func TestBrowserLeaseHealthCheckRejectsTokenWhenDaemonHasNoActiveLease(t *testing.T) {
 	s := &Server{}

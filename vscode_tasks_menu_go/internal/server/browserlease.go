@@ -90,6 +90,17 @@ func (s *Server) browserLeaseState() *browserLease {
 }
 
 func (s *Server) browserLeaseAPI(w http.ResponseWriter, r *http.Request) {
+	if s.Config.SharedServerEnabled {
+		switch r.Method {
+		case http.MethodPost:
+			writeJSON(w, http.StatusOK, map[string]any{"lease": "shared"})
+		case http.MethodGet:
+			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+		return
+	}
 	lease := s.browserLeaseState()
 	switch r.Method {
 	case http.MethodPost:

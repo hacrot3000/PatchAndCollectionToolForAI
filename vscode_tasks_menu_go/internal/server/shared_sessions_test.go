@@ -7,11 +7,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/config"
 	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/session"
 	"bletonfc/vscode_tasks_menu/internal/tasks"
+	"github.com/coder/websocket"
 )
 
 type ownershipTestService struct {
@@ -20,6 +22,20 @@ type ownershipTestService struct {
 	items     []session.Metadata
 	started   []tasks.Execution
 	stopped   []string
+}
+
+type sharedWebSocketTestService struct {
+	*ownershipTestService
+	input chan []byte
+}
+
+func (s *sharedWebSocketTestService) Subscribe(string) ([]byte, <-chan []byte, func(), error) {
+	return []byte("ready"), make(chan []byte), func() {}, nil
+}
+
+func (s *sharedWebSocketTestService) Input(_ string, data []byte) error {
+	s.input <- append([]byte(nil), data...)
+	return nil
 }
 
 func (s *ownershipTestService) Metadata(id string) (session.Metadata, bool) {
@@ -187,5 +203,72 @@ func TestSharedPatchActionPermissionsAreSpecific(t *testing.T) {
 		if sharedSessionActionAllowed(principal, meta, http.MethodPost, test.action) {
 			t.Fatalf("%s accepted read-only Patch permission", test.action)
 		}
+	}
+}
+
+func TestSharedSessionWebSocketSeparatesViewAndControl(t *testing.T) {
+	service := &sharedWebSocketTestService{
+		ownershipTestService: &ownershipTestService{supported: true, items: []session.Metadata{{
+			ID: "task-1", Kind: tasks.SessionKindTask, OwnerUserID: "alice", ProjectID: "project-1", Status: "running",
+		}}},
+		input: make(chan []byte, 1),
+	}
+	s := sharedSessionTestServer(t, service)
+	serve := func(principal identity.Principal) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r = r.WithContext(context.WithValue(r.Context(), sharedPrincipalContextKey{}, principal))
+			s.sessionItem(w, r)
+		}))
+	}
+
+	viewer := identity.Principal{UserID: "alice", ProjectID: "project-1", Permissions: map[string]bool{identity.PermissionTasksView: true}}
+	viewerServer := serve(viewer)
+	defer viewerServer.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	viewerConn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(viewerServer.URL, "http")+"/api/sessions/task-1/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, backlog, err := viewerConn.Read(ctx)
+	if err != nil || string(backlog) != "ready" {
+		t.Fatalf("viewer backlog=%q err=%v", backlog, err)
+	}
+	if err := viewerConn.Write(ctx, websocket.MessageText, []byte("blocked")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := viewerConn.Read(ctx); websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
+		t.Fatalf("read-only input close status=%v err=%v", websocket.CloseStatus(err), err)
+	}
+	select {
+	case input := <-service.input:
+		t.Fatalf("viewer input reached session: %q", input)
+	default:
+	}
+
+	controller := identity.Principal{UserID: "alice", ProjectID: "project-1", Permissions: map[string]bool{
+		identity.PermissionTasksView: true,
+		identity.PermissionTasksRun:  true,
+	}}
+	controllerServer := serve(controller)
+	defer controllerServer.Close()
+	controllerConn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(controllerServer.URL, "http")+"/api/sessions/task-1/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer controllerConn.Close(websocket.StatusNormalClosure, "test complete")
+	if _, _, err := controllerConn.Read(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := controllerConn.Write(ctx, websocket.MessageText, []byte("allowed")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case input := <-service.input:
+		if string(input) != "allowed" {
+			t.Fatalf("controller input=%q", input)
+		}
+	case <-ctx.Done():
+		t.Fatal("controller input did not reach session")
 	}
 }
