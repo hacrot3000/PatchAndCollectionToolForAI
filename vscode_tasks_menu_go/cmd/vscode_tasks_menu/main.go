@@ -59,6 +59,8 @@ func main() {
 	sharedPasswordStdin := flag.Bool("shared-admin-password-stdin", false, "đọc password bootstrap từ stdin riêng thay vì nhập ẩn")
 	sharedIdentityBackup := flag.String("shared-identity-backup", "", "tạo snapshot nhất quán của shared identity DB ra FILE")
 	sharedIdentityRestore := flag.String("shared-identity-restore", "", "khôi phục shared identity DB từ FILE và tạo safety backup trước restore")
+	sharedPasswordReset := flag.String("shared-password-reset", "", "reset password của global shared identity (username)")
+	sharedPasswordResetStdin := flag.Bool("shared-password-reset-stdin", false, "đọc password reset từ stdin riêng thay vì nhập ẩn")
 	flag.Parse()
 
 	if *versionFlag {
@@ -99,6 +101,31 @@ func main() {
 			fmt.Printf("Đã restore shared identity DB từ: %s\n", source)
 			fmt.Printf("Safety backup trước restore: %s\n", safety)
 		}
+		return
+	}
+	if *sharedPasswordReset != "" || *sharedPasswordResetStdin {
+		if *sharedPasswordReset == "" || *sharedAdmin != "" || *sharedPasswordStdin ||
+			*sharedIdentityBackup != "" || *sharedIdentityRestore != "" || *serve || *sessionBroker ||
+			*terminal || *selfUpdateFlag || *selfUpdateAuto || *cleanupLegacy || *statusOnly ||
+			*stopDaemonFlag || *restartDaemon || *reloadConfigFlag || *noBrowser || *handoffFD != -1 ||
+			strings.TrimSpace(*listenAddr) != "" || strings.TrimSpace(*selfUpdateID) != "" ||
+			patchCommand || flag.NArg() != 0 {
+			fatalIf(fmt.Errorf("--shared-password-reset is a standalone maintenance command and requires a username"))
+		}
+		cfg, _, err := config.Load(ws)
+		fatalIf(err)
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		var password string
+		if *sharedPasswordResetStdin {
+			password, err = readBootstrapPassword(os.Stdin)
+		} else {
+			password, err = identity.PromptNewPassword(ctx, os.Stdin, os.Stderr)
+		}
+		fatalIf(err)
+		fatalIf(runSharedPasswordReset(ctx, ws, cfg, *sharedPasswordReset, password))
+		password = ""
+		fmt.Printf("Đã reset password cho shared identity %s; toàn bộ login session của user đã bị revoke.\n", strings.TrimSpace(*sharedPasswordReset))
 		return
 	}
 	if *sharedAdmin != "" || *sharedPasswordStdin {
