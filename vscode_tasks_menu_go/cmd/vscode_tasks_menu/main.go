@@ -26,6 +26,7 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 	"bletonfc/vscode_tasks_menu/internal/selfupdate"
 	"bletonfc/vscode_tasks_menu/internal/server"
+	"bletonfc/vscode_tasks_menu/internal/sshaskpass"
 	"bletonfc/vscode_tasks_menu/internal/state"
 	"bletonfc/vscode_tasks_menu/internal/tlscert"
 	terminalui "bletonfc/vscode_tasks_menu/internal/terminal"
@@ -37,6 +38,19 @@ var activeWorkspaceForUpdateCheck string
 const reloadConfigSignal = syscall.Signal(1)
 
 func main() {
+	if os.Getenv("TASKDECK_SSH_ASKPASS") == "1" {
+		prompt := strings.Join(os.Args[1:], " ")
+		if err := sshaskpass.RunHelper(
+			os.Getenv("TASKDECK_SSH_ASKPASS_SOCKET"),
+			os.Getenv("TASKDECK_SSH_ASKPASS_TOKEN"),
+			prompt,
+			os.Stdout,
+		); err != nil {
+			fmt.Fprintln(os.Stderr, "TaskDeck SSH askpass failed:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	workspace := flag.String("workspace", "", "workspace chứa .vscode/tasks.json")
 	serve := flag.Bool("serve", false, "chạy HTTP server foreground (internal)")
 	terminal := flag.Bool("terminal", false, "mở terminal menu native Go")
