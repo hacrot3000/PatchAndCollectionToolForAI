@@ -68,7 +68,7 @@ func TestSharedSelfUpdateLifecycleRecoversAndReleasesLock(t *testing.T) {
 
 func TestSharedSelfUpdateConfirmRecoversLockAfterRestart(t *testing.T) {
 	s, principal := sharedFileAuditServer(t)
-	update, err := updater.CreateRequest(s.Workspace, "0123456789abcdef", "", true)
+	update, err := updater.CreateRequest(s.Workspace, "0123456789abcdef", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
