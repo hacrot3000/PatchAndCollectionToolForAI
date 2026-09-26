@@ -57,6 +57,8 @@ func main() {
 	cleanupLegacy := flag.Bool("cleanup-legacy", false, "dọn thành phần TaskDeck/Patch Tool legacy đã xác minh trong workspace")
 	sharedAdmin := flag.String("shared-admin-bootstrap", "", "tạo admin đầu tiên trong identity DB trống (username)")
 	sharedPasswordStdin := flag.Bool("shared-admin-password-stdin", false, "đọc password bootstrap từ stdin riêng thay vì nhập ẩn")
+	sharedIdentityBackup := flag.String("shared-identity-backup", "", "tạo snapshot nhất quán của shared identity DB ra FILE")
+	sharedIdentityRestore := flag.String("shared-identity-restore", "", "khôi phục shared identity DB từ FILE và tạo safety backup trước restore")
 	flag.Parse()
 
 	if *versionFlag {
@@ -74,6 +76,31 @@ func main() {
 	patchCommand := flag.NArg() > 0 && flag.Arg(0) == "patch"
 	ws, err := resolveWorkspace(*workspace)
 	fatalIf(err)
+	if *sharedIdentityBackup != "" || *sharedIdentityRestore != "" {
+		if (*sharedIdentityBackup != "" && *sharedIdentityRestore != "") ||
+			*sharedAdmin != "" || *sharedPasswordStdin || *serve || *sessionBroker || *terminal ||
+			*selfUpdateFlag || *selfUpdateAuto || *cleanupLegacy || *statusOnly || *stopDaemonFlag ||
+			*restartDaemon || *reloadConfigFlag || *noBrowser || *handoffFD != -1 ||
+			strings.TrimSpace(*listenAddr) != "" || strings.TrimSpace(*selfUpdateID) != "" ||
+			patchCommand || flag.NArg() != 0 {
+			fatalIf(fmt.Errorf("shared identity backup/restore is a standalone maintenance command"))
+		}
+		cfg, _, err := config.Load(ws)
+		fatalIf(err)
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if *sharedIdentityBackup != "" {
+			path, err := runSharedIdentityBackup(ctx, ws, cfg, *sharedIdentityBackup)
+			fatalIf(err)
+			fmt.Printf("Đã tạo shared identity backup: %s\n", path)
+		} else {
+			source, safety, err := runSharedIdentityRestore(ctx, ws, cfg, *sharedIdentityRestore)
+			fatalIf(err)
+			fmt.Printf("Đã restore shared identity DB từ: %s\n", source)
+			fmt.Printf("Safety backup trước restore: %s\n", safety)
+		}
+		return
+	}
 	if *sharedAdmin != "" || *sharedPasswordStdin {
 		if *sharedAdmin == "" || *serve || *sessionBroker || *terminal || *selfUpdateFlag || *selfUpdateAuto || *cleanupLegacy || *statusOnly || *stopDaemonFlag || *restartDaemon || *reloadConfigFlag || flag.NArg() != 0 {
 			fatalIf(fmt.Errorf("--shared-admin-bootstrap requires a username and cannot be combined with other commands"))
