@@ -45,6 +45,9 @@ func (s *Server) terminalCWDConfig(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditSharedSuccess(r, "settings.terminal_cwd.update", "setting", "terminal_cwd", map[string]any{
+			"custom_dir_count": len(saved.CustomDirs),
+		})
 		writeJSON(w, http.StatusOK, saved)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

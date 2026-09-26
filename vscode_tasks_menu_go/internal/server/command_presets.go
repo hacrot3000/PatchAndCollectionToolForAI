@@ -35,11 +35,11 @@ func (s *Server) commandPresets(w http.ResponseWriter, r *http.Request) {
 		}
 		switch strings.TrimSpace(req.Action) {
 		case "create":
-			s.createCommandPreset(w, req)
+			s.createCommandPreset(w, r, req)
 		case "update":
-			s.updateCommandPreset(w, req)
+			s.updateCommandPreset(w, r, req)
 		case "delete":
-			s.deleteCommandPreset(w, req)
+			s.deleteCommandPreset(w, r, req)
 		default:
 			http.Error(w, "unknown preset action", http.StatusBadRequest)
 		}
@@ -60,7 +60,7 @@ func validateCommandPresetInput(name string, commands []string) (string, []strin
 	return name, normalizedCommands, nil
 }
 
-func (s *Server) createCommandPreset(w http.ResponseWriter, req commandPresetRequest) {
+func (s *Server) createCommandPreset(w http.ResponseWriter, r *http.Request, req commandPresetRequest) {
 	name, commands, err := validateCommandPresetInput(req.Name, req.Commands)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -86,10 +86,11 @@ func (s *Server) createCommandPreset(w http.ResponseWriter, req commandPresetReq
 		http.Error(w, err.Error(), status)
 		return
 	}
+	s.auditSharedSuccess(r, "settings.command_preset.create", "command_preset", id, nil)
 	writeJSON(w, http.StatusCreated, state)
 }
 
-func (s *Server) updateCommandPreset(w http.ResponseWriter, req commandPresetRequest) {
+func (s *Server) updateCommandPreset(w http.ResponseWriter, r *http.Request, req commandPresetRequest) {
 	id := strings.TrimSpace(req.ID)
 	if id == "" {
 		http.Error(w, "preset id is required", http.StatusBadRequest)
@@ -117,10 +118,11 @@ func (s *Server) updateCommandPreset(w http.ResponseWriter, req commandPresetReq
 		}
 		return
 	}
+	s.auditSharedSuccess(r, "settings.command_preset.update", "command_preset", id, nil)
 	writeJSON(w, http.StatusOK, state)
 }
 
-func (s *Server) deleteCommandPreset(w http.ResponseWriter, req commandPresetRequest) {
+func (s *Server) deleteCommandPreset(w http.ResponseWriter, r *http.Request, req commandPresetRequest) {
 	id := strings.TrimSpace(req.ID)
 	if id == "" {
 		http.Error(w, "preset id is required", http.StatusBadRequest)
@@ -150,5 +152,6 @@ func (s *Server) deleteCommandPreset(w http.ResponseWriter, req commandPresetReq
 		}
 		return
 	}
+	s.auditSharedSuccess(r, "settings.command_preset.delete", "command_preset", id, nil)
 	writeJSON(w, http.StatusOK, state)
 }
