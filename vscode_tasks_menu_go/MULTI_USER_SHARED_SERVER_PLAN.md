@@ -1,6 +1,6 @@
 # TaskDeck Multi-user / Shared Server Plan
 
-Status: Phase 10 shared-server hardening implemented; CI/acceptance verification in progress
+Status: Phase 10 shared-server hardening implemented and CI-verified; first-release acceptance verification remains
 
 Branch: `feat/multi-user-shared-server`
 
@@ -979,8 +979,10 @@ Hardening notes:
   until it has a dedicated cross-session ownership/permission design.
 - Identity backups/reset are local operator maintenance operations, not project
   admin web capabilities, because the underlying identity is global across projects.
-- Phase 10 implementation is complete, but first-release acceptance remains open
-  until the branch CI matrix and final acceptance checks pass.
+- Phase 10 implementation is complete. GitHub Actions run `36245186504`
+  passed the full Go 1.19.x / 1.23.x matrix (staged tests, tests, vet and build)
+  at commit `7e8fb52e`. First-release acceptance remains open only for any
+  operator/browser acceptance checks that are intentionally outside CI.
 
 ### Phase 11 — Future central management / Hub
 
