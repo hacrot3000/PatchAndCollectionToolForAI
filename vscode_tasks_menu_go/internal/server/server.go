@@ -30,7 +30,7 @@ type Server struct {
 	Config    config.Config
 	Log       *log.Logger
 	Sessions  session.Service
-	Identity   identity.Store
+	Identity  identity.Store
 
 	projectIndexMu         sync.Mutex
 	projectIndex           *projectFileIndex
@@ -87,7 +87,9 @@ func (s *Server) Handler() http.Handler {
 	var handler http.Handler = mux
 	handler = s.requireBrowserLease(handler)
 	handler = s.sameOriginMutations(handler)
-	if s.Config.AuthEnabled {
+	if s.Config.SharedServerEnabled {
+		handler = s.sharedAuth(handler)
+	} else if s.Config.AuthEnabled {
 		handler = s.basicAuth(handler)
 	}
 	return securityHeaders(handler, s.Config.TLS())

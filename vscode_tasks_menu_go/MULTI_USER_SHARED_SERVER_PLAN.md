@@ -809,6 +809,10 @@ No HTTP login change until the real SQLite layer and password hashing are tested
 
 ### Phase 3 — Authentication
 
+Checkpoint 3.0: the daemon opens/closes the identity store. Until the session
+middleware is complete, shared HTTP access fails closed (503), never falling
+back to legacy Basic Auth. Only the existing loopback health probe is exempt.
+
 1. Shared-mode login/logout/current-user API.
 2. Session token generation/hash/storage/revocation.
 3. Secure cookie handling.
