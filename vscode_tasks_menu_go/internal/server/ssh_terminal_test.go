@@ -46,6 +46,9 @@ func TestSSHTerminalExecutionUsesExistingTerminalProcessModel(t *testing.T) {
 	if spec.Command != sshPath {
 		t.Fatalf("command = %q, want %q", spec.Command, sshPath)
 	}
+	if spec.TargetType != "ssh" || spec.TargetProfileID != profile.ID {
+		t.Fatalf("terminal target = %q/%q, want ssh/%q", spec.TargetType, spec.TargetProfileID, profile.ID)
+	}
 	joined := strings.Join(spec.Args, "\n")
 	for _, want := range []string{
 		"deploy@prod.example.com",
