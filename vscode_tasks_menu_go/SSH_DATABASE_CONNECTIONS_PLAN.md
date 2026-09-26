@@ -1,6 +1,6 @@
 # TaskDeck SSH & Database Connections Plan
 
-Status: design baseline committed; implementation starts with SSH
+Status: SSH backend and Connections panel implemented; explicit SSH connection-test endpoint and structured terminal target metadata remain
 
 Branch: `feat/ssh-database-connections`
 
@@ -579,32 +579,42 @@ All code work must use small checkpoint commits.
 
 ### Phase 1 — SSH foundation
 
-1. [ ] Inspect/reuse current Terminal session creation and PTY lifecycle.
-2. [ ] Introduce SSH profile domain model without secrets.
-3. [ ] Add durable profile store with validation and atomic writes.
-4. [ ] Introduce secret-store abstraction and protected master-key lifecycle.
-5. [ ] Add OpenSSH executable discovery/probe.
-6. [ ] Build safe SSH argv builder for agent/private-key modes.
-7. [ ] Add host-key-safe connection behavior.
-8. [ ] Add one-time askpass secret broker for password/passphrase mode.
-9. [ ] Integrate remote SSH process with existing PTY Terminal session.
-10. [ ] Support optional custom remote home directory.
-11. [ ] Support preset commands after successful connection.
-12. [ ] Add API endpoints for SSH profile CRUD/test/open with secret-safe projections.
-13. [ ] Add backend tests for validation, argv safety, secret non-disclosure and lifecycle.
+1. [x] Inspect/reuse current Terminal session creation and PTY lifecycle.
+2. [x] Introduce SSH profile domain model without secrets.
+3. [x] Add durable profile store with validation, atomic writes and cross-process mutation locking.
+4. [x] Introduce AES-GCM secret-store abstraction and protected master-key lifecycle using Go stdlib only.
+5. [x] Add OpenSSH executable discovery/probe.
+6. [x] Build safe SSH argv builder for agent/private-key/password modes.
+7. [x] Add host-key-safe connection behavior: interactive profiles use `ask`; forced askpass uses OpenSSH `accept-new`, never `no`.
+8. [x] Add one-time Unix-socket askpass secret broker for password/private-key passphrase mode.
+9. [x] Integrate remote SSH process with the existing PTY Terminal session path.
+10. [x] Support optional custom remote home directory.
+11. [x] Support preset commands after successful connection.
+12. [x] Add secret-safe SSH profile CRUD API.
+13. [x] Open SSH profiles through the existing `POST /api/sessions` Terminal API using `ssh_profile_id`.
+14. [ ] Add an explicit SSH profile connection-test endpoint; opening a Terminal already exercises the real connection path, but a non-tab test action is still pending.
+15. [x] Add backend regression tests for validation, argv safety, secret non-disclosure, askpass one-time semantics and request isolation.
+
+Implementation notes:
+
+- Stored secrets are never placed in argv or browser-visible profile responses.
+- Remote SSH session requests reject browser-provided environment overrides so callers cannot replace the internal askpass socket/token environment.
+- SSH authentication secrets are bounded to 4096 bytes and reject NUL/CR/LF before storage.
+- The current execution environment has no GitHub network access and this repository has no workflow run for these commits, so the newly added Go tests have not been executed by this session; source-level regression tests are committed in small checkpoints and must be run on a normal checkout before release.
 
 ### Phase 2 — Connections panel / Terminal UX
 
-1. [ ] Inspect current Activity Bar/sidebar composition.
-2. [ ] Add left-side Connections entry/panel using existing UI patterns.
-3. [ ] Add LOCAL group with current workspace/default terminal.
-4. [ ] Add saved local terminal home directories.
-5. [ ] Add SSH group with saved profiles.
-6. [ ] Add add/edit/delete profile UI without exposing stored secrets.
-7. [ ] Open local/remote terminals as existing terminal tabs.
-8. [ ] Distinguish terminal target/type in tab metadata/title.
-9. [ ] Preserve existing Terminal menu/settings behavior where useful.
-10. [ ] Add UI tests for panel and terminal launch paths.
+1. [x] Inspect current Activity Bar/sidebar composition.
+2. [x] Choose the existing Activity Bar/sidebar architecture rather than adding SSH management to Settings-only UI.
+3. [x] Add left-side Connections entry/panel using existing UI patterns.
+4. [x] Add LOCAL group with current workspace/default terminal.
+5. [x] Surface and manage the existing saved workspace-local Terminal directories from the Connections panel without weakening workspace path validation.
+6. [x] Add SSH group with saved profiles.
+7. [x] Add add/edit/delete profile UI without exposing stored secrets.
+8. [x] Open local/remote terminals as existing terminal tabs.
+9. [ ] Add structured terminal target metadata (`local|ssh`, profile ID) to session metadata; the SSH tab/label is already distinguishable as `SSH · <profile name>`.
+10. [x] Preserve existing Terminal menu/settings behavior for compatibility.
+11. [x] Add source-level UI regression tests for panel wiring, Activity Bar integration and explicit Terminal target handling.
 
 ### Phase 3 — Database adapter foundation
 
