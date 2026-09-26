@@ -177,6 +177,62 @@ WHERE id = ?
 	return requireChangedRow(result, "identity user")
 }
 
+func (d *sqliteDatabase) ChangeUserPasswordHash(ctx context.Context, userID ID, passwordHash string, changedAt time.Time) error {
+	if d == nil || d.db == nil {
+		return fmt.Errorf("identity DB is not open")
+	}
+	if userID == "" || passwordHash == "" || changedAt.IsZero() {
+		return fmt.Errorf("change identity user password requires user_id, password_hash and changed_at")
+	}
+	if _, _, err := parsePasswordScryptHash(passwordHash); err != nil {
+		return fmt.Errorf("change identity user password: %w", err)
+	}
+
+	conn, err := d.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("reserve password change connection: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return fmt.Errorf("begin password change: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+
+	stamp := changedAt.UTC().Format(time.RFC3339Nano)
+	result, err := conn.ExecContext(ctx, `
+UPDATE users
+SET password_hash = ?, password_changed_at = ?, updated_at = ?
+WHERE id = ?
+`, passwordHash, stamp, stamp, string(userID))
+	if err != nil {
+		return fmt.Errorf("change identity user password: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read changed identity user count: %w", err)
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	if _, err := conn.ExecContext(ctx, `
+UPDATE auth_sessions
+SET revoked_at = ?
+WHERE user_id = ? AND revoked_at IS NULL
+`, stamp, string(userID)); err != nil {
+		return fmt.Errorf("revoke identity user sessions after password change: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return fmt.Errorf("commit password change: %w", err)
+	}
+	committed = true
+	return nil
+}
+
 func (d *sqliteDatabase) EnsureProject(ctx context.Context, project Project) (Project, error) {
 	if d == nil || d.db == nil {
 		return Project{}, fmt.Errorf("identity DB is not open")

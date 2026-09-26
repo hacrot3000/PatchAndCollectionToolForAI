@@ -158,3 +158,74 @@ func TestCreateProjectUserIsAtomic(t *testing.T) {
 		t.Fatalf("updated user=%#v err=%v", got, err)
 	}
 }
+
+func TestSQLiteChangeUserPasswordHashRevokesSessionsAtomically(t *testing.T) {
+	ctx := context.Background()
+	db := openRealSQLiteDatabase(t, filepath.Join(t.TempDir(), identityDBName))
+	now := time.Date(2026, 9, 26, 14, 0, 0, 0, time.UTC)
+	oldHash, err := HashPassword(ctx, "old-password-for-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newHash, err := HashPassword(ctx, "new-password-for-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateUser(ctx, User{
+		ID: "password-user", Username: "password-user", PasswordHash: oldHash,
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateAuthSession(ctx, AuthSession{
+		ID: "password-session", UserID: "password-user", TokenHash: "test-token-hash",
+		CreatedAt: now, LastSeenAt: now, ExpiresAt: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	changedAt := now.Add(time.Minute)
+	if err := db.ChangeUserPasswordHash(ctx, "password-user", newHash, changedAt); err != nil {
+		t.Fatal(err)
+	}
+	value, err := db.UserByID(ctx, "password-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value.PasswordHash != newHash || value.PasswordChangedAt == nil || !value.PasswordChangedAt.Equal(changedAt) {
+		t.Fatalf("password change not persisted")
+	}
+	session, err := db.AuthSessionByTokenHash(ctx, "test-token-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.RevokedAt == nil || !session.RevokedAt.Equal(changedAt) {
+		t.Fatalf("session not revoked with password change")
+	}
+}
+
+func TestSQLiteChangeUserPasswordHashRejectsInvalidHash(t *testing.T) {
+	ctx := context.Background()
+	db := openRealSQLiteDatabase(t, filepath.Join(t.TempDir(), identityDBName))
+	now := time.Date(2026, 9, 26, 14, 0, 0, 0, time.UTC)
+	oldHash, err := HashPassword(ctx, "old-password-for-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateUser(ctx, User{
+		ID: "password-user", Username: "password-user", PasswordHash: oldHash,
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ChangeUserPasswordHash(ctx, "password-user", "invalid-hash", now.Add(time.Minute)); err == nil {
+		t.Fatal("invalid password hash accepted")
+	}
+	value, err := db.UserByID(ctx, "password-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value.PasswordHash != oldHash {
+		t.Fatal("invalid password change mutated user")
+	}
+}
