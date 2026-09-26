@@ -10,17 +10,26 @@ import (
 )
 
 type Execution struct {
-	TaskID  int      `json:"task_id"`
-	Label   string   `json:"label"`
-	Detail  string   `json:"detail,omitempty"`
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
-	Cwd     string   `json:"cwd"`
-	Env            []string `json:"-"`
-	Preview        string   `json:"preview"`
-	ProtocolEvents   bool `json:"-"`
-	ProtocolCommands bool `json:"-"`
+	TaskID           int      `json:"task_id"`
+	Label            string   `json:"label"`
+	Detail           string   `json:"detail,omitempty"`
+	Command          string   `json:"command"`
+	Args             []string `json:"args"`
+	Cwd              string   `json:"cwd"`
+	Env              []string `json:"-"`
+	Preview          string   `json:"preview"`
+	ProtocolEvents   bool     `json:"-"`
+	ProtocolCommands bool     `json:"-"`
+	SessionKind      string   `json:"-"`
+	OwnerUserID      string   `json:"-"`
+	ProjectID        string   `json:"-"`
 }
+
+const (
+	SessionKindTask     = "task"
+	SessionKindTerminal = "terminal"
+	SessionKindPatch    = "patch"
+)
 
 var envVariablePattern = regexp.MustCompile(`\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}`)
 var inputVariablePattern = regexp.MustCompile(`\$\{input:([^}]+)\}`)

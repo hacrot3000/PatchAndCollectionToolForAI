@@ -2,6 +2,7 @@ package broker
 
 import (
 	"runtime"
+	"strings"
 	"testing"
 
 	"bletonfc/vscode_tasks_menu/internal/session"
@@ -33,6 +34,18 @@ func TestPatchProtocolCapabilityAndWireFallback(t *testing.T) {
 	modern := &Client{info: NewInfo(t.TempDir())}
 	if runtime.GOOS != "windows" && (!modern.SupportsPatchProtocolEvents() || !modern.SupportsPatchProtocolCommands()) {
 		t.Fatal("new POSIX broker must advertise Patch protocol event and command capabilities")
+	}
+}
+
+func TestLegacyBrokerRejectsOwnedSessionBeforeNetworkCall(t *testing.T) {
+	legacy := &Client{info: Info{ProtocolVersion: ProtocolVersion}}
+	_, err := legacy.Start(tasks.Execution{
+		SessionKind: tasks.SessionKindTerminal,
+		OwnerUserID: "user-1",
+		ProjectID:   "project-1",
+	})
+	if err == nil || !strings.Contains(err.Error(), CapabilitySessionOwnership) {
+		t.Fatalf("owned session error = %v, want missing ownership capability", err)
 	}
 }
 

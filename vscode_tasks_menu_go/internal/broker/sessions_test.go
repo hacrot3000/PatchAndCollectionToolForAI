@@ -39,6 +39,7 @@ func TestBrokerExecutionWirePreservesEnvironment(t *testing.T) {
 		TaskID: 7, Label: "wire", Detail: "detail", Command: "/bin/sh",
 		Args: []string{"-c", "true"}, Cwd: "/tmp",
 		Env: []string{"ONE=1", "TWO=two"}, Preview: "true",
+		SessionKind: tasks.SessionKindTask, OwnerUserID: "user-7", ProjectID: "project-1",
 	}
 	got := executionFromWire(executionToWire(spec))
 	if len(got.Env) != 2 || got.Env[0] != "ONE=1" || got.Env[1] != "TWO=two" {
@@ -46,6 +47,9 @@ func TestBrokerExecutionWirePreservesEnvironment(t *testing.T) {
 	}
 	if got.Command != spec.Command || got.Cwd != spec.Cwd || got.TaskID != spec.TaskID {
 		t.Fatalf("execution changed in broker wire conversion: %#v", got)
+	}
+	if got.SessionKind != spec.SessionKind || got.OwnerUserID != spec.OwnerUserID || got.ProjectID != spec.ProjectID {
+		t.Fatalf("ownership lost in broker wire conversion: %#v", got)
 	}
 }
 
@@ -58,12 +62,12 @@ func TestBrokerClientOwnsAndControlsPTYSession(t *testing.T) {
 	defer client.Close()
 
 	spec := tasks.Execution{
-		TaskID: 42,
-		Label: "Broker integration",
+		TaskID:  42,
+		Label:   "Broker integration",
 		Command: "/bin/sh",
-		Args: []string{"-c", "printf '%s\\n' \"$BROKER_TEST_VALUE\"; exec sleep 30"},
-		Cwd: ws,
-		Env: append(os.Environ(), "BROKER_TEST_VALUE=broker-env-ok"),
+		Args:    []string{"-c", "printf '%s\\n' \"$BROKER_TEST_VALUE\"; exec sleep 30"},
+		Cwd:     ws,
+		Env:     append(os.Environ(), "BROKER_TEST_VALUE=broker-env-ok"),
 		Preview: "broker integration",
 	}
 	meta, err := client.Start(spec)
@@ -159,12 +163,12 @@ func TestBrokerSessionSurvivesDaemonClientReplacement(t *testing.T) {
 
 	first := waitForClient(t, ws, errCh)
 	spec := tasks.Execution{
-		TaskID: 77,
-		Label: "Preserve across daemon replacement",
+		TaskID:  77,
+		Label:   "Preserve across daemon replacement",
 		Command: "/bin/sh",
-		Args: []string{"-c", "printf 'before-reconnect\\n'; sleep 1; printf 'during-reconnect\\n'; exec sleep 30"},
-		Cwd: ws,
-		Env: os.Environ(),
+		Args:    []string{"-c", "printf 'before-reconnect\\n'; sleep 1; printf 'during-reconnect\\n'; exec sleep 30"},
+		Cwd:     ws,
+		Env:     os.Environ(),
 		Preview: "preserve broker session",
 	}
 	meta, err := first.Start(spec)

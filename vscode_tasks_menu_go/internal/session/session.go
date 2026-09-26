@@ -22,6 +22,9 @@ import (
 type Metadata struct {
 	ID             string `json:"id"`
 	TaskID         int    `json:"task_id"`
+	Kind           string `json:"kind,omitempty"`
+	OwnerUserID    string `json:"owner_user_id,omitempty"`
+	ProjectID      string `json:"project_id,omitempty"`
 	Label          string `json:"label"`
 	Title          string `json:"title,omitempty"`
 	CommandPreview string `json:"command_preview"`
@@ -33,15 +36,15 @@ type Metadata struct {
 }
 
 type managedSession struct {
-	mu            sync.Mutex
-	meta          Metadata
-	cmd           *exec.Cmd
-	ptyFile       *os.File
-	scrollback    []byte
-	maxScrollback int
-	subscribers   map[chan []byte]struct{}
-	stopRequested  bool
-	protocol       ProtocolState
+	mu              sync.Mutex
+	meta            Metadata
+	cmd             *exec.Cmd
+	ptyFile         *os.File
+	scrollback      []byte
+	maxScrollback   int
+	subscribers     map[chan []byte]struct{}
+	stopRequested   bool
+	protocol        ProtocolState
 	protocolCommand *os.File
 }
 
@@ -59,6 +62,9 @@ func NewManager(maxScrollback int) *Manager {
 }
 
 func (m *Manager) Start(spec tasks.Execution) (Metadata, error) {
+	if err := validateOwnership(spec); err != nil {
+		return Metadata{}, err
+	}
 	id, err := randomID()
 	if err != nil {
 		return Metadata{}, err
@@ -121,9 +127,14 @@ func (m *Manager) Start(spec tasks.Execution) (Metadata, error) {
 		header = header[len(header)-m.maxScrollback:]
 	}
 	s := &managedSession{
-		meta: Metadata{ID: id, TaskID: spec.TaskID, Label: spec.Label, CommandPreview: spec.Preview, Cwd: spec.Cwd, Status: "running", StartedAt: time.Now().Format(time.RFC3339)},
+		meta: Metadata{
+			ID: id, TaskID: spec.TaskID, Kind: spec.SessionKind,
+			OwnerUserID: spec.OwnerUserID, ProjectID: spec.ProjectID,
+			Label: spec.Label, CommandPreview: spec.Preview, Cwd: spec.Cwd,
+			Status: "running", StartedAt: time.Now().Format(time.RFC3339),
+		},
 		cmd: cmd, ptyFile: ptmx, scrollback: append([]byte(nil), header...), maxScrollback: m.maxScrollback, subscribers: map[chan []byte]struct{}{},
-		protocol: ProtocolState{Available: true, Enabled: protocolRead != nil, CommandsEnabled: commandWrite != nil},
+		protocol:        ProtocolState{Available: true, Enabled: protocolRead != nil, CommandsEnabled: commandWrite != nil},
 		protocolCommand: commandWrite,
 	}
 	m.mu.Lock()
@@ -134,6 +145,22 @@ func (m *Manager) Start(spec tasks.Execution) (Metadata, error) {
 	}
 	go s.readLoop()
 	return s.metadata(), nil
+}
+
+func validateOwnership(spec tasks.Execution) error {
+	owned := spec.SessionKind != "" || spec.OwnerUserID != "" || spec.ProjectID != ""
+	if !owned {
+		return nil
+	}
+	if spec.OwnerUserID == "" || spec.ProjectID == "" {
+		return fmt.Errorf("owned session requires owner user and project")
+	}
+	switch spec.SessionKind {
+	case tasks.SessionKindTask, tasks.SessionKindTerminal, tasks.SessionKindPatch:
+		return nil
+	default:
+		return fmt.Errorf("owned session has invalid kind %q", spec.SessionKind)
+	}
 }
 
 func setEnvironmentValue(env []string, key, value string) []string {
@@ -428,7 +455,6 @@ func (m *Manager) SetTitle(id, title string) (Metadata, error) {
 	s.mu.Unlock()
 	return meta, nil
 }
-
 
 func (m *Manager) ProtocolCommand(id string, data []byte) error {
 	line, err := validateProtocolCommand(data)

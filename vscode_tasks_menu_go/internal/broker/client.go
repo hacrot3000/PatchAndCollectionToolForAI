@@ -89,6 +89,10 @@ func (c *Client) SupportsPatchProtocolCommands() bool {
 	return c.supportsCapability(CapabilityPatchProtocolCommands)
 }
 
+func (c *Client) SupportsSessionOwnership() bool {
+	return c.supportsCapability(CapabilitySessionOwnership)
+}
+
 func (c *Client) endpoint(path string) string {
 	return "http://session-broker" + path
 }
@@ -158,6 +162,9 @@ func (c *Client) List() []session.Metadata {
 
 func (c *Client) Start(spec tasks.Execution) (session.Metadata, error) {
 	var meta session.Metadata
+	if (spec.SessionKind != "" || spec.OwnerUserID != "" || spec.ProjectID != "") && !c.SupportsSessionOwnership() {
+		return meta, fmt.Errorf("session broker does not support %s capability", CapabilitySessionOwnership)
+	}
 	wire := executionToWire(spec)
 	if wire.ProtocolEvents && !c.SupportsPatchProtocolEvents() {
 		wire.ProtocolEvents = false
