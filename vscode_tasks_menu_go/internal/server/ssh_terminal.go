@@ -3,10 +3,13 @@ package server
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
+	"bletonfc/vscode_tasks_menu/internal/sshaskpass"
 	"bletonfc/vscode_tasks_menu/internal/sshclient"
 	"bletonfc/vscode_tasks_menu/internal/sshprofile"
+	"bletonfc/vscode_tasks_menu/internal/state"
 	"bletonfc/vscode_tasks_menu/internal/tasks"
 )
 
@@ -25,13 +28,6 @@ func (s *Server) sshTerminalExecution(profileID string) (tasks.Execution, error)
 			return tasks.Execution{}, fmt.Errorf("ssh profile not found")
 		}
 		return tasks.Execution{}, err
-	}
-
-	// Stored password/private-key passphrase must not be placed on argv or in a
-	// long-lived environment variable. Until the one-time askpass broker is
-	// installed, fail closed instead of silently prompting for a saved secret.
-	if profile.SecretRef != "" {
-		return tasks.Execution{}, errors.New("ssh stored-secret authentication is not available until the askpass broker is enabled")
 	}
 
 	executable, err := sshclient.FindOpenSSH()
@@ -58,6 +54,33 @@ func (s *Server) sshTerminalExecution(profileID string) (tasks.Execution, error)
 	}, s.Workspace)
 	if err != nil {
 		return tasks.Execution{}, err
+	}
+
+	if profile.SecretRef != "" {
+		secrets, err := s.connectionSecretStore()
+		if err != nil {
+			return tasks.Execution{}, err
+		}
+		ticket, err := sshaskpass.Prepare(secrets, profile.SecretRef, state.Dir(s.Workspace))
+		if err != nil {
+			return tasks.Execution{}, err
+		}
+		helper, err := os.Executable()
+		if err != nil {
+			ticket.Close()
+			return tasks.Execution{}, fmt.Errorf("resolve TaskDeck askpass helper: %w", err)
+		}
+		if err := tasks.ApplyEnvironmentOverrides(&spec, map[string]string{
+			"DISPLAY":                     "taskdeck-ssh-askpass",
+			"SSH_ASKPASS":                 helper,
+			"SSH_ASKPASS_REQUIRE":         "force",
+			"TASKDECK_SSH_ASKPASS":        "1",
+			"TASKDECK_SSH_ASKPASS_SOCKET": ticket.SocketPath,
+			"TASKDECK_SSH_ASKPASS_TOKEN":  ticket.Token,
+		}); err != nil {
+			ticket.Close()
+			return tasks.Execution{}, err
+		}
 	}
 	return spec, nil
 }
