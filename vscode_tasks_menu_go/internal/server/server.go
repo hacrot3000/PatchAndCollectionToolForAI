@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/config"
+	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 	"bletonfc/vscode_tasks_menu/internal/session"
 	"bletonfc/vscode_tasks_menu/internal/tasks"
@@ -29,6 +30,7 @@ type Server struct {
 	Config    config.Config
 	Log       *log.Logger
 	Sessions  session.Service
+	Identity   identity.Store
 
 	projectIndexMu         sync.Mutex
 	projectIndex           *projectFileIndex
