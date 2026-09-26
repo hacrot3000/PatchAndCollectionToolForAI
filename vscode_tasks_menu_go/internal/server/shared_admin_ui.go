@@ -91,7 +91,7 @@ const sharedAdminHTML = `<!doctype html>
 </body>
 </html>`
 
-const sharedAdminCSS = `:root{font-family:system-ui,sans-serif;color-scheme:dark;background:#101216;color:#e8eaed}*{box-sizing:border-box}body{margin:0}header{height:52px;display:flex;gap:14px;align-items:center;padding:0 16px;border-bottom:1px solid #30343b}header a{color:#9fc8f5;text-decoration:none}header strong{font-size:16px}#admin-identity{margin-left:auto;font-size:12px;opacity:.75}main{max-width:1180px;margin:0 auto;padding:20px}nav{display:flex;gap:8px;margin-bottom:18px}button,input,select{font:inherit;background:#252a33;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:8px 10px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}button.active{background:#29445f;border-color:#47759e}#admin-content{border:1px solid #30343b;border-radius:10px;min-height:240px;padding:18px;background:#15181e}.muted{opacity:.7}.error{color:#ffb4b4}.success{color:#9ee7b0}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 14px}.create-user{display:grid;grid-template-columns:1fr 1fr 1.2fr 1fr auto;gap:8px;margin:12px 0 20px}.table-wrap{overflow:auto;border:1px solid #30343b;border-radius:8px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px;border-bottom:1px solid #2a2e35;text-align:left;vertical-align:top}th{background:#1d2128;position:sticky;top:0}tr:last-child td{border-bottom:0}.permissions{max-width:360px;white-space:normal;font-size:11px;opacity:.8}.access-controls{display:flex;gap:7px;align-items:center;min-width:270px}.access-controls select{min-width:125px}.access-controls label{display:flex;gap:5px;align-items:center}.access-controls input[type=checkbox]{width:auto}.self-note{font-size:11px;opacity:.65}@media(max-width:900px){.create-user{grid-template-columns:1fr}.access-controls{min-width:230px}}`
+const sharedAdminCSS = `:root{font-family:system-ui,sans-serif;color-scheme:dark;background:#101216;color:#e8eaed}*{box-sizing:border-box}body{margin:0}header{height:52px;display:flex;gap:14px;align-items:center;padding:0 16px;border-bottom:1px solid #30343b}header a{color:#9fc8f5;text-decoration:none}header strong{font-size:16px}#admin-identity{margin-left:auto;font-size:12px;opacity:.75}main{max-width:1180px;margin:0 auto;padding:20px}nav{display:flex;gap:8px;margin-bottom:18px}button,input,select{font:inherit;background:#252a33;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:8px 10px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}button.active{background:#29445f;border-color:#47759e}#admin-content{border:1px solid #30343b;border-radius:10px;min-height:240px;padding:18px;background:#15181e}.muted{opacity:.7}.error{color:#ffb4b4}.success{color:#9ee7b0}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 14px}.create-user{display:grid;grid-template-columns:1fr 1fr 1.2fr 1fr auto;gap:8px;margin:12px 0 20px}.table-wrap{overflow:auto;border:1px solid #30343b;border-radius:8px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px;border-bottom:1px solid #2a2e35;text-align:left;vertical-align:top}th{background:#1d2128;position:sticky;top:0}tr:last-child td{border-bottom:0}.permissions{max-width:360px;white-space:normal;font-size:11px;opacity:.8}.access-controls,.override-controls{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:7px;min-width:270px}.access-controls select{min-width:125px}.override-controls select{max-width:180px}.access-controls label{display:flex;gap:5px;align-items:center}.access-controls input[type=checkbox]{width:auto}.self-note{font-size:11px;opacity:.65}@media(max-width:900px){.create-user{grid-template-columns:1fr}.access-controls{min-width:230px}}`
 
 const sharedAdminJS = `const content=document.querySelector('#admin-content');
 const identity=document.querySelector('#admin-identity');
@@ -140,10 +140,13 @@ async function renderUsers(){
   const title=node('h2','Users and project access');
   const status=node('p','Loading…','muted');
   content.append(title,status);
-  let users=[],roles=[];
+  let users=[],roles=[],permissions=[];
   try{
     if(has('users.view'))users=(await api('/api/admin/users')).users||[];
-    if(has('roles.view'))roles=(await api('/api/admin/roles')).roles||[];
+    if(has('roles.view')){
+      roles=(await api('/api/admin/roles')).roles||[];
+      permissions=(await api('/api/admin/permissions')).permissions||[];
+    }
   }catch(error){setStatus(status,'ERROR: '+error.message,'error');return;}
   status.remove();
 
@@ -182,7 +185,7 @@ async function renderUsers(){
   const table=document.createElement('table');
   const head=document.createElement('thead');
   const hr=document.createElement('tr');
-  for(const label of ['User','Role','Status','Effective permissions','Project access'])hr.append(node('th',label));
+  for(const label of ['User','Role','Status','Effective permissions','Overrides','Project access'])hr.append(node('th',label));
   head.append(hr);table.append(head);
   const body=document.createElement('tbody');
   for(const user of users){
@@ -192,6 +195,44 @@ async function renderUsers(){
     if(user.display_name)userCell.append(document.createElement('br'),node('span',user.display_name,'muted'));
     row.append(userCell,node('td',user.role_name||user.role_id),node('td',(user.user_enabled?'user enabled':'user disabled')+' · '+(user.member_enabled?'access enabled':'access disabled')));
     row.append(node('td',(user.effective_permissions||[]).join(', '),'permissions'));
+    const overrideCell=document.createElement('td');
+    const overrideEntries=Object.entries(user.permission_overrides||{}).sort((a,b)=>a[0].localeCompare(b[0]));
+    overrideCell.append(node('div',overrideEntries.length?overrideEntries.map(item=>item[0]+'='+item[1]).join(', '):'none','permissions'));
+    if(has('users.manage')&&permissions.length&&user.id!==currentUser.user_id){
+      const overrideControls=node('div',null,'override-controls');
+      const permissionSelect=document.createElement('select');
+      for(const permission of permissions){
+        const option=document.createElement('option');option.value=permission.key;option.textContent=permission.key;permissionSelect.append(option);
+      }
+      const effectSelect=document.createElement('select');
+      for(const effectValue of ['ALLOW','DENY']){
+        const option=document.createElement('option');option.value=effectValue;option.textContent=effectValue;effectSelect.append(option);
+      }
+      const setButton=node('button','Set');setButton.type='button';
+      const clearButton=node('button','Clear');clearButton.type='button';
+      const overrideMessage=node('span','', 'muted');
+      setButton.onclick=async()=>{
+        setButton.disabled=true;clearButton.disabled=true;setStatus(overrideMessage,'Saving…');
+        try{
+          await api('/api/admin/users/permission',{method:'PUT',body:JSON.stringify({user_id:user.id,permission_key:permissionSelect.value,effect:effectSelect.value})});
+          setStatus(overrideMessage,'Saved','success');await renderUsers();
+        }catch(error){setStatus(overrideMessage,'ERROR: '+error.message,'error');}
+        finally{setButton.disabled=false;clearButton.disabled=false;}
+      };
+      clearButton.onclick=async()=>{
+        setButton.disabled=true;clearButton.disabled=true;setStatus(overrideMessage,'Clearing…');
+        try{
+          await api('/api/admin/users/permission',{method:'DELETE',body:JSON.stringify({user_id:user.id,permission_key:permissionSelect.value})});
+          setStatus(overrideMessage,'Cleared','success');await renderUsers();
+        }catch(error){setStatus(overrideMessage,'ERROR: '+error.message,'error');}
+        finally{setButton.disabled=false;clearButton.disabled=false;}
+      };
+      overrideControls.append(permissionSelect,effectSelect,setButton,clearButton,overrideMessage);
+      overrideCell.append(overrideControls);
+    }else if(user.id===currentUser.user_id){
+      overrideCell.append(node('div','Self overrides cannot be changed here.','self-note'));
+    }
+    row.append(overrideCell);
     const access=document.createElement('td');
     if(has('users.manage')&&roles.length&&user.id!==currentUser.user_id){
       const controls=node('div',null,'access-controls');

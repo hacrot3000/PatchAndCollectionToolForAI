@@ -48,6 +48,8 @@ func TestSharedAdminUIUsersScriptUsesPermissionGatedAPIs(t *testing.T) {
 		"/api/admin/users",
 		"/api/admin/roles",
 		"/api/admin/users/access",
+		"/api/admin/permissions",
+		"/api/admin/users/permission",
 	} {
 		if !strings.Contains(sharedAdminJS, path) {
 			t.Fatalf("admin UI script missing %s", path)
