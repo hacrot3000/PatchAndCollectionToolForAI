@@ -43,7 +43,9 @@ type AuditStore interface {
 // project daemons without changing the data model.
 type AdminStore interface {
 	CreateUser(ctx context.Context, user User) error
+	CreateProjectUser(ctx context.Context, user User, member ProjectMember) error
 	SetUserEnabled(ctx context.Context, userID ID, enabled bool, updatedAt time.Time) error
+	SetUserDisplayName(ctx context.Context, userID ID, displayName string, updatedAt time.Time) error
 	SetUserPasswordHash(ctx context.Context, userID ID, passwordHash string, changedAt time.Time) error
 
 	EnsureProject(ctx context.Context, project Project) (Project, error)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -120,4 +121,40 @@ func TestSQLiteAdminStoreEnsureProjectReturnsStoredProject(t *testing.T) {
 	_, execs, _ := state.snapshot()
 	assertSQLLogContains(t, execs, "INSERT INTO projects")
 	assertSQLLogContains(t, execs, "UPDATE projects")
+}
+
+func TestCreateProjectUserIsAtomic(t *testing.T) {
+	ctx := context.Background()
+	db := openRealSQLiteDatabase(t, filepath.Join(t.TempDir(), identityDBName))
+	now := time.Date(2026, 9, 26, 14, 0, 0, 0, time.UTC)
+	if _, err := db.BootstrapFirstAdmin(ctx, "project-one", "alice", "$scrypt$v=1,ln=17,r=8,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SeedSystemRoles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	project, err := db.ProjectByKey(ctx, "project-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user := User{ID: "bob", Username: "bob", PasswordHash: "hash", Enabled: true, CreatedAt: now, UpdatedAt: now}
+	badMember := ProjectMember{ProjectID: project.ID, UserID: user.ID, RoleID: "missing-role", Enabled: true, CreatedAt: now, UpdatedAt: now}
+	if err := db.CreateProjectUser(ctx, user, badMember); err == nil {
+		t.Fatal("missing role unexpectedly created project user")
+	}
+	if _, err := db.UserByUsername(ctx, "bob"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("failed membership left an orphan user: %v", err)
+	}
+	member := badMember
+	member.RoleID = "system:viewer"
+	if err := db.CreateProjectUser(ctx, user, member); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetUserDisplayName(ctx, user.ID, "Bob Builder", now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.UserByID(ctx, user.ID)
+	if err != nil || got.DisplayName != "Bob Builder" {
+		t.Fatalf("updated user=%#v err=%v", got, err)
+	}
 }

@@ -58,6 +58,84 @@ ON CONFLICT(username) DO NOTHING
 	return nil
 }
 
+func (d *sqliteDatabase) CreateProjectUser(ctx context.Context, user User, member ProjectMember) error {
+	if d == nil || d.db == nil {
+		return fmt.Errorf("identity DB is not open")
+	}
+	user.Username = strings.TrimSpace(user.Username)
+	if user.ID == "" || user.Username == "" || user.PasswordHash == "" {
+		return fmt.Errorf("identity user requires id, username and password_hash")
+	}
+	if user.CreatedAt.IsZero() || user.UpdatedAt.IsZero() {
+		return fmt.Errorf("identity user requires created_at and updated_at")
+	}
+	if member.ProjectID == "" || member.UserID != user.ID || member.RoleID == "" {
+		return fmt.Errorf("project member must identify the new user, project and role")
+	}
+	if member.CreatedAt.IsZero() || member.UpdatedAt.IsZero() {
+		return fmt.Errorf("project member requires created_at and updated_at")
+	}
+	conn, err := d.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("reserve project user connection: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return fmt.Errorf("begin project user creation: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+	createdAt := user.CreatedAt.UTC().Format(time.RFC3339Nano)
+	updatedAt := user.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	result, err := conn.ExecContext(ctx, `
+INSERT INTO users(id, username, display_name, password_hash, enabled, created_at, updated_at, password_changed_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(username) DO NOTHING
+`, string(user.ID), user.Username, user.DisplayName, user.PasswordHash, encodeDBBool(user.Enabled), createdAt, updatedAt, updatedAt)
+	if err != nil {
+		return fmt.Errorf("create project user: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read created project user count: %w", err)
+	}
+	if affected == 0 {
+		return ErrConflict
+	}
+	if _, err := conn.ExecContext(ctx, `
+INSERT INTO project_members(project_id, user_id, role_id, enabled, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?)
+`, string(member.ProjectID), string(member.UserID), string(member.RoleID), encodeDBBool(member.Enabled), member.CreatedAt.UTC().Format(time.RFC3339Nano), member.UpdatedAt.UTC().Format(time.RFC3339Nano)); err != nil {
+		return fmt.Errorf("create project membership: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return fmt.Errorf("commit project user creation: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+func (d *sqliteDatabase) SetUserDisplayName(ctx context.Context, userID ID, displayName string, updatedAt time.Time) error {
+	if d == nil || d.db == nil {
+		return fmt.Errorf("identity DB is not open")
+	}
+	if userID == "" || updatedAt.IsZero() {
+		return fmt.Errorf("set identity user display name requires user_id and updated_at")
+	}
+	if len(displayName) > 256 || strings.ContainsRune(displayName, '\x00') {
+		return fmt.Errorf("identity user display name is invalid")
+	}
+	result, err := d.db.ExecContext(ctx, `UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?`, strings.TrimSpace(displayName), updatedAt.UTC().Format(time.RFC3339Nano), string(userID))
+	if err != nil {
+		return fmt.Errorf("set identity user display name: %w", err)
+	}
+	return requireChangedRow(result, "identity user")
+}
+
 func (d *sqliteDatabase) SetUserEnabled(ctx context.Context, userID ID, enabled bool, updatedAt time.Time) error {
 	if d == nil || d.db == nil {
 		return fmt.Errorf("identity DB is not open")
