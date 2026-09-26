@@ -1385,6 +1385,17 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := parts[0]
+	if len(parts) > 2 {
+		http.NotFound(w, r)
+		return
+	}
+	action := ""
+	if len(parts) == 2 {
+		action = parts[1]
+	}
+	if !s.authorizeSharedSessionItem(w, r, id, action) {
+		return
+	}
 	if len(parts) == 1 {
 		switch r.Method {
 		case http.MethodGet:
@@ -1542,11 +1553,15 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			spec tasks.Execution
 		}
 		plans := make([]collectPlan, 0, len(items))
+		principal, _ := PrincipalFromContext(r.Context())
 		for _, item := range items {
 			spec, err := patchCollectExecution(s.Workspace, item.Name)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
+			}
+			if s.Config.SharedServerEnabled {
+				stampSharedSession(principal, &spec, tasks.SessionKindPatch)
 			}
 			plans = append(plans, collectPlan{item: item, spec: spec})
 		}

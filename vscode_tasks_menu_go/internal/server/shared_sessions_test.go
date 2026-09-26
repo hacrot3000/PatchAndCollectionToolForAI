@@ -19,6 +19,21 @@ type ownershipTestService struct {
 	supported bool
 	items     []session.Metadata
 	started   []tasks.Execution
+	stopped   []string
+}
+
+func (s *ownershipTestService) Metadata(id string) (session.Metadata, bool) {
+	for _, item := range s.items {
+		if item.ID == id {
+			return item, true
+		}
+	}
+	return session.Metadata{}, false
+}
+
+func (s *ownershipTestService) Stop(id string) error {
+	s.stopped = append(s.stopped, id)
+	return nil
 }
 
 func (s *ownershipTestService) SupportsSessionOwnership() bool { return s.supported }
@@ -109,5 +124,68 @@ func TestSharedSessionRoutesFailClosedWithoutOwnershipCapability(t *testing.T) {
 	s.sessionsRoot(rr, sharedSessionRequest(http.MethodGet, "/api/sessions", "", identity.Principal{}))
 	if rr.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status=%d want=%d", rr.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestSharedSessionItemUsesOwnAndAllTerminalPermissions(t *testing.T) {
+	service := &ownershipTestService{supported: true, items: []session.Metadata{
+		{ID: "own", Kind: tasks.SessionKindTerminal, OwnerUserID: "alice", ProjectID: "project-1", Status: "running"},
+		{ID: "other", Kind: tasks.SessionKindTerminal, OwnerUserID: "bob", ProjectID: "project-1", Status: "running"},
+		{ID: "foreign", Kind: tasks.SessionKindTerminal, OwnerUserID: "alice", ProjectID: "project-2", Status: "running"},
+	}}
+	s := sharedSessionTestServer(t, service)
+	viewer := identity.Principal{UserID: "alice", ProjectID: "project-1", Permissions: map[string]bool{identity.PermissionTerminalViewOwn: true}}
+
+	rr := httptest.NewRecorder()
+	s.sessionItem(rr, sharedSessionRequest(http.MethodGet, "/api/sessions/own", "", viewer))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("own terminal view status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	rr = httptest.NewRecorder()
+	s.sessionItem(rr, sharedSessionRequest(http.MethodGet, "/api/sessions/other", "", viewer))
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("other terminal view status=%d", rr.Code)
+	}
+	rr = httptest.NewRecorder()
+	s.sessionItem(rr, sharedSessionRequest(http.MethodGet, "/api/sessions/foreign", "", viewer))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("cross-project terminal status=%d", rr.Code)
+	}
+
+	controller := identity.Principal{UserID: "alice", ProjectID: "project-1", Permissions: map[string]bool{identity.PermissionTerminalControlOwn: true}}
+	rr = httptest.NewRecorder()
+	s.sessionItem(rr, sharedSessionRequest(http.MethodPost, "/api/sessions/own/stop", "", controller))
+	if rr.Code != http.StatusOK || len(service.stopped) != 1 || service.stopped[0] != "own" {
+		t.Fatalf("own terminal control status=%d stopped=%v", rr.Code, service.stopped)
+	}
+	rr = httptest.NewRecorder()
+	s.sessionItem(rr, sharedSessionRequest(http.MethodPost, "/api/sessions/other/stop", "", controller))
+	if rr.Code != http.StatusForbidden || len(service.stopped) != 1 {
+		t.Fatalf("other terminal control status=%d stopped=%v", rr.Code, service.stopped)
+	}
+}
+
+func TestSharedPatchActionPermissionsAreSpecific(t *testing.T) {
+	meta := session.Metadata{Kind: tasks.SessionKindPatch, OwnerUserID: "alice", ProjectID: "project-1"}
+	base := identity.Principal{UserID: "alice", ProjectID: "project-1"}
+	tests := []struct {
+		action     string
+		permission string
+	}{
+		{action: "item-action", permission: identity.PermissionPatchRun},
+		{action: "parallel-collect", permission: identity.PermissionPatchCollect},
+		{action: "history-support", permission: identity.PermissionPatchHistory},
+		{action: "history-cleanup", permission: identity.PermissionPatchCleanup},
+	}
+	for _, test := range tests {
+		principal := base
+		principal.Permissions = map[string]bool{test.permission: true}
+		if !sharedSessionActionAllowed(principal, meta, http.MethodPost, test.action) {
+			t.Fatalf("%s denied its exact permission %s", test.action, test.permission)
+		}
+		principal.Permissions = map[string]bool{identity.PermissionPatchView: true}
+		if sharedSessionActionAllowed(principal, meta, http.MethodPost, test.action) {
+			t.Fatalf("%s accepted read-only Patch permission", test.action)
+		}
 	}
 }

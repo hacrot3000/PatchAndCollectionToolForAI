@@ -51,6 +51,10 @@ func (s *Server) sharedAuthorize(next http.Handler) http.Handler {
 			// Session list/create authorization depends on session metadata or
 			// the requested kind and is enforced inside sessionsRoot.
 			next.ServeHTTP(w, r)
+		case sharedSessionItemPath(r.URL.Path):
+			// Item authorization depends on persisted ownership and is enforced
+			// before sessionItem performs any operation.
+			next.ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/api/"):
 			permissions := sharedRoutePermissions(r)
 			if len(permissions) == 0 {
@@ -62,6 +66,10 @@ func (s *Server) sharedAuthorize(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		}
 	})
+}
+
+func sharedSessionItemPath(path string) bool {
+	return strings.HasPrefix(path, "/api/sessions/") && path != "/api/sessions/force-kill" && path != "/api/sessions/clear-console"
 }
 
 func sharedRoutePermissions(r *http.Request) []string {

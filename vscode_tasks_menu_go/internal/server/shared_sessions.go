@@ -44,10 +44,14 @@ func (s *Server) prepareSharedSession(w http.ResponseWriter, r *http.Request, sp
 		writePermissionDenied(w)
 		return false
 	}
+	stampSharedSession(principal, spec, kind)
+	return true
+}
+
+func stampSharedSession(principal identity.Principal, spec *tasks.Execution, kind string) {
 	spec.SessionKind = kind
 	spec.OwnerUserID = string(principal.UserID)
 	spec.ProjectID = string(principal.ProjectID)
-	return true
 }
 
 func sharedSessionVisible(principal identity.Principal, meta session.Metadata) bool {
@@ -70,6 +74,93 @@ func sharedSessionVisible(principal identity.Principal, meta session.Metadata) b
 	default:
 		return false
 	}
+}
+
+func sharedSessionViewAllowed(principal identity.Principal, meta session.Metadata) bool {
+	return sharedSessionVisible(principal, meta)
+}
+
+func sharedTerminalControlAllowed(principal identity.Principal, meta session.Metadata) bool {
+	if principal.Allowed(identity.PermissionTerminalControlAll) {
+		return true
+	}
+	return meta.OwnerUserID == string(principal.UserID) && principal.Allowed(identity.PermissionTerminalControlOwn)
+}
+
+func sharedSessionActionAllowed(principal identity.Principal, meta session.Metadata, method, action string) bool {
+	if meta.ProjectID == "" || meta.ProjectID != string(principal.ProjectID) {
+		return false
+	}
+	if principal.Allowed(identity.PermissionSessionsManage) {
+		return true
+	}
+	view := (action == "" && method == http.MethodGet) || action == "protocol" || action == "ws"
+	switch meta.Kind {
+	case tasks.SessionKindTerminal:
+		if view {
+			return sharedSessionViewAllowed(principal, meta)
+		}
+		switch action {
+		case "", "stop", "title", "resize":
+			return sharedTerminalControlAllowed(principal, meta)
+		default:
+			return false
+		}
+	case tasks.SessionKindTask:
+		if view {
+			return principal.Allowed(identity.PermissionTasksView)
+		}
+		switch action {
+		case "", "stop", "title", "resize":
+			return principal.Allowed(identity.PermissionTasksRun)
+		default:
+			return false
+		}
+	case tasks.SessionKindPatch:
+		switch action {
+		case "", "protocol", "ws":
+			if action == "" && method != http.MethodGet {
+				return principal.Allowed(identity.PermissionPatchRun)
+			}
+			return principal.Allowed(identity.PermissionPatchView) || principal.Allowed(identity.PermissionPatchHistory)
+		case "stop", "title", "resize", "prompt-response", "item-action", "queue-delete", "resume-action":
+			return principal.Allowed(identity.PermissionPatchRun)
+		case "parallel-collect":
+			return principal.Allowed(identity.PermissionPatchCollect)
+		case "history-detail", "history-support":
+			return principal.Allowed(identity.PermissionPatchHistory)
+		case "history-cleanup", "history-manage":
+			return principal.Allowed(identity.PermissionPatchCleanup)
+		default:
+			return false
+		}
+	default:
+		return false
+	}
+}
+
+func (s *Server) authorizeSharedSessionItem(w http.ResponseWriter, r *http.Request, id, action string) bool {
+	if !s.Config.SharedServerEnabled {
+		return true
+	}
+	if !s.sharedSessionOwnershipReady(w) {
+		return false
+	}
+	principal, ok := PrincipalFromContext(r.Context())
+	if !ok {
+		sharedAuthError(w, identity.ErrUnauthenticated)
+		return false
+	}
+	meta, ok := s.Sessions.Metadata(id)
+	if !ok || meta.ProjectID == "" || meta.ProjectID != string(principal.ProjectID) {
+		http.NotFound(w, r)
+		return false
+	}
+	if !sharedSessionActionAllowed(principal, meta, r.Method, action) {
+		writePermissionDenied(w)
+		return false
+	}
+	return true
 }
 
 func filterSharedSessions(principal identity.Principal, items []session.Metadata) []session.Metadata {
