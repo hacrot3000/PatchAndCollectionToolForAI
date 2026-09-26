@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"bletonfc/vscode_tasks_menu/internal/sshaskpass"
 	"bletonfc/vscode_tasks_menu/internal/sshprofile"
 )
 
@@ -64,26 +65,93 @@ func TestSSHTerminalExecutionUsesExistingTerminalProcessModel(t *testing.T) {
 	}
 }
 
-func TestSSHTerminalExecutionFailsClosedForStoredSecretUntilAskpass(t *testing.T) {
+func TestSSHTerminalExecutionUsesOneTimeAskpassForStoredSecret(t *testing.T) {
+	workspace := t.TempDir()
 	profileStore, err := sshprofile.NewStore(filepath.Join(t.TempDir(), "ssh_profiles.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = profileStore.Create(sshprofile.Profile{
+	const secretRef = "ssh/prod/auth/test"
+	const secretValue = "correct-horse"
+	profile, err := profileStore.Create(sshprofile.Profile{
 		ID:         "prod",
 		Name:       "Production",
 		Host:       "prod.example.com",
 		Username:   "deploy",
 		AuthMethod: sshprofile.AuthPassword,
-		SecretRef:  "ssh/prod/auth/test",
+		SecretRef:  secretRef,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	secrets := newMemorySecretStore()
+	if err := secrets.Put(secretRef, []byte(secretValue)); err != nil {
+		t.Fatal(err)
+	}
 
-	s := &Server{Workspace: t.TempDir(), SSHProfiles: profileStore}
-	_, err = s.sshTerminalExecution("prod")
-	if err == nil || !strings.Contains(err.Error(), "askpass broker") {
-		t.Fatalf("error = %v", err)
+	binDir := t.TempDir()
+	sshPath := filepath.Join(binDir, "ssh")
+	if err := os.WriteFile(sshPath, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
+
+	s := &Server{Workspace: workspace, SSHProfiles: profileStore, ConnectionSecrets: secrets}
+	spec, err := s.sshTerminalExecution(profile.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(spec.Args, "\n")
+	if !strings.Contains(joined, "StrictHostKeyChecking=accept-new") {
+		t.Fatalf("stored-secret ssh must use accept-new host-key policy: %#v", spec.Args)
+	}
+	if strings.Contains(joined, secretValue) || strings.Contains(joined, secretRef) {
+		t.Fatalf("stored secret leaked into argv: %#v", spec.Args)
+	}
+
+	env := map[string]string{}
+	for _, item := range spec.Env {
+		key, value, ok := strings.Cut(item, "=")
+		if ok {
+			env[key] = value
+		}
+	}
+	for _, key := range []string{
+		"SSH_ASKPASS",
+		"SSH_ASKPASS_REQUIRE",
+		"TASKDECK_SSH_ASKPASS",
+		"TASKDECK_SSH_ASKPASS_SOCKET",
+		"TASKDECK_SSH_ASKPASS_TOKEN",
+	} {
+		if env[key] == "" {
+			t.Fatalf("missing askpass environment %s", key)
+		}
+	}
+	if env["SSH_ASKPASS_REQUIRE"] != "force" || env["TASKDECK_SSH_ASKPASS"] != "1" {
+		t.Fatalf("unexpected askpass environment: %#v", env)
+	}
+	if strings.Contains(strings.Join(spec.Env, "\n"), secretValue) || strings.Contains(strings.Join(spec.Env, "\n"), secretRef) {
+		t.Fatalf("stored secret leaked into environment: %#v", spec.Env)
+	}
+
+	var output strings.Builder
+	if err := sshaskpass.RunHelper(
+		env["TASKDECK_SSH_ASKPASS_SOCKET"],
+		env["TASKDECK_SSH_ASKPASS_TOKEN"],
+		"Password:",
+		&output,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if got := output.String(); got != secretValue+"\n" {
+		t.Fatalf("askpass output = %q", got)
+	}
+	if err := sshaskpass.RunHelper(
+		env["TASKDECK_SSH_ASKPASS_SOCKET"],
+		env["TASKDECK_SSH_ASKPASS_TOKEN"],
+		"Password:",
+		&strings.Builder{},
+	); err == nil {
+		t.Fatal("askpass ticket unexpectedly allowed a second read")
 	}
 }
