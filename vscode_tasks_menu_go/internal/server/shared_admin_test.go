@@ -325,3 +325,57 @@ func TestSharedAdminRevokesProjectMemberSession(t *testing.T) {
 		t.Fatalf("missing revoke audit event: %+v", events)
 	}
 }
+
+func TestSharedAdminRejectsSelfAccessAndPermissionModification(t *testing.T) {
+	s := sharedLoginTestServer(t)
+	ctx := context.Background()
+	alice, err := s.Identity.UserByUsername(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie := sharedAPILogin(t, s, "alice")
+
+	access := httptest.NewRequest(http.MethodPatch, "https://taskdeck.test/api/admin/users/access", strings.NewReader(`{
+		"user_id":"`+string(alice.ID)+`",
+		"role_id":"system:viewer",
+		"enabled":false
+	}`))
+	access.Header.Set("Content-Type", "application/json")
+	access.AddCookie(cookie)
+	accessRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(accessRecorder, access)
+	if accessRecorder.Code != http.StatusConflict {
+		t.Fatalf("self access status=%d body=%s", accessRecorder.Code, accessRecorder.Body.String())
+	}
+
+	override := httptest.NewRequest(http.MethodPut, "https://taskdeck.test/api/admin/users/permission", strings.NewReader(`{
+		"user_id":"`+string(alice.ID)+`",
+		"permission_key":"users.manage",
+		"effect":"DENY"
+	}`))
+	override.Header.Set("Content-Type", "application/json")
+	override.AddCookie(cookie)
+	overrideRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(overrideRecorder, override)
+	if overrideRecorder.Code != http.StatusConflict {
+		t.Fatalf("self override status=%d body=%s", overrideRecorder.Code, overrideRecorder.Body.String())
+	}
+	project, err := s.Identity.ProjectByKey(ctx, s.Config.SharedProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := s.Identity.ProjectMember(ctx, project.ID, alice.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !member.Enabled || member.RoleID != "system:admin" {
+		t.Fatalf("self modification changed membership: %+v", member)
+	}
+	effective, err := s.Identity.EffectivePermissions(ctx, project.ID, alice.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !effective[identity.PermissionUsersManage] {
+		t.Fatalf("self modification removed users.manage: %v", effective)
+	}
+}

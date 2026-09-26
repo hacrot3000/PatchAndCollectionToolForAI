@@ -132,6 +132,11 @@ func (s *Server) sharedAdminUsersList(w http.ResponseWriter, r *http.Request) {
 		sharedAuthError(w, identity.ErrUnauthenticated)
 		return
 	}
+	if request.UserID == principal.UserID {
+		s.appendSharedAudit(r, &principal, nil, "admin.member.update", "user", string(request.UserID), "denied", map[string]any{"reason": "self_modification"})
+		http.Error(w, "cannot modify your own project access", http.StatusConflict)
+		return
+	}
 	members, err := s.Identity.ListProjectMembers(ctx, principal.ProjectID)
 	if err != nil {
 		sharedAuthError(w, err)
@@ -360,6 +365,15 @@ func (s *Server) sharedAdminUserPermission(w http.ResponseWriter, r *http.Reques
 	defer cancel()
 	if !ok {
 		sharedAuthError(w, identity.ErrUnauthenticated)
+		return
+	}
+	if request.UserID == principal.UserID {
+		action := "admin.member_permission.set"
+		if r.Method == http.MethodDelete {
+			action = "admin.member_permission.delete"
+		}
+		s.appendSharedAudit(r, &principal, nil, action, "user", string(request.UserID), "denied", map[string]any{"reason": "self_modification", "permission": request.PermissionKey})
+		http.Error(w, "cannot modify your own permission overrides", http.StatusConflict)
 		return
 	}
 	if _, err := s.Identity.ProjectMember(ctx, principal.ProjectID, request.UserID); err != nil {
