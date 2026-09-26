@@ -56,6 +56,12 @@ type AdminStore interface {
 	DeleteMemberPermission(ctx context.Context, projectID, userID, permissionID ID) error
 }
 
+type AdminReader interface {
+	ListProjectMembers(ctx context.Context, projectID ID) ([]ProjectMemberDetails, error)
+	ListRoles(ctx context.Context) ([]RoleDetails, error)
+	ListAuthSessions(ctx context.Context, query AuthSessionQuery) ([]AuthSession, error)
+}
+
 // Store is the complete initial shared identity capability. HTTP code should
 // depend on the smallest embedded interface it needs where practical.
 type Store interface {
@@ -63,6 +69,7 @@ type Store interface {
 	SessionStore
 	AuditStore
 	AdminStore
+	AdminReader
 	BootstrapStore
 	Close() error
 }

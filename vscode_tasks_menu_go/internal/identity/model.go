@@ -49,6 +49,36 @@ type ProjectMember struct {
 	UpdatedAt time.Time
 }
 
+type ProjectMemberDetails struct {
+	ProjectID           ID
+	UserID              ID
+	Username            string
+	DisplayName         string
+	UserEnabled         bool
+	MemberEnabled       bool
+	RoleID              ID
+	RoleName            string
+	UserCreatedAt       time.Time
+	UserUpdatedAt       time.Time
+	MemberCreatedAt     time.Time
+	MemberUpdatedAt     time.Time
+	LastLoginAt         *time.Time
+	PasswordChangedAt   *time.Time
+	PermissionOverrides map[string]PermissionEffect
+}
+
+type RoleDetails struct {
+	Role
+	Permissions []string
+}
+
+type AuthSessionQuery struct {
+	ProjectID      ID
+	UserID         ID
+	IncludeRevoked bool
+	Limit          int
+}
+
 type PermissionEffect string
 
 const (
