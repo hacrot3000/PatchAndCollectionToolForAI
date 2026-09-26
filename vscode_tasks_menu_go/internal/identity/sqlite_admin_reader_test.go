@@ -54,4 +54,15 @@ func TestSQLiteAdminReaderListsSafeProjectViews(t *testing.T) {
 	if len(sessions) != 1 || sessions[0].ID != "session-bob" || sessions[0].TokenHash == "" {
 		t.Fatalf("unexpected internal session view: %#v", sessions)
 	}
+
+	session, err := db.AuthSessionForProject(ctx, project.ID, "session-bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ID != "session-bob" || session.UserID != "bob" || session.TokenHash != "internal-token-hash" {
+		t.Fatalf("unexpected scoped session: %#v", session)
+	}
+	if _, err := db.AuthSessionForProject(ctx, "other-project", "session-bob"); err != ErrNotFound {
+		t.Fatalf("cross-project session lookup err=%v want=%v", err, ErrNotFound)
+	}
 }

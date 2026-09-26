@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -254,4 +255,48 @@ LIMIT ?`
 		return nil, fmt.Errorf("iterate auth sessions: %w", err)
 	}
 	return sessions, nil
+}
+
+func (d *sqliteDatabase) AuthSessionForProject(ctx context.Context, projectID, sessionID ID) (AuthSession, error) {
+	if d == nil || d.db == nil {
+		return AuthSession{}, fmt.Errorf("identity DB is not open")
+	}
+	if projectID == "" || sessionID == "" {
+		return AuthSession{}, fmt.Errorf("project auth session lookup requires project_id and session_id")
+	}
+	var value AuthSession
+	var id, userID, createdAt, expiresAt, lastSeenAt string
+	var revokedAt sql.NullString
+	err := d.db.QueryRowContext(ctx, `
+SELECT auth_sessions.id, auth_sessions.user_id, auth_sessions.token_hash,
+       auth_sessions.created_at, auth_sessions.expires_at, auth_sessions.last_seen_at,
+       auth_sessions.revoked_at, auth_sessions.client_metadata
+FROM auth_sessions
+JOIN project_members ON project_members.user_id = auth_sessions.user_id
+WHERE project_members.project_id = ? AND auth_sessions.id = ?
+`, string(projectID), string(sessionID)).Scan(
+		&id, &userID, &value.TokenHash,
+		&createdAt, &expiresAt, &lastSeenAt, &revokedAt, &value.ClientMetadata,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AuthSession{}, ErrNotFound
+	}
+	if err != nil {
+		return AuthSession{}, fmt.Errorf("query project auth session: %w", err)
+	}
+	value.ID = ID(id)
+	value.UserID = ID(userID)
+	if value.CreatedAt, err = parseDBTime(createdAt); err != nil {
+		return AuthSession{}, err
+	}
+	if value.ExpiresAt, err = parseDBTime(expiresAt); err != nil {
+		return AuthSession{}, err
+	}
+	if value.LastSeenAt, err = parseDBTime(lastSeenAt); err != nil {
+		return AuthSession{}, err
+	}
+	if value.RevokedAt, err = parseNullableDBTime(revokedAt); err != nil {
+		return AuthSession{}, err
+	}
+	return value, nil
 }
