@@ -177,12 +177,15 @@ WHERE id = ?
 	return requireChangedRow(result, "identity user")
 }
 
-func (d *sqliteDatabase) ChangeUserPasswordHash(ctx context.Context, userID ID, passwordHash string, changedAt time.Time) error {
+func (d *sqliteDatabase) ChangeUserPasswordHash(ctx context.Context, userID ID, expectedPasswordHash, passwordHash string, changedAt time.Time) error {
 	if d == nil || d.db == nil {
 		return fmt.Errorf("identity DB is not open")
 	}
-	if userID == "" || passwordHash == "" || changedAt.IsZero() {
-		return fmt.Errorf("change identity user password requires user_id, password_hash and changed_at")
+	if userID == "" || expectedPasswordHash == "" || passwordHash == "" || changedAt.IsZero() {
+		return fmt.Errorf("change identity user password requires user_id, expected_password_hash, password_hash and changed_at")
+	}
+	if _, _, err := parsePasswordScryptHash(expectedPasswordHash); err != nil {
+		return fmt.Errorf("change identity user password expected hash: %w", err)
 	}
 	if _, _, err := parsePasswordScryptHash(passwordHash); err != nil {
 		return fmt.Errorf("change identity user password: %w", err)
@@ -207,8 +210,8 @@ func (d *sqliteDatabase) ChangeUserPasswordHash(ctx context.Context, userID ID, 
 	result, err := conn.ExecContext(ctx, `
 UPDATE users
 SET password_hash = ?, password_changed_at = ?, updated_at = ?
-WHERE id = ?
-`, passwordHash, stamp, stamp, string(userID))
+WHERE id = ? AND password_hash = ?
+`, passwordHash, stamp, stamp, string(userID), expectedPasswordHash)
 	if err != nil {
 		return fmt.Errorf("change identity user password: %w", err)
 	}
@@ -217,7 +220,7 @@ WHERE id = ?
 		return fmt.Errorf("read changed identity user count: %w", err)
 	}
 	if affected == 0 {
-		return ErrNotFound
+		return ErrConflict
 	}
 	if _, err := conn.ExecContext(ctx, `
 UPDATE auth_sessions
