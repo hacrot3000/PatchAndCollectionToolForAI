@@ -136,6 +136,7 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditSharedSuccess(r, "selfupdate.start", "selfupdate", "", nil)
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "status": "starting"})
 		return
 	}
@@ -167,6 +168,7 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditSharedSuccess(r, "selfupdate.confirm", "selfupdate", req.ID, nil)
 		writeJSON(w, http.StatusOK, req)
 	case "cancel":
 		if req.Status != "awaiting_confirmation" {
@@ -178,6 +180,7 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditSharedSuccess(r, "selfupdate.cancel", "selfupdate", req.ID, nil)
 		writeJSON(w, http.StatusOK, req)
 	case "ack":
 		switch req.Status {
@@ -190,6 +193,7 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditSharedSuccess(r, "selfupdate.ack", "selfupdate", req.ID, nil)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": req.ID})
 	case "detach":
 		if !loopbackRemote(r.RemoteAddr) {
@@ -216,6 +220,7 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditSharedSuccess(r, "selfupdate.detach", "selfupdate", req.ID, nil)
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "id": req.ID})
 		go func() {
 			time.Sleep(120 * time.Millisecond)
@@ -246,6 +251,7 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditSharedSuccess(r, "selfupdate.handoff", "selfupdate", req.ID, nil)
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "id": req.ID})
 		go func() {
 			// Let net/http flush the Accepted response before the callback closes
