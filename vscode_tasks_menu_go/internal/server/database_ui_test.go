@@ -323,3 +323,26 @@ func TestDatabaseWorkbenchLoadsTotalCountOnDemand(t *testing.T) {
 		}
 	}
 }
+
+
+func TestDatabaseWorkbenchHandlesCapabilityLoadingAndEmptyStates(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"async function loadData(view",
+		"await ensureAdapters()",
+		"refreshWorkbenchCapabilities(view)",
+		"status.dataset.base='Loading…'",
+		"status.dataset.base='Error · '",
+		"No rows match the current filters.",
+		"This object contains no rows/documents/entries.",
+		"busy:false",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing loading/capability state %q", want)
+		}
+	}
+}
