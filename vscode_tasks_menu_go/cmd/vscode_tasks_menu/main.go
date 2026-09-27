@@ -23,6 +23,7 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/broker"
 	"bletonfc/vscode_tasks_menu/internal/config"
 	"bletonfc/vscode_tasks_menu/internal/dbmysql"
+	"bletonfc/vscode_tasks_menu/internal/dbredis"
 	"bletonfc/vscode_tasks_menu/internal/gittextconv"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 	"bletonfc/vscode_tasks_menu/internal/selfupdate"
@@ -78,6 +79,11 @@ func main() {
 			exe, err := os.Executable()
 			fatalIf(err)
 			fatalIf(dbmysql.RunAdapter(context.Background(), exe))
+			return
+		case "redis":
+			exe, err := os.Executable()
+			fatalIf(err)
+			fatalIf(dbredis.RunAdapter(context.Background(), exe))
 			return
 		default:
 			fatalIf(fmt.Errorf("unsupported database adapter %q", adapter))
