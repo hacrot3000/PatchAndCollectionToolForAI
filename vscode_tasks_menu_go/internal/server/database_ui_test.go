@@ -278,3 +278,28 @@ func TestDatabaseWorkbenchOpensRedisKeysInTypeAwareViewer(t *testing.T) {
 		}
 	}
 }
+
+
+func TestDatabaseWorkbenchPersistsPageSizeAndProvidesGridShortcuts(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"taskdeck.db.pageSize.",
+		"localStorage.getItem",
+		"localStorage.setItem",
+		"state.limit=storedPageSize(view,object)",
+		"storePageSize(view,state.object,state.limit)",
+		"event.key.toLowerCase()==='s'",
+		"applyGridChanges(view)",
+		"event.altKey&&(event.key==='Insert'||event.key.toLowerCase()==='n')",
+		"event.key==='Enter'&&!event.shiftKey",
+		"event.key==='Escape'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing grid preference/shortcut workflow %q", want)
+		}
+	}
+}
