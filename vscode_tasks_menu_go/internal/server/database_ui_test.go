@@ -205,3 +205,27 @@ func TestDatabaseWorkbenchExposesMongoCollectionActions(t *testing.T) {
 		}
 	}
 }
+
+
+func TestDatabaseWorkbenchProvidesServerSideRelationalFilters(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function openFilterDialog(view)",
+		"filters:state.filters",
+		"Up to 16 conditions are combined with AND",
+		"contains",
+		"starts_with",
+		"is_null",
+		"not_null",
+		"state.filters=filters.slice(0,16)",
+		"kind==='mysql'||kind==='sqlite'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing relational filter workflow %q", want)
+		}
+	}
+}
