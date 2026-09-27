@@ -58,7 +58,7 @@ func TestParseScriptResultDecodesJSONAndRedactsErrors(t *testing.T) {
 		t.Fatalf("count=%T %#v", result["count"], result["count"])
 	}
 
-	err := parseScriptResult([]byte(resultMarker+`{"ok":false,"error":"auth failed top-secret and top-secret%2Fencoded"}`+"\n"), "top-secret/encoded", nil)
+	err := parseScriptResult([]byte(resultMarker+`{"ok":false,"error":"auth failed top-secret/encoded and top-secret%2Fencoded"}`+"\n"), "top-secret/encoded", nil)
 	if err == nil || strings.Contains(err.Error(), "top-secret") || strings.Contains(err.Error(), "%2Fencoded") || !strings.Contains(err.Error(), "[redacted]") {
 		t.Fatalf("error=%v", err)
 	}
