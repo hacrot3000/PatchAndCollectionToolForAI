@@ -30,7 +30,7 @@ func writeHandlerFixture(t *testing.T) string {
 		"  *taskdeck_describe_indexes*) printf '%s\\n' '<resultset><row><field name=\"name\">PRIMARY</field><field name=\"non_unique\">0</field><field name=\"column_name\">id</field><field name=\"seq\">1</field><field name=\"index_type\">BTREE</field></row></resultset>' ;;\n" +
 		"  *information_schema.STATISTICS*) printf '%s\\n' '<resultset><row><field name=\"index_name\">PRIMARY</field><field name=\"column_name\">id</field><field name=\"seq\">1</field><field name=\"nullable\">NO</field></row></resultset>' ;;\n" +
 		"  *default_value*) printf '%s\\n' '<resultset><row><field name=\"name\">id</field><field name=\"type\">bigint</field><field name=\"nullable\">NO</field><field name=\"default_value\" xsi:nil=\"true\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"/><field name=\"extra\">auto_increment</field></row></resultset>' ;;\n" +
-		"  *information_schema.COLUMNS*) printf '%s\\n' '<resultset><row><field name=\"name\">id</field><field name=\"type\">bigint</field><field name=\"nullable\">NO</field></row><row><field name=\"name\">name</field><field name=\"type\">varchar(255)</field><field name=\"nullable\">YES</field></row></resultset>' ;;\n" +
+		"  *information_schema.COLUMNS*) printf '%s\\n' '<resultset><row><field name=\"name\">id</field><field name=\"type\">bigint</field><field name=\"nullable\">NO</field><field name=\"character_set\"></field><field name=\"collation\"></field></row><row><field name=\"name\">name</field><field name=\"type\">varchar(255)</field><field name=\"nullable\">YES</field><field name=\"character_set\">utf8mb4</field><field name=\"collation\">utf8mb4_unicode_ci</field></row></resultset>' ;;\n" +
 		"  *taskdeck_browse*) printf '%s\\n' '<resultset><row><field name=\"id\">1</field><field name=\"name\">Alice</field></row><row><field name=\"id\">2</field><field name=\"name\">Bob</field></row></resultset>' ;;\n" +
 		"  *taskdeck_mutation*) printf '%s\\n' '<resultset><row><field name=\"affected_rows\">1</field></row></resultset>' ;;\n" +
 		"  *taskdeck_count*) printf '%s\\n' '<resultset><row><field name=\"row_count\">2</field></row></resultset>' ;;\n" +
@@ -169,6 +169,49 @@ func TestMySQLTextExpressionDoesNotEmbedRawValue(t *testing.T) {
 	expression := mysqlTextExpression(value)
 	if strings.Contains(expression, value) || !strings.HasPrefix(expression, "CONVERT(0x") {
 		t.Fatalf("expression=%q", expression)
+	}
+}
+
+func TestMySQLIdentityValueExpressionUsesColumnCollation(t *testing.T) {
+	column := mysqlBrowseColumn{
+		Name:         "external_id",
+		Type:         "varchar(64)",
+		CharacterSet: "utf8mb4",
+		Collation:    "utf8mb4_unicode_ci",
+	}
+	expression, err := mysqlIdentityValueExpression(column, "AbC-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(expression, "AbC-123") {
+		t.Fatalf("identity expression leaked raw value: %q", expression)
+	}
+	if !strings.Contains(expression, "USING utf8mb4") || !strings.Contains(expression, "COLLATE utf8mb4_unicode_ci") {
+		t.Fatalf("identity expression missing column character set/collation: %q", expression)
+	}
+}
+
+func TestBuildMySQLMutationCollatesStringIdentityToColumn(t *testing.T) {
+	columns := map[string]mysqlBrowseColumn{
+		"external_id": {
+			Name:         "external_id",
+			Type:         "varchar(64)",
+			CharacterSet: "utf8mb4",
+			Collation:    "utf8mb4_unicode_ci",
+		},
+		"name": {Name: "name", Type: "varchar(255)"},
+	}
+	tableSQL := "`main`.`users`"
+	statement, err := buildMySQLMutation(tableSQL, columns, []string{"external_id"}, dbadapter.RowMutation{
+		Action:   "update",
+		Identity: map[string]interface{}{"external_id": "ABC"},
+		Values:   map[string]interface{}{"name": "Alicia"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(statement, "`external_id` = CONVERT(0x414243 USING utf8mb4) COLLATE utf8mb4_unicode_ci") {
+		t.Fatalf("mutation identity does not preserve column collation: %q", statement)
 	}
 }
 
