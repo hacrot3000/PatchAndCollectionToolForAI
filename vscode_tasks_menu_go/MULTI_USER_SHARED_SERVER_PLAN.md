@@ -1010,6 +1010,9 @@ Hardening notes:
   revokes legacy unscoped sessions; v3 rejects new unscoped session INSERTs.
 - GitHub Actions run `36288422337` verifies commit `25cafd93` across the full
   Go 1.19.x / 1.23.x matrix: staged tests, tests, vet and build all pass.
+- Final cross-project administration review also covers direct-ID user access,
+  member-permission, custom-role and audit isolation. GitHub Actions run
+  `36289444809` passed the full Go 1.19.x / 1.23.x matrix at `89ccd1fe`.
 - Automated first-release acceptance is complete. Remaining acceptance is
   limited to operator/browser smoke checks that intentionally require a deployed
   real browser/reverse-proxy environment; see `SHARED_SERVER_ACCEPTANCE.md`.
