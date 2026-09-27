@@ -639,17 +639,25 @@ Implementation notes:
 
 ### Phase 4 — MySQL direct
 
-1. [ ] Discover `mysql`/`mariadb` client.
-2. [ ] Implement protected credential handoff.
-3. [ ] Connect/test.
-4. [ ] List databases.
-5. [ ] List tables/views.
-6. [ ] Describe table.
-7. [ ] Execute bounded query.
-8. [ ] Timeout/cancel.
-9. [ ] Normalize errors.
-10. [ ] Add MySQL connection/browser/query UI.
-11. [ ] Add tests with command stubs/fixtures; no live DB required for unit tests.
+1. [x] Discover `mysql`/`mariadb` client.
+2. [x] Implement protected per-invocation option-file credential handoff; password is never placed in argv/env.
+3. [x] Connect/test through the real CLI path.
+4. [x] List databases/catalogs through `information_schema`.
+5. [x] List tables/views.
+6. [x] Describe table columns.
+7. [x] Execute bounded single-statement queries with XML normalization.
+8. [x] Timeout/cancel via request context; oversized stdout/stderr terminate the client.
+9. [x] Normalize/redact CLI errors.
+10. [x] Add MySQL profile management in Connections plus database workspace tabs, schema browser and query/result UI.
+11. [x] Add command-stub/fixture tests; no live DB required for unit tests.
+
+Implementation notes:
+
+- SQL is sent through client stdin and never placed in process argv.
+- MySQL option files/directories use POSIX `0600`/`0700` and are deleted after every CLI invocation.
+- Read-only profiles are filtered server-side to conservative read operations and also start each CLI connection with `SET SESSION TRANSACTION READ ONLY`.
+- User-provided catalog/table names used in internal metadata queries are encoded as hex SQL expressions rather than interpolated as raw SQL literals.
+- The adapter uses only Go stdlib plus the already-vendored TaskDeck dependencies; no MySQL Go driver/npm/pip package was added.
 
 ### Phase 5 — Generic SSH tunnel manager
 
