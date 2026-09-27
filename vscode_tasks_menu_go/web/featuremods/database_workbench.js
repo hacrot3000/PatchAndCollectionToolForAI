@@ -262,7 +262,9 @@ function updateEditControls(view){
   wb.controls.status.textContent=base+(pending?' · '+pending+' pending':'');
 }
 
-function parseEditedValue(text,original){
+function parseEditedValue(text,original,columnType=''){
+  const type=String(columnType||'').toLowerCase();
+  if(type==='document'||type==='json'||type.includes('json'))return JSON.parse(text);
   if(typeof original==='number'){
     const value=Number(text);if(!Number.isFinite(value))throw new Error('Enter a valid number');return value;
   }
@@ -390,7 +392,7 @@ function renderDataGrid(view){
         td.addEventListener('blur',()=>{
           try{
             const original=row.values?.[columnIndex];
-            const next=parseEditedValue(td.textContent,original);
+            const next=parseEditedValue(td.textContent,original,column.type);
             setDirtyCell(view,rowIndex,columnIndex,next);renderDataGrid(view);
           }catch(error){app.showError(error);renderDataGrid(view);}
         });
@@ -416,7 +418,7 @@ function renderDataGrid(view){
         try{
           const text=td.textContent;
           if(text===''){delete values[column.name];}
-          else values[column.name]=parseEditedValue(text,'');
+          else values[column.name]=parseEditedValue(text,'',column.type);
           updateEditControls(view);renderDataGrid(view);
         }catch(error){app.showError(error);renderDataGrid(view);}
       });
@@ -491,7 +493,7 @@ function openValueViewer(titleText,value,{editable=false,onSave=null}={}){
   if(editable){
     const setNull=document.createElement('button');setNull.type='button';setNull.textContent='Set NULL';setNull.onclick=()=>{onSave?.(null);dialog.remove();};
     const save=document.createElement('button');save.type='button';save.className='task-connection-primary';save.textContent='Use Value';save.onclick=()=>{
-      try{onSave?.(parseEditedValue(area.value,value));dialog.remove();}catch(error){app.showError(error);}
+      try{onSave?.(parseEditedValue(area.value,value,titleText==='document'?'document':''));dialog.remove();}catch(error){app.showError(error);}
     };
     actions.append(setNull,save);
   }
