@@ -62,14 +62,24 @@ func (s *Server) dbSessions(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if profile.Transport != dbprofile.TransportDirect {
-			http.Error(w, "database SSH tunnel transport is not enabled yet", http.StatusConflict)
+		openCtx, cancel := context.WithTimeout(r.Context(), databaseOpenTimeout)
+		defer cancel()
+
+		effectiveHost, effectivePort, cleanup, err := s.prepareDatabaseTransport(openCtx, profile)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
+		cleanupOwned := cleanup != nil
+		defer func() {
+			if cleanupOwned {
+				cleanup()
+			}
+		}()
 
 		connect := dbadapter.ConnectPayload{
-			Host:     profile.Host,
-			Port:     profile.Port,
+			Host:     effectiveHost,
+			Port:     effectivePort,
 			Username: profile.Username,
 			Database: profile.Database,
 			File:     profile.File,
@@ -92,16 +102,16 @@ func (s *Server) dbSessions(w http.ResponseWriter, r *http.Request) {
 				secret[i] = 0
 			}
 		}
-		openCtx, cancel := context.WithTimeout(r.Context(), databaseOpenTimeout)
-		meta, err := manager.Open(
+		meta, err := manager.OpenWithCleanup(
 			openCtx,
 			profile.ID,
 			profile.AdapterID,
 			dbadapter.ProcessOptions{Dir: s.Workspace},
 			connect,
+			cleanup,
 		)
 		connect.Secret = ""
-		cancel()
+		cleanupOwned = false
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
