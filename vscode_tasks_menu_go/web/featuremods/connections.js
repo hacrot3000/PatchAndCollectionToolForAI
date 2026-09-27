@@ -339,6 +339,23 @@ function openDatabaseProfileDialog(profile=null){
   const clearSecret=editing&&profile?.has_secret?checkboxField(form,'Clear saved password','clear_secret',false,{wide:true}):null;
   const charset=field(form,'Charset','charset',{value:profile?.options?.charset||'utf8mb4'});
   const timeout=field(form,'Connect timeout (seconds)','connect_timeout_seconds',{type:'number',value:profile?.options?.connect_timeout_seconds||'10'});
+  const commandTimeout=field(form,'Command timeout (seconds)','command_timeout_seconds',{type:'number',value:profile?.options?.command_timeout_seconds||'15'});
+
+  function selectedDatabaseAdapter(){return dbAdapters.find(item=>item.id===adapter.input.value)||null;}
+  function syncDatabaseAdapter(){
+    const kind=selectedDatabaseAdapter()?.kind||'';
+    const redis=kind==='redis';
+    charset.wrap.style.display=redis?'none':'flex';
+    commandTimeout.wrap.style.display=redis?'flex':'none';
+    const databaseLabel=database.wrap.querySelector('label');
+    if(databaseLabel)databaseLabel.textContent=redis?'Database index':'Database';
+    if(!editing){
+      const currentPort=Number(port.input.value)||0;
+      if(redis&&(currentPort===0||currentPort===3306))port.input.value='6379';
+      if(!redis&&(currentPort===0||currentPort===6379))port.input.value='3306';
+    }
+  }
+  adapter.input.addEventListener('change',syncDatabaseAdapter);syncDatabaseAdapter();
 
   function syncDatabaseTransport(){
     const tunneled=transport.input.value==='ssh_tunnel';
@@ -363,8 +380,10 @@ function openDatabaseProfileDialog(profile=null){
     event.preventDefault();save.disabled=true;
     try{
       const options={};
-      if(charset.input.value.trim())options.charset=charset.input.value.trim();
+      const adapterKind=selectedDatabaseAdapter()?.kind||'';
+      if(adapterKind==='mysql'&&charset.input.value.trim())options.charset=charset.input.value.trim();
       if(timeout.input.value.trim())options.connect_timeout_seconds=timeout.input.value.trim();
+      if(adapterKind==='redis'&&commandTimeout.input.value.trim())options.command_timeout_seconds=commandTimeout.input.value.trim();
       const payload={
         name:name.input.value,
         adapter_id:adapter.input.value,
