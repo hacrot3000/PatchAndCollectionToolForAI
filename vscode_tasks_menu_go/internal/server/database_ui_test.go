@@ -293,7 +293,7 @@ func TestDatabaseWorkbenchPersistsPageSizeAndProvidesGridShortcuts(t *testing.T)
 		"taskdeck.db.pageSize.",
 		"localStorage.getItem",
 		"localStorage.setItem",
-		"state.limit=storedPageSize(view,object)",
+		"state.limit=storedPageSize(root,object)",
 		"storePageSize(view,state.object,state.limit)",
 		"event.key.toLowerCase()==='s'",
 		"applyGridChanges(view)",
