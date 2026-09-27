@@ -31,8 +31,9 @@ type Ticket struct {
 	SocketPath string
 	Token      string
 
-	listener *net.UnixListener
-	once     sync.Once
+	listener   *net.UnixListener
+	cleanupDir string
+	once       sync.Once
 }
 
 type request struct {
@@ -85,21 +86,45 @@ func Prepare(store secretstore.Store, secretRef, runtimeDir string) (*Ticket, er
 		zero(secret)
 		return nil, fmt.Errorf("generate ssh askpass socket name: %w", err)
 	}
-	socketPath := filepath.Join(runtimeDir, "askpass-"+hex.EncodeToString(nameRaw[:])+".sock")
+	socketName := "askpass-" + hex.EncodeToString(nameRaw[:]) + ".sock"
+	socketDir := runtimeDir
+	cleanupDir := ""
+	socketPath := filepath.Join(socketDir, socketName)
 	if len(socketPath) > maxSocketPathLen {
-		zero(secret)
-		return nil, errors.New("ssh askpass runtime path is too long")
+		socketDir, err = os.MkdirTemp("", "taskdeck-askpass-")
+		if err != nil {
+			zero(secret)
+			return nil, fmt.Errorf("create short ssh askpass runtime directory: %w", err)
+		}
+		cleanupDir = socketDir
+		if err := os.Chmod(socketDir, 0o700); err != nil {
+			_ = os.RemoveAll(cleanupDir)
+			zero(secret)
+			return nil, fmt.Errorf("protect short ssh askpass runtime directory: %w", err)
+		}
+		socketPath = filepath.Join(socketDir, socketName)
+		if len(socketPath) > maxSocketPathLen {
+			_ = os.RemoveAll(cleanupDir)
+			zero(secret)
+			return nil, errors.New("ssh askpass temporary socket path is too long")
+		}
 	}
 	_ = os.Remove(socketPath)
 	addr := &net.UnixAddr{Name: socketPath, Net: "unix"}
 	listener, err := net.ListenUnix("unix", addr)
 	if err != nil {
+		if cleanupDir != "" {
+			_ = os.RemoveAll(cleanupDir)
+		}
 		zero(secret)
 		return nil, fmt.Errorf("listen ssh askpass socket: %w", err)
 	}
 	if err := os.Chmod(socketPath, 0o600); err != nil {
 		_ = listener.Close()
 		_ = os.Remove(socketPath)
+		if cleanupDir != "" {
+			_ = os.RemoveAll(cleanupDir)
+		}
 		zero(secret)
 		return nil, fmt.Errorf("protect ssh askpass socket: %w", err)
 	}
@@ -108,6 +133,7 @@ func Prepare(store secretstore.Store, secretRef, runtimeDir string) (*Ticket, er
 		SocketPath: socketPath,
 		Token:      hex.EncodeToString(tokenRaw[:]),
 		listener:   listener,
+		cleanupDir: cleanupDir,
 	}
 	go ticket.serve(secret, defaultTTL)
 	return ticket, nil
@@ -123,6 +149,9 @@ func (t *Ticket) Close() {
 		}
 		if t.SocketPath != "" {
 			_ = os.Remove(t.SocketPath)
+		}
+		if t.cleanupDir != "" {
+			_ = os.RemoveAll(t.cleanupDir)
 		}
 	})
 }
