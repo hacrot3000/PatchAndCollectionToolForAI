@@ -229,7 +229,7 @@ SQLite WAL and busy-timeout handling are used so separate project daemons can
 share the identity DB. Do not place the DB on a filesystem whose SQLite locking
 semantics are unreliable.
 
-### Upgrade note: identity schema v2
+### Upgrade note: identity schema v2/v3
 
 Schema v2 adds a project scope to browser auth sessions. When an older schema v1
 identity DB is first opened by the upgraded TaskDeck, existing auth-session rows
@@ -237,9 +237,15 @@ have no trustworthy project provenance. TaskDeck therefore revokes those
 unscoped sessions during migration. Users must sign in again once after this
 upgrade; user accounts, memberships, roles and audit data are preserved.
 
+Schema v3 adds a SQLite trigger requiring `project_id` on every newly inserted
+auth session. This is defense-in-depth for a mixed-version maintenance window:
+an older daemon left running after the DB upgrade cannot silently create a new
+unscoped browser session; its login/session INSERT fails closed.
+
 If several project daemons share the same identity DB, upgrade/restart them as
 one maintenance operation so they all run code compatible with the same schema.
-The migration itself is serialized with `BEGIN IMMEDIATE`.
+The migrations are serialized with `BEGIN IMMEDIATE`. The v3 trigger is a
+guardrail, not a substitute for coordinated restart.
 
 ## Operational checks
 
