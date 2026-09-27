@@ -102,9 +102,27 @@ func runHelper(
 			_ = cmd.Process.Kill()
 		}
 	}()
-	waitErr := cmd.Wait()
-	wg.Wait()
+	readersDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(readersDone)
+	}()
 
+	var waitErr error
+	select {
+	case <-ctx.Done():
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		waitErr = cmd.Wait()
+		<-readersDone
+	case <-readersDone:
+		waitErr = cmd.Wait()
+	}
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if stdoutErr != nil {
 		if errors.Is(stdoutErr, errHelperOutputTooLarge) {
 			return fmt.Errorf("SQLite helper result exceeds %d bytes", maxHelperStdoutBytes)
@@ -116,9 +134,6 @@ func runHelper(
 			return fmt.Errorf("SQLite helper diagnostics exceed %d bytes", maxHelperStderrBytes)
 		}
 		return fmt.Errorf("read SQLite helper diagnostics: %w", stderrErr)
-	}
-	if ctx.Err() != nil {
-		return ctx.Err()
 	}
 	if waitErr != nil {
 		message := strings.TrimSpace(string(stderrData))
