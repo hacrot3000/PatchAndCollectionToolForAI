@@ -185,51 +185,51 @@ Non-tabular semantics:
 - [x] Add protocol normalization/limit tests before UI depends on them.
 
 ### Phase 1 — Workbench-style navigator foundation
-- [ ] Add reusable native browser context-menu component (no dependency).
-- [ ] Add object filtering/search.
-- [ ] Double-click table/view opens a data workspace.
-- [ ] Right-click table/database exposes non-destructive actions first.
-- [ ] Preserve current click-to-inspect behavior.
+- [x] Add reusable native browser context-menu component (no dependency).
+- [x] Add object filtering/search.
+- [x] Double-click table/view opens a data workspace.
+- [x] Right-click table/database exposes non-destructive actions first.
+- [x] Preserve current click-to-inspect behavior.
 
 ### Phase 2 — read-only paged data grid
-- [ ] Implement `browse_rows` protocol.
+- [x] Implement `browse_rows` protocol.
 - [x] MySQL browse_rows.
-- [ ] SQLite browse_rows.
-- [ ] UI Data tab with server-side pagination.
-- [ ] Page-size selector and first/prev/next navigation.
-- [ ] Read-only/editability status.
-- [ ] Row/cell copy actions.
+- [x] SQLite browse_rows.
+- [x] UI Data tab with server-side pagination.
+- [x] Page-size selector and first/prev/next navigation.
+- [x] Read-only/editability status.
+- [x] Row/cell copy actions.
 
 ### Phase 3 — relational inline editing
-- [ ] Stable row identity model.
-- [ ] `mutate_rows` protocol.
+- [x] Stable row identity model.
+- [x] `mutate_rows` protocol.
 - [x] MySQL insert/update/delete.
-- [ ] SQLite insert/update/delete.
-- [ ] Dirty-grid state.
-- [ ] Apply / Revert.
-- [ ] Insert row.
-- [ ] Delete row with confirmation.
-- [ ] NULL editing.
-- [ ] Long text/JSON value editor dialog.
-- [ ] Reject unsafe/no-key updates with clear reason.
+- [x] SQLite insert/update/delete.
+- [x] Dirty-grid state.
+- [x] Apply / Revert.
+- [x] Insert row.
+- [x] Delete row workflow with explicit Apply/Revert; destructive table actions have confirmation.
+- [x] NULL editing.
+- [x] Long text/JSON value editor dialog.
+- [x] Reject unsafe/no-key updates with clear reason.
 
 ### Phase 4 — object context tools / inspector
-- [ ] Structure/Inspector tab.
+- [x] Structure/Inspector tab.
 - [ ] Columns and indexes.
 - [x] Count Rows.
-- [ ] Copy / qualified name.
-- [ ] Generate SELECT/INSERT/UPDATE/DELETE templates into Query.
+- [x] Copy / qualified name.
+- [x] Generate SELECT/INSERT/UPDATE/DELETE templates into Query.
 - [x] Backend adapter action implemented; UI confirmation/gate pending.
 - [x] Backend adapter action implemented; UI confirmation/gate pending.
-- [ ] Refresh object/schema actions.
+- [x] Refresh object/schema actions.
 
 ### Phase 5 — sorting/filtering + UX depth
-- [ ] Column sort descriptors.
+- [x] Column sort descriptors.
 - [ ] Simple safe filters.
 - [ ] Persist per-table page size where appropriate.
 - [ ] Keyboard navigation/edit shortcuts.
 - [ ] Better loading/error/empty states.
-- [ ] Result-grid cell context menu.
+- [x] Result-grid cell context menu.
 - [ ] Optional total-row-count without blocking first page.
 
 ### Phase 6 — MongoDB workbench workflow
@@ -257,31 +257,41 @@ Non-tabular semantics:
 
 ## Current checkpoint
 
-**2026-09-27 — checkpoint 1: protocol + MySQL backend**
+**2026-09-27 — checkpoint 2: MySQL + SQLite end-to-end workbench**
 
-Completed:
-- Generic adapter operations `browse_rows`, `mutate_rows`, and `object_action` with bounded normalization and response validation.
-- Capability flags for workbench operations.
-- Browser API allowlists and normalizes all three operations.
-- MySQL paged browsing with safe identifier quoting, optional sorting/filtering, and PK/non-null-unique stable identity.
-- MySQL grid mutations: insert/update/delete; update/delete require adapter-verified identity; read-only profiles are rejected before client execution.
-- MySQL table object actions: count rows, truncate, drop; destructive actions respect read-only profiles.
-- Temporary CI trigger is enabled for this branch.
+Completed since checkpoint 1:
+- Native dependency-free context menu, object filter and Workbench tabs: **Data / Structure / Query**.
+- Existing direct query editor remains intact as the Query tab.
+- Double-click table/view opens Data; right-click exposes View Data, Inspect, Refresh, copy names, generated SQL and row count.
+- Server-side paging with 25/50/100/250/500/1000 page sizes, first/previous/next, sortable headers and page status.
+- Safe result rendering via `textContent`; cell/row copy actions and large-value editor.
+- Inline grid editing with dirty rows, insert/delete, NULL, Apply/Revert and discard guards when paging/sorting/refreshing.
+- Truncate/drop context actions are capability/read-only gated and require explicit confirmation; drop requires typing the object name.
+- MySQL workbench backend is fully wired for browse/mutate/count/truncate/drop with PK/non-null-unique identity.
+- SQLite stdlib helper + Go adapter are wired for browse/mutate/count/truncate/drop using parameter binding and PK/rowid identity.
+- Existing object click behavior remains; duplicate inspect request was removed.
 
-Key commits:
-- `e0ec5eea` handoff/roadmap
-- `9d57f354` protocol contracts
-- `42491971` MySQL browse rows
-- `e99e5215` MySQL safe mutations
-- `20c714db` browser operation exposure
-- `aa9f75d6` browser normalization tests
-- `4499a937` MySQL object actions
+Recent commits:
+- `91c6d10d` Workbench navigator + paged grid
+- `c15d517d` Workbench load order
+- `1acd3439` navigator/grid regression tests
+- `124cfa63` inline editable grid
+- `d4d9ad41` inline editing regression tests
+- `858b05a0` SQLite helper operations
+- `c9ab61fa` SQLite Go adapter wiring
+- `4b29984e` SQLite workbench tests
+- `931d04ef` avoid duplicate inspect request
+
+CI:
+- Temporary branch trigger remains enabled while implementation is active.
+- No failures observed up to this checkpoint; latest branch runs are still being verified.
 
 Next:
-1. Build the native Workbench-style navigator context menu and object filter.
-2. Double-click table/view to open a Data workspace.
-3. Build paged read-only grid first, then layer dirty-row editing/apply/revert on the same UI.
-4. Implement SQLite browse/mutation backend after the MySQL UI contract is exercised end-to-end.
+1. Finish CI/fix any regressions for MySQL + SQLite end-to-end flow.
+2. Add safer filtering UI and richer Structure/index metadata.
+3. Add MongoDB collection browsing/editing using `_id` identity and JSON-only mutation payloads; no arbitrary JS.
+4. Add Redis SCAN/key workbench workflow and type-aware viewer/editor where safe.
+5. Harden audit/bounds, update docs, remove temporary CI trigger, run final full CI.
 
 ## Continuation rule
 
