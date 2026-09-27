@@ -760,7 +760,7 @@ Hardening notes:
 
 - No separate RBAC implementation is introduced on this branch. Doing so would conflict with the shared-server architecture already planned elsewhere.
 - Connection audit metadata intentionally excludes hostnames, credentials, SQL/Redis/Mongo content and HTTP request bodies/query strings.
-- The repository workflow currently auto-runs only on configured branches; this feature branch therefore requires workflow dispatch or local execution for an actual CI result. Static/fixture regression coverage has been added, but checklist completion does not claim an unobserved CI pass.
+- CI was explicitly exercised on feature commit `bc0c866e` by temporarily enabling this branch in the existing workflow. Both Go 1.19.x and Go 1.23.x matrix jobs passed launcher/installer syntax, Patch entry routing, JavaScript syntax, Patch handoff state, self-update staged tests, legacy staged tests, full `go test ./...`, `go vet ./...` and final build. The temporary branch trigger was removed immediately afterward.
 
 ## 18. Acceptance criteria
 
