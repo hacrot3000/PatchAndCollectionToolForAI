@@ -536,3 +536,137 @@ func TestSharedAdminCannotRevokeAnotherProjectSession(t *testing.T) {
 		t.Fatalf("project A admin revoked project B session: %+v", session)
 	}
 }
+
+func TestSharedAdminCrossProjectResourcesStayIsolated(t *testing.T) {
+	s := sharedLoginTestServer(t)
+	ctx := context.Background()
+	adminCookie := sharedAPILogin(t, s, "alice")
+	alice, err := s.Identity.UserByUsername(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectA, err := s.Identity.ProjectByKey(ctx, s.Config.SharedProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	projectB, err := s.Identity.EnsureProject(ctx, identity.Project{
+		ID: "isolated-project-b", Key: "isolated-project-b",
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobID, err := identity.NewID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Identity.CreateUser(ctx, identity.User{
+		ID: bobID, Username: "project-b-only-user", PasswordHash: alice.PasswordHash,
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Identity.UpsertProjectMember(ctx, identity.ProjectMember{
+		ProjectID: projectB.ID, UserID: bobID, RoleID: "system:viewer",
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Identity.CreateProjectRole(ctx, projectB.ID, identity.Role{
+		ID: "custom:project-b-only", Name: "project-b-only-role",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	auditID, err := identity.NewID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectBID := projectB.ID
+	if err := s.Identity.AppendAudit(ctx, identity.AuditEvent{
+		ID: auditID, Timestamp: now, UserID: &bobID, ProjectID: &projectBID,
+		Action: "project-b.secret-event", Result: "success",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	users := sharedRequest(t, s, "/api/admin/users", adminCookie)
+	if users.Code != http.StatusOK {
+		t.Fatalf("users status=%d body=%s", users.Code, users.Body.String())
+	}
+	if strings.Contains(users.Body.String(), "project-b-only-user") || strings.Contains(users.Body.String(), string(bobID)) {
+		t.Fatalf("project B-only user leaked into project A users: %s", users.Body.String())
+	}
+
+	roles := sharedRequest(t, s, "/api/admin/roles", adminCookie)
+	if roles.Code != http.StatusOK {
+		t.Fatalf("roles status=%d body=%s", roles.Code, roles.Body.String())
+	}
+	if strings.Contains(roles.Body.String(), "project-b-only-role") || strings.Contains(roles.Body.String(), "custom:project-b-only") {
+		t.Fatalf("project B-only role leaked into project A roles: %s", roles.Body.String())
+	}
+
+	audit := sharedRequest(t, s, "/api/admin/audit?user_id="+string(bobID), adminCookie)
+	if audit.Code != http.StatusOK {
+		t.Fatalf("audit status=%d body=%s", audit.Code, audit.Body.String())
+	}
+	if strings.Contains(audit.Body.String(), "project-b.secret-event") || strings.Contains(audit.Body.String(), string(auditID)) {
+		t.Fatalf("project B audit leaked into project A audit: %s", audit.Body.String())
+	}
+
+	access := httptest.NewRequest(http.MethodPatch, "https://taskdeck.test/api/admin/users/access", strings.NewReader(`{
+		"user_id":"`+string(bobID)+`",
+		"role_id":"system:viewer",
+		"enabled":false
+	}`))
+	access.Header.Set("Content-Type", "application/json")
+	access.AddCookie(adminCookie)
+	accessRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(accessRecorder, access)
+	if accessRecorder.Code != http.StatusNotFound {
+		t.Fatalf("cross-project member access status=%d body=%s", accessRecorder.Code, accessRecorder.Body.String())
+	}
+
+	override := httptest.NewRequest(http.MethodPut, "https://taskdeck.test/api/admin/users/permission", strings.NewReader(`{
+		"user_id":"`+string(bobID)+`",
+		"permission_key":"tasks.view",
+		"effect":"DENY"
+	}`))
+	override.Header.Set("Content-Type", "application/json")
+	override.AddCookie(adminCookie)
+	overrideRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(overrideRecorder, override)
+	if overrideRecorder.Code != http.StatusNotFound {
+		t.Fatalf("cross-project member permission status=%d body=%s", overrideRecorder.Code, overrideRecorder.Body.String())
+	}
+
+	roleUpdate := httptest.NewRequest(http.MethodPatch, "https://taskdeck.test/api/admin/roles", strings.NewReader(`{
+		"role_id":"custom:project-b-only",
+		"permissions":["tasks.view"]
+	}`))
+	roleUpdate.Header.Set("Content-Type", "application/json")
+	roleUpdate.AddCookie(adminCookie)
+	roleRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(roleRecorder, roleUpdate)
+	if roleRecorder.Code != http.StatusNotFound {
+		t.Fatalf("cross-project role update status=%d body=%s", roleRecorder.Code, roleRecorder.Body.String())
+	}
+
+	memberB, err := s.Identity.ProjectMember(ctx, projectB.ID, bobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !memberB.Enabled || memberB.RoleID != "system:viewer" {
+		t.Fatalf("project A mutation changed project B member: %+v", memberB)
+	}
+	effectiveB, err := s.Identity.EffectivePermissions(ctx, projectB.ID, bobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !effectiveB[identity.PermissionTasksView] {
+		t.Fatalf("project A permission mutation changed project B permissions: %v", effectiveB)
+	}
+	if _, err := s.Identity.ProjectMember(ctx, projectA.ID, bobID); !errors.Is(err, identity.ErrNotFound) {
+		t.Fatalf("project B-only user unexpectedly gained project A membership: %v", err)
+	}
+}
