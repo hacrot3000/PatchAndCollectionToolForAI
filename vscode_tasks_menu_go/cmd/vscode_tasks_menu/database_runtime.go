@@ -8,26 +8,51 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/dbadapter"
 	"bletonfc/vscode_tasks_menu/internal/dbmysql"
 	"bletonfc/vscode_tasks_menu/internal/dbsession"
+	"bletonfc/vscode_tasks_menu/internal/secretstore"
+	"bletonfc/vscode_tasks_menu/internal/sshtunnel"
+	"bletonfc/vscode_tasks_menu/internal/state"
 )
 
 type databaseRuntime struct {
 	Registry *dbadapter.Registry
 	Sessions *dbsession.Manager
+	Tunnels  *sshtunnel.Manager
+	Secrets  secretstore.Store
 }
 
-func newDatabaseRuntime(logger *log.Logger) (*databaseRuntime, error) {
+func newDatabaseRuntime(workspace string, logger *log.Logger) (*databaseRuntime, error) {
 	registry := dbadapter.NewRegistry()
 	sessions, err := dbsession.NewManager(registry, 0)
 	if err != nil {
 		return nil, err
 	}
-	runtime := &databaseRuntime{Registry: registry, Sessions: sessions}
 
+	secrets, err := secretstore.NewDefaultFileStore()
+	if err != nil {
+		sessions.Close()
+		return nil, fmt.Errorf("initialize connection secret store: %w", err)
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		sessions.Close()
 		return nil, fmt.Errorf("resolve TaskDeck executable for database adapters: %w", err)
 	}
+	tunnels, err := sshtunnel.NewManager(secrets, sshtunnel.Options{
+		RuntimeDir:    state.Dir(workspace),
+		AskpassHelper: executable,
+	})
+	if err != nil {
+		sessions.Close()
+		return nil, fmt.Errorf("initialize SSH tunnel manager: %w", err)
+	}
+
+	runtime := &databaseRuntime{
+		Registry: registry,
+		Sessions: sessions,
+		Tunnels:  tunnels,
+		Secrets:  secrets,
+	}
+
 	client, err := dbmysql.FindClient()
 	if err != nil {
 		if logger != nil {
@@ -37,11 +62,11 @@ func newDatabaseRuntime(logger *log.Logger) (*databaseRuntime, error) {
 	}
 	manifest, err := dbmysql.BuiltinManifest(executable)
 	if err != nil {
-		sessions.Close()
+		runtime.Close()
 		return nil, err
 	}
 	if err := registry.Register(manifest); err != nil {
-		sessions.Close()
+		runtime.Close()
 		return nil, err
 	}
 	if logger != nil {
@@ -57,8 +82,13 @@ func newDatabaseRuntime(logger *log.Logger) (*databaseRuntime, error) {
 }
 
 func (r *databaseRuntime) Close() {
-	if r == nil || r.Sessions == nil {
+	if r == nil {
 		return
 	}
-	r.Sessions.Close()
+	if r.Sessions != nil {
+		r.Sessions.Close()
+	}
+	if r.Tunnels != nil {
+		r.Tunnels.Close()
+	}
 }
