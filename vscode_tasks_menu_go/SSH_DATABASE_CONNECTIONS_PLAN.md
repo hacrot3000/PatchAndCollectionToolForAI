@@ -729,13 +729,19 @@ Implementation notes:
 
 ### Phase 9 — SQLite
 
-1. [ ] Python stdlib `sqlite3` adapter/helper.
-2. [ ] File/path validation.
-3. [ ] Schema browser.
-4. [ ] Bounded query execution.
-5. [ ] Explicit read/write mode.
-6. [ ] Tests.
-7. [ ] Remote SQLite remains separate/non-tunnel work.
+1. [x] Add an isolated Python 3 stdlib `sqlite3` helper embedded in the Go binary; no pip/third-party SQLite dependency.
+2. [x] Require an existing regular local database file, resolve symlinks and reject network/auth fields for SQLite profiles.
+3. [x] Add `sqlite_master` table/view browsing plus table columns/index/schema description.
+4. [x] Add bounded single-statement execution with row/cell/output limits and blob-safe normalization.
+5. [x] Enforce explicit read/write mode: read-only opens SQLite with URI `mode=ro` and `PRAGMA query_only=ON`; writes commit only for profiles with read-only disabled.
+6. [x] Add Python discovery, path validation, helper/handler integration, runtime, server profile and UI regression tests.
+7. [x] Keep remote SQLite explicitly non-tunnel: server and UI restrict SQLite to direct local-file transport.
+
+Implementation notes:
+
+- Python is used only at this isolated SQLite boundary because the Go standard library has no SQLite driver.
+- The helper is embedded at build time and run with Python isolated mode (`-I`). Operation data is JSON on stdin; no database path/query is placed in Python argv.
+- The initial adapter opens existing files only and does not silently create a new database.
 
 ### Phase 10 — Hardening
 
