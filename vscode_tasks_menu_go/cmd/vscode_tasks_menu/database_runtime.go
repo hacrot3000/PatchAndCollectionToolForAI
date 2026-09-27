@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"bletonfc/vscode_tasks_menu/internal/dbadapter"
+	"bletonfc/vscode_tasks_menu/internal/dbmongo"
 	"bletonfc/vscode_tasks_menu/internal/dbmysql"
 	"bletonfc/vscode_tasks_menu/internal/dbredis"
 	"bletonfc/vscode_tasks_menu/internal/dbsession"
@@ -65,6 +66,26 @@ func newDatabaseRuntime(workspace string, logger *log.Logger) (*databaseRuntime,
 	}
 	if logger != nil {
 		logger.Printf("database adapter=%s implementation=built-in-go", redisManifest.ID)
+	}
+
+	mongoClient, mongoErr := dbmongo.FindClient()
+	if mongoErr != nil {
+		if logger != nil {
+			logger.Printf("database adapter mongo unavailable: %v", mongoErr)
+		}
+	} else {
+		mongoManifest, manifestErr := dbmongo.BuiltinManifest(executable)
+		if manifestErr != nil {
+			runtime.Close()
+			return nil, manifestErr
+		}
+		if registerErr := registry.Register(mongoManifest); registerErr != nil {
+			runtime.Close()
+			return nil, registerErr
+		}
+		if logger != nil {
+			logger.Printf("database adapter=%s client=%s version=%s", mongoManifest.ID, mongoClient.Path, mongoClient.Version)
+		}
 	}
 
 	client, err := dbmysql.FindClient()
