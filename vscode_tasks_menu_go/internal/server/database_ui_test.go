@@ -303,3 +303,23 @@ func TestDatabaseWorkbenchPersistsPageSizeAndProvidesGridShortcuts(t *testing.T)
 		}
 	}
 }
+
+
+func TestDatabaseWorkbenchLoadsTotalCountOnDemand(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"async function loadTotalCount(view)",
+		"action:'count_rows'",
+		"state.result.total_rows=count",
+		"count.textContent='Count'",
+		"count.disabled=!supports(view,'object_actions')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing on-demand count workflow %q", want)
+		}
+	}
+}
