@@ -20,7 +20,7 @@ func TestDatabaseRuntimeAdvertisesMysqlWhenClientExists(t *testing.T) {
 	}
 	t.Setenv("PATH", bin)
 
-	runtime, err := newDatabaseRuntime(log.New(io.Discard, "", 0))
+	runtime, err := newDatabaseRuntime(t.TempDir(), log.New(io.Discard, "", 0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,15 +33,15 @@ func TestDatabaseRuntimeAdvertisesMysqlWhenClientExists(t *testing.T) {
 	if manifest.Kind != "mysql" {
 		t.Fatalf("manifest=%+v", manifest)
 	}
-	if runtime.Sessions == nil {
-		t.Fatal("database session manager is nil")
+	if runtime.Sessions == nil || runtime.Tunnels == nil || runtime.Secrets == nil {
+		t.Fatalf("database runtime dependencies are incomplete: %+v", runtime)
 	}
 }
 
 func TestDatabaseRuntimeStartsWithoutMysqlClient(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
-	runtime, err := newDatabaseRuntime(log.New(io.Discard, "", 0))
+	runtime, err := newDatabaseRuntime(t.TempDir(), log.New(io.Discard, "", 0))
 	if err != nil {
 		t.Fatal(err)
 	}
