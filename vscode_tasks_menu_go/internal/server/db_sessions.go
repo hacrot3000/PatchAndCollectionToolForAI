@@ -113,9 +113,11 @@ func (s *Server) dbSessions(w http.ResponseWriter, r *http.Request) {
 		connect.Secret = ""
 		cleanupOwned = false
 		if err != nil {
+			s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: "open", ProfileID: profile.ID, Success: false})
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
+		s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: "open", ProfileID: profile.ID, SessionID: meta.ID, Success: true})
 		writeJSON(w, http.StatusCreated, meta)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -150,7 +152,9 @@ func (s *Server) dbSessionItem(w http.ResponseWriter, r *http.Request) {
 			}
 			writeJSON(w, http.StatusOK, meta)
 		case http.MethodDelete:
+			meta, _ := manager.Get(id)
 			if err := manager.CloseSession(id); err != nil {
+				s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: "close", ProfileID: meta.ProfileID, SessionID: id, Success: false})
 				if errors.Is(err, dbsession.ErrSessionNotFound) {
 					http.NotFound(w, r)
 					return
@@ -158,6 +162,7 @@ func (s *Server) dbSessionItem(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+			s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: "close", ProfileID: meta.ProfileID, SessionID: id, Success: true})
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -185,10 +190,12 @@ func (s *Server) dbSessionItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	sessionMeta, _ := manager.Get(id)
 	requestCtx, cancel := context.WithTimeout(r.Context(), databaseOpenTimeout)
 	response, err := manager.Request(requestCtx, id, req.Operation, payload)
 	cancel()
 	if err != nil {
+		s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: string(req.Operation), ProfileID: sessionMeta.ProfileID, SessionID: id, Success: false})
 		if errors.Is(err, dbsession.ErrSessionNotFound) {
 			http.NotFound(w, r)
 			return
@@ -196,6 +203,7 @@ func (s *Server) dbSessionItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: string(req.Operation), ProfileID: sessionMeta.ProfileID, SessionID: id, Success: true})
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"operation": response.Operation,
 		"result":    response.Payload,
