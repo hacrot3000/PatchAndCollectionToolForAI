@@ -297,6 +297,7 @@ Evaluation rule:
 
 ```text
 id
+project_id
 user_id
 token_hash
 created_at
@@ -306,7 +307,11 @@ revoked_at
 client_metadata
 ```
 
-Only a hash of the browser session token is stored.
+Only a hash of the browser session token is stored. Browser sessions are bound
+to the project in which login occurred. A token minted by project A is not
+accepted by project B even when the same global user is a member of both
+projects. Project administrators list/revoke only sessions whose
+`auth_sessions.project_id` matches their project.
 
 ### audit_log
 
@@ -365,11 +370,20 @@ Logout or force-logout revokes the server-side session.
 
 Phase 3 uses a 256-bit random token and stores its SHA-256 hash. Cookies use a
 `__Host-taskdeck-<project-key-hash>` name to avoid collisions between different
-project daemons on the same hostname; no Domain attribute is set.
+project daemons on the same hostname; no Domain attribute is set. Schema v2 also
+stores the login `project_id` on each auth session, so cookie naming is
+defense-in-depth rather than the project authorization boundary.
 Sessions expire after 12 hours absolutely or 30 minutes without an authenticated
 request. Activity is persisted at most once per minute. Every authenticated
-request rechecks user/project/membership state, password-change time and session
-revocation. Password/access changes racing with login prevent session creation.
+request rechecks user/project/membership state, password-change time, session
+project scope and session revocation. Password/access changes racing with login
+prevent session creation.
+
+Schema v1 -> v2 adds `auth_sessions.project_id`. Existing unscoped v1 sessions
+cannot be assigned safely to a project after the fact, so migration revokes
+those sessions and users must sign in again. Password change/reset remains a
+global identity operation and deliberately revokes that user's sessions across
+all projects.
 
 ### 6.3 Request principal
 
@@ -979,10 +993,19 @@ Hardening notes:
   until it has a dedicated cross-session ownership/permission design.
 - Identity backups/reset are local operator maintenance operations, not project
   admin web capabilities, because the underlying identity is global across projects.
-- Phase 10 implementation is complete. GitHub Actions run `36245186504`
-  passed the full Go 1.19.x / 1.23.x matrix (staged tests, tests, vet and build)
-  at commit `7e8fb52e`. First-release acceptance remains open only for any
-  operator/browser acceptance checks that are intentionally outside CI.
+- Browser auth sessions are project-bound. Project session administration cannot
+  infer scope from user membership and instead filters directly by the session's
+  stored `project_id`.
+- Phase 10 implementation is complete. GitHub Actions run `36245324824`
+  passed the full Go 1.19.x / 1.23.x matrix at `16f13d8b`.
+- Release-acceptance integration coverage now additionally runs two independent
+  SQLite Store/Server instances against one identity DB and exercises full
+  HTTPS login + Secure cookie + WSS authorization through `Server.Handler()`.
+  During this acceptance pass, cross-project bearer-session reuse was found and
+  closed by schema v2/project-bound auth sessions. Commit `005125ad` passes
+  staged tests, tests, vet and build on both Go 1.19.x and Go 1.23.x.
+- Remaining first-release acceptance is limited to operator/browser smoke checks
+  that intentionally require a deployed real browser/reverse proxy environment.
 
 ### Phase 11 — Future central management / Hub
 
