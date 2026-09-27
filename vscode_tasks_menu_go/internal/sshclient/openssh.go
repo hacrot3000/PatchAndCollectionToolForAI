@@ -62,6 +62,14 @@ func ProbeOpenSSH(path string) (string, error) {
 }
 
 func BuildCommand(executable string, profile sshprofile.Profile) (Command, error) {
+	return buildCommand(executable, profile, "-tt", false)
+}
+
+func BuildProbeCommand(executable string, profile sshprofile.Profile) (Command, error) {
+	return buildCommand(executable, profile, "-T", true)
+}
+
+func buildCommand(executable string, profile sshprofile.Profile, ttyFlag string, probe bool) (Command, error) {
 	executable = strings.TrimSpace(executable)
 	if executable == "" {
 		return Command{}, errors.New("OpenSSH client path is required")
@@ -79,7 +87,7 @@ func BuildCommand(executable string, profile sshprofile.Profile) (Command, error
 		hostKeyPolicy = "accept-new"
 	}
 	args := []string{
-		"-tt",
+		ttyFlag,
 		"-p", strconv.Itoa(p.Port),
 		"-o", "ConnectTimeout=" + strconv.Itoa(p.ConnectTimeoutSeconds),
 		"-o", "ServerAliveInterval=" + strconv.Itoa(p.ServerAliveIntervalSeconds),
@@ -117,6 +125,9 @@ func BuildCommand(executable string, profile sshprofile.Profile) (Command, error
 
 	destination := p.Username + "@" + p.Host
 	args = append(args, destination)
+	if probe {
+		args = append(args, "true")
+	}
 	return Command{
 		Executable:  executable,
 		Args:        args,
