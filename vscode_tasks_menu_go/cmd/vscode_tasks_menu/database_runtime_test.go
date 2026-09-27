@@ -27,6 +27,9 @@ func TestDatabaseRuntimeAdvertisesMysqlWhenClientExists(t *testing.T) {
 	}
 	defer runtime.Close()
 
+	if _, err := runtime.Registry.Get("redis-go"); err != nil {
+		t.Fatalf("built-in Redis adapter missing: %v", err)
+	}
 	manifest, err := runtime.Registry.Get("mysql-cli")
 	if err != nil {
 		t.Fatal(err)
@@ -49,8 +52,9 @@ func TestDatabaseRuntimeStartsWithoutMysqlClient(t *testing.T) {
 	}
 	defer runtime.Close()
 
-	if got := runtime.Registry.List(); len(got) != 0 {
-		t.Fatalf("unexpected adapters=%+v", got)
+	adapters := runtime.Registry.List()
+	if len(adapters) != 1 || adapters[0].ID != "redis-go" {
+		t.Fatalf("expected only built-in Redis without MySQL client, got=%+v", adapters)
 	}
 	if runtime.Sessions == nil || runtime.Tunnels == nil || runtime.Secrets == nil {
 		t.Fatalf("database runtime dependencies are incomplete: %+v", runtime)
