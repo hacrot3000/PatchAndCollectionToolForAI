@@ -69,14 +69,17 @@ func TestSQLiteAdminReaderListsSafeProjectViews(t *testing.T) {
 	if !roleNames["admin"] || !roleNames["project-one-custom"] || roleNames["project-two-custom"] {
 		t.Fatalf("unexpected scoped roles: %#v", projectRoles)
 	}
-	if err := db.CreateAuthSession(ctx, AuthSession{ID: "session-bob", UserID: "bob", TokenHash: "internal-token-hash", CreatedAt: now, ExpiresAt: now.Add(time.Hour), LastSeenAt: now}); err != nil {
+	if err := db.CreateAuthSession(ctx, AuthSession{ID: "session-bob", ProjectID: project.ID, UserID: "bob", TokenHash: "internal-token-hash", CreatedAt: now, ExpiresAt: now.Add(time.Hour), LastSeenAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateAuthSession(ctx, AuthSession{ID: "session-bob-two", ProjectID: projectTwo.ID, UserID: "bob", TokenHash: "internal-token-hash-two", CreatedAt: now, ExpiresAt: now.Add(time.Hour), LastSeenAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	sessions, err := db.ListAuthSessions(ctx, AuthSessionQuery{ProjectID: project.ID, UserID: "bob"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sessions) != 1 || sessions[0].ID != "session-bob" || sessions[0].TokenHash == "" {
+	if len(sessions) != 1 || sessions[0].ID != "session-bob" || sessions[0].ProjectID != project.ID || sessions[0].TokenHash == "" {
 		t.Fatalf("unexpected internal session view: %#v", sessions)
 	}
 
@@ -87,7 +90,14 @@ func TestSQLiteAdminReaderListsSafeProjectViews(t *testing.T) {
 	if session.ID != "session-bob" || session.UserID != "bob" || session.TokenHash != "internal-token-hash" {
 		t.Fatalf("unexpected scoped session: %#v", session)
 	}
-	if _, err := db.AuthSessionForProject(ctx, "other-project", "session-bob"); err != ErrNotFound {
+	if _, err := db.AuthSessionForProject(ctx, projectTwo.ID, "session-bob"); err != ErrNotFound {
 		t.Fatalf("cross-project session lookup err=%v want=%v", err, ErrNotFound)
+	}
+	projectTwoSession, err := db.AuthSessionForProject(ctx, projectTwo.ID, "session-bob-two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projectTwoSession.ProjectID != projectTwo.ID || projectTwoSession.ID != "session-bob-two" {
+		t.Fatalf("unexpected project-two session: %#v", projectTwoSession)
 	}
 }
