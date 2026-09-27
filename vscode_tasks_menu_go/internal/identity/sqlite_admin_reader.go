@@ -271,7 +271,7 @@ func (d *sqliteDatabase) ListAuthSessions(ctx context.Context, query AuthSession
 	if limit > 500 {
 		limit = 500
 	}
-	where := []string{"project_members.project_id = ?"}
+	where := []string{"auth_sessions.project_id = ?"}
 	args := []any{string(query.ProjectID)}
 	if query.UserID != "" {
 		where = append(where, "auth_sessions.user_id = ?")
@@ -281,11 +281,10 @@ func (d *sqliteDatabase) ListAuthSessions(ctx context.Context, query AuthSession
 		where = append(where, "auth_sessions.revoked_at IS NULL")
 	}
 	statement := `
-SELECT auth_sessions.id, auth_sessions.user_id, auth_sessions.token_hash,
+SELECT auth_sessions.id, auth_sessions.project_id, auth_sessions.user_id, auth_sessions.token_hash,
        auth_sessions.created_at, auth_sessions.expires_at, auth_sessions.last_seen_at,
        auth_sessions.revoked_at, auth_sessions.client_metadata
 FROM auth_sessions
-JOIN project_members ON project_members.user_id = auth_sessions.user_id
 WHERE ` + strings.Join(where, " AND ") + `
 ORDER BY auth_sessions.created_at DESC, auth_sessions.id DESC
 LIMIT ?`
@@ -298,12 +297,13 @@ LIMIT ?`
 	sessions := make([]AuthSession, 0, limit)
 	for rows.Next() {
 		var value AuthSession
-		var id, userID, createdAt, expiresAt, lastSeenAt string
+		var id, projectID, userID, createdAt, expiresAt, lastSeenAt string
 		var revokedAt sql.NullString
-		if err := rows.Scan(&id, &userID, &value.TokenHash, &createdAt, &expiresAt, &lastSeenAt, &revokedAt, &value.ClientMetadata); err != nil {
+		if err := rows.Scan(&id, &projectID, &userID, &value.TokenHash, &createdAt, &expiresAt, &lastSeenAt, &revokedAt, &value.ClientMetadata); err != nil {
 			return nil, fmt.Errorf("scan auth session: %w", err)
 		}
 		value.ID = ID(id)
+		value.ProjectID = ID(projectID)
 		value.UserID = ID(userID)
 		if value.CreatedAt, err = parseDBTime(createdAt); err != nil {
 			return nil, err
@@ -333,17 +333,16 @@ func (d *sqliteDatabase) AuthSessionForProject(ctx context.Context, projectID, s
 		return AuthSession{}, fmt.Errorf("project auth session lookup requires project_id and session_id")
 	}
 	var value AuthSession
-	var id, userID, createdAt, expiresAt, lastSeenAt string
+	var id, scopedProjectID, userID, createdAt, expiresAt, lastSeenAt string
 	var revokedAt sql.NullString
 	err := d.db.QueryRowContext(ctx, `
-SELECT auth_sessions.id, auth_sessions.user_id, auth_sessions.token_hash,
+SELECT auth_sessions.id, auth_sessions.project_id, auth_sessions.user_id, auth_sessions.token_hash,
        auth_sessions.created_at, auth_sessions.expires_at, auth_sessions.last_seen_at,
        auth_sessions.revoked_at, auth_sessions.client_metadata
 FROM auth_sessions
-JOIN project_members ON project_members.user_id = auth_sessions.user_id
-WHERE project_members.project_id = ? AND auth_sessions.id = ?
+WHERE auth_sessions.project_id = ? AND auth_sessions.id = ?
 `, string(projectID), string(sessionID)).Scan(
-		&id, &userID, &value.TokenHash,
+		&id, &scopedProjectID, &userID, &value.TokenHash,
 		&createdAt, &expiresAt, &lastSeenAt, &revokedAt, &value.ClientMetadata,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -353,6 +352,7 @@ WHERE project_members.project_id = ? AND auth_sessions.id = ?
 		return AuthSession{}, fmt.Errorf("query project auth session: %w", err)
 	}
 	value.ID = ID(id)
+	value.ProjectID = ID(scopedProjectID)
 	value.UserID = ID(userID)
 	if value.CreatedAt, err = parseDBTime(createdAt); err != nil {
 		return AuthSession{}, err
