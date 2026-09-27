@@ -428,6 +428,8 @@ Với **shared-server mode**, TaskDeck identity/permission vẫn là authoritati
 
 TaskDeck có panel **Connections** cho terminal local, SSH và database profiles. Database hỗ trợ MySQL, Redis, MongoDB và SQLite; MySQL/Redis/MongoDB có thể đi qua generic SSH tunnel, còn SQLite là local-file only.
 
+Database session có **Workbench UI** gồm navigator + context menu, Data grid phân trang/editable, Structure/Inspector và Query editor. MySQL/SQLite hỗ trợ sort/filter và row editing theo stable key; MongoDB dùng document/`_id`; Redis dùng type-aware key viewer/editor cho các type có semantics an toàn. Direct SQL/query editor vẫn là first-class workflow.
+
 Hướng dẫn sử dụng, dependency, giới hạn bảo mật, policy host key, secret rotation/backup/recovery và offline/self-update build được tổng hợp tại:
 
 - [CONNECTIONS.md](CONNECTIONS.md)
