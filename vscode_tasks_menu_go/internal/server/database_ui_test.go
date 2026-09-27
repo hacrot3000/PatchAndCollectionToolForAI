@@ -105,9 +105,12 @@ func TestDatabaseWorkbenchProvidesNavigatorContextMenuAndPagedGrid(t *testing.T)
 	js := string(data)
 	for _, want := range []string{
 		"db-workbench-tabs",
-		"makeTab('data','Data')",
-		"makeTab('structure','Structure')",
-		"makeTab('query','Query')",
+		"createWorkbenchTab(view,'query','Query',{closable:false})",
+		"object.name+' - Data'",
+		"object.name+' - Structure'",
+		"ensureDataPage",
+		"ensureStructurePage",
+		"closeWorkbenchPage",
 		"Filter objects…",
 		"button.addEventListener('dblclick'",
 		"button.addEventListener('contextmenu'",
@@ -394,6 +397,32 @@ func TestDatabaseWorkspaceConstrainsScrollableObjectListAndDataGrid(t *testing.T
 	} {
 		if !strings.Contains(workbench, want) {
 			t.Fatalf("database_workbench.js missing data-grid scroll containment %q", want)
+		}
+	}
+}
+
+
+func TestDatabaseWorkbenchKeepsIndependentObjectTabs(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"pages:new Map()",
+		"workbenchObjectPageKey('data',object)",
+		"workbenchObjectPageKey('structure',object)",
+		"const ctx=createWorkbenchChildView(root,'data')",
+		"const page={key,mode:'data',object,ctx,tab,panel}",
+		"const page={key,mode:'structure',object,ctx,tab,panel}",
+		"const page=ensureDataPage(root,object)",
+		"activatePanel(root,page.key)",
+		"if(state.result||state.busy)return",
+		"page.mode==='data'&&page.ctx",
+		"overflow-x:auto;overflow-y:hidden",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing independent object-tab behavior %q", want)
 		}
 	}
 }
