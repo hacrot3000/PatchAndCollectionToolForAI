@@ -40,7 +40,6 @@ type Tunnel struct {
 	meta Metadata
 
 	cmd    *exec.Cmd
-	ticket *sshaskpass.Ticket
 	log    *boundedLog
 
 	done     chan struct{}
@@ -157,6 +156,7 @@ func (m *Manager) Open(
 		if err != nil {
 			return Metadata{}, err
 		}
+		defer ticket.Close()
 		env = setEnvironment(env, map[string]string{
 			"DISPLAY":                     "taskdeck-ssh-askpass",
 			"SSH_ASKPASS":                 m.options.AskpassHelper,
@@ -190,14 +190,10 @@ func (m *Manager) Open(
 			StartedAt: time.Now().Format(time.RFC3339),
 		},
 		cmd: cmd,
-		ticket: ticket,
 		log: logBuffer,
 		done: make(chan struct{}),
 	}
 	if err := cmd.Start(); err != nil {
-		if ticket != nil {
-			ticket.Close()
-		}
 		return Metadata{}, fmt.Errorf("start SSH tunnel: %w", err)
 	}
 
@@ -214,10 +210,6 @@ func (m *Manager) Open(
 
 	for {
 		if listenerReady(tunnel.meta.LocalHost, tunnel.meta.LocalPort) {
-			if ticket != nil {
-				ticket.Close()
-				tunnel.ticket = nil
-			}
 			return tunnel.meta, nil
 		}
 		select {
@@ -280,10 +272,6 @@ func (m *Manager) CloseTunnel(id string) error {
 	if err != nil {
 		return err
 	}
-	if tunnel.ticket != nil {
-		tunnel.ticket.Close()
-		tunnel.ticket = nil
-	}
 	if tunnel.cmd != nil && tunnel.cmd.Process != nil {
 		if err := tunnel.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 			return fmt.Errorf("kill SSH tunnel: %w", err)
@@ -321,10 +309,6 @@ func (m *Manager) wait(tunnel *Tunnel) {
 	tunnel.mu.Lock()
 	if err != nil {
 		tunnel.waitErr = fmt.Errorf("SSH tunnel process exited: %w", err)
-	}
-	if tunnel.ticket != nil {
-		tunnel.ticket.Close()
-		tunnel.ticket = nil
 	}
 	tunnel.mu.Unlock()
 	tunnel.doneOnce.Do(func() { close(tunnel.done) })
