@@ -40,8 +40,14 @@ func TestSharedPasswordResetChangesCredentialAndRevokesSessions(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	project, err := store.EnsureProject(ctx, identity.Project{
+		ID: "reset-project", Key: "reset-project", Enabled: true, CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := store.CreateAuthSession(ctx, identity.AuthSession{
-		ID: "reset-session", UserID: "reset-user", TokenHash: "reset-session-hash",
+		ID: "reset-session", ProjectID: project.ID, UserID: "reset-user", TokenHash: "reset-session-hash",
 		CreatedAt: now, LastSeenAt: now, ExpiresAt: now.Add(time.Hour),
 	}); err != nil {
 		t.Fatal(err)
