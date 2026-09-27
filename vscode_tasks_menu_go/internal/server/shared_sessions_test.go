@@ -415,3 +415,44 @@ func TestSharedSessionStartAuditUsesKindSpecificActionsWithoutSecrets(t *testing
 		}
 	}
 }
+
+func TestSharedSessionWebSocketRejectsCrossOriginHandshake(t *testing.T) {
+	service := &sharedWebSocketTestService{
+		ownershipTestService: &ownershipTestService{supported: true, items: []session.Metadata{{
+			ID: "task-origin", Kind: tasks.SessionKindTask,
+			OwnerUserID: "alice", ProjectID: "project-1", Status: "running",
+		}}},
+		input: make(chan []byte, 1),
+	}
+	s := sharedSessionTestServer(t, service)
+	principal := identity.Principal{
+		UserID: "alice", ProjectID: "project-1",
+		Permissions: map[string]bool{identity.PermissionTasksView: true},
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = r.WithContext(context.WithValue(r.Context(), sharedPrincipalContextKey{}, principal))
+		s.sessionItem(w, r)
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	conn, response, err := websocket.Dial(
+		ctx,
+		"ws"+strings.TrimPrefix(server.URL, "http")+"/api/sessions/task-origin/ws",
+		&websocket.DialOptions{HTTPHeader: http.Header{"Origin": []string{"https://evil.example"}}},
+	)
+	if conn != nil {
+		_ = conn.Close(websocket.StatusNormalClosure, "unexpected connection")
+	}
+	if err == nil {
+		t.Fatal("cross-origin WebSocket handshake unexpectedly succeeded")
+	}
+	if response == nil || response.StatusCode != http.StatusForbidden {
+		status := 0
+		if response != nil {
+			status = response.StatusCode
+		}
+		t.Fatalf("cross-origin WebSocket status=%d err=%v", status, err)
+	}
+}
