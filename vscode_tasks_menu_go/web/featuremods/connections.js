@@ -399,7 +399,13 @@ function openDatabaseProfileDialog(profile=null){
 
   const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
   const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>closeDialog(dialog);
+  const test=editing?document.createElement('button'):null;
+  if(test){
+    test.type='button';test.textContent='Test';test.title='Test connection';
+    test.onclick=()=>testDatabase(profile,test).catch(app.showError);
+  }
   const save=document.createElement('button');save.type='submit';save.className='task-connection-primary';save.textContent=editing?'Save':'Add profile';
+  if(test)actions.append(test);
   actions.append(cancel,save);form.append(actions);
   card.append(title,form);dialog.append(card);document.body.append(dialog);
   name.input.focus();
