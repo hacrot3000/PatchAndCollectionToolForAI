@@ -146,10 +146,6 @@ func configureSQLite(ctx context.Context, db *sql.DB, busyTimeout time.Duration)
 }
 
 func migrateSQLite(ctx context.Context, db *sql.DB, appliedAt time.Time) error {
-	if schemaVersion != 1 {
-		return fmt.Errorf("identity migration registry is incomplete for schema version %d", schemaVersion)
-	}
-
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("reserve identity migration connection: %w", err)
@@ -193,6 +189,24 @@ func migrateSQLite(ctx context.Context, db *sql.DB, appliedAt time.Time) error {
 		); err != nil {
 			return fmt.Errorf("record identity schema v1: %w", err)
 		}
+		current = 1
+	}
+	if current < 2 {
+		if _, err := conn.ExecContext(ctx, SchemaV2); err != nil {
+			return fmt.Errorf("apply identity schema v2: %w", err)
+		}
+		if _, err := conn.ExecContext(
+			ctx,
+			"INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+			2,
+			appliedAt.UTC().Format(time.RFC3339Nano),
+		); err != nil {
+			return fmt.Errorf("record identity schema v2: %w", err)
+		}
+		current = 2
+	}
+	if current != schemaVersion {
+		return fmt.Errorf("identity migration registry stopped at version %d, expected %d", current, schemaVersion)
 	}
 
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {

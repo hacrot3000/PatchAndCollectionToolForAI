@@ -1,6 +1,6 @@
 package identity
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 // SchemaV1 is intentionally multi-project even though each TaskDeck daemon
 // serves exactly one workspace. A common DB can therefore be shared by several
@@ -110,4 +110,13 @@ CREATE INDEX IF NOT EXISTS idx_audit_project_time
 
 CREATE INDEX IF NOT EXISTS idx_audit_user_time
     ON audit_log(user_id, timestamp);
+`
+
+
+const SchemaV2 = `
+ALTER TABLE auth_sessions
+ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE CASCADE;
+
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_project
+    ON auth_sessions(project_id);
 `

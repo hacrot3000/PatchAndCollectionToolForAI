@@ -298,3 +298,23 @@ func assertSQLLogContains(t *testing.T, log []string, want string) {
 	}
 	t.Fatalf("SQL log missing %q: %#v", want, log)
 }
+
+func TestOpenSQLiteDatabaseMigratesV1ToProjectScopedSessionsV2(t *testing.T) {
+	state := &fakeSQLiteState{journalMode: "wal", currentVersion: 1}
+	useFakeSQLiteDriver(t, state)
+
+	dbPath := filepath.Join(t.TempDir(), identityDBName)
+	db, err := openSQLiteDatabase(context.Background(), fakeSQLiteDriverName, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	version, execs, _ := state.snapshot()
+	if version != 2 {
+		t.Fatalf("schema version=%d want=2", version)
+	}
+	assertSQLLogContains(t, execs, "ALTER TABLE auth_sessions")
+	assertSQLLogContains(t, execs, "ADD COLUMN project_id")
+	assertSQLLogContains(t, execs, "idx_auth_sessions_project")
+}
