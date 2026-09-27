@@ -2,7 +2,6 @@ package sshclient
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -54,8 +53,4 @@ func BuildTunnelCommand(
 	)
 	command.Args = args
 	return command, nil
-}
-
-func TunnelForwardSpec(localPort int, remoteHost string, remotePort int) string {
-	return fmt.Sprintf("127.0.0.1:%d:%s:%d", localPort, remoteHost, remotePort)
 }
