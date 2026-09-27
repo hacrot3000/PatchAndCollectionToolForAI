@@ -39,7 +39,7 @@ func helperCommand(mode string, endpoint string) (sshclient.Command, []string) {
 	)
 	return sshclient.Command{
 		Executable: os.Args[0],
-		Args:       []string{"-test.run=TestSSHTunnelHelperProcess"},
+		Args:       []string{"-test.run=TestSSHTunnelProcessHelper"},
 		Destination: "fixture",
 	}, env
 }
@@ -108,7 +108,7 @@ func TestBoundedDiagnosticTruncates(t *testing.T) {
 	}
 }
 
-func TestSSHTunnelHelperProcess(t *testing.T) {
+func TestSSHTunnelProcessHelper(t *testing.T) {
 	if os.Getenv("TASKDECK_SSHTUNNEL_HELPER") != "1" {
 		return
 	}
