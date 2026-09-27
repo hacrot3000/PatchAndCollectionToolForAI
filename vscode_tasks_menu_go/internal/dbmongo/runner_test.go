@@ -3,6 +3,7 @@ package dbmongo
 import (
 	"context"
 	"os"
+	"net/url"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -101,13 +102,17 @@ func TestRunScriptRedactsSecretFromFailure(t *testing.T) {
 
 func TestMongoDiagnosticRedactionCoversURIEncodedSecret(t *testing.T) {
 	secret := "p@ss/word?x=y z"
-	text := "raw=" + secret + " path=p%40ss%2Fword%3Fx=y%20z query=p%40ss%2Fword%3Fx%3Dy+z"
+	userInfo := strings.TrimPrefix(url.UserPassword("taskdeck", secret).String(), "taskdeck:")
+	candidates := []string{secret, url.PathEscape(secret), url.QueryEscape(secret), userInfo}
+	text := strings.Join(candidates, " | ")
 	redacted := redactMongoSecret(text, secret)
-	if strings.Contains(redacted, secret) || strings.Contains(redacted, "p%40ss%2Fword") {
-		t.Fatalf("encoded MongoDB secret leaked after redaction: %s", redacted)
+	for _, candidate := range candidates {
+		if candidate != "" && strings.Contains(redacted, candidate) {
+			t.Fatalf("MongoDB secret variant %q leaked after redaction: %s", candidate, redacted)
+		}
 	}
-	if !strings.Contains(redacted, "[redacted]") {
-		t.Fatalf("redaction marker missing: %s", redacted)
+	if strings.Count(redacted, "[redacted]") < 2 {
+		t.Fatalf("redaction markers missing: %s", redacted)
 	}
 }
 
