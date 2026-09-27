@@ -90,3 +90,33 @@ func TestDatabaseRuntimeAdvertisesMongoWhenMongoshExists(t *testing.T) {
 		t.Fatalf("built-in Redis adapter missing: %v", err)
 	}
 }
+
+func TestDatabaseRuntimeAdvertisesSQLiteWhenPython3Exists(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	bin := t.TempDir()
+	python3 := filepath.Join(bin, "python3")
+	if err := os.WriteFile(python3, []byte("#!/bin/sh\necho 'Python 3.12.1'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+
+	dbRuntime, err := newDatabaseRuntime(t.TempDir(), log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbRuntime.Close()
+
+	manifest, err := dbRuntime.Registry.Get("sqlite-python")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Kind != "sqlite" {
+		t.Fatalf("manifest=%+v", manifest)
+	}
+	if _, err := dbRuntime.Registry.Get("redis-go"); err != nil {
+		t.Fatalf("built-in Redis adapter missing: %v", err)
+	}
+}
