@@ -212,6 +212,20 @@ func migrateSQLite(ctx context.Context, db *sql.DB, appliedAt time.Time) error {
 		}
 		current = 2
 	}
+	if current < 3 {
+		if _, err := conn.ExecContext(ctx, SchemaV3); err != nil {
+			return fmt.Errorf("apply identity schema v3: %w", err)
+		}
+		if _, err := conn.ExecContext(
+			ctx,
+			"INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+			3,
+			appliedAt.UTC().Format(time.RFC3339Nano),
+		); err != nil {
+			return fmt.Errorf("record identity schema v3: %w", err)
+		}
+		current = 3
+	}
 	if current != schemaVersion {
 		return fmt.Errorf("identity migration registry stopped at version %d, expected %d", current, schemaVersion)
 	}
