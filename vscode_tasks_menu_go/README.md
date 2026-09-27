@@ -422,6 +422,15 @@ Backend chặn cross-origin request làm thay đổi trạng thái và gửi sec
 
 Nếu dùng HTTPS reverse proxy thay vì TLS trực tiếp của tool, nên bind tool vào loopback và vẫn giữ `auth.enabled=true`, hoặc để reverse proxy tự enforce authentication.
 
+## SSH và database connections
+
+TaskDeck có panel **Connections** cho terminal local, SSH và database profiles. Database hỗ trợ MySQL, Redis, MongoDB và SQLite; MySQL/Redis/MongoDB có thể đi qua generic SSH tunnel, còn SQLite là local-file only.
+
+Hướng dẫn sử dụng, dependency, giới hạn bảo mật, policy host key, secret rotation/backup/recovery và offline/self-update build được tổng hợp tại:
+
+- [CONNECTIONS.md](CONNECTIONS.md)
+
+
 ## Menu từ tasks.json
 
 Các field riêng đang dùng:
