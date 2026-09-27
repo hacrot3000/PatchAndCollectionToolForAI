@@ -10,6 +10,9 @@ not expand scope into Phase 11 / TaskDeck Hub.
 The CI matrix runs on Go 1.19.x and Go 1.23.x and includes staged tests,
 `go test ./...`, `go vet ./...` and a production build.
 
+Latest boundary-review checkpoint: GitHub Actions run `36289444809` passed the
+full matrix at commit `89ccd1fe`.
+
 The first-release criteria in `MULTI_USER_SHARED_SERVER_PLAN.md` are covered as
 follows:
 
@@ -54,6 +57,10 @@ Additional hardening acceptance:
   through the complete `Server.Handler()` middleware chain.
 - Project admins can only list/revoke `auth_sessions.project_id` belonging to
   their own project; cross-project revoke returns not found.
+- Project administration boundaries are regression-tested across users, custom
+  roles and audit data as well as sessions: project-B-only resources are absent
+  from project A list APIs, and direct-ID access/permission/role mutations from
+  project A return not found without changing project B state.
 - Cross-project bearer reuse and cross-project logout are both fail-closed: a
   daemon cannot authenticate or revoke a browser session minted for another
   project.
