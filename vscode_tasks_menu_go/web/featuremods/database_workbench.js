@@ -327,13 +327,15 @@ function renderStructure(view,object,detail){
   }
 }
 
-async function inspectObject(view,object,{activate=false}={}){
+async function inspectObject(view,object,{activate=false,open=true}={}){
+  const root=rootWorkbenchView(view);
+  const page=open?ensureStructurePage(root,object):null;
+  if(page&&activate)activatePanel(root,page.key);
   const payload={name:object.name,kind:object.kind};
-  if(object.catalog||view.catalog.value)payload.catalog=object.catalog||view.catalog.value;
-  const detail=await database.request(view.meta.id,'describe_object',payload);
-  view.workbench.details.set(objectKey(object),detail);
-  renderStructure(view,object,detail);
-  if(activate)activatePanel(view,'structure');
+  if(object.catalog||root.catalog.value)payload.catalog=object.catalog||root.catalog.value;
+  const detail=await database.request(root.meta.id,'describe_object',payload);
+  root.workbench.details.set(objectKey(object),detail);
+  if(page)renderStructure(page.ctx,object,detail);
   return detail;
 }
 
@@ -682,13 +684,12 @@ function storePageSize(view,object,value){
 }
 
 async function openTableData(view,object){
-  if(!confirmDiscardChanges(view))return;
-  const state=dataState(view);
-  state.object=object;state.offset=0;state.limit=storedPageSize(view,object);state.sort=[];state.filters=[];state.result=null;clearPendingChanges(view);
-  if(view.workbench?.controls?.pageSize)view.workbench.controls.pageSize.value=String(state.limit);
-  wbSetDataTitle(view,object);
-  activatePanel(view,'data');
-  await loadData(view);
+  const root=rootWorkbenchView(view);
+  const page=ensureDataPage(root,object);
+  activatePanel(root,page.key);
+  const state=dataState(page.ctx);
+  if(state.result||state.busy)return;
+  await loadData(page.ctx);
 }
 
 async function applyGridChanges(view){
@@ -753,11 +754,12 @@ function redisCommandArg(value){
 }
 
 async function generatedQuery(view,object,action){
-  const kind=view.meta.adapter_kind||adapterForView(view)?.kind||'';
+  const root=rootWorkbenchView(view);
+  const kind=root.meta.adapter_kind||adapterForView(root)?.kind||'';
   if(kind==='redis'){
     if(action!=='select')throw new Error('Redis write templates are not generated');
-    let detail=view.workbench.details.get(objectKey(object));
-    if(!detail)detail=await inspectObject(view,object);
+    let detail=root.workbench.details.get(objectKey(object));
+    if(!detail)detail=await inspectObject(root,object,{open:false});
     const key=redisCommandArg(object.name);
     const type=String(detail?.type||'').toLowerCase();
     const command=type==='string'?'GET '+key
@@ -771,23 +773,25 @@ async function generatedQuery(view,object,action){
   }
   if(kind==='mongo'){
     if(action!=='select')throw new Error('MongoDB write templates are intentionally not generated; edit documents in Data or use the safe Query find DSL');
-    const payload={op:'find',database:object.catalog||view.catalog.value||'',collection:object.name,filter:{},limit:100};
-    setQuery(view,JSON.stringify(payload,null,2));
+    const payload={op:'find',database:object.catalog||root.catalog.value||'',collection:object.name,filter:{},limit:100};
+    setQuery(root,JSON.stringify(payload,null,2));
     return;
   }
-  let detail=view.workbench.details.get(objectKey(object));
-  if(!detail&&(action==='insert'||action==='update'))detail=await inspectObject(view,object);
-  const text=queryTemplate(view,object,action,detail);
+  let detail=root.workbench.details.get(objectKey(object));
+  if(!detail&&(action==='insert'||action==='update'))detail=await inspectObject(root,object,{open:false});
+  const text=queryTemplate(root,object,action,detail);
   if(!text)throw new Error('Query template generation is not available for this adapter');
-  setQuery(view,text);
+  setQuery(root,text);
 }
 
 async function countRows(view,object){
-  const result=await database.request(view.meta.id,'object_action',{
-    catalog:object.catalog||view.catalog.value||'',kind:object.kind,name:object.name,action:'count_rows'
+  const root=rootWorkbenchView(view);
+  const result=await database.request(root.meta.id,'object_action',{
+    catalog:object.catalog||root.catalog.value||'',kind:object.kind,name:object.name,action:'count_rows'
   });
+  const page=ensureStructurePage(root,object);
   const detail={action:'count_rows',count:result?.count};
-  renderStructure(view,object,detail);activatePanel(view,'structure');
+  renderStructure(page.ctx,object,detail);activatePanel(root,page.key);
 }
 
 function objectMenu(view,object,x,y){
@@ -821,8 +825,11 @@ function objectMenu(view,object,x,y){
 }
 
 async function runObjectAction(view,object,action){
-  const adapterKind=view.meta.adapter_kind||adapterForView(view)?.kind||'';
-  const isCollection=adapterKind==='mongo'&&String(object.kind||'').toLowerCase()==='collection';
+  const root=rootWorkbenchView(view);
+  const adapterKind=root.meta.adapter_kind||adapterForView(root)?.kind||'';
+  const objectKind=String(object.kind||'').toLowerCase();
+  const isCollection=adapterKind==='mongo'&&objectKind==='collection';
+  const isRedisKey=adapterKind==='redis'&&objectKind==='key';
   if(action==='truncate'){
     const message=isCollection
       ?'Clear collection "'+object.name+'"? All documents will be permanently removed.'
@@ -833,19 +840,17 @@ async function runObjectAction(view,object,action){
     const typed=prompt('Type "'+object.name+'" to confirm '+verb+':','');
     if(typed!==object.name)return;
   }
-  await database.request(view.meta.id,'object_action',{
-    catalog:object.catalog||view.catalog.value||'',kind:object.kind,name:object.name,action
+  await database.request(root.meta.id,'object_action',{
+    catalog:object.catalog||root.catalog.value||'',kind:object.kind,name:object.name,action
   });
+  const matchingPages=Array.from(root.workbench.pages.values()).filter(page=>page.object&&objectKey(page.object)===objectKey(object));
   if(action==='drop'){
-    const state=dataState(view);
-    if(state.object&&objectKey(state.object)===objectKey(object)){
-      state.object=null;state.result=null;clearPendingChanges(view);wbSetDataTitle(view,null);
-      view.workbench.grid.replaceChildren();
-      const empty=document.createElement('div');empty.className='db-data-empty';empty.textContent='Object was dropped.';view.workbench.grid.append(empty);
-    }
-    view.refresh.click();
-  }else{
-    if(dataState(view).object&&objectKey(dataState(view).object)===objectKey(object))await loadData(view,{resetOffset:true});
+    for(const page of matchingPages)closeWorkbenchPage(root,page.key,{force:true});
+    root.refresh.click();
+    return;
+  }
+  for(const page of matchingPages){
+    if(page.mode==='data'&&page.ctx)await loadData(page.ctx,{resetOffset:true});
   }
 }
 
@@ -997,15 +1002,18 @@ function createDataPanel(view){
 }
 
 function paneKeyboardShortcuts(view){
-  view.pane.addEventListener('keydown',event=>{
-    if(view.workbench?.active!=='data')return;
+  const root=rootWorkbenchView(view);
+  root.pane.addEventListener('keydown',event=>{
+    const page=root.workbench?.pages?.get(root.workbench.active);
+    if(page?.mode!=='data'||!page.ctx)return;
+    const ctx=page.ctx;
     if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'){
       event.preventDefault();
-      if(pendingChangeCount(view)>0)applyGridChanges(view).catch(app.showError);
+      if(pendingChangeCount(ctx)>0)applyGridChanges(ctx).catch(app.showError);
       return;
     }
     if(event.altKey&&(event.key==='Insert'||event.key.toLowerCase()==='n')){
-      event.preventDefault();addGridRow(view);
+      event.preventDefault();addGridRow(ctx);
     }
   });
 }
@@ -1019,21 +1027,17 @@ function enhanceView(view){
   query.classList.add('db-workbench-panel');
 
   const tabsBar=document.createElement('div');tabsBar.className='db-workbench-tabs';
-  const makeTab=(key,label)=>{
-    const button=document.createElement('button');button.type='button';button.className='db-workbench-tab';button.textContent=label;
-    button.onclick=()=>activatePanel(view,key);tabsBar.append(button);return button;
-  };
-  const tabs={data:makeTab('data','Data'),structure:makeTab('structure','Structure'),query:makeTab('query','Query')};
-  const structure=document.createElement('div');structure.className='db-workbench-panel db-structure hidden';
-  const structureEmpty=document.createElement('div');structureEmpty.className='db-data-empty';structureEmpty.textContent='Select an object to inspect its structure.';structure.append(structureEmpty);
-
   view.workbench={
-    active:'query',tabs,panels:{data:null,structure,query},controls:null,grid:null,
-    details:new Map(),objectFilter:null,
-    data:{object:null,offset:0,limit:100,sort:[],filters:[],result:null,busy:false,dirtyRows:new Map(),deletedRows:new Set(),newRows:[]}
+    active:'query',
+    tabsBar,
+    main,
+    pages:new Map(),
+    details:new Map(),
+    objectFilter:null
   };
-  const data=createDataPanel(view);view.workbench.panels.data=data;
-  main.prepend(tabsBar);main.append(data,structure);
+  const queryTab=createWorkbenchTab(view,'query','Query',{closable:false});
+  view.workbench.pages.set('query',{key:'query',mode:'query',tab:queryTab,panel:query,ctx:view});
+  main.prepend(tabsBar);
   paneKeyboardShortcuts(view);
   activatePanel(view,'query');
 
