@@ -26,8 +26,12 @@ func TestDatabaseWorkspaceUsesGenericSessionAPIs(t *testing.T) {
 		"app.activateExternalView('database:'",
 		"DB · ",
 		"event.ctrlKey",
-		"meta.adapter_kind==='redis'?'PING':'SELECT 1'",
-		"view.meta.adapter_kind==='redis'?'No keys':'No tables or views'",
+		"meta.adapter_kind==='redis'",
+		"meta.adapter_kind==='mongo'",
+		"\"op\": \"find\"",
+		"\"collection\": \"users\"",
+		"view.meta.adapter_kind==='redis'?'No keys'",
+		"view.meta.adapter_kind==='mongo'?'No collections':'No tables or views'",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("database.js missing %q", want)
