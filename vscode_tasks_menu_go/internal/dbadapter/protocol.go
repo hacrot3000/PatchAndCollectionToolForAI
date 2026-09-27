@@ -191,6 +191,28 @@ func ValidateEnvelope(env Envelope) error {
 	return nil
 }
 
+func ValidateResponsePayload(env Envelope) error {
+	if err := ValidateEnvelope(env); err != nil {
+		return err
+	}
+	if env.Type != "response" {
+		return fmt.Errorf("database adapter payload validation requires a response envelope")
+	}
+	if env.Error != nil {
+		return nil
+	}
+	switch env.Operation {
+	case OpExecute:
+		var result ExecuteResult
+		if err := json.Unmarshal(env.Payload, &result); err != nil {
+			return fmt.Errorf("decode database execute result: %w", err)
+		}
+		return ValidateExecuteResult(result)
+	default:
+		return nil
+	}
+}
+
 func ValidateExecuteResult(result ExecuteResult) error {
 	if len(result.Columns) > MaxColumns {
 		return fmt.Errorf("database result exceeds %d columns", MaxColumns)
