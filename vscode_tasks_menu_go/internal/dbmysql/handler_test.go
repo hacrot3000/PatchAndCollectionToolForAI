@@ -35,7 +35,8 @@ func writeHandlerFixture(t *testing.T) string {
 	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", dir)
+	currentPath := os.Getenv("PATH")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+currentPath)
 	return path
 }
 
