@@ -507,3 +507,27 @@ func TestRedisManifestAdvertisesWorkbenchMutations(t *testing.T) {
 		t.Fatalf("workbench capabilities=%+v", manifest.Capabilities)
 	}
 }
+
+
+func TestRedisWorkbenchReturnsPerRowMutationError(t *testing.T) {
+	fixture := newRedisHandlerFixture(t)
+	handler := connectRedisHandlerMode(t, fixture, false)
+	defer handler.disconnect()
+
+	payload, protocolErr := handler.Handle(context.Background(), redisAdapterRequest(t, "set-invalid-update", dbadapter.OpMutateRows, dbadapter.MutateRowsPayload{
+		Catalog: "db2", Kind: "key", Name: "set:key",
+		Mutations: []dbadapter.RowMutation{
+			{Action: "update", Identity: map[string]interface{}{"member": "red"}, Values: map[string]interface{}{"member": "green"}},
+		},
+	}))
+	if protocolErr != nil {
+		t.Fatalf("unexpected protocol error=%+v", protocolErr)
+	}
+	result := payload.(dbadapter.MutateRowsResult)
+	if len(result.Results) != 1 || result.Results[0].Error == nil || result.Results[0].Error.Code != "MUTATION_FAILED" {
+		t.Fatalf("mutation result=%+v", result)
+	}
+	if fixture.commandCount("SREM") != 0 || fixture.commandCount("SADD") != 0 {
+		t.Fatalf("unsupported set update reached mutating commands: %+v", fixture.commands)
+	}
+}
