@@ -661,15 +661,22 @@ Implementation notes:
 
 ### Phase 5 — Generic SSH tunnel manager
 
-1. [ ] Define tunnel spec/lifecycle.
-2. [ ] Allocate loopback local port safely.
-3. [ ] Start OpenSSH `-N -L` with `ExitOnForwardFailure=yes`.
-4. [ ] Reuse SSH auth/askpass profile handling.
-5. [ ] Readiness/failure detection.
-6. [ ] Shutdown/reap/cancel.
-7. [ ] Bounded status/error reporting.
-8. [ ] Tests using controlled ssh stubs.
-9. [ ] Evaluate multiplexing only after correctness.
+1. [x] Define tunnel spec/lifecycle.
+2. [x] Reserve an ephemeral IPv4 loopback port until immediately before OpenSSH starts binding it.
+3. [x] Start OpenSSH `-N -L` with loopback binding and `ExitOnForwardFailure=yes`.
+4. [x] Reuse the existing SSH profile authentication and one-time askpass broker.
+5. [x] Detect readiness by the local forwarding listener and report early SSH exits.
+6. [x] Kill/reap tunnels on explicit close, manager shutdown, startup cancellation and DB-owned cleanup.
+7. [x] Bound SSH tunnel diagnostics to 64 KiB.
+8. [x] Add controlled process/manager tests for ready, early exit, timeout, cleanup and askpass environment.
+9. [x] Evaluate OpenSSH multiplexing and defer it; correctness and isolated lifecycle ownership remain preferable for the first tunnel release.
+
+Implementation notes:
+
+- Tunnel forwards bind to `127.0.0.1` only.
+- Port reservation narrows the bind race by holding the selected loopback port until immediately before `ssh` starts.
+- Stored SSH secrets are still delivered only through the existing one-time askpass socket/token path.
+- Inherited askpass control variables are sanitized before controlled tunnel auth variables are injected.
 
 ### Phase 6 — MySQL through SSH tunnel
 
