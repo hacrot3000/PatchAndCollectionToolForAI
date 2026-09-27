@@ -54,8 +54,15 @@ Additional hardening acceptance:
   through the complete `Server.Handler()` middleware chain.
 - Project admins can only list/revoke `auth_sessions.project_id` belonging to
   their own project; cross-project revoke returns not found.
+- Cross-project bearer reuse and cross-project logout are both fail-closed: a
+  daemon cannot authenticate or revoke a browser session minted for another
+  project.
+- Shared WebSocket handshakes retain the WebSocket library's same-origin
+  protection; an explicit hostile Origin is rejected before attach.
 - Identity schema v2 adds session `project_id`; v1 sessions without trustworthy
   project provenance are revoked during migration and cannot be reused.
+- Identity schema v3 rejects new auth-session INSERTs without `project_id`,
+  preventing an older daemon from minting unscoped sessions after migration.
 - Password change/reset remains deliberately global because passwords belong to
   the global user identity; those operations revoke that user's sessions in all
   projects.
@@ -142,16 +149,19 @@ have distinct scopes.
 
 Pass condition: restored state matches the backup and the safety snapshot exists.
 
-### 7. v1 -> v2 upgrade drill
+### 7. v1 -> current-schema upgrade drill
 
 For a disposable copy of a pre-v2 identity DB:
 
 - Back up the DB.
 - Start upgraded TaskDeck.
-- Confirm migration reaches schema v2 without manual SQL.
+- Confirm migration reaches the current schema (v2 project scope followed by
+  v3 insert enforcement) without manual SQL.
 - Confirm users/memberships/roles are preserved.
 - Confirm old browser sessions require one re-login.
 - Confirm newly created sessions are project-bound.
+- During a disposable mixed-version test, confirm an old-style INSERT lacking
+  `project_id` is rejected after v3.
 
 Pass condition: migration is automatic, fail-closed for old bearer sessions and
 does not lose identity/access data.
