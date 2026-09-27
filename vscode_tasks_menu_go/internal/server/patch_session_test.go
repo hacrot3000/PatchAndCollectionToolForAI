@@ -97,7 +97,7 @@ func TestSessionsAPIHasBuiltinPatchKind(t *testing.T) {
 		"patchToolExecutionForUI(s.Workspace, req.PatchMode, req.PatchUI)",
 		"PatchMode string",
 		"json:\"patch_mode,omitempty\"",
-		"PatchUI   string",
+		"PatchUI string",
 		"json:\"patch_ui,omitempty\"",
 	} {
 		if !strings.Contains(src, want) {
