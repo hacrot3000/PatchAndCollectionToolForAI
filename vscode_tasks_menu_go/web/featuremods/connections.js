@@ -148,9 +148,16 @@ function databaseAdapter(profile){
   return dbAdapters.find(adapter=>adapter.id===profile?.adapter_id)||null;
 }
 
+function databaseDefaultPort(kind){
+  if(kind==='redis')return 6379;
+  if(kind==='mongo')return 27017;
+  return 3306;
+}
+
 function databaseEndpoint(profile){
   const host=profile?.host||'127.0.0.1';
-  const port=Number(profile?.port)||3306;
+  const kind=dbAdapters.find(adapter=>adapter.id===profile?.adapter_id)?.kind||'';
+  const port=Number(profile?.port)||databaseDefaultPort(kind);
   const database=profile?.database?' / '+profile.database:'';
   const mode=profile?.read_only?'read-only':'read/write';
   const transport=profile?.transport==='ssh_tunnel'?' · SSH tunnel':'';
@@ -344,11 +351,6 @@ function openDatabaseProfileDialog(profile=null){
   const mongoTLS=checkboxField(form,'Use TLS','tls',String(profile?.options?.tls||'').toLowerCase()==='true',{wide:true});
 
   function selectedDatabaseAdapter(){return dbAdapters.find(item=>item.id===adapter.input.value)||null;}
-  function defaultDatabasePort(kind){
-    if(kind==='redis')return 6379;
-    if(kind==='mongo')return 27017;
-    return 3306;
-  }
   function syncDatabaseAdapter(){
     const kind=selectedDatabaseAdapter()?.kind||'';
     const redis=kind==='redis';
@@ -362,7 +364,7 @@ function openDatabaseProfileDialog(profile=null){
     if(!editing){
       const currentPort=Number(port.input.value)||0;
       const defaults=[3306,6379,27017];
-      if(currentPort===0||defaults.includes(currentPort))port.input.value=String(defaultDatabasePort(kind));
+      if(currentPort===0||defaults.includes(currentPort))port.input.value=String(databaseDefaultPort(kind));
     }
   }
   adapter.input.addEventListener('change',syncDatabaseAdapter);syncDatabaseAdapter();
@@ -403,7 +405,7 @@ function openDatabaseProfileDialog(profile=null){
         adapter_id:adapter.input.value,
         transport:transport.input.value,
         host:host.input.value,
-        port:Number(port.input.value)||defaultDatabasePort(adapterKind),
+        port:Number(port.input.value)||databaseDefaultPort(adapterKind),
         username:username.input.value,
         database:database.input.value,
         read_only:readOnly.input.checked,
