@@ -192,6 +192,46 @@ func TestBrowserDatabaseOperationsAreStrictlyAllowlisted(t *testing.T) {
 	}
 }
 
+
+func TestBrowserDatabaseWorkbenchOperationsAreNormalized(t *testing.T) {
+	browseRaw := json.RawMessage(`{"catalog":" main ","name":" users ","limit":25,"sort":[{"column":" id ","direction":"DESC"}]}`)
+	browsePayload, err := normalizeBrowserDBOperation(dbadapter.OpBrowseRows, browseRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	browse, ok := browsePayload.(dbadapter.BrowseRowsPayload)
+	if !ok || browse.Catalog != "main" || browse.Name != "users" || browse.Limit != 25 || browse.Sort[0].Direction != "desc" {
+		t.Fatalf("browse payload=%#v", browsePayload)
+	}
+
+	mutateRaw := json.RawMessage(`{"catalog":"main","name":"users","mutations":[{"action":"update","identity":{"id":1},"values":{"name":"changed"}}]}`)
+	mutatePayload, err := normalizeBrowserDBOperation(dbadapter.OpMutateRows, mutateRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutate, ok := mutatePayload.(dbadapter.MutateRowsPayload)
+	if !ok || len(mutate.Mutations) != 1 || mutate.Mutations[0].Action != "update" {
+		t.Fatalf("mutate payload=%#v", mutatePayload)
+	}
+
+	actionRaw := json.RawMessage(`{"catalog":"main","kind":"table","name":"users","action":"count_rows"}`)
+	actionPayload, err := normalizeBrowserDBOperation(dbadapter.OpObjectAction, actionRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action, ok := actionPayload.(dbadapter.ObjectActionPayload)
+	if !ok || action.Action != "count_rows" || action.Name != "users" {
+		t.Fatalf("object action payload=%#v", actionPayload)
+	}
+
+	if _, err := normalizeBrowserDBOperation(dbadapter.OpBrowseRows, json.RawMessage(`{"name":"users","limit":1001}`)); err == nil {
+		t.Fatal("oversized browser row page unexpectedly accepted")
+	}
+	if _, err := normalizeBrowserDBOperation(dbadapter.OpMutateRows, json.RawMessage(`{"name":"users","mutations":[{"action":"delete"}]}`)); err == nil {
+		t.Fatal("identity-free browser delete unexpectedly accepted")
+	}
+}
+
 func TestDatabaseSessionAPIRejectsTunnelUntilTunnelManagerExists(t *testing.T) {
 	registry := dbadapter.NewRegistry()
 	manifest := serverDBTestManifest()
