@@ -179,6 +179,58 @@ func TestDBProfileAPICreateUpdateClearSecretDelete(t *testing.T) {
 	}
 }
 
+func TestDBProfileAPIListAndItemNeverExposeStoredSecret(t *testing.T) {
+	s, store, _ := newDBProfileAPITestServer(t)
+	h := s.Handler()
+
+	create := httptest.NewRequest(http.MethodPost, "/api/db/profiles", strings.NewReader(`{
+		"name":"Secret DB",
+		"adapter_id":"mysql-cli",
+		"transport":"direct",
+		"host":"db.example.com",
+		"port":3306,
+		"username":"app",
+		"secret":"top-secret"
+	}`))
+	create.Header.Set("Content-Type", "application/json")
+	createRR := httptest.NewRecorder()
+	h.ServeHTTP(createRR, create)
+	if createRR.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", createRR.Code, createRR.Body.String())
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(createRR.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := store.Get(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.SecretRef == "" {
+		t.Fatal("stored profile missing secret reference")
+	}
+
+	for _, path := range []string{"/api/db/profiles", "/api/db/profiles/" + created.ID} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("GET %s status=%d body=%s", path, rr.Code, rr.Body.String())
+		}
+		body := rr.Body.String()
+		for _, forbidden := range []string{"top-secret", stored.SecretRef, "secret_ref"} {
+			if strings.Contains(body, forbidden) {
+				t.Fatalf("GET %s leaked %q: %s", path, forbidden, body)
+			}
+		}
+		if !strings.Contains(body, "\"has_secret\":true") {
+			t.Fatalf("GET %s missing has_secret projection: %s", path, body)
+		}
+	}
+}
+
 func TestDBProfileAPIRejectsUnknownAdapter(t *testing.T) {
 	s, store, _ := newDBProfileAPITestServer(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/db/profiles", strings.NewReader(`{
