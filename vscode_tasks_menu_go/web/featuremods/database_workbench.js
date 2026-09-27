@@ -34,6 +34,10 @@ style.textContent=`
 .db-data-grid td.db-editable:focus{box-shadow:inset 0 0 0 1px #3f79a8;background:#121a23}
 .db-data-grid td.db-dirty{background:#332d18}
 .db-data-grid tr.db-deleted td{text-decoration:line-through;opacity:.5}
+.db-data-grid tr.db-selected td{background:#19334d}
+.db-data-grid tr.db-selected td.db-dirty{background:#3c3920}
+.db-data-grid td.db-row-number{cursor:default;user-select:none}
+.db-data-grid th.db-row-number{cursor:pointer;user-select:none}
 .db-data-grid tr.db-new-row td{background:#14261d}
 .db-data-tools .db-apply{background:#244c70;border-color:#3f79a8}
 .db-data-tools .db-danger{background:#54252a;border-color:#7b3941}
@@ -263,7 +267,7 @@ function createWorkbenchChildView(view,mode){
     grid:null,
     panels:{},
     details:root.workbench.details,
-    data:{object:null,offset:0,limit:100,sort:[],filters:[],result:null,busy:false,dirtyRows:new Map(),deletedRows:new Set(),newRows:[]}
+    data:{object:null,offset:0,limit:100,sort:[],filters:[],result:null,busy:false,dirtyRows:new Map(),deletedRows:new Set(),newRows:[],selectedRows:new Set(),selectionAnchor:null}
   };
   return child;
 }
@@ -415,11 +419,12 @@ function updateEditControls(view){
   const busy=Boolean(wb.data.busy);
   const editable=Boolean(result.editable)&&supports(view,'mutate_rows');
   const pending=pendingChangeCount(view);
+  const selected=wb.data.selectedRows?.size||0;
   wb.controls.add.disabled=busy||!editable;
   wb.controls.apply.disabled=busy||!editable||pending===0;
   wb.controls.revert.disabled=busy||!hasPendingChanges(view);
   const base=wb.controls.status.dataset.base||wb.controls.status.textContent||'';
-  wb.controls.status.textContent=base+(pending?' · '+pending+' pending':'');
+  wb.controls.status.textContent=base+(selected?' · '+selected+' selected':'')+(pending?' · '+pending+' pending':'');
 }
 
 function parseEditedValue(text,original,columnType=''){
@@ -442,6 +447,54 @@ function parseEditedValue(text,original,columnType=''){
 
 function sameValue(a,b){
   return JSON.stringify(a)===JSON.stringify(b);
+}
+
+
+function selectedRowIndexes(view){
+  const state=dataState(view);const rowCount=Array.isArray(state.result?.rows)?state.result.rows.length:0;
+  return Array.from(state.selectedRows||[]).filter(index=>Number.isInteger(index)&&index>=0&&index<rowCount).sort((a,b)=>a-b);
+}
+
+function syncGridSelection(view){
+  const state=dataState(view);const selected=state.selectedRows||new Set();const rowCount=Array.isArray(state.result?.rows)?state.result.rows.length:0;
+  for(const tr of view.workbench.grid?.querySelectorAll?.('tbody tr[data-row-index]')||[]){
+    const index=Number(tr.dataset.rowIndex);tr.classList.toggle('db-selected',selected.has(index));
+  }
+  const selectAll=view.workbench.grid?.querySelector?.('th.db-row-number[data-select-all]');
+  if(selectAll){
+    const selectedCount=selectedRowIndexes(view).length;
+    selectAll.textContent=rowCount>0&&selectedCount===rowCount?'☑':(selectedCount>0?'◩':'☐');
+    selectAll.title=rowCount>0&&selectedCount===rowCount?'Clear row selection':'Select all rows on this page';
+  }
+  updateEditControls(view);
+}
+
+function selectGridRow(view,rowIndex,event={}){
+  const state=dataState(view);const rowCount=Array.isArray(state.result?.rows)?state.result.rows.length:0;
+  if(rowIndex<0||rowIndex>=rowCount)return;
+  if(!(state.selectedRows instanceof Set))state.selectedRows=new Set();
+  const additive=Boolean(event.ctrlKey||event.metaKey);
+  if(event.shiftKey&&Number.isInteger(state.selectionAnchor)){
+    const start=Math.min(state.selectionAnchor,rowIndex);const end=Math.max(state.selectionAnchor,rowIndex);
+    if(!additive)state.selectedRows.clear();
+    for(let index=start;index<=end;index++)state.selectedRows.add(index);
+  }else if(additive){
+    if(state.selectedRows.has(rowIndex))state.selectedRows.delete(rowIndex);else state.selectedRows.add(rowIndex);
+    state.selectionAnchor=rowIndex;
+  }else{
+    state.selectedRows.clear();state.selectedRows.add(rowIndex);state.selectionAnchor=rowIndex;
+  }
+  syncGridSelection(view);
+}
+
+function toggleSelectAllPage(view){
+  const state=dataState(view);const rowCount=Array.isArray(state.result?.rows)?state.result.rows.length:0;
+  if(!(state.selectedRows instanceof Set))state.selectedRows=new Set();
+  const allSelected=rowCount>0&&selectedRowIndexes(view).length===rowCount;
+  state.selectedRows.clear();
+  if(!allSelected)for(let index=0;index<rowCount;index++)state.selectedRows.add(index);
+  state.selectionAnchor=rowCount?0:null;
+  syncGridSelection(view);
 }
 
 function setDirtyCell(view,rowIndex,columnIndex,value){
@@ -507,6 +560,7 @@ async function loadData(view,{resetOffset=false}={}){
   try{
     const result=await database.request(view.meta.id,'browse_rows',dataPayload(view));
     state.result=result||{};
+    state.selectedRows?.clear?.();state.selectionAnchor=null;
     clearPendingChanges(view);
     renderDataGrid(view);
   }catch(error){
@@ -539,7 +593,8 @@ function renderDataGrid(view){
   }
   const table=document.createElement('table');table.className='db-data-grid';
   const thead=document.createElement('thead');const hr=document.createElement('tr');
-  const nr=document.createElement('th');nr.className='db-row-number';nr.textContent='#';hr.append(nr);
+  const nr=document.createElement('th');nr.className='db-row-number';nr.dataset.selectAll='1';nr.textContent='☐';nr.title='Select all rows on this page';
+  nr.onclick=event=>{event.preventDefault();toggleSelectAllPage(view);};hr.append(nr);
   for(const column of columns){
     const th=document.createElement('th');th.textContent=column.name||'';th.title=column.type||'';
     const active=state.sort.find(item=>item.column===column.name);
@@ -558,7 +613,9 @@ function renderDataGrid(view){
   rows.forEach((row,rowIndex)=>{
     const tr=document.createElement('tr');tr.dataset.rowIndex=String(rowIndex);
     if(state.deletedRows.has(rowIndex))tr.classList.add('db-deleted');
-    const rowNo=document.createElement('td');rowNo.className='db-row-number';rowNo.textContent=String(state.offset+rowIndex+1);tr.append(rowNo);
+    if(state.selectedRows?.has(rowIndex))tr.classList.add('db-selected');
+    const rowNo=document.createElement('td');rowNo.className='db-row-number';rowNo.textContent=String(state.offset+rowIndex+1);rowNo.title='Click to select row · Ctrl/Cmd-click multi-select · Shift-click range';
+    rowNo.onclick=event=>{event.preventDefault();selectGridRow(view,rowIndex,event);};tr.append(rowNo);
     columns.forEach((column,columnIndex)=>{
       const value=currentCellValue(view,rowIndex,columnIndex);
       const td=document.createElement('td');td.dataset.rowIndex=String(rowIndex);td.dataset.columnIndex=String(columnIndex);
@@ -591,7 +648,9 @@ function renderDataGrid(view){
     });
     tr.oncontextmenu=event=>{
       if(event.target.closest('td:not(.db-row-number)'))return;
-      event.preventDefault();showRowMenu(view,rowIndex,event.clientX,event.clientY);
+      event.preventDefault();
+      if(!state.selectedRows?.has(rowIndex))selectGridRow(view,rowIndex,{});
+      showRowMenu(view,rowIndex,event.clientX,event.clientY);
     };
     tbody.append(tr);
   });
@@ -625,7 +684,7 @@ function renderDataGrid(view){
     };
     tbody.append(tr);
   });
-  table.append(tbody);wb.grid.append(table);
+  table.append(tbody);wb.grid.append(table);syncGridSelection(view);
   if(rows.length===0&&state.newRows.length===0){
     const empty=document.createElement('div');empty.className='db-data-empty';empty.textContent=state.filters.length?'No rows match the current filters.':'This object contains no rows/documents/entries.';wb.grid.append(empty);
   }
