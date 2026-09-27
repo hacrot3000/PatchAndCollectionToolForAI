@@ -337,4 +337,12 @@ VALUES(?,?,?,?,?,?)
 	if version != 2 {
 		t.Fatalf("migrated schema version=%d want=2", version)
 	}
+
+	_, err = sqliteStore.db.ExecContext(ctx, `
+INSERT INTO auth_sessions(id,user_id,token_hash,created_at,expires_at,last_seen_at)
+VALUES('legacy-after-v2','alice','legacy-after-v2-hash',?,?,?)
+`, stamp, legacySession.ExpiresAt.Format(time.RFC3339Nano), stamp)
+	if err == nil {
+		t.Fatal("schema v2 accepted an auth session without project_id")
+	}
 }
