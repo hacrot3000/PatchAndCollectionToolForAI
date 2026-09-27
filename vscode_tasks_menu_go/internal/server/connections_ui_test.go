@@ -42,6 +42,8 @@ func TestConnectionsPanelUsesExistingTerminalSessionsAndSafeProfileAPI(t *testin
 		"SQLite database file",
 		"Busy timeout (ms)",
 		"options.busy_timeout_ms",
+		"timeout.wrap.style.display=sqlite?'none':'flex'",
+		"adapterKind!=='sqlite'&&timeout.input.value.trim()",
 		"transport.wrap.style.display=sqlite?'none':'flex'",
 		"file:sqlite?sqliteFile.input.value:''",
 		"port:sqlite?0:",
