@@ -696,12 +696,19 @@ Implementation notes:
 
 ### Phase 7 — Redis
 
-1. [ ] Pure-Go RESP codec/client.
-2. [ ] Direct connection adapter.
-3. [ ] Safe initial read-oriented commands/browser.
-4. [ ] Generic execute UI where appropriate.
-5. [ ] SSH tunnel reuse.
-6. [ ] Tests.
+1. [x] Implement bounded RESP2 codec and persistent TCP client in pure Go stdlib.
+2. [x] Add built-in `redis-go` adapter with AUTH, SELECT, PING and direct connections.
+3. [x] Add bounded SCAN key browser, TYPE/TTL detail and safe key-type previews.
+4. [x] Reuse the generic database query workspace with Redis-aware defaults (`PING`, key labels, Redis profile options).
+5. [x] Reuse the generic direct/SSH-tunnel transport path; Redis adapter receives only the effective host/port and contains no SSH code.
+6. [x] Add codec, config, TCP client, command allowlist, result normalization, handler and UI regression tests.
+
+Implementation notes:
+
+- The initial Redis adapter is deliberately read-oriented even when a profile is marked read/write.
+- Arbitrary Redis commands are not exposed. The adapter uses an explicit allowlist for non-destructive reads such as GET/HGET/LRANGE/SCAN/TYPE/TTL.
+- Commands such as SET, DEL, FLUSHALL, CONFIG, EVAL and MULTI are rejected inside the adapter before they reach Redis.
+- RESP lines, bulk values, arrays, nesting, browse key counts and normalized browser results are bounded.
 
 ### Phase 8 — MongoDB
 
