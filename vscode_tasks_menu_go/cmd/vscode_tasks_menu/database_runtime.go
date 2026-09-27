@@ -10,6 +10,7 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/dbmysql"
 	"bletonfc/vscode_tasks_menu/internal/dbredis"
 	"bletonfc/vscode_tasks_menu/internal/dbsession"
+	"bletonfc/vscode_tasks_menu/internal/dbsqlite"
 	"bletonfc/vscode_tasks_menu/internal/secretstore"
 	"bletonfc/vscode_tasks_menu/internal/sshtunnel"
 	"bletonfc/vscode_tasks_menu/internal/state"
@@ -66,6 +67,26 @@ func newDatabaseRuntime(workspace string, logger *log.Logger) (*databaseRuntime,
 	}
 	if logger != nil {
 		logger.Printf("database adapter=%s implementation=built-in-go", redisManifest.ID)
+	}
+
+	sqlitePython, sqliteErr := dbsqlite.FindPython()
+	if sqliteErr != nil {
+		if logger != nil {
+			logger.Printf("database adapter sqlite unavailable: %v", sqliteErr)
+		}
+	} else {
+		sqliteManifest, manifestErr := dbsqlite.BuiltinManifest(executable)
+		if manifestErr != nil {
+			runtime.Close()
+			return nil, manifestErr
+		}
+		if registerErr := registry.Register(sqliteManifest); registerErr != nil {
+			runtime.Close()
+			return nil, registerErr
+		}
+		if logger != nil {
+			logger.Printf("database adapter=%s python=%s version=%s", sqliteManifest.ID, sqlitePython.Path, sqlitePython.Version)
+		}
 	}
 
 	mongoClient, mongoErr := dbmongo.FindClient()
