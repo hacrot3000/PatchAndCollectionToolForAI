@@ -9,8 +9,8 @@ let contextMenu=null;
 const style=document.createElement('style');
 style.textContent=`
 .db-main{min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column}
-.db-workbench-tabs{height:34px;display:flex;align-items:end;gap:2px;padding:0 7px;border-bottom:1px solid #30343b;background:#11151b}
-.db-workbench-tab{border-radius:5px 5px 0 0;border-bottom:0;padding:6px 8px;font-size:11px;opacity:.7;display:inline-flex;align-items:center;gap:7px;max-width:260px}
+.db-workbench-tabs{height:34px;display:flex;align-items:end;gap:2px;padding:0 7px;border-bottom:1px solid #30343b;background:#11151b;overflow-x:auto;overflow-y:hidden;flex:0 0 auto}
+.db-workbench-tab{border-radius:5px 5px 0 0;border-bottom:0;padding:6px 8px;font-size:11px;opacity:.7;display:inline-flex;align-items:center;gap:7px;max-width:260px;flex:0 0 auto}
 .db-workbench-tab-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .db-workbench-tab-close{font-size:13px;line-height:1;opacity:.55}
 .db-workbench-tab-close:hover{opacity:1}
