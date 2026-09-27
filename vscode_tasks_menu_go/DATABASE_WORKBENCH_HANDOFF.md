@@ -252,7 +252,7 @@ Non-tabular semantics:
 - [x] SSH-tunneled DB regression covers Workbench browse request and tunnel lifetime.
 - [x] Browser source/regression tests.
 - [x] README/Connections documentation.
-- [ ] Full CI Go 1.19 + 1.23.
+- [x] Full CI Go 1.19 + 1.23.
 - [ ] Final diff review against main.
 
 ## Current checkpoint
@@ -291,12 +291,19 @@ Current base relationship:
 - branch created from `main@3de8cafef4a8bfaa7a631466ee90bb7bf2aade24`
 - main had not moved as of the last comparison; branch was ahead only, behind 0.
 
+Release validation evidence:
+- Functional HEAD: `44a26c33ac1f7acc00abfc572d13999010364b6d`
+- GitHub Actions run: `36317624712`
+- Go 1.23.x job `108615215741`: **success**
+- Go 1.19.x job `108615215637`: **success**
+- Both jobs passed launcher/installer syntax, Patch entry routing, JavaScript syntax, TaskDeck Patch handoff state, staged self-update tests, legacy staged self-update tests, full `go test ./...`, `go vet ./...` and production build.
+- Final mutation-response hardening on this functional HEAD requires ordered result indexes and rejects/reloads incomplete browser mutation responses.
+
 Remaining release steps:
-1. Confirm both Go 1.19.x and Go 1.23.x CI jobs green at latest functional HEAD.
-2. Remove the temporary `feat/database-workbench-ui` workflow trigger.
-3. Verify workflow file is byte-for-byte equivalent to main again.
-4. Final compare/diff review against main.
-5. Record final CI evidence in this handoff.
+1. Remove the temporary `feat/database-workbench-ui` workflow trigger.
+2. Verify workflow file is byte-for-byte equivalent to main again.
+3. Final compare/diff review against main.
+4. Record final branch state and trigger-removal commit in this handoff.
 
 ## Continuation rule
 
