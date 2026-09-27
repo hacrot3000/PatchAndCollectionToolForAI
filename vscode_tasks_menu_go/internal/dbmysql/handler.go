@@ -313,6 +313,7 @@ func (h *Handler) describeObject(ctx context.Context, payload dbadapter.Describe
 			"name":      name,
 			"catalog":   catalog,
 			"columns":   []map[string]interface{}{},
+			"indexes":   []map[string]interface{}{},
 			"truncated": result.Truncated,
 		}, nil
 	}
@@ -340,15 +341,53 @@ func (h *Handler) describeObject(ctx context.Context, payload dbadapter.Describe
 		}
 		columns = append(columns, column)
 	}
+	indexDetails, indexTruncated, err := h.describeIndexes(ctx, catalog, name)
+	if err != nil {
+		return nil, mysqlProtocolError("DESCRIBE_FAILED", err)
+	}
 	return map[string]interface{}{
 		"kind":      firstNonEmpty(strings.TrimSpace(payload.Kind), "table"),
 		"name":      name,
 		"catalog":   catalog,
 		"columns":   columns,
-		"truncated": result.Truncated,
+		"indexes":   indexDetails,
+		"truncated": result.Truncated || indexTruncated,
 	}, nil
 }
 
+func (h *Handler) describeIndexes(ctx context.Context, catalog, name string) ([]map[string]interface{}, bool, error) {
+	query := "/* taskdeck_describe_indexes */ SELECT INDEX_NAME AS name, NON_UNIQUE AS non_unique, " +
+		"COLUMN_NAME AS column_name, SEQ_IN_INDEX AS seq, INDEX_TYPE AS index_type " +
+		"FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
+		" AND TABLE_NAME = " + mysqlTextExpression(name) +
+		" ORDER BY INDEX_NAME, SEQ_IN_INDEX"
+	result, err := h.query(ctx, query, dbadapter.MaxRows)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(result.Rows) == 0 {
+		return []map[string]interface{}{}, result.Truncated, nil
+	}
+	fields := map[string]int{}
+	for _, field := range []string{"name", "non_unique", "column_name", "seq", "index_type"} {
+		index, err := resultColumnIndex(result, field)
+		if err != nil {
+			return nil, false, err
+		}
+		fields[field] = index
+	}
+	indexes := make([]map[string]interface{}, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		indexes = append(indexes, map[string]interface{}{
+			"name":        resultCellString(row[fields["name"]]),
+			"column_name": resultCellString(row[fields["column_name"]]),
+			"sequence":    resultCellString(row[fields["seq"]]),
+			"unique":      resultCellString(row[fields["non_unique"]]) == "0",
+			"type":        resultCellString(row[fields["index_type"]]),
+		})
+	}
+	return indexes, result.Truncated, nil
+}
 
 type mysqlBrowseColumn struct {
 	Name     string
