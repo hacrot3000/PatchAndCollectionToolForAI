@@ -619,15 +619,23 @@ Implementation notes:
 
 ### Phase 3 — Database adapter foundation
 
-1. [ ] Define versioned JSONL protocol.
-2. [ ] Define adapter manifest/capabilities.
-3. [ ] Implement bounded process supervisor and cancellation.
-4. [ ] Implement adapter discovery.
-5. [ ] Add dummy/test adapter to lock protocol semantics.
-6. [ ] Add DB profile model/store with secret references.
-7. [ ] Add generic DB connection/session API.
-8. [ ] Add bounded normalized result model.
-9. [ ] Add protocol/security tests.
+1. [x] Define versioned JSONL protocol.
+2. [x] Define adapter manifest/capabilities.
+3. [x] Implement bounded process supervisor and cancellation.
+4. [x] Implement allowlisted adapter registry/discovery boundary plus runtime identity/capability handshake.
+5. [x] Add in-process and re-exec dummy/test adapters to lock protocol semantics.
+6. [x] Add DB profile model/store with secret references and direct/SSH-tunnel transport schema.
+7. [x] Add generic DB connection/session API with browser operation allowlist.
+8. [x] Add bounded normalized execute result model and enforce it at the process boundary.
+9. [x] Add protocol, profile, process, session and HTTP security regression tests.
+
+Implementation notes:
+
+- Adapter executables/argv exist only in the server-side registry and are omitted from browser JSON.
+- Each logical DB session owns one supervised adapter process; identity and capabilities must match the registered manifest before connect.
+- Browser callers cannot invoke protocol control operations such as connect/disconnect/cancel/transactions directly.
+- Adapter stderr is bounded and never used as protocol.
+- Query cancellation currently terminates the owning adapter process, guaranteeing no orphaned long-running query at the cost of closing that logical DB session.
 
 ### Phase 4 — MySQL direct
 
