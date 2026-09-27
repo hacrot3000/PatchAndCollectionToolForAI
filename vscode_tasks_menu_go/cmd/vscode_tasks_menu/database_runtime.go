@@ -7,6 +7,7 @@ import (
 
 	"bletonfc/vscode_tasks_menu/internal/dbadapter"
 	"bletonfc/vscode_tasks_menu/internal/dbmysql"
+	"bletonfc/vscode_tasks_menu/internal/dbredis"
 	"bletonfc/vscode_tasks_menu/internal/dbsession"
 	"bletonfc/vscode_tasks_menu/internal/secretstore"
 	"bletonfc/vscode_tasks_menu/internal/sshtunnel"
@@ -51,6 +52,19 @@ func newDatabaseRuntime(workspace string, logger *log.Logger) (*databaseRuntime,
 		Sessions: sessions,
 		Tunnels:  tunnels,
 		Secrets:  secrets,
+	}
+
+	redisManifest, err := dbredis.BuiltinManifest(executable)
+	if err != nil {
+		runtime.Close()
+		return nil, err
+	}
+	if err := registry.Register(redisManifest); err != nil {
+		runtime.Close()
+		return nil, err
+	}
+	if logger != nil {
+		logger.Printf("database adapter=%s implementation=built-in-go", redisManifest.ID)
 	}
 
 	client, err := dbmysql.FindClient()
