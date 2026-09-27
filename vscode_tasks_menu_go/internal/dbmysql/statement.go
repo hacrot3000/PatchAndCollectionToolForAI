@@ -154,8 +154,13 @@ func containsMySQLExecutableComment(statement string) bool {
 			quote = r
 			continue
 		}
-		if r == '/' && next == '*' && runes[i+2] == '!' {
-			return true
+		if r == '/' && next == '*' {
+			if runes[i+2] == '!' {
+				return true
+			}
+			if (runes[i+2] == 'M' || runes[i+2] == 'm') && i+3 < len(runes) && runes[i+3] == '!' {
+				return true
+			}
 		}
 	}
 	return false
