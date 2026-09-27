@@ -433,6 +433,15 @@ function renderDataGrid(view){
       if(cellEditable){
         td.contentEditable='true';td.spellcheck=false;td.classList.add('db-editable');
         td.addEventListener('focus',()=>{if(td.classList.contains('db-data-null')){td.textContent='';td.classList.remove('db-data-null');}});
+        td.addEventListener('keydown',event=>{
+          if(event.key==='Escape'){event.preventDefault();renderDataGrid(view);return;}
+          if(event.key==='Enter'&&!event.shiftKey){
+            event.preventDefault();
+            const nextColumn=Math.min(columns.length-1,columnIndex+1);
+            td.blur();
+            requestAnimationFrame(()=>view.workbench.grid.querySelector('td[data-row-index="'+rowIndex+'"][data-column-index="'+nextColumn+'"]')?.focus());
+          }
+        });
         td.addEventListener('blur',()=>{
           try{
             const original=row.values?.[columnIndex];
@@ -458,6 +467,10 @@ function renderDataGrid(view){
       td.textContent=has?displayValue(value):'';td.classList.add('db-editable');td.contentEditable='true';td.spellcheck=false;td.title=column.type||'';
       if(has&&value===null)td.classList.add('db-data-null');
       td.addEventListener('focus',()=>{if(td.classList.contains('db-data-null')){td.textContent='';td.classList.remove('db-data-null');}});
+      td.addEventListener('keydown',event=>{
+        if(event.key==='Escape'){event.preventDefault();renderDataGrid(view);return;}
+        if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();td.blur();}
+      });
       td.addEventListener('blur',()=>{
         try{
           const text=td.textContent;
@@ -545,10 +558,31 @@ function openValueViewer(titleText,value,{editable=false,onSave=null}={}){
   dialog.addEventListener('pointerdown',event=>{if(event.target===dialog)dialog.remove();});
 }
 
+function pageSizePreferenceKey(view,object){
+  return 'taskdeck.db.pageSize.'+[
+    view.meta?.profile_id||'session',
+    object?.catalog||view.catalog?.value||'',
+    object?.kind||'object',
+    object?.name||''
+  ].map(value=>encodeURIComponent(String(value))).join('.');
+}
+
+function storedPageSize(view,object){
+  try{
+    const value=Number(localStorage.getItem(pageSizePreferenceKey(view,object)));
+    return [25,50,100,250,500,1000].includes(value)?value:100;
+  }catch{return 100;}
+}
+
+function storePageSize(view,object,value){
+  try{localStorage.setItem(pageSizePreferenceKey(view,object),String(value));}catch{}
+}
+
 async function openTableData(view,object){
   if(!confirmDiscardChanges(view))return;
   const state=dataState(view);
-  state.object=object;state.offset=0;state.sort=[];state.filters=[];state.result=null;clearPendingChanges(view);
+  state.object=object;state.offset=0;state.limit=storedPageSize(view,object);state.sort=[];state.filters=[];state.result=null;clearPendingChanges(view);
+  if(view.workbench?.controls?.pageSize)view.workbench.controls.pageSize.value=String(state.limit);
   wbSetDataTitle(view,object);
   activatePanel(view,'data');
   await loadData(view);
@@ -827,13 +861,27 @@ function createDataPanel(view){
   first.onclick=()=>{if(!confirmDiscardChanges(view))return;const state=dataState(view);state.offset=0;loadData(view).catch(app.showError);};
   prev.onclick=()=>{if(!confirmDiscardChanges(view))return;const state=dataState(view);state.offset=Math.max(0,state.offset-state.limit);loadData(view).catch(app.showError);};
   next.onclick=()=>{if(!confirmDiscardChanges(view))return;const state=dataState(view);state.offset+=state.limit;loadData(view).catch(app.showError);};
-  pageSize.onchange=()=>{if(!confirmDiscardChanges(view)){pageSize.value=String(dataState(view).limit);return;}const state=dataState(view);state.limit=Math.max(1,Math.min(1000,Number(pageSize.value)||100));state.offset=0;loadData(view).catch(app.showError);};
+  pageSize.onchange=()=>{if(!confirmDiscardChanges(view)){pageSize.value=String(dataState(view).limit);return;}const state=dataState(view);state.limit=Math.max(1,Math.min(1000,Number(pageSize.value)||100));state.offset=0;if(state.object)storePageSize(view,state.object,state.limit);loadData(view).catch(app.showError);};
   refresh.onclick=()=>{if(!confirmDiscardChanges(view))return;loadData(view).catch(app.showError);};
   filter.disabled=!filterCapable(view);filter.onclick=()=>openFilterDialog(view);
   add.onclick=()=>addGridRow(view);
   apply.onclick=()=>applyGridChanges(view).catch(app.showError);
   revert.onclick=()=>{clearPendingChanges(view);renderDataGrid(view);};
   return panel;
+}
+
+function paneKeyboardShortcuts(view){
+  view.pane.addEventListener('keydown',event=>{
+    if(view.workbench?.active!=='data')return;
+    if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'){
+      event.preventDefault();
+      if(pendingChangeCount(view)>0)applyGridChanges(view).catch(app.showError);
+      return;
+    }
+    if(event.altKey&&(event.key==='Insert'||event.key.toLowerCase()==='n')){
+      event.preventDefault();addGridRow(view);
+    }
+  });
 }
 
 function enhanceView(view){
@@ -860,6 +908,7 @@ function enhanceView(view){
   };
   const data=createDataPanel(view);view.workbench.panels.data=data;
   main.prepend(tabsBar);main.append(data,structure);
+  paneKeyboardShortcuts(view);
   activatePanel(view,'query');
 
   const browserHead=view.objects?.closest('.db-browser')?.querySelector('.db-browser-head');
