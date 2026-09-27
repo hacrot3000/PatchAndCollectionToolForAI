@@ -712,13 +712,20 @@ Implementation notes:
 
 ### Phase 8 — MongoDB
 
-1. [ ] `mongosh` discovery.
-2. [ ] EJSON machine-output adapter.
-3. [ ] Database/collection discovery.
-4. [ ] Bounded query execution.
-5. [ ] SSH tunnel reuse.
-6. [ ] Tests.
-7. [ ] Reassess standalone Go-driver adapter only if CLI limitations are material.
+1. [x] Discover/probe system `mongosh`; advertise the adapter only when the executable is available.
+2. [x] Run isolated `mongosh --nodb --norc --quiet --file <protected-script>` operations with one marked EJSON result envelope.
+3. [x] Add database/collection discovery and collection metadata/index description.
+4. [x] Add bounded `find` execution through a JSON query DSL; browser-provided JavaScript is never evaluated.
+5. [x] Reuse the generic direct/SSH-tunnel transport path without Mongo-specific SSH code.
+6. [x] Add discovery, config/URI, protected script, query safety, handler, runtime and UI regression tests.
+7. [x] Reassess a standalone Go-driver adapter and defer it: current `mongosh` coverage satisfies the initial read-oriented scope without adding a third-party Go dependency.
+
+Implementation notes:
+
+- MongoDB credentials are not placed in argv. They exist only in adapter memory and a short-lived script file under a `0700` temp directory with file mode `0600`, removed after each invocation.
+- `--nodb` prevents an unintended localhost connection before the TaskDeck script connects to the configured endpoint; `--norc` prevents user rc/snippet code from affecting adapter output.
+- Generic execute accepts only a versionless JSON `find` request with bounded rows. `$where`, `$function` and `$accumulator` are rejected to prevent server-side JavaScript execution.
+- No npm dependency is added to TaskDeck.
 
 ### Phase 9 — SQLite
 
