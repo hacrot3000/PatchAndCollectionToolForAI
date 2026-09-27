@@ -174,7 +174,7 @@ func TestDatabaseWorkbenchSupportsInlineGridEditing(t *testing.T) {
 		"Delete Row",
 		"Discard unsaved database grid changes?",
 		"Truncate Table",
-		"Type \"'+object.name+'\" to confirm dropping",
+		"const typed=prompt('Type \"'+object.name+'\" to confirm '+verb",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("database_workbench.js missing inline-edit workflow %q", want)
