@@ -16,6 +16,10 @@ func TestConnectionsPanelUsesExistingTerminalSessionsAndSafeProfileAPI(t *testin
 	for _, want := range []string{
 		"task-connections-panel",
 		"app.jsonFetch('/api/ssh/profiles')",
+		"app.jsonFetch('/api/ssh/test'",
+		"body:JSON.stringify({profile_id:profile.id})",
+		"onTest:button=>testSSH(profile,button)",
+		"Test connection",
 		"app.jsonFetch('/api/config/terminal-cwds')",
 		"body:JSON.stringify({kind:'terminal',...payload})",
 		"app.materializeSession(meta,true)",
