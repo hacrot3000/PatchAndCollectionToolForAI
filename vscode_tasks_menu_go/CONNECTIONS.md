@@ -171,8 +171,18 @@ GOPROXY=off GOSUMDB=off go build ...
 
 The installer also verifies the embedded SQLite helper source is present before build. Redis adds no external package; MongoDB and SQLite dependencies are runtime executables (`mongosh` and Python 3), not build-time downloads.
 
-## Current shared-server boundary
+## Audit hook and current shared-server boundary
 
-This branch keeps the existing single-user/browser security model. Connections does not introduce a separate authorization or audit subsystem.
+Connections emits a small server-side audit event for sensitive successful/failed operations such as profile mutation, SSH connection tests/terminal starts and DB session operations.
 
-Shared-server RBAC/audit integration is intentionally deferred until the shared-server architecture is merged into the target branch; it should reuse that common authorization/audit layer rather than create a second incompatible system inside Connections.
+The event contains only:
+
+- kind;
+- action;
+- profile ID;
+- session ID;
+- success/failure.
+
+It intentionally does not contain password/passphrase, host, SQL, Redis command, Mongo filter, request body or query string. If no external audit sink is configured, TaskDeck writes the same minimal metadata to its existing logger.
+
+This branch keeps the existing single-user/browser authorization model. Shared-server RBAC and user-aware audit attribution are intentionally deferred until the shared-server architecture is merged into the target branch; that architecture can attach its own sink through the connection audit hook rather than create a second incompatible auth/audit system inside Connections.
