@@ -390,9 +390,11 @@ func (h *Handler) describeIndexes(ctx context.Context, catalog, name string) ([]
 }
 
 type mysqlBrowseColumn struct {
-	Name     string
-	Type     string
-	Nullable bool
+	Name         string
+	Type         string
+	Nullable     bool
+	CharacterSet string
+	Collation    string
 }
 
 type mysqlIndexColumn struct {
@@ -620,7 +622,7 @@ func mysqlMutationIdentity(columns map[string]mysqlBrowseColumn, identityColumns
 		if err != nil {
 			return "", err
 		}
-		expression, err := mysqlValueExpression(value)
+		expression, err := mysqlIdentityValueExpression(column, value)
 		if err != nil {
 			return "", err
 		}
@@ -788,7 +790,8 @@ func (h *Handler) browseRows(ctx context.Context, payload dbadapter.BrowseRowsPa
 }
 
 func (h *Handler) browseMetadata(ctx context.Context, catalog, name string) ([]mysqlBrowseColumn, []string, error) {
-	columnsQuery := "SELECT COLUMN_NAME AS name, COLUMN_TYPE AS type, IS_NULLABLE AS nullable " +
+	columnsQuery := "SELECT COLUMN_NAME AS name, COLUMN_TYPE AS type, IS_NULLABLE AS nullable, " +
+		"CHARACTER_SET_NAME AS character_set, COLLATION_NAME AS collation " +
 		"FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
 		" AND TABLE_NAME = " + mysqlTextExpression(name) + " ORDER BY ORDINAL_POSITION"
 	columnResult, err := h.query(ctx, columnsQuery, dbadapter.MaxRows)
@@ -810,12 +813,22 @@ func (h *Handler) browseMetadata(ctx context.Context, catalog, name string) ([]m
 	if err != nil {
 		return nil, nil, err
 	}
+	characterSetIndex, err := resultColumnIndex(columnResult, "character_set")
+	if err != nil {
+		return nil, nil, err
+	}
+	collationIndex, err := resultColumnIndex(columnResult, "collation")
+	if err != nil {
+		return nil, nil, err
+	}
 	columns := make([]mysqlBrowseColumn, 0, len(columnResult.Rows))
 	for _, row := range columnResult.Rows {
 		columns = append(columns, mysqlBrowseColumn{
-			Name: resultCellString(row[nameIndex]),
-			Type: resultCellString(row[typeIndex]),
-			Nullable: strings.EqualFold(resultCellString(row[nullableIndex]), "YES"),
+			Name:         resultCellString(row[nameIndex]),
+			Type:         resultCellString(row[typeIndex]),
+			Nullable:     strings.EqualFold(resultCellString(row[nullableIndex]), "YES"),
+			CharacterSet: resultCellString(row[characterSetIndex]),
+			Collation:    resultCellString(row[collationIndex]),
 		})
 	}
 
@@ -953,6 +966,38 @@ func mysqlFilterExpression(column string, filter dbadapter.RowFilter) (string, e
 	default:
 		return "", fmt.Errorf("unsupported MySQL filter operator %q", filter.Operator)
 	}
+}
+
+func mysqlIdentityValueExpression(column mysqlBrowseColumn, value interface{}) (string, error) {
+	text, ok := value.(string)
+	if !ok || strings.TrimSpace(column.CharacterSet) == "" {
+		return mysqlValueExpression(value)
+	}
+	characterSet := strings.TrimSpace(column.CharacterSet)
+	if err := validateMySQLCollationToken(characterSet); err != nil {
+		return "", fmt.Errorf("column %q character set: %w", column.Name, err)
+	}
+	expression := "CONVERT(0x" + hex.EncodeToString([]byte(text)) + " USING " + characterSet + ")"
+	if collation := strings.TrimSpace(column.Collation); collation != "" {
+		if err := validateMySQLCollationToken(collation); err != nil {
+			return "", fmt.Errorf("column %q collation: %w", column.Name, err)
+		}
+		expression += " COLLATE " + collation
+	}
+	return expression, nil
+}
+
+func validateMySQLCollationToken(value string) error {
+	if value == "" {
+		return fmt.Errorf("MySQL character set/collation is required")
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			continue
+		}
+		return fmt.Errorf("unsupported MySQL character set/collation %q", value)
+	}
+	return nil
 }
 
 func mysqlValueExpression(value interface{}) (string, error) {
