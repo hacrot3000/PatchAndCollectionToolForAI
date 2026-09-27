@@ -160,7 +160,7 @@ function renderObjects(view,result){
   view.objects.replaceChildren();
   const objects=Array.isArray(result)?result:(Array.isArray(result?.objects)?result.objects:[]);
   if(!objects.length){
-    const empty=document.createElement('div');empty.className='task-connection-empty';empty.textContent='No tables or views';view.objects.append(empty);return;
+    const empty=document.createElement('div');empty.className='task-connection-empty';empty.textContent=view.meta.adapter_kind==='redis'?'No keys':'No tables or views';view.objects.append(empty);return;
   }
   for(const object of objects){
     const button=document.createElement('button');button.type='button';button.className='db-object';button.dataset.name=object?.name||'';
@@ -234,7 +234,7 @@ function attachDatabaseView(meta,activate){
   const rowsLabel=document.createElement('label');rowsLabel.textContent='Max rows';
   const maxRows=document.createElement('input');maxRows.type='number';maxRows.min='1';maxRows.max='1000';maxRows.value='100';
   tools.append(run,rowsLabel,maxRows);
-  const editor=document.createElement('textarea');editor.className='db-query-editor';editor.spellcheck=false;editor.value='SELECT 1';
+  const editor=document.createElement('textarea');editor.className='db-query-editor';editor.spellcheck=false;editor.value=meta.adapter_kind==='redis'?'PING':'SELECT 1';
   const result=document.createElement('div');result.className='db-result-wrap';
   query.append(tools,editor,result);
   body.append(browser,query);pane.append(head,body);panes.append(pane);
