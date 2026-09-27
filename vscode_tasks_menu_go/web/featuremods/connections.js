@@ -153,7 +153,8 @@ function databaseEndpoint(profile){
   const port=Number(profile?.port)||3306;
   const database=profile?.database?' / '+profile.database:'';
   const mode=profile?.read_only?'read-only':'read/write';
-  return host+':'+port+database+' · '+mode;
+  const transport=profile?.transport==='ssh_tunnel'?' · SSH tunnel':'';
+  return host+':'+port+database+' · '+mode+transport;
 }
 
 async function saveLocalSettings(next){
@@ -319,6 +320,16 @@ function openDatabaseProfileDialog(profile=null){
   const adapter=field(form,'Adapter','adapter_id',{value:profile?.adapter_id||dbAdapters[0]?.id||'',options:adapterOptions});
   adapter.input.value=profile?.adapter_id||dbAdapters[0]?.id||'';
   const name=field(form,'Name','name',{value:profile?.name||''});
+  const transport=field(form,'Transport','transport',{
+    value:profile?.transport||'direct',
+    options:[['direct','Direct'],['ssh_tunnel','SSH tunnel']]
+  });
+  transport.input.value=profile?.transport||'direct';
+  const sshOptions=sshProfiles.map(item=>[item.id,item.name||((item.username?item.username+'@':'')+item.host)]);
+  if(profile?.ssh_profile_id&&!sshOptions.some(option=>option[0]===profile.ssh_profile_id))sshOptions.unshift([profile.ssh_profile_id,profile.ssh_profile_id+' (unavailable)']);
+  if(!sshOptions.length)sshOptions.push(['','No SSH profiles available']);
+  const sshProfile=field(form,'SSH profile','ssh_profile_id',{wide:true,value:profile?.ssh_profile_id||'',options:sshOptions});
+  sshProfile.input.value=profile?.ssh_profile_id||'';
   const host=field(form,'Host','host',{value:profile?.host||'127.0.0.1'});
   const port=field(form,'Port','port',{type:'number',value:String(profile?.port||3306)});
   const username=field(form,'Username','username',{value:profile?.username||''});
@@ -328,6 +339,16 @@ function openDatabaseProfileDialog(profile=null){
   const clearSecret=editing&&profile?.has_secret?checkboxField(form,'Clear saved password','clear_secret',false,{wide:true}):null;
   const charset=field(form,'Charset','charset',{value:profile?.options?.charset||'utf8mb4'});
   const timeout=field(form,'Connect timeout (seconds)','connect_timeout_seconds',{type:'number',value:profile?.options?.connect_timeout_seconds||'10'});
+
+  function syncDatabaseTransport(){
+    const tunneled=transport.input.value==='ssh_tunnel';
+    sshProfile.wrap.style.display=tunneled?'flex':'none';
+    const hostLabel=host.wrap.querySelector('label');
+    const portLabel=port.wrap.querySelector('label');
+    if(hostLabel)hostLabel.textContent=tunneled?'Remote DB host':'Host';
+    if(portLabel)portLabel.textContent=tunneled?'Remote DB port':'Port';
+  }
+  transport.input.addEventListener('change',syncDatabaseTransport);syncDatabaseTransport();
 
   const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
   const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>closeDialog(dialog);
@@ -347,7 +368,7 @@ function openDatabaseProfileDialog(profile=null){
       const payload={
         name:name.input.value,
         adapter_id:adapter.input.value,
-        transport:'direct',
+        transport:transport.input.value,
         host:host.input.value,
         port:Number(port.input.value)||3306,
         username:username.input.value,
@@ -355,6 +376,10 @@ function openDatabaseProfileDialog(profile=null){
         read_only:readOnly.input.checked,
         options
       };
+      if(transport.input.value==='ssh_tunnel'){
+        if(!sshProfile.input.value)throw new Error('Select an SSH profile for the database tunnel');
+        payload.ssh_profile_id=sshProfile.input.value;
+      }
       if(secret.input.value!=='')payload.secret=secret.input.value;
       else if(clearSecret?.input.checked)payload.secret='';
       await app.jsonFetch(editing?'/api/db/profiles/'+encodeURIComponent(profile.id):'/api/db/profiles',{
