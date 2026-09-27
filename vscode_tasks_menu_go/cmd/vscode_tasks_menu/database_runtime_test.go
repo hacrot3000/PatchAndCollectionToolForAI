@@ -10,6 +10,7 @@ import (
 )
 
 func TestDatabaseRuntimeAdvertisesMysqlWhenClientExists(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is POSIX-only")
 	}
@@ -39,6 +40,7 @@ func TestDatabaseRuntimeAdvertisesMysqlWhenClientExists(t *testing.T) {
 }
 
 func TestDatabaseRuntimeStartsWithoutMysqlClient(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
 
 	runtime, err := newDatabaseRuntime(t.TempDir(), log.New(io.Discard, "", 0))
@@ -50,7 +52,7 @@ func TestDatabaseRuntimeStartsWithoutMysqlClient(t *testing.T) {
 	if got := runtime.Registry.List(); len(got) != 0 {
 		t.Fatalf("unexpected adapters=%+v", got)
 	}
-	if runtime.Sessions == nil {
-		t.Fatal("database session manager is nil")
+	if runtime.Sessions == nil || runtime.Tunnels == nil || runtime.Secrets == nil {
+		t.Fatalf("database runtime dependencies are incomplete: %+v", runtime)
 	}
 }
