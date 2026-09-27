@@ -219,18 +219,18 @@ Non-tabular semantics:
 - [x] Count Rows.
 - [x] Copy / qualified name.
 - [x] Generate SELECT/INSERT/UPDATE/DELETE templates into Query.
-- [x] Backend adapter action implemented; UI confirmation/gate pending.
-- [x] Backend adapter action implemented; UI confirmation/gate pending.
+- [x] Truncate/Clear action with UI confirmation and capability/read-only gates.
+- [x] Drop/Delete action with typed confirmation and capability/read-only gates.
 - [x] Refresh object/schema actions.
 
 ### Phase 5 — sorting/filtering + UX depth
 - [x] Column sort descriptors.
 - [x] Simple safe filters.
-- [ ] Persist per-table page size where appropriate.
-- [ ] Keyboard navigation/edit shortcuts.
-- [ ] Better loading/error/empty states.
+- [x] Persist per-table page size where appropriate.
+- [x] Keyboard navigation/edit shortcuts.
+- [x] Better loading/error/empty states.
 - [x] Result-grid cell context menu.
-- [ ] Optional total-row-count without blocking first page.
+- [x] Optional total-row-count without blocking first page.
 
 ### Phase 6 — MongoDB workbench workflow
 - [x] Collection browse_rows with `_id`.
@@ -246,76 +246,57 @@ Non-tabular semantics:
 - [x] Count Entries / Generate Read Command / Delete Key with read-only gates.
 
 ### Phase 8 — hardening / documentation / CI
-- [ ] Audit events for data/object mutations without leaking values.
-- [ ] Payload and row-count boundary tests.
-- [ ] Mutation rollback/error-path tests.
-- [ ] SSH-tunneled DB regression tests.
-- [ ] Browser source/regression tests.
-- [ ] README/Connections documentation.
+- [x] Audit events for data/object mutations without leaking values.
+- [x] Payload, filter, mutation and cell-size boundary tests.
+- [x] Per-row mutation/read-only/error-path tests; Workbench batches report item-level failures.
+- [x] SSH-tunneled DB regression covers Workbench browse request and tunnel lifetime.
+- [x] Browser source/regression tests.
+- [x] README/Connections documentation.
 - [ ] Full CI Go 1.19 + 1.23.
 - [ ] Final diff review against main.
 
 ## Current checkpoint
 
-**2026-09-27 — checkpoint 3: multi-adapter workbench**
+**2026-09-27 — checkpoint 4: feature-complete, final CI pending**
 
-Completed since checkpoint 2:
-- MongoDB Workbench backend and UI are end-to-end:
-  - paged collection browsing ordered by `_id`
-  - `_id` row identity
-  - safe JSON document insert/replace/delete
-  - Count Documents, Clear Collection, Drop Collection
-  - Generate Find into the existing Query tab
-  - no arbitrary browser JavaScript execution path
-- Relational server-side filters for MySQL/SQLite:
-  - up to 16 AND conditions
-  - eq/ne/lt/lte/gt/gte/contains/starts_with/is_null/not_null
-  - browser sends filter descriptors; adapters build/parameterize queries
-- Inspector improvements:
-  - MySQL indexes returned from `information_schema.STATISTICS`
-  - SQLite PK/nullable/index metadata rendered correctly
-  - MongoDB collection indexes/info rendered
-  - SQL definition shown when available
-- Redis Workbench:
-  - selected keys open in Data grid
-  - String/List/Hash/Set/ZSet type-aware viewers
-  - total counts and bounded paging
-  - read command generation for Query tab
-  - Hash add/edit/delete fields
-  - Set add/delete members
-  - ZSet add/edit score/delete members
-  - String/List intentionally read-only in grid
-  - Count Entries and Delete Key context actions
-- Workbench query editor remains available unchanged for direct SQL/query/Redis commands.
+Feature implementation is now complete for the requested Database Workbench scope:
 
-Key commits after checkpoint 2:
-- `4005fd58` MongoDB workbench operations
-- `2f9278a2` MongoDB workbench tests
-- `d0368e27` MongoDB collection UI actions
-- `e43f8bac` MongoDB UI regression tests
-- `40fc311e` relational grid filters
-- `e8b61ba8` filter regression tests
-- `36b4a68f` MySQL index metadata
-- `58733ec8` inspector columns/indexes/keys UI
-- `6e24b91a` Redis type-aware viewer
-- `f39a9f55` Redis viewer tests
-- `efeee6c3` safe Redis Hash/Set/ZSet editing
-- `6da2073d` Redis mutation tests
-- `937c4b1f` Redis key context actions
-- `d050e7d7` Redis UI context tests
+- Workbench navigator with object search, double-click open and right-click context actions.
+- Data / Structure / Query tabs; direct SQL/query/Redis command workflow remains first-class.
+- Server-side paging, sort, relational filters and on-demand total count.
+- Editable grid with dirty state, Apply/Revert, insert/delete, NULL and JSON/long-value editor.
+- Per-object page-size persistence and keyboard shortcuts.
+- MySQL/MariaDB: browse/edit/filter/count/truncate/drop + columns/indexes.
+- SQLite: browse/edit/filter/count/delete-all/drop + PK/rowid identity + columns/indexes/DDL.
+- MongoDB: paged documents, `_id` identity, JSON edit/insert/delete, count/clear/drop, Generate Find.
+- Redis: type-aware String/List/Hash/Set/ZSet viewer; Hash/Set/ZSet safe editing; Count Entries/Delete Key and generated read commands.
+- Loading/error/empty states and late adapter-capability refresh.
+- Audit payload non-disclosure tests, protocol bounds, per-row mutation errors and SSH-tunnel Workbench regression.
+- Workbench usage/safety documented in `CONNECTIONS.md` and linked from TaskDeck README.
 
-CI:
-- Temporary branch trigger remains enabled while implementation is active.
-- MongoDB checkpoint `2f9278a2` passed both Go 1.19.x and Go 1.23.x jobs.
-- Latest Redis/editing commits are under CI verification at this checkpoint.
+Mutation batches intentionally use per-item result semantics across adapters; they are not advertised as one cross-adapter/cross-row transaction. UI reloads after Apply and reports failed items so partial success is visible.
 
-Next:
-1. Resolve any CI regressions from Redis write support.
-2. Add per-table page-size persistence and keyboard grid shortcuts.
-3. Improve loading/error/empty states and optional total-count behavior.
-4. Harden audit/bounds/mutation error paths and SSH-tunnel regressions.
-5. Update README/Connections docs.
-6. Remove temporary CI branch trigger, run final full CI and final diff review against main.
+Recent hardening/UX commits:
+- `c020f8c6` page-size persistence + shortcuts
+- `c12cb568` CI source-assertion fix
+- `167dd912` mutation audit non-disclosure test
+- `c6b95b61` Workbench documentation
+- `daffc734` on-demand total count
+- `1fb90341` protocol bounds
+- `5977d2f4` SSH-tunnel Workbench regression
+- `44636288` loading/capability hardening
+- `df901f23` per-row Redis mutation error test
+
+Current base relationship:
+- branch created from `main@3de8cafef4a8bfaa7a631466ee90bb7bf2aade24`
+- main had not moved as of the last comparison; branch was ahead only, behind 0.
+
+Remaining release steps:
+1. Confirm both Go 1.19.x and Go 1.23.x CI jobs green at latest functional HEAD.
+2. Remove the temporary `feat/database-workbench-ui` workflow trigger.
+3. Verify workflow file is byte-for-byte equivalent to main again.
+4. Final compare/diff review against main.
+5. Record final CI evidence in this handoff.
 
 ## Continuation rule
 
