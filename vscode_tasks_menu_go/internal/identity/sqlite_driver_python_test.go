@@ -334,8 +334,8 @@ VALUES(?,?,?,?,?,?)
 	if err := sqliteStore.db.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 {
-		t.Fatalf("migrated schema version=%d want=2", version)
+	if version != schemaVersion {
+		t.Fatalf("migrated schema version=%d want=%d", version, schemaVersion)
 	}
 
 	_, err = sqliteStore.db.ExecContext(ctx, `
@@ -343,6 +343,6 @@ INSERT INTO auth_sessions(id,user_id,token_hash,created_at,expires_at,last_seen_
 VALUES('legacy-after-v2','alice','legacy-after-v2-hash',?,?,?)
 `, stamp, legacySession.ExpiresAt.Format(time.RFC3339Nano), stamp)
 	if err == nil {
-		t.Fatal("schema v2 accepted an auth session without project_id")
+		t.Fatal("current schema accepted an auth session without project_id")
 	}
 }
