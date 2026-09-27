@@ -745,16 +745,22 @@ Implementation notes:
 
 ### Phase 10 — Hardening
 
-1. [ ] Secret rotation/recovery documentation.
-2. [ ] Process crash cleanup.
-3. [ ] Resource/row/output limits.
-4. [ ] Audit hooks.
-5. [ ] Shared-server RBAC integration when that architecture reaches the target branch.
-6. [ ] Review all browser APIs for secret disclosure.
-7. [ ] Review SSH host-key policy.
-8. [ ] Review tunnel bind scope.
-9. [ ] Offline/self-update build verification.
-10. [ ] User documentation.
+1. [x] Document secret rotation, backup and recovery semantics, including unrecoverable master-key loss.
+2. [x] Verify adapter/tunnel crash cleanup and add regression coverage for DB cleanup hooks after adapter exit.
+3. [x] Review and retain bounded protocol/result/object/cell/diagnostic/subprocess-output limits across adapters.
+4. [x] Add a metadata-only connection audit hook for profile mutation, SSH test/terminal start and DB session operations; request/query/secret payloads are excluded.
+5. [x] Review shared-server RBAC integration and defer authorization/user attribution until that architecture reaches this branch; the audit hook is ready for its common sink/context.
+6. [x] Review browser APIs and add regression tests proving SSH/DB profile list/item responses expose only `has_secret`, never plaintext or `secret_ref`.
+7. [x] Review SSH host-key policy: default `ask`; stored-secret askpass flows use `accept-new`; changed keys are still rejected.
+8. [x] Review tunnel bind scope: all local forwards bind IPv4 loopback `127.0.0.1` only.
+9. [x] Verify offline/self-update build contract: vendored Go modules, `GOPROXY=off GOSUMDB=off` tests/build, and explicit embedded SQLite helper presence check.
+10. [x] Add end-user Connections documentation and README entry.
+
+Hardening notes:
+
+- No separate RBAC implementation is introduced on this branch. Doing so would conflict with the shared-server architecture already planned elsewhere.
+- Connection audit metadata intentionally excludes hostnames, credentials, SQL/Redis/Mongo content and HTTP request bodies/query strings.
+- The repository workflow currently auto-runs only on configured branches; this feature branch therefore requires workflow dispatch or local execution for an actual CI result. Static/fixture regression coverage has been added, but checklist completion does not claim an unobserved CI pass.
 
 ## 18. Acceptance criteria
 
