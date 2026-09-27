@@ -103,6 +103,9 @@ func readOnlyStatement(statement string) error {
 	if err != nil {
 		return err
 	}
+	if containsMySQLExecutableComment(normalized) {
+		return errors.New("MySQL read-only profile rejects executable comments")
+	}
 	keyword := firstSQLKeyword(normalized)
 	switch keyword {
 	case "SELECT", "SHOW", "DESCRIBE", "DESC", "EXPLAIN":
@@ -118,6 +121,44 @@ func readOnlyStatement(statement string) error {
 		}
 	}
 	return nil
+}
+
+func containsMySQLExecutableComment(statement string) bool {
+	runes := []rune(statement)
+	var (
+		quote   rune
+		escaped bool
+	)
+	for i := 0; i+2 < len(runes); i++ {
+		r := runes[i]
+		next := runes[i+1]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' && quote != '`' {
+				escaped = true
+				continue
+			}
+			if r == quote {
+				if i+1 < len(runes) && runes[i+1] == quote {
+					i++
+					continue
+				}
+				quote = 0
+			}
+			continue
+		}
+		if r == '\'' || r == '"' || r == '`' {
+			quote = r
+			continue
+		}
+		if r == '/' && next == '*' && runes[i+2] == '!' {
+			return true
+		}
+	}
+	return false
 }
 
 func wrapReadOnlyStatement(statement string) string {
