@@ -217,8 +217,14 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			}
 			meta, err := s.Sessions.Start(spec)
 			if err != nil {
+				if remoteSSH {
+					s.auditConnection(r, ConnectionAuditEvent{Kind: "ssh_connection", Action: "open_terminal", ProfileID: strings.TrimSpace(req.SSHProfileID), Success: false})
+				}
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
+			}
+			if remoteSSH {
+				s.auditConnection(r, ConnectionAuditEvent{Kind: "ssh_connection", Action: "open_terminal", ProfileID: strings.TrimSpace(req.SSHProfileID), SessionID: meta.ID, Success: true})
 			}
 			writeJSON(w, http.StatusCreated, meta)
 			return
