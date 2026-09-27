@@ -118,3 +118,32 @@ func TestMalformedBrowserTokenFailsBeforeStoreAccess(t *testing.T) {
 		}
 	}
 }
+
+func TestBrowserSessionIsBoundToLoginProject(t *testing.T) {
+	db, now := authenticationFixture(t)
+	ctx := context.Background()
+	if _, err := db.EnsureProject(ctx, Project{
+		ID: "other-project", Key: "other", Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertProjectMember(ctx, ProjectMember{
+		ProjectID: "other-project", UserID: "alice", RoleID: "member",
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	token, session, err := CreateBrowserSession(ctx, db, "project", "alice", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ProjectID != "project" {
+		t.Fatalf("session project=%q want project", session.ProjectID)
+	}
+	if _, _, err := AuthenticateBrowserSession(ctx, db, "other", token, now.Add(time.Minute)); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("project-bound token crossed project boundary: %v", err)
+	}
+	if principal, _, err := AuthenticateBrowserSession(ctx, db, "test", token, now.Add(time.Minute)); err != nil || principal.ProjectID != "project" {
+		t.Fatalf("same-project token rejected principal=%+v err=%v", principal, err)
+	}
+}
