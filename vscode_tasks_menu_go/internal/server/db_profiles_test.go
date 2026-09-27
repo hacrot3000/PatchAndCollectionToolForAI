@@ -321,7 +321,10 @@ func TestDBProfileAPISQLiteEnforcesLocalFileOnly(t *testing.T) {
 	if len(profiles) != 1 {
 		t.Fatalf("invalid SQLite profiles were persisted: %+v", profiles)
 	}
-	if len(secrets.values) != 0 {
-		t.Fatalf("invalid SQLite secret was persisted: %+v", secrets.values)
+	secrets.mu.Lock()
+	secretCount := len(secrets.records)
+	secrets.mu.Unlock()
+	if secretCount != 0 {
+		t.Fatalf("invalid SQLite secret was persisted: count=%d", secretCount)
 	}
 }
