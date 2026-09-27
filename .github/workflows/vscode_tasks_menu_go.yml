@@ -6,6 +6,7 @@ on:
       - "main"
       - "IDE_tool"
       - "feat/multi-user-shared-server"
+      - "feat/ssh-database-connections"
     paths:
       - "vscode_tasks_menu"
       - "install.sh"
