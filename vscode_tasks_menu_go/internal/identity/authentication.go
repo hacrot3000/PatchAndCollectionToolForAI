@@ -164,8 +164,9 @@ func AuthenticateBrowserSession(ctx context.Context, store AuthenticationStore, 
 	return principal, session, nil
 }
 
-// RevokeBrowserSession also works after membership removal/idle expiration.
-func RevokeBrowserSession(ctx context.Context, store SessionStore, token string, now time.Time) error {
+// RevokeBrowserSession also works after membership removal/idle expiration,
+// but a daemon may only revoke a session minted for its own configured project.
+func RevokeBrowserSession(ctx context.Context, store AuthenticationStore, projectKey, token string, now time.Time) error {
 	hash, err := sessionTokenHash(token)
 	if err != nil {
 		return nil
@@ -176,6 +177,16 @@ func RevokeBrowserSession(ctx context.Context, store SessionStore, token string,
 	}
 	if err != nil {
 		return err
+	}
+	project, err := store.ProjectByKey(ctx, projectKey)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if session.ProjectID == "" || session.ProjectID != project.ID {
+		return nil
 	}
 	return store.RevokeAuthSession(ctx, session.ID, now)
 }

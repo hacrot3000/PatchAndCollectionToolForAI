@@ -51,7 +51,7 @@ func TestBrowserSessionRoundTripAndLogout(t *testing.T) {
 	if err != nil || !stored.LastSeenAt.Equal(now.Add(2*time.Minute)) {
 		t.Fatalf("touch failed: %v", err)
 	}
-	if err := RevokeBrowserSession(ctx, db, token, now.Add(3*time.Minute)); err != nil {
+	if err := RevokeBrowserSession(ctx, db, "test", token, now.Add(3*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := AuthenticateBrowserSession(ctx, db, "test", token, now.Add(4*time.Minute)); !errors.Is(err, ErrUnauthenticated) {
@@ -145,5 +145,39 @@ func TestBrowserSessionIsBoundToLoginProject(t *testing.T) {
 	}
 	if principal, _, err := AuthenticateBrowserSession(ctx, db, "test", token, now.Add(time.Minute)); err != nil || principal.ProjectID != "project" {
 		t.Fatalf("same-project token rejected principal=%+v err=%v", principal, err)
+	}
+}
+
+func TestRevokeBrowserSessionDoesNotCrossProjectBoundary(t *testing.T) {
+	db, now := authenticationFixture(t)
+	ctx := context.Background()
+	if _, err := db.EnsureProject(ctx, Project{
+		ID: "other-project", Key: "other", Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	token, session, err := CreateBrowserSession(ctx, db, "project", "alice", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RevokeBrowserSession(ctx, db, "other", token, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := db.AuthSessionByTokenHash(ctx, session.TokenHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.RevokedAt != nil {
+		t.Fatalf("cross-project logout revoked session: %+v", stored)
+	}
+	if err := RevokeBrowserSession(ctx, db, "test", token, now.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	stored, err = db.AuthSessionByTokenHash(ctx, session.TokenHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.RevokedAt == nil {
+		t.Fatal("same-project logout did not revoke session")
 	}
 }
