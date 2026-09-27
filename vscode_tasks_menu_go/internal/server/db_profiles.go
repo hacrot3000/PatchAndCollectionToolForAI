@@ -107,11 +107,27 @@ func (s *Server) validateDBProfileReferences(profile dbprofile.Profile) error {
 	if err != nil {
 		return err
 	}
-	if _, err := registry.Get(profile.AdapterID); err != nil {
+	manifest, err := registry.Get(profile.AdapterID)
+	if err != nil {
 		if errors.Is(err, dbadapter.ErrAdapterNotFound) {
 			return fmt.Errorf("database adapter %q is not available", profile.AdapterID)
 		}
 		return err
+	}
+	if manifest.Kind == "sqlite" {
+		if profile.Transport != dbprofile.TransportDirect {
+			return errors.New("SQLite profiles support direct local-file transport only")
+		}
+		if strings.TrimSpace(profile.File) == "" {
+			return errors.New("SQLite profile requires a database file")
+		}
+		if strings.TrimSpace(profile.Host) != "" || profile.Port != 0 ||
+			strings.TrimSpace(profile.Username) != "" || strings.TrimSpace(profile.Database) != "" ||
+			profile.SecretRef != "" {
+			return errors.New("SQLite profile must not contain network or authentication fields")
+		}
+	} else if strings.TrimSpace(profile.File) != "" {
+		return fmt.Errorf("database adapter %q does not accept a local file", manifest.ID)
 	}
 	if profile.Transport == dbprofile.TransportSSHTunnel {
 		sshStore, err := s.sshProfileStore()
