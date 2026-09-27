@@ -11,6 +11,8 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/dbadapter"
 )
 
+const maxFindTimeMS = 15000
+
 type FindQuery struct {
 	Op         string                 `json:"op"`
 	Database   string                 `json:"database,omitempty"`
@@ -123,6 +125,7 @@ func findOperationBody(database string, query FindQuery) (string, error) {
 	body := "    const __db = __taskdeckDb.getSiblingDB(" + databaseLiteral + ");\n" +
 		"    const __q = " + queryExpression + ";\n" +
 		"    let __cursor = __db.getCollection(__q.collection).find(__q.filter || {}, __q.projection || undefined);\n" +
+		"    __cursor = __cursor.maxTimeMS(" + fmt.Sprint(maxFindTimeMS) + ");\n" +
 		"    if (__q.sort && Object.keys(__q.sort).length) __cursor = __cursor.sort(__q.sort);\n" +
 		"    const __docs = __cursor.limit(" + fmt.Sprint(fetchLimit) + ").toArray();\n" +
 		"    return {documents:__docs.slice(0," + fmt.Sprint(query.Limit) + "),truncated:__docs.length>" + fmt.Sprint(query.Limit) + "};"
