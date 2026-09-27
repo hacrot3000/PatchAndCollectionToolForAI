@@ -74,6 +74,8 @@ func TestSharedRoutePermissionsSeparateReadWriteAndGitViews(t *testing.T) {
 		{http.MethodPut, "/api/admin/users/permission", []string{identity.PermissionUsersManage}},
 		{http.MethodDelete, "/api/admin/users/permission", []string{identity.PermissionUsersManage}},
 		{http.MethodGet, "/api/admin/roles", []string{identity.PermissionRolesView}},
+		{http.MethodGet, "/api/admin/permissions", []string{identity.PermissionRolesView}},
+		{http.MethodPost, "/api/admin/permissions", []string{identity.PermissionRolesManage}},
 		{http.MethodGet, "/api/admin/sessions", []string{identity.PermissionSessionsManage}},
 		{http.MethodDelete, "/api/admin/sessions", []string{identity.PermissionSessionsManage}},
 		{http.MethodGet, "/api/admin/audit", []string{identity.PermissionAuditView}},
