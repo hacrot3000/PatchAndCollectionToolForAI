@@ -1035,6 +1035,10 @@ They can be added later without changing the fundamental user/project/membership
 
 ## 20. Acceptance criteria for the first shared-server release
 
+The executable release gate, automated evidence mapping and deployed-browser
+smoke procedure are maintained in
+[SHARED_SERVER_ACCEPTANCE.md](SHARED_SERVER_ACCEPTANCE.md).
+
 The feature is not complete until all of the following hold:
 
 1. Default INI behavior remains compatible with current TaskDeck.
