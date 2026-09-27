@@ -98,9 +98,7 @@ func parseScriptResult(output []byte, secret string, target interface{}) error {
 	}
 	if !response.OK {
 		message := strings.TrimSpace(response.Error)
-		if secret != "" {
-			message = strings.ReplaceAll(message, secret, "[redacted]")
-		}
+		message = redactMongoSecret(message, secret)
 		if message == "" {
 			message = "MongoDB operation failed"
 		}
