@@ -34,6 +34,10 @@ style.textContent=`
 .db-data-grid tr.db-new-row td{background:#14261d}
 .db-data-tools .db-apply{background:#244c70;border-color:#3f79a8}
 .db-data-tools .db-danger{background:#54252a;border-color:#7b3941}
+.db-filter-summary{font-size:10px;opacity:.7;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.db-filter-list{display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow:auto;margin:8px 0}
+.db-filter-row{display:grid;grid-template-columns:minmax(120px,1fr) minmax(120px,1fr) minmax(160px,1.5fr) auto;gap:6px;align-items:center}
+.db-filter-row select,.db-filter-row input{min-width:0;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:6px}
 .db-data-null{opacity:.45;font-style:italic}
 .db-data-empty{padding:18px;font-size:12px;opacity:.6}
 .db-structure{overflow:auto;padding:10px}
@@ -314,7 +318,8 @@ function dataPayload(view){
     name:object?.name||'',
     offset:state.offset,
     limit:state.limit,
-    sort:state.sort
+    sort:state.sort,
+    filters:state.filters
   };
 }
 
@@ -351,7 +356,7 @@ function renderDataGrid(view){
   const end=state.offset+rows.length;
   const total=Number.isFinite(result.total_rows)?' / '+result.total_rows:'';
   const editText=result.editable?'editable':(result.editability_reason||'read-only');
-  wb.controls.status.dataset.base='Page '+page+' · rows '+start+'–'+end+total+' · '+editText;
+  wb.controls.status.dataset.base='Page '+page+' · rows '+start+'–'+end+total+' · '+editText+(state.filters.length?' · '+state.filters.length+' filter'+(state.filters.length===1?'':'s'):'');
   wb.controls.status.textContent=wb.controls.status.dataset.base;
   updateEditControls(view);
   if(!columns.length){
@@ -504,7 +509,7 @@ function openValueViewer(titleText,value,{editable=false,onSave=null}={}){
 async function openTableData(view,object){
   if(!confirmDiscardChanges(view))return;
   const state=dataState(view);
-  state.object=object;state.offset=0;state.sort=[];state.result=null;clearPendingChanges(view);
+  state.object=object;state.offset=0;state.sort=[];state.filters=[];state.result=null;clearPendingChanges(view);
   wbSetDataTitle(view,object);
   activatePanel(view,'data');
   await loadData(view);
@@ -664,6 +669,77 @@ function bindObject(view,object,button){
   applyObjectFilter(view);
 }
 
+function filterCapable(view){
+  const kind=view.meta.adapter_kind||adapterForView(view)?.kind||'';
+  return kind==='mysql'||kind==='sqlite';
+}
+
+function filterSummary(filters){
+  if(!Array.isArray(filters)||!filters.length)return 'Filter…';
+  return filters.map(item=>{
+    const op=String(item.operator||'eq').replaceAll('_',' ');
+    return item.column+' '+op+(item.operator==='is_null'||item.operator==='not_null'?'':' '+String(item.value??''));
+  }).join(' AND ');
+}
+
+function openFilterDialog(view){
+  if(!filterCapable(view))throw new Error('Grid filters are currently available for MySQL/MariaDB and SQLite');
+  const state=dataState(view);const columns=Array.isArray(state.result?.columns)?state.result.columns:[];
+  if(!columns.length)throw new Error('Open table data before adding a filter');
+
+  const dialog=document.createElement('div');dialog.className='task-connection-dialog';
+  const card=document.createElement('div');card.className='task-connection-dialog-card';
+  const title=document.createElement('h3');title.textContent='Filter Rows';
+  const hint=document.createElement('div');hint.className='db-data-status';hint.textContent='Filters run on the database server. Up to 16 conditions are combined with AND.';
+  const list=document.createElement('div');list.className='db-filter-list';
+  const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
+  const add=document.createElement('button');add.type='button';add.textContent='+ Condition';
+  const clear=document.createElement('button');clear.type='button';clear.textContent='Clear';
+  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';
+  const apply=document.createElement('button');apply.type='button';apply.className='task-connection-primary';apply.textContent='Apply Filter';
+
+  const operators=[
+    ['eq','='],['ne','≠'],['lt','<'],['lte','≤'],['gt','>'],['gte','≥'],
+    ['contains','contains'],['starts_with','starts with'],['is_null','is NULL'],['not_null','is not NULL']
+  ];
+  const addRow=(initial={})=>{
+    if(list.children.length>=16)return;
+    const row=document.createElement('div');row.className='db-filter-row';
+    const column=document.createElement('select');
+    for(const item of columns){const option=document.createElement('option');option.value=item.name;option.textContent=item.name;if(initial.column===item.name)option.selected=true;column.append(option);}
+    const operator=document.createElement('select');
+    for(const [value,label] of operators){const option=document.createElement('option');option.value=value;option.textContent=label;if((initial.operator||'eq')===value)option.selected=true;operator.append(option);}
+    const value=document.createElement('input');value.type='text';value.value=initial.value==null?'':String(initial.value);value.placeholder='Value';
+    const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.title='Remove condition';remove.onclick=()=>row.remove();
+    const sync=()=>{const noValue=operator.value==='is_null'||operator.value==='not_null';value.disabled=noValue;value.style.visibility=noValue?'hidden':'';};
+    operator.onchange=sync;sync();
+    row.append(column,operator,value,remove);list.append(row);
+  };
+  for(const item of state.filters)addRow(item);
+  if(!state.filters.length)addRow();
+  add.onclick=()=>addRow();
+  clear.onclick=()=>{
+    if(!confirmDiscardChanges(view))return;
+    state.filters=[];state.offset=0;dialog.remove();loadData(view).catch(app.showError);
+  };
+  cancel.onclick=()=>dialog.remove();
+  apply.onclick=()=>{
+    if(!confirmDiscardChanges(view))return;
+    const filters=[];
+    for(const row of list.querySelectorAll('.db-filter-row')){
+      const selects=row.querySelectorAll('select');const input=row.querySelector('input');
+      const column=selects[0]?.value||'';const operator=selects[1]?.value||'eq';
+      if(!column)continue;
+      const item={column,operator};
+      if(operator!=='is_null'&&operator!=='not_null')item.value=input?.value??'';
+      filters.push(item);
+    }
+    state.filters=filters.slice(0,16);state.offset=0;dialog.remove();loadData(view).catch(app.showError);
+  };
+  actions.append(add,clear,cancel,apply);card.append(title,hint,list,actions);dialog.append(card);document.body.append(dialog);
+  dialog.addEventListener('pointerdown',event=>{if(event.target===dialog)dialog.remove();});
+}
+
 function createDataPanel(view){
   const panel=document.createElement('div');panel.className='db-workbench-panel db-data hidden';
   const tools=document.createElement('div');tools.className='db-data-tools';
@@ -674,22 +750,24 @@ function createDataPanel(view){
   const pageSize=document.createElement('select');pageSize.title='Rows per page';
   for(const size of [25,50,100,250,500,1000]){const option=document.createElement('option');option.value=String(size);option.textContent=String(size)+' rows';if(size===100)option.selected=true;pageSize.append(option);}
   const refresh=document.createElement('button');refresh.type='button';refresh.textContent='↻';refresh.title='Refresh data';
+  const filter=document.createElement('button');filter.type='button';filter.textContent='Filter…';filter.title='Server-side row filter';
   const add=document.createElement('button');add.type='button';add.textContent='+ Row';add.title='Insert row';
   const apply=document.createElement('button');apply.type='button';apply.className='db-apply';apply.textContent='Apply changes';
   const revert=document.createElement('button');revert.type='button';revert.textContent='Revert';
   const spacer=document.createElement('span');spacer.className='db-data-spacer';
   const status=document.createElement('span');status.className='db-data-status';status.textContent='Select a table';
-  tools.append(objectTitle,first,prev,next,pageSize,refresh,add,apply,revert,spacer,status);
+  tools.append(objectTitle,first,prev,next,pageSize,refresh,filter,add,apply,revert,spacer,status);
   const grid=document.createElement('div');grid.className='db-data-grid-wrap';
   const empty=document.createElement('div');empty.className='db-data-empty';empty.textContent='Double-click a table or choose View Data from its context menu.';grid.append(empty);
   panel.append(tools,grid);
-  view.workbench.controls={objectTitle,first,prev,next,pageSize,refresh,add,apply,revert,status};
+  view.workbench.controls={objectTitle,first,prev,next,pageSize,refresh,filter,add,apply,revert,status};
   view.workbench.grid=grid;
   first.onclick=()=>{if(!confirmDiscardChanges(view))return;const state=dataState(view);state.offset=0;loadData(view).catch(app.showError);};
   prev.onclick=()=>{if(!confirmDiscardChanges(view))return;const state=dataState(view);state.offset=Math.max(0,state.offset-state.limit);loadData(view).catch(app.showError);};
   next.onclick=()=>{if(!confirmDiscardChanges(view))return;const state=dataState(view);state.offset+=state.limit;loadData(view).catch(app.showError);};
   pageSize.onchange=()=>{if(!confirmDiscardChanges(view)){pageSize.value=String(dataState(view).limit);return;}const state=dataState(view);state.limit=Math.max(1,Math.min(1000,Number(pageSize.value)||100));state.offset=0;loadData(view).catch(app.showError);};
   refresh.onclick=()=>{if(!confirmDiscardChanges(view))return;loadData(view).catch(app.showError);};
+  filter.disabled=!filterCapable(view);filter.onclick=()=>openFilterDialog(view);
   add.onclick=()=>addGridRow(view);
   apply.onclick=()=>applyGridChanges(view).catch(app.showError);
   revert.onclick=()=>{clearPendingChanges(view);renderDataGrid(view);};
@@ -716,7 +794,7 @@ function enhanceView(view){
   view.workbench={
     active:'query',tabs,panels:{data:null,structure,query},controls:null,grid:null,
     details:new Map(),objectFilter:null,
-    data:{object:null,offset:0,limit:100,sort:[],result:null,dirtyRows:new Map(),deletedRows:new Set(),newRows:[]}
+    data:{object:null,offset:0,limit:100,sort:[],filters:[],result:null,dirtyRows:new Map(),deletedRows:new Set(),newRows:[]}
   };
   const data=createDataPanel(view);view.workbench.panels.data=data;
   main.prepend(tabsBar);main.append(data,structure);
