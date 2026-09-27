@@ -49,10 +49,12 @@ func (c *Client) Do(ctx context.Context, args ...string) (Value, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Keep the socket's own deadline for the Redis command timeout only.
+	// Context cancellation is handled by the watcher below, which forces the
+	// socket deadline after ctx.Done(). Using the context deadline directly on
+	// the socket races with context's timer and can surface an i/o timeout
+	// before ctx.Err() becomes observable.
 	deadline := time.Now().Add(c.timeout)
-	if deadlineFromContext, ok := ctx.Deadline(); ok && deadlineFromContext.Before(deadline) {
-		deadline = deadlineFromContext
-	}
 	if err := c.conn.SetDeadline(deadline); err != nil {
 		return Value{}, fmt.Errorf("set Redis command deadline: %w", err)
 	}
