@@ -218,3 +218,123 @@ func TestPythonSQLiteDriverHonorsUniqueConstraints(t *testing.T) {
 
 var _ Store = (*sqliteDatabase)(nil)
 var _ sql.Result = pythonSQLiteResult{}
+
+func TestPythonSQLiteDriverMigratesV1SessionsFailClosed(t *testing.T) {
+	requirePythonSQLite(t)
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "identity", identityDBName)
+	if err := EnsureDBParent(dbPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureDBFile(dbPath); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := sql.Open(pythonSQLiteDriverName, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw.SetMaxOpenConns(1)
+	raw.SetMaxIdleConns(1)
+	if err := raw.PingContext(ctx); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if err := configureSQLite(ctx, raw, defaultSQLiteBusyTimeout); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if _, err := raw.ExecContext(ctx, SchemaV1); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, 9, 27, 2, 0, 0, 0, time.UTC)
+	stamp := now.Format(time.RFC3339Nano)
+	if _, err := raw.ExecContext(ctx,
+		"INSERT INTO schema_migrations(version, applied_at) VALUES(1, ?)", stamp,
+	); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if _, err := raw.ExecContext(ctx,
+		"INSERT INTO users(id,username,password_hash,enabled,created_at,updated_at) VALUES('alice','alice','hash',1,?,?)",
+		stamp, stamp,
+	); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if _, err := raw.ExecContext(ctx,
+		"INSERT INTO projects(id,project_key,enabled,created_at,updated_at) VALUES('project','test',1,?,?)",
+		stamp, stamp,
+	); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if _, err := raw.ExecContext(ctx,
+		"INSERT INTO roles(id,name,system_role) VALUES('member','member',0)",
+	); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if _, err := raw.ExecContext(ctx,
+		"INSERT INTO project_members(project_id,user_id,role_id,enabled,created_at,updated_at) VALUES('project','alice','member',1,?,?)",
+		stamp, stamp,
+	); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+
+	token, legacySession, err := newBrowserSession("project", "alice", now)
+	if err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if _, err := raw.ExecContext(ctx, `
+INSERT INTO auth_sessions(id,user_id,token_hash,created_at,expires_at,last_seen_at)
+VALUES(?,?,?,?,?,?)
+`,
+		string(legacySession.ID), string(legacySession.UserID), legacySession.TokenHash,
+		legacySession.CreatedAt.Format(time.RFC3339Nano),
+		legacySession.ExpiresAt.Format(time.RFC3339Nano),
+		legacySession.LastSeenAt.Format(time.RFC3339Nano),
+	); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := OpenSQLiteStore(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	migrated, err := store.AuthSessionByTokenHash(ctx, legacySession.TokenHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migrated.ProjectID != "" {
+		t.Fatalf("legacy session unexpectedly acquired project scope: %+v", migrated)
+	}
+	if migrated.RevokedAt == nil {
+		t.Fatalf("legacy unscoped session was not revoked: %+v", migrated)
+	}
+	if _, _, err := AuthenticateBrowserSession(ctx, store, "test", token, now.Add(time.Minute)); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("legacy unscoped bearer session did not fail closed: %v", err)
+	}
+
+	var version int
+	sqliteStore, ok := store.(*sqliteDatabase)
+	if !ok {
+		t.Fatalf("unexpected store type %T", store)
+	}
+	if err := sqliteStore.db.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 2 {
+		t.Fatalf("migrated schema version=%d want=2", version)
+	}
+}
