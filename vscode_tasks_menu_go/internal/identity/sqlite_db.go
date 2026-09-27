@@ -197,6 +197,13 @@ func migrateSQLite(ctx context.Context, db *sql.DB, appliedAt time.Time) error {
 		}
 		if _, err := conn.ExecContext(
 			ctx,
+			"UPDATE auth_sessions SET revoked_at = ? WHERE project_id IS NULL AND revoked_at IS NULL",
+			appliedAt.UTC().Format(time.RFC3339Nano),
+		); err != nil {
+			return fmt.Errorf("revoke unscoped identity sessions during schema v2 migration: %w", err)
+		}
+		if _, err := conn.ExecContext(
+			ctx,
 			"INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
 			2,
 			appliedAt.UTC().Format(time.RFC3339Nano),
