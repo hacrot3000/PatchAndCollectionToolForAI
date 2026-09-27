@@ -22,11 +22,16 @@ import (
 
 	"bletonfc/vscode_tasks_menu/internal/broker"
 	"bletonfc/vscode_tasks_menu/internal/config"
+	"bletonfc/vscode_tasks_menu/internal/dbmongo"
+	"bletonfc/vscode_tasks_menu/internal/dbmysql"
+	"bletonfc/vscode_tasks_menu/internal/dbredis"
+	"bletonfc/vscode_tasks_menu/internal/dbsqlite"
 	"bletonfc/vscode_tasks_menu/internal/gittextconv"
 	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 	"bletonfc/vscode_tasks_menu/internal/selfupdate"
 	"bletonfc/vscode_tasks_menu/internal/server"
+	"bletonfc/vscode_tasks_menu/internal/sshaskpass"
 	"bletonfc/vscode_tasks_menu/internal/state"
 	"bletonfc/vscode_tasks_menu/internal/tlscert"
 	terminalui "bletonfc/vscode_tasks_menu/internal/terminal"
@@ -38,6 +43,19 @@ var activeWorkspaceForUpdateCheck string
 const reloadConfigSignal = syscall.Signal(1)
 
 func main() {
+	if os.Getenv("TASKDECK_SSH_ASKPASS") == "1" {
+		prompt := strings.Join(os.Args[1:], " ")
+		if err := sshaskpass.RunHelper(
+			os.Getenv("TASKDECK_SSH_ASKPASS_SOCKET"),
+			os.Getenv("TASKDECK_SSH_ASKPASS_TOKEN"),
+			prompt,
+			os.Stdout,
+		); err != nil {
+			fmt.Fprintln(os.Stderr, "TaskDeck SSH askpass failed:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	workspace := flag.String("workspace", "", "workspace chứa .vscode/tasks.json")
 	serve := flag.Bool("serve", false, "chạy HTTP server foreground (internal)")
 	terminal := flag.Bool("terminal", false, "mở terminal menu native Go")
@@ -61,7 +79,36 @@ func main() {
 	sharedIdentityRestore := flag.String("shared-identity-restore", "", "khôi phục shared identity DB từ FILE và tạo safety backup trước restore")
 	sharedPasswordReset := flag.String("shared-password-reset", "", "reset password của global shared identity (username)")
 	sharedPasswordResetStdin := flag.Bool("shared-password-reset-stdin", false, "đọc password reset từ stdin riêng thay vì nhập ẩn")
+	dbAdapter := flag.String("db-adapter", "", "chạy database adapter foreground (internal)")
 	flag.Parse()
+
+	if adapter := strings.ToLower(strings.TrimSpace(*dbAdapter)); adapter != "" {
+		switch adapter {
+		case "mysql":
+			exe, err := os.Executable()
+			fatalIf(err)
+			fatalIf(dbmysql.RunAdapter(context.Background(), exe))
+			return
+		case "redis":
+			exe, err := os.Executable()
+			fatalIf(err)
+			fatalIf(dbredis.RunAdapter(context.Background(), exe))
+			return
+		case "mongo":
+			exe, err := os.Executable()
+			fatalIf(err)
+			fatalIf(dbmongo.RunAdapter(context.Background(), exe))
+			return
+		case "sqlite":
+			exe, err := os.Executable()
+			fatalIf(err)
+			fatalIf(dbsqlite.RunAdapter(context.Background(), exe))
+			return
+		default:
+			fatalIf(fmt.Errorf("unsupported database adapter %q", adapter))
+			return
+		}
+	}
 
 	if *versionFlag {
 		fmt.Printf("taskdeck revision=%s\n", buildRevision)
@@ -579,9 +626,23 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 		defer identityStore.Close()
 		logger.Printf("shared-server project=%s identity_db=%s", cfg.SharedProjectID, dbPath)
 	}
+	dbRuntime, err := newDatabaseRuntime(ws, logger)
+	if err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("initialize database runtime: %w", err)
+	}
+	defer dbRuntime.Close()
 	srv := &server.Server{
-		Workspace: ws, Config: cfg, Log: logger, Sessions: sessionService, Identity: identityStore,
+		Workspace: ws,
+		Config: cfg,
+		Log: logger,
+		Sessions: sessionService,
+		Identity: identityStore,
 		InternalControlToken: controlToken,
+		DBAdapters: dbRuntime.Registry,
+		DBSessions: dbRuntime.Sessions,
+		SSHTunnels: dbRuntime.Tunnels,
+		ConnectionSecrets: dbRuntime.Secrets,
 	}
 	server.RegisterSelfUpdateCheck(srv, checkSelfUpdate)
 	defer server.RegisterSelfUpdateCheck(srv, nil)

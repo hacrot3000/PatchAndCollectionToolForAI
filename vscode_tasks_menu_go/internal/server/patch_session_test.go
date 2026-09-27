@@ -91,13 +91,13 @@ func TestSessionsAPIHasBuiltinPatchKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	src := string(data)
+	src := strings.Join(strings.Fields(string(data)), " ")
 	for _, want := range []string{
 		"case \"patch\":",
 		"patchToolExecutionForUI(s.Workspace, req.PatchMode, req.PatchUI)",
 		"PatchMode string",
 		"json:\"patch_mode,omitempty\"",
-		"PatchUI   string",
+		"PatchUI string",
 		"json:\"patch_ui,omitempty\"",
 	} {
 		if !strings.Contains(src, want) {

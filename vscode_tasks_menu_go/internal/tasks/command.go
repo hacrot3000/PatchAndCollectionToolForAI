@@ -18,6 +18,8 @@ type Execution struct {
 	Cwd              string   `json:"cwd"`
 	Env              []string `json:"-"`
 	Preview          string   `json:"preview"`
+	TargetType       string   `json:"-"`
+	TargetProfileID  string   `json:"-"`
 	ProtocolEvents   bool     `json:"-"`
 	ProtocolCommands bool     `json:"-"`
 	SessionKind      string   `json:"-"`

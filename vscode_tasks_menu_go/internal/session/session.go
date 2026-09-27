@@ -20,19 +20,21 @@ import (
 )
 
 type Metadata struct {
-	ID             string `json:"id"`
-	TaskID         int    `json:"task_id"`
-	Kind           string `json:"kind,omitempty"`
-	OwnerUserID    string `json:"owner_user_id,omitempty"`
-	ProjectID      string `json:"project_id,omitempty"`
-	Label          string `json:"label"`
-	Title          string `json:"title,omitempty"`
-	CommandPreview string `json:"command_preview"`
-	Cwd            string `json:"cwd"`
-	Status         string `json:"status"`
-	ExitCode       *int   `json:"exit_code,omitempty"`
-	StartedAt      string `json:"started_at"`
-	EndedAt        string `json:"ended_at,omitempty"`
+	ID              string `json:"id"`
+	TaskID          int    `json:"task_id"`
+	Kind            string `json:"kind,omitempty"`
+	OwnerUserID     string `json:"owner_user_id,omitempty"`
+	ProjectID       string `json:"project_id,omitempty"`
+	Label           string `json:"label"`
+	Title           string `json:"title,omitempty"`
+	CommandPreview  string `json:"command_preview"`
+	Cwd             string `json:"cwd"`
+	TargetType      string `json:"target_type,omitempty"`
+	TargetProfileID string `json:"target_profile_id,omitempty"`
+	Status          string `json:"status"`
+	ExitCode        *int   `json:"exit_code,omitempty"`
+	StartedAt       string `json:"started_at"`
+	EndedAt         string `json:"ended_at,omitempty"`
 }
 
 type managedSession struct {
@@ -131,6 +133,7 @@ func (m *Manager) Start(spec tasks.Execution) (Metadata, error) {
 			ID: id, TaskID: spec.TaskID, Kind: spec.SessionKind,
 			OwnerUserID: spec.OwnerUserID, ProjectID: spec.ProjectID,
 			Label: spec.Label, CommandPreview: spec.Preview, Cwd: spec.Cwd,
+			TargetType: spec.TargetType, TargetProfileID: spec.TargetProfileID,
 			Status: "running", StartedAt: time.Now().Format(time.RFC3339),
 		},
 		cmd: cmd, ptyFile: ptmx, scrollback: append([]byte(nil), header...), maxScrollback: m.maxScrollback, subscribers: map[chan []byte]struct{}{},

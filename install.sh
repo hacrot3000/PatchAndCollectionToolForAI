@@ -139,6 +139,7 @@ fi
 SOURCE="$SOURCE_ROOT/vscode_tasks_menu_go"
 for required in \
     "$SOURCE/go.mod" \
+    "$SOURCE/internal/dbsqlite/sqlite_helper.py" \
     "$SOURCE_ROOT/python_patch_entry.py" \
     "$SOURCE_ROOT/run_python_patches.sh" \
     "$SOURCE_ROOT/_patch_lib/python_patch_queue_dispatcher.py"; do

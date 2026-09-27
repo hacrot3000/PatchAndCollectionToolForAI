@@ -21,6 +21,9 @@ func TestWorkspaceTerminalExecutionUsesProjectRoot(t *testing.T) {
 	if spec.TaskID != 0 {
 		t.Fatalf("terminal task id = %d, want 0", spec.TaskID)
 	}
+	if spec.TargetType != "local" || spec.TargetProfileID != "" {
+		t.Fatalf("terminal target = %q/%q, want local with no profile", spec.TargetType, spec.TargetProfileID)
+	}
 	if spec.Label != "Terminal" {
 		t.Fatalf("terminal label = %q, want Terminal", spec.Label)
 	}

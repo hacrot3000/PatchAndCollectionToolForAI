@@ -18,9 +18,15 @@ import (
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/config"
+	"bletonfc/vscode_tasks_menu/internal/dbadapter"
+	"bletonfc/vscode_tasks_menu/internal/dbprofile"
+	"bletonfc/vscode_tasks_menu/internal/dbsession"
 	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
+	"bletonfc/vscode_tasks_menu/internal/secretstore"
 	"bletonfc/vscode_tasks_menu/internal/session"
+	"bletonfc/vscode_tasks_menu/internal/sshprofile"
+	"bletonfc/vscode_tasks_menu/internal/sshtunnel"
 	"bletonfc/vscode_tasks_menu/internal/tasks"
 	"github.com/coder/websocket"
 )
@@ -29,9 +35,16 @@ type Server struct {
 	Workspace string
 	Config    config.Config
 	Log       *log.Logger
-	Sessions  session.Service
-	Identity  identity.Store
+	Sessions             session.Service
+	Identity             identity.Store
 	InternalControlToken string
+	SSHProfiles          *sshprofile.Store
+	DBProfiles           *dbprofile.Store
+	DBAdapters           *dbadapter.Registry
+	DBSessions           *dbsession.Manager
+	SSHTunnels           *sshtunnel.Manager
+	ConnectionSecrets    secretstore.Store
+	ConnectionAudit      ConnectionAuditFunc
 
 	projectIndexMu         sync.Mutex
 	projectIndex           *projectFileIndex
@@ -73,6 +86,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/state/tasks", s.taskState)
 	mux.HandleFunc("/api/config/page-title", s.pageTitle)
 	mux.HandleFunc("/api/config/terminal-cwds", s.terminalCWDConfig)
+	mux.HandleFunc("/api/ssh/profiles", s.sshProfiles)
+	mux.HandleFunc("/api/ssh/profiles/", s.sshProfileItem)
+	mux.HandleFunc("/api/ssh/test", s.sshTest)
+	mux.HandleFunc("/api/db/adapters", s.dbAdapters)
+	mux.HandleFunc("/api/db/profiles", s.dbProfiles)
+	mux.HandleFunc("/api/db/profiles/", s.dbProfileItem)
+	mux.HandleFunc("/api/db/sessions", s.dbSessions)
+	mux.HandleFunc("/api/db/sessions/", s.dbSessionItem)
 	mux.HandleFunc("/api/broadcast", s.broadcastStateAPI)
 	mux.HandleFunc("/api/command-presets", s.commandPresets)
 	mux.HandleFunc("/api/git/status", s.gitStatus)
@@ -198,8 +219,9 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			TaskID    int               `json:"task_id"`
 			Inputs    map[string]string `json:"inputs,omitempty"`
 			Env       map[string]string `json:"env,omitempty"`
-			Cwd       string            `json:"cwd,omitempty"`
-			PatchMode string            `json:"patch_mode,omitempty"`
+			Cwd          string            `json:"cwd,omitempty"`
+			SSHProfileID string            `json:"ssh_profile_id,omitempty"`
+			PatchMode    string            `json:"patch_mode,omitempty"`
 			PatchUI   string            `json:"patch_ui,omitempty"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&req); err != nil {
@@ -208,27 +230,52 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 		}
 		switch strings.TrimSpace(req.Kind) {
 		case "terminal":
-			spec, err := workspaceTerminalExecutionAt(s.Workspace, req.Cwd)
+			var spec tasks.Execution
+			var err error
+			remoteSSH := strings.TrimSpace(req.SSHProfileID) != ""
+			if remoteSSH {
+				if strings.TrimSpace(req.Cwd) != "" {
+					http.Error(w, "cwd is only valid for local terminals", http.StatusBadRequest)
+					return
+				}
+				if len(req.Env) != 0 {
+					http.Error(w, "environment overrides are not accepted for remote SSH terminals", http.StatusBadRequest)
+					return
+				}
+				spec, err = s.sshTerminalExecution(req.SSHProfileID)
+			} else {
+				spec, err = workspaceTerminalExecutionAt(s.Workspace, req.Cwd)
+			}
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			if err := tasks.ApplyEnvironmentOverrides(&spec, req.Env); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
+			if !remoteSSH {
+				if err := tasks.ApplyEnvironmentOverrides(&spec, req.Env); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
 			}
-			if err := configureTerminalGitTextconv(s.Workspace, &spec); err != nil && s.Log != nil {
-				s.Log.Printf("terminal git textconv warning: %v", err)
+			if !remoteSSH {
+				if err := configureTerminalGitTextconv(s.Workspace, &spec); err != nil && s.Log != nil {
+					s.Log.Printf("terminal git textconv warning: %v", err)
+				}
 			}
 			if !s.prepareSharedSession(w, r, &spec, tasks.SessionKindTerminal) {
 				return
 			}
 			meta, err := s.Sessions.Start(spec)
 			if err != nil {
+				if remoteSSH {
+					s.auditConnection(r, ConnectionAuditEvent{Kind: "ssh_connection", Action: "open_terminal", ProfileID: strings.TrimSpace(req.SSHProfileID), Success: false})
+				}
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 			s.auditSharedSessionStart(r, meta, map[string]any{"cwd": strings.TrimSpace(req.Cwd)})
+			if remoteSSH {
+				s.auditConnection(r, ConnectionAuditEvent{Kind: "ssh_connection", Action: "open_terminal", ProfileID: strings.TrimSpace(req.SSHProfileID), SessionID: meta.ID, Success: true})
+			}
 			writeJSON(w, http.StatusCreated, meta)
 			return
 		case "patch":
@@ -1399,12 +1446,17 @@ func workspaceTerminalExecution(workspace string) (tasks.Execution, error) {
 		if err != nil {
 			continue
 		}
-		return tasks.ResolveExecution(tasks.Task{
+		spec, err := tasks.ResolveExecution(tasks.Task{
 			Label:   "Terminal",
 			Detail:  "Shell tương tác tại thư mục gốc project",
 			Type:    "process",
 			Command: shell,
 		}, workspace)
+		if err != nil {
+			return tasks.Execution{}, err
+		}
+		spec.TargetType = "local"
+		return spec, nil
 	}
 	return tasks.Execution{}, fmt.Errorf("không tìm thấy shell tương tác ($SHELL, /bin/bash hoặc /bin/sh)")
 }

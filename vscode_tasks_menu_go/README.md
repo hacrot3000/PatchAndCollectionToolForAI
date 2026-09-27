@@ -424,6 +424,15 @@ Nếu dùng HTTPS reverse proxy với **legacy mode**, nên bind tool vào loopb
 
 Với **shared-server mode**, TaskDeck identity/permission vẫn là authoritative và upstream proxy → TaskDeck cũng phải dùng HTTPS. Không dùng `X-Forwarded-Proto` để thay thế TLS backend. Xem cấu hình, trust model, backup/restore và nginx mẫu tại [SHARED_SERVER_DEPLOYMENT.md](SHARED_SERVER_DEPLOYMENT.md).
 
+## SSH và database connections
+
+TaskDeck có panel **Connections** cho terminal local, SSH và database profiles. Database hỗ trợ MySQL, Redis, MongoDB và SQLite; MySQL/Redis/MongoDB có thể đi qua generic SSH tunnel, còn SQLite là local-file only.
+
+Hướng dẫn sử dụng, dependency, giới hạn bảo mật, policy host key, secret rotation/backup/recovery và offline/self-update build được tổng hợp tại:
+
+- [CONNECTIONS.md](CONNECTIONS.md)
+
+
 ## Menu từ tasks.json
 
 Các field riêng đang dùng:

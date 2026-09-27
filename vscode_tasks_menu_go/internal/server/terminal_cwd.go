@@ -14,6 +14,7 @@ func workspaceTerminalExecutionAt(workspace, requested string) (tasks.Execution,
 	if err != nil {
 		return tasks.Execution{}, err
 	}
+	spec.TargetType = "local"
 	requested = strings.TrimSpace(requested)
 	if requested == "" || requested == "." {
 		return spec, nil
