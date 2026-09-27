@@ -27,6 +27,13 @@ style.textContent=`
 .db-data-grid th{position:sticky;top:0;background:#171c23;z-index:2;cursor:pointer;user-select:none}
 .db-data-grid th.db-row-number,.db-data-grid td.db-row-number{position:sticky;left:0;z-index:3;width:42px;min-width:42px;text-align:right;opacity:.55;background:#11151b}
 .db-data-grid th.db-row-number{z-index:4}
+.db-data-grid td.db-editable{cursor:text;outline:none}
+.db-data-grid td.db-editable:focus{box-shadow:inset 0 0 0 1px #3f79a8;background:#121a23}
+.db-data-grid td.db-dirty{background:#332d18}
+.db-data-grid tr.db-deleted td{text-decoration:line-through;opacity:.5}
+.db-data-grid tr.db-new-row td{background:#14261d}
+.db-data-tools .db-apply{background:#244c70;border-color:#3f79a8}
+.db-data-tools .db-danger{background:#54252a;border-color:#7b3941}
 .db-data-null{opacity:.45;font-style:italic}
 .db-data-empty{padding:18px;font-size:12px;opacity:.6}
 .db-structure{overflow:auto;padding:10px}
@@ -221,6 +228,82 @@ function dataState(view){
   return view.workbench.data;
 }
 
+function pendingChangeCount(view){
+  const state=dataState(view);
+  return state.dirtyRows.size+state.deletedRows.size+state.newRows.filter(row=>Object.keys(row).length!==0).length;
+}
+
+function hasPendingChanges(view){
+  return pendingChangeCount(view)>0||dataState(view).newRows.length>0;
+}
+
+function clearPendingChanges(view){
+  const state=dataState(view);
+  state.dirtyRows.clear();
+  state.deletedRows.clear();
+  state.newRows=[];
+  updateEditControls(view);
+}
+
+function confirmDiscardChanges(view){
+  if(!hasPendingChanges(view))return true;
+  return confirm('Discard unsaved database grid changes?');
+}
+
+function updateEditControls(view){
+  const wb=view.workbench;if(!wb?.controls)return;
+  const result=wb.data.result||{};
+  const editable=Boolean(result.editable)&&supports(view,'mutate_rows');
+  const pending=pendingChangeCount(view);
+  wb.controls.add.disabled=!editable;
+  wb.controls.apply.disabled=!editable||pending===0;
+  wb.controls.revert.disabled=!hasPendingChanges(view);
+  const base=wb.controls.status.dataset.base||wb.controls.status.textContent||'';
+  wb.controls.status.textContent=base+(pending?' · '+pending+' pending':'');
+}
+
+function parseEditedValue(text,original){
+  if(typeof original==='number'){
+    const value=Number(text);if(!Number.isFinite(value))throw new Error('Enter a valid number');return value;
+  }
+  if(typeof original==='boolean'){
+    const value=String(text).trim().toLowerCase();
+    if(value==='true'||value==='1')return true;
+    if(value==='false'||value==='0')return false;
+    throw new Error('Enter true/false');
+  }
+  if(original&&typeof original==='object'){
+    return JSON.parse(text);
+  }
+  return String(text);
+}
+
+function sameValue(a,b){
+  return JSON.stringify(a)===JSON.stringify(b);
+}
+
+function setDirtyCell(view,rowIndex,columnIndex,value){
+  const state=dataState(view);const result=state.result||{};
+  const row=result.rows?.[rowIndex];const column=result.columns?.[columnIndex];
+  if(!row||!column)return;
+  const original=row.values?.[columnIndex];
+  let changes=state.dirtyRows.get(rowIndex);
+  if(sameValue(value,original)){
+    if(changes){changes.delete(column.name);if(changes.size===0)state.dirtyRows.delete(rowIndex);}
+  }else{
+    if(!changes){changes=new Map();state.dirtyRows.set(rowIndex,changes);}
+    changes.set(column.name,value);
+  }
+  updateEditControls(view);
+}
+
+function currentCellValue(view,rowIndex,columnIndex){
+  const state=dataState(view);const result=state.result||{};
+  const column=result.columns?.[columnIndex];const row=result.rows?.[rowIndex];
+  const changes=state.dirtyRows.get(rowIndex);
+  return changes?.has(column?.name)?changes.get(column.name):row?.values?.[columnIndex];
+}
+
 function dataPayload(view){
   const state=dataState(view);const object=state.object;
   return {
@@ -248,6 +331,7 @@ async function loadData(view,{resetOffset=false}={}){
   try{
     const result=await database.request(view.meta.id,'browse_rows',dataPayload(view));
     state.result=result||{};
+    clearPendingChanges(view);
     renderDataGrid(view);
   }finally{setDataBusy(view,false);}
 }
@@ -265,7 +349,9 @@ function renderDataGrid(view){
   const end=state.offset+rows.length;
   const total=Number.isFinite(result.total_rows)?' / '+result.total_rows:'';
   const editText=result.editable?'editable':(result.editability_reason||'read-only');
-  wb.controls.status.textContent='Page '+page+' · rows '+start+'–'+end+total+' · '+editText;
+  wb.controls.status.dataset.base='Page '+page+' · rows '+start+'–'+end+total+' · '+editText;
+  wb.controls.status.textContent=wb.controls.status.dataset.base;
+  updateEditControls(view);
   if(!columns.length){
     const empty=document.createElement('div');empty.className='db-data-empty';empty.textContent='No tabular data';wb.grid.append(empty);return;
   }
@@ -277,6 +363,7 @@ function renderDataGrid(view){
     const active=state.sort.find(item=>item.column===column.name);
     if(active)th.textContent+=(active.direction==='desc'?' ▼':' ▲');
     th.onclick=()=>{
+      if(!confirmDiscardChanges(view))return;
       const current=state.sort.find(item=>item.column===column.name);
       state.sort=current?(current.direction==='asc'?[{column:column.name,direction:'desc'}]:[]):[{column:column.name,direction:'asc'}];
       state.offset=0;loadData(view).catch(app.showError);
@@ -285,15 +372,29 @@ function renderDataGrid(view){
   }
   thead.append(hr);table.append(thead);
   const tbody=document.createElement('tbody');
+  const gridEditable=Boolean(result.editable)&&supports(view,'mutate_rows');
   rows.forEach((row,rowIndex)=>{
     const tr=document.createElement('tr');tr.dataset.rowIndex=String(rowIndex);
+    if(state.deletedRows.has(rowIndex))tr.classList.add('db-deleted');
     const rowNo=document.createElement('td');rowNo.className='db-row-number';rowNo.textContent=String(state.offset+rowIndex+1);tr.append(rowNo);
-    const values=Array.isArray(row?.values)?row.values:[];
     columns.forEach((column,columnIndex)=>{
-      const value=values[columnIndex];
+      const value=currentCellValue(view,rowIndex,columnIndex);
       const td=document.createElement('td');td.dataset.rowIndex=String(rowIndex);td.dataset.columnIndex=String(columnIndex);
       td.textContent=displayValue(value);if(value===null||value===undefined)td.classList.add('db-data-null');
+      if(state.dirtyRows.get(rowIndex)?.has(column.name))td.classList.add('db-dirty');
       td.title=column.type||'';
+      const cellEditable=gridEditable&&column.editable!==false&&!state.deletedRows.has(rowIndex);
+      if(cellEditable){
+        td.contentEditable='true';td.spellcheck=false;td.classList.add('db-editable');
+        td.addEventListener('focus',()=>{if(td.classList.contains('db-data-null')){td.textContent='';td.classList.remove('db-data-null');}});
+        td.addEventListener('blur',()=>{
+          try{
+            const original=row.values?.[columnIndex];
+            const next=parseEditedValue(td.textContent,original);
+            setDirtyCell(view,rowIndex,columnIndex,next);renderDataGrid(view);
+          }catch(error){app.showError(error);renderDataGrid(view);}
+        });
+      }
       td.oncontextmenu=event=>{event.preventDefault();showCellMenu(view,rowIndex,columnIndex,event.clientX,event.clientY);};
       tr.append(td);
     });
@@ -303,49 +404,147 @@ function renderDataGrid(view){
     };
     tbody.append(tr);
   });
+  state.newRows.forEach((values,newIndex)=>{
+    const tr=document.createElement('tr');tr.className='db-new-row';
+    const rowNo=document.createElement('td');rowNo.className='db-row-number';rowNo.textContent='+';tr.append(rowNo);
+    columns.forEach((column,columnIndex)=>{
+      const td=document.createElement('td');const has=Object.prototype.hasOwnProperty.call(values,column.name);const value=has?values[column.name]:null;
+      td.textContent=has?displayValue(value):'';td.classList.add('db-editable');td.contentEditable='true';td.spellcheck=false;td.title=column.type||'';
+      if(has&&value===null)td.classList.add('db-data-null');
+      td.addEventListener('focus',()=>{if(td.classList.contains('db-data-null')){td.textContent='';td.classList.remove('db-data-null');}});
+      td.addEventListener('blur',()=>{
+        try{
+          const text=td.textContent;
+          if(text===''){delete values[column.name];}
+          else values[column.name]=parseEditedValue(text,'');
+          updateEditControls(view);renderDataGrid(view);
+        }catch(error){app.showError(error);renderDataGrid(view);}
+      });
+      td.oncontextmenu=event=>{event.preventDefault();showNewCellMenu(view,newIndex,columnIndex,event.clientX,event.clientY);};
+      tr.append(td);
+    });
+    tr.oncontextmenu=event=>{
+      if(event.target.closest('td:not(.db-row-number)'))return;
+      event.preventDefault();
+      showContextMenu([{label:'Remove New Row',danger:true,action:()=>{state.newRows.splice(newIndex,1);renderDataGrid(view);updateEditControls(view);}}],event.clientX,event.clientY);
+    };
+    tbody.append(tr);
+  });
   table.append(tbody);wb.grid.append(table);
 }
 
 function showCellMenu(view,rowIndex,columnIndex,x,y){
   const state=dataState(view);const result=state.result||{};const row=result.rows?.[rowIndex];const column=result.columns?.[columnIndex];
-  const value=row?.values?.[columnIndex];
+  const value=currentCellValue(view,rowIndex,columnIndex);
+  const editable=Boolean(result.editable)&&supports(view,'mutate_rows')&&column?.editable!==false&&!state.deletedRows.has(rowIndex);
+  const dirty=state.dirtyRows.get(rowIndex)?.has(column?.name);
   showContextMenu([
     {label:'Copy Value',action:()=>copyText(displayValue(value))},
     {label:'Copy Column Name',action:()=>copyText(column?.name||'')},
     {separator:true},
-    {label:'Open Value in Editor',action:()=>openValueViewer(column?.name||'',value)}
+    {label:'Open Value in Editor',action:()=>openValueViewer(column?.name||'',value,{editable,onSave:next=>{setDirtyCell(view,rowIndex,columnIndex,next);renderDataGrid(view);}})},
+    {label:'Set NULL',disabled:!editable||!column?.nullable,action:()=>{setDirtyCell(view,rowIndex,columnIndex,null);renderDataGrid(view);}},
+    {label:'Revert Cell',disabled:!dirty,action:()=>{
+      const changes=state.dirtyRows.get(rowIndex);changes?.delete(column.name);if(changes?.size===0)state.dirtyRows.delete(rowIndex);renderDataGrid(view);updateEditControls(view);
+    }}
+  ],x,y);
+}
+
+function showNewCellMenu(view,newIndex,columnIndex,x,y){
+  const state=dataState(view);const column=state.result?.columns?.[columnIndex];const values=state.newRows[newIndex]||{};
+  const has=Object.prototype.hasOwnProperty.call(values,column?.name);const value=has?values[column.name]:null;
+  showContextMenu([
+    {label:'Copy Value',action:()=>copyText(displayValue(value))},
+    {label:'Open Value in Editor',action:()=>openValueViewer(column?.name||'',value,{editable:true,onSave:next=>{values[column.name]=next;renderDataGrid(view);updateEditControls(view);}})},
+    {label:'Set NULL',disabled:!column?.nullable,action:()=>{values[column.name]=null;renderDataGrid(view);updateEditControls(view);}},
+    {label:'Clear Field',disabled:!has,action:()=>{delete values[column.name];renderDataGrid(view);updateEditControls(view);}}
   ],x,y);
 }
 
 function showRowMenu(view,rowIndex,x,y){
   const state=dataState(view);const row=state.result?.rows?.[rowIndex];
+  const editable=Boolean(state.result?.editable)&&supports(view,'mutate_rows');
+  const deleted=state.deletedRows.has(rowIndex);
   showContextMenu([
     {label:'Copy Row as JSON',action:()=>{
       const columns=state.result?.columns||[];const out={};
-      columns.forEach((column,index)=>{out[column.name]=row?.values?.[index];});
+      columns.forEach((column,index)=>{out[column.name]=currentCellValue(view,rowIndex,index);});
       return copyText(JSON.stringify(out,null,2));
+    }},
+    {separator:true},
+    {label:deleted?'Restore Row':'Delete Row',danger:!deleted,disabled:!editable,action:()=>{
+      if(deleted)state.deletedRows.delete(rowIndex);else state.deletedRows.add(rowIndex);
+      renderDataGrid(view);updateEditControls(view);
     }}
   ],x,y);
 }
 
-function openValueViewer(titleText,value){
+function openValueViewer(titleText,value,{editable=false,onSave=null}={}){
   const dialog=document.createElement('div');dialog.className='task-connection-dialog';
   const card=document.createElement('div');card.className='task-connection-dialog-card';
   const title=document.createElement('h3');title.textContent=titleText||'Value';
-  const area=document.createElement('textarea');area.readOnly=true;area.style.width='100%';area.style.minHeight='320px';area.value=displayValue(value);
+  const area=document.createElement('textarea');area.readOnly=!editable;area.style.width='100%';area.style.minHeight='320px';area.value=value===null||value===undefined?'':displayValue(value);
   const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
   const copy=document.createElement('button');copy.type='button';copy.textContent='Copy';copy.onclick=()=>copyText(area.value).catch(app.showError);
   const close=document.createElement('button');close.type='button';close.textContent='Close';close.onclick=()=>dialog.remove();
-  actions.append(copy,close);card.append(title,area,actions);dialog.append(card);document.body.append(dialog);
+  actions.append(copy);
+  if(editable){
+    const setNull=document.createElement('button');setNull.type='button';setNull.textContent='Set NULL';setNull.onclick=()=>{onSave?.(null);dialog.remove();};
+    const save=document.createElement('button');save.type='button';save.className='task-connection-primary';save.textContent='Use Value';save.onclick=()=>{
+      try{onSave?.(parseEditedValue(area.value,value));dialog.remove();}catch(error){app.showError(error);}
+    };
+    actions.append(setNull,save);
+  }
+  actions.append(close);card.append(title,area,actions);dialog.append(card);document.body.append(dialog);
   dialog.addEventListener('pointerdown',event=>{if(event.target===dialog)dialog.remove();});
 }
 
 async function openTableData(view,object){
+  if(!confirmDiscardChanges(view))return;
   const state=dataState(view);
-  state.object=object;state.offset=0;state.sort=[];state.result=null;
+  state.object=object;state.offset=0;state.sort=[];state.result=null;clearPendingChanges(view);
   wbSetDataTitle(view,object);
   activatePanel(view,'data');
   await loadData(view);
+}
+
+async function applyGridChanges(view){
+  const state=dataState(view);const result=state.result||{};const object=state.object;
+  if(!object||!result.editable||!supports(view,'mutate_rows'))throw new Error('This table is not editable');
+  const mutations=[];
+  for(const values of state.newRows){
+    if(Object.keys(values).length)mutations.push({action:'insert',values:{...values}});
+  }
+  for(const [rowIndex,changes] of state.dirtyRows){
+    if(state.deletedRows.has(rowIndex)||changes.size===0)continue;
+    const row=result.rows?.[rowIndex];if(!row?.identity)continue;
+    mutations.push({action:'update',identity:row.identity,values:Object.fromEntries(changes)});
+  }
+  for(const rowIndex of state.deletedRows){
+    const row=result.rows?.[rowIndex];if(!row?.identity)continue;
+    mutations.push({action:'delete',identity:row.identity});
+  }
+  if(!mutations.length){clearPendingChanges(view);renderDataGrid(view);return;}
+  const response=await database.request(view.meta.id,'mutate_rows',{
+    catalog:object.catalog||view.catalog.value||'',kind:object.kind,name:object.name,mutations
+  });
+  const errors=(Array.isArray(response?.results)?response.results:[]).filter(item=>item?.error);
+  clearPendingChanges(view);
+  await loadData(view);
+  if(errors.length){
+    throw new Error(errors.map(item=>(item.action||'mutation')+': '+(item.error?.message||item.error?.code||'failed')).join('\n'));
+  }
+}
+
+function addGridRow(view){
+  const state=dataState(view);const result=state.result||{};
+  if(!result.editable||!supports(view,'mutate_rows'))return;
+  state.newRows.push({});
+  renderDataGrid(view);updateEditControls(view);
+  requestAnimationFrame(()=>{
+    const cells=view.workbench.grid.querySelectorAll('tr.db-new-row:last-child td.db-editable');
+    cells[0]?.focus();
+  });
 }
 
 function wbSetDataTitle(view,object){
@@ -377,6 +576,7 @@ async function countRows(view,object){
 function objectMenu(view,object,x,y){
   const canBrowse=supports(view,'browse_rows')&&['table','view','collection'].includes(String(object.kind||'').toLowerCase());
   const canAction=supports(view,'object_actions')&&['table','view'].includes(String(object.kind||'').toLowerCase());
+  const writable=canAction&&!profileForView(view)?.read_only;
   const qualified=qualifiedName(view,object);
   showContextMenu([
     {label:'View Data',disabled:!canBrowse,action:()=>openTableData(view,object)},
@@ -391,8 +591,34 @@ function objectMenu(view,object,x,y){
     {label:'Generate SELECT',disabled:!sqlCapable(view),action:()=>generatedQuery(view,object,'select')},
     {label:'Generate INSERT',disabled:!sqlCapable(view),action:()=>generatedQuery(view,object,'insert')},
     {label:'Generate UPDATE',disabled:!sqlCapable(view),action:()=>generatedQuery(view,object,'update')},
-    {label:'Generate DELETE',disabled:!sqlCapable(view),action:()=>generatedQuery(view,object,'delete')}
+    {label:'Generate DELETE',disabled:!sqlCapable(view),action:()=>generatedQuery(view,object,'delete')},
+    {separator:true},
+    {label:'Truncate Table',danger:true,disabled:!writable||object.kind==='view',action:()=>runObjectAction(view,object,'truncate')},
+    {label:'Drop '+(object.kind==='view'?'View':'Table'),danger:true,disabled:!writable,action:()=>runObjectAction(view,object,'drop')}
   ],x,y);
+}
+
+async function runObjectAction(view,object,action){
+  if(action==='truncate'){
+    if(!confirm('Truncate table "'+object.name+'"? All rows will be permanently removed.'))return;
+  }else if(action==='drop'){
+    const typed=prompt('Type "'+object.name+'" to confirm dropping this '+(object.kind||'object')+':','');
+    if(typed!==object.name)return;
+  }
+  await database.request(view.meta.id,'object_action',{
+    catalog:object.catalog||view.catalog.value||'',kind:object.kind,name:object.name,action
+  });
+  if(action==='drop'){
+    const state=dataState(view);
+    if(state.object&&objectKey(state.object)===objectKey(object)){
+      state.object=null;state.result=null;clearPendingChanges(view);wbSetDataTitle(view,null);
+      view.workbench.grid.replaceChildren();
+      const empty=document.createElement('div');empty.className='db-data-empty';empty.textContent='Object was dropped.';view.workbench.grid.append(empty);
+    }
+    view.refresh.click();
+  }else{
+    if(dataState(view).object&&objectKey(dataState(view).object)===objectKey(object))await loadData(view,{resetOffset:true});
+  }
 }
 
 function catalogMenu(view,x,y){
@@ -431,19 +657,25 @@ function createDataPanel(view){
   const pageSize=document.createElement('select');pageSize.title='Rows per page';
   for(const size of [25,50,100,250,500,1000]){const option=document.createElement('option');option.value=String(size);option.textContent=String(size)+' rows';if(size===100)option.selected=true;pageSize.append(option);}
   const refresh=document.createElement('button');refresh.type='button';refresh.textContent='↻';refresh.title='Refresh data';
+  const add=document.createElement('button');add.type='button';add.textContent='+ Row';add.title='Insert row';
+  const apply=document.createElement('button');apply.type='button';apply.className='db-apply';apply.textContent='Apply changes';
+  const revert=document.createElement('button');revert.type='button';revert.textContent='Revert';
   const spacer=document.createElement('span');spacer.className='db-data-spacer';
   const status=document.createElement('span');status.className='db-data-status';status.textContent='Select a table';
-  tools.append(objectTitle,first,prev,next,pageSize,refresh,spacer,status);
+  tools.append(objectTitle,first,prev,next,pageSize,refresh,add,apply,revert,spacer,status);
   const grid=document.createElement('div');grid.className='db-data-grid-wrap';
   const empty=document.createElement('div');empty.className='db-data-empty';empty.textContent='Double-click a table or choose View Data from its context menu.';grid.append(empty);
   panel.append(tools,grid);
-  view.workbench.controls={objectTitle,first,prev,next,pageSize,refresh,status};
+  view.workbench.controls={objectTitle,first,prev,next,pageSize,refresh,add,apply,revert,status};
   view.workbench.grid=grid;
-  first.onclick=()=>{const state=dataState(view);state.offset=0;loadData(view).catch(app.showError);};
-  prev.onclick=()=>{const state=dataState(view);state.offset=Math.max(0,state.offset-state.limit);loadData(view).catch(app.showError);};
-  next.onclick=()=>{const state=dataState(view);state.offset+=state.limit;loadData(view).catch(app.showError);};
-  pageSize.onchange=()=>{const state=dataState(view);state.limit=Math.max(1,Math.min(1000,Number(pageSize.value)||100));state.offset=0;loadData(view).catch(app.showError);};
-  refresh.onclick=()=>loadData(view).catch(app.showError);
+  first.onclick=()=>{if(!confirmDiscardChanges(view))return;const state=dataState(view);state.offset=0;loadData(view).catch(app.showError);};
+  prev.onclick=()=>{if(!confirmDiscardChanges(view))return;const state=dataState(view);state.offset=Math.max(0,state.offset-state.limit);loadData(view).catch(app.showError);};
+  next.onclick=()=>{if(!confirmDiscardChanges(view))return;const state=dataState(view);state.offset+=state.limit;loadData(view).catch(app.showError);};
+  pageSize.onchange=()=>{if(!confirmDiscardChanges(view)){pageSize.value=String(dataState(view).limit);return;}const state=dataState(view);state.limit=Math.max(1,Math.min(1000,Number(pageSize.value)||100));state.offset=0;loadData(view).catch(app.showError);};
+  refresh.onclick=()=>{if(!confirmDiscardChanges(view))return;loadData(view).catch(app.showError);};
+  add.onclick=()=>addGridRow(view);
+  apply.onclick=()=>applyGridChanges(view).catch(app.showError);
+  revert.onclick=()=>{clearPendingChanges(view);renderDataGrid(view);};
   return panel;
 }
 
@@ -467,7 +699,7 @@ function enhanceView(view){
   view.workbench={
     active:'query',tabs,panels:{data:null,structure,query},controls:null,grid:null,
     details:new Map(),objectFilter:null,
-    data:{object:null,offset:0,limit:100,sort:[],result:null}
+    data:{object:null,offset:0,limit:100,sort:[],result:null,dirtyRows:new Map(),deletedRows:new Set(),newRows:[]}
   };
   const data=createDataPanel(view);view.workbench.panels.data=data;
   main.prepend(tabsBar);main.append(data,structure);
