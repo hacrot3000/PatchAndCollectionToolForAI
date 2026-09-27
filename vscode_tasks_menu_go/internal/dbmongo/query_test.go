@@ -58,7 +58,8 @@ func TestFindOperationBodyUsesJSONParseBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(body, "JSON.parse(") || !strings.Contains(body, ".find(") || !strings.Contains(body, ".limit(11)") {
+	if !strings.Contains(body, "JSON.parse(") || !strings.Contains(body, ".find(") ||
+		!strings.Contains(body, ".maxTimeMS(15000)") || !strings.Contains(body, ".limit(11)") {
 		t.Fatalf("body=%s", body)
 	}
 	if strings.Contains(body, malicious) {
