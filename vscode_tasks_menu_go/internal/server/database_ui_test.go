@@ -95,3 +95,58 @@ func TestDatabaseFeatureLoadsBeforeConnections(t *testing.T) {
 		t.Fatalf("database feature must load before Connections: database=%d connections=%d", database, connections)
 	}
 }
+
+
+func TestDatabaseWorkbenchProvidesNavigatorContextMenuAndPagedGrid(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"db-workbench-tabs",
+		"makeTab('data','Data')",
+		"makeTab('structure','Structure')",
+		"makeTab('query','Query')",
+		"Filter objects…",
+		"button.addEventListener('dblclick'",
+		"button.addEventListener('contextmenu'",
+		"View Data",
+		"Inspect / Structure",
+		"Copy Qualified Name",
+		"Generate SELECT",
+		"Generate INSERT",
+		"Generate UPDATE",
+		"Generate DELETE",
+		"Count Rows",
+		"'browse_rows'",
+		"offset:state.offset",
+		"limit:state.limit",
+		"sort:state.sort",
+		"[25,50,100,250,500,1000]",
+		"result.has_more",
+		"Open Value in Editor",
+		"Copy Row as JSON",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing %q", want)
+		}
+	}
+	if strings.Contains(js, "innerHTML=") {
+		t.Fatal("database workbench must not render database content through innerHTML")
+	}
+}
+
+func TestDatabaseWorkbenchLoadsImmediatelyAfterDatabaseCore(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/next.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	core := strings.Index(js, "database.js")
+	workbench := strings.Index(js, "database_workbench.js")
+	connections := strings.Index(js, "connections.js")
+	if core < 0 || workbench < 0 || connections < 0 || !(core < workbench && workbench < connections) {
+		t.Fatalf("unexpected database feature load order: core=%d workbench=%d connections=%d", core, workbench, connections)
+	}
+}
