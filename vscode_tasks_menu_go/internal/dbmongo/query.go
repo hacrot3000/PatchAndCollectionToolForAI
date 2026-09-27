@@ -13,6 +13,7 @@ import (
 
 type FindQuery struct {
 	Op         string                 `json:"op"`
+	Database   string                 `json:"database,omitempty"`
 	Collection string                 `json:"collection"`
 	Filter     map[string]interface{} `json:"filter,omitempty"`
 	Projection map[string]interface{} `json:"projection,omitempty"`
@@ -52,6 +53,10 @@ func ParseFindQuery(statement string, maxRows int) (FindQuery, error) {
 	}
 	if query.Op != "find" {
 		return FindQuery{}, fmt.Errorf("MongoDB operation %q is not supported in the initial read-oriented adapter", query.Op)
+	}
+	query.Database = strings.TrimSpace(query.Database)
+	if err := validateDatabaseName(query.Database, false); err != nil {
+		return FindQuery{}, err
 	}
 	query.Collection = strings.TrimSpace(query.Collection)
 	if query.Collection == "" {
