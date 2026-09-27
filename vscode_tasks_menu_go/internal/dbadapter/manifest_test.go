@@ -1,6 +1,10 @@
 package dbadapter
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestManifestValidationAndCapabilityLookup(t *testing.T) {
 	manifest := Manifest{
@@ -59,7 +63,7 @@ func TestManifestRejectsMissingCoreCapabilities(t *testing.T) {
 	}
 }
 
-func TestManifestRejectsBrowserUnsafeProcessFieldsFromJSON(t *testing.T) {
+func TestManifestOmitsPrivateProcessFieldsFromJSON(t *testing.T) {
 	manifest := Manifest{
 		ID:              "adapter",
 		Name:            "Adapter",
@@ -69,19 +73,13 @@ func TestManifestRejectsBrowserUnsafeProcessFieldsFromJSON(t *testing.T) {
 		Args:            []string{"--secret-path", "/private/file"},
 		Capabilities:    CapabilitySet{Connect: true, Ping: true},
 	}
-	data, err := jsonMarshalForTest(manifest)
+	data, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stringContains(data, "/private/adapter") || stringContains(data, "--secret-path") || stringContains(data, "/private/file") {
-		t.Fatalf("process details leaked into public manifest JSON: %s", data)
+	for _, forbidden := range []string{"/private/adapter", "--secret-path", "/private/file"} {
+		if strings.Contains(string(data), forbidden) {
+			t.Fatalf("process details leaked into public manifest JSON: %s", data)
+		}
 	}
-}
-
-func jsonMarshalForTest(value interface{}) ([]byte, error) {
-	return json.Marshal(value)
-}
-
-func stringContains(data []byte, needle string) bool {
-	return strings.Contains(string(data), needle)
 }
