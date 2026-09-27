@@ -108,3 +108,46 @@ func TestCapabilitySetSupportsWorkbenchOperations(t *testing.T) {
 		t.Fatalf("workbench capabilities are not exposed: %#v", caps)
 	}
 }
+
+
+func TestWorkbenchBoundsRejectExcessFiltersMutationsAndCellBytes(t *testing.T) {
+	filters := make([]RowFilter, MaxFilters+1)
+	for i := range filters {
+		filters[i] = RowFilter{Column: "id", Operator: "eq", Value: i}
+	}
+	if _, err := NormalizeBrowseRowsPayload(BrowseRowsPayload{Name: "users", Filters: filters}); err == nil || !strings.Contains(err.Error(), "filters") {
+		t.Fatalf("expected filter bound rejection, got %v", err)
+	}
+
+	mutations := make([]RowMutation, MaxMutations+1)
+	for i := range mutations {
+		mutations[i] = RowMutation{Action: "insert", Values: map[string]interface{}{"name": "x"}}
+	}
+	if _, err := NormalizeMutateRowsPayload(MutateRowsPayload{Name: "users", Mutations: mutations}); err == nil || !strings.Contains(err.Error(), "mutations") {
+		t.Fatalf("expected mutation bound rejection, got %v", err)
+	}
+
+	oversized := strings.Repeat("x", MaxCellBytes+1)
+	result := BrowseRowsResult{
+		Columns: []BrowseColumn{{Name: "value"}},
+		Rows:    []BrowseRow{{Values: []interface{}{oversized}}},
+		Offset:  0,
+		Limit:   1,
+	}
+	if err := ValidateBrowseRowsResult(result); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected browse cell-size rejection, got %v", err)
+	}
+
+	if _, err := NormalizeMutateRowsPayload(MutateRowsPayload{
+		Name: "users",
+		Mutations: []RowMutation{{Action: "insert", Values: map[string]interface{}{"value": oversized}}},
+	}); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected mutation cell-size rejection, got %v", err)
+	}
+}
+
+func TestObjectActionRejectsUnknownAction(t *testing.T) {
+	if _, err := NormalizeObjectActionPayload(ObjectActionPayload{Name: "users", Action: "rename"}); err == nil || !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("expected unsupported object action rejection, got %v", err)
+	}
+}
