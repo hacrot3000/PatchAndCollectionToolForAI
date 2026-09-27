@@ -631,7 +631,13 @@ async function applyGridChanges(view){
   const response=await database.request(view.meta.id,'mutate_rows',{
     catalog:object.catalog||view.catalog.value||'',kind:object.kind,name:object.name,mutations
   });
-  const errors=(Array.isArray(response?.results)?response.results:[]).filter(item=>item?.error);
+  const items=Array.isArray(response?.results)?response.results:null;
+  if(!items||items.length!==mutations.length){
+    clearPendingChanges(view);
+    await loadData(view);
+    throw new Error('Database adapter returned an incomplete mutation result; data was reloaded');
+  }
+  const errors=items.filter(item=>item?.error);
   clearPendingChanges(view);
   await loadData(view);
   if(errors.length){
