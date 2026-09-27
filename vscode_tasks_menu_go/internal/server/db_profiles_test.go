@@ -10,6 +10,7 @@ import (
 
 	"bletonfc/vscode_tasks_menu/internal/dbadapter"
 	"bletonfc/vscode_tasks_menu/internal/dbprofile"
+	"bletonfc/vscode_tasks_menu/internal/sshprofile"
 )
 
 func newDBProfileAPITestServer(t *testing.T) (*Server, *dbprofile.Store, *memorySecretStore) {
@@ -197,5 +198,68 @@ func TestDBProfileAPIRejectsUnknownAdapter(t *testing.T) {
 	}
 	if len(profiles) != 0 {
 		t.Fatalf("unknown adapter created profiles: %+v", profiles)
+	}
+}
+
+func TestDBProfileAPITunnelRequiresExistingSSHProfile(t *testing.T) {
+	s, store, _ := newDBProfileAPITestServer(t)
+	sshStore, err := sshprofile.NewStore(filepath.Join(t.TempDir(), "ssh_profiles.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sshProfile, err := sshStore.Create(sshprofile.Profile{
+		ID:         "jump-1",
+		Name:       "Jump",
+		Host:       "jump.example.com",
+		Username:   "deploy",
+		AuthMethod: sshprofile.AuthAgent,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SSHProfiles = sshStore
+
+	valid := httptest.NewRequest(http.MethodPost, "/api/db/profiles", strings.NewReader(`{
+		"name":"Tunnel DB",
+		"adapter_id":"mysql-cli",
+		"transport":"ssh_tunnel",
+		"host":"db.internal",
+		"port":3306,
+		"ssh_profile_id":"jump-1"
+	}`))
+	valid.Header.Set("Content-Type", "application/json")
+	validRR := httptest.NewRecorder()
+	s.Handler().ServeHTTP(validRR, valid)
+	if validRR.Code != http.StatusCreated {
+		t.Fatalf("valid tunnel profile status=%d body=%s", validRR.Code, validRR.Body.String())
+	}
+	profiles, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profiles) != 1 || profiles[0].Transport != dbprofile.TransportSSHTunnel || profiles[0].SSHProfileID != sshProfile.ID {
+		t.Fatalf("stored tunnel profile=%+v", profiles)
+	}
+
+	invalid := httptest.NewRequest(http.MethodPost, "/api/db/profiles", strings.NewReader(`{
+		"name":"Missing Jump",
+		"adapter_id":"mysql-cli",
+		"transport":"ssh_tunnel",
+		"host":"db.internal",
+		"port":3306,
+		"ssh_profile_id":"missing"
+	}`))
+	invalid.Header.Set("Content-Type", "application/json")
+	invalidRR := httptest.NewRecorder()
+	s.Handler().ServeHTTP(invalidRR, invalid)
+	if invalidRR.Code != http.StatusBadRequest {
+		t.Fatalf("missing SSH profile status=%d want 400 body=%s", invalidRR.Code, invalidRR.Body.String())
+	}
+	profiles, err = store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profiles) != 1 {
+		t.Fatalf("invalid tunnel profile was persisted: %+v", profiles)
 	}
 }
