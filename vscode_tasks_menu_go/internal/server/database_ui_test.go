@@ -181,3 +181,27 @@ func TestDatabaseWorkbenchSupportsInlineGridEditing(t *testing.T) {
 		}
 	}
 }
+
+
+func TestDatabaseWorkbenchExposesMongoCollectionActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"kind==='mongo'",
+		"Count Documents",
+		"Clear Collection",
+		"Drop Collection",
+		"Generate Find",
+		"collection:object.name",
+		"filter:{}",
+		"limit:100",
+		"All documents will be permanently removed",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing MongoDB UI workflow %q", want)
+		}
+	}
+}
