@@ -180,9 +180,9 @@ Non-tabular semantics:
 ### Phase 0 — durable design / protocol contract
 - [x] Create feature branch from main.
 - [x] Create this handoff/roadmap.
-- [ ] Inventory current adapter protocol and capability manifests.
-- [ ] Finalize generic request/response structs for browse/mutate/object actions.
-- [ ] Add protocol normalization/limit tests before UI depends on them.
+- [x] Inventory current adapter protocol and capability manifests.
+- [x] Finalize generic request/response structs for browse/mutate/object actions.
+- [x] Add protocol normalization/limit tests before UI depends on them.
 
 ### Phase 1 — Workbench-style navigator foundation
 - [ ] Add reusable native browser context-menu component (no dependency).
@@ -193,7 +193,7 @@ Non-tabular semantics:
 
 ### Phase 2 — read-only paged data grid
 - [ ] Implement `browse_rows` protocol.
-- [ ] MySQL browse_rows.
+- [x] MySQL browse_rows.
 - [ ] SQLite browse_rows.
 - [ ] UI Data tab with server-side pagination.
 - [ ] Page-size selector and first/prev/next navigation.
@@ -203,7 +203,7 @@ Non-tabular semantics:
 ### Phase 3 — relational inline editing
 - [ ] Stable row identity model.
 - [ ] `mutate_rows` protocol.
-- [ ] MySQL insert/update/delete.
+- [x] MySQL insert/update/delete.
 - [ ] SQLite insert/update/delete.
 - [ ] Dirty-grid state.
 - [ ] Apply / Revert.
@@ -216,11 +216,11 @@ Non-tabular semantics:
 ### Phase 4 — object context tools / inspector
 - [ ] Structure/Inspector tab.
 - [ ] Columns and indexes.
-- [ ] Count Rows.
+- [x] Count Rows.
 - [ ] Copy / qualified name.
 - [ ] Generate SELECT/INSERT/UPDATE/DELETE templates into Query.
-- [ ] Truncate Table with confirmation and capability/read-only gates.
-- [ ] Drop Table with stronger confirmation and capability/read-only gates.
+- [x] Backend adapter action implemented; UI confirmation/gate pending.
+- [x] Backend adapter action implemented; UI confirmation/gate pending.
 - [ ] Refresh object/schema actions.
 
 ### Phase 5 — sorting/filtering + UX depth
@@ -257,11 +257,31 @@ Non-tabular semantics:
 
 ## Current checkpoint
 
-**2026-09-27 — checkpoint 0**
+**2026-09-27 — checkpoint 1: protocol + MySQL backend**
 
-- Branch created from `main@3de8cafef4a8bfaa7a631466ee90bb7bf2aade24`.
-- Durable roadmap created before implementation.
-- Next: inventory current adapter protocol/manifests and commit protocol-contract types/tests before touching the workbench UI.
+Completed:
+- Generic adapter operations `browse_rows`, `mutate_rows`, and `object_action` with bounded normalization and response validation.
+- Capability flags for workbench operations.
+- Browser API allowlists and normalizes all three operations.
+- MySQL paged browsing with safe identifier quoting, optional sorting/filtering, and PK/non-null-unique stable identity.
+- MySQL grid mutations: insert/update/delete; update/delete require adapter-verified identity; read-only profiles are rejected before client execution.
+- MySQL table object actions: count rows, truncate, drop; destructive actions respect read-only profiles.
+- Temporary CI trigger is enabled for this branch.
+
+Key commits:
+- `e0ec5eea` handoff/roadmap
+- `9d57f354` protocol contracts
+- `42491971` MySQL browse rows
+- `e99e5215` MySQL safe mutations
+- `20c714db` browser operation exposure
+- `aa9f75d6` browser normalization tests
+- `4499a937` MySQL object actions
+
+Next:
+1. Build the native Workbench-style navigator context menu and object filter.
+2. Double-click table/view to open a Data workspace.
+3. Build paged read-only grid first, then layer dirty-row editing/apply/revert on the same UI.
+4. Implement SQLite browse/mutation backend after the MySQL UI contract is exercised end-to-end.
 
 ## Continuation rule
 
