@@ -22,6 +22,7 @@ import (
 
 	"bletonfc/vscode_tasks_menu/internal/broker"
 	"bletonfc/vscode_tasks_menu/internal/config"
+	"bletonfc/vscode_tasks_menu/internal/dbmysql"
 	"bletonfc/vscode_tasks_menu/internal/gittextconv"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 	"bletonfc/vscode_tasks_menu/internal/selfupdate"
@@ -68,7 +69,21 @@ func main() {
 	listenAddr := flag.String("listen-addr", "", "listener address override (internal)")
 	selfUpdateID := flag.String("self-update-id", "", "self-update handoff id (internal)")
 	cleanupLegacy := flag.Bool("cleanup-legacy", false, "dọn thành phần TaskDeck/Patch Tool legacy đã xác minh trong workspace")
+	dbAdapter := flag.String("db-adapter", "", "chạy database adapter foreground (internal)")
 	flag.Parse()
+
+	if adapter := strings.ToLower(strings.TrimSpace(*dbAdapter)); adapter != "" {
+		switch adapter {
+		case "mysql":
+			exe, err := os.Executable()
+			fatalIf(err)
+			fatalIf(dbmysql.RunAdapter(context.Background(), exe))
+			return
+		default:
+			fatalIf(fmt.Errorf("unsupported database adapter %q", adapter))
+			return
+		}
+	}
 
 	if *versionFlag {
 		fmt.Printf("taskdeck revision=%s\n", buildRevision)
