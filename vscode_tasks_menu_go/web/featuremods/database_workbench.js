@@ -183,28 +183,67 @@ function setQuery(view,text){
   view.editor.focus();
 }
 
+function appendStructureHeading(panel,text){
+  const heading=document.createElement('div');heading.className='db-structure-title';heading.style.marginTop='14px';heading.textContent=text;panel.append(heading);
+}
+
+function appendStructureTable(panel,headers,rows){
+  const table=document.createElement('table');table.className='db-structure-table';
+  const thead=document.createElement('thead');const hr=document.createElement('tr');
+  for(const label of headers){const th=document.createElement('th');th.textContent=label;hr.append(th);}
+  thead.append(hr);table.append(thead);
+  const tbody=document.createElement('tbody');
+  for(const values of rows){
+    const tr=document.createElement('tr');
+    for(const value of values){const td=document.createElement('td');td.textContent=value==null?'':(typeof value==='object'?JSON.stringify(value):String(value));tr.append(td);}
+    tbody.append(tr);
+  }
+  table.append(tbody);panel.append(table);
+}
+
 function renderStructure(view,object,detail){
   const panel=view.workbench?.panels?.structure;if(!panel)return;
   panel.replaceChildren();
   const title=document.createElement('div');title.className='db-structure-title';title.textContent=(object.kind||'object')+' · '+object.name;
   const meta=document.createElement('div');meta.className='db-structure-meta';meta.textContent=object.catalog||view.catalog?.value||'';
   panel.append(title,meta);
+
   const columns=Array.isArray(detail?.columns)?detail.columns:null;
   if(columns){
-    const table=document.createElement('table');table.className='db-structure-table';
-    const thead=document.createElement('thead');const hr=document.createElement('tr');
-    for(const label of ['Column','Type','Nullable','Default','Extra']){const th=document.createElement('th');th.textContent=label;hr.append(th);}
-    thead.append(hr);table.append(thead);
-    const tbody=document.createElement('tbody');
-    for(const column of columns){
-      const tr=document.createElement('tr');
-      const values=[column?.name,column?.type,column?.nullable?'YES':'NO',column?.default??'NULL',column?.extra||''];
-      for(const value of values){const td=document.createElement('td');td.textContent=String(value??'');tr.append(td);}
-      tbody.append(tr);
-    }
-    table.append(tbody);panel.append(table);
-  }else{
-    const pre=document.createElement('pre');pre.className='db-structure-json';pre.textContent=JSON.stringify(detail,null,2);panel.append(pre);
+    appendStructureHeading(panel,'Columns');
+    appendStructureTable(panel,['Column','Type','Key','Nullable','Default','Extra'],columns.map(column=>{
+      const nullable=typeof column?.nullable==='boolean'
+        ?column.nullable
+        :(typeof column?.not_null==='boolean'?!column.not_null:true);
+      const key=column?.primary_key?'PK':'';
+      return [column?.name,column?.type,key,nullable?'YES':'NO',column?.default??'NULL',column?.extra||''];
+    }));
+  }
+
+  const indexes=Array.isArray(detail?.indexes)
+    ?detail.indexes
+    :(Array.isArray(detail?.detail?.indexes)?detail.detail.indexes:null);
+  if(indexes){
+    appendStructureHeading(panel,'Indexes / Keys');
+    appendStructureTable(panel,['Name','Column / Key','Unique','Type / Origin','Sequence'],indexes.map(index=>{
+      const key=index?.column_name??index?.key??'';
+      const unique=typeof index?.unique==='boolean'?index.unique:(index?.name==='_id_'?true:'');
+      return [index?.name||'',key,unique===true?'YES':(unique===false?'NO':''),index?.type||index?.origin||'',index?.sequence??index?.seq??''];
+    }));
+  }
+
+  const sql=detail?.sql;
+  if(sql){
+    appendStructureHeading(panel,'Definition');
+    const pre=document.createElement('pre');pre.className='db-structure-json';pre.textContent=String(sql);panel.append(pre);
+  }
+
+  if(!columns&&!indexes){
+    const raw=detail?.detail??detail;
+    const pre=document.createElement('pre');pre.className='db-structure-json';pre.textContent=JSON.stringify(raw,null,2);panel.append(pre);
+  }else if(detail?.detail?.info){
+    appendStructureHeading(panel,'Collection Info');
+    const pre=document.createElement('pre');pre.className='db-structure-json';pre.textContent=JSON.stringify(detail.detail.info,null,2);panel.append(pre);
   }
 }
 
