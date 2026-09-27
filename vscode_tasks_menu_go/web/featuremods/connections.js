@@ -366,6 +366,7 @@ function openDatabaseProfileDialog(profile=null){
     mongoTLS.wrap.style.display=mongo?'flex':'none';
     sqliteFile.wrap.style.display=sqlite?'flex':'none';
     busyTimeout.wrap.style.display=sqlite?'flex':'none';
+    timeout.wrap.style.display=sqlite?'none':'flex';
     transport.wrap.style.display=sqlite?'none':'flex';
     host.wrap.style.display=sqlite?'none':'flex';
     port.wrap.style.display=sqlite?'none':'flex';
@@ -411,7 +412,7 @@ function openDatabaseProfileDialog(profile=null){
       const options={};
       const adapterKind=selectedDatabaseAdapter()?.kind||'';
       if(adapterKind==='mysql'&&charset.input.value.trim())options.charset=charset.input.value.trim();
-      if(timeout.input.value.trim())options.connect_timeout_seconds=timeout.input.value.trim();
+      if(adapterKind!=='sqlite'&&timeout.input.value.trim())options.connect_timeout_seconds=timeout.input.value.trim();
       if(adapterKind==='redis'&&commandTimeout.input.value.trim())options.command_timeout_seconds=commandTimeout.input.value.trim();
       if(adapterKind==='mongo'){
         if(authSource.input.value.trim())options.auth_source=authSource.input.value.trim();
