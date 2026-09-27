@@ -515,8 +515,9 @@ async function collectClipboardData(view,scope){
 
 function copyScopeMenuItems(view,format,includeHeaders){
   const selected=selectedRowIndexes(view).length;
+  const selectedLabel=selected===1?'Selected row (1)':(selected>1?'Selected rows ('+selected+')':'Selected rows');
   return [
-    {label:selected?'Selected rows ('+selected+')':'Selected rows',disabled:selected===0,action:()=>copyGridData(view,format,includeHeaders,'selected')},
+    {label:selectedLabel,disabled:selected===0,action:()=>copyGridData(view,format,includeHeaders,'selected')},
     {label:'Current page',action:()=>copyGridData(view,format,includeHeaders,'current')},
     {label:'All pages',action:()=>copyGridData(view,format,includeHeaders,'all')}
   ];
@@ -524,16 +525,12 @@ function copyScopeMenuItems(view,format,includeHeaders){
 
 function copyGridMenuItems(view){
   return [
-    ['txt','TXT',false],
-    ['txt','TXT',true],
-    ['csv','CSV',false],
-    ['csv','CSV',true],
-    ['json','JSON',false],
-    ['json','JSON',true]
-  ].map(([format,label,includeHeaders])=>({
-    label:'Copy '+label+' ('+(includeHeaders?'with':'without')+' column header)',
-    submenu:copyScopeMenuItems(view,format,includeHeaders)
-  }));
+    {label:'Copy TXT (without column header)',submenu:copyScopeMenuItems(view,'txt',false)},
+    {label:'Copy TXT (with column header)',submenu:copyScopeMenuItems(view,'txt',true)},
+    {label:'Copy CSV (without column header)',submenu:copyScopeMenuItems(view,'csv',false)},
+    {label:'Copy CSV (with column header)',submenu:copyScopeMenuItems(view,'csv',true)},
+    {label:'Copy as JSON',submenu:copyScopeMenuItems(view,'json',true)}
+  ];
 }
 
 async function copyGridData(view,format,includeHeaders,scope){
@@ -891,11 +888,6 @@ function showRowMenu(view,rowIndex,x,y){
   const deleted=state.deletedRows.has(rowIndex);
   showContextMenu([
     ...copyGridMenuItems(view),
-    {label:'Copy Row as JSON',action:()=>{
-      const columns=state.result?.columns||[];const out={};
-      columns.forEach((column,index)=>{out[column.name]=currentCellValue(view,rowIndex,index);});
-      return copyText(JSON.stringify(out,null,2));
-    }},
     {separator:true},
     {label:deleted?'Restore Row':'Delete Row',danger:!deleted,disabled:!editable,action:()=>{
       if(deleted)state.deletedRows.delete(rowIndex);else state.deletedRows.add(rowIndex);
