@@ -178,8 +178,14 @@ func TestSQLiteChangeUserPasswordHashRevokesSessionsAtomically(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	project, err := db.EnsureProject(ctx, Project{
+		ID: "password-project", Key: "password-project", Enabled: true, CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := db.CreateAuthSession(ctx, AuthSession{
-		ID: "password-session", UserID: "password-user", TokenHash: "test-token-hash",
+		ID: "password-session", ProjectID: project.ID, UserID: "password-user", TokenHash: "test-token-hash",
 		CreatedAt: now, LastSeenAt: now, ExpiresAt: now.Add(time.Hour),
 	}); err != nil {
 		t.Fatal(err)
