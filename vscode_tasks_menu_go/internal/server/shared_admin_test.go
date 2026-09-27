@@ -470,3 +470,69 @@ func TestSharedAdminCustomRolesStayProjectScoped(t *testing.T) {
 		t.Fatalf("self access guard should win before role scope check, status=%d", crossRoleRecorder.Code)
 	}
 }
+
+func TestSharedAdminCannotRevokeAnotherProjectSession(t *testing.T) {
+	s := sharedLoginTestServer(t)
+	ctx := context.Background()
+	alice, err := s.Identity.UserByUsername(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectA, err := s.Identity.ProjectByKey(ctx, s.Config.SharedProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	bobID, err := identity.NewID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Identity.CreateProjectUser(ctx,
+		identity.User{ID: bobID, Username: "bob-cross-session", PasswordHash: alice.PasswordHash, Enabled: true, CreatedAt: now, UpdatedAt: now},
+		identity.ProjectMember{ProjectID: projectA.ID, UserID: bobID, RoleID: "system:viewer", Enabled: true, CreatedAt: now, UpdatedAt: now},
+	); err != nil {
+		t.Fatal(err)
+	}
+	projectB, err := s.Identity.EnsureProject(ctx, identity.Project{
+		ID: "project-b-admin-session", Key: "project-b-admin-session",
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Identity.UpsertProjectMember(ctx, identity.ProjectMember{
+		ProjectID: projectB.ID, UserID: bobID, RoleID: "system:viewer",
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Identity.CreateAuthSession(ctx, identity.AuthSession{
+		ID: "project-b-session", ProjectID: projectB.ID, UserID: bobID,
+		TokenHash: "project-b-session-token-hash",
+		CreatedAt: now, LastSeenAt: now, ExpiresAt: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	adminCookie := sharedAPILogin(t, s, "alice")
+	request := httptest.NewRequest(
+		http.MethodDelete,
+		"https://taskdeck.test/api/admin/sessions",
+		strings.NewReader(`{"session_id":"project-b-session"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(adminCookie)
+	recorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("cross-project revoke status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	session, err := s.Identity.AuthSessionByTokenHash(ctx, "project-b-session-token-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.RevokedAt != nil {
+		t.Fatalf("project A admin revoked project B session: %+v", session)
+	}
+}
