@@ -82,6 +82,19 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 			return nil, redisProtocolError("INVALID_PAYLOAD", err)
 		}
 		return h.describeObject(ctx, payload)
+	case dbadapter.OpBrowseRows:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		var payload dbadapter.BrowseRowsPayload
+		if err := decodeRedisPayload(request.Payload, &payload); err != nil {
+			return nil, redisProtocolError("INVALID_PAYLOAD", err)
+		}
+		normalized, err := dbadapter.NormalizeBrowseRowsPayload(payload)
+		if err != nil {
+			return nil, redisProtocolError("INVALID_BROWSE", err)
+		}
+		return h.browseKey(ctx, normalized)
 	case dbadapter.OpExecute:
 		if protocolErr := h.requireConnected(); protocolErr != nil {
 			return nil, protocolErr
