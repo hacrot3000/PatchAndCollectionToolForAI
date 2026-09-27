@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -174,11 +175,33 @@ func readBounded(reader io.Reader, limit int) ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
+func redactMongoSecret(text, secret string) string {
+	if secret == "" {
+		return text
+	}
+	candidates := []string{
+		secret,
+		url.PathEscape(secret),
+		url.QueryEscape(secret),
+	}
+	encodedUserInfo := url.UserPassword("taskdeck", secret).String()
+	if prefix := "taskdeck:"; strings.HasPrefix(encodedUserInfo, prefix) {
+		candidates = append(candidates, strings.TrimPrefix(encodedUserInfo, prefix))
+	}
+	seen := make(map[string]bool, len(candidates))
+	for _, candidate := range candidates {
+		if candidate == "" || candidate == "[redacted]" || seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		text = strings.ReplaceAll(text, candidate, "[redacted]")
+	}
+	return text
+}
+
 func sanitizeShellDiagnostic(data []byte, secret string) string {
 	text := strings.TrimSpace(string(data))
-	if secret != "" {
-		text = strings.ReplaceAll(text, secret, "[redacted]")
-	}
+	text = redactMongoSecret(text, secret)
 	if len(text) > maxShellStderrBytes {
 		text = text[:maxShellStderrBytes]
 	}
