@@ -95,6 +95,26 @@ async function openSSH(profile){
   await startTerminal({ssh_profile_id:profile.id});
 }
 
+async function testSSH(profile,button){
+  if(button)button.disabled=true;
+  try{
+    const result=await app.jsonFetch('/api/ssh/test',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({profile_id:profile.id})
+    });
+    if(!result?.ok)throw new Error(result?.message||'SSH connection test failed');
+    if(button){
+      const old=button.textContent;
+      button.textContent='✓';
+      button.title='SSH connection succeeded'+(Number.isFinite(result.elapsed_ms)?' · '+result.elapsed_ms+' ms':'');
+      setTimeout(()=>{if(button.isConnected){button.textContent=old;button.title='Test connection';}},1400);
+    }
+  }finally{
+    if(button?.isConnected)button.disabled=false;
+  }
+}
+
 async function saveLocalSettings(next){
   const saved=await app.jsonFetch('/api/config/terminal-cwds',{
     method:'PUT',
@@ -249,13 +269,14 @@ function section(titleText,onAdd){
   box.append(head);return box;
 }
 
-function connectionRow(nameText,metaText,onOpen,{onEdit=null,onDelete=null}={}){
+function connectionRow(nameText,metaText,onOpen,{onTest=null,onEdit=null,onDelete=null}={}){
   const row=document.createElement('div');row.className='task-connection-row';
   const open=document.createElement('button');open.type='button';open.className='task-connection-open';
   const name=document.createElement('span');name.className='task-connection-name';name.textContent=nameText;
   const meta=document.createElement('span');meta.className='task-connection-meta';meta.textContent=metaText;
   open.append(name,meta);open.onclick=()=>Promise.resolve(onOpen()).catch(app.showError);
   const actions=document.createElement('div');actions.className='task-connection-actions';
+  if(onTest){const test=document.createElement('button');test.type='button';test.textContent='Test';test.title='Test connection';test.onclick=event=>{event.stopPropagation();Promise.resolve(onTest(test)).catch(app.showError);};actions.append(test);}
   if(onEdit){const edit=document.createElement('button');edit.type='button';edit.textContent='Edit';edit.onclick=event=>{event.stopPropagation();onEdit();};actions.append(edit);}
   if(onDelete){const del=document.createElement('button');del.type='button';del.textContent='×';del.title='Delete';del.onclick=event=>{event.stopPropagation();Promise.resolve(onDelete()).catch(app.showError);};actions.append(del);}
   row.append(open,actions);return row;
@@ -279,6 +300,7 @@ function render(){
     for(const profile of sshProfiles){
       const endpoint=(profile.username?profile.username+'@':'')+profile.host+':'+profile.port+' · '+authLabel(profile);
       ssh.append(connectionRow(profile.name,endpoint,()=>openSSH(profile),{
+        onTest:button=>testSSH(profile,button),
         onEdit:()=>openProfileDialog(profile),
         onDelete:()=>deleteProfile(profile)
       }));
