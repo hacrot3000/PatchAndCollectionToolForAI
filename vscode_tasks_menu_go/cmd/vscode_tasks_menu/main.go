@@ -25,6 +25,7 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/dbmongo"
 	"bletonfc/vscode_tasks_menu/internal/dbmysql"
 	"bletonfc/vscode_tasks_menu/internal/dbredis"
+	"bletonfc/vscode_tasks_menu/internal/dbsqlite"
 	"bletonfc/vscode_tasks_menu/internal/gittextconv"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 	"bletonfc/vscode_tasks_menu/internal/selfupdate"
@@ -90,6 +91,11 @@ func main() {
 			exe, err := os.Executable()
 			fatalIf(err)
 			fatalIf(dbmongo.RunAdapter(context.Background(), exe))
+			return
+		case "sqlite":
+			exe, err := os.Executable()
+			fatalIf(err)
+			fatalIf(dbsqlite.RunAdapter(context.Background(), exe))
 			return
 		default:
 			fatalIf(fmt.Errorf("unsupported database adapter %q", adapter))
