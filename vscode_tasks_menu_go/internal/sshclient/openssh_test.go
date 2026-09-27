@@ -21,8 +21,7 @@ func TestBuildCommandAgentUsesSafeDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	joined := strings.Join(cmd.Args, "
-")
+	joined := strings.Join(cmd.Args, "\n")
 	for _, want := range []string{
 		"-tt",
 		"ConnectTimeout=10",
@@ -53,8 +52,7 @@ func TestBuildCommandPasswordDoesNotExposeSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	joined := strings.Join(cmd.Args, "
-")
+	joined := strings.Join(cmd.Args, "\n")
 	if strings.Contains(joined, secretRef) {
 		t.Fatalf("secret reference leaked into ssh args: %#v", cmd.Args)
 	}
@@ -85,8 +83,7 @@ func TestBuildCommandPrivateKeyUsesIdentityOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	joined := strings.Join(cmd.Args, "
-")
+	joined := strings.Join(cmd.Args, "\n")
 	for _, want := range []string{
 		"/home/deploy/.ssh/id_ed25519",
 		"IdentitiesOnly=yes",
@@ -120,6 +117,36 @@ func TestBuildCommandIncludesProxyJumpAsSingleArgument(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("proxy jump pair not found: %#v", cmd.Args)
+	}
+}
+
+func TestBuildProbeCommandDisablesTTYAndSkipsRemoteBootstrap(t *testing.T) {
+	cmd, err := BuildProbeCommand("/usr/bin/ssh", sshprofile.Profile{
+		ID:            "prod",
+		Name:          "Production",
+		Host:          "prod.example.com",
+		Username:      "deploy",
+		AuthMethod:    sshprofile.AuthAgent,
+		CustomHomeDir: "/srv/app",
+		PresetCommands: []sshprofile.PresetCommand{
+			{ID: "env", Name: "Environment", Command: "export APP_ENV=prod"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cmd.Args) < 3 {
+		t.Fatalf("probe args too short: %#v", cmd.Args)
+	}
+	if cmd.Args[0] != "-T" {
+		t.Fatalf("probe tty flag = %q, want -T", cmd.Args[0])
+	}
+	if cmd.Args[len(cmd.Args)-2] != "deploy@prod.example.com" || cmd.Args[len(cmd.Args)-1] != "true" {
+		t.Fatalf("probe destination/command = %#v", cmd.Args)
+	}
+	joined := strings.Join(cmd.Args, "\n")
+	if strings.Contains(joined, "/srv/app") || strings.Contains(joined, "APP_ENV") {
+		t.Fatalf("probe unexpectedly runs terminal bootstrap: %#v", cmd.Args)
 	}
 }
 
