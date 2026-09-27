@@ -3,6 +3,7 @@ package dbsession
 import (
 	"context"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +21,12 @@ func (h *helperHandler) Manifest() dbadapter.Manifest {
 func (h *helperHandler) Handle(_ context.Context, request dbadapter.Envelope) (interface{}, *dbadapter.ProtocolError) {
 	switch request.Operation {
 	case dbadapter.OpConnect:
+		if os.Getenv("TASKDECK_DBSESSION_EXIT_AFTER_CONNECT") == "1" {
+			go func() {
+				time.Sleep(120 * time.Millisecond)
+				os.Exit(23)
+			}()
+		}
 		return map[string]bool{"connected": true}, nil
 	case dbadapter.OpDisconnect:
 		return map[string]bool{"disconnected": true}, nil
@@ -132,6 +139,54 @@ func TestManagerRejectsAdapterIdentityMismatch(t *testing.T) {
 	}
 	if len(manager.List()) != 0 {
 		t.Fatalf("failed adapter was retained: %+v", manager.List())
+	}
+}
+
+func TestManagerRunsCleanupAfterAdapterCrash(t *testing.T) {
+	registry := dbadapter.NewRegistry()
+	manifest := sessionTestManifest("test-adapter")
+	if err := registry.Register(manifest); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewManager(registry, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+
+	env := sessionHelperEnv(manifest.ID)
+	env = append(env, "TASKDECK_DBSESSION_EXIT_AFTER_CONNECT=1")
+	var cleanupCalls atomic.Int32
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	meta, err := manager.OpenWithCleanup(
+		ctx,
+		"profile-crash",
+		manifest.ID,
+		dbadapter.ProcessOptions{Env: env},
+		dbadapter.ConnectPayload{},
+		func() { cleanupCalls.Add(1) },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := manager.Get(meta.ID); err == ErrSessionNotFound {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := manager.Get(meta.ID); err != ErrSessionNotFound {
+		t.Fatalf("crashed adapter session still registered: err=%v sessions=%+v", err, manager.List())
+	}
+	if got := cleanupCalls.Load(); got != 1 {
+		t.Fatalf("cleanup calls=%d want 1", got)
+	}
+	manager.Close()
+	if got := cleanupCalls.Load(); got != 1 {
+		t.Fatalf("manager close repeated cleanup: calls=%d", got)
 	}
 }
 
