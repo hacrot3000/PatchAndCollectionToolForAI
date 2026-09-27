@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
