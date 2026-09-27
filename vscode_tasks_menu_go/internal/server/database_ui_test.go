@@ -364,3 +364,36 @@ func TestDatabaseWorkbenchRejectsIncompleteMutationResponses(t *testing.T) {
 		}
 	}
 }
+
+
+func TestDatabaseWorkspaceConstrainsScrollableObjectListAndDataGrid(t *testing.T) {
+	coreData, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	core := string(coreData)
+	for _, want := range []string{
+		".db-pane-body{flex:1;min-height:0;",
+		".db-browser{min-width:0;min-height:0;overflow:hidden;",
+		".db-browser-objects{flex:1;min-height:0;overflow:auto;",
+	} {
+		if !strings.Contains(core, want) {
+			t.Fatalf("database.js missing scroll containment %q", want)
+		}
+	}
+
+	workbenchData, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workbench := string(workbenchData)
+	for _, want := range []string{
+		".db-main{min-width:0;min-height:0;overflow:hidden;",
+		".db-data{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}",
+		".db-data-grid-wrap{flex:1;min-width:0;min-height:0;overflow:auto;scrollbar-gutter:stable}",
+	} {
+		if !strings.Contains(workbench, want) {
+			t.Fatalf("database_workbench.js missing data-grid scroll containment %q", want)
+		}
+	}
+}
