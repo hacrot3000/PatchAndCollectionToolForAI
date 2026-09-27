@@ -25,6 +25,7 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/secretstore"
 	"bletonfc/vscode_tasks_menu/internal/session"
 	"bletonfc/vscode_tasks_menu/internal/sshprofile"
+	"bletonfc/vscode_tasks_menu/internal/sshtunnel"
 	"bletonfc/vscode_tasks_menu/internal/tasks"
 	"github.com/coder/websocket"
 )
@@ -38,6 +39,7 @@ type Server struct {
 	DBProfiles        *dbprofile.Store
 	DBAdapters        *dbadapter.Registry
 	DBSessions        *dbsession.Manager
+	SSHTunnels        *sshtunnel.Manager
 	ConnectionSecrets secretstore.Store
 
 	projectIndexMu         sync.Mutex
