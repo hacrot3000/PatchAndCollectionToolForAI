@@ -600,11 +600,32 @@ function wbSetDataTitle(view,object){
 
 function queryTemplateCapable(view){
   const kind=view.meta.adapter_kind||adapterForView(view)?.kind||'';
-  return kind==='mysql'||kind==='sqlite'||kind==='mongo';
+  return kind==='mysql'||kind==='sqlite'||kind==='mongo'||kind==='redis';
+}
+
+function redisCommandArg(value){
+  const text=String(value??'');
+  if(/[\u0000-\u001f\u007f]/.test(text))throw new Error('Redis Query template does not support control characters in key names');
+  return '"'+text.replaceAll('\\','\\\\').replaceAll('"','\\"')+'"';
 }
 
 async function generatedQuery(view,object,action){
   const kind=view.meta.adapter_kind||adapterForView(view)?.kind||'';
+  if(kind==='redis'){
+    if(action!=='select')throw new Error('Redis write templates are not generated');
+    let detail=view.workbench.details.get(objectKey(object));
+    if(!detail)detail=await inspectObject(view,object);
+    const key=redisCommandArg(object.name);
+    const type=String(detail?.type||'').toLowerCase();
+    const command=type==='string'?'GET '+key
+      :type==='hash'?'HGETALL '+key
+      :type==='list'?'LRANGE '+key+' 0 99'
+      :type==='set'?'SMEMBERS '+key
+      :type==='zset'?'ZRANGE '+key+' 0 99 WITHSCORES'
+      :'TYPE '+key;
+    setQuery(view,command);
+    return;
+  }
   if(kind==='mongo'){
     if(action!=='select')throw new Error('MongoDB write templates are intentionally not generated; edit documents in Data or use the safe Query find DSL');
     const payload={op:'find',database:object.catalog||view.catalog.value||'',collection:object.name,filter:{},limit:100};
@@ -629,14 +650,15 @@ async function countRows(view,object){
 function objectMenu(view,object,x,y){
   const objectKind=String(object.kind||'').toLowerCase();
   const adapterKind=view.meta.adapter_kind||adapterForView(view)?.kind||'';
-  const canBrowse=supports(view,'browse_rows')&&['table','view','collection'].includes(objectKind);
+  const canBrowse=supports(view,'browse_rows')&&['table','view','collection','key'].includes(objectKind);
   const canAction=supports(view,'object_actions')&&['table','view','collection'].includes(objectKind);
   const writable=canAction&&!profileForView(view)?.read_only;
   const qualified=qualifiedName(view,object);
   const isCollection=adapterKind==='mongo'&&objectKind==='collection';
+  const isRedisKey=adapterKind==='redis'&&objectKind==='key';
   const isView=objectKind==='view';
   showContextMenu([
-    {label:'View Data',disabled:!canBrowse,action:()=>openTableData(view,object)},
+    {label:isRedisKey?'View Value':'View Data',disabled:!canBrowse,action:()=>openTableData(view,object)},
     {label:'Inspect / Structure',action:()=>inspectObject(view,object,{activate:true})},
     {label:'Refresh Objects',action:()=>view.refresh.click()},
     {separator:true},
@@ -645,7 +667,7 @@ function objectMenu(view,object,x,y){
     {label:'Open in Query Editor',disabled:!queryTemplateCapable(view),action:()=>generatedQuery(view,object,'select')},
     {separator:true},
     {label:isCollection?'Count Documents':'Count Rows',disabled:!canAction,action:()=>countRows(view,object)},
-    {label:isCollection?'Generate Find':'Generate SELECT',disabled:!queryTemplateCapable(view),action:()=>generatedQuery(view,object,'select')},
+    {label:isRedisKey?'Generate Read Command':(isCollection?'Generate Find':'Generate SELECT'),disabled:!queryTemplateCapable(view),action:()=>generatedQuery(view,object,'select')},
     {label:'Generate INSERT',disabled:!['mysql','sqlite'].includes(adapterKind),action:()=>generatedQuery(view,object,'insert')},
     {label:'Generate UPDATE',disabled:!['mysql','sqlite'].includes(adapterKind),action:()=>generatedQuery(view,object,'update')},
     {label:'Generate DELETE',disabled:!['mysql','sqlite'].includes(adapterKind),action:()=>generatedQuery(view,object,'delete')},
