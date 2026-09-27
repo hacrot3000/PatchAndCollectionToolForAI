@@ -208,7 +208,7 @@ func (s *Server) sharedLogout(w http.ResponseWriter, r *http.Request) {
 	if resolved, _, authErr := identity.AuthenticateBrowserSession(ctx, s.Identity, s.Config.SharedProjectID, s.sharedCookieToken(r), time.Now()); authErr == nil {
 		principal = &resolved
 	}
-	if err := identity.RevokeBrowserSession(ctx, s.Identity, s.sharedCookieToken(r), time.Now()); err != nil {
+	if err := identity.RevokeBrowserSession(ctx, s.Identity, s.Config.SharedProjectID, s.sharedCookieToken(r), time.Now()); err != nil {
 		s.appendSharedAudit(r, principal, nil, "auth.logout", "session", "", "error", nil)
 		sharedAuthError(w, err)
 		return
