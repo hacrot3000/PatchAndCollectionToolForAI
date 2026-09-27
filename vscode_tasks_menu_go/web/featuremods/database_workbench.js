@@ -387,6 +387,137 @@ function displayValue(value){
   return String(value);
 }
 
+
+const MAX_COPY_ALL_ROWS=100000;
+
+function clipboardValue(value){
+  if(value===null||value===undefined)return '';
+  if(typeof value==='object')return JSON.stringify(value);
+  return String(value);
+}
+
+function currentPageCopyData(view,{selectedOnly=false}={}){
+  const state=dataState(view);const result=state.result||{};
+  const columns=Array.isArray(result.columns)?result.columns.map(column=>String(column?.name||'')):[];
+  const sourceRows=Array.isArray(result.rows)?result.rows:[];
+  const indexes=selectedOnly?selectedRowIndexes(view):sourceRows.map((_,index)=>index);
+  const rows=indexes.map(rowIndex=>columns.map((_,columnIndex)=>currentCellValue(view,rowIndex,columnIndex)));
+  if(!selectedOnly){
+    for(const values of state.newRows||[]){
+      rows.push(columns.map(name=>Object.prototype.hasOwnProperty.call(values,name)?values[name]:null));
+    }
+  }
+  return {columns,rows};
+}
+
+async function allPagesCopyData(view){
+  const state=dataState(view);const object=state.object;
+  if(!object)throw new Error('Open database data before copying');
+  if(!supports(view,'browse_rows'))throw new Error('This database adapter does not support data browsing');
+  if(hasPendingChanges(view)&&!confirm('Copy all pages uses saved database values and excludes unsaved grid changes. Continue?'))return null;
+  const rows=[];let columns=[];let offset=0;
+  while(true){
+    const result=await database.request(view.meta.id,'browse_rows',{
+      catalog:object.catalog||view.catalog.value||'',
+      kind:object.kind||'table',
+      name:object.name,
+      offset,
+      limit:1000,
+      sort:state.sort,
+      filters:state.filters
+    })||{};
+    const pageColumns=Array.isArray(result.columns)?result.columns:[];
+    if(!columns.length)columns=pageColumns.map(column=>String(column?.name||''));
+    const pageRows=Array.isArray(result.rows)?result.rows:[];
+    for(const row of pageRows){
+      rows.push(Array.isArray(row?.values)?row.values:[]);
+      if(rows.length>MAX_COPY_ALL_ROWS)throw new Error('Copy all pages is limited to '+MAX_COPY_ALL_ROWS.toLocaleString()+' rows');
+    }
+    if(!result.has_more||pageRows.length===0)break;
+    offset+=pageRows.length;
+  }
+  return {columns,rows};
+}
+
+function delimitedClipboardText(columns,rows,{delimiter,includeHeaders}){
+  const quote=value=>{
+    const text=clipboardValue(value);
+    if(text.includes('"')||text.includes('\n')||text.includes('\r')||text.includes(delimiter))return '"'+text.replaceAll('"','""')+'"';
+    return text;
+  };
+  const lines=[];
+  if(includeHeaders)lines.push(columns.map(quote).join(delimiter));
+  for(const row of rows)lines.push(columns.map((_,index)=>quote(row?.[index])).join(delimiter));
+  return lines.join('\n');
+}
+
+function serializeClipboardData(format,columns,rows,includeHeaders){
+  switch(format){
+  case 'csv':
+    return delimitedClipboardText(columns,rows,{delimiter:',',includeHeaders});
+  case 'json':
+    if(includeHeaders){
+      return JSON.stringify(rows.map(row=>Object.fromEntries(columns.map((name,index)=>[name,row?.[index]??null]))),null,2);
+    }
+    return JSON.stringify(rows,null,2);
+  case 'txt':
+  default:
+    return delimitedClipboardText(columns,rows,{delimiter:'\t',includeHeaders});
+  }
+}
+
+async function collectClipboardData(view,scope){
+  if(scope==='all')return await allPagesCopyData(view);
+  return currentPageCopyData(view,{selectedOnly:scope==='selected'});
+}
+
+function openCopyDataDialog(view,{defaultScope='current'}={}){
+  const state=dataState(view);const selected=selectedRowIndexes(view).length;
+  const dialog=document.createElement('div');dialog.className='task-connection-dialog';
+  const card=document.createElement('div');card.className='task-connection-dialog-card';
+  const title=document.createElement('h3');title.textContent='Copy Data';
+
+  const formatLabel=document.createElement('label');formatLabel.textContent='Format';
+  const format=document.createElement('select');
+  for(const [value,label] of [['txt','TXT / tab-separated'],['csv','CSV'],['json','JSON']]){
+    const option=document.createElement('option');option.value=value;option.textContent=label;format.append(option);
+  }
+
+  const scopeLabel=document.createElement('label');scopeLabel.textContent='Scope';
+  const scope=document.createElement('select');
+  if(selected){
+    const option=document.createElement('option');option.value='selected';option.textContent='Selected rows ('+selected+')';scope.append(option);
+  }
+  for(const [value,label] of [['current','Current page'],['all','All pages']]){
+    const option=document.createElement('option');option.value=value;option.textContent=label;scope.append(option);
+  }
+  if(Array.from(scope.options).some(option=>option.value===defaultScope))scope.value=defaultScope;
+
+  const headerLabel=document.createElement('label');headerLabel.style.display='flex';headerLabel.style.alignItems='center';headerLabel.style.gap='7px';
+  const headers=document.createElement('input');headers.type='checkbox';headers.checked=true;
+  const headerText=document.createElement('span');headerText.textContent='Include column names';
+  headerLabel.append(headers,headerText);
+
+  const hint=document.createElement('div');hint.className='db-data-status';
+  hint.textContent='All pages follows the current sort/filter, reads up to 1,000 rows per request, and refuses copies above '+MAX_COPY_ALL_ROWS.toLocaleString()+' rows. JSON with column names copies objects; without them it copies arrays.';
+
+  const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
+  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>dialog.remove();
+  const copy=document.createElement('button');copy.type='button';copy.className='task-connection-primary';copy.textContent='Copy';
+  copy.onclick=async()=>{
+    copy.disabled=true;const oldText=copy.textContent;copy.textContent='Copying…';
+    try{
+      const data=await collectClipboardData(view,scope.value);
+      if(!data)return;
+      await copyText(serializeClipboardData(format.value,data.columns,data.rows,headers.checked));
+      dialog.remove();
+    }finally{copy.disabled=false;copy.textContent=oldText;}
+  };
+  actions.append(cancel,copy);
+  card.append(title,formatLabel,format,scopeLabel,scope,headerLabel,hint,actions);dialog.append(card);document.body.append(dialog);
+  dialog.addEventListener('pointerdown',event=>{if(event.target===dialog)dialog.remove();});
+}
+
 function dataState(view){
   return view.workbench.data;
 }
@@ -594,7 +725,17 @@ function renderDataGrid(view){
   const table=document.createElement('table');table.className='db-data-grid';
   const thead=document.createElement('thead');const hr=document.createElement('tr');
   const nr=document.createElement('th');nr.className='db-row-number';nr.dataset.selectAll='1';nr.textContent='☐';nr.title='Select all rows on this page';
-  nr.onclick=event=>{event.preventDefault();toggleSelectAllPage(view);};hr.append(nr);
+  nr.onclick=event=>{event.preventDefault();toggleSelectAllPage(view);};
+  nr.oncontextmenu=event=>{
+    event.preventDefault();event.stopPropagation();
+    const selected=selectedRowIndexes(view).length;
+    showContextMenu([
+      {label:selected?'Clear row selection':'Select all rows on this page',action:()=>toggleSelectAllPage(view)},
+      {separator:true},
+      {label:'Copy Data…',action:()=>openCopyDataDialog(view,{defaultScope:selected?'selected':'current'})}
+    ],event.clientX,event.clientY);
+  };
+  hr.append(nr);
   for(const column of columns){
     const th=document.createElement('th');th.textContent=column.name||'';th.title=column.type||'';
     const active=state.sort.find(item=>item.column===column.name);
@@ -692,12 +833,14 @@ function renderDataGrid(view){
 
 function showCellMenu(view,rowIndex,columnIndex,x,y){
   const state=dataState(view);const result=state.result||{};const row=result.rows?.[rowIndex];const column=result.columns?.[columnIndex];
+  if(!state.selectedRows?.has(rowIndex))selectGridRow(view,rowIndex,{});
   const value=currentCellValue(view,rowIndex,columnIndex);
   const editable=Boolean(result.editable)&&supports(view,'mutate_rows')&&column?.editable!==false&&!state.deletedRows.has(rowIndex);
   const dirty=state.dirtyRows.get(rowIndex)?.has(column?.name);
   showContextMenu([
     {label:'Copy Value',action:()=>copyText(displayValue(value))},
     {label:'Copy Column Name',action:()=>copyText(column?.name||'')},
+    {label:'Copy Data…',action:()=>openCopyDataDialog(view,{defaultScope:'selected'})},
     {separator:true},
     {label:'Open Value in Editor',action:()=>openValueViewer(column?.name||'',value,{editable,onSave:next=>{setDirtyCell(view,rowIndex,columnIndex,next);renderDataGrid(view);}})},
     {label:'Set NULL',disabled:!editable||!column?.nullable,action:()=>{setDirtyCell(view,rowIndex,columnIndex,null);renderDataGrid(view);}},
@@ -723,6 +866,7 @@ function showRowMenu(view,rowIndex,x,y){
   const editable=Boolean(state.result?.editable)&&supports(view,'mutate_rows');
   const deleted=state.deletedRows.has(rowIndex);
   showContextMenu([
+    {label:'Copy Data…',action:()=>openCopyDataDialog(view,{defaultScope:'selected'})},
     {label:'Copy Row as JSON',action:()=>{
       const columns=state.result?.columns||[];const out={};
       columns.forEach((column,index)=>{out[column.name]=currentCellValue(view,rowIndex,index);});
