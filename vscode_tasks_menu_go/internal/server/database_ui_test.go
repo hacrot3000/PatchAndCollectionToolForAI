@@ -229,3 +229,25 @@ func TestDatabaseWorkbenchProvidesServerSideRelationalFilters(t *testing.T) {
 		}
 	}
 }
+
+
+func TestDatabaseWorkbenchRendersInspectorColumnsAndIndexes(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"Indexes / Keys",
+		"Collection Info",
+		"column?.primary_key?'PK':''",
+		"typeof column?.not_null==='boolean'?!column.not_null:true",
+		"index?.column_name??index?.key??''",
+		"detail?.detail?.indexes",
+		"Definition",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing inspector workflow %q", want)
+		}
+	}
+}
