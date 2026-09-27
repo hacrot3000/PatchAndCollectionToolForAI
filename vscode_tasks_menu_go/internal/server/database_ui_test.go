@@ -32,6 +32,10 @@ func TestDatabaseWorkspaceUsesGenericSessionAPIs(t *testing.T) {
 		"\"collection\": \"users\"",
 		"view.meta.adapter_kind==='redis'?'No keys'",
 		"view.meta.adapter_kind==='mongo'?'No collections':'No tables or views'",
+		"TaskMenuDatabaseWorkbench?.bindObject?.(view,object,button)",
+		"TaskMenuDatabaseWorkbench?.enhanceView?.(view)",
+		"request:sessionRequest",
+		"getProfile:profileFor",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("database.js missing %q", want)
