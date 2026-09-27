@@ -108,6 +108,18 @@ func TestSharedReleaseAcceptanceTwoDaemonsOneIdentityDB(t *testing.T) {
 		t.Fatalf("project A token crossed into project B: %d %s", got.Code, got.Body.String())
 	}
 
+	crossLogout := httptest.NewRequest(http.MethodPost, "https://taskdeck.test/api/auth/logout", strings.NewReader(`{}`))
+	crossLogout.Header.Set("Content-Type", "application/json")
+	crossLogout.AddCookie(&crossProjectCookie)
+	crossLogoutRecorder := httptest.NewRecorder()
+	serverB.Handler().ServeHTTP(crossLogoutRecorder, crossLogout)
+	if crossLogoutRecorder.Code != http.StatusNoContent {
+		t.Fatalf("cross-project logout status=%d body=%s", crossLogoutRecorder.Code, crossLogoutRecorder.Body.String())
+	}
+	if got := sharedRequest(t, serverA, "/api/auth/me", cookieA); got.Code != http.StatusOK {
+		t.Fatalf("project B logout revoked project A session: %d %s", got.Code, got.Body.String())
+	}
+
 	memberB, err := storeA.ProjectMember(ctx, projectB.ID, alice.UserID)
 	if err != nil {
 		t.Fatal(err)
