@@ -119,4 +119,11 @@ ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE CASCADE;
 
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_project
     ON auth_sessions(project_id);
+
+CREATE TRIGGER IF NOT EXISTS auth_sessions_require_project_insert
+BEFORE INSERT ON auth_sessions
+WHEN NEW.project_id IS NULL OR NEW.project_id = ''
+BEGIN
+    SELECT RAISE(ABORT, 'auth session project_id is required');
+END;
 `
