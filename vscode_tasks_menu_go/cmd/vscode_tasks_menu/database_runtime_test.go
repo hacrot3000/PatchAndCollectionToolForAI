@@ -60,3 +60,33 @@ func TestDatabaseRuntimeStartsWithoutMysqlClient(t *testing.T) {
 		t.Fatalf("database runtime dependencies are incomplete: %+v", runtime)
 	}
 }
+
+func TestDatabaseRuntimeAdvertisesMongoWhenMongoshExists(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	bin := t.TempDir()
+	mongosh := filepath.Join(bin, "mongosh")
+	if err := os.WriteFile(mongosh, []byte("#!/bin/sh\necho '2.5.1-fixture'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+
+	dbRuntime, err := newDatabaseRuntime(t.TempDir(), log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbRuntime.Close()
+
+	manifest, err := dbRuntime.Registry.Get("mongo-mongosh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Kind != "mongo" {
+		t.Fatalf("manifest=%+v", manifest)
+	}
+	if _, err := dbRuntime.Registry.Get("redis-go"); err != nil {
+		t.Fatalf("built-in Redis adapter missing: %v", err)
+	}
+}
