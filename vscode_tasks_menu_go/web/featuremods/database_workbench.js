@@ -554,16 +554,23 @@ function wbSetDataTitle(view,object){
   if(title)title.textContent=object?((object.kind||'table')+' · '+object.name):'No table selected';
 }
 
-function sqlCapable(view){
+function queryTemplateCapable(view){
   const kind=view.meta.adapter_kind||adapterForView(view)?.kind||'';
-  return kind==='mysql'||kind==='sqlite';
+  return kind==='mysql'||kind==='sqlite'||kind==='mongo';
 }
 
 async function generatedQuery(view,object,action){
+  const kind=view.meta.adapter_kind||adapterForView(view)?.kind||'';
+  if(kind==='mongo'){
+    if(action!=='select')throw new Error('MongoDB write templates are intentionally not generated; edit documents in Data or use the safe Query find DSL');
+    const payload={op:'find',database:object.catalog||view.catalog.value||'',collection:object.name,filter:{},limit:100};
+    setQuery(view,JSON.stringify(payload,null,2));
+    return;
+  }
   let detail=view.workbench.details.get(objectKey(object));
   if(!detail&&(action==='insert'||action==='update'))detail=await inspectObject(view,object);
   const text=queryTemplate(view,object,action,detail);
-  if(!text)throw new Error('SQL template generation is not available for this adapter');
+  if(!text)throw new Error('Query template generation is not available for this adapter');
   setQuery(view,text);
 }
 
@@ -576,10 +583,14 @@ async function countRows(view,object){
 }
 
 function objectMenu(view,object,x,y){
-  const canBrowse=supports(view,'browse_rows')&&['table','view','collection'].includes(String(object.kind||'').toLowerCase());
-  const canAction=supports(view,'object_actions')&&['table','view'].includes(String(object.kind||'').toLowerCase());
+  const objectKind=String(object.kind||'').toLowerCase();
+  const adapterKind=view.meta.adapter_kind||adapterForView(view)?.kind||'';
+  const canBrowse=supports(view,'browse_rows')&&['table','view','collection'].includes(objectKind);
+  const canAction=supports(view,'object_actions')&&['table','view','collection'].includes(objectKind);
   const writable=canAction&&!profileForView(view)?.read_only;
   const qualified=qualifiedName(view,object);
+  const isCollection=adapterKind==='mongo'&&objectKind==='collection';
+  const isView=objectKind==='view';
   showContextMenu([
     {label:'View Data',disabled:!canBrowse,action:()=>openTableData(view,object)},
     {label:'Inspect / Structure',action:()=>inspectObject(view,object,{activate:true})},
@@ -587,22 +598,27 @@ function objectMenu(view,object,x,y){
     {separator:true},
     {label:'Copy Name',action:()=>copyText(object.name)},
     {label:'Copy Qualified Name',action:()=>copyText(qualified)},
-    {label:'Open in Query Editor',disabled:!sqlCapable(view),action:()=>generatedQuery(view,object,'select')},
+    {label:'Open in Query Editor',disabled:!queryTemplateCapable(view),action:()=>generatedQuery(view,object,'select')},
     {separator:true},
-    {label:'Count Rows',disabled:!canAction,action:()=>countRows(view,object)},
-    {label:'Generate SELECT',disabled:!sqlCapable(view),action:()=>generatedQuery(view,object,'select')},
-    {label:'Generate INSERT',disabled:!sqlCapable(view),action:()=>generatedQuery(view,object,'insert')},
-    {label:'Generate UPDATE',disabled:!sqlCapable(view),action:()=>generatedQuery(view,object,'update')},
-    {label:'Generate DELETE',disabled:!sqlCapable(view),action:()=>generatedQuery(view,object,'delete')},
+    {label:isCollection?'Count Documents':'Count Rows',disabled:!canAction,action:()=>countRows(view,object)},
+    {label:isCollection?'Generate Find':'Generate SELECT',disabled:!queryTemplateCapable(view),action:()=>generatedQuery(view,object,'select')},
+    {label:'Generate INSERT',disabled:!['mysql','sqlite'].includes(adapterKind),action:()=>generatedQuery(view,object,'insert')},
+    {label:'Generate UPDATE',disabled:!['mysql','sqlite'].includes(adapterKind),action:()=>generatedQuery(view,object,'update')},
+    {label:'Generate DELETE',disabled:!['mysql','sqlite'].includes(adapterKind),action:()=>generatedQuery(view,object,'delete')},
     {separator:true},
-    {label:'Truncate Table',danger:true,disabled:!writable||object.kind==='view',action:()=>runObjectAction(view,object,'truncate')},
-    {label:'Drop '+(object.kind==='view'?'View':'Table'),danger:true,disabled:!writable,action:()=>runObjectAction(view,object,'drop')}
+    {label:isCollection?'Clear Collection':'Truncate Table',danger:true,disabled:!writable||isView,action:()=>runObjectAction(view,object,'truncate')},
+    {label:isCollection?'Drop Collection':'Drop '+(isView?'View':'Table'),danger:true,disabled:!writable,action:()=>runObjectAction(view,object,'drop')}
   ],x,y);
 }
 
 async function runObjectAction(view,object,action){
+  const adapterKind=view.meta.adapter_kind||adapterForView(view)?.kind||'';
+  const isCollection=adapterKind==='mongo'&&String(object.kind||'').toLowerCase()==='collection';
   if(action==='truncate'){
-    if(!confirm('Truncate table "'+object.name+'"? All rows will be permanently removed.'))return;
+    const message=isCollection
+      ?'Clear collection "'+object.name+'"? All documents will be permanently removed.'
+      :'Truncate table "'+object.name+'"? All rows will be permanently removed.';
+    if(!confirm(message))return;
   }else if(action==='drop'){
     const typed=prompt('Type "'+object.name+'" to confirm dropping this '+(object.kind||'object')+':','');
     if(typed!==object.name)return;
