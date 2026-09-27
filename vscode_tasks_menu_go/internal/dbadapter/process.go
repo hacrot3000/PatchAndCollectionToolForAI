@@ -262,6 +262,10 @@ func (p *Process) readStdout(stdout io.ReadCloser) {
 			p.fail(fmt.Errorf("database adapter emitted unexpected %q message", env.Type))
 			return
 		}
+		if err := ValidateResponsePayload(env); err != nil {
+			p.fail(fmt.Errorf("database adapter emitted invalid response payload: %w", err))
+			return
+		}
 
 		p.mu.Lock()
 		ch, ok := p.pending[env.RequestID]
