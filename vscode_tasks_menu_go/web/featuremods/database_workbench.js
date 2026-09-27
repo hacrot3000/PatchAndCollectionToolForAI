@@ -10,7 +10,10 @@ const style=document.createElement('style');
 style.textContent=`
 .db-main{min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column}
 .db-workbench-tabs{height:34px;display:flex;align-items:end;gap:2px;padding:0 7px;border-bottom:1px solid #30343b;background:#11151b}
-.db-workbench-tab{border-radius:5px 5px 0 0;border-bottom:0;padding:6px 10px;font-size:11px;opacity:.7}
+.db-workbench-tab{border-radius:5px 5px 0 0;border-bottom:0;padding:6px 8px;font-size:11px;opacity:.7;display:inline-flex;align-items:center;gap:7px;max-width:260px}
+.db-workbench-tab-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.db-workbench-tab-close{font-size:13px;line-height:1;opacity:.55}
+.db-workbench-tab-close:hover{opacity:1}
 .db-workbench-tab.active{background:#202630;opacity:1}
 .db-workbench-panel{flex:1;min-height:0}
 .db-workbench-panel.hidden{display:none}
@@ -169,12 +172,89 @@ function queryTemplate(view,object,action,detail=null){
   }
 }
 
+function rootWorkbenchView(view){
+  return view?.workbenchRoot||view;
+}
+
 function activatePanel(view,name){
-  const wb=view.workbench;
+  const root=rootWorkbenchView(view);
+  const wb=root?.workbench;
   if(!wb)return;
   wb.active=name;
-  for(const [key,button] of Object.entries(wb.tabs))button.classList.toggle('active',key===name);
-  for(const [key,panel] of Object.entries(wb.panels))panel.classList.toggle('hidden',key!==name);
+  if(wb.pages instanceof Map){
+    for(const [key,page] of wb.pages){
+      page.tab?.classList.toggle('active',key===name);
+      page.panel?.classList.toggle('hidden',key!==name);
+    }
+    return;
+  }
+  for(const [key,button] of Object.entries(wb.tabs||{}))button.classList.toggle('active',key===name);
+  for(const [key,panel] of Object.entries(wb.panels||{}))panel.classList.toggle('hidden',key!==name);
+}
+
+function workbenchObjectPageKey(mode,object){
+  return mode+':'+objectKey(object);
+}
+
+function createWorkbenchTab(view,key,label,{closable=true}={}){
+  const root=rootWorkbenchView(view);const wb=root.workbench;
+  const button=document.createElement('button');button.type='button';button.className='db-workbench-tab';button.title=label;
+  const text=document.createElement('span');text.className='db-workbench-tab-label';text.textContent=label;button.append(text);
+  if(closable){
+    const close=document.createElement('span');close.className='db-workbench-tab-close';close.textContent='×';close.title='Close tab';
+    close.onclick=event=>{event.preventDefault();event.stopPropagation();closeWorkbenchPage(root,key);};
+    button.append(close);
+  }
+  button.onclick=()=>activatePanel(root,key);
+  wb.tabsBar.append(button);
+  return button;
+}
+
+function closeWorkbenchPage(view,key,{force=false}={}){
+  const root=rootWorkbenchView(view);const wb=root?.workbench;const page=wb?.pages?.get(key);
+  if(!page||page.mode==='query')return false;
+  if(!force&&page.mode==='data'&&page.ctx&&hasPendingChanges(page.ctx)&&!confirm('Discard unsaved database grid changes?'))return false;
+  page.tab?.remove();page.panel?.remove();wb.pages.delete(key);
+  if(wb.active===key)activatePanel(root,'query');
+  return true;
+}
+
+function createWorkbenchChildView(view,mode){
+  const root=rootWorkbenchView(view);
+  const child=Object.create(root);
+  child.workbenchRoot=root;
+  child.workbench={
+    active:mode,
+    controls:null,
+    grid:null,
+    panels:{},
+    details:root.workbench.details,
+    data:{object:null,offset:0,limit:100,sort:[],filters:[],result:null,busy:false,dirtyRows:new Map(),deletedRows:new Set(),newRows:[]}
+  };
+  return child;
+}
+
+function ensureDataPage(view,object){
+  const root=rootWorkbenchView(view);const wb=root.workbench;const key=workbenchObjectPageKey('data',object);
+  const existing=wb.pages.get(key);if(existing)return existing;
+  const ctx=createWorkbenchChildView(root,'data');const state=dataState(ctx);
+  state.object=object;state.limit=storedPageSize(root,object);
+  const panel=createDataPanel(ctx);ctx.workbench.panels.data=panel;
+  ctx.workbench.controls.pageSize.value=String(state.limit);wbSetDataTitle(ctx,object);
+  const tab=createWorkbenchTab(root,key,object.name+' - Data');
+  const page={key,mode:'data',object,ctx,tab,panel};wb.pages.set(key,page);wb.main.append(panel);
+  return page;
+}
+
+function ensureStructurePage(view,object){
+  const root=rootWorkbenchView(view);const wb=root.workbench;const key=workbenchObjectPageKey('structure',object);
+  const existing=wb.pages.get(key);if(existing)return existing;
+  const ctx=createWorkbenchChildView(root,'structure');
+  const panel=document.createElement('div');panel.className='db-workbench-panel db-structure hidden';ctx.workbench.panels.structure=panel;
+  const empty=document.createElement('div');empty.className='db-data-empty';empty.textContent='Loading structure…';panel.append(empty);
+  const tab=createWorkbenchTab(root,key,object.name+' - Structure');
+  const page={key,mode:'structure',object,ctx,tab,panel};wb.pages.set(key,page);wb.main.append(panel);
+  return page;
 }
 
 function setQuery(view,text){
