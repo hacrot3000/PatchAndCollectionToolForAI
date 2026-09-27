@@ -62,6 +62,20 @@ func TestReadOnlyStatementRejectsWritesAndDangerousSelectForms(t *testing.T) {
 	}
 }
 
+func TestReadOnlyStatementRejectsExecutableComments(t *testing.T) {
+	for _, statement := range []string{
+		"SELECT 1 /*! INTO OUTFILE '/tmp/leak' */",
+		"SELECT /*!50000 SQL_NO_CACHE */ 1",
+	} {
+		if err := readOnlyStatement(statement); err == nil || !strings.Contains(err.Error(), "executable comments") {
+			t.Fatalf("statement %q error=%v", statement, err)
+		}
+	}
+	if err := readOnlyStatement("SELECT '/*! not executable */' AS value"); err != nil {
+		t.Fatalf("quoted marker rejected: %v", err)
+	}
+}
+
 func TestReadOnlyKeywordCheckIgnoresQuotedAndCommentText(t *testing.T) {
 	statement := "SELECT 'FOR UPDATE', 'INTO OUTFILE' /* LOCK IN SHARE MODE */"
 	if err := readOnlyStatement(statement); err != nil {
