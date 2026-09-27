@@ -3,7 +3,6 @@ package dbmongo
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -357,5 +356,3 @@ func RunAdapter(ctx context.Context, taskdeckExecutable string) error {
 	defer handler.disconnect()
 	return dbadapter.Serve(ctx, os.Stdin, os.Stdout, handler)
 }
-
-var _ = errors.New
