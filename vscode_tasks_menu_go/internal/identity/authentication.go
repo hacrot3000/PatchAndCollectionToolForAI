@@ -152,6 +152,9 @@ func AuthenticateBrowserSession(ctx context.Context, store AuthenticationStore, 
 	if err != nil {
 		return Principal{}, AuthSession{}, err
 	}
+	if session.ProjectID == "" || session.ProjectID != principal.ProjectID {
+		return Principal{}, AuthSession{}, ErrUnauthenticated
+	}
 	// Bound write traffic while still enforcing idle expiration on every request.
 	if now.Sub(session.LastSeenAt) >= time.Minute {
 		if err := store.TouchAuthSession(ctx, session.ID, now); err != nil {
