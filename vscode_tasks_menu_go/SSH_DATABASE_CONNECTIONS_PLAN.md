@@ -680,13 +680,19 @@ Implementation notes:
 
 ### Phase 6 — MySQL through SSH tunnel
 
-1. [ ] DB profile selects direct or SSH tunnel.
-2. [ ] Resolve SSH profile.
-3. [ ] Start tunnel.
-4. [ ] Pass effective loopback endpoint to MySQL adapter.
-5. [ ] Ensure teardown on DB disconnect/failure.
-6. [ ] UI for tunnel selection and remote DB endpoint.
-7. [ ] End-to-end lifecycle tests with stubs.
+1. [x] DB profile selects direct or SSH tunnel.
+2. [x] Resolve and validate the referenced SSH profile on the server.
+3. [x] Start the generic SSH tunnel before the DB adapter.
+4. [x] Pass only the effective loopback host/port to the MySQL adapter.
+5. [x] Transfer tunnel cleanup ownership to the DB session and tear it down on connect failure, disconnect, adapter exit or daemon shutdown.
+6. [x] Add Connections UI for direct/SSH-tunnel transport, SSH profile selection and remote DB host/port.
+7. [x] Add end-to-end lifecycle tests with controlled SSH and DB adapter stubs.
+
+Implementation notes:
+
+- DB adapters remain unaware of SSH internals.
+- A tunnel profile stores the remote DB endpoint; the adapter receives only the local loopback forwarding endpoint.
+- Missing/unavailable SSH profiles are rejected server-side even if a browser bypasses the UI.
 
 ### Phase 7 — Redis
 
