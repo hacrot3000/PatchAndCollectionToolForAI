@@ -177,7 +177,7 @@ func (s *Server) sharedLogin(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if err := identity.RevokeBrowserSession(ctx, s.Identity, s.sharedCookieToken(r), time.Now()); err != nil {
+	if err := identity.RevokeBrowserSession(ctx, s.Identity, s.Config.SharedProjectID, s.sharedCookieToken(r), time.Now()); err != nil {
 		s.appendSharedAudit(r, &principal, nil, "auth.login", "user", string(user.ID), "error", map[string]any{"reason": "session_rotation"})
 		sharedAuthError(w, err)
 		return
