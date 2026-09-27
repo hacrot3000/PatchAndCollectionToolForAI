@@ -204,7 +204,8 @@ func validateHost(value string) error {
 	}
 	if strings.HasPrefix(value, "-") {
 		return fmt.Errorf("ssh host must not start with -")
-	}\n	if strings.ContainsAny(value, " 	/@") {
+	}
+	if strings.ContainsAny(value, " 	/@") {
 		return fmt.Errorf("ssh host must not contain whitespace, slash, or @")
 	}
 	return nil
@@ -216,7 +217,8 @@ func validateUsername(value string) error {
 	}
 	if strings.HasPrefix(value, "-") {
 		return fmt.Errorf("ssh username must not start with -")
-	}\n	if strings.ContainsAny(value, " 	@/") {
+	}
+	if strings.ContainsAny(value, " 	@/") {
 		return fmt.Errorf("ssh username must not contain whitespace, slash, or @")
 	}
 	return nil
