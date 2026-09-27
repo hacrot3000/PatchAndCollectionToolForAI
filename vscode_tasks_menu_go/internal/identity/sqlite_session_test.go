@@ -44,11 +44,12 @@ func TestSQLiteSessionStoreCreateAndRead(t *testing.T) {
 			{
 				contains: "FROM AUTH_SESSIONS WHERE TOKEN_HASH = ?",
 				columns: []string{
-					"id", "user_id", "token_hash", "created_at", "expires_at",
+					"id", "project_id", "user_id", "token_hash", "created_at", "expires_at",
 					"last_seen_at", "revoked_at", "client_metadata",
 				},
 				values: [][]driver.Value{{
 					"session-1",
+					"project-1",
 					"user-1",
 					"sha256-token-hash",
 					created.Format(time.RFC3339Nano),
@@ -64,6 +65,7 @@ func TestSQLiteSessionStoreCreateAndRead(t *testing.T) {
 
 	err := db.CreateAuthSession(context.Background(), AuthSession{
 		ID:             "session-1",
+		ProjectID:      "project-1",
 		UserID:         "user-1",
 		TokenHash:      "sha256-token-hash",
 		CreatedAt:      created,
@@ -79,7 +81,7 @@ func TestSQLiteSessionStoreCreateAndRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ID != "session-1" || got.UserID != "user-1" || got.TokenHash != "sha256-token-hash" {
+	if got.ID != "session-1" || got.ProjectID != "project-1" || got.UserID != "user-1" || got.TokenHash != "sha256-token-hash" {
 		t.Fatalf("unexpected session: %#v", got)
 	}
 	if !got.CreatedAt.Equal(created) || !got.ExpiresAt.Equal(expires) || !got.LastSeenAt.Equal(lastSeen) {
@@ -122,6 +124,7 @@ func TestSQLiteSessionStoreRejectsInvalidCreate(t *testing.T) {
 	now := time.Now().UTC()
 	err := db.CreateAuthSession(context.Background(), AuthSession{
 		ID:        "session-1",
+		ProjectID: "project-1",
 		UserID:    "user-1",
 		TokenHash: "",
 		CreatedAt: now,
@@ -134,6 +137,7 @@ func TestSQLiteSessionStoreRejectsInvalidCreate(t *testing.T) {
 
 	err = db.CreateAuthSession(context.Background(), AuthSession{
 		ID:         "session-1",
+		ProjectID:  "project-1",
 		UserID:     "user-1",
 		TokenHash:  "hash",
 		CreatedAt:  now,

@@ -14,8 +14,8 @@ func (d *sqliteDatabase) CreateAuthSession(ctx context.Context, session AuthSess
 	if d == nil || d.db == nil {
 		return fmt.Errorf("identity DB is not open")
 	}
-	if session.ID == "" || session.UserID == "" || session.TokenHash == "" {
-		return fmt.Errorf("auth session requires id, user_id and token_hash")
+	if session.ID == "" || session.ProjectID == "" || session.UserID == "" || session.TokenHash == "" {
+		return fmt.Errorf("auth session requires id, project_id, user_id and token_hash")
 	}
 	if session.CreatedAt.IsZero() || session.ExpiresAt.IsZero() || session.LastSeenAt.IsZero() {
 		return fmt.Errorf("auth session requires created_at, expires_at and last_seen_at")
@@ -31,10 +31,11 @@ func (d *sqliteDatabase) CreateAuthSession(ctx context.Context, session AuthSess
 
 	_, err := d.db.ExecContext(ctx, `
 INSERT INTO auth_sessions(
-    id, user_id, token_hash, created_at, expires_at, last_seen_at, revoked_at, client_metadata
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    id, project_id, user_id, token_hash, created_at, expires_at, last_seen_at, revoked_at, client_metadata
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `,
 		string(session.ID),
+		string(session.ProjectID),
 		string(session.UserID),
 		session.TokenHash,
 		session.CreatedAt.UTC().Format(time.RFC3339Nano),
@@ -60,6 +61,7 @@ func (d *sqliteDatabase) AuthSessionByTokenHash(ctx context.Context, tokenHash s
 	var (
 		session    AuthSession
 		id         string
+		projectID  string
 		userID     string
 		createdAt  string
 		expiresAt  string
@@ -67,11 +69,12 @@ func (d *sqliteDatabase) AuthSessionByTokenHash(ctx context.Context, tokenHash s
 		revokedAt  sql.NullString
 	)
 	err := d.db.QueryRowContext(ctx, `
-SELECT id, user_id, token_hash, created_at, expires_at, last_seen_at, revoked_at, client_metadata
+SELECT id, project_id, user_id, token_hash, created_at, expires_at, last_seen_at, revoked_at, client_metadata
 FROM auth_sessions
 WHERE token_hash = ?
 `, tokenHash).Scan(
 		&id,
+		&projectID,
 		&userID,
 		&session.TokenHash,
 		&createdAt,
@@ -88,6 +91,7 @@ WHERE token_hash = ?
 	}
 
 	session.ID = ID(id)
+	session.ProjectID = ID(projectID)
 	session.UserID = ID(userID)
 	if session.CreatedAt, err = parseDBTime(createdAt); err != nil {
 		return AuthSession{}, fmt.Errorf("read auth session created_at: %w", err)

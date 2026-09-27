@@ -10,13 +10,13 @@ func (d *sqliteDatabase) CreateLoginSession(ctx context.Context, session AuthSes
 	if d == nil || d.db == nil {
 		return fmt.Errorf("identity DB is not open")
 	}
-	if session.ID == "" || session.UserID == "" || session.TokenHash == "" || projectID == "" || verifiedPasswordHash == "" ||
+	if session.ID == "" || session.ProjectID == "" || session.ProjectID != projectID || session.UserID == "" || session.TokenHash == "" || projectID == "" || verifiedPasswordHash == "" ||
 		session.CreatedAt.IsZero() || session.LastSeenAt.IsZero() || !session.ExpiresAt.After(session.CreatedAt) || session.RevokedAt != nil {
 		return fmt.Errorf("invalid login session")
 	}
 	result, err := d.db.ExecContext(ctx, `
-INSERT INTO auth_sessions(id, user_id, token_hash, created_at, expires_at, last_seen_at)
-SELECT ?, users.id, ?, ?, ?, ?
+INSERT INTO auth_sessions(id, project_id, user_id, token_hash, created_at, expires_at, last_seen_at)
+SELECT ?, projects.id, users.id, ?, ?, ?, ?
 FROM users
 JOIN project_members ON project_members.user_id = users.id
 JOIN projects ON projects.id = project_members.project_id
