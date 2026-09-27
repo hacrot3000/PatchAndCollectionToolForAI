@@ -317,5 +317,6 @@ func TestOpenSQLiteDatabaseMigratesV1ToProjectScopedSessionsV2(t *testing.T) {
 	assertSQLLogContains(t, execs, "ALTER TABLE auth_sessions")
 	assertSQLLogContains(t, execs, "ADD COLUMN project_id")
 	assertSQLLogContains(t, execs, "idx_auth_sessions_project")
+	assertSQLLogContains(t, execs, "auth_sessions_require_project_insert")
 	assertSQLLogContains(t, execs, "UPDATE auth_sessions SET revoked_at = ? WHERE project_id IS NULL")
 }
