@@ -66,6 +66,7 @@ func TestReadOnlyStatementRejectsExecutableComments(t *testing.T) {
 	for _, statement := range []string{
 		"SELECT 1 /*! INTO OUTFILE '/tmp/leak' */",
 		"SELECT /*!50000 SQL_NO_CACHE */ 1",
+		"SELECT 1 /*M! INTO OUTFILE '/tmp/leak' */",
 	} {
 		if err := readOnlyStatement(statement); err == nil || !strings.Contains(err.Error(), "executable comments") {
 			t.Fatalf("statement %q error=%v", statement, err)
