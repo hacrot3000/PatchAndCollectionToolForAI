@@ -151,3 +151,22 @@ func TestObjectActionRejectsUnknownAction(t *testing.T) {
 		t.Fatalf("expected unsupported object action rejection, got %v", err)
 	}
 }
+
+
+func TestValidateMutateRowsResultRequiresOrderedIndexes(t *testing.T) {
+	valid := MutateRowsResult{Results: []RowMutationResult{
+		{Index: 0, Action: "insert", AffectedRows: 1},
+		{Index: 1, Action: "update", AffectedRows: 1},
+	}}
+	if err := ValidateMutateRowsResult(valid); err != nil {
+		t.Fatal(err)
+	}
+
+	outOfOrder := MutateRowsResult{Results: []RowMutationResult{
+		{Index: 1, Action: "insert", AffectedRows: 1},
+		{Index: 0, Action: "update", AffectedRows: 1},
+	}}
+	if err := ValidateMutateRowsResult(outOfOrder); err == nil || !strings.Contains(err.Error(), "expected 0") {
+		t.Fatalf("expected out-of-order mutation index rejection, got %v", err)
+	}
+}

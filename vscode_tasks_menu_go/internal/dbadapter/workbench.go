@@ -266,8 +266,8 @@ func ValidateMutateRowsResult(result MutateRowsResult) error {
 		return fmt.Errorf("database mutation result exceeds %d entries", MaxMutations)
 	}
 	for i, item := range result.Results {
-		if item.Index < 0 {
-			return fmt.Errorf("mutation result %d has negative index", i+1)
+		if item.Index != i {
+			return fmt.Errorf("mutation result %d has index %d; expected %d", i+1, item.Index, i)
 		}
 		switch strings.ToLower(strings.TrimSpace(item.Action)) {
 		case "insert", "update", "delete":
