@@ -641,7 +641,6 @@ function applyObjectFilter(view){
 function bindObject(view,object,button){
   if(!view?.workbench||button.dataset.workbenchBound==='1')return;
   button.dataset.workbenchBound='1';
-  button.addEventListener('click',()=>{inspectObject(view,object).catch(app.showError);});
   button.addEventListener('dblclick',event=>{event.preventDefault();openTableData(view,object).catch(app.showError);});
   button.addEventListener('contextmenu',event=>{event.preventDefault();event.stopPropagation();objectMenu(view,object,event.clientX,event.clientY);});
   applyObjectFilter(view);
