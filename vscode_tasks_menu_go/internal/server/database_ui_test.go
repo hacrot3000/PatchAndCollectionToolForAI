@@ -467,14 +467,19 @@ func TestDatabaseWorkbenchRowSelectionAndCopyDataOptions(t *testing.T) {
 		"data-select-all",
 		"Select all rows on this page",
 		"db-selected",
-		"Copy Data…",
-		"TXT / tab-separated",
-		"CSV",
-		"JSON",
-		"Include column names",
+		"function appendContextMenuItems",
+		"item.submenu",
+		"has-submenu",
+		"Copy TXT (without column header)",
+		"Copy TXT (with column header)",
+		"Copy CSV (without column header)",
+		"Copy CSV (with column header)",
+		"Copy as JSON",
+		"Selected row (1)",
 		"Selected rows (",
 		"Current page",
 		"All pages",
+		"copyScopeMenuItems(view,'json',true)",
 		"const MAX_COPY_ALL_ROWS=100000",
 		"limit:1000",
 		"sort:state.sort",
@@ -483,6 +488,15 @@ func TestDatabaseWorkbenchRowSelectionAndCopyDataOptions(t *testing.T) {
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("database_workbench.js missing row-selection/copy behavior %q", want)
+		}
+	}
+	for _, obsolete := range []string{
+		"Copy Data…",
+		"openCopyDataDialog",
+		"Copy Row as JSON",
+	} {
+		if strings.Contains(js, obsolete) {
+			t.Fatalf("database_workbench.js still contains obsolete copy UI %q", obsolete)
 		}
 	}
 }
