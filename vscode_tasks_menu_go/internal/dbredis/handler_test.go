@@ -102,9 +102,20 @@ func (f *redisHandlerFixture) respond(conn net.Conn, args []string) {
 	case "SCAN":
 		_, _ = conn.Write([]byte("*2\r\n$1\r\n0\r\n*2\r\n$6\r\nuser:1\r\n$7\r\ncounter\r\n"))
 	case "TYPE":
-		if len(args) > 1 && args[1] == "counter" {
-			_, _ = conn.Write([]byte("+string\r\n"))
-		} else {
+		key := ""
+		if len(args) > 1 {
+			key = args[1]
+		}
+		switch key {
+		case "list:key":
+			_, _ = conn.Write([]byte("+list\r\n"))
+		case "hash:key":
+			_, _ = conn.Write([]byte("+hash\r\n"))
+		case "set:key":
+			_, _ = conn.Write([]byte("+set\r\n"))
+		case "zset:key":
+			_, _ = conn.Write([]byte("+zset\r\n"))
+		default:
 			_, _ = conn.Write([]byte("+string\r\n"))
 		}
 	case "TTL":
@@ -115,6 +126,22 @@ func (f *redisHandlerFixture) respond(conn net.Conn, args []string) {
 			value = "42"
 		}
 		_, _ = fmt.Fprintf(conn, "$%d\r\n%s\r\n", len(value), value)
+	case "LLEN":
+		_, _ = conn.Write([]byte(":3\r\n"))
+	case "LRANGE":
+		_, _ = conn.Write([]byte("*3\r\n$3\r\none\r\n$3\r\ntwo\r\n$5\r\nthree\r\n"))
+	case "HLEN":
+		_, _ = conn.Write([]byte(":2\r\n"))
+	case "HSCAN":
+		_, _ = conn.Write([]byte("*2\r\n$1\r\n0\r\n*4\r\n$4\r\nname\r\n$5\r\nAlice\r\n$4\r\nrole\r\n$5\r\nadmin\r\n"))
+	case "SCARD":
+		_, _ = conn.Write([]byte(":2\r\n"))
+	case "SSCAN":
+		_, _ = conn.Write([]byte("*2\r\n$1\r\n0\r\n*2\r\n$3\r\nred\r\n$4\r\nblue\r\n"))
+	case "ZCARD":
+		_, _ = conn.Write([]byte(":2\r\n"))
+	case "ZRANGE":
+		_, _ = conn.Write([]byte("*4\r\n$5\r\nalice\r\n$2\r\n10\r\n$3\r\nbob\r\n$2\r\n20\r\n"))
 	default:
 		_, _ = conn.Write([]byte("-ERR fixture unsupported command\r\n"))
 	}
@@ -271,4 +298,68 @@ func TestHandlerCommandTimeoutIsBounded(t *testing.T) {
 		t.Fatalf("connect error=%+v", protocolErr)
 	}
 	handler.disconnect()
+}
+
+
+func TestHandlerWorkbenchBrowseRedisKeyTypes(t *testing.T) {
+	fixture := newRedisHandlerFixture(t)
+	handler := connectRedisHandler(t, fixture)
+	defer handler.disconnect()
+
+	tests := []struct {
+		name       string
+		key        string
+		limit      int
+		wantCols   []string
+		wantRows   int
+		wantMore   bool
+		wantTotal  int64
+	}{
+		{name: "string", key: "user:1", limit: 10, wantCols: []string{"value"}, wantRows: 1, wantTotal: 1},
+		{name: "list", key: "list:key", limit: 2, wantCols: []string{"index", "value"}, wantRows: 2, wantMore: true, wantTotal: 3},
+		{name: "hash", key: "hash:key", limit: 1, wantCols: []string{"field", "value"}, wantRows: 1, wantMore: true, wantTotal: 2},
+		{name: "set", key: "set:key", limit: 1, wantCols: []string{"member"}, wantRows: 1, wantMore: true, wantTotal: 2},
+		{name: "zset", key: "zset:key", limit: 1, wantCols: []string{"member", "score"}, wantRows: 1, wantMore: true, wantTotal: 2},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			payload, protocolErr := handler.Handle(context.Background(), redisAdapterRequest(t, "browse-"+tc.name, dbadapter.OpBrowseRows, dbadapter.BrowseRowsPayload{
+				Catalog: "db2", Kind: "key", Name: tc.key, Limit: tc.limit,
+			}))
+			if protocolErr != nil {
+				t.Fatalf("browse error=%+v", protocolErr)
+			}
+			result, ok := payload.(dbadapter.BrowseRowsResult)
+			if !ok {
+				t.Fatalf("payload type=%T", payload)
+			}
+			if result.Editable || !strings.Contains(result.EditabilityReason, "read-only") {
+				t.Fatalf("unexpected editability=%+v", result)
+			}
+			if len(result.Columns) != len(tc.wantCols) {
+				t.Fatalf("columns=%+v", result.Columns)
+			}
+			for i, want := range tc.wantCols {
+				if result.Columns[i].Name != want {
+					t.Fatalf("column %d=%q want %q", i, result.Columns[i].Name, want)
+				}
+			}
+			if len(result.Rows) != tc.wantRows || result.HasMore != tc.wantMore {
+				t.Fatalf("rows=%+v hasMore=%v", result.Rows, result.HasMore)
+			}
+			if result.TotalRows == nil || *result.TotalRows != tc.wantTotal {
+				t.Fatalf("total=%v want %d", result.TotalRows, tc.wantTotal)
+			}
+		})
+	}
+}
+
+func TestRedisManifestAdvertisesBrowseRows(t *testing.T) {
+	manifest, err := BuiltinManifest("/opt/taskdeck")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manifest.Capabilities.BrowseRows {
+		t.Fatalf("browse capability=%+v", manifest.Capabilities)
+	}
 }
