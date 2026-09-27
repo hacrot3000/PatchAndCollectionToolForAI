@@ -341,6 +341,7 @@ function openDatabaseProfileDialog(profile=null){
   const port=field(form,'Port','port',{type:'number',value:String(profile?.port||3306)});
   const username=field(form,'Username','username',{value:profile?.username||''});
   const database=field(form,'Database','database',{value:profile?.database||''});
+  const sqliteFile=field(form,'SQLite database file','file',{wide:true,value:profile?.file||'',placeholder:'Absolute or workspace-relative existing .sqlite/.db file'});
   const secret=field(form,editing&&profile?.has_secret?'Password (leave blank to keep saved value)':'Password','secret',{type:'password',wide:true});
   const readOnly=checkboxField(form,'Read-only connection','read_only',editing?Boolean(profile?.read_only):true,{wide:true});
   const clearSecret=editing&&profile?.has_secret?checkboxField(form,'Clear saved password','clear_secret',false,{wide:true}):null;
@@ -349,19 +350,31 @@ function openDatabaseProfileDialog(profile=null){
   const commandTimeout=field(form,'Command timeout (seconds)','command_timeout_seconds',{type:'number',value:profile?.options?.command_timeout_seconds||'15'});
   const authSource=field(form,'Authentication database','auth_source',{value:profile?.options?.auth_source||'',placeholder:'Optional, e.g. admin'});
   const mongoTLS=checkboxField(form,'Use TLS','tls',String(profile?.options?.tls||'').toLowerCase()==='true',{wide:true});
+  const busyTimeout=field(form,'Busy timeout (ms)','busy_timeout_ms',{type:'number',value:profile?.options?.busy_timeout_ms||'5000'});
 
   function selectedDatabaseAdapter(){return dbAdapters.find(item=>item.id===adapter.input.value)||null;}
   function syncDatabaseAdapter(){
     const kind=selectedDatabaseAdapter()?.kind||'';
     const redis=kind==='redis';
     const mongo=kind==='mongo';
+    const sqlite=kind==='sqlite';
     charset.wrap.style.display=kind==='mysql'?'flex':'none';
     commandTimeout.wrap.style.display=redis?'flex':'none';
     authSource.wrap.style.display=mongo?'flex':'none';
     mongoTLS.wrap.style.display=mongo?'flex':'none';
+    sqliteFile.wrap.style.display=sqlite?'flex':'none';
+    busyTimeout.wrap.style.display=sqlite?'flex':'none';
+    transport.wrap.style.display=sqlite?'none':'flex';
+    host.wrap.style.display=sqlite?'none':'flex';
+    port.wrap.style.display=sqlite?'none':'flex';
+    username.wrap.style.display=sqlite?'none':'flex';
+    database.wrap.style.display=sqlite?'none':'flex';
+    secret.wrap.style.display=sqlite?'none':'flex';
+    if(clearSecret)clearSecret.wrap.style.display=sqlite?'none':'flex';
+    if(sqlite)transport.input.value='direct';
     const databaseLabel=database.wrap.querySelector('label');
     if(databaseLabel)databaseLabel.textContent=redis?'Database index':'Database';
-    if(!editing){
+    if(!editing&&!sqlite){
       const currentPort=Number(port.input.value)||0;
       const defaults=[3306,6379,27017];
       if(currentPort===0||defaults.includes(currentPort))port.input.value=String(databaseDefaultPort(kind));
@@ -370,7 +383,8 @@ function openDatabaseProfileDialog(profile=null){
   adapter.input.addEventListener('change',syncDatabaseAdapter);syncDatabaseAdapter();
 
   function syncDatabaseTransport(){
-    const tunneled=transport.input.value==='ssh_tunnel';
+    const sqlite=selectedDatabaseAdapter()?.kind==='sqlite';
+    const tunneled=!sqlite&&transport.input.value==='ssh_tunnel';
     sshProfile.wrap.style.display=tunneled?'flex':'none';
     const hostLabel=host.wrap.querySelector('label');
     const portLabel=port.wrap.querySelector('label');
@@ -400,23 +414,28 @@ function openDatabaseProfileDialog(profile=null){
         if(authSource.input.value.trim())options.auth_source=authSource.input.value.trim();
         if(mongoTLS.input.checked)options.tls='true';
       }
+      if(adapterKind==='sqlite'&&busyTimeout.input.value.trim())options.busy_timeout_ms=busyTimeout.input.value.trim();
+      const sqlite=adapterKind==='sqlite';
       const payload={
         name:name.input.value,
         adapter_id:adapter.input.value,
-        transport:transport.input.value,
-        host:host.input.value,
-        port:Number(port.input.value)||databaseDefaultPort(adapterKind),
-        username:username.input.value,
-        database:database.input.value,
+        transport:sqlite?'direct':transport.input.value,
+        host:sqlite?'':host.input.value,
+        port:sqlite?0:(Number(port.input.value)||databaseDefaultPort(adapterKind)),
+        username:sqlite?'':username.input.value,
+        database:sqlite?'':database.input.value,
+        file:sqlite?sqliteFile.input.value:'',
         read_only:readOnly.input.checked,
         options
       };
-      if(transport.input.value==='ssh_tunnel'){
+      if(adapterKind!=='sqlite'&&transport.input.value==='ssh_tunnel'){
         if(!sshProfile.input.value)throw new Error('Select an SSH profile for the database tunnel');
         payload.ssh_profile_id=sshProfile.input.value;
       }
-      if(secret.input.value!=='')payload.secret=secret.input.value;
-      else if(clearSecret?.input.checked)payload.secret='';
+      if(adapterKind!=='sqlite'){
+        if(secret.input.value!=='')payload.secret=secret.input.value;
+        else if(clearSecret?.input.checked)payload.secret='';
+      }
       await app.jsonFetch(editing?'/api/db/profiles/'+encodeURIComponent(profile.id):'/api/db/profiles',{
         method:editing?'PUT':'POST',
         headers:{'Content-Type':'application/json'},
