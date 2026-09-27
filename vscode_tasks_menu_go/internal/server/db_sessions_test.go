@@ -93,7 +93,7 @@ func TestDatabaseSessionAPIConnectRequestAndClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile, err := profileStore.Create(dbprofile.Profile{
+	_, err = profileStore.Create(dbprofile.Profile{
 		ID:        "profile-1",
 		Name:      "Fixture DB",
 		AdapterID: manifest.ID,
