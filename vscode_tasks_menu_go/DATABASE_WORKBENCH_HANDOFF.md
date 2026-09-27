@@ -215,7 +215,7 @@ Non-tabular semantics:
 
 ### Phase 4 — object context tools / inspector
 - [x] Structure/Inspector tab.
-- [ ] Columns and indexes.
+- [x] Columns and indexes.
 - [x] Count Rows.
 - [x] Copy / qualified name.
 - [x] Generate SELECT/INSERT/UPDATE/DELETE templates into Query.
@@ -225,7 +225,7 @@ Non-tabular semantics:
 
 ### Phase 5 — sorting/filtering + UX depth
 - [x] Column sort descriptors.
-- [ ] Simple safe filters.
+- [x] Simple safe filters.
 - [ ] Persist per-table page size where appropriate.
 - [ ] Keyboard navigation/edit shortcuts.
 - [ ] Better loading/error/empty states.
@@ -233,17 +233,17 @@ Non-tabular semantics:
 - [ ] Optional total-row-count without blocking first page.
 
 ### Phase 6 — MongoDB workbench workflow
-- [ ] Collection browse_rows with `_id`.
-- [ ] Paged document grid.
-- [ ] Safe document edit/insert/delete.
-- [ ] Document JSON editor.
-- [ ] Collection context actions appropriate to MongoDB.
+- [x] Collection browse_rows with `_id`.
+- [x] Paged document grid.
+- [x] Safe document edit/insert/delete.
+- [x] Document JSON editor.
+- [x] Collection context actions appropriate to MongoDB.
 
 ### Phase 7 — Redis workbench workflow
-- [ ] SCAN-backed key browser.
-- [ ] Type-aware viewer.
-- [ ] Safe bounded editor for selected supported types.
-- [ ] Key context actions with read-only gates.
+- [x] Existing SCAN-backed key browser retained; Data viewer now opens selected keys.
+- [x] Type-aware viewer for String/List/Hash/Set/ZSet.
+- [x] Safe bounded editor for Hash/Set/ZSet; String/List remain read-only in grid.
+- [x] Count Entries / Generate Read Command / Delete Key with read-only gates.
 
 ### Phase 8 — hardening / documentation / CI
 - [ ] Audit events for data/object mutations without leaking values.
@@ -257,41 +257,65 @@ Non-tabular semantics:
 
 ## Current checkpoint
 
-**2026-09-27 — checkpoint 2: MySQL + SQLite end-to-end workbench**
+**2026-09-27 — checkpoint 3: multi-adapter workbench**
 
-Completed since checkpoint 1:
-- Native dependency-free context menu, object filter and Workbench tabs: **Data / Structure / Query**.
-- Existing direct query editor remains intact as the Query tab.
-- Double-click table/view opens Data; right-click exposes View Data, Inspect, Refresh, copy names, generated SQL and row count.
-- Server-side paging with 25/50/100/250/500/1000 page sizes, first/previous/next, sortable headers and page status.
-- Safe result rendering via `textContent`; cell/row copy actions and large-value editor.
-- Inline grid editing with dirty rows, insert/delete, NULL, Apply/Revert and discard guards when paging/sorting/refreshing.
-- Truncate/drop context actions are capability/read-only gated and require explicit confirmation; drop requires typing the object name.
-- MySQL workbench backend is fully wired for browse/mutate/count/truncate/drop with PK/non-null-unique identity.
-- SQLite stdlib helper + Go adapter are wired for browse/mutate/count/truncate/drop using parameter binding and PK/rowid identity.
-- Existing object click behavior remains; duplicate inspect request was removed.
+Completed since checkpoint 2:
+- MongoDB Workbench backend and UI are end-to-end:
+  - paged collection browsing ordered by `_id`
+  - `_id` row identity
+  - safe JSON document insert/replace/delete
+  - Count Documents, Clear Collection, Drop Collection
+  - Generate Find into the existing Query tab
+  - no arbitrary browser JavaScript execution path
+- Relational server-side filters for MySQL/SQLite:
+  - up to 16 AND conditions
+  - eq/ne/lt/lte/gt/gte/contains/starts_with/is_null/not_null
+  - browser sends filter descriptors; adapters build/parameterize queries
+- Inspector improvements:
+  - MySQL indexes returned from `information_schema.STATISTICS`
+  - SQLite PK/nullable/index metadata rendered correctly
+  - MongoDB collection indexes/info rendered
+  - SQL definition shown when available
+- Redis Workbench:
+  - selected keys open in Data grid
+  - String/List/Hash/Set/ZSet type-aware viewers
+  - total counts and bounded paging
+  - read command generation for Query tab
+  - Hash add/edit/delete fields
+  - Set add/delete members
+  - ZSet add/edit score/delete members
+  - String/List intentionally read-only in grid
+  - Count Entries and Delete Key context actions
+- Workbench query editor remains available unchanged for direct SQL/query/Redis commands.
 
-Recent commits:
-- `91c6d10d` Workbench navigator + paged grid
-- `c15d517d` Workbench load order
-- `1acd3439` navigator/grid regression tests
-- `124cfa63` inline editable grid
-- `d4d9ad41` inline editing regression tests
-- `858b05a0` SQLite helper operations
-- `c9ab61fa` SQLite Go adapter wiring
-- `4b29984e` SQLite workbench tests
-- `931d04ef` avoid duplicate inspect request
+Key commits after checkpoint 2:
+- `4005fd58` MongoDB workbench operations
+- `2f9278a2` MongoDB workbench tests
+- `d0368e27` MongoDB collection UI actions
+- `e43f8bac` MongoDB UI regression tests
+- `40fc311e` relational grid filters
+- `e8b61ba8` filter regression tests
+- `36b4a68f` MySQL index metadata
+- `58733ec8` inspector columns/indexes/keys UI
+- `6e24b91a` Redis type-aware viewer
+- `f39a9f55` Redis viewer tests
+- `efeee6c3` safe Redis Hash/Set/ZSet editing
+- `6da2073d` Redis mutation tests
+- `937c4b1f` Redis key context actions
+- `d050e7d7` Redis UI context tests
 
 CI:
 - Temporary branch trigger remains enabled while implementation is active.
-- No failures observed up to this checkpoint; latest branch runs are still being verified.
+- MongoDB checkpoint `2f9278a2` passed both Go 1.19.x and Go 1.23.x jobs.
+- Latest Redis/editing commits are under CI verification at this checkpoint.
 
 Next:
-1. Finish CI/fix any regressions for MySQL + SQLite end-to-end flow.
-2. Add safer filtering UI and richer Structure/index metadata.
-3. Add MongoDB collection browsing/editing using `_id` identity and JSON-only mutation payloads; no arbitrary JS.
-4. Add Redis SCAN/key workbench workflow and type-aware viewer/editor where safe.
-5. Harden audit/bounds, update docs, remove temporary CI trigger, run final full CI.
+1. Resolve any CI regressions from Redis write support.
+2. Add per-table page-size persistence and keyboard grid shortcuts.
+3. Improve loading/error/empty states and optional total-count behavior.
+4. Harden audit/bounds/mutation error paths and SSH-tunnel regressions.
+5. Update README/Connections docs.
+6. Remove temporary CI branch trigger, run final full CI and final diff review against main.
 
 ## Continuation rule
 
