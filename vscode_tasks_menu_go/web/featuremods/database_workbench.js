@@ -55,10 +55,13 @@ style.textContent=`
 .db-structure-table th{background:#171c23}
 .db-structure-json{font-family:ui-monospace,monospace;white-space:pre-wrap;font-size:11px}
 .db-context-menu{position:fixed;z-index:15000;min-width:220px;max-width:min(360px,90vw);padding:4px;background:#171b22;border:1px solid #48515f;border-radius:7px;box-shadow:0 14px 38px rgba(0,0,0,.45)}
+.db-context-entry{position:relative}
 .db-context-item{display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;padding:7px 9px;border-radius:4px;font-size:11px}
 .db-context-item:hover:not(:disabled){background:#2b3440}
 .db-context-item:disabled{opacity:.35}
 .db-context-item.danger{color:#ff9a9a}
+.db-context-item.has-submenu::after{content:'›';float:right;margin-left:14px;opacity:.7;font-size:15px;line-height:11px}
+.db-context-submenu{position:absolute;display:none;left:calc(100% + 4px);top:-4px;z-index:15001}
 .db-context-separator{height:1px;background:#30343b;margin:4px 2px}
 html[data-taskmenu-theme="light"] .db-workbench-tabs{background:#f2f5f8;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .db-workbench-tab.active{background:#fff}
@@ -101,21 +104,60 @@ function closeContextMenu(){
   contextMenu=null;
 }
 
+function positionContextSubmenu(submenu){
+  submenu.style.display='block';
+  submenu.style.left='calc(100% + 4px)';submenu.style.right='auto';submenu.style.top='-4px';
+  let rect=submenu.getBoundingClientRect();
+  if(rect.right>window.innerWidth-4){
+    submenu.style.left='auto';submenu.style.right='calc(100% + 4px)';
+    rect=submenu.getBoundingClientRect();
+  }
+  if(rect.bottom>window.innerHeight-4){
+    submenu.style.top=(-4-(rect.bottom-window.innerHeight+4))+'px';
+    rect=submenu.getBoundingClientRect();
+  }
+  if(rect.top<4){
+    const top=Number.parseFloat(submenu.style.top)||0;
+    submenu.style.top=(top+(4-rect.top))+'px';
+  }
+}
+
+function appendContextMenuItems(container,items){
+  for(const item of items){
+    if(item.separator){
+      const sep=document.createElement('div');sep.className='db-context-separator';container.append(sep);continue;
+    }
+    const entry=document.createElement('div');entry.className='db-context-entry';
+    const button=document.createElement('button');button.type='button';button.className='db-context-item'+(item.danger?' danger':'');
+    button.textContent=item.label;button.disabled=Boolean(item.disabled);
+    const submenuItems=Array.isArray(item.submenu)?item.submenu.filter(Boolean):[];
+    if(submenuItems.length){
+      button.classList.add('has-submenu');
+      const submenu=document.createElement('div');submenu.className='db-context-menu db-context-submenu';
+      appendContextMenuItems(submenu,submenuItems);
+      entry.onpointerenter=()=>{if(!button.disabled)positionContextSubmenu(submenu);};
+      entry.onpointerleave=()=>{submenu.style.display='none';};
+      button.onclick=event=>{
+        event.preventDefault();event.stopPropagation();
+        if(button.disabled)return;
+        if(submenu.style.display==='block')submenu.style.display='none';else positionContextSubmenu(submenu);
+      };
+      entry.append(button,submenu);
+    }else{
+      button.onclick=event=>{
+        event.preventDefault();event.stopPropagation();closeContextMenu();
+        Promise.resolve(item.action?.()).catch(app.showError);
+      };
+      entry.append(button);
+    }
+    container.append(entry);
+  }
+}
+
 function showContextMenu(items,x,y){
   closeContextMenu();
   const menu=document.createElement('div');menu.className='db-context-menu';
-  for(const item of items){
-    if(item.separator){
-      const sep=document.createElement('div');sep.className='db-context-separator';menu.append(sep);continue;
-    }
-    const button=document.createElement('button');button.type='button';button.className='db-context-item'+(item.danger?' danger':'');
-    button.textContent=item.label;button.disabled=Boolean(item.disabled);
-    button.onclick=event=>{
-      event.preventDefault();event.stopPropagation();closeContextMenu();
-      Promise.resolve(item.action?.()).catch(app.showError);
-    };
-    menu.append(button);
-  }
+  appendContextMenuItems(menu,items);
   document.body.append(menu);contextMenu=menu;
   const rect=menu.getBoundingClientRect();
   const left=Math.max(4,Math.min(x,window.innerWidth-rect.width-4));
@@ -471,51 +513,33 @@ async function collectClipboardData(view,scope){
   return currentPageCopyData(view,{selectedOnly:scope==='selected'});
 }
 
-function openCopyDataDialog(view,{defaultScope='current'}={}){
-  const state=dataState(view);const selected=selectedRowIndexes(view).length;
-  const dialog=document.createElement('div');dialog.className='task-connection-dialog';
-  const card=document.createElement('div');card.className='task-connection-dialog-card';
-  const title=document.createElement('h3');title.textContent='Copy Data';
+function copyScopeMenuItems(view,format,includeHeaders){
+  const selected=selectedRowIndexes(view).length;
+  return [
+    {label:selected?'Selected rows ('+selected+')':'Selected rows',disabled:selected===0,action:()=>copyGridData(view,format,includeHeaders,'selected')},
+    {label:'Current page',action:()=>copyGridData(view,format,includeHeaders,'current')},
+    {label:'All pages',action:()=>copyGridData(view,format,includeHeaders,'all')}
+  ];
+}
 
-  const formatLabel=document.createElement('label');formatLabel.textContent='Format';
-  const format=document.createElement('select');
-  for(const [value,label] of [['txt','TXT / tab-separated'],['csv','CSV'],['json','JSON']]){
-    const option=document.createElement('option');option.value=value;option.textContent=label;format.append(option);
-  }
+function copyGridMenuItems(view){
+  return [
+    ['txt','TXT',false],
+    ['txt','TXT',true],
+    ['csv','CSV',false],
+    ['csv','CSV',true],
+    ['json','JSON',false],
+    ['json','JSON',true]
+  ].map(([format,label,includeHeaders])=>({
+    label:'Copy '+label+' ('+(includeHeaders?'with':'without')+' column header)',
+    submenu:copyScopeMenuItems(view,format,includeHeaders)
+  }));
+}
 
-  const scopeLabel=document.createElement('label');scopeLabel.textContent='Scope';
-  const scope=document.createElement('select');
-  if(selected){
-    const option=document.createElement('option');option.value='selected';option.textContent='Selected rows ('+selected+')';scope.append(option);
-  }
-  for(const [value,label] of [['current','Current page'],['all','All pages']]){
-    const option=document.createElement('option');option.value=value;option.textContent=label;scope.append(option);
-  }
-  if(Array.from(scope.options).some(option=>option.value===defaultScope))scope.value=defaultScope;
-
-  const headerLabel=document.createElement('label');headerLabel.style.display='flex';headerLabel.style.alignItems='center';headerLabel.style.gap='7px';
-  const headers=document.createElement('input');headers.type='checkbox';headers.checked=true;
-  const headerText=document.createElement('span');headerText.textContent='Include column names';
-  headerLabel.append(headers,headerText);
-
-  const hint=document.createElement('div');hint.className='db-data-status';
-  hint.textContent='All pages follows the current sort/filter, reads up to 1,000 rows per request, and refuses copies above '+MAX_COPY_ALL_ROWS.toLocaleString()+' rows. JSON with column names copies objects; without them it copies arrays.';
-
-  const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
-  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>dialog.remove();
-  const copy=document.createElement('button');copy.type='button';copy.className='task-connection-primary';copy.textContent='Copy';
-  copy.onclick=async()=>{
-    copy.disabled=true;const oldText=copy.textContent;copy.textContent='Copying…';
-    try{
-      const data=await collectClipboardData(view,scope.value);
-      if(!data)return;
-      await copyText(serializeClipboardData(format.value,data.columns,data.rows,headers.checked));
-      dialog.remove();
-    }finally{copy.disabled=false;copy.textContent=oldText;}
-  };
-  actions.append(cancel,copy);
-  card.append(title,formatLabel,format,scopeLabel,scope,headerLabel,hint,actions);dialog.append(card);document.body.append(dialog);
-  dialog.addEventListener('pointerdown',event=>{if(event.target===dialog)dialog.remove();});
+async function copyGridData(view,format,includeHeaders,scope){
+  const data=await collectClipboardData(view,scope);
+  if(!data)return;
+  await copyText(serializeClipboardData(format,data.columns,data.rows,includeHeaders));
 }
 
 function dataState(view){
@@ -732,7 +756,7 @@ function renderDataGrid(view){
     showContextMenu([
       {label:selected?'Clear row selection':'Select all rows on this page',action:()=>toggleSelectAllPage(view)},
       {separator:true},
-      {label:'Copy Data…',action:()=>openCopyDataDialog(view,{defaultScope:selected?'selected':'current'})}
+      ...copyGridMenuItems(view)
     ],event.clientX,event.clientY);
   };
   hr.append(nr);
@@ -840,7 +864,7 @@ function showCellMenu(view,rowIndex,columnIndex,x,y){
   showContextMenu([
     {label:'Copy Value',action:()=>copyText(displayValue(value))},
     {label:'Copy Column Name',action:()=>copyText(column?.name||'')},
-    {label:'Copy Data…',action:()=>openCopyDataDialog(view,{defaultScope:'selected'})},
+    ...copyGridMenuItems(view),
     {separator:true},
     {label:'Open Value in Editor',action:()=>openValueViewer(column?.name||'',value,{editable,onSave:next=>{setDirtyCell(view,rowIndex,columnIndex,next);renderDataGrid(view);}})},
     {label:'Set NULL',disabled:!editable||!column?.nullable,action:()=>{setDirtyCell(view,rowIndex,columnIndex,null);renderDataGrid(view);}},
@@ -866,7 +890,7 @@ function showRowMenu(view,rowIndex,x,y){
   const editable=Boolean(state.result?.editable)&&supports(view,'mutate_rows');
   const deleted=state.deletedRows.has(rowIndex);
   showContextMenu([
-    {label:'Copy Data…',action:()=>openCopyDataDialog(view,{defaultScope:'selected'})},
+    ...copyGridMenuItems(view),
     {label:'Copy Row as JSON',action:()=>{
       const columns=state.result?.columns||[];const out={};
       columns.forEach((column,index)=>{out[column.name]=currentCellValue(view,rowIndex,index);});
