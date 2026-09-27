@@ -1359,12 +1359,17 @@ func workspaceTerminalExecution(workspace string) (tasks.Execution, error) {
 		if err != nil {
 			continue
 		}
-		return tasks.ResolveExecution(tasks.Task{
+		spec, err := tasks.ResolveExecution(tasks.Task{
 			Label:   "Terminal",
 			Detail:  "Shell tương tác tại thư mục gốc project",
 			Type:    "process",
 			Command: shell,
 		}, workspace)
+		if err != nil {
+			return tasks.Execution{}, err
+		}
+		spec.TargetType = "local"
+		return spec, nil
 	}
 	return tasks.Execution{}, fmt.Errorf("không tìm thấy shell tương tác ($SHELL, /bin/bash hoặc /bin/sh)")
 }
