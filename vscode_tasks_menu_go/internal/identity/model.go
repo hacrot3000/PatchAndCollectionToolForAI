@@ -95,6 +95,7 @@ type MemberPermission struct {
 
 type AuthSession struct {
 	ID             ID
+	ProjectID      ID
 	UserID         ID
 	TokenHash      string
 	CreatedAt      time.Time

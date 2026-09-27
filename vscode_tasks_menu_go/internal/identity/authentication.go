@@ -36,8 +36,8 @@ func NewID() (ID, error) { return randomID() }
 
 // CreateBrowserSession returns the raw token only to the caller setting the
 // cookie. Neither the stored session nor its ID contains that bearer token.
-func CreateBrowserSession(ctx context.Context, store SessionStore, userID ID, now time.Time) (string, AuthSession, error) {
-	token, session, err := newBrowserSession(userID, now)
+func CreateBrowserSession(ctx context.Context, store SessionStore, projectID, userID ID, now time.Time) (string, AuthSession, error) {
+	token, session, err := newBrowserSession(projectID, userID, now)
 	if err != nil {
 		return "", AuthSession{}, err
 	}
@@ -51,7 +51,7 @@ func CreateBrowserSession(ctx context.Context, store SessionStore, userID ID, no
 // project access again when persisting the new session, closing the window in
 // which a password reset/disable could occur during the expensive verifier.
 func CreateLoginBrowserSession(ctx context.Context, store SessionStore, principal Principal, verifiedPasswordHash string, now time.Time) (string, AuthSession, error) {
-	token, session, err := newBrowserSession(principal.UserID, now)
+	token, session, err := newBrowserSession(principal.ProjectID, principal.UserID, now)
 	if err != nil {
 		return "", AuthSession{}, err
 	}
@@ -61,7 +61,7 @@ func CreateLoginBrowserSession(ctx context.Context, store SessionStore, principa
 	return token, session, nil
 }
 
-func newBrowserSession(userID ID, now time.Time) (string, AuthSession, error) {
+func newBrowserSession(projectID, userID ID, now time.Time) (string, AuthSession, error) {
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return "", AuthSession{}, err
@@ -73,7 +73,7 @@ func newBrowserSession(userID ID, now time.Time) (string, AuthSession, error) {
 	token := base64.RawURLEncoding.EncodeToString(raw[:])
 	hash, _ := sessionTokenHash(token)
 	session := AuthSession{
-		ID: id, UserID: userID, TokenHash: hash,
+		ID: id, ProjectID: projectID, UserID: userID, TokenHash: hash,
 		CreatedAt: now.UTC(), LastSeenAt: now.UTC(), ExpiresAt: now.UTC().Add(SessionLifetime),
 	}
 	return token, session, nil

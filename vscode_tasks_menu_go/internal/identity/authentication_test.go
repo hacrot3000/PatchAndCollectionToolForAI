@@ -33,7 +33,7 @@ func authenticationFixture(t *testing.T) (*sqliteDatabase, time.Time) {
 func TestBrowserSessionRoundTripAndLogout(t *testing.T) {
 	db, now := authenticationFixture(t)
 	ctx := context.Background()
-	token, session, err := CreateBrowserSession(ctx, db, "alice", now)
+	token, session, err := CreateBrowserSession(ctx, db, "project", "alice", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestBrowserSessionRechecksAccessAndExpiration(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			db, now := authenticationFixture(t)
 			ctx := context.Background()
-			token, _, err := CreateBrowserSession(ctx, db, "alice", now)
+			token, _, err := CreateBrowserSession(ctx, db, "project", "alice", now)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -99,7 +99,7 @@ func TestBrowserSessionRechecksAccessAndExpiration(t *testing.T) {
 func TestPasswordChangeInvalidatesBrowserSession(t *testing.T) {
 	db, now := authenticationFixture(t)
 	ctx := context.Background()
-	token, _, err := CreateBrowserSession(ctx, db, "alice", now)
+	token, _, err := CreateBrowserSession(ctx, db, "project", "alice", now)
 	if err != nil {
 		t.Fatal(err)
 	}
