@@ -84,4 +84,10 @@ func TestClientArgsNeverContainPassword(t *testing.T) {
 	if strings.Contains(joined, config.Secret) {
 		t.Fatalf("password leaked into client argv: %#v", args)
 	}
+
+	config.ReadOnly = true
+	readOnlyArgs := strings.Join(clientArgs(config, credentials), "\n")
+	if !strings.Contains(readOnlyArgs, "--init-command=SET SESSION TRANSACTION READ ONLY") {
+		t.Fatalf("read-only session option missing: %s", readOnlyArgs)
+	}
 }
