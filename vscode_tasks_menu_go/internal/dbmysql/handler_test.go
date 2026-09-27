@@ -32,6 +32,8 @@ func writeHandlerFixture(t *testing.T) string {
 		"  *information_schema.COLUMNS*) printf '%s\\n' '<resultset><row><field name=\"name\">id</field><field name=\"type\">bigint</field><field name=\"nullable\">NO</field></row><row><field name=\"name\">name</field><field name=\"type\">varchar(255)</field><field name=\"nullable\">YES</field></row></resultset>' ;;\n" +
 		"  *taskdeck_browse*) printf '%s\\n' '<resultset><row><field name=\"id\">1</field><field name=\"name\">Alice</field></row><row><field name=\"id\">2</field><field name=\"name\">Bob</field></row></resultset>' ;;\n" +
 		"  *taskdeck_mutation*) printf '%s\\n' '<resultset><row><field name=\"affected_rows\">1</field></row></resultset>' ;;\n" +
+		"  *taskdeck_count*) printf '%s\\n' '<resultset><row><field name=\"row_count\">2</field></row></resultset>' ;;\n" +
+		"  *taskdeck_object_action*) : ;;\n" +
 		"  *'SELECT 42 AS answer'*) printf '%s\\n' '<resultset><row><field name=\"answer\">42</field></row></resultset>' ;;\n" +
 		"  *) printf '%s\\n' '<resultset></resultset>' ;;\n" +
 		"esac\n" +
@@ -270,5 +272,40 @@ func TestBuildMySQLMutationRejectsIncompleteIdentity(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "identity") {
 		t.Fatalf("expected identity error, got %v", err)
+	}
+}
+
+
+func TestHandlerObjectActionsCountAndReadOnlyGate(t *testing.T) {
+	readOnly := connectFixtureHandler(t, true)
+	payload, protocolErr := readOnly.Handle(context.Background(), adapterRequest(t, "count-1", dbadapter.OpObjectAction, dbadapter.ObjectActionPayload{
+		Catalog: "main", Kind: "table", Name: "users", Action: "count_rows",
+	}))
+	if protocolErr != nil {
+		t.Fatalf("count error=%+v", protocolErr)
+	}
+	result, ok := payload.(dbadapter.ObjectActionResult)
+	if !ok || result.Count == nil || *result.Count != 2 {
+		t.Fatalf("count result=%#v", payload)
+	}
+	_, protocolErr = readOnly.Handle(context.Background(), adapterRequest(t, "truncate-ro", dbadapter.OpObjectAction, dbadapter.ObjectActionPayload{
+		Catalog: "main", Kind: "table", Name: "users", Action: "truncate",
+	}))
+	if protocolErr == nil || protocolErr.Code != "READ_ONLY" {
+		t.Fatalf("truncate protocol error=%+v", protocolErr)
+	}
+}
+
+func TestHandlerObjectActionsAllowWriteProfileDrop(t *testing.T) {
+	handler := connectFixtureHandler(t, false)
+	payload, protocolErr := handler.Handle(context.Background(), adapterRequest(t, "drop-1", dbadapter.OpObjectAction, dbadapter.ObjectActionPayload{
+		Catalog: "main", Kind: "table", Name: "users", Action: "drop",
+	}))
+	if protocolErr != nil {
+		t.Fatalf("drop error=%+v", protocolErr)
+	}
+	result, ok := payload.(dbadapter.ObjectActionResult)
+	if !ok || !strings.Contains(strings.ToLower(result.Message), "dropped") {
+		t.Fatalf("drop result=%#v", payload)
 	}
 }

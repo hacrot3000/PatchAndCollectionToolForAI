@@ -103,6 +103,7 @@ func BuiltinManifest(taskdeckExecutable string) (dbadapter.Manifest, error) {
 			DescribeObject: true,
 			BrowseRows:     true,
 			MutateRows:     true,
+			ObjectActions:  true,
 			Execute:        true,
 		},
 	}

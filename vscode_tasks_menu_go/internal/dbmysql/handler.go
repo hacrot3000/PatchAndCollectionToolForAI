@@ -107,6 +107,19 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 			return nil, mysqlProtocolError("INVALID_MUTATION", err)
 		}
 		return h.mutateRows(ctx, normalized)
+	case dbadapter.OpObjectAction:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		var payload dbadapter.ObjectActionPayload
+		if err := decodePayload(request.Payload, &payload); err != nil {
+			return nil, mysqlProtocolError("INVALID_PAYLOAD", err)
+		}
+		normalized, err := dbadapter.NormalizeObjectActionPayload(payload)
+		if err != nil {
+			return nil, mysqlProtocolError("INVALID_OBJECT_ACTION", err)
+		}
+		return h.objectAction(ctx, normalized)
 	case dbadapter.OpExecute:
 		if protocolErr := h.requireConnected(); protocolErr != nil {
 			return nil, protocolErr
@@ -349,6 +362,67 @@ type mysqlIndexColumn struct {
 	Nullable  bool
 }
 
+
+
+func (h *Handler) objectAction(ctx context.Context, payload dbadapter.ObjectActionPayload) (interface{}, *dbadapter.ProtocolError) {
+	kind := strings.ToLower(strings.TrimSpace(payload.Kind))
+	if kind != "" && kind != "table" && kind != "view" {
+		return nil, &dbadapter.ProtocolError{Code: "OBJECT_TYPE_UNSUPPORTED", Message: "MySQL object action supports tables and views only"}
+	}
+	catalog := firstNonEmpty(payload.Catalog, payload.Schema, h.config.Database)
+	if catalog == "" {
+		return nil, &dbadapter.ProtocolError{Code: "CATALOG_REQUIRED", Message: "MySQL catalog/database is required"}
+	}
+	objectSQL, err := mysqlQualifiedIdentifier(catalog, payload.Name)
+	if err != nil {
+		return nil, mysqlProtocolError("INVALID_OBJECT", err)
+	}
+	switch payload.Action {
+	case "count_rows":
+		result, err := h.query(ctx, "/* taskdeck_count */ SELECT COUNT(*) AS row_count FROM "+objectSQL, 1)
+		if err != nil {
+			return nil, mysqlProtocolError("COUNT_FAILED", err)
+		}
+		if len(result.Rows) != 1 {
+			return nil, &dbadapter.ProtocolError{Code: "COUNT_FAILED", Message: "MySQL count returned no row"}
+		}
+		index, err := resultColumnIndex(result, "row_count")
+		if err != nil {
+			return nil, mysqlProtocolError("COUNT_FAILED", err)
+		}
+		count, err := strconv.ParseInt(strings.TrimSpace(resultCellString(result.Rows[0][index])), 10, 64)
+		if err != nil {
+			return nil, mysqlProtocolError("COUNT_FAILED", err)
+		}
+		out := dbadapter.ObjectActionResult{Count: &count}
+		return out, nil
+	case "truncate":
+		if h.config.ReadOnly {
+			return nil, &dbadapter.ProtocolError{Code: "READ_ONLY", Message: "MySQL connection is read-only"}
+		}
+		if kind == "view" {
+			return nil, &dbadapter.ProtocolError{Code: "OBJECT_TYPE_UNSUPPORTED", Message: "MySQL views cannot be truncated"}
+		}
+		if _, err := runClient(ctx, h.client, h.config, "/* taskdeck_object_action */ TRUNCATE TABLE "+objectSQL); err != nil {
+			return nil, mysqlProtocolError("TRUNCATE_FAILED", err)
+		}
+		return dbadapter.ObjectActionResult{Message: "Table truncated"}, nil
+	case "drop":
+		if h.config.ReadOnly {
+			return nil, &dbadapter.ProtocolError{Code: "READ_ONLY", Message: "MySQL connection is read-only"}
+		}
+		statement := "DROP TABLE " + objectSQL
+		if kind == "view" {
+			statement = "DROP VIEW " + objectSQL
+		}
+		if _, err := runClient(ctx, h.client, h.config, "/* taskdeck_object_action */ "+statement); err != nil {
+			return nil, mysqlProtocolError("DROP_FAILED", err)
+		}
+		return dbadapter.ObjectActionResult{Message: "Object dropped"}, nil
+	default:
+		return nil, &dbadapter.ProtocolError{Code: "INVALID_OBJECT_ACTION", Message: "Unsupported MySQL object action"}
+	}
+}
 
 func (h *Handler) mutateRows(ctx context.Context, payload dbadapter.MutateRowsPayload) (interface{}, *dbadapter.ProtocolError) {
 	kind := strings.ToLower(strings.TrimSpace(payload.Kind))
