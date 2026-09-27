@@ -93,7 +93,7 @@ func (h *Handler) redisGridEditable() bool {
 func (h *Handler) browseRedisString(ctx context.Context, key string, payload dbadapter.BrowseRowsPayload) (dbadapter.BrowseRowsResult, error) {
 	total := int64(1)
 	if payload.Offset > 0 {
-		return redisBrowseResult(payload, []dbadapter.BrowseColumn{{Name: "value", Type: "redis:string"}}, []dbadapter.BrowseRow{}, false, &total, false, "Redis strings use the key context tools for writes"), nil
+		return redisBrowseResult(payload, []dbadapter.BrowseColumn{{Name: "value", Type: "redis:string"}}, []dbadapter.BrowseRow{}, false, &total, false, "Redis strings are read-only in the grid editor; use key context tools for writes"), nil
 	}
 	value, err := h.client.Do(ctx, "GET", key)
 	if err != nil {
@@ -101,7 +101,7 @@ func (h *Handler) browseRedisString(ctx context.Context, key string, payload dba
 	}
 	cell, _ := normalizeRedisCell(value, 0)
 	rows := []dbadapter.BrowseRow{{Values: []interface{}{cell}, Identity: map[string]interface{}{"key": key}}}
-	return redisBrowseResult(payload, []dbadapter.BrowseColumn{{Name: "value", Type: "redis:string"}}, rows, false, &total, false, "Redis strings use the key context tools for writes"), nil
+	return redisBrowseResult(payload, []dbadapter.BrowseColumn{{Name: "value", Type: "redis:string"}}, rows, false, &total, false, "Redis strings are read-only in the grid editor; use key context tools for writes"), nil
 }
 
 func (h *Handler) browseRedisList(ctx context.Context, key string, payload dbadapter.BrowseRowsPayload) (dbadapter.BrowseRowsResult, error) {
