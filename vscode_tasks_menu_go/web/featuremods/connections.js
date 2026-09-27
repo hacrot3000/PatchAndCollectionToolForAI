@@ -151,15 +151,17 @@ function databaseAdapter(profile){
 function databaseDefaultPort(kind){
   if(kind==='redis')return 6379;
   if(kind==='mongo')return 27017;
+  if(kind==='sqlite')return 0;
   return 3306;
 }
 
 function databaseEndpoint(profile){
-  const host=profile?.host||'127.0.0.1';
   const kind=dbAdapters.find(adapter=>adapter.id===profile?.adapter_id)?.kind||'';
+  const mode=profile?.read_only?'read-only':'read/write';
+  if(kind==='sqlite')return (profile?.file||'SQLite file')+' · '+mode;
+  const host=profile?.host||'127.0.0.1';
   const port=Number(profile?.port)||databaseDefaultPort(kind);
   const database=profile?.database?' / '+profile.database:'';
-  const mode=profile?.read_only?'read-only':'read/write';
   const transport=profile?.transport==='ssh_tunnel'?' · SSH tunnel':'';
   return host+':'+port+database+' · '+mode+transport;
 }
@@ -379,6 +381,7 @@ function openDatabaseProfileDialog(profile=null){
       const defaults=[3306,6379,27017];
       if(currentPort===0||defaults.includes(currentPort))port.input.value=String(databaseDefaultPort(kind));
     }
+    syncDatabaseTransport();
   }
   adapter.input.addEventListener('change',syncDatabaseAdapter);syncDatabaseAdapter();
 
