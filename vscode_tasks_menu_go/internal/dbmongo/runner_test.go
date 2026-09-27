@@ -99,6 +99,18 @@ func TestRunScriptRedactsSecretFromFailure(t *testing.T) {
 	}
 }
 
+func TestMongoDiagnosticRedactionCoversURIEncodedSecret(t *testing.T) {
+	secret := "p@ss/word?x=y z"
+	text := "raw=" + secret + " path=p%40ss%2Fword%3Fx=y%20z query=p%40ss%2Fword%3Fx%3Dy+z"
+	redacted := redactMongoSecret(text, secret)
+	if strings.Contains(redacted, secret) || strings.Contains(redacted, "p%40ss%2Fword") {
+		t.Fatalf("encoded MongoDB secret leaked after redaction: %s", redacted)
+	}
+	if !strings.Contains(redacted, "[redacted]") {
+		t.Fatalf("redaction marker missing: %s", redacted)
+	}
+}
+
 func TestRunScriptHonorsContextCancellation(t *testing.T) {
 	clientPath := writeMongoshRunnerFixture(t, "sleep 30")
 	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
