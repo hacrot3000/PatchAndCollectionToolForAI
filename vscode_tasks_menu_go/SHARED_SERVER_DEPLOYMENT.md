@@ -243,7 +243,9 @@ The migration itself is serialized with `BEGIN IMMEDIATE`.
 
 ## Operational checks
 
-After deployment verify all of the following:
+Use [SHARED_SERVER_ACCEPTANCE.md](SHARED_SERVER_ACCEPTANCE.md) as the complete
+first-release sign-off procedure. At minimum, after deployment verify all of the
+following:
 
 1. anonymous public requests cannot access the workspace or admin APIs;
 2. the public Origin/Host reaches TaskDeck unchanged;
