@@ -206,16 +206,50 @@ function createWorkbenchTab(view,key,label,{closable=true}={}){
     button.append(close);
   }
   button.onclick=()=>activatePanel(root,key);
+  button.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();showWorkbenchTabMenu(root,key,event.clientX,event.clientY);};
   wb.tabsBar.append(button);
   return button;
 }
 
-function closeWorkbenchPage(view,key,{force=false}={}){
+function workbenchPageKeys(view){
+  const root=rootWorkbenchView(view);
+  return Array.from(root.workbench?.pages?.keys?.()||[]);
+}
+
+function closeWorkbenchPages(view,keys){
+  const root=rootWorkbenchView(view);const wb=root?.workbench;
+  if(!wb)return false;
+  const pages=keys.map(key=>wb.pages.get(key)).filter(page=>page&&page.mode!=='query');
+  if(!pages.length)return false;
+  const dirty=pages.filter(page=>page.mode==='data'&&page.ctx&&hasPendingChanges(page.ctx));
+  if(dirty.length&&!confirm('Discard unsaved database grid changes in '+dirty.length+' tab'+(dirty.length===1?'':'s')+'?'))return false;
+  const activeWillClose=pages.some(page=>page.key===wb.active);
+  for(const page of pages)closeWorkbenchPage(root,page.key,{force:true,activateFallback:false});
+  if(activeWillClose)activatePanel(root,'query');
+  return true;
+}
+
+function showWorkbenchTabMenu(view,key,x,y){
+  const root=rootWorkbenchView(view);const keys=workbenchPageKeys(root);const index=keys.indexOf(key);
+  const page=root.workbench?.pages?.get(key);if(!page||index<0)return;
+  const left=keys.slice(0,index).filter(item=>root.workbench.pages.get(item)?.mode!=='query');
+  const right=keys.slice(index+1).filter(item=>root.workbench.pages.get(item)?.mode!=='query');
+  const others=keys.filter(item=>item!==key&&root.workbench.pages.get(item)?.mode!=='query');
+  showContextMenu([
+    {label:'Close this',disabled:page.mode==='query',action:()=>closeWorkbenchPage(root,key)},
+    {label:'Close all but this',disabled:others.length===0,action:()=>closeWorkbenchPages(root,others)},
+    {separator:true},
+    {label:'Close all right tabs',disabled:right.length===0,action:()=>closeWorkbenchPages(root,right)},
+    {label:'Close all left tabs',disabled:left.length===0,action:()=>closeWorkbenchPages(root,left)}
+  ],x,y);
+}
+
+function closeWorkbenchPage(view,key,{force=false,activateFallback=true}={}){
   const root=rootWorkbenchView(view);const wb=root?.workbench;const page=wb?.pages?.get(key);
   if(!page||page.mode==='query')return false;
   if(!force&&page.mode==='data'&&page.ctx&&hasPendingChanges(page.ctx)&&!confirm('Discard unsaved database grid changes?'))return false;
   page.tab?.remove();page.panel?.remove();wb.pages.delete(key);
-  if(wb.active===key)activatePanel(root,'query');
+  if(activateFallback&&wb.active===key)activatePanel(root,'query');
   return true;
 }
 
