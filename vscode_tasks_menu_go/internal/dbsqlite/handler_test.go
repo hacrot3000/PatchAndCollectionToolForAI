@@ -153,3 +153,166 @@ func TestSQLiteHelperRejectsMultipleStatements(t *testing.T) {
 		t.Fatalf("multi-statement error=%+v", protocolErr)
 	}
 }
+
+
+func TestSQLiteHandlerWorkbenchBrowseAndReadOnlyGate(t *testing.T) {
+	python, err := FindPython()
+	if err != nil {
+		t.Skipf("Python 3 unavailable: %v", err)
+	}
+	path := createSQLiteFixture(t, python)
+
+	readOnly := connectSQLiteHandler(t, path, true)
+	defer readOnly.disconnect()
+
+	payload, protocolErr := readOnly.Handle(context.Background(), sqliteAdapterRequest(t, "browse-ro", dbadapter.OpBrowseRows, dbadapter.BrowseRowsPayload{
+		Catalog: "main",
+		Kind:    "table",
+		Name:    "users",
+		Limit:   1,
+	}))
+	if protocolErr != nil {
+		t.Fatalf("browse error=%+v", protocolErr)
+	}
+	result, ok := payload.(dbadapter.BrowseRowsResult)
+	if !ok {
+		t.Fatalf("browse payload type=%T", payload)
+	}
+	if len(result.Rows) != 1 || !result.HasMore || result.Rows[0].Values[1] != "Alice" {
+		t.Fatalf("browse result=%+v", result)
+	}
+	if result.Editable || !strings.Contains(strings.ToLower(result.EditabilityReason), "read-only") {
+		t.Fatalf("read-only editability=%+v", result)
+	}
+	if len(result.Columns) < 1 || result.Columns[0].Name != "id" || !result.Columns[0].Identity {
+		t.Fatalf("browse columns=%+v", result.Columns)
+	}
+
+	_, protocolErr = readOnly.Handle(context.Background(), sqliteAdapterRequest(t, "mutate-ro", dbadapter.OpMutateRows, dbadapter.MutateRowsPayload{
+		Catalog: "main",
+		Name:    "users",
+		Mutations: []dbadapter.RowMutation{
+			{Action: "delete", Identity: map[string]interface{}{"id": 1}},
+		},
+	}))
+	if protocolErr == nil || protocolErr.Code != "READ_ONLY" {
+		t.Fatalf("read-only mutation error=%+v", protocolErr)
+	}
+
+	countPayload, protocolErr := readOnly.Handle(context.Background(), sqliteAdapterRequest(t, "count-ro", dbadapter.OpObjectAction, dbadapter.ObjectActionPayload{
+		Catalog: "main", Kind: "table", Name: "users", Action: "count_rows",
+	}))
+	if protocolErr != nil {
+		t.Fatalf("count error=%+v", protocolErr)
+	}
+	count := countPayload.(dbadapter.ObjectActionResult)
+	if count.Count == nil || *count.Count != 2 {
+		t.Fatalf("count result=%+v", count)
+	}
+
+	_, protocolErr = readOnly.Handle(context.Background(), sqliteAdapterRequest(t, "truncate-ro", dbadapter.OpObjectAction, dbadapter.ObjectActionPayload{
+		Catalog: "main", Kind: "table", Name: "users", Action: "truncate",
+	}))
+	if protocolErr == nil || protocolErr.Code != "READ_ONLY" {
+		t.Fatalf("read-only truncate error=%+v", protocolErr)
+	}
+}
+
+func TestSQLiteHandlerWorkbenchMutationsAndObjectActions(t *testing.T) {
+	python, err := FindPython()
+	if err != nil {
+		t.Skipf("Python 3 unavailable: %v", err)
+	}
+	path := createSQLiteFixture(t, python)
+	handler := connectSQLiteHandler(t, path, false)
+	defer handler.disconnect()
+
+	browsePayload, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "browse-rw", dbadapter.OpBrowseRows, dbadapter.BrowseRowsPayload{
+		Catalog: "main", Kind: "table", Name: "users", Limit: 100,
+	}))
+	if protocolErr != nil {
+		t.Fatalf("browse error=%+v", protocolErr)
+	}
+	browse := browsePayload.(dbadapter.BrowseRowsResult)
+	if !browse.Editable || len(browse.Rows) != 2 {
+		t.Fatalf("browse result=%+v", browse)
+	}
+
+	mutatePayload, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "mutate-rw", dbadapter.OpMutateRows, dbadapter.MutateRowsPayload{
+		Catalog: "main",
+		Kind:    "table",
+		Name:    "users",
+		Mutations: []dbadapter.RowMutation{
+			{Action: "update", Identity: map[string]interface{}{"id": 1}, Values: map[string]interface{}{"name": "Alicia"}},
+			{Action: "insert", Values: map[string]interface{}{"name": "Carol", "active": 1}},
+			{Action: "delete", Identity: map[string]interface{}{"id": 2}},
+		},
+	}))
+	if protocolErr != nil {
+		t.Fatalf("mutate error=%+v", protocolErr)
+	}
+	mutations := mutatePayload.(dbadapter.MutateRowsResult)
+	if len(mutations.Results) != 3 {
+		t.Fatalf("mutation results=%+v", mutations)
+	}
+	for _, item := range mutations.Results {
+		if item.Error != nil || item.AffectedRows != 1 {
+			t.Fatalf("mutation item=%+v", item)
+		}
+	}
+
+	verifyPayload, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "verify-browse", dbadapter.OpBrowseRows, dbadapter.BrowseRowsPayload{
+		Catalog: "main", Kind: "table", Name: "users", Limit: 100,
+		Sort: []dbadapter.RowSort{{Column: "id", Direction: "asc"}},
+	}))
+	if protocolErr != nil {
+		t.Fatalf("verify browse error=%+v", protocolErr)
+	}
+	verify := verifyPayload.(dbadapter.BrowseRowsResult)
+	if len(verify.Rows) != 2 || verify.Rows[0].Values[1] != "Alicia" || verify.Rows[1].Values[1] != "Carol" {
+		t.Fatalf("verify rows=%+v", verify.Rows)
+	}
+
+	truncatePayload, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "truncate-rw", dbadapter.OpObjectAction, dbadapter.ObjectActionPayload{
+		Catalog: "main", Kind: "table", Name: "users", Action: "truncate",
+	}))
+	if protocolErr != nil {
+		t.Fatalf("truncate error=%+v", protocolErr)
+	}
+	truncate := truncatePayload.(dbadapter.ObjectActionResult)
+	if !strings.Contains(strings.ToLower(truncate.Message), "deleted") {
+		t.Fatalf("truncate result=%+v", truncate)
+	}
+
+	countPayload, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "count-empty", dbadapter.OpObjectAction, dbadapter.ObjectActionPayload{
+		Catalog: "main", Kind: "table", Name: "users", Action: "count_rows",
+	}))
+	if protocolErr != nil {
+		t.Fatalf("count empty error=%+v", protocolErr)
+	}
+	count := countPayload.(dbadapter.ObjectActionResult)
+	if count.Count == nil || *count.Count != 0 {
+		t.Fatalf("empty count=%+v", count)
+	}
+
+	dropPayload, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "drop-view", dbadapter.OpObjectAction, dbadapter.ObjectActionPayload{
+		Catalog: "main", Kind: "view", Name: "active_users", Action: "drop",
+	}))
+	if protocolErr != nil {
+		t.Fatalf("drop view error=%+v", protocolErr)
+	}
+	drop := dropPayload.(dbadapter.ObjectActionResult)
+	if !strings.Contains(strings.ToLower(drop.Message), "dropped") {
+		t.Fatalf("drop result=%+v", drop)
+	}
+}
+
+func TestSQLiteManifestAdvertisesWorkbenchCapabilities(t *testing.T) {
+	manifest, err := BuiltinManifest("/opt/taskdeck")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manifest.Capabilities.BrowseRows || !manifest.Capabilities.MutateRows || !manifest.Capabilities.ObjectActions {
+		t.Fatalf("workbench capabilities=%+v", manifest.Capabilities)
+	}
+}
