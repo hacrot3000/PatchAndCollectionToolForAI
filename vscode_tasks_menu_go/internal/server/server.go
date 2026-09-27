@@ -81,6 +81,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/db/adapters", s.dbAdapters)
 	mux.HandleFunc("/api/db/profiles", s.dbProfiles)
 	mux.HandleFunc("/api/db/profiles/", s.dbProfileItem)
+	mux.HandleFunc("/api/db/sessions", s.dbSessions)
+	mux.HandleFunc("/api/db/sessions/", s.dbSessionItem)
 	mux.HandleFunc("/api/broadcast", s.broadcastStateAPI)
 	mux.HandleFunc("/api/command-presets", s.commandPresets)
 	mux.HandleFunc("/api/git/status", s.gitStatus)
