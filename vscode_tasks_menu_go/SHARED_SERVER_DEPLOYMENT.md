@@ -96,6 +96,11 @@ projects. It is intentionally a host-operator command rather than a project-admi
 web action because the user/password record is global while project roles are
 project-scoped.
 
+Browser login sessions themselves are project-bound. A session created while
+signing in to project A is not accepted by project B, even when the same global
+user belongs to both projects. Project administrators can list/revoke only login
+sessions created for their own project.
+
 ## Reverse proxy requirements
 
 Shared mode does **not** accept plaintext HTTP from a TLS-terminating proxy as
@@ -224,6 +229,18 @@ SQLite WAL and busy-timeout handling are used so separate project daemons can
 share the identity DB. Do not place the DB on a filesystem whose SQLite locking
 semantics are unreliable.
 
+### Upgrade note: identity schema v2
+
+Schema v2 adds a project scope to browser auth sessions. When an older schema v1
+identity DB is first opened by the upgraded TaskDeck, existing auth-session rows
+have no trustworthy project provenance. TaskDeck therefore revokes those
+unscoped sessions during migration. Users must sign in again once after this
+upgrade; user accounts, memberships, roles and audit data are preserved.
+
+If several project daemons share the same identity DB, upgrade/restart them as
+one maintenance operation so they all run code compatible with the same schema.
+The migration itself is serialized with `BEGIN IMMEDIATE`.
+
 ## Operational checks
 
 After deployment verify all of the following:
@@ -235,4 +252,6 @@ After deployment verify all of the following:
 5. a browser request to self-update `handoff` or `detach` is rejected;
 6. identity DB, backups, runtime state and TLS key are not under the workspace;
 7. backup and test restore procedures have been exercised before relying on them;
-8. each project daemon uses a unique `project_id` and port.
+8. each project daemon uses a unique `project_id` and port;
+9. a login cookie/token from one project is rejected by another project daemon;
+10. a project admin cannot list or revoke another project's login sessions.
