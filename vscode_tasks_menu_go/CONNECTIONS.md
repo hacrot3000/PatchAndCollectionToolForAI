@@ -38,6 +38,142 @@ Supported adapters:
 
 TaskDeck advertises MySQL/MongoDB/SQLite adapters only when their required local runtime can be probed successfully. Redis is always available because its client is built into TaskDeck.
 
+### Database Workbench UI
+
+Sau khi mở một database profile, workspace database có ba tab chính:
+
+- **Data** — xem dữ liệu theo trang và edit trực tiếp khi adapter/object cho phép;
+- **Structure** — xem columns, primary key/index metadata, SQL definition hoặc collection info;
+- **Query** — giữ nguyên direct SQL/query/Redis command editor hiện có.
+
+Navigator bên trái hỗ trợ:
+
+- lọc nhanh object theo tên/type;
+- click để inspect;
+- double-click table/view/collection/key để mở Data;
+- click phải để mở context menu theo object type;
+- copy object name / qualified name;
+- refresh schema/object list;
+- sinh query template phù hợp adapter.
+
+Context actions hiện gồm các thao tác phù hợp từng adapter:
+
+| Adapter/object | Common context actions |
+| --- | --- |
+| MySQL/SQLite table | View Data, Inspect, Count Rows, Generate SELECT/INSERT/UPDATE/DELETE, Truncate, Drop |
+| MySQL/SQLite view | View Data read-only, Inspect, Count Rows, Generate SELECT, Drop View |
+| MongoDB collection | View Data, Inspect, Count Documents, Generate Find, Clear Collection, Drop Collection |
+| Redis key | View Value, Inspect, Count Entries, Generate Read Command, Delete Key |
+
+Destructive actions luôn bị gate bởi profile read-only và có confirmation riêng. Drop/Delete yêu cầu gõ lại object/key name trước khi gửi operation.
+
+#### Paged Data grid
+
+Grid dùng server-side paging, không tải toàn bộ table/collection vào browser.
+
+Page size hỗ trợ:
+
+`25 / 50 / 100 / 250 / 500 / 1000`
+
+Page size được nhớ theo profile/catalog/object trong browser. Grid có First / Previous / Next, row range, optional total count và trạng thái editable/read-only.
+
+MySQL/SQLite hỗ trợ server-side sort và filter descriptor. Filter UI hỗ trợ tối đa 16 điều kiện AND:
+
+- `=`, `!=`, `<`, `<=`, `>`, `>=`;
+- `contains`;
+- `starts with`;
+- `IS NULL`;
+- `IS NOT NULL`.
+
+Browser chỉ gửi descriptor có cấu trúc; browser không tự nối SQL filter. Adapter chịu trách nhiệm identifier quoting/value binding hoặc safe expression construction.
+
+#### Inline editing
+
+Khi adapter trả stable row identity và profile cho phép ghi:
+
+- cell có thể edit trực tiếp;
+- dirty rows được đánh dấu;
+- **+ Row** thêm row/document/member mới;
+- row context menu có Delete/Restore;
+- cell context menu có Set NULL khi column cho phép;
+- long text/JSON/document có editor riêng;
+- **Apply changes** gửi batch mutation có identity;
+- **Revert** bỏ thay đổi chưa apply.
+
+Update/delete không dựa vào toàn bộ giá trị đang hiển thị. Adapter phải xác nhận stable identity:
+
+- MySQL: primary key hoặc non-null unique key;
+- SQLite: primary key, fallback `rowid` chỉ khi table thực sự có rowid;
+- MongoDB: `_id`;
+- Redis Hash: field;
+- Redis Set/ZSet: member.
+
+Nếu identity không an toàn, Data grid tự chuyển read-only và hiển thị lý do.
+
+Keyboard shortcuts trong Data:
+
+- `Ctrl/Cmd+S`: Apply changes;
+- `Alt+N` hoặc `Alt+Insert`: thêm row khi editable;
+- `Enter`: kết thúc edit cell và chuyển tiếp;
+- `Esc`: bỏ text cell đang edit nhưng chưa commit vào dirty state.
+
+#### Adapter-specific behavior
+
+**MySQL / MariaDB**
+
+- full paged grid;
+- PK/non-null unique identity;
+- insert/update/delete;
+- sort/filter;
+- count/truncate/drop;
+- columns + indexes trong Structure;
+- direct SQL vẫn nằm ở Query tab.
+
+**SQLite**
+
+- local-file only như trước;
+- paging/sort/filter;
+- insert/update/delete;
+- PK/`rowid` identity;
+- count/delete-all/drop;
+- columns/indexes/DDL trong Structure;
+- Python stdlib helper dùng parameter binding cho Workbench operations.
+
+**MongoDB**
+
+- collection paging theo `_id`;
+- document hiển thị/edit dưới dạng JSON;
+- insert/replace/delete dùng `_id` identity;
+- Clear/Drop Collection;
+- Generate Find tạo JSON DSL trong Query tab;
+- browser không gửi JavaScript tùy ý cho `mongosh`.
+
+**Redis**
+
+- key navigator vẫn dùng SCAN bounded;
+- double-click key mở type-aware viewer;
+- String: single value, read-only trong grid;
+- List: index/value, read-only trong grid;
+- Hash: field/value, hỗ trợ add/edit/delete field;
+- Set: member, hỗ trợ add/delete;
+- ZSet: member/score, hỗ trợ add/edit score/delete;
+- Count Entries và Delete Key qua context menu;
+- generic Query tab vẫn chỉ chấp nhận read-oriented command allowlist.
+
+String/List cố ý chưa bật generic grid mutation vì semantics Add/Delete của relational grid không ánh xạ an toàn, rõ ràng sang hai type này.
+
+#### Grid safety / resource boundaries
+
+Workbench vẫn đi qua cùng process-isolated adapter protocol. Các request/response bị giới hạn bởi protocol limits hiện có, gồm page size tối đa 1000, 256 columns và 256 KiB/cell.
+
+Mutation browser API chỉ expose ba operation generic đã normalize:
+
+- `browse_rows`;
+- `mutate_rows`;
+- `object_action`.
+
+Stored credential, `secret_ref`, SQL generated internally và raw mutation values không được đưa vào connection audit log.
+
 ### SSH tunnel transport
 
 MySQL, Redis and MongoDB can select **SSH tunnel** and reference an SSH profile.
