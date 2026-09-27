@@ -130,9 +130,27 @@ func runScript(ctx context.Context, client Client, script, secret string) (shell
 			_ = cmd.Process.Kill()
 		}
 	}()
-	waitErr := cmd.Wait()
-	wg.Wait()
+	readersDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(readersDone)
+	}()
 
+	var waitErr error
+	select {
+	case <-ctx.Done():
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		waitErr = cmd.Wait()
+		<-readersDone
+	case <-readersDone:
+		waitErr = cmd.Wait()
+	}
+
+	if ctx.Err() != nil {
+		return shellOutput{}, ctx.Err()
+	}
 	if stdoutErr != nil {
 		if errors.Is(stdoutErr, errShellOutputTooLarge) {
 			return shellOutput{}, fmt.Errorf("mongosh result exceeds %d bytes", maxShellStdoutBytes)
@@ -145,10 +163,6 @@ func runScript(ctx context.Context, client Client, script, secret string) (shell
 		}
 		return shellOutput{}, fmt.Errorf("read mongosh diagnostics: %w", stderrErr)
 	}
-	if ctx.Err() != nil {
-		return shellOutput{}, ctx.Err()
-	}
-
 	output := shellOutput{stdout: stdoutData, stderr: stderrData}
 	if waitErr != nil {
 		message := sanitizeShellDiagnostic(stderrData, secret)
