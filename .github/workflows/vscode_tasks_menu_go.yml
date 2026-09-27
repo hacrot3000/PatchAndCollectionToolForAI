@@ -87,6 +87,17 @@ jobs:
             go test ./...
           )
 
+      - name: Legacy self-update staged Go tests
+        working-directory: .
+        run: |
+          stage="$(mktemp -d)"
+          trap 'rm -rf "$stage"' EXIT
+          cp -a vscode_tasks_menu_go "$stage/vscode_tasks_menu_go"
+          (
+            cd "$stage/vscode_tasks_menu_go"
+            go test ./...
+          )
+
       - name: Test
         run: go test ./...
 

@@ -942,7 +942,11 @@ func TestPatchNativeNavigationDoesNotImplicitlyOpenTerminal(t *testing.T) {
 		if !strings.Contains(js,want) { t.Fatalf("native navigation/fallback contract missing %q",want) }
 	}
 
-	dispatcher, err := os.ReadFile("../../../_patch_lib/python_patch_queue_dispatcher.py")
+	dispatcherPath := "../../../_patch_lib/python_patch_queue_dispatcher.py"
+	dispatcher, err := os.ReadFile(dispatcherPath)
+	if os.IsNotExist(err) {
+		t.Skip("repo-root Patch runtime is absent from legacy self-update source staging")
+	}
 	if err != nil { t.Fatal(err) }
 	py := string(dispatcher)
 	oldOrder := "if isinstance(decision, dict) and str(decision.get(\"action\") or \"\") == \"history\":\n                _history_browser(root)\n                if native_resume_handled:"
