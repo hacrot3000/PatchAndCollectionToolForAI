@@ -109,5 +109,8 @@ func clientArgs(config Config, credentials *credentialFile) []string {
 	if config.Database != "" {
 		args = append(args, "--database="+config.Database)
 	}
+	if config.ReadOnly {
+		args = append(args, "--init-command=SET SESSION TRANSACTION READ ONLY")
+	}
 	return args
 }
