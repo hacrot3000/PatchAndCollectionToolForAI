@@ -101,6 +101,7 @@ func BuiltinManifest(taskdeckExecutable string) (dbadapter.Manifest, error) {
 			ListCatalogs:   true,
 			ListObjects:    true,
 			DescribeObject: true,
+			BrowseRows:     true,
 			Execute:        true,
 		},
 	}

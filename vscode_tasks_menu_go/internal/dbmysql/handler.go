@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"bletonfc/vscode_tasks_menu/internal/dbadapter"
@@ -77,6 +78,19 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 			return nil, mysqlProtocolError("INVALID_PAYLOAD", err)
 		}
 		return h.describeObject(ctx, payload)
+	case dbadapter.OpBrowseRows:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		var payload dbadapter.BrowseRowsPayload
+		if err := decodePayload(request.Payload, &payload); err != nil {
+			return nil, mysqlProtocolError("INVALID_PAYLOAD", err)
+		}
+		normalized, err := dbadapter.NormalizeBrowseRowsPayload(payload)
+		if err != nil {
+			return nil, mysqlProtocolError("INVALID_BROWSE", err)
+		}
+		return h.browseRows(ctx, normalized)
 	case dbadapter.OpExecute:
 		if protocolErr := h.requireConnected(); protocolErr != nil {
 			return nil, protocolErr
@@ -304,6 +318,362 @@ func (h *Handler) describeObject(ctx context.Context, payload dbadapter.Describe
 		"columns":   columns,
 		"truncated": result.Truncated,
 	}, nil
+}
+
+
+type mysqlBrowseColumn struct {
+	Name     string
+	Type     string
+	Nullable bool
+}
+
+type mysqlIndexColumn struct {
+	IndexName string
+	Name      string
+	Nullable  bool
+}
+
+func (h *Handler) browseRows(ctx context.Context, payload dbadapter.BrowseRowsPayload) (interface{}, *dbadapter.ProtocolError) {
+	catalog := firstNonEmpty(payload.Catalog, payload.Schema, h.config.Database)
+	if catalog == "" {
+		return nil, &dbadapter.ProtocolError{Code: "CATALOG_REQUIRED", Message: "MySQL catalog/database is required"}
+	}
+	kind := strings.ToLower(strings.TrimSpace(payload.Kind))
+	if kind != "" && kind != "table" && kind != "view" {
+		return nil, &dbadapter.ProtocolError{Code: "OBJECT_TYPE_UNSUPPORTED", Message: "MySQL row browser supports tables and views"}
+	}
+	columns, identity, err := h.browseMetadata(ctx, catalog, payload.Name)
+	if err != nil {
+		return nil, mysqlProtocolError("BROWSE_METADATA_FAILED", err)
+	}
+	if len(columns) == 0 {
+		return nil, &dbadapter.ProtocolError{Code: "OBJECT_NOT_FOUND", Message: "MySQL table/view has no visible columns"}
+	}
+	columnByName := make(map[string]mysqlBrowseColumn, len(columns))
+	for _, column := range columns {
+		columnByName[strings.ToLower(column.Name)] = column
+	}
+	tableSQL, err := mysqlQualifiedIdentifier(catalog, payload.Name)
+	if err != nil {
+		return nil, mysqlProtocolError("INVALID_OBJECT", err)
+	}
+
+	whereParts := make([]string, 0, len(payload.Filters))
+	for _, filter := range payload.Filters {
+		column, ok := columnByName[strings.ToLower(filter.Column)]
+		if !ok {
+			return nil, &dbadapter.ProtocolError{Code: "INVALID_FILTER", Message: fmt.Sprintf("unknown MySQL filter column %q", filter.Column)}
+		}
+		expression, err := mysqlFilterExpression(column.Name, filter)
+		if err != nil {
+			return nil, mysqlProtocolError("INVALID_FILTER", err)
+		}
+		whereParts = append(whereParts, expression)
+	}
+
+	orderParts := make([]string, 0, len(payload.Sort))
+	for _, sortItem := range payload.Sort {
+		column, ok := columnByName[strings.ToLower(sortItem.Column)]
+		if !ok {
+			return nil, &dbadapter.ProtocolError{Code: "INVALID_SORT", Message: fmt.Sprintf("unknown MySQL sort column %q", sortItem.Column)}
+		}
+		quoted, err := mysqlIdentifier(column.Name)
+		if err != nil {
+			return nil, mysqlProtocolError("INVALID_SORT", err)
+		}
+		orderParts = append(orderParts, quoted+" "+strings.ToUpper(sortItem.Direction))
+	}
+	if len(orderParts) == 0 {
+		for _, name := range identity {
+			quoted, err := mysqlIdentifier(name)
+			if err != nil {
+				return nil, mysqlProtocolError("INVALID_IDENTITY", err)
+			}
+			orderParts = append(orderParts, quoted+" ASC")
+		}
+	}
+
+	fetchLimit := payload.Limit
+	if fetchLimit < dbadapter.MaxRows {
+		fetchLimit++
+	}
+	query := "/* taskdeck_browse */ SELECT * FROM " + tableSQL
+	if len(whereParts) != 0 {
+		query += " WHERE " + strings.Join(whereParts, " AND ")
+	}
+	if len(orderParts) != 0 {
+		query += " ORDER BY " + strings.Join(orderParts, ", ")
+	}
+	query += " LIMIT " + strconv.Itoa(fetchLimit) + " OFFSET " + strconv.Itoa(payload.Offset)
+
+	result, err := h.query(ctx, query, fetchLimit)
+	if err != nil {
+		return nil, mysqlProtocolError("BROWSE_FAILED", err)
+	}
+	hasMore := len(result.Rows) > payload.Limit
+	if hasMore {
+		result.Rows = result.Rows[:payload.Limit]
+	} else if payload.Limit == dbadapter.MaxRows && len(result.Rows) == payload.Limit {
+		hasMore = true
+	}
+
+	identitySet := make(map[string]struct{}, len(identity))
+	for _, name := range identity {
+		identitySet[strings.ToLower(name)] = struct{}{}
+	}
+	editable := !h.config.ReadOnly && kind != "view" && len(identity) != 0
+	reason := ""
+	switch {
+	case h.config.ReadOnly:
+		reason = "Connection is read-only"
+	case kind == "view":
+		reason = "Views are opened read-only"
+	case len(identity) == 0:
+		reason = "No non-null primary or unique key is available for stable row identity"
+	}
+
+	browseColumns := make([]dbadapter.BrowseColumn, len(result.Columns))
+	resultIndex := make(map[string]int, len(result.Columns))
+	for i, resultColumn := range result.Columns {
+		meta, ok := columnByName[strings.ToLower(resultColumn.Name)]
+		if !ok {
+			return nil, &dbadapter.ProtocolError{Code: "BROWSE_FAILED", Message: fmt.Sprintf("MySQL result returned unknown column %q", resultColumn.Name)}
+		}
+		_, isIdentity := identitySet[strings.ToLower(meta.Name)]
+		browseColumns[i] = dbadapter.BrowseColumn{
+			Name: meta.Name, Type: meta.Type, Nullable: meta.Nullable,
+			Editable: editable, Identity: isIdentity,
+		}
+		resultIndex[strings.ToLower(meta.Name)] = i
+	}
+	rows := make([]dbadapter.BrowseRow, 0, len(result.Rows))
+	for _, source := range result.Rows {
+		row := dbadapter.BrowseRow{Values: append([]interface{}(nil), source...)}
+		if len(identity) != 0 {
+			row.Identity = make(map[string]interface{}, len(identity))
+			for _, identityColumn := range identity {
+				index, ok := resultIndex[strings.ToLower(identityColumn)]
+				if !ok {
+					return nil, &dbadapter.ProtocolError{Code: "BROWSE_FAILED", Message: "MySQL identity column is missing from row result"}
+				}
+				row.Identity[identityColumn] = source[index]
+			}
+		}
+		rows = append(rows, row)
+	}
+	out := dbadapter.BrowseRowsResult{
+		Columns: browseColumns, Rows: rows, Offset: payload.Offset, Limit: payload.Limit,
+		HasMore: hasMore, Editable: editable, EditabilityReason: reason,
+	}
+	if err := dbadapter.ValidateBrowseRowsResult(out); err != nil {
+		return nil, mysqlProtocolError("BROWSE_RESULT_FAILED", err)
+	}
+	return out, nil
+}
+
+func (h *Handler) browseMetadata(ctx context.Context, catalog, name string) ([]mysqlBrowseColumn, []string, error) {
+	columnsQuery := "SELECT COLUMN_NAME AS name, COLUMN_TYPE AS type, IS_NULLABLE AS nullable " +
+		"FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
+		" AND TABLE_NAME = " + mysqlTextExpression(name) + " ORDER BY ORDINAL_POSITION"
+	columnResult, err := h.query(ctx, columnsQuery, dbadapter.MaxRows)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(columnResult.Rows) == 0 {
+		return []mysqlBrowseColumn{}, nil, nil
+	}
+	nameIndex, err := resultColumnIndex(columnResult, "name")
+	if err != nil {
+		return nil, nil, err
+	}
+	typeIndex, err := resultColumnIndex(columnResult, "type")
+	if err != nil {
+		return nil, nil, err
+	}
+	nullableIndex, err := resultColumnIndex(columnResult, "nullable")
+	if err != nil {
+		return nil, nil, err
+	}
+	columns := make([]mysqlBrowseColumn, 0, len(columnResult.Rows))
+	for _, row := range columnResult.Rows {
+		columns = append(columns, mysqlBrowseColumn{
+			Name: resultCellString(row[nameIndex]),
+			Type: resultCellString(row[typeIndex]),
+			Nullable: strings.EqualFold(resultCellString(row[nullableIndex]), "YES"),
+		})
+	}
+
+	indexQuery := "SELECT INDEX_NAME AS index_name, COLUMN_NAME AS column_name, SEQ_IN_INDEX AS seq, " +
+		"NULLABLE AS nullable FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
+		" AND TABLE_NAME = " + mysqlTextExpression(name) + " AND NON_UNIQUE = 0 " +
+		"ORDER BY CASE WHEN INDEX_NAME = 'PRIMARY' THEN 0 ELSE 1 END, INDEX_NAME, SEQ_IN_INDEX"
+	indexResult, err := h.query(ctx, indexQuery, dbadapter.MaxRows)
+	if err != nil {
+		return nil, nil, err
+	}
+	identity, err := chooseMySQLIdentity(indexResult)
+	if err != nil {
+		return nil, nil, err
+	}
+	return columns, identity, nil
+}
+
+func chooseMySQLIdentity(result dbadapter.ExecuteResult) ([]string, error) {
+	if len(result.Rows) == 0 {
+		return nil, nil
+	}
+	indexNameIndex, err := resultColumnIndex(result, "index_name")
+	if err != nil {
+		return nil, err
+	}
+	columnNameIndex, err := resultColumnIndex(result, "column_name")
+	if err != nil {
+		return nil, err
+	}
+	nullableIndex, err := resultColumnIndex(result, "nullable")
+	if err != nil {
+		return nil, err
+	}
+	var current string
+	var candidate []string
+	candidateNullable := false
+	flush := func() []string {
+		if len(candidate) != 0 && !candidateNullable {
+			return append([]string(nil), candidate...)
+		}
+		return nil
+	}
+	for _, row := range result.Rows {
+		indexName := resultCellString(row[indexNameIndex])
+		if current != "" && indexName != current {
+			if selected := flush(); len(selected) != 0 {
+				return selected, nil
+			}
+			candidate = nil
+			candidateNullable = false
+		}
+		current = indexName
+		candidate = append(candidate, resultCellString(row[columnNameIndex]))
+		candidateNullable = candidateNullable || strings.EqualFold(resultCellString(row[nullableIndex]), "YES")
+	}
+	return flush(), nil
+}
+
+func mysqlQualifiedIdentifier(catalog, name string) (string, error) {
+	catalogSQL, err := mysqlIdentifier(catalog)
+	if err != nil {
+		return "", err
+	}
+	nameSQL, err := mysqlIdentifier(name)
+	if err != nil {
+		return "", err
+	}
+	return catalogSQL + "." + nameSQL, nil
+}
+
+func mysqlIdentifier(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if err := validateMySQLIdentifier(value); err != nil {
+		return "", err
+	}
+	return "`" + strings.ReplaceAll(value, "`", "``") + "`", nil
+}
+
+func validateMySQLIdentifier(value string) error {
+	if value == "" {
+		return fmt.Errorf("MySQL identifier is required")
+	}
+	if len(value) > 512 {
+		return fmt.Errorf("MySQL identifier exceeds 512 bytes")
+	}
+	if strings.ContainsAny(value, "\x00\r\n") {
+		return fmt.Errorf("MySQL identifier contains unsupported control characters")
+	}
+	return nil
+}
+
+func mysqlFilterExpression(column string, filter dbadapter.RowFilter) (string, error) {
+	quoted, err := mysqlIdentifier(column)
+	if err != nil {
+		return "", err
+	}
+	switch filter.Operator {
+	case "is_null":
+		return quoted + " IS NULL", nil
+	case "not_null":
+		return quoted + " IS NOT NULL", nil
+	}
+	value, err := mysqlValueExpression(filter.Value)
+	if err != nil {
+		return "", err
+	}
+	if filter.Value == nil {
+		switch filter.Operator {
+		case "eq":
+			return quoted + " IS NULL", nil
+		case "ne":
+			return quoted + " IS NOT NULL", nil
+		default:
+			return "", fmt.Errorf("MySQL NULL filter supports only eq/ne/is_null/not_null")
+		}
+	}
+	switch filter.Operator {
+	case "eq":
+		return quoted + " = " + value, nil
+	case "ne":
+		return quoted + " <> " + value, nil
+	case "lt":
+		return quoted + " < " + value, nil
+	case "lte":
+		return quoted + " <= " + value, nil
+	case "gt":
+		return quoted + " > " + value, nil
+	case "gte":
+		return quoted + " >= " + value, nil
+	case "contains":
+		return quoted + " LIKE CONCAT('%', " + value + ", '%')", nil
+	case "starts_with":
+		return quoted + " LIKE CONCAT(" + value + ", '%')", nil
+	default:
+		return "", fmt.Errorf("unsupported MySQL filter operator %q", filter.Operator)
+	}
+}
+
+func mysqlValueExpression(value interface{}) (string, error) {
+	switch typed := value.(type) {
+	case nil:
+		return "NULL", nil
+	case string:
+		return mysqlTextExpression(typed), nil
+	case bool:
+		if typed {
+			return "1", nil
+		}
+		return "0", nil
+	case float64:
+		return strconv.FormatFloat(typed, 'g', -1, 64), nil
+	case float32:
+		return strconv.FormatFloat(float64(typed), 'g', -1, 32), nil
+	case int:
+		return strconv.Itoa(typed), nil
+	case int64:
+		return strconv.FormatInt(typed, 10), nil
+	case int32:
+		return strconv.FormatInt(int64(typed), 10), nil
+	case uint:
+		return strconv.FormatUint(uint64(typed), 10), nil
+	case uint64:
+		return strconv.FormatUint(typed, 10), nil
+	case uint32:
+		return strconv.FormatUint(uint64(typed), 10), nil
+	case json.Number:
+		if _, err := typed.Float64(); err != nil {
+			return "", fmt.Errorf("invalid numeric MySQL value %q", typed)
+		}
+		return string(typed), nil
+	default:
+		return "", fmt.Errorf("unsupported MySQL scalar value type %T", value)
+	}
 }
 
 func decodePayload(raw json.RawMessage, target interface{}) error {

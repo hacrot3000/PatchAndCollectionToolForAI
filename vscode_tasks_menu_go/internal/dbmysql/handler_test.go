@@ -27,7 +27,9 @@ func writeHandlerFixture(t *testing.T) string {
 		"  *taskdeck_ping*) printf '%s\\n' '<resultset><row><field name=\"taskdeck_ping\">1</field></row></resultset>' ;;\n" +
 		"  *information_schema.SCHEMATA*) printf '%s\\n' '<resultset><row><field name=\"name\">information_schema</field></row><row><field name=\"name\">main</field></row></resultset>' ;;\n" +
 		"  *information_schema.TABLES*) printf '%s\\n' '<resultset><row><field name=\"catalog\">main</field><field name=\"name\">users</field><field name=\"kind\">table</field></row></resultset>' ;;\n" +
-		"  *information_schema.COLUMNS*) printf '%s\\n' '<resultset><row><field name=\"name\">id</field><field name=\"type\">bigint</field><field name=\"nullable\">NO</field><field name=\"default_value\" xsi:nil=\"true\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"/><field name=\"extra\">auto_increment</field></row></resultset>' ;;\n" +
+		"  *information_schema.STATISTICS*) printf '%s\\n' '<resultset><row><field name=\"index_name\">PRIMARY</field><field name=\"column_name\">id</field><field name=\"seq\">1</field><field name=\"nullable\">NO</field></row></resultset>' ;;\n" +
+		"  *information_schema.COLUMNS*) printf '%s\\n' '<resultset><row><field name=\"name\">id</field><field name=\"type\">bigint</field><field name=\"nullable\">NO</field><field name=\"default_value\" xsi:nil=\"true\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"/><field name=\"extra\">auto_increment</field></row><row><field name=\"name\">name</field><field name=\"type\">varchar(255)</field><field name=\"nullable\">YES</field><field name=\"default_value\" xsi:nil=\"true\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"/><field name=\"extra\"></field></row></resultset>' ;;\n" +
+		"  *taskdeck_browse*) printf '%s\\n' '<resultset><row><field name=\"id\">1</field><field name=\"name\">Alice</field></row><row><field name=\"id\">2</field><field name=\"name\">Bob</field></row></resultset>' ;;\n" +
 		"  *'SELECT 42 AS answer'*) printf '%s\\n' '<resultset><row><field name=\"answer\">42</field></row></resultset>' ;;\n" +
 		"  *) printf '%s\\n' '<resultset></resultset>' ;;\n" +
 		"esac\n" +
@@ -158,5 +160,60 @@ func TestMySQLTextExpressionDoesNotEmbedRawValue(t *testing.T) {
 	expression := mysqlTextExpression(value)
 	if strings.Contains(expression, value) || !strings.HasPrefix(expression, "CONVERT(0x") {
 		t.Fatalf("expression=%q", expression)
+	}
+}
+
+
+func TestHandlerBrowseRowsUsesStablePrimaryKeyIdentity(t *testing.T) {
+	handler := connectFixtureHandler(t, false)
+	payload, protocolErr := handler.Handle(context.Background(), adapterRequest(t, "browse-1", dbadapter.OpBrowseRows, dbadapter.BrowseRowsPayload{
+		Catalog: "main",
+		Kind:    "table",
+		Name:    "users",
+		Limit:   100,
+	}))
+	if protocolErr != nil {
+		t.Fatalf("browse error=%+v", protocolErr)
+	}
+	result, ok := payload.(dbadapter.BrowseRowsResult)
+	if !ok {
+		t.Fatalf("browse payload type=%T", payload)
+	}
+	if !result.Editable || result.EditabilityReason != "" {
+		t.Fatalf("unexpected editability: %+v", result)
+	}
+	if len(result.Columns) != 2 || !result.Columns[0].Identity || result.Columns[0].Name != "id" {
+		t.Fatalf("columns=%+v", result.Columns)
+	}
+	if len(result.Rows) != 2 || result.Rows[0].Identity["id"] != "1" || result.Rows[1].Values[1] != "Bob" {
+		t.Fatalf("rows=%+v", result.Rows)
+	}
+}
+
+func TestHandlerBrowseRowsHonorsReadOnlyProfile(t *testing.T) {
+	handler := connectFixtureHandler(t, true)
+	payload, protocolErr := handler.Handle(context.Background(), adapterRequest(t, "browse-ro", dbadapter.OpBrowseRows, dbadapter.BrowseRowsPayload{
+		Catalog: "main",
+		Kind:    "table",
+		Name:    "users",
+		Limit:   50,
+	}))
+	if protocolErr != nil {
+		t.Fatalf("browse error=%+v", protocolErr)
+	}
+	result := payload.(dbadapter.BrowseRowsResult)
+	if result.Editable || !strings.Contains(strings.ToLower(result.EditabilityReason), "read-only") {
+		t.Fatalf("unexpected read-only browse result: %+v", result)
+	}
+}
+
+func TestMySQLIdentifierQuotesNamesWithoutRawSQLSyntax(t *testing.T) {
+	value := "odd`name"
+	quoted, err := mysqlIdentifier(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quoted != "`odd``name`" {
+		t.Fatalf("quoted=%q", quoted)
 	}
 }
