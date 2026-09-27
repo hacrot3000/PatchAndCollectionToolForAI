@@ -381,9 +381,12 @@ prevent session creation.
 
 Schema v1 -> v2 adds `auth_sessions.project_id`. Existing unscoped v1 sessions
 cannot be assigned safely to a project after the fact, so migration revokes
-those sessions and users must sign in again. Password change/reset remains a
-global identity operation and deliberately revokes that user's sessions across
-all projects.
+those sessions and users must sign in again. Schema v3 adds a database trigger
+that rejects any new auth-session INSERT without `project_id`; this keeps a
+mixed-version maintenance window fail-closed if an older daemon is accidentally
+left running after the DB upgrade. Password change/reset remains a global
+identity operation and deliberately revokes that user's sessions across all
+projects.
 
 ### 6.3 Request principal
 
