@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 
 	updater "bletonfc/vscode_tasks_menu/internal/selfupdate"
 )
+
+const InternalControlHeader = "X-TaskDeck-Internal-Control"
 
 type SelfUpdateCheckResult struct {
 	Available        bool   `json:"available"`
@@ -132,10 +135,16 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "self-update start unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		lease, ok := s.acquireSharedMutation(w, r, "selfupdate.run", "")
+		if !ok {
+			return
+		}
 		if err := fn(); err != nil {
+			s.releaseSharedMutation(lease)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditSharedSuccess(r, "selfupdate.start", "selfupdate", "", nil)
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "status": "starting"})
 		return
 	}
@@ -162,15 +171,22 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "update is not awaiting confirmation", http.StatusConflict)
 			return
 		}
+		if !s.ensureSharedSelfUpdateMutation(w, r, req.ID) {
+			return
+		}
 		req, err = updater.Update(s.Workspace, req.ID, "confirmed", "Đã xác nhận; chuẩn bị cập nhật…", "", "")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditSharedSuccess(r, "selfupdate.confirm", "selfupdate", req.ID, nil)
 		writeJSON(w, http.StatusOK, req)
 	case "cancel":
 		if req.Status != "awaiting_confirmation" {
 			http.Error(w, "update can no longer be cancelled", http.StatusConflict)
+			return
+		}
+		if !s.ensureSharedSelfUpdateMutation(w, r, req.ID) {
 			return
 		}
 		req, err = updater.Update(s.Workspace, req.ID, "cancelled", "Người dùng đã hủy cập nhật.", "", "")
@@ -178,6 +194,8 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditSharedSuccess(r, "selfupdate.cancel", "selfupdate", req.ID, nil)
+		s.sharedMutation.releaseOperation("selfupdate.run")
 		writeJSON(w, http.StatusOK, req)
 	case "ack":
 		switch req.Status {
@@ -186,14 +204,19 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "only terminal self-update states can be acknowledged", http.StatusConflict)
 			return
 		}
+		if !s.ensureSharedSelfUpdateMutation(w, r, req.ID) {
+			return
+		}
 		if err := os.Remove(updater.RequestPath(s.Workspace)); err != nil && !os.IsNotExist(err) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditSharedSuccess(r, "selfupdate.ack", "selfupdate", req.ID, nil)
+		s.sharedMutation.releaseOperation("selfupdate.run")
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": req.ID})
 	case "detach":
-		if !loopbackRemote(r.RemoteAddr) {
-			http.Error(w, "detach is restricted to loopback", http.StatusForbidden)
+		if !s.internalControlRequest(r) {
+			http.Error(w, "detach requires authenticated local control", http.StatusForbidden)
 			return
 		}
 		switch req.Status {
@@ -212,10 +235,14 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "daemon detach unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		if !s.ensureSharedSelfUpdateMutation(w, r, req.ID) {
+			return
+		}
 		if _, err := updater.Update(s.Workspace, req.ID, "restarting", "Detaching old daemon while preserving session broker…", "", ""); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditSharedSuccess(r, "selfupdate.detach", "selfupdate", req.ID, nil)
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "id": req.ID})
 		go func() {
 			time.Sleep(120 * time.Millisecond)
@@ -224,8 +251,8 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 			}
 		}()
 	case "handoff":
-		if !loopbackRemote(r.RemoteAddr) {
-			http.Error(w, "handoff is restricted to loopback", http.StatusForbidden)
+		if !s.internalControlRequest(r) {
+			http.Error(w, "handoff requires authenticated local control", http.StatusForbidden)
 			return
 		}
 		if req.Status != "ready_restart" {
@@ -242,10 +269,14 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "daemon handoff unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		if !s.ensureSharedSelfUpdateMutation(w, r, req.ID) {
+			return
+		}
 		if _, err := updater.Update(s.Workspace, req.ID, "restarting", "Đang chuyển daemon sang binary mới…", "", ""); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditSharedSuccess(r, "selfupdate.handoff", "selfupdate", req.ID, nil)
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "id": req.ID})
 		go func() {
 			// Let net/http flush the Accepted response before the callback closes
@@ -268,4 +299,62 @@ func loopbackRemote(remote string) bool {
 	}
 	ip := net.ParseIP(strings.Trim(host, "[]"))
 	return ip != nil && ip.IsLoopback()
+}
+
+func (s *Server) internalControlRequest(r *http.Request) bool {
+	if !loopbackRemote(r.RemoteAddr) {
+		return false
+	}
+	expected := strings.TrimSpace(s.InternalControlToken)
+	provided := strings.TrimSpace(r.Header.Get(InternalControlHeader))
+	if expected == "" || len(expected) != len(provided) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(provided)) == 1
+}
+
+func (s *Server) ensureSharedSelfUpdateMutation(w http.ResponseWriter, r *http.Request, resourceID string) bool {
+	if !s.Config.SharedServerEnabled {
+		return true
+	}
+	s.refreshSharedMutationLock()
+	if holder, ok := s.sharedMutation.snapshot(); ok && holder.Operation == "selfupdate.run" {
+		if holder.ResourceID == "" && resourceID != "" {
+			s.sharedMutation.bindOperationResource("selfupdate.run", resourceID)
+		}
+		return true
+	}
+	lease, ok := s.acquireSharedMutation(w, r, "selfupdate.run", resourceID)
+	if !ok {
+		return false
+	}
+	if resourceID != "" && !s.sharedMutation.bindResource(lease.token, resourceID) {
+		s.releaseSharedMutation(lease)
+		http.Error(w, "workspace mutation lock lost during self-update", http.StatusServiceUnavailable)
+		return false
+	}
+	return true
+}
+
+func (s *Server) refreshSharedSelfUpdateMutationLock(holder sharedMutationOwner) {
+	if holder.Operation != "selfupdate.run" {
+		return
+	}
+	req, err := updater.Load(s.Workspace)
+	if os.IsNotExist(err) {
+		if time.Since(holder.AcquiredAt) > 30*time.Second {
+			s.sharedMutation.releaseOperation("selfupdate.run")
+		}
+		return
+	}
+	if err != nil {
+		return
+	}
+	if holder.ResourceID == "" && req.ID != "" {
+		s.sharedMutation.bindOperationResource("selfupdate.run", req.ID)
+	}
+	switch req.Status {
+	case "completed", "failed", "cancelled":
+		s.sharedMutation.releaseOperation("selfupdate.run")
+	}
 }

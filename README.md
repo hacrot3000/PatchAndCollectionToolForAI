@@ -182,6 +182,35 @@ Quản lý daemon:
 ./tools/vscode_tasks_menu --restart-daemon
 ```
 
+### Shared Server / Multi-user
+
+TaskDeck hỗ trợ chế độ **shared server nhiều người dùng** theo mô hình **1 daemon = 1 workspace/project**. Nhiều daemon trên cùng host có thể dùng chung một identity DB để một user global tham gia nhiều project nhưng vẫn giữ quyền, session và dữ liệu vận hành tách biệt theo project.
+
+Bật chế độ này bằng `[shared_server] enabled=true` trong `vscode_tasks_menu.ini`. Legacy mode vẫn giữ nguyên khi shared mode tắt.
+
+Các capability chính đã triển khai:
+
+- **Shared identity + project membership:** user/password là global identity; role, membership và permission override được quản lý theo project.
+- **RBAC fail-closed:** system role `admin / developer / operator / viewer`, custom role theo project, permission riêng cho Tasks, Terminal, Patch, Files, Git, Settings, Self-update, Users, Roles, Sessions và Audit. Backend là nguồn quyết định cuối; UI hide/show chỉ là UX.
+- **Project-bound browser sessions:** session lưu `project_id`; token đăng nhập ở project A không dùng được ở project B dù cùng user có membership ở cả hai. Idle timeout 30 phút, absolute lifetime 12 giờ.
+- **Terminal privacy/ownership:** tách quyền view/control, hỗ trợ own/all scope và kiểm quyền xuyên suốt WebSocket. Origin lạ bị từ chối trước khi attach.
+- **Project-scoped administration:** project admin chỉ xem/sửa users, custom roles, sessions và audit thuộc project của mình; direct-ID cross-project access bị từ chối.
+- **Password lifecycle:** đổi password self-service và operator reset dùng chung policy; đổi/reset password revoke toàn bộ login session của global user trên các project.
+- **Audit:** ghi authentication, authorization denial, task/terminal/Patch/file/settings/self-update/admin actions và mutation-lock conflict; không ghi password/raw token/keystroke.
+- **Shared workspace mutation lock:** phối hợp Patch mutation, file writes và self-update để tránh nhiều mutation xung đột trên cùng workspace.
+- **Identity DB backup/restore:** SQLite online backup, integrity check, private backup file, pre-restore safety snapshot và rollback hữu hạn.
+- **HTTPS/reverse-proxy hardening:** shared mode yêu cầu TLS thật ở TaskDeck listener; internal self-update handoff/detach cần cả loopback và private daemon control token.
+- **Schema migration an toàn:** auth session được project-scope; session legacy không xác định project bị revoke khi migrate thay vì được gán project bằng suy đoán.
+- **Broadcast keyboard fan-out** hiện chủ động **tắt trong shared mode** cho đến khi có mô hình ownership/permission riêng phù hợp.
+
+Automated first-release acceptance đã cover hai daemon/Store độc lập dùng chung identity DB, HTTPS login + Secure cookie + WSS authorization, cross-project isolation, migration và security regression. CI chạy Go 1.19.x và Go 1.23.x với staged self-update tests, `go test ./...`, `go vet ./...` và production build. Trước khi ký first shared-server release vẫn cần smoke trên môi trường triển khai thật: browser profiles, reverse proxy HTTPS→HTTPS/WSS, password lifecycle, backup/restore drill và upgrade drill.
+
+Tài liệu shared-server:
+
+- `vscode_tasks_menu_go/MULTI_USER_SHARED_SERVER_PLAN.md` — kiến trúc, quyền, roadmap, schema và trạng thái triển khai.
+- `vscode_tasks_menu_go/SHARED_SERVER_DEPLOYMENT.md` — TLS/reverse proxy, identity DB, backup/restore, multi-project deployment.
+- `vscode_tasks_menu_go/SHARED_SERVER_ACCEPTANCE.md` — checklist acceptance tự động và smoke test cần chạy trên môi trường thật.
+
 ### Self-update
 
 Sau khi đã bootstrap phiên bản có hỗ trợ self-update, có thể tự kiểm tra branch `main` của public repository, tải source mới, test/build/validate và thay binary hiện tại bằng:
@@ -386,6 +415,35 @@ Daemon management:
 ./tools/vscode_tasks_menu --stop-daemon
 ./tools/vscode_tasks_menu --restart-daemon
 ```
+
+#### Shared Server / Multi-user
+
+TaskDeck supports a **multi-user shared-server mode** built around the invariant **one daemon = one workspace/project**. Multiple daemons on the same host may share one identity database, allowing a global user to participate in multiple projects while project permissions, sessions, and operational data remain isolated.
+
+Enable it with `[shared_server] enabled=true` in `vscode_tasks_menu.ini`. Legacy mode remains unchanged when shared mode is disabled.
+
+Implemented capabilities include:
+
+- **Shared identity + project membership:** user/password credentials are global identities; roles, memberships, and permission overrides are project-scoped.
+- **Fail-closed RBAC:** system roles `admin / developer / operator / viewer`, project custom roles, and explicit permissions for Tasks, Terminal, Patch, Files, Git, Settings, Self-update, Users, Roles, Sessions, and Audit. Backend enforcement is authoritative; frontend visibility is UX only.
+- **Project-bound browser sessions:** sessions persist `project_id`; a token minted in project A is not accepted by project B even when the same user belongs to both. Sessions use a 30-minute idle timeout and 12-hour absolute lifetime.
+- **Terminal privacy/ownership:** view and control permissions are separate, own/all scopes are supported, and WebSocket authorization is enforced end-to-end. Foreign Origins are rejected before attach.
+- **Project-scoped administration:** project administrators can only view or mutate users, custom roles, sessions, and audit data belonging to their project; direct-ID cross-project access is denied.
+- **Password lifecycle:** self-service password change and operator reset share one policy; password change/reset revokes all login sessions for that global identity across projects.
+- **Audit:** records authentication, authorization denials, task/terminal/Patch/file/settings/self-update/admin actions, and mutation-lock conflicts without logging passwords, raw tokens, or terminal keystrokes.
+- **Shared-workspace mutation lock:** coordinates mutating Patch runs, file writes, and self-update so conflicting workspace mutations do not run concurrently.
+- **Identity DB backup/restore:** SQLite online backup, integrity checks, private backup files, pre-restore safety snapshots, and bounded rollback.
+- **HTTPS/reverse-proxy hardening:** shared mode requires real TLS on the TaskDeck listener; internal self-update handoff/detach requires both loopback transport and a private daemon control token.
+- **Safe schema migration:** auth sessions are project-scoped; legacy sessions whose project cannot be determined are revoked during migration instead of being assigned heuristically.
+- **Broadcast keyboard fan-out** is intentionally **disabled in shared mode** until it has a dedicated ownership/permission model.
+
+Automated first-release acceptance covers two independent daemons/Stores sharing one identity DB, HTTPS login + Secure cookie + WSS authorization, cross-project isolation, migrations, and security regressions. CI runs on Go 1.19.x and Go 1.23.x with staged self-update tests, `go test ./...`, `go vet ./...`, and a production build. Final first-release sign-off still requires smoke testing in a real deployment: browser profiles, HTTPS→HTTPS reverse proxy/WSS, password lifecycle, backup/restore drill, and upgrade drill.
+
+Shared-server documentation:
+
+- `vscode_tasks_menu_go/MULTI_USER_SHARED_SERVER_PLAN.md` — architecture, permissions, roadmap, schema, and implementation status.
+- `vscode_tasks_menu_go/SHARED_SERVER_DEPLOYMENT.md` — TLS/reverse proxy, identity DB, backup/restore, and multi-project deployment.
+- `vscode_tasks_menu_go/SHARED_SERVER_ACCEPTANCE.md` — automated acceptance evidence and real-environment smoke checklist.
 
 #### Self-update
 

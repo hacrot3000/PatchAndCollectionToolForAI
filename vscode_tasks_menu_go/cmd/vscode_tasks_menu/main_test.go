@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"bletonfc/vscode_tasks_menu/internal/config"
@@ -19,11 +20,19 @@ func TestCreateListenerFromInheritedFDKeepsAddress(t *testing.T) {
 	if !ok { t.Skip("listener has no File method") }
 	file, err := provider.File()
 	if err != nil { t.Fatal(err) }
-	fd := int(file.Fd())
-	inherited, err := createListener(config.Default(), fd, "")
+	// provider.File returns an *os.File that still owns/finalizes its descriptor.
+	// Pass a separate raw duplicate to createListener, then close this wrapper
+	// before the duplicate can be reused by another test/process pipe.
+	fd, err := syscall.Dup(int(file.Fd()))
 	if err != nil { file.Close(); t.Fatal(err) }
+	if err := file.Close(); err != nil {
+		_ = syscall.Close(fd)
+		t.Fatal(err)
+	}
+	inherited, err := createListener(config.Default(), fd, "")
+	if err != nil { _ = syscall.Close(fd); t.Fatal(err) }
 	defer inherited.Close()
-	// createListener takes ownership of the descriptor represented by file.
+	// createListener takes ownership of the duplicated raw descriptor.
 	if inherited.Addr().String() != original.Addr().String() {
 		t.Fatalf("inherited addr=%s want %s", inherited.Addr(), original.Addr())
 	}

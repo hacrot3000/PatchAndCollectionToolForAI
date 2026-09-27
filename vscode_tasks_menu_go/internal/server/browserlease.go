@@ -90,6 +90,17 @@ func (s *Server) browserLeaseState() *browserLease {
 }
 
 func (s *Server) browserLeaseAPI(w http.ResponseWriter, r *http.Request) {
+	if s.Config.SharedServerEnabled {
+		switch r.Method {
+		case http.MethodPost:
+			writeJSON(w, http.StatusOK, map[string]any{"lease": "shared"})
+		case http.MethodGet:
+			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+		return
+	}
 	lease := s.browserLeaseState()
 	switch r.Method {
 	case http.MethodPost:
@@ -110,13 +121,13 @@ func (s *Server) browserLeaseAPI(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func internalLoopbackLeaseExempt(r *http.Request) bool {
+func (s *Server) internalControlLeaseExempt(r *http.Request) bool {
 	if r.Method != http.MethodPost || r.URL.Path != "/api/state/tasks" || r.URL.Query().Get("scope") != "self-update" {
 		return false
 	}
 	switch r.URL.Query().Get("action") {
 	case "handoff", "detach":
-		return loopbackRemote(r.RemoteAddr)
+		return s.internalControlRequest(r)
 	default:
 		return false
 	}
@@ -124,7 +135,11 @@ func internalLoopbackLeaseExempt(r *http.Request) bool {
 
 func (s *Server) requireBrowserLease(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/browser/lease" || r.URL.Path == "/api/health" || internalLoopbackLeaseExempt(r) {
+		if s.Config.SharedServerEnabled {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if r.URL.Path == "/api/browser/lease" || r.URL.Path == "/api/health" || s.internalControlLeaseExempt(r) {
 			next.ServeHTTP(w, r)
 			return
 		}

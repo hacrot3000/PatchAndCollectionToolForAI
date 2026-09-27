@@ -479,7 +479,6 @@ func TestGoTestsDoNotDependOnRepositoryOnlyPatchDocs(t *testing.T) {
 	}
 }
 
-
 func TestLegacySelfUpdateSensitiveTestsGuardMissingRepoRootFiles(t *testing.T) {
 	moduleRoot := filepath.Clean(filepath.Join("..", ".."))
 	checks := []struct {

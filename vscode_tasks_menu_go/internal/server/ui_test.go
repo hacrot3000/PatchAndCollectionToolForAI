@@ -103,6 +103,26 @@ func TestStaticUIHasWorkspaceTerminalAction(t *testing.T) {
 	}
 }
 
+func TestSharedUICoreActionsFollowCurrentUserCapabilities(t *testing.T) {
+	for _, want := range []string{
+		`id="identity" hidden`,
+		`id="logout" hidden`,
+		"fetch('/api/auth/me'",
+		"function hasPermission(permission)",
+		"!hasPermission('terminal.create')",
+		"!hasPermission('tasks.run')",
+		"meta.owner_user_id===currentUser?.user_id",
+		"disableStdin:!canControl",
+		"if(view.canControl&&!browserLeaseLost",
+		"view.stop.hidden=!view.canControl",
+		"fetch('/api/auth/logout'",
+	} {
+		if !strings.Contains(indexHTML+appJS, want) {
+			t.Fatalf("shared capability UI missing %q", want)
+		}
+	}
+}
+
 func TestStaticUIHasPersistentEditablePageTitle(t *testing.T) {
 	for _, want := range []string{
 		`id="edit-title"`,

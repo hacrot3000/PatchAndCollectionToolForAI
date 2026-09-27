@@ -15,6 +15,9 @@ func (s *Server) sessionForceKill(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !s.authorizeSharedSessionItem(w, r, id, "kill") {
+		return
+	}
 	if err := s.Sessions.Kill(id); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -24,6 +27,8 @@ func (s *Server) sessionForceKill(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	s.releaseSharedMutationForSession(id)
+	s.auditSharedSuccess(r, "session.kill", "session", id, map[string]any{"kind": meta.Kind})
 	writeJSON(w, http.StatusOK, meta)
 }
 
@@ -36,10 +41,14 @@ func (s *Server) sessionClearConsole(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !s.authorizeSharedSessionItem(w, r, id, "clear") {
+		return
+	}
 	if err := s.Sessions.Clear(id); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	s.auditSharedSuccess(r, "session.clear", "session", id, nil)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

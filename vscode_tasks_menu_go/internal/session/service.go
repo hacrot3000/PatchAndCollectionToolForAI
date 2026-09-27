@@ -20,4 +20,12 @@ type Service interface {
 	CurrentCwd(string) (string, error)
 }
 
+// OwnershipCapability marks services that preserve the authenticated owner and
+// project on every session. Shared-server routes fail closed without it.
+type OwnershipCapability interface {
+	SupportsSessionOwnership() bool
+}
+
 var _ Service = (*Manager)(nil)
+
+func (m *Manager) SupportsSessionOwnership() bool { return true }
