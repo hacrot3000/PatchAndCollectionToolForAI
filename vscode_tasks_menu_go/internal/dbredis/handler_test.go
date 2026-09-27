@@ -142,6 +142,12 @@ func (f *redisHandlerFixture) respond(conn net.Conn, args []string) {
 		_, _ = conn.Write([]byte(":2\r\n"))
 	case "ZRANGE":
 		_, _ = conn.Write([]byte("*4\r\n$5\r\nalice\r\n$2\r\n10\r\n$3\r\nbob\r\n$2\r\n20\r\n"))
+	case "HSETNX", "HEXISTS", "HDEL", "SADD", "SREM", "ZADD", "ZREM", "DEL":
+		_, _ = conn.Write([]byte(":1\r\n"))
+	case "HSET":
+		_, _ = conn.Write([]byte(":0\r\n"))
+	case "ZSCORE":
+		_, _ = conn.Write([]byte("$2\r\n10\r\n"))
 	default:
 		_, _ = conn.Write([]byte("-ERR fixture unsupported command\r\n"))
 	}
@@ -158,6 +164,11 @@ func redisAdapterRequest(t *testing.T, id string, operation dbadapter.Operation,
 
 func connectRedisHandler(t *testing.T, fixture *redisHandlerFixture) *Handler {
 	t.Helper()
+	return connectRedisHandlerMode(t, fixture, true)
+}
+
+func connectRedisHandlerMode(t *testing.T, fixture *redisHandlerFixture, readOnly bool) *Handler {
+	t.Helper()
 	handler, err := NewHandler(os.Args[0])
 	if err != nil {
 		t.Fatal(err)
@@ -169,7 +180,7 @@ func connectRedisHandler(t *testing.T, fixture *redisHandlerFixture) *Handler {
 		Username: "app",
 		Secret:   "top-secret",
 		Database: "2",
-		ReadOnly: true,
+		ReadOnly: readOnly,
 	}))
 	if protocolErr != nil {
 		t.Fatalf("connect error=%+v", protocolErr)
@@ -361,5 +372,138 @@ func TestRedisManifestAdvertisesBrowseRows(t *testing.T) {
 	}
 	if !manifest.Capabilities.BrowseRows {
 		t.Fatalf("browse capability=%+v", manifest.Capabilities)
+	}
+}
+
+
+func TestHandlerWorkbenchEditsRedisHashSetAndZSet(t *testing.T) {
+	fixture := newRedisHandlerFixture(t)
+	handler := connectRedisHandlerMode(t, fixture, false)
+	defer handler.disconnect()
+
+	hashBrowsePayload, protocolErr := handler.Handle(context.Background(), redisAdapterRequest(t, "hash-browse-rw", dbadapter.OpBrowseRows, dbadapter.BrowseRowsPayload{
+		Catalog: "db2", Kind: "key", Name: "hash:key", Limit: 10,
+	}))
+	if protocolErr != nil {
+		t.Fatalf("hash browse error=%+v", protocolErr)
+	}
+	hashBrowse := hashBrowsePayload.(dbadapter.BrowseRowsResult)
+	if !hashBrowse.Editable || hashBrowse.Columns[0].Editable || !hashBrowse.Columns[1].Editable {
+		t.Fatalf("hash editability=%+v", hashBrowse)
+	}
+
+	hashMutation, protocolErr := handler.Handle(context.Background(), redisAdapterRequest(t, "hash-mutate", dbadapter.OpMutateRows, dbadapter.MutateRowsPayload{
+		Catalog: "db2", Kind: "key", Name: "hash:key",
+		Mutations: []dbadapter.RowMutation{
+			{Action: "insert", Values: map[string]interface{}{"field": "team", "value": "core"}},
+			{Action: "update", Identity: map[string]interface{}{"field": "name"}, Values: map[string]interface{}{"value": "Alicia"}},
+			{Action: "delete", Identity: map[string]interface{}{"field": "role"}},
+		},
+	}))
+	if protocolErr != nil {
+		t.Fatalf("hash mutation error=%+v", protocolErr)
+	}
+	for _, item := range hashMutation.(dbadapter.MutateRowsResult).Results {
+		if item.Error != nil || item.AffectedRows != 1 {
+			t.Fatalf("hash mutation item=%+v", item)
+		}
+	}
+
+	setMutation, protocolErr := handler.Handle(context.Background(), redisAdapterRequest(t, "set-mutate", dbadapter.OpMutateRows, dbadapter.MutateRowsPayload{
+		Catalog: "db2", Kind: "key", Name: "set:key",
+		Mutations: []dbadapter.RowMutation{
+			{Action: "insert", Values: map[string]interface{}{"member": "green"}},
+			{Action: "delete", Identity: map[string]interface{}{"member": "red"}},
+		},
+	}))
+	if protocolErr != nil {
+		t.Fatalf("set mutation error=%+v", protocolErr)
+	}
+	for _, item := range setMutation.(dbadapter.MutateRowsResult).Results {
+		if item.Error != nil || item.AffectedRows != 1 {
+			t.Fatalf("set mutation item=%+v", item)
+		}
+	}
+
+	zsetMutation, protocolErr := handler.Handle(context.Background(), redisAdapterRequest(t, "zset-mutate", dbadapter.OpMutateRows, dbadapter.MutateRowsPayload{
+		Catalog: "db2", Kind: "key", Name: "zset:key",
+		Mutations: []dbadapter.RowMutation{
+			{Action: "insert", Values: map[string]interface{}{"member": "carol", "score": "30"}},
+			{Action: "update", Identity: map[string]interface{}{"member": "alice"}, Values: map[string]interface{}{"score": "11"}},
+			{Action: "delete", Identity: map[string]interface{}{"member": "bob"}},
+		},
+	}))
+	if protocolErr != nil {
+		t.Fatalf("zset mutation error=%+v", protocolErr)
+	}
+	for _, item := range zsetMutation.(dbadapter.MutateRowsResult).Results {
+		if item.Error != nil || item.AffectedRows != 1 {
+			t.Fatalf("zset mutation item=%+v", item)
+		}
+	}
+
+	for _, command := range []string{"HSETNX", "HEXISTS", "HSET", "HDEL", "SADD", "SREM", "ZSCORE", "ZADD", "ZREM"} {
+		if fixture.commandCount(command) == 0 {
+			t.Fatalf("expected Redis command %s, commands=%+v", command, fixture.commands)
+		}
+	}
+}
+
+func TestHandlerRedisWorkbenchReadOnlyBlocksMutation(t *testing.T) {
+	fixture := newRedisHandlerFixture(t)
+	handler := connectRedisHandler(t, fixture)
+	defer handler.disconnect()
+
+	before := fixture.commandCount("HSET")
+	_, protocolErr := handler.Handle(context.Background(), redisAdapterRequest(t, "hash-ro", dbadapter.OpMutateRows, dbadapter.MutateRowsPayload{
+		Catalog: "db2", Kind: "key", Name: "hash:key",
+		Mutations: []dbadapter.RowMutation{{Action: "update", Identity: map[string]interface{}{"field": "name"}, Values: map[string]interface{}{"value": "blocked"}}},
+	}))
+	if protocolErr == nil || protocolErr.Code != "READ_ONLY" {
+		t.Fatalf("read-only mutation error=%+v", protocolErr)
+	}
+	if fixture.commandCount("HSET") != before {
+		t.Fatal("read-only Redis mutation reached server")
+	}
+}
+
+func TestHandlerRedisWorkbenchCountAndDeleteKey(t *testing.T) {
+	fixture := newRedisHandlerFixture(t)
+	handler := connectRedisHandlerMode(t, fixture, false)
+	defer handler.disconnect()
+
+	countPayload, protocolErr := handler.Handle(context.Background(), redisAdapterRequest(t, "count-key", dbadapter.OpObjectAction, dbadapter.ObjectActionPayload{
+		Catalog: "db2", Kind: "key", Name: "zset:key", Action: "count_rows",
+	}))
+	if protocolErr != nil {
+		t.Fatalf("count error=%+v", protocolErr)
+	}
+	count := countPayload.(dbadapter.ObjectActionResult)
+	if count.Count == nil || *count.Count != 2 {
+		t.Fatalf("count=%+v", count)
+	}
+
+	dropPayload, protocolErr := handler.Handle(context.Background(), redisAdapterRequest(t, "drop-key", dbadapter.OpObjectAction, dbadapter.ObjectActionPayload{
+		Catalog: "db2", Kind: "key", Name: "counter", Action: "drop",
+	}))
+	if protocolErr != nil {
+		t.Fatalf("drop error=%+v", protocolErr)
+	}
+	drop := dropPayload.(dbadapter.ObjectActionResult)
+	if drop.AffectedRows != 1 || !strings.Contains(strings.ToLower(drop.Message), "deleted") {
+		t.Fatalf("drop=%+v", drop)
+	}
+	if fixture.commandCount("DEL") != 1 {
+		t.Fatalf("DEL commands=%+v", fixture.commands)
+	}
+}
+
+func TestRedisManifestAdvertisesWorkbenchMutations(t *testing.T) {
+	manifest, err := BuiltinManifest("/opt/taskdeck")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manifest.Capabilities.BrowseRows || !manifest.Capabilities.MutateRows || !manifest.Capabilities.ObjectActions {
+		t.Fatalf("workbench capabilities=%+v", manifest.Capabilities)
 	}
 }
