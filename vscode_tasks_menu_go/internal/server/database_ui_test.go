@@ -251,3 +251,26 @@ func TestDatabaseWorkbenchRendersInspectorColumnsAndIndexes(t *testing.T) {
 		}
 	}
 }
+
+
+func TestDatabaseWorkbenchOpensRedisKeysInTypeAwareViewer(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"['table','view','collection','key']",
+		"View Value",
+		"Generate Read Command",
+		"GET '+key",
+		"HGETALL '+key",
+		"LRANGE '+key+' 0 99",
+		"SMEMBERS '+key",
+		"ZRANGE '+key+' 0 99 WITHSCORES",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing Redis viewer workflow %q", want)
+		}
+	}
+}
