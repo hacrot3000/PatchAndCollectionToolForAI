@@ -346,3 +346,21 @@ func TestDatabaseWorkbenchHandlesCapabilityLoadingAndEmptyStates(t *testing.T) {
 		}
 	}
 }
+
+
+func TestDatabaseWorkbenchRejectsIncompleteMutationResponses(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"items.length!==mutations.length",
+		"Database adapter returned an incomplete mutation result; data was reloaded",
+		"await loadData(view)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing mutation-response guard %q", want)
+		}
+	}
+}
