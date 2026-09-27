@@ -42,7 +42,15 @@ func TestParseFindQueryRejectsServerSideCodeAndUnsafeOperations(t *testing.T) {
 }
 
 func TestFindOperationBodyUsesJSONParseBoundary(t *testing.T) {
-	query, err := ParseFindQuery("{\"collection\":\"users\\\\"; throw new Error('boom');//\",\"filter\":{\"name\":\"Alice\"}}", 10)
+	malicious := "users\"; throw new Error('boom');//"
+	raw, err := json.Marshal(map[string]interface{}{
+		"collection": malicious,
+		"filter":     map[string]interface{}{"name": "Alice"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	query, err := ParseFindQuery(string(raw), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +61,7 @@ func TestFindOperationBodyUsesJSONParseBoundary(t *testing.T) {
 	if !strings.Contains(body, "JSON.parse(") || !strings.Contains(body, ".find(") || !strings.Contains(body, ".limit(11)") {
 		t.Fatalf("body=%s", body)
 	}
-	if strings.Contains(body, "users\"; throw new Error('boom');//") {
+	if strings.Contains(body, malicious) {
 		t.Fatalf("collection escaped JSON string boundary: %s", body)
 	}
 }
