@@ -179,6 +179,74 @@ func TestDBProfileAPICreateUpdateClearSecretDelete(t *testing.T) {
 	}
 }
 
+func TestDBProfileAPIRotatesStoredSecret(t *testing.T) {
+	s, store, secrets := newDBProfileAPITestServer(t)
+	h := s.Handler()
+
+	create := httptest.NewRequest(http.MethodPost, "/api/db/profiles", strings.NewReader(`{
+		"name":"Rotating DB",
+		"adapter_id":"mysql-cli",
+		"transport":"direct",
+		"host":"db.example.com",
+		"port":3306,
+		"username":"app",
+		"secret":"old-secret"
+	}`))
+	create.Header.Set("Content-Type", "application/json")
+	createRR := httptest.NewRecorder()
+	h.ServeHTTP(createRR, create)
+	if createRR.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", createRR.Code, createRR.Body.String())
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(createRR.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.Get(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRef := before.SecretRef
+	if oldRef == "" {
+		t.Fatal("old secret reference missing")
+	}
+
+	update := httptest.NewRequest(http.MethodPut, "/api/db/profiles/"+created.ID, strings.NewReader(`{
+		"name":"Rotating DB",
+		"adapter_id":"mysql-cli",
+		"transport":"direct",
+		"host":"db.example.com",
+		"port":3306,
+		"username":"app",
+		"secret":"new-secret"
+	}`))
+	update.Header.Set("Content-Type", "application/json")
+	updateRR := httptest.NewRecorder()
+	h.ServeHTTP(updateRR, update)
+	if updateRR.Code != http.StatusOK {
+		t.Fatalf("update status=%d body=%s", updateRR.Code, updateRR.Body.String())
+	}
+	after, err := store.Get(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.SecretRef == "" || after.SecretRef == oldRef {
+		t.Fatalf("secret ref was not rotated: old=%q new=%q", oldRef, after.SecretRef)
+	}
+	if _, err := secrets.Get(oldRef); err == nil {
+		t.Fatal("old secret still exists after rotation")
+	}
+	newValue, err := secrets.Get(after.SecretRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(newValue) != "new-secret" {
+		t.Fatalf("new secret=%q", newValue)
+	}
+}
+
 func TestDBProfileAPIListAndItemNeverExposeStoredSecret(t *testing.T) {
 	s, store, _ := newDBProfileAPITestServer(t)
 	h := s.Handler()
