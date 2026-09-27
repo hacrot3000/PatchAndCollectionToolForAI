@@ -18,6 +18,9 @@ import (
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/config"
+	"bletonfc/vscode_tasks_menu/internal/dbadapter"
+	"bletonfc/vscode_tasks_menu/internal/dbprofile"
+	"bletonfc/vscode_tasks_menu/internal/dbsession"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 	"bletonfc/vscode_tasks_menu/internal/secretstore"
 	"bletonfc/vscode_tasks_menu/internal/session"
@@ -30,9 +33,12 @@ type Server struct {
 	Workspace string
 	Config    config.Config
 	Log       *log.Logger
-	Sessions           session.Service
-	SSHProfiles        *sshprofile.Store
-	ConnectionSecrets  secretstore.Store
+	Sessions          session.Service
+	SSHProfiles       *sshprofile.Store
+	DBProfiles        *dbprofile.Store
+	DBAdapters        *dbadapter.Registry
+	DBSessions        *dbsession.Manager
+	ConnectionSecrets secretstore.Store
 
 	projectIndexMu         sync.Mutex
 	projectIndex           *projectFileIndex
