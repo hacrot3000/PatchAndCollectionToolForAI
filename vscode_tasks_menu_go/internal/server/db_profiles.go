@@ -230,6 +230,7 @@ func (s *Server) dbProfiles(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditConnection(r, ConnectionAuditEvent{Kind: "db_profile", Action: "create", ProfileID: created.ID, Success: true})
 		writeJSON(w, http.StatusCreated, dbProfileProjection(created))
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -343,6 +344,7 @@ func (s *Server) dbProfileItem(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		s.auditConnection(r, ConnectionAuditEvent{Kind: "db_profile", Action: "update", ProfileID: updated.ID, Success: true})
 		writeJSON(w, http.StatusOK, dbProfileProjection(updated))
 	case http.MethodDelete:
 		deleted, err := store.Delete(id)
@@ -363,6 +365,7 @@ func (s *Server) dbProfileItem(w http.ResponseWriter, r *http.Request) {
 				s.Log.Printf("database secret store cleanup warning profile=%s: %v", id, secretErr)
 			}
 		}
+		s.auditConnection(r, ConnectionAuditEvent{Kind: "db_profile", Action: "delete", ProfileID: deleted.ID, Success: true})
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
