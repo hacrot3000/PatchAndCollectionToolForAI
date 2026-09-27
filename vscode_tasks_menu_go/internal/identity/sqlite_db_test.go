@@ -299,7 +299,7 @@ func assertSQLLogContains(t *testing.T, log []string, want string) {
 	t.Fatalf("SQL log missing %q: %#v", want, log)
 }
 
-func TestOpenSQLiteDatabaseMigratesV1ToProjectScopedSessionsV2(t *testing.T) {
+func TestOpenSQLiteDatabaseMigratesV1ThroughCurrentSchema(t *testing.T) {
 	state := &fakeSQLiteState{journalMode: "wal", currentVersion: 1}
 	useFakeSQLiteDriver(t, state)
 
@@ -311,12 +311,38 @@ func TestOpenSQLiteDatabaseMigratesV1ToProjectScopedSessionsV2(t *testing.T) {
 	defer db.Close()
 
 	version, execs, _ := state.snapshot()
-	if version != 2 {
-		t.Fatalf("schema version=%d want=2", version)
+	if version != int64(schemaVersion) {
+		t.Fatalf("schema version=%d want=%d", version, schemaVersion)
 	}
 	assertSQLLogContains(t, execs, "ALTER TABLE auth_sessions")
 	assertSQLLogContains(t, execs, "ADD COLUMN project_id")
 	assertSQLLogContains(t, execs, "idx_auth_sessions_project")
 	assertSQLLogContains(t, execs, "auth_sessions_require_project_insert")
 	assertSQLLogContains(t, execs, "UPDATE auth_sessions SET revoked_at = ? WHERE project_id IS NULL")
+}
+
+func TestOpenSQLiteDatabaseMigratesV2ToSessionScopeTriggerV3(t *testing.T) {
+	state := &fakeSQLiteState{journalMode: "wal", currentVersion: 2}
+	useFakeSQLiteDriver(t, state)
+
+	dbPath := filepath.Join(t.TempDir(), identityDBName)
+	db, err := openSQLiteDatabase(context.Background(), fakeSQLiteDriverName, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	version, execs, _ := state.snapshot()
+	if version != 3 {
+		t.Fatalf("schema version=%d want=3", version)
+	}
+	assertSQLLogContains(t, execs, "auth_sessions_require_project_insert")
+	for _, query := range execs {
+		if strings.Contains(query, "ALTER TABLE auth_sessions") {
+			t.Fatalf("v2 -> v3 unexpectedly reapplied v2 migration: %q", query)
+		}
+		if strings.Contains(query, "UPDATE auth_sessions SET revoked_at") {
+			t.Fatalf("v2 -> v3 unexpectedly reran legacy-session revocation: %q", query)
+		}
+	}
 }
