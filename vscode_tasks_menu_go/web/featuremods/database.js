@@ -159,16 +159,18 @@ async function describeObject(view,object){
 function renderObjects(view,result){
   view.objects.replaceChildren();
   const objects=Array.isArray(result)?result:(Array.isArray(result?.objects)?result.objects:[]);
+  view.objectData=objects;
   if(!objects.length){
     const empty=document.createElement('div');empty.className='task-connection-empty';
     empty.textContent=view.meta.adapter_kind==='redis'?'No keys':(view.meta.adapter_kind==='mongo'?'No collections':'No tables or views');
     view.objects.append(empty);return;
   }
   for(const object of objects){
-    const button=document.createElement('button');button.type='button';button.className='db-object';button.dataset.name=object?.name||'';
+    const button=document.createElement('button');button.type='button';button.className='db-object';button.dataset.name=object?.name||'';button.dataset.kind=object?.kind||'';button.dataset.catalog=object?.catalog||view.catalog.value||'';
     const kind=document.createElement('span');kind.className='db-object-kind';kind.textContent=object?.kind||'object';
     const name=document.createElement('span');name.className='db-object-name';name.textContent=object?.name||'';
     button.append(kind,name);button.onclick=()=>describeObject(view,object).catch(app.showError);view.objects.append(button);
+    globalThis.TaskMenuDatabaseWorkbench?.bindObject?.(view,object,button);
   }
 }
 
@@ -246,8 +248,9 @@ function attachDatabaseView(meta,activate){
   query.append(tools,editor,result);
   body.append(browser,query);pane.append(head,body);panes.append(pane);
 
-  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,editor,run,maxRows,result};
+  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,editor,run,maxRows,result,objectData:[]};
   dbViews.set(meta.id,view);
+  globalThis.TaskMenuDatabaseWorkbench?.enhanceView?.(view);
   reload.onclick=()=>loadCatalogs(view).catch(app.showError);
   refresh.onclick=()=>loadObjects(view).catch(app.showError);
   catalog.onchange=()=>loadObjects(view).catch(app.showError);
@@ -309,6 +312,8 @@ globalThis.TaskMenuDatabase={
   openProfile,
   testProfile,
   refreshProfiles,
+  request:sessionRequest,
+  getProfile:profileFor,
   restoreSessions:restoreDatabaseSessions,
   get views(){return dbViews;}
 };
