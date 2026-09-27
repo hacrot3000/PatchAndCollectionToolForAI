@@ -150,3 +150,34 @@ func TestDatabaseWorkbenchLoadsImmediatelyAfterDatabaseCore(t *testing.T) {
 		t.Fatalf("unexpected database feature load order: core=%d workbench=%d connections=%d", core, workbench, connections)
 	}
 }
+
+
+func TestDatabaseWorkbenchSupportsInlineGridEditing(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"dirtyRows:new Map()",
+		"deletedRows:new Set()",
+		"newRows:[]",
+		"contentEditable='true'",
+		"Apply changes",
+		"Revert",
+		"+ Row",
+		"'mutate_rows'",
+		"action:'insert'",
+		"action:'update'",
+		"action:'delete'",
+		"Set NULL",
+		"Delete Row",
+		"Discard unsaved database grid changes?",
+		"Truncate Table",
+		"Type \"'+object.name+'\" to confirm dropping",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing inline-edit workflow %q", want)
+		}
+	}
+}
