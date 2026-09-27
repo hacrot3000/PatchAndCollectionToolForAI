@@ -2,6 +2,7 @@ package dbmongo
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -29,19 +30,29 @@ func TestBuildScriptEmbedsEncodedURIAndMarker(t *testing.T) {
 }
 
 func TestJavaScriptJSONUsesJSONParseStringBoundary(t *testing.T) {
+	malicious := "x\"; throw new Error('boom');//"
 	value := map[string]interface{}{
-		"name":  "x\"; throw new Error('boom');//",
+		"name":  malicious,
 		"proto": map[string]interface{}{"__proto__": "safe-data"},
 	}
 	expression, err := javascriptJSON(value)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(expression, "JSON.parse(") {
+	if !strings.HasPrefix(expression, "JSON.parse(") || !strings.HasSuffix(expression, ")") {
 		t.Fatalf("expression=%q", expression)
 	}
-	if strings.Contains(expression, "throw new Error('boom')") {
-		t.Fatalf("raw JavaScript-capable text escaped the JSON string boundary: %s", expression)
+	literal := strings.TrimSuffix(strings.TrimPrefix(expression, "JSON.parse("), ")")
+	jsonText, err := strconv.Unquote(literal)
+	if err != nil {
+		t.Fatalf("JSON.parse argument is not a single quoted JavaScript/JSON string: %v expression=%s", err, expression)
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonText), &decoded); err != nil {
+		t.Fatalf("JSON.parse payload is not valid JSON: %v payload=%q", err, jsonText)
+	}
+	if decoded["name"] != malicious {
+		t.Fatalf("malicious-looking text was not preserved as data: %#v", decoded["name"])
 	}
 }
 
