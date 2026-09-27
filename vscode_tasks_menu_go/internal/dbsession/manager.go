@@ -30,8 +30,17 @@ type Metadata struct {
 }
 
 type session struct {
-	meta    Metadata
-	process *dbadapter.Process
+	meta        Metadata
+	process     *dbadapter.Process
+	cleanup     func()
+	cleanupOnce sync.Once
+}
+
+func (s *session) cleanupResources() {
+	if s == nil || s.cleanup == nil {
+		return
+	}
+	s.cleanupOnce.Do(s.cleanup)
 }
 
 type Manager struct {
@@ -70,6 +79,23 @@ func (m *Manager) Open(
 	options dbadapter.ProcessOptions,
 	connect dbadapter.ConnectPayload,
 ) (Metadata, error) {
+	return m.OpenWithCleanup(ctx, profileID, adapterID, options, connect, nil)
+}
+
+func (m *Manager) OpenWithCleanup(
+	ctx context.Context,
+	profileID string,
+	adapterID string,
+	options dbadapter.ProcessOptions,
+	connect dbadapter.ConnectPayload,
+	cleanup func(),
+) (Metadata, error) {
+	cleanupTransferred := false
+	defer func() {
+		if !cleanupTransferred && cleanup != nil {
+			cleanup()
+		}
+	}()
 	if m == nil {
 		return Metadata{}, errors.New("database session manager is nil")
 	}
@@ -130,11 +156,13 @@ func (m *Manager) Open(
 		AdapterKind: manifest.Kind,
 		StartedAt:   time.Now().Format(time.RFC3339),
 	}
+	item := &session{meta: meta, process: process, cleanup: cleanup}
 	m.mu.Lock()
-	m.sessions[sessionID] = &session{meta: meta, process: process}
+	m.sessions[sessionID] = item
 	m.mu.Unlock()
 	closeOnError = false
-	go m.watch(sessionID, process)
+	cleanupTransferred = true
+	go m.watch(sessionID, item)
 	return meta, nil
 }
 
@@ -191,6 +219,7 @@ func (m *Manager) CloseSession(id string) error {
 	_, _ = item.process.Request(ctx, dbadapter.OpDisconnect, nil, item.meta.ID)
 	cancel()
 	_ = item.process.Close()
+	item.cleanupResources()
 
 	m.mu.Lock()
 	delete(m.sessions, item.meta.ID)
@@ -209,6 +238,7 @@ func (m *Manager) Close() {
 	m.mu.Unlock()
 	for _, item := range sessions {
 		_ = item.process.Close()
+		item.cleanupResources()
 	}
 }
 
@@ -229,10 +259,11 @@ func (m *Manager) getSession(id string) (*session, error) {
 	return item, nil
 }
 
-func (m *Manager) watch(id string, process *dbadapter.Process) {
-	<-process.Done()
+func (m *Manager) watch(id string, item *session) {
+	<-item.process.Done()
+	item.cleanupResources()
 	m.mu.Lock()
-	if current, ok := m.sessions[id]; ok && current.process == process {
+	if current, ok := m.sessions[id]; ok && current == item {
 		delete(m.sessions, id)
 	}
 	m.mu.Unlock()
