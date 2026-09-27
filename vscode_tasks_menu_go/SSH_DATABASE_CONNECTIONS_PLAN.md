@@ -1,6 +1,6 @@
 # TaskDeck SSH & Database Connections Plan
 
-Status: SSH backend and Connections panel implemented; explicit SSH connection-test endpoint and structured terminal target metadata remain
+Status: SSH backend, connection testing, terminal target metadata, and Connections panel implemented; database adapter foundation is next
 
 Branch: `feat/ssh-database-connections`
 
@@ -575,7 +575,7 @@ All code work must use small checkpoint commits.
 
 - [x] Create branch from `main`.
 - [x] Record architecture, constraints, priority order and phases.
-- [ ] Keep this document updated as decisions change.
+- [x] Keep this document updated as decisions change.
 
 ### Phase 1 — SSH foundation
 
@@ -592,7 +592,7 @@ All code work must use small checkpoint commits.
 11. [x] Support preset commands after successful connection.
 12. [x] Add secret-safe SSH profile CRUD API.
 13. [x] Open SSH profiles through the existing `POST /api/sessions` Terminal API using `ssh_profile_id`.
-14. [ ] Add an explicit SSH profile connection-test endpoint; opening a Terminal already exercises the real connection path, but a non-tab test action is still pending.
+14. [x] Add an explicit SSH profile connection-test endpoint and Connections-panel Test action without opening a Terminal tab.
 15. [x] Add backend regression tests for validation, argv safety, secret non-disclosure, askpass one-time semantics and request isolation.
 
 Implementation notes:
@@ -600,6 +600,7 @@ Implementation notes:
 - Stored secrets are never placed in argv or browser-visible profile responses.
 - Remote SSH session requests reject browser-provided environment overrides so callers cannot replace the internal askpass socket/token environment.
 - SSH authentication secrets are bounded to 4096 bytes and reject NUL/CR/LF before storage.
+- SSH connection tests use the same OpenSSH/authentication path with `-T` and remote `true`, bounded diagnostics, and no custom-home/preset execution.
 - The current execution environment has no GitHub network access and this repository has no workflow run for these commits, so the newly added Go tests have not been executed by this session; source-level regression tests are committed in small checkpoints and must be run on a normal checkout before release.
 
 ### Phase 2 — Connections panel / Terminal UX
@@ -612,7 +613,7 @@ Implementation notes:
 6. [x] Add SSH group with saved profiles.
 7. [x] Add add/edit/delete profile UI without exposing stored secrets.
 8. [x] Open local/remote terminals as existing terminal tabs.
-9. [ ] Add structured terminal target metadata (`local|ssh`, profile ID) to session metadata; the SSH tab/label is already distinguishable as `SSH · <profile name>`.
+9. [x] Add structured terminal target metadata (`local|ssh`, profile ID) to session metadata.
 10. [x] Preserve existing Terminal menu/settings behavior for compatibility.
 11. [x] Add source-level UI regression tests for panel wiring, Activity Bar integration and explicit Terminal target handling.
 
