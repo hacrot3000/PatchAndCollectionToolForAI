@@ -340,19 +340,29 @@ function openDatabaseProfileDialog(profile=null){
   const charset=field(form,'Charset','charset',{value:profile?.options?.charset||'utf8mb4'});
   const timeout=field(form,'Connect timeout (seconds)','connect_timeout_seconds',{type:'number',value:profile?.options?.connect_timeout_seconds||'10'});
   const commandTimeout=field(form,'Command timeout (seconds)','command_timeout_seconds',{type:'number',value:profile?.options?.command_timeout_seconds||'15'});
+  const authSource=field(form,'Authentication database','auth_source',{value:profile?.options?.auth_source||'',placeholder:'Optional, e.g. admin'});
+  const mongoTLS=checkboxField(form,'Use TLS','tls',String(profile?.options?.tls||'').toLowerCase()==='true',{wide:true});
 
   function selectedDatabaseAdapter(){return dbAdapters.find(item=>item.id===adapter.input.value)||null;}
+  function defaultDatabasePort(kind){
+    if(kind==='redis')return 6379;
+    if(kind==='mongo')return 27017;
+    return 3306;
+  }
   function syncDatabaseAdapter(){
     const kind=selectedDatabaseAdapter()?.kind||'';
     const redis=kind==='redis';
-    charset.wrap.style.display=redis?'none':'flex';
+    const mongo=kind==='mongo';
+    charset.wrap.style.display=kind==='mysql'?'flex':'none';
     commandTimeout.wrap.style.display=redis?'flex':'none';
+    authSource.wrap.style.display=mongo?'flex':'none';
+    mongoTLS.wrap.style.display=mongo?'flex':'none';
     const databaseLabel=database.wrap.querySelector('label');
     if(databaseLabel)databaseLabel.textContent=redis?'Database index':'Database';
     if(!editing){
       const currentPort=Number(port.input.value)||0;
-      if(redis&&(currentPort===0||currentPort===3306))port.input.value='6379';
-      if(!redis&&(currentPort===0||currentPort===6379))port.input.value='3306';
+      const defaults=[3306,6379,27017];
+      if(currentPort===0||defaults.includes(currentPort))port.input.value=String(defaultDatabasePort(kind));
     }
   }
   adapter.input.addEventListener('change',syncDatabaseAdapter);syncDatabaseAdapter();
@@ -384,12 +394,16 @@ function openDatabaseProfileDialog(profile=null){
       if(adapterKind==='mysql'&&charset.input.value.trim())options.charset=charset.input.value.trim();
       if(timeout.input.value.trim())options.connect_timeout_seconds=timeout.input.value.trim();
       if(adapterKind==='redis'&&commandTimeout.input.value.trim())options.command_timeout_seconds=commandTimeout.input.value.trim();
+      if(adapterKind==='mongo'){
+        if(authSource.input.value.trim())options.auth_source=authSource.input.value.trim();
+        if(mongoTLS.input.checked)options.tls='true';
+      }
       const payload={
         name:name.input.value,
         adapter_id:adapter.input.value,
         transport:transport.input.value,
         host:host.input.value,
-        port:Number(port.input.value)||3306,
+        port:Number(port.input.value)||defaultDatabasePort(adapterKind),
         username:username.input.value,
         database:database.input.value,
         read_only:readOnly.input.checked,
