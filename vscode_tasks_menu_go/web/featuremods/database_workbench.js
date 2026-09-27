@@ -296,11 +296,12 @@ function confirmDiscardChanges(view){
 function updateEditControls(view){
   const wb=view.workbench;if(!wb?.controls)return;
   const result=wb.data.result||{};
+  const busy=Boolean(wb.data.busy);
   const editable=Boolean(result.editable)&&supports(view,'mutate_rows');
   const pending=pendingChangeCount(view);
-  wb.controls.add.disabled=!editable;
-  wb.controls.apply.disabled=!editable||pending===0;
-  wb.controls.revert.disabled=!hasPendingChanges(view);
+  wb.controls.add.disabled=busy||!editable;
+  wb.controls.apply.disabled=busy||!editable||pending===0;
+  wb.controls.revert.disabled=busy||!hasPendingChanges(view);
   const base=wb.controls.status.dataset.base||wb.controls.status.textContent||'';
   wb.controls.status.textContent=base+(pending?' · '+pending+' pending':'');
 }
@@ -362,23 +363,42 @@ function dataPayload(view){
   };
 }
 
+function refreshWorkbenchCapabilities(view){
+  const wb=view.workbench;if(!wb?.controls)return;
+  wb.controls.count.disabled=!supports(view,'object_actions');
+  wb.controls.filter.disabled=!filterCapable(view);
+  updateEditControls(view);
+}
+
 function setDataBusy(view,busy){
   const wb=view.workbench;if(!wb)return;
-  for(const button of [wb.controls.first,wb.controls.prev,wb.controls.next,wb.controls.refresh])if(button)button.disabled=busy;
+  wb.data.busy=busy;
+  for(const button of [wb.controls.first,wb.controls.prev,wb.controls.next,wb.controls.refresh,wb.controls.count,wb.controls.filter])if(button)button.disabled=busy;
   if(wb.controls.pageSize)wb.controls.pageSize.disabled=busy;
+  if(!busy)refreshWorkbenchCapabilities(view);
+  else updateEditControls(view);
 }
 
 async function loadData(view,{resetOffset=false}={}){
   const state=dataState(view);
   if(!state.object)return;
-  if(!supports(view,'browse_rows'))throw new Error('This database adapter does not support table data browsing');
+  await ensureAdapters();
+  if(!supports(view,'browse_rows'))throw new Error('This database adapter does not support data browsing');
   if(resetOffset)state.offset=0;
   setDataBusy(view,true);
+  const status=view.workbench?.controls?.status;
+  if(status){status.dataset.base='Loading…';status.textContent='Loading…';}
   try{
     const result=await database.request(view.meta.id,'browse_rows',dataPayload(view));
     state.result=result||{};
     clearPendingChanges(view);
     renderDataGrid(view);
+  }catch(error){
+    if(status){
+      const message=String(error?.message||error||'Load failed');
+      status.dataset.base='Error · '+message.slice(0,180);status.textContent=status.dataset.base;
+    }
+    throw error;
   }finally{setDataBusy(view,false);}
 }
 
@@ -490,6 +510,9 @@ function renderDataGrid(view){
     tbody.append(tr);
   });
   table.append(tbody);wb.grid.append(table);
+  if(rows.length===0&&state.newRows.length===0){
+    const empty=document.createElement('div');empty.className='db-data-empty';empty.textContent=state.filters.length?'No rows match the current filters.':'This object contains no rows/documents/entries.';wb.grid.append(empty);
+  }
 }
 
 function showCellMenu(view,rowIndex,columnIndex,x,y){
@@ -880,6 +903,7 @@ function createDataPanel(view){
   refresh.onclick=()=>{if(!confirmDiscardChanges(view))return;loadData(view).catch(app.showError);};
   count.disabled=!supports(view,'object_actions');count.onclick=()=>loadTotalCount(view).catch(app.showError);
   filter.disabled=!filterCapable(view);filter.onclick=()=>openFilterDialog(view);
+  ensureAdapters().then(()=>refreshWorkbenchCapabilities(view)).catch(error=>console.warn('Database Workbench capabilities unavailable',error));
   add.onclick=()=>addGridRow(view);
   apply.onclick=()=>applyGridChanges(view).catch(app.showError);
   revert.onclick=()=>{clearPendingChanges(view);renderDataGrid(view);};
@@ -920,7 +944,7 @@ function enhanceView(view){
   view.workbench={
     active:'query',tabs,panels:{data:null,structure,query},controls:null,grid:null,
     details:new Map(),objectFilter:null,
-    data:{object:null,offset:0,limit:100,sort:[],filters:[],result:null,dirtyRows:new Map(),deletedRows:new Set(),newRows:[]}
+    data:{object:null,offset:0,limit:100,sort:[],filters:[],result:null,busy:false,dirtyRows:new Map(),deletedRows:new Set(),newRows:[]}
   };
   const data=createDataPanel(view);view.workbench.panels.data=data;
   main.prepend(tabsBar);main.append(data,structure);
