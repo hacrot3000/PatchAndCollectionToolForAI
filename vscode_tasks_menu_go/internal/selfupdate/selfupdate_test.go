@@ -478,3 +478,36 @@ func TestGoTestsDoNotDependOnRepositoryOnlyPatchDocs(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLegacySelfUpdateSensitiveTestsGuardMissingRepoRootFiles(t *testing.T) {
+	moduleRoot := filepath.Clean(filepath.Join("..", ".."))
+	checks := []struct {
+		path           string
+		repoRootMarker string
+		skipText       string
+	}{
+		{
+			path:           "cmd/vscode_tasks_menu/launcher_self_install_test.go",
+			repoRootMarker: `filepath.Join(root, "vscode_tasks_menu")`,
+			skipText:       "root launcher is absent from legacy self-update source staging",
+		},
+		{
+			path:           "internal/server/patchpanel_ui_test.go",
+			repoRootMarker: "../../../_patch_lib/python_patch_queue_dispatcher.py",
+			skipText:       "repo-root Patch runtime is absent from legacy self-update source staging",
+		},
+	}
+	for _, check := range checks {
+		data, err := os.ReadFile(filepath.Join(moduleRoot, filepath.FromSlash(check.path)))
+		if err != nil {
+			t.Fatalf("read %s: %v", check.path, err)
+		}
+		src := string(data)
+		if !strings.Contains(src, check.repoRootMarker) {
+			continue
+		}
+		if !strings.Contains(src, "os.IsNotExist(err)") || !strings.Contains(src, check.skipText) {
+			t.Fatalf("%s reads a repository-root dependency without a legacy self-update staging guard", check.path)
+		}
+	}
+}
