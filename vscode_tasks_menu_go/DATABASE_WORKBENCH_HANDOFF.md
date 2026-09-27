@@ -253,63 +253,55 @@ Non-tabular semantics:
 - [x] Browser source/regression tests.
 - [x] README/Connections documentation.
 - [x] Full CI Go 1.19 + 1.23.
-- [ ] Final diff review against main.
+- [x] Final diff review against main.
 
 ## Current checkpoint
 
-**2026-09-27 — checkpoint 4: feature-complete, final CI pending**
+**2026-09-27 — checkpoint 5: implementation and release validation complete**
 
-Feature implementation is now complete for the requested Database Workbench scope:
+Requested Database Workbench scope is complete on `feat/database-workbench-ui`.
 
-- Workbench navigator with object search, double-click open and right-click context actions.
-- Data / Structure / Query tabs; direct SQL/query/Redis command workflow remains first-class.
-- Server-side paging, sort, relational filters and on-demand total count.
-- Editable grid with dirty state, Apply/Revert, insert/delete, NULL and JSON/long-value editor.
-- Per-object page-size persistence and keyboard shortcuts.
-- MySQL/MariaDB: browse/edit/filter/count/truncate/drop + columns/indexes.
-- SQLite: browse/edit/filter/count/delete-all/drop + PK/rowid identity + columns/indexes/DDL.
-- MongoDB: paged documents, `_id` identity, JSON edit/insert/delete, count/clear/drop, Generate Find.
-- Redis: type-aware String/List/Hash/Set/ZSet viewer; Hash/Set/ZSet safe editing; Count Entries/Delete Key and generated read commands.
-- Loading/error/empty states and late adapter-capability refresh.
-- Audit payload non-disclosure tests, protocol bounds, per-row mutation errors and SSH-tunnel Workbench regression.
+Completed capabilities:
+- Workbench navigator with object search, double-click open and adapter-aware right-click actions.
+- Data / Structure / Query tabs; existing direct SQL/query/Redis command workflow remains first-class.
+- Server-side paging, sort, relational filters, per-object page-size persistence and on-demand total count.
+- Editable grid with dirty state, Apply/Revert, insert/delete, NULL editing, JSON/long-value editor and keyboard shortcuts.
+- MySQL/MariaDB: browse/edit/filter/count/truncate/drop plus columns/indexes.
+- SQLite: browse/edit/filter/count/delete-all/drop plus PK/`rowid` identity, columns/indexes/DDL.
+- MongoDB: paged documents, `_id` identity, JSON edit/insert/delete, Count/Clear/Drop Collection and Generate Find.
+- Redis: String/List/Hash/Set/ZSet viewer; safe Hash/Set/ZSet editing; Count Entries/Delete Key and generated read commands.
+- Loading/error/empty states and adapter-capability refresh.
+- Mutation-response ordering/completeness guards.
+- Audit payload non-disclosure, protocol bounds, per-row mutation errors and SSH-tunnel regression coverage.
 - Workbench usage/safety documented in `CONNECTIONS.md` and linked from TaskDeck README.
 
-Mutation batches intentionally use per-item result semantics across adapters; they are not advertised as one cross-adapter/cross-row transaction. UI reloads after Apply and reports failed items so partial success is visible.
-
-Recent hardening/UX commits:
-- `c020f8c6` page-size persistence + shortcuts
-- `c12cb568` CI source-assertion fix
-- `167dd912` mutation audit non-disclosure test
-- `c6b95b61` Workbench documentation
-- `daffc734` on-demand total count
-- `1fb90341` protocol bounds
-- `5977d2f4` SSH-tunnel Workbench regression
-- `44636288` loading/capability hardening
-- `df901f23` per-row Redis mutation error test
-
-Current base relationship:
-- branch created from `main@3de8cafef4a8bfaa7a631466ee90bb7bf2aade24`
-- main had not moved as of the last comparison; branch was ahead only, behind 0.
+Mutation batches intentionally use per-item result semantics; they are not advertised as a single cross-row transaction. UI reloads after Apply and reports failed items so partial success remains visible.
 
 Release validation evidence:
-- Functional HEAD: `44a26c33ac1f7acc00abfc572d13999010364b6d`
+- Functional CI HEAD: `44a26c33ac1f7acc00abfc572d13999010364b6d`
 - GitHub Actions run: `36317624712`
 - Go 1.23.x job `108615215741`: **success**
 - Go 1.19.x job `108615215637`: **success**
 - Both jobs passed launcher/installer syntax, Patch entry routing, JavaScript syntax, TaskDeck Patch handoff state, staged self-update tests, legacy staged self-update tests, full `go test ./...`, `go vet ./...` and production build.
-- Final mutation-response hardening on this functional HEAD requires ordered result indexes and rejects/reloads incomplete browser mutation responses.
 
-Remaining release steps:
-1. Remove the temporary `feat/database-workbench-ui` workflow trigger.
-2. Verify workflow file is byte-for-byte equivalent to main again.
-3. Final compare/diff review against main.
-4. Record final branch state and trigger-removal commit in this handoff.
+Release cleanup:
+- `d8087c2d724ce6f856ef47915e3d671e580ff916` recorded final CI evidence.
+- `5489ad1eeae2081651809c0d34471cdf332b4e23` removed the temporary `feat/database-workbench-ui` CI branch trigger.
+- Feature workflow is byte-for-byte identical to `main` again.
+- Final compare before this docs-only checkpoint:
+  - `main = 3de8cafef4a8bfaa7a631466ee90bb7bf2aade24`
+  - feature HEAD = `5489ad1eeae2081651809c0d34471cdf332b4e23`
+  - ahead = 62
+  - behind = 0
+  - compare status = `ahead`
+- Final diff contains only Database Workbench adapter/protocol/server/UI/tests/docs files; the workflow file is no longer part of the diff.
+
+No merge into `main` has been performed.
 
 ## Continuation rule
 
-When resuming after timeout/error:
+If more work is requested:
 1. Read this file first.
-2. Inspect branch HEAD and the last 5–10 commits.
-3. Continue from **Current checkpoint**; do not infer progress only from file names.
-4. Before starting a new phase, update this file and commit the checkpoint.
-5. Prefer one behavior/test slice per commit.
+2. Re-check current `main` before merging because `main` may have advanced after this checkpoint.
+3. Do not re-enable the feature-branch CI trigger unless new functional changes require another validation run.
+4. Keep follow-up changes in small atomic commits.
