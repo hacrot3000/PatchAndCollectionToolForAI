@@ -1,6 +1,6 @@
 # TaskDeck Multi-user / Shared Server Plan
 
-Status: Phase 10 shared-server hardening implemented and CI-verified; first-release acceptance verification remains
+Status: Phase 10 and automated first-release acceptance CI-verified; deployed browser/reverse-proxy smoke remains
 
 Branch: `feat/multi-user-shared-server`
 
@@ -1004,11 +1004,15 @@ Hardening notes:
 - Release-acceptance integration coverage now additionally runs two independent
   SQLite Store/Server instances against one identity DB and exercises full
   HTTPS login + Secure cookie + WSS authorization through `Server.Handler()`.
-  During this acceptance pass, cross-project bearer-session reuse was found and
-  closed by schema v2/project-bound auth sessions. Commit `005125ad` passes
-  staged tests, tests, vet and build on both Go 1.19.x and Go 1.23.x.
-- Remaining first-release acceptance is limited to operator/browser smoke checks
-  that intentionally require a deployed real browser/reverse proxy environment.
+  During this acceptance pass, cross-project bearer/session administration and
+  logout boundaries were tightened, hostile WebSocket Origin is regression
+  tested, and identity migrations were made immutable: v2 adds project scope and
+  revokes legacy unscoped sessions; v3 rejects new unscoped session INSERTs.
+- GitHub Actions run `36288422337` verifies commit `25cafd93` across the full
+  Go 1.19.x / 1.23.x matrix: staged tests, tests, vet and build all pass.
+- Automated first-release acceptance is complete. Remaining acceptance is
+  limited to operator/browser smoke checks that intentionally require a deployed
+  real browser/reverse-proxy environment; see `SHARED_SERVER_ACCEPTANCE.md`.
 
 ### Phase 11 — Future central management / Hub
 
