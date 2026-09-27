@@ -67,3 +67,30 @@ func TestDefaultConnectionAuditLogContainsNoRequestPayload(t *testing.T) {
 		}
 	}
 }
+
+
+func TestWorkbenchMutationAuditNeverLogsCellOrObjectPayload(t *testing.T) {
+	for _, action := range []string{"mutate_rows", "object_action"} {
+		t.Run(action, func(t *testing.T) {
+			var buffer bytes.Buffer
+			s := &Server{Log: log.New(&buffer, "", 0)}
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/api/db/sessions/session-1/request?filter=SECRET_FILTER",
+				strings.NewReader(`{"operation":"`+action+`","payload":{"name":"SECRET_TABLE","values":{"password":"SECRET_CELL"}}}`),
+			)
+			s.auditConnection(req, ConnectionAuditEvent{
+				Kind: "db_session", Action: action, ProfileID: "profile-1", SessionID: "session-1", Success: true,
+			})
+			text := buffer.String()
+			if !strings.Contains(text, "action="+action) {
+				t.Fatalf("audit log missing action: %s", text)
+			}
+			for _, forbidden := range []string{"SECRET_FILTER", "SECRET_TABLE", "SECRET_CELL", "password", "payload"} {
+				if strings.Contains(text, forbidden) {
+					t.Fatalf("audit log leaked workbench payload %q: %s", forbidden, text)
+				}
+			}
+		})
+	}
+}

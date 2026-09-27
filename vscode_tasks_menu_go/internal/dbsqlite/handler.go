@@ -98,6 +98,81 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 			return nil, sqliteProtocolError("DESCRIBE_FAILED", err)
 		}
 		return result, nil
+	case dbadapter.OpBrowseRows:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		var payload dbadapter.BrowseRowsPayload
+		if err := decodeSQLitePayload(request.Payload, &payload); err != nil {
+			return nil, sqliteProtocolError("INVALID_PAYLOAD", err)
+		}
+		normalized, err := dbadapter.NormalizeBrowseRowsPayload(payload)
+		if err != nil {
+			return nil, sqliteProtocolError("INVALID_BROWSE", err)
+		}
+		if catalog := strings.TrimSpace(normalized.Catalog); catalog != "" && catalog != "main" {
+			return nil, &dbadapter.ProtocolError{Code: "CATALOG_UNAVAILABLE", Message: "SQLite adapter exposes only the main database"}
+		}
+		var result dbadapter.BrowseRowsResult
+		if err := runHelper(ctx, h.python, h.config, "browse_rows", normalized, &result); err != nil {
+			return nil, sqliteProtocolError("BROWSE_FAILED", err)
+		}
+		if err := dbadapter.ValidateBrowseRowsResult(result); err != nil {
+			return nil, sqliteProtocolError("BROWSE_RESULT_FAILED", err)
+		}
+		return result, nil
+	case dbadapter.OpMutateRows:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		if h.config.ReadOnly {
+			return nil, &dbadapter.ProtocolError{Code: "READ_ONLY", Message: "SQLite connection is read-only"}
+		}
+		var payload dbadapter.MutateRowsPayload
+		if err := decodeSQLitePayload(request.Payload, &payload); err != nil {
+			return nil, sqliteProtocolError("INVALID_PAYLOAD", err)
+		}
+		normalized, err := dbadapter.NormalizeMutateRowsPayload(payload)
+		if err != nil {
+			return nil, sqliteProtocolError("INVALID_MUTATION", err)
+		}
+		if catalog := strings.TrimSpace(normalized.Catalog); catalog != "" && catalog != "main" {
+			return nil, &dbadapter.ProtocolError{Code: "CATALOG_UNAVAILABLE", Message: "SQLite adapter exposes only the main database"}
+		}
+		var result dbadapter.MutateRowsResult
+		if err := runHelper(ctx, h.python, h.config, "mutate_rows", normalized, &result); err != nil {
+			return nil, sqliteProtocolError("MUTATION_FAILED", err)
+		}
+		if err := dbadapter.ValidateMutateRowsResult(result); err != nil {
+			return nil, sqliteProtocolError("MUTATION_RESULT_FAILED", err)
+		}
+		return result, nil
+	case dbadapter.OpObjectAction:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		var payload dbadapter.ObjectActionPayload
+		if err := decodeSQLitePayload(request.Payload, &payload); err != nil {
+			return nil, sqliteProtocolError("INVALID_PAYLOAD", err)
+		}
+		normalized, err := dbadapter.NormalizeObjectActionPayload(payload)
+		if err != nil {
+			return nil, sqliteProtocolError("INVALID_OBJECT_ACTION", err)
+		}
+		if catalog := strings.TrimSpace(normalized.Catalog); catalog != "" && catalog != "main" {
+			return nil, &dbadapter.ProtocolError{Code: "CATALOG_UNAVAILABLE", Message: "SQLite adapter exposes only the main database"}
+		}
+		if h.config.ReadOnly && normalized.Action != "count_rows" {
+			return nil, &dbadapter.ProtocolError{Code: "READ_ONLY", Message: "SQLite connection is read-only"}
+		}
+		var result dbadapter.ObjectActionResult
+		if err := runHelper(ctx, h.python, h.config, "object_action", normalized, &result); err != nil {
+			return nil, sqliteProtocolError("OBJECT_ACTION_FAILED", err)
+		}
+		if err := dbadapter.ValidateObjectActionResult(result); err != nil {
+			return nil, sqliteProtocolError("OBJECT_ACTION_RESULT_FAILED", err)
+		}
+		return result, nil
 	case dbadapter.OpExecute:
 		if protocolErr := h.requireConnected(); protocolErr != nil {
 			return nil, protocolErr

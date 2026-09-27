@@ -27,7 +27,14 @@ func writeHandlerFixture(t *testing.T) string {
 		"  *taskdeck_ping*) printf '%s\\n' '<resultset><row><field name=\"taskdeck_ping\">1</field></row></resultset>' ;;\n" +
 		"  *information_schema.SCHEMATA*) printf '%s\\n' '<resultset><row><field name=\"name\">information_schema</field></row><row><field name=\"name\">main</field></row></resultset>' ;;\n" +
 		"  *information_schema.TABLES*) printf '%s\\n' '<resultset><row><field name=\"catalog\">main</field><field name=\"name\">users</field><field name=\"kind\">table</field></row></resultset>' ;;\n" +
-		"  *information_schema.COLUMNS*) printf '%s\\n' '<resultset><row><field name=\"name\">id</field><field name=\"type\">bigint</field><field name=\"nullable\">NO</field><field name=\"default_value\" xsi:nil=\"true\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"/><field name=\"extra\">auto_increment</field></row></resultset>' ;;\n" +
+		"  *taskdeck_describe_indexes*) printf '%s\\n' '<resultset><row><field name=\"name\">PRIMARY</field><field name=\"non_unique\">0</field><field name=\"column_name\">id</field><field name=\"seq\">1</field><field name=\"index_type\">BTREE</field></row></resultset>' ;;\n" +
+		"  *information_schema.STATISTICS*) printf '%s\\n' '<resultset><row><field name=\"index_name\">PRIMARY</field><field name=\"column_name\">id</field><field name=\"seq\">1</field><field name=\"nullable\">NO</field></row></resultset>' ;;\n" +
+		"  *default_value*) printf '%s\\n' '<resultset><row><field name=\"name\">id</field><field name=\"type\">bigint</field><field name=\"nullable\">NO</field><field name=\"default_value\" xsi:nil=\"true\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"/><field name=\"extra\">auto_increment</field></row></resultset>' ;;\n" +
+		"  *information_schema.COLUMNS*) printf '%s\\n' '<resultset><row><field name=\"name\">id</field><field name=\"type\">bigint</field><field name=\"nullable\">NO</field></row><row><field name=\"name\">name</field><field name=\"type\">varchar(255)</field><field name=\"nullable\">YES</field></row></resultset>' ;;\n" +
+		"  *taskdeck_browse*) printf '%s\\n' '<resultset><row><field name=\"id\">1</field><field name=\"name\">Alice</field></row><row><field name=\"id\">2</field><field name=\"name\">Bob</field></row></resultset>' ;;\n" +
+		"  *taskdeck_mutation*) printf '%s\\n' '<resultset><row><field name=\"affected_rows\">1</field></row></resultset>' ;;\n" +
+		"  *taskdeck_count*) printf '%s\\n' '<resultset><row><field name=\"row_count\">2</field></row></resultset>' ;;\n" +
+		"  *taskdeck_object_action*) : ;;\n" +
 		"  *'SELECT 42 AS answer'*) printf '%s\\n' '<resultset><row><field name=\"answer\">42</field></row></resultset>' ;;\n" +
 		"  *) printf '%s\\n' '<resultset></resultset>' ;;\n" +
 		"esac\n" +
@@ -114,6 +121,10 @@ func TestHandlerConnectPingBrowseAndExecute(t *testing.T) {
 	if !ok || len(columns) != 1 || columns[0]["name"] != "id" || columns[0]["nullable"] != false {
 		t.Fatalf("describe=%#v", describePayload)
 	}
+	indexes, ok := describe["indexes"].([]map[string]interface{})
+	if !ok || len(indexes) != 1 || indexes[0]["name"] != "PRIMARY" || indexes[0]["column_name"] != "id" || indexes[0]["unique"] != true {
+		t.Fatalf("describe indexes=%#v", describePayload)
+	}
 
 	executePayload, protocolErr := handler.Handle(context.Background(), adapterRequest(t, "execute-1", dbadapter.OpExecute, dbadapter.ExecutePayload{
 		Statement: "SELECT 42 AS answer",
@@ -158,5 +169,148 @@ func TestMySQLTextExpressionDoesNotEmbedRawValue(t *testing.T) {
 	expression := mysqlTextExpression(value)
 	if strings.Contains(expression, value) || !strings.HasPrefix(expression, "CONVERT(0x") {
 		t.Fatalf("expression=%q", expression)
+	}
+}
+
+
+func TestHandlerBrowseRowsUsesStablePrimaryKeyIdentity(t *testing.T) {
+	handler := connectFixtureHandler(t, false)
+	payload, protocolErr := handler.Handle(context.Background(), adapterRequest(t, "browse-1", dbadapter.OpBrowseRows, dbadapter.BrowseRowsPayload{
+		Catalog: "main",
+		Kind:    "table",
+		Name:    "users",
+		Limit:   100,
+	}))
+	if protocolErr != nil {
+		t.Fatalf("browse error=%+v", protocolErr)
+	}
+	result, ok := payload.(dbadapter.BrowseRowsResult)
+	if !ok {
+		t.Fatalf("browse payload type=%T", payload)
+	}
+	if !result.Editable || result.EditabilityReason != "" {
+		t.Fatalf("unexpected editability: %+v", result)
+	}
+	if len(result.Columns) != 2 || !result.Columns[0].Identity || result.Columns[0].Name != "id" {
+		t.Fatalf("columns=%+v", result.Columns)
+	}
+	if len(result.Rows) != 2 || result.Rows[0].Identity["id"] != "1" || result.Rows[1].Values[1] != "Bob" {
+		t.Fatalf("rows=%+v", result.Rows)
+	}
+}
+
+func TestHandlerBrowseRowsHonorsReadOnlyProfile(t *testing.T) {
+	handler := connectFixtureHandler(t, true)
+	payload, protocolErr := handler.Handle(context.Background(), adapterRequest(t, "browse-ro", dbadapter.OpBrowseRows, dbadapter.BrowseRowsPayload{
+		Catalog: "main",
+		Kind:    "table",
+		Name:    "users",
+		Limit:   50,
+	}))
+	if protocolErr != nil {
+		t.Fatalf("browse error=%+v", protocolErr)
+	}
+	result := payload.(dbadapter.BrowseRowsResult)
+	if result.Editable || !strings.Contains(strings.ToLower(result.EditabilityReason), "read-only") {
+		t.Fatalf("unexpected read-only browse result: %+v", result)
+	}
+}
+
+func TestMySQLIdentifierQuotesNamesWithoutRawSQLSyntax(t *testing.T) {
+	value := "odd`name"
+	quoted, err := mysqlIdentifier(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quoted != "`odd``name`" {
+		t.Fatalf("quoted=%q", quoted)
+	}
+}
+
+
+func TestHandlerMutateRowsUsesStableIdentity(t *testing.T) {
+	handler := connectFixtureHandler(t, false)
+	payload, protocolErr := handler.Handle(context.Background(), adapterRequest(t, "mutate-1", dbadapter.OpMutateRows, dbadapter.MutateRowsPayload{
+		Catalog: "main",
+		Kind:    "table",
+		Name:    "users",
+		Mutations: []dbadapter.RowMutation{
+			{Action: "insert", Values: map[string]interface{}{"name": "Carol"}},
+			{Action: "update", Identity: map[string]interface{}{"id": "1"}, Values: map[string]interface{}{"name": "Alicia"}},
+			{Action: "delete", Identity: map[string]interface{}{"id": "2"}},
+		},
+	}))
+	if protocolErr != nil {
+		t.Fatalf("mutate error=%+v", protocolErr)
+	}
+	result, ok := payload.(dbadapter.MutateRowsResult)
+	if !ok || len(result.Results) != 3 {
+		t.Fatalf("mutation result=%#v", payload)
+	}
+	for _, item := range result.Results {
+		if item.Error != nil || item.AffectedRows != 1 {
+			t.Fatalf("mutation item=%+v", item)
+		}
+	}
+}
+
+func TestHandlerMutateRowsRejectsReadOnlyBeforeClientMutation(t *testing.T) {
+	handler := connectFixtureHandler(t, true)
+	_, protocolErr := handler.Handle(context.Background(), adapterRequest(t, "mutate-ro", dbadapter.OpMutateRows, dbadapter.MutateRowsPayload{
+		Catalog: "main",
+		Name:    "users",
+		Mutations: []dbadapter.RowMutation{{Action: "delete", Identity: map[string]interface{}{"id": "1"}}},
+	}))
+	if protocolErr == nil || protocolErr.Code != "READ_ONLY" {
+		t.Fatalf("protocol error=%+v", protocolErr)
+	}
+}
+
+func TestBuildMySQLMutationRejectsIncompleteIdentity(t *testing.T) {
+	columns := map[string]mysqlBrowseColumn{
+		"id":   {Name: "id"},
+		"name": {Name: "name"},
+	}
+	_, err := buildMySQLMutation("`main`.`users`", columns, []string{"id"}, dbadapter.RowMutation{
+		Action: "update",
+		Values: map[string]interface{}{"name": "x"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "identity") {
+		t.Fatalf("expected identity error, got %v", err)
+	}
+}
+
+
+func TestHandlerObjectActionsCountAndReadOnlyGate(t *testing.T) {
+	readOnly := connectFixtureHandler(t, true)
+	payload, protocolErr := readOnly.Handle(context.Background(), adapterRequest(t, "count-1", dbadapter.OpObjectAction, dbadapter.ObjectActionPayload{
+		Catalog: "main", Kind: "table", Name: "users", Action: "count_rows",
+	}))
+	if protocolErr != nil {
+		t.Fatalf("count error=%+v", protocolErr)
+	}
+	result, ok := payload.(dbadapter.ObjectActionResult)
+	if !ok || result.Count == nil || *result.Count != 2 {
+		t.Fatalf("count result=%#v", payload)
+	}
+	_, protocolErr = readOnly.Handle(context.Background(), adapterRequest(t, "truncate-ro", dbadapter.OpObjectAction, dbadapter.ObjectActionPayload{
+		Catalog: "main", Kind: "table", Name: "users", Action: "truncate",
+	}))
+	if protocolErr == nil || protocolErr.Code != "READ_ONLY" {
+		t.Fatalf("truncate protocol error=%+v", protocolErr)
+	}
+}
+
+func TestHandlerObjectActionsAllowWriteProfileDrop(t *testing.T) {
+	handler := connectFixtureHandler(t, false)
+	payload, protocolErr := handler.Handle(context.Background(), adapterRequest(t, "drop-1", dbadapter.OpObjectAction, dbadapter.ObjectActionPayload{
+		Catalog: "main", Kind: "table", Name: "users", Action: "drop",
+	}))
+	if protocolErr != nil {
+		t.Fatalf("drop error=%+v", protocolErr)
+	}
+	result, ok := payload.(dbadapter.ObjectActionResult)
+	if !ok || !strings.Contains(strings.ToLower(result.Message), "dropped") {
+		t.Fatalf("drop result=%#v", payload)
 	}
 }

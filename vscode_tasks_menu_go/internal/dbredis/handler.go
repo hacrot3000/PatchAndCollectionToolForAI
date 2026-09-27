@@ -82,6 +82,48 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 			return nil, redisProtocolError("INVALID_PAYLOAD", err)
 		}
 		return h.describeObject(ctx, payload)
+	case dbadapter.OpBrowseRows:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		var payload dbadapter.BrowseRowsPayload
+		if err := decodeRedisPayload(request.Payload, &payload); err != nil {
+			return nil, redisProtocolError("INVALID_PAYLOAD", err)
+		}
+		normalized, err := dbadapter.NormalizeBrowseRowsPayload(payload)
+		if err != nil {
+			return nil, redisProtocolError("INVALID_BROWSE", err)
+		}
+		return h.browseKey(ctx, normalized)
+	case dbadapter.OpMutateRows:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		if h.config.ReadOnly {
+			return nil, &dbadapter.ProtocolError{Code: "READ_ONLY", Message: "Redis connection is read-only"}
+		}
+		var payload dbadapter.MutateRowsPayload
+		if err := decodeRedisPayload(request.Payload, &payload); err != nil {
+			return nil, redisProtocolError("INVALID_PAYLOAD", err)
+		}
+		normalized, err := dbadapter.NormalizeMutateRowsPayload(payload)
+		if err != nil {
+			return nil, redisProtocolError("INVALID_MUTATION", err)
+		}
+		return h.mutateKey(ctx, normalized)
+	case dbadapter.OpObjectAction:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		var payload dbadapter.ObjectActionPayload
+		if err := decodeRedisPayload(request.Payload, &payload); err != nil {
+			return nil, redisProtocolError("INVALID_PAYLOAD", err)
+		}
+		normalized, err := dbadapter.NormalizeObjectActionPayload(payload)
+		if err != nil {
+			return nil, redisProtocolError("INVALID_OBJECT_ACTION", err)
+		}
+		return h.redisObjectAction(ctx, normalized)
 	case dbadapter.OpExecute:
 		if protocolErr := h.requireConnected(); protocolErr != nil {
 			return nil, protocolErr

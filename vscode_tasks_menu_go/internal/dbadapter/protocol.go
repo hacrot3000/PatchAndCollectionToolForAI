@@ -29,6 +29,9 @@ const (
 	OpListCatalogs   Operation = "list_catalogs"
 	OpListObjects    Operation = "list_objects"
 	OpDescribeObject Operation = "describe_object"
+	OpBrowseRows     Operation = "browse_rows"
+	OpMutateRows     Operation = "mutate_rows"
+	OpObjectAction   Operation = "object_action"
 	OpExecute        Operation = "execute"
 	OpCancel         Operation = "cancel"
 	OpBegin          Operation = "begin"
@@ -208,6 +211,24 @@ func ValidateResponsePayload(env Envelope) error {
 			return fmt.Errorf("decode database execute result: %w", err)
 		}
 		return ValidateExecuteResult(result)
+	case OpBrowseRows:
+		var result BrowseRowsResult
+		if err := json.Unmarshal(env.Payload, &result); err != nil {
+			return fmt.Errorf("decode database browse rows result: %w", err)
+		}
+		return ValidateBrowseRowsResult(result)
+	case OpMutateRows:
+		var result MutateRowsResult
+		if err := json.Unmarshal(env.Payload, &result); err != nil {
+			return fmt.Errorf("decode database mutate rows result: %w", err)
+		}
+		return ValidateMutateRowsResult(result)
+	case OpObjectAction:
+		var result ObjectActionResult
+		if err := json.Unmarshal(env.Payload, &result); err != nil {
+			return fmt.Errorf("decode database object action result: %w", err)
+		}
+		return ValidateObjectActionResult(result)
 	default:
 		return nil
 	}
@@ -250,7 +271,8 @@ func ValidateExecuteResult(result ExecuteResult) error {
 func KnownOperation(operation Operation) bool {
 	switch operation {
 	case OpHello, OpCapabilities, OpConnect, OpDisconnect, OpPing,
-		OpListCatalogs, OpListObjects, OpDescribeObject, OpExecute, OpCancel,
+		OpListCatalogs, OpListObjects, OpDescribeObject, OpBrowseRows, OpMutateRows,
+		OpObjectAction, OpExecute, OpCancel,
 		OpBegin, OpCommit, OpRollback:
 		return true
 	default:

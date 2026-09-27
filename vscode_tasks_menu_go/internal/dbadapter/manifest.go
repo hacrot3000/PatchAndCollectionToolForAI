@@ -11,6 +11,9 @@ type CapabilitySet struct {
 	ListCatalogs   bool `json:"list_catalogs"`
 	ListObjects    bool `json:"list_objects"`
 	DescribeObject bool `json:"describe_object"`
+	BrowseRows     bool `json:"browse_rows"`
+	MutateRows     bool `json:"mutate_rows"`
+	ObjectActions  bool `json:"object_actions"`
 	Execute        bool `json:"execute"`
 	Cancel         bool `json:"cancel"`
 	Transactions   bool `json:"transactions"`
@@ -73,6 +76,12 @@ func (c CapabilitySet) Supports(operation Operation) bool {
 		return c.ListObjects
 	case OpDescribeObject:
 		return c.DescribeObject
+	case OpBrowseRows:
+		return c.BrowseRows
+	case OpMutateRows:
+		return c.MutateRows
+	case OpObjectAction:
+		return c.ObjectActions
 	case OpExecute:
 		return c.Execute
 	case OpCancel:

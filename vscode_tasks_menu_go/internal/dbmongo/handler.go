@@ -68,6 +68,119 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 			return nil, mongoProtocolError("INVALID_PAYLOAD", err)
 		}
 		return h.describeObject(ctx, payload)
+	case dbadapter.OpBrowseRows:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		var payload dbadapter.BrowseRowsPayload
+		if err := decodeMongoPayload(request.Payload, &payload); err != nil {
+			return nil, mongoProtocolError("INVALID_PAYLOAD", err)
+		}
+		normalized, err := dbadapter.NormalizeBrowseRowsPayload(payload)
+		if err != nil {
+			return nil, mongoProtocolError("INVALID_BROWSE", err)
+		}
+		database := firstNonEmpty(normalized.Catalog, normalized.Schema, h.config.Database)
+		if database == "" {
+			return nil, &dbadapter.ProtocolError{Code: "DATABASE_REQUIRED", Message: "MongoDB database is required"}
+		}
+		if err := validateDatabaseName(database, true); err != nil {
+			return nil, mongoProtocolError("INVALID_DATABASE", err)
+		}
+		body, err := mongoBrowseRowsOperationBody(database, normalized)
+		if err != nil {
+			return nil, mongoProtocolError("INVALID_BROWSE", err)
+		}
+		var raw struct {
+			Documents []interface{} `json:"documents"`
+			HasMore   bool          `json:"has_more"`
+		}
+		if err := h.run(ctx, body, &raw); err != nil {
+			return nil, mongoProtocolError("BROWSE_FAILED", err)
+		}
+		result, err := mongoDocumentsToBrowseResult(raw.Documents, normalized, h.config.ReadOnly)
+		if err != nil {
+			return nil, mongoProtocolError("BROWSE_RESULT_FAILED", err)
+		}
+		result.HasMore = raw.HasMore
+		if err := dbadapter.ValidateBrowseRowsResult(result); err != nil {
+			return nil, mongoProtocolError("BROWSE_RESULT_FAILED", err)
+		}
+		return result, nil
+	case dbadapter.OpMutateRows:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		if h.config.ReadOnly {
+			return nil, &dbadapter.ProtocolError{Code: "READ_ONLY", Message: "MongoDB connection is read-only"}
+		}
+		var payload dbadapter.MutateRowsPayload
+		if err := decodeMongoPayload(request.Payload, &payload); err != nil {
+			return nil, mongoProtocolError("INVALID_PAYLOAD", err)
+		}
+		normalized, err := dbadapter.NormalizeMutateRowsPayload(payload)
+		if err != nil {
+			return nil, mongoProtocolError("INVALID_MUTATION", err)
+		}
+		database := firstNonEmpty(normalized.Catalog, normalized.Schema, h.config.Database)
+		if database == "" {
+			return nil, &dbadapter.ProtocolError{Code: "DATABASE_REQUIRED", Message: "MongoDB database is required"}
+		}
+		if err := validateDatabaseName(database, true); err != nil {
+			return nil, mongoProtocolError("INVALID_DATABASE", err)
+		}
+		if strings.EqualFold(normalized.Kind, "view") {
+			return nil, &dbadapter.ProtocolError{Code: "READ_ONLY_OBJECT", Message: "MongoDB views are not editable"}
+		}
+		body, err := mongoMutateRowsOperationBody(database, normalized)
+		if err != nil {
+			return nil, mongoProtocolError("INVALID_MUTATION", err)
+		}
+		var result dbadapter.MutateRowsResult
+		if err := h.run(ctx, body, &result); err != nil {
+			return nil, mongoProtocolError("MUTATION_FAILED", err)
+		}
+		if err := dbadapter.ValidateMutateRowsResult(result); err != nil {
+			return nil, mongoProtocolError("MUTATION_RESULT_FAILED", err)
+		}
+		return result, nil
+	case dbadapter.OpObjectAction:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		var payload dbadapter.ObjectActionPayload
+		if err := decodeMongoPayload(request.Payload, &payload); err != nil {
+			return nil, mongoProtocolError("INVALID_PAYLOAD", err)
+		}
+		normalized, err := dbadapter.NormalizeObjectActionPayload(payload)
+		if err != nil {
+			return nil, mongoProtocolError("INVALID_OBJECT_ACTION", err)
+		}
+		database := firstNonEmpty(normalized.Catalog, normalized.Schema, h.config.Database)
+		if database == "" {
+			return nil, &dbadapter.ProtocolError{Code: "DATABASE_REQUIRED", Message: "MongoDB database is required"}
+		}
+		if err := validateDatabaseName(database, true); err != nil {
+			return nil, mongoProtocolError("INVALID_DATABASE", err)
+		}
+		if h.config.ReadOnly && normalized.Action != "count_rows" {
+			return nil, &dbadapter.ProtocolError{Code: "READ_ONLY", Message: "MongoDB connection is read-only"}
+		}
+		if strings.EqualFold(normalized.Kind, "view") && normalized.Action == "truncate" {
+			return nil, &dbadapter.ProtocolError{Code: "OBJECT_TYPE_UNSUPPORTED", Message: "MongoDB views cannot be cleared"}
+		}
+		body, err := mongoObjectActionOperationBody(database, normalized)
+		if err != nil {
+			return nil, mongoProtocolError("INVALID_OBJECT_ACTION", err)
+		}
+		var result dbadapter.ObjectActionResult
+		if err := h.run(ctx, body, &result); err != nil {
+			return nil, mongoProtocolError("OBJECT_ACTION_FAILED", err)
+		}
+		if err := dbadapter.ValidateObjectActionResult(result); err != nil {
+			return nil, mongoProtocolError("OBJECT_ACTION_RESULT_FAILED", err)
+		}
+		return result, nil
 	case dbadapter.OpExecute:
 		if protocolErr := h.requireConnected(); protocolErr != nil {
 			return nil, protocolErr

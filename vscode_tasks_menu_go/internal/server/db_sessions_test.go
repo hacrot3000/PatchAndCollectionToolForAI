@@ -54,6 +54,16 @@ func (h *serverDBTestHandler) Handle(_ context.Context, request dbadapter.Envelo
 			Columns: []dbadapter.Column{{Name: "value", Type: "integer"}},
 			Rows:    [][]interface{}{{1}},
 		}, nil
+	case dbadapter.OpBrowseRows:
+		var payload dbadapter.BrowseRowsPayload
+		if err := json.Unmarshal(request.Payload, &payload); err != nil {
+			return nil, &dbadapter.ProtocolError{Code: "INVALID_BROWSE", Message: err.Error()}
+		}
+		return dbadapter.BrowseRowsResult{
+			Columns: []dbadapter.BrowseColumn{{Name: "id", Type: "integer", Identity: true}},
+			Rows: []dbadapter.BrowseRow{{Values: []interface{}{1}, Identity: map[string]interface{}{"id": 1}}},
+			Offset: payload.Offset, Limit: payload.Limit, Editable: false, EditabilityReason: "fixture",
+		}, nil
 	default:
 		return nil, &dbadapter.ProtocolError{Code: "UNSUPPORTED", Message: "fixture operation unsupported"}
 	}
@@ -68,9 +78,10 @@ func serverDBTestManifest() dbadapter.Manifest {
 		Command:         os.Args[0],
 		Args:            []string{"-test.run=TestServerDBAdapterHelperProcess"},
 		Capabilities: dbadapter.CapabilitySet{
-			Connect: true,
-			Ping:    true,
-			Execute: true,
+			Connect:    true,
+			Ping:       true,
+			BrowseRows: true,
+			Execute:    true,
 		},
 	}
 }
@@ -189,6 +200,46 @@ func TestBrowserDatabaseOperationsAreStrictlyAllowlisted(t *testing.T) {
 	}
 	if execute.MaxRows != dbadapter.MaxRows {
 		t.Fatalf("max rows=%d want %d", execute.MaxRows, dbadapter.MaxRows)
+	}
+}
+
+
+func TestBrowserDatabaseWorkbenchOperationsAreNormalized(t *testing.T) {
+	browseRaw := json.RawMessage(`{"catalog":" main ","name":" users ","limit":25,"sort":[{"column":" id ","direction":"DESC"}]}`)
+	browsePayload, err := normalizeBrowserDBOperation(dbadapter.OpBrowseRows, browseRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	browse, ok := browsePayload.(dbadapter.BrowseRowsPayload)
+	if !ok || browse.Catalog != "main" || browse.Name != "users" || browse.Limit != 25 || browse.Sort[0].Direction != "desc" {
+		t.Fatalf("browse payload=%#v", browsePayload)
+	}
+
+	mutateRaw := json.RawMessage(`{"catalog":"main","name":"users","mutations":[{"action":"update","identity":{"id":1},"values":{"name":"changed"}}]}`)
+	mutatePayload, err := normalizeBrowserDBOperation(dbadapter.OpMutateRows, mutateRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutate, ok := mutatePayload.(dbadapter.MutateRowsPayload)
+	if !ok || len(mutate.Mutations) != 1 || mutate.Mutations[0].Action != "update" {
+		t.Fatalf("mutate payload=%#v", mutatePayload)
+	}
+
+	actionRaw := json.RawMessage(`{"catalog":"main","kind":"table","name":"users","action":"count_rows"}`)
+	actionPayload, err := normalizeBrowserDBOperation(dbadapter.OpObjectAction, actionRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action, ok := actionPayload.(dbadapter.ObjectActionPayload)
+	if !ok || action.Action != "count_rows" || action.Name != "users" {
+		t.Fatalf("object action payload=%#v", actionPayload)
+	}
+
+	if _, err := normalizeBrowserDBOperation(dbadapter.OpBrowseRows, json.RawMessage(`{"name":"users","limit":1001}`)); err == nil {
+		t.Fatal("oversized browser row page unexpectedly accepted")
+	}
+	if _, err := normalizeBrowserDBOperation(dbadapter.OpMutateRows, json.RawMessage(`{"name":"users","mutations":[{"action":"delete"}]}`)); err == nil {
+		t.Fatal("identity-free browser delete unexpectedly accepted")
 	}
 }
 
@@ -318,6 +369,23 @@ func TestDatabaseSessionAPIOpensAndCleansSSHTunnel(t *testing.T) {
 	}
 	if len(tunnelManager.List()) != 1 {
 		t.Fatalf("tunnels after open=%+v", tunnelManager.List())
+	}
+
+	browseReq := httptest.NewRequest(http.MethodPost, "/api/db/sessions/"+meta.ID+"/request", strings.NewReader(`{
+		"operation":"browse_rows",
+		"payload":{"catalog":"main","kind":"table","name":"users","limit":25}
+	}`))
+	browseReq.Header.Set("Content-Type", "application/json")
+	browseRR := httptest.NewRecorder()
+	s.Handler().ServeHTTP(browseRR, browseReq)
+	if browseRR.Code != http.StatusOK {
+		t.Fatalf("tunneled browse status=%d body=%s", browseRR.Code, browseRR.Body.String())
+	}
+	if !strings.Contains(browseRR.Body.String(), `"operation":"browse_rows"`) || !strings.Contains(browseRR.Body.String(), `"rows"`) {
+		t.Fatalf("tunneled browse response=%s", browseRR.Body.String())
+	}
+	if len(tunnelManager.List()) != 1 {
+		t.Fatalf("workbench request unexpectedly closed tunnel: %+v", tunnelManager.List())
 	}
 
 	closeReq := httptest.NewRequest(http.MethodDelete, "/api/db/sessions/"+meta.ID, nil)

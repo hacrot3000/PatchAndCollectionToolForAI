@@ -233,6 +233,24 @@ func normalizeBrowserDBOperation(operation dbadapter.Operation, raw json.RawMess
 			return nil, errors.New("database object name is required")
 		}
 		return payload, nil
+	case dbadapter.OpBrowseRows:
+		var payload dbadapter.BrowseRowsPayload
+		if err := decodeDBOperationPayload(raw, &payload); err != nil {
+			return nil, err
+		}
+		return dbadapter.NormalizeBrowseRowsPayload(payload)
+	case dbadapter.OpMutateRows:
+		var payload dbadapter.MutateRowsPayload
+		if err := decodeDBOperationPayload(raw, &payload); err != nil {
+			return nil, err
+		}
+		return dbadapter.NormalizeMutateRowsPayload(payload)
+	case dbadapter.OpObjectAction:
+		var payload dbadapter.ObjectActionPayload
+		if err := decodeDBOperationPayload(raw, &payload); err != nil {
+			return nil, err
+		}
+		return dbadapter.NormalizeObjectActionPayload(payload)
 	case dbadapter.OpExecute:
 		var payload dbadapter.ExecutePayload
 		if err := decodeDBOperationPayload(raw, &payload); err != nil {
