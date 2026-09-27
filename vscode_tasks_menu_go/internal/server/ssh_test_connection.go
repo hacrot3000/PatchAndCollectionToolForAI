@@ -171,5 +171,12 @@ func (s *Server) sshTest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ssh profile id is required", http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.testSSHProfile(req.ProfileID))
+	result := s.testSSHProfile(req.ProfileID)
+	s.auditConnection(r, ConnectionAuditEvent{
+		Kind:      "ssh_connection",
+		Action:    "test",
+		ProfileID: strings.TrimSpace(req.ProfileID),
+		Success:   result.OK,
+	})
+	writeJSON(w, http.StatusOK, result)
 }
