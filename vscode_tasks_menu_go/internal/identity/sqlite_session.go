@@ -61,7 +61,7 @@ func (d *sqliteDatabase) AuthSessionByTokenHash(ctx context.Context, tokenHash s
 	var (
 		session    AuthSession
 		id         string
-		projectID  string
+		projectID  sql.NullString
 		userID     string
 		createdAt  string
 		expiresAt  string
@@ -91,7 +91,9 @@ WHERE token_hash = ?
 	}
 
 	session.ID = ID(id)
-	session.ProjectID = ID(projectID)
+	if projectID.Valid {
+		session.ProjectID = ID(projectID.String)
+	}
 	session.UserID = ID(userID)
 	if session.CreatedAt, err = parseDBTime(createdAt); err != nil {
 		return AuthSession{}, fmt.Errorf("read auth session created_at: %w", err)
