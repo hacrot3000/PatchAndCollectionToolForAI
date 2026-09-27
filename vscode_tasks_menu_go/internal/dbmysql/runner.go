@@ -83,9 +83,27 @@ func runClient(ctx context.Context, client Client, config Config, statement stri
 			_ = cmd.Process.Kill()
 		}
 	}()
-	waitErr := cmd.Wait()
-	wg.Wait()
+	readersDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(readersDone)
+	}()
 
+	var waitErr error
+	select {
+	case <-ctx.Done():
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		waitErr = cmd.Wait()
+		<-readersDone
+	case <-readersDone:
+		waitErr = cmd.Wait()
+	}
+
+	if ctx.Err() != nil {
+		return commandOutput{}, ctx.Err()
+	}
 	if stdoutErr != nil {
 		if errors.Is(stdoutErr, errClientOutputTooLarge) {
 			return commandOutput{}, fmt.Errorf("MySQL result exceeds %d bytes", maxClientStdoutBytes)
@@ -98,10 +116,6 @@ func runClient(ctx context.Context, client Client, config Config, statement stri
 		}
 		return commandOutput{}, fmt.Errorf("read MySQL diagnostics: %w", stderrErr)
 	}
-	if ctx.Err() != nil {
-		return commandOutput{}, ctx.Err()
-	}
-
 	output := commandOutput{stdout: stdoutData, stderr: stderrData}
 	if waitErr != nil {
 		message := sanitizeClientDiagnostic(stderrData, config.Secret)
