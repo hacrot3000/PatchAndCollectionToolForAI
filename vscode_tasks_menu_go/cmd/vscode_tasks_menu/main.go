@@ -515,7 +515,20 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	if sessionService.NeedsPatchProtocolFallback() {
 		logger.Printf("session broker predates Patch protocol capabilities; preserving broker-owned terminals and using daemon-local Patch protocol sessions")
 	}
-	srv := &server.Server{Workspace: ws, Config: cfg, Log: logger, Sessions: sessionService}
+	dbRuntime, err := newDatabaseRuntime(logger)
+	if err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("initialize database runtime: %w", err)
+	}
+	defer dbRuntime.Close()
+	srv := &server.Server{
+		Workspace: ws,
+		Config: cfg,
+		Log: logger,
+		Sessions: sessionService,
+		DBAdapters: dbRuntime.Registry,
+		DBSessions: dbRuntime.Sessions,
+	}
 	server.RegisterSelfUpdateCheck(srv, checkSelfUpdate)
 	defer server.RegisterSelfUpdateCheck(srv, nil)
 	server.RegisterSelfUpdateStart(srv, func() error { return startAutoSelfUpdate(ws) })
