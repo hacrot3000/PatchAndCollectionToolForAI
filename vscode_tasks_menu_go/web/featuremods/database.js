@@ -15,7 +15,7 @@ style.textContent=`
 .db-pane-title{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .db-pane-meta{font-size:11px;opacity:.55;white-space:nowrap}
 .db-pane-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(210px,280px) minmax(0,1fr)}
-.db-browser{min-width:0;border-right:1px solid #30343b;display:flex;flex-direction:column}
+.db-browser{min-width:0;min-height:0;overflow:hidden;border-right:1px solid #30343b;display:flex;flex-direction:column}
 .db-browser-head{display:flex;gap:5px;padding:7px;border-bottom:1px solid #30343b}
 .db-browser-head select{min-width:0;flex:1}
 .db-browser-objects{flex:1;min-height:0;overflow:auto;padding:5px}
