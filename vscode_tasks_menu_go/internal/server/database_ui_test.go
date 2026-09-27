@@ -268,6 +268,10 @@ func TestDatabaseWorkbenchOpensRedisKeysInTypeAwareViewer(t *testing.T) {
 		"LRANGE '+key+' 0 99",
 		"SMEMBERS '+key",
 		"ZRANGE '+key+' 0 99 WITHSCORES",
+		"Count Entries",
+		"Clear Key",
+		"Delete Key",
+		"isRedisKey||!writable||isView",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("database_workbench.js missing Redis viewer workflow %q", want)
