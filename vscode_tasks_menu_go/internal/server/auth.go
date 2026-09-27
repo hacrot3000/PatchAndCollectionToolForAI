@@ -42,7 +42,14 @@ func authRemoteKey(remote string) string {
 }
 
 func (s *Server) authBlocked(remote string, now time.Time) (bool, time.Duration) {
-	key := authRemoteKey(remote)
+	return s.authBlockedKey(authRemoteKey(remote), now)
+}
+
+func (s *Server) authBlockedKey(key string, now time.Time) (bool, time.Duration) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		key = "unknown"
+	}
 	s.authMu.Lock()
 	defer s.authMu.Unlock()
 	state, ok := s.authFailures[key]
@@ -63,7 +70,14 @@ func (s *Server) authBlocked(remote string, now time.Time) (bool, time.Duration)
 }
 
 func (s *Server) authRecordFailure(remote string, now time.Time) {
-	key := authRemoteKey(remote)
+	s.authRecordFailureKey(authRemoteKey(remote), now)
+}
+
+func (s *Server) authRecordFailureKey(key string, now time.Time) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		key = "unknown"
+	}
 	s.authMu.Lock()
 	defer s.authMu.Unlock()
 	if s.authFailures == nil {
@@ -99,7 +113,14 @@ func (s *Server) authRecordFailure(remote string, now time.Time) {
 }
 
 func (s *Server) authRecordSuccess(remote string) {
-	key := authRemoteKey(remote)
+	s.authRecordSuccessKey(authRemoteKey(remote))
+}
+
+func (s *Server) authRecordSuccessKey(key string) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		key = "unknown"
+	}
 	s.authMu.Lock()
 	defer s.authMu.Unlock()
 	delete(s.authFailures, key)

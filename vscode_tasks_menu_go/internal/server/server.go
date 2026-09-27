@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/config"
+	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 	"bletonfc/vscode_tasks_menu/internal/session"
 	"bletonfc/vscode_tasks_menu/internal/tasks"
@@ -29,19 +30,25 @@ type Server struct {
 	Config    config.Config
 	Log       *log.Logger
 	Sessions  session.Service
+	Identity  identity.Store
+	InternalControlToken string
 
 	projectIndexMu         sync.Mutex
 	projectIndex           *projectFileIndex
 	projectIndexRefreshing bool
 
-	authMu       sync.Mutex
-	authFailures map[string]authFailureState
+	authMu        sync.Mutex
+	authFailures  map[string]authFailureState
+	sharedLoginMu sync.Mutex
+	sharedLogins  int
 
 	browserLeaseMu sync.Mutex
 	browserLease   *browserLease
 
 	terminalStateMu     sync.RWMutex
 	terminalStateFrozen bool
+
+	sharedMutation sharedMutationLock
 }
 
 func (s *Server) FreezeTerminalStatePersistence() {
@@ -61,6 +68,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", s.health)
 	mux.HandleFunc("/api/browser/lease", s.browserLeaseAPI)
+	mux.HandleFunc("/api/mutation-lock", s.sharedMutationStatus)
 	mux.HandleFunc("/api/tasks", s.tasks)
 	mux.HandleFunc("/api/state/tasks", s.taskState)
 	mux.HandleFunc("/api/config/page-title", s.pageTitle)
@@ -76,6 +84,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/project/file", s.projectFile)
 	mux.HandleFunc("/api/project/files/search", s.projectFileSearch)
 	mux.HandleFunc("/api/project/content/search", s.projectContentSearch)
+	mux.HandleFunc("/api/admin/users", s.sharedAdminUsers)
+	mux.HandleFunc("/api/admin/users/access", s.sharedAdminUserAccess)
+	mux.HandleFunc("/api/admin/users/permission", s.sharedAdminUserPermission)
+	mux.HandleFunc("/api/admin/roles", s.sharedAdminRoles)
+	mux.HandleFunc("/api/admin/permissions", s.sharedAdminPermissions)
+	mux.HandleFunc("/api/admin/sessions", s.sharedAdminSessions)
+	mux.HandleFunc("/api/admin/audit", s.sharedAdminAudit)
+	mux.HandleFunc("/admin/access", s.sharedAdminUI)
+	mux.HandleFunc("/admin/access.css", s.sharedAdminUI)
+	mux.HandleFunc("/admin/access.js", s.sharedAdminUI)
 	mux.HandleFunc("/api/sessions/force-kill", s.sessionForceKill)
 	mux.HandleFunc("/api/sessions/clear-console", s.sessionClearConsole)
 	mux.HandleFunc("/api/sessions", s.sessionsRoot)
@@ -85,7 +103,10 @@ func (s *Server) Handler() http.Handler {
 	var handler http.Handler = mux
 	handler = s.requireBrowserLease(handler)
 	handler = s.sameOriginMutations(handler)
-	if s.Config.AuthEnabled {
+	if s.Config.SharedServerEnabled {
+		handler = s.sharedAuthorize(handler)
+		handler = s.sharedAuth(handler)
+	} else if s.Config.AuthEnabled {
 		handler = s.basicAuth(handler)
 	}
 	return securityHeaders(handler, s.Config.TLS())
@@ -106,6 +127,15 @@ func (s *Server) Serve(listener net.Listener) error {
 		_ = listener.Close()
 		return fmt.Errorf("HTTPS certificate/key chưa được resolve trước khi serve")
 	}
+	if s.Config.SharedServerEnabled {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err := s.validateSharedIdentity(ctx)
+		cancel()
+		if err != nil {
+			_ = listener.Close()
+			return err
+		}
+	}
 	httpServer := &http.Server{
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -114,6 +144,10 @@ func (s *Server) Serve(listener net.Listener) error {
 		TLSConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		},
+	}
+	if s.Config.SharedServerEnabled {
+		// Bound slow login bodies while shared mode only exposes auth APIs.
+		httpServer.ReadTimeout = 15 * time.Second
 	}
 	if s.Config.TLS() {
 		return httpServer.ServeTLS(listener, s.Config.TLSCert, s.Config.TLSKey)
@@ -143,9 +177,21 @@ func (s *Server) tasks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
+	if s.Config.SharedServerEnabled && !s.sharedSessionOwnershipReady(w) {
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, map[string]any{"sessions": s.withStoredTitles(s.Sessions.List())})
+		items := s.Sessions.List()
+		if s.Config.SharedServerEnabled {
+			principal, ok := PrincipalFromContext(r.Context())
+			if !ok {
+				sharedAuthError(w, identity.ErrUnauthenticated)
+				return
+			}
+			items = filterSharedSessions(principal, items)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"sessions": s.withStoredTitles(items)})
 	case http.MethodPost:
 		var req struct {
 			Kind      string            `json:"kind"`
@@ -174,11 +220,15 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			if err := configureTerminalGitTextconv(s.Workspace, &spec); err != nil && s.Log != nil {
 				s.Log.Printf("terminal git textconv warning: %v", err)
 			}
+			if !s.prepareSharedSession(w, r, &spec, tasks.SessionKindTerminal) {
+				return
+			}
 			meta, err := s.Sessions.Start(spec)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+			s.auditSharedSessionStart(r, meta, map[string]any{"cwd": strings.TrimSpace(req.Cwd)})
 			writeJSON(w, http.StatusCreated, meta)
 			return
 		case "patch":
@@ -191,11 +241,30 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+			if !s.prepareSharedSession(w, r, &spec, tasks.SessionKindPatch) {
+				return
+			}
+			var mutationLease sharedMutationLease
+			if sharedPatchMutationRequired(req.PatchMode) {
+				var ok bool
+				mutationLease, ok = s.acquireSharedMutation(w, r, "patch.run", "")
+				if !ok {
+					return
+				}
+			}
 			meta, err := s.Sessions.Start(spec)
 			if err != nil {
+				s.releaseSharedMutation(mutationLease)
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+			if mutationLease.token != "" && !s.sharedMutation.bindResource(mutationLease.token, meta.ID) {
+				_ = s.Sessions.Stop(meta.ID)
+				s.releaseSharedMutation(mutationLease)
+				http.Error(w, "workspace mutation lock lost while starting Patch session", http.StatusServiceUnavailable)
+				return
+			}
+			s.auditSharedSessionStart(r, meta, map[string]any{"patch_mode": strings.TrimSpace(req.PatchMode)})
 			writeJSON(w, http.StatusCreated, meta)
 			return
 		case "", "task":
@@ -230,11 +299,15 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if !s.prepareSharedSession(w, r, &spec, tasks.SessionKindTask) {
+			return
+		}
 		meta, err := s.Sessions.Start(spec)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditSharedSessionStart(r, meta, map[string]any{"task_id": req.TaskID})
 		writeJSON(w, http.StatusCreated, meta)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -387,11 +460,11 @@ func patchCollectExecution(workspace, requestName string) (tasks.Execution, erro
 	spec.ProtocolEvents = true
 	spec.ProtocolCommands = false
 	if err := tasks.ApplyEnvironmentOverrides(&spec, map[string]string{
-		"TASKDECK_PATCH_DIRECT_COLLECT":          "1",
-		"TASKDECK_PATCH_PROGRESS_INDEX":          "1",
-		"TASKDECK_PATCH_PROGRESS_TOTAL":          "1",
-		"TASKDECK_PATCH_PROGRESS_ITEM_NAME":      requestName,
-		"TASKDECK_PATCH_PROGRESS_ITEM_KIND":      "COLLECT",
+		"TASKDECK_PATCH_DIRECT_COLLECT":     "1",
+		"TASKDECK_PATCH_PROGRESS_INDEX":     "1",
+		"TASKDECK_PATCH_PROGRESS_TOTAL":     "1",
+		"TASKDECK_PATCH_PROGRESS_ITEM_NAME": requestName,
+		"TASKDECK_PATCH_PROGRESS_ITEM_KIND": "COLLECT",
 	}); err != nil {
 		return tasks.Execution{}, err
 	}
@@ -480,11 +553,11 @@ func buildPatchPromptResponseCommand(state session.ProtocolState, req patchPromp
 		return nil, fmt.Errorf("Patch session has no active prompt")
 	}
 	var prompt struct {
-		Protocol   string `json:"protocol"`
-		Version    int    `json:"version"`
-		Type       string `json:"type"`
-		PromptID   string `json:"prompt_id"`
-		PromptKind string `json:"prompt_kind"`
+		Protocol   string   `json:"protocol"`
+		Version    int      `json:"version"`
+		Type       string   `json:"type"`
+		PromptID   string   `json:"prompt_id"`
+		PromptKind string   `json:"prompt_kind"`
 		Actions    []string `json:"actions"`
 		Items      []struct {
 			Index int    `json:"index"`
@@ -492,10 +565,10 @@ func buildPatchPromptResponseCommand(state session.ProtocolState, req patchPromp
 		} `json:"items"`
 		Constraints struct {
 			PatchPriority *struct {
-				Min               int    `json:"min"`
-				Max               int    `json:"max"`
+				Min                int    `json:"min"`
+				Max                int    `json:"max"`
 				UnprioritizedOrder int    `json:"unprioritized_order"`
-				ResponseField     string `json:"response_field"`
+				ResponseField      string `json:"response_field"`
 			} `json:"patch_priority"`
 		} `json:"constraints"`
 	}
@@ -582,11 +655,11 @@ func buildPatchPromptResponseCommand(state session.ProtocolState, req patchPromp
 	}
 	return json.Marshal(map[string]any{
 		"protocol": "taskdeck.patch",
-		"version": 1,
-		"type": "command",
-		"seq": seq,
-		"command": "prompt_response",
-		"payload": payload,
+		"version":  1,
+		"type":     "command",
+		"seq":      seq,
+		"command":  "prompt_response",
+		"payload":  payload,
 	})
 }
 
@@ -636,7 +709,10 @@ func buildPatchItemActionCommand(state session.ProtocolState, req patchItemActio
 	action := strings.ToLower(strings.TrimSpace(req.Action))
 	allowed := false
 	for _, value := range prompt.ItemActions {
-		if action == strings.ToLower(strings.TrimSpace(value)) { allowed = true; break }
+		if action == strings.ToLower(strings.TrimSpace(value)) {
+			allowed = true
+			break
+		}
 	}
 	if !allowed {
 		return nil, "", fmt.Errorf("unsupported Patch item action %q", action)
@@ -646,7 +722,10 @@ func buildPatchItemActionCommand(state session.ProtocolState, req patchItemActio
 	}
 	selectedKind := ""
 	for _, item := range prompt.Items {
-		if item.Index == req.Index { selectedKind = strings.ToUpper(strings.TrimSpace(item.Kind)); break }
+		if item.Index == req.Index {
+			selectedKind = strings.ToUpper(strings.TrimSpace(item.Kind))
+			break
+		}
 	}
 	if selectedKind == "" {
 		return nil, "", fmt.Errorf("Patch item action index out of range: %d", req.Index)
@@ -655,14 +734,20 @@ func buildPatchItemActionCommand(state session.ProtocolState, req patchItemActio
 		return nil, "", fmt.Errorf("native inspect/preview/validate applies only to PATCH items")
 	}
 	actionID, err := newPatchItemActionID()
-	if err != nil { return nil, "", err }
+	if err != nil {
+		return nil, "", err
+	}
 	seq := time.Now().UnixNano()
-	if seq < 1 { seq = 1 }
+	if seq < 1 {
+		seq = 1
+	}
 	command, err := json.Marshal(map[string]any{
 		"protocol": "taskdeck.patch", "version": 1, "type": "command", "seq": seq, "command": "item_action",
 		"payload": map[string]any{"prompt_id": req.PromptID, "action_id": actionID, "action": action, "index": req.Index},
 	})
-	if err != nil { return nil, "", err }
+	if err != nil {
+		return nil, "", err
+	}
 	return command, actionID, nil
 }
 
@@ -742,14 +827,14 @@ func buildPatchQueueDeleteCommand(state session.ProtocolState, req patchQueueDel
 	}
 	command, err := json.Marshal(map[string]any{
 		"protocol": "taskdeck.patch",
-		"version": 1,
-		"type": "command",
-		"seq": seq,
-		"command": "queue_delete",
+		"version":  1,
+		"type":     "command",
+		"seq":      seq,
+		"command":  "queue_delete",
 		"payload": map[string]any{
-			"prompt_id": req.PromptID,
+			"prompt_id":   req.PromptID,
 			"mutation_id": mutationID,
-			"index": req.Index,
+			"index":       req.Index,
 		},
 	})
 	if err != nil {
@@ -759,9 +844,9 @@ func buildPatchQueueDeleteCommand(state session.ProtocolState, req patchQueueDel
 }
 
 type patchResumeActionRequest struct {
-	PromptID     string `json:"prompt_id"`
-	Action       string `json:"action"`
-	FailedIndexes []int `json:"failed_indexes,omitempty"`
+	PromptID      string `json:"prompt_id"`
+	Action        string `json:"action"`
+	FailedIndexes []int  `json:"failed_indexes,omitempty"`
 }
 
 func buildPatchResumeActionCommand(state session.ProtocolState, req patchResumeActionRequest) ([]byte, error) {
@@ -772,12 +857,12 @@ func buildPatchResumeActionCommand(state session.ProtocolState, req patchResumeA
 		return nil, fmt.Errorf("Patch session has no active prompt")
 	}
 	var prompt struct {
-		Protocol   string   `json:"protocol"`
-		Version    int      `json:"version"`
-		Type       string   `json:"type"`
-		PromptID   string   `json:"prompt_id"`
-		PromptKind string   `json:"prompt_kind"`
-		Actions    []string `json:"actions"`
+		Protocol    string   `json:"protocol"`
+		Version     int      `json:"version"`
+		Type        string   `json:"type"`
+		PromptID    string   `json:"prompt_id"`
+		PromptKind  string   `json:"prompt_kind"`
+		Actions     []string `json:"actions"`
 		FailedItems []struct {
 			Index      int  `json:"index"`
 			CanRetry   bool `json:"can_retry"`
@@ -862,11 +947,11 @@ func buildPatchResumeActionCommand(state session.ProtocolState, req patchResumeA
 	}
 	return json.Marshal(map[string]any{
 		"protocol": "taskdeck.patch",
-		"version": 1,
-		"type": "command",
-		"seq": seq,
-		"command": "resume_action",
-		"payload": payload,
+		"version":  1,
+		"type":     "command",
+		"seq":      seq,
+		"command":  "resume_action",
+		"payload":  payload,
 	})
 }
 
@@ -928,7 +1013,9 @@ func buildPatchHistoryDetailCommand(state session.ProtocolState, req patchHistor
 		return nil, fmt.Errorf("Patch History run_id is not available in the active prompt")
 	}
 	seq := time.Now().UnixNano()
-	if seq < 1 { seq = 1 }
+	if seq < 1 {
+		seq = 1
+	}
 	return json.Marshal(map[string]any{
 		"protocol": "taskdeck.patch", "version": 1, "type": "command", "seq": seq,
 		"command": "history_detail",
@@ -1031,10 +1118,10 @@ func buildPatchHistoryManageCommand(state session.ProtocolState, req patchHistor
 		"protocol": "taskdeck.patch", "version": 1, "type": "command", "seq": seq,
 		"command": "history_manage",
 		"payload": map[string]any{
-			"prompt_id": req.PromptID,
+			"prompt_id":     req.PromptID,
 			"management_id": managementID,
-			"action": action,
-			"run_id": req.RunID,
+			"action":        action,
+			"run_id":        req.RunID,
 		},
 	})
 	if err != nil {
@@ -1066,15 +1153,15 @@ func buildPatchHistoryCleanupCommand(state session.ProtocolState, req patchHisto
 		return nil, "", fmt.Errorf("Patch session has no active prompt")
 	}
 	var prompt struct {
-		Protocol   string   `json:"protocol"`
-		Version    int      `json:"version"`
-		Type       string   `json:"type"`
-		PromptID   string   `json:"prompt_id"`
-		PromptKind string   `json:"prompt_kind"`
-		Actions    []string `json:"actions"`
+		Protocol    string   `json:"protocol"`
+		Version     int      `json:"version"`
+		Type        string   `json:"type"`
+		PromptID    string   `json:"prompt_id"`
+		PromptKind  string   `json:"prompt_kind"`
+		Actions     []string `json:"actions"`
 		Constraints struct {
 			DestructiveActions []string `json:"destructive_actions"`
-			Cleanup struct {
+			Cleanup            struct {
 				AgePolicy string `json:"age_policy"`
 				MinDays   int    `json:"min_days"`
 				MaxDays   int    `json:"max_days"`
@@ -1120,8 +1207,8 @@ func buildPatchHistoryCleanupCommand(state session.ProtocolState, req patchHisto
 	}
 
 	payload := map[string]any{
-		"prompt_id": req.PromptID,
-		"confirmed": req.Confirmed,
+		"prompt_id":       req.PromptID,
+		"confirmed":       req.Confirmed,
 		"older_than_days": req.OlderThanDays,
 	}
 	if req.Confirmed {
@@ -1288,9 +1375,9 @@ func buildPatchHistorySupportCommand(state session.ProtocolState, req patchHisto
 		"protocol": "taskdeck.patch", "version": 1, "type": "command", "seq": seq,
 		"command": "history_support",
 		"payload": map[string]any{
-			"prompt_id": req.PromptID,
+			"prompt_id":  req.PromptID,
 			"support_id": supportID,
-			"run_id": req.RunID,
+			"run_id":     req.RunID,
 			"item_index": req.ItemIndex,
 		},
 	})
@@ -1330,6 +1417,17 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := parts[0]
+	if len(parts) > 2 {
+		http.NotFound(w, r)
+		return
+	}
+	action := ""
+	if len(parts) == 2 {
+		action = parts[1]
+	}
+	if !s.authorizeSharedSessionItem(w, r, id, action) {
+		return
+	}
 	if len(parts) == 1 {
 		switch r.Method {
 		case http.MethodGet:
@@ -1344,6 +1442,8 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusConflict)
 				return
 			}
+			s.releaseSharedMutationForSession(id)
+			s.auditSharedSuccess(r, "session.delete", "session", id, nil)
 			if err := removeStoredSessionTitle(s.Workspace, id); err != nil && s.Log != nil {
 				s.Log.Printf("session title cleanup warning: %v", err)
 			}
@@ -1368,6 +1468,8 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		meta, _ := s.Sessions.Metadata(id)
+		s.releaseSharedMutationForSession(id)
+		s.auditSharedSuccess(r, "session.stop", "session", id, map[string]any{"kind": meta.Kind})
 		writeJSON(w, http.StatusOK, s.withStoredTitle(meta))
 	case "title":
 		if r.Method != http.MethodPost {
@@ -1408,6 +1510,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		meta.Title = title
+		s.auditSharedSuccess(r, "session.title", "session", id, map[string]any{"kind": meta.Kind})
 		writeJSON(w, http.StatusOK, meta)
 	case "prompt-response":
 		if r.Method != http.MethodPost {
@@ -1449,6 +1552,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		s.auditSharedSuccess(r, "patch.prompt_response", "session", id, nil)
 		writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
 	case "parallel-collect":
 		if r.Method != http.MethodPost {
@@ -1487,11 +1591,15 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			spec tasks.Execution
 		}
 		plans := make([]collectPlan, 0, len(items))
+		principal, _ := PrincipalFromContext(r.Context())
 		for _, item := range items {
 			spec, err := patchCollectExecution(s.Workspace, item.Name)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
+			}
+			if s.Config.SharedServerEnabled {
+				stampSharedSession(principal, &spec, tasks.SessionKindPatch)
 			}
 			plans = append(plans, collectPlan{item: item, spec: spec})
 		}
@@ -1512,8 +1620,10 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			metaCopy := meta
+			s.auditSharedSessionStart(r, metaCopy, map[string]any{"parent_session_id": id, "parallel_collect": true})
 			results = append(results, patchParallelCollectLaunch{Index: plan.item.Index, Name: plan.item.Name, Session: &metaCopy})
 		}
+		s.auditSharedSuccess(r, "patch.parallel_collect", "session", id, map[string]any{"run_count": len(results)})
 		writeJSON(w, http.StatusCreated, map[string]any{"accepted": true, "runs": results})
 	case "item-action":
 		if r.Method != http.MethodPost {
@@ -1551,6 +1661,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		s.auditSharedSuccess(r, "patch.item_action", "session", id, map[string]any{"action_id": actionID})
 		writeJSON(w, http.StatusOK, map[string]any{"accepted": true, "action_id": actionID})
 	case "queue-delete":
 		if r.Method != http.MethodPost {
@@ -1588,6 +1699,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		s.auditSharedSuccess(r, "patch.queue_delete", "session", id, map[string]any{"mutation_id": mutationID})
 		writeJSON(w, http.StatusOK, map[string]any{"accepted": true, "mutation_id": mutationID})
 	case "resume-action":
 		if r.Method != http.MethodPost {
@@ -1625,6 +1737,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		s.auditSharedSuccess(r, "patch.resume_action", "session", id, nil)
 		writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
 	case "history-cleanup":
 		if r.Method != http.MethodPost {
@@ -1662,6 +1775,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		s.auditSharedSuccess(r, "patch.history_cleanup", "session", id, map[string]any{"cleanup_id": cleanupID})
 		writeJSON(w, http.StatusOK, map[string]any{"accepted": true, "cleanup_id": cleanupID})
 	case "history-support":
 		if r.Method != http.MethodPost {
@@ -1699,6 +1813,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		s.auditSharedSuccess(r, "patch.history_support", "session", id, map[string]any{"support_id": supportID})
 		writeJSON(w, http.StatusOK, map[string]any{"accepted": true, "support_id": supportID})
 	case "history-manage":
 		if r.Method != http.MethodPost {
@@ -1736,6 +1851,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		s.auditSharedSuccess(r, "patch.history_manage", "session", id, map[string]any{"management_id": managementID})
 		writeJSON(w, http.StatusOK, map[string]any{"accepted": true, "management_id": managementID})
 	case "history-detail":
 		if r.Method != http.MethodPost {
@@ -1820,6 +1936,10 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) sessionWebSocket(w http.ResponseWriter, r *http.Request, id string) {
+	if s.Config.SharedServerEnabled {
+		s.sharedSessionWebSocket(w, r, id)
+		return
+	}
 	leaseToken := strings.TrimSpace(r.URL.Query().Get("lease"))
 	revoked, ok := s.browserLeaseState().watch(leaseToken)
 	if !ok {
@@ -1865,6 +1985,73 @@ func (s *Server) sessionWebSocket(w http.ResponseWriter, r *http.Request, id str
 			_ = conn.Close(websocket.StatusPolicyViolation, "browser control lease revoked")
 			return
 		case <-readDone:
+			return
+		case data, ok := <-stream:
+			if !ok {
+				return
+			}
+			if err := conn.Write(ctx, websocket.MessageBinary, data); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func (s *Server) sharedSessionWebSocket(w http.ResponseWriter, r *http.Request, id string) {
+	principal, ok := PrincipalFromContext(r.Context())
+	if !ok {
+		sharedAuthError(w, identity.ErrUnauthenticated)
+		return
+	}
+	meta, ok := s.Sessions.Metadata(id)
+	if !ok || !sharedSessionVisible(principal, meta) {
+		writePermissionDenied(w)
+		return
+	}
+	canControl := sharedSessionControlAllowed(principal, meta)
+	backlog, stream, unsubscribe, err := s.Sessions.Subscribe(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	defer unsubscribe()
+	conn, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return
+	}
+	conn.SetReadLimit(32 << 10)
+	defer conn.Close(websocket.StatusNormalClosure, "session closed")
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	if len(backlog) > 0 {
+		if err := conn.Write(ctx, websocket.MessageBinary, backlog); err != nil {
+			return
+		}
+	}
+	readDone := make(chan bool, 1)
+	go func() {
+		for {
+			_, data, err := conn.Read(ctx)
+			if err != nil {
+				readDone <- false
+				return
+			}
+			if !canControl {
+				readDone <- true
+				return
+			}
+			if err := s.Sessions.Input(id, data); err != nil {
+				readDone <- false
+				return
+			}
+		}
+	}()
+	for {
+		select {
+		case controlDenied := <-readDone:
+			if controlDenied {
+				_ = conn.Close(websocket.StatusPolicyViolation, "session is read-only")
+			}
 			return
 		case data, ok := <-stream:
 			if !ok {

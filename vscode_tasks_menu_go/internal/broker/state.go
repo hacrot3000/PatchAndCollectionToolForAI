@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	stateFileName = "session-broker.json"
+	stateFileName  = "session-broker.json"
 	socketFileName = "session-broker.sock"
-	lockFileName = "session-broker.lock"
+	lockFileName   = "session-broker.lock"
 )
 
 func StatePath(workspace string) string {
@@ -40,7 +40,7 @@ func LockPath(workspace string) string {
 }
 
 func NewInfo(workspace string) Info {
-	capabilities := []string{CapabilitySessionTitle}
+	capabilities := []string{CapabilitySessionTitle, CapabilitySessionOwnership}
 	if runtime.GOOS != "windows" {
 		capabilities = append(capabilities, CapabilityPatchProtocolEvents, CapabilityPatchProtocolCommands)
 	}

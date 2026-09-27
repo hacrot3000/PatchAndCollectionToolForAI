@@ -23,6 +23,7 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/broker"
 	"bletonfc/vscode_tasks_menu/internal/config"
 	"bletonfc/vscode_tasks_menu/internal/gittextconv"
+	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 	"bletonfc/vscode_tasks_menu/internal/selfupdate"
 	"bletonfc/vscode_tasks_menu/internal/server"
@@ -54,6 +55,12 @@ func main() {
 	listenAddr := flag.String("listen-addr", "", "listener address override (internal)")
 	selfUpdateID := flag.String("self-update-id", "", "self-update handoff id (internal)")
 	cleanupLegacy := flag.Bool("cleanup-legacy", false, "dọn thành phần TaskDeck/Patch Tool legacy đã xác minh trong workspace")
+	sharedAdmin := flag.String("shared-admin-bootstrap", "", "tạo admin đầu tiên trong identity DB trống (username)")
+	sharedPasswordStdin := flag.Bool("shared-admin-password-stdin", false, "đọc password bootstrap từ stdin riêng thay vì nhập ẩn")
+	sharedIdentityBackup := flag.String("shared-identity-backup", "", "tạo snapshot nhất quán của shared identity DB ra FILE")
+	sharedIdentityRestore := flag.String("shared-identity-restore", "", "khôi phục shared identity DB từ FILE và tạo safety backup trước restore")
+	sharedPasswordReset := flag.String("shared-password-reset", "", "reset password của global shared identity (username)")
+	sharedPasswordResetStdin := flag.Bool("shared-password-reset-stdin", false, "đọc password reset từ stdin riêng thay vì nhập ẩn")
 	flag.Parse()
 
 	if *versionFlag {
@@ -71,6 +78,71 @@ func main() {
 	patchCommand := flag.NArg() > 0 && flag.Arg(0) == "patch"
 	ws, err := resolveWorkspace(*workspace)
 	fatalIf(err)
+	if *sharedIdentityBackup != "" || *sharedIdentityRestore != "" {
+		if (*sharedIdentityBackup != "" && *sharedIdentityRestore != "") ||
+			*sharedAdmin != "" || *sharedPasswordStdin || *sharedPasswordReset != "" || *sharedPasswordResetStdin ||
+			*serve || *sessionBroker || *terminal ||
+			*selfUpdateFlag || *selfUpdateAuto || *cleanupLegacy || *statusOnly || *stopDaemonFlag ||
+			*restartDaemon || *reloadConfigFlag || *noBrowser || *handoffFD != -1 ||
+			strings.TrimSpace(*listenAddr) != "" || strings.TrimSpace(*selfUpdateID) != "" ||
+			patchCommand || flag.NArg() != 0 {
+			fatalIf(fmt.Errorf("shared identity backup/restore is a standalone maintenance command"))
+		}
+		cfg, _, err := config.Load(ws)
+		fatalIf(err)
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if *sharedIdentityBackup != "" {
+			path, err := runSharedIdentityBackup(ctx, ws, cfg, *sharedIdentityBackup)
+			fatalIf(err)
+			fmt.Printf("Đã tạo shared identity backup: %s\n", path)
+		} else {
+			source, safety, err := runSharedIdentityRestore(ctx, ws, cfg, *sharedIdentityRestore)
+			fatalIf(err)
+			fmt.Printf("Đã restore shared identity DB từ: %s\n", source)
+			fmt.Printf("Safety backup trước restore: %s\n", safety)
+		}
+		return
+	}
+	if *sharedPasswordReset != "" || *sharedPasswordResetStdin {
+		if *sharedPasswordReset == "" || *sharedAdmin != "" || *sharedPasswordStdin ||
+			*sharedIdentityBackup != "" || *sharedIdentityRestore != "" || *serve || *sessionBroker ||
+			*terminal || *selfUpdateFlag || *selfUpdateAuto || *cleanupLegacy || *statusOnly ||
+			*stopDaemonFlag || *restartDaemon || *reloadConfigFlag || *noBrowser || *handoffFD != -1 ||
+			strings.TrimSpace(*listenAddr) != "" || strings.TrimSpace(*selfUpdateID) != "" ||
+			patchCommand || flag.NArg() != 0 {
+			fatalIf(fmt.Errorf("--shared-password-reset is a standalone maintenance command and requires a username"))
+		}
+		cfg, _, err := config.Load(ws)
+		fatalIf(err)
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		var password string
+		if *sharedPasswordResetStdin {
+			password, err = readBootstrapPassword(os.Stdin)
+		} else {
+			password, err = identity.PromptNewPassword(ctx, os.Stdin, os.Stderr)
+		}
+		fatalIf(err)
+		fatalIf(runSharedPasswordReset(ctx, ws, cfg, *sharedPasswordReset, password))
+		password = ""
+		fmt.Printf("Đã reset password cho shared identity %s; toàn bộ login session của user đã bị revoke.\n", strings.TrimSpace(*sharedPasswordReset))
+		return
+	}
+	if *sharedAdmin != "" || *sharedPasswordStdin {
+		if *sharedAdmin == "" || *sharedIdentityBackup != "" || *sharedIdentityRestore != "" ||
+			*sharedPasswordReset != "" || *sharedPasswordResetStdin || *serve || *sessionBroker ||
+			*terminal || *selfUpdateFlag || *selfUpdateAuto || *cleanupLegacy || *statusOnly ||
+			*stopDaemonFlag || *restartDaemon || *reloadConfigFlag || *noBrowser || *handoffFD != -1 ||
+			strings.TrimSpace(*listenAddr) != "" || strings.TrimSpace(*selfUpdateID) != "" ||
+			patchCommand || flag.NArg() != 0 {
+			fatalIf(fmt.Errorf("--shared-admin-bootstrap requires a username and cannot be combined with other commands"))
+		}
+		cfg, _, err := config.Load(ws)
+		fatalIf(err)
+		fatalIf(runSharedAdminBootstrap(ws, cfg, *sharedAdmin, *sharedPasswordStdin))
+		return
+	}
 	if *cleanupLegacy {
 		if taskdeckSourceRepository(ws) {
 			fmt.Println("Bỏ qua cleanup: workspace hiện tại là source repo TaskDeck.")
@@ -444,7 +516,13 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	}
 	url := publicURLForListener(cfg, ln)
 	healthURL := healthURLForListener(cfg, ln)
+	controlToken, err := state.NewControlToken()
+	if err != nil {
+		_ = ln.Close()
+		return err
+	}
 	st := state.New(ws, url, healthURL, ln.Addr().String())
+	st.ControlToken = controlToken
 	if err := state.Save(st); err != nil {
 		_ = ln.Close()
 		return err
@@ -486,7 +564,25 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	if sessionService.NeedsPatchProtocolFallback() {
 		logger.Printf("session broker predates Patch protocol capabilities; preserving broker-owned terminals and using daemon-local Patch protocol sessions")
 	}
-	srv := &server.Server{Workspace: ws, Config: cfg, Log: logger, Sessions: sessionService}
+	var identityStore identity.Store
+	if cfg.SharedServerEnabled {
+		dbPath, resolveErr := identity.ResolveDBPathForWorkspace(cfg.SharedIdentityDB, ws)
+		if resolveErr != nil {
+			_ = ln.Close()
+			return fmt.Errorf("resolve shared identity DB: %w", resolveErr)
+		}
+		identityStore, err = identity.OpenSQLiteStore(context.Background(), dbPath)
+		if err != nil {
+			_ = ln.Close()
+			return fmt.Errorf("open shared identity DB: %w", err)
+		}
+		defer identityStore.Close()
+		logger.Printf("shared-server project=%s identity_db=%s", cfg.SharedProjectID, dbPath)
+	}
+	srv := &server.Server{
+		Workspace: ws, Config: cfg, Log: logger, Sessions: sessionService, Identity: identityStore,
+		InternalControlToken: controlToken,
+	}
 	server.RegisterSelfUpdateCheck(srv, checkSelfUpdate)
 	defer server.RegisterSelfUpdateCheck(srv, nil)
 	server.RegisterSelfUpdateStart(srv, func() error { return startAutoSelfUpdate(ws) })
@@ -1172,6 +1268,9 @@ func requestDaemonAction(cfg config.Config, st state.State, id, action string) e
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if token := strings.TrimSpace(st.ControlToken); token != "" {
+		req.Header.Set(server.InternalControlHeader, token)
+	}
 	if cfg.AuthEnabled {
 		req.SetBasicAuth(cfg.Username, cfg.Password)
 	}

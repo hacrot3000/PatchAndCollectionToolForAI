@@ -29,8 +29,9 @@ func executionFromWire(spec ExecutionSpec) tasks.Execution {
 		TaskID: spec.TaskID, Label: spec.Label, Detail: spec.Detail,
 		Command: spec.Command, Args: append([]string(nil), spec.Args...),
 		Cwd: spec.Cwd, Env: append([]string(nil), spec.Env...), Preview: spec.Preview,
-		ProtocolEvents: spec.ProtocolEvents,
+		ProtocolEvents:   spec.ProtocolEvents,
 		ProtocolCommands: spec.ProtocolCommands,
+		SessionKind:      spec.SessionKind, OwnerUserID: spec.OwnerUserID, ProjectID: spec.ProjectID,
 	}
 }
 
@@ -39,8 +40,9 @@ func executionToWire(spec tasks.Execution) ExecutionSpec {
 		TaskID: spec.TaskID, Label: spec.Label, Detail: spec.Detail,
 		Command: spec.Command, Args: append([]string(nil), spec.Args...),
 		Cwd: spec.Cwd, Env: append([]string(nil), spec.Env...), Preview: spec.Preview,
-		ProtocolEvents: spec.ProtocolEvents,
+		ProtocolEvents:   spec.ProtocolEvents,
 		ProtocolCommands: spec.ProtocolCommands,
+		SessionKind:      spec.SessionKind, OwnerUserID: spec.OwnerUserID, ProjectID: spec.ProjectID,
 	}
 }
 

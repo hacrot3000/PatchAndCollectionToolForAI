@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -16,17 +18,22 @@ const (
 	ProtocolHTTPS = "https"
 )
 
+var sharedProjectIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+
 type Config struct {
-	Protocol      string
-	Bind          string
-	Port          int
-	AdvertiseHost string
-	OpenBrowser   bool
-	TLSCert       string
-	TLSKey        string
-	AuthEnabled   bool
-	Username      string
-	Password      string
+	Protocol            string
+	Bind                string
+	Port                int
+	AdvertiseHost       string
+	OpenBrowser         bool
+	TLSCert             string
+	TLSKey              string
+	AuthEnabled         bool
+	Username            string
+	Password            string
+	SharedServerEnabled bool
+	SharedProjectID     string
+	SharedIdentityDB    string
 }
 
 func Default() Config {
@@ -96,6 +103,12 @@ func Load(workspace string) (Config, string, error) {
 			cfg.Username = value
 		case "auth.password":
 			cfg.Password = value
+		case "shared_server.enabled":
+			cfg.SharedServerEnabled = parseBool(value, false)
+		case "shared_server.project_id":
+			cfg.SharedProjectID = value
+		case "shared_server.identity_db":
+			cfg.SharedIdentityDB = value
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -117,8 +130,20 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Bind) == "" {
 		return fmt.Errorf("server.bind không được để trống")
 	}
-	if c.AuthEnabled && (strings.TrimSpace(c.Username) == "" || c.Password == "" || c.Password == "change-me") {
+	if !c.SharedServerEnabled && c.AuthEnabled && (strings.TrimSpace(c.Username) == "" || c.Password == "" || c.Password == "change-me") {
 		return fmt.Errorf("[auth] enabled=true yêu cầu username/password riêng; không được dùng password mặc định change-me")
+	}
+	if c.SharedServerEnabled {
+		if !c.TLS() {
+			return fmt.Errorf("[shared_server] enabled=true yêu cầu server.protocol=https")
+		}
+		projectID := strings.TrimSpace(c.SharedProjectID)
+		if !sharedProjectIDPattern.MatchString(projectID) {
+			return fmt.Errorf("[shared_server] enabled=true yêu cầu project_id hợp lệ (1-128 ký tự: chữ, số, '.', '_' hoặc '-')")
+		}
+		if identityDB := strings.TrimSpace(c.SharedIdentityDB); identityDB != "" && !filepath.IsAbs(identityDB) {
+			return fmt.Errorf("[shared_server] identity_db phải là đường dẫn tuyệt đối khi được cấu hình")
+		}
 	}
 	if err := c.validateRemoteAuthHost(c.Bind); err != nil {
 		return err
@@ -133,6 +158,12 @@ func (c Config) Validate() error {
 }
 
 func (c Config) validateRemoteAuthHost(host string) error {
+	if c.SharedServerEnabled {
+		if !c.TLS() {
+			return fmt.Errorf("shared-server listener requires HTTPS")
+		}
+		return nil
+	}
 	if isLoopbackBind(host) {
 		return nil
 	}
@@ -191,6 +222,14 @@ open_browser = %t
 enabled = false
 username = %s
 password = change-me
+
+[shared_server]
+# Multi-user shared-project mode. Mặc định tắt để giữ nguyên behavior hiện tại.
+enabled = false
+# Bắt buộc khi enabled=true. Đây là project identity ổn định trong shared identity DB.
+# project_id = my-project
+# Optional absolute path tới identity DB dùng chung giữa nhiều TaskDeck process.
+# identity_db = /var/lib/taskdeck/identity.db
 `, cfg.Protocol, cfg.Bind, cfg.Port, cfg.OpenBrowser, cfg.Username)
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("tạo %s: %w", path, err)

@@ -85,6 +85,26 @@ func TestBrowserLeaseAPILatestBrowserWins(t *testing.T) {
 	check(second, http.StatusOK)
 }
 
+func TestSharedBrowserLeaseDoesNotRevokeConcurrentUsers(t *testing.T) {
+	s := &Server{}
+	s.Config.SharedServerEnabled = true
+	for i := 0; i < 2; i++ {
+		rr := httptest.NewRecorder()
+		s.browserLeaseAPI(rr, httptest.NewRequest(http.MethodPost, "/api/browser/lease", nil))
+		if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"lease":"shared"`) {
+			t.Fatalf("shared lease acquire status=%d body=%s", rr.Code, rr.Body.String())
+		}
+	}
+	if s.browserLease != nil {
+		t.Fatal("shared lease endpoint created a single-browser lease")
+	}
+	rr := httptest.NewRecorder()
+	s.browserLeaseAPI(rr, httptest.NewRequest(http.MethodGet, "/api/browser/lease", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("shared lease heartbeat status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestBrowserLeaseBlocksStaleMutationsButNotLegacyBeforeFirstAcquire(t *testing.T) {
 	s := &Server{}
 	called := 0
@@ -125,7 +145,6 @@ func TestBrowserLeaseBlocksStaleMutationsButNotLegacyBeforeFirstAcquire(t *testi
 	}
 }
 
-
 func TestBrowserLeaseUIClaimsControlAndStopsReconnectAfterRevocation(t *testing.T) {
 	for _, want := range []string{
 		"await acquireBrowserLease();await loadTasks();await syncSessions();",
@@ -146,9 +165,8 @@ func TestBrowserLeaseUIClaimsControlAndStopsReconnectAfterRevocation(t *testing.
 	}
 }
 
-
 func TestBrowserLeaseAllowsOnlyLoopbackSelfUpdateTransportActions(t *testing.T) {
-	s := &Server{}
+	s := &Server{InternalControlToken: "test-control-token"}
 	if _, err := s.browserLeaseState().acquire(); err != nil {
 		t.Fatal(err)
 	}
@@ -162,17 +180,22 @@ func TestBrowserLeaseAllowsOnlyLoopbackSelfUpdateTransportActions(t *testing.T) 
 		name       string
 		target     string
 		remoteAddr string
+		control    bool
 		want       int
 	}{
-		{"loopback handoff", "/api/state/tasks?scope=self-update&action=handoff", "127.0.0.1:43120", http.StatusAccepted},
-		{"loopback detach", "/api/state/tasks?scope=self-update&action=detach", "[::1]:43120", http.StatusAccepted},
-		{"remote handoff", "/api/state/tasks?scope=self-update&action=handoff", "192.168.1.20:43120", http.StatusConflict},
-		{"browser confirm still protected", "/api/state/tasks?scope=self-update&action=confirm", "127.0.0.1:43120", http.StatusConflict},
+		{"loopback handoff", "/api/state/tasks?scope=self-update&action=handoff", "127.0.0.1:43120", true, http.StatusAccepted},
+		{"loopback detach", "/api/state/tasks?scope=self-update&action=detach", "[::1]:43120", true, http.StatusAccepted},
+		{"proxied loopback without token", "/api/state/tasks?scope=self-update&action=handoff", "127.0.0.1:43120", false, http.StatusConflict},
+		{"remote handoff", "/api/state/tasks?scope=self-update&action=handoff", "192.168.1.20:43120", true, http.StatusConflict},
+		{"browser confirm still protected", "/api/state/tasks?scope=self-update&action=confirm", "127.0.0.1:43120", true, http.StatusConflict},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, tc.target, nil)
 			req.RemoteAddr = tc.remoteAddr
+			if tc.control {
+				req.Header.Set(InternalControlHeader, s.InternalControlToken)
+			}
 			rr := httptest.NewRecorder()
 			h.ServeHTTP(rr, req)
 			if rr.Code != tc.want {
@@ -184,7 +207,6 @@ func TestBrowserLeaseAllowsOnlyLoopbackSelfUpdateTransportActions(t *testing.T) 
 		t.Fatalf("inner handler called=%d want 2", called)
 	}
 }
-
 
 func TestBrowserLeaseHealthCheckRejectsTokenWhenDaemonHasNoActiveLease(t *testing.T) {
 	s := &Server{}

@@ -232,6 +232,11 @@ func (s *Server) taskState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.auditSharedSuccess(r, "settings.task_state.update", "setting", "task_state", map[string]any{
+			"favorite_count": len(state.Favorites),
+			"recent_count":   len(state.Recent),
+			"history_count":  len(state.History),
+		})
 		writeJSON(w, http.StatusOK, state)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

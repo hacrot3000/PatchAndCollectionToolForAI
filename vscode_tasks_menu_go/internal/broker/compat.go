@@ -33,6 +33,10 @@ func (s *CompatibilityService) NeedsPatchProtocolFallback() bool {
 	return !s.primary.SupportsPatchProtocolEvents() || !s.primary.SupportsPatchProtocolCommands()
 }
 
+func (s *CompatibilityService) SupportsSessionOwnership() bool {
+	return s != nil && s.primary != nil && s.primary.SupportsSessionOwnership()
+}
+
 func (s *CompatibilityService) useFallback(spec tasks.Execution) bool {
 	if s == nil || s.primary == nil || !spec.ProtocolEvents {
 		return s == nil || s.primary == nil

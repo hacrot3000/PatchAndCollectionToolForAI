@@ -180,8 +180,13 @@ func TestBrokerTitleCapabilityBackwardCompatibility(t *testing.T) {
 	if !modern.SupportsSessionTitle() {
 		t.Fatal("new broker must advertise session title support")
 	}
+	if legacy.SupportsSessionOwnership() {
+		t.Fatal("legacy broker must not advertise session ownership support")
+	}
+	if !modern.SupportsSessionOwnership() {
+		t.Fatal("new broker must advertise session ownership support")
+	}
 }
-
 
 func TestBrokerFallbackSocketDirectoryIsPrivate(t *testing.T) {
 	longBase := filepath.Join(t.TempDir(), strings.Repeat("very-long-runtime-segment-", 6))
