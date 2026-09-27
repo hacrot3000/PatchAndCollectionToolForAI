@@ -263,3 +263,65 @@ func TestDBProfileAPITunnelRequiresExistingSSHProfile(t *testing.T) {
 		t.Fatalf("invalid tunnel profile was persisted: %+v", profiles)
 	}
 }
+
+func TestDBProfileAPISQLiteEnforcesLocalFileOnly(t *testing.T) {
+	s, store, secrets := newDBProfileAPITestServer(t)
+	if err := s.DBAdapters.Register(dbadapter.Manifest{
+		ID:              "sqlite-python",
+		Name:            "SQLite",
+		Kind:            "sqlite",
+		ProtocolVersion: dbadapter.ProtocolVersion,
+		Command:         "/private/taskdeck",
+		Capabilities:    dbadapter.CapabilitySet{Connect: true, Ping: true, Execute: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	valid := httptest.NewRequest(http.MethodPost, "/api/db/profiles", strings.NewReader(`{
+		"name":"Local SQLite",
+		"adapter_id":"sqlite-python",
+		"transport":"direct",
+		"file":"/srv/data/app.sqlite",
+		"read_only":true,
+		"options":{"busy_timeout_ms":"5000"}
+	}`))
+	valid.Header.Set("Content-Type", "application/json")
+	validRR := httptest.NewRecorder()
+	s.Handler().ServeHTTP(validRR, valid)
+	if validRR.Code != http.StatusCreated {
+		t.Fatalf("valid SQLite status=%d body=%s", validRR.Code, validRR.Body.String())
+	}
+	profiles, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profiles) != 1 || profiles[0].File != "/srv/data/app.sqlite" || profiles[0].Transport != dbprofile.TransportDirect {
+		t.Fatalf("stored SQLite profiles=%+v", profiles)
+	}
+
+	invalidBodies := []string{
+		`{"name":"Tunnel SQLite","adapter_id":"sqlite-python","transport":"ssh_tunnel","file":"/srv/data/app.sqlite","ssh_profile_id":"jump-1"}`,
+		`{"name":"Network SQLite","adapter_id":"sqlite-python","transport":"direct","file":"/srv/data/app.sqlite","host":"127.0.0.1","port":1234}`,
+		`{"name":"Secret SQLite","adapter_id":"sqlite-python","transport":"direct","file":"/srv/data/app.sqlite","secret":"must-not-store"}`,
+		`{"name":"Missing File","adapter_id":"sqlite-python","transport":"direct"}`,
+	}
+	for _, body := range invalidBodies {
+		req := httptest.NewRequest(http.MethodPost, "/api/db/profiles", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("invalid SQLite profile status=%d want 400 body=%s request=%s", rr.Code, rr.Body.String(), body)
+		}
+	}
+	profiles, err = store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profiles) != 1 {
+		t.Fatalf("invalid SQLite profiles were persisted: %+v", profiles)
+	}
+	if len(secrets.values) != 0 {
+		t.Fatalf("invalid SQLite secret was persisted: %+v", secrets.values)
+	}
+}
