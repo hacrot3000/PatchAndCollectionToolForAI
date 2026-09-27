@@ -91,9 +91,17 @@ func StartProcess(ctx context.Context, manifest Manifest, options ProcessOptions
 		return nil, fmt.Errorf("start database adapter %q: %w", manifest.ID, err)
 	}
 
-	go p.readStdout(stdout)
-	go p.readStderr(stderr)
-	go p.wait()
+	stdoutDone := make(chan struct{})
+	stderrDone := make(chan struct{})
+	go func() {
+		defer close(stdoutDone)
+		p.readStdout(stdout)
+	}()
+	go func() {
+		defer close(stderrDone)
+		p.readStderr(stderr)
+	}()
+	go p.waitAfterPipes(stdoutDone, stderrDone)
 	return p, nil
 }
 
@@ -292,7 +300,9 @@ func (p *Process) readStderr(stderr io.ReadCloser) {
 	}
 }
 
-func (p *Process) wait() {
+func (p *Process) waitAfterPipes(stdoutDone, stderrDone <-chan struct{}) {
+	<-stdoutDone
+	<-stderrDone
 	err := p.cmd.Wait()
 	if err != nil {
 		p.finish(fmt.Errorf("database adapter %q exited: %w", p.manifest.ID, err))
@@ -312,15 +322,17 @@ func (p *Process) fail(err error) {
 func (p *Process) finish(err error) {
 	p.doneOnce.Do(func() {
 		p.mu.Lock()
-		if err != nil {
-			p.waitErr = err
-		}
 		pending := p.pending
 		p.pending = make(map[string]chan responseResult)
+		if err == nil && len(pending) != 0 {
+			err = errors.New("database adapter process exited with pending requests")
+		}
+		p.waitErr = err
+		finalErr := p.waitErr
 		p.mu.Unlock()
 
 		for _, ch := range pending {
-			ch <- responseResult{err: p.waitErr}
+			ch <- responseResult{err: finalErr}
 		}
 		_ = p.stdin.Close()
 		close(p.done)
