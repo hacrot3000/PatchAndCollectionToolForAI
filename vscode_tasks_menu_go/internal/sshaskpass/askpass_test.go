@@ -3,6 +3,7 @@ package sshaskpass
 import (
 	"bytes"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -84,6 +85,35 @@ func TestAskpassRejectsWrongTokenWithoutLeakingSecret(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "top-secret") || strings.Contains(out.String(), "top-secret") {
 		t.Fatalf("secret leaked on rejected token: err=%v output=%q", err, out.String())
+	}
+}
+
+func TestPrepareFallsBackToShortPrivateSocketDirectory(t *testing.T) {
+	store := &memoryStore{records: map[string][]byte{
+		"ssh/prod/auth/test": []byte("correct-horse"),
+	}}
+	longDir := filepath.Join(t.TempDir(), strings.Repeat("very-long-runtime-segment-", 5))
+	ticket, err := Prepare(store, "ssh/prod/auth/test", longDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	socketDir := filepath.Dir(ticket.SocketPath)
+	if len(ticket.SocketPath) > maxSocketPathLen {
+		t.Fatalf("socket path length=%d path=%q", len(ticket.SocketPath), ticket.SocketPath)
+	}
+	if socketDir == longDir {
+		t.Fatalf("long runtime path did not use short fallback: %q", ticket.SocketPath)
+	}
+	info, err := os.Stat(socketDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("fallback dir mode=%o want 700", info.Mode().Perm())
+	}
+	ticket.Close()
+	if _, err := os.Stat(socketDir); !os.IsNotExist(err) {
+		t.Fatalf("fallback runtime dir still exists after close: %v", err)
 	}
 }
 
