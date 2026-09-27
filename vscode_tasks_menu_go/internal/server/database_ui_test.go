@@ -25,7 +25,7 @@ func TestDatabaseWorkspaceUsesGenericSessionAPIs(t *testing.T) {
 		"Math.min(1000",
 		"app.activateExternalView('database:'",
 		"DB · ",
-		"Ctrl",
+		"event.ctrlKey",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("database.js missing %q", want)
