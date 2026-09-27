@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"bletonfc/vscode_tasks_menu/internal/dbadapter"
@@ -39,8 +40,11 @@ func ParseFindQuery(statement string, maxRows int) (FindQuery, error) {
 		return FindQuery{}, fmt.Errorf("invalid MongoDB query JSON: %w", err)
 	}
 	var extra interface{}
-	if err := decoder.Decode(&extra); err == nil {
-		return FindQuery{}, errors.New("MongoDB query JSON must contain exactly one object")
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return FindQuery{}, errors.New("MongoDB query JSON must contain exactly one object")
+		}
+		return FindQuery{}, fmt.Errorf("invalid trailing MongoDB query data: %w", err)
 	}
 	query.Op = strings.ToLower(strings.TrimSpace(query.Op))
 	if query.Op == "" {
