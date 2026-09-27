@@ -176,6 +176,9 @@ func (h *Handler) listCatalogs(ctx context.Context) (interface{}, *dbadapter.Pro
 	if err != nil {
 		return nil, mysqlProtocolError("LIST_CATALOGS_FAILED", err)
 	}
+	if len(result.Rows) == 0 {
+		return []dbadapter.Object{}, nil
+	}
 	index, err := resultColumnIndex(result, "name")
 	if err != nil {
 		return nil, mysqlProtocolError("LIST_CATALOGS_FAILED", err)
@@ -206,6 +209,12 @@ func (h *Handler) listObjects(ctx context.Context, payload dbadapter.ListObjects
 	result, err := h.query(ctx, query, dbadapter.MaxRows)
 	if err != nil {
 		return nil, mysqlProtocolError("LIST_OBJECTS_FAILED", err)
+	}
+	if len(result.Rows) == 0 {
+		return map[string]interface{}{
+			"objects":   []dbadapter.Object{},
+			"truncated": result.Truncated,
+		}, nil
 	}
 	catalogIndex, err := resultColumnIndex(result, "catalog")
 	if err != nil {
@@ -254,6 +263,15 @@ func (h *Handler) describeObject(ctx context.Context, payload dbadapter.Describe
 	result, err := h.query(ctx, query, dbadapter.MaxRows)
 	if err != nil {
 		return nil, mysqlProtocolError("DESCRIBE_FAILED", err)
+	}
+	if len(result.Rows) == 0 {
+		return map[string]interface{}{
+			"kind":      firstNonEmpty(strings.TrimSpace(payload.Kind), "table"),
+			"name":      name,
+			"catalog":   catalog,
+			"columns":   []map[string]interface{}{},
+			"truncated": result.Truncated,
+		}, nil
 	}
 
 	indexes := make(map[string]int)
