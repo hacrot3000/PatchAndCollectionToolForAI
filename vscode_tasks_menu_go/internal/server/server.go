@@ -41,6 +41,7 @@ type Server struct {
 	DBSessions        *dbsession.Manager
 	SSHTunnels        *sshtunnel.Manager
 	ConnectionSecrets secretstore.Store
+	ConnectionAudit   ConnectionAuditFunc
 
 	projectIndexMu         sync.Mutex
 	projectIndex           *projectFileIndex
