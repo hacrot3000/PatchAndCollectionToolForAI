@@ -765,6 +765,20 @@ function bindObject(view,object,button){
   applyObjectFilter(view);
 }
 
+async function loadTotalCount(view){
+  const state=dataState(view);const object=state.object;
+  if(!object)throw new Error('Select a database object first');
+  if(!supports(view,'object_actions'))throw new Error('This adapter does not support object counts');
+  const result=await database.request(view.meta.id,'object_action',{
+    catalog:object.catalog||view.catalog.value||'',kind:object.kind,name:object.name,action:'count_rows'
+  });
+  const count=Number(result?.count);
+  if(!Number.isFinite(count)||count<0)throw new Error('Database adapter returned an invalid total count');
+  if(!state.result)state.result={columns:[],rows:[],offset:state.offset,limit:state.limit,has_more:false,editable:false};
+  state.result.total_rows=count;
+  renderDataGrid(view);
+}
+
 function filterCapable(view){
   const kind=view.meta.adapter_kind||adapterForView(view)?.kind||'';
   return kind==='mysql'||kind==='sqlite';
@@ -846,23 +860,25 @@ function createDataPanel(view){
   const pageSize=document.createElement('select');pageSize.title='Rows per page';
   for(const size of [25,50,100,250,500,1000]){const option=document.createElement('option');option.value=String(size);option.textContent=String(size)+' rows';if(size===100)option.selected=true;pageSize.append(option);}
   const refresh=document.createElement('button');refresh.type='button';refresh.textContent='↻';refresh.title='Refresh data';
+  const count=document.createElement('button');count.type='button';count.textContent='Count';count.title='Load total row/document/entry count';
   const filter=document.createElement('button');filter.type='button';filter.textContent='Filter…';filter.title='Server-side row filter';
   const add=document.createElement('button');add.type='button';add.textContent='+ Row';add.title='Insert row';
   const apply=document.createElement('button');apply.type='button';apply.className='db-apply';apply.textContent='Apply changes';
   const revert=document.createElement('button');revert.type='button';revert.textContent='Revert';
   const spacer=document.createElement('span');spacer.className='db-data-spacer';
   const status=document.createElement('span');status.className='db-data-status';status.textContent='Select a table';
-  tools.append(objectTitle,first,prev,next,pageSize,refresh,filter,add,apply,revert,spacer,status);
+  tools.append(objectTitle,first,prev,next,pageSize,refresh,count,filter,add,apply,revert,spacer,status);
   const grid=document.createElement('div');grid.className='db-data-grid-wrap';
   const empty=document.createElement('div');empty.className='db-data-empty';empty.textContent='Double-click a table or choose View Data from its context menu.';grid.append(empty);
   panel.append(tools,grid);
-  view.workbench.controls={objectTitle,first,prev,next,pageSize,refresh,filter,add,apply,revert,status};
+  view.workbench.controls={objectTitle,first,prev,next,pageSize,refresh,count,filter,add,apply,revert,status};
   view.workbench.grid=grid;
   first.onclick=()=>{if(!confirmDiscardChanges(view))return;const state=dataState(view);state.offset=0;loadData(view).catch(app.showError);};
   prev.onclick=()=>{if(!confirmDiscardChanges(view))return;const state=dataState(view);state.offset=Math.max(0,state.offset-state.limit);loadData(view).catch(app.showError);};
   next.onclick=()=>{if(!confirmDiscardChanges(view))return;const state=dataState(view);state.offset+=state.limit;loadData(view).catch(app.showError);};
   pageSize.onchange=()=>{if(!confirmDiscardChanges(view)){pageSize.value=String(dataState(view).limit);return;}const state=dataState(view);state.limit=Math.max(1,Math.min(1000,Number(pageSize.value)||100));state.offset=0;if(state.object)storePageSize(view,state.object,state.limit);loadData(view).catch(app.showError);};
   refresh.onclick=()=>{if(!confirmDiscardChanges(view))return;loadData(view).catch(app.showError);};
+  count.disabled=!supports(view,'object_actions');count.onclick=()=>loadTotalCount(view).catch(app.showError);
   filter.disabled=!filterCapable(view);filter.onclick=()=>openFilterDialog(view);
   add.onclick=()=>addGridRow(view);
   apply.onclick=()=>applyGridChanges(view).catch(app.showError);
