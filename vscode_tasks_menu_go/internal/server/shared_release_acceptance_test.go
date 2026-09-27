@@ -5,10 +5,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/identity"
+	"bletonfc/vscode_tasks_menu/internal/session"
+	"bletonfc/vscode_tasks_menu/internal/tasks"
+	"github.com/coder/websocket"
 )
 
 func TestSharedReleaseAcceptanceTwoDaemonsOneIdentityDB(t *testing.T) {
@@ -129,5 +133,143 @@ func TestSharedReleaseAcceptanceTwoDaemonsOneIdentityDB(t *testing.T) {
 	}
 	if _, err := storeB.ProjectMember(ctx, alice.ProjectID, alice.UserID); err != nil {
 		t.Fatalf("store B cannot see project A membership: %v", err)
+	}
+}
+
+func TestSharedReleaseAcceptanceHTTPSLoginAndWSSAuthorization(t *testing.T) {
+	ctx := context.Background()
+	store, err := identity.OpenSQLiteStore(ctx, filepath.Join(t.TempDir(), "identity", "identity.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	hash, err := identity.HashPassword(ctx, "private-admin-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal, err := store.BootstrapFirstAdmin(ctx, "wss-project", "alice", hash, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SeedSystemRoles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetMemberPermission(ctx, identity.MemberPermission{
+		ProjectID: principal.ProjectID,
+		UserID: principal.UserID,
+		PermissionID: identity.PermissionTerminalControlOwn,
+		Effect: identity.PermissionDeny,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service := &sharedWebSocketTestService{
+		ownershipTestService: &ownershipTestService{supported: true, items: []session.Metadata{{
+			ID: "terminal-a",
+			Kind: tasks.SessionKindTerminal,
+			OwnerUserID: string(principal.UserID),
+			ProjectID: string(principal.ProjectID),
+			Status: "running",
+		}}},
+		input: make(chan []byte, 1),
+	}
+	s := authTestServer()
+	s.Config.SharedServerEnabled = true
+	s.Config.SharedProjectID = "wss-project"
+	s.Identity = store
+	s.Sessions = service
+	if err := s.validateSharedIdentity(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	tlsServer := httptest.NewTLSServer(s.Handler())
+	defer tlsServer.Close()
+	client := tlsServer.Client()
+
+	loginReq, err := http.NewRequest(
+		http.MethodPost,
+		tlsServer.URL+"/api/auth/login",
+		strings.NewReader(`{"username":"alice","password":"private-admin-password"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginResp, err := client.Do(loginReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer loginResp.Body.Close()
+	if loginResp.StatusCode != http.StatusOK {
+		t.Fatalf("HTTPS login status=%d", loginResp.StatusCode)
+	}
+	cookies := loginResp.Cookies()
+	if len(cookies) != 1 || cookies[0].Value == "" {
+		t.Fatalf("HTTPS login cookie=%+v", cookies)
+	}
+	cookieHeader := cookies[0].Name + "=" + cookies[0].Value
+	wsURL := "wss" + strings.TrimPrefix(tlsServer.URL, "https") + "/api/sessions/terminal-a/ws"
+
+	dial := func() *websocket.Conn {
+		t.Helper()
+		dialCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		conn, response, err := websocket.Dial(dialCtx, wsURL, &websocket.DialOptions{
+			HTTPClient: client,
+			HTTPHeader: http.Header{"Cookie": []string{cookieHeader}},
+		})
+		if err != nil {
+			status := 0
+			if response != nil {
+				status = response.StatusCode
+			}
+			t.Fatalf("WSS dial status=%d err=%v", status, err)
+		}
+		return conn
+	}
+
+	viewerConn := dial()
+	viewerCtx, cancelViewer := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelViewer()
+	_, backlog, err := viewerConn.Read(viewerCtx)
+	if err != nil || string(backlog) != "ready" {
+		t.Fatalf("viewer WSS backlog=%q err=%v", backlog, err)
+	}
+	if err := viewerConn.Write(viewerCtx, websocket.MessageText, []byte("blocked")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := viewerConn.Read(viewerCtx); websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
+		t.Fatalf("read-only WSS input close status=%v err=%v", websocket.CloseStatus(err), err)
+	}
+	select {
+	case input := <-service.input:
+		t.Fatalf("read-only WSS input reached terminal: %q", input)
+	default:
+	}
+
+	if err := store.DeleteMemberPermission(
+		ctx, principal.ProjectID, principal.UserID, identity.PermissionTerminalControlOwn,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	controllerConn := dial()
+	defer controllerConn.Close(websocket.StatusNormalClosure, "test complete")
+	controllerCtx, cancelController := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelController()
+	if _, _, err := controllerConn.Read(controllerCtx); err != nil {
+		t.Fatal(err)
+	}
+	if err := controllerConn.Write(controllerCtx, websocket.MessageText, []byte("allowed")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case input := <-service.input:
+		if string(input) != "allowed" {
+			t.Fatalf("controller WSS input=%q", input)
+		}
+	case <-controllerCtx.Done():
+		t.Fatal("authorized WSS input did not reach terminal")
 	}
 }
