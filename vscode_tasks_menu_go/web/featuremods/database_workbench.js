@@ -666,14 +666,14 @@ function objectMenu(view,object,x,y){
     {label:'Copy Qualified Name',action:()=>copyText(qualified)},
     {label:'Open in Query Editor',disabled:!queryTemplateCapable(view),action:()=>generatedQuery(view,object,'select')},
     {separator:true},
-    {label:isCollection?'Count Documents':'Count Rows',disabled:!canAction,action:()=>countRows(view,object)},
+    {label:isRedisKey?'Count Entries':(isCollection?'Count Documents':'Count Rows'),disabled:!canAction,action:()=>countRows(view,object)},
     {label:isRedisKey?'Generate Read Command':(isCollection?'Generate Find':'Generate SELECT'),disabled:!queryTemplateCapable(view),action:()=>generatedQuery(view,object,'select')},
     {label:'Generate INSERT',disabled:!['mysql','sqlite'].includes(adapterKind),action:()=>generatedQuery(view,object,'insert')},
     {label:'Generate UPDATE',disabled:!['mysql','sqlite'].includes(adapterKind),action:()=>generatedQuery(view,object,'update')},
     {label:'Generate DELETE',disabled:!['mysql','sqlite'].includes(adapterKind),action:()=>generatedQuery(view,object,'delete')},
     {separator:true},
-    {label:isCollection?'Clear Collection':'Truncate Table',danger:true,disabled:!writable||isView,action:()=>runObjectAction(view,object,'truncate')},
-    {label:isCollection?'Drop Collection':'Drop '+(isView?'View':'Table'),danger:true,disabled:!writable,action:()=>runObjectAction(view,object,'drop')}
+    {label:isRedisKey?'Clear Key':(isCollection?'Clear Collection':'Truncate Table'),danger:true,disabled:isRedisKey||!writable||isView,action:()=>runObjectAction(view,object,'truncate')},
+    {label:isRedisKey?'Delete Key':(isCollection?'Drop Collection':'Drop '+(isView?'View':'Table')),danger:true,disabled:!writable,action:()=>runObjectAction(view,object,'drop')}
   ],x,y);
 }
 
@@ -686,7 +686,8 @@ async function runObjectAction(view,object,action){
       :'Truncate table "'+object.name+'"? All rows will be permanently removed.';
     if(!confirm(message))return;
   }else if(action==='drop'){
-    const typed=prompt('Type "'+object.name+'" to confirm dropping this '+(object.kind||'object')+':','');
+    const verb=isCollection?'dropping collection':(isRedisKey?'deleting key':'dropping '+(object.kind||'object'));
+    const typed=prompt('Type "'+object.name+'" to confirm '+verb+':','');
     if(typed!==object.name)return;
   }
   await database.request(view.meta.id,'object_action',{
