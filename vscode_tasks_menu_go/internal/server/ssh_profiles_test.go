@@ -177,6 +177,51 @@ func TestSSHProfileAPICreateListUpdateDelete(t *testing.T) {
 	}
 }
 
+func TestSSHProfileAPIItemNeverExposesStoredSecret(t *testing.T) {
+	s, store, _ := newSSHProfileAPITestServer(t)
+	h := s.Handler()
+
+	create := httptest.NewRequest(http.MethodPost, "/api/ssh/profiles", strings.NewReader(`{
+		"name":"Secret SSH",
+		"host":"ssh.example.com",
+		"username":"deploy",
+		"auth_method":"password",
+		"secret":"top-secret"
+	}`))
+	create.Header.Set("Content-Type", "application/json")
+	createRR := httptest.NewRecorder()
+	h.ServeHTTP(createRR, create)
+	if createRR.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", createRR.Code, createRR.Body.String())
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(createRR.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := store.Get(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/ssh/profiles/"+created.ID, nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("item status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	for _, forbidden := range []string{"top-secret", stored.SecretRef, "secret_ref"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("SSH item response leaked %q: %s", forbidden, body)
+		}
+	}
+	if !strings.Contains(body, "\"has_secret\":true") {
+		t.Fatalf("SSH item response missing has_secret projection: %s", body)
+	}
+}
+
 func TestSSHProfileAPIRejectsSecretForAgent(t *testing.T) {
 	s, _, _ := newSSHProfileAPITestServer(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/ssh/profiles", strings.NewReader(`{
