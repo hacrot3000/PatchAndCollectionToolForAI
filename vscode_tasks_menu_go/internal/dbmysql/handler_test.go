@@ -31,6 +31,7 @@ func writeHandlerFixture(t *testing.T) string {
 		"  *default_value*) printf '%s\\n' '<resultset><row><field name=\"name\">id</field><field name=\"type\">bigint</field><field name=\"nullable\">NO</field><field name=\"default_value\" xsi:nil=\"true\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"/><field name=\"extra\">auto_increment</field></row></resultset>' ;;\n" +
 		"  *information_schema.COLUMNS*) printf '%s\\n' '<resultset><row><field name=\"name\">id</field><field name=\"type\">bigint</field><field name=\"nullable\">NO</field></row><row><field name=\"name\">name</field><field name=\"type\">varchar(255)</field><field name=\"nullable\">YES</field></row></resultset>' ;;\n" +
 		"  *taskdeck_browse*) printf '%s\\n' '<resultset><row><field name=\"id\">1</field><field name=\"name\">Alice</field></row><row><field name=\"id\">2</field><field name=\"name\">Bob</field></row></resultset>' ;;\n" +
+		"  *taskdeck_mutation*) printf '%s\\n' '<resultset><row><field name=\"affected_rows\">1</field></row></resultset>' ;;\n" +
 		"  *'SELECT 42 AS answer'*) printf '%s\\n' '<resultset><row><field name=\"answer\">42</field></row></resultset>' ;;\n" +
 		"  *) printf '%s\\n' '<resultset></resultset>' ;;\n" +
 		"esac\n" +
@@ -216,5 +217,58 @@ func TestMySQLIdentifierQuotesNamesWithoutRawSQLSyntax(t *testing.T) {
 	}
 	if quoted != "`odd``name`" {
 		t.Fatalf("quoted=%q", quoted)
+	}
+}
+
+
+func TestHandlerMutateRowsUsesStableIdentity(t *testing.T) {
+	handler := connectFixtureHandler(t, false)
+	payload, protocolErr := handler.Handle(context.Background(), adapterRequest(t, "mutate-1", dbadapter.OpMutateRows, dbadapter.MutateRowsPayload{
+		Catalog: "main",
+		Kind:    "table",
+		Name:    "users",
+		Mutations: []dbadapter.RowMutation{
+			{Action: "insert", Values: map[string]interface{}{"name": "Carol"}},
+			{Action: "update", Identity: map[string]interface{}{"id": "1"}, Values: map[string]interface{}{"name": "Alicia"}},
+			{Action: "delete", Identity: map[string]interface{}{"id": "2"}},
+		},
+	}))
+	if protocolErr != nil {
+		t.Fatalf("mutate error=%+v", protocolErr)
+	}
+	result, ok := payload.(dbadapter.MutateRowsResult)
+	if !ok || len(result.Results) != 3 {
+		t.Fatalf("mutation result=%#v", payload)
+	}
+	for _, item := range result.Results {
+		if item.Error != nil || item.AffectedRows != 1 {
+			t.Fatalf("mutation item=%+v", item)
+		}
+	}
+}
+
+func TestHandlerMutateRowsRejectsReadOnlyBeforeClientMutation(t *testing.T) {
+	handler := connectFixtureHandler(t, true)
+	_, protocolErr := handler.Handle(context.Background(), adapterRequest(t, "mutate-ro", dbadapter.OpMutateRows, dbadapter.MutateRowsPayload{
+		Catalog: "main",
+		Name:    "users",
+		Mutations: []dbadapter.RowMutation{{Action: "delete", Identity: map[string]interface{}{"id": "1"}}},
+	}))
+	if protocolErr == nil || protocolErr.Code != "READ_ONLY" {
+		t.Fatalf("protocol error=%+v", protocolErr)
+	}
+}
+
+func TestBuildMySQLMutationRejectsIncompleteIdentity(t *testing.T) {
+	columns := map[string]mysqlBrowseColumn{
+		"id":   {Name: "id"},
+		"name": {Name: "name"},
+	}
+	_, err := buildMySQLMutation("`main`.`users`", columns, []string{"id"}, dbadapter.RowMutation{
+		Action: "update",
+		Values: map[string]interface{}{"name": "x"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "identity") {
+		t.Fatalf("expected identity error, got %v", err)
 	}
 }

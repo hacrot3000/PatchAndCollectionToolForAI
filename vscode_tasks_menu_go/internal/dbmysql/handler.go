@@ -91,6 +91,22 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 			return nil, mysqlProtocolError("INVALID_BROWSE", err)
 		}
 		return h.browseRows(ctx, normalized)
+	case dbadapter.OpMutateRows:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		if h.config.ReadOnly {
+			return nil, &dbadapter.ProtocolError{Code: "READ_ONLY", Message: "MySQL connection is read-only"}
+		}
+		var payload dbadapter.MutateRowsPayload
+		if err := decodePayload(request.Payload, &payload); err != nil {
+			return nil, mysqlProtocolError("INVALID_PAYLOAD", err)
+		}
+		normalized, err := dbadapter.NormalizeMutateRowsPayload(payload)
+		if err != nil {
+			return nil, mysqlProtocolError("INVALID_MUTATION", err)
+		}
+		return h.mutateRows(ctx, normalized)
 	case dbadapter.OpExecute:
 		if protocolErr := h.requireConnected(); protocolErr != nil {
 			return nil, protocolErr
@@ -331,6 +347,193 @@ type mysqlIndexColumn struct {
 	IndexName string
 	Name      string
 	Nullable  bool
+}
+
+
+func (h *Handler) mutateRows(ctx context.Context, payload dbadapter.MutateRowsPayload) (interface{}, *dbadapter.ProtocolError) {
+	kind := strings.ToLower(strings.TrimSpace(payload.Kind))
+	if kind == "view" {
+		return nil, &dbadapter.ProtocolError{Code: "READ_ONLY_OBJECT", Message: "MySQL views are not mutated by the grid editor"}
+	}
+	if kind != "" && kind != "table" {
+		return nil, &dbadapter.ProtocolError{Code: "OBJECT_TYPE_UNSUPPORTED", Message: "MySQL row mutations support tables only"}
+	}
+	catalog := firstNonEmpty(payload.Catalog, payload.Schema, h.config.Database)
+	if catalog == "" {
+		return nil, &dbadapter.ProtocolError{Code: "CATALOG_REQUIRED", Message: "MySQL catalog/database is required"}
+	}
+	columns, identityColumns, err := h.browseMetadata(ctx, catalog, payload.Name)
+	if err != nil {
+		return nil, mysqlProtocolError("MUTATION_METADATA_FAILED", err)
+	}
+	if len(columns) == 0 {
+		return nil, &dbadapter.ProtocolError{Code: "OBJECT_NOT_FOUND", Message: "MySQL table has no visible columns"}
+	}
+	columnByName := make(map[string]mysqlBrowseColumn, len(columns))
+	for _, column := range columns {
+		columnByName[strings.ToLower(column.Name)] = column
+	}
+	tableSQL, err := mysqlQualifiedIdentifier(catalog, payload.Name)
+	if err != nil {
+		return nil, mysqlProtocolError("INVALID_OBJECT", err)
+	}
+	needsIdentity := false
+	for _, mutation := range payload.Mutations {
+		if mutation.Action == "update" || mutation.Action == "delete" {
+			needsIdentity = true
+			break
+		}
+	}
+	if needsIdentity && len(identityColumns) == 0 {
+		return nil, &dbadapter.ProtocolError{
+			Code: "ROW_IDENTITY_UNAVAILABLE",
+			Message: "MySQL table has no non-null primary or unique key for safe update/delete",
+		}
+	}
+
+	results := make([]dbadapter.RowMutationResult, 0, len(payload.Mutations))
+	for mutationIndex, mutation := range payload.Mutations {
+		statement, buildErr := buildMySQLMutation(tableSQL, columnByName, identityColumns, mutation)
+		item := dbadapter.RowMutationResult{Index: mutationIndex, Action: mutation.Action}
+		if buildErr != nil {
+			item.Error = mysqlProtocolError("INVALID_MUTATION", buildErr)
+			results = append(results, item)
+			continue
+		}
+		affected, runErr := h.executeAffectedRows(ctx, statement)
+		if runErr != nil {
+			item.Error = mysqlProtocolError("MUTATION_FAILED", runErr)
+			results = append(results, item)
+			continue
+		}
+		item.AffectedRows = affected
+		if affected != 1 {
+			item.Error = &dbadapter.ProtocolError{
+				Code: "ROW_NOT_CHANGED",
+				Message: fmt.Sprintf("MySQL %s affected %d rows; expected exactly 1", mutation.Action, affected),
+			}
+		}
+		results = append(results, item)
+	}
+	out := dbadapter.MutateRowsResult{Results: results}
+	if err := dbadapter.ValidateMutateRowsResult(out); err != nil {
+		return nil, mysqlProtocolError("MUTATION_RESULT_FAILED", err)
+	}
+	return out, nil
+}
+
+func buildMySQLMutation(tableSQL string, columns map[string]mysqlBrowseColumn, identityColumns []string, mutation dbadapter.RowMutation) (string, error) {
+	switch mutation.Action {
+	case "insert":
+		assignments, values, err := mysqlMutationValues(columns, mutation.Values)
+		if err != nil {
+			return "", err
+		}
+		return "INSERT INTO " + tableSQL + " (" + strings.Join(assignments, ", ") + ") VALUES (" + strings.Join(values, ", ") + ")", nil
+	case "update":
+		where, err := mysqlMutationIdentity(columns, identityColumns, mutation.Identity)
+		if err != nil {
+			return "", err
+		}
+		names, values, err := mysqlMutationValues(columns, mutation.Values)
+		if err != nil {
+			return "", err
+		}
+		sets := make([]string, len(names))
+		for i := range names {
+			sets[i] = names[i] + " = " + values[i]
+		}
+		return "UPDATE " + tableSQL + " SET " + strings.Join(sets, ", ") + " WHERE " + where, nil
+	case "delete":
+		where, err := mysqlMutationIdentity(columns, identityColumns, mutation.Identity)
+		if err != nil {
+			return "", err
+		}
+		return "DELETE FROM " + tableSQL + " WHERE " + where, nil
+	default:
+		return "", fmt.Errorf("unsupported MySQL mutation %q", mutation.Action)
+	}
+}
+
+func mysqlMutationValues(columns map[string]mysqlBrowseColumn, values map[string]interface{}) ([]string, []string, error) {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	names := make([]string, 0, len(keys))
+	expressions := make([]string, 0, len(keys))
+	for _, key := range keys {
+		column, ok := columns[strings.ToLower(strings.TrimSpace(key))]
+		if !ok {
+			return nil, nil, fmt.Errorf("unknown MySQL column %q", key)
+		}
+		quoted, err := mysqlIdentifier(column.Name)
+		if err != nil {
+			return nil, nil, err
+		}
+		value, err := mysqlValueExpression(values[key])
+		if err != nil {
+			return nil, nil, fmt.Errorf("column %q: %w", column.Name, err)
+		}
+		names = append(names, quoted)
+		expressions = append(expressions, value)
+	}
+	return names, expressions, nil
+}
+
+func mysqlMutationIdentity(columns map[string]mysqlBrowseColumn, identityColumns []string, identity map[string]interface{}) (string, error) {
+	if len(identityColumns) == 0 {
+		return "", fmt.Errorf("MySQL row identity is unavailable")
+	}
+	provided := make(map[string]interface{}, len(identity))
+	for key, value := range identity {
+		provided[strings.ToLower(strings.TrimSpace(key))] = value
+	}
+	if len(provided) != len(identityColumns) {
+		return "", fmt.Errorf("MySQL row identity does not match the stable key")
+	}
+	parts := make([]string, 0, len(identityColumns))
+	for _, identityColumn := range identityColumns {
+		column, ok := columns[strings.ToLower(identityColumn)]
+		if !ok {
+			return "", fmt.Errorf("MySQL identity column %q is unavailable", identityColumn)
+		}
+		value, ok := provided[strings.ToLower(identityColumn)]
+		if !ok || value == nil {
+			return "", fmt.Errorf("MySQL identity column %q is missing", identityColumn)
+		}
+		quoted, err := mysqlIdentifier(column.Name)
+		if err != nil {
+			return "", err
+		}
+		expression, err := mysqlValueExpression(value)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, quoted+" = "+expression)
+	}
+	return strings.Join(parts, " AND "), nil
+}
+
+func (h *Handler) executeAffectedRows(ctx context.Context, statement string) (int64, error) {
+	result, err := h.query(ctx, "/* taskdeck_mutation */ "+statement+"; SELECT ROW_COUNT() AS affected_rows", 1)
+	if err != nil {
+		return 0, err
+	}
+	if len(result.Rows) != 1 {
+		return 0, fmt.Errorf("MySQL mutation did not return affected row count")
+	}
+	index, err := resultColumnIndex(result, "affected_rows")
+	if err != nil {
+		return 0, err
+	}
+	value := strings.TrimSpace(resultCellString(result.Rows[0][index]))
+	affected, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse MySQL affected row count %q: %w", value, err)
+	}
+	return affected, nil
 }
 
 func (h *Handler) browseRows(ctx context.Context, payload dbadapter.BrowseRowsPayload) (interface{}, *dbadapter.ProtocolError) {
