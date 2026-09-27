@@ -155,6 +155,15 @@ func TestSharedReleaseAcceptanceHTTPSLoginAndWSSAuthorization(t *testing.T) {
 	if err := store.SeedSystemRoles(ctx); err != nil {
 		t.Fatal(err)
 	}
+	member, err := store.ProjectMember(ctx, principal.ProjectID, principal.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	member.RoleID = "system:developer"
+	member.UpdatedAt = time.Now().UTC()
+	if err := store.UpsertProjectMember(ctx, member); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.SetMemberPermission(ctx, identity.MemberPermission{
 		ProjectID: principal.ProjectID,
 		UserID: principal.UserID,
