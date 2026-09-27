@@ -426,3 +426,63 @@ func TestDatabaseWorkbenchKeepsIndependentObjectTabs(t *testing.T) {
 		}
 	}
 }
+
+
+func TestDatabaseWorkbenchTabContextMenuCloseActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"button.oncontextmenu=event=>",
+		"showWorkbenchTabMenu",
+		"Close this",
+		"Close all but this",
+		"Close all right tabs",
+		"Close all left tabs",
+		"closeWorkbenchPages",
+		"Discard unsaved database grid changes in ",
+		"page.mode==='query'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing tab context close action %q", want)
+		}
+	}
+}
+
+func TestDatabaseWorkbenchRowSelectionAndCopyDataOptions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"selectedRows:new Set()",
+		"selectionAnchor:null",
+		"function selectGridRow",
+		"event.ctrlKey||event.metaKey",
+		"event.shiftKey&&Number.isInteger(state.selectionAnchor)",
+		"function toggleSelectAllPage",
+		"data-select-all",
+		"Select all rows on this page",
+		"db-selected",
+		"Copy Data…",
+		"TXT / tab-separated",
+		"CSV",
+		"JSON",
+		"Include column names",
+		"Selected rows (",
+		"Current page",
+		"All pages",
+		"const MAX_COPY_ALL_ROWS=100000",
+		"limit:1000",
+		"sort:state.sort",
+		"filters:state.filters",
+		"Copy all pages uses saved database values and excludes unsaved grid changes.",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing row-selection/copy behavior %q", want)
+		}
+	}
+}
