@@ -5,6 +5,8 @@ let panel=null;
 let content=null;
 let localSettings={selected_cwd:'.',custom_dirs:[]};
 let sshProfiles=[];
+let dbAdapters=[];
+let dbProfiles=[];
 
 const style=document.createElement('style');
 style.textContent=`
@@ -68,12 +70,16 @@ function authLabel(profile){
 }
 
 async function loadData(){
-  const [local,ssh]=await Promise.all([
+  const [local,ssh,adapters,databases]=await Promise.all([
     app.jsonFetch('/api/config/terminal-cwds'),
-    app.jsonFetch('/api/ssh/profiles')
+    app.jsonFetch('/api/ssh/profiles'),
+    app.jsonFetch('/api/db/adapters'),
+    app.jsonFetch('/api/db/profiles')
   ]);
   localSettings=normalizeLocalSettings(local);
   sshProfiles=Array.isArray(ssh?.profiles)?ssh.profiles:[];
+  dbAdapters=Array.isArray(adapters?.adapters)?adapters.adapters:[];
+  dbProfiles=Array.isArray(databases?.profiles)?databases.profiles:[];
   render();
 }
 
@@ -113,6 +119,41 @@ async function testSSH(profile,button){
   }finally{
     if(button?.isConnected)button.disabled=false;
   }
+}
+
+async function openDatabase(profile){
+  const api=globalThis.TaskMenuDatabase;
+  if(typeof api?.openProfile!=='function')throw new Error('Database workspace is unavailable');
+  await api.openProfile(profile);
+}
+
+async function testDatabase(profile,button){
+  const api=globalThis.TaskMenuDatabase;
+  if(typeof api?.testProfile!=='function')throw new Error('Database workspace is unavailable');
+  if(button)button.disabled=true;
+  try{
+    await api.testProfile(profile);
+    if(button){
+      const old=button.textContent;
+      button.textContent='✓';
+      button.title='Database connection succeeded';
+      setTimeout(()=>{if(button.isConnected){button.textContent=old;button.title='Test connection';}},1400);
+    }
+  }finally{
+    if(button?.isConnected)button.disabled=false;
+  }
+}
+
+function databaseAdapter(profile){
+  return dbAdapters.find(adapter=>adapter.id===profile?.adapter_id)||null;
+}
+
+function databaseEndpoint(profile){
+  const host=profile?.host||'127.0.0.1';
+  const port=Number(profile?.port)||3306;
+  const database=profile?.database?' / '+profile.database:'';
+  const mode=profile?.read_only?'read-only':'read/write';
+  return host+':'+port+database+' · '+mode;
 }
 
 async function saveLocalSettings(next){
@@ -180,6 +221,14 @@ function field(form,labelText,name,{type='text',value='',wide=false,placeholder=
   }
   input.name=name;input.value=value??'';if(placeholder)input.placeholder=placeholder;
   wrap.append(label,input);form.append(wrap);
+  return {wrap,input};
+}
+
+function checkboxField(form,labelText,name,checked=false,{wide=false}={}){
+  const wrap=document.createElement('div');wrap.className='task-connection-field'+(wide?' wide':'');
+  const label=document.createElement('label');label.style.display='flex';label.style.alignItems='center';label.style.gap='7px';label.style.opacity='1';
+  const input=document.createElement('input');input.type='checkbox';input.name=name;input.checked=Boolean(checked);input.style.width='auto';
+  const text=document.createElement('span');text.textContent=labelText;label.append(input,text);wrap.append(label);form.append(wrap);
   return {wrap,input};
 }
 
@@ -257,6 +306,77 @@ async function deleteProfile(profile){
   await loadData();
 }
 
+function openDatabaseProfileDialog(profile=null){
+  const editing=Boolean(profile?.id);
+  if(!editing&&!dbAdapters.length)throw new Error('No database adapter is available on this server');
+  const dialog=document.createElement('div');dialog.className='task-connection-dialog';
+  const card=document.createElement('div');card.className='task-connection-dialog-card';
+  const title=document.createElement('h3');title.textContent=editing?'Edit database profile':'Add database profile';
+  const form=document.createElement('form');form.className='task-connection-form';
+
+  const adapterOptions=dbAdapters.map(adapter=>[adapter.id,adapter.name||adapter.id]);
+  if(profile?.adapter_id&&!adapterOptions.some(option=>option[0]===profile.adapter_id))adapterOptions.unshift([profile.adapter_id,profile.adapter_id+' (unavailable)']);
+  const adapter=field(form,'Adapter','adapter_id',{value:profile?.adapter_id||dbAdapters[0]?.id||'',options:adapterOptions});
+  adapter.input.value=profile?.adapter_id||dbAdapters[0]?.id||'';
+  const name=field(form,'Name','name',{value:profile?.name||''});
+  const host=field(form,'Host','host',{value:profile?.host||'127.0.0.1'});
+  const port=field(form,'Port','port',{type:'number',value:String(profile?.port||3306)});
+  const username=field(form,'Username','username',{value:profile?.username||''});
+  const database=field(form,'Database','database',{value:profile?.database||''});
+  const secret=field(form,editing&&profile?.has_secret?'Password (leave blank to keep saved value)':'Password','secret',{type:'password',wide:true});
+  const readOnly=checkboxField(form,'Read-only connection','read_only',editing?Boolean(profile?.read_only):true,{wide:true});
+  const clearSecret=editing&&profile?.has_secret?checkboxField(form,'Clear saved password','clear_secret',false,{wide:true}):null;
+  const charset=field(form,'Charset','charset',{value:profile?.options?.charset||'utf8mb4'});
+  const timeout=field(form,'Connect timeout (seconds)','connect_timeout_seconds',{type:'number',value:profile?.options?.connect_timeout_seconds||'10'});
+
+  const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
+  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>closeDialog(dialog);
+  const save=document.createElement('button');save.type='submit';save.className='task-connection-primary';save.textContent=editing?'Save':'Add profile';
+  actions.append(cancel,save);form.append(actions);
+  card.append(title,form);dialog.append(card);document.body.append(dialog);
+  name.input.focus();
+
+  dialog.addEventListener('pointerdown',event=>{if(event.target===dialog)closeDialog(dialog);});
+  dialog.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();closeDialog(dialog);}});
+  form.onsubmit=async event=>{
+    event.preventDefault();save.disabled=true;
+    try{
+      const options={};
+      if(charset.input.value.trim())options.charset=charset.input.value.trim();
+      if(timeout.input.value.trim())options.connect_timeout_seconds=timeout.input.value.trim();
+      const payload={
+        name:name.input.value,
+        adapter_id:adapter.input.value,
+        transport:'direct',
+        host:host.input.value,
+        port:Number(port.input.value)||3306,
+        username:username.input.value,
+        database:database.input.value,
+        read_only:readOnly.input.checked,
+        options
+      };
+      if(secret.input.value!=='')payload.secret=secret.input.value;
+      else if(clearSecret?.input.checked)payload.secret='';
+      await app.jsonFetch(editing?'/api/db/profiles/'+encodeURIComponent(profile.id):'/api/db/profiles',{
+        method:editing?'PUT':'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(payload)
+      });
+      closeDialog(dialog);
+      await loadData();
+      try{await globalThis.TaskMenuDatabase?.refreshProfiles?.();}catch{}
+    }catch(error){app.showError(error);}
+    finally{if(save.isConnected)save.disabled=false;}
+  };
+}
+
+async function deleteDatabaseProfile(profile){
+  if(!confirm('Delete database profile "'+profile.name+'"?'))return;
+  await app.jsonFetch('/api/db/profiles/'+encodeURIComponent(profile.id),{method:'DELETE'});
+  await loadData();
+  try{await globalThis.TaskMenuDatabase?.refreshProfiles?.();}catch{}
+}
+
 function section(titleText,onAdd){
   const box=document.createElement('div');box.className='task-connection-section';
   const head=document.createElement('div');head.className='task-connection-section-head';
@@ -307,6 +427,26 @@ function render(){
     }
   }
   content.append(ssh);
+
+  const databases=section('DATABASES',dbAdapters.length?()=>openDatabaseProfileDialog():null);
+  if(!dbProfiles.length){
+    const empty=document.createElement('div');empty.className='task-connection-empty';
+    empty.textContent=dbAdapters.length?'No database profiles yet':'No database adapter available';
+    databases.append(empty);
+  }else{
+    for(const profile of dbProfiles){
+      const adapter=databaseAdapter(profile);
+      const adapterName=adapter?.name||profile.adapter_id||'database';
+      databases.append(connectionRow(profile.name,databaseEndpoint(profile),()=>openDatabase(profile),{
+        onTest:button=>testDatabase(profile,button),
+        onEdit:()=>openDatabaseProfileDialog(profile),
+        onDelete:()=>deleteDatabaseProfile(profile)
+      }));
+      const last=databases.lastElementChild?.querySelector('.task-connection-meta');
+      if(last)last.title=adapterName;
+    }
+  }
+  content.append(databases);
 }
 
 function install(){
