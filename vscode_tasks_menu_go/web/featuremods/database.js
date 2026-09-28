@@ -266,6 +266,10 @@ function queryScriptTooltip(source){
   return String(source.name||'');
 }
 
+function notifyQueryStateChanged(view){
+  globalThis.TaskMenuDatabaseWorkbench?.queryStateChanged?.(view);
+}
+
 function setQueryScriptIdentity(view,source){
   view.scriptSource=source||null;
   if(source?.name)view.scriptName=source.name;
@@ -273,6 +277,7 @@ function setQueryScriptIdentity(view,source){
     label:source.name,
     tooltip:queryScriptTooltip(source)
   });
+  notifyQueryStateChanged(view);
 }
 
 async function saveSQLScriptToExistingSource(view){
@@ -484,6 +489,7 @@ function setQueryEditorText(view,text,{focus=true}={}){
     view.queryCM.dispatch({changes:{from:0,to:length,insert:value},selection:{anchor:value.length}});
   }
   if(view?.editor)view.editor.value=value;
+  notifyQueryStateChanged(view);
   if(focus)focusQueryEditor(view);
 }
 
@@ -515,6 +521,7 @@ function queryEditorExtensions(view){
         const text=update.state.doc.toString();
         if(view.editor)view.editor.value=text;
         scheduleQuerySchemaReferences(view,text);
+        notifyQueryStateChanged(view);
       }
     }));
   }
@@ -1586,17 +1593,21 @@ function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValu
   run.onclick=()=>executeQuery(view).catch(app.showError);
   openSQL.onclick=()=>openSQLScript(view).catch(app.showError);
   saveSQL.onclick=()=>saveSQLScript(view).catch(app.showError);
-  if(!view.queryCM)editor.addEventListener('keydown',event=>{
-    if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();executeQuery(view).catch(app.showError);}
-  });
+  if(!view.queryCM){
+    editor.addEventListener('keydown',event=>{
+      if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();executeQuery(view).catch(app.showError);}
+    });
+    editor.addEventListener('input',()=>notifyQueryStateChanged(view));
+  }
+  maxRows.addEventListener('change',()=>notifyQueryStateChanged(view));
   return query;
 }
 
-function createAdditionalQueryView(root,{initialText='',scriptName='query.sql'}={}){
+function createAdditionalQueryView(root,{initialText='',scriptName='query.sql',maxRowsValue=''}={}){
   const child=Object.create(root);
   child.workbenchRoot=root;
   const text=initialText||defaultDatabaseQueryText(root.meta.adapter_kind);
-  setupQueryPanel(child,{initialText:text,scriptName,maxRowsValue:root.maxRows?.value||'100'});
+  setupQueryPanel(child,{initialText:text,scriptName,maxRowsValue:maxRowsValue||root.maxRows?.value||'100'});
   return child;
 }
 
