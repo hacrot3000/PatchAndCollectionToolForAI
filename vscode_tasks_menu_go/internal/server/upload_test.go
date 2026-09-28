@@ -83,8 +83,8 @@ func TestUploadDestinationBrowserUsesWorkspaceTreeAndKeepsManualPathInput(t *tes
 		"else if(event.key==='Escape')",
 		"loadDestinationDirectory(pathValue",
 		"toggleDestinationDirectory(fullPath)",
-		"async function chooseWorkspaceDirectory(options={})",
-		"globalThis.TaskMenuDirectoryBrowser={choose:chooseWorkspaceDirectory}",
+		"function chooseWorkspaceDirectory(options={})",
+		"globalThis.TaskMenuDirectoryBrowser={choose:chooseWorkspaceDirectory,chooseFile:chooseWorkspaceFile}",
 		"title:'Choose upload destination'",
 	} {
 		if !strings.Contains(js, want) {
@@ -93,5 +93,27 @@ func TestUploadDestinationBrowserUsesWorkspaceTreeAndKeepsManualPathInput(t *tes
 	}
 	if strings.Contains(js, "window.prompt('Destination directory relative to the workspace:'") {
 		t.Fatal("upload destination must use the directory browser instead of window.prompt")
+	}
+}
+
+
+func TestUploadDirectoryBrowserSupportsFileSaveMode(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/upload.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"destinationFileBox=document.createElement('div')",
+		"destinationFilename=document.createElement('input')",
+		"destinationMode='file'",
+		"function chooseWorkspaceFile(options={})",
+		"openWorkspaceBrowser(options,'file')",
+		"closeDestinationBrowser({dir,name})",
+		"globalThis.TaskMenuDirectoryBrowser={choose:chooseWorkspaceDirectory,chooseFile:chooseWorkspaceFile}",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("upload.js missing file-save browser behavior %q", want)
+		}
 	}
 }
