@@ -661,3 +661,71 @@ func TestDatabaseQueryResultsSupportRowSelectionAndCopyMenus(t *testing.T) {
 		}
 	}
 }
+
+
+func TestDatabaseQueryEditorUsesVendoredCodeMirrorAutocomplete(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const cmFactory=globalThis.cm6?.load?.()||null",
+		"function relationalQueryEditor(view)",
+		"view?.meta?.adapter_kind==='mysql'||view?.meta?.adapter_kind==='sqlite'",
+		"function queryEditorExtensions(view)",
+		"globalThis.cm6.sqlCompletion({dialect,...schema,upperCaseKeywords:true})",
+		"function initQueryEditor(view)",
+		"cmFactory.textarea(view.editor",
+		"view.queryCM.contentDOM.addEventListener('keydown'",
+		"event.key==='Enter'",
+		"function queryEditorText(view)",
+		"const statement=queryEditorText(view).trim()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database.js missing CodeMirror query autocomplete behavior %q", want)
+		}
+	}
+}
+
+func TestDatabaseQueryAutocompleteLoadsTablesAndColumnsFromSchema(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const QUERY_SCHEMA_CONCURRENCY=4",
+		"function queryCompletionSchema(view)",
+		"view.querySchemaCache?.get(catalog+'\\u0000'+name)||[]",
+		"defaultSchema:catalog",
+		"async function warmQuerySchema(view)",
+		"object?.kind==='table'||object?.kind==='view'",
+		"'describe_object'",
+		"detail?.columns",
+		"warmQuerySchema(view).catch",
+		"view.querySchemaCache?.clear?.()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database.js missing schema autocomplete behavior %q", want)
+		}
+	}
+}
+
+func TestDatabaseWorkbenchRoutesGeneratedSQLIntoQueryEditorAPI(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"typeof database.setQueryText==='function'",
+		"database.setQueryText(view,text,{focus:false})",
+		"typeof database.focusQuery==='function'",
+		"database.focusQuery(view)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing CodeMirror query routing %q", want)
+		}
+	}
+}
