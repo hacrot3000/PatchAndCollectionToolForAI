@@ -61,7 +61,7 @@ func TestSQLiteBuiltinManifest(t *testing.T) {
 	if manifest.Command != "/opt/taskdeck" || strings.Join(manifest.Args, " ") != "--db-adapter sqlite" {
 		t.Fatalf("process boundary=%q %#v", manifest.Command, manifest.Args)
 	}
-	if !manifest.Capabilities.Execute || manifest.Capabilities.Transactions {
+	if !manifest.Capabilities.Execute || !manifest.Capabilities.ImportSQL || manifest.Capabilities.Transactions {
 		t.Fatalf("capabilities=%+v", manifest.Capabilities)
 	}
 }
