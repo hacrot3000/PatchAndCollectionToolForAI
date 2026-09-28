@@ -329,6 +329,29 @@ async function saveSQLScriptToClient(view){
   if(saved)view.scriptName=saved;
 }
 
+async function saveTextWithLocation(titleText,suggestedName,text,{description='Text file',mime='text/plain;charset=utf-8',extensions=['.txt'],hostFileLabel='File name:'}={}){
+  const location=await chooseScriptLocation(titleText);
+  if(!location)return null;
+  if(location==='host'){
+    const browser=globalThis.TaskMenuDirectoryBrowser;
+    if(typeof browser?.chooseFile!=='function')throw new Error('Host file browser is unavailable');
+    const target=await browser.chooseFile({
+      title:titleText+' on host',
+      label:'Destination directory relative to the workspace:',
+      fileLabel:hostFileLabel,
+      fileName:suggestedName,
+      confirm:'Save here',
+      initial:'.'
+    });
+    if(target===null)return null;
+    const name=String(target.name||suggestedName).trim()||suggestedName;
+    await uploadTextToHost(name,text,String(target.dir||'.').trim()||'.',mime);
+    return {location:'host',name};
+  }
+  const name=await saveTextToClient(suggestedName,text,{description,mime,extensions});
+  return name?{location:'client',name}:null;
+}
+
 async function saveSQLScript(view){
   const location=await chooseScriptLocation('Save SQL script');
   if(location==='host')return saveSQLScriptToHost(view);
@@ -900,24 +923,12 @@ async function exportQueryData(view,result){
     save.disabled=true;cancel.disabled=true;
     try{
       dialog.remove();
-      const location=await chooseScriptLocation('Export query result');
-      if(!location)return;
-      if(location==='host'){
-        const browser=globalThis.TaskMenuDirectoryBrowser;
-        if(typeof browser?.chooseFile!=='function')throw new Error('Host file browser is unavailable');
-        const target=await browser.chooseFile({
-          title:'Export query result on host',
-          label:'Destination directory relative to the workspace:',
-          fileLabel:'Export file name:',
-          fileName:suggestedName,
-          confirm:'Export here',
-          initial:'.'
-        });
-        if(target===null)return;
-        await uploadTextToHost(String(target.name||suggestedName),text,String(target.dir||'.').trim()||'.',mime);
-        return;
-      }
-      await saveTextToClient(suggestedName,text,{description:'Database query export',mime,extensions:[ext]});
+      await saveTextWithLocation('Export query result',suggestedName,text,{
+        description:'Database query export',
+        mime,
+        extensions:[ext],
+        hostFileLabel:'Export file name:'
+      });
     }finally{
       if(save.isConnected){save.disabled=false;cancel.disabled=false;}
     }
@@ -1423,6 +1434,7 @@ globalThis.TaskMenuDatabase={
   getQueryText:queryEditorText,
   setQueryText:setQueryEditorText,
   focusQuery:focusQueryEditor,
+  saveTextWithLocation,
   restoreSessions:restoreDatabaseSessions,
   get views(){return dbViews;}
 };
