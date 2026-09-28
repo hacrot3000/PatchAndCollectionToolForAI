@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,7 +17,11 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/dbsession"
 )
 
-const databaseOpenTimeout = 20 * time.Second
+const (
+	databaseOpenTimeout = 20 * time.Second
+	databaseImportTimeout = 30 * time.Minute
+	databaseImportMaxBytes int64 = 2 << 30
+)
 
 func (s *Server) databaseSessionManager() (*dbsession.Manager, error) {
 	if s.DBSessions == nil {
@@ -170,6 +177,10 @@ func (s *Server) dbSessionItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(parts) == 2 && parts[1] == "import" && r.Method == http.MethodPost {
+		s.dbSessionImportSQL(w, r, manager, id)
+		return
+	}
 	if len(parts) != 2 || parts[1] != "request" || r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
@@ -208,6 +219,115 @@ func (s *Server) dbSessionItem(w http.ResponseWriter, r *http.Request) {
 		"operation": response.Operation,
 		"result":    response.Payload,
 	})
+}
+
+func (s *Server) dbSessionImportSQL(w http.ResponseWriter, r *http.Request, manager *dbsession.Manager, id string) {
+	meta, err := manager.Get(id)
+	if errors.Is(err, dbsession.ErrSessionNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var (
+		path    string
+		catalog string
+		cleanup func()
+	)
+	contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		r.Body = http.MaxBytesReader(w, r.Body, databaseImportMaxBytes+(1<<20))
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			http.Error(w, "invalid or oversized SQL import upload", http.StatusBadRequest)
+			return
+		}
+		if r.MultipartForm != nil {
+			defer r.MultipartForm.RemoveAll()
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			http.Error(w, "SQL import file is required", http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+		if !sqlScriptExtensionAllowed(header.Filename) {
+			http.Error(w, "SQL import file must end in .sql or .txt", http.StatusUnsupportedMediaType)
+			return
+		}
+		temp, err := os.CreateTemp("", "taskdeck-sql-import-*.sql")
+		if err != nil {
+			http.Error(w, "cannot prepare SQL import", http.StatusInternalServerError)
+			return
+		}
+		_ = temp.Chmod(0o600)
+		tempPath := temp.Name()
+		cleanup = func() { _ = os.Remove(tempPath) }
+		defer cleanup()
+		written, copyErr := io.Copy(temp, io.LimitReader(file, databaseImportMaxBytes+1))
+		closeErr := temp.Close()
+		if copyErr != nil || closeErr != nil {
+			http.Error(w, "cannot stage SQL import upload", http.StatusInternalServerError)
+			return
+		}
+		if written > databaseImportMaxBytes {
+			http.Error(w, "SQL import exceeds 2 GiB limit", http.StatusRequestEntityTooLarge)
+			return
+		}
+		path = tempPath
+		catalog = strings.TrimSpace(r.FormValue("catalog"))
+	} else {
+		var req struct {
+			HostPath string `json:"host_path"`
+			Catalog  string `json:"catalog,omitempty"`
+		}
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
+			http.Error(w, "invalid SQL import request", http.StatusBadRequest)
+			return
+		}
+		if !sqlScriptExtensionAllowed(req.HostPath) {
+			http.Error(w, "SQL import file must end in .sql or .txt", http.StatusUnsupportedMediaType)
+			return
+		}
+		resolved, err := s.resolveProjectPath(req.HostPath, false, false)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		info, err := os.Stat(resolved)
+		if err != nil || !info.Mode().IsRegular() {
+			http.Error(w, "SQL import file is unavailable", http.StatusNotFound)
+			return
+		}
+		if info.Size() > databaseImportMaxBytes {
+			http.Error(w, "SQL import exceeds 2 GiB limit", http.StatusRequestEntityTooLarge)
+			return
+		}
+		path = resolved
+		catalog = strings.TrimSpace(req.Catalog)
+	}
+	requestCtx, cancel := context.WithTimeout(r.Context(), databaseImportTimeout)
+	response, err := manager.Request(requestCtx, id, dbadapter.OpImportSQL, dbadapter.ImportSQLPayload{Path: path, Catalog: catalog})
+	cancel()
+	if err != nil {
+		s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: string(dbadapter.OpImportSQL), ProfileID: meta.ProfileID, SessionID: id, Success: false})
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: string(dbadapter.OpImportSQL), ProfileID: meta.ProfileID, SessionID: id, Success: true})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"result": response.Payload})
+}
+
+func sqlScriptExtensionAllowed(name string) bool {
+	switch strings.ToLower(filepath.Ext(strings.TrimSpace(name))) {
+	case ".sql", ".txt":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeBrowserDBOperation(operation dbadapter.Operation, raw json.RawMessage) (interface{}, error) {
