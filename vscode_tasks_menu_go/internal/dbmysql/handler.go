@@ -149,6 +149,7 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 		if err != nil {
 			return nil, mysqlProtocolError("QUERY_FAILED", err)
 		}
+		h.attachEditableSelectInfo(ctx, config, statement, &result)
 		return result, nil
 	default:
 		return nil, &dbadapter.ProtocolError{
