@@ -92,3 +92,43 @@ func TestBoundedSSHCommandOutputTruncates(t *testing.T) {
 		t.Fatalf("output=%q", got)
 	}
 }
+
+
+func TestSSHConnectionTestAPIUsesUnsavedProfileWithoutPersistingIt(t *testing.T) {
+	s, store := newSSHConnectionTestServer(t)
+	writeSSHStub(t, `
+case "$1" in
+  -V) echo "OpenSSH_fixture" >&2; exit 0 ;;
+esac
+exit 0
+`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/ssh/test", strings.NewReader(`{
+		"profile":{
+			"name":"",
+			"host":"preview.example.com",
+			"port":22,
+			"username":"preview",
+			"auth_method":"password",
+			"secret":"temporary-password"
+		}
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `"ok":true`) || !strings.Contains(body, "SSH connection succeeded") {
+		t.Fatalf("unexpected response: %s", body)
+	}
+
+	profiles, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profiles) != 1 || profiles[0].ID != "prod" {
+		t.Fatalf("unsaved SSH test mutated profile store: %#v", profiles)
+	}
+}
