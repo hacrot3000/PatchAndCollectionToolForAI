@@ -286,6 +286,15 @@ func TestChooseMySQLIdentityUsesFirstNonNullUniqueKey(t *testing.T) {
 	}
 }
 
+func TestChooseSelectedMySQLIdentityUsesAlternateSelectedUniqueKey(t *testing.T) {
+	candidates := [][]string{{"id"}, {"tenant_id", "external_id"}}
+	resultIndex := map[string]int{"tenant_id": 0, "external_id": 1, "name": 2}
+	identity := chooseSelectedMySQLIdentity(candidates, resultIndex)
+	if len(identity) != 2 || identity[0] != "tenant_id" || identity[1] != "external_id" {
+		t.Fatalf("identity=%v", identity)
+	}
+}
+
 func TestMySQLTextExpressionDoesNotEmbedRawValue(t *testing.T) {
 	value := "db' OR 1=1 --"
 	expression := mysqlTextExpression(value)
