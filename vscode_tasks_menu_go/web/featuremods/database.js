@@ -5,6 +5,7 @@ const dbViews=new Map();
 let profilesByID=new Map();
 const cmFactory=globalThis.cm6?.load?.()||null;
 const QUERY_SCHEMA_CONCURRENCY=4;
+const SQL_SCRIPT_EDIT_LIMIT=2<<20;
 
 const style=document.createElement('style');
 style.textContent=`
@@ -31,6 +32,20 @@ style.textContent=`
 .db-query-tools .db-run{background:#244c70;border-color:#3f79a8}
 .db-query-tools label{font-size:10px;opacity:.65}
 .db-query-tools input{width:72px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:6px}
+.db-script-dialog{position:fixed;inset:0;z-index:16000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.58);padding:18px}
+.db-script-card{width:min(760px,96vw);max-height:90vh;display:flex;flex-direction:column;background:#171a20;border:1px solid #48515f;border-radius:10px;box-shadow:0 18px 55px rgba(0,0,0,.5);overflow:hidden}
+.db-script-head{display:flex;align-items:center;gap:8px;padding:11px 13px;border-bottom:1px solid #30343b}.db-script-head strong{flex:1}
+.db-script-body{padding:12px;min-height:0;overflow:auto}
+.db-script-actions{display:flex;justify-content:flex-end;gap:8px;padding:10px 12px;border-top:1px solid #30343b}
+.db-script-location{display:grid;grid-template-columns:1fr 1fr;gap:10px}.db-script-location button{padding:18px 12px;text-align:left}
+.db-script-browser-path{font:11px ui-monospace,monospace;opacity:.7;margin-bottom:8px}
+.db-script-browser-list{border:1px solid #30343b;border-radius:6px;min-height:260px;max-height:55vh;overflow:auto}
+.db-script-browser-row{display:flex;width:100%;align-items:center;gap:8px;border:0;border-radius:0;background:transparent;text-align:left;padding:7px 9px}.db-script-browser-row:hover,.db-script-browser-row.selected{background:#27313d}
+.db-script-browser-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.db-script-browser-size{font-size:10px;opacity:.55}
+.db-import-warning{padding:9px 10px;border:1px solid #7b6332;background:#302814;border-radius:6px;margin-bottom:10px}
+.db-import-grid{display:grid;grid-template-columns:130px 1fr;gap:7px 10px;font-size:12px}.db-import-grid select{min-width:0}
+html[data-taskmenu-theme="light"] .db-script-card{background:#fff;border-color:#b9c0c8}
+html[data-taskmenu-theme="light"] .db-script-browser-row:hover,html[data-taskmenu-theme="light"] .db-script-browser-row.selected{background:#e8eef5}
 .db-query-editor{min-height:130px;height:32%;resize:vertical;background:#090c10;color:inherit;border:0;border-bottom:1px solid #30343b;padding:10px;font-family:ui-monospace,monospace;font-size:13px;line-height:1.45;outline:none}
 .db-query .codemirror{height:32%;min-height:130px;resize:vertical;overflow:hidden;border-bottom:1px solid #30343b;background:#090c10}
 .db-query .codemirror .cm-editor{height:100%;font-size:13px}
@@ -69,6 +84,166 @@ document.head.append(style);
 
 function profileFor(id){
   return profilesByID.get(String(id||''))||null;
+}
+
+function formatDBFileSize(value){
+  const size=Math.max(0,Number(value)||0);
+  if(size<1024)return size+' B';
+  if(size<1024*1024)return (size/1024).toFixed(size<10*1024?1:0)+' KiB';
+  if(size<1024*1024*1024)return (size/(1024*1024)).toFixed(size<10*1024*1024?1:0)+' MiB';
+  return (size/(1024*1024*1024)).toFixed(1)+' GiB';
+}
+
+function sqlScriptNameAllowed(name){
+  return /\.(sql|txt)$/i.test(String(name||'').trim());
+}
+
+function joinProjectPath(parent,name){
+  const base=String(parent||'').replace(/^\/+|\/+$/g,'');
+  return base?base+'/'+name:name;
+}
+
+function parentProjectPath(path){
+  const parts=String(path||'').split('/').filter(Boolean);
+  parts.pop();
+  return parts.join('/');
+}
+
+function createDBDialog(titleText){
+  const overlay=document.createElement('div');overlay.className='db-script-dialog';
+  const card=document.createElement('div');card.className='db-script-card';
+  const head=document.createElement('div');head.className='db-script-head';
+  const title=document.createElement('strong');title.textContent=titleText;
+  const close=document.createElement('button');close.type='button';close.textContent='×';
+  const body=document.createElement('div');body.className='db-script-body';
+  const actions=document.createElement('div');actions.className='db-script-actions';
+  head.append(title,close);card.append(head,body,actions);overlay.append(card);document.body.append(overlay);
+  const remove=()=>overlay.remove();close.onclick=remove;
+  overlay.onpointerdown=event=>{if(event.target===overlay)remove();};
+  overlay.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();remove();}});
+  return {overlay,card,body,actions,remove};
+}
+
+function chooseScriptLocation(titleText){
+  return new Promise(resolve=>{
+    const dialog=createDBDialog(titleText);
+    const grid=document.createElement('div');grid.className='db-script-location';
+    const host=document.createElement('button');host.type='button';host.innerHTML='<strong>Host</strong><br><small>Workspace on the TaskDeck server</small>';
+    const client=document.createElement('button');client.type='button';client.innerHTML='<strong>Client</strong><br><small>This browser / local computer</small>';
+    host.onclick=()=>{dialog.remove();resolve('host');};
+    client.onclick=()=>{dialog.remove();resolve('client');};
+    dialog.body.append(grid);grid.append(host,client);
+    const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>{dialog.remove();resolve(null);};
+    dialog.actions.append(cancel);
+  });
+}
+
+function chooseHostSQLScript(){
+  return new Promise(resolve=>{
+    const dialog=createDBDialog('Open SQL script from host');
+    const pathLine=document.createElement('div');pathLine.className='db-script-browser-path';
+    const list=document.createElement('div');list.className='db-script-browser-list';
+    dialog.body.append(pathLine,list);
+    let current='',selected=null;
+    const open=document.createElement('button');open.type='button';open.textContent='Open';open.disabled=true;
+    const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';
+    cancel.onclick=()=>{dialog.remove();resolve(null);};
+    open.onclick=()=>{if(selected){dialog.remove();resolve(selected);}};
+    dialog.actions.append(cancel,open);
+    const load=async pathValue=>{
+      current=pathValue||'';selected=null;open.disabled=true;pathLine.textContent=current||'. (workspace root)';
+      list.replaceChildren();
+      if(current){
+        const up=document.createElement('button');up.type='button';up.className='db-script-browser-row';
+        up.textContent='↰  ..';up.onclick=()=>load(parentProjectPath(current)).catch(app.showError);list.append(up);
+      }
+      const items=await app.jsonFetch('/api/project/tree?path='+encodeURIComponent(current));
+      for(const item of Array.isArray(items)?items:[]){
+        if(item?.type!=='dir'&&(item?.type!=='file'||!sqlScriptNameAllowed(item.name)))continue;
+        const full=joinProjectPath(current,item.name);
+        const row=document.createElement('button');row.type='button';row.className='db-script-browser-row';
+        const name=document.createElement('span');name.className='db-script-browser-name';name.textContent=(item.type==='dir'?'📁 ':'')+item.name;
+        const size=document.createElement('span');size.className='db-script-browser-size';size.textContent=item.type==='file'?formatDBFileSize(item.size):'';
+        row.append(name,size);
+        if(item.type==='dir')row.onclick=()=>load(full).catch(app.showError);
+        else{
+          row.onclick=()=>{selected={kind:'host',path:full,name:item.name,size:Number(item.size)||0};for(const el of list.querySelectorAll('.selected'))el.classList.remove('selected');row.classList.add('selected');open.disabled=false;};
+          row.ondblclick=()=>{dialog.remove();resolve({kind:'host',path:full,name:item.name,size:Number(item.size)||0});};
+        }
+        list.append(row);
+      }
+    };
+    load('').catch(error=>{dialog.remove();app.showError(error);resolve(null);});
+  });
+}
+
+function chooseClientSQLScript(){
+  return new Promise(resolve=>{
+    const input=document.createElement('input');input.type='file';input.accept='.sql,.txt,text/plain';input.hidden=true;document.body.append(input);
+    input.onchange=()=>{const file=input.files?.[0]||null;input.remove();resolve(file?{kind:'client',file,name:file.name,size:file.size}:null);};
+    input.addEventListener('cancel',()=>{input.remove();resolve(null);},{once:true});
+    input.click();
+  });
+}
+
+async function importSQLSource(view,source){
+  const dialog=createDBDialog('Import SQL script');
+  const warning=document.createElement('div');warning.className='db-import-warning';
+  warning.textContent=source.size>SQL_SCRIPT_EDIT_LIMIT
+    ?'This file is too large to open safely in the query editor. TaskDeck refused to load it and switched to streamed SQL import.'
+    :'Import executes the SQL script against the selected database. Review the source before continuing.';
+  const grid=document.createElement('div');grid.className='db-import-grid';
+  const add=(label,value)=>{const key=document.createElement('div');key.textContent=label;const val=document.createElement('div');if(value instanceof Node)val.append(value);else val.textContent=String(value);grid.append(key,val);};
+  add('Source',source.kind==='host'?'Host workspace':'Client computer');
+  add('File',source.name||source.path||'SQL script');
+  add('Size',formatDBFileSize(source.size));
+  const catalog=document.createElement('select');
+  for(const option of view.catalog.options){const item=document.createElement('option');item.value=option.value;item.textContent=option.textContent;catalog.append(item);}
+  catalog.value=view.catalog.value||catalog.value;add('Database',catalog);
+  const status=document.createElement('div');status.style.marginTop='10px';status.style.fontSize='11px';status.style.opacity='.75';
+  dialog.body.append(warning,grid,status);
+  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=dialog.remove;
+  const run=document.createElement('button');run.type='button';run.className='task-connection-primary';run.textContent='Import';
+  run.onclick=async()=>{
+    if(!confirm('Import this SQL script into '+(catalog.value||'the selected database')+'?'))return;
+    run.disabled=true;cancel.disabled=true;status.textContent='Importing…';
+    try{
+      const url='/api/db/sessions/'+encodeURIComponent(view.meta.id)+'/import';
+      let response;
+      if(source.kind==='client'){
+        const form=new FormData();form.append('catalog',catalog.value||'');form.append('file',source.file,source.name);
+        response=await app.fetchWithLease(url,{method:'POST',body:form,cache:'no-store'});
+      }else{
+        response=await app.fetchWithLease(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host_path:source.path,catalog:catalog.value||''}),cache:'no-store'});
+      }
+      if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
+      const payload=await response.json();const result=payload?.result||{};
+      status.textContent=(result.message||'SQL import completed')+(Number.isFinite(result.imported_bytes)?' · '+formatDBFileSize(result.imported_bytes):'');
+      run.textContent='Done';cancel.textContent='Close';cancel.disabled=false;run.disabled=true;
+      view.querySchemaCache?.clear?.();loadObjects(view).catch(app.showError);
+    }catch(error){status.textContent='Import failed';run.disabled=false;cancel.disabled=false;app.showError(error);}
+  };
+  dialog.actions.append(cancel,run);
+}
+
+async function openSQLScript(view){
+  const location=await chooseScriptLocation('Open SQL script');
+  if(!location)return;
+  const source=location==='host'?await chooseHostSQLScript():await chooseClientSQLScript();
+  if(!source)return;
+  if(!sqlScriptNameAllowed(source.name||source.path))throw new Error('Choose a .sql or .txt file');
+  if(source.size>SQL_SCRIPT_EDIT_LIMIT){await importSQLSource(view,source);return;}
+  let text;
+  if(source.kind==='client'){
+    text=await source.file.text();
+  }else{
+    const data=await app.jsonFetch('/api/project/file?path='+encodeURIComponent(source.path));
+    if(Number(data?.size)>SQL_SCRIPT_EDIT_LIMIT){source.size=Number(data.size)||source.size;await importSQLSource(view,source);return;}
+    text=String(data?.content??'');
+  }
+  if(text.includes('\x00'))throw new Error('SQL script contains NUL bytes and cannot be opened');
+  setQueryEditorText(view,text);
+  view.scriptName=source.name||'query.sql';
 }
 
 function relationalQueryEditor(view){
@@ -733,9 +908,10 @@ function attachDatabaseView(meta,activate){
   const query=document.createElement('div');query.className='db-query';
   const tools=document.createElement('div');tools.className='db-query-tools';
   const run=document.createElement('button');run.type='button';run.className='db-run';run.textContent='Run';
+  const openSQL=document.createElement('button');openSQL.type='button';openSQL.textContent='Open SQL';openSQL.hidden=!(meta.adapter_kind==='mysql'||meta.adapter_kind==='sqlite');
   const rowsLabel=document.createElement('label');rowsLabel.textContent='Max rows';
   const maxRows=document.createElement('input');maxRows.type='number';maxRows.min='1';maxRows.max='1000';maxRows.value='100';
-  tools.append(run,rowsLabel,maxRows);
+  tools.append(run,openSQL,rowsLabel,maxRows);
   const editor=document.createElement('textarea');editor.className='db-query-editor';editor.spellcheck=false;
   editor.value=meta.adapter_kind==='redis'
     ?'PING'
@@ -746,7 +922,7 @@ function attachDatabaseView(meta,activate){
   query.append(tools,editor,result);
   body.append(browser,query);pane.append(head,body);panes.append(pane);
 
-  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,editor,run,maxRows,result,objectData:[],querySchemaCache:new Map()};
+  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,editor,run,openSQL,maxRows,result,objectData:[],querySchemaCache:new Map(),scriptName:'query.sql'};
   dbViews.set(meta.id,view);
   initQueryEditor(view);
   globalThis.TaskMenuDatabaseWorkbench?.enhanceView?.(view);
@@ -755,6 +931,7 @@ function attachDatabaseView(meta,activate){
   refresh.onclick=()=>{resetQuerySchema();loadObjects(view).catch(app.showError);};
   catalog.onchange=()=>{resetQuerySchema();loadObjects(view).catch(app.showError);};
   run.onclick=()=>executeQuery(view).catch(app.showError);
+  openSQL.onclick=()=>openSQLScript(view).catch(app.showError);
   if(!view.queryCM)editor.addEventListener('keydown',event=>{
     if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();executeQuery(view).catch(app.showError);}
   });
