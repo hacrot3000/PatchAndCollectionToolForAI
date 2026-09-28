@@ -699,6 +699,8 @@ func TestDatabaseQueryAutocompleteLoadsTablesAndColumnsFromSchema(t *testing.T) 
 		"function queryCompletionSchema(view)",
 		"view.querySchemaCache?.get(catalog+'\\u0000'+name)||[]",
 		"defaultSchema:catalog",
+		"const defaultTable=uniqueReferenced.length===1?uniqueReferenced[0]:''",
+		"defaultTable",
 		"function queryReferencedObjectNames(statement)",
 		"function scheduleQuerySchemaReferences(view,text=queryEditorText(view))",
 		"setTimeout(()=>loadQuerySchemaReferences(view,text)",
