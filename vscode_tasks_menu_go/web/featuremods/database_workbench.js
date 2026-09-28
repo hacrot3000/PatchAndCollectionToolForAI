@@ -6,6 +6,11 @@ const adaptersByID=new Map();
 let adapterLoadPromise=null;
 let contextMenu=null;
 const CONTEXT_SUBMENU_CLOSE_DELAY_MS=240;
+const DB_BROWSER_WIDTH_STORAGE_KEY='taskdeck:database-browser-width';
+const DB_BROWSER_DEFAULT_WIDTH=280;
+const DB_BROWSER_MIN_WIDTH=160;
+const DB_BROWSER_MAX_WIDTH=720;
+const DB_BROWSER_NARROW_WIDTH=330;
 const QUERY_TABS_STORAGE_VERSION=1;
 const QUERY_TABS_SAVE_DELAY_MS=120;
 
@@ -22,6 +27,15 @@ style.textContent=`
 .db-workbench-add-query:hover{background:#203027}
 .db-workbench-panel{flex:1;min-height:0}
 .db-workbench-panel.hidden{display:none}
+.db-pane-body.db-browser-resizable{grid-template-columns:var(--db-browser-width,280px) 6px minmax(0,1fr)}
+.db-browser-resizer{width:6px;min-width:6px;cursor:col-resize;position:relative;background:transparent;touch-action:none}
+.db-browser-resizer::after{content:'';position:absolute;top:0;bottom:0;left:2px;width:1px;background:#30343b;opacity:.7}
+.db-browser-resizer:hover::after,.db-pane-body.db-browser-resizing .db-browser-resizer::after{left:1px;width:3px;background:#4b86b4;opacity:1}
+.db-pane-body.db-browser-resizing{user-select:none;cursor:col-resize}
+.db-browser.db-browser-narrow .db-browser-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px}
+.db-browser.db-browser-narrow .db-browser-head>select{grid-column:1;grid-row:1;width:100%}
+.db-browser.db-browser-narrow .db-browser-head>.db-browser-filter{grid-column:1;grid-row:2;width:100%;box-sizing:border-box}
+.db-browser.db-browser-narrow .db-browser-head>button{grid-column:2;grid-row:1 / span 2;align-self:stretch}
 .db-browser-filter{min-width:0;flex:1;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:5px 7px;font-size:11px}
 .db-data{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
 .db-data-tools{display:flex;align-items:center;gap:5px;flex-wrap:wrap;padding:6px 7px;border-bottom:1px solid #30343b}
@@ -83,6 +97,7 @@ html[data-taskmenu-theme="light"] .db-browser-filter,html[data-taskmenu-theme="l
 html[data-taskmenu-theme="light"] .db-data-grid th,html[data-taskmenu-theme="light"] .db-structure-table th{background:#e9eef3}
 html[data-taskmenu-theme="light"] .db-data-grid th.db-row-number,html[data-taskmenu-theme="light"] .db-data-grid td.db-row-number{background:#f2f5f8}
 html[data-taskmenu-theme="light"] .db-context-menu{background:#fff;border-color:#b9c0c8}
+html[data-taskmenu-theme="light"] .db-browser-resizer::after{background:#b9c0c8}
 `;
 document.head.append(style);
 
@@ -1624,6 +1639,77 @@ function createDataPanel(view){
   return panel;
 }
 
+function storedDatabaseBrowserWidth(){
+  const value=Number(localStorage.getItem(DB_BROWSER_WIDTH_STORAGE_KEY));
+  return Number.isFinite(value)&&value>=DB_BROWSER_MIN_WIDTH?value:DB_BROWSER_DEFAULT_WIDTH;
+}
+
+function clampDatabaseBrowserWidth(body,width){
+  const bodyWidth=Math.max(0,body?.getBoundingClientRect?.().width||0);
+  const dynamicMax=bodyWidth>0?Math.max(DB_BROWSER_MIN_WIDTH,Math.min(DB_BROWSER_MAX_WIDTH,bodyWidth-220)):DB_BROWSER_MAX_WIDTH;
+  return Math.max(DB_BROWSER_MIN_WIDTH,Math.min(dynamicMax,Number(width)||DB_BROWSER_DEFAULT_WIDTH));
+}
+
+function applyDatabaseBrowserWidth(body,width,{persist=false}={}){
+  const next=clampDatabaseBrowserWidth(body,width);
+  body.style.setProperty('--db-browser-width',next+'px');
+  if(persist)localStorage.setItem(DB_BROWSER_WIDTH_STORAGE_KEY,String(Math.round(next)));
+  return next;
+}
+
+function installDatabaseBrowserResizer(view,body,main){
+  const browser=view.objects?.closest('.db-browser');
+  if(!browser||!body||!main||body.querySelector(':scope > .db-browser-resizer'))return;
+  body.classList.add('db-browser-resizable');
+  const resizer=document.createElement('div');resizer.className='db-browser-resizer';resizer.title='Drag to resize table list · Double-click to reset';
+  body.insertBefore(resizer,main);
+
+  let current=applyDatabaseBrowserWidth(body,storedDatabaseBrowserWidth());
+  const updateNarrow=()=>browser.classList.toggle('db-browser-narrow',browser.getBoundingClientRect().width<=DB_BROWSER_NARROW_WIDTH);
+  const observer=typeof ResizeObserver==='function'?new ResizeObserver(updateNarrow):null;
+  observer?.observe(browser);updateNarrow();
+
+  let pointerID=null,startX=0,startWidth=0;
+  const finish=event=>{
+    if(pointerID===null)return;
+    if(event?.pointerId!==undefined&&event.pointerId!==pointerID)return;
+    current=applyDatabaseBrowserWidth(body,current,{persist:true});
+    body.classList.remove('db-browser-resizing');
+    try{resizer.releasePointerCapture(pointerID);}catch{}
+    pointerID=null;
+  };
+  resizer.addEventListener('pointerdown',event=>{
+    if(event.button!==0)return;
+    event.preventDefault();
+    pointerID=event.pointerId;startX=event.clientX;startWidth=browser.getBoundingClientRect().width;
+    body.classList.add('db-browser-resizing');
+    try{resizer.setPointerCapture(pointerID);}catch{}
+  });
+  resizer.addEventListener('pointermove',event=>{
+    if(pointerID===null||event.pointerId!==pointerID)return;
+    current=applyDatabaseBrowserWidth(body,startWidth+(event.clientX-startX));
+    updateNarrow();
+  });
+  resizer.addEventListener('pointerup',finish);
+  resizer.addEventListener('pointercancel',finish);
+  resizer.addEventListener('dblclick',event=>{
+    event.preventDefault();
+    current=applyDatabaseBrowserWidth(body,DB_BROWSER_DEFAULT_WIDTH,{persist:true});
+    updateNarrow();
+  });
+
+  if(typeof ResizeObserver==='function'){
+    const bodyObserver=new ResizeObserver(()=>{
+      current=applyDatabaseBrowserWidth(body,current);
+      updateNarrow();
+    });
+    bodyObserver.observe(body);
+    view.workbench.browserBodyObserver=bodyObserver;
+  }
+  view.workbench.browserResizeObserver=observer;
+  view.workbench.browserResizer=resizer;
+}
+
 function paneKeyboardShortcuts(view){
   const root=rootWorkbenchView(view);
   root.pane.addEventListener('keydown',event=>{
@@ -1666,6 +1752,7 @@ function enhanceView(view){
   };
   tabsBar.append(addQuery);
   main.prepend(tabsBar);
+  installDatabaseBrowserResizer(view,body,main);
 
   const saved=readSavedQueryTabs(view);
   const snapshots=saved?.queries?.length?saved.queries:[{
