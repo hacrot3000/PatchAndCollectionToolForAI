@@ -38,8 +38,8 @@ style.textContent=`
 .db-object-detail-primary{font-weight:700}
 .db-object-detail-muted{opacity:.62}
 .db-object-detail-sql{margin:3px 0 0;padding:6px;border:1px solid #30343b;border-radius:4px;white-space:pre-wrap;overflow-wrap:anywhere;font:10px ui-monospace,monospace}
-.db-query{min-width:0;display:flex;flex-direction:column}
-.db-query-tools{display:flex;align-items:center;gap:6px;padding:7px;border-bottom:1px solid #30343b}
+.db-query{min-width:0;display:flex;flex-direction:column;background:#090c10}
+.db-query-tools{display:flex;align-items:center;gap:6px;padding:7px;border-bottom:1px solid #30343b;background:#11151b}
 .db-query-tools .db-run{background:#244c70;border-color:#3f79a8}
 .db-query-tools label{font-size:10px;opacity:.65}
 .db-query-tools input{width:72px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:6px}
@@ -61,8 +61,9 @@ html[data-taskmenu-theme="light"] .db-script-card{background:#fff;border-color:#
 html[data-taskmenu-theme="light"] .db-script-browser-row:hover,html[data-taskmenu-theme="light"] .db-script-browser-row.selected{background:#e8eef5}
 .db-query-editor{min-height:130px;height:32%;resize:vertical;background:#090c10;color:inherit;border:0;border-bottom:1px solid #30343b;padding:10px;font-family:ui-monospace,monospace;font-size:13px;line-height:1.45;outline:none}
 .db-query .codemirror{height:32%;min-height:130px;resize:vertical;overflow:hidden;border-bottom:1px solid #30343b;background:#090c10}
-.db-query .codemirror .cm-editor{height:100%;font-size:13px}
-.db-query .codemirror .cm-scroller{overflow:auto;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
+.db-query .codemirror .cm-editor{height:100%;font-size:13px;background:#090c10}
+.db-query .codemirror .cm-scroller{overflow:auto;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:#090c10}
+.db-query .codemirror .cm-gutters{background:#090c10}
 .db-result-wrap{flex:1;min-height:0;overflow:auto}
 .db-query-result-tabs{display:flex;align-items:end;gap:2px;padding:4px 6px 0;border-bottom:1px solid #30343b;background:#11151b;overflow-x:auto;position:sticky;top:0;z-index:5}
 .db-query-result-tab{border-radius:5px 5px 0 0;border-bottom:0;padding:5px 8px;font-size:10px;opacity:.68;white-space:nowrap}
@@ -70,11 +71,13 @@ html[data-taskmenu-theme="light"] .db-script-browser-row:hover,html[data-taskmen
 .db-query-result-panels{min-height:0}
 .db-query-result-panel.hidden{display:none}
 .db-query-result-panel .db-result-status{top:30px}
+.db-query-result-panel .db-result-edit-tools{top:57px}
 .db-query-result-panel .db-result-table th{top:57px}
+.db-query-result-panel.has-edit-tools .db-result-table th{top:88px}
 .db-query-result-error{padding:12px;white-space:pre-wrap;font:11px ui-monospace,monospace;color:#ff9a9a}
 html[data-taskmenu-theme="light"] .db-query-result-tabs{background:#f2f5f8;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .db-query-result-tab.active{background:#fff}
-.db-result-status{position:sticky;top:0;z-index:2;padding:5px 8px;background:#11151b;border-bottom:1px solid #30343b;font-size:11px;opacity:.8}
+.db-result-status{position:sticky;top:0;z-index:3;padding:5px 8px;background:#11151b;border-bottom:1px solid #30343b;font-size:11px}
 .db-result-table{border-collapse:collapse;min-width:100%;font-family:ui-monospace,monospace;font-size:11px}
 .db-result-table th,.db-result-table td{border-right:1px solid #272d36;border-bottom:1px solid #272d36;padding:5px 7px;text-align:left;vertical-align:top;white-space:pre-wrap;max-width:520px}
 .db-result-table th{position:sticky;top:27px;background:#171c23;z-index:1}
@@ -85,7 +88,8 @@ html[data-taskmenu-theme="light"] .db-query-result-tab.active{background:#fff}
 .db-long-text-open{flex:0 0 auto;padding:0 6px;min-width:26px;height:22px;line-height:18px}
 .db-value-dialog-card{width:min(900px,96vw)}
 .db-value-dialog-area{width:100%;min-height:360px;max-height:70vh;resize:vertical;font-family:ui-monospace,monospace;font-size:12px}
-.db-result-edit-tools{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid #30343b;background:#11151b}
+.db-result-edit-tools{position:sticky;top:27px;z-index:2;display:flex;align-items:center;gap:6px;min-height:31px;box-sizing:border-box;padding:5px 8px;border-bottom:1px solid #30343b;background:#11151b}
+.has-edit-tools .db-result-table th{top:58px}
 .db-result-edit-tools button{font-size:11px}
 .db-result-edit-tools .db-result-apply{background:#244c70;border-color:#3f79a8}
 .db-result-edit-info{font-size:10px;opacity:.65;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -100,8 +104,8 @@ html[data-taskmenu-theme="light"] .db-query-result-tab.active{background:#fff}
 .db-result-table tr.db-selected td.db-query-dirty{background:#3c3920}
 .db-result-table tr.db-query-new-row td{background:#14261d}
 html[data-taskmenu-theme="light"] .db-pane{background:#fff}
-html[data-taskmenu-theme="light"] .db-query-editor,html[data-taskmenu-theme="light"] .db-query .codemirror{background:#f7f9fb}
-html[data-taskmenu-theme="light"] .db-result-status{background:#f2f5f8}
+html[data-taskmenu-theme="light"] .db-query,html[data-taskmenu-theme="light"] .db-query-editor,html[data-taskmenu-theme="light"] .db-query .codemirror,html[data-taskmenu-theme="light"] .db-query .codemirror .cm-editor,html[data-taskmenu-theme="light"] .db-query .codemirror .cm-scroller,html[data-taskmenu-theme="light"] .db-query .codemirror .cm-gutters{background:#f7f9fb}
+html[data-taskmenu-theme="light"] .db-query-tools,html[data-taskmenu-theme="light"] .db-result-status,html[data-taskmenu-theme="light"] .db-result-edit-tools{background:#f2f5f8}
 html[data-taskmenu-theme="light"] .db-result-table th{background:#e9eef3}
 `;
 document.head.append(style);
@@ -1229,6 +1233,7 @@ async function applyQueryChanges(view,result){
 
 function renderResult(view,result,elapsed,{preserveDirty=false}={}){
   view.result.replaceChildren();
+  view.result.classList.toggle('has-edit-tools',Boolean(result?.edit));
   view.queryResult=result;
   view.queryElapsed=elapsed;
   if(!preserveDirty||!(view.queryDirtyRows instanceof Map))view.queryDirtyRows=new Map();
