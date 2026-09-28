@@ -1027,3 +1027,26 @@ func TestDatabaseWorkbenchSupportsMultipleQueryTabs(t *testing.T) {
 		}
 	}
 }
+
+
+func TestDatabaseQueryEditorRunsOnlyPartialSelection(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function queryEditorExecutionText(view)",
+		"if(to>from&&!(from===0&&to===full.length))return full.slice(from,to)",
+		"const script=queryEditorExecutionText(owner).trim()",
+		"getQueryExecutionText:queryEditorExecutionText",
+		"Enter a database statement or select SQL to run",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database.js missing selected-query execution behavior %q", want)
+		}
+	}
+	if strings.Contains(js, "const script=queryEditorText(owner).trim()") {
+		t.Fatal("executeQuery must use the selected-query execution helper, not always the full editor text")
+	}
+}
