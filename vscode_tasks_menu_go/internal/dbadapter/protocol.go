@@ -300,6 +300,17 @@ func ValidateExecuteResult(result ExecuteResult) error {
 		if len(edit.RowIdentities) != 0 && len(edit.RowIdentities) != len(result.Rows) {
 			return fmt.Errorf("database execute edit metadata has %d identities for %d rows", len(edit.RowIdentities), len(result.Rows))
 		}
+		if edit.Editable {
+			if strings.TrimSpace(edit.Name) == "" {
+				return fmt.Errorf("editable database execute result requires a target object name")
+			}
+			if len(edit.Columns) != len(result.Columns) {
+				return fmt.Errorf("editable database execute result requires metadata for every result column")
+			}
+			if len(edit.RowIdentities) != len(result.Rows) {
+				return fmt.Errorf("editable database execute result requires identity for every result row")
+			}
+		}
 		for i, column := range edit.Columns {
 			if err := validateText("database execute edit column name", strings.TrimSpace(column.Name), 512, true); err != nil {
 				return fmt.Errorf("edit column %d: %w", i+1, err)
