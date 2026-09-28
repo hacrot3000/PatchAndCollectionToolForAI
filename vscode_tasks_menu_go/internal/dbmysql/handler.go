@@ -151,6 +151,30 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 		}
 		h.attachEditableSelectInfo(ctx, config, statement, &result)
 		return result, nil
+	case dbadapter.OpImportSQL:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		if h.config.ReadOnly {
+			return nil, &dbadapter.ProtocolError{Code: "READ_ONLY", Message: "MySQL connection is read-only"}
+		}
+		var payload dbadapter.ImportSQLPayload
+		if err := decodePayload(request.Payload, &payload); err != nil {
+			return nil, mysqlProtocolError("INVALID_PAYLOAD", err)
+		}
+		payload.Path = strings.TrimSpace(payload.Path)
+		if payload.Path == "" || strings.ContainsRune(payload.Path, '\x00') {
+			return nil, &dbadapter.ProtocolError{Code: "INVALID_IMPORT", Message: "MySQL import path is invalid"}
+		}
+		config := h.config
+		if catalog := firstNonEmpty(payload.Catalog, payload.Schema); catalog != "" {
+			config.Database = catalog
+		}
+		_, importedBytes, err := runClientFile(ctx, h.client, config, payload.Path)
+		if err != nil {
+			return nil, mysqlProtocolError("IMPORT_FAILED", err)
+		}
+		return dbadapter.ImportSQLResult{ImportedBytes: importedBytes, Message: "SQL import completed"}, nil
 	default:
 		return nil, &dbadapter.ProtocolError{
 			Code:    "UNSUPPORTED_OPERATION",
