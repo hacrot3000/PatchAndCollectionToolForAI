@@ -18,7 +18,7 @@ style.textContent=`
 .db-workbench-tab-close{font-size:13px;line-height:1;opacity:.55}
 .db-workbench-tab-close:hover{opacity:1}
 .db-workbench-tab.active{background:#202630;opacity:1}
-.db-workbench-add-query{margin-left:12px;padding:5px 10px;border:1px dashed #546274;border-radius:6px;background:#17211b;opacity:1;font-weight:700;align-self:center;position:sticky;right:0;z-index:4;flex:0 0 auto;box-shadow:-10px 0 12px #11151b}
+.db-workbench-add-query{margin-left:12px;margin-right:10px;padding:5px 10px;border:1px dashed #546274;border-radius:6px;background:#17211b;opacity:1;font-weight:700;align-self:center;flex:0 0 auto}
 .db-workbench-add-query:hover{background:#203027}
 .db-workbench-panel{flex:1;min-height:0}
 .db-workbench-panel.hidden{display:none}
@@ -368,9 +368,9 @@ function readSavedQueryTabs(view){
       key:String(item?.key||''),
       number:Math.max(1,Number(item?.number)||index+1),
       text:String(item?.text??''),
-      maxRows:String(item?.maxRows||'100'),
+      maxRows:String(Math.max(1,Math.min(1000,Number(item?.maxRows)||100))),
       scriptName:String(item?.scriptName||('query-'+(index+1)+'.sql')),
-      scriptSource:item?.scriptSource&&typeof item.scriptSource==='object'?item.scriptSource:null,
+      scriptSource:serializableQuerySource(item?.scriptSource),
       label:String(item?.label||''),
       tooltip:String(item?.tooltip||'')
     }));
