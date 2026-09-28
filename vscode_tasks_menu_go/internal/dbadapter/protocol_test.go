@@ -119,9 +119,14 @@ func TestExecuteResultValidatesEditableQueryMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	result.Edit.RowIdentities = nil
-	if err := ValidateExecuteResult(result); err != nil {
-		t.Fatalf("read-only/empty identity metadata should remain structurally valid: %v", err)
+	if err := ValidateExecuteResult(result); err == nil || !strings.Contains(err.Error(), "identity") {
+		t.Fatalf("editable result without row identity error=%v", err)
 	}
+	result.Edit.Editable = false
+	if err := ValidateExecuteResult(result); err != nil {
+		t.Fatalf("read-only metadata may omit row identities: %v", err)
+	}
+	result.Edit.Editable = true
 	result.Edit.RowIdentities = []map[string]interface{}{{"id": 1}, {"id": 2}}
 	if err := ValidateExecuteResult(result); err == nil || !strings.Contains(err.Error(), "identities") {
 		t.Fatalf("identity count error=%v", err)
