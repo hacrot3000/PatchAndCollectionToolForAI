@@ -1,6 +1,6 @@
 # Self update
 
-VS Code Tasks Menu hỗ trợ tự cập nhật từ public repository:
+TaskDeck hỗ trợ tự cập nhật từ public repository:
 
 ```text
 https://github.com/hacrot3000/PatchAndCollectionToolForAI
