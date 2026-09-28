@@ -128,8 +128,14 @@ function chooseScriptLocation(titleText){
   return new Promise(resolve=>{
     const dialog=createDBDialog(titleText);
     const grid=document.createElement('div');grid.className='db-script-location';
-    const host=document.createElement('button');host.type='button';host.innerHTML='<strong>Host</strong><br><small>Workspace on the TaskDeck server</small>';
-    const client=document.createElement('button');client.type='button';client.innerHTML='<strong>Client</strong><br><small>This browser / local computer</small>';
+    const locationButton=(label,description)=>{
+      const button=document.createElement('button');button.type='button';
+      const strong=document.createElement('strong');strong.textContent=label;
+      const small=document.createElement('small');small.textContent=description;
+      button.append(strong,document.createElement('br'),small);return button;
+    };
+    const host=locationButton('Host','Workspace on the TaskDeck server');
+    const client=locationButton('Client','This browser / local computer');
     host.onclick=()=>{dialog.remove();resolve('host');};
     client.onclick=()=>{dialog.remove();resolve('client');};
     dialog.body.append(grid);grid.append(host,client);
