@@ -54,6 +54,16 @@ func (h *serverDBTestHandler) Handle(_ context.Context, request dbadapter.Envelo
 			Columns: []dbadapter.Column{{Name: "value", Type: "integer"}},
 			Rows:    [][]interface{}{{1}},
 		}, nil
+	case dbadapter.OpImportSQL:
+		var payload dbadapter.ImportSQLPayload
+		if err := json.Unmarshal(request.Payload, &payload); err != nil {
+			return nil, &dbadapter.ProtocolError{Code: "INVALID_IMPORT", Message: err.Error()}
+		}
+		info, err := os.Stat(payload.Path)
+		if err != nil {
+			return nil, &dbadapter.ProtocolError{Code: "IMPORT_MISSING", Message: err.Error()}
+		}
+		return dbadapter.ImportSQLResult{ImportedBytes: info.Size(), Message: "fixture import complete"}, nil
 	case dbadapter.OpBrowseRows:
 		var payload dbadapter.BrowseRowsPayload
 		if err := json.Unmarshal(request.Payload, &payload); err != nil {
@@ -82,6 +92,7 @@ func serverDBTestManifest() dbadapter.Manifest {
 			Ping:       true,
 			BrowseRows: true,
 			Execute:    true,
+			ImportSQL:  true,
 		},
 	}
 }
@@ -161,6 +172,21 @@ func TestDatabaseSessionAPIConnectRequestAndClose(t *testing.T) {
 	}
 	if !strings.Contains(executeRR.Body.String(), `"columns"`) || !strings.Contains(executeRR.Body.String(), `"rows"`) {
 		t.Fatalf("execute response=%s", executeRR.Body.String())
+	}
+
+	script := filepath.Join(s.Workspace, "fixture.sql")
+	if err := os.WriteFile(script, []byte("SELECT 1;\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	importReq := httptest.NewRequest(http.MethodPost, "/api/db/sessions/"+meta.ID+"/import", strings.NewReader(`{"host_path":"fixture.sql","catalog":"main"}`))
+	importReq.Header.Set("Content-Type", "application/json")
+	importRR := httptest.NewRecorder()
+	h.ServeHTTP(importRR, importReq)
+	if importRR.Code != http.StatusOK {
+		t.Fatalf("import status=%d body=%s", importRR.Code, importRR.Body.String())
+	}
+	if !strings.Contains(importRR.Body.String(), `"imported_bytes":10`) || !strings.Contains(importRR.Body.String(), "fixture import complete") {
+		t.Fatalf("import response=%s", importRR.Body.String())
 	}
 
 	closeReq := httptest.NewRequest(http.MethodDelete, "/api/db/sessions/"+meta.ID, nil)
