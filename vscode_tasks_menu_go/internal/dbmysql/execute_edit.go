@@ -59,10 +59,6 @@ func (h *Handler) attachEditableSelectInfo(ctx context.Context, config Config, s
 
 	resultIndex := make(map[string]int, len(result.Columns))
 	info.Columns = make([]dbadapter.BrowseColumn, len(result.Columns))
-	identitySet := make(map[string]struct{}, len(identityColumns))
-	for _, name := range identityColumns {
-		identitySet[strings.ToLower(name)] = struct{}{}
-	}
 	for index, resultColumn := range result.Columns {
 		key := strings.ToLower(strings.TrimSpace(resultColumn.Name))
 		meta, ok := columnByName[key]
@@ -77,13 +73,11 @@ func (h *Handler) attachEditableSelectInfo(ctx context.Context, config Config, s
 			return
 		}
 		resultIndex[key] = index
-		_, identity := identitySet[key]
 		info.Columns[index] = dbadapter.BrowseColumn{
-			Name:       meta.Name,
-			Type:       meta.Type,
-			Nullable:   meta.Nullable,
-			Editable:   true,
-			Identity:   identity,
+			Name:     meta.Name,
+			Type:     meta.Type,
+			Nullable: meta.Nullable,
+			Editable: true,
 		}
 	}
 	identityCandidates, err := h.mysqlIdentityCandidates(ctx, catalog, target.Table)
@@ -109,7 +103,7 @@ func (h *Handler) attachEditableSelectInfo(ctx context.Context, config Config, s
 		}
 		return
 	}
-	identitySet = make(map[string]struct{}, len(identityColumns))
+	identitySet := make(map[string]struct{}, len(identityColumns))
 	for _, name := range identityColumns {
 		identitySet[strings.ToLower(name)] = struct{}{}
 	}
