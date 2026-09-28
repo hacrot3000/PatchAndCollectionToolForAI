@@ -856,7 +856,7 @@ func (h *Handler) browseMetadata(ctx context.Context, catalog, name string) ([]m
 	return columns, identity, nil
 }
 
-func chooseMySQLIdentity(result dbadapter.ExecuteResult) ([]string, error) {
+func mysqlIdentityCandidates(result dbadapter.ExecuteResult) ([][]string, error) {
 	if len(result.Rows) == 0 {
 		return nil, nil
 	}
@@ -872,29 +872,38 @@ func chooseMySQLIdentity(result dbadapter.ExecuteResult) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var current string
-	var candidate []string
-	candidateNullable := false
-	flush := func() []string {
+	var (
+		current           string
+		candidate         []string
+		candidateNullable bool
+		candidates        [][]string
+	)
+	flush := func() {
 		if len(candidate) != 0 && !candidateNullable {
-			return append([]string(nil), candidate...)
+			candidates = append(candidates, append([]string(nil), candidate...))
 		}
-		return nil
+		candidate = nil
+		candidateNullable = false
 	}
 	for _, row := range result.Rows {
 		indexName := resultCellString(row[indexNameIndex])
 		if current != "" && indexName != current {
-			if selected := flush(); len(selected) != 0 {
-				return selected, nil
-			}
-			candidate = nil
-			candidateNullable = false
+			flush()
 		}
 		current = indexName
 		candidate = append(candidate, resultCellString(row[columnNameIndex]))
 		candidateNullable = candidateNullable || strings.EqualFold(resultCellString(row[nullableIndex]), "YES")
 	}
-	return flush(), nil
+	flush()
+	return candidates, nil
+}
+
+func chooseMySQLIdentity(result dbadapter.ExecuteResult) ([]string, error) {
+	candidates, err := mysqlIdentityCandidates(result)
+	if err != nil || len(candidates) == 0 {
+		return nil, err
+	}
+	return append([]string(nil), candidates[0]...), nil
 }
 
 func mysqlQualifiedIdentifier(catalog, name string) (string, error) {
