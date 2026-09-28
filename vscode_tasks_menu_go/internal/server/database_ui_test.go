@@ -1182,3 +1182,36 @@ func TestDatabaseQueryEditorRunsOnlyPartialSelection(t *testing.T) {
 		t.Fatal("executeQuery must use the selected-query execution helper, not always the full editor text")
 	}
 }
+
+
+func TestDatabaseObjectBrowserIsResizableAndWrapsWhenNarrow(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const DB_BROWSER_WIDTH_STORAGE_KEY='taskdeck:database-browser-width'",
+		"const DB_BROWSER_DEFAULT_WIDTH=280",
+		"const DB_BROWSER_MIN_WIDTH=160",
+		"const DB_BROWSER_MAX_WIDTH=720",
+		"const DB_BROWSER_NARROW_WIDTH=330",
+		".db-pane-body.db-browser-resizable{grid-template-columns:var(--db-browser-width,280px) 6px minmax(0,1fr)}",
+		".db-browser-resizer{width:6px",
+		"cursor:col-resize",
+		".db-browser.db-browser-narrow .db-browser-head{display:grid;grid-template-columns:minmax(0,1fr) auto",
+		".db-browser.db-browser-narrow .db-browser-head>select{grid-column:1;grid-row:1",
+		".db-browser.db-browser-narrow .db-browser-head>.db-browser-filter{grid-column:1;grid-row:2",
+		"function installDatabaseBrowserResizer(view,body,main)",
+		"localStorage.setItem(DB_BROWSER_WIDTH_STORAGE_KEY",
+		"browser.classList.toggle('db-browser-narrow'",
+		"resizer.addEventListener('pointerdown'",
+		"resizer.addEventListener('pointermove'",
+		"resizer.addEventListener('dblclick'",
+		"installDatabaseBrowserResizer(view,body,main)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing resizable object browser behavior %q", want)
+		}
+	}
+}
