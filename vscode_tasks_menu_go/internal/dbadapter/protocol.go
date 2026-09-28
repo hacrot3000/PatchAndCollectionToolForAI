@@ -33,6 +33,7 @@ const (
 	OpMutateRows     Operation = "mutate_rows"
 	OpObjectAction   Operation = "object_action"
 	OpExecute        Operation = "execute"
+	OpImportSQL      Operation = "import_sql"
 	OpCancel         Operation = "cancel"
 	OpBegin          Operation = "begin"
 	OpCommit         Operation = "commit"
@@ -344,7 +345,7 @@ func KnownOperation(operation Operation) bool {
 	switch operation {
 	case OpHello, OpCapabilities, OpConnect, OpDisconnect, OpPing,
 		OpListCatalogs, OpListObjects, OpDescribeObject, OpBrowseRows, OpMutateRows,
-		OpObjectAction, OpExecute, OpCancel,
+		OpObjectAction, OpExecute, OpImportSQL, OpCancel,
 		OpBegin, OpCommit, OpRollback:
 		return true
 	default:
