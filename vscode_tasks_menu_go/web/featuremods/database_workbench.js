@@ -1732,6 +1732,10 @@ globalThis.TaskMenuDatabaseWorkbench={
   serializeClipboardData
 };
 
+window.addEventListener('pagehide',()=>{
+  for(const view of database.views.values())saveQueryTabsNow(view);
+});
+
 ensureAdapters().then(()=>{
   for(const view of database.views.values())enhanceView(view);
 }).catch(app.showError);
