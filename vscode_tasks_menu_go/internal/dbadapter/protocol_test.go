@@ -132,3 +132,20 @@ func TestExecuteResultValidatesEditableQueryMetadata(t *testing.T) {
 		t.Fatalf("identity count error=%v", err)
 	}
 }
+
+
+func TestImportSQLOperationIsKnown(t *testing.T) {
+	if !KnownOperation(OpImportSQL) {
+		t.Fatal("import_sql must be a known database adapter operation")
+	}
+	request, err := NewRequest("import-1", OpImportSQL, ImportSQLPayload{
+		Path:    "/tmp/taskdeck-import.sql",
+		Catalog: "main",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.Operation != OpImportSQL {
+		t.Fatalf("operation=%q", request.Operation)
+	}
+}
