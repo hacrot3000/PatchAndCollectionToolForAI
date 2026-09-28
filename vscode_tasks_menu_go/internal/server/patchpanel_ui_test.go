@@ -1382,7 +1382,7 @@ func TestPatchLatestCompletedForegroundIsProminent(t *testing.T) {
 		"runningTitle.textContent=name?'Current run · '+name:'Current run'",
 		"runningHead.classList.toggle('finished',!failed)",
 		"runningHead.classList.toggle('failed',failed)",
-		"failed. Failure reason, recent console output, and handoff/artifacts are available below.",
+		"Failure reason, recent console output, and handoff/artifacts are available below.",
 		"completed successfully. Result and artifacts below are the latest foreground run.",
 		"runTitle.textContent='Current run status'",
 		"artifactTitle.textContent='Current run artifacts'",
