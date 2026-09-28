@@ -65,7 +65,7 @@ const indexHTML = `<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>VS Code Tasks Menu</title>
+  <title>TaskDeck</title>
   <link rel="stylesheet" href="/vendor/xterm.css">
   <link rel="stylesheet" href="/app.css">
 </head>
@@ -88,7 +88,7 @@ const appJS = `const TerminalCtor=globalThis.Terminal;
 const FitAddonCtor=globalThis.FitAddon?.FitAddon;
 if(!TerminalCtor||!FitAddonCtor)throw new Error('Embedded xterm assets did not load');
 
-const defaultPageTitle='VS Code Tasks Menu';
+const defaultPageTitle='TaskDeck';
 const layoutProfile=(matchMedia('(pointer: coarse)').matches||matchMedia('(max-width: 900px)').matches)?'mobile':'desktop';
 document.documentElement.dataset.taskmenuLayout=layoutProfile;
 const menu=document.querySelector('#menu');
@@ -262,22 +262,34 @@ async function jsonFetch(url,opts={}){
 
 function pageTitleStorageKey(){return 'vscode-tasks-menu:page-title:'+taskData.workspace;}
 
+function pageTitleSuffix(value){
+  let title=String(value||'').trim();
+  if(!title||title===defaultPageTitle||title==='VS Code Tasks Menu'||title==='VSCode Tasks Menu')return '';
+  if(title.startsWith(defaultPageTitle+' - '))title=title.slice((defaultPageTitle+' - ').length).trim();
+  return title;
+}
+
+function formattedPageTitle(value){
+  const suffix=pageTitleSuffix(value);
+  return suffix?defaultPageTitle+' - '+suffix:defaultPageTitle;
+}
+
 function restorePageTitle(){
   let saved='';
   try{saved=localStorage.getItem(pageTitleStorageKey())||'';}catch(e){console.warn('Cannot read saved page title',e);}
-  document.title=saved||defaultPageTitle;
+  document.title=formattedPageTitle(saved);
 }
 
 function editPageTitle(){
-  const current=document.title===defaultPageTitle?'':document.title;
-  const value=window.prompt('Page title (leave blank to use the default):',current);
+  const current=pageTitleSuffix(document.title);
+  const value=window.prompt('Page title suffix (leave blank to use TaskDeck):',current);
   if(value===null)return;
-  const title=value.trim();
+  const title=pageTitleSuffix(value);
   try{
     if(title)localStorage.setItem(pageTitleStorageKey(),title);
     else localStorage.removeItem(pageTitleStorageKey());
   }catch(e){throw new Error('Cannot save page title: '+e.message);}
-  document.title=title||defaultPageTitle;
+  document.title=formattedPageTitle(title);
 }
 
 async function loadTasks(){
