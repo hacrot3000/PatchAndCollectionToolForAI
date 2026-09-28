@@ -3,6 +3,8 @@ if(!app)throw new Error('TaskMenuApp unavailable for Database workspace');
 
 const dbViews=new Map();
 let profilesByID=new Map();
+const cmFactory=globalThis.cm6?.load?.()||null;
+const QUERY_SCHEMA_CONCURRENCY=4;
 
 const style=document.createElement('style');
 style.textContent=`
@@ -30,6 +32,9 @@ style.textContent=`
 .db-query-tools label{font-size:10px;opacity:.65}
 .db-query-tools input{width:72px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:6px}
 .db-query-editor{min-height:130px;height:32%;resize:vertical;background:#090c10;color:inherit;border:0;border-bottom:1px solid #30343b;padding:10px;font-family:ui-monospace,monospace;font-size:13px;line-height:1.45;outline:none}
+.db-query .codemirror{height:32%;min-height:130px;border-bottom:1px solid #30343b;background:#090c10}
+.db-query .codemirror .cm-editor{height:100%;font-size:13px}
+.db-query .codemirror .cm-scroller{overflow:auto;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
 .db-result-wrap{flex:1;min-height:0;overflow:auto}
 .db-result-status{position:sticky;top:0;z-index:2;padding:5px 8px;background:#11151b;border-bottom:1px solid #30343b;font-size:11px;opacity:.8}
 .db-result-table{border-collapse:collapse;min-width:100%;font-family:ui-monospace,monospace;font-size:11px}
@@ -56,7 +61,7 @@ style.textContent=`
 .db-result-table tr.db-selected td{background:#19334d}
 .db-result-table tr.db-selected td.db-query-dirty{background:#3c3920}
 html[data-taskmenu-theme="light"] .db-pane{background:#fff}
-html[data-taskmenu-theme="light"] .db-query-editor{background:#f7f9fb}
+html[data-taskmenu-theme="light"] .db-query-editor,html[data-taskmenu-theme="light"] .db-query .codemirror{background:#f7f9fb}
 html[data-taskmenu-theme="light"] .db-result-status{background:#f2f5f8}
 html[data-taskmenu-theme="light"] .db-result-table th{background:#e9eef3}
 `;
@@ -64,6 +69,113 @@ document.head.append(style);
 
 function profileFor(id){
   return profilesByID.get(String(id||''))||null;
+}
+
+function relationalQueryEditor(view){
+  return view?.meta?.adapter_kind==='mysql'||view?.meta?.adapter_kind==='sqlite';
+}
+
+function queryEditorText(view){
+  return view?.queryCM?.state?.doc?.toString?.()??view?.editor?.value??'';
+}
+
+function focusQueryEditor(view){
+  if(view?.queryCM){view.queryCM.focus();return;}
+  view?.editor?.focus?.();
+}
+
+function setQueryEditorText(view,text,{focus=true}={}){
+  const value=String(text??'');
+  if(view?.queryCM){
+    const length=view.queryCM.state.doc.length;
+    view.queryCM.dispatch({changes:{from:0,to:length,insert:value},selection:{anchor:value.length}});
+  }
+  if(view?.editor)view.editor.value=value;
+  if(focus)focusQueryEditor(view);
+}
+
+function queryCompletionSchema(view){
+  const catalog=String(view?.catalog?.value||'').trim();
+  const objects=(view?.objectData||[]).filter(object=>object?.kind==='table'||object?.kind==='view');
+  const tables=objects.map(object=>String(object?.name||'').trim()).filter(Boolean);
+  const tableSchema={};
+  for(const name of tables)tableSchema[name]=view.querySchemaCache?.get(catalog+'\u0000'+name)||[];
+  return catalog
+    ?{schema:{[catalog]:tableSchema},tables,schemas:[catalog],defaultSchema:catalog}
+    :{schema:tableSchema,tables};
+}
+
+function queryEditorExtensions(view){
+  if(!relationalQueryEditor(view)||!globalThis.cm6?.sqlCompletion)return [];
+  const dialect=view.meta.adapter_kind==='mysql'?'mysql':'sqlite';
+  const schema=queryCompletionSchema(view);
+  const extensions=[globalThis.cm6.sqlCompletion({dialect,...schema,upperCaseKeywords:true})];
+  if(globalThis.cm6?.EditorView?.updateListener){
+    extensions.push(globalThis.cm6.EditorView.updateListener.of(update=>{
+      if(update.docChanged&&view.editor)view.editor.value=update.state.doc.toString();
+    }));
+  }
+  return extensions;
+}
+
+function reconfigureQueryEditor(view){
+  if(!view?.queryCM||!cmFactory)return;
+  const text=queryEditorText(view);
+  const cursor=Math.min(view.queryCM.state.selection?.main?.head??text.length,text.length);
+  const state=cmFactory.newState(text,{
+    dark:document.documentElement.dataset.taskmenuTheme!=='light',
+    lineWrapping:false,
+    extraExtensions:queryEditorExtensions(view)
+  });
+  view.queryCM.setState(state);
+  view.queryCM.dispatch({selection:{anchor:cursor}});
+}
+
+function initQueryEditor(view){
+  if(!relationalQueryEditor(view)||!cmFactory||!globalThis.cm6?.sqlCompletion)return;
+  view.querySchemaCache=new Map();
+  const initial=view.editor.value;
+  view.queryCM=cmFactory.textarea(view.editor,{
+    dark:document.documentElement.dataset.taskmenuTheme!=='light',
+    lineWrapping:false,
+    extraExtensions:queryEditorExtensions(view)
+  });
+  view.queryCM.contentDOM.addEventListener('keydown',event=>{
+    if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){
+      event.preventDefault();executeQuery(view).catch(app.showError);
+    }
+  });
+  view.editor.value=initial;
+}
+
+async function warmQuerySchema(view){
+  if(!relationalQueryEditor(view))return;
+  if(!(view.querySchemaCache instanceof Map))view.querySchemaCache=new Map();
+  const catalog=String(view.catalog.value||'').trim();
+  const objects=(view.objectData||[]).filter(object=>object?.kind==='table'||object?.kind==='view');
+  reconfigureQueryEditor(view);
+  const generation=(view.querySchemaGeneration||0)+1;view.querySchemaGeneration=generation;
+  let next=0;
+  const worker=async()=>{
+    while(next<objects.length){
+      const object=objects[next++];
+      if(view.querySchemaGeneration!==generation||String(view.catalog.value||'').trim()!==catalog)return;
+      const name=String(object?.name||'').trim();if(!name)continue;
+      const key=catalog+'\u0000'+name;
+      if(view.querySchemaCache.has(key))continue;
+      try{
+        const payload={name,kind:object.kind||'table'};if(catalog)payload.catalog=catalog;
+        const detail=await sessionRequest(view.meta.id,'describe_object',payload);
+        const columns=Array.isArray(detail?.columns)?detail.columns.map(column=>String(column?.name||'').trim()).filter(Boolean):[];
+        view.querySchemaCache.set(key,columns);
+      }catch(error){
+        console.warn('Query autocomplete metadata unavailable for '+name,error);
+        view.querySchemaCache.set(key,[]);
+      }
+    }
+  };
+  await Promise.all(Array.from({length:Math.min(QUERY_SCHEMA_CONCURRENCY,Math.max(1,objects.length))},()=>worker()));
+  if(view.querySchemaGeneration===generation)reconfigureQueryEditor(view);
 }
 
 async function refreshProfiles(){
@@ -468,7 +580,7 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
 
 async function executeQuery(view,{discardPending=false}={}){
   if(!discardPending&&queryPendingCount(view)>0&&!confirm('Discard unsaved query result changes and run again?'))return;
-  const statement=view.editor.value.trim();
+  const statement=queryEditorText(view).trim();
   if(!statement)throw new Error('Enter a database statement first');
   const maxRows=Math.max(1,Math.min(1000,Number(view.maxRows.value)||100));
   view.run.disabled=true;view.run.textContent='Running…';
@@ -520,6 +632,7 @@ async function loadObjects(view){
     const result=await sessionRequest(view.meta.id,'list_objects',{catalog:view.catalog.value});
     renderObjects(view,result);
     view.detail.textContent='';
+    warmQuerySchema(view).catch(error=>console.warn('Query autocomplete schema load failed',error));
   }finally{view.refresh.disabled=false;}
 }
 
@@ -587,14 +700,15 @@ function attachDatabaseView(meta,activate){
   query.append(tools,editor,result);
   body.append(browser,query);pane.append(head,body);panes.append(pane);
 
-  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,editor,run,maxRows,result,objectData:[]};
+  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,editor,run,maxRows,result,objectData:[],querySchemaCache:new Map()};
   dbViews.set(meta.id,view);
+  initQueryEditor(view);
   globalThis.TaskMenuDatabaseWorkbench?.enhanceView?.(view);
-  reload.onclick=()=>loadCatalogs(view).catch(app.showError);
-  refresh.onclick=()=>loadObjects(view).catch(app.showError);
-  catalog.onchange=()=>loadObjects(view).catch(app.showError);
+  reload.onclick=()=>{view.querySchemaCache?.clear?.();loadCatalogs(view).catch(app.showError);};
+  refresh.onclick=()=>{view.querySchemaCache?.clear?.();loadObjects(view).catch(app.showError);};
+  catalog.onchange=()=>{view.querySchemaCache?.clear?.();loadObjects(view).catch(app.showError);};
   run.onclick=()=>executeQuery(view).catch(app.showError);
-  editor.addEventListener('keydown',event=>{
+  if(!view.queryCM)editor.addEventListener('keydown',event=>{
     if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();executeQuery(view).catch(app.showError);}
   });
   loadCatalogs(view).catch(error=>{view.detail.textContent=String(error?.message||error);});
@@ -665,6 +779,9 @@ globalThis.TaskMenuDatabase={
   refreshProfiles,
   request:sessionRequest,
   getProfile:profileFor,
+  getQueryText:queryEditorText,
+  setQueryText:setQueryEditorText,
+  focusQuery:focusQueryEditor,
   restoreSessions:restoreDatabaseSessions,
   get views(){return dbViews;}
 };
