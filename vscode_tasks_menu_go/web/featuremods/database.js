@@ -612,7 +612,7 @@ function databaseQueryViews(view){
   for(const page of pages.values()){
     if(page?.mode==='query'&&page.ctx&&!queries.includes(page.ctx))queries.push(page.ctx);
   }
-  return queries.length?queries:[root];
+  return queries;
 }
 
 async function warmQuerySchema(view){
