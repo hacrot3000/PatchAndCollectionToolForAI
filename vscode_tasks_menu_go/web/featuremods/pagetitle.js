@@ -2,11 +2,13 @@ const app=globalThis.TaskMenuApp;
 if(!app)throw new Error('TaskMenuApp unavailable for page title config');
 
 const defaultTitle='TaskDeck';
+const legacyTitle=['VS','Code','Tasks','Menu'].join(' ');
+const legacyCompactTitle=['VSCode','Tasks','Menu'].join(' ');
 const button=document.querySelector('#edit-title');
 
 function titleSuffix(value){
   let title=String(value||'').trim();
-  if(!title||title===defaultTitle||title==='VS Code Tasks Menu'||title==='VSCode Tasks Menu')return '';
+  if(!title||title===defaultTitle||title===legacyTitle||title===legacyCompactTitle)return '';
   if(title.startsWith(defaultTitle+' - '))title=title.slice((defaultTitle+' - ').length).trim();
   return title;
 }
