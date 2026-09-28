@@ -152,7 +152,11 @@ func TestImportSQLOperationIsKnown(t *testing.T) {
 
 
 func TestImportSQLResponseValidation(t *testing.T) {
-	ok, err := NewResponse("import-1", "", OpImportSQL, ImportSQLResult{
+	request, err := NewRequest("import-1", OpImportSQL, ImportSQLPayload{Path: "/tmp/import.sql"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, err := NewResponse(request, ImportSQLResult{
 		ImportedBytes: 123,
 		Message:       "SQL import completed",
 	})
@@ -162,7 +166,7 @@ func TestImportSQLResponseValidation(t *testing.T) {
 	if err := ValidateResponsePayload(ok); err != nil {
 		t.Fatal(err)
 	}
-	bad, err := NewResponse("import-2", "", OpImportSQL, ImportSQLResult{ImportedBytes: -1})
+	bad, err := NewResponse(request, ImportSQLResult{ImportedBytes: -1})
 	if err != nil {
 		t.Fatal(err)
 	}
