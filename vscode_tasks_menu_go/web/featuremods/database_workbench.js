@@ -5,6 +5,7 @@ if(!app||!database)throw new Error('TaskMenuDatabase unavailable for Database Wo
 const adaptersByID=new Map();
 let adapterLoadPromise=null;
 let contextMenu=null;
+const CONTEXT_SUBMENU_CLOSE_DELAY_MS=240;
 
 const style=document.createElement('style');
 style.textContent=`
@@ -142,11 +143,20 @@ function appendContextMenuItems(container,items){
       button.classList.add('has-submenu');
       const submenu=document.createElement('div');submenu.className='db-context-menu db-context-submenu';
       appendContextMenuItems(submenu,submenuItems);
-      entry.onpointerenter=()=>{if(!button.disabled)positionContextSubmenu(submenu);};
-      entry.onpointerleave=()=>{submenu.style.display='none';};
+      let closeTimer=null;
+      const cancelClose=()=>{if(closeTimer!==null){clearTimeout(closeTimer);closeTimer=null;}};
+      const scheduleClose=()=>{
+        cancelClose();
+        closeTimer=setTimeout(()=>{submenu.style.display='none';closeTimer=null;},CONTEXT_SUBMENU_CLOSE_DELAY_MS);
+      };
+      entry.onpointerenter=()=>{cancelClose();if(!button.disabled)positionContextSubmenu(submenu);};
+      entry.onpointerleave=scheduleClose;
+      submenu.onpointerenter=cancelClose;
+      submenu.onpointerleave=scheduleClose;
       button.onclick=event=>{
         event.preventDefault();event.stopPropagation();
         if(button.disabled)return;
+        cancelClose();
         if(submenu.style.display==='block')submenu.style.display='none';else positionContextSubmenu(submenu);
       };
       entry.append(button,submenu);
