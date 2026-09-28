@@ -16,7 +16,7 @@ style.textContent=`
 .db-workbench-tab-close{font-size:13px;line-height:1;opacity:.55}
 .db-workbench-tab-close:hover{opacity:1}
 .db-workbench-tab.active{background:#202630;opacity:1}
-.db-workbench-add-query{margin-left:12px;padding:5px 10px;border:1px dashed #546274;border-radius:6px;background:#17211b;opacity:1;font-weight:700;align-self:center}
+.db-workbench-add-query{margin-left:12px;padding:5px 10px;border:1px dashed #546274;border-radius:6px;background:#17211b;opacity:1;font-weight:700;align-self:center;position:sticky;right:0;z-index:4;flex:0 0 auto;box-shadow:-10px 0 12px #11151b}
 .db-workbench-add-query:hover{background:#203027}
 .db-workbench-panel{flex:1;min-height:0}
 .db-workbench-panel.hidden{display:none}
@@ -75,7 +75,7 @@ style.textContent=`
 .db-context-separator{height:1px;background:#30343b;margin:4px 2px}
 html[data-taskmenu-theme="light"] .db-workbench-tabs{background:#f2f5f8;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .db-workbench-tab.active{background:#fff}
-html[data-taskmenu-theme="light"] .db-workbench-add-query{background:#eef7f0;border-color:#87998b}
+html[data-taskmenu-theme="light"] .db-workbench-add-query{background:#eef7f0;border-color:#87998b;box-shadow:-10px 0 12px #f2f5f8}
 html[data-taskmenu-theme="light"] .db-workbench-add-query:hover{background:#e1f0e4}
 html[data-taskmenu-theme="light"] .db-browser-filter,html[data-taskmenu-theme="light"] .db-data-tools select{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .db-data-grid th,html[data-taskmenu-theme="light"] .db-structure-table th{background:#e9eef3}
@@ -350,6 +350,10 @@ function closeWorkbenchPage(view,key,{force=false,activateFallback=true}={}){
   if(!force&&page.mode==='data'&&page.ctx&&hasPendingChanges(page.ctx)&&!confirm('Discard unsaved database grid changes?'))return false;
   if(!force&&page.mode==='query'&&page.ctx&&database.queryHasPendingChanges?.(page.ctx)&&!confirm('Discard unsaved query result changes?'))return false;
   const before=workbenchPageKeys(root);const removedIndex=Math.max(0,before.indexOf(key));
+  if(page.mode==='query'&&page.ctx){
+    clearTimeout(page.ctx.querySchemaTimer);
+    try{page.ctx.queryCM?.destroy?.();}catch{}
+  }
   page.tab?.remove();page.panel?.remove();wb.pages.delete(key);
   if(wb.lastQueryKey===key)wb.lastQueryKey=firstQueryPage(root)?.key||'';
   if(activateFallback&&wb.active===key)activateWorkbenchFallback(root,Math.min(removedIndex,workbenchPageKeys(root).length-1));
