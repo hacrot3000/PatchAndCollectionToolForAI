@@ -122,8 +122,9 @@ func (h *Handler) attachEditableSelectInfo(ctx context.Context, config Config, s
 }
 
 func (h *Handler) mysqlObjectKind(ctx context.Context, catalog, name string) (string, error) {
-	query := "SELECT TABLE_TYPE AS table_type FROM information_schema.TABLES WHERE TABLE_SCHEMA = " +
-		mysqlTextExpression(catalog) + " AND TABLE_NAME = " + mysqlTextExpression(name) + " LIMIT 1"
+	query := "SELECT CASE WHEN TABLE_TYPE = 'BASE TABLE' THEN 'table' WHEN TABLE_TYPE = 'VIEW' THEN 'view' ELSE 'object' END AS kind " +
+		"FROM information_schema.TABLES WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
+		" AND TABLE_NAME = " + mysqlTextExpression(name) + " LIMIT 1"
 	result, err := h.query(ctx, query, 1)
 	if err != nil {
 		return "", err
@@ -131,15 +132,14 @@ func (h *Handler) mysqlObjectKind(ctx context.Context, catalog, name string) (st
 	if len(result.Rows) != 1 {
 		return "", fmt.Errorf("target object does not exist")
 	}
-	index, err := resultColumnIndex(result, "table_type")
+	index, err := resultColumnIndex(result, "kind")
 	if err != nil {
 		return "", err
 	}
-	switch strings.ToUpper(strings.TrimSpace(resultCellString(result.Rows[0][index]))) {
-	case "BASE TABLE":
-		return "table", nil
-	case "VIEW":
-		return "view", nil
+	kind := strings.ToLower(strings.TrimSpace(resultCellString(result.Rows[0][index])))
+	switch kind {
+	case "table", "view":
+		return kind, nil
 	default:
 		return "object", nil
 	}
