@@ -125,12 +125,17 @@ func TestSharedUICoreActionsFollowCurrentUserCapabilities(t *testing.T) {
 
 func TestStaticUIHasPersistentEditablePageTitle(t *testing.T) {
 	for _, want := range []string{
+		`<title>TaskDeck</title>`,
 		`id="edit-title"`,
-		"const defaultPageTitle='VS Code Tasks Menu'",
+		"const defaultPageTitle='TaskDeck'",
+		"function pageTitleSuffix(value)",
+		"function formattedPageTitle(value)",
+		"return suffix?defaultPageTitle+' - '+suffix:defaultPageTitle",
 		"'vscode-tasks-menu:page-title:'+taskData.workspace",
 		"localStorage.getItem(pageTitleStorageKey())",
 		"localStorage.setItem(pageTitleStorageKey(),title)",
 		"localStorage.removeItem(pageTitleStorageKey())",
+		"document.title=formattedPageTitle(saved)",
 		"restorePageTitle();",
 		"document.querySelector('#edit-title').onclick",
 	} {
