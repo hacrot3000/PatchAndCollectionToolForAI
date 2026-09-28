@@ -41,6 +41,7 @@ func TestAnalyzeEditableSelectRejectsAmbiguousOrDerivedResults(t *testing.T) {
 		"SELECT id AS activity_id, name FROM activity",
 		"SELECT id, CONCAT(first_name, last_name) FROM activity",
 		"SELECT a.id, b.name FROM activity a JOIN users b ON b.id = a.user_id",
+		"SELECT activity.id FROM activity, users WHERE users.id = activity.user_id",
 		"SELECT id, COUNT(*) FROM activity GROUP BY id",
 		"SELECT id FROM activity UNION SELECT id FROM archive_activity",
 		"SELECT id, * FROM activity",
