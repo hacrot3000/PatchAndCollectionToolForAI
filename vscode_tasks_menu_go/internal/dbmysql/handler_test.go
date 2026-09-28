@@ -28,6 +28,7 @@ func writeHandlerFixture(t *testing.T) string {
 		"  *taskdeck_ping*) printf '%s\\n' '<resultset><row><field name=\"taskdeck_ping\">1</field></row></resultset>' ;;\n" +
 		"  *information_schema.SCHEMATA*) printf '%s\\n' '<resultset><row><field name=\"name\">information_schema</field></row><row><field name=\"name\">main</field></row></resultset>' ;;\n" +
 		"  *information_schema.TABLES*) printf '%s\\n' '<resultset><row><field name=\"catalog\">main</field><field name=\"name\">users</field><field name=\"kind\">table</field></row></resultset>' ;;\n" +
+		"  *taskdeck_describe_create*) printf '%s\\n' '<resultset><row><field name=\"Table\">users</field><field name=\"Create Table\">CREATE TABLE users (id bigint NOT NULL AUTO_INCREMENT, PRIMARY KEY (id))</field></row></resultset>' ;;\n" +
 		"  *taskdeck_describe_indexes*) printf '%s\\n' '<resultset><row><field name=\"name\">PRIMARY</field><field name=\"non_unique\">0</field><field name=\"column_name\">id</field><field name=\"seq\">1</field><field name=\"index_type\">BTREE</field></row></resultset>' ;;\n" +
 		"  *information_schema.STATISTICS*) printf '%s\\n' '<resultset><row><field name=\"index_name\">PRIMARY</field><field name=\"column_name\">id</field><field name=\"seq\">1</field><field name=\"nullable\">NO</field></row></resultset>' ;;\n" +
 		"  *default_value*) printf '%s\\n' '<resultset><row><field name=\"name\">id</field><field name=\"type\">bigint</field><field name=\"nullable\">NO</field><field name=\"default_value\" xsi:nil=\"true\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"/><field name=\"extra\">auto_increment</field></row></resultset>' ;;\n" +
@@ -127,6 +128,10 @@ func TestHandlerConnectPingBrowseAndExecute(t *testing.T) {
 	indexes, ok := describe["indexes"].([]map[string]interface{})
 	if !ok || len(indexes) != 1 || indexes[0]["name"] != "PRIMARY" || indexes[0]["column_name"] != "id" || indexes[0]["unique"] != true {
 		t.Fatalf("describe indexes=%#v", describePayload)
+	}
+	createSQL, _ := describe["sql"].(string)
+	if !strings.Contains(createSQL, "CREATE TABLE") || !strings.Contains(createSQL, "PRIMARY KEY") {
+		t.Fatalf("describe create SQL=%q payload=%#v", createSQL, describePayload)
 	}
 
 	executePayload, protocolErr := handler.Handle(context.Background(), adapterRequest(t, "execute-1", dbadapter.OpExecute, dbadapter.ExecutePayload{
