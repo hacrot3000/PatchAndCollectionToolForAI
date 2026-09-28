@@ -528,3 +528,46 @@ func TestDatabaseQueryResultsCollapseLongTextIntoPopup(t *testing.T) {
 		}
 	}
 }
+
+
+func TestDatabaseWorkbenchEditsLongTextOnlyInPopup(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const LONG_TEXT_PREVIEW_LIMIT=160",
+		"function isLongTextColumnType(columnType='')",
+		"function shouldUseValuePopup(value,columnType='')",
+		"type.includes('text')",
+		"db-grid-value-preview-text",
+		"open.textContent='…'",
+		"const popupOnly=shouldUseValuePopup(value,column.type)",
+		"if(popupOnly){",
+		"td.classList.add('db-editable','db-popup-editable')",
+		"renderGridValuePreview(td,value,{onOpen:openViewer})",
+		"columnType:column.type||''",
+		"copy.textContent='Copy all'",
+		"area.focus();area.select()",
+		"area.setSelectionRange(0,area.value.length)",
+		"parseEditedValue(area.value,value,columnType)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing long-text popup editing behavior %q", want)
+		}
+	}
+	longTextBranch := strings.Index(js, "const popupOnly=shouldUseValuePopup(value,column.type)")
+	inlineEdit := strings.Index(js[longTextBranch:], "td.contentEditable='true'")
+	if longTextBranch < 0 || inlineEdit < 0 {
+		t.Fatal("database workbench long-text/inline edit branches unavailable")
+	}
+	blockEnd := strings.Index(js[longTextBranch:], "td.oncontextmenu=")
+	if blockEnd < 0 {
+		t.Fatal("database workbench cell rendering bounds unavailable")
+	}
+	cellBlock := js[longTextBranch : longTextBranch+blockEnd]
+	if strings.Contains(cellBlock, "if(popupOnly){\n        td.contentEditable='true'") {
+		t.Fatal("long-text popup branch must not enable inline contentEditable")
+	}
+}
