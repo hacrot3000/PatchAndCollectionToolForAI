@@ -81,6 +81,9 @@ func TestSelfUpdateRemoteBrowserKeepsReachableOrigin(t *testing.T) {
 	if strings.Contains(js, "const target=String(req.target_url||location.origin)") {
 		t.Fatal("self-update must not blindly replace the browser origin with daemon target_url")
 	}
+	if strings.Contains(js, "VS Code Tasks Menu update") {
+		t.Fatal("self-update UI still exposes legacy VS Code Tasks Menu branding")
+	}
 }
 
 func TestSelfUpdateFailureCopyIncludesRevisionAndFullError(t *testing.T) {
@@ -92,7 +95,7 @@ func TestSelfUpdateFailureCopyIncludesRevisionAndFullError(t *testing.T) {
 	if start<0||endRel<0 { t.Fatal("self-update error detail formatter bounds unavailable") }
 	block:=js[start:start+endRel]
 	for _, want:=range []string{
-		"'VS Code Tasks Menu update'",
+		"'TaskDeck update'",
 		"'Revision: '+String(req.revision)",
 		"Candidate validation or activation failed. The current TaskDeck remains usable.",
 		"statusText(req)",
