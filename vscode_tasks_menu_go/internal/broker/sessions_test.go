@@ -108,7 +108,7 @@ func TestBrokerClientOwnsAndControlsPTYSession(t *testing.T) {
 	}
 	defer unsubscribe()
 	output := string(backlog)
-	deadline := time.After(brokerTestShutdownTimeout)
+	deadline := time.After(3 * time.Second)
 	for !strings.Contains(output, "broker-env-ok") {
 		select {
 		case chunk, ok := <-stream:
@@ -188,7 +188,7 @@ func TestBrokerSessionSurvivesDaemonClientReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := string(backlog)
-	beforeDeadline := time.After(brokerTestShutdownTimeout)
+	beforeDeadline := time.After(3 * time.Second)
 	for !strings.Contains(output, "before-reconnect") {
 		select {
 		case chunk, ok := <-stream:
