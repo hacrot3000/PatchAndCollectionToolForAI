@@ -468,7 +468,7 @@ func TestDatabaseWorkbenchRowSelectionAndCopyDataOptions(t *testing.T) {
 		"event.ctrlKey||event.metaKey",
 		"event.shiftKey&&Number.isInteger(state.selectionAnchor)",
 		"function toggleSelectAllPage",
-		"data-select-all",
+		"dataset.selectAll='1'",
 		"Select all rows on this page",
 		"db-selected",
 		"function appendContextMenuItems",
