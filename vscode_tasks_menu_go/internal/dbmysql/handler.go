@@ -141,7 +141,11 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 				return nil, mysqlProtocolError("READ_ONLY", err)
 			}
 		}
-		result, err := h.query(ctx, statement, normalized.MaxRows)
+		config := h.config
+		if catalog := firstNonEmpty(normalized.Catalog, normalized.Schema); catalog != "" {
+			config.Database = catalog
+		}
+		result, err := h.queryWithConfig(ctx, config, statement, normalized.MaxRows)
 		if err != nil {
 			return nil, mysqlProtocolError("QUERY_FAILED", err)
 		}
@@ -203,7 +207,11 @@ func (h *Handler) requireConnected() *dbadapter.ProtocolError {
 }
 
 func (h *Handler) query(ctx context.Context, statement string, maxRows int) (dbadapter.ExecuteResult, error) {
-	output, err := runClient(ctx, h.client, h.config, statement)
+	return h.queryWithConfig(ctx, h.config, statement, maxRows)
+}
+
+func (h *Handler) queryWithConfig(ctx context.Context, config Config, statement string, maxRows int) (dbadapter.ExecuteResult, error) {
+	output, err := runClient(ctx, h.client, config, statement)
 	if err != nil {
 		return dbadapter.ExecuteResult{}, err
 	}
