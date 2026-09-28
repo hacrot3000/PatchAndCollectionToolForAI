@@ -1537,7 +1537,13 @@ function attachDatabaseView(meta,activate){
 
   dbViews.set(meta.id,view);
   globalThis.TaskMenuDatabaseWorkbench?.enhanceView?.(view);
-  const resetQuerySchema=()=>{view.querySchemaCache?.clear?.();view.querySchemaGeneration=(view.querySchemaGeneration||0)+1;clearTimeout(view.querySchemaTimer);};
+  const resetQuerySchema=()=>{
+    view.querySchemaCache?.clear?.();
+    for(const queryView of databaseQueryViews(view)){
+      queryView.querySchemaGeneration=(queryView.querySchemaGeneration||0)+1;
+      clearTimeout(queryView.querySchemaTimer);
+    }
+  };
   reload.onclick=()=>{resetQuerySchema();loadCatalogs(view).catch(app.showError);};
   refresh.onclick=()=>{resetQuerySchema();loadObjects(view).catch(app.showError);};
   catalog.onchange=()=>{resetQuerySchema();loadObjects(view).catch(app.showError);};
