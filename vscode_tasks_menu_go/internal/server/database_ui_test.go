@@ -831,23 +831,72 @@ func TestDatabaseQueryResultFilterOrderExportAndActions(t *testing.T) {
 		"current.direction==='asc'",
 		"function exportQueryData(view,result)",
 		"Export query result",
-		"Export data…",
 		"function queryGridActionMenuItems(view,result)",
-		"{label:'Refresh',action:()=>executeQuery(view)}",
-		"{label:'Filter…',action:()=>openQueryFilterDialog(view,result)}",
-		"{label:'Add row',disabled:!result?.edit?.editable,action:()=>addQueryRow(view,result)}",
-		"{label:'Order…',action:()=>openQueryOrderDialog(view,result)}",
+		"helper.gridActionMenuItems({",
+		"exportData:()=>exportQueryData(view,result)",
+		"refresh:()=>executeQuery(view)",
+		"filter:()=>openQueryFilterDialog(view,result)",
+		"addRow:()=>addQueryRow(view,result)",
+		"addDisabled:!result?.edit?.editable",
+		"order:()=>openQueryOrderDialog(view,result)",
 		"th.onclick=()=>toggleQueryHeaderOrder(view,result,columnIndex)",
 		"helper.serializeClipboardData",
-		"uploadTextToHost",
-		"saveTextToClient",
 		"save.textContent='Choose save location…'",
-		"const location=await chooseScriptLocation('Export query result')",
-		"browser?.chooseFile",
-		"fileLabel:'Export file name:'",
+		"await saveTextWithLocation('Export query result'",
+		"hostFileLabel:'Export file name:'",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("database.js missing query result grid action %q", want)
+		}
+	}
+}
+
+
+func TestDatabaseDataGridsShareActionMenuBuilder(t *testing.T) {
+	workbenchData, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workbench := string(workbenchData)
+	for _, want := range []string{
+		"function gridActionMenuItems(actions={})",
+		"{label:'Export data…'",
+		"{label:'Refresh'",
+		"{label:'Filter…'",
+		"{label:'Add row'",
+		"{label:'Order…'",
+		"function tableGridActionMenuItems(view)",
+		"exportData:()=>exportTableData(view)",
+		"refresh:()=>{if(confirmDiscardChanges(view))loadData(view).catch(app.showError);}",
+		"filter:()=>openFilterDialog(view)",
+		"addRow:()=>addGridRow(view)",
+		"order:()=>openDataOrderDialog(view)",
+		"function exportTableData(view)",
+		"function openDataOrderDialog(view)",
+		"...tableGridActionMenuItems(view)",
+		"gridActionMenuItems,",
+	} {
+		if !strings.Contains(workbench, want) {
+			t.Fatalf("database_workbench.js missing shared data-grid action behavior %q", want)
+		}
+	}
+
+	queryData, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := string(queryData)
+	if !strings.Contains(query, "helper.gridActionMenuItems({") {
+		t.Fatal("query result must use the shared database grid action menu builder")
+	}
+	for _, stale := range []string{
+		"{label:'Export data…',action:()=>exportQueryData(view,result)}",
+		"{label:'Refresh',action:()=>executeQuery(view)}",
+		"{label:'Filter…',action:()=>openQueryFilterDialog(view,result)}",
+		"{label:'Order…',action:()=>openQueryOrderDialog(view,result)}",
+	} {
+		if strings.Contains(query, stale) {
+			t.Fatalf("database.js must not define a duplicate grid action menu item %q", stale)
 		}
 	}
 }
