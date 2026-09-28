@@ -571,3 +571,34 @@ func TestDatabaseWorkbenchEditsLongTextOnlyInPopup(t *testing.T) {
 		t.Fatal("long-text popup branch must not enable inline contentEditable")
 	}
 }
+
+
+func TestDatabaseQueryEditorAppliesSafeEditableSelectChanges(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function queryCellValue(view,result,rowIndex,columnIndex)",
+		"function setQueryDirtyCell(view,result,rowIndex,columnIndex,value)",
+		"function applyQueryChanges(view,result)",
+		"result?.edit?.editable",
+		"result?.edit?.row_identities?.[rowIndex]",
+		"mutations.push({action:'update',identity,values:Object.fromEntries(changes)})",
+		"'mutate_rows'",
+		"catalog:edit.catalog||view.catalog.value||''",
+		"name:edit.name",
+		"Apply changes",
+		"Revert",
+		"await executeQuery(view)",
+		"db-query-dirty",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database.js missing editable query workflow %q", want)
+		}
+	}
+	if strings.Contains(js, "action:'delete',identity") || strings.Contains(js, "action:'insert',values") {
+		t.Fatal("query editor must not expose insert/delete mutations for arbitrary SELECT results")
+	}
+}
