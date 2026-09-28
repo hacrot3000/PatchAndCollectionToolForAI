@@ -255,6 +255,7 @@ function activatePanel(view,name){
   if(!wb)return;
   wb.active=name;
   if(wb.pages instanceof Map){
+    if(wb.pages.get(name)?.mode==='query')wb.lastQueryKey=name;
     for(const [key,page] of wb.pages){
       page.tab?.classList.toggle('active',key===name);
       page.panel?.classList.toggle('hidden',key!==name);
@@ -327,6 +328,7 @@ function closeWorkbenchPage(view,key,{force=false,activateFallback=true}={}){
   if(!force&&page.mode==='data'&&page.ctx&&hasPendingChanges(page.ctx)&&!confirm('Discard unsaved database grid changes?'))return false;
   if(!force&&page.mode==='query'&&page.ctx&&database.queryHasPendingChanges?.(page.ctx)&&!confirm('Discard unsaved query result changes?'))return false;
   page.tab?.remove();page.panel?.remove();wb.pages.delete(key);
+  if(wb.lastQueryKey===key)wb.lastQueryKey='query';
   if(activateFallback&&wb.active===key)activatePanel(root,'query');
   return true;
 }
@@ -363,6 +365,8 @@ function activeQueryPage(view){
   const root=rootWorkbenchView(view);const wb=root.workbench;
   const active=wb.pages?.get(wb.active);
   if(active?.mode==='query')return active;
+  const recent=wb.pages?.get(wb.lastQueryKey);
+  if(recent?.mode==='query')return recent;
   return wb.pages?.get('query')||null;
 }
 
@@ -1532,7 +1536,8 @@ function enhanceView(view){
     details:new Map(),
     objectFilter:null,
     addQuery,
-    queryCounter:1
+    queryCounter:1,
+    lastQueryKey:'query'
   };
   tabsBar.append(addQuery);
   const queryTab=createWorkbenchTab(view,'query','Query 1',{closable:false});
