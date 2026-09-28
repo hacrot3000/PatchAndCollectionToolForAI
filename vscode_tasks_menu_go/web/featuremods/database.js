@@ -137,7 +137,9 @@ async function executeQuery(view){
   view.run.disabled=true;view.run.textContent='Running…';
   const started=performance.now();
   try{
-    const result=await sessionRequest(view.meta.id,'execute',{statement,max_rows:maxRows});
+    const payload={statement,max_rows:maxRows};
+    if(view.catalog.value)payload.catalog=view.catalog.value;
+    const result=await sessionRequest(view.meta.id,'execute',payload);
     renderResult(view,result,Math.round(performance.now()-started));
   }finally{
     view.run.disabled=false;view.run.textContent='Run';
