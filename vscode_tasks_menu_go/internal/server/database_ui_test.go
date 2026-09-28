@@ -506,6 +506,32 @@ func TestDatabaseWorkbenchRowSelectionAndCopyDataOptions(t *testing.T) {
 }
 
 
+func TestDatabaseContextSubmenuAllowsSlowPointerTransit(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const CONTEXT_SUBMENU_CLOSE_DELAY_MS=240",
+		"const cancelClose=()=>",
+		"const scheduleClose=()=>",
+		"setTimeout(()=>{submenu.style.display='none';closeTimer=null;},CONTEXT_SUBMENU_CLOSE_DELAY_MS)",
+		"entry.onpointerenter=()=>{cancelClose();if(!button.disabled)positionContextSubmenu(submenu);}",
+		"entry.onpointerleave=scheduleClose",
+		"submenu.onpointerenter=cancelClose",
+		"submenu.onpointerleave=scheduleClose",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing delayed submenu hover behavior %q", want)
+		}
+	}
+	if strings.Contains(js, "entry.onpointerleave=()=>{submenu.style.display='none';}") {
+		t.Fatal("database submenu must not close immediately while the pointer crosses into the submenu")
+	}
+}
+
+
 func TestDatabaseQueryResultsCollapseLongTextIntoPopup(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/database.js")
 	if err != nil {
