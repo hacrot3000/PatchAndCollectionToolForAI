@@ -207,7 +207,7 @@ function chooseHostSQLScript(){
   });
 }
 
-async async function chooseClientSQLScript(){
+async function chooseClientSQLScript(){
   if(typeof globalThis.showOpenFilePicker==='function'){
     try{
       const handles=await globalThis.showOpenFilePicker({
