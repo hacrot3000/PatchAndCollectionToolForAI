@@ -42,6 +42,14 @@ style.textContent=`
 .db-long-text-open{flex:0 0 auto;padding:0 6px;min-width:26px;height:22px;line-height:18px}
 .db-value-dialog-card{width:min(900px,96vw)}
 .db-value-dialog-area{width:100%;min-height:360px;max-height:70vh;resize:vertical;font-family:ui-monospace,monospace;font-size:12px}
+.db-result-edit-tools{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid #30343b;background:#11151b}
+.db-result-edit-tools button{font-size:11px}
+.db-result-edit-tools .db-result-apply{background:#244c70;border-color:#3f79a8}
+.db-result-edit-info{font-size:10px;opacity:.65;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.db-result-table td.db-query-editable{cursor:text;outline:none}
+.db-result-table td.db-query-editable:focus{box-shadow:inset 0 0 0 1px #3f79a8;background:#121a23}
+.db-result-table td.db-query-popup-editable{cursor:default}
+.db-result-table td.db-query-dirty{background:#332d18}
 html[data-taskmenu-theme="light"] .db-pane{background:#fff}
 html[data-taskmenu-theme="light"] .db-query-editor{background:#f7f9fb}
 html[data-taskmenu-theme="light"] .db-result-status{background:#f2f5f8}
@@ -104,6 +112,15 @@ function isLongTextValue(value){
   return value.length>LONG_TEXT_PREVIEW_LIMIT||value.includes('\n')||value.includes('\r');
 }
 
+function isLongTextColumnType(columnType=''){
+  const type=String(columnType||'').trim().toLowerCase();
+  return type==='document'||type==='json'||type.includes('json')||type.includes('text')||type.includes('clob');
+}
+
+function shouldUseQueryValuePopup(value,columnType=''){
+  return isLongTextColumnType(columnType)||isLongTextValue(value);
+}
+
 async function copySelectedTextArea(area){
   area.focus();area.select();
   try{area.setSelectionRange(0,area.value.length);}catch{}
@@ -114,41 +131,150 @@ async function copySelectedTextArea(area){
   if(!document.execCommand('copy'))throw new Error('Clipboard copy failed');
 }
 
-function openQueryValueViewer(titleText,value){
+function parseQueryEditedValue(text,original,columnType=''){
+  const type=String(columnType||'').toLowerCase();
+  if(type==='document'||type==='json'||type.includes('json'))return JSON.parse(text);
+  if(original&&typeof original==='object')return JSON.parse(text);
+  return String(text);
+}
+
+function sameQueryValue(a,b){
+  return JSON.stringify(a)===JSON.stringify(b);
+}
+
+function queryCellValue(view,result,rowIndex,columnIndex){
+  const changes=view.queryDirtyRows?.get(rowIndex);
+  const column=result?.edit?.columns?.[columnIndex]||result?.columns?.[columnIndex];
+  if(changes?.has(column?.name))return changes.get(column.name);
+  return result?.rows?.[rowIndex]?.[columnIndex];
+}
+
+function setQueryDirtyCell(view,result,rowIndex,columnIndex,value){
+  const column=result?.edit?.columns?.[columnIndex]||result?.columns?.[columnIndex];
+  if(!column)return;
+  const original=result?.rows?.[rowIndex]?.[columnIndex];
+  let changes=view.queryDirtyRows?.get(rowIndex);
+  if(sameQueryValue(value,original)){
+    if(changes){changes.delete(column.name);if(changes.size===0)view.queryDirtyRows.delete(rowIndex);}
+  }else{
+    if(!(view.queryDirtyRows instanceof Map))view.queryDirtyRows=new Map();
+    if(!changes){changes=new Map();view.queryDirtyRows.set(rowIndex,changes);}
+    changes.set(column.name,value);
+  }
+}
+
+function queryPendingCount(view){
+  let count=0;
+  for(const changes of view.queryDirtyRows?.values?.()||[])count+=changes.size;
+  return count;
+}
+
+function openQueryValueViewer(titleText,value,{editable=false,columnType='',nullable=true,onSave=null}={}){
   const dialog=document.createElement('div');dialog.className='task-connection-dialog';
   const card=document.createElement('div');card.className='task-connection-dialog-card db-value-dialog-card';
   const title=document.createElement('h3');title.textContent=titleText||'Value';
-  const area=document.createElement('textarea');area.className='db-value-dialog-area';area.readOnly=true;area.value=String(value??'');
+  const area=document.createElement('textarea');area.className='db-value-dialog-area';area.readOnly=!editable;area.value=value===null||value===undefined?'':(typeof value==='object'?JSON.stringify(value,null,2):String(value));
   const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
   const copy=document.createElement('button');copy.type='button';copy.textContent='Copy all';
   copy.onclick=async()=>{try{await copySelectedTextArea(area);const old=copy.textContent;copy.textContent='✓ Copied';setTimeout(()=>{if(copy.isConnected)copy.textContent=old;},1000);}catch(error){app.showError(error);}};
-  const close=document.createElement('button');close.type='button';close.textContent='Close';close.onclick=()=>dialog.remove();
-  actions.append(copy,close);card.append(title,area,actions);dialog.append(card);document.body.append(dialog);
+  const close=document.createElement('button');close.type='button';close.textContent=editable?'Cancel':'Close';close.onclick=()=>dialog.remove();
+  actions.append(copy);
+  if(editable){
+    const setNull=document.createElement('button');setNull.type='button';setNull.textContent='Set NULL';setNull.disabled=!nullable;setNull.onclick=()=>{onSave?.(null);dialog.remove();};
+    const save=document.createElement('button');save.type='button';save.className='task-connection-primary';save.textContent='Use Value';save.onclick=()=>{
+      try{onSave?.(parseQueryEditedValue(area.value,value,columnType));dialog.remove();}catch(error){app.showError(error);}
+    };
+    actions.append(setNull,save);
+  }
+  actions.append(close);card.append(title,area,actions);dialog.append(card);document.body.append(dialog);
   dialog.addEventListener('pointerdown',event=>{if(event.target===dialog)dialog.remove();});
   dialog.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();dialog.remove();}});
+  if(editable)requestAnimationFrame(()=>{area.focus();area.setSelectionRange(area.value.length,area.value.length);});
 }
 
-function resultCell(value,column){
-  const td=document.createElement('td');
-  if(value===null||value===undefined){
-    td.textContent='NULL';td.className='db-null';
-  }else if(isLongTextValue(value)){
-    td.classList.add('db-long-text-cell');
-    const preview=document.createElement('div');preview.className='db-long-text-preview';
-    const text=document.createElement('span');text.className='db-long-text-preview-text';text.textContent=value.replace(/[\r\n]+/g,' ');
-    const open=document.createElement('button');open.type='button';open.className='db-long-text-open';open.textContent='…';open.title='Open full value';
-    open.onclick=event=>{event.preventDefault();event.stopPropagation();openQueryValueViewer(column?.name||'Value',value);};
-    preview.append(text,open);td.append(preview);
-  }else if(typeof value==='object'){
-    td.textContent=JSON.stringify(value);
-  }else{
-    td.textContent=String(value);
+function renderQueryValuePreview(td,value,onOpen){
+  td.classList.add('db-long-text-cell');
+  const preview=document.createElement('div');preview.className='db-long-text-preview';
+  const text=document.createElement('span');text.className='db-long-text-preview-text';text.textContent=(value===null||value===undefined?'NULL':(typeof value==='object'?JSON.stringify(value):String(value))).replace(/[\r\n]+/g,' ');
+  const open=document.createElement('button');open.type='button';open.className='db-long-text-open';open.textContent='…';open.title='Open full value';
+  open.onclick=event=>{event.preventDefault();event.stopPropagation();onOpen?.();};
+  preview.append(text,open);td.append(preview);
+}
+
+function resultCell(view,result,rowIndex,columnIndex){
+  const value=queryCellValue(view,result,rowIndex,columnIndex);
+  const column=result?.columns?.[columnIndex]||{};
+  const editColumn=result?.edit?.columns?.[columnIndex]||column;
+  const editable=Boolean(result?.edit?.editable)&&editColumn?.editable!==false&&Boolean(result?.edit?.row_identities?.[rowIndex]);
+  const popupOnly=shouldUseQueryValuePopup(value,editColumn?.type||column?.type||'');
+  const td=document.createElement('td');td.dataset.rowIndex=String(rowIndex);td.dataset.columnIndex=String(columnIndex);
+  if(view.queryDirtyRows?.get(rowIndex)?.has(editColumn?.name||column?.name))td.classList.add('db-query-dirty');
+  const openViewer=()=>openQueryValueViewer(editColumn?.name||column?.name||'Value',value,{
+    editable,
+    columnType:editColumn?.type||column?.type||'',
+    nullable:editColumn?.nullable!==false,
+    onSave:next=>{setQueryDirtyCell(view,result,rowIndex,columnIndex,next);renderResult(view,result,view.queryElapsed,{preserveDirty:true});}
+  });
+  if(popupOnly){
+    if(editable)td.classList.add('db-query-editable','db-query-popup-editable');
+    renderQueryValuePreview(td,value,openViewer);
+    td.ondblclick=event=>{event.preventDefault();openViewer();};
+    return td;
+  }
+  if(value===null||value===undefined){td.textContent='NULL';td.classList.add('db-null');}
+  else if(typeof value==='object')td.textContent=JSON.stringify(value);
+  else td.textContent=String(value);
+  if(editable){
+    td.contentEditable='true';td.spellcheck=false;td.classList.add('db-query-editable');
+    td.addEventListener('focus',()=>{if(td.classList.contains('db-null')){td.textContent='';td.classList.remove('db-null');}});
+    td.addEventListener('keydown',event=>{
+      if(event.key==='Escape'){event.preventDefault();renderResult(view,result,view.queryElapsed,{preserveDirty:true});return;}
+      if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();td.blur();}
+    });
+    td.addEventListener('blur',()=>{
+      try{
+        const next=parseQueryEditedValue(td.textContent,value,editColumn?.type||column?.type||'');
+        setQueryDirtyCell(view,result,rowIndex,columnIndex,next);
+        renderResult(view,result,view.queryElapsed,{preserveDirty:true});
+      }catch(error){app.showError(error);renderResult(view,result,view.queryElapsed,{preserveDirty:true});}
+    });
   }
   return td;
 }
 
-function renderResult(view,result,elapsed){
+async function applyQueryChanges(view,result){
+  const edit=result?.edit;
+  if(!edit?.editable)throw new Error(edit?.editability_reason||'This query result is read-only');
+  const mutations=[];
+  for(const [rowIndex,changes] of view.queryDirtyRows||[]){
+    if(!changes?.size)continue;
+    const identity=edit.row_identities?.[rowIndex];
+    if(!identity)throw new Error('Editable query row identity is unavailable');
+    mutations.push({action:'update',identity,values:Object.fromEntries(changes)});
+  }
+  if(!mutations.length)return;
+  const response=await sessionRequest(view.meta.id,'mutate_rows',{
+    catalog:edit.catalog||view.catalog.value||'',
+    schema:edit.schema||'',
+    kind:edit.kind||'table',
+    name:edit.name,
+    mutations
+  });
+  const items=Array.isArray(response?.results)?response.results:null;
+  if(!items||items.length!==mutations.length){
+    await executeQuery(view);
+    throw new Error('Database adapter returned an incomplete query mutation result; query was reloaded');
+  }
+  const errors=items.filter(item=>item?.error);
+  await executeQuery(view);
+  if(errors.length)throw new Error(errors.map(item=>(item.action||'update')+': '+(item.error?.message||item.error?.code||'failed')).join('\n'));
+}
+
+function renderResult(view,result,elapsed,{preserveDirty=false}={}){
   view.result.replaceChildren();
+  view.queryResult=result;
+  view.queryElapsed=elapsed;
+  if(!preserveDirty||!(view.queryDirtyRows instanceof Map))view.queryDirtyRows=new Map();
   const status=document.createElement('div');status.className='db-result-status';
   const columns=Array.isArray(result?.columns)?result.columns:[];
   const rows=Array.isArray(result?.rows)?result.rows:[];
@@ -156,8 +282,28 @@ function renderResult(view,result,elapsed){
   if(result?.truncated)parts.push('truncated');
   if(Number.isFinite(result?.affected_rows))parts.push('affected '+result.affected_rows);
   if(Number.isFinite(elapsed))parts.push(elapsed+' ms');
+  if(result?.edit?.editable)parts.push('editable');
+  else if(result?.edit?.editability_reason)parts.push('read-only');
   status.textContent=parts.join(' · ');
+  if(result?.edit?.editability_reason)status.title=result.edit.editability_reason;
   view.result.append(status);
+  if(result?.edit){
+    const tools=document.createElement('div');tools.className='db-result-edit-tools';
+    const info=document.createElement('div');info.className='db-result-edit-info';
+    const pending=queryPendingCount(view);
+    info.textContent=result.edit.editable
+      ?((result.edit.catalog?result.edit.catalog+'.':'')+result.edit.name+(pending?' · '+pending+' pending':''))
+      :(result.edit.editability_reason||'Query result is read-only');
+    tools.append(info);
+    if(result.edit.editable){
+      const revert=document.createElement('button');revert.type='button';revert.textContent='Revert';revert.disabled=pending===0;
+      revert.onclick=()=>{view.queryDirtyRows.clear();renderResult(view,result,elapsed,{preserveDirty:true});};
+      const apply=document.createElement('button');apply.type='button';apply.className='db-result-apply';apply.textContent='Apply changes';apply.disabled=pending===0;
+      apply.onclick=()=>{apply.disabled=true;applyQueryChanges(view,result).catch(app.showError);};
+      tools.append(revert,apply);
+    }
+    view.result.append(tools);
+  }
   if(!columns.length){
     const empty=document.createElement('div');empty.className='task-connection-empty';empty.textContent='Statement completed with no tabular result';view.result.append(empty);return;
   }
@@ -166,11 +312,11 @@ function renderResult(view,result,elapsed){
   for(const column of columns){const th=document.createElement('th');th.textContent=column?.name||'';if(column?.type)th.title=column.type;header.append(th);}
   thead.append(header);table.append(thead);
   const tbody=document.createElement('tbody');
-  for(const row of rows){
+  rows.forEach((row,rowIndex)=>{
     const tr=document.createElement('tr');
-    (Array.isArray(row)?row:[]).forEach((value,index)=>tr.append(resultCell(value,columns[index])));
+    (Array.isArray(row)?row:[]).forEach((_,columnIndex)=>tr.append(resultCell(view,result,rowIndex,columnIndex)));
     tbody.append(tr);
-  }
+  });
   table.append(tbody);view.result.append(table);
 }
 
