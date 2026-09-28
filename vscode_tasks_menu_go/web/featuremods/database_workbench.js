@@ -1371,7 +1371,15 @@ function enhanceView(view){
   }
 }
 
-globalThis.TaskMenuDatabaseWorkbench={enhanceView,bindObject,openTableData,closeContextMenu};
+globalThis.TaskMenuDatabaseWorkbench={
+  enhanceView,
+  bindObject,
+  openTableData,
+  closeContextMenu,
+  showContextMenu,
+  copyText,
+  serializeClipboardData
+};
 
 ensureAdapters().then(()=>{
   for(const view of database.views.values())enhanceView(view);
