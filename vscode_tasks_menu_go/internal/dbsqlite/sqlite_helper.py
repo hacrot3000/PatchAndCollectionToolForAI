@@ -491,19 +491,37 @@ def operation_import_sql(connection, payload, read_only):
     imported_bytes = int(path.stat().st_size)
     pending = ""
     max_pending = 32 * 1024 * 1024
+
+    def execute_complete(statement):
+        text = statement.strip()
+        if not text:
+            return
+        connection.execute(statement)
+
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         for line in handle:
-            pending += line
-            if len(pending.encode("utf-8")) > max_pending and not sqlite3.complete_statement(pending):
+            start = 0
+            for index, char in enumerate(line):
+                if char != ";":
+                    continue
+                pending += line[start:index + 1]
+                start = index + 1
+                if sqlite3.complete_statement(pending):
+                    execute_complete(pending)
+                    pending = ""
+                elif len(pending.encode("utf-8")) > max_pending:
+                    raise ValueError("SQLite import contains a statement larger than 32 MiB")
+            pending += line[start:]
+            if len(pending.encode("utf-8")) > max_pending:
                 raise ValueError("SQLite import contains a statement larger than 32 MiB")
-            if sqlite3.complete_statement(pending):
-                if pending.strip():
-                    connection.executescript(pending)
-                pending = ""
+
     if pending.strip():
-        if not sqlite3.complete_statement(pending):
-            raise ValueError("SQLite import ended with an incomplete SQL statement")
-        connection.executescript(pending)
+        if sqlite3.complete_statement(pending):
+            execute_complete(pending)
+        else:
+            # A trailing comment is harmless; executescript also raises for
+            # genuinely incomplete SQL so malformed imports still fail closed.
+            connection.executescript(pending)
     connection.commit()
     return {"imported_bytes": imported_bytes, "message": "SQL import completed"}
 
