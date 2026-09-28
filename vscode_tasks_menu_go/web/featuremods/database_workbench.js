@@ -261,6 +261,11 @@ function queryTemplate(view,object,action,detail=null){
       :'UPDATE '+target+' SET ... WHERE ...;';
   case 'delete':
     return 'DELETE FROM '+target+' WHERE ...;';
+  case 'create': {
+    const ddl=String(detail?.sql||'').trim();
+    if(!ddl)return '';
+    return ddl.endsWith(';')?ddl:(ddl+';');
+  }
   default:
     return '';
   }
@@ -533,11 +538,33 @@ function setQuery(view,text){
   const root=rootWorkbenchView(view);let page=activeQueryPage(root);
   if(!page)page=createQueryPage(root);
   const target=page.ctx;
-  if(typeof database.setQueryText==='function')database.setQueryText(target,text,{focus:false});
-  else target.editor.value=text;
+  if(typeof database.queryCanReplace==='function'&&database.queryCanReplace(target)){
+    if(typeof database.setQueryText==='function')database.setQueryText(target,text,{focus:false});
+    else target.editor.value=text;
+  }else if(typeof database.appendQueryText==='function'){
+    database.appendQueryText(target,text,{focus:false});
+  }else{
+    const current=String(database.getQueryText?.(target)??target.editor?.value??'');
+    const addition=String(text??'').trim();
+    target.editor.value=current?(current+(current.endsWith('\n')?'\n':'\n\n')+addition):addition;
+  }
   activatePanel(root,page.key);
   if(typeof database.focusQuery==='function')database.focusQuery(target);
   else target.editor.focus();
+}
+
+function queryTargetForOpen(view){
+  const root=rootWorkbenchView(view);
+  for(const page of root.workbench?.pages?.values?.()||[]){
+    if(page?.mode==='query'&&page.ctx===view){
+      if(database.queryCanReplace?.(view)){activatePanel(root,page.key);return view;}
+      const created=createQueryPage(root,{initialText:'',activate:true});
+      return created.ctx;
+    }
+  }
+  const active=activeQueryPage(root);
+  if(active?.ctx&&database.queryCanReplace?.(active.ctx)){activatePanel(root,active.key);return active.ctx;}
+  return createQueryPage(root,{initialText:'',activate:true}).ctx;
 }
 
 function appendStructureHeading(panel,text){
@@ -1416,7 +1443,7 @@ async function generatedQuery(view,object,action){
     return;
   }
   let detail=root.workbench.details.get(objectKey(object));
-  if(!detail&&(action==='insert'||action==='update'))detail=await inspectObject(root,object,{open:false});
+  if(!detail&&(action==='insert'||action==='update'||action==='create'))detail=await inspectObject(root,object,{open:false});
   const text=queryTemplate(root,object,action,detail);
   if(!text)throw new Error('Query template generation is not available for this adapter');
   setQuery(root,text);
@@ -1456,6 +1483,7 @@ function objectMenu(view,object,x,y){
     {label:'Generate INSERT',disabled:!['mysql','sqlite'].includes(adapterKind),action:()=>generatedQuery(view,object,'insert')},
     {label:'Generate UPDATE',disabled:!['mysql','sqlite'].includes(adapterKind),action:()=>generatedQuery(view,object,'update')},
     {label:'Generate DELETE',disabled:!['mysql','sqlite'].includes(adapterKind),action:()=>generatedQuery(view,object,'delete')},
+    {label:'Generate CREATE',disabled:!['mysql','sqlite'].includes(adapterKind)||!['table','view'].includes(objectKind),action:()=>generatedQuery(view,object,'create')},
     {separator:true},
     {label:isRedisKey?'Clear Key':(isCollection?'Clear Collection':'Truncate Table'),danger:true,disabled:isRedisKey||!writable||isView,action:()=>runObjectAction(view,object,'truncate')},
     {label:isRedisKey?'Delete Key':(isCollection?'Drop Collection':'Drop '+(isView?'View':'Table')),danger:true,disabled:!writable,action:()=>runObjectAction(view,object,'drop')}
@@ -1802,6 +1830,7 @@ globalThis.TaskMenuDatabaseWorkbench={
   gridActionMenuItems,
   gridContextMenuItems,
   queryStateChanged:view=>scheduleQueryTabsSave(view),
+  queryTargetForOpen,
   persistQueryTabs:view=>saveQueryTabsNow(view),
   updateQueryTabIdentity(view,{label='',tooltip=''}={}){
     const root=rootWorkbenchView(view);
