@@ -1431,6 +1431,7 @@ function activateQueryResult(owner,index){
 function createQueryResultContext(owner,statement,index){
   if(!owner.queryResultTabs){
     owner.result.replaceChildren();
+    owner.result.classList.add('has-result-tabs');
     owner.queryResultTabs=document.createElement('div');owner.queryResultTabs.className='db-query-result-tabs';
     owner.queryResultPanels=document.createElement('div');owner.queryResultPanels.className='db-query-result-panels';
     owner.result.append(owner.queryResultTabs,owner.queryResultPanels);
@@ -1494,6 +1495,7 @@ async function executeQuery(view,{discardPending=false}={}){
   owner.queryResultTabs=null;owner.queryResultPanels=null;owner.queryResultContexts=[];
   try{
     if(statements.length===1){
+      owner.result.classList.remove('has-result-tabs');
       owner.result.replaceChildren();
       const started=performance.now();
       const payload={statement:statements[0],max_rows:maxRows};
@@ -1503,6 +1505,7 @@ async function executeQuery(view,{discardPending=false}={}){
       renderResult(owner,result,Math.round(performance.now()-started));
       return;
     }
+    owner.result.classList.add('has-result-tabs');
     owner.result.replaceChildren();
     let firstError=null;
     for(let index=0;index<statements.length;index++){
