@@ -1434,6 +1434,51 @@ async function loadCatalogs(view){
   else renderObjects(view,[]);
 }
 
+function defaultDatabaseQueryText(adapterKind){
+  return adapterKind==='redis'
+    ?'PING'
+    :(adapterKind==='mongo'
+      ?'{\n  "op": "find",\n  "collection": "users",\n  "filter": {},\n  "limit": 100\n}'
+      :'SELECT 1');
+}
+
+function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValue='100'}={}){
+  const query=document.createElement('div');query.className='db-query';
+  const tools=document.createElement('div');tools.className='db-query-tools';
+  const run=document.createElement('button');run.type='button';run.className='db-run';run.textContent='Run';
+  const openSQL=document.createElement('button');openSQL.type='button';openSQL.textContent='Open SQL';openSQL.hidden=!(view.meta.adapter_kind==='mysql'||view.meta.adapter_kind==='sqlite');
+  const saveSQL=document.createElement('button');saveSQL.type='button';saveSQL.textContent='Save SQL';saveSQL.hidden=openSQL.hidden;
+  const rowsLabel=document.createElement('label');rowsLabel.textContent='Max rows';
+  const maxRows=document.createElement('input');maxRows.type='number';maxRows.min='1';maxRows.max='1000';maxRows.value=String(maxRowsValue||'100');
+  tools.append(run,openSQL,saveSQL,rowsLabel,maxRows);
+  const editor=document.createElement('textarea');editor.className='db-query-editor';editor.spellcheck=false;editor.value=String(initialText||'');
+  const result=document.createElement('div');result.className='db-result-wrap';
+  query.append(tools,editor,result);
+
+  Object.assign(view,{
+    queryPanel:query,editor,run,openSQL,saveSQL,maxRows,result,
+    scriptName:scriptName||'query.sql',
+    queryFilter:null,queryOrder:null,lastExecutedStatement:'',queryNewRows:[],
+    queryDirtyRows:new Map(),querySelectedRows:new Set(),querySelectionAnchor:null,
+    queryResultTabs:null,queryResultPanels:null,queryResultContexts:[],activeQueryResult:0,resultStatement:''
+  });
+  if(!(view.querySchemaCache instanceof Map))view.querySchemaCache=new Map();
+  initQueryEditor(view);
+  return query;
+}
+
+function createAdditionalQueryView(root,{initialText='',scriptName='query.sql'}={}){
+  const child=Object.create(root);
+  child.workbenchRoot=root;
+  const text=initialText||defaultDatabaseQueryText(root.meta.adapter_kind);
+  setupQueryPanel(child,{initialText:text,scriptName,maxRowsValue:root.maxRows?.value||'100'});
+  return child;
+}
+
+function queryViewHasPendingChanges(view){
+  return queryResultHasPendingChanges(view);
+}
+
 function attachDatabaseView(meta,activate){
   if(dbViews.has(meta.id)){
     if(activate)activateDatabaseView(meta.id);
@@ -1466,27 +1511,11 @@ function attachDatabaseView(meta,activate){
   const detail=document.createElement('div');detail.className='db-object-detail';
   browser.append(browserHead,objects,detail);
 
-  const query=document.createElement('div');query.className='db-query';
-  const tools=document.createElement('div');tools.className='db-query-tools';
-  const run=document.createElement('button');run.type='button';run.className='db-run';run.textContent='Run';
-  const openSQL=document.createElement('button');openSQL.type='button';openSQL.textContent='Open SQL';openSQL.hidden=!(meta.adapter_kind==='mysql'||meta.adapter_kind==='sqlite');
-  const saveSQL=document.createElement('button');saveSQL.type='button';saveSQL.textContent='Save SQL';saveSQL.hidden=openSQL.hidden;
-  const rowsLabel=document.createElement('label');rowsLabel.textContent='Max rows';
-  const maxRows=document.createElement('input');maxRows.type='number';maxRows.min='1';maxRows.max='1000';maxRows.value='100';
-  tools.append(run,openSQL,saveSQL,rowsLabel,maxRows);
-  const editor=document.createElement('textarea');editor.className='db-query-editor';editor.spellcheck=false;
-  editor.value=meta.adapter_kind==='redis'
-    ?'PING'
-    :(meta.adapter_kind==='mongo'
-      ?'{\n  "op": "find",\n  "collection": "users",\n  "filter": {},\n  "limit": 100\n}'
-      :'SELECT 1');
-  const result=document.createElement('div');result.className='db-result-wrap';
-  query.append(tools,editor,result);
+  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,objectData:[],querySchemaCache:new Map()};
+  const query=setupQueryPanel(view,{initialText:defaultDatabaseQueryText(meta.adapter_kind),scriptName:'query.sql'});
   body.append(browser,query);pane.append(head,body);panes.append(pane);
 
-  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,editor,run,openSQL,saveSQL,maxRows,result,objectData:[],querySchemaCache:new Map(),scriptName:'query.sql',queryFilter:null,queryOrder:null,lastExecutedStatement:'',queryNewRows:[]};
   dbViews.set(meta.id,view);
-  initQueryEditor(view);
   globalThis.TaskMenuDatabaseWorkbench?.enhanceView?.(view);
   const resetQuerySchema=()=>{view.querySchemaCache?.clear?.();view.querySchemaGeneration=(view.querySchemaGeneration||0)+1;clearTimeout(view.querySchemaTimer);};
   reload.onclick=()=>{resetQuerySchema();loadCatalogs(view).catch(app.showError);};
@@ -1569,6 +1598,8 @@ globalThis.TaskMenuDatabase={
   getQueryText:queryEditorText,
   setQueryText:setQueryEditorText,
   focusQuery:focusQueryEditor,
+  createQueryView:createAdditionalQueryView,
+  queryHasPendingChanges:queryViewHasPendingChanges,
   saveTextWithLocation,
   restoreSessions:restoreDatabaseSessions,
   get views(){return dbViews;}
