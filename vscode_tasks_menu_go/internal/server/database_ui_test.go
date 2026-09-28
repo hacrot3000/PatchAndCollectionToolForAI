@@ -860,6 +860,7 @@ func TestDatabaseDataGridsShareActionMenuBuilder(t *testing.T) {
 	workbench := string(workbenchData)
 	for _, want := range []string{
 		"function gridActionMenuItems(actions={})",
+		"function gridContextMenuItems(...sections)",
 		"{label:'Export data…'",
 		"{label:'Refresh'",
 		"{label:'Filter…'",
@@ -874,7 +875,9 @@ func TestDatabaseDataGridsShareActionMenuBuilder(t *testing.T) {
 		"function exportTableData(view)",
 		"function openDataOrderDialog(view)",
 		"...tableGridActionMenuItems(view)",
+		"gridContextMenuItems(",
 		"gridActionMenuItems,",
+		"gridContextMenuItems,",
 	} {
 		if !strings.Contains(workbench, want) {
 			t.Fatalf("database_workbench.js missing shared data-grid action behavior %q", want)
@@ -888,6 +891,9 @@ func TestDatabaseDataGridsShareActionMenuBuilder(t *testing.T) {
 	query := string(queryData)
 	if !strings.Contains(query, "helper.gridActionMenuItems({") {
 		t.Fatal("query result must use the shared database grid action menu builder")
+	}
+	if !strings.Contains(query, "helper.gridContextMenuItems(") {
+		t.Fatal("query result must use the shared database grid context menu composer")
 	}
 	for _, stale := range []string{
 		"{label:'Export data…',action:()=>exportQueryData(view,result)}",
