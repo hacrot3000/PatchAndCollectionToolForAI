@@ -109,7 +109,7 @@ func TestDatabaseWorkbenchProvidesNavigatorContextMenuAndPagedGrid(t *testing.T)
 	js := string(data)
 	for _, want := range []string{
 		"db-workbench-tabs",
-		"createWorkbenchTab(view,'query','Query 1')",
+		"const queryTab=createWorkbenchTab(view,firstKey",
 		"object.name+' - Data'",
 		"object.name+' - Structure'",
 		"ensureDataPage",
@@ -1007,6 +1007,7 @@ func TestDatabaseWorkbenchSupportsMultipleQueryTabs(t *testing.T) {
 		"createQueryView:createAdditionalQueryView",
 		"queryHasPendingChanges:queryViewHasPendingChanges",
 		"function databaseQueryViews(view)",
+		"maxRowsValue=maxRowsValue||root.maxRows?.value||'100'",
 	} {
 		if !strings.Contains(databaseJS, want) {
 			t.Fatalf("database.js missing query-tab factory behavior %q", want)
@@ -1019,20 +1020,22 @@ func TestDatabaseWorkbenchSupportsMultipleQueryTabs(t *testing.T) {
 	}
 	workbench := string(workbenchData)
 	for _, want := range []string{
-		"function createQueryPage(view)",
+		"function createQueryPage(view,{",
 		"addQuery.className='db-workbench-add-query'",
 		".db-workbench-add-query{",
 		"position:sticky;right:0",
 		"addQuery.textContent='+ Query'",
 		"addQuery.title='Create a new query tab'",
-		"createWorkbenchTab(view,'query','Query 1')",
-		"const key='query:'+number",
+		"function isQueryPageKey(key)",
+		"wb.tabsBar.insertBefore(button,wb.addQuery)",
+		"else wb.tabsBar.append(button)",
+		"button.dataset.pageKey=key",
+		"querySelectorAll('.db-workbench-tab[data-page-key]')",
 		"database.createQueryView(root",
 		"panel.classList.add('db-workbench-panel','hidden')",
 		"function activeQueryPage(view)",
 		"if(active?.mode==='query')return active",
 		"page.mode==='query'&&page.ctx&&database.queryHasPendingChanges?.(page.ctx)",
-		"wb.tabsBar.append(wb.addQuery)",
 		"function firstQueryPage(view)",
 		"function activateWorkbenchFallback(view,preferredIndex=0)",
 		"page.ctx.queryCM?.destroy?.()",
@@ -1054,6 +1057,60 @@ func TestDatabaseWorkbenchSupportsMultipleQueryTabs(t *testing.T) {
 }
 
 
+func TestDatabaseQueryTabsPersistAcrossReload(t *testing.T) {
+	workbenchData, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workbench := string(workbenchData)
+	for _, want := range []string{
+		"const QUERY_TABS_STORAGE_VERSION=1",
+		"const QUERY_TABS_SAVE_DELAY_MS=120",
+		"function queryTabsStorageKey(view)",
+		"'vscode-tasks-menu:db-query-tabs:v1:'",
+		"function queryPageSnapshot(page)",
+		"database.getQueryText?.(ctx)",
+		"maxRows:String(ctx.maxRows?.value||'100')",
+		"scriptSource:serializableQuerySource(ctx.scriptSource)",
+		"function saveQueryTabsNow(view)",
+		"localStorage.setItem(key,JSON.stringify({",
+		"activeQueryKey",
+		"function readSavedQueryTabs(view)",
+		"localStorage.getItem(key)",
+		"function applyQuerySnapshot(ctx,snapshot)",
+		"database.setQueryText?.(ctx,snapshot.text,{focus:false})",
+		"ctx.maxRows.value=String(snapshot.maxRows||'100')",
+		"ctx.scriptSource=snapshot.scriptSource||null",
+		"const saved=readSavedQueryTabs(view)",
+		"for(const snapshot of snapshots.slice(1))",
+		"const restoredActive=saved?.activeQueryKey",
+		"scheduleQueryTabsSave(view)",
+	} {
+		if !strings.Contains(workbench, want) {
+			t.Fatalf("database_workbench.js missing query-tab persistence behavior %q", want)
+		}
+	}
+	if strings.Contains(workbench, "queryResult:") || strings.Contains(workbench, "result.rows") {
+		t.Fatal("query-tab persistence must not persist query result data")
+	}
+
+	databaseData, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	databaseJS := string(databaseData)
+	for _, want := range []string{
+		"function notifyQueryStateChanged(view)",
+		"queryStateChanged?.(view)",
+		"notifyQueryStateChanged(view)",
+		"maxRows.addEventListener",
+	} {
+		if !strings.Contains(databaseJS, want) {
+			t.Fatalf("database.js missing query persistence trigger %q", want)
+		}
+	}
+}
+
 
 func TestDatabaseQueryTabsShowOpenedFileIdentity(t *testing.T) {
 	workbenchData, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
@@ -1066,6 +1123,7 @@ func TestDatabaseQueryTabsShowOpenedFileIdentity(t *testing.T) {
 		"const text=page.tab?.querySelector?.('.db-workbench-tab-label')",
 		"if(text&&label)text.textContent=label",
 		"if(page.tab)page.tab.title=tooltip||label||page.tab.title",
+		"scheduleQueryTabsSave(root)",
 	} {
 		if !strings.Contains(workbench, want) {
 			t.Fatalf("database_workbench.js missing query file identity behavior %q", want)
