@@ -1024,7 +1024,7 @@ func TestDatabaseWorkbenchSupportsMultipleQueryTabs(t *testing.T) {
 		"function createQueryPage(view,{",
 		"addQuery.className='db-workbench-add-query'",
 		".db-workbench-add-query{",
-		"position:sticky;right:0",
+		"margin-left:12px;margin-right:10px",
 		"addQuery.textContent='+ Query'",
 		"addQuery.title='Create a new query tab'",
 		"function isQueryPageKey(key)",
@@ -1050,6 +1050,7 @@ func TestDatabaseWorkbenchSupportsMultipleQueryTabs(t *testing.T) {
 		"disabled:key==='query'",
 		"if(!page||key==='query')return false",
 		"filter(item=>item!=='query')",
+		"position:sticky;right:0",
 	} {
 		if strings.Contains(workbench, stale) {
 			t.Fatalf("database_workbench.js still special-cases Query 1 with stale behavior %q", stale)
@@ -1082,6 +1083,7 @@ func TestDatabaseQueryTabsPersistAcrossReload(t *testing.T) {
 		"database.setQueryText?.(ctx,snapshot.text,{focus:false})",
 		"ctx.maxRows.value=String(snapshot.maxRows||'100')",
 		"ctx.scriptSource=snapshot.scriptSource||null",
+		"scriptSource:serializableQuerySource(item?.scriptSource)",
 		"const saved=readSavedQueryTabs(view)",
 		"for(const snapshot of snapshots.slice(1))",
 		"const restoredActive=saved?.activeQueryKey",
