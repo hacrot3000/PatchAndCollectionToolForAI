@@ -171,14 +171,14 @@ func TestSQLiteHandlerImportsSQLFileWithTransactionAndTrigger(t *testing.T) {
 	}
 
 	verifyPayload, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "import-verify", dbadapter.OpExecute, dbadapter.ExecutePayload{
-		Statement: "SELECT (SELECT COUNT(*) FROM users WHERE name='Imported') AS users_count, (SELECT COUNT(*) FROM import_log WHERE name='Imported') AS log_count",
+		Statement: "SELECT CAST((SELECT COUNT(*) FROM users WHERE name='Imported') AS TEXT) AS users_count, CAST((SELECT COUNT(*) FROM import_log WHERE name='Imported') AS TEXT) AS log_count",
 		MaxRows:   10,
 	}))
 	if protocolErr != nil {
 		t.Fatalf("verify error=%+v", protocolErr)
 	}
 	verify := verifyPayload.(dbadapter.ExecuteResult)
-	if len(verify.Rows) != 1 || verify.Rows[0][0] != int64(1) || verify.Rows[0][1] != int64(1) {
+	if len(verify.Rows) != 1 || verify.Rows[0][0] != "1" || verify.Rows[0][1] != "1" {
 		t.Fatalf("verify=%+v", verify)
 	}
 
