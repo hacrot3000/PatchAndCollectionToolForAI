@@ -937,13 +937,16 @@ async function exportQueryData(view,result){
 }
 
 function queryGridActionMenuItems(view,result){
-  return [
-    {label:'Export data…',action:()=>exportQueryData(view,result)},
-    {label:'Refresh',action:()=>executeQuery(view)},
-    {label:'Filter…',action:()=>openQueryFilterDialog(view,result)},
-    {label:'Add row',disabled:!result?.edit?.editable,action:()=>addQueryRow(view,result)},
-    {label:'Order…',action:()=>openQueryOrderDialog(view,result)}
-  ];
+  const helper=globalThis.TaskMenuDatabaseWorkbench;
+  if(typeof helper?.gridActionMenuItems!=='function')throw new Error('Shared database grid action menu is unavailable');
+  return helper.gridActionMenuItems({
+    exportData:()=>exportQueryData(view,result),
+    refresh:()=>executeQuery(view),
+    filter:()=>openQueryFilterDialog(view,result),
+    addRow:()=>addQueryRow(view,result),
+    addDisabled:!result?.edit?.editable,
+    order:()=>openQueryOrderDialog(view,result)
+  });
 }
 
 function showQueryContextMenu(view,result,rowIndex,columnIndex,x,y){
