@@ -376,6 +376,26 @@ function queryEditorText(view){
   return view?.queryCM?.state?.doc?.toString?.()??view?.editor?.value??'';
 }
 
+function queryEditorExecutionText(view){
+  const full=queryEditorText(view);
+  if(view?.queryCM?.state){
+    const range=view.queryCM.state.selection?.main;
+    if(range){
+      const from=Math.max(0,Math.min(range.from??range.anchor??0,full.length));
+      const to=Math.max(from,Math.min(range.to??range.head??from,full.length));
+      if(to>from&&!(from===0&&to===full.length))return full.slice(from,to);
+    }
+    return full;
+  }
+  const editor=view?.editor;
+  if(editor&&Number.isInteger(editor.selectionStart)&&Number.isInteger(editor.selectionEnd)){
+    const from=Math.max(0,Math.min(editor.selectionStart,full.length));
+    const to=Math.max(from,Math.min(editor.selectionEnd,full.length));
+    if(to>from&&!(from===0&&to===full.length))return full.slice(from,to);
+  }
+  return full;
+}
+
 function focusQueryEditor(view){
   if(view?.queryCM){view.queryCM.focus();return;}
   view?.editor?.focus?.();
@@ -1347,8 +1367,8 @@ async function refreshQueryResult(view){
 async function executeQuery(view,{discardPending=false}={}){
   const owner=view.resultOwner||view;
   if(!discardPending&&queryResultHasPendingChanges(owner)&&!confirm('Discard unsaved query result changes and run again?'))return;
-  const script=queryEditorText(owner).trim();
-  if(!script)throw new Error('Enter a database statement first');
+  const script=queryEditorExecutionText(owner).trim();
+  if(!script)throw new Error('Enter a database statement or select SQL to run');
   const statements=relationalQueryEditor(owner)?splitSQLStatements(script):[script];
   if(!statements.length)throw new Error('Enter a database statement first');
   if(owner.lastExecutedStatement&&owner.lastExecutedStatement!==script){owner.queryFilter=null;owner.queryOrder=null;owner.querySelectedRows?.clear?.();}
@@ -1625,6 +1645,7 @@ globalThis.TaskMenuDatabase={
   request:sessionRequest,
   getProfile:profileFor,
   getQueryText:queryEditorText,
+  getQueryExecutionText:queryEditorExecutionText,
   setQueryText:setQueryEditorText,
   focusQuery:focusQueryEditor,
   createQueryView:createAdditionalQueryView,
