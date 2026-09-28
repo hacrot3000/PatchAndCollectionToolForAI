@@ -829,6 +829,7 @@ func TestDatabaseQueryResultFilterOrderExportAndActions(t *testing.T) {
 		"helper.serializeClipboardData",
 		"uploadTextToHost",
 		"saveTextToClient",
+		"replace(/\\.(csv|txt|json)$/i,'')",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("database.js missing query result grid action %q", want)
