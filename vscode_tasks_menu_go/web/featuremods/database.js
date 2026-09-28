@@ -112,7 +112,11 @@ function queryEditorExtensions(view){
   const extensions=[globalThis.cm6.sqlCompletion({dialect,...schema,upperCaseKeywords:true})];
   if(globalThis.cm6?.EditorView?.updateListener){
     extensions.push(globalThis.cm6.EditorView.updateListener.of(update=>{
-      if(update.docChanged&&view.editor)view.editor.value=update.state.doc.toString();
+      if(update.docChanged){
+        const text=update.state.doc.toString();
+        if(view.editor)view.editor.value=text;
+        scheduleQuerySchemaReferences(view,text);
+      }
     }));
   }
   return extensions;
@@ -148,34 +152,64 @@ function initQueryEditor(view){
   view.editor.value=initial;
 }
 
-async function warmQuerySchema(view){
+function queryReferencedObjectNames(statement){
+  const names=[];const seen=new Set();
+  const identifier='(?:`[^`]+`|"[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)';
+  const pattern=new RegExp('\\b(?:from|join|update|into)\\s+('+identifier+'(?:\\s*\\.\\s*'+identifier+')?)','ig');
+  let match;
+  while((match=pattern.exec(String(statement||'')))){
+    const parts=match[1].split('.').map(part=>part.trim().replace(/^`|`$/g,'').replace(/^"|"$/g,''));
+    const name=parts[parts.length-1];
+    const key=name.toLowerCase();
+    if(name&&!seen.has(key)){seen.add(key);names.push(name);}
+  }
+  return names;
+}
+
+function scheduleQuerySchemaReferences(view,text=queryEditorText(view)){
+  if(!relationalQueryEditor(view))return;
+  clearTimeout(view.querySchemaTimer);
+  view.querySchemaTimer=setTimeout(()=>loadQuerySchemaReferences(view,text).catch(error=>console.warn('Query autocomplete column metadata load failed',error)),180);
+}
+
+async function loadQuerySchemaReferences(view,text){
   if(!relationalQueryEditor(view))return;
   if(!(view.querySchemaCache instanceof Map))view.querySchemaCache=new Map();
   const catalog=String(view.catalog.value||'').trim();
-  const objects=(view.objectData||[]).filter(object=>object?.kind==='table'||object?.kind==='view');
-  reconfigureQueryEditor(view);
-  const generation=(view.querySchemaGeneration||0)+1;view.querySchemaGeneration=generation;
-  let next=0;
+  const objectByName=new Map((view.objectData||[])
+    .filter(object=>object?.kind==='table'||object?.kind==='view')
+    .map(object=>[String(object?.name||'').toLowerCase(),object]));
+  const pending=queryReferencedObjectNames(text)
+    .map(name=>objectByName.get(name.toLowerCase()))
+    .filter(Boolean)
+    .filter(object=>!view.querySchemaCache.has(catalog+'\u0000'+object.name));
+  if(!pending.length)return;
+  const generation=view.querySchemaGeneration||0;let next=0;let changed=false;
   const worker=async()=>{
-    while(next<objects.length){
-      const object=objects[next++];
+    while(next<pending.length){
+      const object=pending[next++];
       if(view.querySchemaGeneration!==generation||String(view.catalog.value||'').trim()!==catalog)return;
-      const name=String(object?.name||'').trim();if(!name)continue;
-      const key=catalog+'\u0000'+name;
-      if(view.querySchemaCache.has(key))continue;
+      const key=catalog+'\u0000'+object.name;
       try{
-        const payload={name,kind:object.kind||'table'};if(catalog)payload.catalog=catalog;
+        const payload={name:object.name,kind:object.kind||'table'};if(catalog)payload.catalog=catalog;
         const detail=await sessionRequest(view.meta.id,'describe_object',payload);
         const columns=Array.isArray(detail?.columns)?detail.columns.map(column=>String(column?.name||'').trim()).filter(Boolean):[];
-        view.querySchemaCache.set(key,columns);
+        view.querySchemaCache.set(key,columns);changed=true;
       }catch(error){
-        console.warn('Query autocomplete metadata unavailable for '+name,error);
+        console.warn('Query autocomplete metadata unavailable for '+object.name,error);
         view.querySchemaCache.set(key,[]);
       }
     }
   };
-  await Promise.all(Array.from({length:Math.min(QUERY_SCHEMA_CONCURRENCY,Math.max(1,objects.length))},()=>worker()));
-  if(view.querySchemaGeneration===generation)reconfigureQueryEditor(view);
+  await Promise.all(Array.from({length:Math.min(QUERY_SCHEMA_CONCURRENCY,Math.max(1,pending.length))},()=>worker()));
+  if(changed&&view.querySchemaGeneration===generation)reconfigureQueryEditor(view);
+}
+
+async function warmQuerySchema(view){
+  if(!relationalQueryEditor(view))return;
+  view.querySchemaGeneration=(view.querySchemaGeneration||0)+1;
+  reconfigureQueryEditor(view);
+  scheduleQuerySchemaReferences(view);
 }
 
 async function refreshProfiles(){
@@ -704,9 +738,10 @@ function attachDatabaseView(meta,activate){
   dbViews.set(meta.id,view);
   initQueryEditor(view);
   globalThis.TaskMenuDatabaseWorkbench?.enhanceView?.(view);
-  reload.onclick=()=>{view.querySchemaCache?.clear?.();loadCatalogs(view).catch(app.showError);};
-  refresh.onclick=()=>{view.querySchemaCache?.clear?.();loadObjects(view).catch(app.showError);};
-  catalog.onchange=()=>{view.querySchemaCache?.clear?.();loadObjects(view).catch(app.showError);};
+  const resetQuerySchema=()=>{view.querySchemaCache?.clear?.();view.querySchemaGeneration=(view.querySchemaGeneration||0)+1;clearTimeout(view.querySchemaTimer);};
+  reload.onclick=()=>{resetQuerySchema();loadCatalogs(view).catch(app.showError);};
+  refresh.onclick=()=>{resetQuerySchema();loadObjects(view).catch(app.showError);};
+  catalog.onchange=()=>{resetQuerySchema();loadObjects(view).catch(app.showError);};
   run.onclick=()=>executeQuery(view).catch(app.showError);
   if(!view.queryCM)editor.addEventListener('keydown',event=>{
     if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();executeQuery(view).catch(app.showError);}
