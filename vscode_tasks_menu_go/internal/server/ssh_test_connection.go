@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"bletonfc/vscode_tasks_menu/internal/secretstore"
 	"bletonfc/vscode_tasks_menu/internal/sshaskpass"
 	"bletonfc/vscode_tasks_menu/internal/sshclient"
 	"bletonfc/vscode_tasks_menu/internal/sshprofile"
@@ -59,24 +60,65 @@ type sshConnectionTestResult struct {
 	ElapsedMS int64  `json:"elapsed_ms"`
 }
 
-func (s *Server) testSSHProfile(profileID string) sshConnectionTestResult {
-	started := time.Now()
-	result := sshConnectionTestResult{}
+type sshEphemeralSecretStore struct {
+	ref    string
+	secret []byte
+}
 
+func (s *sshEphemeralSecretStore) Put(string, []byte) error {
+	return errors.New("ssh test secret store is read-only")
+}
+
+func (s *sshEphemeralSecretStore) Delete(string) error {
+	return nil
+}
+
+func (s *sshEphemeralSecretStore) Get(id string) ([]byte, error) {
+	if s == nil || id != s.ref {
+		return nil, secretstore.ErrNotFound
+	}
+	return append([]byte(nil), s.secret...), nil
+}
+
+func (s *Server) testSSHProfile(profileID string) sshConnectionTestResult {
 	store, err := s.sshProfileStore()
 	if err != nil {
-		result.Message = err.Error()
-		return result
+		return sshConnectionTestResult{Message: err.Error()}
 	}
 	profile, err := store.Get(strings.TrimSpace(profileID))
 	if err != nil {
 		if errors.Is(err, sshprofile.ErrProfileNotFound) {
-			result.Message = "ssh profile not found"
-		} else {
-			result.Message = err.Error()
+			return sshConnectionTestResult{Message: "ssh profile not found"}
 		}
+		return sshConnectionTestResult{Message: err.Error()}
+	}
+	return s.testSSHConnection(profile, nil)
+}
+
+func (s *Server) testSSHConnection(profile sshprofile.Profile, secret *string) sshConnectionTestResult {
+	started := time.Now()
+	result := sshConnectionTestResult{}
+
+	var secrets secretstore.Store
+	if secret != nil {
+		if err := validateSSHAuthenticationSecret(*secret); err != nil {
+			result.Message = err.Error()
+			return result
+		}
+		if profile.AuthMethod == sshprofile.AuthAgent {
+			result.Message = "agent authentication must not include a secret"
+			return result
+		}
+		profile.SecretRef = "ssh-test/ephemeral"
+		secrets = &sshEphemeralSecretStore{ref: profile.SecretRef, secret: []byte(*secret)}
+	}
+
+	normalized, err := sshprofile.Normalize(profile)
+	if err != nil {
+		result.Message = err.Error()
 		return result
 	}
+	profile = normalized
 
 	executable, err := sshclient.FindOpenSSH()
 	if err != nil {
@@ -92,14 +134,16 @@ func (s *Server) testSSHProfile(profileID string) sshConnectionTestResult {
 	spec := tasks.Execution{Env: os.Environ()}
 	var ticket *sshaskpass.Ticket
 	if profile.SecretRef != "" {
-		secrets, secretErr := s.connectionSecretStore()
-		if secretErr != nil {
-			result.Message = secretErr.Error()
-			return result
+		if secrets == nil {
+			secrets, err = s.connectionSecretStore()
+			if err != nil {
+				result.Message = err.Error()
+				return result
+			}
 		}
-		ticket, secretErr = sshaskpass.Prepare(secrets, profile.SecretRef, state.Dir(s.Workspace))
-		if secretErr != nil {
-			result.Message = secretErr.Error()
+		ticket, err = sshaskpass.Prepare(secrets, profile.SecretRef, state.Dir(s.Workspace))
+		if err != nil {
+			result.Message = err.Error()
 			return result
 		}
 		defer ticket.Close()
@@ -159,23 +203,36 @@ func (s *Server) sshTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		ProfileID string `json:"profile_id"`
+		ProfileID string             `json:"profile_id,omitempty"`
+		Profile   *sshProfileRequest `json:"profile,omitempty"`
 	}
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 128<<10))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	if strings.TrimSpace(req.ProfileID) == "" {
-		http.Error(w, "ssh profile id is required", http.StatusBadRequest)
+
+	profileID := strings.TrimSpace(req.ProfileID)
+	var result sshConnectionTestResult
+	switch {
+	case req.Profile != nil:
+		candidate := req.Profile.profile("test", "")
+		if strings.TrimSpace(candidate.Name) == "" {
+			candidate.Name = "Connection test"
+		}
+		result = s.testSSHConnection(candidate, req.Profile.Secret)
+	case profileID != "":
+		result = s.testSSHProfile(profileID)
+	default:
+		http.Error(w, "ssh profile id or profile is required", http.StatusBadRequest)
 		return
 	}
-	result := s.testSSHProfile(req.ProfileID)
+
 	s.auditConnection(r, ConnectionAuditEvent{
 		Kind:      "ssh_connection",
 		Action:    "test",
-		ProfileID: strings.TrimSpace(req.ProfileID),
+		ProfileID: profileID,
 		Success:   result.OK,
 	})
 	writeJSON(w, http.StatusOK, result)
