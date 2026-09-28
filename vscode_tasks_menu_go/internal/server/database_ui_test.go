@@ -712,7 +712,8 @@ func TestDatabaseQueryEditorUsesVendoredCodeMirrorAutocomplete(t *testing.T) {
 		"view.queryCM.contentDOM.addEventListener('keydown'",
 		"event.key==='Enter'",
 		"function queryEditorText(view)",
-		"const script=queryEditorText(owner).trim()",
+		"function queryEditorExecutionText(view)",
+		"const script=queryEditorExecutionText(owner).trim()",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("database.js missing CodeMirror query autocomplete behavior %q", want)
