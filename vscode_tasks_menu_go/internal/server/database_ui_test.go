@@ -16,6 +16,9 @@ func TestDatabaseWorkspaceUsesGenericSessionAPIs(t *testing.T) {
 	for _, want := range []string{
 		"app.jsonFetch('/api/db/profiles')",
 		"app.jsonFetch('/api/db/sessions'",
+		"app.jsonFetch('/api/db/test'",
+		"async function testDraft(profileID,profile)",
+		"testDraft,",
 		"'/request'",
 		"'list_catalogs'",
 		"'list_objects'",
