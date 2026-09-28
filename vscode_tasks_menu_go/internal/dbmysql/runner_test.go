@@ -125,3 +125,38 @@ func TestReadBoundedRejectsOversizedOutput(t *testing.T) {
 		t.Fatalf("error=%v want errClientOutputTooLarge", err)
 	}
 }
+
+
+func TestRunClientFileStreamsSQLScriptToStdin(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "stdin.sql")
+	t.Setenv("TASKDECK_TEST_STDIN", target)
+	clientPath := writeRunnerFixture(t,
+		"cat > "$TASKDECK_TEST_STDIN"\n"+
+			"exit 0",
+	)
+	source := filepath.Join(t.TempDir(), "import.sql")
+	content := "CREATE TABLE demo(id INTEGER);\nINSERT INTO demo VALUES (1);\n"
+	if err := os.WriteFile(source, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config := Config{
+		Host: "127.0.0.1", Port: 3306, Database: "main",
+		Charset: "utf8mb4", ConnectTimeoutSeconds: 10,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, importedBytes, err := runClientFile(ctx, Client{Path: clientPath}, config, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if importedBytes != int64(len(content)) {
+		t.Fatalf("imported bytes=%d want %d", importedBytes, len(content))
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Fatalf("stdin=%q want %q", got, content)
+	}
+}
