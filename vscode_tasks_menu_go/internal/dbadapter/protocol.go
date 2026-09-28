@@ -60,11 +60,23 @@ type Column struct {
 	Type string `json:"type,omitempty"`
 }
 
+type ExecuteEditInfo struct {
+	Catalog           string                   `json:"catalog,omitempty"`
+	Schema            string                   `json:"schema,omitempty"`
+	Kind              string                   `json:"kind,omitempty"`
+	Name              string                   `json:"name,omitempty"`
+	Editable          bool                     `json:"editable"`
+	EditabilityReason string                   `json:"editability_reason,omitempty"`
+	Columns           []BrowseColumn           `json:"columns,omitempty"`
+	RowIdentities     []map[string]interface{} `json:"row_identities,omitempty"`
+}
+
 type ExecuteResult struct {
-	Columns      []Column        `json:"columns,omitempty"`
-	Rows         [][]interface{} `json:"rows,omitempty"`
-	AffectedRows int64           `json:"affected_rows,omitempty"`
-	Truncated    bool            `json:"truncated,omitempty"`
+	Columns      []Column         `json:"columns,omitempty"`
+	Rows         [][]interface{}  `json:"rows,omitempty"`
+	AffectedRows int64            `json:"affected_rows,omitempty"`
+	Truncated    bool             `json:"truncated,omitempty"`
+	Edit         *ExecuteEditInfo `json:"edit,omitempty"`
 }
 
 type Object struct {
@@ -262,6 +274,55 @@ func ValidateExecuteResult(result ExecuteResult) error {
 			}
 			if len(raw) > MaxCellBytes {
 				return fmt.Errorf("row %d cell %d exceeds %d bytes", i+1, j+1, MaxCellBytes)
+			}
+		}
+	}
+	if result.Edit != nil {
+		edit := result.Edit
+		for label, value := range map[string]string{
+			"database execute edit catalog": strings.TrimSpace(edit.Catalog),
+			"database execute edit schema": strings.TrimSpace(edit.Schema),
+			"database execute edit kind": strings.TrimSpace(edit.Kind),
+			"database execute edit name": strings.TrimSpace(edit.Name),
+			"database execute edit reason": strings.TrimSpace(edit.EditabilityReason),
+		} {
+			max := 512
+			if strings.Contains(label, "reason") {
+				max = 1024
+			}
+			if err := validateText(label, value, max, false); err != nil {
+				return err
+			}
+		}
+		if len(edit.Columns) != 0 && len(edit.Columns) != len(result.Columns) {
+			return fmt.Errorf("database execute edit metadata has %d columns for %d result columns", len(edit.Columns), len(result.Columns))
+		}
+		if len(edit.RowIdentities) != 0 && len(edit.RowIdentities) != len(result.Rows) {
+			return fmt.Errorf("database execute edit metadata has %d identities for %d rows", len(edit.RowIdentities), len(result.Rows))
+		}
+		for i, column := range edit.Columns {
+			if err := validateText("database execute edit column name", strings.TrimSpace(column.Name), 512, true); err != nil {
+				return fmt.Errorf("edit column %d: %w", i+1, err)
+			}
+			if err := validateText("database execute edit column type", strings.TrimSpace(column.Type), 256, false); err != nil {
+				return fmt.Errorf("edit column %d: %w", i+1, err)
+			}
+		}
+		for i, identity := range edit.RowIdentities {
+			if len(identity) > MaxIdentityColumns {
+				return fmt.Errorf("execute row %d identity exceeds %d columns", i+1, MaxIdentityColumns)
+			}
+			for key, value := range identity {
+				if err := validateText("database execute row identity column", strings.TrimSpace(key), 512, true); err != nil {
+					return fmt.Errorf("execute row %d identity: %w", i+1, err)
+				}
+				raw, err := json.Marshal(value)
+				if err != nil {
+					return fmt.Errorf("execute row %d identity %q cannot be encoded: %w", i+1, key, err)
+				}
+				if len(raw) > MaxCellBytes {
+					return fmt.Errorf("execute row %d identity %q exceeds %d bytes", i+1, key, MaxCellBytes)
+				}
 			}
 		}
 	}
