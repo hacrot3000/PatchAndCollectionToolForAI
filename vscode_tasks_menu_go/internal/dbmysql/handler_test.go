@@ -263,6 +263,29 @@ func TestHandlerReadOnlyRejectsWritesBeforeClientExecution(t *testing.T) {
 	}
 }
 
+func TestChooseMySQLIdentityUsesFirstNonNullUniqueKey(t *testing.T) {
+	result := dbadapter.ExecuteResult{
+		Columns: []dbadapter.Column{
+			{Name: "index_name"},
+			{Name: "column_name"},
+			{Name: "seq"},
+			{Name: "nullable"},
+		},
+		Rows: [][]interface{}{
+			{"uniq_nullable", "optional_code", "1", "YES"},
+			{"uniq_external", "tenant_id", "1", "NO"},
+			{"uniq_external", "external_id", "2", "NO"},
+		},
+	}
+	identity, err := chooseMySQLIdentity(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(identity) != 2 || identity[0] != "tenant_id" || identity[1] != "external_id" {
+		t.Fatalf("identity=%v", identity)
+	}
+}
+
 func TestMySQLTextExpressionDoesNotEmbedRawValue(t *testing.T) {
 	value := "db' OR 1=1 --"
 	expression := mysqlTextExpression(value)
