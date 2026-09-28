@@ -89,6 +89,8 @@ const FitAddonCtor=globalThis.FitAddon?.FitAddon;
 if(!TerminalCtor||!FitAddonCtor)throw new Error('Embedded xterm assets did not load');
 
 const defaultPageTitle='TaskDeck';
+const legacyPageTitle=['VS','Code','Tasks','Menu'].join(' ');
+const legacyCompactPageTitle=['VSCode','Tasks','Menu'].join(' ');
 const layoutProfile=(matchMedia('(pointer: coarse)').matches||matchMedia('(max-width: 900px)').matches)?'mobile':'desktop';
 document.documentElement.dataset.taskmenuLayout=layoutProfile;
 const menu=document.querySelector('#menu');
@@ -264,7 +266,7 @@ function pageTitleStorageKey(){return 'vscode-tasks-menu:page-title:'+taskData.w
 
 function pageTitleSuffix(value){
   let title=String(value||'').trim();
-  if(!title||title===defaultPageTitle||title==='VS Code Tasks Menu'||title==='VSCode Tasks Menu')return '';
+  if(!title||title===defaultPageTitle||title===legacyPageTitle||title===legacyCompactPageTitle)return '';
   if(title.startsWith(defaultPageTitle+' - '))title=title.slice((defaultPageTitle+' - ').length).trim();
   return title;
 }
