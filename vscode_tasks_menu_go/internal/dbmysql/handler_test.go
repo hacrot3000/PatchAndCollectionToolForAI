@@ -36,6 +36,8 @@ func writeHandlerFixture(t *testing.T) string {
 		"  *taskdeck_mutation*) printf '%s\\n' '<resultset><row><field name=\"affected_rows\">1</field></row></resultset>' ;;\n" +
 		"  *taskdeck_count*) printf '%s\\n' '<resultset><row><field name=\"row_count\">2</field></row></resultset>' ;;\n" +
 		"  *taskdeck_object_action*) : ;;\n" +
+		"  *'SELECT id, name FROM users'*) printf '%s\\n' '<resultset><row><field name=\"id\">1</field><field name=\"name\">Alice</field></row><row><field name=\"id\">2</field><field name=\"name\">Bob</field></row></resultset>' ;;\n" +
+		"  *'SELECT name FROM users'*) printf '%s\\n' '<resultset><row><field name=\"name\">Alice</field></row><row><field name=\"name\">Bob</field></row></resultset>' ;;\n" +
 		"  *'SELECT 42 AS answer'*) printf '%s\\n' '<resultset><row><field name=\"answer\">42</field></row></resultset>' ;;\n" +
 		"  *) printf '%s\\n' '<resultset></resultset>' ;;\n" +
 		"esac\n" +
@@ -185,6 +187,69 @@ func TestHandlerExecuteUsesSelectedCatalog(t *testing.T) {
 	}
 	if strings.Contains(args, "--database=saved_db") {
 		t.Fatalf("saved database unexpectedly overrode selected catalog: %s", args)
+	}
+}
+
+func TestHandlerExecuteMarksSimpleSelectEditableWhenIdentityIsSelected(t *testing.T) {
+	handler := connectFixtureHandler(t, false)
+	payload, protocolErr := handler.Handle(context.Background(), adapterRequest(t, "execute-editable", dbadapter.OpExecute, dbadapter.ExecutePayload{
+		Catalog:   "main",
+		Statement: "SELECT id, name FROM users",
+		MaxRows:   10,
+	}))
+	if protocolErr != nil {
+		t.Fatalf("execute error=%+v", protocolErr)
+	}
+	result, ok := payload.(dbadapter.ExecuteResult)
+	if !ok {
+		t.Fatalf("execute result type=%T", payload)
+	}
+	if result.Edit == nil || !result.Edit.Editable {
+		t.Fatalf("editable metadata=%+v", result.Edit)
+	}
+	if result.Edit.Catalog != "main" || result.Edit.Name != "users" || result.Edit.Kind != "table" {
+		t.Fatalf("editable target=%+v", result.Edit)
+	}
+	if len(result.Edit.Columns) != 2 || !result.Edit.Columns[0].Identity || result.Edit.Columns[1].Identity {
+		t.Fatalf("editable columns=%+v", result.Edit.Columns)
+	}
+	if len(result.Edit.RowIdentities) != 2 || result.Edit.RowIdentities[0]["id"] != "1" || result.Edit.RowIdentities[1]["id"] != "2" {
+		t.Fatalf("row identities=%#v", result.Edit.RowIdentities)
+	}
+}
+
+func TestHandlerExecuteKeepsSimpleSelectReadOnlyWithoutIdentityColumn(t *testing.T) {
+	handler := connectFixtureHandler(t, false)
+	payload, protocolErr := handler.Handle(context.Background(), adapterRequest(t, "execute-no-key", dbadapter.OpExecute, dbadapter.ExecutePayload{
+		Catalog:   "main",
+		Statement: "SELECT name FROM users",
+		MaxRows:   10,
+	}))
+	if protocolErr != nil {
+		t.Fatalf("execute error=%+v", protocolErr)
+	}
+	result := payload.(dbadapter.ExecuteResult)
+	if result.Edit == nil || result.Edit.Editable {
+		t.Fatalf("expected read-only query edit metadata: %+v", result.Edit)
+	}
+	if !strings.Contains(result.Edit.EditabilityReason, "id") {
+		t.Fatalf("editability reason=%q", result.Edit.EditabilityReason)
+	}
+}
+
+func TestHandlerExecuteKeepsJoinReadOnly(t *testing.T) {
+	handler := connectFixtureHandler(t, false)
+	payload, protocolErr := handler.Handle(context.Background(), adapterRequest(t, "execute-join", dbadapter.OpExecute, dbadapter.ExecutePayload{
+		Catalog:   "main",
+		Statement: "SELECT users.id, users.name FROM users JOIN users u2 ON u2.id = users.id",
+		MaxRows:   10,
+	}))
+	if protocolErr != nil {
+		t.Fatalf("execute error=%+v", protocolErr)
+	}
+	result := payload.(dbadapter.ExecuteResult)
+	if result.Edit == nil || result.Edit.Editable {
+		t.Fatalf("join unexpectedly editable: %+v", result.Edit)
 	}
 }
 
