@@ -100,9 +100,15 @@ function queryCompletionSchema(view){
   const tables=objects.map(object=>String(object?.name||'').trim()).filter(Boolean);
   const tableSchema={};
   for(const name of tables)tableSchema[name]=view.querySchemaCache?.get(catalog+'\u0000'+name)||[];
+  const tableByLower=new Map(tables.map(name=>[name.toLowerCase(),name]));
+  const referenced=queryReferencedObjectNames(queryEditorText(view))
+    .map(name=>tableByLower.get(name.toLowerCase()))
+    .filter(Boolean);
+  const uniqueReferenced=[...new Set(referenced)];
+  const defaultTable=uniqueReferenced.length===1?uniqueReferenced[0]:'';
   return catalog
-    ?{schema:{[catalog]:tableSchema},tables,schemas:[catalog],defaultSchema:catalog}
-    :{schema:tableSchema,tables};
+    ?{schema:{[catalog]:tableSchema},tables,schemas:[catalog],defaultSchema:catalog,...(defaultTable?{defaultTable}:{})}
+    :{schema:tableSchema,tables,...(defaultTable?{defaultTable}:{})};
 }
 
 function queryEditorExtensions(view){
