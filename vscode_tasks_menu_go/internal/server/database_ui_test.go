@@ -788,6 +788,8 @@ func TestDatabaseSQLScriptOpenSaveAndImportFallback(t *testing.T) {
 		"function saveSQLScript(view)",
 		"function saveSQLScriptToHost(view)",
 		"function saveSQLScriptToClient(view)",
+		"browser?.chooseFile",
+		"fileLabel:'SQL script file name:'",
 		"globalThis.TaskMenuDirectoryBrowser",
 		"showSaveFilePicker",
 		"openSQL.textContent='Open SQL'",
@@ -800,6 +802,9 @@ func TestDatabaseSQLScriptOpenSaveAndImportFallback(t *testing.T) {
 	if strings.Contains(js, "innerHTML") {
 		t.Fatal("database SQL script UI must remain DOM/textContent-only")
 	}
+	if strings.Contains(js, "prompt('SQL script file name:'") {
+		t.Fatal("host SQL save must use the workspace file browser instead of prompt")
+	}
 }
 
 func TestDatabaseQueryResultFilterOrderExportAndActions(t *testing.T) {
@@ -809,9 +814,16 @@ func TestDatabaseQueryResultFilterOrderExportAndActions(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
+		"function normalizeQueryFilter(filter)",
+		"function queryFilterMatchesRow(view,result,rowIndex,filter)",
+		"normalized.logic==='or'?matches.some(Boolean):matches.every(Boolean)",
 		"function queryDisplayRowIndexes(view,result=view.queryResult)",
 		"function openQueryFilterDialog(view,result)",
 		"Filter current query result",
+		"Match all (AND)",
+		"Match any (OR)",
+		"Add condition",
+		"view.queryFilter={logic:logic.value==='or'?'or':'and',conditions:filterConditions}",
 		"function openQueryOrderDialog(view,result)",
 		"Order current query result",
 		"function toggleQueryHeaderOrder(view,result,columnIndex)",
@@ -829,7 +841,10 @@ func TestDatabaseQueryResultFilterOrderExportAndActions(t *testing.T) {
 		"helper.serializeClipboardData",
 		"uploadTextToHost",
 		"saveTextToClient",
-		"replace(/\\.(csv|txt|json)$/i,'')",
+		"save.textContent='Choose save location…'",
+		"const location=await chooseScriptLocation('Export query result')",
+		"browser?.chooseFile",
+		"fileLabel:'Export file name:'",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("database.js missing query result grid action %q", want)
