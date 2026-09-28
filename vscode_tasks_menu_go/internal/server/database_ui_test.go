@@ -109,7 +109,7 @@ func TestDatabaseWorkbenchProvidesNavigatorContextMenuAndPagedGrid(t *testing.T)
 	js := string(data)
 	for _, want := range []string{
 		"db-workbench-tabs",
-		"createWorkbenchTab(view,'query','Query',{closable:false})",
+		"createWorkbenchTab(view,'query','Query 1',{closable:false})",
 		"object.name+' - Data'",
 		"object.name+' - Structure'",
 		"ensureDataPage",
@@ -446,8 +446,8 @@ func TestDatabaseWorkbenchTabContextMenuCloseActions(t *testing.T) {
 		"Close all right tabs",
 		"Close all left tabs",
 		"closeWorkbenchPages",
-		"Discard unsaved database grid changes in ",
-		"page.mode==='query'",
+		"Discard unsaved changes in ",
+		"database.queryHasPendingChanges?.(page.ctx)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("database_workbench.js missing tab context close action %q", want)
@@ -623,7 +623,7 @@ func TestDatabaseQueryEditorAppliesSafeEditableSelectChanges(t *testing.T) {
 		"name:edit.name",
 		"Apply changes",
 		"Revert",
-		"await executeQuery(view,{discardPending:true})",
+		"await refreshQueryResult(view)",
 		"Discard unsaved query result changes and run again?",
 		"JSON.stringify(JSON.parse(text))",
 		"db-query-dirty",
@@ -712,7 +712,7 @@ func TestDatabaseQueryEditorUsesVendoredCodeMirrorAutocomplete(t *testing.T) {
 		"view.queryCM.contentDOM.addEventListener('keydown'",
 		"event.key==='Enter'",
 		"function queryEditorText(view)",
-		"const statement=queryEditorText(view).trim()",
+		"const script=queryEditorText(owner).trim()",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("database.js missing CodeMirror query autocomplete behavior %q", want)
@@ -834,7 +834,7 @@ func TestDatabaseQueryResultFilterOrderExportAndActions(t *testing.T) {
 		"function queryGridActionMenuItems(view,result)",
 		"helper.gridActionMenuItems({",
 		"exportData:()=>exportQueryData(view,result)",
-		"refresh:()=>executeQuery(view)",
+		"refresh:()=>refreshQueryResult(view)",
 		"filter:()=>openQueryFilterDialog(view,result)",
 		"addRow:()=>addQueryRow(view,result)",
 		"addDisabled:!result?.edit?.editable",
