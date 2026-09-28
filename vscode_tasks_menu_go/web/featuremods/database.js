@@ -44,6 +44,8 @@ style.textContent=`
 .db-script-browser-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.db-script-browser-size{font-size:10px;opacity:.55}
 .db-import-warning{padding:9px 10px;border:1px solid #7b6332;background:#302814;border-radius:6px;margin-bottom:10px}
 .db-import-grid{display:grid;grid-template-columns:130px 1fr;gap:7px 10px;font-size:12px}.db-import-grid select{min-width:0}
+.db-query-filter-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}.db-query-filter-head label{font-size:11px;font-weight:700;opacity:.7}.db-query-filter-head select{min-width:160px}
+.db-query-filter-conditions{display:flex;flex-direction:column;gap:7px}.db-query-filter-condition{display:grid;grid-template-columns:minmax(120px,1fr) minmax(110px,1fr) minmax(140px,1.4fr) auto;gap:7px;align-items:center}.db-query-filter-condition input,.db-query-filter-condition select{min-width:0;width:100%;box-sizing:border-box}.db-query-filter-condition button{white-space:nowrap}.db-query-filter-add{margin-top:9px}
 html[data-taskmenu-theme="light"] .db-script-card{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .db-script-browser-row:hover,html[data-taskmenu-theme="light"] .db-script-browser-row.selected{background:#e8eef5}
 .db-query-editor{min-height:130px;height:32%;resize:vertical;background:#090c10;color:inherit;border:0;border-bottom:1px solid #30343b;padding:10px;font-family:ui-monospace,monospace;font-size:13px;line-height:1.45;outline:none}
@@ -646,15 +648,32 @@ function queryFilterMatches(value,filter){
   }
 }
 
+function normalizeQueryFilter(filter){
+  if(!filter)return null;
+  const raw=Array.isArray(filter.conditions)?filter.conditions:(filter.column?[filter]:[]);
+  const conditions=raw.filter(condition=>condition&&String(condition.column||'').trim());
+  if(!conditions.length)return null;
+  return {logic:filter.logic==='or'?'or':'and',conditions};
+}
+
+function queryFilterMatchesRow(view,result,rowIndex,filter){
+  const normalized=normalizeQueryFilter(filter);
+  if(!normalized)return true;
+  const columns=Array.isArray(result?.columns)?result.columns:[];
+  const matches=normalized.conditions.map(condition=>{
+    const columnIndex=columns.findIndex(column=>String(column?.name||'')===condition.column);
+    if(columnIndex<0)return false;
+    return queryFilterMatches(queryCellValue(view,result,rowIndex,columnIndex),condition);
+  });
+  return normalized.logic==='or'?matches.some(Boolean):matches.every(Boolean);
+}
+
 function queryDisplayRowIndexes(view,result=view.queryResult){
   const rows=Array.isArray(result?.rows)?result.rows:[];
   const columns=Array.isArray(result?.columns)?result.columns:[];
   let indexes=rows.map((_,index)=>index);
-  const filter=view.queryFilter;
-  if(filter){
-    const columnIndex=columns.findIndex(column=>String(column?.name||'')===filter.column);
-    if(columnIndex>=0)indexes=indexes.filter(rowIndex=>queryFilterMatches(queryCellValue(view,result,rowIndex,columnIndex),filter));
-  }
+  const filter=normalizeQueryFilter(view.queryFilter);
+  if(filter)indexes=indexes.filter(rowIndex=>queryFilterMatchesRow(view,result,rowIndex,filter));
   const order=view.queryOrder;
   if(order&&Number.isInteger(order.columnIndex)&&order.columnIndex>=0&&order.columnIndex<columns.length){
     const direction=order.direction==='desc'?-1:1;
@@ -734,22 +753,50 @@ function openQueryFilterDialog(view,result){
   const columns=Array.isArray(result?.columns)?result.columns:[];
   if(!columns.length)return;
   const dialog=createDBDialog('Filter current query result');
-  const grid=document.createElement('div');grid.className='db-import-grid';
-  const column=document.createElement('select');
-  for(const item of columns){const option=document.createElement('option');option.value=item?.name||'';option.textContent=item?.name||'';column.append(option);}
-  const operator=document.createElement('select');
-  for(const [value,label] of [['contains','Contains'],['eq','Equals'],['ne','Not equal'],['starts_with','Starts with'],['ends_with','Ends with'],['gt','>'],['gte','>='],['lt','<'],['lte','<='],['is_null','Is NULL'],['not_null','Is not NULL']]){
-    const option=document.createElement('option');option.value=value;option.textContent=label;operator.append(option);
+  const current=normalizeQueryFilter(view.queryFilter);
+
+  const head=document.createElement('div');head.className='db-query-filter-head';
+  const logicLabel=document.createElement('label');logicLabel.textContent='Combine conditions';
+  const logic=document.createElement('select');
+  for(const [value,label] of [['and','Match all (AND)'],['or','Match any (OR)']]){
+    const option=document.createElement('option');option.value=value;option.textContent=label;logic.append(option);
   }
-  const value=document.createElement('input');value.type='text';value.style.width='100%';
-  const append=(label,input)=>{const key=document.createElement('div');key.textContent=label;grid.append(key,input);};
-  append('Column',column);append('Operator',operator);append('Value',value);dialog.body.append(grid);
-  if(view.queryFilter){column.value=view.queryFilter.column;operator.value=view.queryFilter.operator;value.value=String(view.queryFilter.value??'');}
-  const sync=()=>{value.disabled=operator.value==='is_null'||operator.value==='not_null';};operator.onchange=sync;sync();
+  logic.value=current?.logic||'and';head.append(logicLabel,logic);
+
+  const conditions=document.createElement('div');conditions.className='db-query-filter-conditions';
+  const rows=[];
+  const operators=[['contains','Contains'],['eq','Equals'],['ne','Not equal'],['starts_with','Starts with'],['ends_with','Ends with'],['gt','>'],['gte','>='],['lt','<'],['lte','<='],['is_null','Is NULL'],['not_null','Is not NULL']];
+
+  const syncRemoveButtons=()=>{for(const row of rows)row.remove.disabled=rows.length<=1;};
+  const addCondition=(condition={})=>{
+    const wrap=document.createElement('div');wrap.className='db-query-filter-condition';
+    const column=document.createElement('select');
+    for(const item of columns){const option=document.createElement('option');option.value=item?.name||'';option.textContent=item?.name||'';column.append(option);}
+    const operator=document.createElement('select');
+    for(const [value,label] of operators){const option=document.createElement('option');option.value=value;option.textContent=label;operator.append(option);}
+    const value=document.createElement('input');value.type='text';
+    const remove=document.createElement('button');remove.type='button';remove.textContent='Remove';
+    if(condition.column)column.value=condition.column;
+    if(condition.operator)operator.value=condition.operator;
+    value.value=String(condition.value??'');
+    const syncValue=()=>{value.disabled=operator.value==='is_null'||operator.value==='not_null';};operator.onchange=syncValue;syncValue();
+    const row={wrap,column,operator,value,remove};
+    remove.onclick=()=>{const index=rows.indexOf(row);if(index>=0)rows.splice(index,1);wrap.remove();syncRemoveButtons();};
+    rows.push(row);wrap.append(column,operator,value,remove);conditions.append(wrap);syncRemoveButtons();
+  };
+
+  for(const condition of current?.conditions||[{}])addCondition(condition);
+  const add=document.createElement('button');add.type='button';add.className='db-query-filter-add';add.textContent='Add condition';add.onclick=()=>addCondition({});
+  dialog.body.append(head,conditions,add);
+
   const clear=document.createElement('button');clear.type='button';clear.textContent='Clear filter';clear.onclick=()=>{view.queryFilter=null;view.querySelectedRows?.clear?.();dialog.remove();renderResult(view,result,view.queryElapsed,{preserveDirty:true});};
   const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=dialog.remove;
   const apply=document.createElement('button');apply.type='button';apply.className='task-connection-primary';apply.textContent='Apply';
-  apply.onclick=()=>{view.queryFilter={column:column.value,operator:operator.value,value:value.value};view.querySelectedRows?.clear?.();dialog.remove();renderResult(view,result,view.queryElapsed,{preserveDirty:true});};
+  apply.onclick=()=>{
+    const filterConditions=rows.map(row=>({column:row.column.value,operator:row.operator.value,value:row.value.value}));
+    view.queryFilter={logic:logic.value==='or'?'or':'and',conditions:filterConditions};
+    view.querySelectedRows?.clear?.();dialog.remove();renderResult(view,result,view.queryElapsed,{preserveDirty:true});
+  };
   dialog.actions.append(clear,cancel,apply);
 }
 
