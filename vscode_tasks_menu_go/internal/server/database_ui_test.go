@@ -517,7 +517,9 @@ func TestDatabaseContextSubmenuAllowsSlowPointerTransit(t *testing.T) {
 		"const cancelClose=()=>",
 		"const scheduleClose=()=>",
 		"setTimeout(()=>{submenu.style.display='none';closeTimer=null;},CONTEXT_SUBMENU_CLOSE_DELAY_MS)",
-		"entry.onpointerenter=()=>{cancelClose();if(!button.disabled)positionContextSubmenu(submenu);}",
+		"function hideSiblingContextSubmenus(container,keepEntry)",
+		"entry.onpointerenter=()=>{cancelClose();hideSiblingContextSubmenus(container,entry);if(!button.disabled)positionContextSubmenu(submenu);}",
+		"hideSiblingContextSubmenus(container,entry)",
 		"entry.onpointerleave=scheduleClose",
 		"submenu.onpointerenter=cancelClose",
 		"submenu.onpointerleave=scheduleClose",
@@ -612,6 +614,10 @@ func TestDatabaseQueryEditorAppliesSafeEditableSelectChanges(t *testing.T) {
 		"result?.edit?.editable",
 		"result?.edit?.row_identities?.[rowIndex]",
 		"mutations.push({action:'update',identity,values:Object.fromEntries(changes)})",
+		"mutations.push({action:'insert',values:{...values}})",
+		"function addQueryRow(view,result)",
+		"db-query-new-row",
+		"Add row",
 		"'mutate_rows'",
 		"catalog:edit.catalog||view.catalog.value||''",
 		"name:edit.name",
@@ -626,8 +632,8 @@ func TestDatabaseQueryEditorAppliesSafeEditableSelectChanges(t *testing.T) {
 			t.Fatalf("database.js missing editable query workflow %q", want)
 		}
 	}
-	if strings.Contains(js, "action:'delete',identity") || strings.Contains(js, "action:'insert',values") {
-		t.Fatal("query editor must not expose insert/delete mutations for arbitrary SELECT results")
+	if strings.Contains(js, "action:'delete',identity") {
+		t.Fatal("query editor must not expose delete mutations for arbitrary SELECT results")
 	}
 }
 
@@ -758,6 +764,74 @@ func TestDatabaseWorkbenchRoutesGeneratedSQLIntoQueryEditorAPI(t *testing.T) {
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("database_workbench.js missing CodeMirror query routing %q", want)
+		}
+	}
+}
+
+
+func TestDatabaseSQLScriptOpenSaveAndImportFallback(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const SQL_SCRIPT_EDIT_LIMIT=2<<20",
+		"function sqlScriptNameAllowed(name)",
+		"function chooseScriptLocation(titleText)",
+		"function chooseHostSQLScript()",
+		"input.accept='.sql,.txt,text/plain'",
+		"async function openSQLScript(view)",
+		"source.size>SQL_SCRIPT_EDIT_LIMIT",
+		"switched to streamed SQL import",
+		"'/api/db/sessions/'+encodeURIComponent(view.meta.id)+'/import'",
+		"function saveSQLScript(view)",
+		"function saveSQLScriptToHost(view)",
+		"function saveSQLScriptToClient(view)",
+		"globalThis.TaskMenuDirectoryBrowser",
+		"showSaveFilePicker",
+		"openSQL.textContent='Open SQL'",
+		"saveSQL.textContent='Save SQL'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database.js missing SQL script I/O behavior %q", want)
+		}
+	}
+	if strings.Contains(js, "innerHTML") {
+		t.Fatal("database SQL script UI must remain DOM/textContent-only")
+	}
+}
+
+func TestDatabaseQueryResultFilterOrderExportAndActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function queryDisplayRowIndexes(view,result=view.queryResult)",
+		"function openQueryFilterDialog(view,result)",
+		"Filter current query result",
+		"function openQueryOrderDialog(view,result)",
+		"Order current query result",
+		"function toggleQueryHeaderOrder(view,result,columnIndex)",
+		"view.queryOrder={columnIndex,direction:'asc'}",
+		"current.direction==='asc'",
+		"function exportQueryData(view,result)",
+		"Export query result",
+		"Export data…",
+		"function queryGridActionMenuItems(view,result)",
+		"{label:'Refresh',action:()=>executeQuery(view)}",
+		"{label:'Filter…',action:()=>openQueryFilterDialog(view,result)}",
+		"{label:'Add row',disabled:!result?.edit?.editable,action:()=>addQueryRow(view,result)}",
+		"{label:'Order…',action:()=>openQueryOrderDialog(view,result)}",
+		"th.onclick=()=>toggleQueryHeaderOrder(view,result,columnIndex)",
+		"helper.serializeClipboardData",
+		"uploadTextToHost",
+		"saveTextToClient",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database.js missing query result grid action %q", want)
 		}
 	}
 }
