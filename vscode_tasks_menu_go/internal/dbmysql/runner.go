@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -24,15 +25,43 @@ type commandOutput struct {
 }
 
 func runClient(ctx context.Context, client Client, config Config, statement string) (commandOutput, error) {
+	statement = strings.TrimSpace(statement)
+	if statement == "" {
+		return commandOutput{}, errors.New("MySQL statement is required")
+	}
+	return runClientReader(ctx, client, config, strings.NewReader(statement+"\n"))
+}
+
+func runClientFile(ctx context.Context, client Client, config Config, path string) (commandOutput, int64, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return commandOutput{}, 0, errors.New("MySQL import path is required")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return commandOutput{}, 0, fmt.Errorf("open MySQL import file: %w", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return commandOutput{}, 0, fmt.Errorf("stat MySQL import file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return commandOutput{}, 0, errors.New("MySQL import path is not a regular file")
+	}
+	output, err := runClientReader(ctx, client, config, file)
+	return output, info.Size(), err
+}
+
+func runClientReader(ctx context.Context, client Client, config Config, input io.Reader) (commandOutput, error) {
 	if ctx == nil {
 		return commandOutput{}, errors.New("MySQL command context is required")
 	}
 	if strings.TrimSpace(client.Path) == "" {
 		return commandOutput{}, errors.New("MySQL client path is required")
 	}
-	statement = strings.TrimSpace(statement)
-	if statement == "" {
-		return commandOutput{}, errors.New("MySQL statement is required")
+	if input == nil {
+		return commandOutput{}, errors.New("MySQL input is required")
 	}
 
 	credentials, err := createCredentialFile(config.Secret)
@@ -44,7 +73,7 @@ func runClient(ctx context.Context, client Client, config Config, statement stri
 	}
 
 	cmd := exec.CommandContext(ctx, client.Path, clientArgs(config, credentials)...)
-	cmd.Stdin = strings.NewReader(statement + "\n")
+	cmd.Stdin = input
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
