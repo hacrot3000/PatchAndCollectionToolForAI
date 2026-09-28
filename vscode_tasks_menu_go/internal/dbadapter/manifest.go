@@ -15,6 +15,7 @@ type CapabilitySet struct {
 	MutateRows     bool `json:"mutate_rows"`
 	ObjectActions  bool `json:"object_actions"`
 	Execute        bool `json:"execute"`
+	ImportSQL      bool `json:"import_sql"`
 	Cancel         bool `json:"cancel"`
 	Transactions   bool `json:"transactions"`
 }
@@ -84,6 +85,8 @@ func (c CapabilitySet) Supports(operation Operation) bool {
 		return c.ObjectActions
 	case OpExecute:
 		return c.Execute
+	case OpImportSQL:
+		return c.ImportSQL
 	case OpCancel:
 		return c.Cancel
 	case OpBegin, OpCommit, OpRollback:
