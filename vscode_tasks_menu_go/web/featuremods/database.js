@@ -26,7 +26,18 @@ style.textContent=`
 .db-object:hover,.db-object.selected{background:#222934}
 .db-object-kind{font-size:9px;opacity:.5;text-transform:uppercase;margin-right:5px}
 .db-object-name{font-size:12px}
-.db-object-detail{max-height:35%;overflow:auto;border-top:1px solid #30343b;padding:7px;font-family:ui-monospace,monospace;font-size:11px;white-space:pre-wrap}
+.db-object-detail{max-height:35%;overflow:auto;border-top:1px solid #30343b;padding:8px;font-size:11px;white-space:normal}
+.db-object-detail-head{display:flex;align-items:center;gap:6px;margin-bottom:3px}
+.db-object-detail-name{font-weight:700;font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.db-object-detail-kind{font-size:9px;opacity:.55;text-transform:uppercase;flex:0 0 auto}
+.db-object-detail-meta{font-size:10px;opacity:.6;margin-bottom:8px;overflow-wrap:anywhere}
+.db-object-detail-section{margin-top:8px}
+.db-object-detail-section-title{font-size:9px;font-weight:700;opacity:.55;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+.db-object-detail-line{padding:3px 0;border-top:1px solid rgba(128,128,128,.14);overflow-wrap:anywhere}
+.db-object-detail-line:first-of-type{border-top:0}
+.db-object-detail-primary{font-weight:700}
+.db-object-detail-muted{opacity:.62}
+.db-object-detail-sql{margin:3px 0 0;padding:6px;border:1px solid #30343b;border-radius:4px;white-space:pre-wrap;overflow-wrap:anywhere;font:10px ui-monospace,monospace}
 .db-query{min-width:0;display:flex;flex-direction:column}
 .db-query-tools{display:flex;align-items:center;gap:6px;padding:7px;border-bottom:1px solid #30343b}
 .db-query-tools .db-run{background:#244c70;border-color:#3f79a8}
@@ -1496,8 +1507,121 @@ async function executeQuery(view,{discardPending=false}={}){
   }
 }
 
+function objectDetailScalar(value){
+  if(value===null||value===undefined)return 'NULL';
+  if(typeof value==='boolean')return value?'YES':'NO';
+  if(typeof value==='string'||typeof value==='number'||typeof value==='bigint')return String(value);
+  return '';
+}
+
+function objectDetailSection(container,titleText){
+  const section=document.createElement('div');section.className='db-object-detail-section';
+  const title=document.createElement('div');title.className='db-object-detail-section-title';title.textContent=titleText;
+  section.append(title);container.append(section);return section;
+}
+
+function objectDetailLine(section,text,{primary=false,muted=false}={}){
+  const line=document.createElement('div');line.className='db-object-detail-line'+(primary?' db-object-detail-primary':'')+(muted?' db-object-detail-muted':'');
+  line.textContent=text;section.append(line);return line;
+}
+
+function objectDetailGeneric(section,key,value,depth=0){
+  if(value===null||value===undefined||['string','number','boolean','bigint'].includes(typeof value)){
+    objectDetailLine(section,key+': '+objectDetailScalar(value));return;
+  }
+  if(Array.isArray(value)){
+    if(!value.length){objectDetailLine(section,key+': none',{muted:true});return;}
+    if(value.every(item=>item===null||['string','number','boolean','bigint'].includes(typeof item))){
+      objectDetailLine(section,key+': '+value.map(objectDetailScalar).join(', '));return;
+    }
+    objectDetailLine(section,key+':');
+    value.slice(0,100).forEach((item,index)=>{
+      if(item&&typeof item==='object'&&!Array.isArray(item)){
+        const parts=Object.entries(item).filter(([,entry])=>entry===null||['string','number','boolean','bigint'].includes(typeof entry)).map(([name,entry])=>name+'='+objectDetailScalar(entry));
+        objectDetailLine(section,'  '+(index+1)+'. '+(parts.join(' · ')||'item'));
+      }else objectDetailLine(section,'  '+(index+1)+'. '+objectDetailScalar(item));
+    });
+    return;
+  }
+  if(typeof value==='object'){
+    objectDetailLine(section,key+':');
+    if(depth>=1){objectDetailLine(section,'  '+Object.keys(value).join(', '),{muted:true});return;}
+    for(const [childKey,childValue] of Object.entries(value))objectDetailGeneric(section,'  '+childKey,childValue,depth+1);
+  }
+}
+
 function renderObjectDetail(view,object,detail){
-  view.detail.textContent=JSON.stringify(detail,null,2);
+  view.detail.replaceChildren();
+  const kindText=String(detail?.kind||object?.kind||'object');
+  const nameText=String(detail?.name||object?.name||'');
+  const head=document.createElement('div');head.className='db-object-detail-head';
+  const kind=document.createElement('span');kind.className='db-object-detail-kind';kind.textContent=kindText;
+  const name=document.createElement('span');name.className='db-object-detail-name';name.textContent=nameText;name.title=nameText;
+  head.append(kind,name);view.detail.append(head);
+
+  const location=[detail?.catalog||object?.catalog||view.catalog?.value||'',detail?.schema||object?.schema||''].filter(Boolean).join(' / ');
+  if(location){
+    const meta=document.createElement('div');meta.className='db-object-detail-meta';meta.textContent='Database: '+location;view.detail.append(meta);
+  }
+
+  const columns=Array.isArray(detail?.columns)?detail.columns:[];
+  const indexes=Array.isArray(detail?.indexes)?detail.indexes:(Array.isArray(detail?.detail?.indexes)?detail.detail.indexes:[]);
+  const keyFlags=new Map();
+  for(const index of indexes){
+    const columnName=String(index?.column_name??index?.key??'').trim();if(!columnName)continue;
+    const flags=keyFlags.get(columnName.toLowerCase())||new Set();
+    if(String(index?.name||'').toUpperCase()==='PRIMARY')flags.add('PK');
+    else if(index?.unique===true)flags.add('UNIQUE');
+    keyFlags.set(columnName.toLowerCase(),flags);
+  }
+
+  if(columns.length){
+    const section=objectDetailSection(view.detail,'Columns ('+columns.length+')');
+    for(const column of columns){
+      const columnName=String(column?.name||'');
+      const parts=[columnName];
+      if(column?.type)parts.push(String(column.type));
+      const flags=keyFlags.get(columnName.toLowerCase())||new Set();
+      if(column?.primary_key)flags.add('PK');
+      for(const flag of flags)parts.push(flag);
+      const nullable=typeof column?.nullable==='boolean'?column.nullable:(typeof column?.not_null==='boolean'?!column.not_null:null);
+      if(nullable!==null)parts.push(nullable?'NULL':'NOT NULL');
+      if(Object.prototype.hasOwnProperty.call(column||{},'default'))parts.push('DEFAULT '+objectDetailScalar(column.default));
+      if(column?.extra)parts.push(String(column.extra));
+      objectDetailLine(section,parts.join(' · '),{primary:flags.has('PK')});
+    }
+  }
+
+  if(indexes.length){
+    const section=objectDetailSection(view.detail,'Indexes / Keys ('+indexes.length+')');
+    for(const index of indexes){
+      const parts=[String(index?.name||'index')];
+      const column=index?.column_name??index?.key;if(column)parts.push(String(column));
+      if(index?.unique===true)parts.push('UNIQUE');
+      if(index?.type||index?.index_type||index?.origin)parts.push(String(index.type||index.index_type||index.origin));
+      if(index?.sequence!==undefined||index?.seq!==undefined)parts.push('#'+String(index.sequence??index.seq));
+      objectDetailLine(section,parts.join(' · '),{primary:String(index?.name||'').toUpperCase()==='PRIMARY'});
+    }
+  }
+
+  if(detail?.sql){
+    const section=objectDetailSection(view.detail,'Definition');
+    const pre=document.createElement('pre');pre.className='db-object-detail-sql';pre.textContent=String(detail.sql);section.append(pre);
+  }
+
+  const handled=new Set(['kind','name','catalog','schema','columns','indexes','sql','truncated']);
+  const extras=Object.entries(detail||{}).filter(([key,value])=>!handled.has(key)&&value!==undefined);
+  if(extras.length){
+    const section=objectDetailSection(view.detail,detail?.detail?'Details':'Additional info');
+    for(const [key,value] of extras)objectDetailGeneric(section,key,value);
+  }
+  if(detail?.truncated){
+    const section=objectDetailSection(view.detail,'Notice');objectDetailLine(section,'Metadata was truncated by the database adapter.',{muted:true});
+  }
+  if(!columns.length&&!indexes.length&&!detail?.sql&&!extras.length){
+    const section=objectDetailSection(view.detail,'Details');objectDetailLine(section,'No additional structure information is available.',{muted:true});
+  }
+
   for(const button of view.objects.querySelectorAll('.db-object'))button.classList.toggle('selected',button.dataset.name===object.name);
 }
 
