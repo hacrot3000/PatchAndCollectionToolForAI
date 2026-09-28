@@ -479,6 +479,35 @@ def operation_object_action(connection, payload, read_only):
     raise ValueError("unsupported SQLite object action")
 
 
+def operation_import_sql(connection, payload, read_only):
+    if read_only:
+        raise ValueError("SQLite connection is read-only")
+    path_text = str(payload.get("path", "")).strip()
+    if not path_text:
+        raise ValueError("SQLite import path is required")
+    path = pathlib.Path(path_text)
+    if not path.is_file():
+        raise ValueError("SQLite import path is not a regular file")
+    imported_bytes = int(path.stat().st_size)
+    pending = ""
+    max_pending = 32 * 1024 * 1024
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        for line in handle:
+            pending += line
+            if len(pending.encode("utf-8")) > max_pending and not sqlite3.complete_statement(pending):
+                raise ValueError("SQLite import contains a statement larger than 32 MiB")
+            if sqlite3.complete_statement(pending):
+                if pending.strip():
+                    connection.executescript(pending)
+                pending = ""
+    if pending.strip():
+        if not sqlite3.complete_statement(pending):
+            raise ValueError("SQLite import ended with an incomplete SQL statement")
+        connection.executescript(pending)
+    connection.commit()
+    return {"imported_bytes": imported_bytes, "message": "SQL import completed"}
+
+
 def operation_execute(connection, payload, read_only):
     statement = str(payload.get("statement", "")).strip()
     if not statement:
@@ -535,6 +564,8 @@ def main():
             result = operation_object_action(connection, payload, bool(request.get("read_only", False)))
         elif operation == "execute":
             result = operation_execute(connection, payload, bool(request.get("read_only", False)))
+        elif operation == "import_sql":
+            result = operation_import_sql(connection, payload, bool(request.get("read_only", False)))
         else:
             raise ValueError("unsupported SQLite helper operation: " + operation)
         emit({"ok": True, "result": result})
