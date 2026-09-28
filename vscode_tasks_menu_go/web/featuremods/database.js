@@ -133,7 +133,7 @@ async function copySelectedTextArea(area){
 
 function parseQueryEditedValue(text,original,columnType=''){
   const type=String(columnType||'').toLowerCase();
-  if(type==='document'||type==='json'||type.includes('json'))return JSON.parse(text);
+  if(type==='document'||type==='json'||type.includes('json'))return JSON.stringify(JSON.parse(text));
   if(original&&typeof original==='object')return JSON.parse(text);
   return String(text);
 }
