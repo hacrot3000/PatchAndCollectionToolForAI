@@ -38,3 +38,21 @@ func TestManagedSessionProtocolRejectsInvalidEnvelope(t *testing.T) {
 		t.Fatalf("invalid envelope was accepted: %#v", s.protocol)
 	}
 }
+
+
+func TestManagedSessionProtocolRetainsRunFinishedExitCode(t *testing.T) {
+	s := &managedSession{protocol: ProtocolState{Available: true, Enabled: true}}
+	s.applyProtocolLine([]byte(`{"protocol":"taskdeck.patch","version":1,"type":"run_finished","seq":9,"status":"failed","exit_code":2}`))
+	state := cloneProtocolState(s.protocol)
+	var last struct {
+		Type     string `json:"type"`
+		Status   string `json:"status"`
+		ExitCode int    `json:"exit_code"`
+	}
+	if err := json.Unmarshal(state.LastEvent, &last); err != nil {
+		t.Fatal(err)
+	}
+	if last.Type != "run_finished" || last.Status != "failed" || last.ExitCode != 2 {
+		t.Fatalf("unexpected run_finished event: %#v", last)
+	}
+}
