@@ -906,3 +906,78 @@ func TestDatabaseDataGridsShareActionMenuBuilder(t *testing.T) {
 		}
 	}
 }
+
+
+func TestDatabaseQueryEditorSupportsMultipleStatementsAndResultTabs(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function splitSQLStatements(script)",
+		"segmentHasCode",
+		"if(ch===';' ){",
+		"function createQueryResultContext(owner,statement,index)",
+		"db-query-result-tabs",
+		"db-query-result-tab",
+		"tab.textContent='Result '+(index+1)",
+		"function activateQueryResult(owner,index)",
+		"for(let index=0;index<statements.length;index++)",
+		"statement:statements[index]",
+		"renderResult(ctx,result",
+		"renderQueryResultError(ctx,error",
+		"firstError=error",
+		"if(firstError)throw firstError",
+		"function refreshQueryResult(view)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database.js missing multi-statement query behavior %q", want)
+		}
+	}
+	if strings.Contains(js, "statement:script,max_rows") {
+		t.Fatal("multi-query execution must not send the entire SQL script as one execute request")
+	}
+}
+
+func TestDatabaseWorkbenchSupportsMultipleQueryTabs(t *testing.T) {
+	databaseData, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	databaseJS := string(databaseData)
+	for _, want := range []string{
+		"function setupQueryPanel(view",
+		"function createAdditionalQueryView(root",
+		"createQueryView:createAdditionalQueryView",
+		"queryHasPendingChanges:queryViewHasPendingChanges",
+		"function databaseQueryViews(view)",
+	} {
+		if !strings.Contains(databaseJS, want) {
+			t.Fatalf("database.js missing query-tab factory behavior %q", want)
+		}
+	}
+
+	workbenchData, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workbench := string(workbenchData)
+	for _, want := range []string{
+		"function createQueryPage(view)",
+		"addQuery.textContent='+ Query'",
+		"addQuery.title='Open another query tab'",
+		"createWorkbenchTab(view,'query','Query 1',{closable:false})",
+		"const key='query:'+number",
+		"database.createQueryView(root",
+		"panel.classList.add('db-workbench-panel','hidden')",
+		"function activeQueryPage(view)",
+		"if(active?.mode==='query')return active",
+		"page.mode==='query'&&page.ctx&&database.queryHasPendingChanges?.(page.ctx)",
+		"if(!page||key==='query')return false",
+	} {
+		if !strings.Contains(workbench, want) {
+			t.Fatalf("database_workbench.js missing multiple-query-tab behavior %q", want)
+		}
+	}
+}
