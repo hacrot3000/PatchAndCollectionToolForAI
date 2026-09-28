@@ -39,7 +39,7 @@ func (h *Handler) attachEditableSelectInfo(ctx context.Context, config Config, s
 		info.EditabilityReason = "Only direct SELECTs from a base table are editable"
 		return
 	}
-	columns, identityColumns, err := h.browseMetadata(ctx, catalog, target.Table)
+	columns, _, err := h.browseMetadata(ctx, catalog, target.Table)
 	if err != nil {
 		info.EditabilityReason = trimEditReason("Cannot inspect target table columns: " + err.Error())
 		return
@@ -51,10 +51,6 @@ func (h *Handler) attachEditableSelectInfo(ctx context.Context, config Config, s
 	columnByName := make(map[string]mysqlBrowseColumn, len(columns))
 	for _, column := range columns {
 		columnByName[strings.ToLower(column.Name)] = column
-	}
-	if len(identityColumns) == 0 {
-		info.EditabilityReason = "Target table has no non-null primary or unique key"
-		return
 	}
 	if h.config.ReadOnly || config.ReadOnly {
 		info.EditabilityReason = "Connection is read-only"
@@ -90,14 +86,35 @@ func (h *Handler) attachEditableSelectInfo(ctx context.Context, config Config, s
 			Identity:   identity,
 		}
 	}
-	for _, identityColumn := range identityColumns {
-		if _, ok := resultIndex[strings.ToLower(identityColumn)]; !ok {
-			info.EditabilityReason = "Select the primary/unique key column(s) to enable editing: " + strings.Join(identityColumns, ", ")
-			for i := range info.Columns {
-				info.Columns[i].Editable = false
-			}
-			return
+	identityCandidates, err := h.mysqlIdentityCandidates(ctx, catalog, target.Table)
+	if err != nil {
+		info.EditabilityReason = trimEditReason("Cannot inspect target table keys: " + err.Error())
+		for i := range info.Columns {
+			info.Columns[i].Editable = false
 		}
+		return
+	}
+	if len(identityCandidates) == 0 {
+		info.EditabilityReason = "Target table has no non-null primary or unique key"
+		for i := range info.Columns {
+			info.Columns[i].Editable = false
+		}
+		return
+	}
+	identityColumns := chooseSelectedMySQLIdentity(identityCandidates, resultIndex)
+	if len(identityColumns) == 0 {
+		info.EditabilityReason = "Select a complete primary/unique key to enable editing: " + formatMySQLIdentityCandidates(identityCandidates)
+		for i := range info.Columns {
+			info.Columns[i].Editable = false
+		}
+		return
+	}
+	identitySet = make(map[string]struct{}, len(identityColumns))
+	for _, name := range identityColumns {
+		identitySet[strings.ToLower(name)] = struct{}{}
+	}
+	for i := range info.Columns {
+		_, info.Columns[i].Identity = identitySet[strings.ToLower(info.Columns[i].Name)]
 	}
 
 	info.RowIdentities = make([]map[string]interface{}, len(result.Rows))
@@ -119,6 +136,47 @@ func (h *Handler) attachEditableSelectInfo(ctx context.Context, config Config, s
 	}
 	info.Editable = true
 	info.EditabilityReason = ""
+}
+
+func (h *Handler) mysqlIdentityCandidates(ctx context.Context, catalog, name string) ([][]string, error) {
+	query := "SELECT INDEX_NAME AS index_name, COLUMN_NAME AS column_name, SEQ_IN_INDEX AS seq, " +
+		"NULLABLE AS nullable FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
+		" AND TABLE_NAME = " + mysqlTextExpression(name) + " AND NON_UNIQUE = 0 " +
+		"ORDER BY CASE WHEN INDEX_NAME = 'PRIMARY' THEN 0 ELSE 1 END, INDEX_NAME, SEQ_IN_INDEX"
+	result, err := h.query(ctx, query, dbadapter.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	return mysqlIdentityCandidates(result)
+}
+
+func chooseSelectedMySQLIdentity(candidates [][]string, resultIndex map[string]int) []string {
+	for _, candidate := range candidates {
+		complete := true
+		for _, name := range candidate {
+			if _, ok := resultIndex[strings.ToLower(name)]; !ok {
+				complete = false
+				break
+			}
+		}
+		if complete {
+			return append([]string(nil), candidate...)
+		}
+	}
+	return nil
+}
+
+func formatMySQLIdentityCandidates(candidates [][]string) string {
+	parts := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if len(candidate) != 0 {
+			parts = append(parts, strings.Join(candidate, " + "))
+		}
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, " or ")
 }
 
 func (h *Handler) mysqlObjectKind(ctx context.Context, catalog, name string) (string, error) {
