@@ -21,6 +21,7 @@ func TestManifestValidationAndCapabilityLookup(t *testing.T) {
 			ListObjects:    true,
 			DescribeObject: true,
 			Execute:        true,
+			ImportSQL:      true,
 			Cancel:         true,
 		},
 	}
@@ -29,7 +30,7 @@ func TestManifestValidationAndCapabilityLookup(t *testing.T) {
 	}
 	for _, operation := range []Operation{
 		OpHello, OpCapabilities, OpConnect, OpDisconnect, OpPing,
-		OpListCatalogs, OpListObjects, OpDescribeObject, OpExecute, OpCancel,
+		OpListCatalogs, OpListObjects, OpDescribeObject, OpExecute, OpImportSQL, OpCancel,
 	} {
 		if !manifest.Capabilities.Supports(operation) {
 			t.Fatalf("operation %q should be supported", operation)
