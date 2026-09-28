@@ -95,6 +95,30 @@ func (s *Server) testSSHProfile(profileID string) sshConnectionTestResult {
 	return s.testSSHConnection(profile, nil)
 }
 
+func (s *Server) testSSHProfileOverride(profileID string, req sshProfileRequest) sshConnectionTestResult {
+	store, err := s.sshProfileStore()
+	if err != nil {
+		return sshConnectionTestResult{Message: err.Error()}
+	}
+	existing, err := store.Get(strings.TrimSpace(profileID))
+	if err != nil {
+		if errors.Is(err, sshprofile.ErrProfileNotFound) {
+			return sshConnectionTestResult{Message: "ssh profile not found"}
+		}
+		return sshConnectionTestResult{Message: err.Error()}
+	}
+
+	secretRef := ""
+	if req.Secret == nil && req.AuthMethod == existing.AuthMethod {
+		secretRef = existing.SecretRef
+	}
+	candidate := req.profile("test", secretRef)
+	if strings.TrimSpace(candidate.Name) == "" {
+		candidate.Name = "Connection test"
+	}
+	return s.testSSHConnection(candidate, req.Secret)
+}
+
 func (s *Server) testSSHConnection(profile sshprofile.Profile, secret *string) sshConnectionTestResult {
 	started := time.Now()
 	result := sshConnectionTestResult{}
@@ -216,6 +240,8 @@ func (s *Server) sshTest(w http.ResponseWriter, r *http.Request) {
 	profileID := strings.TrimSpace(req.ProfileID)
 	var result sshConnectionTestResult
 	switch {
+	case req.Profile != nil && profileID != "":
+		result = s.testSSHProfileOverride(profileID, *req.Profile)
 	case req.Profile != nil:
 		candidate := req.Profile.profile("test", "")
 		if strings.TrimSpace(candidate.Name) == "" {
