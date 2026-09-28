@@ -506,11 +506,24 @@ async function loadQuerySchemaReferences(view,text){
   if(changed&&view.querySchemaGeneration===generation)reconfigureQueryEditor(view);
 }
 
+function databaseQueryViews(view){
+  const root=view.workbenchRoot||view;
+  const pages=root.workbench?.pages;
+  if(!(pages instanceof Map))return [root];
+  const queries=[];
+  for(const page of pages.values()){
+    if(page?.mode==='query'&&page.ctx&&!queries.includes(page.ctx))queries.push(page.ctx);
+  }
+  return queries.length?queries:[root];
+}
+
 async function warmQuerySchema(view){
-  if(!relationalQueryEditor(view))return;
-  view.querySchemaGeneration=(view.querySchemaGeneration||0)+1;
-  reconfigureQueryEditor(view);
-  scheduleQuerySchemaReferences(view);
+  for(const queryView of databaseQueryViews(view)){
+    if(!relationalQueryEditor(queryView))continue;
+    queryView.querySchemaGeneration=(queryView.querySchemaGeneration||0)+1;
+    reconfigureQueryEditor(queryView);
+    scheduleQuerySchemaReferences(queryView);
+  }
 }
 
 async function refreshProfiles(){
