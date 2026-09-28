@@ -1094,8 +1094,16 @@ func TestDatabaseQueryTabsPersistAcrossReload(t *testing.T) {
 			t.Fatalf("database_workbench.js missing query-tab persistence behavior %q", want)
 		}
 	}
-	if strings.Contains(workbench, "queryResult:") || strings.Contains(workbench, "result.rows") {
-		t.Fatal("query-tab persistence must not persist query result data")
+	persistStart := strings.Index(workbench, "function queryPageSnapshot(page)")
+	persistEnd := strings.Index(workbench, "function applyQuerySnapshot(ctx,snapshot)")
+	if persistStart < 0 || persistEnd < 0 || persistEnd <= persistStart {
+		t.Fatal("database_workbench.js persistence block bounds are unavailable")
+	}
+	persistBlock := workbench[persistStart:persistEnd]
+	for _, stale := range []string{"queryResult:", "queryResultContexts", "result.rows", "queryDirtyRows", "queryNewRows", "querySelectedRows"} {
+		if strings.Contains(persistBlock, stale) {
+			t.Fatalf("query-tab persistence must not persist query result state %q", stale)
+		}
 	}
 
 	databaseData, err := webassets.Files.ReadFile("featuremods/database.js")
