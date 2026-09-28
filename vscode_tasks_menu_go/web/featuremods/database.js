@@ -207,7 +207,7 @@ function chooseHostSQLScript(){
   });
 }
 
-async function chooseClientSQLScript(){
+async async function chooseClientSQLScript(){
   if(typeof globalThis.showOpenFilePicker==='function'){
     try{
       const handles=await globalThis.showOpenFilePicker({
@@ -325,8 +325,9 @@ async function openSQLScript(view){
     text=String(data?.content??'');
   }
   if(text.includes('\x00'))throw new Error('SQL script contains NUL bytes and cannot be opened');
-  setQueryEditorText(view,text);
-  setQueryScriptIdentity(view,{
+  const target=globalThis.TaskMenuDatabaseWorkbench?.queryTargetForOpen?.(view)||view;
+  setQueryEditorText(target,text);
+  setQueryScriptIdentity(target,{
     kind:source.kind,
     name:source.name||'query.sql',
     ...(source.kind==='host'?{path:source.path}:{handle:source.handle||null})
@@ -466,6 +467,21 @@ function relationalQueryEditor(view){
 
 function queryEditorText(view){
   return view?.queryCM?.state?.doc?.toString?.()??view?.editor?.value??'';
+}
+
+function queryEditorCanReplace(view){
+  const current=queryEditorText(view).trim();
+  const defaultText=defaultDatabaseQueryText(view?.meta?.adapter_kind).trim();
+  return current===''||current===defaultText;
+}
+
+function appendQueryEditorText(view,text,{focus=true}={}){
+  const addition=String(text??'').trim();
+  if(!addition)return;
+  if(queryEditorCanReplace(view)){setQueryEditorText(view,addition,{focus});return;}
+  const current=queryEditorText(view);
+  const separator=current.endsWith('\n')?'\n':'\n\n';
+  setQueryEditorText(view,current+separator+addition,{focus});
 }
 
 function queryEditorExecutionText(view){
@@ -1863,7 +1879,9 @@ globalThis.TaskMenuDatabase={
   getProfile:profileFor,
   getQueryText:queryEditorText,
   getQueryExecutionText:queryEditorExecutionText,
+  queryCanReplace:queryEditorCanReplace,
   setQueryText:setQueryEditorText,
+  appendQueryText:appendQueryEditorText,
   focusQuery:focusQueryEditor,
   createQueryView:createAdditionalQueryView,
   queryHasPendingChanges:queryViewHasPendingChanges,
