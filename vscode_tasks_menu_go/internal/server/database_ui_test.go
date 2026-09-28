@@ -781,18 +781,26 @@ func TestDatabaseSQLScriptOpenSaveAndImportFallback(t *testing.T) {
 		"function sqlScriptNameAllowed(name)",
 		"function chooseScriptLocation(titleText)",
 		"function chooseHostSQLScript()",
+		"async function chooseClientSQLScript()",
+		"showOpenFilePicker",
 		"input.accept='.sql,.txt,text/plain'",
 		"async function openSQLScript(view)",
 		"source.size>SQL_SCRIPT_EDIT_LIMIT",
 		"switched to streamed SQL import",
 		"'/api/db/sessions/'+encodeURIComponent(view.meta.id)+'/import'",
+		"function setQueryScriptIdentity(view,source)",
+		"function saveSQLScriptToExistingSource(view)",
+		"source?.kind==='host'&&source.path",
+		"source?.kind==='client'&&source.handle?.createWritable",
 		"function saveSQLScript(view)",
+		"if(await saveSQLScriptToExistingSource(view))return",
 		"function saveSQLScriptToHost(view)",
 		"function saveSQLScriptToClient(view)",
 		"browser?.chooseFile",
 		"fileLabel:'SQL script file name:'",
 		"globalThis.TaskMenuDirectoryBrowser",
 		"showSaveFilePicker",
+		"updateQueryTabIdentity",
 		"openSQL.textContent='Open SQL'",
 		"saveSQL.textContent='Save SQL'",
 	} {
@@ -1012,23 +1020,73 @@ func TestDatabaseWorkbenchSupportsMultipleQueryTabs(t *testing.T) {
 	workbench := string(workbenchData)
 	for _, want := range []string{
 		"function createQueryPage(view)",
+		"addQuery.className='db-workbench-add-query'",
 		"addQuery.textContent='+ Query'",
-		"addQuery.title='Open another query tab'",
-		"createWorkbenchTab(view,'query','Query 1',{closable:false})",
+		"addQuery.title='Create a new query tab'",
+		"createWorkbenchTab(view,'query','Query 1')",
 		"const key='query:'+number",
 		"database.createQueryView(root",
 		"panel.classList.add('db-workbench-panel','hidden')",
 		"function activeQueryPage(view)",
 		"if(active?.mode==='query')return active",
 		"page.mode==='query'&&page.ctx&&database.queryHasPendingChanges?.(page.ctx)",
-		"if(!page||key==='query')return false",
+		"wb.tabsBar.append(wb.addQuery)",
+		"function firstQueryPage(view)",
+		"function activateWorkbenchFallback(view,preferredIndex=0)",
 	} {
 		if !strings.Contains(workbench, want) {
 			t.Fatalf("database_workbench.js missing multiple-query-tab behavior %q", want)
 		}
 	}
+	for _, stale := range []string{
+		"createWorkbenchTab(view,'query','Query 1',{closable:false})",
+		"disabled:key==='query'",
+		"if(!page||key==='query')return false",
+		"filter(item=>item!=='query')",
+	} {
+		if strings.Contains(workbench, stale) {
+			t.Fatalf("database_workbench.js still special-cases Query 1 with stale behavior %q", stale)
+		}
+	}
 }
 
+
+
+func TestDatabaseQueryTabsShowOpenedFileIdentity(t *testing.T) {
+	workbenchData, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workbench := string(workbenchData)
+	for _, want := range []string{
+		"updateQueryTabIdentity(view,{label='',tooltip=''}={})",
+		"const text=page.tab?.querySelector?.('.db-workbench-tab-label')",
+		"if(text&&label)text.textContent=label",
+		"if(page.tab)page.tab.title=tooltip||label||page.tab.title",
+	} {
+		if !strings.Contains(workbench, want) {
+			t.Fatalf("database_workbench.js missing query file identity behavior %q", want)
+		}
+	}
+
+	databaseData, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	databaseJS := string(databaseData)
+	for _, want := range []string{
+		"setQueryScriptIdentity(view,{",
+		"kind:source.kind",
+		"name:source.name||'query.sql'",
+		"path:source.path",
+		"label:source.name",
+		"tooltip:queryScriptTooltip(source)",
+	} {
+		if !strings.Contains(databaseJS, want) {
+			t.Fatalf("database.js missing opened SQL tab identity behavior %q", want)
+		}
+	}
+}
 
 func TestDatabaseQueryEditorRunsOnlyPartialSelection(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/database.js")
