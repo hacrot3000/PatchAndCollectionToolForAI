@@ -136,6 +136,60 @@ func TestSQLiteHandlerBrowseDescribeReadOnlyAndWriteMode(t *testing.T) {
 	}
 }
 
+
+func TestSQLiteHandlerImportsSQLFileWithTransactionAndTrigger(t *testing.T) {
+	python, err := FindPython()
+	if err != nil {
+		t.Skipf("Python 3 unavailable: %v", err)
+	}
+	path := createSQLiteFixture(t, python)
+	handler := connectSQLiteHandler(t, path, false)
+	defer handler.disconnect()
+
+	scriptPath := filepath.Join(t.TempDir(), "import.sql")
+	script := "BEGIN;\n" +
+		"CREATE TABLE import_log(name TEXT);\n" +
+		"CREATE TRIGGER users_import_log AFTER INSERT ON users BEGIN\n" +
+		"  INSERT INTO import_log(name) VALUES (NEW.name);\n" +
+		"END;\n" +
+		"INSERT INTO users(name,active) VALUES ('Imported',1);\n" +
+		"COMMIT;\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	payload, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "import-1", dbadapter.OpImportSQL, dbadapter.ImportSQLPayload{
+		Path:    scriptPath,
+		Catalog: "main",
+	}))
+	if protocolErr != nil {
+		t.Fatalf("import error=%+v", protocolErr)
+	}
+	result, ok := payload.(dbadapter.ImportSQLResult)
+	if !ok || result.ImportedBytes != int64(len(script)) {
+		t.Fatalf("import result=%#v", payload)
+	}
+
+	verifyPayload, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "import-verify", dbadapter.OpExecute, dbadapter.ExecutePayload{
+		Statement: "SELECT (SELECT COUNT(*) FROM users WHERE name='Imported') AS users_count, (SELECT COUNT(*) FROM import_log WHERE name='Imported') AS log_count",
+		MaxRows:   10,
+	}))
+	if protocolErr != nil {
+		t.Fatalf("verify error=%+v", protocolErr)
+	}
+	verify := verifyPayload.(dbadapter.ExecuteResult)
+	if len(verify.Rows) != 1 || verify.Rows[0][0] != int64(1) || verify.Rows[0][1] != int64(1) {
+		t.Fatalf("verify=%+v", verify)
+	}
+
+	readOnly := connectSQLiteHandler(t, path, true)
+	defer readOnly.disconnect()
+	_, protocolErr = readOnly.Handle(context.Background(), sqliteAdapterRequest(t, "import-ro", dbadapter.OpImportSQL, dbadapter.ImportSQLPayload{Path: scriptPath}))
+	if protocolErr == nil || protocolErr.Code != "READ_ONLY" {
+		t.Fatalf("read-only import error=%+v", protocolErr)
+	}
+}
+
 func TestSQLiteHelperRejectsMultipleStatements(t *testing.T) {
 	python, err := FindPython()
 	if err != nil {
