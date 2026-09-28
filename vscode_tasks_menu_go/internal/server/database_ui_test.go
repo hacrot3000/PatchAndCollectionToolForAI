@@ -1311,19 +1311,32 @@ func TestDatabaseQueryResultStickyHeadersUseSolidBackgrounds(t *testing.T) {
 		".db-query .codemirror .cm-editor{height:100%;font-size:13px;background:#090c10}",
 		".db-query .codemirror .cm-scroller{overflow:auto;font-family:ui-monospace,SFMono-Regular,Consolas,\"Liberation Mono\",monospace;background:#090c10}",
 		".db-query .codemirror .cm-gutters{background:#090c10}",
-		".db-result-status{position:sticky;top:0;z-index:3;padding:5px 8px;background:#11151b",
-		".db-result-edit-tools{position:sticky;top:27px;z-index:2;",
-		".has-edit-tools .db-result-table th{top:58px}",
-		".db-query-result-panel .db-result-edit-tools{top:57px}",
-		".db-query-result-panel.has-edit-tools .db-result-table th{top:88px}",
-		"view.result.classList.toggle('has-edit-tools',Boolean(result?.edit))",
-		"html[data-taskmenu-theme=\"light\"] .db-query-tools,html[data-taskmenu-theme=\"light\"] .db-result-status,html[data-taskmenu-theme=\"light\"] .db-result-edit-tools{background:#f2f5f8}",
+		".db-result-wrap{--db-result-tabs-height:0px;--db-result-status-height:28px;",
+		".db-result-wrap.has-result-tabs{--db-result-tabs-height:30px}",
+		".db-query-result-tabs{display:flex;align-items:end;gap:2px;height:30px;box-sizing:border-box;",
+		".db-result-status{position:sticky;top:var(--db-result-tabs-height);z-index:9;height:var(--db-result-status-height);",
+		".db-result-table{border-collapse:separate;border-spacing:0;",
+		".db-result-table th{position:sticky;top:calc(var(--db-result-tabs-height) + var(--db-result-status-height));",
+		".db-result-edit-tools{position:relative;z-index:1;",
+		".db-result-table th.db-row-number{z-index:11;",
+		"owner.result.classList.add('has-result-tabs')",
+		"owner.result.classList.remove('has-result-tabs')",
+		"html[data-taskmenu-theme=\"light\"] .db-result-wrap{background:#fff}",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("database.js missing solid/sticky query result styling %q", want)
 		}
 	}
-	if strings.Contains(js, ".db-result-status{position:sticky;top:0;z-index:2;padding:5px 8px;background:#11151b;border-bottom:1px solid #30343b;font-size:11px;opacity:.8}") {
-		t.Fatal("query result status must not make its background translucent with element opacity")
+	for _, stale := range []string{
+		".db-result-edit-tools{position:sticky",
+		".has-edit-tools .db-result-table th{top:58px}",
+		".db-query-result-panel .db-result-edit-tools{top:57px}",
+		".db-query-result-panel.has-edit-tools .db-result-table th{top:88px}",
+		".db-result-table{border-collapse:collapse",
+		"opacity:.55;background:#11151b",
+	} {
+		if strings.Contains(js, stale) {
+			t.Fatalf("database.js must not retain stale overlapping sticky styling %q", stale)
+		}
 	}
 }
