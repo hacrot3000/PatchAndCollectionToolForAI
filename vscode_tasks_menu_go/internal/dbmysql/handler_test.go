@@ -21,6 +21,7 @@ func writeHandlerFixture(t *testing.T) string {
 	path := filepath.Join(dir, "mysql")
 	script := "#!/bin/sh\n" +
 		"if [ \"$1\" = \"--version\" ]; then echo 'mysql fixture 8.0'; exit 0; fi\n" +
+		"if [ -n \"$TASKDECK_MYSQL_ARGS_LOG\" ]; then printf '%s\\n' \"$@\" > \"$TASKDECK_MYSQL_ARGS_LOG\"; fi\n" +
 		"sql=$(cat)\n" +
 		"case \"$sql\" in\n" +
 		"  *taskdeck_connect*) printf '%s\\n' '<resultset><row><field name=\"taskdeck_connect\">1</field></row></resultset>' ;;\n" +
@@ -151,6 +152,39 @@ func TestHandlerConnectPingBrowseAndExecute(t *testing.T) {
 	}
 	if handler.connected || handler.config.Secret != "" {
 		t.Fatalf("handler retained connection secret/state: %+v", handler)
+	}
+}
+
+
+func TestHandlerExecuteUsesSelectedCatalog(t *testing.T) {
+	argsLog := filepath.Join(t.TempDir(), "mysql-args.log")
+	t.Setenv("TASKDECK_MYSQL_ARGS_LOG", argsLog)
+	handler := connectFixtureHandler(t, false)
+	handler.config.Database = "saved_db"
+
+	payload, protocolErr := handler.Handle(context.Background(), adapterRequest(t, "execute-catalog", dbadapter.OpExecute, dbadapter.ExecutePayload{
+		Catalog:   "selected_db",
+		Statement: "SELECT 42 AS answer",
+		MaxRows:   10,
+	}))
+	if protocolErr != nil {
+		t.Fatalf("execute error=%+v", protocolErr)
+	}
+	result, ok := payload.(dbadapter.ExecuteResult)
+	if !ok || len(result.Rows) != 1 {
+		t.Fatalf("execute result=%#v", payload)
+	}
+
+	raw, err := os.ReadFile(argsLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := string(raw)
+	if !strings.Contains(args, "--database=selected_db") {
+		t.Fatalf("selected catalog missing from MySQL argv: %s", args)
+	}
+	if strings.Contains(args, "--database=saved_db") {
+		t.Fatalf("saved database unexpectedly overrode selected catalog: %s", args)
 	}
 }
 
