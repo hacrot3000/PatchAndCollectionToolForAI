@@ -540,9 +540,10 @@ function installPatchPanel(){
   const runningTitle=document.createElement('div');runningTitle.className='task-patch-running-title';runningTitle.textContent='Running';
   const runningMeta=document.createElement('div');runningMeta.className='task-patch-running-meta';runningMeta.textContent='Waiting for Python execution state…';
   const runningActions=document.createElement('div');runningActions.className='task-patch-running-actions';
+  const copyFailureLog=document.createElement('button');copyFailureLog.type='button';copyFailureLog.textContent='📋 Copy error log';copyFailureLog.title='Copy failure reason and recent console output';copyFailureLog.hidden=true;
   const terminalEvidence=document.createElement('button');terminalEvidence.type='button';terminalEvidence.textContent='Open terminal evidence';
   const runningBack=document.createElement('button');runningBack.type='button';runningBack.textContent='Back to Queue';runningBack.hidden=true;
-  runningActions.append(terminalEvidence,runningBack);
+  runningActions.append(copyFailureLog,terminalEvidence,runningBack);
   runningHead.append(runningTitle,runningMeta,runningActions);
 
   const parallelCollectBox=document.createElement('div');parallelCollectBox.className='task-patch-parallel';parallelCollectBox.hidden=true;
@@ -1820,6 +1821,7 @@ function installPatchPanel(){
     runningHead.classList.remove('finished','failed');
     runningMeta.classList.remove('stale');
     runningMeta.textContent='Starting Python execution…';
+    copyFailureLog.hidden=true;
     terminalEvidence.hidden=false;
     runningBack.textContent='Back to Queue / Add more';
     runningBack.hidden=false;
@@ -1851,6 +1853,7 @@ function installPatchPanel(){
     runningMeta.classList.remove('stale');
     runningMeta.textContent='Waiting for Python execution state…';
     runningBack.hidden=true;
+    copyFailureLog.hidden=true;
     terminalEvidence.hidden=false;
     foregroundRunDescriptor=null;
     foregroundProtocolState=null;
@@ -2348,9 +2351,66 @@ function installPatchPanel(){
     return (Array.isArray(state?.items)?state.items:[]).some(item=>lifecycleState(item?.status)==='failed');
   }
 
+  function foregroundErrorLogText(state=foregroundProtocolState){
+    const rows=Array.isArray(state?.items)?state.items:[];
+    let failed=rows.filter(item=>lifecycleState(item?.status)==='failed');
+    if(!failed.length){
+      const fallback=[...rows].reverse().find(item=>String(item?.failure_reason||item?.diagnosis_kind||item?.output_tail||'').trim());
+      if(fallback)failed=[fallback];
+    }
+    const blocks=[];
+    for(const item of failed){
+      const rc=item?.rc;
+      const lines=[
+        [String(item?.name||''),String(item?.kind||''),String(item?.status||'FAIL'),rc===undefined||rc===null?'':`rc=${rc}`].filter(Boolean).join(' · ')
+      ];
+      const diagnosis=String(item?.diagnosis_kind||'').trim();
+      const reason=String(item?.failure_reason||'').trim();
+      const outputTail=String(item?.output_tail||'').trim();
+      if(diagnosis)lines.push('Diagnosis: '+diagnosis);
+      if(reason)lines.push('Reason: '+reason);
+      if(outputTail)lines.push('', 'Recent console output:', outputTail);
+      blocks.push(lines.join('\n').trim());
+    }
+    if(blocks.length)return blocks.join('\n\n---\n\n');
+
+    const event=state?.last_event&&typeof state.last_event==='object'?state.last_event:{};
+    const outcome=foregroundRunOutcome(state);
+    const lines=[];
+    const name=foregroundRunName(state);
+    const rc=outcome?.exitCode;
+    lines.push([name||'Patch Tool run','FAILED',rc===undefined||rc===null?'':`rc=${rc}`].filter(Boolean).join(' · '));
+    for(const value of [event?.error,event?.message,event?.detail,state?.error]){
+      const text=String(value||'').trim();
+      if(text&&!lines.includes(text))lines.push(text);
+    }
+    return lines.join('\n').trim();
+  }
+
+  async function copyForegroundErrorLog(button){
+    const text=foregroundErrorLogText(foregroundProtocolState);
+    if(!text)throw new Error('No Patch failure console log is available');
+    let copied=false;
+    if(navigator.clipboard&&window.isSecureContext){
+      try{await navigator.clipboard.writeText(text);copied=true;}catch{}
+    }
+    if(!copied){
+      const area=document.createElement('textarea');area.value=text;area.setAttribute('readonly','');area.style.position='fixed';area.style.left='-9999px';area.style.top='0';
+      document.body.append(area);area.select();
+      try{copied=document.execCommand('copy');}finally{area.remove();}
+    }
+    if(!copied)throw new Error('Cannot copy Patch error log');
+    if(button){
+      const original=button.textContent;button.textContent='✓ Copied error log';
+      setTimeout(()=>{if(button.isConnected)button.textContent=original;},1200);
+    }
+    return true;
+  }
+
   function updateForegroundHeading(state=foregroundProtocolState){
     const name=foregroundRunName(state);
     const failed=stateHasFailure(state);
+    copyFailureLog.hidden=!failed;
     if(runningFinished){
       runningTitle.textContent=failed?(name?'Latest failed · '+name:'Latest failed'):(name?'Latest completed · '+name:'Latest completed');
       runningHead.classList.toggle('finished',!failed);
@@ -3322,6 +3382,7 @@ function installPatchPanel(){
     }
   }
 
+  copyFailureLog.onclick=()=>copyForegroundErrorLog(copyFailureLog).catch(app.showError);
   terminalEvidence.onclick=()=>openTerminalEvidence().catch(app.showError);
   historyTerminal.onclick=()=>openLegacyHistoryTerminal().catch(app.showError);
   historySearchInput.oninput=()=>setHistorySearchQuery(historySearchInput.value);
