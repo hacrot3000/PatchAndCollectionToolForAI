@@ -177,6 +177,7 @@ func TestBrowserDatabaseOperationsAreStrictlyAllowlisted(t *testing.T) {
 		dbadapter.OpCapabilities,
 		dbadapter.OpConnect,
 		dbadapter.OpDisconnect,
+		dbadapter.OpImportSQL,
 		dbadapter.OpCancel,
 		dbadapter.OpBegin,
 		dbadapter.OpCommit,
