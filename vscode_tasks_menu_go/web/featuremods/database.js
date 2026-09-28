@@ -573,15 +573,69 @@ function queryPendingCount(view){
   return count;
 }
 
+function queryCompareValues(a,b){
+  if(a===b)return 0;
+  if(a===null||a===undefined)return 1;
+  if(b===null||b===undefined)return -1;
+  if(typeof a==='number'&&typeof b==='number')return a-b;
+  if(typeof a==='boolean'&&typeof b==='boolean')return Number(a)-Number(b);
+  return String(a).localeCompare(String(b),undefined,{numeric:true,sensitivity:'base'});
+}
+
+function queryFilterMatches(value,filter){
+  if(!filter)return true;
+  const operator=filter.operator||'contains';
+  if(operator==='is_null')return value===null||value===undefined;
+  if(operator==='not_null')return value!==null&&value!==undefined;
+  const left=value===null||value===undefined?'':String(value);
+  const right=String(filter.value??'');
+  switch(operator){
+  case 'eq':return left===right;
+  case 'ne':return left!==right;
+  case 'starts_with':return left.toLowerCase().startsWith(right.toLowerCase());
+  case 'ends_with':return left.toLowerCase().endsWith(right.toLowerCase());
+  case 'gt':return queryCompareValues(value,filter.value)>0;
+  case 'gte':return queryCompareValues(value,filter.value)>=0;
+  case 'lt':return queryCompareValues(value,filter.value)<0;
+  case 'lte':return queryCompareValues(value,filter.value)<=0;
+  case 'contains':
+  default:return left.toLowerCase().includes(right.toLowerCase());
+  }
+}
+
+function queryDisplayRowIndexes(view,result=view.queryResult){
+  const rows=Array.isArray(result?.rows)?result.rows:[];
+  const columns=Array.isArray(result?.columns)?result.columns:[];
+  let indexes=rows.map((_,index)=>index);
+  const filter=view.queryFilter;
+  if(filter){
+    const columnIndex=columns.findIndex(column=>String(column?.name||'')===filter.column);
+    if(columnIndex>=0)indexes=indexes.filter(rowIndex=>queryFilterMatches(queryCellValue(view,result,rowIndex,columnIndex),filter));
+  }
+  const order=view.queryOrder;
+  if(order&&Number.isInteger(order.columnIndex)&&order.columnIndex>=0&&order.columnIndex<columns.length){
+    const direction=order.direction==='desc'?-1:1;
+    indexes=indexes.map((rowIndex,position)=>({rowIndex,position})).sort((a,b)=>{
+      const compared=queryCompareValues(queryCellValue(view,result,a.rowIndex,order.columnIndex),queryCellValue(view,result,b.rowIndex,order.columnIndex));
+      return compared===0?a.position-b.position:compared*direction;
+    }).map(item=>item.rowIndex);
+  }
+  return indexes;
+}
+
 function querySelectedRowIndexes(view,result=view.queryResult){
   const rows=Array.isArray(result?.rows)?result.rows:[];
-  return Array.from(view.querySelectedRows||[])
-    .filter(index=>Number.isInteger(index)&&index>=0&&index<rows.length)
-    .sort((a,b)=>a-b);
+  const selected=view.querySelectedRows||new Set();
+  const display=queryDisplayRowIndexes(view,result);
+  const ordered=display.filter(index=>selected.has(index));
+  for(const index of Array.from(selected).sort((a,b)=>a-b)){
+    if(index>=0&&index<rows.length&&!ordered.includes(index))ordered.push(index);
+  }
+  return ordered;
 }
 
 function syncQuerySelection(view,result=view.queryResult){
-  const rows=Array.isArray(result?.rows)?result.rows:[];
+  const visible=queryDisplayRowIndexes(view,result);
   const selected=view.querySelectedRows instanceof Set?view.querySelectedRows:new Set();
   view.querySelectedRows=selected;
   for(const tr of view.result.querySelectorAll('tbody tr[data-row-index]')){
@@ -589,9 +643,9 @@ function syncQuerySelection(view,result=view.queryResult){
   }
   const selectAll=view.result.querySelector('th.db-row-number[data-select-all]');
   if(selectAll){
-    const selectedCount=querySelectedRowIndexes(view,result).length;
-    selectAll.textContent=rows.length>0&&selectedCount===rows.length?'☑':(selectedCount>0?'◩':'☐');
-    selectAll.title=rows.length>0&&selectedCount===rows.length?'Clear row selection':'Select all rows in current result';
+    const visibleSelected=visible.filter(index=>selected.has(index)).length;
+    selectAll.textContent=visible.length>0&&visibleSelected===visible.length?'☑':(visibleSelected>0?'◩':'☐');
+    selectAll.title=visible.length>0&&visibleSelected===visible.length?'Clear row selection':'Select all visible rows';
   }
   const status=view.result.querySelector('.db-result-status');
   if(status){
@@ -607,9 +661,13 @@ function selectQueryRow(view,result,rowIndex,event={}){
   if(!(view.querySelectedRows instanceof Set))view.querySelectedRows=new Set();
   const additive=Boolean(event.ctrlKey||event.metaKey);
   if(event.shiftKey&&Number.isInteger(view.querySelectionAnchor)){
-    const start=Math.min(view.querySelectionAnchor,rowIndex);const end=Math.max(view.querySelectionAnchor,rowIndex);
-    if(!additive)view.querySelectedRows.clear();
-    for(let index=start;index<=end;index++)view.querySelectedRows.add(index);
+    const visible=queryDisplayRowIndexes(view,result);
+    const anchorPos=visible.indexOf(view.querySelectionAnchor);const rowPos=visible.indexOf(rowIndex);
+    if(anchorPos>=0&&rowPos>=0){
+      const start=Math.min(anchorPos,rowPos);const end=Math.max(anchorPos,rowPos);
+      if(!additive)view.querySelectedRows.clear();
+      for(let index=start;index<=end;index++)view.querySelectedRows.add(visible[index]);
+    }
   }else if(additive){
     if(view.querySelectedRows.has(rowIndex))view.querySelectedRows.delete(rowIndex);else view.querySelectedRows.add(rowIndex);
     view.querySelectionAnchor=rowIndex;
@@ -620,19 +678,69 @@ function selectQueryRow(view,result,rowIndex,event={}){
 }
 
 function toggleSelectAllQueryRows(view,result){
-  const rows=Array.isArray(result?.rows)?result.rows:[];
+  const visible=queryDisplayRowIndexes(view,result);
   if(!(view.querySelectedRows instanceof Set))view.querySelectedRows=new Set();
-  const allSelected=rows.length>0&&querySelectedRowIndexes(view,result).length===rows.length;
+  const allSelected=visible.length>0&&visible.every(index=>view.querySelectedRows.has(index));
   view.querySelectedRows.clear();
-  if(!allSelected)for(let index=0;index<rows.length;index++)view.querySelectedRows.add(index);
-  view.querySelectionAnchor=rows.length?0:null;
+  if(!allSelected)for(const index of visible)view.querySelectedRows.add(index);
+  view.querySelectionAnchor=visible.length?visible[0]:null;
   syncQuerySelection(view,result);
+}
+
+function openQueryFilterDialog(view,result){
+  const columns=Array.isArray(result?.columns)?result.columns:[];
+  if(!columns.length)return;
+  const dialog=createDBDialog('Filter current query result');
+  const grid=document.createElement('div');grid.className='db-import-grid';
+  const column=document.createElement('select');
+  for(const item of columns){const option=document.createElement('option');option.value=item?.name||'';option.textContent=item?.name||'';column.append(option);}
+  const operator=document.createElement('select');
+  for(const [value,label] of [['contains','Contains'],['eq','Equals'],['ne','Not equal'],['starts_with','Starts with'],['ends_with','Ends with'],['gt','>'],['gte','>='],['lt','<'],['lte','<='],['is_null','Is NULL'],['not_null','Is not NULL']]){
+    const option=document.createElement('option');option.value=value;option.textContent=label;operator.append(option);
+  }
+  const value=document.createElement('input');value.type='text';value.style.width='100%';
+  const append=(label,input)=>{const key=document.createElement('div');key.textContent=label;grid.append(key,input);};
+  append('Column',column);append('Operator',operator);append('Value',value);dialog.body.append(grid);
+  if(view.queryFilter){column.value=view.queryFilter.column;operator.value=view.queryFilter.operator;value.value=String(view.queryFilter.value??'');}
+  const sync=()=>{value.disabled=operator.value==='is_null'||operator.value==='not_null';};operator.onchange=sync;sync();
+  const clear=document.createElement('button');clear.type='button';clear.textContent='Clear filter';clear.onclick=()=>{view.queryFilter=null;view.querySelectedRows?.clear?.();dialog.remove();renderResult(view,result,view.queryElapsed,{preserveDirty:true});};
+  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=dialog.remove;
+  const apply=document.createElement('button');apply.type='button';apply.className='task-connection-primary';apply.textContent='Apply';
+  apply.onclick=()=>{view.queryFilter={column:column.value,operator:operator.value,value:value.value};view.querySelectedRows?.clear?.();dialog.remove();renderResult(view,result,view.queryElapsed,{preserveDirty:true});};
+  dialog.actions.append(clear,cancel,apply);
+}
+
+function openQueryOrderDialog(view,result){
+  const columns=Array.isArray(result?.columns)?result.columns:[];
+  if(!columns.length)return;
+  const dialog=createDBDialog('Order current query result');
+  const grid=document.createElement('div');grid.className='db-import-grid';
+  const column=document.createElement('select');
+  columns.forEach((item,index)=>{const option=document.createElement('option');option.value=String(index);option.textContent=item?.name||'';column.append(option);});
+  const direction=document.createElement('select');
+  for(const [value,label] of [['asc','Ascending'],['desc','Descending']]){const option=document.createElement('option');option.value=value;option.textContent=label;direction.append(option);}
+  const append=(label,input)=>{const key=document.createElement('div');key.textContent=label;grid.append(key,input);};
+  append('Column',column);append('Direction',direction);dialog.body.append(grid);
+  if(view.queryOrder){column.value=String(view.queryOrder.columnIndex);direction.value=view.queryOrder.direction;}
+  const clear=document.createElement('button');clear.type='button';clear.textContent='Clear order';clear.onclick=()=>{view.queryOrder=null;dialog.remove();renderResult(view,result,view.queryElapsed,{preserveDirty:true});};
+  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=dialog.remove;
+  const apply=document.createElement('button');apply.type='button';apply.className='task-connection-primary';apply.textContent='Apply';
+  apply.onclick=()=>{view.queryOrder={columnIndex:Number(column.value),direction:direction.value};dialog.remove();renderResult(view,result,view.queryElapsed,{preserveDirty:true});};
+  dialog.actions.append(clear,cancel,apply);
+}
+
+function toggleQueryHeaderOrder(view,result,columnIndex){
+  const current=view.queryOrder;
+  if(!current||current.columnIndex!==columnIndex)view.queryOrder={columnIndex,direction:'asc'};
+  else if(current.direction==='asc')view.queryOrder={columnIndex,direction:'desc'};
+  else view.queryOrder=null;
+  renderResult(view,result,view.queryElapsed,{preserveDirty:true});
 }
 
 function queryClipboardData(view,result,{selectedOnly=false}={}){
   const columns=Array.isArray(result?.columns)?result.columns.map(column=>String(column?.name||'')):[];
   const rows=Array.isArray(result?.rows)?result.rows:[];
-  const indexes=selectedOnly?querySelectedRowIndexes(view,result):rows.map((_,index)=>index);
+  const indexes=selectedOnly?querySelectedRowIndexes(view,result):queryDisplayRowIndexes(view,result);
   return {
     columns,
     rows:indexes.map(rowIndex=>columns.map((_,columnIndex)=>queryCellValue(view,result,rowIndex,columnIndex)))
@@ -789,7 +897,9 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
   const status=document.createElement('div');status.className='db-result-status';
   const columns=Array.isArray(result?.columns)?result.columns:[];
   const rows=Array.isArray(result?.rows)?result.rows:[];
+  const displayIndexes=queryDisplayRowIndexes(view,result);
   const parts=[rows.length+' row'+(rows.length===1?'':'s')];
+  if(displayIndexes.length!==rows.length)parts.push('shown '+displayIndexes.length);
   if(result?.truncated)parts.push('truncated');
   if(Number.isFinite(result?.affected_rows))parts.push('affected '+result.affected_rows);
   if(Number.isFinite(elapsed))parts.push(elapsed+' ms');
@@ -839,10 +949,14 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
     ],event.clientX,event.clientY);
   };
   header.append(selectAll);
-  for(const column of columns){const th=document.createElement('th');th.textContent=column?.name||'';if(column?.type)th.title=column.type;header.append(th);}
+  columns.forEach((column,columnIndex)=>{
+    const th=document.createElement('th');th.textContent=column?.name||'';if(column?.type)th.title=column.type;
+    if(view.queryOrder?.columnIndex===columnIndex)th.textContent+=(view.queryOrder.direction==='desc'?' ▼':' ▲');
+    th.style.cursor='pointer';th.onclick=()=>toggleQueryHeaderOrder(view,result,columnIndex);header.append(th);
+  });
   thead.append(header);table.append(thead);
   const tbody=document.createElement('tbody');
-  rows.forEach((row,rowIndex)=>{
+  displayIndexes.forEach(rowIndex=>{const row=rows[rowIndex];
     const tr=document.createElement('tr');tr.dataset.rowIndex=String(rowIndex);
     if(view.querySelectedRows?.has(rowIndex))tr.classList.add('db-selected');
     const rowNo=document.createElement('td');rowNo.className='db-row-number';rowNo.textContent=String(rowIndex+1);rowNo.title='Click to select row · Ctrl/Cmd-click multi-select · Shift-click range';
@@ -869,6 +983,8 @@ async function executeQuery(view,{discardPending=false}={}){
   if(!discardPending&&queryPendingCount(view)>0&&!confirm('Discard unsaved query result changes and run again?'))return;
   const statement=queryEditorText(view).trim();
   if(!statement)throw new Error('Enter a database statement first');
+  if(view.lastExecutedStatement&&view.lastExecutedStatement!==statement){view.queryFilter=null;view.queryOrder=null;view.querySelectedRows?.clear?.();}
+  view.lastExecutedStatement=statement;
   const maxRows=Math.max(1,Math.min(1000,Number(view.maxRows.value)||100));
   view.run.disabled=true;view.run.textContent='Running…';
   const started=performance.now();
@@ -995,7 +1111,7 @@ function attachDatabaseView(meta,activate){
   query.append(tools,editor,result);
   body.append(browser,query);pane.append(head,body);panes.append(pane);
 
-  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,editor,run,openSQL,saveSQL,maxRows,result,objectData:[],querySchemaCache:new Map(),scriptName:'query.sql'};
+  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,editor,run,openSQL,saveSQL,maxRows,result,objectData:[],querySchemaCache:new Map(),scriptName:'query.sql',queryFilter:null,queryOrder:null,lastExecutedStatement:''};
   dbViews.set(meta.id,view);
   initQueryEditor(view);
   globalThis.TaskMenuDatabaseWorkbench?.enhanceView?.(view);
