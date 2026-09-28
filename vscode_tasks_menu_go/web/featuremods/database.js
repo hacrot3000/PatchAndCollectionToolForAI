@@ -844,7 +844,7 @@ async function exportQueryData(view,result){
   const name=document.createElement('input');name.type='text';name.style.width='100%';name.value='query-result.csv';
   const append=(label,input)=>{const key=document.createElement('div');key.textContent=label;const value=document.createElement('div');value.append(input);grid.append(key,value);};
   append('Format',format);append('Scope',scope);append('Column header / JSON keys',headers);append('Destination',destination);append('File name',name);
-  format.onchange=()=>{const base=(name.value||'query-result').replace(/.(csv|txt|json)$/i,'');name.value=base+queryExportExtension(format.value);};
+  format.onchange=()=>{const base=(name.value||'query-result').replace(/\.(csv|txt|json)$/i,'');name.value=base+queryExportExtension(format.value);};
   dialog.body.append(grid);
   const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=dialog.remove;
   const save=document.createElement('button');save.type='button';save.className='task-connection-primary';save.textContent='Export';
