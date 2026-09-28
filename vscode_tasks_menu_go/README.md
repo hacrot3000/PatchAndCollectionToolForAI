@@ -1,4 +1,4 @@
-# VS Code Tasks Menu (Go)
+# TaskDeck (Go)
 
 `vscode_tasks_menu_go` là backend Go cho executable ở root:
 
