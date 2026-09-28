@@ -949,7 +949,11 @@ func TestDatabaseQueryPanelOwnsItsControlsAfterRefactor(t *testing.T) {
 
 	setupStart := strings.Index(js, "function setupQueryPanel(view")
 	attachStart := strings.Index(js, "function attachDatabaseView(meta,activate)")
-	openProfileStart := strings.Index(js, "\nasync function openProfile", attachStart)
+	openProfileOffset := strings.Index(js[attachStart:], "\nasync function openProfile")
+	openProfileStart := -1
+	if openProfileOffset >= 0 {
+		openProfileStart = attachStart + openProfileOffset
+	}
 	if setupStart < 0 || attachStart < 0 || openProfileStart < 0 {
 		t.Fatal("database.js missing query panel or database attach function")
 	}
