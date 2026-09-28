@@ -834,10 +834,13 @@ func TestDatabaseQueryResultFilterOrderExportAndActions(t *testing.T) {
 		"Match any (OR)",
 		"Add condition",
 		"view.queryFilter={logic:logic.value==='or'?'or':'and',conditions:filterConditions}",
+		"function normalizeQueryOrder(order,columnCount=Number.MAX_SAFE_INTEGER)",
 		"function openQueryOrderDialog(view,result)",
 		"Order current query result",
+		"Add order column",
+		"view.queryOrder=orders.length?orders:null",
 		"function toggleQueryHeaderOrder(view,result,columnIndex)",
-		"view.queryOrder={columnIndex,direction:'asc'}",
+		"view.queryOrder=[{columnIndex,direction:'asc'}]",
 		"current.direction==='asc'",
 		"function exportQueryData(view,result)",
 		"Export query result",
@@ -1337,6 +1340,31 @@ func TestDatabaseQueryResultStickyHeadersUseSolidBackgrounds(t *testing.T) {
 	} {
 		if strings.Contains(js, stale) {
 			t.Fatalf("database.js must not retain stale overlapping sticky styling %q", stale)
+		}
+	}
+}
+
+
+func TestDatabaseQueryResultOrdersByMultipleColumns(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const orders=normalizeQueryOrder(view.queryOrder,columns.length)",
+		"for(const order of orders)",
+		"if(compared!==0)return compared*(order.direction==='desc'?-1:1)",
+		"const rows=[]",
+		"const addOrder=(order={})=>",
+		"add.textContent='Add order column'",
+		"rows.map(row=>({columnIndex:Number(row.column.value),direction:row.direction.value==='desc'?'desc':'asc'}))",
+		"const activeOrders=normalizeQueryOrder(view.queryOrder,columns.length)",
+		"const orderIndex=activeOrders.findIndex(order=>order.columnIndex===columnIndex)",
+		"(activeOrders.length>1?String(orderIndex+1):'')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database.js missing multi-column query ordering behavior %q", want)
 		}
 	}
 }
