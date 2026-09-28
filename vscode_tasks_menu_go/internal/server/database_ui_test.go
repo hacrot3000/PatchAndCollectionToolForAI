@@ -129,7 +129,7 @@ func TestDatabaseWorkbenchProvidesNavigatorContextMenuAndPagedGrid(t *testing.T)
 		"[25,50,100,250,500,1000]",
 		"result.has_more",
 		"Open Value in Editor",
-		"Copy Row as JSON",
+		"Copy as JSON",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("database_workbench.js missing %q", want)
