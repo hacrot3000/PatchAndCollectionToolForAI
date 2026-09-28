@@ -32,7 +32,7 @@ style.textContent=`
 .db-query-tools label{font-size:10px;opacity:.65}
 .db-query-tools input{width:72px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:6px}
 .db-query-editor{min-height:130px;height:32%;resize:vertical;background:#090c10;color:inherit;border:0;border-bottom:1px solid #30343b;padding:10px;font-family:ui-monospace,monospace;font-size:13px;line-height:1.45;outline:none}
-.db-query .codemirror{height:32%;min-height:130px;border-bottom:1px solid #30343b;background:#090c10}
+.db-query .codemirror{height:32%;min-height:130px;resize:vertical;overflow:hidden;border-bottom:1px solid #30343b;background:#090c10}
 .db-query .codemirror .cm-editor{height:100%;font-size:13px}
 .db-query .codemirror .cm-scroller{overflow:auto;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
 .db-result-wrap{flex:1;min-height:0;overflow:auto}
