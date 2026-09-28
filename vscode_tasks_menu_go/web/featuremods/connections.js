@@ -7,6 +7,7 @@ let localSettings={selected_cwd:'.',custom_dirs:[]};
 let sshProfiles=[];
 let dbAdapters=[];
 let dbProfiles=[];
+let connectionContextMenu=null;
 
 const style=document.createElement('style');
 style.textContent=`
@@ -20,14 +21,16 @@ style.textContent=`
 .task-connection-section-head{display:flex;align-items:center;gap:6px;margin-bottom:5px}
 .task-connection-section-title{font-size:10px;font-weight:700;letter-spacing:.08em;opacity:.65;flex:1}
 .task-connection-add{padding:3px 6px;font-size:10px}
-.task-connection-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 5px;align-items:center;padding:5px 5px;border-radius:5px}
+.task-connection-row{display:block;padding:5px 5px;border-radius:5px}
 .task-connection-row:hover{background:#1b2028}
-.task-connection-open{min-width:0;text-align:left;border:0;background:transparent;padding:3px;color:inherit;overflow:hidden}
+.task-connection-open{display:block;width:100%;min-width:0;text-align:left;border:0;background:transparent;padding:3px;color:inherit;overflow:hidden}
 .task-connection-open:hover{background:transparent}
 .task-connection-name{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
 .task-connection-meta{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;opacity:.55;margin-top:2px}
-.task-connection-actions{display:flex;gap:3px}
-.task-connection-actions button{padding:3px 5px;font-size:10px}
+.task-connection-context-menu{position:fixed;z-index:10030;min-width:150px;padding:4px;background:#171b22;border:1px solid #48515f;border-radius:7px;box-shadow:0 14px 38px rgba(0,0,0,.45)}
+.task-connection-context-item{display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;padding:7px 9px;border-radius:4px;font-size:11px}
+.task-connection-context-item:hover{background:#2b3440}
+.task-connection-context-item.danger{color:#ff9a9a}
 .task-connection-empty{font-size:11px;opacity:.55;padding:6px}
 .task-connection-dialog{position:fixed;inset:0;z-index:10020;display:grid;place-items:center;padding:18px;background:rgba(3,5,8,.68)}
 .task-connection-dialog-card{width:min(620px,100%);max-height:min(760px,92vh);overflow:auto;background:#171b22;border:1px solid #48515f;border-radius:9px;box-shadow:0 18px 55px rgba(0,0,0,.45);padding:14px}
@@ -46,6 +49,7 @@ html[data-taskmenu-theme="light"] .task-connections-panel{background:#fff;border
 html[data-taskmenu-theme="light"] body:not(.task-sidebar-auto-hide) .task-connections-panel{box-shadow:none}
 html[data-taskmenu-theme="light"] .task-connection-row:hover{background:#eef2f6}
 html[data-taskmenu-theme="light"] .task-connection-dialog-card{background:#fff;border-color:#b9c0c8}
+html[data-taskmenu-theme="light"] .task-connection-context-menu{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .task-connection-field input,
 html[data-taskmenu-theme="light"] .task-connection-field select,
 html[data-taskmenu-theme="light"] .task-connection-field textarea{background:#f7f9fb;border-color:#b9c0c8}
@@ -116,6 +120,7 @@ async function runSSHTest(payload,button){
       button.title='SSH connection succeeded'+(Number.isFinite(result.elapsed_ms)?' · '+result.elapsed_ms+' ms':'');
       setTimeout(()=>{if(button.isConnected){button.textContent=old;button.title='Test connection';}},1400);
     }
+    return result;
   }finally{
     if(button?.isConnected)button.disabled=false;
   }
@@ -250,6 +255,54 @@ function closeDialog(dialog){
   try{dialog.remove();}catch{}
 }
 
+function closeConnectionContextMenu(){
+  if(connectionContextMenu?.isConnected)connectionContextMenu.remove();
+  connectionContextMenu=null;
+}
+
+function showConnectionContextMenu(items,x,y){
+  closeConnectionContextMenu();
+  const menu=document.createElement('div');menu.className='task-connection-context-menu';
+  for(const item of items.filter(item=>item&&typeof item.action==='function')){
+    const button=document.createElement('button');button.type='button';
+    button.className='task-connection-context-item'+(item.danger?' danger':'');
+    button.textContent=item.label;
+    button.onclick=event=>{
+      event.preventDefault();event.stopPropagation();closeConnectionContextMenu();
+      Promise.resolve(item.action()).catch(app.showError);
+    };
+    menu.append(button);
+  }
+  if(!menu.childElementCount)return;
+  document.body.append(menu);connectionContextMenu=menu;
+  const rect=menu.getBoundingClientRect();
+  menu.style.left=Math.max(4,Math.min(x,window.innerWidth-rect.width-4))+'px';
+  menu.style.top=Math.max(4,Math.min(y,window.innerHeight-rect.height-4))+'px';
+}
+
+document.addEventListener('pointerdown',event=>{
+  if(connectionContextMenu&&!connectionContextMenu.contains(event.target))closeConnectionContextMenu();
+},true);
+window.addEventListener('blur',closeConnectionContextMenu);
+document.addEventListener('keydown',event=>{if(event.key==='Escape')closeConnectionContextMenu();},true);
+
+function clonedProfile(profile){
+  const clone={...profile,name:(profile?.name||'Connection')+' Copy'};
+  delete clone.id;
+  delete clone.has_secret;
+  return clone;
+}
+
+async function testSSHFromMenu(profile){
+  const result=await runSSHTest({profile_id:profile.id},null);
+  alert('SSH connection succeeded'+(Number.isFinite(result?.elapsed_ms)?' · '+result.elapsed_ms+' ms':''));
+}
+
+async function testDatabaseFromMenu(profile){
+  await testDatabase(profile,null);
+  alert('Database connection succeeded');
+}
+
 function openProfileDialog(profile=null){
   const editing=Boolean(profile?.id);
   const dialog=document.createElement('div');dialog.className='task-connection-dialog';
@@ -360,7 +413,7 @@ function openDatabaseProfileDialog(profile=null){
   const database=field(form,'Database','database',{value:profile?.database||''});
   const sqliteFile=field(form,'SQLite database file','file',{wide:true,value:profile?.file||'',placeholder:'Absolute or workspace-relative existing .sqlite/.db file'});
   const secret=field(form,editing&&profile?.has_secret?'Password (leave blank to keep saved value)':'Password','secret',{type:'password',wide:true});
-  const readOnly=checkboxField(form,'Read-only connection','read_only',editing?Boolean(profile?.read_only):true,{wide:true});
+  const readOnly=checkboxField(form,'Read-only connection','read_only',profile?Boolean(profile?.read_only):true,{wide:true});
   const clearSecret=editing&&profile?.has_secret?checkboxField(form,'Clear saved password','clear_secret',false,{wide:true}):null;
   const charset=field(form,'Charset','charset',{value:profile?.options?.charset||'utf8mb4'});
   const timeout=field(form,'Connect timeout (seconds)','connect_timeout_seconds',{type:'number',value:profile?.options?.connect_timeout_seconds||'10'});
@@ -493,17 +546,25 @@ function section(titleText,onAdd){
   box.append(head);return box;
 }
 
-function connectionRow(nameText,metaText,onOpen,{onTest=null,onEdit=null,onDelete=null}={}){
+function connectionRow(nameText,metaText,onOpen,{onClone=null,onTest=null,onEdit=null,onDelete=null}={}){
   const row=document.createElement('div');row.className='task-connection-row';
   const open=document.createElement('button');open.type='button';open.className='task-connection-open';
   const name=document.createElement('span');name.className='task-connection-name';name.textContent=nameText;
   const meta=document.createElement('span');meta.className='task-connection-meta';meta.textContent=metaText;
   open.append(name,meta);open.onclick=()=>Promise.resolve(onOpen()).catch(app.showError);
-  const actions=document.createElement('div');actions.className='task-connection-actions';
-  if(onTest){const test=document.createElement('button');test.type='button';test.textContent='Test';test.title='Test connection';test.onclick=event=>{event.stopPropagation();Promise.resolve(onTest(test)).catch(app.showError);};actions.append(test);}
-  if(onEdit){const edit=document.createElement('button');edit.type='button';edit.textContent='Edit';edit.onclick=event=>{event.stopPropagation();onEdit();};actions.append(edit);}
-  if(onDelete){const del=document.createElement('button');del.type='button';del.textContent='×';del.title='Delete';del.onclick=event=>{event.stopPropagation();Promise.resolve(onDelete()).catch(app.showError);};actions.append(del);}
-  row.append(open,actions);return row;
+  const menuItems=[
+    onClone?{label:'Clone',action:onClone}:null,
+    onDelete?{label:'Delete',danger:true,action:onDelete}:null,
+    onTest?{label:'Test',action:onTest}:null,
+    onEdit?{label:'Edit',action:onEdit}:null
+  ].filter(Boolean);
+  if(menuItems.length){
+    row.oncontextmenu=event=>{
+      event.preventDefault();event.stopPropagation();
+      showConnectionContextMenu(menuItems,event.clientX,event.clientY);
+    };
+  }
+  row.append(open);return row;
 }
 
 function render(){
@@ -524,9 +585,10 @@ function render(){
     for(const profile of sshProfiles){
       const endpoint=(profile.username?profile.username+'@':'')+profile.host+':'+profile.port+' · '+authLabel(profile);
       ssh.append(connectionRow(profile.name,endpoint,()=>openSSH(profile),{
-        onTest:button=>testSSH(profile,button),
-        onEdit:()=>openProfileDialog(profile),
-        onDelete:()=>deleteProfile(profile)
+        onClone:()=>openProfileDialog(clonedProfile(profile)),
+        onDelete:()=>deleteProfile(profile),
+        onTest:()=>testSSHFromMenu(profile),
+        onEdit:()=>openProfileDialog(profile)
       }));
     }
   }
@@ -542,9 +604,10 @@ function render(){
       const adapter=databaseAdapter(profile);
       const adapterName=adapter?.name||profile.adapter_id||'database';
       databases.append(connectionRow(profile.name,databaseEndpoint(profile),()=>openDatabase(profile),{
-        onTest:button=>testDatabase(profile,button),
-        onEdit:()=>openDatabaseProfileDialog(profile),
-        onDelete:()=>deleteDatabaseProfile(profile)
+        onClone:()=>openDatabaseProfileDialog(clonedProfile(profile)),
+        onDelete:()=>deleteDatabaseProfile(profile),
+        onTest:()=>testDatabaseFromMenu(profile),
+        onEdit:()=>openDatabaseProfileDialog(profile)
       }));
       const last=databases.lastElementChild?.querySelector('.task-connection-meta');
       if(last)last.title=adapterName;
