@@ -58,6 +58,8 @@ html[data-taskmenu-theme="light"] .db-script-browser-row:hover,html[data-taskmen
 .db-query-result-tab.active{background:#202630;opacity:1}
 .db-query-result-panels{min-height:0}
 .db-query-result-panel.hidden{display:none}
+.db-query-result-panel .db-result-status{top:30px}
+.db-query-result-panel .db-result-table th{top:57px}
 .db-query-result-error{padding:12px;white-space:pre-wrap;font:11px ui-monospace,monospace;color:#ff9a9a}
 html[data-taskmenu-theme="light"] .db-query-result-tabs{background:#f2f5f8;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .db-query-result-tab.active{background:#fff}
