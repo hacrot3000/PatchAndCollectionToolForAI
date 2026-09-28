@@ -153,6 +153,24 @@ async function testDatabase(profile,button){
   }
 }
 
+async function testDatabaseDraft(profileID,draft,button){
+  const api=globalThis.TaskMenuDatabase;
+  if(typeof api?.testDraft!=='function')throw new Error('Database workspace draft test is unavailable');
+  if(button)button.disabled=true;
+  try{
+    const result=await api.testDraft(profileID,draft);
+    if(button){
+      const old=button.textContent;
+      button.textContent='✓';
+      button.title='Database connection succeeded'+(Number.isFinite(result?.elapsed_ms)?' · '+result.elapsed_ms+' ms':'');
+      setTimeout(()=>{if(button.isConnected){button.textContent=old;button.title='Test connection';}},1400);
+    }
+    return result;
+  }finally{
+    if(button?.isConnected)button.disabled=false;
+  }
+}
+
 function databaseAdapter(profile){
   return dbAdapters.find(adapter=>adapter.id===profile?.adapter_id)||null;
 }
@@ -467,12 +485,47 @@ function openDatabaseProfileDialog(profile=null){
   }
   transport.input.addEventListener('change',syncDatabaseTransport);syncDatabaseTransport();
 
+  function currentDatabaseProfilePayload(){
+    const options={};
+    const adapterKind=selectedDatabaseAdapter()?.kind||'';
+    if(adapterKind==='mysql'&&charset.input.value.trim())options.charset=charset.input.value.trim();
+    if(adapterKind!=='sqlite'&&timeout.input.value.trim())options.connect_timeout_seconds=timeout.input.value.trim();
+    if(adapterKind==='redis'&&commandTimeout.input.value.trim())options.command_timeout_seconds=commandTimeout.input.value.trim();
+    if(adapterKind==='mongo'){
+      if(authSource.input.value.trim())options.auth_source=authSource.input.value.trim();
+      if(mongoTLS.input.checked)options.tls='true';
+    }
+    if(adapterKind==='sqlite'&&busyTimeout.input.value.trim())options.busy_timeout_ms=busyTimeout.input.value.trim();
+    const sqlite=adapterKind==='sqlite';
+    const payload={
+      name:name.input.value,
+      adapter_id:adapter.input.value,
+      transport:sqlite?'direct':transport.input.value,
+      host:sqlite?'':host.input.value,
+      port:sqlite?0:(Number(port.input.value)||databaseDefaultPort(adapterKind)),
+      username:sqlite?'':username.input.value,
+      database:sqlite?'':database.input.value,
+      file:sqlite?sqliteFile.input.value:'',
+      read_only:readOnly.input.checked,
+      options
+    };
+    if(adapterKind!=='sqlite'&&transport.input.value==='ssh_tunnel'){
+      if(!sshProfile.input.value)throw new Error('Select an SSH profile for the database tunnel');
+      payload.ssh_profile_id=sshProfile.input.value;
+    }
+    if(adapterKind!=='sqlite'){
+      if(secret.input.value!=='')payload.secret=secret.input.value;
+      else if(clearSecret?.input.checked)payload.secret='';
+    }
+    return payload;
+  }
+
   const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
   const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>closeDialog(dialog);
   const test=editing?document.createElement('button'):null;
   if(test){
-    test.type='button';test.textContent='Test';test.title='Test connection';
-    test.onclick=()=>testDatabase(profile,test).catch(app.showError);
+    test.type='button';test.textContent='Test';test.title='Test current edits without saving';
+    test.onclick=()=>testDatabaseDraft(profile.id,currentDatabaseProfilePayload(),test).catch(app.showError);
   }
   const save=document.createElement('button');save.type='submit';save.className='task-connection-primary';save.textContent=editing?'Save':'Add profile';
   if(test)actions.append(test);
@@ -485,37 +538,7 @@ function openDatabaseProfileDialog(profile=null){
   form.onsubmit=async event=>{
     event.preventDefault();save.disabled=true;
     try{
-      const options={};
-      const adapterKind=selectedDatabaseAdapter()?.kind||'';
-      if(adapterKind==='mysql'&&charset.input.value.trim())options.charset=charset.input.value.trim();
-      if(adapterKind!=='sqlite'&&timeout.input.value.trim())options.connect_timeout_seconds=timeout.input.value.trim();
-      if(adapterKind==='redis'&&commandTimeout.input.value.trim())options.command_timeout_seconds=commandTimeout.input.value.trim();
-      if(adapterKind==='mongo'){
-        if(authSource.input.value.trim())options.auth_source=authSource.input.value.trim();
-        if(mongoTLS.input.checked)options.tls='true';
-      }
-      if(adapterKind==='sqlite'&&busyTimeout.input.value.trim())options.busy_timeout_ms=busyTimeout.input.value.trim();
-      const sqlite=adapterKind==='sqlite';
-      const payload={
-        name:name.input.value,
-        adapter_id:adapter.input.value,
-        transport:sqlite?'direct':transport.input.value,
-        host:sqlite?'':host.input.value,
-        port:sqlite?0:(Number(port.input.value)||databaseDefaultPort(adapterKind)),
-        username:sqlite?'':username.input.value,
-        database:sqlite?'':database.input.value,
-        file:sqlite?sqliteFile.input.value:'',
-        read_only:readOnly.input.checked,
-        options
-      };
-      if(adapterKind!=='sqlite'&&transport.input.value==='ssh_tunnel'){
-        if(!sshProfile.input.value)throw new Error('Select an SSH profile for the database tunnel');
-        payload.ssh_profile_id=sshProfile.input.value;
-      }
-      if(adapterKind!=='sqlite'){
-        if(secret.input.value!=='')payload.secret=secret.input.value;
-        else if(clearSecret?.input.checked)payload.secret='';
-      }
+      const payload=currentDatabaseProfilePayload();
       await app.jsonFetch(editing?'/api/db/profiles/'+encodeURIComponent(profile.id):'/api/db/profiles',{
         method:editing?'PUT':'POST',
         headers:{'Content-Type':'application/json'},
