@@ -601,6 +601,17 @@ function gridActionMenuItems(actions={}){
   ];
 }
 
+function gridContextMenuItems(...sections){
+  const items=[];
+  for(const section of sections){
+    const entries=(Array.isArray(section)?section:[]).filter(Boolean);
+    if(!entries.length)continue;
+    if(items.length)items.push({separator:true});
+    items.push(...entries);
+  }
+  return items;
+}
+
 function tableExportExtension(format){
   return format==='csv'?'.csv':(format==='json'?'.json':'.txt');
 }
@@ -915,13 +926,11 @@ function renderDataGrid(view){
   nr.oncontextmenu=event=>{
     event.preventDefault();event.stopPropagation();
     const selected=selectedRowIndexes(view).length;
-    showContextMenu([
-      {label:selected?'Clear row selection':'Select all rows on this page',action:()=>toggleSelectAllPage(view)},
-      {separator:true},
-      ...copyGridMenuItems(view),
-      {separator:true},
-      ...tableGridActionMenuItems(view)
-    ],event.clientX,event.clientY);
+    showContextMenu(gridContextMenuItems(
+      [{label:selected?'Clear row selection':'Select all rows on this page',action:()=>toggleSelectAllPage(view)}],
+      copyGridMenuItems(view),
+      tableGridActionMenuItems(view)
+    ),event.clientX,event.clientY);
   };
   hr.append(nr);
   for(const column of columns){
@@ -1036,11 +1045,10 @@ function renderDataGrid(view){
     tr.oncontextmenu=event=>{
       if(event.target.closest('td:not(.db-row-number)'))return;
       event.preventDefault();
-      showContextMenu([
-        ...tableGridActionMenuItems(view),
-        {separator:true},
-        {label:'Remove New Row',danger:true,action:()=>{state.newRows.splice(newIndex,1);renderDataGrid(view);updateEditControls(view);}}
-      ],event.clientX,event.clientY);
+      showContextMenu(gridContextMenuItems(
+        tableGridActionMenuItems(view),
+        [{label:'Remove New Row',danger:true,action:()=>{state.newRows.splice(newIndex,1);renderDataGrid(view);updateEditControls(view);}}]
+      ),event.clientX,event.clientY);
     };
     tbody.append(tr);
   });
@@ -1056,19 +1064,21 @@ function showCellMenu(view,rowIndex,columnIndex,x,y){
   const value=currentCellValue(view,rowIndex,columnIndex);
   const editable=Boolean(result.editable)&&supports(view,'mutate_rows')&&column?.editable!==false&&!state.deletedRows.has(rowIndex);
   const dirty=state.dirtyRows.get(rowIndex)?.has(column?.name);
-  showContextMenu([
-    {label:'Copy Value',action:()=>copyText(displayValue(value))},
-    {label:'Copy Column Name',action:()=>copyText(column?.name||'')},
-    ...copyGridMenuItems(view),
-    {separator:true},
-    ...tableGridActionMenuItems(view),
-    {separator:true},
-    {label:'Open Value in Editor',action:()=>openValueViewer(column?.name||'',value,{editable,columnType:column?.type||'',allowNull:Boolean(column?.nullable),onSave:next=>{setDirtyCell(view,rowIndex,columnIndex,next);renderDataGrid(view);}})},
-    {label:'Set NULL',disabled:!editable||!column?.nullable,action:()=>{setDirtyCell(view,rowIndex,columnIndex,null);renderDataGrid(view);}},
-    {label:'Revert Cell',disabled:!dirty,action:()=>{
-      const changes=state.dirtyRows.get(rowIndex);changes?.delete(column.name);if(changes?.size===0)state.dirtyRows.delete(rowIndex);renderDataGrid(view);updateEditControls(view);
-    }}
-  ],x,y);
+  showContextMenu(gridContextMenuItems(
+    [
+      {label:'Copy Value',action:()=>copyText(displayValue(value))},
+      {label:'Copy Column Name',action:()=>copyText(column?.name||'')},
+      ...copyGridMenuItems(view)
+    ],
+    tableGridActionMenuItems(view),
+    [
+      {label:'Open Value in Editor',action:()=>openValueViewer(column?.name||'',value,{editable,columnType:column?.type||'',allowNull:Boolean(column?.nullable),onSave:next=>{setDirtyCell(view,rowIndex,columnIndex,next);renderDataGrid(view);}})},
+      {label:'Set NULL',disabled:!editable||!column?.nullable,action:()=>{setDirtyCell(view,rowIndex,columnIndex,null);renderDataGrid(view);}},
+      {label:'Revert Cell',disabled:!dirty,action:()=>{
+        const changes=state.dirtyRows.get(rowIndex);changes?.delete(column.name);if(changes?.size===0)state.dirtyRows.delete(rowIndex);renderDataGrid(view);updateEditControls(view);
+      }}
+    ]
+  ),x,y);
 }
 
 function showNewCellMenu(view,newIndex,columnIndex,x,y){
@@ -1086,16 +1096,14 @@ function showRowMenu(view,rowIndex,x,y){
   const state=dataState(view);const row=state.result?.rows?.[rowIndex];
   const editable=Boolean(state.result?.editable)&&supports(view,'mutate_rows');
   const deleted=state.deletedRows.has(rowIndex);
-  showContextMenu([
-    ...copyGridMenuItems(view),
-    {separator:true},
-    ...tableGridActionMenuItems(view),
-    {separator:true},
-    {label:deleted?'Restore Row':'Delete Row',danger:!deleted,disabled:!editable,action:()=>{
+  showContextMenu(gridContextMenuItems(
+    copyGridMenuItems(view),
+    tableGridActionMenuItems(view),
+    [{label:deleted?'Restore Row':'Delete Row',danger:!deleted,disabled:!editable,action:()=>{
       if(deleted)state.deletedRows.delete(rowIndex);else state.deletedRows.add(rowIndex);
       renderDataGrid(view);updateEditControls(view);
-    }}
-  ],x,y);
+    }}]
+  ),x,y);
 }
 
 function openValueViewer(titleText,value,{editable=false,onSave=null,columnType='',allowNull=true}={}){
@@ -1523,6 +1531,7 @@ globalThis.TaskMenuDatabaseWorkbench={
   closeContextMenu,
   showContextMenu,
   gridActionMenuItems,
+  gridContextMenuItems,
   copyText,
   serializeClipboardData
 };
