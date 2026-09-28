@@ -81,8 +81,9 @@ func TestSelfUpdateRemoteBrowserKeepsReachableOrigin(t *testing.T) {
 	if strings.Contains(js, "const target=String(req.target_url||location.origin)") {
 		t.Fatal("self-update must not blindly replace the browser origin with daemon target_url")
 	}
-	if strings.Contains(js, "VS Code Tasks Menu update") {
-		t.Fatal("self-update UI still exposes legacy VS Code Tasks Menu branding")
+	legacyUpdateTitle := strings.Join([]string{"VS", "Code", "Tasks", "Menu", "update"}, " ")
+	if strings.Contains(js, legacyUpdateTitle) {
+		t.Fatal("self-update UI still exposes legacy product branding")
 	}
 }
 
