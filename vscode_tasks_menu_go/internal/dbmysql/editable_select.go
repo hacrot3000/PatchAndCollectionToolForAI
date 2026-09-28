@@ -59,9 +59,12 @@ func analyzeEditableSelect(statement string) (editableSelectTarget, error) {
 		if tokens[i].Depth != 0 {
 			continue
 		}
+		if tokens[i].Text == "," {
+			return editableSelectTarget{}, fmt.Errorf("multi-table SELECT is not editable")
+		}
 		switch tokens[i].Upper {
 		case "JOIN", "STRAIGHT_JOIN", "LEFT", "RIGHT", "INNER", "OUTER", "CROSS", "NATURAL",
-			"UNION", "INTERSECT", "EXCEPT", "GROUP", "HAVING", "INTO", "FOR", "LOCK":
+			"UNION", "INTERSECT", "EXCEPT", "GROUP", "HAVING", "INTO", "FOR", "LOCK", "PROCEDURE":
 			return editableSelectTarget{}, fmt.Errorf("%s SELECT is not editable", tokens[i].Upper)
 		}
 	}
