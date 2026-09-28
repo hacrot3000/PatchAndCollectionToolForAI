@@ -975,7 +975,8 @@ func TestDatabaseQueryPanelOwnsItsControlsAfterRefactor(t *testing.T) {
 		"run.onclick=()=>executeQuery(view).catch(app.showError)",
 		"openSQL.onclick=()=>openSQLScript(view).catch(app.showError)",
 		"saveSQL.onclick=()=>saveSQLScript(view).catch(app.showError)",
-		"if(!view.queryCM)editor.addEventListener('keydown'",
+		"if(!view.queryCM){",
+		"editor.addEventListener('keydown'",
 	} {
 		if !strings.Contains(setup, want) {
 			t.Fatalf("setupQueryPanel missing reusable query control binding %q", want)
@@ -1007,7 +1008,7 @@ func TestDatabaseWorkbenchSupportsMultipleQueryTabs(t *testing.T) {
 		"createQueryView:createAdditionalQueryView",
 		"queryHasPendingChanges:queryViewHasPendingChanges",
 		"function databaseQueryViews(view)",
-		"maxRowsValue=maxRowsValue||root.maxRows?.value||'100'",
+		"maxRowsValue:maxRowsValue||root.maxRows?.value||'100'",
 	} {
 		if !strings.Contains(databaseJS, want) {
 			t.Fatalf("database.js missing query-tab factory behavior %q", want)
@@ -1085,6 +1086,7 @@ func TestDatabaseQueryTabsPersistAcrossReload(t *testing.T) {
 		"for(const snapshot of snapshots.slice(1))",
 		"const restoredActive=saved?.activeQueryKey",
 		"scheduleQueryTabsSave(view)",
+		"window.addEventListener('pagehide'",
 	} {
 		if !strings.Contains(workbench, want) {
 			t.Fatalf("database_workbench.js missing query-tab persistence behavior %q", want)
