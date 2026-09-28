@@ -193,7 +193,7 @@ func TestEditorWarnsBeforePageUnloadWhenDirty(t *testing.T) {
 
 
 func TestCodeMirrorImmutableAssetUsesVersionedURL(t *testing.T) {
-	if !strings.Contains(indexHTML, "/vendor/codemirror6-all.min.js?v=8b031d22") {
+	if !strings.Contains(indexHTML, "/vendor/codemirror6-all.min.js?v=52af430d") {
 		t.Fatal("CodeMirror immutable asset must use a versioned URL")
 	}
 }
