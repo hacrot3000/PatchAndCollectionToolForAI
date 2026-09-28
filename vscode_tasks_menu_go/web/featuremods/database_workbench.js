@@ -345,9 +345,11 @@ function ensureStructurePage(view,object){
 }
 
 function setQuery(view,text){
-  view.editor.value=text;
+  if(typeof database.setQueryText==='function')database.setQueryText(view,text,{focus:false});
+  else view.editor.value=text;
   activatePanel(view,'query');
-  view.editor.focus();
+  if(typeof database.focusQuery==='function')database.focusQuery(view);
+  else view.editor.focus();
 }
 
 function appendStructureHeading(panel,text){
