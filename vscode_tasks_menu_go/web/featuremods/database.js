@@ -613,7 +613,14 @@ function queryCompareValues(a,b){
   if(a===b)return 0;
   if(a===null||a===undefined)return 1;
   if(b===null||b===undefined)return -1;
-  if(typeof a==='number'&&typeof b==='number')return a-b;
+  if(typeof a==='number'){
+    const numeric=typeof b==='number'?b:Number(String(b).trim());
+    if(Number.isFinite(numeric))return a-numeric;
+  }
+  if(typeof b==='number'){
+    const numeric=Number(String(a).trim());
+    if(Number.isFinite(numeric))return numeric-b;
+  }
   if(typeof a==='boolean'&&typeof b==='boolean')return Number(a)-Number(b);
   return String(a).localeCompare(String(b),undefined,{numeric:true,sensitivity:'base'});
 }
