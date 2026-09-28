@@ -606,6 +606,24 @@ func TestDatabaseQueryEditorAppliesSafeEditableSelectChanges(t *testing.T) {
 }
 
 
+func TestDatabaseWorkbenchExportsSharedQueryCopyHelpers(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"globalThis.TaskMenuDatabaseWorkbench={",
+		"showContextMenu,",
+		"copyText,",
+		"serializeClipboardData",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing shared query copy helper export %q", want)
+		}
+	}
+}
+
 func TestDatabaseQueryResultsSupportRowSelectionAndCopyMenus(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/database.js")
 	if err != nil {
