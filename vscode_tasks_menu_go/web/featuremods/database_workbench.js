@@ -591,6 +591,119 @@ async function copyGridData(view,format,includeHeaders,scope){
   await copyText(serializeClipboardData(format,data.columns,data.rows,includeHeaders));
 }
 
+function gridActionMenuItems(actions={}){
+  return [
+    {label:'Export data…',disabled:typeof actions.exportData!=='function'||Boolean(actions.exportDisabled),action:actions.exportData},
+    {label:'Refresh',disabled:typeof actions.refresh!=='function'||Boolean(actions.refreshDisabled),action:actions.refresh},
+    {label:'Filter…',disabled:typeof actions.filter!=='function'||Boolean(actions.filterDisabled),action:actions.filter},
+    {label:'Add row',disabled:typeof actions.addRow!=='function'||Boolean(actions.addDisabled),action:actions.addRow},
+    {label:'Order…',disabled:typeof actions.order!=='function'||Boolean(actions.orderDisabled),action:actions.order}
+  ];
+}
+
+function tableExportExtension(format){
+  return format==='csv'?'.csv':(format==='json'?'.json':'.txt');
+}
+
+function tableExportMime(format){
+  return format==='csv'?'text/csv;charset=utf-8':(format==='json'?'application/json;charset=utf-8':'text/plain;charset=utf-8');
+}
+
+async function exportTableData(view){
+  if(typeof database.saveTextWithLocation!=='function')throw new Error('Database file save workflow is unavailable');
+  const state=dataState(view);const object=state.object;
+  if(!object)throw new Error('Open table data before exporting');
+  const dialog=document.createElement('div');dialog.className='task-connection-dialog';
+  const card=document.createElement('div');card.className='task-connection-dialog-card';
+  const title=document.createElement('h3');title.textContent='Export table data';
+  const grid=document.createElement('div');grid.className='db-structure-grid';
+  const format=document.createElement('select');
+  for(const value of ['csv','txt','json']){const option=document.createElement('option');option.value=value;option.textContent=value.toUpperCase();format.append(option);}
+  const scope=document.createElement('select');
+  const selectedCount=selectedRowIndexes(view).length;
+  for(const [value,label,disabled] of [
+    ['selected','Selected rows ('+selectedCount+')',selectedCount===0],
+    ['current','Current page',false],
+    ['all','All pages',false]
+  ]){const option=document.createElement('option');option.value=value;option.textContent=label;option.disabled=disabled;scope.append(option);}
+  scope.value=selectedCount?'selected':'current';
+  const headers=document.createElement('input');headers.type='checkbox';headers.checked=true;
+  const append=(label,input)=>{const key=document.createElement('div');key.textContent=label;grid.append(key,input);};
+  append('Format',format);append('Scope',scope);append('Column header / JSON keys',headers);
+  const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
+  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>dialog.remove();
+  const save=document.createElement('button');save.type='button';save.className='task-connection-primary';save.textContent='Choose save location…';
+  save.onclick=async()=>{
+    save.disabled=true;cancel.disabled=true;
+    try{
+      const data=await collectClipboardData(view,scope.value);
+      if(!data)return;
+      const text=serializeClipboardData(format.value,data.columns,data.rows,headers.checked);
+      const ext=tableExportExtension(format.value);
+      const base=String(object.name||'table').replace(/[^A-Za-z0-9._-]+/g,'_')||'table';
+      dialog.remove();
+      await database.saveTextWithLocation('Export table data',base+ext,text,{
+        description:'Database table export',
+        mime:tableExportMime(format.value),
+        extensions:[ext],
+        hostFileLabel:'Export file name:'
+      });
+    }finally{
+      if(save.isConnected){save.disabled=false;cancel.disabled=false;}
+    }
+  };
+  actions.append(cancel,save);card.append(title,grid,actions);dialog.append(card);document.body.append(dialog);
+  dialog.addEventListener('pointerdown',event=>{if(event.target===dialog)dialog.remove();});
+  dialog.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();dialog.remove();}});
+}
+
+function openDataOrderDialog(view){
+  const state=dataState(view);const columns=Array.isArray(state.result?.columns)?state.result.columns:[];
+  if(!columns.length)throw new Error('Open table data before ordering');
+  const dialog=document.createElement('div');dialog.className='task-connection-dialog';
+  const card=document.createElement('div');card.className='task-connection-dialog-card';
+  const title=document.createElement('h3');title.textContent='Order table data';
+  const grid=document.createElement('div');grid.className='db-structure-grid';
+  const column=document.createElement('select');
+  columns.forEach(item=>{const option=document.createElement('option');option.value=item.name||'';option.textContent=item.name||'';column.append(option);});
+  const direction=document.createElement('select');
+  for(const [value,label] of [['asc','Ascending'],['desc','Descending']]){const option=document.createElement('option');option.value=value;option.textContent=label;direction.append(option);}
+  const current=Array.isArray(state.sort)&&state.sort.length?state.sort[0]:null;
+  if(current){column.value=current.column||'';direction.value=current.direction==='desc'?'desc':'asc';}
+  const append=(label,input)=>{const key=document.createElement('div');key.textContent=label;grid.append(key,input);};
+  append('Column',column);append('Direction',direction);
+  const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
+  const clear=document.createElement('button');clear.type='button';clear.textContent='Clear order';clear.onclick=()=>{
+    if(!confirmDiscardChanges(view))return;
+    state.sort=[];state.offset=0;dialog.remove();loadData(view).catch(app.showError);
+  };
+  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>dialog.remove();
+  const apply=document.createElement('button');apply.type='button';apply.className='task-connection-primary';apply.textContent='Apply';
+  apply.onclick=()=>{
+    if(!confirmDiscardChanges(view))return;
+    state.sort=[{column:column.value,direction:direction.value==='desc'?'desc':'asc'}];
+    state.offset=0;dialog.remove();loadData(view).catch(app.showError);
+  };
+  actions.append(clear,cancel,apply);card.append(title,grid,actions);dialog.append(card);document.body.append(dialog);
+  dialog.addEventListener('pointerdown',event=>{if(event.target===dialog)dialog.remove();});
+  dialog.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();dialog.remove();}});
+}
+
+function tableGridActionMenuItems(view){
+  const state=dataState(view);const result=state.result||{};
+  const editable=Boolean(result.editable)&&supports(view,'mutate_rows');
+  return gridActionMenuItems({
+    exportData:()=>exportTableData(view),
+    refresh:()=>{if(confirmDiscardChanges(view))loadData(view).catch(app.showError);},
+    filter:()=>openFilterDialog(view),
+    filterDisabled:!filterCapable(view),
+    addRow:()=>addGridRow(view),
+    addDisabled:!editable,
+    order:()=>openDataOrderDialog(view),
+    orderDisabled:!Array.isArray(result.columns)||result.columns.length===0
+  });
+}
+
 function dataState(view){
   return view.workbench.data;
 }
@@ -805,7 +918,9 @@ function renderDataGrid(view){
     showContextMenu([
       {label:selected?'Clear row selection':'Select all rows on this page',action:()=>toggleSelectAllPage(view)},
       {separator:true},
-      ...copyGridMenuItems(view)
+      ...copyGridMenuItems(view),
+      {separator:true},
+      ...tableGridActionMenuItems(view)
     ],event.clientX,event.clientY);
   };
   hr.append(nr);
@@ -921,7 +1036,11 @@ function renderDataGrid(view){
     tr.oncontextmenu=event=>{
       if(event.target.closest('td:not(.db-row-number)'))return;
       event.preventDefault();
-      showContextMenu([{label:'Remove New Row',danger:true,action:()=>{state.newRows.splice(newIndex,1);renderDataGrid(view);updateEditControls(view);}}],event.clientX,event.clientY);
+      showContextMenu([
+        ...tableGridActionMenuItems(view),
+        {separator:true},
+        {label:'Remove New Row',danger:true,action:()=>{state.newRows.splice(newIndex,1);renderDataGrid(view);updateEditControls(view);}}
+      ],event.clientX,event.clientY);
     };
     tbody.append(tr);
   });
@@ -941,6 +1060,8 @@ function showCellMenu(view,rowIndex,columnIndex,x,y){
     {label:'Copy Value',action:()=>copyText(displayValue(value))},
     {label:'Copy Column Name',action:()=>copyText(column?.name||'')},
     ...copyGridMenuItems(view),
+    {separator:true},
+    ...tableGridActionMenuItems(view),
     {separator:true},
     {label:'Open Value in Editor',action:()=>openValueViewer(column?.name||'',value,{editable,columnType:column?.type||'',allowNull:Boolean(column?.nullable),onSave:next=>{setDirtyCell(view,rowIndex,columnIndex,next);renderDataGrid(view);}})},
     {label:'Set NULL',disabled:!editable||!column?.nullable,action:()=>{setDirtyCell(view,rowIndex,columnIndex,null);renderDataGrid(view);}},
@@ -967,6 +1088,8 @@ function showRowMenu(view,rowIndex,x,y){
   const deleted=state.deletedRows.has(rowIndex);
   showContextMenu([
     ...copyGridMenuItems(view),
+    {separator:true},
+    ...tableGridActionMenuItems(view),
     {separator:true},
     {label:deleted?'Restore Row':'Delete Row',danger:!deleted,disabled:!editable,action:()=>{
       if(deleted)state.deletedRows.delete(rowIndex);else state.deletedRows.add(rowIndex);
@@ -1399,6 +1522,7 @@ globalThis.TaskMenuDatabaseWorkbench={
   openTableData,
   closeContextMenu,
   showContextMenu,
+  gridActionMenuItems,
   copyText,
   serializeClipboardData
 };
