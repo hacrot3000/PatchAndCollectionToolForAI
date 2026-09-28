@@ -36,6 +36,12 @@ style.textContent=`
 .db-result-table th,.db-result-table td{border-right:1px solid #272d36;border-bottom:1px solid #272d36;padding:5px 7px;text-align:left;vertical-align:top;white-space:pre-wrap;max-width:520px}
 .db-result-table th{position:sticky;top:27px;background:#171c23;z-index:1}
 .db-null{opacity:.45;font-style:italic}
+.db-long-text-cell{white-space:nowrap!important}
+.db-long-text-preview{display:flex;align-items:center;gap:5px;min-width:0;max-width:520px}
+.db-long-text-preview-text{display:block;min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.db-long-text-open{flex:0 0 auto;padding:0 6px;min-width:26px;height:22px;line-height:18px}
+.db-value-dialog-card{width:min(900px,96vw)}
+.db-value-dialog-area{width:100%;min-height:360px;max-height:70vh;resize:vertical;font-family:ui-monospace,monospace;font-size:12px}
 html[data-taskmenu-theme="light"] .db-pane{background:#fff}
 html[data-taskmenu-theme="light"] .db-query-editor{background:#f7f9fb}
 html[data-taskmenu-theme="light"] .db-result-status{background:#f2f5f8}
@@ -91,10 +97,48 @@ async function closeDatabaseView(id){
   teardownDatabaseView(id);
 }
 
-function resultCell(value){
+const LONG_TEXT_PREVIEW_LIMIT=160;
+
+function isLongTextValue(value){
+  if(typeof value!=='string')return false;
+  return value.length>LONG_TEXT_PREVIEW_LIMIT||value.includes('\n')||value.includes('\r');
+}
+
+async function copySelectedTextArea(area){
+  area.focus();area.select();
+  try{area.setSelectionRange(0,area.value.length);}catch{}
+  if(navigator.clipboard?.writeText){
+    await navigator.clipboard.writeText(area.value);
+    return;
+  }
+  if(!document.execCommand('copy'))throw new Error('Clipboard copy failed');
+}
+
+function openQueryValueViewer(titleText,value){
+  const dialog=document.createElement('div');dialog.className='task-connection-dialog';
+  const card=document.createElement('div');card.className='task-connection-dialog-card db-value-dialog-card';
+  const title=document.createElement('h3');title.textContent=titleText||'Value';
+  const area=document.createElement('textarea');area.className='db-value-dialog-area';area.readOnly=true;area.value=String(value??'');
+  const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
+  const copy=document.createElement('button');copy.type='button';copy.textContent='Copy all';
+  copy.onclick=async()=>{try{await copySelectedTextArea(area);const old=copy.textContent;copy.textContent='✓ Copied';setTimeout(()=>{if(copy.isConnected)copy.textContent=old;},1000);}catch(error){app.showError(error);}};
+  const close=document.createElement('button');close.type='button';close.textContent='Close';close.onclick=()=>dialog.remove();
+  actions.append(copy,close);card.append(title,area,actions);dialog.append(card);document.body.append(dialog);
+  dialog.addEventListener('pointerdown',event=>{if(event.target===dialog)dialog.remove();});
+  dialog.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();dialog.remove();}});
+}
+
+function resultCell(value,column){
   const td=document.createElement('td');
   if(value===null||value===undefined){
     td.textContent='NULL';td.className='db-null';
+  }else if(isLongTextValue(value)){
+    td.classList.add('db-long-text-cell');
+    const preview=document.createElement('div');preview.className='db-long-text-preview';
+    const text=document.createElement('span');text.className='db-long-text-preview-text';text.textContent=value.replace(/[\r\n]+/g,' ');
+    const open=document.createElement('button');open.type='button';open.className='db-long-text-open';open.textContent='…';open.title='Open full value';
+    open.onclick=event=>{event.preventDefault();event.stopPropagation();openQueryValueViewer(column?.name||'Value',value);};
+    preview.append(text,open);td.append(preview);
   }else if(typeof value==='object'){
     td.textContent=JSON.stringify(value);
   }else{
@@ -124,7 +168,7 @@ function renderResult(view,result,elapsed){
   const tbody=document.createElement('tbody');
   for(const row of rows){
     const tr=document.createElement('tr');
-    for(const value of Array.isArray(row)?row:[])tr.append(resultCell(value));
+    (Array.isArray(row)?row:[]).forEach((value,index)=>tr.append(resultCell(value,columns[index])));
     tbody.append(tr);
   }
   table.append(tbody);view.result.append(table);
