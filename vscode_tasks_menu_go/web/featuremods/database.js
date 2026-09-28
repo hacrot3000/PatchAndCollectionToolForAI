@@ -53,6 +53,14 @@ html[data-taskmenu-theme="light"] .db-script-browser-row:hover,html[data-taskmen
 .db-query .codemirror .cm-editor{height:100%;font-size:13px}
 .db-query .codemirror .cm-scroller{overflow:auto;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
 .db-result-wrap{flex:1;min-height:0;overflow:auto}
+.db-query-result-tabs{display:flex;align-items:end;gap:2px;padding:4px 6px 0;border-bottom:1px solid #30343b;background:#11151b;overflow-x:auto;position:sticky;top:0;z-index:5}
+.db-query-result-tab{border-radius:5px 5px 0 0;border-bottom:0;padding:5px 8px;font-size:10px;opacity:.68;white-space:nowrap}
+.db-query-result-tab.active{background:#202630;opacity:1}
+.db-query-result-panels{min-height:0}
+.db-query-result-panel.hidden{display:none}
+.db-query-result-error{padding:12px;white-space:pre-wrap;font:11px ui-monospace,monospace;color:#ff9a9a}
+html[data-taskmenu-theme="light"] .db-query-result-tabs{background:#f2f5f8;border-color:#b9c0c8}
+html[data-taskmenu-theme="light"] .db-query-result-tab.active{background:#fff}
 .db-result-status{position:sticky;top:0;z-index:2;padding:5px 8px;background:#11151b;border-bottom:1px solid #30343b;font-size:11px;opacity:.8}
 .db-result-table{border-collapse:collapse;min-width:100%;font-family:ui-monospace,monospace;font-size:11px}
 .db-result-table th,.db-result-table td{border-right:1px solid #272d36;border-bottom:1px solid #272d36;padding:5px 7px;text-align:left;vertical-align:top;white-space:pre-wrap;max-width:520px}
@@ -941,7 +949,7 @@ function queryGridActionMenuItems(view,result){
   if(typeof helper?.gridActionMenuItems!=='function')throw new Error('Shared database grid action menu is unavailable');
   return helper.gridActionMenuItems({
     exportData:()=>exportQueryData(view,result),
-    refresh:()=>executeQuery(view),
+    refresh:()=>refreshQueryResult(view),
     filter:()=>openQueryFilterDialog(view,result),
     addRow:()=>addQueryRow(view,result),
     addDisabled:!result?.edit?.editable,
@@ -1064,13 +1072,13 @@ async function applyQueryChanges(view,result){
   if(!items||items.length!==mutations.length){
     view.queryDirtyRows?.clear?.();
     view.queryNewRows=[];
-    await executeQuery(view,{discardPending:true});
+    await refreshQueryResult(view);
     throw new Error('Database adapter returned an incomplete query mutation result; query was reloaded');
   }
   const errors=items.filter(item=>item?.error);
   view.queryDirtyRows?.clear?.();
   view.queryNewRows=[];
-  await executeQuery(view,{discardPending:true});
+  await refreshQueryResult(view);
   if(errors.length)throw new Error(errors.map(item=>(item.action||'update')+': '+(item.error?.message||item.error?.code||'failed')).join('\n'));
 }
 
@@ -1220,22 +1228,146 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
   table.append(tbody);view.result.append(table);syncQuerySelection(view,result);
 }
 
-async function executeQuery(view,{discardPending=false}={}){
-  if(!discardPending&&queryPendingCount(view)>0&&!confirm('Discard unsaved query result changes and run again?'))return;
-  const statement=queryEditorText(view).trim();
-  if(!statement)throw new Error('Enter a database statement first');
-  if(view.lastExecutedStatement&&view.lastExecutedStatement!==statement){view.queryFilter=null;view.queryOrder=null;view.querySelectedRows?.clear?.();}
-  view.lastExecutedStatement=statement;
+function splitSQLStatements(script){
+  const text=String(script||'');
+  const statements=[];let start=0;let quote='';let lineComment=false;let blockComment=false;
+  const push=end=>{const statement=text.slice(start,end).trim();if(statement)statements.push(statement);start=end+1;};
+  for(let i=0;i<text.length;i++){
+    const ch=text[i],next=text[i+1]||'';
+    if(lineComment){
+      if(ch==='\n'||ch==='\r')lineComment=false;
+      continue;
+    }
+    if(blockComment){
+      if(ch==='*'&&next==='/'){blockComment=false;i++;}
+      continue;
+    }
+    if(quote){
+      if(ch==='\\'){i++;continue;}
+      if(ch===quote){
+        if(text[i+1]===quote){i++;continue;}
+        quote='';
+      }
+      continue;
+    }
+    if(ch==='\''||ch==='"'||ch==='\x60'){quote=ch;continue;}
+    if(ch==='#'){lineComment=true;continue;}
+    if(ch==='-'&&next==='-'&&(i+2>=text.length||/\s/.test(text[i+2]))){lineComment=true;i++;continue;}
+    if(ch==='/'&&next==='*'){blockComment=true;i++;continue;}
+    if(ch===';')push(i);
+  }
+  const tail=text.slice(start).trim();if(tail)statements.push(tail);
+  return statements;
+}
+
+function queryResultHasPendingChanges(view){
+  if(queryPendingCount(view)>0)return true;
+  return Array.isArray(view.queryResultContexts)&&view.queryResultContexts.some(ctx=>queryPendingCount(ctx)>0);
+}
+
+function activateQueryResult(owner,index){
+  for(let i=0;i<(owner.queryResultContexts||[]).length;i++){
+    const ctx=owner.queryResultContexts[i];
+    ctx.resultTab?.classList.toggle('active',i===index);
+    ctx.result?.classList.toggle('hidden',i!==index);
+  }
+  owner.activeQueryResult=index;
+}
+
+function createQueryResultContext(owner,statement,index){
+  if(!owner.queryResultTabs){
+    owner.result.replaceChildren();
+    owner.queryResultTabs=document.createElement('div');owner.queryResultTabs.className='db-query-result-tabs';
+    owner.queryResultPanels=document.createElement('div');owner.queryResultPanels.className='db-query-result-panels';
+    owner.result.append(owner.queryResultTabs,owner.queryResultPanels);
+    owner.queryResultContexts=[];
+  }
+  const tab=document.createElement('button');tab.type='button';tab.className='db-query-result-tab';tab.textContent='Result '+(index+1);
+  tab.title=String(statement||'').replace(/\s+/g,' ').slice(0,240);
+  const panel=document.createElement('div');panel.className='db-query-result-panel hidden';
+  const ctx=Object.create(owner);
+  Object.assign(ctx,{
+    result:panel,
+    resultTab:tab,
+    resultStatement:statement,
+    resultOwner:owner,
+    queryFilter:null,
+    queryOrder:null,
+    queryDirtyRows:new Map(),
+    queryNewRows:[],
+    querySelectedRows:new Set(),
+    querySelectionAnchor:null,
+    lastExecutedStatement:statement
+  });
+  owner.queryResultContexts.push(ctx);owner.queryResultTabs.append(tab);owner.queryResultPanels.append(panel);
+  tab.onclick=()=>activateQueryResult(owner,index);
+  if(index===0)activateQueryResult(owner,0);
+  return ctx;
+}
+
+function renderQueryResultError(view,error,elapsed){
+  view.result.replaceChildren();
+  const status=document.createElement('div');status.className='db-result-status';
+  status.textContent='ERROR'+(Number.isFinite(elapsed)?' · '+elapsed+' ms':'');
+  const message=document.createElement('div');message.className='db-query-result-error';message.textContent=String(error?.message||error||'Query failed');
+  view.result.append(status,message);
+}
+
+async function refreshQueryResult(view){
+  if(!view.resultStatement)return executeQuery(view);
+  if(queryPendingCount(view)>0&&!confirm('Discard unsaved query result changes and refresh this result?'))return;
   const maxRows=Math.max(1,Math.min(1000,Number(view.maxRows.value)||100));
-  view.run.disabled=true;view.run.textContent='Running…';
+  const payload={statement:view.resultStatement,max_rows:maxRows};
+  if(view.catalog.value)payload.catalog=view.catalog.value;
   const started=performance.now();
+  const result=await sessionRequest(view.meta.id,'execute',payload);
+  renderResult(view,result,Math.round(performance.now()-started));
+}
+
+async function executeQuery(view,{discardPending=false}={}){
+  const owner=view.resultOwner||view;
+  if(!discardPending&&queryResultHasPendingChanges(owner)&&!confirm('Discard unsaved query result changes and run again?'))return;
+  const script=queryEditorText(owner).trim();
+  if(!script)throw new Error('Enter a database statement first');
+  const statements=relationalQueryEditor(owner)?splitSQLStatements(script):[script];
+  if(!statements.length)throw new Error('Enter a database statement first');
+  if(owner.lastExecutedStatement&&owner.lastExecutedStatement!==script){owner.queryFilter=null;owner.queryOrder=null;owner.querySelectedRows?.clear?.();}
+  owner.lastExecutedStatement=script;
+  const maxRows=Math.max(1,Math.min(1000,Number(owner.maxRows.value)||100));
+  owner.run.disabled=true;owner.run.textContent=statements.length>1?'Running 1/'+statements.length+'…':'Running…';
+  owner.queryResultTabs=null;owner.queryResultPanels=null;owner.queryResultContexts=[];
   try{
-    const payload={statement,max_rows:maxRows};
-    if(view.catalog.value)payload.catalog=view.catalog.value;
-    const result=await sessionRequest(view.meta.id,'execute',payload);
-    renderResult(view,result,Math.round(performance.now()-started));
+    if(statements.length===1){
+      owner.result.replaceChildren();
+      const started=performance.now();
+      const payload={statement:statements[0],max_rows:maxRows};
+      if(owner.catalog.value)payload.catalog=owner.catalog.value;
+      const result=await sessionRequest(owner.meta.id,'execute',payload);
+      owner.resultStatement=statements[0];
+      renderResult(owner,result,Math.round(performance.now()-started));
+      return;
+    }
+    owner.result.replaceChildren();
+    let firstError=null;
+    for(let index=0;index<statements.length;index++){
+      owner.run.textContent='Running '+(index+1)+'/'+statements.length+'…';
+      const ctx=createQueryResultContext(owner,statements[index],index);
+      const payload={statement:statements[index],max_rows:maxRows};
+      if(owner.catalog.value)payload.catalog=owner.catalog.value;
+      const started=performance.now();
+      try{
+        const result=await sessionRequest(owner.meta.id,'execute',payload);
+        renderResult(ctx,result,Math.round(performance.now()-started));
+      }catch(error){
+        renderQueryResultError(ctx,error,Math.round(performance.now()-started));
+        activateQueryResult(owner,index);
+        firstError=error;
+        break;
+      }
+    }
+    if(firstError)throw firstError;
   }finally{
-    view.run.disabled=false;view.run.textContent='Run';
+    owner.run.disabled=false;owner.run.textContent='Run';
   }
 }
 
