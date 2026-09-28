@@ -125,6 +125,7 @@ func TestDatabaseWorkbenchProvidesNavigatorContextMenuAndPagedGrid(t *testing.T)
 		"Generate INSERT",
 		"Generate UPDATE",
 		"Generate DELETE",
+		"Generate CREATE",
 		"Count Rows",
 		"'browse_rows'",
 		"offset:state.offset",
@@ -1246,5 +1247,53 @@ func TestDatabaseObjectDetailRendersReadableStructureText(t *testing.T) {
 	}
 	if strings.Contains(js, "view.detail.textContent=JSON.stringify(detail,null,2)") {
 		t.Fatal("database object detail must not render raw JSON")
+	}
+}
+
+
+func TestDatabaseOpenSQLPreservesEditedTabsAndGeneratedSQLAppends(t *testing.T) {
+	databaseData, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	databaseJS := string(databaseData)
+	for _, want := range []string{
+		"async function chooseClientSQLScript()",
+		"function queryEditorCanReplace(view)",
+		"return current===''||current===defaultText",
+		"function appendQueryEditorText(view,text",
+		"const separator=current.endsWith('\\n')?'\\n':'\\n\\n'",
+		"const target=globalThis.TaskMenuDatabaseWorkbench?.queryTargetForOpen?.(view)||view",
+		"setQueryEditorText(target,text)",
+		"setQueryScriptIdentity(target,{",
+		"queryCanReplace:queryEditorCanReplace",
+		"appendQueryText:appendQueryEditorText",
+	} {
+		if !strings.Contains(databaseJS, want) {
+			t.Fatalf("database.js missing safe Open SQL/query append behavior %q", want)
+		}
+	}
+
+	workbenchData, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workbench := string(workbenchData)
+	for _, want := range []string{
+		"function queryTargetForOpen(view)",
+		"if(database.queryCanReplace?.(view))",
+		"createQueryPage(root,{initialText:'',activate:true})",
+		"typeof database.appendQueryText==='function'",
+		"database.appendQueryText(target,text,{focus:false})",
+		"case 'create': {",
+		"const ddl=String(detail?.sql||'').trim()",
+		"action==='insert'||action==='update'||action==='create'",
+		"Generate CREATE",
+		"generatedQuery(view,object,'create')",
+		"queryTargetForOpen,",
+	} {
+		if !strings.Contains(workbench, want) {
+			t.Fatalf("database_workbench.js missing generated/open SQL behavior %q", want)
+		}
 	}
 }
