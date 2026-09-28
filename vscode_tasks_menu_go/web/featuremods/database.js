@@ -1230,8 +1230,12 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
 
 function splitSQLStatements(script){
   const text=String(script||'');
-  const statements=[];let start=0;let quote='';let lineComment=false;let blockComment=false;
-  const push=end=>{const statement=text.slice(start,end).trim();if(statement)statements.push(statement);start=end+1;};
+  const statements=[];let start=0;let quote='';let lineComment=false;let blockComment=false;let segmentHasCode=false;
+  const push=end=>{
+    const statement=text.slice(start,end).trim();
+    if(statement&&segmentHasCode)statements.push(statement);
+    start=end+1;segmentHasCode=false;
+  };
   for(let i=0;i<text.length;i++){
     const ch=text[i],next=text[i+1]||'';
     if(lineComment){
@@ -1250,13 +1254,14 @@ function splitSQLStatements(script){
       }
       continue;
     }
-    if(ch==='\''||ch==='"'||ch==='\x60'){quote=ch;continue;}
+    if(ch==='\''||ch==='"'||ch==='\x60'){quote=ch;segmentHasCode=true;continue;}
     if(ch==='#'){lineComment=true;continue;}
     if(ch==='-'&&next==='-'&&(i+2>=text.length||/\s/.test(text[i+2]))){lineComment=true;i++;continue;}
     if(ch==='/'&&next==='*'){blockComment=true;i++;continue;}
-    if(ch===';')push(i);
+    if(ch===';'){push(i);continue;}
+    if(!/\s/.test(ch))segmentHasCode=true;
   }
-  const tail=text.slice(start).trim();if(tail)statements.push(tail);
+  const tail=text.slice(start).trim();if(tail&&segmentHasCode)statements.push(tail);
   return statements;
 }
 
