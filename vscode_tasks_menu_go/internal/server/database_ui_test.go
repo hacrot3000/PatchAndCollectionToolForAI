@@ -1297,3 +1297,33 @@ func TestDatabaseOpenSQLPreservesEditedTabsAndGeneratedSQLAppends(t *testing.T) 
 		}
 	}
 }
+
+
+func TestDatabaseQueryResultStickyHeadersUseSolidBackgrounds(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		".db-query{min-width:0;display:flex;flex-direction:column;background:#090c10}",
+		".db-query-tools{display:flex;align-items:center;gap:6px;padding:7px;border-bottom:1px solid #30343b;background:#11151b}",
+		".db-query .codemirror .cm-editor{height:100%;font-size:13px;background:#090c10}",
+		".db-query .codemirror .cm-scroller{overflow:auto;font-family:ui-monospace,SFMono-Regular,Consolas,\"Liberation Mono\",monospace;background:#090c10}",
+		".db-query .codemirror .cm-gutters{background:#090c10}",
+		".db-result-status{position:sticky;top:0;z-index:3;padding:5px 8px;background:#11151b",
+		".db-result-edit-tools{position:sticky;top:27px;z-index:2;",
+		".has-edit-tools .db-result-table th{top:58px}",
+		".db-query-result-panel .db-result-edit-tools{top:57px}",
+		".db-query-result-panel.has-edit-tools .db-result-table th{top:88px}",
+		"view.result.classList.toggle('has-edit-tools',Boolean(result?.edit))",
+		"html[data-taskmenu-theme=\"light\"] .db-query-tools,html[data-taskmenu-theme=\"light\"] .db-result-status,html[data-taskmenu-theme=\"light\"] .db-result-edit-tools{background:#f2f5f8}",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database.js missing solid/sticky query result styling %q", want)
+		}
+	}
+	if strings.Contains(js, ".db-result-status{position:sticky;top:0;z-index:2;padding:5px 8px;background:#11151b;border-bottom:1px solid #30343b;font-size:11px;opacity:.8}") {
+		t.Fatal("query result status must not make its background translucent with element opacity")
+	}
+}
