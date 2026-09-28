@@ -50,6 +50,11 @@ style.textContent=`
 .db-result-table td.db-query-editable:focus{box-shadow:inset 0 0 0 1px #3f79a8;background:#121a23}
 .db-result-table td.db-query-popup-editable{cursor:default}
 .db-result-table td.db-query-dirty{background:#332d18}
+.db-result-table th.db-row-number,.db-result-table td.db-row-number{position:sticky;left:0;z-index:3;width:42px;min-width:42px;text-align:right;opacity:.55;background:#11151b}
+.db-result-table th.db-row-number{z-index:4;cursor:pointer;user-select:none}
+.db-result-table td.db-row-number{cursor:default;user-select:none}
+.db-result-table tr.db-selected td{background:#19334d}
+.db-result-table tr.db-selected td.db-query-dirty{background:#3c3920}
 html[data-taskmenu-theme="light"] .db-pane{background:#fff}
 html[data-taskmenu-theme="light"] .db-query-editor{background:#f7f9fb}
 html[data-taskmenu-theme="light"] .db-result-status{background:#f2f5f8}
@@ -169,6 +174,111 @@ function queryPendingCount(view){
   return count;
 }
 
+function querySelectedRowIndexes(view,result=view.queryResult){
+  const rows=Array.isArray(result?.rows)?result.rows:[];
+  return Array.from(view.querySelectedRows||[])
+    .filter(index=>Number.isInteger(index)&&index>=0&&index<rows.length)
+    .sort((a,b)=>a-b);
+}
+
+function syncQuerySelection(view,result=view.queryResult){
+  const rows=Array.isArray(result?.rows)?result.rows:[];
+  const selected=view.querySelectedRows instanceof Set?view.querySelectedRows:new Set();
+  view.querySelectedRows=selected;
+  for(const tr of view.result.querySelectorAll('tbody tr[data-row-index]')){
+    tr.classList.toggle('db-selected',selected.has(Number(tr.dataset.rowIndex)));
+  }
+  const selectAll=view.result.querySelector('th.db-row-number[data-select-all]');
+  if(selectAll){
+    const selectedCount=querySelectedRowIndexes(view,result).length;
+    selectAll.textContent=rows.length>0&&selectedCount===rows.length?'☑':(selectedCount>0?'◩':'☐');
+    selectAll.title=rows.length>0&&selectedCount===rows.length?'Clear row selection':'Select all rows in current result';
+  }
+  const status=view.result.querySelector('.db-result-status');
+  if(status){
+    const base=status.dataset.base||status.textContent||'';
+    const selectedCount=querySelectedRowIndexes(view,result).length;
+    status.textContent=base+(selectedCount?' · '+selectedCount+' selected':'');
+  }
+}
+
+function selectQueryRow(view,result,rowIndex,event={}){
+  const rows=Array.isArray(result?.rows)?result.rows:[];
+  if(rowIndex<0||rowIndex>=rows.length)return;
+  if(!(view.querySelectedRows instanceof Set))view.querySelectedRows=new Set();
+  const additive=Boolean(event.ctrlKey||event.metaKey);
+  if(event.shiftKey&&Number.isInteger(view.querySelectionAnchor)){
+    const start=Math.min(view.querySelectionAnchor,rowIndex);const end=Math.max(view.querySelectionAnchor,rowIndex);
+    if(!additive)view.querySelectedRows.clear();
+    for(let index=start;index<=end;index++)view.querySelectedRows.add(index);
+  }else if(additive){
+    if(view.querySelectedRows.has(rowIndex))view.querySelectedRows.delete(rowIndex);else view.querySelectedRows.add(rowIndex);
+    view.querySelectionAnchor=rowIndex;
+  }else{
+    view.querySelectedRows.clear();view.querySelectedRows.add(rowIndex);view.querySelectionAnchor=rowIndex;
+  }
+  syncQuerySelection(view,result);
+}
+
+function toggleSelectAllQueryRows(view,result){
+  const rows=Array.isArray(result?.rows)?result.rows:[];
+  if(!(view.querySelectedRows instanceof Set))view.querySelectedRows=new Set();
+  const allSelected=rows.length>0&&querySelectedRowIndexes(view,result).length===rows.length;
+  view.querySelectedRows.clear();
+  if(!allSelected)for(let index=0;index<rows.length;index++)view.querySelectedRows.add(index);
+  view.querySelectionAnchor=rows.length?0:null;
+  syncQuerySelection(view,result);
+}
+
+function queryClipboardData(view,result,{selectedOnly=false}={}){
+  const columns=Array.isArray(result?.columns)?result.columns.map(column=>String(column?.name||'')):[];
+  const rows=Array.isArray(result?.rows)?result.rows:[];
+  const indexes=selectedOnly?querySelectedRowIndexes(view,result):rows.map((_,index)=>index);
+  return {
+    columns,
+    rows:indexes.map(rowIndex=>columns.map((_,columnIndex)=>queryCellValue(view,result,rowIndex,columnIndex)))
+  };
+}
+
+async function copyQueryData(view,result,format,includeHeaders,scope){
+  const helper=globalThis.TaskMenuDatabaseWorkbench;
+  if(typeof helper?.serializeClipboardData!=='function'||typeof helper?.copyText!=='function')throw new Error('Database copy helpers are unavailable');
+  const data=queryClipboardData(view,result,{selectedOnly:scope==='selected'});
+  await helper.copyText(helper.serializeClipboardData(format,data.columns,data.rows,includeHeaders));
+}
+
+function queryCopyScopeMenuItems(view,result,format,includeHeaders){
+  const selected=querySelectedRowIndexes(view,result).length;
+  const selectedLabel=selected===1?'Selected row (1)':(selected>1?'Selected rows ('+selected+')':'Selected rows');
+  return [
+    {label:selectedLabel,disabled:selected===0,action:()=>copyQueryData(view,result,format,includeHeaders,'selected')},
+    {label:'Current result',action:()=>copyQueryData(view,result,format,includeHeaders,'current')}
+  ];
+}
+
+function queryCopyMenuItems(view,result){
+  return [
+    {label:'Copy TXT (without column header)',submenu:queryCopyScopeMenuItems(view,result,'txt',false)},
+    {label:'Copy TXT (with column header)',submenu:queryCopyScopeMenuItems(view,result,'txt',true)},
+    {label:'Copy CSV (without column header)',submenu:queryCopyScopeMenuItems(view,result,'csv',false)},
+    {label:'Copy CSV (with column header)',submenu:queryCopyScopeMenuItems(view,result,'csv',true)},
+    {label:'Copy as JSON',submenu:queryCopyScopeMenuItems(view,result,'json',true)}
+  ];
+}
+
+function showQueryContextMenu(view,result,rowIndex,columnIndex,x,y){
+  const helper=globalThis.TaskMenuDatabaseWorkbench;
+  if(typeof helper?.showContextMenu!=='function')throw new Error('Database context menu is unavailable');
+  if(!view.querySelectedRows?.has(rowIndex))selectQueryRow(view,result,rowIndex,{});
+  const column=result?.columns?.[columnIndex]||{};
+  const value=queryCellValue(view,result,rowIndex,columnIndex);
+  helper.showContextMenu([
+    {label:'Copy Value',action:()=>helper.copyText(value===null||value===undefined?'':(typeof value==='object'?JSON.stringify(value):String(value)))},
+    {label:'Copy Column Name',action:()=>helper.copyText(column?.name||'')},
+    ...queryCopyMenuItems(view,result)
+  ],x,y);
+}
+
 function openQueryValueViewer(titleText,value,{editable=false,columnType='',nullable=true,onSave=null}={}){
   const dialog=document.createElement('div');dialog.className='task-connection-dialog';
   const card=document.createElement('div');card.className='task-connection-dialog-card db-value-dialog-card';
@@ -276,6 +386,7 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
   view.queryResult=result;
   view.queryElapsed=elapsed;
   if(!preserveDirty||!(view.queryDirtyRows instanceof Map))view.queryDirtyRows=new Map();
+  if(!preserveDirty||!(view.querySelectedRows instanceof Set)){view.querySelectedRows=new Set();view.querySelectionAnchor=null;}
   const status=document.createElement('div');status.className='db-result-status';
   const columns=Array.isArray(result?.columns)?result.columns:[];
   const rows=Array.isArray(result?.rows)?result.rows:[];
@@ -285,7 +396,8 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
   if(Number.isFinite(elapsed))parts.push(elapsed+' ms');
   if(result?.edit?.editable)parts.push('editable');
   else if(result?.edit?.editability_reason)parts.push('read-only');
-  status.textContent=parts.join(' · ');
+  status.dataset.base=parts.join(' · ');
+  status.textContent=status.dataset.base;
   if(result?.edit?.editability_reason)status.title=result.edit.editability_reason;
   view.result.append(status);
   if(result?.edit){
@@ -314,15 +426,44 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
   }
   const table=document.createElement('table');table.className='db-result-table';
   const thead=document.createElement('thead');const header=document.createElement('tr');
+  const selectAll=document.createElement('th');selectAll.className='db-row-number';selectAll.dataset.selectAll='1';selectAll.textContent='☐';selectAll.title='Select all rows in current result';
+  selectAll.onclick=event=>{event.preventDefault();toggleSelectAllQueryRows(view,result);};
+  selectAll.oncontextmenu=event=>{
+    event.preventDefault();event.stopPropagation();
+    const helper=globalThis.TaskMenuDatabaseWorkbench;
+    if(typeof helper?.showContextMenu!=='function')return;
+    const selected=querySelectedRowIndexes(view,result).length;
+    helper.showContextMenu([
+      {label:selected?'Clear row selection':'Select all rows in current result',action:()=>toggleSelectAllQueryRows(view,result)},
+      {separator:true},
+      ...queryCopyMenuItems(view,result)
+    ],event.clientX,event.clientY);
+  };
+  header.append(selectAll);
   for(const column of columns){const th=document.createElement('th');th.textContent=column?.name||'';if(column?.type)th.title=column.type;header.append(th);}
   thead.append(header);table.append(thead);
   const tbody=document.createElement('tbody');
   rows.forEach((row,rowIndex)=>{
-    const tr=document.createElement('tr');
-    (Array.isArray(row)?row:[]).forEach((_,columnIndex)=>tr.append(resultCell(view,result,rowIndex,columnIndex)));
+    const tr=document.createElement('tr');tr.dataset.rowIndex=String(rowIndex);
+    if(view.querySelectedRows?.has(rowIndex))tr.classList.add('db-selected');
+    const rowNo=document.createElement('td');rowNo.className='db-row-number';rowNo.textContent=String(rowIndex+1);rowNo.title='Click to select row · Ctrl/Cmd-click multi-select · Shift-click range';
+    rowNo.onclick=event=>{event.preventDefault();selectQueryRow(view,result,rowIndex,event);};
+    rowNo.oncontextmenu=event=>{
+      event.preventDefault();event.stopPropagation();
+      if(!view.querySelectedRows?.has(rowIndex))selectQueryRow(view,result,rowIndex,{});
+      const helper=globalThis.TaskMenuDatabaseWorkbench;
+      if(typeof helper?.showContextMenu!=='function')return;
+      helper.showContextMenu(queryCopyMenuItems(view,result),event.clientX,event.clientY);
+    };
+    tr.append(rowNo);
+    (Array.isArray(row)?row:[]).forEach((_,columnIndex)=>{
+      const td=resultCell(view,result,rowIndex,columnIndex);
+      td.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();showQueryContextMenu(view,result,rowIndex,columnIndex,event.clientX,event.clientY);};
+      tr.append(td);
+    });
     tbody.append(tr);
   });
-  table.append(tbody);view.result.append(table);
+  table.append(tbody);view.result.append(table);syncQuerySelection(view,result);
 }
 
 async function executeQuery(view,{discardPending=false}={}){
