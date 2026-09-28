@@ -252,6 +252,72 @@ async function openSQLScript(view){
   view.scriptName=source.name||'query.sql';
 }
 
+
+async function uploadSQLTextToHost(name,text,dir,overwrite=false){
+  const form=new FormData();
+  form.append('dir',dir||'.');
+  form.append('file',new Blob([text],{type:'text/sql;charset=utf-8'}),name);
+  const response=await app.fetchWithLease('/api/files/upload'+(overwrite?'?overwrite=1':''),{method:'POST',body:form,cache:'no-store'});
+  if(response.status===409&&!overwrite){
+    const message=(await response.text()).trim();
+    if(confirm((message||name+' already exists')+'\n\nOverwrite it?'))return uploadSQLTextToHost(name,text,dir,true);
+    return null;
+  }
+  if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
+  return response.json();
+}
+
+async function saveSQLScriptToHost(view){
+  const browser=globalThis.TaskMenuDirectoryBrowser;
+  if(typeof browser?.choose!=='function')throw new Error('Host directory browser is unavailable');
+  const dir=await browser.choose({
+    title:'Save SQL script on host',
+    label:'Destination directory relative to the workspace:',
+    confirm:'Use directory',
+    initial:'.'
+  });
+  if(dir===null)return;
+  let name=prompt('SQL script file name:',view.scriptName||'query.sql');
+  if(name===null)return;
+  name=String(name).trim();
+  if(!name)throw new Error('SQL script file name is required');
+  if(!sqlScriptNameAllowed(name))name+='.sql';
+  if(name.includes('/')||name.includes('\\'))throw new Error('Enter a file name without a directory');
+  const result=await uploadSQLTextToHost(name,queryEditorText(view),String(dir).trim()||'.');
+  if(result)view.scriptName=name;
+}
+
+async function saveSQLScriptToClient(view){
+  let name=String(view.scriptName||'query.sql').trim()||'query.sql';
+  if(!sqlScriptNameAllowed(name))name+='.sql';
+  const text=queryEditorText(view);
+  if(typeof globalThis.showSaveFilePicker==='function'){
+    try{
+      const handle=await globalThis.showSaveFilePicker({
+        suggestedName:name,
+        types:[{description:'SQL script',accept:{'text/plain':['.sql','.txt']}}]
+      });
+      const writable=await handle.createWritable();
+      await writable.write(text);await writable.close();
+      view.scriptName=handle.name||name;return;
+    }catch(error){
+      if(error?.name==='AbortError')return;
+      throw error;
+    }
+  }
+  const blob=new Blob([text],{type:'text/sql;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  try{
+    const link=document.createElement('a');link.href=url;link.download=name;link.rel='noopener';document.body.append(link);link.click();link.remove();
+  }finally{setTimeout(()=>URL.revokeObjectURL(url),0);}
+}
+
+async function saveSQLScript(view){
+  const location=await chooseScriptLocation('Save SQL script');
+  if(location==='host')return saveSQLScriptToHost(view);
+  if(location==='client')return saveSQLScriptToClient(view);
+}
+
 function relationalQueryEditor(view){
   return view?.meta?.adapter_kind==='mysql'||view?.meta?.adapter_kind==='sqlite';
 }
@@ -915,9 +981,10 @@ function attachDatabaseView(meta,activate){
   const tools=document.createElement('div');tools.className='db-query-tools';
   const run=document.createElement('button');run.type='button';run.className='db-run';run.textContent='Run';
   const openSQL=document.createElement('button');openSQL.type='button';openSQL.textContent='Open SQL';openSQL.hidden=!(meta.adapter_kind==='mysql'||meta.adapter_kind==='sqlite');
+  const saveSQL=document.createElement('button');saveSQL.type='button';saveSQL.textContent='Save SQL';saveSQL.hidden=openSQL.hidden;
   const rowsLabel=document.createElement('label');rowsLabel.textContent='Max rows';
   const maxRows=document.createElement('input');maxRows.type='number';maxRows.min='1';maxRows.max='1000';maxRows.value='100';
-  tools.append(run,openSQL,rowsLabel,maxRows);
+  tools.append(run,openSQL,saveSQL,rowsLabel,maxRows);
   const editor=document.createElement('textarea');editor.className='db-query-editor';editor.spellcheck=false;
   editor.value=meta.adapter_kind==='redis'
     ?'PING'
@@ -928,7 +995,7 @@ function attachDatabaseView(meta,activate){
   query.append(tools,editor,result);
   body.append(browser,query);pane.append(head,body);panes.append(pane);
 
-  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,editor,run,openSQL,maxRows,result,objectData:[],querySchemaCache:new Map(),scriptName:'query.sql'};
+  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,editor,run,openSQL,saveSQL,maxRows,result,objectData:[],querySchemaCache:new Map(),scriptName:'query.sql'};
   dbViews.set(meta.id,view);
   initQueryEditor(view);
   globalThis.TaskMenuDatabaseWorkbench?.enhanceView?.(view);
@@ -938,6 +1005,7 @@ function attachDatabaseView(meta,activate){
   catalog.onchange=()=>{resetQuerySchema();loadObjects(view).catch(app.showError);};
   run.onclick=()=>executeQuery(view).catch(app.showError);
   openSQL.onclick=()=>openSQLScript(view).catch(app.showError);
+  saveSQL.onclick=()=>saveSQLScript(view).catch(app.showError);
   if(!view.queryCM)editor.addEventListener('keydown',event=>{
     if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();executeQuery(view).catch(app.showError);}
   });
