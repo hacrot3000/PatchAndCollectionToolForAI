@@ -438,7 +438,7 @@ function reconfigureQueryEditor(view){
 
 function initQueryEditor(view){
   if(!relationalQueryEditor(view)||!cmFactory||!globalThis.cm6?.sqlCompletion)return;
-  view.querySchemaCache=new Map();
+  if(!(view.querySchemaCache instanceof Map))view.querySchemaCache=new Map();
   const initial=view.editor.value;
   view.queryCM=cmFactory.textarea(view.editor,{
     dark:document.documentElement.dataset.taskmenuTheme!=='light',
@@ -1333,6 +1333,8 @@ async function executeQuery(view,{discardPending=false}={}){
   if(!statements.length)throw new Error('Enter a database statement first');
   if(owner.lastExecutedStatement&&owner.lastExecutedStatement!==script){owner.queryFilter=null;owner.queryOrder=null;owner.querySelectedRows?.clear?.();}
   owner.lastExecutedStatement=script;
+  owner.queryDirtyRows=new Map();owner.queryNewRows=[];owner.querySelectedRows=new Set();owner.querySelectionAnchor=null;
+  owner.queryFilter=null;owner.queryOrder=null;
   const maxRows=Math.max(1,Math.min(1000,Number(owner.maxRows.value)||100));
   owner.run.disabled=true;owner.run.textContent=statements.length>1?'Running 1/'+statements.length+'…':'Running…';
   owner.queryResultTabs=null;owner.queryResultPanels=null;owner.queryResultContexts=[];
