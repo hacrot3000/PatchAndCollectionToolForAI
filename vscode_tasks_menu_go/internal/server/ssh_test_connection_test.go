@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"bletonfc/vscode_tasks_menu/internal/secretstore"
 	"bletonfc/vscode_tasks_menu/internal/sshprofile"
 )
 
@@ -130,5 +131,56 @@ exit 0
 	}
 	if len(profiles) != 1 || profiles[0].ID != "prod" {
 		t.Fatalf("unsaved SSH test mutated profile store: %#v", profiles)
+	}
+}
+
+
+func TestSSHConnectionTestAPIUsesEditedFieldsWithSavedSecret(t *testing.T) {
+	s, store := newSSHConnectionTestServer(t)
+	secrets, err := secretstore.NewFileStore(filepath.Join(t.TempDir(), "secrets"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const secretRef = "ssh/saved/auth/test"
+	if err := secrets.Put(secretRef, []byte("saved-password")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create(sshprofile.Profile{
+		ID:         "saved",
+		Name:       "Saved password profile",
+		Host:       "old.example.com",
+		Username:   "olduser",
+		AuthMethod: sshprofile.AuthPassword,
+		SecretRef:  secretRef,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.ConnectionSecrets = secrets
+	writeSSHStub(t, `
+case "$*" in
+  *"preview@edited.example.com"*) exit 0 ;;
+  *) echo "edited SSH target missing: $*" >&2; exit 2 ;;
+esac
+`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/ssh/test", strings.NewReader(`{
+		"profile_id":"saved",
+		"profile":{
+			"name":"Edited profile",
+			"host":"edited.example.com",
+			"port":22,
+			"username":"preview",
+			"auth_method":"password"
+		}
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `"ok":true`) || !strings.Contains(body, "SSH connection succeeded") {
+		t.Fatalf("unexpected response: %s", body)
 	}
 }
