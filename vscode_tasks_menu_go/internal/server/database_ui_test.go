@@ -591,7 +591,9 @@ func TestDatabaseQueryEditorAppliesSafeEditableSelectChanges(t *testing.T) {
 		"name:edit.name",
 		"Apply changes",
 		"Revert",
-		"await executeQuery(view)",
+		"await executeQuery(view,{discardPending:true})",
+		"Discard unsaved query result changes and run again?",
+		"JSON.stringify(JSON.parse(text))",
 		"db-query-dirty",
 	} {
 		if !strings.Contains(js, want) {
