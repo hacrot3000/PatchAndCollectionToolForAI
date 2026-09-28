@@ -18,7 +18,12 @@ func TestPageTitleFeatureUsesWorkspaceConfigAPI(t *testing.T) {
 		"method:'PUT'",
 		".vscode/vscode_tasks_menu.ini",
 		"localStorage.removeItem(key)",
-		"document.title=String(data?.title||'').trim()||defaultTitle",
+		"const defaultTitle='TaskDeck'",
+		"function titleSuffix(value)",
+		"function renderTitle(value)",
+		"return suffix?defaultTitle+' - '+suffix:defaultTitle",
+		"body:JSON.stringify({title:titleSuffix(value)})",
+		"document.title=renderTitle(data?.title)",
 		"button.onclick=()=>editConfiguredTitle().catch(app.showError)",
 	} {
 		if !strings.Contains(text, want) {
