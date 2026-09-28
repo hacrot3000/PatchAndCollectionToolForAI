@@ -1550,12 +1550,6 @@ function attachDatabaseView(meta,activate){
   reload.onclick=()=>{resetQuerySchema();loadCatalogs(view).catch(app.showError);};
   refresh.onclick=()=>{resetQuerySchema();loadObjects(view).catch(app.showError);};
   catalog.onchange=()=>{resetQuerySchema();loadObjects(view).catch(app.showError);};
-  run.onclick=()=>executeQuery(view).catch(app.showError);
-  openSQL.onclick=()=>openSQLScript(view).catch(app.showError);
-  saveSQL.onclick=()=>saveSQLScript(view).catch(app.showError);
-  if(!view.queryCM)editor.addEventListener('keydown',event=>{
-    if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();executeQuery(view).catch(app.showError);}
-  });
   loadCatalogs(view).catch(error=>{view.detail.textContent=String(error?.message||error);});
   if(activate)activateDatabaseView(meta.id);
   return view;
