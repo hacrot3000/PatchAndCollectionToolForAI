@@ -1215,3 +1215,36 @@ func TestDatabaseObjectBrowserIsResizableAndWrapsWhenNarrow(t *testing.T) {
 		}
 	}
 }
+
+
+func TestDatabaseObjectDetailRendersReadableStructureText(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function objectDetailScalar(value)",
+		"function objectDetailSection(container,titleText)",
+		"function objectDetailLine(section,text",
+		"function objectDetailGeneric(section,key,value,depth=0)",
+		"function renderObjectDetail(view,object,detail)",
+		"'Columns ('+columns.length+')'",
+		"'Indexes / Keys ('+indexes.length+')'",
+		"'Definition'",
+		"'Additional info'",
+		"'Database: '+location",
+		"parts.push(nullable?'NULL':'NOT NULL')",
+		"parts.push('DEFAULT '+objectDetailScalar(column.default))",
+		"flags.add('PK')",
+		"flags.add('UNIQUE')",
+		"db-object-detail-sql",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database.js missing readable object-detail rendering %q", want)
+		}
+	}
+	if strings.Contains(js, "view.detail.textContent=JSON.stringify(detail,null,2)") {
+		t.Fatal("database object detail must not render raw JSON")
+	}
+}
