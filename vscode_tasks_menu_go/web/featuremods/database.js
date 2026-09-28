@@ -955,13 +955,14 @@ function showQueryContextMenu(view,result,rowIndex,columnIndex,x,y){
   if(!view.querySelectedRows?.has(rowIndex))selectQueryRow(view,result,rowIndex,{});
   const column=result?.columns?.[columnIndex]||{};
   const value=queryCellValue(view,result,rowIndex,columnIndex);
-  helper.showContextMenu([
-    {label:'Copy Value',action:()=>helper.copyText(value===null||value===undefined?'':(typeof value==='object'?JSON.stringify(value):String(value)))},
-    {label:'Copy Column Name',action:()=>helper.copyText(column?.name||'')},
-    ...queryCopyMenuItems(view,result),
-    {separator:true},
-    ...queryGridActionMenuItems(view,result)
-  ],x,y);
+  helper.showContextMenu(helper.gridContextMenuItems(
+    [
+      {label:'Copy Value',action:()=>helper.copyText(value===null||value===undefined?'':(typeof value==='object'?JSON.stringify(value):String(value)))},
+      {label:'Copy Column Name',action:()=>helper.copyText(column?.name||'')},
+      ...queryCopyMenuItems(view,result)
+    ],
+    queryGridActionMenuItems(view,result)
+  ),x,y);
 }
 
 function openQueryValueViewer(titleText,value,{editable=false,columnType='',nullable=true,onSave=null}={}){
@@ -1129,13 +1130,11 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
     const helper=globalThis.TaskMenuDatabaseWorkbench;
     if(typeof helper?.showContextMenu!=='function')return;
     const selected=querySelectedRowIndexes(view,result).length;
-    helper.showContextMenu([
-      {label:selected?'Clear row selection':'Select all visible rows',action:()=>toggleSelectAllQueryRows(view,result)},
-      {separator:true},
-      ...queryCopyMenuItems(view,result),
-      {separator:true},
-      ...queryGridActionMenuItems(view,result)
-    ],event.clientX,event.clientY);
+    helper.showContextMenu(helper.gridContextMenuItems(
+      [{label:selected?'Clear row selection':'Select all visible rows',action:()=>toggleSelectAllQueryRows(view,result)}],
+      queryCopyMenuItems(view,result),
+      queryGridActionMenuItems(view,result)
+    ),event.clientX,event.clientY);
   };
   header.append(selectAll);
   columns.forEach((column,columnIndex)=>{
@@ -1155,11 +1154,10 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
       if(!view.querySelectedRows?.has(rowIndex))selectQueryRow(view,result,rowIndex,{});
       const helper=globalThis.TaskMenuDatabaseWorkbench;
       if(typeof helper?.showContextMenu!=='function')return;
-      helper.showContextMenu([
-        ...queryCopyMenuItems(view,result),
-        {separator:true},
-        ...queryGridActionMenuItems(view,result)
-      ],event.clientX,event.clientY);
+      helper.showContextMenu(helper.gridContextMenuItems(
+        queryCopyMenuItems(view,result),
+        queryGridActionMenuItems(view,result)
+      ),event.clientX,event.clientY);
     };
     tr.append(rowNo);
     (Array.isArray(row)?row:[]).forEach((_,columnIndex)=>{
@@ -1207,11 +1205,13 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
         event.preventDefault();event.stopPropagation();
         const helper=globalThis.TaskMenuDatabaseWorkbench;
         if(typeof helper?.showContextMenu!=='function')return;
-        helper.showContextMenu([
-          {label:'Open Value in Editor',action:openViewer},
-          {separator:true},
-          {label:'Remove New Row',danger:true,action:()=>{view.queryNewRows.splice(newIndex,1);renderResult(view,result,view.queryElapsed,{preserveDirty:true});}}
-        ],event.clientX,event.clientY);
+        helper.showContextMenu(helper.gridContextMenuItems(
+          queryGridActionMenuItems(view,result),
+          [
+            {label:'Open Value in Editor',action:openViewer},
+            {label:'Remove New Row',danger:true,action:()=>{view.queryNewRows.splice(newIndex,1);renderResult(view,result,view.queryElapsed,{preserveDirty:true});}}
+          ]
+        ),event.clientX,event.clientY);
       };
       tr.append(td);
     });
