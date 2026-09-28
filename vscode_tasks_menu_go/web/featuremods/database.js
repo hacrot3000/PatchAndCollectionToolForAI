@@ -1599,7 +1599,7 @@ function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValu
     });
     editor.addEventListener('input',()=>notifyQueryStateChanged(view));
   }
-  maxRows.addEventListener('change',()=>notifyQueryStateChanged(view));
+  maxRows.addEventListener('input',()=>notifyQueryStateChanged(view));
   return query;
 }
 
