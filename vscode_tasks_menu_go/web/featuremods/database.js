@@ -75,6 +75,7 @@ html[data-taskmenu-theme="light"] .db-script-browser-row:hover,html[data-taskmen
 .db-result-table td.db-row-number{cursor:default;user-select:none}
 .db-result-table tr.db-selected td{background:#19334d}
 .db-result-table tr.db-selected td.db-query-dirty{background:#3c3920}
+.db-result-table tr.db-query-new-row td{background:#14261d}
 html[data-taskmenu-theme="light"] .db-pane{background:#fff}
 html[data-taskmenu-theme="light"] .db-query-editor,html[data-taskmenu-theme="light"] .db-query .codemirror{background:#f7f9fb}
 html[data-taskmenu-theme="light"] .db-result-status{background:#f2f5f8}
@@ -570,7 +571,28 @@ function setQueryDirtyCell(view,result,rowIndex,columnIndex,value){
 function queryPendingCount(view){
   let count=0;
   for(const changes of view.queryDirtyRows?.values?.()||[])count+=changes.size;
+  count+=(view.queryNewRows?.length||0);
   return count;
+}
+
+function setQueryNewCell(view,result,newIndex,columnIndex,value){
+  if(!Array.isArray(view.queryNewRows)||!view.queryNewRows[newIndex])return;
+  const column=result?.edit?.columns?.[columnIndex]||result?.columns?.[columnIndex];
+  if(!column?.name)return;
+  view.queryNewRows[newIndex][column.name]=value;
+}
+
+function addQueryRow(view,result){
+  if(!result?.edit?.editable)throw new Error(result?.edit?.editability_reason||'This query result is read-only');
+  if(!Array.isArray(view.queryNewRows))view.queryNewRows=[];
+  view.queryNewRows.push({});
+  renderResult(view,result,view.queryElapsed,{preserveDirty:true});
+  requestAnimationFrame(()=>{
+    const row=view.result.querySelector('tr.db-query-new-row:last-child');
+    const editable=row?.querySelector('[contenteditable="true"]');
+    if(editable){editable.focus();return;}
+    row?.querySelector('.db-long-text-open')?.focus();
+  });
 }
 
 function queryCompareValues(a,b){
@@ -869,6 +891,10 @@ async function applyQueryChanges(view,result){
     if(!identity)throw new Error('Editable query row identity is unavailable');
     mutations.push({action:'update',identity,values:Object.fromEntries(changes)});
   }
+  for(const values of view.queryNewRows||[]){
+    if(!values||Object.keys(values).length===0)throw new Error('Enter at least one value for every new row before applying changes');
+    mutations.push({action:'insert',values:{...values}});
+  }
   if(!mutations.length)return;
   const response=await sessionRequest(view.meta.id,'mutate_rows',{
     catalog:edit.catalog||view.catalog.value||'',
@@ -884,6 +910,7 @@ async function applyQueryChanges(view,result){
   }
   const errors=items.filter(item=>item?.error);
   view.queryDirtyRows?.clear?.();
+  view.queryNewRows=[];
   await executeQuery(view,{discardPending:true});
   if(errors.length)throw new Error(errors.map(item=>(item.action||'update')+': '+(item.error?.message||item.error?.code||'failed')).join('\n'));
 }
@@ -893,6 +920,7 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
   view.queryResult=result;
   view.queryElapsed=elapsed;
   if(!preserveDirty||!(view.queryDirtyRows instanceof Map))view.queryDirtyRows=new Map();
+  if(!preserveDirty||!Array.isArray(view.queryNewRows))view.queryNewRows=[];
   if(!preserveDirty||!(view.querySelectedRows instanceof Set)){view.querySelectedRows=new Set();view.querySelectionAnchor=null;}
   const status=document.createElement('div');status.className='db-result-status';
   const columns=Array.isArray(result?.columns)?result.columns:[];
@@ -918,15 +946,16 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
       :(result.edit.editability_reason||'Query result is read-only');
     tools.append(info);
     if(result.edit.editable){
+      const add=document.createElement('button');add.type='button';add.textContent='Add row';add.onclick=()=>addQueryRow(view,result);
       const revert=document.createElement('button');revert.type='button';revert.textContent='Revert';revert.disabled=pending===0;
-      revert.onclick=()=>{view.queryDirtyRows.clear();renderResult(view,result,elapsed,{preserveDirty:true});};
+      revert.onclick=()=>{view.queryDirtyRows.clear();view.queryNewRows=[];renderResult(view,result,elapsed,{preserveDirty:true});};
       const apply=document.createElement('button');apply.type='button';apply.className='db-result-apply';apply.textContent='Apply changes';apply.disabled=pending===0;
       apply.onclick=async()=>{
         apply.disabled=true;
         try{await applyQueryChanges(view,result);}
         catch(error){app.showError(error);if(apply.isConnected&&queryPendingCount(view)>0)apply.disabled=false;}
       };
-      tools.append(revert,apply);
+      tools.append(add,revert,apply);
     }
     view.result.append(tools);
   }
@@ -972,6 +1001,54 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
     (Array.isArray(row)?row:[]).forEach((_,columnIndex)=>{
       const td=resultCell(view,result,rowIndex,columnIndex);
       td.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();showQueryContextMenu(view,result,rowIndex,columnIndex,event.clientX,event.clientY);};
+      tr.append(td);
+    });
+    tbody.append(tr);
+  });
+  (view.queryNewRows||[]).forEach((values,newIndex)=>{
+    const tr=document.createElement('tr');tr.className='db-query-new-row';
+    const rowNo=document.createElement('td');rowNo.className='db-row-number';rowNo.textContent='+';
+    rowNo.title='New row';tr.append(rowNo);
+    columns.forEach((column,columnIndex)=>{
+      const editColumn=result?.edit?.columns?.[columnIndex]||column;
+      const td=document.createElement('td');td.classList.add('db-query-editable');
+      const has=Object.prototype.hasOwnProperty.call(values,editColumn?.name||column?.name);
+      const value=has?values[editColumn?.name||column?.name]:null;
+      const popupOnly=shouldUseQueryValuePopup(value,editColumn?.type||column?.type||'');
+      const openViewer=()=>openQueryValueViewer(editColumn?.name||column?.name||'Value',value,{
+        editable:true,
+        columnType:editColumn?.type||column?.type||'',
+        nullable:editColumn?.nullable!==false,
+        onSave:next=>{setQueryNewCell(view,result,newIndex,columnIndex,next);renderResult(view,result,view.queryElapsed,{preserveDirty:true});}
+      });
+      if(popupOnly){
+        td.classList.add('db-query-popup-editable');renderQueryValuePreview(td,value,openViewer);
+        td.ondblclick=event=>{event.preventDefault();openViewer();};
+      }else{
+        td.textContent=has?(value===null?'NULL':String(value)):'';
+        if(has&&value===null)td.classList.add('db-null');
+        td.contentEditable='true';td.spellcheck=false;
+        td.addEventListener('focus',()=>{if(td.classList.contains('db-null')){td.textContent='';td.classList.remove('db-null');}});
+        td.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();renderResult(view,result,view.queryElapsed,{preserveDirty:true});return;}if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();td.blur();}});
+        td.addEventListener('blur',()=>{
+          try{
+            const text=td.textContent;
+            if(text==='')delete values[editColumn?.name||column?.name];
+            else setQueryNewCell(view,result,newIndex,columnIndex,parseQueryEditedValue(text,'',editColumn?.type||column?.type||''));
+            renderResult(view,result,view.queryElapsed,{preserveDirty:true});
+          }catch(error){app.showError(error);renderResult(view,result,view.queryElapsed,{preserveDirty:true});}
+        });
+      }
+      td.oncontextmenu=event=>{
+        event.preventDefault();event.stopPropagation();
+        const helper=globalThis.TaskMenuDatabaseWorkbench;
+        if(typeof helper?.showContextMenu!=='function')return;
+        helper.showContextMenu([
+          {label:'Open Value in Editor',action:openViewer},
+          {separator:true},
+          {label:'Remove New Row',danger:true,action:()=>{view.queryNewRows.splice(newIndex,1);renderResult(view,result,view.queryElapsed,{preserveDirty:true});}}
+        ],event.clientX,event.clientY);
+      };
       tr.append(td);
     });
     tbody.append(tr);
@@ -1111,7 +1188,7 @@ function attachDatabaseView(meta,activate){
   query.append(tools,editor,result);
   body.append(browser,query);pane.append(head,body);panes.append(pane);
 
-  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,editor,run,openSQL,saveSQL,maxRows,result,objectData:[],querySchemaCache:new Map(),scriptName:'query.sql',queryFilter:null,queryOrder:null,lastExecutedStatement:''};
+  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,editor,run,openSQL,saveSQL,maxRows,result,objectData:[],querySchemaCache:new Map(),scriptName:'query.sql',queryFilter:null,queryOrder:null,lastExecutedStatement:'',queryNewRows:[]};
   dbViews.set(meta.id,view);
   initQueryEditor(view);
   globalThis.TaskMenuDatabaseWorkbench?.enhanceView?.(view);
