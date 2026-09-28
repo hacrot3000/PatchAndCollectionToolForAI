@@ -1609,10 +1609,16 @@ function renderObjectDetail(view,object,detail){
     const pre=document.createElement('pre');pre.className='db-object-detail-sql';pre.textContent=String(detail.sql);section.append(pre);
   }
 
-  const handled=new Set(['kind','name','catalog','schema','columns','indexes','sql','truncated']);
+  const handled=new Set(['kind','name','catalog','schema','columns','indexes','sql','truncated','detail']);
   const extras=Object.entries(detail||{}).filter(([key,value])=>!handled.has(key)&&value!==undefined);
+  if(detail?.detail&&typeof detail.detail==='object'&&!Array.isArray(detail.detail)){
+    for(const [key,value] of Object.entries(detail.detail)){
+      if(key==='indexes')continue;
+      extras.push([key,value]);
+    }
+  }
   if(extras.length){
-    const section=objectDetailSection(view.detail,detail?.detail?'Details':'Additional info');
+    const section=objectDetailSection(view.detail,'Additional info');
     for(const [key,value] of extras)objectDetailGeneric(section,key,value);
   }
   if(detail?.truncated){
