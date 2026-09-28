@@ -36,6 +36,17 @@ type ExecutePayload struct {
 	MaxRows   int    `json:"max_rows"`
 }
 
+type ImportSQLPayload struct {
+	Path    string `json:"path"`
+	Catalog string `json:"catalog,omitempty"`
+	Schema  string `json:"schema,omitempty"`
+}
+
+type ImportSQLResult struct {
+	ImportedBytes int64  `json:"imported_bytes"`
+	Message       string `json:"message,omitempty"`
+}
+
 func NormalizeExecutePayload(payload ExecutePayload) (ExecutePayload, error) {
 	payload.Catalog = strings.TrimSpace(payload.Catalog)
 	payload.Schema = strings.TrimSpace(payload.Schema)
