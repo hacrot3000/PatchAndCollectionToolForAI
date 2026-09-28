@@ -1832,8 +1832,10 @@ function installPatchPanel(){
     updateForegroundHeading(foregroundProtocolState);
     runningMeta.classList.remove('stale');
     const completedName=foregroundRunName(foregroundProtocolState);
+    const outcome=foregroundRunOutcome(foregroundProtocolState);
     const failed=stateHasFailure(foregroundProtocolState);
-    runningMeta.textContent=(completedName?completedName+' · ':'')+(failed?'failed. Failure reason, recent console output, and handoff/artifacts are available below.':'completed successfully. Result and artifacts below are the latest foreground run.');
+    const exitDetail=failed&&outcome?.exitCode!==null?' rc='+outcome.exitCode+'.':'';
+    runningMeta.textContent=(completedName?completedName+' · ':'')+(failed?'failed.'+exitDetail+' Failure reason, recent console output, and handoff/artifacts are available below.':'completed successfully. Result and artifacts below are the latest foreground run.');
     runningBack.hidden=false;
   }
 
@@ -2330,7 +2332,21 @@ function installPatchPanel(){
     if(['BLOCKED','NOT_EXECUTED','CANCELLED'].includes(status))return 'warning';
     return '';
   }
-  function stateHasFailure(state){return (Array.isArray(state?.items)?state.items:[]).some(item=>lifecycleState(item?.status)==='failed');}
+  function foregroundRunOutcome(state){
+    const event=state?.last_event&&typeof state.last_event==='object'?state.last_event:null;
+    if(String(event?.type||'')!=='run_finished')return null;
+    const status=String(event?.status||'').trim().toLowerCase();
+    const rawExit=event?.exit_code;
+    const exitCode=rawExit===undefined||rawExit===null?null:Number(rawExit);
+    const failed=status==='failed'||status==='fail'||status==='error'||(Number.isFinite(exitCode)&&exitCode!==0);
+    return {failed,exitCode:Number.isFinite(exitCode)?exitCode:null,status};
+  }
+
+  function stateHasFailure(state){
+    const outcome=foregroundRunOutcome(state);
+    if(outcome?.failed)return true;
+    return (Array.isArray(state?.items)?state.items:[]).some(item=>lifecycleState(item?.status)==='failed');
+  }
 
   function updateForegroundHeading(state=foregroundProtocolState){
     const name=foregroundRunName(state);
