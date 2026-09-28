@@ -874,7 +874,7 @@ func TestDatabaseDataGridsShareActionMenuBuilder(t *testing.T) {
 		"order:()=>openDataOrderDialog(view)",
 		"function exportTableData(view)",
 		"function openDataOrderDialog(view)",
-		"...tableGridActionMenuItems(view)",
+		"tableGridActionMenuItems(view)",
 		"gridContextMenuItems(",
 		"gridActionMenuItems,",
 		"gridContextMenuItems,",
