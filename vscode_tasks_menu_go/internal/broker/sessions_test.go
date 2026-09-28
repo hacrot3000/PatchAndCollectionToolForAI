@@ -108,7 +108,7 @@ func TestBrokerClientOwnsAndControlsPTYSession(t *testing.T) {
 	}
 	defer unsubscribe()
 	output := string(backlog)
-	deadline := time.After(3 * time.Second)
+	deadline := time.After(brokerTestShutdownTimeout)
 	for !strings.Contains(output, "broker-env-ok") {
 		select {
 		case chunk, ok := <-stream:
@@ -149,7 +149,7 @@ func TestBrokerClientOwnsAndControlsPTYSession(t *testing.T) {
 		if err != nil {
 			t.Fatalf("broker shutdown: %v", err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(brokerTestShutdownTimeout):
 		t.Fatal("broker did not stop")
 	}
 }
@@ -188,7 +188,7 @@ func TestBrokerSessionSurvivesDaemonClientReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := string(backlog)
-	beforeDeadline := time.After(3 * time.Second)
+	beforeDeadline := time.After(brokerTestShutdownTimeout)
 	for !strings.Contains(output, "before-reconnect") {
 		select {
 		case chunk, ok := <-stream:
@@ -241,6 +241,9 @@ func TestBrokerSessionSurvivesDaemonClientReplacement(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+	if current, exists := second.Metadata(meta.ID); !exists || current.Status == "running" {
+		t.Fatalf("preserved session did not stop before broker shutdown: %#v exists=%v", current, exists)
+	}
 	if err := second.ShutdownBroker(); err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +252,7 @@ func TestBrokerSessionSurvivesDaemonClientReplacement(t *testing.T) {
 		if err != nil {
 			t.Fatalf("broker shutdown: %v", err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(brokerTestShutdownTimeout):
 		t.Fatal("broker did not stop")
 	}
 }
