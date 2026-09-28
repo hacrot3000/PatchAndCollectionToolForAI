@@ -196,10 +196,24 @@ function chooseHostSQLScript(){
   });
 }
 
-function chooseClientSQLScript(){
+async function chooseClientSQLScript(){
+  if(typeof globalThis.showOpenFilePicker==='function'){
+    try{
+      const handles=await globalThis.showOpenFilePicker({
+        multiple:false,
+        types:[{description:'SQL script',accept:{'text/plain':['.sql','.txt']}}]
+      });
+      const handle=handles?.[0];if(!handle)return null;
+      const file=await handle.getFile();
+      return {kind:'client',file,handle,name:file.name,size:file.size};
+    }catch(error){
+      if(error?.name==='AbortError')return null;
+      throw error;
+    }
+  }
   return new Promise(resolve=>{
     const input=document.createElement('input');input.type='file';input.accept='.sql,.txt,text/plain';input.hidden=true;document.body.append(input);
-    input.onchange=()=>{const file=input.files?.[0]||null;input.remove();resolve(file?{kind:'client',file,name:file.name,size:file.size}:null);};
+    input.onchange=()=>{const file=input.files?.[0]||null;input.remove();resolve(file?{kind:'client',file,handle:null,name:file.name,size:file.size}:null);};
     input.addEventListener('cancel',()=>{input.remove();resolve(null);},{once:true});
     input.click();
   });
@@ -245,6 +259,40 @@ async function importSQLSource(view,source){
   dialog.actions.append(cancel,run);
 }
 
+function queryScriptTooltip(source){
+  if(!source)return '';
+  if(source.kind==='host')return String(source.path||source.name||'');
+  if(source.kind==='client')return 'Client file: '+String(source.name||'');
+  return String(source.name||'');
+}
+
+function setQueryScriptIdentity(view,source){
+  view.scriptSource=source||null;
+  if(source?.name)view.scriptName=source.name;
+  if(source?.name)globalThis.TaskMenuDatabaseWorkbench?.updateQueryTabIdentity?.(view,{
+    label:source.name,
+    tooltip:queryScriptTooltip(source)
+  });
+}
+
+async function saveSQLScriptToExistingSource(view){
+  const source=view.scriptSource;
+  if(source?.kind==='host'&&source.path){
+    const dir=parentProjectPath(source.path)||'.';
+    const name=source.name||String(source.path).split('/').pop()||'query.sql';
+    const result=await uploadSQLTextToHost(name,queryEditorText(view),dir,true);
+    if(result){setQueryScriptIdentity(view,{...source,name,path:source.path});return true;}
+    return false;
+  }
+  if(source?.kind==='client'&&source.handle?.createWritable){
+    const writable=await source.handle.createWritable();
+    await writable.write(queryEditorText(view));await writable.close();
+    setQueryScriptIdentity(view,{...source,name:source.handle.name||source.name});
+    return true;
+  }
+  return false;
+}
+
 async function openSQLScript(view){
   const location=await chooseScriptLocation('Open SQL script');
   if(!location)return;
@@ -262,7 +310,11 @@ async function openSQLScript(view){
   }
   if(text.includes('\x00'))throw new Error('SQL script contains NUL bytes and cannot be opened');
   setQueryEditorText(view,text);
-  view.scriptName=source.name||'query.sql';
+  setQueryScriptIdentity(view,{
+    kind:source.kind,
+    name:source.name||'query.sql',
+    ...(source.kind==='host'?{path:source.path}:{handle:source.handle||null})
+  });
 }
 
 
@@ -300,8 +352,12 @@ async function saveSQLScriptToHost(view){
   if(target===null)return;
   let name=String(target.name||'').trim();
   if(!sqlScriptNameAllowed(name))name+='.sql';
-  const result=await uploadSQLTextToHost(name,queryEditorText(view),String(target.dir||'.').trim()||'.');
-  if(result)view.scriptName=name;
+  const dir=String(target.dir||'.').trim()||'.';
+  const result=await uploadSQLTextToHost(name,queryEditorText(view),dir);
+  if(result){
+    const relativeDir=dir==='.'?'':dir;
+    setQueryScriptIdentity(view,{kind:'host',name,path:joinProjectPath(relativeDir,name)});
+  }
 }
 
 async function saveTextToClient(name,text,{description='Text file',mime='text/plain;charset=utf-8',extensions=['.txt']}={}){
@@ -331,12 +387,31 @@ async function saveTextToClient(name,text,{description='Text file',mime='text/pl
 async function saveSQLScriptToClient(view){
   let name=String(view.scriptName||'query.sql').trim()||'query.sql';
   if(!sqlScriptNameAllowed(name))name+='.sql';
+  if(typeof globalThis.showSaveFilePicker==='function'){
+    try{
+      const handle=await globalThis.showSaveFilePicker({
+        suggestedName:name,
+        types:[{description:'SQL script',accept:{'text/plain':['.sql','.txt']}}]
+      });
+      const writable=await handle.createWritable();
+      await writable.write(queryEditorText(view));await writable.close();
+      setQueryScriptIdentity(view,{kind:'client',name:handle.name||name,handle});
+      return;
+    }catch(error){
+      if(error?.name==='AbortError')return;
+      throw error;
+    }
+  }
   const saved=await saveTextToClient(name,queryEditorText(view),{
     description:'SQL script',
     mime:'text/sql;charset=utf-8',
     extensions:['.sql','.txt']
   });
-  if(saved)view.scriptName=saved;
+  if(saved){
+    view.scriptName=saved;
+    view.scriptSource=null;
+    globalThis.TaskMenuDatabaseWorkbench?.updateQueryTabIdentity?.(view,{label:saved,tooltip:'Client file: '+saved});
+  }
 }
 
 async function saveTextWithLocation(titleText,suggestedName,text,{description='Text file',mime='text/plain;charset=utf-8',extensions=['.txt'],hostFileLabel='File name:'}={}){
@@ -363,6 +438,7 @@ async function saveTextWithLocation(titleText,suggestedName,text,{description='T
 }
 
 async function saveSQLScript(view){
+  if(await saveSQLScriptToExistingSource(view))return;
   const location=await chooseScriptLocation('Save SQL script');
   if(location==='host')return saveSQLScriptToHost(view);
   if(location==='client')return saveSQLScriptToClient(view);
@@ -1499,7 +1575,7 @@ function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValu
 
   Object.assign(view,{
     queryPanel:query,editor,run,openSQL,saveSQL,maxRows,result,
-    scriptName:scriptName||'query.sql',
+    scriptName:scriptName||'query.sql',scriptSource:null,
     queryFilter:null,queryOrder:null,lastExecutedStatement:'',queryNewRows:[],
     queryDirtyRows:new Map(),querySelectedRows:new Set(),querySelectionAnchor:null,
     queryResultTabs:null,queryResultPanels:null,queryResultContexts:[],activeQueryResult:0,resultStatement:'',
