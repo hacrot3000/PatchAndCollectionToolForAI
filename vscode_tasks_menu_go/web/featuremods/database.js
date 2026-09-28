@@ -276,21 +276,21 @@ function uploadSQLTextToHost(name,text,dir,overwrite=false){
 
 async function saveSQLScriptToHost(view){
   const browser=globalThis.TaskMenuDirectoryBrowser;
-  if(typeof browser?.choose!=='function')throw new Error('Host directory browser is unavailable');
-  const dir=await browser.choose({
+  if(typeof browser?.chooseFile!=='function')throw new Error('Host file browser is unavailable');
+  let suggestedName=String(view.scriptName||'query.sql').trim()||'query.sql';
+  if(!sqlScriptNameAllowed(suggestedName))suggestedName+='.sql';
+  const target=await browser.chooseFile({
     title:'Save SQL script on host',
     label:'Destination directory relative to the workspace:',
-    confirm:'Use directory',
+    fileLabel:'SQL script file name:',
+    fileName:suggestedName,
+    confirm:'Save SQL',
     initial:'.'
   });
-  if(dir===null)return;
-  let name=prompt('SQL script file name:',view.scriptName||'query.sql');
-  if(name===null)return;
-  name=String(name).trim();
-  if(!name)throw new Error('SQL script file name is required');
+  if(target===null)return;
+  let name=String(target.name||'').trim();
   if(!sqlScriptNameAllowed(name))name+='.sql';
-  if(name.includes('/')||name.includes('\\'))throw new Error('Enter a file name without a directory');
-  const result=await uploadSQLTextToHost(name,queryEditorText(view),String(dir).trim()||'.');
+  const result=await uploadSQLTextToHost(name,queryEditorText(view),String(target.dir||'.').trim()||'.');
   if(result)view.scriptName=name;
 }
 
@@ -886,36 +886,41 @@ async function exportQueryData(view,result){
   const selected=document.createElement('option');selected.value='selected';selected.textContent='Selected rows ('+querySelectedRowIndexes(view,result).length+')';selected.disabled=querySelectedRowIndexes(view,result).length===0;scope.append(selected);
   if(!selected.disabled)scope.value='selected';
   const headers=document.createElement('input');headers.type='checkbox';headers.checked=true;
-  const destination=document.createElement('select');
-  for(const [value,label] of [['client','Client computer'],['host','Host workspace']]){const option=document.createElement('option');option.value=value;option.textContent=label;destination.append(option);}
-  const name=document.createElement('input');name.type='text';name.style.width='100%';name.value='query-result.csv';
   const append=(label,input)=>{const key=document.createElement('div');key.textContent=label;const value=document.createElement('div');value.append(input);grid.append(key,value);};
-  append('Format',format);append('Scope',scope);append('Column header / JSON keys',headers);append('Destination',destination);append('File name',name);
-  format.onchange=()=>{const base=(name.value||'query-result').replace(/\.(csv|txt|json)$/i,'');name.value=base+queryExportExtension(format.value);};
+  append('Format',format);append('Scope',scope);append('Column header / JSON keys',headers);
   dialog.body.append(grid);
   const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=dialog.remove;
-  const save=document.createElement('button');save.type='button';save.className='task-connection-primary';save.textContent='Export';
+  const save=document.createElement('button');save.type='button';save.className='task-connection-primary';save.textContent='Choose save location…';
   save.onclick=async()=>{
-    const fileName=String(name.value||'').trim();
-    if(!fileName)throw new Error('Export file name is required');
-    if(fileName.includes('/')||fileName.includes('\\'))throw new Error('Enter a file name without a directory');
     const data=queryClipboardData(view,result,{selectedOnly:scope.value==='selected'});
     const text=helper.serializeClipboardData(format.value,data.columns,data.rows,headers.checked);
+    const ext=queryExportExtension(format.value);
+    const suggestedName='query-result'+ext;
+    const mime=queryExportMime(format.value);
     save.disabled=true;cancel.disabled=true;
     try{
-      if(destination.value==='host'){
+      dialog.remove();
+      const location=await chooseScriptLocation('Export query result');
+      if(!location)return;
+      if(location==='host'){
         const browser=globalThis.TaskMenuDirectoryBrowser;
-        if(typeof browser?.choose!=='function')throw new Error('Host directory browser is unavailable');
-        dialog.remove();
-        const dir=await browser.choose({title:'Export query result on host',label:'Destination directory relative to the workspace:',confirm:'Use directory',initial:'.'});
-        if(dir===null)return;
-        await uploadTextToHost(fileName,text,String(dir).trim()||'.',queryExportMime(format.value));
-      }else{
-        const ext=queryExportExtension(format.value);
-        await saveTextToClient(fileName,text,{description:'Database query export',mime:queryExportMime(format.value),extensions:[ext]});
-        dialog.remove();
+        if(typeof browser?.chooseFile!=='function')throw new Error('Host file browser is unavailable');
+        const target=await browser.chooseFile({
+          title:'Export query result on host',
+          label:'Destination directory relative to the workspace:',
+          fileLabel:'Export file name:',
+          fileName:suggestedName,
+          confirm:'Export here',
+          initial:'.'
+        });
+        if(target===null)return;
+        await uploadTextToHost(String(target.name||suggestedName),text,String(target.dir||'.').trim()||'.',mime);
+        return;
       }
-    }finally{if(save.isConnected){save.disabled=false;cancel.disabled=false;}}
+      await saveTextToClient(suggestedName,text,{description:'Database query export',mime,extensions:[ext]});
+    }finally{
+      if(save.isConnected){save.disabled=false;cancel.disabled=false;}
+    }
   };
   dialog.actions.append(cancel,save);
 }
