@@ -57,7 +57,7 @@ func TestDatabaseWorkspaceRendersResultsWithoutInnerHTML(t *testing.T) {
 		"document.createElement('table')",
 		"textContent=String(value)",
 		"JSON.stringify(value)",
-		"className='db-null'",
+		"classList.add('db-null')",
 		"result?.truncated",
 	} {
 		if !strings.Contains(js, want) {
