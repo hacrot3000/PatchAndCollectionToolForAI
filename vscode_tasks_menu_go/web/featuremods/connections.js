@@ -101,13 +101,13 @@ async function openSSH(profile){
   await startTerminal({ssh_profile_id:profile.id});
 }
 
-async function testSSH(profile,button){
+async function runSSHTest(payload,button){
   if(button)button.disabled=true;
   try{
     const result=await app.jsonFetch('/api/ssh/test',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({profile_id:profile.id})
+      body:JSON.stringify(payload)
     });
     if(!result?.ok)throw new Error(result?.message||'SSH connection test failed');
     if(button){
@@ -119,6 +119,10 @@ async function testSSH(profile,button){
   }finally{
     if(button?.isConnected)button.disabled=false;
   }
+}
+
+async function testSSH(profile,button){
+  return runSSHTest({profile_id:profile.id},button);
 }
 
 async function openDatabase(profile){
@@ -275,9 +279,31 @@ function openProfileDialog(profile=null){
   }
   auth.input.addEventListener('change',syncAuthFields);syncAuthFields();
 
+  function currentProfilePayload(){
+    const payload={
+      name:name.input.value,
+      host:host.input.value,
+      port:Number(port.input.value)||22,
+      username:username.input.value,
+      auth_method:auth.input.value,
+      identity_file:identity.input.value,
+      custom_home_dir:home.input.value,
+      proxy_jump:proxy.input.value,
+      preset_commands:presetCommandsFromText(presets.input.value)
+    };
+    if(auth.input.value!=='agent'&&secret.input.value!=='')payload.secret=secret.input.value;
+    return payload;
+  }
+
   const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
   const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>closeDialog(dialog);
+  const test=editing?null:document.createElement('button');
+  if(test){
+    test.type='button';test.textContent='Test';test.title='Test connection before adding this profile';
+    test.onclick=()=>runSSHTest({profile:currentProfilePayload()},test).catch(app.showError);
+  }
   const save=document.createElement('button');save.type='submit';save.className='task-connection-primary';save.textContent=editing?'Save':'Add profile';
+  if(test)actions.append(test);
   actions.append(cancel,save);form.append(actions);
   card.append(title,form);dialog.append(card);document.body.append(dialog);
   name.input.focus();
@@ -287,18 +313,7 @@ function openProfileDialog(profile=null){
   form.onsubmit=async event=>{
     event.preventDefault();save.disabled=true;
     try{
-      const payload={
-        name:name.input.value,
-        host:host.input.value,
-        port:Number(port.input.value)||22,
-        username:username.input.value,
-        auth_method:auth.input.value,
-        identity_file:identity.input.value,
-        custom_home_dir:home.input.value,
-        proxy_jump:proxy.input.value,
-        preset_commands:presetCommandsFromText(presets.input.value)
-      };
-      if(auth.input.value!=='agent'&&secret.input.value!=='')payload.secret=secret.input.value;
+      const payload=currentProfilePayload();
       await app.jsonFetch(editing?'/api/ssh/profiles/'+encodeURIComponent(profile.id):'/api/ssh/profiles',{
         method:editing?'PUT':'POST',
         headers:{'Content-Type':'application/json'},
