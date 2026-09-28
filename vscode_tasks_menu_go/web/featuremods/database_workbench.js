@@ -130,6 +130,15 @@ function positionContextSubmenu(submenu){
   }
 }
 
+function hideSiblingContextSubmenus(container,keepEntry){
+  for(const child of container?.children||[]){
+    if(child===keepEntry)continue;
+    for(const nested of child.children||[]){
+      if(nested.classList?.contains('db-context-submenu'))nested.style.display='none';
+    }
+  }
+}
+
 function appendContextMenuItems(container,items){
   for(const item of items){
     if(item.separator){
@@ -149,7 +158,7 @@ function appendContextMenuItems(container,items){
         cancelClose();
         closeTimer=setTimeout(()=>{submenu.style.display='none';closeTimer=null;},CONTEXT_SUBMENU_CLOSE_DELAY_MS);
       };
-      entry.onpointerenter=()=>{cancelClose();if(!button.disabled)positionContextSubmenu(submenu);};
+      entry.onpointerenter=()=>{cancelClose();hideSiblingContextSubmenus(container,entry);if(!button.disabled)positionContextSubmenu(submenu);};
       entry.onpointerleave=scheduleClose;
       submenu.onpointerenter=cancelClose;
       submenu.onpointerleave=scheduleClose;
@@ -157,6 +166,7 @@ function appendContextMenuItems(container,items){
         event.preventDefault();event.stopPropagation();
         if(button.disabled)return;
         cancelClose();
+        hideSiblingContextSubmenus(container,entry);
         if(submenu.style.display==='block')submenu.style.display='none';else positionContextSubmenu(submenu);
       };
       entry.append(button,submenu);
