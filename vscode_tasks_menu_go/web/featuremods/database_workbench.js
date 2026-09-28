@@ -6,6 +6,8 @@ const adaptersByID=new Map();
 let adapterLoadPromise=null;
 let contextMenu=null;
 const CONTEXT_SUBMENU_CLOSE_DELAY_MS=240;
+const QUERY_TABS_STORAGE_VERSION=1;
+const QUERY_TABS_SAVE_DELAY_MS=120;
 
 const style=document.createElement('style');
 style.textContent=`
@@ -264,6 +266,7 @@ function activatePanel(view,name){
       page.tab?.classList.toggle('active',key===name);
       page.panel?.classList.toggle('hidden',key!==name);
     }
+    scheduleQueryTabsSave(root);
     return;
   }
   for(const [key,button] of Object.entries(wb.tabs||{}))button.classList.toggle('active',key===name);
@@ -274,9 +277,13 @@ function workbenchObjectPageKey(mode,object){
   return mode+':'+objectKey(object);
 }
 
+function isQueryPageKey(key){
+  return key==='query'||String(key||'').startsWith('query:');
+}
+
 function createWorkbenchTab(view,key,label,{closable=true}={}){
   const root=rootWorkbenchView(view);const wb=root.workbench;
-  const button=document.createElement('button');button.type='button';button.className='db-workbench-tab';button.title=label;
+  const button=document.createElement('button');button.type='button';button.className='db-workbench-tab';button.title=label;button.dataset.pageKey=key;
   const text=document.createElement('span');text.className='db-workbench-tab-label';text.textContent=label;button.append(text);
   if(closable){
     const close=document.createElement('span');close.className='db-workbench-tab-close';close.textContent='×';close.title='Close tab';
@@ -285,16 +292,98 @@ function createWorkbenchTab(view,key,label,{closable=true}={}){
   }
   button.onclick=()=>activatePanel(root,key);
   button.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();showWorkbenchTabMenu(root,key,event.clientX,event.clientY);};
-  if(wb.addQuery?.isConnected){
-    wb.tabsBar.insertBefore(button,wb.addQuery);
-    wb.tabsBar.append(wb.addQuery);
-  }else wb.tabsBar.append(button);
+  if(wb.addQuery?.isConnected&&isQueryPageKey(key))wb.tabsBar.insertBefore(button,wb.addQuery);
+  else wb.tabsBar.append(button);
   return button;
 }
 
 function workbenchPageKeys(view){
+  const root=rootWorkbenchView(view);const wb=root.workbench;
+  if(wb?.tabsBar){
+    const keys=Array.from(wb.tabsBar.querySelectorAll('.db-workbench-tab[data-page-key]')).map(tab=>tab.dataset.pageKey).filter(key=>wb.pages?.has(key));
+    if(keys.length)return keys;
+  }
+  return Array.from(wb?.pages?.keys?.()||[]);
+}
+
+function queryTabsStorageKey(view){
   const root=rootWorkbenchView(view);
-  return Array.from(root.workbench?.pages?.keys?.()||[]);
+  const workspace=String(app.taskData?.workspace||'').trim();
+  const profile=String(root.meta?.profile_id||root.profile?.id||'').trim();
+  if(!workspace||!profile)return '';
+  return 'vscode-tasks-menu:db-query-tabs:v1:'+workspace+':'+profile;
+}
+
+function serializableQuerySource(source){
+  if(!source||typeof source!=='object')return null;
+  if(source.kind==='host'&&source.path)return {kind:'host',name:String(source.name||''),path:String(source.path)};
+  if(source.kind==='client'&&source.name)return {kind:'client',name:String(source.name)};
+  return null;
+}
+
+function queryPageSnapshot(page){
+  const ctx=page?.ctx;
+  if(page?.mode!=='query'||!ctx)return null;
+  const label=page.tab?.querySelector?.('.db-workbench-tab-label')?.textContent||'';
+  return {
+    key:String(page.key||''),
+    number:Number(page.queryNumber)||1,
+    text:String(database.getQueryText?.(ctx)??ctx.editor?.value??''),
+    maxRows:String(ctx.maxRows?.value||'100'),
+    scriptName:String(ctx.scriptName||'query.sql'),
+    scriptSource:serializableQuerySource(ctx.scriptSource),
+    label:String(label||''),
+    tooltip:String(page.tab?.title||'')
+  };
+}
+
+function saveQueryTabsNow(view){
+  const root=rootWorkbenchView(view);const wb=root?.workbench;const key=queryTabsStorageKey(root);
+  if(!wb||!key||wb.restoringQueries)return;
+  const queries=workbenchPageKeys(root).map(pageKey=>wb.pages.get(pageKey)).filter(page=>page?.mode==='query').map(queryPageSnapshot).filter(Boolean);
+  const activePage=wb.pages.get(wb.active);
+  const activeQueryKey=activePage?.mode==='query'?activePage.key:(wb.lastQueryKey||queries[0]?.key||'');
+  try{
+    localStorage.setItem(key,JSON.stringify({
+      version:QUERY_TABS_STORAGE_VERSION,
+      queryCounter:Number(wb.queryCounter)||queries.length,
+      activeQueryKey,
+      queries
+    }));
+  }catch(error){console.warn('Cannot persist database query tabs',error);}
+}
+
+function scheduleQueryTabsSave(view){
+  const root=rootWorkbenchView(view);const wb=root?.workbench;if(!wb||wb.restoringQueries)return;
+  clearTimeout(wb.querySaveTimer);
+  wb.querySaveTimer=setTimeout(()=>saveQueryTabsNow(root),QUERY_TABS_SAVE_DELAY_MS);
+}
+
+function readSavedQueryTabs(view){
+  const key=queryTabsStorageKey(view);if(!key)return null;
+  try{
+    const raw=JSON.parse(localStorage.getItem(key)||'null');
+    if(!raw||raw.version!==QUERY_TABS_STORAGE_VERSION||!Array.isArray(raw.queries)||raw.queries.length===0)return null;
+    const queries=raw.queries.slice(0,50).map((item,index)=>({
+      key:String(item?.key||''),
+      number:Math.max(1,Number(item?.number)||index+1),
+      text:String(item?.text??''),
+      maxRows:String(item?.maxRows||'100'),
+      scriptName:String(item?.scriptName||('query-'+(index+1)+'.sql')),
+      scriptSource:item?.scriptSource&&typeof item.scriptSource==='object'?item.scriptSource:null,
+      label:String(item?.label||''),
+      tooltip:String(item?.tooltip||'')
+    }));
+    return {queries,queryCounter:Math.max(...queries.map(item=>item.number),Number(raw.queryCounter)||1),activeQueryKey:String(raw.activeQueryKey||'')};
+  }catch(error){console.warn('Cannot restore database query tabs',error);return null;}
+}
+
+function applyQuerySnapshot(ctx,snapshot){
+  if(!ctx||!snapshot)return;
+  database.setQueryText?.(ctx,snapshot.text,{focus:false});
+  if(ctx.maxRows)ctx.maxRows.value=String(snapshot.maxRows||'100');
+  ctx.scriptName=snapshot.scriptName||'query.sql';
+  ctx.scriptSource=snapshot.scriptSource||null;
 }
 
 function firstQueryPage(view){
@@ -357,6 +446,7 @@ function closeWorkbenchPage(view,key,{force=false,activateFallback=true}={}){
   page.tab?.remove();page.panel?.remove();wb.pages.delete(key);
   if(wb.lastQueryKey===key)wb.lastQueryKey=firstQueryPage(root)?.key||'';
   if(activateFallback&&wb.active===key)activateWorkbenchFallback(root,Math.min(removedIndex,workbenchPageKeys(root).length-1));
+  scheduleQueryTabsSave(root);
   return true;
 }
 
@@ -375,16 +465,20 @@ function createWorkbenchChildView(view,mode){
   return child;
 }
 
-function createQueryPage(view){
+function createQueryPage(view,{number=0,key='',initialText='',scriptName='',scriptSource=null,maxRows='100',label='',tooltip='',activate=true}={}){
   const root=rootWorkbenchView(view);const wb=root.workbench;
   if(typeof database.createQueryView!=='function')throw new Error('Database query tab factory is unavailable');
-  wb.queryCounter=(wb.queryCounter||1)+1;
-  const number=wb.queryCounter;const key='query:'+number;
-  const ctx=database.createQueryView(root,{scriptName:'query-'+number+'.sql'});
+  if(!number){wb.queryCounter=(wb.queryCounter||1)+1;number=wb.queryCounter;}
+  else wb.queryCounter=Math.max(wb.queryCounter||1,number);
+  key=key||('query:'+number);
+  if(wb.pages.has(key)){key='query:'+number+':'+Date.now();}
+  const ctx=database.createQueryView(root,{initialText,scriptName:scriptName||('query-'+number+'.sql'),maxRowsValue:maxRows});
+  ctx.scriptSource=scriptSource||null;
   const panel=ctx.queryPanel;panel.classList.add('db-workbench-panel','hidden');
-  const tab=createWorkbenchTab(root,key,'Query '+number);
-  const page={key,mode:'query',ctx,tab,panel};wb.pages.set(key,page);wb.main.append(panel);
-  activatePanel(root,key);database.focusQuery?.(ctx);
+  const tab=createWorkbenchTab(root,key,label||('Query '+number));if(tooltip)tab.title=tooltip;
+  const page={key,mode:'query',ctx,tab,panel,queryNumber:number};wb.pages.set(key,page);wb.main.append(panel);
+  if(activate){activatePanel(root,key);database.focusQuery?.(ctx);}
+  scheduleQueryTabsSave(root);
   return page;
 }
 
@@ -1558,7 +1652,7 @@ function enhanceView(view){
   const tabsBar=document.createElement('div');tabsBar.className='db-workbench-tabs';
   const addQuery=document.createElement('button');addQuery.type='button';addQuery.className='db-workbench-add-query';addQuery.textContent='+ Query';addQuery.title='Create a new query tab';
   view.workbench={
-    active:'query',
+    active:'',
     tabsBar,
     main,
     pages:new Map(),
@@ -1566,15 +1660,38 @@ function enhanceView(view){
     objectFilter:null,
     addQuery,
     queryCounter:1,
-    lastQueryKey:'query'
+    lastQueryKey:'',
+    querySaveTimer:null,
+    restoringQueries:true
   };
   tabsBar.append(addQuery);
-  const queryTab=createWorkbenchTab(view,'query','Query 1');
-  view.workbench.pages.set('query',{key:'query',mode:'query',tab:queryTab,panel:query,ctx:view});
-  addQuery.onclick=()=>createQueryPage(view);
   main.prepend(tabsBar);
+
+  const saved=readSavedQueryTabs(view);
+  const snapshots=saved?.queries?.length?saved.queries:[{
+    key:'query',number:1,text:database.getQueryText?.(view)||'',maxRows:String(view.maxRows?.value||'100'),
+    scriptName:view.scriptName||'query.sql',scriptSource:serializableQuerySource(view.scriptSource),label:'Query 1',tooltip:'Query 1'
+  }];
+  const first=snapshots[0];
+  applyQuerySnapshot(view,first);
+  const firstKey=first.key||'query';
+  const queryTab=createWorkbenchTab(view,firstKey,first.label||('Query '+first.number));
+  if(first.tooltip)queryTab.title=first.tooltip;
+  view.workbench.pages.set(firstKey,{key:firstKey,mode:'query',tab:queryTab,panel:query,ctx:view,queryNumber:first.number});
+  view.workbench.queryCounter=Math.max(1,saved?.queryCounter||first.number||1);
+  view.workbench.lastQueryKey=firstKey;
+  for(const snapshot of snapshots.slice(1)){
+    createQueryPage(view,{
+      number:snapshot.number,key:snapshot.key,initialText:snapshot.text,scriptName:snapshot.scriptName,
+      scriptSource:snapshot.scriptSource,maxRows:snapshot.maxRows,label:snapshot.label,tooltip:snapshot.tooltip,activate:false
+    });
+  }
+  view.workbench.restoringQueries=false;
+  addQuery.onclick=()=>createQueryPage(view);
   paneKeyboardShortcuts(view);
-  activatePanel(view,'query');
+  const restoredActive=saved?.activeQueryKey&&view.workbench.pages.has(saved.activeQueryKey)?saved.activeQueryKey:firstKey;
+  activatePanel(view,restoredActive);
+  scheduleQueryTabsSave(view);
 
   const browserHead=view.objects?.closest('.db-browser')?.querySelector('.db-browser-head');
   if(browserHead){
@@ -1597,6 +1714,8 @@ globalThis.TaskMenuDatabaseWorkbench={
   showContextMenu,
   gridActionMenuItems,
   gridContextMenuItems,
+  queryStateChanged:view=>scheduleQueryTabsSave(view),
+  persistQueryTabs:view=>saveQueryTabsNow(view),
   updateQueryTabIdentity(view,{label='',tooltip=''}={}){
     const root=rootWorkbenchView(view);
     for(const page of root.workbench?.pages?.values?.()||[]){
@@ -1604,6 +1723,7 @@ globalThis.TaskMenuDatabaseWorkbench={
       const text=page.tab?.querySelector?.('.db-workbench-tab-label');
       if(text&&label)text.textContent=label;
       if(page.tab)page.tab.title=tooltip||label||page.tab.title;
+      scheduleQueryTabsSave(root);
       return true;
     }
     return false;
