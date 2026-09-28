@@ -30,12 +30,22 @@ type DescribeObjectPayload struct {
 }
 
 type ExecutePayload struct {
+	Catalog   string `json:"catalog,omitempty"`
+	Schema    string `json:"schema,omitempty"`
 	Statement string `json:"statement"`
 	MaxRows   int    `json:"max_rows"`
 }
 
 func NormalizeExecutePayload(payload ExecutePayload) (ExecutePayload, error) {
+	payload.Catalog = strings.TrimSpace(payload.Catalog)
+	payload.Schema = strings.TrimSpace(payload.Schema)
 	payload.Statement = strings.TrimSpace(payload.Statement)
+	if err := validateText("database catalog", payload.Catalog, 512, false); err != nil {
+		return ExecutePayload{}, err
+	}
+	if err := validateText("database schema", payload.Schema, 512, false); err != nil {
+		return ExecutePayload{}, err
+	}
 	if payload.Statement == "" {
 		return ExecutePayload{}, fmt.Errorf("database statement is required")
 	}
