@@ -758,9 +758,9 @@ func TestDatabaseWorkbenchRoutesGeneratedSQLIntoQueryEditorAPI(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"typeof database.setQueryText==='function'",
-		"database.setQueryText(view,text,{focus:false})",
+		"database.setQueryText(target,text,{focus:false})",
 		"typeof database.focusQuery==='function'",
-		"database.focusQuery(view)",
+		"database.focusQuery(target)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("database_workbench.js missing CodeMirror query routing %q", want)
