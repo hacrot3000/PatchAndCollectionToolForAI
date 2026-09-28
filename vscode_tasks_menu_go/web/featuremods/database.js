@@ -254,18 +254,22 @@ async function openSQLScript(view){
 }
 
 
-async function uploadSQLTextToHost(name,text,dir,overwrite=false){
+async function uploadTextToHost(name,text,dir,mime='text/plain;charset=utf-8',overwrite=false){
   const form=new FormData();
   form.append('dir',dir||'.');
-  form.append('file',new Blob([text],{type:'text/sql;charset=utf-8'}),name);
+  form.append('file',new Blob([text],{type:mime}),name);
   const response=await app.fetchWithLease('/api/files/upload'+(overwrite?'?overwrite=1':''),{method:'POST',body:form,cache:'no-store'});
   if(response.status===409&&!overwrite){
     const message=(await response.text()).trim();
-    if(confirm((message||name+' already exists')+'\n\nOverwrite it?'))return uploadSQLTextToHost(name,text,dir,true);
+    if(confirm((message||name+' already exists')+'\n\nOverwrite it?'))return uploadTextToHost(name,text,dir,mime,true);
     return null;
   }
   if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
   return response.json();
+}
+
+function uploadSQLTextToHost(name,text,dir,overwrite=false){
+  return uploadTextToHost(name,text,dir,'text/sql;charset=utf-8',overwrite);
 }
 
 async function saveSQLScriptToHost(view){
@@ -288,29 +292,39 @@ async function saveSQLScriptToHost(view){
   if(result)view.scriptName=name;
 }
 
-async function saveSQLScriptToClient(view){
-  let name=String(view.scriptName||'query.sql').trim()||'query.sql';
-  if(!sqlScriptNameAllowed(name))name+='.sql';
-  const text=queryEditorText(view);
+async function saveTextToClient(name,text,{description='Text file',mime='text/plain;charset=utf-8',extensions=['.txt']}={}){
   if(typeof globalThis.showSaveFilePicker==='function'){
     try{
+      const acceptMime=mime.split(';')[0]||'text/plain';
       const handle=await globalThis.showSaveFilePicker({
         suggestedName:name,
-        types:[{description:'SQL script',accept:{'text/plain':['.sql','.txt']}}]
+        types:[{description,accept:{[acceptMime]:extensions}}]
       });
       const writable=await handle.createWritable();
       await writable.write(text);await writable.close();
-      view.scriptName=handle.name||name;return;
+      return handle.name||name;
     }catch(error){
-      if(error?.name==='AbortError')return;
+      if(error?.name==='AbortError')return null;
       throw error;
     }
   }
-  const blob=new Blob([text],{type:'text/sql;charset=utf-8'});
+  const blob=new Blob([text],{type:mime});
   const url=URL.createObjectURL(blob);
   try{
     const link=document.createElement('a');link.href=url;link.download=name;link.rel='noopener';document.body.append(link);link.click();link.remove();
   }finally{setTimeout(()=>URL.revokeObjectURL(url),0);}
+  return name;
+}
+
+async function saveSQLScriptToClient(view){
+  let name=String(view.scriptName||'query.sql').trim()||'query.sql';
+  if(!sqlScriptNameAllowed(name))name+='.sql';
+  const saved=await saveTextToClient(name,queryEditorText(view),{
+    description:'SQL script',
+    mime:'text/sql;charset=utf-8',
+    extensions:['.sql','.txt']
+  });
+  if(saved)view.scriptName=saved;
 }
 
 async function saveSQLScript(view){
@@ -763,10 +777,13 @@ function queryClipboardData(view,result,{selectedOnly=false}={}){
   const columns=Array.isArray(result?.columns)?result.columns.map(column=>String(column?.name||'')):[];
   const rows=Array.isArray(result?.rows)?result.rows:[];
   const indexes=selectedOnly?querySelectedRowIndexes(view,result):queryDisplayRowIndexes(view,result);
-  return {
-    columns,
-    rows:indexes.map(rowIndex=>columns.map((_,columnIndex)=>queryCellValue(view,result,rowIndex,columnIndex)))
-  };
+  const outputRows=indexes.map(rowIndex=>columns.map((_,columnIndex)=>queryCellValue(view,result,rowIndex,columnIndex)));
+  if(!selectedOnly){
+    for(const values of view.queryNewRows||[]){
+      outputRows.push(columns.map(name=>Object.prototype.hasOwnProperty.call(values,name)?values[name]:null));
+    }
+  }
+  return {columns,rows:outputRows};
 }
 
 async function copyQueryData(view,result,format,includeHeaders,scope){
@@ -795,6 +812,70 @@ function queryCopyMenuItems(view,result){
   ];
 }
 
+function queryExportExtension(format){
+  return format==='csv'?'.csv':(format==='json'?'.json':'.txt');
+}
+
+function queryExportMime(format){
+  return format==='csv'?'text/csv;charset=utf-8':(format==='json'?'application/json;charset=utf-8':'text/plain;charset=utf-8');
+}
+
+async function exportQueryData(view,result){
+  const helper=globalThis.TaskMenuDatabaseWorkbench;
+  if(typeof helper?.serializeClipboardData!=='function')throw new Error('Database export serializer is unavailable');
+  const dialog=createDBDialog('Export query result');
+  const grid=document.createElement('div');grid.className='db-import-grid';
+  const format=document.createElement('select');
+  for(const value of ['csv','txt','json']){const option=document.createElement('option');option.value=value;option.textContent=value.toUpperCase();format.append(option);}
+  const scope=document.createElement('select');
+  const current=document.createElement('option');current.value='current';current.textContent='Current result';scope.append(current);
+  const selected=document.createElement('option');selected.value='selected';selected.textContent='Selected rows ('+querySelectedRowIndexes(view,result).length+')';selected.disabled=querySelectedRowIndexes(view,result).length===0;scope.append(selected);
+  if(!selected.disabled)scope.value='selected';
+  const headers=document.createElement('input');headers.type='checkbox';headers.checked=true;
+  const destination=document.createElement('select');
+  for(const [value,label] of [['client','Client computer'],['host','Host workspace']]){const option=document.createElement('option');option.value=value;option.textContent=label;destination.append(option);}
+  const name=document.createElement('input');name.type='text';name.style.width='100%';name.value='query-result.csv';
+  const append=(label,input)=>{const key=document.createElement('div');key.textContent=label;const value=document.createElement('div');value.append(input);grid.append(key,value);};
+  append('Format',format);append('Scope',scope);append('Column header / JSON keys',headers);append('Destination',destination);append('File name',name);
+  format.onchange=()=>{const base=(name.value||'query-result').replace(/.(csv|txt|json)$/i,'');name.value=base+queryExportExtension(format.value);};
+  dialog.body.append(grid);
+  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=dialog.remove;
+  const save=document.createElement('button');save.type='button';save.className='task-connection-primary';save.textContent='Export';
+  save.onclick=async()=>{
+    const fileName=String(name.value||'').trim();
+    if(!fileName)throw new Error('Export file name is required');
+    if(fileName.includes('/')||fileName.includes('\\'))throw new Error('Enter a file name without a directory');
+    const data=queryClipboardData(view,result,{selectedOnly:scope.value==='selected'});
+    const text=helper.serializeClipboardData(format.value,data.columns,data.rows,headers.checked);
+    save.disabled=true;cancel.disabled=true;
+    try{
+      if(destination.value==='host'){
+        const browser=globalThis.TaskMenuDirectoryBrowser;
+        if(typeof browser?.choose!=='function')throw new Error('Host directory browser is unavailable');
+        dialog.remove();
+        const dir=await browser.choose({title:'Export query result on host',label:'Destination directory relative to the workspace:',confirm:'Use directory',initial:'.'});
+        if(dir===null)return;
+        await uploadTextToHost(fileName,text,String(dir).trim()||'.',queryExportMime(format.value));
+      }else{
+        const ext=queryExportExtension(format.value);
+        await saveTextToClient(fileName,text,{description:'Database query export',mime:queryExportMime(format.value),extensions:[ext]});
+        dialog.remove();
+      }
+    }finally{if(save.isConnected){save.disabled=false;cancel.disabled=false;}}
+  };
+  dialog.actions.append(cancel,save);
+}
+
+function queryGridActionMenuItems(view,result){
+  return [
+    {label:'Export data…',action:()=>exportQueryData(view,result)},
+    {label:'Refresh',action:()=>executeQuery(view)},
+    {label:'Filter…',action:()=>openQueryFilterDialog(view,result)},
+    {label:'Add row',disabled:!result?.edit?.editable,action:()=>addQueryRow(view,result)},
+    {label:'Order…',action:()=>openQueryOrderDialog(view,result)}
+  ];
+}
+
 function showQueryContextMenu(view,result,rowIndex,columnIndex,x,y){
   const helper=globalThis.TaskMenuDatabaseWorkbench;
   if(typeof helper?.showContextMenu!=='function')throw new Error('Database context menu is unavailable');
@@ -804,7 +885,9 @@ function showQueryContextMenu(view,result,rowIndex,columnIndex,x,y){
   helper.showContextMenu([
     {label:'Copy Value',action:()=>helper.copyText(value===null||value===undefined?'':(typeof value==='object'?JSON.stringify(value):String(value)))},
     {label:'Copy Column Name',action:()=>helper.copyText(column?.name||'')},
-    ...queryCopyMenuItems(view,result)
+    ...queryCopyMenuItems(view,result),
+    {separator:true},
+    ...queryGridActionMenuItems(view,result)
   ],x,y);
 }
 
@@ -972,9 +1055,11 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
     if(typeof helper?.showContextMenu!=='function')return;
     const selected=querySelectedRowIndexes(view,result).length;
     helper.showContextMenu([
-      {label:selected?'Clear row selection':'Select all rows in current result',action:()=>toggleSelectAllQueryRows(view,result)},
+      {label:selected?'Clear row selection':'Select all visible rows',action:()=>toggleSelectAllQueryRows(view,result)},
       {separator:true},
-      ...queryCopyMenuItems(view,result)
+      ...queryCopyMenuItems(view,result),
+      {separator:true},
+      ...queryGridActionMenuItems(view,result)
     ],event.clientX,event.clientY);
   };
   header.append(selectAll);
@@ -995,7 +1080,11 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
       if(!view.querySelectedRows?.has(rowIndex))selectQueryRow(view,result,rowIndex,{});
       const helper=globalThis.TaskMenuDatabaseWorkbench;
       if(typeof helper?.showContextMenu!=='function')return;
-      helper.showContextMenu(queryCopyMenuItems(view,result),event.clientX,event.clientY);
+      helper.showContextMenu([
+        ...queryCopyMenuItems(view,result),
+        {separator:true},
+        ...queryGridActionMenuItems(view,result)
+      ],event.clientX,event.clientY);
     };
     tr.append(rowNo);
     (Array.isArray(row)?row:[]).forEach((_,columnIndex)=>{
