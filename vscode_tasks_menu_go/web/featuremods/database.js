@@ -1480,7 +1480,8 @@ function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValu
     scriptName:scriptName||'query.sql',
     queryFilter:null,queryOrder:null,lastExecutedStatement:'',queryNewRows:[],
     queryDirtyRows:new Map(),querySelectedRows:new Set(),querySelectionAnchor:null,
-    queryResultTabs:null,queryResultPanels:null,queryResultContexts:[],activeQueryResult:0,resultStatement:''
+    queryResultTabs:null,queryResultPanels:null,queryResultContexts:[],activeQueryResult:0,resultStatement:'',
+    querySchemaTimer:null
   });
   if(!(view.querySchemaCache instanceof Map))view.querySchemaCache=new Map();
   initQueryEditor(view);
