@@ -57,7 +57,17 @@ func TestConnectionsPanelUsesExistingTerminalSessionsAndSafeProfileAPI(t *testin
 		"const test=editing?null:document.createElement('button')",
 		"runSSHTest({profile:currentProfilePayload()},test)",
 		"Test connection before adding this profile",
-		"onTest:button=>testSSH(profile,button)",
+		"function showConnectionContextMenu(items,x,y)",
+		"row.oncontextmenu=event=>",
+		"label:'Clone'",
+		"label:'Delete'",
+		"label:'Test'",
+		"label:'Edit'",
+		"onClone:()=>openProfileDialog(clonedProfile(profile))",
+		"onTest:()=>testSSHFromMenu(profile)",
+		"onClone:()=>openDatabaseProfileDialog(clonedProfile(profile))",
+		"onTest:()=>testDatabaseFromMenu(profile)",
+		"open.onclick=()=>Promise.resolve(onOpen()).catch(app.showError)",
 		"const test=editing?document.createElement('button'):null",
 		"test.onclick=()=>testDatabase(profile,test).catch(app.showError)",
 		"if(test)actions.append(test)",
@@ -82,9 +92,33 @@ func TestConnectionsPanelUsesExistingTerminalSessionsAndSafeProfileAPI(t *testin
 		"profile.secret_ref",
 		"profile.secret",
 		"innerHTML=profile",
+		"task-connection-actions",
 	} {
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("connections.js must not expose stored SSH secrets through %q", forbidden)
+		}
+	}
+}
+
+
+func TestConnectionsContextMenuCloneDoesNotExposeStoredSecrets(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/connections.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function clonedProfile(profile)",
+		"delete clone.id",
+		"delete clone.has_secret",
+		"+' Copy'",
+		"onDelete:()=>deleteProfile(profile)",
+		"onEdit:()=>openProfileDialog(profile)",
+		"onDelete:()=>deleteDatabaseProfile(profile)",
+		"onEdit:()=>openDatabaseProfileDialog(profile)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("connections.js missing context-menu clone behavior %q", want)
 		}
 	}
 }
