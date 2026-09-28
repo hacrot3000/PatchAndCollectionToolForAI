@@ -57,6 +57,7 @@ style.textContent=`
 .db-import-grid{display:grid;grid-template-columns:130px 1fr;gap:7px 10px;font-size:12px}.db-import-grid select{min-width:0}
 .db-query-filter-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}.db-query-filter-head label{font-size:11px;font-weight:700;opacity:.7}.db-query-filter-head select{min-width:160px}
 .db-query-filter-conditions{display:flex;flex-direction:column;gap:7px}.db-query-filter-condition{display:grid;grid-template-columns:minmax(120px,1fr) minmax(110px,1fr) minmax(140px,1.4fr) auto;gap:7px;align-items:center}.db-query-filter-condition input,.db-query-filter-condition select{min-width:0;width:100%;box-sizing:border-box}.db-query-filter-condition button{white-space:nowrap}.db-query-filter-add{margin-top:9px}
+.db-query-order-list{display:flex;flex-direction:column;gap:7px}.db-query-order-row{display:grid;grid-template-columns:minmax(140px,1fr) minmax(130px,.7fr) auto;gap:7px;align-items:center}.db-query-order-row select{min-width:0;width:100%;box-sizing:border-box}.db-query-order-row button{white-space:nowrap}.db-query-order-add{margin-top:9px}
 html[data-taskmenu-theme="light"] .db-script-card{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .db-script-browser-row:hover,html[data-taskmenu-theme="light"] .db-script-browser-row.selected{background:#e8eef5}
 .db-query-editor{min-height:130px;height:32%;resize:vertical;background:#090c10;color:inherit;border:0;border-bottom:1px solid #30343b;padding:10px;font-family:ui-monospace,monospace;font-size:13px;line-height:1.45;outline:none}
@@ -847,18 +848,27 @@ function queryFilterMatchesRow(view,result,rowIndex,filter){
   return normalized.logic==='or'?matches.some(Boolean):matches.every(Boolean);
 }
 
+function normalizeQueryOrder(order,columnCount=Number.MAX_SAFE_INTEGER){
+  const raw=Array.isArray(order)?order:(order&&Number.isInteger(order.columnIndex)?[order]:[]);
+  return raw
+    .map(item=>({columnIndex:Number(item?.columnIndex),direction:item?.direction==='desc'?'desc':'asc'}))
+    .filter(item=>Number.isInteger(item.columnIndex)&&item.columnIndex>=0&&item.columnIndex<columnCount);
+}
+
 function queryDisplayRowIndexes(view,result=view.queryResult){
   const rows=Array.isArray(result?.rows)?result.rows:[];
   const columns=Array.isArray(result?.columns)?result.columns:[];
   let indexes=rows.map((_,index)=>index);
   const filter=normalizeQueryFilter(view.queryFilter);
   if(filter)indexes=indexes.filter(rowIndex=>queryFilterMatchesRow(view,result,rowIndex,filter));
-  const order=view.queryOrder;
-  if(order&&Number.isInteger(order.columnIndex)&&order.columnIndex>=0&&order.columnIndex<columns.length){
-    const direction=order.direction==='desc'?-1:1;
+  const orders=normalizeQueryOrder(view.queryOrder,columns.length);
+  if(orders.length){
     indexes=indexes.map((rowIndex,position)=>({rowIndex,position})).sort((a,b)=>{
-      const compared=queryCompareValues(queryCellValue(view,result,a.rowIndex,order.columnIndex),queryCellValue(view,result,b.rowIndex,order.columnIndex));
-      return compared===0?a.position-b.position:compared*direction;
+      for(const order of orders){
+        const compared=queryCompareValues(queryCellValue(view,result,a.rowIndex,order.columnIndex),queryCellValue(view,result,b.rowIndex,order.columnIndex));
+        if(compared!==0)return compared*(order.direction==='desc'?-1:1);
+      }
+      return a.position-b.position;
     }).map(item=>item.rowIndex);
   }
   return indexes;
@@ -983,25 +993,46 @@ function openQueryOrderDialog(view,result){
   const columns=Array.isArray(result?.columns)?result.columns:[];
   if(!columns.length)return;
   const dialog=createDBDialog('Order current query result');
-  const grid=document.createElement('div');grid.className='db-import-grid';
-  const column=document.createElement('select');
-  columns.forEach((item,index)=>{const option=document.createElement('option');option.value=String(index);option.textContent=item?.name||'';column.append(option);});
-  const direction=document.createElement('select');
-  for(const [value,label] of [['asc','Ascending'],['desc','Descending']]){const option=document.createElement('option');option.value=value;option.textContent=label;direction.append(option);}
-  const append=(label,input)=>{const key=document.createElement('div');key.textContent=label;grid.append(key,input);};
-  append('Column',column);append('Direction',direction);dialog.body.append(grid);
-  if(view.queryOrder){column.value=String(view.queryOrder.columnIndex);direction.value=view.queryOrder.direction;}
+  const list=document.createElement('div');list.className='db-query-order-list';
+  const rows=[];
+  const current=normalizeQueryOrder(view.queryOrder,columns.length);
+
+  const syncRemoveButtons=()=>{for(const row of rows)row.remove.disabled=rows.length<=1;};
+  const addOrder=(order={})=>{
+    const wrap=document.createElement('div');wrap.className='db-query-order-row';
+    const column=document.createElement('select');
+    columns.forEach((item,index)=>{const option=document.createElement('option');option.value=String(index);option.textContent=item?.name||'';column.append(option);});
+    const direction=document.createElement('select');
+    for(const [value,label] of [['asc','Ascending'],['desc','Descending']]){const option=document.createElement('option');option.value=value;option.textContent=label;direction.append(option);}
+    const remove=document.createElement('button');remove.type='button';remove.textContent='Remove';
+    if(Number.isInteger(order.columnIndex)&&order.columnIndex>=0&&order.columnIndex<columns.length)column.value=String(order.columnIndex);
+    direction.value=order.direction==='desc'?'desc':'asc';
+    const row={wrap,column,direction,remove};
+    remove.onclick=()=>{const index=rows.indexOf(row);if(index>=0)rows.splice(index,1);wrap.remove();syncRemoveButtons();};
+    rows.push(row);wrap.append(column,direction,remove);list.append(wrap);syncRemoveButtons();
+  };
+
+  for(const order of current.length?current:[{}])addOrder(order);
+  const add=document.createElement('button');add.type='button';add.className='db-query-order-add';add.textContent='Add order column';add.onclick=()=>addOrder({});
+  dialog.body.append(list,add);
+
   const clear=document.createElement('button');clear.type='button';clear.textContent='Clear order';clear.onclick=()=>{view.queryOrder=null;dialog.remove();renderResult(view,result,view.queryElapsed,{preserveDirty:true});};
   const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=dialog.remove;
   const apply=document.createElement('button');apply.type='button';apply.className='task-connection-primary';apply.textContent='Apply';
-  apply.onclick=()=>{view.queryOrder={columnIndex:Number(column.value),direction:direction.value};dialog.remove();renderResult(view,result,view.queryElapsed,{preserveDirty:true});};
+  apply.onclick=()=>{
+    const orders=rows.map(row=>({columnIndex:Number(row.column.value),direction:row.direction.value==='desc'?'desc':'asc'}));
+    view.queryOrder=orders.length?orders:null;
+    dialog.remove();renderResult(view,result,view.queryElapsed,{preserveDirty:true});
+  };
   dialog.actions.append(clear,cancel,apply);
 }
 
 function toggleQueryHeaderOrder(view,result,columnIndex){
-  const current=view.queryOrder;
-  if(!current||current.columnIndex!==columnIndex)view.queryOrder={columnIndex,direction:'asc'};
-  else if(current.direction==='asc')view.queryOrder={columnIndex,direction:'desc'};
+  const columns=Array.isArray(result?.columns)?result.columns:[];
+  const orders=normalizeQueryOrder(view.queryOrder,columns.length);
+  const current=orders.length===1&&orders[0].columnIndex===columnIndex?orders[0]:null;
+  if(!current)view.queryOrder=[{columnIndex,direction:'asc'}];
+  else if(current.direction==='asc')view.queryOrder=[{columnIndex,direction:'desc'}];
   else view.queryOrder=null;
   renderResult(view,result,view.queryElapsed,{preserveDirty:true});
 }
@@ -1294,9 +1325,14 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
     ),event.clientX,event.clientY);
   };
   header.append(selectAll);
+  const activeOrders=normalizeQueryOrder(view.queryOrder,columns.length);
   columns.forEach((column,columnIndex)=>{
     const th=document.createElement('th');th.textContent=column?.name||'';if(column?.type)th.title=column.type;
-    if(view.queryOrder?.columnIndex===columnIndex)th.textContent+=(view.queryOrder.direction==='desc'?' ▼':' ▲');
+    const orderIndex=activeOrders.findIndex(order=>order.columnIndex===columnIndex);
+    if(orderIndex>=0){
+      const order=activeOrders[orderIndex];
+      th.textContent+=' '+(order.direction==='desc'?'▼':'▲')+(activeOrders.length>1?String(orderIndex+1):'');
+    }
     th.style.cursor='pointer';th.onclick=()=>toggleQueryHeaderOrder(view,result,columnIndex);header.append(th);
   });
   thead.append(header);table.append(thead);
