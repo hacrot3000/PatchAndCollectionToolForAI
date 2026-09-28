@@ -1487,6 +1487,12 @@ function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValu
   });
   if(!(view.querySchemaCache instanceof Map))view.querySchemaCache=new Map();
   initQueryEditor(view);
+  run.onclick=()=>executeQuery(view).catch(app.showError);
+  openSQL.onclick=()=>openSQLScript(view).catch(app.showError);
+  saveSQL.onclick=()=>saveSQLScript(view).catch(app.showError);
+  if(!view.queryCM)editor.addEventListener('keydown',event=>{
+    if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();executeQuery(view).catch(app.showError);}
+  });
   return query;
 }
 
