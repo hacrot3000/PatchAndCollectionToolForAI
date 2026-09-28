@@ -189,7 +189,7 @@ func TestBrowserDatabaseOperationsAreStrictlyAllowlisted(t *testing.T) {
 
 	payload, err := normalizeBrowserDBOperation(
 		dbadapter.OpExecute,
-		json.RawMessage(`{"statement":"SELECT 1"}`),
+		json.RawMessage(`{"catalog":" main ","statement":"SELECT 1"}`),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -197,6 +197,9 @@ func TestBrowserDatabaseOperationsAreStrictlyAllowlisted(t *testing.T) {
 	execute, ok := payload.(dbadapter.ExecutePayload)
 	if !ok {
 		t.Fatalf("payload type=%T", payload)
+	}
+	if execute.Catalog != "main" {
+		t.Fatalf("catalog=%q want main", execute.Catalog)
 	}
 	if execute.MaxRows != dbadapter.MaxRows {
 		t.Fatalf("max rows=%d want %d", execute.MaxRows, dbadapter.MaxRows)
