@@ -291,6 +291,17 @@ async function testProfile(profileOrID){
   }
 }
 
+async function testDraft(profileID,profile){
+  if(!profile||typeof profile!=='object')throw new Error('Database profile draft is required');
+  const body={profile};
+  if(profileID)body.profile_id=profileID;
+  return app.jsonFetch('/api/db/test',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body)
+  });
+}
+
 async function restoreDatabaseSessions(){
   await refreshProfiles();
   const data=await app.jsonFetch('/api/db/sessions');
@@ -311,6 +322,7 @@ window.addEventListener('taskmenu:view-activated',event=>{
 globalThis.TaskMenuDatabase={
   openProfile,
   testProfile,
+  testDraft,
   refreshProfiles,
   request:sessionRequest,
   getProfile:profileFor,
