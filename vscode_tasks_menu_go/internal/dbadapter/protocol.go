@@ -242,6 +242,15 @@ func ValidateResponsePayload(env Envelope) error {
 			return fmt.Errorf("decode database object action result: %w", err)
 		}
 		return ValidateObjectActionResult(result)
+	case OpImportSQL:
+		var result ImportSQLResult
+		if err := json.Unmarshal(env.Payload, &result); err != nil {
+			return fmt.Errorf("decode database SQL import result: %w", err)
+		}
+		if result.ImportedBytes < 0 {
+			return fmt.Errorf("database SQL import result has negative imported_bytes")
+		}
+		return validateText("database SQL import message", strings.TrimSpace(result.Message), 1024, false)
 	default:
 		return nil
 	}
