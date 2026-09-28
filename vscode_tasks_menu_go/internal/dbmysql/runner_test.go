@@ -131,7 +131,7 @@ func TestRunClientFileStreamsSQLScriptToStdin(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "stdin.sql")
 	t.Setenv("TASKDECK_TEST_STDIN", target)
 	clientPath := writeRunnerFixture(t,
-		"cat > "$TASKDECK_TEST_STDIN"\n"+
+		"cat > \"$TASKDECK_TEST_STDIN\"\n"+
 			"exit 0",
 	)
 	source := filepath.Join(t.TempDir(), "import.sql")
