@@ -295,8 +295,11 @@ function closeWorkbenchPages(view,keys){
   if(!wb)return false;
   const pages=keys.map(key=>wb.pages.get(key)).filter(page=>page&&page.key!=='query');
   if(!pages.length)return false;
-  const dirty=pages.filter(page=>page.mode==='data'&&page.ctx&&hasPendingChanges(page.ctx));
-  if(dirty.length&&!confirm('Discard unsaved database grid changes in '+dirty.length+' tab'+(dirty.length===1?'':'s')+'?'))return false;
+  const dirty=pages.filter(page=>
+    (page.mode==='data'&&page.ctx&&hasPendingChanges(page.ctx))||
+    (page.mode==='query'&&page.ctx&&database.queryHasPendingChanges?.(page.ctx))
+  );
+  if(dirty.length&&!confirm('Discard unsaved changes in '+dirty.length+' tab'+(dirty.length===1?'':'s')+'?'))return false;
   const activeWillClose=pages.some(page=>page.key===wb.active);
   for(const page of pages)closeWorkbenchPage(root,page.key,{force:true,activateFallback:false});
   if(activeWillClose)activatePanel(root,'query');
