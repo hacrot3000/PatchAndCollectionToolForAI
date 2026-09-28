@@ -465,7 +465,7 @@ function createWorkbenchChildView(view,mode){
   return child;
 }
 
-function createQueryPage(view,{number=0,key='',initialText='',scriptName='',scriptSource=null,maxRows='100',label='',tooltip='',activate=true}={}){
+function createQueryPage(view,{number=0,key='',initialText=null,scriptName='',scriptSource=null,maxRows='100',label='',tooltip='',activate=true}={}){
   const root=rootWorkbenchView(view);const wb=root.workbench;
   if(typeof database.createQueryView!=='function')throw new Error('Database query tab factory is unavailable');
   if(!number){wb.queryCounter=(wb.queryCounter||1)+1;number=wb.queryCounter;}
