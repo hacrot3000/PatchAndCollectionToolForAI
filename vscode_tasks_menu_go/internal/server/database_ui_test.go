@@ -518,7 +518,7 @@ func TestDatabaseQueryResultsCollapseLongTextIntoPopup(t *testing.T) {
 		"value.length>LONG_TEXT_PREVIEW_LIMIT",
 		"db-long-text-preview-text",
 		"open.textContent='…'",
-		"openQueryValueViewer(column?.name||'Value',value)",
+		"function openQueryValueViewer(titleText,value,{editable=false",
 		"copy.textContent='Copy all'",
 		"area.focus();area.select()",
 		"area.setSelectionRange(0,area.value.length)",
