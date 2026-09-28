@@ -1021,6 +1021,8 @@ func TestDatabaseWorkbenchSupportsMultipleQueryTabs(t *testing.T) {
 	for _, want := range []string{
 		"function createQueryPage(view)",
 		"addQuery.className='db-workbench-add-query'",
+		".db-workbench-add-query{",
+		"position:sticky;right:0",
 		"addQuery.textContent='+ Query'",
 		"addQuery.title='Create a new query tab'",
 		"createWorkbenchTab(view,'query','Query 1')",
@@ -1033,6 +1035,7 @@ func TestDatabaseWorkbenchSupportsMultipleQueryTabs(t *testing.T) {
 		"wb.tabsBar.append(wb.addQuery)",
 		"function firstQueryPage(view)",
 		"function activateWorkbenchFallback(view,preferredIndex=0)",
+		"page.ctx.queryCM?.destroy?.()",
 	} {
 		if !strings.Contains(workbench, want) {
 			t.Fatalf("database_workbench.js missing multiple-query-tab behavior %q", want)
