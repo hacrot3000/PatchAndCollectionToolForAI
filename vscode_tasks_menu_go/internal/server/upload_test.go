@@ -106,7 +106,9 @@ func TestUploadDirectoryBrowserSupportsFileSaveMode(t *testing.T) {
 	for _, want := range []string{
 		"destinationFileBox=document.createElement('div')",
 		"destinationFilename=document.createElement('input')",
-		"destinationMode='file'",
+		"destinationMode=mode",
+		"mode==='file'",
+		"destinationFileBox.classList.toggle('hidden',mode!=='file')",
 		"function chooseWorkspaceFile(options={})",
 		"openWorkspaceBrowser(options,'file')",
 		"closeDestinationBrowser({dir,name})",
