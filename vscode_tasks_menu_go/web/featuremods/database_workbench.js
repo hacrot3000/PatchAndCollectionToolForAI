@@ -16,6 +16,8 @@ style.textContent=`
 .db-workbench-tab-close{font-size:13px;line-height:1;opacity:.55}
 .db-workbench-tab-close:hover{opacity:1}
 .db-workbench-tab.active{background:#202630;opacity:1}
+.db-workbench-add-query{margin-left:12px;padding:5px 10px;border:1px dashed #546274;border-radius:6px;background:#17211b;opacity:1;font-weight:700;align-self:center}
+.db-workbench-add-query:hover{background:#203027}
 .db-workbench-panel{flex:1;min-height:0}
 .db-workbench-panel.hidden{display:none}
 .db-browser-filter{min-width:0;flex:1;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:5px 7px;font-size:11px}
@@ -73,6 +75,8 @@ style.textContent=`
 .db-context-separator{height:1px;background:#30343b;margin:4px 2px}
 html[data-taskmenu-theme="light"] .db-workbench-tabs{background:#f2f5f8;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .db-workbench-tab.active{background:#fff}
+html[data-taskmenu-theme="light"] .db-workbench-add-query{background:#eef7f0;border-color:#87998b}
+html[data-taskmenu-theme="light"] .db-workbench-add-query:hover{background:#e1f0e4}
 html[data-taskmenu-theme="light"] .db-browser-filter,html[data-taskmenu-theme="light"] .db-data-tools select{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .db-data-grid th,html[data-taskmenu-theme="light"] .db-structure-table th{background:#e9eef3}
 html[data-taskmenu-theme="light"] .db-data-grid th.db-row-number,html[data-taskmenu-theme="light"] .db-data-grid td.db-row-number{background:#f2f5f8}
@@ -281,8 +285,10 @@ function createWorkbenchTab(view,key,label,{closable=true}={}){
   }
   button.onclick=()=>activatePanel(root,key);
   button.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();showWorkbenchTabMenu(root,key,event.clientX,event.clientY);};
-  if(wb.addQuery?.isConnected)wb.tabsBar.insertBefore(button,wb.addQuery);
-  else wb.tabsBar.append(button);
+  if(wb.addQuery?.isConnected){
+    wb.tabsBar.insertBefore(button,wb.addQuery);
+    wb.tabsBar.append(wb.addQuery);
+  }else wb.tabsBar.append(button);
   return button;
 }
 
@@ -291,30 +297,46 @@ function workbenchPageKeys(view){
   return Array.from(root.workbench?.pages?.keys?.()||[]);
 }
 
+function firstQueryPage(view){
+  const root=rootWorkbenchView(view);
+  for(const page of root.workbench?.pages?.values?.()||[])if(page?.mode==='query')return page;
+  return null;
+}
+
+function activateWorkbenchFallback(view,preferredIndex=0){
+  const root=rootWorkbenchView(view);const wb=root?.workbench;if(!wb)return null;
+  const keys=workbenchPageKeys(root);
+  if(!keys.length){wb.active='';return null;}
+  const index=Math.max(0,Math.min(preferredIndex,keys.length-1));
+  activatePanel(root,keys[index]);
+  return keys[index];
+}
+
 function closeWorkbenchPages(view,keys){
   const root=rootWorkbenchView(view);const wb=root?.workbench;
   if(!wb)return false;
-  const pages=keys.map(key=>wb.pages.get(key)).filter(page=>page&&page.key!=='query');
+  const pages=keys.map(key=>wb.pages.get(key)).filter(Boolean);
   if(!pages.length)return false;
   const dirty=pages.filter(page=>
     (page.mode==='data'&&page.ctx&&hasPendingChanges(page.ctx))||
     (page.mode==='query'&&page.ctx&&database.queryHasPendingChanges?.(page.ctx))
   );
   if(dirty.length&&!confirm('Discard unsaved changes in '+dirty.length+' tab'+(dirty.length===1?'':'s')+'?'))return false;
+  const before=workbenchPageKeys(root);const activeIndex=Math.max(0,before.indexOf(wb.active));
   const activeWillClose=pages.some(page=>page.key===wb.active);
   for(const page of pages)closeWorkbenchPage(root,page.key,{force:true,activateFallback:false});
-  if(activeWillClose)activatePanel(root,'query');
+  if(activeWillClose)activateWorkbenchFallback(root,Math.min(activeIndex,workbenchPageKeys(root).length-1));
   return true;
 }
 
 function showWorkbenchTabMenu(view,key,x,y){
   const root=rootWorkbenchView(view);const keys=workbenchPageKeys(root);const index=keys.indexOf(key);
   const page=root.workbench?.pages?.get(key);if(!page||index<0)return;
-  const left=keys.slice(0,index).filter(item=>item!=='query');
-  const right=keys.slice(index+1).filter(item=>item!=='query');
-  const others=keys.filter(item=>item!==key&&item!=='query');
+  const left=keys.slice(0,index);
+  const right=keys.slice(index+1);
+  const others=keys.filter(item=>item!==key);
   showContextMenu([
-    {label:'Close this',disabled:key==='query',action:()=>closeWorkbenchPage(root,key)},
+    {label:'Close this',action:()=>closeWorkbenchPage(root,key)},
     {label:'Close all but this',disabled:others.length===0,action:()=>closeWorkbenchPages(root,others)},
     {separator:true},
     {label:'Close all right tabs',disabled:right.length===0,action:()=>closeWorkbenchPages(root,right)},
@@ -324,12 +346,13 @@ function showWorkbenchTabMenu(view,key,x,y){
 
 function closeWorkbenchPage(view,key,{force=false,activateFallback=true}={}){
   const root=rootWorkbenchView(view);const wb=root?.workbench;const page=wb?.pages?.get(key);
-  if(!page||key==='query')return false;
+  if(!page)return false;
   if(!force&&page.mode==='data'&&page.ctx&&hasPendingChanges(page.ctx)&&!confirm('Discard unsaved database grid changes?'))return false;
   if(!force&&page.mode==='query'&&page.ctx&&database.queryHasPendingChanges?.(page.ctx)&&!confirm('Discard unsaved query result changes?'))return false;
+  const before=workbenchPageKeys(root);const removedIndex=Math.max(0,before.indexOf(key));
   page.tab?.remove();page.panel?.remove();wb.pages.delete(key);
-  if(wb.lastQueryKey===key)wb.lastQueryKey='query';
-  if(activateFallback&&wb.active===key)activatePanel(root,'query');
+  if(wb.lastQueryKey===key)wb.lastQueryKey=firstQueryPage(root)?.key||'';
+  if(activateFallback&&wb.active===key)activateWorkbenchFallback(root,Math.min(removedIndex,workbenchPageKeys(root).length-1));
   return true;
 }
 
@@ -367,7 +390,7 @@ function activeQueryPage(view){
   if(active?.mode==='query')return active;
   const recent=wb.pages?.get(wb.lastQueryKey);
   if(recent?.mode==='query')return recent;
-  return wb.pages?.get('query')||null;
+  return firstQueryPage(root);
 }
 
 function ensureDataPage(view,object){
@@ -394,10 +417,12 @@ function ensureStructurePage(view,object){
 }
 
 function setQuery(view,text){
-  const root=rootWorkbenchView(view);const page=activeQueryPage(root);const target=page?.ctx||root;
+  const root=rootWorkbenchView(view);let page=activeQueryPage(root);
+  if(!page)page=createQueryPage(root);
+  const target=page.ctx;
   if(typeof database.setQueryText==='function')database.setQueryText(target,text,{focus:false});
   else target.editor.value=text;
-  activatePanel(root,page?.key||'query');
+  activatePanel(root,page.key);
   if(typeof database.focusQuery==='function')database.focusQuery(target);
   else target.editor.focus();
 }
@@ -1527,7 +1552,7 @@ function enhanceView(view){
   query.classList.add('db-workbench-panel');
 
   const tabsBar=document.createElement('div');tabsBar.className='db-workbench-tabs';
-  const addQuery=document.createElement('button');addQuery.type='button';addQuery.className='db-workbench-tab';addQuery.textContent='+ Query';addQuery.title='Open another query tab';
+  const addQuery=document.createElement('button');addQuery.type='button';addQuery.className='db-workbench-add-query';addQuery.textContent='+ Query';addQuery.title='Create a new query tab';
   view.workbench={
     active:'query',
     tabsBar,
@@ -1540,7 +1565,7 @@ function enhanceView(view){
     lastQueryKey:'query'
   };
   tabsBar.append(addQuery);
-  const queryTab=createWorkbenchTab(view,'query','Query 1',{closable:false});
+  const queryTab=createWorkbenchTab(view,'query','Query 1');
   view.workbench.pages.set('query',{key:'query',mode:'query',tab:queryTab,panel:query,ctx:view});
   addQuery.onclick=()=>createQueryPage(view);
   main.prepend(tabsBar);
@@ -1568,6 +1593,17 @@ globalThis.TaskMenuDatabaseWorkbench={
   showContextMenu,
   gridActionMenuItems,
   gridContextMenuItems,
+  updateQueryTabIdentity(view,{label='',tooltip=''}={}){
+    const root=rootWorkbenchView(view);
+    for(const page of root.workbench?.pages?.values?.()||[]){
+      if(page?.mode!=='query'||page.ctx!==view)continue;
+      const text=page.tab?.querySelector?.('.db-workbench-tab-label');
+      if(text&&label)text.textContent=label;
+      if(page.tab)page.tab.title=tooltip||label||page.tab.title;
+      return true;
+    }
+    return false;
+  },
   copyText,
   serializeClipboardData
 };
