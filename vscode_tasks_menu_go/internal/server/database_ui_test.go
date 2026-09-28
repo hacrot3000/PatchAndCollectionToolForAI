@@ -604,3 +604,42 @@ func TestDatabaseQueryEditorAppliesSafeEditableSelectChanges(t *testing.T) {
 		t.Fatal("query editor must not expose insert/delete mutations for arbitrary SELECT results")
 	}
 }
+
+
+func TestDatabaseQueryResultsSupportRowSelectionAndCopyMenus(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"querySelectedRows",
+		"querySelectionAnchor",
+		"function querySelectedRowIndexes(view,result=view.queryResult)",
+		"function selectQueryRow(view,result,rowIndex,event={})",
+		"event.ctrlKey||event.metaKey",
+		"event.shiftKey&&Number.isInteger(view.querySelectionAnchor)",
+		"function toggleSelectAllQueryRows(view,result)",
+		"data-select-all",
+		"Select all rows in current result",
+		"Click to select row · Ctrl/Cmd-click multi-select · Shift-click range",
+		"function queryCopyMenuItems(view,result)",
+		"Copy TXT (without column header)",
+		"Copy TXT (with column header)",
+		"Copy CSV (without column header)",
+		"Copy CSV (with column header)",
+		"Copy as JSON",
+		"Selected row (1)",
+		"Selected rows (",
+		"Current result",
+		"Copy Value",
+		"Copy Column Name",
+		"helper.serializeClipboardData",
+		"helper.showContextMenu",
+		"db-selected",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database.js missing query row-selection/copy behavior %q", want)
+		}
+	}
+}
