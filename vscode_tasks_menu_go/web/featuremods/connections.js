@@ -350,14 +350,16 @@ function openProfileDialog(profile=null){
 
   const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
   const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>closeDialog(dialog);
-  const test=editing?null:document.createElement('button');
-  if(test){
-    test.type='button';test.textContent='Test';test.title='Test connection before adding this profile';
-    test.onclick=()=>runSSHTest({profile:currentProfilePayload()},test).catch(app.showError);
-  }
+  const test=document.createElement('button');
+  test.type='button';test.textContent='Test';
+  test.title=editing?'Test current edits without saving':'Test connection before adding this profile';
+  test.onclick=()=>{
+    const payload={profile:currentProfilePayload()};
+    if(editing)payload.profile_id=profile.id;
+    return runSSHTest(payload,test).catch(app.showError);
+  };
   const save=document.createElement('button');save.type='submit';save.className='task-connection-primary';save.textContent=editing?'Save':'Add profile';
-  if(test)actions.append(test);
-  actions.append(cancel,save);form.append(actions);
+  actions.append(test,cancel,save);form.append(actions);
   card.append(title,form);dialog.append(card);document.body.append(dialog);
   name.input.focus();
 
