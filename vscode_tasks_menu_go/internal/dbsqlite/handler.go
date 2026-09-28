@@ -193,6 +193,26 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 			return nil, sqliteProtocolError("RESULT_FAILED", err)
 		}
 		return result, nil
+	case dbadapter.OpImportSQL:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		if h.config.ReadOnly {
+			return nil, &dbadapter.ProtocolError{Code: "READ_ONLY", Message: "SQLite connection is read-only"}
+		}
+		var payload dbadapter.ImportSQLPayload
+		if err := decodeSQLitePayload(request.Payload, &payload); err != nil {
+			return nil, sqliteProtocolError("INVALID_PAYLOAD", err)
+		}
+		payload.Path = strings.TrimSpace(payload.Path)
+		if payload.Path == "" || strings.ContainsRune(payload.Path, '\x00') {
+			return nil, &dbadapter.ProtocolError{Code: "INVALID_IMPORT", Message: "SQLite import path is invalid"}
+		}
+		var result dbadapter.ImportSQLResult
+		if err := runHelper(ctx, h.python, h.config, "import_sql", payload, &result); err != nil {
+			return nil, sqliteProtocolError("IMPORT_FAILED", err)
+		}
+		return result, nil
 	default:
 		return nil, &dbadapter.ProtocolError{
 			Code:    "UNSUPPORTED_OPERATION",
