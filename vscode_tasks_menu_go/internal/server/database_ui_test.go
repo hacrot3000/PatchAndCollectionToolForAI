@@ -25,6 +25,7 @@ func TestDatabaseWorkspaceUsesGenericSessionAPIs(t *testing.T) {
 		"'describe_object'",
 		"'execute'",
 		"max_rows:maxRows",
+		"if(view.catalog.value)payload.catalog=view.catalog.value",
 		"Math.min(1000",
 		"app.activateExternalView('database:'",
 		"DB · ",
