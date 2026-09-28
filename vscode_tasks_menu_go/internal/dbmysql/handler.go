@@ -331,6 +331,8 @@ func (h *Handler) describeObject(ctx context.Context, payload dbadapter.Describe
 	if catalog == "" {
 		return nil, &dbadapter.ProtocolError{Code: "CATALOG_REQUIRED", Message: "MySQL catalog/database is required"}
 	}
+	kind := strings.ToLower(firstNonEmpty(strings.TrimSpace(payload.Kind), "table"))
+	createSQL, _ := h.describeCreateSQL(ctx, catalog, name, kind)
 	query := "SELECT COLUMN_NAME AS name, COLUMN_TYPE AS type, IS_NULLABLE AS nullable, " +
 		"COLUMN_DEFAULT AS default_value, EXTRA AS extra " +
 		"FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
@@ -345,6 +347,7 @@ func (h *Handler) describeObject(ctx context.Context, payload dbadapter.Describe
 			"kind":      firstNonEmpty(strings.TrimSpace(payload.Kind), "table"),
 			"name":      name,
 			"catalog":   catalog,
+			"sql":       createSQL,
 			"columns":   []map[string]interface{}{},
 			"indexes":   []map[string]interface{}{},
 			"truncated": result.Truncated,
@@ -382,10 +385,39 @@ func (h *Handler) describeObject(ctx context.Context, payload dbadapter.Describe
 		"kind":      firstNonEmpty(strings.TrimSpace(payload.Kind), "table"),
 		"name":      name,
 		"catalog":   catalog,
+		"sql":       createSQL,
 		"columns":   columns,
 		"indexes":   indexDetails,
 		"truncated": result.Truncated || indexTruncated,
 	}, nil
+}
+
+func (h *Handler) describeCreateSQL(ctx context.Context, catalog, name, kind string) (string, error) {
+	objectSQL, err := mysqlQualifiedIdentifier(catalog, name)
+	if err != nil {
+		return "", err
+	}
+	statement := "/* taskdeck_describe_create */ SHOW CREATE TABLE " + objectSQL
+	columnName := "Create Table"
+	if kind == "view" {
+		statement = "/* taskdeck_describe_create */ SHOW CREATE VIEW " + objectSQL
+		columnName = "Create View"
+	}
+	result, err := h.query(ctx, statement, 1)
+	if err != nil {
+		return "", err
+	}
+	if len(result.Rows) == 0 {
+		return "", nil
+	}
+	index, err := resultColumnIndex(result, columnName)
+	if err != nil {
+		if len(result.Columns) < 2 || len(result.Rows[0]) < 2 {
+			return "", err
+		}
+		index = 1
+	}
+	return resultCellString(result.Rows[0][index]), nil
 }
 
 func (h *Handler) describeIndexes(ctx context.Context, catalog, name string) ([]map[string]interface{}, bool, error) {
