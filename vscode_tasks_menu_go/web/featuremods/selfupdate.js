@@ -21,7 +21,7 @@ document.head.append(style);
 
 const overlay=document.createElement('div');overlay.className='self-update-overlay';
 const dialog=document.createElement('div');dialog.className='self-update-dialog';
-const title=document.createElement('h3');title.textContent='VS Code Tasks Menu update';
+const title=document.createElement('h3');title.textContent='TaskDeck update';
 const intro=document.createElement('p');
 const revision=document.createElement('div');revision.className='self-update-revision';
 const status=document.createElement('div');status.className='self-update-status';
@@ -36,7 +36,7 @@ const checkUpdate=document.createElement('button');
 checkUpdate.id='self-update-check';
 checkUpdate.type='button';
 checkUpdate.textContent='Check update';
-checkUpdate.title='Check GitHub for a newer vscode_tasks_menu revision';
+checkUpdate.title='Check GitHub for a newer TaskDeck revision';
 document.querySelector('header')?.append(checkUpdate);
 
 function resetCheckUpdateButton(){
@@ -61,7 +61,7 @@ const arrivingID=updatedQueryID();if(arrivingID){try{sessionStorage.setItem(comp
 function terminalRestore(){return globalThis.TaskMenuTerminalRestore;}
 function resumeTerminalPersistence(){terminalRestore()?.resumeAfterSelfUpdate?.();}
 function selfUpdateErrorDetails(req){
-  const lines=['VS Code Tasks Menu update'];
+  const lines=['TaskDeck update'];
   if(req?.revision)lines.push('Revision: '+String(req.revision));
   lines.push('Candidate validation or activation failed. The current TaskDeck remains usable.');
   lines.push(statusText(req));
@@ -110,7 +110,7 @@ function show(req){
   copyError.dataset.details=failed?selfUpdateErrorDetails(req):'';
   actions.style.display=(waiting||failed)?'flex':'none';
   intro.textContent=waiting
-    ?'A new VS Code Tasks Menu version is available. The candidate will be downloaded, tested and built before the running release is changed.'
+    ?'A new TaskDeck version is available. The candidate will be downloaded, tested and built before the running release is changed.'
     :failed
       ?'Candidate validation or activation failed. The current TaskDeck remains usable; close this notice and continue working.'
       :'Validating the candidate before activation. This page will reconnect automatically only after the new release is ready.';
