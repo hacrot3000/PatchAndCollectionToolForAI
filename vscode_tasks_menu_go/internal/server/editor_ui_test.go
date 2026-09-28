@@ -246,6 +246,8 @@ func TestVendoredCodeMirrorExposesIDEHooksAndTypeScriptModes(t *testing.T) {
 		"dialectName === \"mysql\" ? MySQL : dialectName === \"sqlite\" ? SQLite : StandardSQL",
 		"schema: config2.schema",
 		"upperCaseKeywords: config2.upperCaseKeywords !== false",
+		"{ key: \"Ctrl-Space\", run: startCompletion }",
+		"autocompletion()",
 		"Array.isArray(options2.extraExtensions)",
 		"typescript: javascript({ typescript: true })",
 		"jsx: javascript({ jsx: true })",
