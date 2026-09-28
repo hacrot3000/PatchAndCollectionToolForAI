@@ -638,6 +638,12 @@ async function describeObject(view,object){
   const payload={name:object.name,kind:object.kind};
   if(view.catalog.value)payload.catalog=view.catalog.value;
   const detail=await sessionRequest(view.meta.id,'describe_object',payload);
+  if(relationalQueryEditor(view)&&Array.isArray(detail?.columns)){
+    const catalog=String(view.catalog.value||'').trim();
+    const key=catalog+'\u0000'+String(object?.name||'');
+    view.querySchemaCache?.set?.(key,detail.columns.map(column=>String(column?.name||'').trim()).filter(Boolean));
+    reconfigureQueryEditor(view);
+  }
   renderObjectDetail(view,object,detail);
 }
 
