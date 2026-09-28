@@ -266,7 +266,8 @@ async function applyQueryChanges(view,result){
     throw new Error('Database adapter returned an incomplete query mutation result; query was reloaded');
   }
   const errors=items.filter(item=>item?.error);
-  await executeQuery(view);
+  view.queryDirtyRows?.clear?.();
+  await executeQuery(view,{discardPending:true});
   if(errors.length)throw new Error(errors.map(item=>(item.action||'update')+': '+(item.error?.message||item.error?.code||'failed')).join('\n'));
 }
 
@@ -324,7 +325,8 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
   table.append(tbody);view.result.append(table);
 }
 
-async function executeQuery(view){
+async function executeQuery(view,{discardPending=false}={}){
+  if(!discardPending&&queryPendingCount(view)>0&&!confirm('Discard unsaved query result changes and run again?'))return;
   const statement=view.editor.value.trim();
   if(!statement)throw new Error('Enter a database statement first');
   const maxRows=Math.max(1,Math.min(1000,Number(view.maxRows.value)||100));
