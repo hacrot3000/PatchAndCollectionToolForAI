@@ -504,3 +504,27 @@ func TestDatabaseWorkbenchRowSelectionAndCopyDataOptions(t *testing.T) {
 		}
 	}
 }
+
+
+func TestDatabaseQueryResultsCollapseLongTextIntoPopup(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const LONG_TEXT_PREVIEW_LIMIT=160",
+		"function isLongTextValue(value)",
+		"value.length>LONG_TEXT_PREVIEW_LIMIT",
+		"db-long-text-preview-text",
+		"open.textContent='…'",
+		"openQueryValueViewer(column?.name||'Value',value)",
+		"copy.textContent='Copy all'",
+		"area.focus();area.select()",
+		"area.setSelectionRange(0,area.value.length)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database.js missing long-text query result behavior %q", want)
+		}
+	}
+}
