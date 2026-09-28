@@ -109,7 +109,7 @@ func TestDatabaseWorkbenchProvidesNavigatorContextMenuAndPagedGrid(t *testing.T)
 	js := string(data)
 	for _, want := range []string{
 		"db-workbench-tabs",
-		"createWorkbenchTab(view,'query','Query 1',{closable:false})",
+		"createWorkbenchTab(view,'query','Query 1')",
 		"object.name+' - Data'",
 		"object.name+' - Structure'",
 		"ensureDataPage",
