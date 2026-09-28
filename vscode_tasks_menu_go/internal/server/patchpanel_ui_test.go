@@ -1391,6 +1391,26 @@ func TestPatchLatestCompletedForegroundIsProminent(t *testing.T) {
 	}
 }
 
+func TestPatchForegroundStatusUsesRunFinishedExitCode(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function foregroundRunOutcome(state)",
+		"String(event?.type||'')!=='run_finished'",
+		"const rawExit=event?.exit_code",
+		"status==='failed'||status==='fail'||status==='error'||(Number.isFinite(exitCode)&&exitCode!==0)",
+		"const outcome=foregroundRunOutcome(state)",
+		"if(outcome?.failed)return true",
+		"const exitDetail=failed&&outcome?.exitCode!==null?' rc='+outcome.exitCode+'.':''",
+		"failed.'+exitDetail+' Failure reason",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Patch foreground exit-code failure handling missing %q", want)
+		}
+	}
+}
+
 func TestPatchPanelFailedRunShowsCopyableProtocolEvidence(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
 	if err != nil { t.Fatal(err) }
