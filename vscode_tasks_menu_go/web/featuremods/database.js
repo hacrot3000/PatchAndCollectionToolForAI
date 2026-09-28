@@ -64,23 +64,20 @@ html[data-taskmenu-theme="light"] .db-script-browser-row:hover,html[data-taskmen
 .db-query .codemirror .cm-editor{height:100%;font-size:13px;background:#090c10}
 .db-query .codemirror .cm-scroller{overflow:auto;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:#090c10}
 .db-query .codemirror .cm-gutters{background:#090c10}
-.db-result-wrap{flex:1;min-height:0;overflow:auto}
-.db-query-result-tabs{display:flex;align-items:end;gap:2px;padding:4px 6px 0;border-bottom:1px solid #30343b;background:#11151b;overflow-x:auto;position:sticky;top:0;z-index:5}
+.db-result-wrap{--db-result-tabs-height:0px;--db-result-status-height:28px;flex:1;min-height:0;overflow:auto;position:relative;isolation:isolate;background:#090c10}
+.db-result-wrap.has-result-tabs{--db-result-tabs-height:30px}
+.db-query-result-tabs{display:flex;align-items:end;gap:2px;height:30px;box-sizing:border-box;padding:4px 6px 0;border-bottom:1px solid #30343b;background-color:#11151b;overflow-x:auto;position:sticky;top:0;z-index:10}
 .db-query-result-tab{border-radius:5px 5px 0 0;border-bottom:0;padding:5px 8px;font-size:10px;opacity:.68;white-space:nowrap}
 .db-query-result-tab.active{background:#202630;opacity:1}
 .db-query-result-panels{min-height:0}
 .db-query-result-panel.hidden{display:none}
-.db-query-result-panel .db-result-status{top:30px}
-.db-query-result-panel .db-result-edit-tools{top:57px}
-.db-query-result-panel .db-result-table th{top:57px}
-.db-query-result-panel.has-edit-tools .db-result-table th{top:88px}
 .db-query-result-error{padding:12px;white-space:pre-wrap;font:11px ui-monospace,monospace;color:#ff9a9a}
 html[data-taskmenu-theme="light"] .db-query-result-tabs{background:#f2f5f8;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .db-query-result-tab.active{background:#fff}
-.db-result-status{position:sticky;top:0;z-index:3;padding:5px 8px;background:#11151b;border-bottom:1px solid #30343b;font-size:11px}
-.db-result-table{border-collapse:collapse;min-width:100%;font-family:ui-monospace,monospace;font-size:11px}
+.db-result-status{position:sticky;top:var(--db-result-tabs-height);z-index:9;height:var(--db-result-status-height);min-height:var(--db-result-status-height);box-sizing:border-box;display:flex;align-items:center;padding:5px 8px;background-color:#11151b;border-bottom:1px solid #30343b;font-size:11px;opacity:1}
+.db-result-table{border-collapse:separate;border-spacing:0;min-width:100%;font-family:ui-monospace,monospace;font-size:11px}
 .db-result-table th,.db-result-table td{border-right:1px solid #272d36;border-bottom:1px solid #272d36;padding:5px 7px;text-align:left;vertical-align:top;white-space:pre-wrap;max-width:520px}
-.db-result-table th{position:sticky;top:27px;background:#171c23;z-index:1}
+.db-result-table th{position:sticky;top:calc(var(--db-result-tabs-height) + var(--db-result-status-height));background-color:#171c23;background-clip:padding-box;z-index:8;box-shadow:0 1px 0 #30343b}
 .db-null{opacity:.45;font-style:italic}
 .db-long-text-cell{white-space:nowrap!important}
 .db-long-text-preview{display:flex;align-items:center;gap:5px;min-width:0;max-width:520px}
@@ -88,8 +85,7 @@ html[data-taskmenu-theme="light"] .db-query-result-tab.active{background:#fff}
 .db-long-text-open{flex:0 0 auto;padding:0 6px;min-width:26px;height:22px;line-height:18px}
 .db-value-dialog-card{width:min(900px,96vw)}
 .db-value-dialog-area{width:100%;min-height:360px;max-height:70vh;resize:vertical;font-family:ui-monospace,monospace;font-size:12px}
-.db-result-edit-tools{position:sticky;top:27px;z-index:2;display:flex;align-items:center;gap:6px;min-height:31px;box-sizing:border-box;padding:5px 8px;border-bottom:1px solid #30343b;background:#11151b}
-.has-edit-tools .db-result-table th{top:58px}
+.db-result-edit-tools{position:relative;z-index:1;display:flex;align-items:center;gap:6px;min-height:31px;box-sizing:border-box;padding:5px 8px;border-bottom:1px solid #30343b;background-color:#11151b}
 .db-result-edit-tools button{font-size:11px}
 .db-result-edit-tools .db-result-apply{background:#244c70;border-color:#3f79a8}
 .db-result-edit-info{font-size:10px;opacity:.65;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -97,8 +93,9 @@ html[data-taskmenu-theme="light"] .db-query-result-tab.active{background:#fff}
 .db-result-table td.db-query-editable:focus{box-shadow:inset 0 0 0 1px #3f79a8;background:#121a23}
 .db-result-table td.db-query-popup-editable{cursor:default}
 .db-result-table td.db-query-dirty{background:#332d18}
-.db-result-table th.db-row-number,.db-result-table td.db-row-number{position:sticky;left:0;z-index:3;width:42px;min-width:42px;text-align:right;opacity:.55;background:#11151b}
-.db-result-table th.db-row-number{z-index:4;cursor:pointer;user-select:none}
+.db-result-table th.db-row-number,.db-result-table td.db-row-number{position:sticky;left:0;width:42px;min-width:42px;text-align:right;background-color:#11151b}
+.db-result-table td.db-row-number{z-index:6;color:rgba(255,255,255,.55)}
+.db-result-table th.db-row-number{z-index:11;cursor:pointer;user-select:none;color:rgba(255,255,255,.55);background-color:#171c23}
 .db-result-table td.db-row-number{cursor:default;user-select:none}
 .db-result-table tr.db-selected td{background:#19334d}
 .db-result-table tr.db-selected td.db-query-dirty{background:#3c3920}
@@ -106,7 +103,9 @@ html[data-taskmenu-theme="light"] .db-query-result-tab.active{background:#fff}
 html[data-taskmenu-theme="light"] .db-pane{background:#fff}
 html[data-taskmenu-theme="light"] .db-query,html[data-taskmenu-theme="light"] .db-query-editor,html[data-taskmenu-theme="light"] .db-query .codemirror,html[data-taskmenu-theme="light"] .db-query .codemirror .cm-editor,html[data-taskmenu-theme="light"] .db-query .codemirror .cm-scroller,html[data-taskmenu-theme="light"] .db-query .codemirror .cm-gutters{background:#f7f9fb}
 html[data-taskmenu-theme="light"] .db-query-tools,html[data-taskmenu-theme="light"] .db-result-status,html[data-taskmenu-theme="light"] .db-result-edit-tools{background:#f2f5f8}
-html[data-taskmenu-theme="light"] .db-result-table th{background:#e9eef3}
+html[data-taskmenu-theme="light"] .db-result-wrap{background:#fff}
+html[data-taskmenu-theme="light"] .db-result-table th,html[data-taskmenu-theme="light"] .db-result-table th.db-row-number{background:#e9eef3}
+html[data-taskmenu-theme="light"] .db-result-table td.db-row-number{background:#f2f5f8;color:rgba(0,0,0,.55)}
 `;
 document.head.append(style);
 
