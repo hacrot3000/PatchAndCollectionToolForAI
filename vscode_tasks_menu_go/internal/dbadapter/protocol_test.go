@@ -149,3 +149,24 @@ func TestImportSQLOperationIsKnown(t *testing.T) {
 		t.Fatalf("operation=%q", request.Operation)
 	}
 }
+
+
+func TestImportSQLResponseValidation(t *testing.T) {
+	ok, err := NewResponse("import-1", "", OpImportSQL, ImportSQLResult{
+		ImportedBytes: 123,
+		Message:       "SQL import completed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateResponsePayload(ok); err != nil {
+		t.Fatal(err)
+	}
+	bad, err := NewResponse("import-2", "", OpImportSQL, ImportSQLResult{ImportedBytes: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateResponsePayload(bad); err == nil || !strings.Contains(err.Error(), "negative imported_bytes") {
+		t.Fatalf("validation error=%v", err)
+	}
+}
