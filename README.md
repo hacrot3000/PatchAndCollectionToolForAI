@@ -144,7 +144,7 @@ hoặc PowerShell:
 
 PATCH/COLLECT package được đặt trong `patchs/` của project và runner sẽ tự phân loại theo manifest/contract hiện có.
 
-## VS Code Tasks Menu (`vscode_tasks_menu`)
+## TaskDeck (`vscode_tasks_menu`)
 
 Repository cũng cung cấp `vscode_tasks_menu`: giao diện web/terminal cho `<workspace>/.vscode/tasks.json`, dùng PTY thật để chạy các task tương tác mà không cần mở từng terminal thủ công.
 
@@ -378,7 +378,7 @@ or PowerShell:
 
 Place PATCH/COLLECT packages in the project's `patchs/` directory; the runner classifies them according to the existing manifest/contracts.
 
-### VS Code Tasks Menu (`vscode_tasks_menu`)
+### TaskDeck (`vscode_tasks_menu`)
 
 The repository also provides `vscode_tasks_menu`, a web/terminal interface for `<workspace>/.vscode/tasks.json`. It runs interactive tasks in real PTYs so users do not need to open and manage separate terminals manually.
 
