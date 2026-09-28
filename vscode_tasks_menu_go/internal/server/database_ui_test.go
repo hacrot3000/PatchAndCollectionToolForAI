@@ -917,7 +917,7 @@ func TestDatabaseQueryEditorSupportsMultipleStatementsAndResultTabs(t *testing.T
 	for _, want := range []string{
 		"function splitSQLStatements(script)",
 		"segmentHasCode",
-		"if(ch===';' ){",
+		"if(ch===';'){",
 		"function createQueryResultContext(owner,statement,index)",
 		"db-query-result-tabs",
 		"db-query-result-tab",
