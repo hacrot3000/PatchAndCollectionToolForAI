@@ -1603,10 +1603,10 @@ function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValu
   return query;
 }
 
-function createAdditionalQueryView(root,{initialText='',scriptName='query.sql',maxRowsValue=''}={}){
+function createAdditionalQueryView(root,{initialText=null,scriptName='query.sql',maxRowsValue=''}={}){
   const child=Object.create(root);
   child.workbenchRoot=root;
-  const text=initialText||defaultDatabaseQueryText(root.meta.adapter_kind);
+  const text=initialText===null?defaultDatabaseQueryText(root.meta.adapter_kind):String(initialText);
   setupQueryPanel(child,{initialText:text,scriptName,maxRowsValue:maxRowsValue||root.maxRows?.value||'100'});
   return child;
 }
