@@ -97,3 +97,33 @@ func TestRequestIDsRejectControlAndPathCharacters(t *testing.T) {
 		}
 	}
 }
+
+
+func TestExecuteResultValidatesEditableQueryMetadata(t *testing.T) {
+	result := ExecuteResult{
+		Columns: []Column{{Name: "id"}, {Name: "name"}},
+		Rows: [][]interface{}{{1, "Alice"}},
+		Edit: &ExecuteEditInfo{
+			Catalog:  "main",
+			Kind:     "table",
+			Name:     "users",
+			Editable: true,
+			Columns: []BrowseColumn{
+				{Name: "id", Type: "bigint", Editable: true, Identity: true},
+				{Name: "name", Type: "varchar(255)", Editable: true},
+			},
+			RowIdentities: []map[string]interface{}{{"id": 1}},
+		},
+	}
+	if err := ValidateExecuteResult(result); err != nil {
+		t.Fatal(err)
+	}
+	result.Edit.RowIdentities = nil
+	if err := ValidateExecuteResult(result); err != nil {
+		t.Fatalf("read-only/empty identity metadata should remain structurally valid: %v", err)
+	}
+	result.Edit.RowIdentities = []map[string]interface{}{{"id": 1}, {"id": 2}}
+	if err := ValidateExecuteResult(result); err == nil || !strings.Contains(err.Error(), "identities") {
+		t.Fatalf("identity count error=%v", err)
+	}
+}
