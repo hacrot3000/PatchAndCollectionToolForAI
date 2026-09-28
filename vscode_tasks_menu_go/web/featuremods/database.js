@@ -995,7 +995,9 @@ async function applyQueryChanges(view,result){
   });
   const items=Array.isArray(response?.results)?response.results:null;
   if(!items||items.length!==mutations.length){
-    await executeQuery(view);
+    view.queryDirtyRows?.clear?.();
+    view.queryNewRows=[];
+    await executeQuery(view,{discardPending:true});
     throw new Error('Database adapter returned an incomplete query mutation result; query was reloaded');
   }
   const errors=items.filter(item=>item?.error);
