@@ -299,7 +299,11 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
       const revert=document.createElement('button');revert.type='button';revert.textContent='Revert';revert.disabled=pending===0;
       revert.onclick=()=>{view.queryDirtyRows.clear();renderResult(view,result,elapsed,{preserveDirty:true});};
       const apply=document.createElement('button');apply.type='button';apply.className='db-result-apply';apply.textContent='Apply changes';apply.disabled=pending===0;
-      apply.onclick=()=>{apply.disabled=true;applyQueryChanges(view,result).catch(app.showError);};
+      apply.onclick=async()=>{
+        apply.disabled=true;
+        try{await applyQueryChanges(view,result);}
+        catch(error){app.showError(error);if(apply.isConnected&&queryPendingCount(view)>0)apply.disabled=false;}
+      };
       tools.append(revert,apply);
     }
     view.result.append(tools);
