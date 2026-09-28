@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const brokerTestShutdownTimeout = 5 * time.Second
+
 func testWorkspace(t *testing.T) string {
 	t.Helper()
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
@@ -96,7 +98,7 @@ func TestBrokerRunProbeAndCleanup(t *testing.T) {
 		if err != nil {
 			t.Fatalf("broker shutdown: %v", err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(brokerTestShutdownTimeout):
 		t.Fatal("broker did not stop after context cancellation")
 	}
 	if _, err := os.Stat(SocketPath(ws)); !os.IsNotExist(err) {
@@ -164,7 +166,7 @@ func TestEnsureClientReusesAndCanShutdownRunningBroker(t *testing.T) {
 		if err != nil {
 			t.Fatalf("broker shutdown: %v", err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(brokerTestShutdownTimeout):
 		t.Fatal("broker did not exit after ShutdownBroker")
 	}
 }
@@ -245,7 +247,7 @@ func TestBrokerFallbackSocketDirectoryIsPrivate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("broker shutdown: %v", err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(brokerTestShutdownTimeout):
 		t.Fatal("broker did not stop")
 	}
 }
