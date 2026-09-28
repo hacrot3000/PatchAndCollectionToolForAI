@@ -1,8 +1,20 @@
 const app=globalThis.TaskMenuApp;
 if(!app)throw new Error('TaskMenuApp unavailable for page title config');
 
-const defaultTitle='VS Code Tasks Menu';
+const defaultTitle='TaskDeck';
 const button=document.querySelector('#edit-title');
+
+function titleSuffix(value){
+  let title=String(value||'').trim();
+  if(!title||title===defaultTitle||title==='VS Code Tasks Menu'||title==='VSCode Tasks Menu')return '';
+  if(title.startsWith(defaultTitle+' - '))title=title.slice((defaultTitle+' - ').length).trim();
+  return title;
+}
+
+function renderTitle(value){
+  const suffix=titleSuffix(value);
+  return suffix?defaultTitle+' - '+suffix:defaultTitle;
+}
 
 function legacyStorageKey(){
   const workspace=app.taskData?.workspace;
@@ -18,20 +30,20 @@ async function loadConfiguredTitle(){
   if(!app.taskData)return;
   clearLegacyBrowserTitle();
   const data=await app.jsonFetch('/api/config/page-title');
-  document.title=String(data?.title||'').trim()||defaultTitle;
+  document.title=renderTitle(data?.title);
 }
 
 async function editConfiguredTitle(){
-  const current=document.title===defaultTitle?'':document.title;
-  const value=window.prompt('Page title (leave blank to use the default):',current);
+  const current=titleSuffix(document.title);
+  const value=window.prompt('Page title suffix (leave blank to use TaskDeck):',current);
   if(value===null)return;
   const data=await app.jsonFetch('/api/config/page-title',{
     method:'PUT',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({title:value.trim()})
+    body:JSON.stringify({title:titleSuffix(value)})
   });
   clearLegacyBrowserTitle();
-  document.title=String(data?.title||'').trim()||defaultTitle;
+  document.title=renderTitle(data?.title);
 }
 
 if(button){
