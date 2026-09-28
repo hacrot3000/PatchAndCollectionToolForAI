@@ -940,6 +940,48 @@ func TestDatabaseQueryEditorSupportsMultipleStatementsAndResultTabs(t *testing.T
 	}
 }
 
+func TestDatabaseQueryPanelOwnsItsControlsAfterRefactor(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+
+	setupStart := strings.Index(js, "function setupQueryPanel(view")
+	attachStart := strings.Index(js, "function attachDatabaseView(meta,activate)")
+	openProfileStart := strings.Index(js, "\nasync function openProfile", attachStart)
+	if setupStart < 0 || attachStart < 0 || openProfileStart < 0 {
+		t.Fatal("database.js missing query panel or database attach function")
+	}
+	setupEnd := strings.Index(js[setupStart:], "\nfunction createAdditionalQueryView")
+	if setupEnd < 0 {
+		t.Fatal("database.js missing setupQueryPanel end marker")
+	}
+	setup := js[setupStart : setupStart+setupEnd]
+	for _, want := range []string{
+		"run.onclick=()=>executeQuery(view).catch(app.showError)",
+		"openSQL.onclick=()=>openSQLScript(view).catch(app.showError)",
+		"saveSQL.onclick=()=>saveSQLScript(view).catch(app.showError)",
+		"if(!view.queryCM)editor.addEventListener('keydown'",
+	} {
+		if !strings.Contains(setup, want) {
+			t.Fatalf("setupQueryPanel missing reusable query control binding %q", want)
+		}
+	}
+
+	attach := js[attachStart:openProfileStart]
+	for _, stale := range []string{
+		"run.onclick",
+		"openSQL.onclick",
+		"saveSQL.onclick",
+		"editor.addEventListener",
+	} {
+		if strings.Contains(attach, stale) {
+			t.Fatalf("attachDatabaseView must not reference moved query-local control %q", stale)
+		}
+	}
+}
+
 func TestDatabaseWorkbenchSupportsMultipleQueryTabs(t *testing.T) {
 	databaseData, err := webassets.Files.ReadFile("featuremods/database.js")
 	if err != nil {
