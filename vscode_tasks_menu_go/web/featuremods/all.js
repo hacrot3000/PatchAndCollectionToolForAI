@@ -16,10 +16,19 @@ style.textContent=`
 .task-row-ext>.task-favorite-toggle{padding:5px 7px;min-width:31px;color:#f4c95d}
 .session-rerun{white-space:nowrap}
 .tab.state-running{border-top:2px solid #5aa9e6}.tab.state-success{border-top:2px solid #5fbf74}.tab.state-fail{border-top:2px solid #e35d6a}.tab.state-stopped{border-top:2px solid #d0a84d}
-.tab .status.session-status-running-long{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;margin-left:8px;opacity:1;color:#72b7ea;font:700 14px/1 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;vertical-align:-2px}
-.tab .status.session-status-running-long .session-running-braille{display:inline-block;width:1ch;text-align:center}
+.tab .status.session-status-running-long{display:inline-flex;align-items:center;justify-content:center;margin-left:8px;opacity:1;color:#72b7ea;vertical-align:-2px}
+.tab .status.session-status-running-long .session-running-boxes{display:inline-flex;align-items:center;justify-content:center;gap:2px;width:18px;height:12px;padding:1px 2px;box-sizing:border-box;border:1px solid #72b7ea;border-radius:2px}
+.tab .status.session-status-running-long .session-running-cell{display:block;width:3px;height:5px;border-radius:1px;background:#72b7ea;opacity:.16}
+.tab .status.session-status-running-long .session-running-cell:nth-child(1){opacity:1}
+.tab .status.session-status-running-long .session-running-cell:nth-child(2){animation:taskdeck-tab-running-cell-2 3s steps(1,end) infinite}
+.tab .status.session-status-running-long .session-running-cell:nth-child(3){animation:taskdeck-tab-running-cell-3 3s steps(1,end) infinite}
+.tab .status.session-status-running-long .session-running-spinner{display:inline-block;width:12px;height:12px;box-sizing:border-box;border:2px solid #72b7ea;border-right-color:transparent;border-radius:50%;animation:taskdeck-tab-running-spin var(--taskdeck-running-spin-duration,30s) linear infinite}
 .tab .status.session-status-success{color:#78d68b;opacity:1;font-weight:800}
 .tab .status.session-status-fail{color:#ff7b65;opacity:1;font-weight:800}
+@keyframes taskdeck-tab-running-cell-2{0%,100%{opacity:.16}20%,80%{opacity:1}}
+@keyframes taskdeck-tab-running-cell-3{0%,39%,61%,100%{opacity:.16}40%,60%{opacity:1}}
+@keyframes taskdeck-tab-running-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.tab .status.session-status-running-long .session-running-cell,.tab .status.session-status-running-long .session-running-spinner{animation:none!important}.tab .status.session-status-running-long .session-running-cell{opacity:1}}
 .history-section{margin:6px 0 10px;border:1px solid #30343b;border-radius:6px;background:#12161d;overflow:hidden}
 .history-head{display:flex;align-items:center;gap:6px;padding:5px 7px;border-bottom:1px solid #30343b}.history-head strong{font-size:11px;opacity:.75;flex:1}.history-clear{padding:2px 6px;font-size:10px}
 .history-list{max-height:180px;overflow:auto;padding:3px}.history-row{display:grid;grid-template-columns:1fr auto;gap:2px 6px;padding:5px 6px;border-bottom:1px solid #222831;font-size:11px}.history-row:last-child{border-bottom:0}.history-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-meta{opacity:.55;grid-column:1/3}.history-state.pass{color:#78d68b}.history-state.fail{color:#ff7b86}.history-state.stopped{color:#e4be63}
@@ -200,39 +209,49 @@ async function restartOrRun(view){
   }finally{if(button?.isConnected)button.disabled=false;}
 }
 
-const LONG_RUNNING_BRAILLE_FRAMES=['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
-const LONG_RUNNING_BRAILLE_FRAME_MS=3000;
-let longRunningBrailleFrameIndex=0;
-let longRunningBrailleTimer=null;
+let runningIndicatorSettings={mode:'boxes',rpm:2};
 
-function prefersReducedRunningMotion(){
-  return Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
+function normalizeRunningIndicatorSettings(value){
+  const mode=['boxes','spinner','time'].includes(value?.mode)?value.mode:'boxes';
+  const rpm=Math.max(.1,Math.min(120,Number(value?.rpm)||2));
+  return {mode,rpm};
 }
 
-function updateLongRunningBrailleFrame(){
-  const indicators=[...document.querySelectorAll('.session-running-braille')];
-  if(!indicators.length){
-    if(longRunningBrailleTimer!==null){clearInterval(longRunningBrailleTimer);longRunningBrailleTimer=null;}
-    return;
+function applyRunningIndicatorSettings(value){
+  runningIndicatorSettings=normalizeRunningIndicatorSettings(value);
+  for(const view of app.views.values()){
+    if(view?.meta?.status==='running')updateSessionPresentation(view,view.meta);
   }
-  if(!prefersReducedRunningMotion())longRunningBrailleFrameIndex=(longRunningBrailleFrameIndex+1)%LONG_RUNNING_BRAILLE_FRAMES.length;
-  const frame=LONG_RUNNING_BRAILLE_FRAMES[longRunningBrailleFrameIndex];
-  for(const indicator of indicators)indicator.textContent=frame;
 }
 
-function ensureLongRunningBrailleTimer(){
-  if(prefersReducedRunningMotion()||longRunningBrailleTimer!==null)return;
-  longRunningBrailleTimer=setInterval(updateLongRunningBrailleFrame,LONG_RUNNING_BRAILLE_FRAME_MS);
-}
+window.addEventListener('taskmenu:running-indicator-settings',event=>applyRunningIndicatorSettings(event.detail||{}));
+globalThis.TaskMenuRunningIndicator={
+  get settings(){return {...runningIndicatorSettings};},
+  apply:applyRunningIndicatorSettings
+};
 
-function renderLongRunningIndicator(status){
+function renderLongRunningIndicator(status,duration){
   status.replaceChildren();
-  const indicator=document.createElement('span');
-  indicator.className='session-running-braille';
-  indicator.setAttribute('aria-hidden','true');
-  indicator.textContent=LONG_RUNNING_BRAILLE_FRAMES[longRunningBrailleFrameIndex];
-  status.append(indicator);
-  ensureLongRunningBrailleTimer();
+  if(runningIndicatorSettings.mode==='time'){
+    status.textContent=duration;
+    return false;
+  }
+  if(runningIndicatorSettings.mode==='spinner'){
+    const spinner=document.createElement('span');
+    spinner.className='session-running-spinner';
+    spinner.setAttribute('aria-hidden','true');
+    spinner.style.setProperty('--taskdeck-running-spin-duration',(60/runningIndicatorSettings.rpm)+'s');
+    status.append(spinner);
+    return true;
+  }
+  const boxes=document.createElement('span');
+  boxes.className='session-running-boxes';
+  boxes.setAttribute('aria-hidden','true');
+  for(let index=0;index<3;index++){
+    const cell=document.createElement('span');cell.className='session-running-cell';boxes.append(cell);
+  }
+  status.append(boxes);
+  return true;
 }
 
 function updateSessionPresentation(view,meta){
@@ -241,8 +260,7 @@ function updateSessionPresentation(view,meta){
   view.status.title='';
   if(meta.status==='running'){
     view.status.title='Running · '+duration;
-    if(Number.isFinite(elapsed)&&elapsed>600){
-      renderLongRunningIndicator(view.status);
+    if(Number.isFinite(elapsed)&&elapsed>600&&renderLongRunningIndicator(view.status,duration)){
       view.status.classList.add('session-status-running-long');
     }else{
       view.status.textContent=duration;
