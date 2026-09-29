@@ -16,7 +16,7 @@ style.textContent=`
 .task-row-ext>.task-favorite-toggle{padding:5px 7px;min-width:31px;color:#f4c95d}
 .session-rerun{white-space:nowrap}
 .tab.state-running{border-top:2px solid #5aa9e6}.tab.state-success{border-top:2px solid #5fbf74}.tab.state-fail{border-top:2px solid #e35d6a}.tab.state-stopped{border-top:2px solid #d0a84d}
-.tab .status.session-status-running-long{display:inline-block;width:12px;height:12px;margin-left:8px;opacity:1;border:2px solid #72b7ea;border-right-color:transparent;border-radius:50%;vertical-align:-2px;animation:taskdeck-tab-running-spin .85s linear infinite}
+.tab .status.session-status-running-long{display:inline-block;width:12px;height:12px;margin-left:8px;opacity:1;border:2px solid #72b7ea;border-right-color:transparent;border-radius:50%;vertical-align:-2px;animation:taskdeck-tab-running-spin 30s linear infinite}
 .tab .status.session-status-success{color:#78d68b;opacity:1;font-weight:800}
 .tab .status.session-status-fail{color:#ff7b65;opacity:1;font-weight:800}
 @keyframes taskdeck-tab-running-spin{to{transform:rotate(360deg)}}
