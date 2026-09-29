@@ -61,3 +61,19 @@ func TestTerminalReloadCanRemapChangedSessionIDsByCwdWithoutWrongSplitFallback(t
 		}
 	}
 }
+
+
+func TestCoreUIRestoresSSHMinusOneTerminalButKeepsPatchHeadless(t *testing.T) {
+	for _, want := range []string{
+		"function autoAttachSession(meta)",
+		"return !(Number(meta?.task_id)===-1&&meta?.kind==='patch');",
+		"else if(autoAttachSession(meta))attach(meta,false);",
+	} {
+		if !strings.Contains(appJS, want) {
+			t.Fatalf("appJS missing SSH reload restore behavior %q", want)
+		}
+	}
+	if strings.Contains(appJS, "return Number(meta?.task_id)!==-1;") {
+		t.Fatal("task_id=-1 alone must not hide SSH terminal sessions from reload restore")
+	}
+}
