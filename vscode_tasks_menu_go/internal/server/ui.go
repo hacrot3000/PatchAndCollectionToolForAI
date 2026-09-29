@@ -395,12 +395,12 @@ function attach(meta,activate){
 
   const term=new TerminalCtor({convertEol:false,cursorBlink:canControl,disableStdin:!canControl,scrollback:10000,fontSize:13,theme:{background:'#050607'}});
   const fit=new FitAddonCtor();term.loadAddon(fit);term.open(terminalHost);fit.fit();
-  view={meta,canControl,tab,status,pane,term,fit,ws:null,ro:null,closed:false,reconnectTimer:null,selectionTimer:null,selectionSeq:0,downloadFiles:[],downloadSelect,download,stop,copy,copyTimer:null};
+  view={meta,canControl,tab,status,pane,term,fit,ws:null,ro:null,closed:false,tabReadOnly:false,reconnectTimer:null,selectionTimer:null,selectionSeq:0,downloadFiles:[],downloadSelect,download,stop,copy,copyTimer:null};
   views.set(meta.id,view);
   downloadSelect.onchange=()=>updateDownloadButton(view);
   download.onclick=()=>downloadSelectedFile(view);
   term.onSelectionChange(()=>scheduleSelectionScan(view));
-  term.onData(data=>{if(view.canControl&&!browserLeaseLost&&view.ws&&view.ws.readyState===WebSocket.OPEN)view.ws.send(data);});
+  term.onData(data=>{if(view.canControl&&!view.tabReadOnly&&!browserLeaseLost&&view.ws&&view.ws.readyState===WebSocket.OPEN)view.ws.send(data);});
   const resize=()=>{
     try{fit.fit();}catch{}
     clearTimeout(view.resizeTimer);
@@ -547,14 +547,27 @@ function teardownView(id){
   if(active===id){active=null;const next=views.keys().next();if(!next.done)activateView(next.value);}
 }
 
+function setViewReadOnly(viewOrID,enabled){
+  const view=typeof viewOrID==='string'?views.get(viewOrID):viewOrID;
+  if(!view)return false;
+  view.tabReadOnly=Boolean(enabled);
+  view.term.options.disableStdin=!view.canControl||view.tabReadOnly;
+  view.term.options.cursorBlink=view.canControl&&!view.tabReadOnly;
+  view.tab.classList.toggle('taskdeck-tab-readonly',view.tabReadOnly);
+  if(view.tabReadOnly)view.pane.dataset.taskdeckReadonly='1';else delete view.pane.dataset.taskdeckReadonly;
+  view.pane.setAttribute('aria-readonly',view.tabReadOnly?'true':'false');
+  if(view.stop)view.stop.disabled=view.tabReadOnly||view.meta?.status!=='running';
+  return view.tabReadOnly;
+}
+
 function updateMeta(meta){
   const view=views.get(meta.id);if(!view)return;
-  view.meta=meta;view.canControl=canControlSession(meta);view.term.options.disableStdin=!view.canControl;
+  view.meta=meta;view.canControl=canControlSession(meta);view.term.options.disableStdin=!view.canControl||Boolean(view.tabReadOnly);
   const featureOwnsRunningStatus=meta.status==='running'&&Boolean(view.status.dataset.runningIndicatorMode);
   if(!featureOwnsRunningStatus)view.status.textContent=meta.status+(meta.exit_code!=null?' '+meta.exit_code:'');
   view.stop.textContent=meta.task_id===0?'Close terminal':'Stop';
   view.stop.title=meta.task_id===0?'Close the terminal and its running processes':'Stop task';
-  view.stop.hidden=!view.canControl;view.stop.disabled=meta.status!=='running';
+  view.stop.hidden=!view.canControl;view.stop.disabled=Boolean(view.tabReadOnly)||meta.status!=='running';
   window.dispatchEvent(new CustomEvent('taskmenu:session',{detail:{view,meta}}));
 }
 
@@ -594,7 +607,7 @@ globalThis.TaskMenuApp={
   get layoutProfile(){return layoutProfile;},
   get currentUser(){return currentUser;},
   get sharedMode(){return sharedMode;},
-	views,jsonFetch,fetchWithLease,showError,consoleText,startTask,startTerminal,activateView,activateExternalView,loadTasks,syncSessions,attachSession:attach,materializeSession,addOutputFilter,hasPermission,hasAnyPermission,canControlSession
+	views,jsonFetch,fetchWithLease,showError,consoleText,startTask,startTerminal,activateView,activateExternalView,loadTasks,syncSessions,attachSession:attach,materializeSession,setViewReadOnly,addOutputFilter,hasPermission,hasAnyPermission,canControlSession
 };
 document.querySelector('#open-terminal').onclick=()=>startTerminal().catch(showError);
 document.querySelector('#logout').onclick=()=>logout().catch(showError);
