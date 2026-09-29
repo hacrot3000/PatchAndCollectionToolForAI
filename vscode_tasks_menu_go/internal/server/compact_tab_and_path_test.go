@@ -23,6 +23,13 @@ func TestRunningAndCompletedTabsUseConfigurableCompactStatusIcons(t *testing.T) 
 		"runningIndicatorSettings.mode==='spinner'",
 		"spinner.className='session-running-spinner'",
 		"(60/runningIndicatorSettings.rpm)+'s'",
+		"runningIndicatorSettings.mode==='braille'",
+		"braille.className='session-running-braille'",
+		"--taskdeck-running-braille-duration",
+		"@keyframes taskdeck-tab-running-braille",
+		"⠋",
+		"⠏",
+		"Math.round(Number(value?.rpm)||2)",
 		"boxes.className='session-running-boxes'",
 		"cell.className='session-running-cell'",
 		"@keyframes taskdeck-tab-running-spin",
@@ -40,9 +47,6 @@ func TestRunningAndCompletedTabsUseConfigurableCompactStatusIcons(t *testing.T) 
 		if !strings.Contains(js, want) {
 			t.Fatalf("all.js missing configurable compact tab status behavior %q", want)
 		}
-	}
-	if strings.Contains(js, "session-running-braille") || strings.Contains(js, "LONG_RUNNING_BRAILLE") {
-		t.Fatal("long-running tab status must not retain the superseded Braille-only implementation")
 	}
 }
 
