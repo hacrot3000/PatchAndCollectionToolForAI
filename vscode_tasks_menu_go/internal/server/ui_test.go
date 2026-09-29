@@ -75,7 +75,7 @@ func TestStaticUIHasCopyConsoleAction(t *testing.T) {
 		"copyConsole(view)",
 		"view.term.buffer.active",
 		"navigator.clipboard.writeText(text)",
-		"view.stop.disabled=meta.status!=='running'",
+		"view.stop.disabled=Boolean(view.tabReadOnly)||meta.status!=='running'",
 	} {
 		if !strings.Contains(appJS, want) {
 			t.Fatalf("app JS missing copy-console behavior %q", want)
@@ -113,7 +113,7 @@ func TestSharedUICoreActionsFollowCurrentUserCapabilities(t *testing.T) {
 		"!hasPermission('tasks.run')",
 		"meta.owner_user_id===currentUser?.user_id",
 		"disableStdin:!canControl",
-		"if(view.canControl&&!browserLeaseLost",
+		"if(view.canControl&&!view.tabReadOnly&&!browserLeaseLost",
 		"view.stop.hidden=!view.canControl",
 		"fetch('/api/auth/logout'",
 	} {
