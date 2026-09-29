@@ -7,18 +7,30 @@ import (
 	webassets "bletonfc/vscode_tasks_menu/web"
 )
 
-func TestRunningTabShowsDurationWithoutRunningWord(t *testing.T) {
+func TestRunningAndCompletedTabsUseCompactStatusIcons(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/all.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	js := string(data)
-	want := "view.status.textContent=meta.status==='running'?duration:state.text+' '+duration;"
-	if !strings.Contains(js, want) {
-		t.Fatalf("all.js missing compact running-tab presentation %q", want)
+	for _, want := range []string{
+		"Number.isFinite(elapsed)&&elapsed>600",
+		"view.status.classList.add('session-status-running-long')",
+		"view.status.title='Running · '+duration",
+		"view.status.textContent='✓'",
+		"view.status.classList.add('session-status-success')",
+		"view.status.title='PASS · '+duration",
+		"view.status.textContent='✕'",
+		"view.status.classList.add('session-status-fail')",
+		"view.status.title='FAIL · '+duration",
+		"@keyframes taskdeck-tab-running-spin",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("all.js missing compact tab status behavior %q", want)
+		}
 	}
-	if strings.Contains(js, "view.status.textContent=state.text+' '+duration;") {
-		t.Fatal("running tab presentation still always includes the status word")
+	if strings.Contains(js, "view.status.textContent=meta.status==='running'?duration:state.text+' '+duration;") {
+		t.Fatal("tab status still uses the old running/completed text presentation")
 	}
 }
 
