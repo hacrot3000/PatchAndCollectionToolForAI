@@ -16,6 +16,10 @@ style.textContent=`
 .task-row-ext>.task-favorite-toggle{padding:5px 7px;min-width:31px;color:#f4c95d}
 .session-rerun{white-space:nowrap}
 .tab.state-running{border-top:2px solid #5aa9e6}.tab.state-success{border-top:2px solid #5fbf74}.tab.state-fail{border-top:2px solid #e35d6a}.tab.state-stopped{border-top:2px solid #d0a84d}
+.tab .status.session-status-running-long{display:inline-block;width:12px;height:12px;margin-left:8px;opacity:1;border:2px solid #72b7ea;border-right-color:transparent;border-radius:50%;vertical-align:-2px;animation:taskdeck-tab-running-spin .85s linear infinite}
+.tab .status.session-status-success{color:#78d68b;opacity:1;font-weight:800}
+.tab .status.session-status-fail{color:#ff7b65;opacity:1;font-weight:800}
+@keyframes taskdeck-tab-running-spin{to{transform:rotate(360deg)}}
 .history-section{margin:6px 0 10px;border:1px solid #30343b;border-radius:6px;background:#12161d;overflow:hidden}
 .history-head{display:flex;align-items:center;gap:6px;padding:5px 7px;border-bottom:1px solid #30343b}.history-head strong{font-size:11px;opacity:.75;flex:1}.history-clear{padding:2px 6px;font-size:10px}
 .history-list{max-height:180px;overflow:auto;padding:3px}.history-row{display:grid;grid-template-columns:1fr auto;gap:2px 6px;padding:5px 6px;border-bottom:1px solid #222831;font-size:11px}.history-row:last-child{border-bottom:0}.history-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-meta{opacity:.55;grid-column:1/3}.history-state.pass{color:#78d68b}.history-state.fail{color:#ff7b86}.history-state.stopped{color:#e4be63}
@@ -197,8 +201,29 @@ async function restartOrRun(view){
 }
 
 function updateSessionPresentation(view,meta){
-  const state=displayState(meta);const duration=formatDuration(elapsedSeconds(meta));
-  view.status.textContent=meta.status==='running'?duration:state.text+' '+duration;
+  const state=displayState(meta);const elapsed=elapsedSeconds(meta);const duration=formatDuration(elapsed);
+  view.status.classList.remove('session-status-running-long','session-status-success','session-status-fail');
+  view.status.title='';
+  if(meta.status==='running'){
+    view.status.title='Running · '+duration;
+    if(Number.isFinite(elapsed)&&elapsed>=600){
+      view.status.textContent='';
+      view.status.classList.add('session-status-running-long');
+    }else{
+      view.status.textContent=duration;
+    }
+  }else if(state.cls==='success'){
+    view.status.textContent='✓';
+    view.status.classList.add('session-status-success');
+    view.status.title='PASS · '+duration;
+  }else if(state.cls==='fail'){
+    view.status.textContent='✕';
+    view.status.classList.add('session-status-fail');
+    view.status.title='FAIL · '+duration;
+  }else{
+    view.status.textContent=state.text+' '+duration;
+    view.status.title=state.text+' · '+duration;
+  }
   view.tab.classList.remove('state-running','state-success','state-fail','state-stopped');view.tab.classList.add('state-'+state.cls);
   ensureRerunButton(view);
   ensureConsoleTools(view);
