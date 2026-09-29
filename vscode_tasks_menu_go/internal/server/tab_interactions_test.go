@@ -135,3 +135,94 @@ func TestTabOrderIsScopedByLayoutProfile(t *testing.T) {
 		t.Fatal("tab order storage must be scoped by desktop/mobile layout profile")
 	}
 }
+
+
+func TestFeatureTabsSupportPersistentReadOnlyMode(t *testing.T) {
+	contextData, err := webassets.Files.ReadFile("featuremods/tabcontext.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contextJS := string(contextData)
+	for _, want := range []string{
+		"taskdeck:tab-readonly:",
+		"checkbox.type='checkbox'",
+		"label.textContent='Read only'",
+		".tab[data-id],.db-tab[data-id],.task-patch-tab",
+		"function descriptorForTab(tab)",
+		"function setDescriptorReadOnly(descriptor,enabled)",
+		"taskmenu:tab-readonly-changed",
+		"data-taskdeck-readonly",
+		"document.addEventListener('beforeinput',stopReadonlyMutation,true)",
+		"document.addEventListener('click',event=>",
+		"document.addEventListener('contextmenu',event=>",
+		"event.stopImmediatePropagation()",
+		"new MutationObserver(records=>",
+		"registerTab(tab)",
+	} {
+		if !strings.Contains(contextJS, want) {
+			t.Fatalf("tabcontext.js missing shared read-only behavior %q", want)
+		}
+	}
+
+	for _, want := range []string{
+		"function setViewReadOnly(viewOrID,enabled)",
+		"view.tabReadOnly=Boolean(enabled)",
+		"view.term.options.disableStdin=!view.canControl||view.tabReadOnly",
+		"view.canControl&&!view.tabReadOnly&&!browserLeaseLost",
+		"materializeSession,setViewReadOnly,addOutputFilter",
+	} {
+		if !strings.Contains(appJS, want) {
+			t.Fatalf("core terminal UI missing tab read-only behavior %q", want)
+		}
+	}
+
+	editorData, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	editorJS := string(editorData)
+	for _, want := range []string{
+		"function editorReadOnly(view)",
+		"view?.file?.read_only||view?.tabReadOnly",
+		"function setTabReadOnly(viewOrID,enabled)",
+		"view.readonlyBadge.textContent=view.file.read_only?'READ-ONLY':'TAB READ-ONLY'",
+		"setTabReadOnly,",
+	} {
+		if !strings.Contains(editorJS, want) {
+			t.Fatalf("editor.js missing tab read-only behavior %q", want)
+		}
+	}
+
+	databaseData, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	databaseJS := string(databaseData)
+	for _, want := range []string{
+		"function setDatabaseTabReadOnly(viewOrID,enabled)",
+		"for(const queryView of databaseQueryViews(view))",
+		"content.setAttribute('contenteditable',view.tabReadOnly?'false':'true')",
+		"setTabReadOnly:setDatabaseTabReadOnly",
+	} {
+		if !strings.Contains(databaseJS, want) {
+			t.Fatalf("database.js missing tab read-only behavior %q", want)
+		}
+	}
+
+	patchData, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	patchJS := string(patchData)
+	for _, want := range []string{
+		"let tabReadOnly=false",
+		"function setReadOnly(enabled)",
+		"panel.dataset.taskdeckReadonly='1'",
+		"setReadOnly,isReadOnly:()=>tabReadOnly",
+		"TaskMenuTabContext?.registerTab?.(patchTab)",
+	} {
+		if !strings.Contains(patchJS, want) {
+			t.Fatalf("patchpanel.js missing tab read-only behavior %q", want)
+		}
+	}
+}
