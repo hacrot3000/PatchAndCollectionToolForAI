@@ -12,6 +12,7 @@ let suppressClickUntil=0;
 const style=document.createElement('style');
 style.textContent=`
 #tabs .tab[draggable="true"]{cursor:grab}
+#tabs .tab[draggable="true"] .close{cursor:pointer}
 #tabs .tab.tab-dragging{opacity:.5;cursor:grabbing}
 body.tab-reordering,#tabs.tab-reordering{user-select:none}
 `;
