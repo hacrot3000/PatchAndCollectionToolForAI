@@ -99,3 +99,18 @@ func TestRunningIndicatorAnimationClassSurvivesStatusRefresh(t *testing.T) {
 		t.Fatal("running indicator class must not be removed and re-added on every status refresh")
 	}
 }
+
+
+func TestCoreSessionPollDoesNotDestroyLongRunningIndicatorDOM(t *testing.T) {
+	for _, want := range []string{
+		"const featureOwnsRunningStatus=meta.status==='running'&&Boolean(view.status.dataset.runningIndicatorMode)",
+		"if(!featureOwnsRunningStatus)view.status.textContent=meta.status+(meta.exit_code!=null?' '+meta.exit_code:'')",
+	} {
+		if !strings.Contains(appJS, want) {
+			t.Fatalf("appJS missing long-running indicator ownership guard %q", want)
+		}
+	}
+	if strings.Contains(appJS, "view.term.options.disableStdin=!view.canControl;view.status.textContent=meta.status") {
+		t.Fatal("core session polling must not unconditionally replace the running indicator DOM")
+	}
+}
