@@ -390,6 +390,14 @@ function readonlyKeyAllowed(event){
   return ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','PageUp','PageDown','Home','End','Escape','Tab'].includes(event.key);
 }
 
+document.addEventListener('pointerdown',event=>{
+  const pane=readonlyPaneFromTarget(event.target);
+  if(!pane)return;
+  const target=event.target instanceof Element?event.target:null;
+  const interactive=target?.closest('button,input,select,textarea,[role="button"],[role="tab"]');
+  if(!interactive)return;
+  event.preventDefault();event.stopImmediatePropagation();
+},true);
 document.addEventListener('beforeinput',stopReadonlyMutation,true);
 document.addEventListener('paste',stopReadonlyMutation,true);
 document.addEventListener('cut',stopReadonlyMutation,true);
