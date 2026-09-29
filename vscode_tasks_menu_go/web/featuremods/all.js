@@ -270,27 +270,30 @@ function renderLongRunningIndicator(status,duration){
 
 function updateSessionPresentation(view,meta){
   const state=displayState(meta);const elapsed=elapsedSeconds(meta);const duration=formatDuration(elapsed);
-  view.status.classList.remove('session-status-running-long','session-status-success','session-status-fail');
+  view.status.classList.remove('session-status-success','session-status-fail');
   view.status.title='';
   if(meta.status==='running'){
     view.status.title='Running · '+duration;
-    if(Number.isFinite(elapsed)&&elapsed>600&&renderLongRunningIndicator(view.status,duration)){
-      view.status.classList.add('session-status-running-long');
-    }else{
+    const longRunning=Number.isFinite(elapsed)&&elapsed>600&&renderLongRunningIndicator(view.status,duration);
+    view.status.classList.toggle('session-status-running-long',Boolean(longRunning));
+    if(!longRunning){
       view.status.textContent=duration;
       delete view.status.dataset.runningIndicatorMode;
     }
   }else if(state.cls==='success'){
+    view.status.classList.remove('session-status-running-long');
     delete view.status.dataset.runningIndicatorMode;
     view.status.textContent='✓';
     view.status.classList.add('session-status-success');
     view.status.title='PASS · '+duration;
   }else if(state.cls==='fail'){
+    view.status.classList.remove('session-status-running-long');
     delete view.status.dataset.runningIndicatorMode;
     view.status.textContent='✕';
     view.status.classList.add('session-status-fail');
     view.status.title='FAIL · '+duration;
   }else{
+    view.status.classList.remove('session-status-running-long');
     delete view.status.dataset.runningIndicatorMode;
     view.status.textContent=state.text+' '+duration;
     view.status.title=state.text+' · '+duration;
