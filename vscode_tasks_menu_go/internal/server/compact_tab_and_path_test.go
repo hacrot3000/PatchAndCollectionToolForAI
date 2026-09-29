@@ -23,8 +23,14 @@ func TestRunningAndCompletedTabsUseCompactStatusIcons(t *testing.T) {
 		"view.status.textContent='✕'",
 		"view.status.classList.add('session-status-fail')",
 		"view.status.title='FAIL · '+duration",
-		"@keyframes taskdeck-tab-running-spin",
-		"animation:taskdeck-tab-running-spin 30s linear infinite",
+		"function renderLongRunningIndicator(status)",
+		"cell.className='session-running-cell'",
+		"renderLongRunningIndicator(view.status)",
+		"@keyframes taskdeck-tab-running-cell-2",
+		"@keyframes taskdeck-tab-running-cell-3",
+		"animation:taskdeck-tab-running-cell-2 3s steps(1,end) infinite",
+		"animation:taskdeck-tab-running-cell-3 3s steps(1,end) infinite",
+		"prefers-reduced-motion:reduce",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("all.js missing compact tab status behavior %q", want)
@@ -32,6 +38,9 @@ func TestRunningAndCompletedTabsUseCompactStatusIcons(t *testing.T) {
 	}
 	if strings.Contains(js, "view.status.textContent=meta.status==='running'?duration:state.text+' '+duration;") {
 		t.Fatal("tab status still uses the old running/completed text presentation")
+	}
+	if strings.Contains(js, "taskdeck-tab-running-spin") {
+		t.Fatal("long-running tab status must not use a continuously rotating spinner")
 	}
 }
 
