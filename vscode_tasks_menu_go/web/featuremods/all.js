@@ -16,16 +16,10 @@ style.textContent=`
 .task-row-ext>.task-favorite-toggle{padding:5px 7px;min-width:31px;color:#f4c95d}
 .session-rerun{white-space:nowrap}
 .tab.state-running{border-top:2px solid #5aa9e6}.tab.state-success{border-top:2px solid #5fbf74}.tab.state-fail{border-top:2px solid #e35d6a}.tab.state-stopped{border-top:2px solid #d0a84d}
-.tab .status.session-status-running-long{display:inline-flex;align-items:center;justify-content:center;gap:2px;width:18px;height:12px;margin-left:8px;padding:1px 2px;box-sizing:border-box;opacity:1;border:1px solid #72b7ea;border-radius:2px;vertical-align:-2px}
-.tab .status.session-status-running-long .session-running-cell{display:block;width:3px;height:5px;border-radius:1px;background:#72b7ea;opacity:.16}
-.tab .status.session-status-running-long .session-running-cell:nth-child(1){opacity:1}
-.tab .status.session-status-running-long .session-running-cell:nth-child(2){animation:taskdeck-tab-running-cell-2 3s steps(1,end) infinite}
-.tab .status.session-status-running-long .session-running-cell:nth-child(3){animation:taskdeck-tab-running-cell-3 3s steps(1,end) infinite}
+.tab .status.session-status-running-long{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;margin-left:8px;opacity:1;color:#72b7ea;font:700 14px/1 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;vertical-align:-2px}
+.tab .status.session-status-running-long .session-running-braille{display:inline-block;width:1ch;text-align:center}
 .tab .status.session-status-success{color:#78d68b;opacity:1;font-weight:800}
 .tab .status.session-status-fail{color:#ff7b65;opacity:1;font-weight:800}
-@keyframes taskdeck-tab-running-cell-2{0%,100%{opacity:.16}20%,80%{opacity:1}}
-@keyframes taskdeck-tab-running-cell-3{0%,39%,61%,100%{opacity:.16}40%,60%{opacity:1}}
-@media (prefers-reduced-motion:reduce){.tab .status.session-status-running-long .session-running-cell{animation:none!important;opacity:1}}
 .history-section{margin:6px 0 10px;border:1px solid #30343b;border-radius:6px;background:#12161d;overflow:hidden}
 .history-head{display:flex;align-items:center;gap:6px;padding:5px 7px;border-bottom:1px solid #30343b}.history-head strong{font-size:11px;opacity:.75;flex:1}.history-clear{padding:2px 6px;font-size:10px}
 .history-list{max-height:180px;overflow:auto;padding:3px}.history-row{display:grid;grid-template-columns:1fr auto;gap:2px 6px;padding:5px 6px;border-bottom:1px solid #222831;font-size:11px}.history-row:last-child{border-bottom:0}.history-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-meta{opacity:.55;grid-column:1/3}.history-state.pass{color:#78d68b}.history-state.fail{color:#ff7b86}.history-state.stopped{color:#e4be63}
@@ -206,14 +200,39 @@ async function restartOrRun(view){
   }finally{if(button?.isConnected)button.disabled=false;}
 }
 
+const LONG_RUNNING_BRAILLE_FRAMES=['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+const LONG_RUNNING_BRAILLE_FRAME_MS=3000;
+let longRunningBrailleFrameIndex=0;
+let longRunningBrailleTimer=null;
+
+function prefersReducedRunningMotion(){
+  return Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
+}
+
+function updateLongRunningBrailleFrame(){
+  const indicators=[...document.querySelectorAll('.session-running-braille')];
+  if(!indicators.length){
+    if(longRunningBrailleTimer!==null){clearInterval(longRunningBrailleTimer);longRunningBrailleTimer=null;}
+    return;
+  }
+  if(!prefersReducedRunningMotion())longRunningBrailleFrameIndex=(longRunningBrailleFrameIndex+1)%LONG_RUNNING_BRAILLE_FRAMES.length;
+  const frame=LONG_RUNNING_BRAILLE_FRAMES[longRunningBrailleFrameIndex];
+  for(const indicator of indicators)indicator.textContent=frame;
+}
+
+function ensureLongRunningBrailleTimer(){
+  if(prefersReducedRunningMotion()||longRunningBrailleTimer!==null)return;
+  longRunningBrailleTimer=setInterval(updateLongRunningBrailleFrame,LONG_RUNNING_BRAILLE_FRAME_MS);
+}
+
 function renderLongRunningIndicator(status){
   status.replaceChildren();
-  for(let index=0;index<3;index++){
-    const cell=document.createElement('span');
-    cell.className='session-running-cell';
-    cell.setAttribute('aria-hidden','true');
-    status.append(cell);
-  }
+  const indicator=document.createElement('span');
+  indicator.className='session-running-braille';
+  indicator.setAttribute('aria-hidden','true');
+  indicator.textContent=LONG_RUNNING_BRAILLE_FRAMES[longRunningBrailleFrameIndex];
+  status.append(indicator);
+  ensureLongRunningBrailleTimer();
 }
 
 function updateSessionPresentation(view,meta){
