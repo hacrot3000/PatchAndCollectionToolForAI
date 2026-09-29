@@ -38,6 +38,7 @@ func TestSharedSettingsMutationsAreAuditedWithoutValues(t *testing.T) {
 
 	run(http.MethodPut, "/api/config/page-title", `{"title":"Sensitive Project Name"}`, s.pageTitle, http.StatusOK)
 	run(http.MethodPut, "/api/config/terminal-cwds", `{"selected_cwd":"tools","custom_dirs":["tools"]}`, s.terminalCWDConfig, http.StatusOK)
+	run(http.MethodPut, "/api/config/running-indicator", `{"mode":"spinner","rpm":2}`, s.runningIndicatorConfig, http.StatusOK)
 	run(http.MethodPost, "/api/command-presets", `{"action":"create","name":"Private deployment","commands":["echo top-secret"]}`, s.commandPresets, http.StatusCreated)
 	run(http.MethodPut, "/api/state/tasks", `{"version":1,"favorites":[1],"recent":[2],"history":[]}`, s.taskState, http.StatusOK)
 
@@ -52,6 +53,7 @@ func TestSharedSettingsMutationsAreAuditedWithoutValues(t *testing.T) {
 	for _, action := range []string{
 		"settings.page_title.update",
 		"settings.terminal_cwd.update",
+		"settings.running_indicator.update",
 		"settings.command_preset.create",
 		"settings.task_state.update",
 	} {
