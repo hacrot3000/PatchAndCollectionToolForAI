@@ -61,6 +61,7 @@ func TestSensitiveRoutesRejectRemoteRequestsWithoutAuthentication(t *testing.T) 
 		{http.MethodGet, "/api/tasks"},
 		{http.MethodGet, "/api/state/tasks"},
 		{http.MethodGet, "/api/config/page-title"},
+		{http.MethodGet, "/api/config/running-indicator"},
 		{http.MethodGet, "/api/broadcast"},
 		{http.MethodGet, "/api/command-presets"},
 		{http.MethodGet, "/api/git/status"},
