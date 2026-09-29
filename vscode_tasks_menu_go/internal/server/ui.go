@@ -549,7 +549,9 @@ function teardownView(id){
 
 function updateMeta(meta){
   const view=views.get(meta.id);if(!view)return;
-  view.meta=meta;view.canControl=canControlSession(meta);view.term.options.disableStdin=!view.canControl;view.status.textContent=meta.status+(meta.exit_code!=null?' '+meta.exit_code:'');
+  view.meta=meta;view.canControl=canControlSession(meta);view.term.options.disableStdin=!view.canControl;
+  const featureOwnsRunningStatus=meta.status==='running'&&Boolean(view.status.dataset.runningIndicatorMode);
+  if(!featureOwnsRunningStatus)view.status.textContent=meta.status+(meta.exit_code!=null?' '+meta.exit_code:'');
   view.stop.textContent=meta.task_id===0?'Close terminal':'Stop';
   view.stop.title=meta.task_id===0?'Close the terminal and its running processes':'Stop task';
   view.stop.hidden=!view.canControl;view.stop.disabled=meta.status!=='running';
