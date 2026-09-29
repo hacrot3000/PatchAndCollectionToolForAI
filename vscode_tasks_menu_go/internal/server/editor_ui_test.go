@@ -137,12 +137,12 @@ func TestEditorTracksTransactionsAndBlocksReadOnlyDocumentChanges(t *testing.T) 
 	for _, want := range []string{
 		"function installEditorDispatchGuard(view)",
 		"view.cm.state.update(...input)",
-		"transaction.docChanged&&view.file.read_only&&!view.internalUpdate",
+		"transaction.docChanged&&editorReadOnly(view)&&!view.internalUpdate",
 		"if(transaction.docChanged&&!view.internalUpdate)setDirty(view,true)",
 		"view.internalUpdate=true",
 		"view.internalUpdate=false",
 		"addEventListener('beforeinput'",
-		"if(view.file.read_only)event.preventDefault()",
+		"if(editorReadOnly(view))event.preventDefault()",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("editor transaction guard missing %q", want)
