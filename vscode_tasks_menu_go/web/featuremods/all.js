@@ -23,12 +23,15 @@ style.textContent=`
 .tab .status.session-status-running-long .session-running-cell:nth-child(2){animation:taskdeck-tab-running-cell-2 3s steps(1,end) infinite}
 .tab .status.session-status-running-long .session-running-cell:nth-child(3){animation:taskdeck-tab-running-cell-3 3s steps(1,end) infinite}
 .tab .status.session-status-running-long .session-running-spinner{display:inline-block;width:12px;height:12px;box-sizing:border-box;border:2px solid #72b7ea;border-right-color:transparent;border-radius:50%;animation:taskdeck-tab-running-spin var(--taskdeck-running-spin-duration,30s) linear infinite}
+.tab .status.session-status-running-long .session-running-braille{display:inline-block;min-width:12px;text-align:center;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;font-size:14px;line-height:12px}
+.tab .status.session-status-running-long .session-running-braille::before{content:'⠋';animation:taskdeck-tab-running-braille var(--taskdeck-running-braille-duration,30s) steps(1,end) infinite}
 .tab .status.session-status-success{color:#78d68b;opacity:1;font-weight:800}
 .tab .status.session-status-fail{color:#ff7b65;opacity:1;font-weight:800}
 @keyframes taskdeck-tab-running-cell-2{0%,100%{opacity:.16}20%,80%{opacity:1}}
 @keyframes taskdeck-tab-running-cell-3{0%,39%,61%,100%{opacity:.16}40%,60%{opacity:1}}
 @keyframes taskdeck-tab-running-spin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.tab .status.session-status-running-long .session-running-cell,.tab .status.session-status-running-long .session-running-spinner{animation:none!important}.tab .status.session-status-running-long .session-running-cell{opacity:1}}
+@keyframes taskdeck-tab-running-braille{0%,100%{content:'⠋'}10%{content:'⠙'}20%{content:'⠹'}30%{content:'⠸'}40%{content:'⠼'}50%{content:'⠴'}60%{content:'⠦'}70%{content:'⠧'}80%{content:'⠇'}90%{content:'⠏'}}
+@media (prefers-reduced-motion:reduce){.tab .status.session-status-running-long .session-running-cell,.tab .status.session-status-running-long .session-running-spinner,.tab .status.session-status-running-long .session-running-braille::before{animation:none!important}.tab .status.session-status-running-long .session-running-cell{opacity:1}}
 .history-section{margin:6px 0 10px;border:1px solid #30343b;border-radius:6px;background:#12161d;overflow:hidden}
 .history-head{display:flex;align-items:center;gap:6px;padding:5px 7px;border-bottom:1px solid #30343b}.history-head strong{font-size:11px;opacity:.75;flex:1}.history-clear{padding:2px 6px;font-size:10px}
 .history-list{max-height:180px;overflow:auto;padding:3px}.history-row{display:grid;grid-template-columns:1fr auto;gap:2px 6px;padding:5px 6px;border-bottom:1px solid #222831;font-size:11px}.history-row:last-child{border-bottom:0}.history-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-meta{opacity:.55;grid-column:1/3}.history-state.pass{color:#78d68b}.history-state.fail{color:#ff7b86}.history-state.stopped{color:#e4be63}
@@ -212,8 +215,8 @@ async function restartOrRun(view){
 let runningIndicatorSettings={mode:'boxes',rpm:2};
 
 function normalizeRunningIndicatorSettings(value){
-  const mode=['boxes','spinner','time'].includes(value?.mode)?value.mode:'boxes';
-  const rpm=Math.max(.1,Math.min(120,Number(value?.rpm)||2));
+  const mode=['boxes','spinner','braille','time'].includes(value?.mode)?value.mode:'boxes';
+  const rpm=Math.max(1,Math.min(120,Math.round(Number(value?.rpm)||2)));
   return {mode,rpm};
 }
 
@@ -242,6 +245,14 @@ function renderLongRunningIndicator(status,duration){
     spinner.setAttribute('aria-hidden','true');
     spinner.style.setProperty('--taskdeck-running-spin-duration',(60/runningIndicatorSettings.rpm)+'s');
     status.append(spinner);
+    return true;
+  }
+  if(runningIndicatorSettings.mode==='braille'){
+    const braille=document.createElement('span');
+    braille.className='session-running-braille';
+    braille.setAttribute('aria-hidden','true');
+    braille.style.setProperty('--taskdeck-running-braille-duration',(60/runningIndicatorSettings.rpm)+'s');
+    status.append(braille);
     return true;
   }
   const boxes=document.createElement('span');
