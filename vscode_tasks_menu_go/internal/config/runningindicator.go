@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	DefaultRunningIndicatorMode = "boxes"
+	DefaultRunningIndicatorMode = "braille"
 	DefaultRunningIndicatorRPM  = 2.0
 	minRunningIndicatorRPM      = 1.0
 	maxRunningIndicatorRPM      = 120.0
