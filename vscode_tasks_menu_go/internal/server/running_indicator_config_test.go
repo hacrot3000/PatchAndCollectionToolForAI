@@ -24,7 +24,7 @@ func TestRunningIndicatorConfigAPIReadsWritesAndPreservesINI(t *testing.T) {
 	}
 	s := &Server{Workspace: workspace}
 
-	put := httptest.NewRequest(http.MethodPut, "/api/config/running-indicator", strings.NewReader(`{"mode":"spinner","rpm":2.5}`))
+	put := httptest.NewRequest(http.MethodPut, "/api/config/running-indicator", strings.NewReader(`{"mode":"braille","rpm":2.5}`))
 	put.Header.Set("Content-Type", "application/json")
 	putRR := httptest.NewRecorder()
 	s.runningIndicatorConfig(putRR, put)
@@ -35,7 +35,7 @@ func TestRunningIndicatorConfigAPIReadsWritesAndPreservesINI(t *testing.T) {
 	if err := json.Unmarshal(putRR.Body.Bytes(), &saved); err != nil {
 		t.Fatal(err)
 	}
-	if saved.Mode != "spinner" || saved.RPM != 2.5 {
+	if saved.Mode != "braille" || saved.RPM != 3 {
 		t.Fatalf("saved=%+v", saved)
 	}
 
@@ -50,8 +50,8 @@ func TestRunningIndicatorConfigAPIReadsWritesAndPreservesINI(t *testing.T) {
 		"[auth]",
 		"password = keep-me",
 		"[appearance]",
-		"running_indicator = spinner",
-		"running_indicator_rpm = 2.5",
+		"running_indicator = braille",
+		"running_indicator_rpm = 3",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("config missing %q:\n%s", want, text)
