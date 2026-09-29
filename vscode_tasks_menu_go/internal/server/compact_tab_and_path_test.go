@@ -7,7 +7,7 @@ import (
 	webassets "bletonfc/vscode_tasks_menu/web"
 )
 
-func TestRunningAndCompletedTabsUseCompactStatusIcons(t *testing.T) {
+func TestRunningAndCompletedTabsUseConfigurableCompactStatusIcons(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/all.js")
 	if err != nil {
 		t.Fatal(err)
@@ -15,6 +15,19 @@ func TestRunningAndCompletedTabsUseCompactStatusIcons(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"Number.isFinite(elapsed)&&elapsed>600",
+		"let runningIndicatorSettings={mode:'boxes',rpm:2}",
+		"function normalizeRunningIndicatorSettings(value)",
+		"function applyRunningIndicatorSettings(value)",
+		"taskmenu:running-indicator-settings",
+		"runningIndicatorSettings.mode==='time'",
+		"runningIndicatorSettings.mode==='spinner'",
+		"spinner.className='session-running-spinner'",
+		"(60/runningIndicatorSettings.rpm)+'s'",
+		"boxes.className='session-running-boxes'",
+		"cell.className='session-running-cell'",
+		"@keyframes taskdeck-tab-running-spin",
+		"@keyframes taskdeck-tab-running-cell-2",
+		"@keyframes taskdeck-tab-running-cell-3",
 		"view.status.classList.add('session-status-running-long')",
 		"view.status.title='Running · '+duration",
 		"view.status.textContent='✓'",
@@ -23,27 +36,13 @@ func TestRunningAndCompletedTabsUseCompactStatusIcons(t *testing.T) {
 		"view.status.textContent='✕'",
 		"view.status.classList.add('session-status-fail')",
 		"view.status.title='FAIL · '+duration",
-		"const LONG_RUNNING_BRAILLE_FRAMES=['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏']",
-		"const LONG_RUNNING_BRAILLE_FRAME_MS=3000",
-		"function renderLongRunningIndicator(status)",
-		"indicator.className='session-running-braille'",
-		"indicator.textContent=LONG_RUNNING_BRAILLE_FRAMES[longRunningBrailleFrameIndex]",
-		"setInterval(updateLongRunningBrailleFrame,LONG_RUNNING_BRAILLE_FRAME_MS)",
-		"prefersReducedRunningMotion()",
-		"renderLongRunningIndicator(view.status)",
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("all.js missing compact tab status behavior %q", want)
+			t.Fatalf("all.js missing configurable compact tab status behavior %q", want)
 		}
 	}
-	if strings.Contains(js, "view.status.textContent=meta.status==='running'?duration:state.text+' '+duration;") {
-		t.Fatal("tab status still uses the old running/completed text presentation")
-	}
-	if strings.Contains(js, "taskdeck-tab-running-spin") {
-		t.Fatal("long-running tab status must not use a continuously rotating CSS spinner")
-	}
-	if strings.Contains(js, "session-running-cell") || strings.Contains(js, "taskdeck-tab-running-cell-") {
-		t.Fatal("long-running tab status must not use the old three-cell box indicator")
+	if strings.Contains(js, "session-running-braille") || strings.Contains(js, "LONG_RUNNING_BRAILLE") {
+		t.Fatal("long-running tab status must not retain the superseded Braille-only implementation")
 	}
 }
 
