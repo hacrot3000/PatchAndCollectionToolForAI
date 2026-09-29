@@ -212,10 +212,10 @@ async function restartOrRun(view){
   }finally{if(button?.isConnected)button.disabled=false;}
 }
 
-let runningIndicatorSettings={mode:'boxes',rpm:2};
+let runningIndicatorSettings={mode:'braille',rpm:2};
 
 function normalizeRunningIndicatorSettings(value){
-  const mode=['boxes','spinner','braille','time'].includes(value?.mode)?value.mode:'boxes';
+  const mode=['boxes','spinner','braille','time'].includes(value?.mode)?value.mode:'braille';
   const rpm=Math.max(1,Math.min(120,Math.round(Number(value?.rpm)||2)));
   return {mode,rpm};
 }
