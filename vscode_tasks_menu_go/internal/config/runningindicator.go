@@ -13,7 +13,7 @@ import (
 const (
 	DefaultRunningIndicatorMode = "boxes"
 	DefaultRunningIndicatorRPM  = 2.0
-	minRunningIndicatorRPM      = 0.1
+	minRunningIndicatorRPM      = 1.0
 	maxRunningIndicatorRPM      = 120.0
 )
 
@@ -32,17 +32,18 @@ func NormalizeRunningIndicatorSettings(value RunningIndicatorSettings) (RunningI
 		mode = DefaultRunningIndicatorMode
 	}
 	switch mode {
-	case "boxes", "spinner", "time":
+	case "boxes", "spinner", "braille", "time":
 	default:
-		return RunningIndicatorSettings{}, fmt.Errorf("running indicator mode phải là boxes, spinner hoặc time")
+		return RunningIndicatorSettings{}, fmt.Errorf("running indicator mode phải là boxes, spinner, braille hoặc time")
 	}
 	rpm := value.RPM
 	if rpm == 0 {
 		rpm = DefaultRunningIndicatorRPM
 	}
 	if rpm < minRunningIndicatorRPM || rpm > maxRunningIndicatorRPM {
-		return RunningIndicatorSettings{}, fmt.Errorf("running indicator rpm phải nằm trong khoảng %.1f..%.0f", minRunningIndicatorRPM, maxRunningIndicatorRPM)
+		return RunningIndicatorSettings{}, fmt.Errorf("running indicator rpm phải nằm trong khoảng %.0f..%.0f", minRunningIndicatorRPM, maxRunningIndicatorRPM)
 	}
+	rpm = float64(int(rpm + 0.5))
 	return RunningIndicatorSettings{Mode: mode, RPM: rpm}, nil
 }
 
