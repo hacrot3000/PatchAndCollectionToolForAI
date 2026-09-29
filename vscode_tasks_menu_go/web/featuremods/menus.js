@@ -69,7 +69,7 @@ function installHeaderMenus(){
   addSection(settings.pop,'PATCH TOOL',[patchUIControl]);
   addSection(settings.pop,'ENVIRONMENT',[document.querySelector('#env-profile'),document.querySelector('#env-profile-manage')]);
   addSection(settings.pop,'NOTIFICATIONS',[document.querySelector('#notifications-toggle')]);
-  addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls'),document.querySelector('#self-update-check')]);
+  addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls'),document.querySelector('#running-indicator-settings'),document.querySelector('#self-update-check')]);
   addSection(settings.pop,'WORKSPACE',[document.querySelector('#reload'),document.querySelector('#edit-title')]);
   host.append(settings.menu);
 
