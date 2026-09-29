@@ -94,13 +94,13 @@ func TestEditorTabContextMenuUsesEditorOnlyActions(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"function openEditorContextMenu(view,x,y)",
-		"globalThis.TaskMenuEditor?.editors?.get(id)",
+		"globalThis.TaskMenuEditor?.editors?.get?.(id)",
 		"{label:'Save'",
 		"{label:'Reload'",
 		"{label:'Go to line…'",
 		"{label:'Close'",
 		"editor?.activateEditor?.(view.id)",
-		"if(editorView)openEditorContextMenu",
+		"if(descriptor.kind==='editor')openEditorContextMenu",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("tabcontext.js missing editor-only context behavior %q", want)
@@ -201,7 +201,9 @@ func TestFeatureTabsSupportPersistentReadOnlyMode(t *testing.T) {
 	for _, want := range []string{
 		"function setDatabaseTabReadOnly(viewOrID,enabled)",
 		"for(const queryView of databaseQueryViews(view))",
-		"content.setAttribute('contenteditable',view.tabReadOnly?'false':'true')",
+		"content.setAttribute('contenteditable',readonly?'false':'true')",
+		"function setQueryWorkbenchReadOnly(queryView,enabled)",
+		"setQueryTabReadOnly:setQueryWorkbenchReadOnly",
 		"setTabReadOnly:setDatabaseTabReadOnly",
 	} {
 		if !strings.Contains(databaseJS, want) {
