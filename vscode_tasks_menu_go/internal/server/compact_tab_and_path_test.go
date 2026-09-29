@@ -24,6 +24,7 @@ func TestRunningAndCompletedTabsUseCompactStatusIcons(t *testing.T) {
 		"view.status.classList.add('session-status-fail')",
 		"view.status.title='FAIL · '+duration",
 		"@keyframes taskdeck-tab-running-spin",
+		"animation:taskdeck-tab-running-spin 30s linear infinite",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("all.js missing compact tab status behavior %q", want)
