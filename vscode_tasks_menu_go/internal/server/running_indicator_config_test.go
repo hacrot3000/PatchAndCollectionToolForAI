@@ -90,12 +90,12 @@ func TestRunningIndicatorConfigAPIRejectsInvalidModeAndRPM(t *testing.T) {
 	}
 }
 
-func TestRunningIndicatorConfigDefaultsToBoxesAtTwoRPM(t *testing.T) {
+func TestRunningIndicatorConfigDefaultsToBrailleAtTwoRPM(t *testing.T) {
 	got, err := config.ReadRunningIndicatorSettings(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Mode != "boxes" || got.RPM != 2 {
+	if got.Mode != "braille" || got.RPM != 2 {
 		t.Fatalf("defaults=%+v", got)
 	}
 }
