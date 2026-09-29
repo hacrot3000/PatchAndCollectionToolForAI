@@ -172,6 +172,24 @@ func TestPatchPanelPromptUsesProtocolDataNotTerminalHeuristics(t *testing.T) {
 }
 
 
+func TestPatchPanelQueueItemLabelTogglesSelection(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"input.id='task-patch-prompt-select-'+index",
+		"copy.htmlFor=input.id",
+		"copy.className='task-patch-prompt-copy'",
+		"row.append(input,copy)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("queue prompt item label must toggle its checkbox: missing %q", want)
+		}
+	}
+}
+
 func TestPatchPanelArtifactActionsUseStructuredProtocolOnly(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
 	if err != nil {
