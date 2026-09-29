@@ -15,11 +15,11 @@ html[data-taskmenu-theme="light"] .running-indicator-settings-card{background:#f
 `;
 document.head.append(style);
 
-let settings={mode:'boxes',rpm:2};
+let settings={mode:'braille',rpm:2};
 let loaded=false;
 
 function normalize(value){
-  const mode=['boxes','spinner','braille','time'].includes(value?.mode)?value.mode:'boxes';
+  const mode=['boxes','spinner','braille','time'].includes(value?.mode)?value.mode:'braille';
   const rpm=Math.max(1,Math.min(120,Math.round(Number(value?.rpm)||2)));
   return {mode,rpm};
 }
