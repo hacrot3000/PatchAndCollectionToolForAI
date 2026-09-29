@@ -25,6 +25,7 @@ func TestTabDragOrderingFeature(t *testing.T) {
 		"TaskMenuTerminalRestore?.ready",
 		"TaskMenuTerminalRestore?.persistSnapshot?.()",
 		"target?.closest('.close')?'0':'1'",
+		"#tabs .tab[draggable=\"true\"] .close{cursor:pointer}",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("tabdrag.js missing %q", want)
