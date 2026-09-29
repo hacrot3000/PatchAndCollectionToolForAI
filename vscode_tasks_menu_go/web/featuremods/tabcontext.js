@@ -21,6 +21,11 @@ style.textContent=`
 .tab-context-menu button.context-find{background:#332a55;border-color:#594a8e;color:#eee7ff}
 .tab-context-menu button.context-save{background:#203f31;border-color:#3a7058;color:#dcf6e7}
 .tab-context-menu button.context-danger{background:#4a252a;border-color:#7a4048;color:#ffe2e4}
+.tab-context-menu button.context-check{display:flex;align-items:center;gap:8px}
+.tab-context-menu button.context-check input{margin:0;pointer-events:none}
+.taskdeck-tab-readonly::before{content:'🔒';font-size:10px;opacity:.72;margin-right:4px}
+[data-taskdeck-readonly="1"] button,[data-taskdeck-readonly="1"] input,[data-taskdeck-readonly="1"] textarea,[data-taskdeck-readonly="1"] select{opacity:.55}
+[data-taskdeck-readonly="1"] .cm-content{caret-color:transparent}
 html[data-taskmenu-theme="light"] .tab-context-menu,html[data-taskmenu-theme="light"] .tab-context-submenu{background:#fff;border-color:#b9c0c8;box-shadow:0 12px 34px rgba(0,0,0,.18)}
 html[data-taskmenu-theme="light"] .tab-context-menu button.context-copy{background:#e8f2ff;border-color:#8db7df;color:#194b78}
 html[data-taskmenu-theme="light"] .tab-context-menu button.context-find{background:#f0ebff;border-color:#afa1da;color:#493b78}
@@ -37,6 +42,87 @@ document.body.append(menu);
 let contextView=null;
 let submenu=null;
 let submenuOwner=null;
+let readonlyStorageName='';
+let readonlyKeys=new Set();
+
+function readOnlyStorageKey(){
+  const workspace=String(app.taskData?.workspace||'').trim()||'global';
+  return 'taskdeck:tab-readonly:'+workspace;
+}
+
+function ensureReadOnlyState(){
+  const name=readOnlyStorageKey();
+  if(name===readonlyStorageName)return;
+  readonlyStorageName=name;
+  try{
+    const raw=JSON.parse(localStorage.getItem(name)||'[]');
+    readonlyKeys=new Set(Array.isArray(raw)?raw.filter(value=>typeof value==='string'&&value):[]);
+  }catch{readonlyKeys=new Set();}
+}
+
+function persistReadOnlyState(){
+  ensureReadOnlyState();
+  try{localStorage.setItem(readonlyStorageName,JSON.stringify([...readonlyKeys]));}
+  catch(error){console.warn('Cannot persist tab read-only state',error);}
+}
+
+function descriptorForTab(tab){
+  if(!(tab instanceof Element))return null;
+  if(tab.classList.contains('task-patch-tab')){
+    const patch=globalThis.TaskMenuPatchPanel;
+    return {kind:'patch',key:'patch',tab,pane:patch?.panel||null,view:patch||null};
+  }
+  if(tab.classList.contains('db-tab')){
+    const id=String(tab.dataset.id||'');
+    const view=globalThis.TaskMenuDatabase?.views?.get?.(id)||null;
+    return view?{kind:'database',key:'database:'+id,tab,pane:view.pane,view}:null;
+  }
+  const id=String(tab.dataset.id||'');
+  if(!id)return null;
+  const editor=globalThis.TaskMenuEditor?.editors?.get?.(id)||null;
+  if(editor)return {kind:'editor',key:'editor:'+(editor.file?.path||id),tab,pane:editor.pane,view:editor};
+  const terminal=app.views.get(id)||null;
+  if(terminal)return {kind:'terminal',key:'terminal:'+id,tab,pane:terminal.pane,view:terminal};
+  return null;
+}
+
+function descriptorReadOnly(descriptor){
+  ensureReadOnlyState();
+  return Boolean(descriptor?.key&&readonlyKeys.has(descriptor.key));
+}
+
+function applyDescriptorReadOnly(descriptor,enabled){
+  if(!descriptor)return false;
+  const next=Boolean(enabled);
+  descriptor.tab?.classList.toggle('taskdeck-tab-readonly',next);
+  if(descriptor.pane){
+    if(next)descriptor.pane.dataset.taskdeckReadonly='1';else delete descriptor.pane.dataset.taskdeckReadonly;
+    descriptor.pane.setAttribute('aria-readonly',next?'true':'false');
+  }
+  if(descriptor.kind==='terminal')app.setViewReadOnly?.(descriptor.view,next);
+  else if(descriptor.kind==='editor')globalThis.TaskMenuEditor?.setTabReadOnly?.(descriptor.view,next);
+  else if(descriptor.kind==='database')globalThis.TaskMenuDatabase?.setTabReadOnly?.(descriptor.view,next);
+  else if(descriptor.kind==='patch')globalThis.TaskMenuPatchPanel?.setReadOnly?.(next);
+  return next;
+}
+
+function setDescriptorReadOnly(descriptor,enabled){
+  if(!descriptor?.key)return false;
+  ensureReadOnlyState();
+  const next=Boolean(enabled);
+  if(next)readonlyKeys.add(descriptor.key);else readonlyKeys.delete(descriptor.key);
+  persistReadOnlyState();
+  applyDescriptorReadOnly(descriptor,next);
+  window.dispatchEvent(new CustomEvent('taskmenu:tab-readonly-changed',{detail:{kind:descriptor.kind,key:descriptor.key,enabled:next}}));
+  return next;
+}
+
+function registerTab(tab){
+  setTimeout(()=>{
+    const descriptor=descriptorForTab(tab);
+    if(descriptor)applyDescriptorReadOnly(descriptor,descriptorReadOnly(descriptor));
+  },0);
+}
 
 function closeSubmenu(){
   if(submenu){submenu.remove();submenu=null;}
@@ -79,6 +165,22 @@ function addHeading(label){
   heading.className='tab-context-heading';
   heading.textContent=label.toUpperCase();
   menu.append(heading);
+}
+
+function addReadOnlyToggle(descriptor){
+  if(!descriptor)return false;
+  addHeading('Tab');
+  const item=document.createElement('button');item.type='button';item.className='context-check';
+  const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.tabIndex=-1;checkbox.checked=descriptorReadOnly(descriptor);
+  const label=document.createElement('span');label.textContent='Read only';
+  item.append(checkbox,label);
+  item.title='When enabled, this tab keeps receiving output but ignores user input and actions';
+  item.onclick=event=>{
+    event.preventDefault();event.stopPropagation();
+    checkbox.checked=setDescriptorReadOnly(descriptor,!checkbox.checked);
+  };
+  menu.append(item);
+  return true;
 }
 
 function addActions(view,label,actions){
@@ -205,10 +307,13 @@ function clampPosition(x,y){
 
 function openEditorContextMenu(view,x,y){
   closeContextMenu();
+  const descriptor=descriptorForTab(view.tab);
+  addReadOnlyToggle(descriptor);
+  const sep=document.createElement('div');sep.className='tab-context-separator';menu.append(sep);
   addHeading('Editor');
   const editor=globalThis.TaskMenuEditor;
   const actions=[
-    {label:'Save',title:'Save file',disabled:Boolean(view.file?.read_only)||!view.dirty,run:()=>editor?.saveEditor?.(view)},
+    {label:'Save',title:'Save file',disabled:Boolean(view.file?.read_only)||Boolean(view.tabReadOnly)||!view.dirty,run:()=>editor?.saveEditor?.(view)},
     {label:'Reload',title:'Reload file from disk',run:()=>editor?.reloadEditor?.(view)},
     {label:'Go to line…',title:'Go to a line in this file',run:()=>editor?.goToLine?.(view)},
     {label:'Close',title:'Close editor tab',danger:true,run:()=>editor?.closeEditor?.(view.id)}
@@ -232,11 +337,16 @@ function openEditorContextMenu(view,x,y){
 function openContextMenu(view,x,y){
   closeContextMenu();
   contextView=view;
+  const descriptor=descriptorForTab(view.tab);
+  addReadOnlyToggle(descriptor);
   const session=sourceActions(view,'Session');
   const presetActions=globalThis.TaskMenuCommandPresets?.contextActions?.(view)||[];
   const broadcastActions=globalThis.TaskMenuBroadcast?.contextActions?.(view)||[];
   const consoleActions=sourceActions(view,'Console');
 
+  if(session.length||presetActions.length||broadcastActions.length||consoleActions.length){
+    const sep=document.createElement('div');sep.className='tab-context-separator';menu.append(sep);
+  }
   const hasSession=addActions(view,'Session',session);
   if(hasSession&&presetActions.length){
     const sep=document.createElement('div');sep.className='tab-context-separator';menu.append(sep);
@@ -257,17 +367,62 @@ function openContextMenu(view,x,y){
   clampPosition(x,y);
 }
 
+function openFeatureContextMenu(descriptor,x,y){
+  closeContextMenu();
+  addReadOnlyToggle(descriptor);
+  menu.classList.add('open');
+  clampPosition(x,y);
+}
+
+function readonlyPaneFromTarget(target){
+  return target instanceof Element?target.closest('[data-taskdeck-readonly="1"]'):null;
+}
+
+function stopReadonlyMutation(event){
+  const pane=readonlyPaneFromTarget(event.target);
+  if(!pane)return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
+function readonlyKeyAllowed(event){
+  if(event.ctrlKey||event.metaKey)return ['a','c','f'].includes(String(event.key||'').toLowerCase());
+  return ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','PageUp','PageDown','Home','End','Escape','Tab'].includes(event.key);
+}
+
+document.addEventListener('beforeinput',stopReadonlyMutation,true);
+document.addEventListener('paste',stopReadonlyMutation,true);
+document.addEventListener('cut',stopReadonlyMutation,true);
+document.addEventListener('drop',stopReadonlyMutation,true);
+document.addEventListener('change',stopReadonlyMutation,true);
+document.addEventListener('submit',stopReadonlyMutation,true);
+document.addEventListener('keydown',event=>{
+  if(!readonlyPaneFromTarget(event.target)||readonlyKeyAllowed(event))return;
+  event.preventDefault();event.stopImmediatePropagation();
+},true);
+document.addEventListener('click',event=>{
+  if(!readonlyPaneFromTarget(event.target))return;
+  event.preventDefault();event.stopImmediatePropagation();
+},true);
+document.addEventListener('dblclick',event=>{
+  if(!readonlyPaneFromTarget(event.target))return;
+  event.preventDefault();event.stopImmediatePropagation();
+},true);
+document.addEventListener('contextmenu',event=>{
+  if(!readonlyPaneFromTarget(event.target))return;
+  event.stopImmediatePropagation();
+},true);
+
 tabsHost.addEventListener('contextmenu',event=>{
   const target=event.target instanceof Element?event.target:null;
-  const tab=target?.closest('.tab[data-id]');
+  const tab=target?.closest('.tab[data-id],.db-tab[data-id],.task-patch-tab');
   if(!tab||!tabsHost.contains(tab))return;
-  const id=tab.dataset.id||'';
-  const view=app.views.get(id);
-  const editorView=globalThis.TaskMenuEditor?.editors?.get(id);
-  if(!view&&!editorView)return;
+  const descriptor=descriptorForTab(tab);
+  if(!descriptor)return;
   event.preventDefault();event.stopPropagation();
-  if(editorView)openEditorContextMenu(editorView,event.clientX,event.clientY);
-  else openContextMenu(view,event.clientX,event.clientY);
+  if(descriptor.kind==='editor')openEditorContextMenu(descriptor.view,event.clientX,event.clientY);
+  else if(descriptor.kind==='terminal')openContextMenu(descriptor.view,event.clientX,event.clientY);
+  else openFeatureContextMenu(descriptor,event.clientX,event.clientY);
 },true);
 
 document.addEventListener('pointerdown',event=>{
@@ -281,4 +436,28 @@ window.addEventListener('blur',closeContextMenu);
 window.addEventListener('resize',closeContextMenu);
 window.addEventListener('scroll',closeContextMenu,true);
 
-globalThis.TaskMenuTabContext={openContextMenu,closeContextMenu};
+const tabObserver=new MutationObserver(records=>{
+  for(const record of records){
+    for(const node of record.addedNodes){
+      if(!(node instanceof Element))continue;
+      if(node.matches?.('.tab[data-id],.db-tab[data-id],.task-patch-tab'))registerTab(node);
+      for(const tab of node.querySelectorAll?.('.tab[data-id],.db-tab[data-id],.task-patch-tab')||[])registerTab(tab);
+    }
+  }
+});
+tabObserver.observe(tabsHost,{childList:true,subtree:true});
+for(const tab of tabsHost.querySelectorAll('.tab[data-id],.db-tab[data-id],.task-patch-tab'))registerTab(tab);
+
+globalThis.TaskMenuTabContext={
+  openContextMenu,
+  closeContextMenu,
+  registerTab,
+  setReadOnly(tabOrDescriptor,enabled){
+    const descriptor=tabOrDescriptor?.kind?tabOrDescriptor:descriptorForTab(tabOrDescriptor);
+    return setDescriptorReadOnly(descriptor,enabled);
+  },
+  isReadOnly(tabOrDescriptor){
+    const descriptor=tabOrDescriptor?.kind?tabOrDescriptor:descriptorForTab(tabOrDescriptor);
+    return descriptorReadOnly(descriptor);
+  }
+};
