@@ -22,6 +22,8 @@ func TestRunningIndicatorSettingsFeature(t *testing.T) {
 		"Circular spinner",
 		"BRAILLE PATTERN DOTS",
 		"Always show elapsed time",
+		"let settings={mode:'braille',rpm:2}",
+		"['boxes','spinner','braille','time'].includes(value?.mode)?value.mode:'braille'",
 		"Animation speed",
 		"cycles / minute · whole number",
 		"rpm.min='1'",
