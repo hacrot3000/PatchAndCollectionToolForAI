@@ -40,7 +40,7 @@ func TestRunningAndCompletedTabsUseConfigurableCompactStatusIcons(t *testing.T) 
 		"@keyframes taskdeck-tab-running-spin",
 		"@keyframes taskdeck-tab-running-cell-2{0%,100%{opacity:.16}20%,80%{opacity:1}}",
 		"@keyframes taskdeck-tab-running-cell-3{0%,39%,61%,100%{opacity:.16}40%,60%{opacity:1}}",
-		"view.status.classList.add('session-status-running-long')",
+		"view.status.classList.toggle('session-status-running-long',Boolean(longRunning))",
 		"view.status.title='Running · '+duration",
 		"view.status.textContent='✓'",
 		"view.status.classList.add('session-status-success')",
@@ -76,5 +76,26 @@ func TestDetectedFilePathCompactionKeepsFilename(t *testing.T) {
 	}
 	if strings.Contains(js, "link.textContent=file.path;link.title=file.path") {
 		t.Fatal("detected file display still renders the full path directly and relies on end ellipsis")
+	}
+}
+
+
+func TestRunningIndicatorAnimationClassSurvivesStatusRefresh(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/all.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const longRunning=Number.isFinite(elapsed)&&elapsed>600&&renderLongRunningIndicator(view.status,duration)",
+		"view.status.classList.toggle('session-status-running-long',Boolean(longRunning))",
+		"view.status.classList.remove('session-status-running-long')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("all.js missing stable running-indicator class behavior %q", want)
+		}
+	}
+	if strings.Contains(js, "view.status.classList.remove('session-status-running-long','session-status-success','session-status-fail')") {
+		t.Fatal("running indicator class must not be removed and re-added on every status refresh")
 	}
 }
