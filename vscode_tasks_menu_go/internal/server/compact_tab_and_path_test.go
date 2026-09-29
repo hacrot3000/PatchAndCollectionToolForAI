@@ -23,14 +23,14 @@ func TestRunningAndCompletedTabsUseCompactStatusIcons(t *testing.T) {
 		"view.status.textContent='✕'",
 		"view.status.classList.add('session-status-fail')",
 		"view.status.title='FAIL · '+duration",
+		"const LONG_RUNNING_BRAILLE_FRAMES=['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏']",
+		"const LONG_RUNNING_BRAILLE_FRAME_MS=3000",
 		"function renderLongRunningIndicator(status)",
-		"cell.className='session-running-cell'",
+		"indicator.className='session-running-braille'",
+		"indicator.textContent=LONG_RUNNING_BRAILLE_FRAMES[longRunningBrailleFrameIndex]",
+		"setInterval(updateLongRunningBrailleFrame,LONG_RUNNING_BRAILLE_FRAME_MS)",
+		"prefersReducedRunningMotion()",
 		"renderLongRunningIndicator(view.status)",
-		"@keyframes taskdeck-tab-running-cell-2",
-		"@keyframes taskdeck-tab-running-cell-3",
-		"animation:taskdeck-tab-running-cell-2 3s steps(1,end) infinite",
-		"animation:taskdeck-tab-running-cell-3 3s steps(1,end) infinite",
-		"prefers-reduced-motion:reduce",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("all.js missing compact tab status behavior %q", want)
@@ -40,7 +40,10 @@ func TestRunningAndCompletedTabsUseCompactStatusIcons(t *testing.T) {
 		t.Fatal("tab status still uses the old running/completed text presentation")
 	}
 	if strings.Contains(js, "taskdeck-tab-running-spin") {
-		t.Fatal("long-running tab status must not use a continuously rotating spinner")
+		t.Fatal("long-running tab status must not use a continuously rotating CSS spinner")
+	}
+	if strings.Contains(js, "session-running-cell") || strings.Contains(js, "taskdeck-tab-running-cell-") {
+		t.Fatal("long-running tab status must not use the old three-cell box indicator")
 	}
 }
 
