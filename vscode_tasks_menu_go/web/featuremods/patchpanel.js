@@ -3133,10 +3133,11 @@ function installPatchPanel(){
       const addModePatch=addingWhileRuns&&itemKind==='PATCH';
       const locked=duplicateRunning||addModePatch;
       const input=document.createElement('input');input.type='checkbox';input.dataset.patchIndex=String(index);input.dataset.patchKind=String(item?.kind||'');input.dataset.patchLocked=locked?'1':'0';
+      input.id='task-patch-prompt-select-'+index;
       input.disabled=locked;
       input.checked=!locked&&initial.has(index);
       input.onchange=()=>applyPromptConstraints(input,prompt);
-      const copy=document.createElement('label');copy.className='task-patch-prompt-copy';
+      const copy=document.createElement('label');copy.className='task-patch-prompt-copy';copy.htmlFor=input.id;
       const name=document.createElement('span');name.className='task-patch-prompt-name';
       name.textContent=`${index}. ${itemName}`;
       const detail=document.createElement('span');detail.className='task-patch-prompt-detail';
