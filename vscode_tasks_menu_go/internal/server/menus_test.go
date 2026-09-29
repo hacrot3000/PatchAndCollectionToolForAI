@@ -29,7 +29,7 @@ func TestGroupedMenusFeature(t *testing.T) {
 		"taskmenu:patch-ui-mode",
 		"TaskMenuPatchUISettings",
 		"addSection(files.pop,'FILES',[document.querySelector('#upload-workspace')])",
-		"addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls'),document.querySelector('#self-update-check')])",
+		"addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls'),document.querySelector('#running-indicator-settings'),document.querySelector('#self-update-check')])",
 		"addSection(settings.pop,'WORKSPACE',[document.querySelector('#reload'),document.querySelector('#edit-title')])",
 		".git-status-pill",
 		"pane-action-menus",
