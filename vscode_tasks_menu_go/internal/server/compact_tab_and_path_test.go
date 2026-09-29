@@ -15,7 +15,7 @@ func TestRunningAndCompletedTabsUseConfigurableCompactStatusIcons(t *testing.T) 
 	js := string(data)
 	for _, want := range []string{
 		"Number.isFinite(elapsed)&&elapsed>600",
-		"let runningIndicatorSettings={mode:'boxes',rpm:2}",
+		"let runningIndicatorSettings={mode:'braille',rpm:2}",
 		"function normalizeRunningIndicatorSettings(value)",
 		"function applyRunningIndicatorSettings(value)",
 		"taskmenu:running-indicator-settings",
@@ -31,6 +31,7 @@ func TestRunningAndCompletedTabsUseConfigurableCompactStatusIcons(t *testing.T) 
 		"⠋",
 		"⠏",
 		"Math.round(Number(value?.rpm)||2)",
+		"['boxes','spinner','braille','time'].includes(value?.mode)?value.mode:'braille'",
 		"'session-running-boxes'",
 		"cell.className='session-running-cell'",
 		"status.dataset.runningIndicatorMode===mode",
