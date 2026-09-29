@@ -234,34 +234,37 @@ globalThis.TaskMenuRunningIndicator={
 };
 
 function renderLongRunningIndicator(status,duration){
-  status.replaceChildren();
-  if(runningIndicatorSettings.mode==='time'){
-    status.textContent=duration;
+  const mode=runningIndicatorSettings.mode;
+  if(mode==='time'){
+    if(status.dataset.runningIndicatorMode!=='time'||status.textContent!==duration)status.textContent=duration;
+    status.dataset.runningIndicatorMode='time';
     return false;
   }
-  if(runningIndicatorSettings.mode==='spinner'){
-    const spinner=document.createElement('span');
-    spinner.className='session-running-spinner';
-    spinner.setAttribute('aria-hidden','true');
-    spinner.style.setProperty('--taskdeck-running-spin-duration',(60/runningIndicatorSettings.rpm)+'s');
-    status.append(spinner);
-    return true;
+
+  const className=mode==='spinner'
+    ?'session-running-spinner'
+    :(mode==='braille'?'session-running-braille':'session-running-boxes');
+  let indicator=status.firstElementChild;
+  const reusable=status.dataset.runningIndicatorMode===mode&&indicator?.classList?.contains(className);
+  if(!reusable){
+    status.replaceChildren();
+    indicator=document.createElement('span');
+    indicator.className=className;
+    indicator.setAttribute('aria-hidden','true');
+    if(mode==='boxes'){
+      for(let index=0;index<3;index++){
+        const cell=document.createElement('span');cell.className='session-running-cell';indicator.append(cell);
+      }
+    }
+    status.append(indicator);
+    status.dataset.runningIndicatorMode=mode;
   }
-  if(runningIndicatorSettings.mode==='braille'){
-    const braille=document.createElement('span');
-    braille.className='session-running-braille';
-    braille.setAttribute('aria-hidden','true');
-    braille.style.setProperty('--taskdeck-running-braille-duration',(60/runningIndicatorSettings.rpm)+'s');
-    status.append(braille);
-    return true;
+
+  if(mode==='spinner'){
+    indicator.style.setProperty('--taskdeck-running-spin-duration',(60/runningIndicatorSettings.rpm)+'s');
+  }else if(mode==='braille'){
+    indicator.style.setProperty('--taskdeck-running-braille-duration',(60/runningIndicatorSettings.rpm)+'s');
   }
-  const boxes=document.createElement('span');
-  boxes.className='session-running-boxes';
-  boxes.setAttribute('aria-hidden','true');
-  for(let index=0;index<3;index++){
-    const cell=document.createElement('span');cell.className='session-running-cell';boxes.append(cell);
-  }
-  status.append(boxes);
   return true;
 }
 
@@ -275,16 +278,20 @@ function updateSessionPresentation(view,meta){
       view.status.classList.add('session-status-running-long');
     }else{
       view.status.textContent=duration;
+      delete view.status.dataset.runningIndicatorMode;
     }
   }else if(state.cls==='success'){
+    delete view.status.dataset.runningIndicatorMode;
     view.status.textContent='✓';
     view.status.classList.add('session-status-success');
     view.status.title='PASS · '+duration;
   }else if(state.cls==='fail'){
+    delete view.status.dataset.runningIndicatorMode;
     view.status.textContent='✕';
     view.status.classList.add('session-status-fail');
     view.status.title='FAIL · '+duration;
   }else{
+    delete view.status.dataset.runningIndicatorMode;
     view.status.textContent=state.text+' '+duration;
     view.status.title=state.text+' · '+duration;
   }
