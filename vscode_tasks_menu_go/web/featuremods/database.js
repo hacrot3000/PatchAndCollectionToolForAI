@@ -679,6 +679,24 @@ async function sessionRequest(id,operation,payload){
   return response?.result;
 }
 
+function setDatabaseTabReadOnly(viewOrID,enabled){
+  const view=typeof viewOrID==='string'?dbViews.get(viewOrID):viewOrID;
+  if(!view)return false;
+  view.tabReadOnly=Boolean(enabled);
+  view.tab.classList.toggle('taskdeck-tab-readonly',view.tabReadOnly);
+  if(view.tabReadOnly)view.pane.dataset.taskdeckReadonly='1';else delete view.pane.dataset.taskdeckReadonly;
+  view.pane.setAttribute('aria-readonly',view.tabReadOnly?'true':'false');
+  for(const queryView of databaseQueryViews(view)){
+    queryView.tabReadOnly=view.tabReadOnly;
+    const content=queryView.queryCM?.contentDOM;
+    if(content){
+      content.setAttribute('contenteditable',view.tabReadOnly?'false':'true');
+      content.setAttribute('aria-readonly',view.tabReadOnly?'true':'false');
+    }
+  }
+  return view.tabReadOnly;
+}
+
 function activateDatabaseView(id){
   const view=dbViews.get(id);
   if(!view)return;
@@ -1836,7 +1854,7 @@ function attachDatabaseView(meta,activate){
   const detail=document.createElement('div');detail.className='db-object-detail';
   browser.append(browserHead,objects,detail);
 
-  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,objectData:[],querySchemaCache:new Map()};
+  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,objectData:[],querySchemaCache:new Map(),tabReadOnly:false};
   const query=setupQueryPanel(view,{initialText:defaultDatabaseQueryText(meta.adapter_kind),scriptName:'query.sql'});
   body.append(browser,query);pane.append(head,body);panes.append(pane);
 
@@ -1928,6 +1946,11 @@ globalThis.TaskMenuDatabase={
   focusQuery:focusQueryEditor,
   createQueryView:createAdditionalQueryView,
   queryHasPendingChanges:queryViewHasPendingChanges,
+  setTabReadOnly:setDatabaseTabReadOnly,
+  isTabReadOnly:viewOrID=>{
+    const view=typeof viewOrID==='string'?dbViews.get(viewOrID):viewOrID;
+    return Boolean(view?.tabReadOnly);
+  },
   saveTextWithLocation,
   restoreSessions:restoreDatabaseSessions,
   get views(){return dbViews;}
