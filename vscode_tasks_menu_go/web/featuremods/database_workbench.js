@@ -86,6 +86,8 @@ style.textContent=`
 .db-context-item:hover:not(:disabled){background:#2b3440}
 .db-context-item:disabled{opacity:.35}
 .db-context-item.danger{color:#ff9a9a}
+.db-context-item.db-context-check{display:flex;align-items:center;gap:8px}
+.db-context-item.db-context-check input{margin:0;pointer-events:none}
 .db-context-item.has-submenu::after{content:'›';float:right;margin-left:14px;opacity:.7;font-size:15px;line-height:11px}
 .db-context-submenu{position:absolute;display:none;left:calc(100% + 4px);top:-4px;z-index:15001}
 .db-context-separator{height:1px;background:#30343b;margin:4px 2px}
@@ -167,7 +169,12 @@ function appendContextMenuItems(container,items){
     }
     const entry=document.createElement('div');entry.className='db-context-entry';
     const button=document.createElement('button');button.type='button';button.className='db-context-item'+(item.danger?' danger':'');
-    button.textContent=item.label;button.disabled=Boolean(item.disabled);
+    if(typeof item.checked==='boolean'){
+      button.classList.add('db-context-check');
+      const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.tabIndex=-1;checkbox.checked=item.checked;
+      const label=document.createElement('span');label.textContent=item.label;button.append(checkbox,label);
+    }else button.textContent=item.label;
+    button.disabled=Boolean(item.disabled);
     const submenuItems=Array.isArray(item.submenu)?item.submenu.filter(Boolean):[];
     if(submenuItems.length){
       button.classList.add('has-submenu');
@@ -353,7 +360,8 @@ function queryPageSnapshot(page){
     scriptName:String(ctx.scriptName||'query.sql'),
     scriptSource:serializableQuerySource(ctx.scriptSource),
     label:String(label||''),
-    tooltip:String(page.tab?.title||'')
+    tooltip:String(page.tab?.title||''),
+    readOnly:Boolean(page.readOnly)
   };
 }
 
@@ -392,7 +400,8 @@ function readSavedQueryTabs(view){
       scriptName:String(item?.scriptName||('query-'+(index+1)+'.sql')),
       scriptSource:serializableQuerySource(item?.scriptSource),
       label:String(item?.label||''),
-      tooltip:String(item?.tooltip||'')
+      tooltip:String(item?.tooltip||''),
+      readOnly:Boolean(item?.readOnly)
     }));
     return {queries,queryCounter:Math.max(...queries.map(item=>item.number),Number(raw.queryCounter)||1),activeQueryKey:String(raw.activeQueryKey||'')};
   }catch(error){console.warn('Cannot restore database query tabs',error);return null;}
@@ -404,6 +413,30 @@ function applyQuerySnapshot(ctx,snapshot){
   if(ctx.maxRows)ctx.maxRows.value=String(snapshot.maxRows||'100');
   ctx.scriptName=snapshot.scriptName||'query.sql';
   ctx.scriptSource=snapshot.scriptSource||null;
+}
+
+function setWorkbenchPageReadOnly(viewOrPage,keyOrEnabled,maybeEnabled){
+  let root,page,enabled;
+  if(viewOrPage?.key&&viewOrPage?.panel){
+    page=viewOrPage;root=rootWorkbenchView(page.ctx||null);enabled=Boolean(keyOrEnabled);
+  }else{
+    root=rootWorkbenchView(viewOrPage);page=root.workbench?.pages?.get(keyOrEnabled);enabled=Boolean(maybeEnabled);
+  }
+  if(!page)return false;
+  page.readOnly=enabled;
+  page.tab?.classList.toggle('taskdeck-tab-readonly',enabled);
+  if(page.panel){
+    if(enabled)page.panel.dataset.taskdeckReadonly='1';else delete page.panel.dataset.taskdeckReadonly;
+    page.panel.setAttribute('aria-readonly',enabled?'true':'false');
+  }
+  if(page.mode==='query'&&page.ctx){
+    page.ctx.workbenchTabReadOnly=enabled;
+    database.setQueryTabReadOnly?.(page.ctx,enabled);
+  }else if(page.ctx){
+    page.ctx.workbenchTabReadOnly=enabled;
+  }
+  scheduleQueryTabsSave(root);
+  return enabled;
 }
 
 function firstQueryPage(view){
@@ -445,6 +478,8 @@ function showWorkbenchTabMenu(view,key,x,y){
   const right=keys.slice(index+1);
   const others=keys.filter(item=>item!==key);
   showContextMenu([
+    {label:'Read only',checked:Boolean(page.readOnly),action:()=>setWorkbenchPageReadOnly(page,!page.readOnly)},
+    {separator:true},
     {label:'Close this',action:()=>closeWorkbenchPage(root,key)},
     {label:'Close all but this',disabled:others.length===0,action:()=>closeWorkbenchPages(root,others)},
     {separator:true},
@@ -485,7 +520,7 @@ function createWorkbenchChildView(view,mode){
   return child;
 }
 
-function createQueryPage(view,{number=0,key='',initialText=null,scriptName='',scriptSource=null,maxRows='100',label='',tooltip='',activate=true}={}){
+function createQueryPage(view,{number=0,key='',initialText=null,scriptName='',scriptSource=null,maxRows='100',label='',tooltip='',readOnly=false,activate=true}={}){
   const root=rootWorkbenchView(view);const wb=root.workbench;
   if(typeof database.createQueryView!=='function')throw new Error('Database query tab factory is unavailable');
   if(!number){wb.queryCounter=(wb.queryCounter||1)+1;number=wb.queryCounter;}
@@ -496,7 +531,8 @@ function createQueryPage(view,{number=0,key='',initialText=null,scriptName='',sc
   ctx.scriptSource=scriptSource||null;
   const panel=ctx.queryPanel;panel.classList.add('db-workbench-panel','hidden');
   const tab=createWorkbenchTab(root,key,label||('Query '+number));if(tooltip)tab.title=tooltip;
-  const page={key,mode:'query',ctx,tab,panel,queryNumber:number};wb.pages.set(key,page);wb.main.append(panel);
+  const page={key,mode:'query',ctx,tab,panel,queryNumber:number,readOnly:false};wb.pages.set(key,page);wb.main.append(panel);
+  setWorkbenchPageReadOnly(page,Boolean(readOnly));
   if(activate){activatePanel(root,key);database.focusQuery?.(ctx);}
   scheduleQueryTabsSave(root);
   return page;
@@ -1785,20 +1821,22 @@ function enhanceView(view){
   const saved=readSavedQueryTabs(view);
   const snapshots=saved?.queries?.length?saved.queries:[{
     key:'query',number:1,text:database.getQueryText?.(view)||'',maxRows:String(view.maxRows?.value||'100'),
-    scriptName:view.scriptName||'query.sql',scriptSource:serializableQuerySource(view.scriptSource),label:'Query 1',tooltip:'Query 1'
+    scriptName:view.scriptName||'query.sql',scriptSource:serializableQuerySource(view.scriptSource),label:'Query 1',tooltip:'Query 1',readOnly:false
   }];
   const first=snapshots[0];
   applyQuerySnapshot(view,first);
   const firstKey=first.key||'query';
   const queryTab=createWorkbenchTab(view,firstKey,first.label||('Query '+first.number));
   if(first.tooltip)queryTab.title=first.tooltip;
-  view.workbench.pages.set(firstKey,{key:firstKey,mode:'query',tab:queryTab,panel:query,ctx:view,queryNumber:first.number});
+  const firstPage={key:firstKey,mode:'query',tab:queryTab,panel:query,ctx:view,queryNumber:first.number,readOnly:false};
+  view.workbench.pages.set(firstKey,firstPage);
+  setWorkbenchPageReadOnly(firstPage,Boolean(first.readOnly));
   view.workbench.queryCounter=Math.max(1,saved?.queryCounter||first.number||1);
   view.workbench.lastQueryKey=firstKey;
   for(const snapshot of snapshots.slice(1)){
     createQueryPage(view,{
       number:snapshot.number,key:snapshot.key,initialText:snapshot.text,scriptName:snapshot.scriptName,
-      scriptSource:snapshot.scriptSource,maxRows:snapshot.maxRows,label:snapshot.label,tooltip:snapshot.tooltip,activate:false
+      scriptSource:snapshot.scriptSource,maxRows:snapshot.maxRows,label:snapshot.label,tooltip:snapshot.tooltip,readOnly:snapshot.readOnly,activate:false
     });
   }
   view.workbench.restoringQueries=false;
@@ -1831,6 +1869,7 @@ globalThis.TaskMenuDatabaseWorkbench={
   gridContextMenuItems,
   queryStateChanged:view=>scheduleQueryTabsSave(view),
   queryTargetForOpen,
+  setPageReadOnly:setWorkbenchPageReadOnly,
   persistQueryTabs:view=>saveQueryTabsNow(view),
   updateQueryTabIdentity(view,{label='',tooltip=''}={}){
     const root=rootWorkbenchView(view);
