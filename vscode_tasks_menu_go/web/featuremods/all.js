@@ -206,7 +206,7 @@ function updateSessionPresentation(view,meta){
   view.status.title='';
   if(meta.status==='running'){
     view.status.title='Running · '+duration;
-    if(Number.isFinite(elapsed)&&elapsed>=600){
+    if(Number.isFinite(elapsed)&&elapsed>600){
       view.status.textContent='';
       view.status.classList.add('session-status-running-long');
     }else{
