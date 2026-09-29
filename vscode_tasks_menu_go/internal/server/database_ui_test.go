@@ -1368,3 +1368,28 @@ func TestDatabaseQueryResultOrdersByMultipleColumns(t *testing.T) {
 		}
 	}
 }
+
+
+func TestDatabaseWorkbenchTabsSupportReadOnlyToggle(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"typeof item.checked==='boolean'",
+		"checkbox.type='checkbox'",
+		"function setWorkbenchPageReadOnly",
+		"{label:'Read only',checked:Boolean(page.readOnly)",
+		"page.panel.dataset.taskdeckReadonly='1'",
+		"database.setQueryTabReadOnly?.(page.ctx,enabled)",
+		"readOnly:Boolean(page.readOnly)",
+		"readOnly:Boolean(item?.readOnly)",
+		"readOnly:snapshot.readOnly",
+		"setPageReadOnly:setWorkbenchPageReadOnly",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing workbench-tab read-only behavior %q", want)
+		}
+	}
+}
