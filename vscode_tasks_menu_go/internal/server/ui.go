@@ -559,10 +559,10 @@ function updateMeta(meta){
 }
 
 function autoAttachSession(meta){
-  // task_id=-1 is reserved for the built-in Patch add-on. Its PTY is a
-  // headless compatibility/evidence backing session until the operator
-  // explicitly asks to materialize it as a terminal tab.
-  return Number(meta?.task_id)!==-1;
+  // Built-in Patch sessions may use task_id=-1 as a headless
+  // compatibility/evidence PTY. SSH terminals also use task_id=-1, but they
+  // are real terminal sessions and must be re-attached after a browser reload.
+  return !(Number(meta?.task_id)===-1&&meta?.kind==='patch');
 }
 
 function materializeSession(meta,activate=true){
