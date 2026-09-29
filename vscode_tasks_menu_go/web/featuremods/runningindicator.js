@@ -19,8 +19,8 @@ let settings={mode:'boxes',rpm:2};
 let loaded=false;
 
 function normalize(value){
-  const mode=['boxes','spinner','time'].includes(value?.mode)?value.mode:'boxes';
-  const rpm=Math.max(.1,Math.min(120,Number(value?.rpm)||2));
+  const mode=['boxes','spinner','braille','time'].includes(value?.mode)?value.mode:'boxes';
+  const rpm=Math.max(1,Math.min(120,Math.round(Number(value?.rpm)||2)));
   return {mode,rpm};
 }
 
@@ -62,23 +62,24 @@ function openSettings(){
   for(const [value,label] of [
     ['boxes','Step boxes · 1 → 2 → 3 → 2 → 1'],
     ['spinner','Circular spinner'],
+    ['braille','BRAILLE PATTERN DOTS'],
     ['time','Always show elapsed time']
   ]){
     const option=document.createElement('option');option.value=value;option.textContent=label;mode.append(option);
   }
   mode.value=settings.mode;
 
-  const rpmLabel=document.createElement('label');rpmLabel.textContent='Spinner speed';
+  const rpmLabel=document.createElement('label');rpmLabel.textContent='Animation speed';
   const rpmWrap=document.createElement('div');
-  const rpm=document.createElement('input');rpm.type='number';rpm.min='0.1';rpm.max='120';rpm.step='0.1';rpm.value=String(settings.rpm);
-  const rpmHint=document.createElement('div');rpmHint.style.fontSize='10px';rpmHint.style.opacity='.6';rpmHint.style.marginTop='4px';rpmHint.textContent='revolutions / minute';
+  const rpm=document.createElement('input');rpm.type='number';rpm.min='1';rpm.max='120';rpm.step='1';rpm.inputMode='numeric';rpm.value=String(Math.round(settings.rpm));
+  const rpmHint=document.createElement('div');rpmHint.style.fontSize='10px';rpmHint.style.opacity='.6';rpmHint.style.marginTop='4px';rpmHint.textContent='cycles / minute · whole number';
   rpmWrap.append(rpm,rpmHint);
 
   const hint=document.createElement('div');hint.className='running-indicator-settings-hint';
   hint.textContent='During the first 10 minutes TaskDeck continues to show elapsed time. This setting controls the compact long-running status shown after that threshold.';
 
   const sync=()=>{
-    const enabled=mode.value==='spinner';
+    const enabled=mode.value==='spinner'||mode.value==='braille';
     rpm.disabled=!enabled;
     rpmLabel.style.opacity=enabled?'1':'.45';
     rpmWrap.style.opacity=enabled?'1':'.45';
@@ -92,9 +93,9 @@ function openSettings(){
   const remove=()=>dialog.remove();
   close.onclick=cancel.onclick=remove;
   save.onclick=async()=>{
-    const next={mode:mode.value,rpm:Number(rpm.value)};
-    if(next.mode==='spinner'&&(!Number.isFinite(next.rpm)||next.rpm<.1||next.rpm>120)){
-      app.showError(new Error('Spinner speed must be between 0.1 and 120 RPM'));
+    const next={mode:mode.value,rpm:Math.round(Number(rpm.value))};
+    if((next.mode==='spinner'||next.mode==='braille')&&(!Number.isFinite(next.rpm)||next.rpm<1||next.rpm>120)){
+      app.showError(new Error('Animation speed must be a whole number between 1 and 120 cycles/minute'));
       rpm.focus();return;
     }
     save.disabled=true;cancel.disabled=true;
