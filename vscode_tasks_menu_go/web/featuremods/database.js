@@ -679,22 +679,34 @@ async function sessionRequest(id,operation,payload){
   return response?.result;
 }
 
+function applyDatabaseQueryReadOnly(queryView){
+  if(!queryView)return false;
+  const root=queryView.workbenchRoot||queryView;
+  const readonly=Boolean(root.databaseTabReadOnly||queryView.workbenchTabReadOnly);
+  queryView.tabReadOnly=readonly;
+  const content=queryView.queryCM?.contentDOM;
+  if(content){
+    content.setAttribute('contenteditable',readonly?'false':'true');
+    content.setAttribute('aria-readonly',readonly?'true':'false');
+  }
+  return readonly;
+}
+
 function setDatabaseTabReadOnly(viewOrID,enabled){
   const view=typeof viewOrID==='string'?dbViews.get(viewOrID):viewOrID;
   if(!view)return false;
-  view.tabReadOnly=Boolean(enabled);
-  view.tab.classList.toggle('taskdeck-tab-readonly',view.tabReadOnly);
-  if(view.tabReadOnly)view.pane.dataset.taskdeckReadonly='1';else delete view.pane.dataset.taskdeckReadonly;
-  view.pane.setAttribute('aria-readonly',view.tabReadOnly?'true':'false');
-  for(const queryView of databaseQueryViews(view)){
-    queryView.tabReadOnly=view.tabReadOnly;
-    const content=queryView.queryCM?.contentDOM;
-    if(content){
-      content.setAttribute('contenteditable',view.tabReadOnly?'false':'true');
-      content.setAttribute('aria-readonly',view.tabReadOnly?'true':'false');
-    }
-  }
-  return view.tabReadOnly;
+  view.databaseTabReadOnly=Boolean(enabled);
+  view.tab.classList.toggle('taskdeck-tab-readonly',view.databaseTabReadOnly);
+  if(view.databaseTabReadOnly)view.pane.dataset.taskdeckReadonly='1';else delete view.pane.dataset.taskdeckReadonly;
+  view.pane.setAttribute('aria-readonly',view.databaseTabReadOnly?'true':'false');
+  for(const queryView of databaseQueryViews(view))applyDatabaseQueryReadOnly(queryView);
+  return view.databaseTabReadOnly;
+}
+
+function setQueryWorkbenchReadOnly(queryView,enabled){
+  if(!queryView)return false;
+  queryView.workbenchTabReadOnly=Boolean(enabled);
+  return applyDatabaseQueryReadOnly(queryView);
 }
 
 function activateDatabaseView(id){
@@ -1854,7 +1866,7 @@ function attachDatabaseView(meta,activate){
   const detail=document.createElement('div');detail.className='db-object-detail';
   browser.append(browserHead,objects,detail);
 
-  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,objectData:[],querySchemaCache:new Map(),tabReadOnly:false};
+  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,objectData:[],querySchemaCache:new Map(),databaseTabReadOnly:false,workbenchTabReadOnly:false,tabReadOnly:false};
   const query=setupQueryPanel(view,{initialText:defaultDatabaseQueryText(meta.adapter_kind),scriptName:'query.sql'});
   body.append(browser,query);pane.append(head,body);panes.append(pane);
 
@@ -1947,9 +1959,10 @@ globalThis.TaskMenuDatabase={
   createQueryView:createAdditionalQueryView,
   queryHasPendingChanges:queryViewHasPendingChanges,
   setTabReadOnly:setDatabaseTabReadOnly,
+  setQueryTabReadOnly:setQueryWorkbenchReadOnly,
   isTabReadOnly:viewOrID=>{
     const view=typeof viewOrID==='string'?dbViews.get(viewOrID):viewOrID;
-    return Boolean(view?.tabReadOnly);
+    return Boolean(view?.databaseTabReadOnly);
   },
   saveTextWithLocation,
   restoreSessions:restoreDatabaseSessions,
