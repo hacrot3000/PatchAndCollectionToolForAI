@@ -191,12 +191,26 @@ function setDirty(view,dirty){
   view.tab.title=(view.dirty?'● ':'')+view.file.path;
   view.save.disabled=Boolean(view.file.read_only)||!view.dirty||view.saving;
 }
+function editorReadOnly(view){
+  return Boolean(view?.file?.read_only||view?.tabReadOnly);
+}
 function applyReadOnly(view){
-  const readonly=Boolean(view.file.read_only);
+  const readonly=editorReadOnly(view);
   view.readonlyBadge.hidden=!readonly;
+  view.readonlyBadge.textContent=view.file.read_only?'READ-ONLY':'TAB READ-ONLY';
   view.cm.contentDOM.setAttribute('contenteditable',readonly?'false':'true');
   view.cm.contentDOM.setAttribute('aria-readonly',readonly?'true':'false');
   view.save.disabled=readonly||!view.dirty||view.saving;
+  view.tab.classList.toggle('taskdeck-tab-readonly',Boolean(view.tabReadOnly));
+  if(view.tabReadOnly)view.pane.dataset.taskdeckReadonly='1';else delete view.pane.dataset.taskdeckReadonly;
+  view.pane.setAttribute('aria-readonly',readonly?'true':'false');
+}
+function setTabReadOnly(viewOrID,enabled){
+  const view=typeof viewOrID==='string'?editors.get(viewOrID):viewOrID;
+  if(!view||view.closed)return false;
+  view.tabReadOnly=Boolean(enabled);
+  applyReadOnly(view);
+  return view.tabReadOnly;
 }
 function installEditorDispatchGuard(view){
   const originalDispatch=view.cm.dispatch.bind(view.cm);
@@ -205,7 +219,7 @@ function installEditorDispatchGuard(view){
     const transaction=input.length===1&&input[0]?.startState
       ? input[0]
       : view.cm.state.update(...input);
-    if(transaction.docChanged&&view.file.read_only&&!view.internalUpdate)return;
+    if(transaction.docChanged&&editorReadOnly(view)&&!view.internalUpdate)return;
     originalDispatch(transaction);
     if(transaction.docChanged&&!view.internalUpdate)setDirty(view,true);
   };
@@ -349,7 +363,7 @@ async function resolveSaveConflict(view){
   return null;
 }
 async function saveEditor(view){
-  if(!view||view.closed||view.file.read_only||!view.dirty||view.saving)return view?.file||null;
+  if(!view||view.closed||editorReadOnly(view)||!view.dirty||view.saving)return view?.file||null;
   view.saving=true;view.save.disabled=true;view.save.textContent='Saving…';
   try{
     const result=await putEditorFile(view,view.file.sha256);
@@ -360,7 +374,7 @@ async function saveEditor(view){
     view.saving=false;
     if(!view.closed){
       view.save.textContent='Save';
-      view.save.disabled=Boolean(view.file.read_only)||!view.dirty;
+      view.save.disabled=editorReadOnly(view)||!view.dirty;
     }
   }
 }
@@ -416,15 +430,15 @@ function createEditor(file){
   pane.append(head,host);panesHost.append(pane);
 
   const cm=cmFactory.newEditor(host,file.content||'',languageOptions(file.path));
-  const view={id,file:{...file},tab,label,dirty,pane,head,path:pathNode,meta,readonlyBadge,warningBadge,save,reload,host,cm,closed:false,dirty:false,saving:false,internalUpdate:false,dispatchRaw:null};
+  const view={id,file:{...file},tab,label,dirty,pane,head,path:pathNode,meta,readonlyBadge,warningBadge,save,reload,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null};
   editors.set(id,view);
   installEditorDispatchGuard(view);
   applyReadOnly(view);
   setDirty(view,false);
 
-  cm.contentDOM.addEventListener('beforeinput',event=>{if(view.file.read_only)event.preventDefault();},true);
+  cm.contentDOM.addEventListener('beforeinput',event=>{if(editorReadOnly(view))event.preventDefault();},true);
   cm.contentDOM.addEventListener('keydown',event=>{
-    if(event.key==='Tab'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey&&!view.file.read_only){
+    if(event.key==='Tab'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey&&!editorReadOnly(view)){
       event.preventDefault();
       view.cm.dispatch(view.cm.state.replaceSelection('\t'));
     }
@@ -504,5 +518,10 @@ globalThis.TaskMenuEditor={
   goToLine,
   activateEditor,
   destroyEditor,
+  setTabReadOnly,
+  isTabReadOnly:viewOrID=>{
+    const view=typeof viewOrID==='string'?editors.get(viewOrID):viewOrID;
+    return Boolean(view?.tabReadOnly);
+  },
   get active(){return activeEditorID;}
 };
