@@ -103,6 +103,34 @@ Nếu daemon của cùng workspace đã chạy, launcher chỉ in URL và mở b
 
 Mỗi lần bấm một task sẽ tạo một **PTY session riêng** và một tab terminal riêng trên web. Task nhận TTY thật nên các workflow dùng `input()`, ANSI/curses, phím mũi tên, Ctrl+C và các prompt tương tác tiếp tục hoạt động như terminal.
 
+### Git Quick Actions / multi-repository workspace
+
+Git panel không còn giả định workspace root cũng là Git root. TaskDeck có thể quản lý nhiều repository độc lập nằm trong cùng workspace, kể cả trường hợp workspace root là một repo và các thư mục con lại là repo riêng.
+
+- backend quét bounded từ workspace root, mặc định sâu 4 cấp và bỏ qua các cây nặng như `.git`, `node_modules`, `vendor`, `build`, `dist`, `target`, `Library`, `Temp`;
+- repo được xác minh bằng `git rev-parse --show-toplevel`, hỗ trợ `.git` dạng directory hoặc file (worktree/submodule);
+- browser chỉ gửi `repo_id` tương đối đã có trong registry; backend không nhận arbitrary filesystem path cho Git action;
+- Git panel có selector **Repository**, view **Repositories**, trạng thái tổng hợp branch/HEAD/changed/ahead/behind, và nút **↻ Scan**;
+- toàn bộ Changes/Branches/Log/Stash/Compare/Fetch/Pull/Push/Commit/Merge chạy trong repo active;
+- lựa chọn repo được lưu theo workspace;
+- có thể bật auto-select repo theo CWD của terminal bằng cấu hình, mặc định tắt để tránh tự đổi repo ngoài ý muốn.
+
+Cấu hình optional trong `.vscode/vscode_tasks_menu.ini`:
+
+```ini
+[git]
+scan_enabled = true
+scan_depth = 4
+default_repository = projects/m3-client
+auto_select_from_terminal_cwd = false
+
+[git.repositories]
+M3 Client = projects/m3-client
+M3 Server = projects/m3-server
+```
+
+Repo khai báo trong `[git.repositories]` được ưu tiên đặt tên; auto-scan vẫn bổ sung các repo khác. `default_repository = .` chọn repo ở workspace root.
+
 ### Lifecycle của tab/session
 
 - Reload browser hoặc đóng/mở lại browser: task đang chạy **không bị kill**; tab được phục hồi từ daemon và log PTY được replay.
