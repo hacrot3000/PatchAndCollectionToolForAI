@@ -41,7 +41,13 @@ func (s *Server) projectFileSearch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"results": []projectFileSearchResult{}})
 		return
 	}
-	idx, err := s.currentProjectFileIndex(r.Context())
+	var idx *projectFileIndex
+	var err error
+	if r.URL.Query().Get("refresh") == "1" {
+		idx, err = s.refreshProjectFileIndexNow(r.Context())
+	} else {
+		idx, err = s.currentProjectFileIndex(r.Context())
+	}
 	if err != nil {
 		http.Error(w, "project file index unavailable", http.StatusInternalServerError)
 		return
@@ -108,6 +114,33 @@ func (s *Server) refreshProjectFileIndex(root string) {
 	_ = saveProjectIndexCache(root, idx)
 }
 
+func (s *Server) refreshProjectFileIndexNow(ctx context.Context) (*projectFileIndex, error) {
+	root, err := s.projectRoot()
+	if err != nil {
+		return nil, err
+	}
+	s.projectIndexMu.Lock()
+	if s.projectIndex != nil && time.Since(s.projectIndex.builtAt) < 2*time.Second {
+		idx := s.projectIndex
+		s.projectIndexMu.Unlock()
+		return idx, nil
+	}
+	s.projectIndexMu.Unlock()
+
+	buildCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	idx, err := buildProjectFileIndex(buildCtx, root)
+	if err != nil {
+		return nil, err
+	}
+	s.projectIndexMu.Lock()
+	s.projectIndex = idx
+	s.projectIndexRefreshing = false
+	s.projectIndexMu.Unlock()
+	_ = saveProjectIndexCache(root, idx)
+	return idx, nil
+}
+
 type projectFileSearchHeap []projectFileSearchResult
 
 func (h projectFileSearchHeap) Len() int { return len(h) }
@@ -170,7 +203,23 @@ func searchProjectFileIndex(idx *projectFileIndex, query string, limit int) []pr
 func fuzzyProjectPathScore(candidate, query string) (int, bool) {
 	candidateLower := strings.ToLower(candidate)
 	baseLower := strings.ToLower(path.Base(candidate))
-	tokens := strings.Fields(strings.ToLower(strings.TrimSpace(query)))
+	queryLower := strings.ToLower(strings.TrimSpace(query))
+	if queryLower == "" {
+		return 0, false
+	}
+
+	if strings.ContainsAny(queryLower, "*?%") {
+		switch {
+		case wildcardProjectMatch(baseLower, queryLower):
+			return 7000 + maxInt(0, 500-len(baseLower)), true
+		case wildcardProjectMatch(candidateLower, queryLower):
+			return 3000 + maxInt(0, 300-len(candidateLower)), true
+		default:
+			return 0, false
+		}
+	}
+
+	tokens := strings.Fields(queryLower)
 	if len(tokens) == 0 {
 		return 0, false
 	}
@@ -189,7 +238,14 @@ func fuzzyProjectPathScore(candidate, query string) (int, bool) {
 }
 
 func projectBaseTokenSequenceBonus(base string, queryTokens []string) int {
+	queryJoined := strings.Join(queryTokens, " ")
+	if base == queryJoined {
+		return 10000
+	}
 	stem := strings.TrimSuffix(base, path.Ext(base))
+	if stem == queryJoined {
+		return 8500
+	}
 	parts := strings.FieldsFunc(stem, func(r rune) bool {
 		return r == '_' || r == '-' || r == '.' || r == ' ' || r == '/'
 	})
@@ -202,7 +258,7 @@ func projectBaseTokenSequenceBonus(base string, queryTokens []string) int {
 				return 0
 			}
 		}
-		return 1200
+		return 2400
 	}
 	if len(parts) > len(queryTokens) {
 		for i := range queryTokens {
@@ -210,7 +266,7 @@ func projectBaseTokenSequenceBonus(base string, queryTokens []string) int {
 				return 0
 			}
 		}
-		return 500
+		return 900
 	}
 	return 0
 }
@@ -219,50 +275,109 @@ func fuzzyProjectTokenScore(candidate, base, token string) (int, bool) {
 	if token == "" {
 		return 0, true
 	}
-	score := 0
 	switch {
 	case base == token:
-		score += 2400
+		return 5200, true
 	case strings.HasPrefix(base, token):
-		score += 1500
+		return 3900 + len(token)*20, true
 	case strings.Contains(base, token):
-		score += 900
-	case strings.Contains(candidate, token):
-		score += 450
+		return 3000 + len(token)*15, true
 	}
 
+	if score, ok := subsequenceProjectScore(base, token); ok {
+		return 1900 + score, true
+	}
+	if strings.Contains(candidate, token) {
+		return 1200 + len(token)*10, true
+	}
+	if score, ok := subsequenceProjectScore(candidate, token); ok {
+		return 500 + score, true
+	}
+	return 0, false
+}
+
+func subsequenceProjectScore(value, token string) (int, bool) {
+	valueRunes := []rune(value)
+	tokenRunes := []rune(token)
+	if len(tokenRunes) == 0 {
+		return 0, true
+	}
 	pos := 0
 	last := -2
-	for _, want := range token {
+	first := -1
+	score := 0
+	for _, want := range tokenRunes {
 		found := -1
-		for i, got := range candidate[pos:] {
-			if got == want {
-				found = pos + i
+		for i := pos; i < len(valueRunes); i++ {
+			if valueRunes[i] == want {
+				found = i
 				break
 			}
 		}
 		if found < 0 {
 			return 0, false
 		}
-		score += 20
+		if first < 0 {
+			first = found
+		}
+		score += 35
 		if found == last+1 {
-			score += 30
+			score += 90
 		}
-		if found == 0 || strings.ContainsRune("/._-", rune(candidate[found-1])) {
-			score += 25
-		}
-		if found >= len(candidate)-len(base) {
-			score += 15
+		if found == 0 || strings.ContainsRune("/._- ", valueRunes[found-1]) {
+			score += 45
 		}
 		if last >= 0 && found-last > 1 {
 			gap := found - last - 1
-			if gap > 20 {
-				gap = 20
+			if gap > 30 {
+				gap = 30
 			}
-			score -= gap
+			score -= gap * 3
 		}
 		last = found
 		pos = found + 1
 	}
+	if first == 0 {
+		score += 180
+	}
+	score -= maxInt(0, len(valueRunes)-len(tokenRunes))
 	return score, true
+}
+
+func wildcardProjectMatch(value, pattern string) bool {
+	v := []rune(value)
+	p := []rune(pattern)
+	i, j := 0, 0
+	star, matched := -1, 0
+	for i < len(v) {
+		if j < len(p) && (p[j] == '?' || p[j] == v[i]) {
+			i++
+			j++
+			continue
+		}
+		if j < len(p) && (p[j] == '*' || p[j] == '%') {
+			star = j
+			matched = i
+			j++
+			continue
+		}
+		if star >= 0 {
+			j = star + 1
+			matched++
+			i = matched
+			continue
+		}
+		return false
+	}
+	for j < len(p) && (p[j] == '*' || p[j] == '%') {
+		j++
+	}
+	return j == len(p)
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
