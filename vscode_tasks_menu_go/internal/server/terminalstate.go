@@ -69,7 +69,7 @@ type terminalRestoreResponse struct {
 }
 
 func defaultProjectTerminalState() projectTerminalState {
-	return projectTerminalState{Version: 3, Terminals: []terminalStateItem{}, ActiveIndex: -1, Splits: []terminalSplitState{}}
+	return projectTerminalState{Version: 4, Terminals: []terminalStateItem{}, ActiveIndex: -1, Splits: []terminalSplitState{}}
 }
 
 func normalizeTerminalLayoutProfile(value string) string {
@@ -150,23 +150,24 @@ func normalizeProjectTerminalState(value projectTerminalState) projectTerminalSt
 	if len(candidates) == 0 && value.Split != nil {
 		candidates = append(candidates, *value.Split)
 	}
-	used := make(map[int]bool)
+	introduced := make(map[int]bool)
 	for _, group := range candidates {
 		if group.Left < 0 || group.Right < 0 || group.Left == group.Right || group.Left >= len(out.Terminals) || group.Right >= len(out.Terminals) {
 			continue
 		}
-		if used[group.Left] || used[group.Right] {
+		leftKnown,rightKnown := introduced[group.Left],introduced[group.Right]
+		if rightKnown || (!leftKnown && len(introduced) != 0) {
 			continue
 		}
-		used[group.Left] = true
-		used[group.Right] = true
+		introduced[group.Left] = true
+		introduced[group.Right] = true
 		out.Splits = append(out.Splits, terminalSplitState{
 			Left:        group.Left,
 			Right:       group.Right,
 			Ratio:       normalizeSplitRatio(group.Ratio),
 			Orientation: normalizeSplitOrientation(group.Orientation),
 		})
-		if len(out.Splits) >= projectTerminalMaxTabs/2 {
+		if len(out.Splits) >= projectTerminalMaxTabs-1 {
 			break
 		}
 	}
@@ -347,21 +348,28 @@ func (s *Server) captureTerminalState(req terminalSnapshotRequest) (projectTermi
 	if len(groups) == 0 && req.Split != nil {
 		groups = append(groups, *req.Split)
 	}
-	used := make(map[int]bool)
+	introduced := make(map[int]bool)
 	for _, group := range groups {
 		left, lok := indexByID[strings.TrimSpace(group.LeftSessionID)]
 		right, rok := indexByID[strings.TrimSpace(group.RightSessionID)]
-		if !lok || !rok || left == right || used[left] || used[right] {
+		if !lok || !rok || left == right {
 			continue
 		}
-		used[left] = true
-		used[right] = true
+		leftKnown,rightKnown := introduced[left],introduced[right]
+		if rightKnown || (!leftKnown && len(introduced) != 0) {
+			continue
+		}
+		introduced[left] = true
+		introduced[right] = true
 		value.Splits = append(value.Splits, terminalSplitState{
 			Left:        left,
 			Right:       right,
 			Ratio:       group.Ratio,
 			Orientation: group.Orientation,
 		})
+		if len(value.Splits) >= projectTerminalMaxTabs-1 {
+			break
+		}
 	}
 	return normalizeProjectTerminalState(value), nil
 }
