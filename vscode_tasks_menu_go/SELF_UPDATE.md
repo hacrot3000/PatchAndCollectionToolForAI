@@ -22,7 +22,7 @@ vscode_tasks_menu --self-update
 
 1. Query revision mới nhất của branch `main` qua GitHub HTTPS API.
 2. Nếu revision hiện tại đã trùng bản mới nhất thì thoát ngay.
-3. Nếu daemon của workspace đang chạy, tạo self-update request và chờ xác nhận trên web UI.
+3. `--self-update` được xem là xác nhận trực tiếp từ CLI; updater tạo request ở trạng thái đã xác nhận và bắt đầu dry-run ngay, không phụ thuộc browser/UI.
 4. Browser chỉ **persist snapshot** terminal/layout; không freeze UI hay terminal persistence trong lúc kiểm tra candidate.
 5. **Dry-run/staging:** tải đúng source revision vào thư mục tạm, chạy `go test ./...`, Patch entry tests, compile candidate và chạy `--version` để xác minh binary.
 6. Trong toàn bộ bước dry-run, daemon/release hiện tại vẫn chạy. Nếu download/test/build/validation lỗi thì không activate candidate; UI hiện lỗi dạng non-blocking và có thể đóng để tiếp tục làm việc.
@@ -108,7 +108,7 @@ Nếu listener handoff thất bại, updater trước tiên yêu cầu daemon c�
 
 ## Khi không có daemon
 
-Nếu daemon của workspace chưa chạy, không cần browser confirmation. Updater vẫn thực hiện đầy đủ download -> test -> build -> validate -> atomic replace, sau đó thoát. Daemon sẽ dùng binary mới ở lần start tiếp theo.
+Dù daemon đang chạy hay chưa, CLI `--self-update` không yêu cầu browser confirmation. Updater vẫn thực hiện đầy đủ download -> test -> build -> validate -> atomic replace; nếu daemon đang chạy thì tiếp tục handoff/restart, còn nếu chưa chạy thì binary mới sẽ được dùng ở lần start tiếp theo.
 
 ## An toàn working tree
 
@@ -153,7 +153,6 @@ mà không cần `git pull` chỉ để cập nhật binary.
 Progress được lưu atomic trong runtime directory riêng của workspace ở file `self-update.json`. Các trạng thái chính gồm:
 
 ```text
-awaiting_confirmation
 confirmed
 downloading
 testing
