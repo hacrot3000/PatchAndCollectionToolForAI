@@ -538,7 +538,8 @@ type gitActionRequest struct {
 	Branch  string `json:"branch,omitempty"`
 	Ref         string `json:"ref,omitempty"`
 	Source      string `json:"source,omitempty"`
-	ExpectedSHA string `json:"expected_sha,omitempty"`
+	ExpectedSHA     string `json:"expected_sha,omitempty"`
+	ExpectedCurrent string `json:"expected_current,omitempty"`
 }
 
 func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
@@ -596,6 +597,10 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		data, err := s.gitMergePreflightData(r.Context(), branch)
 		if err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
 		if !data.Clean { http.Error(w, "working tree must be clean before merging; commit or stash local changes first", http.StatusConflict); return }
+		if expectedCurrent := strings.TrimSpace(req.ExpectedCurrent); expectedCurrent != "" && data.Current != expectedCurrent {
+			http.Error(w, "current branch changed after confirmation; refresh branches and confirm again", http.StatusConflict)
+			return
+		}
 		source := strings.ToLower(strings.TrimSpace(req.Source))
 		if data.RequiresChoice && source != "local" && source != "remote" {
 			http.Error(w, "local and remote branch differ; choose merge source: local or remote", http.StatusBadRequest)
