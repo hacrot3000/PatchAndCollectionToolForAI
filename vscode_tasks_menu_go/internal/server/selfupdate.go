@@ -97,7 +97,7 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "unknown self-update action", http.StatusBadRequest)
 			return
 		}
-		req, err := updater.Load(s.Workspace)
+		req, err := updater.ReconcileAbandoned(s.Workspace, time.Now())
 		if os.IsNotExist(err) {
 			writeJSON(w, http.StatusOK, map[string]string{"status": "idle"})
 			return
@@ -105,6 +105,9 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if !updater.ActiveStatus(req.Status) {
+			s.sharedMutation.releaseOperation("selfupdate.run")
 		}
 		writeJSON(w, http.StatusOK, req)
 		return
@@ -115,12 +118,12 @@ func (s *Server) selfUpdateState(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if action == "start" {
-		if req, err := updater.Load(s.Workspace); err == nil {
-			switch req.Status {
-			case "awaiting_confirmation", "confirmed", "downloading", "testing", "building", "installing", "ready_restart", "restarting":
+		if req, err := updater.ReconcileAbandoned(s.Workspace, time.Now()); err == nil {
+			if updater.ActiveStatus(req.Status) {
 				http.Error(w, "self-update is already in progress", http.StatusConflict)
 				return
 			}
+			s.sharedMutation.releaseOperation("selfupdate.run")
 		} else if !os.IsNotExist(err) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
