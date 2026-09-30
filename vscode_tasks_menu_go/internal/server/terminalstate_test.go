@@ -32,7 +32,7 @@ func TestProjectTerminalStateNormalizeMigratesLegacySplit(t *testing.T) {
 		value.Terminals = append(value.Terminals, terminalStateItem{Cwd: filepath.Join("/tmp", "terminal", string(rune('a'+i%26)))})
 	}
 	got := normalizeProjectTerminalState(value)
-	if got.Version != 3 || len(got.Terminals) != projectTerminalMaxTabs {
+	if got.Version != 4 || len(got.Terminals) != projectTerminalMaxTabs {
 		t.Fatalf("normalized terminal state = %#v", got)
 	}
 	if got.ActiveIndex != 0 {
@@ -46,15 +46,32 @@ func TestProjectTerminalStateNormalizeMigratesLegacySplit(t *testing.T) {
 	}
 }
 
-func TestProjectTerminalStateRejectsOverlappingSplitGroups(t *testing.T) {
-	value := projectTerminalState{Terminals: []terminalStateItem{{Cwd: "/a"}, {Cwd: "/b"}, {Cwd: "/c"}}}
+func TestProjectTerminalStateAllowsNestedSplitGroups(t *testing.T) {
+	value := projectTerminalState{Terminals: []terminalStateItem{{Cwd: "/a"}, {Cwd: "/b"}, {Cwd: "/c"}, {Cwd: "/d"}}}
 	value.Splits = []terminalSplitState{
-		{Left: 0, Right: 1, Ratio: 0.5, Orientation: "horizontal"},
-		{Left: 1, Right: 2, Ratio: 0.5, Orientation: "vertical"},
+		{Left: 0, Right: 1, Ratio: 0.5, Orientation: "vertical"},
+		{Left: 1, Right: 2, Ratio: 0.4, Orientation: "horizontal"},
+		{Left: 2, Right: 3, Ratio: 0.6, Orientation: "vertical"},
 	}
 	got := normalizeProjectTerminalState(value)
-	if len(got.Splits) != 1 || got.Splits[0].Left != 0 || got.Splits[0].Right != 1 || got.Splits[0].Orientation != "horizontal" {
-		t.Fatalf("overlapping split groups were not normalized safely: %#v", got.Splits)
+	if len(got.Splits) != 3 {
+		t.Fatalf("nested split groups were not preserved: %#v", got.Splits)
+	}
+	if got.Splits[1].Left != 1 || got.Splits[1].Right != 2 || got.Splits[1].Orientation != "horizontal" {
+		t.Fatalf("nested split=%#v", got.Splits[1])
+	}
+}
+
+func TestProjectTerminalStateRejectsSplitCycle(t *testing.T) {
+	value := projectTerminalState{Terminals: []terminalStateItem{{Cwd: "/a"}, {Cwd: "/b"}, {Cwd: "/c"}}}
+	value.Splits = []terminalSplitState{
+		{Left: 0, Right: 1, Ratio: 0.5, Orientation: "vertical"},
+		{Left: 1, Right: 2, Ratio: 0.5, Orientation: "horizontal"},
+		{Left: 2, Right: 0, Ratio: 0.5, Orientation: "vertical"},
+	}
+	got := normalizeProjectTerminalState(value)
+	if len(got.Splits) != 2 {
+		t.Fatalf("cycle/duplicate second terminal was not rejected safely: %#v", got.Splits)
 	}
 }
 
