@@ -298,7 +298,7 @@ function renderCompare(data,controls){content.replaceChildren(controls);content.
 async function loadCurrentView(){updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'log':return loadLog();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
 
 repoSelect.onchange=()=>selectRepository(repoSelect.value).catch(app.showError);
-repoRescan.onclick=()=>Promise.resolve(loadRepositories(true)).then(refresh).catch(app.showError);
+repoRescan.onclick=async()=>{try{await refreshRepositories(true);await refresh();await loadCurrentView();}catch(error){app.showError(error);}};
 pill.onclick=async()=>{panel.classList.toggle('visible');if(panel.classList.contains('visible')){await refreshRepositories(false);await refresh();await loadCurrentView();}};panelClose.onclick=()=>panel.classList.remove('visible');
 window.addEventListener('focus',refresh);
 window.addEventListener('taskmenu:session',event=>{const meta=event.detail?.meta;if(meta&&meta.status!=='running')setTimeout(refresh,150);});
