@@ -34,10 +34,11 @@ type terminalSplitState struct {
 }
 
 type projectTerminalState struct {
-	Version     int                  `json:"version"`
-	Terminals   []terminalStateItem  `json:"terminals"`
-	ActiveIndex int                  `json:"active_index"`
-	Splits      []terminalSplitState `json:"splits,omitempty"`
+	Version     int                            `json:"version"`
+	Terminals   []terminalStateItem            `json:"terminals"`
+	ActiveIndex int                            `json:"active_index"`
+	Splits      []terminalSplitState           `json:"splits,omitempty"`
+	LiveSplits  []terminalSnapshotSplitRequest `json:"live_splits,omitempty"`
 	// Split is kept only so version-1 state files and cached older browsers can
 	// still be read. normalizeProjectTerminalState migrates it into Splits.
 	Split *terminalSplitState `json:"split,omitempty"`
@@ -60,16 +61,20 @@ type terminalSnapshotRequest struct {
 }
 
 type terminalRestoreResponse struct {
-	Sessions    []session.Metadata   `json:"sessions"`
-	ActiveIndex int                  `json:"active_index"`
-	Splits      []terminalSplitState `json:"splits,omitempty"`
+	Sessions    []session.Metadata                `json:"sessions"`
+	ActiveIndex int                               `json:"active_index"`
+	Splits      []terminalSplitState              `json:"splits,omitempty"`
+	LiveSplits  []terminalSnapshotSplitRequest    `json:"live_splits,omitempty"`
 	// Split mirrors the first group for cached version-1 frontends.
 	Split    *terminalSplitState `json:"split,omitempty"`
 	Warnings []string            `json:"warnings,omitempty"`
 }
 
 func defaultProjectTerminalState() projectTerminalState {
-	return projectTerminalState{Version: 4, Terminals: []terminalStateItem{}, ActiveIndex: -1, Splits: []terminalSplitState{}}
+	return projectTerminalState{
+		Version: 4, Terminals: []terminalStateItem{}, ActiveIndex: -1,
+		Splits: []terminalSplitState{}, LiveSplits: []terminalSnapshotSplitRequest{},
+	}
 }
 
 func normalizeTerminalLayoutProfile(value string) string {
@@ -168,6 +173,23 @@ func normalizeProjectTerminalState(value projectTerminalState) projectTerminalSt
 			Orientation: normalizeSplitOrientation(group.Orientation),
 		})
 		if len(out.Splits) >= projectTerminalMaxTabs-1 {
+			break
+		}
+	}
+	liveIntroduced := make(map[string]bool)
+	for _, group := range value.LiveSplits {
+		left := normalizeTerminalSessionID(group.LeftSessionID)
+		right := normalizeTerminalSessionID(group.RightSessionID)
+		if left == "" || right == "" || left == right || liveIntroduced[right] {
+			continue
+		}
+		liveIntroduced[left] = true
+		liveIntroduced[right] = true
+		out.LiveSplits = append(out.LiveSplits, terminalSnapshotSplitRequest{
+			LeftSessionID: left, RightSessionID: right,
+			Ratio: normalizeSplitRatio(group.Ratio), Orientation: normalizeSplitOrientation(group.Orientation),
+		})
+		if len(out.LiveSplits) >= projectTerminalMaxTabs-1 {
 			break
 		}
 	}
@@ -348,6 +370,23 @@ func (s *Server) captureTerminalState(req terminalSnapshotRequest) (projectTermi
 	if len(groups) == 0 && req.Split != nil {
 		groups = append(groups, *req.Split)
 	}
+	liveIntroduced := make(map[string]bool)
+	for _, group := range groups {
+		leftID := normalizeTerminalSessionID(group.LeftSessionID)
+		rightID := normalizeTerminalSessionID(group.RightSessionID)
+		leftMeta, leftOK := s.Sessions.Metadata(leftID)
+		rightMeta, rightOK := s.Sessions.Metadata(rightID)
+		if leftID == "" || rightID == "" || leftID == rightID || !leftOK || !rightOK ||
+			leftMeta.Status != "running" || rightMeta.Status != "running" || liveIntroduced[rightID] {
+			continue
+		}
+		liveIntroduced[leftID] = true
+		liveIntroduced[rightID] = true
+		value.LiveSplits = append(value.LiveSplits, terminalSnapshotSplitRequest{
+			LeftSessionID: leftID, RightSessionID: rightID,
+			Ratio: group.Ratio, Orientation: group.Orientation,
+		})
+	}
 	introduced := make(map[int]bool)
 	for _, group := range groups {
 		left, lok := indexByID[strings.TrimSpace(group.LeftSessionID)]
@@ -389,7 +428,11 @@ func (s *Server) restoreTerminalStateProfile(profile string) (terminalRestoreRes
 	if err != nil {
 		return terminalRestoreResponse{}, err
 	}
-	resp := terminalRestoreResponse{Sessions: []session.Metadata{}, ActiveIndex: value.ActiveIndex, Splits: append([]terminalSplitState(nil), value.Splits...)}
+	resp := terminalRestoreResponse{
+		Sessions: []session.Metadata{}, ActiveIndex: value.ActiveIndex,
+		Splits: append([]terminalSplitState(nil), value.Splits...),
+		LiveSplits: append([]terminalSnapshotSplitRequest(nil), value.LiveSplits...),
+	}
 	if len(resp.Splits) > 0 {
 		first := resp.Splits[0]
 		resp.Split = &first
