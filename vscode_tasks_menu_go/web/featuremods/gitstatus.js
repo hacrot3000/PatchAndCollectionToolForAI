@@ -179,9 +179,10 @@ async function mergeBranch(branch){
     }
   }
   const mergeRef=source==='remote'?check.remote_ref:check.local_ref;
-  if(!mergeRef){const error=new Error('Selected merge source is unavailable.');showOperation(label,'',error.message);throw error;}
-  if(!window.confirm('Merge '+mergeRef+' into current branch '+check.current+'?')){showOperation(label,'Merge canceled');return false;}
-  return action('merge',{branch:branch.name,source,merge_ref:mergeRef});
+  const expectedSHA=source==='remote'?check.remote_sha:check.local_sha;
+  if(!mergeRef||!expectedSHA){const error=new Error('Selected merge source is unavailable.');showOperation(label,'',error.message);throw error;}
+  if(!window.confirm('Merge '+mergeRef+' @ '+expectedSHA.slice(0,12)+' into current branch '+check.current+'?')){showOperation(label,'Merge canceled');return false;}
+  return action('merge',{branch:branch.name,source,expected_sha:expectedSHA,merge_ref:mergeRef});
 }
 async function loadBranches(){
   const data=await gitView('branches');content.replaceChildren();const create=el('div','git-branch-create');const input=document.createElement('input');input.placeholder='new branch name';const button=actionButton('Create & switch',async()=>{const name=input.value.trim();if(!name)return false;await action('create_branch',{branch:name});input.value='';return true;});create.append(input,button);content.append(create);
