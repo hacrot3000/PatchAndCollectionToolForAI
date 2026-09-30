@@ -28,6 +28,10 @@ func TestTerminalRestoreFeature(t *testing.T) {
 		"restoreTabOrder(ids)",
 		"restoreProjectGroups",
 		"restoredGroups(restored,ids)",
+		"split?.suspendFocusTracking?.()",
+		"app.activateView(activeID,{focus:false})",
+		"split?.resumeFocusTracking?.(activeID)",
+		"app.focusView?.(activeID)",
 		"const introduced=new Set()",
 		"introduced.has(right)",
 		"introduced.has(second)",
@@ -45,6 +49,9 @@ func TestTerminalRestoreFeature(t *testing.T) {
 	}
 	if strings.Contains(js, "used.has(left)") || strings.Contains(js, "used.has(group.first)") {
 		t.Fatal("terminal restore must allow an existing split leaf to be split again")
+	}
+	if strings.Contains(js, "app.activateView(activeID);") {
+		t.Fatal("terminal restore must not focus during intermediate layout activation")
 	}
 	loader, err := webassets.Files.ReadFile("featuremods/next.js")
 	if err != nil {
