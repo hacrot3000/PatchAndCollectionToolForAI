@@ -39,6 +39,8 @@ func TestGitQuickActionsUI(t *testing.T) {
 		"autoSelectRepositoryForTerminal(id,{reload=true}={})",
 		"autoSelectRepositoryForTerminal(app.active,{reload:false})",
 		"app.views.has(String(app.active||''))",
+		"const repoAtStart=activeRepoID",
+		"String(app.active||'')!==String(id)||activeRepoID!==repoAtStart",
 		"refreshSeq=0",
 		"if(changed)refreshSeq++",
 		"return repoID===activeRepoID?data:null",
