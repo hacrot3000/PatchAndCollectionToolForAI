@@ -536,8 +536,9 @@ type gitActionRequest struct {
 	Path    string `json:"path,omitempty"`
 	Message string `json:"message,omitempty"`
 	Branch  string `json:"branch,omitempty"`
-	Ref     string `json:"ref,omitempty"`
-	Source  string `json:"source,omitempty"`
+	Ref         string `json:"ref,omitempty"`
+	Source      string `json:"source,omitempty"`
+	ExpectedSHA string `json:"expected_sha,omitempty"`
 }
 
 func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
@@ -602,16 +603,21 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		}
 		if source == "" { source = data.DefaultSource }
 		mergeRef := ""
+		mergeSHA := ""
 		switch source {
 		case "local":
-			mergeRef = data.LocalRef
+			mergeRef, mergeSHA = data.LocalRef, data.LocalSHA
 		case "remote":
-			mergeRef = data.RemoteRef
+			mergeRef, mergeSHA = data.RemoteRef, data.RemoteSHA
 		default:
 			http.Error(w, "invalid merge source", http.StatusBadRequest)
 			return
 		}
 		if mergeRef == "" { http.Error(w, "selected merge source is unavailable", http.StatusBadRequest); return }
+		if expected := strings.TrimSpace(req.ExpectedSHA); expected != "" && mergeSHA != expected {
+			http.Error(w, "merge source changed after confirmation; refresh branches and confirm again", http.StatusConflict)
+			return
+		}
 		if mergeRef == data.Current {
 			http.Error(w, "cannot merge the current branch into itself", http.StatusBadRequest)
 			return
