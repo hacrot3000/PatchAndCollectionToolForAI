@@ -277,6 +277,9 @@ func TestTerminalLayoutProfilesKeepDesktopSplitWhenMobileSaves(t *testing.T) {
 		},
 		ActiveIndex: 0,
 		Splits: []terminalSplitState{{Left: 0, Right: 1, Ratio: 0.3, Orientation: "horizontal"}},
+		LiveSplits: []terminalSnapshotSplitRequest{{
+			LeftSessionID: "mobile-b", RightSessionID: "mobile-a", Ratio: 0.3, Orientation: "horizontal",
+		}},
 	}
 	if err := writeProjectTerminalStateProfile(root, "mobile", mobile); err != nil {
 		t.Fatal(err)
@@ -297,7 +300,7 @@ func TestTerminalLayoutProfilesKeepDesktopSplitWhenMobileSaves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotMobile.ActiveIndex != 0 || len(gotMobile.Splits) != 0 {
+	if gotMobile.ActiveIndex != 0 || len(gotMobile.Splits) != 0 || len(gotMobile.LiveSplits) != 0 {
 		t.Fatalf("mobile layout must never persist split state: %#v", gotMobile)
 	}
 	if projectTerminalStatePathForProfile(root, "desktop") == projectTerminalStatePathForProfile(root, "mobile") {
