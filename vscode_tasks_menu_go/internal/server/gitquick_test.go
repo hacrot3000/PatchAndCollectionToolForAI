@@ -172,7 +172,11 @@ func TestGitQuickMergeToPushesCommittedHEADAndLeavesDirtyWorktreeUntouched(t *te
 		t.Fatalf("Merge To without dirty confirmation status=%d body=%s", rr.Code, rr.Body.String())
 	}
 
-	body = `{"action":"merge_to","branch":"target/merge-to","target_source":"local","expected_current":"`+current+`","expected_source_sha":"`+sourceSHA+`","expected_target_sha":"`+targetBefore+`","allow_dirty":true}`
+	slowApproval := ""
+	if preflight.SlowFallback {
+		slowApproval = `,"allow_slow_fallback":true`
+	}
+	body = `{"action":"merge_to","branch":"target/merge-to","target_source":"local","expected_current":"`+current+`","expected_source_sha":"`+sourceSHA+`","expected_target_sha":"`+targetBefore+`","allow_dirty":true`+slowApproval+`}`
 	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
 		t.Fatalf("Merge To status=%d body=%s", rr.Code, rr.Body.String())
@@ -269,7 +273,11 @@ func TestGitQuickMergeToRemoteTargetAndRaceGuards(t *testing.T) {
 		t.Fatalf("stale Merge To target status=%d body=%s", rr.Code, rr.Body.String())
 	}
 
-	body := `{"action":"merge_to","branch":"origin/target/remote-only","target_source":"remote","expected_current":"`+current+`","expected_source_sha":"`+sourceSHA+`","expected_target_sha":"`+preflight.TargetSHA+`"}`
+	slowApproval := ""
+	if preflight.SlowFallback {
+		slowApproval = `,"allow_slow_fallback":true`
+	}
+	body := `{"action":"merge_to","branch":"origin/target/remote-only","target_source":"remote","expected_current":"`+current+`","expected_source_sha":"`+sourceSHA+`","expected_target_sha":"`+preflight.TargetSHA+`"`+slowApproval+`}`
 	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
 		t.Fatalf("remote Merge To status=%d body=%s", rr.Code, rr.Body.String())
