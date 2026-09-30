@@ -13,7 +13,6 @@ func TestSelfUpdateBrowserWorkflow(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"/api/state/tasks?scope=self-update",
-		"Update now",
 		"persistSnapshot",
 		"resumeAfterSelfUpdate",
 		"nonblocking",
@@ -24,17 +23,15 @@ func TestSelfUpdateBrowserWorkflow(t *testing.T) {
 		"function copyText(text)",
 		"navigator.clipboard.writeText(value)",
 		"document.execCommand('copy')",
-		"copyError.dataset.details=failed?selfUpdateErrorDetails(req):''",
+		"copyError.dataset.details=selfUpdateErrorDetails(req)",
 		"copyError.onclick=async()=>",
 		"postAction('ack',id)",
 		"action='+encodeURIComponent(action)",
 		"postAction('ack',req.id)",
-		"awaiting_confirmation",
 		"completed",
 		"failed",
 		"target_url",
 		"location.replace",
-		"Waiting for the new daemon to start",
 		"Update completed. The new daemon is ready.",
 		"self-update-check",
 		"Check update",
@@ -43,9 +40,16 @@ func TestSelfUpdateBrowserWorkflow(t *testing.T) {
 		"checkAndStartUpdate",
 		"startingFromSettings",
 		"Automatic self-update did not start.",
+		"checkUpdate.textContent='Updating…'",
+		"overlay.classList.add('visible','nonblocking')",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("selfupdate.js missing %q", want)
+		}
+	}
+	for _, stale := range []string{"Update now", "confirm.onclick", "cancel.onclick", "self-update-confirm", "self-update-cancel"} {
+		if strings.Contains(js, stale) {
+			t.Fatalf("self-update UI must not expose blocking confirmation flow %q", stale)
 		}
 	}
 	loader, err := webassets.Files.ReadFile("featuremods/next.js")
