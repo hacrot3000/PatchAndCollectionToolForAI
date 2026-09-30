@@ -26,13 +26,17 @@ type gitRepository struct {
 }
 
 type gitRepositoryStatus struct {
-	gitRepository
-	Branch  string `json:"branch,omitempty"`
-	Head    string `json:"head,omitempty"`
-	Changed int    `json:"changed"`
-	Ahead   int    `json:"ahead"`
-	Behind  int    `json:"behind"`
-	Error   string `json:"error,omitempty"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	Explicit bool   `json:"explicit,omitempty"`
+	Default  bool   `json:"default,omitempty"`
+	Branch   string `json:"branch,omitempty"`
+	Head     string `json:"head,omitempty"`
+	Changed  int    `json:"changed"`
+	Ahead    int    `json:"ahead"`
+	Behind   int    `json:"behind"`
+	Error    string `json:"error,omitempty"`
 }
 
 type gitRepositoryContextKey struct{}
