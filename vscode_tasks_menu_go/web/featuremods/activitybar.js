@@ -17,20 +17,20 @@ function installActivityBar(){
   .task-activity-button.active{color:#fff;background:#252c36}
   .task-activity-button.active::before{content:'';position:absolute;left:-3px;top:7px;bottom:7px;width:2px;background:#67a9e8;border-radius:0 2px 2px 0}
   .task-activity-button svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
-  body:not(.task-sidebar-auto-hide) .task-activity-bar{display:flex;position:fixed;top:var(--taskmenu-header-height,34px);left:0;z-index:1900;width:var(--taskmenu-sidebar-inline-width,310px);min-width:0;height:46px;border-right:1px solid #30343b;border-bottom:1px solid #30343b;flex-direction:row;align-items:center;justify-content:flex-start;padding:2px 8px;gap:4px}
+  body:not(.task-sidebar-auto-hide) .task-activity-bar{display:flex;position:fixed;top:var(--taskmenu-header-height,30px);left:0;z-index:1900;width:var(--taskmenu-sidebar-inline-width,310px);min-width:0;height:46px;border-right:1px solid #30343b;border-bottom:1px solid #30343b;flex-direction:row;align-items:center;justify-content:flex-start;padding:2px 8px;gap:4px}
   body:not(.task-sidebar-auto-hide) .task-activity-button{width:38px;height:38px;min-height:38px;flex:0 0 38px}
   body:not(.task-sidebar-auto-hide) .task-activity-button.active::before{left:7px;right:7px;top:auto;bottom:-3px;width:auto;height:2px;border-radius:2px 2px 0 0}
   body:not(.task-sidebar-auto-hide) #menu{padding-top:56px}
-  body:not(.task-sidebar-auto-hide) .project-explorer{top:calc(var(--taskmenu-header-height,34px) + 46px)!important;left:0!important;bottom:0!important;width:var(--taskmenu-sidebar-inline-width,310px)!important;box-shadow:none!important}
-  body:not(.task-sidebar-auto-hide) .task-history-panel{top:calc(var(--taskmenu-header-height,34px) + 46px);left:0;width:var(--taskmenu-sidebar-inline-width,310px);box-shadow:none}
+  body:not(.task-sidebar-auto-hide) .project-explorer{top:calc(var(--taskmenu-header-height,30px) + 46px)!important;left:0!important;bottom:0!important;width:var(--taskmenu-sidebar-inline-width,310px)!important;box-shadow:none!important}
+  body:not(.task-sidebar-auto-hide) .task-history-panel{top:calc(var(--taskmenu-header-height,30px) + 46px);left:0;width:var(--taskmenu-sidebar-inline-width,310px);box-shadow:none}
   body.task-sidebar-auto-hide main{grid-template-columns:48px minmax(0,1fr)!important}
   body.task-sidebar-auto-hide .task-activity-bar{display:flex}
   body.task-sidebar-auto-hide main>section{grid-column:2!important;grid-row:1!important}
-  body.task-sidebar-auto-hide #menu{display:none;position:fixed;top:var(--taskmenu-header-height,34px);bottom:0;left:48px;z-index:1750;width:min(var(--taskmenu-sidebar-panel-width,310px),calc(100vw - 48px));background:#101216;border-right:1px solid #30343b;box-shadow:10px 0 28px rgba(0,0,0,.28)}
+  body.task-sidebar-auto-hide #menu{display:none;position:fixed;top:var(--taskmenu-header-height,30px);bottom:0;left:48px;z-index:1750;width:min(var(--taskmenu-sidebar-panel-width,310px),calc(100vw - 48px));background:#101216;border-right:1px solid #30343b;box-shadow:10px 0 28px rgba(0,0,0,.28)}
   body.task-sidebar-auto-hide.task-sidebar-panel-open #menu{display:block}
   body.task-sidebar-auto-hide .sidebar-resizer{display:none!important}
   body.task-sidebar-auto-hide .project-explorer{left:48px!important;width:min(var(--taskmenu-sidebar-panel-width,310px),calc(100vw - 48px))!important}
-  .task-history-panel{display:none;position:fixed;top:var(--taskmenu-header-height,34px);bottom:0;left:48px;z-index:1800;width:min(var(--taskmenu-sidebar-panel-width,310px),calc(100vw - 48px));background:#11151b;border-right:1px solid #3b414d;box-shadow:10px 0 28px rgba(0,0,0,.28);flex-direction:column}
+  .task-history-panel{display:none;position:fixed;top:var(--taskmenu-header-height,30px);bottom:0;left:48px;z-index:1800;width:min(var(--taskmenu-sidebar-panel-width,310px),calc(100vw - 48px));background:#11151b;border-right:1px solid #3b414d;box-shadow:10px 0 28px rgba(0,0,0,.28);flex-direction:column}
   .task-history-panel.visible{display:flex}
   .task-history-panel-head{height:42px;display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #30343b}
   .task-history-panel-title{font-size:12px;font-weight:700;letter-spacing:.04em;flex:1}
