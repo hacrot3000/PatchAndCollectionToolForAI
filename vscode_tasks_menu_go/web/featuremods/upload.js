@@ -6,7 +6,7 @@ style.textContent=`
 #upload-workspace{white-space:nowrap}
 .upload-drop-overlay{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:rgba(5,6,7,.82);font-size:24px;font-weight:600;border:3px dashed #5a88b4;pointer-events:none}
 .upload-drop-overlay.visible{display:flex}
-.upload-destination-overlay{position:fixed;inset:0;z-index:4200;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.58);padding:18px}
+.upload-destination-overlay{position:fixed;inset:0;z-index:17000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.58);padding:18px}
 .upload-destination-overlay.visible{display:flex}
 .upload-destination-dialog{width:min(680px,96vw);max-height:min(760px,92vh);display:flex;flex-direction:column;background:#171a20;border:1px solid #48515f;border-radius:10px;box-shadow:0 18px 55px rgba(0,0,0,.5);overflow:hidden}
 .upload-destination-head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid #30343b}.upload-destination-head strong{flex:1}.upload-destination-head button{padding:4px 8px}
