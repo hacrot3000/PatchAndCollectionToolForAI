@@ -222,7 +222,11 @@ func main() {
 		return
 	}
 	if *selfUpdateFlag || *selfUpdateAuto {
-		fatalIf(runSelfUpdate(ws, cfg, *selfUpdateAuto))
+		// Reaching this branch already represents an explicit update request:
+		// --self-update was entered by the user in the CLI, while
+		// --self-update-auto is launched only after the web UI confirmed it.
+		// Never make the recovery-capable CLI depend on a working browser UI.
+		fatalIf(runSelfUpdate(ws, cfg, true))
 		return
 	}
 
