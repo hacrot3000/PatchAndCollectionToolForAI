@@ -175,3 +175,17 @@ func TestStaticUIUsesCompactDesktopHeaders(t *testing.T) {
 		}
 	}
 }
+
+
+func TestStaticUITerminalActivationCanSkipFocus(t *testing.T) {
+	for _, want := range []string{
+		"function focusView(id)",
+		"function activateView(id,{focus=true}={})",
+		"if(focus)v.term.focus()",
+		"activateView,focusView,activateExternalView",
+	} {
+		if !strings.Contains(appJS, want) {
+			t.Fatalf("terminal activation focus control missing %q", want)
+		}
+	}
+}
