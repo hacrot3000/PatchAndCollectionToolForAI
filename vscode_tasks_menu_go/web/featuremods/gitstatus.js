@@ -123,7 +123,16 @@ function repositoryForCWD(cwd){
 }
 async function autoSelectRepositoryForTerminal(id){
   if(!gitAutoSelectFromTerminalCWD||!id)return;
-  const cwd=app.views.get(String(id))?.meta?.cwd;
+  const view=app.views.get(String(id));
+  if(!view||String(view.meta?.target_type||'').toLowerCase()==='ssh'||view.meta?.target_profile_id)return;
+  let cwd=view.meta?.cwd||'';
+  try{
+    const live=await app.jsonFetch('/api/sessions/'+encodeURIComponent(String(id))+'/cwd');
+    if(live?.local===false)return;
+    if(live?.cwd)cwd=live.cwd;
+  }catch(error){
+    console.warn('Git repository auto-select live CWD unavailable',error);
+  }
   const match=repositoryForCWD(cwd);
   if(match&&match.id!==activeRepoID)await selectRepository(match.id);
 }
