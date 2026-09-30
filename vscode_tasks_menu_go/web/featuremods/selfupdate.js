@@ -12,9 +12,9 @@ style.textContent=`
 .self-update-overlay{position:fixed;inset:0;z-index:4000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.58);padding:20px}
 .self-update-overlay.visible{display:flex}
 .self-update-overlay.nonblocking{inset:auto 16px 16px auto;display:block;background:transparent;padding:0;pointer-events:none}
-.self-update-overlay.nonblocking .self-update-dialog{width:min(560px,calc(100vw - 32px));pointer-events:auto}
-.self-update-dialog{width:min(560px,96vw);background:#171a20;border:1px solid #48515f;border-radius:10px;box-shadow:0 18px 55px rgba(0,0,0,.5);padding:18px}
-.self-update-dialog h3{margin:0 0 8px;font-size:16px}.self-update-dialog p{margin:7px 0;line-height:1.45}.self-update-revision{font-family:ui-monospace,monospace;font-size:12px;opacity:.75;word-break:break-all}.self-update-status{margin-top:12px;padding:9px 10px;border-radius:6px;background:#0d1117;border:1px solid #30343b;font-size:12px;white-space:pre-wrap}.self-update-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.self-update-error{color:#ff8994}
+.self-update-overlay.nonblocking .self-update-dialog{width:min(460px,calc(100vw - 32px));pointer-events:auto}
+.self-update-dialog{width:min(560px,96vw);background:#171a20;border:1px solid #48515f;border-radius:10px;box-shadow:0 18px 55px rgba(0,0,0,.5);padding:14px}
+.self-update-dialog h3{margin:0 0 6px;font-size:14px}.self-update-dialog p{margin:5px 0;line-height:1.4;font-size:12px}.self-update-revision{font-family:ui-monospace,monospace;font-size:11px;opacity:.65;word-break:break-all}.self-update-status{margin-top:9px;padding:8px 9px;border-radius:6px;background:#0d1117;border:1px solid #30343b;font-size:12px;white-space:pre-wrap}.self-update-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}.self-update-error{color:#ff8994}.self-update-running{border-color:#365f84}
 html[data-taskmenu-theme="light"] .self-update-dialog{background:#fff;border-color:#b9c0c8}html[data-taskmenu-theme="light"] .self-update-status{background:#f5f6f8;border-color:#c8ced6}
 `;
 document.head.append(style);
@@ -93,20 +93,38 @@ function statusText(req){
   return labels[req?.status]||String(req?.status||'');
 }
 
-function show(req){
+function show(req,{reconnecting=false,starting=false}={}){
   const failed=req?.status==='failed';
-  if(!failed){hide();return;}
-  currentID=req.id||'';overlay.classList.add('visible','nonblocking');
-  revision.textContent=req.revision?'Revision: '+req.revision:'';
-  status.classList.add('self-update-error');
-  status.textContent=statusText(req);
-  copyError.style.display='';
-  dismiss.style.display='';
-  copyError.dataset.details=selfUpdateErrorDetails(req);
-  actions.style.display='flex';
-  intro.textContent='Candidate validation or activation failed. The current TaskDeck remains usable; close this notice and continue working.';
+  const completed=req?.status==='completed';
+  currentID=req?.id||currentID||'';
+  overlay.classList.add('visible','nonblocking');
+  dialog.classList.toggle('self-update-running',!failed);
+  revision.textContent=req?.revision?'Revision: '+req.revision:'';
+  status.classList.toggle('self-update-error',failed);
+  status.textContent=reconnecting
+    ?'Waiting for the TaskDeck daemon to reconnect…'
+    :(starting?'Starting TaskDeck self-update…':statusText(req));
+  copyError.style.display=failed?'':'none';
+  dismiss.style.display=failed?'':'none';
+  copyError.dataset.details=failed?selfUpdateErrorDetails(req):'';
+  actions.style.display=failed?'flex':'none';
+  if(failed){
+    intro.textContent='Candidate validation or activation failed. The current TaskDeck remains usable; close this notice and continue working.';
+  }else if(completed){
+    intro.textContent='Update completed. Reloading TaskDeck…';
+  }else if(reconnecting){
+    intro.textContent='The updater is handing off to the new daemon. Open sessions can continue through the session broker.';
+  }else{
+    intro.textContent=String(req?.message||'Update is running in the background. You can keep using TaskDeck while validation is in progress.');
+  }
 }
-function hide(){overlay.classList.remove('visible','nonblocking');currentID='';copyError.dataset.details='';}
+function showStartingProgress(){
+  show({status:'confirmed',message:'Starting the updater process…'},{starting:true});
+}
+function showReconnectProgress(){
+  show({id:currentID,status:'restarting',message:'Waiting for the TaskDeck daemon to reconnect…'},{reconnecting:true});
+}
+function hide(){overlay.classList.remove('visible','nonblocking');dialog.classList.remove('self-update-running');currentID='';copyError.dataset.details='';}
 
 async function checkAndStartUpdate(){
   if(startingFromSettings)return;
@@ -126,7 +144,7 @@ async function checkAndStartUpdate(){
     settingsStartDeadline=Date.now()+10000;
     checkUpdate.textContent='Updating…';
     checkUpdate.title='Starting TaskDeck self-update…';
-    hide();
+    showStartingProgress();
     await app.jsonFetch(endpoint+'&action=start',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
   }catch(e){
     startingFromSettings=false;
@@ -212,6 +230,7 @@ async function poll(){
           checkUpdate.disabled=true;
           checkUpdate.textContent='Updating…';
           checkUpdate.title='Waiting for the updater process to start…';
+          showStartingProgress();
           return;
         }
         startingFromSettings=false;
@@ -224,22 +243,25 @@ async function poll(){
       }
       hide();return;
     }
+    const wasStartingFromSettings=startingFromSettings;
     if(startingFromSettings){
       startingFromSettings=false;
       settingsStartDeadline=0;
     }
     if(req.status==='cancelled'){startingFromSettings=false;settingsStartDeadline=0;resumeTerminalPersistence();resetCheckUpdateButton();hide();return;}
-    if(req.status==='completed'){hide();redirectAfterUpdate(req);return;}
+    if(req.status==='completed'){show(req);redirectAfterUpdate(req);return;}
     if(req.status==='failed'){startingFromSettings=false;settingsStartDeadline=0;resumeTerminalPersistence();resetCheckUpdateButton();show(req);return;}
-    hide();
+    show(req);
     checkUpdate.disabled=true;
     checkUpdate.textContent='Updating…';
     checkUpdate.title=statusText(req)||'TaskDeck self-update is running';
+    if(wasStartingFromSettings&&req.id)currentID=req.id;
   }catch(e){
-    if(startingFromSettings){
+    if(startingFromSettings||currentID){
       checkUpdate.disabled=true;
       checkUpdate.textContent='Updating…';
       checkUpdate.title='Waiting for the TaskDeck daemon to reconnect…';
+      showReconnectProgress();
     }
   }
 }
