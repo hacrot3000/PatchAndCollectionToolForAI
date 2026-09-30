@@ -112,6 +112,7 @@ function repositoryForCWD(cwd){
   if(!value)return null;
   if(workspaceRoot&&value===workspaceRoot)value='.';
   else if(workspaceRoot&&value.startsWith(workspaceRoot+'/'))value=value.slice(workspaceRoot.length+1);
+  else if(workspaceRoot&&(value.startsWith('/')||/^[A-Za-z]:\//.test(value)))return null;
   value=value.replace(/^\.\//,'');
   let best=null;
   for(const item of repositories){
