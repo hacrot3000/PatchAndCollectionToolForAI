@@ -41,6 +41,7 @@ func TestGroupedMenusFeature(t *testing.T) {
 		".session-split-horizontal",
 		".session-merge-vertical",
 		".session-merge-horizontal",
+		".session-swap-split",
 		".session-unsplit",
 		".console-search-btn",
 		".copy-console",
