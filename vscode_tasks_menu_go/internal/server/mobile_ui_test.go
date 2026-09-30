@@ -18,6 +18,7 @@ func TestMobileUIProfileIsIsolatedFromDesktopPresentation(t *testing.T) {
 		"mobile-drawer-open",
 		"mobile-actions-open",
 		"mobile-terminal-keys",
+		"--taskmenu-header-height:50px",
 		"window.visualViewport",
 		"env(safe-area-inset-top)",
 		"env(safe-area-inset-bottom)",
