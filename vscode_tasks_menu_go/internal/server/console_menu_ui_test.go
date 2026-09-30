@@ -20,10 +20,10 @@ func TestConsoleMenuOrderIconsColorsAndClearConfirmation(t *testing.T) {
 	menus := mustEmbeddedAsset(t, "featuremods/menus.js")
 	for _, want := range []string{
 		"['CONSOLE',['.copy-console','.console-search-btn','.console-save-btn','.session-clear-console']]",
-		".copy-console{background:",
-		".console-search-btn{background:",
-		".console-save-btn{background:",
-		".session-clear-console{background:",
+		".pane-action-menus .taskmenu-menu-popover .copy-console{color:",
+		".pane-action-menus .taskmenu-menu-popover .console-search-btn{color:",
+		".pane-action-menus .taskmenu-menu-popover .console-save-btn{color:",
+		".pane-action-menus .taskmenu-menu-popover .session-clear-console{color:",
 	} {
 		if !strings.Contains(menus, want) {
 			t.Fatalf("menus.js missing console menu behavior %q", want)
