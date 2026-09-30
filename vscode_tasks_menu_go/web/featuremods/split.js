@@ -16,7 +16,7 @@ const nodeRects=new WeakMap();
 const style=document.createElement('style');
 style.textContent=`
 #panes.split-tree-mode{position:relative;display:block;overflow:hidden}
-#panes.split-tree-mode>.pane.split-leaf{position:absolute!important;inset:auto!important;display:flex!important;min-width:0;min-height:0}
+#panes.split-tree-mode>.pane.split-leaf{position:absolute!important;right:auto!important;bottom:auto!important;display:flex!important;min-width:0;min-height:0;overflow:hidden}
 .split-tree-resizer{position:absolute;background:transparent;touch-action:none;z-index:8}
 .split-tree-resizer.vertical{cursor:col-resize}
 .split-tree-resizer.horizontal{cursor:row-resize}
