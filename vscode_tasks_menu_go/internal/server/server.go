@@ -1538,7 +1538,11 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 		if err != nil || strings.TrimSpace(cwd) == "" {
 			cwd = meta.Cwd
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"local": true, "cwd": filepath.Clean(cwd)})
+		cwd = strings.TrimSpace(cwd)
+		if cwd != "" {
+			cwd = filepath.Clean(cwd)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"local": true, "cwd": cwd})
 	case "stop":
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
