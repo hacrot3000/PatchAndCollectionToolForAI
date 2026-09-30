@@ -79,3 +79,25 @@ func TestGroupedMenusDefersWorkspaceSettingsUntilTasksLoaded(t *testing.T) {
 		t.Fatal("menus.js must not dereference taskData.workspace before /api/tasks has loaded")
 	}
 }
+
+
+func TestGroupedMenusUseCompactTextActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/menus.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		".taskmenu-menu-trigger{white-space:nowrap;padding:3px 5px;border:0!important",
+		"background:transparent!important;font-size:11px",
+		".taskmenu-menu-popover>button{width:100%;text-align:left;border:0;background:transparent",
+		".header-action-menus{display:flex;align-items:center;gap:2px",
+		".header-action-menus .git-status-pill{margin:0;border:0!important;background:transparent!important",
+		".pane-action-menus{display:flex;align-items:center;gap:1px",
+		".pane-action-menus .taskmenu-menu-trigger{padding:2px 5px;font-size:10px}",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("menus.js missing compact text-action styling %q", want)
+		}
+	}
+}
