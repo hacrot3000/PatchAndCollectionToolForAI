@@ -306,16 +306,6 @@ function renderRaw(){
   main.append(rawArea);
 }
 
-function updateList(){
-  list.replaceChildren();
-  (doc?.tasks||[]).forEach((task,index)=>{
-    const button=document.createElement('button');button.type='button';button.className='tasks-editor-item'+(index===selectedIndex?' active':'');
-    button.textContent=taskLabel(task,index);button.title=String(task?.label||button.textContent);
-    button.onclick=()=>{selectedIndex=index;render();};
-    list.append(button);
-  });
-}
-
 function render(){
   updateList();
   visualButton?.classList.toggle('active',mode==='visual');
