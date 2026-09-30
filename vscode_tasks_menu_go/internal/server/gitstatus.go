@@ -127,7 +127,7 @@ func (s *Server) gitRepositories(w http.ResponseWriter, r *http.Request) {
 	for _, repo := range repos {
 		status := s.gitCompactStatus(r.Context(), repo)
 		row := gitRepositoryStatus{
-			gitRepository: repo,
+			ID: repo.ID, Name: repo.Name, Path: repo.Path, Explicit: repo.Explicit, Default: repo.Default,
 			Branch: status.Branch, Head: status.Head, Changed: status.Changed,
 			Ahead: status.Ahead, Behind: status.Behind,
 		}
