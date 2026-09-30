@@ -280,6 +280,147 @@ func (s *Server) validBranchName(ctx context.Context, branch string) error {
 	return nil
 }
 
+type gitMergePreflightResponse struct {
+	Branch         string `json:"branch"`
+	Current        string `json:"current"`
+	Clean          bool   `json:"clean"`
+	LocalRef       string `json:"local_ref,omitempty"`
+	RemoteRef      string `json:"remote_ref,omitempty"`
+	LocalSHA       string `json:"local_sha,omitempty"`
+	RemoteSHA      string `json:"remote_sha,omitempty"`
+	Same           bool   `json:"same"`
+	RequiresChoice bool   `json:"requires_choice"`
+	DefaultSource  string `json:"default_source,omitempty"`
+}
+
+func (s *Server) gitCurrentBranch(ctx context.Context) (string, error) {
+	out, _, _, err := s.runGit(ctx, 3*time.Second, "branch", "--show-current")
+	if err != nil {
+		return "", err
+	}
+	branch := strings.TrimSpace(out)
+	if branch == "" {
+		return "", fmt.Errorf("cannot merge while HEAD is detached")
+	}
+	return branch, nil
+}
+
+func (s *Server) gitBranchSHA(ctx context.Context, ref string) string {
+	if strings.TrimSpace(ref) == "" {
+		return ""
+	}
+	out, _, _, err := s.runGit(ctx, 3*time.Second, "rev-parse", "--verify", ref+"^{commit}")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+func (s *Server) gitLocalBranchUpstream(ctx context.Context, branch string) string {
+	out, _, _, err := s.runGit(ctx, 3*time.Second, "for-each-ref", "--format=%(upstream:short)", "refs/heads/"+branch)
+	if err != nil {
+		return ""
+	}
+	upstream := strings.TrimSpace(out)
+	if upstream != "" && s.remoteBranchExists(ctx, upstream) {
+		return upstream
+	}
+	candidate := "origin/" + branch
+	if s.remoteBranchExists(ctx, candidate) {
+		return candidate
+	}
+	return ""
+}
+
+func (s *Server) gitLocalBranchTrackingRemote(ctx context.Context, remoteRef string) string {
+	out, _, _, err := s.runGit(ctx, 3*time.Second, "for-each-ref", "--format=%(refname:short)%09%(upstream:short)", "refs/heads")
+	if err == nil {
+		for _, line := range strings.Split(out, "\n") {
+			fields := strings.SplitN(line, "\t", 2)
+			if len(fields) == 2 && strings.TrimSpace(fields[1]) == remoteRef {
+				local := strings.TrimSpace(fields[0])
+				if local != "" {
+					return local
+				}
+			}
+		}
+	}
+	if slash := strings.Index(remoteRef, "/"); slash > 0 && slash+1 < len(remoteRef) {
+		candidate := remoteRef[slash+1:]
+		if s.localBranchExists(ctx, candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func (s *Server) gitMergeRefs(ctx context.Context, branch string) (string, string, error) {
+	branch = strings.TrimSpace(branch)
+	if s.localBranchExists(ctx, branch) {
+		return branch, s.gitLocalBranchUpstream(ctx, branch), nil
+	}
+	if s.remoteBranchExists(ctx, branch) {
+		return s.gitLocalBranchTrackingRemote(ctx, branch), branch, nil
+	}
+	return "", "", fmt.Errorf("branch not found")
+}
+
+func (s *Server) gitMergePreflightData(ctx context.Context, branch string) (gitMergePreflightResponse, error) {
+	if err := s.validBranchName(ctx, branch); err != nil {
+		return gitMergePreflightResponse{}, err
+	}
+	current, err := s.gitCurrentBranch(ctx)
+	if err != nil {
+		return gitMergePreflightResponse{}, err
+	}
+	clean, err := s.gitWorktreeClean(ctx)
+	if err != nil {
+		return gitMergePreflightResponse{}, err
+	}
+	localRef, remoteRef, err := s.gitMergeRefs(ctx, branch)
+	if err != nil {
+		return gitMergePreflightResponse{}, err
+	}
+	localSHA := s.gitBranchSHA(ctx, localRef)
+	remoteSHA := s.gitBranchSHA(ctx, remoteRef)
+	same := localSHA != "" && remoteSHA != "" && localSHA == remoteSHA
+	defaultSource := ""
+	switch {
+	case localRef != "" && remoteRef == "":
+		defaultSource = "local"
+	case remoteRef != "" && localRef == "":
+		defaultSource = "remote"
+	case same && localRef != "":
+		defaultSource = "local"
+	}
+	return gitMergePreflightResponse{
+		Branch: branch, Current: current, Clean: clean,
+		LocalRef: localRef, RemoteRef: remoteRef,
+		LocalSHA: localSHA, RemoteSHA: remoteSHA,
+		Same: same,
+		RequiresChoice: localRef != "" && remoteRef != "" && !same,
+		DefaultSource: defaultSource,
+	}, nil
+}
+
+func (s *Server) gitMergePreflight(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	branch := strings.TrimSpace(r.URL.Query().Get("branch"))
+	data, err := s.gitMergePreflightData(r.Context(), branch)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !data.Clean {
+		http.Error(w, "working tree must be clean before merging; commit or stash local changes first", http.StatusConflict)
+		return
+	}
+	writeJSON(w, http.StatusOK, data)
+}
+
 func (s *Server) gitCompare(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -356,6 +497,7 @@ type gitActionRequest struct {
 	Message string `json:"message,omitempty"`
 	Branch  string `json:"branch,omitempty"`
 	Ref     string `json:"ref,omitempty"`
+	Source  string `json:"source,omitempty"`
 }
 
 func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
@@ -408,6 +550,33 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		clean, err := s.gitWorktreeClean(r.Context()); if err != nil { http.Error(w, err.Error(), http.StatusConflict); return }
 		if !clean { http.Error(w, "working tree must be clean before creating/switching branch; commit or stash changes first", http.StatusConflict); return }
 		args = []string{"switch", "-c", branch}
+	case "merge":
+		branch := strings.TrimSpace(req.Branch)
+		data, err := s.gitMergePreflightData(r.Context(), branch)
+		if err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
+		if !data.Clean { http.Error(w, "working tree must be clean before merging; commit or stash local changes first", http.StatusConflict); return }
+		source := strings.ToLower(strings.TrimSpace(req.Source))
+		if data.RequiresChoice && source != "local" && source != "remote" {
+			http.Error(w, "local and remote branch differ; choose merge source: local or remote", http.StatusBadRequest)
+			return
+		}
+		if source == "" { source = data.DefaultSource }
+		mergeRef := ""
+		switch source {
+		case "local":
+			mergeRef = data.LocalRef
+		case "remote":
+			mergeRef = data.RemoteRef
+		default:
+			http.Error(w, "invalid merge source", http.StatusBadRequest)
+			return
+		}
+		if mergeRef == "" { http.Error(w, "selected merge source is unavailable", http.StatusBadRequest); return }
+		if mergeRef == data.Current {
+			http.Error(w, "cannot merge the current branch into itself", http.StatusBadRequest)
+			return
+		}
+		args = []string{"merge", "--no-edit", mergeRef}
 	case "stash_push":
 		message := strings.TrimSpace(req.Message)
 		if message == "" { message = "vscode_tasks_menu " + time.Now().Format("2006-01-02 15:04:05") }
