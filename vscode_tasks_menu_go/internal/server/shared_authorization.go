@@ -140,6 +140,8 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionPatchView}
 	case "/api/files/selection":
 		return []string{identity.PermissionFilesRead}
+	case "/api/files/preview":
+		return []string{identity.PermissionFilesRead}
 	case "/api/files/download":
 		return []string{identity.PermissionFilesDownload}
 	case "/api/files/upload":
