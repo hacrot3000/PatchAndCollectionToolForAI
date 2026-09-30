@@ -178,6 +178,39 @@ func TestSelfUpdateCheckAndStartHooks(t *testing.T) {
 	}
 }
 
+
+func TestSelfUpdateStartRecoversAbandonedConfirmedRequest(t *testing.T) {
+	workspace := t.TempDir()
+	req, err := updater.CreateRequest(workspace, "0123456789abcdef", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.UpdaterPID = 0
+	req.UpdatedAt = time.Now().Add(-time.Minute).Format(time.RFC3339)
+	req.ConfirmedAt = req.UpdatedAt
+	if err := updater.Save(workspace, req); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &Server{Workspace: workspace}
+	called := false
+	RegisterSelfUpdateStart(s, func() error {
+		called = true
+		return nil
+	})
+	defer RegisterSelfUpdateStart(s, nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/state/tasks?scope=self-update&action=start", strings.NewReader("{}"))
+	recorder := httptest.NewRecorder()
+	s.selfUpdateState(recorder, request)
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("restart abandoned update status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !called {
+		t.Fatal("self-update start callback was not invoked after abandoned request recovery")
+	}
+}
+
 func TestSelfUpdateStartRejectsConcurrentActiveRequest(t *testing.T) {
 	workspace := t.TempDir()
 	if _, err := updater.CreateRequest(workspace, "0123456789abcdef", "", true); err != nil {
