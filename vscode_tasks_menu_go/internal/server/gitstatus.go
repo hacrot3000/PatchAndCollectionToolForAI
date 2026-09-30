@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"net/http"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +10,9 @@ import (
 
 type gitStatusResponse struct {
 	Repository bool   `json:"repository"`
+	RepoID     string `json:"repo_id,omitempty"`
+	RepoName   string `json:"repo_name,omitempty"`
+	RepoPath   string `json:"repo_path,omitempty"`
 	Branch     string `json:"branch,omitempty"`
 	Head       string `json:"head,omitempty"`
 	Changed    int    `json:"changed"`
@@ -19,6 +21,23 @@ type gitStatusResponse struct {
 }
 
 func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
+	view := strings.TrimSpace(r.URL.Query().Get("view"))
+	if r.Method == http.MethodGet && view == "repositories" {
+		s.gitRepositories(w, r)
+		return
+	}
+
+	repo, err := s.resolveGitRepository(r.URL.Query().Get("repo"))
+	if err != nil {
+		if r.Method == http.MethodGet && (view == "" || view == "status") {
+			writeJSON(w, http.StatusOK, gitStatusResponse{Repository: false})
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	r = r.WithContext(withGitRepository(r.Context(), repo))
+
 	if r.Method == http.MethodPost {
 		s.gitAction(w, r)
 		return
@@ -27,7 +46,7 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	switch strings.TrimSpace(r.URL.Query().Get("view")) {
+	switch view {
 	case "changes":
 		s.gitChanges(w, r)
 		return
@@ -53,20 +72,19 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 		s.gitAheadBehind(w, r)
 		return
 	case "", "status":
-		// Continue with compact status below.
+		writeJSON(w, http.StatusOK, s.gitCompactStatus(r.Context(), repo))
 	default:
 		http.Error(w, "unknown git view", http.StatusBadRequest)
-		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "-C", s.Workspace, "status", "--porcelain=v1", "--branch", "--untracked-files=normal")
-	out, err := cmd.Output()
+}
+
+func (s *Server) gitCompactStatus(ctx context.Context, repo gitRepository) gitStatusResponse {
+	ctx = withGitRepository(ctx, repo)
+	out, _, _, err := s.runGit(ctx, 3*time.Second, "status", "--porcelain=v1", "--branch", "--untracked-files=normal")
 	if err != nil {
-		writeJSON(w, http.StatusOK, gitStatusResponse{Repository: false})
-		return
+		return gitStatusResponse{Repository: false, RepoID: repo.ID, RepoName: repo.Name, RepoPath: repo.Path}
 	}
-	lines := strings.Split(strings.TrimRight(string(out), "\r\n"), "\n")
+	lines := strings.Split(strings.TrimRight(out, "\r\n"), "\n")
 	branch, ahead, behind := "", 0, 0
 	changed := 0
 	if len(lines) > 0 && strings.HasPrefix(lines[0], "## ") {
@@ -84,10 +102,47 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	head := ""
-	if headOut, headErr := exec.CommandContext(ctx, "git", "-C", s.Workspace, "rev-parse", "--short=8", "HEAD").Output(); headErr == nil {
-		head = strings.TrimSpace(string(headOut))
+	if headOut, _, _, headErr := s.runGit(ctx, 3*time.Second, "rev-parse", "--short=8", "HEAD"); headErr == nil {
+		head = strings.TrimSpace(headOut)
 	}
-	writeJSON(w, http.StatusOK, gitStatusResponse{Repository: true, Branch: branch, Head: head, Changed: changed, Ahead: ahead, Behind: behind})
+	return gitStatusResponse{
+		Repository: true,
+		RepoID: repo.ID, RepoName: repo.Name, RepoPath: repo.Path,
+		Branch: branch, Head: head, Changed: changed, Ahead: ahead, Behind: behind,
+	}
+}
+
+func (s *Server) gitRepositories(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	force := strings.TrimSpace(r.URL.Query().Get("refresh")) == "1"
+	repos, settings, err := s.discoverGitRepositories(force)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	rows := make([]gitRepositoryStatus, 0, len(repos))
+	for _, repo := range repos {
+		status := s.gitCompactStatus(r.Context(), repo)
+		row := gitRepositoryStatus{
+			gitRepository: repo,
+			Branch: status.Branch, Head: status.Head, Changed: status.Changed,
+			Ahead: status.Ahead, Behind: status.Behind,
+		}
+		if !status.Repository {
+			row.Error = "Git status unavailable"
+		}
+		rows = append(rows, row)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"repositories": rows,
+		"default_repository": s.gitDefaultRepo,
+		"scan_enabled": settings.ScanEnabled,
+		"scan_depth": settings.ScanDepth,
+		"auto_select_from_terminal_cwd": settings.AutoSelectFromTerminalCWD,
+	})
 }
 
 func parseGitBranchHeader(header string) (string, int, int) {
