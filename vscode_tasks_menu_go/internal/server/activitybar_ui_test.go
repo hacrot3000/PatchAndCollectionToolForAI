@@ -156,7 +156,7 @@ func TestActivityBarAlwaysVisibleUsesHorizontalNavigationRow(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	js := string(data)
 	for _, want := range []string{
-		"body:not(.task-sidebar-auto-hide) .task-activity-bar{display:flex;position:fixed;top:52px;left:0",
+		"body:not(.task-sidebar-auto-hide) .task-activity-bar{display:flex;position:fixed;top:var(--taskmenu-header-height,34px);left:0",
 		"width:var(--taskmenu-sidebar-inline-width,310px)",
 		"height:46px",
 		"flex-direction:row",
@@ -175,8 +175,8 @@ func TestActivityBarAlwaysVisibleViewsStayInFixedSidebar(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	js := string(data)
 	for _, want := range []string{
-		"body:not(.task-sidebar-auto-hide) .project-explorer{top:98px!important;left:0!important",
-		"body:not(.task-sidebar-auto-hide) .task-history-panel{top:98px;left:0",
+		"body:not(.task-sidebar-auto-hide) .project-explorer{top:calc(var(--taskmenu-header-height,34px) + 46px)!important;left:0!important",
+		"body:not(.task-sidebar-auto-hide) .task-history-panel{top:calc(var(--taskmenu-header-height,34px) + 46px);left:0",
 		"activeView=on?'':'tasks'",
 		"restoreHistoryToTasks()",
 		"const active=button.dataset.view===activeView",
