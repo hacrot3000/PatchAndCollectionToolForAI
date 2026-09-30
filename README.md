@@ -171,7 +171,7 @@ Các chức năng chính gồm:
 - Console menu có copy/search/save/clear log; clear yêu cầu xác nhận;
 - phát hiện file path trong output để download, có thể bật/tắt theo từng tab và clear/ignore danh sách detect;
 - upload file vào workspace với kiểm tra traversal/symlink và xác nhận overwrite;
-- Git Quick Actions có kiểm soát, Favorites/Recent/History, task search, notification, theme/font và các tiện ích UI khác;
+- Git Quick Actions có kiểm soát và hỗ trợ **multi-repository workspace**: tự quét repo lồng nhau trong workspace, chọn repo active, xem tổng hợp `Repositories`, chạy status/branch/merge/fetch/pull/push theo đúng repo đã chọn và có thể auto-select theo terminal CWD; Favorites/Recent/History, task search, notification, theme/font và các tiện ích UI khác;
 - hỗ trợ local/remote access qua cấu hình `vscode_tasks_menu.ini`, với auth/TLS và các kiểm tra an toàn khi bind ra ngoài loopback.
 
 Quản lý daemon:
@@ -405,7 +405,7 @@ Main capabilities include:
 - Console actions for copy/search/save/clear log, with confirmation before clearing;
 - file-path detection in terminal output for downloads, with per-tab enable/disable and clear/ignore controls;
 - workspace uploads with traversal/symlink protection and overwrite confirmation;
-- controlled Git Quick Actions, Favorites/Recent/History, task search, notifications, theme/font controls, and other browser UI helpers;
+- controlled Git Quick Actions with **multi-repository workspace** support: bounded discovery of nested repositories, active-repository selection, a `Repositories` overview, repo-scoped status/branch/merge/fetch/pull/push actions, and optional terminal-CWD auto-selection; Favorites/Recent/History, task search, notifications, theme/font controls, and other browser UI helpers;
 - local or remote access through `vscode_tasks_menu.ini`, including auth/TLS and safety checks before binding outside loopback.
 
 Daemon management:
