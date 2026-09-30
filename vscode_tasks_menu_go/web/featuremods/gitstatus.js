@@ -341,13 +341,14 @@ async function mergeToBranch(branch){
     if(!allowDirty){showOperation(label,'Merge To canceled because the working tree has uncommitted changes.');return false;}
   }
 
+  let allowSlowFallback=false;
   if(check.slow_fallback){
-    const proceed=window.confirm(
+    allowSlowFallback=window.confirm(
       'This Git version does not support the no-checkout Merge To engine.\n\n'+
       'TaskDeck must use a temporary worktree for the target branch. On repositories with many files this can be slower.\n\n'+
       'Continue?'
     );
-    if(!proceed){showOperation(label,'Merge To canceled before temporary-worktree fallback.');return false;}
+    if(!allowSlowFallback){showOperation(label,'Merge To canceled before temporary-worktree fallback.');return false;}
   }
 
   const engine=check.merge_engine==='merge-tree'?'no-checkout merge-tree':check.merge_engine==='fast-forward'?'fast-forward/no-op':'temporary worktree fallback';
@@ -367,7 +368,8 @@ async function mergeToBranch(branch){
     expected_current:check.current,
     expected_source_sha:check.current_sha,
     expected_target_sha:check.target_sha,
-    allow_dirty:allowDirty
+    allow_dirty:allowDirty,
+    allow_slow_fallback:allowSlowFallback
   });
 }
 async function loadBranches(){
