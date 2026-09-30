@@ -1,5 +1,6 @@
 import '/featuremods/notifications.js';
 import '/featuremods/upload.js';
+import '/featuremods/taskseditor.js';
 import '/featuremods/rename.js';
 import '/featuremods/inputs.js';
 import '/featuremods/envprofiles.js';
