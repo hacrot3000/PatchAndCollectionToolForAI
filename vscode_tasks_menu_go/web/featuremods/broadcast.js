@@ -25,8 +25,8 @@ const inputHooks=new Map();
 
 const style=document.createElement('style');
 style.textContent=`
-.broadcast-menu>.taskmenu-menu-trigger.broadcast-enabled{border-color:#8a6d28;background:#4a3a19;color:#fff1b5}
-.broadcast-menu>.taskmenu-menu-trigger.broadcast-all{border-color:#a34a4a;background:#55272a;color:#ffe2e4}
+.broadcast-menu>.taskmenu-menu-trigger.broadcast-enabled{color:#f3cf78;font-weight:700}
+.broadcast-menu>.taskmenu-menu-trigger.broadcast-all{color:#ff9b9f;font-weight:700}
 .broadcast-mode-button.active{font-weight:800;border-color:#77a7d2;background:#213d58}
 .broadcast-group-row{display:flex;align-items:center;gap:7px;width:100%;text-align:left}
 .broadcast-swatch{display:inline-block;width:14px;height:14px;border-radius:4px;border:1px solid rgba(255,255,255,.35);flex:0 0 auto}
