@@ -28,7 +28,7 @@ func TestProgressiveFeaturesFavoritesAndRecent(t *testing.T) {
 		"recordRecent(meta.task_id)",
 		"function quickTaskDisplayLabel(task)",
 		"Array.isArray(task?.group)?task.group:[]",
-		"join(' → ')",
+		"join('›')",
 		"run.textContent=displayLabel",
 	} {
 		if !strings.Contains(js, want) {
