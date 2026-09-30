@@ -80,7 +80,7 @@ style.textContent=`
 .db-structure-table th,.db-structure-table td{border:1px solid #30343b;padding:6px;text-align:left;vertical-align:top}
 .db-structure-table th{background:#171c23}
 .db-structure-json{font-family:ui-monospace,monospace;white-space:pre-wrap;font-size:11px}
-.db-context-menu{position:fixed;z-index:15000;min-width:220px;max-width:min(360px,90vw);padding:4px;background:#171b22;border:1px solid #48515f;border-radius:7px;box-shadow:0 14px 38px rgba(0,0,0,.45)}
+.db-context-menu{position:fixed;z-index:15000;min-width:220px;max-width:min(360px,90vw);max-height:90vh;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:4px;background:#171b22;border:1px solid #48515f;border-radius:7px;box-shadow:0 14px 38px rgba(0,0,0,.45)}
 .db-context-entry{position:relative}
 .db-context-item{display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;padding:7px 9px;border-radius:4px;font-size:11px}
 .db-context-item:hover:not(:disabled){background:#2b3440}
@@ -89,7 +89,7 @@ style.textContent=`
 .db-context-item.db-context-check{display:flex;align-items:center;gap:8px}
 .db-context-item.db-context-check input{margin:0;pointer-events:none}
 .db-context-item.has-submenu::after{content:'›';float:right;margin-left:14px;opacity:.7;font-size:15px;line-height:11px}
-.db-context-submenu{position:absolute;display:none;left:calc(100% + 4px);top:-4px;z-index:15001}
+.db-context-submenu{position:fixed;display:none;left:0;top:0;z-index:15001}
 .db-context-separator{height:1px;background:#30343b;margin:4px 2px}
 html[data-taskmenu-theme="light"] .db-workbench-tabs{background:#f2f5f8;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .db-workbench-tab.active{background:#fff}
@@ -135,22 +135,15 @@ function closeContextMenu(){
   contextMenu=null;
 }
 
-function positionContextSubmenu(submenu){
+function positionContextSubmenu(submenu,entry){
   submenu.style.display='block';
-  submenu.style.left='calc(100% + 4px)';submenu.style.right='auto';submenu.style.top='-4px';
-  let rect=submenu.getBoundingClientRect();
-  if(rect.right>window.innerWidth-4){
-    submenu.style.left='auto';submenu.style.right='calc(100% + 4px)';
-    rect=submenu.getBoundingClientRect();
-  }
-  if(rect.bottom>window.innerHeight-4){
-    submenu.style.top=(-4-(rect.bottom-window.innerHeight+4))+'px';
-    rect=submenu.getBoundingClientRect();
-  }
-  if(rect.top<4){
-    const top=Number.parseFloat(submenu.style.top)||0;
-    submenu.style.top=(top+(4-rect.top))+'px';
-  }
+  submenu.style.left='0px';submenu.style.right='auto';submenu.style.top='0px';
+  const anchor=entry.getBoundingClientRect();
+  const rect=submenu.getBoundingClientRect();
+  let left=anchor.right+4;
+  if(left+rect.width>window.innerWidth-4)left=Math.max(4,anchor.left-rect.width-4);
+  const top=Math.max(4,Math.min(anchor.top-4,window.innerHeight-rect.height-4));
+  submenu.style.left=left+'px';submenu.style.top=top+'px';
 }
 
 function hideSiblingContextSubmenus(container,keepEntry){
@@ -186,7 +179,7 @@ function appendContextMenuItems(container,items){
         cancelClose();
         closeTimer=setTimeout(()=>{submenu.style.display='none';closeTimer=null;},CONTEXT_SUBMENU_CLOSE_DELAY_MS);
       };
-      entry.onpointerenter=()=>{cancelClose();hideSiblingContextSubmenus(container,entry);if(!button.disabled)positionContextSubmenu(submenu);};
+      entry.onpointerenter=()=>{cancelClose();hideSiblingContextSubmenus(container,entry);if(!button.disabled)positionContextSubmenu(submenu,entry);};
       entry.onpointerleave=scheduleClose;
       submenu.onpointerenter=cancelClose;
       submenu.onpointerleave=scheduleClose;
@@ -195,7 +188,7 @@ function appendContextMenuItems(container,items){
         if(button.disabled)return;
         cancelClose();
         hideSiblingContextSubmenus(container,entry);
-        if(submenu.style.display==='block')submenu.style.display='none';else positionContextSubmenu(submenu);
+        if(submenu.style.display==='block')submenu.style.display='none';else positionContextSubmenu(submenu,entry);
       };
       entry.append(button,submenu);
     }else{
@@ -214,6 +207,7 @@ function showContextMenu(items,x,y){
   const menu=document.createElement('div');menu.className='db-context-menu';
   appendContextMenuItems(menu,items);
   document.body.append(menu);contextMenu=menu;
+  menu.addEventListener('scroll',()=>hideSiblingContextSubmenus(menu,null),{passive:true});
   const rect=menu.getBoundingClientRect();
   const left=Math.max(4,Math.min(x,window.innerWidth-rect.width-4));
   const top=Math.max(4,Math.min(y,window.innerHeight-rect.height-4));
