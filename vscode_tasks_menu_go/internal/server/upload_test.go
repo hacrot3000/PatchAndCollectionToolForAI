@@ -72,7 +72,7 @@ func TestUploadDestinationBrowserUsesWorkspaceTreeAndKeepsManualPathInput(t *tes
 		"Choose upload destination",
 		"Destination directory relative to the workspace:",
 		"/api/project/tree?path=",
-		".filter(item=>item?.type==='dir')",
+		".filter(item=>item?.type==='dir'||(destinationMode==='pick'&&item?.type==='file'))",
 		". (workspace root)",
 		"upload-directory-row",
 		"upload-destination-tree",
@@ -84,7 +84,7 @@ func TestUploadDestinationBrowserUsesWorkspaceTreeAndKeepsManualPathInput(t *tes
 		"loadDestinationDirectory(pathValue",
 		"toggleDestinationDirectory(fullPath)",
 		"function chooseWorkspaceDirectory(options={})",
-		"globalThis.TaskMenuDirectoryBrowser={choose:chooseWorkspaceDirectory,chooseFile:chooseWorkspaceFile}",
+		"globalThis.TaskMenuDirectoryBrowser={choose:chooseWorkspaceDirectory,chooseFile:chooseWorkspaceFile,pickFile:pickWorkspaceFile}",
 		"title:'Choose upload destination'",
 	} {
 		if !strings.Contains(js, want) {
@@ -112,10 +112,30 @@ func TestUploadDirectoryBrowserSupportsFileSaveMode(t *testing.T) {
 		"function chooseWorkspaceFile(options={})",
 		"openWorkspaceBrowser(options,'file')",
 		"closeDestinationBrowser({dir,name})",
-		"globalThis.TaskMenuDirectoryBrowser={choose:chooseWorkspaceDirectory,chooseFile:chooseWorkspaceFile}",
+		"globalThis.TaskMenuDirectoryBrowser={choose:chooseWorkspaceDirectory,chooseFile:chooseWorkspaceFile,pickFile:pickWorkspaceFile}",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("upload.js missing file-save browser behavior %q", want)
+		}
+	}
+}
+
+
+func TestWorkspaceBrowserCanPickExistingFile(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/upload.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"destinationMode==='pick'",
+		"item?.type==='file'",
+		"name.textContent='📄 '+item.name",
+		"name.ondblclick=()=>closeDestinationBrowser(fullPath)",
+		"function pickWorkspaceFile(options={})",
+		"openWorkspaceBrowser(options,'pick')",
+		"pickFile:pickWorkspaceFile",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("upload.js missing existing-file picker behavior %q", want)
 		}
 	}
 }
