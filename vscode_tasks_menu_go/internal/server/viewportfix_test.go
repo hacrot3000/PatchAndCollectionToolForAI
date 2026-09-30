@@ -16,8 +16,8 @@ func TestViewportFixPreventsDocumentScroll(t *testing.T) {
 	for _, want := range []string{
 		"html,body{width:100%;height:100%;min-height:0;overflow:hidden",
 		"body{height:100vh;height:100dvh;display:flex;flex-direction:column}",
-		"body>header{flex:0 0 var(--taskmenu-header-height,34px);min-height:var(--taskmenu-header-height,34px);max-height:var(--taskmenu-header-height,34px)}",
-		"max-height:calc(100% - var(--taskmenu-header-height,34px))",
+		"body>header{flex:0 0 var(--taskmenu-header-height,30px);min-height:var(--taskmenu-header-height,30px);max-height:var(--taskmenu-header-height,30px)}",
+		"max-height:calc(100% - var(--taskmenu-header-height,30px))",
 		"body>main{flex:1 1 auto;height:auto!important;min-height:0",
 		"grid-template-rows:minmax(0,1fr)",
 		"body>main>section{min-width:0;min-height:0",
