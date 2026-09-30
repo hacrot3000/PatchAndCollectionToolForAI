@@ -112,3 +112,27 @@ func TestSplitSuspendsForExternalEditorViewWithoutDestroyingGroups(t *testing.T)
 		}
 	}
 }
+
+
+func TestSplitTerminalLeavesTopLeftForComputedPaneCoordinates(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/split.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"#panes.split-tree-mode>.pane.split-leaf{position:absolute!important;right:auto!important;bottom:auto!important;",
+		"view.pane.style.left=Math.round(rect.x)+'px'",
+		"view.pane.style.top=Math.round(rect.y)+'px'",
+		"view.pane.style.width=Math.max(0,Math.round(rect.w))+'px'",
+		"view.pane.style.height=Math.max(0,Math.round(rect.h))+'px'",
+		"layoutNode(node.second,{x:rect.x,y:rect.y+firstH+gap,w:rect.w,h:secondH},used)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("split pane positioning missing %q", want)
+		}
+	}
+	if strings.Contains(js, "inset:auto!important") {
+		t.Fatal("split leaf must not force top/left to auto because JavaScript computes pane coordinates")
+	}
+}
