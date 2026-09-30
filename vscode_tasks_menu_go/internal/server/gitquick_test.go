@@ -154,7 +154,12 @@ func TestGitQuickMergePreflightChoosesDivergedLocalOrRemote(t *testing.T) {
 		t.Fatalf("merge without source status=%d body=%s", rr.Code, rr.Body.String())
 	}
 
-	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"merge","branch":"feature/merge-source","source":"remote"}`)
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"merge","branch":"feature/merge-source","source":"remote","expected_sha":"deadbeef"}`)
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "merge source changed after confirmation") {
+		t.Fatalf("stale confirmed SHA status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"merge","branch":"feature/merge-source","source":"remote","expected_sha":"`+preflight.RemoteSHA+`"}`)
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
 		t.Fatalf("remote merge status=%d body=%s", rr.Code, rr.Body.String())
 	}
