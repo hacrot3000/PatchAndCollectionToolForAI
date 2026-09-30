@@ -48,6 +48,8 @@ func TestGitQuickActionsUI(t *testing.T) {
 		"Merge this branch into the current branch",
 		"Local and remote versions differ",
 		"Type LOCAL or REMOTE",
+		"expected_sha:expectedSHA",
+		"expectedSHA.slice(0,12)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("gitstatus.js missing Git quick action behavior %q", want)
