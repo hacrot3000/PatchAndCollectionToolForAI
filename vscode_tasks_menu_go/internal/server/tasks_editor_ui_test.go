@@ -76,3 +76,49 @@ func TestTasksEditorUsesExistingProjectFileMutationAPI(t *testing.T) {
 		}
 	}
 }
+
+
+func TestTasksEditorGroupsTasksAndEditsMenuGroup(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/taskseditor.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function taskMenuGroupParts(task)",
+		"function buildTaskEditorTree()",
+		"if(group.length===1&&group[0]==='build')",
+		"function appendTaskEditorTree(node,host)",
+		"tasks-editor-group-title",
+		"tasks-editor-group-children",
+		"function menuGroupOptions()",
+		"function makeMenuGroupInput(task)",
+		"document.createElement('datalist')",
+		"input.setAttribute('list',dataList.id)",
+		"input.placeholder='Group/Subgroup'",
+		"addField(form,'Menu group',makeMenuGroupInput(task))",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("taskseditor.js missing grouped task/menu-group behavior %q", want)
+		}
+	}
+}
+
+func TestTasksEditorRawSelectionJumpsWithoutRerendering(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/taskseditor.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function selectTask(index)",
+		"if(mode==='raw'&&rawArea)",
+		"updateList();",
+		"focusRawTask(index);",
+		"function findTasksArrayStart(text)",
+		"function findRawTaskRange(text,targetIndex)",
+		"function focusRawTask(index)",
+		"rawArea.setSelectionRange(range.start,range.end)",
+		"requestAnimationFrame(()=>focusRawTask(selectedIndex))",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("taskseditor.js missing raw task navigation behavior %q", want)
+		}
+	}
+}
