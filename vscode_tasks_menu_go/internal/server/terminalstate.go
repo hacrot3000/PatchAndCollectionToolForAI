@@ -155,8 +155,8 @@ func normalizeProjectTerminalState(value projectTerminalState) projectTerminalSt
 		if group.Left < 0 || group.Right < 0 || group.Left == group.Right || group.Left >= len(out.Terminals) || group.Right >= len(out.Terminals) {
 			continue
 		}
-		leftKnown,rightKnown := introduced[group.Left],introduced[group.Right]
-		if rightKnown || (!leftKnown && len(introduced) != 0) {
+		_,rightKnown := introduced[group.Left],introduced[group.Right]
+		if rightKnown {
 			continue
 		}
 		introduced[group.Left] = true
@@ -355,8 +355,8 @@ func (s *Server) captureTerminalState(req terminalSnapshotRequest) (projectTermi
 		if !lok || !rok || left == right {
 			continue
 		}
-		leftKnown,rightKnown := introduced[left],introduced[right]
-		if rightKnown || (!leftKnown && len(introduced) != 0) {
+		_,rightKnown := introduced[left],introduced[right]
+		if rightKnown {
 			continue
 		}
 		introduced[left] = true
