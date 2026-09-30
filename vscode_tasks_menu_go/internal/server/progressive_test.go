@@ -26,6 +26,10 @@ func TestProgressiveFeaturesFavoritesAndRecent(t *testing.T) {
 		"queueProjectStateSave()",
 		"taskmenu:session",
 		"recordRecent(meta.task_id)",
+		"function quickTaskDisplayLabel(task)",
+		"Array.isArray(task?.group)?task.group:[]",
+		"join(' → ')",
+		"run.textContent=displayLabel",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("featuremods/all.js missing favorites/recent behavior %q", want)
