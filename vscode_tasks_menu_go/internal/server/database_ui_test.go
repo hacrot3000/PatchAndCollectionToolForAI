@@ -519,7 +519,7 @@ func TestDatabaseContextSubmenuAllowsSlowPointerTransit(t *testing.T) {
 		"const scheduleClose=()=>",
 		"setTimeout(()=>{submenu.style.display='none';closeTimer=null;},CONTEXT_SUBMENU_CLOSE_DELAY_MS)",
 		"function hideSiblingContextSubmenus(container,keepEntry)",
-		"entry.onpointerenter=()=>{cancelClose();hideSiblingContextSubmenus(container,entry);if(!button.disabled)positionContextSubmenu(submenu);}",
+		"entry.onpointerenter=()=>{cancelClose();hideSiblingContextSubmenus(container,entry);if(!button.disabled)positionContextSubmenu(submenu,entry);}",
 		"hideSiblingContextSubmenus(container,entry)",
 		"entry.onpointerleave=scheduleClose",
 		"submenu.onpointerenter=cancelClose",
@@ -531,6 +531,30 @@ func TestDatabaseContextSubmenuAllowsSlowPointerTransit(t *testing.T) {
 	}
 	if strings.Contains(js, "entry.onpointerleave=()=>{submenu.style.display='none';}") {
 		t.Fatal("database submenu must not close immediately while the pointer crosses into the submenu")
+	}
+}
+
+
+func TestDatabaseContextMenuUsesViewportHeightBeforeScrolling(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"max-height:90vh",
+		"overflow-y:auto",
+		"overscroll-behavior:contain",
+		"scrollbar-gutter:stable",
+		".db-context-submenu{position:fixed",
+		"function positionContextSubmenu(submenu,entry)",
+		"const anchor=entry.getBoundingClientRect()",
+		"window.innerHeight-rect.height-4",
+		"menu.addEventListener('scroll',()=>hideSiblingContextSubmenus(menu,null),{passive:true})",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing viewport-aware context menu behavior %q", want)
+		}
 	}
 }
 
