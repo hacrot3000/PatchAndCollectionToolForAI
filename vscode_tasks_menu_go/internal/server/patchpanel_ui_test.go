@@ -1635,3 +1635,51 @@ func TestPatchPanelAIPackIsOnDemandCachedAndCopyable(t *testing.T) {
 		}
 	}
 }
+
+
+func TestPatchQueueAndCollectStayHeadlessUntilExplicitEvidence(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+
+	assertNoMaterialize := func(startMarker, endMarker, label string) {
+		t.Helper()
+		start := strings.Index(js, startMarker)
+		if start < 0 {
+			t.Fatalf("%s start marker unavailable", label)
+		}
+		endRel := strings.Index(js[start:], endMarker)
+		if endRel < 0 {
+			t.Fatalf("%s end marker unavailable", label)
+		}
+		block := js[start : start+endRel]
+		if strings.Contains(block, "materializeSession(") {
+			t.Fatalf("%s must keep Patch/COLLECT backing session headless", label)
+		}
+	}
+
+	assertNoMaterialize(
+		"async function openQueueWhileRunning()",
+		"async function refreshQueueFromSummary()",
+		"Back to Queue",
+	)
+	assertNoMaterialize(
+		"async function launchParallelCollect(sessionId,prompt,indexes)",
+		"async function submitPromptResponse(sessionId,prompt,action)",
+		"parallel COLLECT",
+	)
+
+	for _, want := range []string{
+		"await start('queue')",
+		"/parallel-collect",
+		"openTerminalEvidenceForSession(run.sessionId)",
+		"async function openTerminalEvidenceForSession(sessionId)",
+		"app.materializeSession(meta,false)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("headless Patch/COLLECT evidence contract missing %q", want)
+		}
+	}
+}
