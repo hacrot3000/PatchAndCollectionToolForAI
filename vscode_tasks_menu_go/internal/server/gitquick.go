@@ -41,11 +41,11 @@ func (w *cappedGitBuffer) Write(p []byte) (int, error) {
 
 func (w *cappedGitBuffer) String() string { return w.buf.String() }
 
-func (s *Server) runGit(parent context.Context, timeout time.Duration, args ...string) (string, string, bool, error) {
+func runGitInDirectory(parent context.Context, timeout time.Duration, dir string, args ...string) (string, string, bool, error) {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = s.gitDirectory(parent)
+	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "LC_ALL=C")
 	stdout := &cappedGitBuffer{limit: gitOutputLimit}
 	stderr := &cappedGitBuffer{limit: gitOutputLimit}
@@ -66,6 +66,10 @@ func (s *Server) runGit(parent context.Context, timeout time.Duration, args ...s
 		return stdout.String(), stderr.String(), stdout.truncated || stderr.truncated, fmt.Errorf("%s", message)
 	}
 	return stdout.String(), stderr.String(), stdout.truncated || stderr.truncated, nil
+}
+
+func (s *Server) runGit(parent context.Context, timeout time.Duration, args ...string) (string, string, bool, error) {
+	return runGitInDirectory(parent, timeout, s.gitDirectory(parent), args...)
 }
 
 type gitChange struct {
@@ -739,14 +743,145 @@ func (s *Server) gitWorktreeClean(ctx context.Context) (bool, error) {
 var stashRefPattern = regexp.MustCompile(`^stash@\{[0-9]+\}$`)
 
 type gitActionRequest struct {
-	Action  string `json:"action"`
-	Path    string `json:"path,omitempty"`
-	Message string `json:"message,omitempty"`
-	Branch  string `json:"branch,omitempty"`
-	Ref         string `json:"ref,omitempty"`
-	Source      string `json:"source,omitempty"`
-	ExpectedSHA     string `json:"expected_sha,omitempty"`
-	ExpectedCurrent string `json:"expected_current,omitempty"`
+	Action            string `json:"action"`
+	Path              string `json:"path,omitempty"`
+	Message           string `json:"message,omitempty"`
+	Branch            string `json:"branch,omitempty"`
+	Ref               string `json:"ref,omitempty"`
+	Source            string `json:"source,omitempty"`
+	TargetSource      string `json:"target_source,omitempty"`
+	ExpectedSHA       string `json:"expected_sha,omitempty"`
+	ExpectedCurrent   string `json:"expected_current,omitempty"`
+	ExpectedSourceSHA string `json:"expected_source_sha,omitempty"`
+	ExpectedTargetSHA string `json:"expected_target_sha,omitempty"`
+	AllowDirty        bool   `json:"allow_dirty,omitempty"`
+}
+
+func joinGitOutput(parts ...string) string {
+	nonEmpty := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if text := strings.TrimSpace(part); text != "" {
+			nonEmpty = append(nonEmpty, text)
+		}
+	}
+	return strings.Join(nonEmpty, "\n")
+}
+
+func (s *Server) gitMergeToResult(ctx context.Context, data gitMergeToPreflightResponse) (string, string, bool, error) {
+	if data.TargetSHA == data.CurrentSHA {
+		return data.TargetSHA, "Target already contains the current HEAD.", false, nil
+	}
+	if s.gitCommitIsAncestor(ctx, data.TargetSHA, data.CurrentSHA) {
+		return data.CurrentSHA, "Fast-forward target to current HEAD.", false, nil
+	}
+	if s.gitCommitIsAncestor(ctx, data.CurrentSHA, data.TargetSHA) {
+		return data.TargetSHA, "Target already contains all commits from current HEAD.", false, nil
+	}
+
+	if data.MergeEngine == "merge-tree" {
+		stdout, stderr, truncated, err := s.runGit(ctx, 30*time.Second, "merge-tree", "--write-tree", data.TargetSHA, data.CurrentSHA)
+		if err != nil {
+			return "", joinGitOutput(stdout, stderr), truncated, fmt.Errorf("Merge To has conflicts or could not compute a merge tree: %w", err)
+		}
+		treeSHA := strings.TrimSpace(strings.SplitN(stdout, "\n", 2)[0])
+		if treeSHA == "" {
+			return "", joinGitOutput(stdout, stderr), truncated, fmt.Errorf("Merge To did not produce a merge tree")
+		}
+		message := fmt.Sprintf("Merge %s into %s", data.Current, data.PushBranch)
+		commitOut, commitErrOut, commitTruncated, commitErr := s.runGit(
+			ctx,
+			10*time.Second,
+			"commit-tree", treeSHA,
+			"-p", data.TargetSHA,
+			"-p", data.CurrentSHA,
+			"-m", message,
+		)
+		truncated = truncated || commitTruncated
+		if commitErr != nil {
+			return "", joinGitOutput(stdout, stderr, commitOut, commitErrOut), truncated, fmt.Errorf("cannot create Merge To commit: %w", commitErr)
+		}
+		resultSHA := strings.TrimSpace(commitOut)
+		if resultSHA == "" {
+			return "", joinGitOutput(stdout, stderr, commitOut, commitErrOut), truncated, fmt.Errorf("Merge To commit SHA is empty")
+		}
+		return resultSHA, joinGitOutput("Merged without checkout using git merge-tree.", stderr), truncated, nil
+	}
+
+	tmp, err := os.MkdirTemp("", "taskdeck-merge-to-*")
+	if err != nil {
+		return "", "", false, fmt.Errorf("cannot create temporary Merge To worktree: %w", err)
+	}
+	if err := os.Remove(tmp); err != nil {
+		_ = os.RemoveAll(tmp)
+		return "", "", false, fmt.Errorf("cannot prepare temporary Merge To worktree: %w", err)
+	}
+	defer func() {
+		_, _, _, _ = s.runGit(ctx, 8*time.Second, "worktree", "remove", "--force", tmp)
+		_ = os.RemoveAll(tmp)
+	}()
+
+	addOut, addErrOut, addTruncated, err := s.runGit(ctx, 30*time.Second, "worktree", "add", "--detach", tmp, data.TargetSHA)
+	if err != nil {
+		return "", joinGitOutput(addOut, addErrOut), addTruncated, fmt.Errorf("cannot prepare temporary target worktree: %w", err)
+	}
+	mergeOut, mergeErrOut, mergeTruncated, err := runGitInDirectory(ctx, 45*time.Second, tmp, "merge", "--no-edit", data.CurrentSHA)
+	truncated := addTruncated || mergeTruncated
+	output := joinGitOutput("Used temporary worktree fallback because this Git version lacks merge-tree --write-tree.", addOut, addErrOut, mergeOut, mergeErrOut)
+	if err != nil {
+		return "", output, truncated, fmt.Errorf("Merge To failed in temporary worktree; nothing was pushed: %w", err)
+	}
+	resultOut, resultErrOut, resultTruncated, err := runGitInDirectory(ctx, 5*time.Second, tmp, "rev-parse", "HEAD")
+	truncated = truncated || resultTruncated
+	if err != nil {
+		return "", joinGitOutput(output, resultOut, resultErrOut), truncated, fmt.Errorf("cannot resolve Merge To result commit: %w", err)
+	}
+	resultSHA := strings.TrimSpace(resultOut)
+	if resultSHA == "" {
+		return "", output, truncated, fmt.Errorf("Merge To result commit SHA is empty")
+	}
+	return resultSHA, output, truncated, nil
+}
+
+func (s *Server) gitMergeToAction(ctx context.Context, req gitActionRequest) (string, bool, error) {
+	data, err := s.gitMergeToPreflightData(ctx, req.Branch, req.TargetSource)
+	if err != nil {
+		return "", false, err
+	}
+	if expectedCurrent := strings.TrimSpace(req.ExpectedCurrent); expectedCurrent != "" && data.Current != expectedCurrent {
+		return "", false, fmt.Errorf("current branch changed after confirmation; refresh branches and confirm Merge To again")
+	}
+	if expectedSource := strings.TrimSpace(req.ExpectedSourceSHA); expectedSource != "" && data.CurrentSHA != expectedSource {
+		return "", false, fmt.Errorf("current branch HEAD changed after confirmation; refresh branches and confirm Merge To again")
+	}
+	if expectedTarget := strings.TrimSpace(req.ExpectedTargetSHA); expectedTarget != "" && data.TargetSHA != expectedTarget {
+		return "", false, fmt.Errorf("target branch changed after confirmation; refresh branches and confirm Merge To again")
+	}
+	if data.Dirty && !req.AllowDirty {
+		return "", false, fmt.Errorf("working tree has uncommitted changes; confirm Merge To to continue with committed HEAD only")
+	}
+
+	resultSHA, mergeOutput, truncated, err := s.gitMergeToResult(ctx, data)
+	if err != nil {
+		return mergeOutput, truncated, err
+	}
+
+	pushSpec := resultSHA + ":refs/heads/" + data.PushBranch
+	pushOut, pushErrOut, pushTruncated, err := s.runGit(ctx, 45*time.Second, "push", data.PushRemote, pushSpec)
+	truncated = truncated || pushTruncated
+	output := joinGitOutput(mergeOutput, pushOut, pushErrOut)
+	if err != nil {
+		return output, truncated, fmt.Errorf("Merge To result %s was created locally but push to %s/%s failed: %w", resultSHA, data.PushRemote, data.PushBranch, err)
+	}
+
+	if data.TargetSource == "local" && resultSHA != data.TargetSHA {
+		updateOut, updateErrOut, updateTruncated, updateErr := s.runGit(ctx, 8*time.Second, "branch", "-f", data.TargetBranch, resultSHA)
+		truncated = truncated || updateTruncated
+		if updateErr != nil {
+			output = joinGitOutput(output, updateOut, updateErrOut, "WARNING: push succeeded, but the local target branch could not be moved; it may be checked out in another worktree.")
+		}
+	}
+	output = joinGitOutput(output, fmt.Sprintf("Merge To complete: %s @ %s -> %s/%s", data.Current, data.CurrentSHA[:12], data.PushRemote, data.PushBranch))
+	return output, truncated, nil
 }
 
 func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
@@ -835,6 +970,14 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		args = []string{"merge", "--no-edit", mergeRef}
+	case "merge_to":
+		output, truncated, err := s.gitMergeToAction(r.Context(), req)
+		if err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "output": output, "error": err.Error(), "truncated": truncated})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "action": action, "output": output, "truncated": truncated})
+		return
 	case "stash_push":
 		message := strings.TrimSpace(req.Message)
 		if message == "" { message = "vscode_tasks_menu " + time.Now().Format("2006-01-02 15:04:05") }
