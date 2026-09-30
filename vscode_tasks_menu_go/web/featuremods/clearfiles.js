@@ -4,8 +4,11 @@ if(!app)throw new Error('TaskMenuApp unavailable for detected file controls');
 const installed=new WeakSet();
 const style=document.createElement('style');
 style.textContent=`
-.detected-file-controls{display:inline-flex;align-items:center;gap:4px}
-.detected-files-toggle.off{opacity:.72;background:#34281b;border-color:#6b4f31}
+.detected-file-controls{display:inline-flex;align-items:center;gap:2px}
+.detected-files-toggle{border:0!important;background:transparent!important;box-shadow:none!important;padding:1px 3px!important;min-height:0!important;border-radius:3px!important;font-size:11px;line-height:1.25;font-weight:650;cursor:pointer;opacity:.9}
+.detected-files-toggle:hover{background:rgba(127,127,127,.12)!important}
+.detected-files-toggle:focus-visible{outline:1px solid currentColor;outline-offset:1px}
+.detected-files-toggle.off{opacity:.56;text-decoration:none}
 `;
 document.head.append(style);
 
