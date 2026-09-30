@@ -103,6 +103,12 @@ function favorites(){return projectState.favorites.filter(id=>taskByID(id));}
 function recent(){return projectState.recent.filter(id=>taskByID(id));}
 function isFavorite(id){return favorites().includes(id);}
 
+function quickTaskDisplayLabel(task){
+  const label=String(task?.menu_label||task?.label||'').trim();
+  const group=(Array.isArray(task?.group)?task.group:[]).map(value=>String(value||'').trim()).filter(Boolean);
+  return group.length?[...group,label].filter(Boolean).join(' → '):label;
+}
+
 function toggleFavorite(id){
   if(!projectStateLoaded){projectStateReady.then(()=>toggleFavorite(id));return;}
   let ids=favorites();
@@ -122,7 +128,7 @@ function createQuickSection(title,ids,allowUnstar){
   for(const id of ids){
     const task=taskByID(id);if(!task)continue;
     const row=document.createElement('div');row.className='quick-task-row';
-    const run=document.createElement('button');run.className='quick-task-run';run.textContent=task.menu_label||task.label;run.title=task.detail||task.label;run.onclick=()=>app.startTask(task).catch(app.showError);
+    const run=document.createElement('button');run.className='quick-task-run';const displayLabel=quickTaskDisplayLabel(task);run.textContent=displayLabel;run.title=(task.detail?displayLabel+' — '+task.detail:displayLabel);run.onclick=()=>app.startTask(task).catch(app.showError);
     row.append(run);
     if(allowUnstar){const star=document.createElement('button');star.className='quick-task-star';star.textContent='★';star.title='Remove from Favorites';star.onclick=()=>toggleFavorite(id);row.append(star);}
     list.append(row);
