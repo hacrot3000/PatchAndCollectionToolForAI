@@ -15,7 +15,7 @@ style.textContent=`
 .tasks-editor-body{display:grid;grid-template-columns:270px minmax(0,1fr);min-height:0;flex:1}
 .tasks-editor-list{display:flex;flex-direction:column;min-height:0;border-right:1px solid #30343b}
 .tasks-editor-list-tools{display:flex;gap:5px;padding:7px;border-bottom:1px solid #30343b}.tasks-editor-list-tools button{font-size:11px}
-.tasks-editor-items{overflow:auto;min-height:0;padding:5px}.tasks-editor-item{display:block;width:100%;text-align:left;border:0;background:transparent;padding:7px 8px;border-radius:5px;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tasks-editor-item:hover{background:#202630}.tasks-editor-item.active{background:#29384b}
+.tasks-editor-items{overflow:auto;min-height:0;padding:5px}.tasks-editor-group{margin:2px 0 5px}.tasks-editor-group-title{padding:5px 7px 3px;font-size:10px;font-weight:800;letter-spacing:.03em;opacity:.62;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tasks-editor-group-children{margin-left:10px;padding-left:6px;border-left:1px solid #2b313b}.tasks-editor-item{display:block;width:100%;text-align:left;border:0;background:transparent;padding:7px 8px;border-radius:5px;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tasks-editor-item:hover{background:#202630}.tasks-editor-item.active{background:#29384b}
 .tasks-editor-main{min-width:0;min-height:0;overflow:auto;padding:12px}
 .tasks-editor-form{display:grid;grid-template-columns:155px minmax(0,1fr);gap:8px 10px;align-items:center}
 .tasks-editor-form label{font-size:11px;font-weight:700;opacity:.72}
@@ -31,7 +31,7 @@ style.textContent=`
 .tasks-editor-warning{padding:7px 9px;margin-bottom:10px;border:1px solid #755d2b;background:#302714;border-radius:5px;font-size:10px}
 html[data-taskmenu-theme="light"] .tasks-editor-dialog{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .tasks-editor-form input,html[data-taskmenu-theme="light"] .tasks-editor-form select,html[data-taskmenu-theme="light"] .tasks-editor-form textarea,html[data-taskmenu-theme="light"] .tasks-editor-exec-row code,html[data-taskmenu-theme="light"] .tasks-editor-raw{background:#f7f9fb;border-color:#b9c0c8;color:#202124}
-html[data-taskmenu-theme="light"] .tasks-editor-item:hover{background:#edf1f5}html[data-taskmenu-theme="light"] .tasks-editor-item.active{background:#dce8f4}
+html[data-taskmenu-theme="light"] .tasks-editor-item:hover{background:#edf1f5}html[data-taskmenu-theme="light"] .tasks-editor-item.active{background:#dce8f4}html[data-taskmenu-theme="light"] .tasks-editor-group-children{border-color:#dfe3e8}
 `;
 document.head.append(style);
 
@@ -134,14 +134,73 @@ function taskLabel(task,index){
   return String(task?.menuLabel||task?.label||('Task '+(index+1)));
 }
 
+function taskMenuGroupParts(task){
+  const value=String(task?.menuGroup||'').trim();
+  if(!value)return [];
+  return value.split('/').map(part=>part.trim()).filter(Boolean);
+}
+
+function buildTaskEditorTree(){
+  const root={children:new Map(),tasks:[]};
+  (doc?.tasks||[]).forEach((task,index)=>{
+    const group=taskMenuGroupParts(task);
+    if(group.length===1&&group[0]==='build'){root.tasks.push({task,index});return;}
+    let node=root;
+    for(const name of group){
+      if(!node.children.has(name))node.children.set(name,{children:new Map(),tasks:[]});
+      node=node.children.get(name);
+    }
+    node.tasks.push({task,index});
+  });
+  return root;
+}
+
+function selectTask(index){
+  selectedIndex=index;
+  if(mode==='raw'&&rawArea){
+    updateList();
+    focusRawTask(index);
+    return;
+  }
+  render();
+}
+
+function appendTaskEditorTree(node,host){
+  for(const entry of node.tasks){
+    const button=document.createElement('button');button.type='button';button.className='tasks-editor-item'+(entry.index===selectedIndex?' active':'');
+    button.textContent=taskLabel(entry.task,entry.index);button.title=String(entry.task?.label||button.textContent);
+    button.onclick=()=>selectTask(entry.index);
+    host.append(button);
+  }
+  for(const [name,child] of node.children){
+    const group=document.createElement('div');group.className='tasks-editor-group';
+    const title=document.createElement('div');title.className='tasks-editor-group-title';title.textContent=name;title.title=name;
+    const children=document.createElement('div');children.className='tasks-editor-group-children';
+    appendTaskEditorTree(child,children);group.append(title,children);host.append(group);
+  }
+}
+
 function updateList(){
   list.replaceChildren();
-  (doc?.tasks||[]).forEach((task,index)=>{
-    const button=document.createElement('button');button.type='button';button.className='tasks-editor-item'+(index===selectedIndex?' active':'');
-    button.textContent=taskLabel(task,index);button.title=String(task?.label||button.textContent);
-    button.onclick=()=>{selectedIndex=index;render();};
-    list.append(button);
-  });
+  appendTaskEditorTree(buildTaskEditorTree(),list);
+}
+
+function menuGroupOptions(){
+  const values=new Set();
+  for(const task of doc?.tasks||[]){
+    const parts=taskMenuGroupParts(task);
+    for(let i=1;i<=parts.length;i++)values.add(parts.slice(0,i).join('/'));
+  }
+  return [...values].sort((a,b)=>a.localeCompare(b));
+}
+
+function makeMenuGroupInput(task){
+  const wrap=document.createElement('div');
+  const input=makeInput(task.menuGroup||'',value=>{const group=value.trim();if(group)task.menuGroup=group;else delete task.menuGroup;});
+  const dataList=document.createElement('datalist');dataList.id='tasks-editor-menu-groups-'+Math.random().toString(36).slice(2);
+  for(const value of menuGroupOptions()){const option=document.createElement('option');option.value=value;dataList.append(option);}
+  input.setAttribute('list',dataList.id);input.placeholder='Group/Subgroup';
+  wrap.append(input,dataList);return wrap;
 }
 
 function makeInput(value,onchange,{type='text'}={}){
@@ -263,7 +322,7 @@ function renderVisual(){
 
   addField(form,'Label',makeInput(task.label||'',value=>task.label=value));
   addField(form,'Menu label',makeInput(task.menuLabel||'',value=>{if(value)task.menuLabel=value;else delete task.menuLabel;}));
-  addField(form,'Menu group',makeInput(task.menuGroup||'',value=>{if(value)task.menuGroup=value;else delete task.menuGroup;}));
+  addField(form,'Menu group',makeMenuGroupInput(task));
   addField(form,'Detail',makeInput(task.detail||'',value=>{if(value)task.detail=value;else delete task.detail;}));
 
   const type=document.createElement('select');
