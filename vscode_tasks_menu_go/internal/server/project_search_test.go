@@ -186,3 +186,31 @@ func TestProjectFileSearchRefreshFindsFileMissingFromStaleIndex(t *testing.T) {
 		t.Fatalf("refresh results=%+v", got.Results)
 	}
 }
+
+
+func TestProjectFileSearchRefreshFindsExactIgnoredFilename(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("ignored/\n"), 0o644); err != nil { t.Fatal(err) }
+	ignoredDir := filepath.Join(root, "ignored")
+	if err := os.MkdirAll(ignoredDir, 0o755); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(ignoredDir, "exact_hidden.txt"), []byte("hidden"), 0o644); err != nil { t.Fatal(err) }
+
+	stale, err := newProjectFileIndex([]string{"visible.txt"}, time.Now().Add(-time.Hour))
+	if err != nil { t.Fatal(err) }
+	s := &Server{Workspace: root, projectIndex: stale}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/project/files/search?q=exact_hidden.txt&limit=50&refresh=1", nil)
+	s.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("ignored exact search status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var got struct {
+		Results []projectFileSearchResult `json:"results"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil { t.Fatal(err) }
+	if len(got.Results) == 0 || got.Results[0].Path != "ignored/exact_hidden.txt" || got.Results[0].Score != 25000 {
+		t.Fatalf("ignored exact results=%+v", got.Results)
+	}
+}
