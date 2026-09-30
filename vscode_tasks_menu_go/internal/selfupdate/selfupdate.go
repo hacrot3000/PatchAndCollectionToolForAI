@@ -33,8 +33,10 @@ type Request struct {
 	CurrentURL  string `json:"current_url,omitempty"`
 	TargetURL   string `json:"target_url,omitempty"`
 	Error       string `json:"error,omitempty"`
+	UpdaterPID  int    `json:"updater_pid,omitempty"`
 	RequestedAt string `json:"requested_at"`
 	ConfirmedAt string `json:"confirmed_at,omitempty"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
 	CompletedAt string `json:"completed_at,omitempty"`
 }
 
@@ -58,13 +60,14 @@ func CreateRequest(workspace, revision, currentURL string, confirmed bool) (Requ
 	if err != nil {
 		return Request{}, err
 	}
+	now := time.Now().Format(time.RFC3339)
 	status := "awaiting_confirmation"
 	confirmedAt := ""
 	if confirmed {
 		status = "confirmed"
-		confirmedAt = time.Now().Format(time.RFC3339)
+		confirmedAt = now
 	}
-	req := Request{ID: id, Revision: revision, Status: status, CurrentURL: currentURL, RequestedAt: time.Now().Format(time.RFC3339), ConfirmedAt: confirmedAt}
+	req := Request{ID: id, Revision: revision, Status: status, CurrentURL: currentURL, RequestedAt: now, ConfirmedAt: confirmedAt, UpdatedAt: now}
 	return req, Save(workspace, req)
 }
 
@@ -130,12 +133,29 @@ func Update(workspace, id, status, message, targetURL, errText string) (Request,
 		req.Error = errText
 	}
 	now := time.Now().Format(time.RFC3339)
+	req.UpdatedAt = now
 	if status == "confirmed" && req.ConfirmedAt == "" {
 		req.ConfirmedAt = now
 	}
 	if status == "completed" || status == "failed" || status == "cancelled" {
 		req.CompletedAt = now
 	}
+	return req, Save(workspace, req)
+}
+
+func BindUpdaterPID(workspace, id string, pid int) (Request, error) {
+	if pid <= 0 {
+		return Request{}, fmt.Errorf("invalid updater pid")
+	}
+	req, err := Load(workspace)
+	if err != nil {
+		return Request{}, err
+	}
+	if req.ID != id {
+		return Request{}, fmt.Errorf("self-update request changed")
+	}
+	req.UpdaterPID = pid
+	req.UpdatedAt = time.Now().Format(time.RFC3339)
 	return req, Save(workspace, req)
 }
 
