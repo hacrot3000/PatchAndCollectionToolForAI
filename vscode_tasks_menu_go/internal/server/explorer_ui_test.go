@@ -73,7 +73,7 @@ func TestExplorerTracksSharedHeaderHeight(t *testing.T) {
 		t.Fatal(err)
 	}
 	js := string(data)
-	if !strings.Contains(js, ".project-explorer{display:none;position:fixed;top:var(--taskmenu-header-height,34px)") {
+	if !strings.Contains(js, ".project-explorer{display:none;position:fixed;top:var(--taskmenu-header-height,30px)") {
 		t.Fatal("Explorer must track the shared compact TaskDeck header height")
 	}
 }
