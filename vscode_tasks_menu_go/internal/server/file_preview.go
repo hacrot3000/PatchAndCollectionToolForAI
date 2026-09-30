@@ -45,6 +45,34 @@ func detectPreviewImageType(sample []byte) string {
 	}
 }
 
+func previewFileHint(resolved string) string {
+	f, err := os.Open(resolved)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return ""
+	}
+	sample := make([]byte, filePreviewSniffBytes)
+	n, readErr := f.Read(sample)
+	if readErr != nil && readErr != io.EOF {
+		return ""
+	}
+	sample = sample[:n]
+	if detectPreviewImageType(sample) != "" {
+		if info.Size() <= filePreviewImageLimit {
+			return "image"
+		}
+		return ""
+	}
+	if info.Size() <= filePreviewTextLimit && previewTextBytesValid(sample) {
+		return "text"
+	}
+	return ""
+}
+
 func previewTextBytesValid(data []byte) bool {
 	if bytes.IndexByte(data, 0) >= 0 {
 		return false
