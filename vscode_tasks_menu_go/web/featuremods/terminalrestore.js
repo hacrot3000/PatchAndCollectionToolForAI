@@ -15,7 +15,7 @@ function liveTerminalIDsInTabOrder(){
   for(const tab of tabsHost?.querySelectorAll('.tab[data-id]')||[]){
     const id=tab.dataset.id||'';
     const view=app.views.get(id);
-    if(view?.meta?.status==='running')ids.push(id);
+    if(view?.meta)ids.push(id);
   }
   return ids;
 }
@@ -196,17 +196,20 @@ async function restoreProjectTerminals(){
   try{
     const saved=await app.jsonFetch(endpoint);
     const live=await app.jsonFetch('/api/sessions');
-    const liveSessions=(live.sessions||[]).filter(meta=>meta.status==='running');
-    const existing=liveSessions.filter(meta=>meta.task_id===0);
+    await app.syncSessions?.();
+    const liveSessions=live.sessions||[];
+    const existing=liveSessions.filter(meta=>meta.task_id===0&&meta.status==='running');
+    const hasLiveSplitViews=(Array.isArray(saved?.live_splits)?saved.live_splits:[]).some(item=>{
+      const first=String(item?.left_session_id||'').trim(),second=String(item?.right_session_id||'').trim();
+      return first&&second&&app.views.has(first)&&app.views.has(second);
+    });
 
-    if(liveSessions.length){
-      await app.syncSessions?.();
+    if(existing.length||hasLiveSplitViews){
       const savedIDs=layoutIDsFromSaved(saved,existing);
       const ids=savedIDs.length?savedIDs:existing.map(meta=>meta.id).filter(Boolean);
       const ready=await waitForViews(ids);
       if(!ready)throw new Error('Timed out waiting for live terminal tabs');
-      const hasLiveSplits=Array.isArray(saved?.live_splits)&&saved.live_splits.length>0;
-      if(savedIDs.length||hasLiveSplits){
+      if(savedIDs.length||hasLiveSplitViews){
         applySavedLayout(saved,ids,{clearMissing:true});
       }else{
         // Legacy v1/v2 state has no stable session ids. Keep any split restored
