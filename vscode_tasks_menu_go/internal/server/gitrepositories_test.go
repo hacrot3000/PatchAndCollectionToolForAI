@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -50,6 +51,15 @@ func TestDiscoverNestedGitRepositoriesAndSelectRepo(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &status); err != nil { t.Fatal(err) }
 	if !status.Repository || status.RepoID != "projects/client" || status.Head == "" {
 		t.Fatalf("status=%+v", status)
+	}
+
+	if err := os.WriteFile(filepath.Join(nested, "client.txt"), []byte("client changed\n"), 0o644); err != nil { t.Fatal(err) }
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status?repo=projects%2Fclient", `{"action":"stage_all"}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("nested stage status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := gitQuickRun(t, nested, "diff", "--cached", "--name-only"); got != "client.txt" {
+		t.Fatalf("nested staged files=%q", got)
 	}
 }
 
