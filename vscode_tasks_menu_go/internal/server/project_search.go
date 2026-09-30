@@ -375,9 +375,3 @@ func wildcardProjectMatch(value, pattern string) bool {
 	return j == len(p)
 }
 
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
