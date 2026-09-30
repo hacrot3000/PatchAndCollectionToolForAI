@@ -12,9 +12,10 @@ import (
 )
 
 type downloadableFile struct {
-	Path string `json:"path"`
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	Path        string `json:"path"`
+	Name        string `json:"name"`
+	URL         string `json:"url"`
+	PreviewKind string `json:"preview_kind,omitempty"`
 }
 
 func (s *Server) filesSelection(w http.ResponseWriter, r *http.Request) {
@@ -105,9 +106,10 @@ func (s *Server) downloadableFilesFromText(text string) []downloadableFile {
 	files := make([]downloadableFile, 0, len(paths))
 	for _, path := range paths {
 		files = append(files, downloadableFile{
-			Path: path,
-			Name: filepath.Base(path),
-			URL:  "/api/files/download?path=" + url.QueryEscape(path),
+			Path:        path,
+			Name:        filepath.Base(path),
+			URL:         "/api/files/download?path=" + url.QueryEscape(path),
+			PreviewKind: previewFileHint(path),
 		})
 	}
 	return files
