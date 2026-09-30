@@ -185,8 +185,8 @@ func TestConnectionsPanelTracksSharedHeaderHeight(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		".task-connections-panel{display:none;position:fixed;top:var(--taskmenu-header-height,34px)",
-		"body:not(.task-sidebar-auto-hide) .task-connections-panel{top:calc(var(--taskmenu-header-height,34px) + 46px)",
+		".task-connections-panel{display:none;position:fixed;top:var(--taskmenu-header-height,30px)",
+		"body:not(.task-sidebar-auto-hide) .task-connections-panel{top:calc(var(--taskmenu-header-height,30px) + 46px)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("Connections compact header offset missing %q", want)
