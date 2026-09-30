@@ -106,7 +106,7 @@ function isFavorite(id){return favorites().includes(id);}
 function quickTaskDisplayLabel(task){
   const label=String(task?.menu_label||task?.label||'').trim();
   const group=(Array.isArray(task?.group)?task.group:[]).map(value=>String(value||'').trim()).filter(Boolean);
-  return group.length?[...group,label].filter(Boolean).join(' → '):label;
+  return group.length?[...group,label].filter(Boolean).join('›'):label;
 }
 
 function toggleFavorite(id){
