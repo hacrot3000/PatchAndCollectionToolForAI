@@ -143,8 +143,8 @@ func TestPatchNativeProductAcceptanceGate(t *testing.T) {
 		"return !isHeadlessPatchSession(meta);",
 		"else if(autoAttachSession(meta))attach(meta,false);",
 	} {
-		source := server
-		if strings.Contains(want,"task_id") || strings.Contains(want,"autoAttachSession") { source=ui }
+		source := ui
+		if want=="ID:        -1," { source=server }
 		if !strings.Contains(source,want) { t.Fatalf("headless backing acceptance missing %q",want) }
 	}
 
