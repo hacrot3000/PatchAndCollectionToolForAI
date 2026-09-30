@@ -34,6 +34,20 @@ func TestGitQuickActionsUI(t *testing.T) {
 		"Copy command",
 		"Copy SHA",
 		"Copy path",
+		"git-action-running",
+		"git-action-success",
+		"git-action-error",
+		"const runningActions=new Map()",
+		"if(runningActions.has(key))return runningActions.get(key)",
+		"beginOperation(command)",
+		"showOperation(command,message,'','running')",
+		"button.textContent='⏳ '+label",
+		"button.textContent=(state==='success'?'✓ ':'✕ ')+label",
+		"action('merge'",
+		"'merge-preflight'",
+		"Merge this branch into the current branch",
+		"Local and remote versions differ",
+		"Type LOCAL or REMOTE",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("gitstatus.js missing Git quick action behavior %q", want)
