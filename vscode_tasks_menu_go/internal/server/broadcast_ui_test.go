@@ -64,6 +64,9 @@ func TestTabContextIncludesBroadcastGroupActions(t *testing.T) {
 		"addCustomActions('Broadcast group',broadcastActions)",
 		"Promise.resolve(action.run?.(targetView)).catch(app.showError)",
 		"action.preset",
+		"item.style.background=action.preset.bg||''",
+		"item.style.color=action.preset.fg||''",
+		"item.textContent=action.label||'Action'",
 		"action.danger",
 	} {
 		if !strings.Contains(js, want) {
