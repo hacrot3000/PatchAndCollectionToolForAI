@@ -75,7 +75,7 @@ func TestStaticUIHasCopyConsoleAction(t *testing.T) {
 		"copyConsole(view)",
 		"view.term.buffer.active",
 		"navigator.clipboard.writeText(text)",
-		"view.stop.disabled=Boolean(view.tabReadOnly)||meta.status!=='running'",
+		"view.stop.disabled=meta.status!=='running'",
 	} {
 		if !strings.Contains(appJS, want) {
 			t.Fatalf("app JS missing copy-console behavior %q", want)
@@ -83,6 +83,9 @@ func TestStaticUIHasCopyConsoleAction(t *testing.T) {
 	}
 	if !strings.Contains(appCSS, ".copy-console{margin-left:6px") {
 		t.Fatalf("copy console action must keep compact visual separation from Stop")
+	}
+	if strings.Contains(appJS, "view.stop.disabled=Boolean(view.tabReadOnly)") || strings.Contains(appJS, "view.stop.disabled=view.tabReadOnly") {
+		t.Fatalf("terminal read-only must not disable Stop or utility actions")
 	}
 	if strings.Contains(appJS, "button:last-child") {
 		t.Fatalf("Stop button must not be located by last-child after adding Copy console")
