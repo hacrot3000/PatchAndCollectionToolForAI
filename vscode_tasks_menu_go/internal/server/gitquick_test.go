@@ -208,6 +208,33 @@ func TestGitQuickMergeToPushesCommittedHEADAndLeavesDirtyWorktreeUntouched(t *te
 	gitQuickRun(t, workspace, "merge-base", "--is-ancestor", targetBefore, resultSHA)
 }
 
+func TestGitQuickMergeToLocalTargetHonorsConfiguredUpstream(t *testing.T) {
+	workspace, s, current := setupGitQuickRepo(t)
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	gitQuickRun(t, filepath.Dir(remote), "init", "--bare", remote)
+	gitQuickRun(t, workspace, "remote", "add", "origin", remote)
+	gitQuickRun(t, workspace, "push", "-u", "origin", current)
+
+	gitQuickRun(t, workspace, "switch", "-c", "target/local-name")
+	if err := os.WriteFile(filepath.Join(workspace, "target-upstream.txt"), []byte("target\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "target-upstream.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "target configured upstream")
+	gitQuickRun(t, workspace, "push", "-u", "origin", "HEAD:refs/heads/release/remote-name")
+	gitQuickRun(t, workspace, "switch", current)
+
+	if err := os.WriteFile(filepath.Join(workspace, "source-upstream.txt"), []byte("source\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "source-upstream.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "source for configured upstream")
+
+	rr := callGitStatusHandler(t, s, http.MethodGet, "/api/git/status?view=merge-to-preflight&branch=target%2Flocal-name&target_source=local", "")
+	if rr.Code != http.StatusOK { t.Fatalf("configured-upstream preflight status=%d body=%s", rr.Code, rr.Body.String()) }
+	var preflight gitMergeToPreflightResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &preflight); err != nil { t.Fatal(err) }
+	if preflight.PushRemote != "origin" || preflight.PushBranch != "release/remote-name" || preflight.PushRemoteRef != "origin/release/remote-name" {
+		t.Fatalf("configured upstream ignored: %+v", preflight)
+	}
+}
+
 func TestGitQuickMergeToRemoteTargetAndRaceGuards(t *testing.T) {
 	workspace, s, current := setupGitQuickRepo(t)
 	remote := filepath.Join(t.TempDir(), "remote.git")
