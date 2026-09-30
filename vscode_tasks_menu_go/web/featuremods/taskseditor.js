@@ -203,6 +203,100 @@ function makeMenuGroupInput(task){
   wrap.append(input,dataList);return wrap;
 }
 
+function skipJSONTrivia(text,index){
+  let i=index;
+  while(i<text.length){
+    if(/\s/.test(text[i])){i++;continue;}
+    if(text[i]==='/'&&text[i+1]==='/'){
+      i+=2;while(i<text.length&&text[i]!=='\n'&&text[i]!=='\r')i++;continue;
+    }
+    if(text[i]==='/'&&text[i+1]==='*'){
+      i+=2;while(i+1<text.length&&!(text[i]==='*'&&text[i+1]==='/'))i++;
+      if(i+1<text.length)i+=2;continue;
+    }
+    break;
+  }
+  return i;
+}
+
+function readJSONString(text,index){
+  if(text[index]!=='"')return null;
+  let i=index+1,value='';
+  while(i<text.length){
+    const ch=text[i];
+    if(ch==='\\'){
+      if(i+1>=text.length)return null;
+      value+=text.slice(i,i+2);i+=2;continue;
+    }
+    if(ch==='"')return {end:i+1,raw:text.slice(index,i+1),value};
+    value+=ch;i++;
+  }
+  return null;
+}
+
+function findTasksArrayStart(text){
+  let i=0;
+  while(i<text.length){
+    i=skipJSONTrivia(text,i);
+    if(i>=text.length)break;
+    if(text[i]==='"'){
+      const token=readJSONString(text,i);if(!token)return -1;
+      const key=token.raw;
+      i=skipJSONTrivia(text,token.end);
+      if(key==='"tasks"'&&text[i]===':'){
+        i=skipJSONTrivia(text,i+1);
+        return text[i]==='['?i:-1;
+      }
+      continue;
+    }
+    i++;
+  }
+  return -1;
+}
+
+function findRawTaskRange(text,targetIndex){
+  const arrayStart=findTasksArrayStart(text);if(arrayStart<0)return null;
+  let i=arrayStart+1,index=0;
+  while(i<text.length){
+    i=skipJSONTrivia(text,i);
+    if(text[i]===']')break;
+    if(text[i]!== '{'){i++;continue;}
+    const start=i;let depth=0,string=false,escape=false,line=false,block=false;
+    for(;i<text.length;i++){
+      const ch=text[i],next=text[i+1]||'';
+      if(line){if(ch==='\n'||ch==='\r')line=false;continue;}
+      if(block){if(ch==='*'&&next==='/'){block=false;i++;}continue;}
+      if(string){
+        if(escape)escape=false;
+        else if(ch==='\\')escape=true;
+        else if(ch==='"')string=false;
+        continue;
+      }
+      if(ch==='"'){string=true;continue;}
+      if(ch==='/'&&next==='/'){line=true;i++;continue;}
+      if(ch==='/'&&next==='*'){block=true;i++;continue;}
+      if(ch==='{')depth++;
+      else if(ch==='}'){
+        depth--;
+        if(depth===0){
+          const end=i+1;
+          if(index===targetIndex)return {start,end};
+          index++;i=end;break;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function focusRawTask(index){
+  if(!rawArea)return;
+  const range=findRawTaskRange(rawArea.value,index);
+  if(!range)return;
+  rawArea.focus();
+  rawArea.setSelectionRange(range.start,range.end);
+}
+
 function makeInput(value,onchange,{type='text'}={}){
   const input=document.createElement('input');input.type=type;input.value=value??'';
   input.oninput=()=>{onchange(input.value);markDirty();updateList();};
@@ -363,6 +457,7 @@ function renderRaw(){
   rawArea.value=fileMeta?.content??JSON.stringify(doc,null,2)+'\n';
   rawArea.oninput=markDirty;
   main.append(rawArea);
+  requestAnimationFrame(()=>focusRawTask(selectedIndex));
 }
 
 function render(){
