@@ -30,7 +30,7 @@ func TestGroupedMenusFeature(t *testing.T) {
 		"TaskMenuPatchUISettings",
 		"addSection(files.pop,'FILES',[document.querySelector('#upload-workspace')])",
 		"addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls'),document.querySelector('#running-indicator-settings'),document.querySelector('#self-update-check')])",
-		"addSection(settings.pop,'WORKSPACE',[document.querySelector('#reload'),document.querySelector('#edit-title')])",
+		"addSection(settings.pop,'WORKSPACE',[document.querySelector('#tasks-json-editor'),document.querySelector('#reload'),document.querySelector('#edit-title')])",
 		".git-status-pill",
 		"pane-action-menus",
 		"paneMenu(view,'Session'",
