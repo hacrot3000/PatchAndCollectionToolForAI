@@ -377,10 +377,9 @@ func (s *Server) captureTerminalState(req terminalSnapshotRequest) (projectTermi
 	for _, group := range groups {
 		leftID := normalizeTerminalSessionID(group.LeftSessionID)
 		rightID := normalizeTerminalSessionID(group.RightSessionID)
-		leftMeta, leftOK := s.Sessions.Metadata(leftID)
-		rightMeta, rightOK := s.Sessions.Metadata(rightID)
-		if leftID == "" || rightID == "" || leftID == rightID || !leftOK || !rightOK ||
-			leftMeta.Status != "running" || rightMeta.Status != "running" || liveIntroduced[rightID] {
+		_, leftOK := s.Sessions.Metadata(leftID)
+		_, rightOK := s.Sessions.Metadata(rightID)
+		if leftID == "" || rightID == "" || leftID == rightID || !leftOK || !rightOK || liveIntroduced[rightID] {
 			continue
 		}
 		liveIntroduced[leftID] = true
