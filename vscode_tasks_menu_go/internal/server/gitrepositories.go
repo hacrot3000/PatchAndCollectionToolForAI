@@ -176,6 +176,13 @@ func (s *Server) discoverGitRepositories(force bool) ([]gitRepository, config.Gi
 		add(candidate, name, true)
 	}
 
+	// Preserve the historical single-repository behavior even when recursive
+	// discovery is disabled. scan_enabled controls nested walking, not the
+	// workspace root itself.
+	if candidateHasGitMarker(workspaceRoot) {
+		add(workspaceRoot, "", false)
+	}
+
 	if settings.ScanEnabled {
 		_ = filepath.WalkDir(workspaceRoot, func(current string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
