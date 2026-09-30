@@ -36,7 +36,7 @@ const operationOutput=document.createElement('pre');operationOutput.className='g
 operationHead.append(operationCommand,operationCopy,operationClear);operation.append(operationHead,operationOutput);
 panel.append(panelHead,repoBar,quickGroups,nav,content,operation);document.body.append(panel);
 
-let currentStatus=null,currentView='changes',refreshing=false,lastCommand='';
+let currentStatus=null,currentView='changes',refreshing=false,lastCommand='',refreshSeq=0;
 let repositories=[],activeRepoID='',gitAutoSelectFromTerminalCWD=false;
 const runningActions=new Map();
 function el(tag,className,text){const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node;}
@@ -98,6 +98,7 @@ async function refreshRepositories(force=false){
 async function selectRepository(id,{reload=true,persist=true}={}){
   if(!repositories.some(item=>item.id===id))return false;
   const changed=activeRepoID!==id;activeRepoID=id;
+  if(changed)refreshSeq++;
   if(persist){try{localStorage.setItem(repoStorageKey(),id);}catch{}}
   renderRepositorySelector();
   if(changed)currentStatus=null;
@@ -144,28 +145,38 @@ function renderStatus(data){
   const text=parts.join(' · ');pill.textContent=text;panelSummary.textContent=text;pill.className='git-status-pill visible '+(data.changed?'dirty':'clean');pill.title='Repository: '+(data.repo_name||data.repo_id||'unknown')+'\nPath: '+(data.repo_path||'')+'\nBranch: '+(data.branch||'unknown')+'\nHEAD: '+(data.head||'unknown')+'\nChanged: '+(data.changed||0)+'\nAhead: '+(data.ahead||0)+'\nBehind: '+(data.behind||0)+'\nClick to open Git Quick Actions';
 }
 async function refresh(){
-  if(refreshing)return;refreshing=true;
+  const seq=++refreshSeq;refreshing=true;
   try{
     if(!activeRepoID)await refreshRepositories(false);
-    const selectedBefore=activeRepoID;
-    const query=new URLSearchParams();if(activeRepoID)query.set('repo',activeRepoID);
+    let requestedRepo=activeRepoID;
+    const selectedBefore=requestedRepo;
+    const query=new URLSearchParams();if(requestedRepo)query.set('repo',requestedRepo);
     let data=await app.jsonFetch('/api/git/status'+(query.size?'?'+query.toString():''));
+    if(seq!==refreshSeq||requestedRepo!==activeRepoID)return;
     if(!data?.repository&&selectedBefore){
       await refreshRepositories(true);
-      if(activeRepoID&&activeRepoID!==selectedBefore){
-        const retry=new URLSearchParams({repo:activeRepoID});
+      if(seq!==refreshSeq)return;
+      requestedRepo=activeRepoID;
+      if(requestedRepo&&requestedRepo!==selectedBefore){
+        const retry=new URLSearchParams({repo:requestedRepo});
         data=await app.jsonFetch('/api/git/status?'+retry.toString());
       }
     }
+    if(seq!==refreshSeq||requestedRepo!==activeRepoID)return;
     renderStatus(data);
     const item=repositories.find(repo=>repo.id===activeRepoID);
     if(item&&data?.repository)Object.assign(item,{branch:data.branch,head:data.head,changed:data.changed,ahead:data.ahead,behind:data.behind});
     renderRepositorySelector();
   }
-  catch(e){pill.className='git-status-pill';console.warn('Git status refresh failed',e);}
-  finally{refreshing=false;}
+  catch(e){if(seq===refreshSeq){pill.className='git-status-pill';console.warn('Git status refresh failed',e);}}
+  finally{if(seq===refreshSeq)refreshing=false;}
 }
-async function gitView(view,params={}){const query=new URLSearchParams({view,...params});if(activeRepoID)query.set('repo',activeRepoID);return app.jsonFetch('/api/git/status?'+query.toString());}
+async function gitView(view,params={}){
+  const repoID=activeRepoID;
+  const query=new URLSearchParams({view,...params});if(repoID)query.set('repo',repoID);
+  const data=await app.jsonFetch('/api/git/status?'+query.toString());
+  return repoID===activeRepoID?data:null;
+}
 function actionKey(actionName,payload={},repoID=activeRepoID){
   const entries=Object.entries(payload).filter(([key])=>key!=='merge_ref').sort(([a],[b])=>a.localeCompare(b));
   return repoID+'|'+actionName+':'+JSON.stringify(Object.fromEntries(entries));
