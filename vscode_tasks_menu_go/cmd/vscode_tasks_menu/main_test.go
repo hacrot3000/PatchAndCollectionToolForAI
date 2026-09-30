@@ -680,3 +680,34 @@ func TestSelfUpdateTLSResolvePreservesServingCertificateIdentity(t *testing.T) {
 		t.Fatal("normal serve path must still apply explicit stable SAN changes")
 	}
 }
+
+
+func TestCLISelfUpdateDoesNotWaitForBrowserConfirmation(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start := strings.Index(src, "func runSelfUpdate(")
+	end := strings.Index(src[start:], "\nfunc recoverPreviousSelfUpdate")
+	if start < 0 || end < 0 {
+		t.Fatal("runSelfUpdate bounds unavailable")
+	}
+	body := src[start : start+end]
+	for _, want := range []string{
+		"selfupdate.CreateRequest(ws, remote, currentURL, true)",
+		"selfupdate.BindUpdaterPID(ws, req.ID, os.Getpid())",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("CLI self-update missing direct-confirm flow %q", want)
+		}
+	}
+	for _, stale := range []string{"WaitForDecision(", "Chờ xác nhận tại", "autoConfirm"} {
+		if strings.Contains(body, stale) {
+			t.Fatalf("CLI self-update must not depend on browser confirmation %q", stale)
+		}
+	}
+	if !strings.Contains(src, "fatalIf(runSelfUpdate(ws, cfg))") {
+		t.Fatal("CLI dispatch must call runSelfUpdate without a confirmation mode")
+	}
+}
