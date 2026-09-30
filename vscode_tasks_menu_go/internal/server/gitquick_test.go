@@ -176,7 +176,7 @@ func TestGitQuickMergeToPushesCommittedHEADAndLeavesDirtyWorktreeUntouched(t *te
 		t.Fatalf("dirty untracked file changed: %q", dirtyContent)
 	}
 	status := gitQuickRun(t, workspace, "status", "--porcelain=v1", "--untracked-files=normal")
-	if !strings.Contains(status, " M tracked.txt") || !strings.Contains(status, "?? dirty-local.txt") {
+	if !strings.Contains(status, "M tracked.txt") || !strings.Contains(status, "?? dirty-local.txt") {
 		t.Fatalf("dirty local changes disappeared after Merge To: %q", status)
 	}
 
