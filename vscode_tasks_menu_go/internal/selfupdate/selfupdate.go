@@ -159,6 +159,50 @@ func BindUpdaterPID(workspace, id string, pid int) (Request, error) {
 	return req, Save(workspace, req)
 }
 
+func ActiveStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "awaiting_confirmation", "confirmed", "downloading", "testing", "building", "installing", "ready_restart", "restarting":
+		return true
+	default:
+		return false
+	}
+}
+
+func ReconcileAbandoned(workspace string, now time.Time) (Request, error) {
+	req, err := Load(workspace)
+	if err != nil || !ActiveStatus(req.Status) {
+		return req, err
+	}
+	abandoned := false
+	if req.UpdaterPID > 0 {
+		abandoned = !UpdaterProcessAlive(req.UpdaterPID)
+	} else {
+		stamp := req.UpdatedAt
+		if stamp == "" {
+			stamp = req.ConfirmedAt
+		}
+		if stamp == "" {
+			stamp = req.RequestedAt
+		}
+		if parsed, parseErr := time.Parse(time.RFC3339, stamp); parseErr == nil {
+			age := now.Sub(parsed)
+			switch req.Status {
+			case "awaiting_confirmation":
+				abandoned = true
+			case "confirmed":
+				abandoned = age >= 30*time.Second
+			default:
+				abandoned = age >= 20*time.Minute
+			}
+		}
+	}
+	if !abandoned {
+		return req, nil
+	}
+	message := "Self-update updater process stopped before completion."
+	return Update(workspace, req.ID, "failed", "Self-update was interrupted.", "", message)
+}
+
 func WaitForDecision(workspace, id string, timeout time.Duration) (Request, error) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
