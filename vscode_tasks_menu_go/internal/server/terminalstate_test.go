@@ -188,6 +188,73 @@ func TestProjectTerminalStateTracksCwdOrderMultipleSplitsAndRestores(t *testing.
 }
 
 
+func TestTerminalStatePreservesIndependentLiveSplitGroupsForTaskAndShellSessions(t *testing.T) {
+	root := t.TempDir()
+	m := session.NewManager(64 << 10)
+	defer m.Shutdown(time.Second)
+	srv := &Server{Workspace: root, Sessions: m}
+
+	shellSpec, err := workspaceTerminalExecutionAt(root, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shellA, err := m.Start(shellSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shellB, err := m.Start(shellSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	taskSpec := shellSpec
+	taskSpec.TaskID = 101
+	taskSpec.Label = "task-a"
+	taskA, err := m.Start(taskSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskSpec.TaskID = 102
+	taskSpec.Label = "task-b"
+	taskB, err := m.Start(taskSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	value, err := srv.captureTerminalState(terminalSnapshotRequest{
+		SessionIDs: []string{shellA.ID, shellB.ID},
+		Splits: []terminalSnapshotSplitRequest{
+			{LeftSessionID: shellA.ID, RightSessionID: shellB.ID, Ratio: 0.6, Orientation: "vertical"},
+			{LeftSessionID: taskA.ID, RightSessionID: taskB.ID, Ratio: 0.4, Orientation: "horizontal"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(value.Terminals) != 2 {
+		t.Fatalf("restorable shell terminal count=%d want 2", len(value.Terminals))
+	}
+	if len(value.Splits) != 1 {
+		t.Fatalf("indexed restorable splits=%#v want only shell group", value.Splits)
+	}
+	if len(value.LiveSplits) != 2 {
+		t.Fatalf("live splits=%#v want both independent groups", value.LiveSplits)
+	}
+	if value.LiveSplits[1].LeftSessionID != taskA.ID || value.LiveSplits[1].RightSessionID != taskB.ID {
+		t.Fatalf("task live split not preserved: %#v", value.LiveSplits[1])
+	}
+	if err := writeProjectTerminalState(root, value); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := readProjectTerminalState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(persisted.LiveSplits) != 2 {
+		t.Fatalf("persisted live split groups=%#v", persisted.LiveSplits)
+	}
+}
+
 func TestTerminalLayoutProfilesKeepDesktopSplitWhenMobileSaves(t *testing.T) {
 	root := t.TempDir()
 	desktop := projectTerminalState{
