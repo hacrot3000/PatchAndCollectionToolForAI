@@ -20,7 +20,7 @@ func TestGitStatusFeatureModule(t *testing.T) {
 		"↑",
 		"↓",
 		"setInterval(refresh,5000)",
-		".git-panel{display:none;position:fixed;z-index:1500;top:40px;",
+		".git-panel{display:none;position:fixed;z-index:1500;top:calc(var(--taskmenu-header-height,34px) + 6px);",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("gitstatus.js missing behavior %q", want)
