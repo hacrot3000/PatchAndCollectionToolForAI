@@ -25,6 +25,7 @@ type ownershipTestService struct {
 	stopped   []string
 	killed    []string
 	cleared   []string
+	currentCwds map[string]string
 }
 
 type sharedWebSocketTestService struct {
@@ -63,6 +64,16 @@ func (s *ownershipTestService) Kill(id string) error {
 func (s *ownershipTestService) Clear(id string) error {
 	s.cleared = append(s.cleared, id)
 	return nil
+}
+
+func (s *ownershipTestService) CurrentCwd(id string) (string, error) {
+	if cwd, ok := s.currentCwds[id]; ok {
+		return cwd, nil
+	}
+	if meta, ok := s.Metadata(id); ok && strings.TrimSpace(meta.Cwd) != "" {
+		return meta.Cwd, nil
+	}
+	return "", context.Canceled
 }
 
 func (s *ownershipTestService) SupportsSessionOwnership() bool { return s.supported }
@@ -191,6 +202,44 @@ func TestSharedSessionItemUsesOwnAndAllTerminalPermissions(t *testing.T) {
 	s.sessionItem(rr, sharedSessionRequest(http.MethodPost, "/api/sessions/other/stop", "", controller))
 	if rr.Code != http.StatusForbidden || len(service.stopped) != 1 {
 		t.Fatalf("other terminal control status=%d stopped=%v", rr.Code, service.stopped)
+	}
+}
+
+func TestSharedTerminalLiveCWDUsesViewPermission(t *testing.T) {
+	service := &ownershipTestService{
+		supported: true,
+		items: []session.Metadata{
+			{ID: "local", Kind: tasks.SessionKindTerminal, TaskID: 0, OwnerUserID: "alice", ProjectID: "project-1", Status: "running", Cwd: "/initial", TargetType: "local"},
+			{ID: "ssh", Kind: tasks.SessionKindTerminal, TaskID: 0, OwnerUserID: "alice", ProjectID: "project-1", Status: "running", Cwd: "/host", TargetType: "ssh", TargetProfileID: "ssh-profile"},
+			{ID: "other", Kind: tasks.SessionKindTerminal, TaskID: 0, OwnerUserID: "bob", ProjectID: "project-1", Status: "running", Cwd: "/other", TargetType: "local"},
+		},
+		currentCwds: map[string]string{"local": "/live/repo"},
+	}
+	s := sharedSessionTestServer(t, service)
+	viewer := identity.Principal{UserID: "alice", ProjectID: "project-1", Permissions: map[string]bool{identity.PermissionTerminalViewOwn: true}}
+
+	rr := httptest.NewRecorder()
+	s.sessionItem(rr, sharedSessionRequest(http.MethodGet, "/api/sessions/local/cwd", "", viewer))
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"local":true`) || !strings.Contains(rr.Body.String(), `"/live/repo"`) {
+		t.Fatalf("local live cwd status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	rr = httptest.NewRecorder()
+	s.sessionItem(rr, sharedSessionRequest(http.MethodGet, "/api/sessions/ssh/cwd", "", viewer))
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"local":false`) {
+		t.Fatalf("ssh cwd status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	rr = httptest.NewRecorder()
+	s.sessionItem(rr, sharedSessionRequest(http.MethodGet, "/api/sessions/other/cwd", "", viewer))
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("other-user cwd status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	rr = httptest.NewRecorder()
+	s.sessionItem(rr, sharedSessionRequest(http.MethodPost, "/api/sessions/local/cwd", "", viewer))
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("POST cwd status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
 
