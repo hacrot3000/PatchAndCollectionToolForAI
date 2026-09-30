@@ -1193,6 +1193,10 @@ func runSelfUpdate(ws string, cfg config.Config) (err error) {
 	if err != nil {
 		return err
 	}
+	req, err = selfupdate.BindUpdaterPID(ws, req.ID, os.Getpid())
+	if err != nil {
+		return err
+	}
 	fail := func(cause error) error {
 		_, _ = selfupdate.Update(ws, req.ID, "failed", "Cập nhật thất bại.", "", cause.Error())
 		return cause
