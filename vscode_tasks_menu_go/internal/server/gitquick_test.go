@@ -85,6 +85,71 @@ func TestGitQuickChangesDiffStageCommitBranchAndStash(t *testing.T) {
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) { t.Fatalf("switch status=%d body=%s", rr.Code, rr.Body.String()) }
 }
 
+func TestGitQuickSwitchAllowsNonConflictingDirtyChanges(t *testing.T) {
+	workspace, s, original := setupGitQuickRepo(t)
+
+	gitQuickRun(t, workspace, "switch", "-c", "feature/safe-switch")
+	if err := os.WriteFile(filepath.Join(workspace, "branch-only.txt"), []byte("branch\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "branch-only.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "branch-only change")
+	gitQuickRun(t, workspace, "switch", original)
+
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("dirty stays\n"), 0o644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(workspace, "untracked-stays.txt"), []byte("untracked stays\n"), 0o644); err != nil { t.Fatal(err) }
+
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"switch","branch":"feature/safe-switch"}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("safe dirty switch status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := gitQuickRun(t, workspace, "branch", "--show-current"); got != "feature/safe-switch" {
+		t.Fatalf("branch=%q after safe dirty switch", got)
+	}
+	if content, err := os.ReadFile(filepath.Join(workspace, "tracked.txt")); err != nil || string(content) != "dirty stays\n" {
+		t.Fatalf("tracked dirty change not preserved: content=%q err=%v", content, err)
+	}
+	if content, err := os.ReadFile(filepath.Join(workspace, "untracked-stays.txt")); err != nil || string(content) != "untracked stays\n" {
+		t.Fatalf("untracked dirty change not preserved: content=%q err=%v", content, err)
+	}
+}
+
+func TestGitQuickCreateBranchAllowsDirtyChanges(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("dirty before create\n"), 0o644); err != nil { t.Fatal(err) }
+
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"create_branch","branch":"feature/dirty-create"}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("dirty create branch status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := gitQuickRun(t, workspace, "branch", "--show-current"); got != "feature/dirty-create" {
+		t.Fatalf("branch=%q after dirty create", got)
+	}
+	if content, err := os.ReadFile(filepath.Join(workspace, "tracked.txt")); err != nil || string(content) != "dirty before create\n" {
+		t.Fatalf("dirty change not preserved on create: content=%q err=%v", content, err)
+	}
+}
+
+func TestGitQuickSwitchLetsGitRejectConflictingDirtyChanges(t *testing.T) {
+	workspace, s, original := setupGitQuickRepo(t)
+
+	gitQuickRun(t, workspace, "switch", "-c", "feature/conflicting-switch")
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("branch version\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "tracked.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "conflicting branch change")
+	gitQuickRun(t, workspace, "switch", original)
+
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("local dirty version\n"), 0o644); err != nil { t.Fatal(err) }
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"switch","branch":"feature/conflicting-switch"}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":false`) {
+		t.Fatalf("conflicting dirty switch status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := gitQuickRun(t, workspace, "branch", "--show-current"); got != original {
+		t.Fatalf("branch changed despite conflicting switch: got=%q want=%q", got, original)
+	}
+	if content, err := os.ReadFile(filepath.Join(workspace, "tracked.txt")); err != nil || string(content) != "local dirty version\n" {
+		t.Fatalf("conflicting dirty change altered: content=%q err=%v", content, err)
+	}
+}
+
 func TestGitQuickReadViewsAndValidation(t *testing.T) {
 	_, s, _ := setupGitQuickRepo(t)
 	for _, target := range []string{
