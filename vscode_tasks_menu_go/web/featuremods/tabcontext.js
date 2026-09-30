@@ -10,27 +10,21 @@ style.textContent=`
 .tab-context-menu.open{display:block}
 .tab-context-submenu{position:fixed;z-index:4100;display:none;min-width:300px;max-width:min(520px,92vw);max-height:min(620px,86vh);overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:7px;border:1px solid #3b414d;border-radius:8px;background:#171a20;box-shadow:0 12px 34px rgba(0,0,0,.42)}
 .tab-context-submenu.open{display:block}
-.tab-context-submenu button{display:block;width:100%;text-align:left;margin:2px 0;padding:6px 9px;font-size:12px}
-.tab-context-submenu .context-danger{background:#4a252a;border-color:#7a4048;color:#ffe2e4}
+.tab-context-menu button,.tab-context-submenu button{display:block;width:100%;text-align:left;margin:0;border:0;background:transparent;border-radius:4px;padding:5px 7px;font-size:12px;color:inherit}
+.tab-context-menu button:hover:not(:disabled),.tab-context-submenu button:hover:not(:disabled){background:#2b3440}
+.tab-context-menu button.context-danger,.tab-context-submenu button.context-danger{color:#ffb2b7}
 .tab-context-submenu-parent{display:flex!important;align-items:center;gap:8px}
 .tab-context-submenu-parent .context-submenu-arrow{margin-left:auto;opacity:.7}
 .tab-context-heading{padding:5px 7px 3px;font-size:10px;font-weight:800;letter-spacing:.08em;opacity:.55}
 .tab-context-separator{height:1px;background:#30343b;margin:6px 3px}
-.tab-context-menu button{display:block;width:100%;text-align:left;margin:2px 0;padding:6px 9px;font-size:12px}
-.tab-context-menu button.context-copy{background:#203b58;border-color:#35648d;color:#d9ecff}
-.tab-context-menu button.context-find{background:#332a55;border-color:#594a8e;color:#eee7ff}
-.tab-context-menu button.context-save{background:#203f31;border-color:#3a7058;color:#dcf6e7}
-.tab-context-menu button.context-danger{background:#4a252a;border-color:#7a4048;color:#ffe2e4}
 .tab-context-menu button.context-check{display:flex;align-items:center;gap:8px}
 .tab-context-menu button.context-check input{margin:0;pointer-events:none}
 .taskdeck-tab-readonly::before{content:'🔒';font-size:10px;opacity:.72;margin-right:4px}
 [data-taskdeck-readonly="1"] button,[data-taskdeck-readonly="1"] input,[data-taskdeck-readonly="1"] textarea,[data-taskdeck-readonly="1"] select{opacity:.55}
 [data-taskdeck-readonly="1"] .cm-content{caret-color:transparent}
 html[data-taskmenu-theme="light"] .tab-context-menu,html[data-taskmenu-theme="light"] .tab-context-submenu{background:#fff;border-color:#b9c0c8;box-shadow:0 12px 34px rgba(0,0,0,.18)}
-html[data-taskmenu-theme="light"] .tab-context-menu button.context-copy{background:#e8f2ff;border-color:#8db7df;color:#194b78}
-html[data-taskmenu-theme="light"] .tab-context-menu button.context-find{background:#f0ebff;border-color:#afa1da;color:#493b78}
-html[data-taskmenu-theme="light"] .tab-context-menu button.context-save{background:#e9f7ef;border-color:#87bf9f;color:#23583b}
-html[data-taskmenu-theme="light"] .tab-context-menu button.context-danger{background:#fff0f1;border-color:#d7989e;color:#7b3037}
+html[data-taskmenu-theme="light"] .tab-context-menu button:hover:not(:disabled),html[data-taskmenu-theme="light"] .tab-context-submenu button:hover:not(:disabled){background:#edf2f7}
+html[data-taskmenu-theme="light"] .tab-context-menu button.context-danger,html[data-taskmenu-theme="light"] .tab-context-submenu button.context-danger{color:#7b3037}
 `;
 document.head.append(style);
 
@@ -144,11 +138,9 @@ function findPaneMenu(view,label){
   return null;
 }
 
-function semanticClass(button){
-  if(button.classList.contains('copy-console'))return 'context-copy';
-  if(button.classList.contains('console-search-btn'))return 'context-find';
-  if(button.classList.contains('console-save-btn'))return 'context-save';
-  if(button.classList.contains('session-clear-console')||button.classList.contains('stop'))return 'context-danger';
+function semanticClass(button,label){
+  if(label==='Console')return '';
+  if(button.classList.contains('stop'))return 'context-danger';
   return '';
 }
 
@@ -192,7 +184,7 @@ function addActions(view,label,actions){
     item.textContent=(source.textContent||'').trim()||source.title||'Action';
     item.title=source.title||item.textContent;
     item.disabled=source.disabled;
-    const semantic=semanticClass(source);if(semantic)item.classList.add(semantic);
+    const semantic=semanticClass(source,label);if(semantic)item.classList.add(semantic);
     item.onclick=event=>{
       event.preventDefault();event.stopPropagation();
       const targetView=contextView||view;
