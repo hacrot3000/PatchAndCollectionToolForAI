@@ -130,7 +130,7 @@ func (s *Server) discoverGitRepositories(force bool) ([]gitRepository, config.Gi
 	s.gitReposMu.Lock()
 	defer s.gitReposMu.Unlock()
 
-	if !force && len(s.gitRepos) > 0 && time.Since(s.gitReposAt) < gitRepositoryCacheTTL {
+	if !force && !s.gitReposAt.IsZero() && time.Since(s.gitReposAt) < gitRepositoryCacheTTL {
 		return append([]gitRepository(nil), s.gitRepos...), s.gitSettings, nil
 	}
 
