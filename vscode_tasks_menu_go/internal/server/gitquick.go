@@ -365,6 +365,37 @@ func (s *Server) gitMergeRefs(ctx context.Context, branch string) (string, strin
 	return "", "", fmt.Errorf("branch not found")
 }
 
+func (s *Server) gitRemoteNameForRef(ctx context.Context, remoteRef string) string {
+	remoteRef = strings.TrimSpace(remoteRef)
+	if remoteRef == "" {
+		return ""
+	}
+	out, _, _, err := s.runGit(ctx, 3*time.Second, "remote")
+	if err != nil {
+		return ""
+	}
+	best := ""
+	for _, line := range strings.Split(out, "\n") {
+		name := strings.TrimSpace(line)
+		if name != "" && strings.HasPrefix(remoteRef, name+"/") && len(name) > len(best) {
+			best = name
+		}
+	}
+	return best
+}
+
+func (s *Server) gitRefreshMergeRemote(ctx context.Context, remoteRef string) error {
+	name := s.gitRemoteNameForRef(ctx, remoteRef)
+	if name == "" {
+		return nil
+	}
+	_, _, _, err := s.runGit(ctx, 15*time.Second, "fetch", "--prune", name)
+	if err != nil {
+		return fmt.Errorf("cannot refresh remote %s before merge: %w", name, err)
+	}
+	return nil
+}
+
 func (s *Server) gitMergePreflightData(ctx context.Context, branch string) (gitMergePreflightResponse, error) {
 	if err := s.validBranchName(ctx, branch); err != nil {
 		return gitMergePreflightResponse{}, err
@@ -380,6 +411,15 @@ func (s *Server) gitMergePreflightData(ctx context.Context, branch string) (gitM
 	localRef, remoteRef, err := s.gitMergeRefs(ctx, branch)
 	if err != nil {
 		return gitMergePreflightResponse{}, err
+	}
+	if remoteRef != "" {
+		if err := s.gitRefreshMergeRemote(ctx, remoteRef); err != nil {
+			return gitMergePreflightResponse{}, err
+		}
+		localRef, remoteRef, err = s.gitMergeRefs(ctx, branch)
+		if err != nil {
+			return gitMergePreflightResponse{}, err
+		}
 	}
 	localSHA := s.gitBranchSHA(ctx, localRef)
 	remoteSHA := s.gitBranchSHA(ctx, remoteRef)
