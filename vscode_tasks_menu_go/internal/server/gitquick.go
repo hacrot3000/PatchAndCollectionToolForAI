@@ -755,6 +755,7 @@ type gitActionRequest struct {
 	ExpectedSourceSHA string `json:"expected_source_sha,omitempty"`
 	ExpectedTargetSHA string `json:"expected_target_sha,omitempty"`
 	AllowDirty        bool   `json:"allow_dirty,omitempty"`
+	AllowSlowFallback bool   `json:"allow_slow_fallback,omitempty"`
 }
 
 func joinGitOutput(parts ...string) string {
@@ -858,6 +859,9 @@ func (s *Server) gitMergeToAction(ctx context.Context, req gitActionRequest) (st
 	}
 	if data.Dirty && !req.AllowDirty {
 		return "", false, fmt.Errorf("working tree has uncommitted changes; confirm Merge To to continue with committed HEAD only")
+	}
+	if data.SlowFallback && !req.AllowSlowFallback {
+		return "", false, fmt.Errorf("this Git version requires a temporary worktree for Merge To; explicit confirmation is required")
 	}
 
 	resultSHA, mergeOutput, truncated, err := s.gitMergeToResult(ctx, data)
