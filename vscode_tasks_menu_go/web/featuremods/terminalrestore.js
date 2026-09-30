@@ -10,25 +10,30 @@ let saveInFlight=Promise.resolve();
 let resolveRestoreReady;
 const restoreReady=new Promise(resolve=>{resolveRestoreReady=resolve;});
 
-function terminalIDsInTabOrder(){
+function liveTerminalIDsInTabOrder(){
   const ids=[];
   for(const tab of tabsHost?.querySelectorAll('.tab[data-id]')||[]){
     const id=tab.dataset.id||'';
     const view=app.views.get(id);
-    if(view?.meta?.task_id===0&&view.meta.status==='running')ids.push(id);
+    if(view?.meta?.status==='running')ids.push(id);
   }
   return ids;
 }
 
+function terminalIDsInTabOrder(){
+  return liveTerminalIDsInTabOrder().filter(id=>app.views.get(id)?.meta?.task_id===0);
+}
+
 function snapshotPayload(){
-  const sessionIDs=terminalIDsInTabOrder();
+  const liveSessionIDs=liveTerminalIDsInTabOrder();
+  const sessionIDs=liveSessionIDs.filter(id=>app.views.get(id)?.meta?.task_id===0);
   const activeSessionID=sessionIDs.includes(app.active)?app.active:'';
   const splits=[];
   const introduced=new Set();
   for(const group of globalThis.TaskMenuSplit?.getGroups?.()||[]){
     const left=String(group?.first??group?.left??'');
     const right=String(group?.second??group?.right??'');
-    if(!sessionIDs.includes(left)||!sessionIDs.includes(right)||left===right||introduced.has(right))continue;
+    if(!liveSessionIDs.includes(left)||!liveSessionIDs.includes(right)||left===right||introduced.has(right))continue;
     introduced.add(left);introduced.add(right);
     splits.push({left_session_id:left,right_session_id:right,ratio:Number(group.ratio)||0.5,orientation:group.orientation==='horizontal'?'horizontal':'vertical'});
   }
@@ -105,15 +110,25 @@ function restoredSessionIDAt(saved,index,ids,exclude=new Set()){
 
 function restoredGroups(restored,ids){
   if(app.layoutProfile==='mobile')return [];
-  const raw=Array.isArray(restored?.splits)&&restored.splits.length?restored.splits:(restored?.split?[restored.split]:[]);
   const groups=[];const introduced=new Set();
+  const pushGroup=(first,second,ratio,orientation)=>{
+    first=String(first||'').trim();second=String(second||'').trim();
+    if(!first||!second||first===second||introduced.has(second))return;
+    introduced.add(first);introduced.add(second);
+    groups.push({first,second,ratio:Number(ratio)||0.5,orientation:orientation==='horizontal'?'horizontal':'vertical'});
+  };
+  for(const split of Array.isArray(restored?.live_splits)?restored.live_splits:[]){
+    const first=String(split?.left_session_id||'').trim();
+    const second=String(split?.right_session_id||'').trim();
+    if(!app.views.has(first)||!app.views.has(second))continue;
+    pushGroup(first,second,split.ratio,split.orientation);
+  }
+  const raw=Array.isArray(restored?.splits)&&restored.splits.length?restored.splits:(restored?.split?[restored.split]:[]);
   for(const split of raw){
     if(!Number.isInteger(split?.left)||!Number.isInteger(split?.right)||split.left===split.right)continue;
     const first=restoredSessionIDAt(restored,split.left,ids);
     const second=restoredSessionIDAt(restored,split.right,ids);
-    if(!first||!second||first===second||introduced.has(second))continue;
-    introduced.add(first);introduced.add(second);
-    groups.push({first,second,ratio:Number(split.ratio)||0.5,orientation:split.orientation==='horizontal'?'horizontal':'vertical'});
+    pushGroup(first,second,split.ratio,split.orientation);
   }
   return groups;
 }
@@ -126,18 +141,18 @@ function savedActiveSessionID(saved,ids){
 }
 
 function applySavedLayout(saved,ids,{clearMissing=true}={}){
-  if(!ids.length)return;
   const split=globalThis.TaskMenuSplit;
+  const groups=restoredGroups(saved,ids);
+  if(!ids.length&&!groups.length)return;
   split?.suspendFocusTracking?.();
   let resumeScheduled=false;
   try{
     restoreTabOrder(ids);
-    const groups=restoredGroups(saved,ids);
     if(app.layoutProfile==='mobile'){
       split?.clearPresentation?.();
     }else if(groups.length)split?.restoreProjectGroups?.(groups);
     else if(clearMissing)split?.clearAll?.();
-    const activeID=savedActiveSessionID(saved,ids);
+    const activeID=ids.length?savedActiveSessionID(saved,ids):'';
     if(activeID){
       app.activateView(activeID,{focus:false});
       resumeScheduled=true;
@@ -181,15 +196,17 @@ async function restoreProjectTerminals(){
   try{
     const saved=await app.jsonFetch(endpoint);
     const live=await app.jsonFetch('/api/sessions');
-    const existing=(live.sessions||[]).filter(meta=>meta.task_id===0&&meta.status==='running');
+    const liveSessions=(live.sessions||[]).filter(meta=>meta.status==='running');
+    const existing=liveSessions.filter(meta=>meta.task_id===0);
 
-    if(existing.length){
+    if(liveSessions.length){
       await app.syncSessions?.();
       const savedIDs=layoutIDsFromSaved(saved,existing);
       const ids=savedIDs.length?savedIDs:existing.map(meta=>meta.id).filter(Boolean);
       const ready=await waitForViews(ids);
       if(!ready)throw new Error('Timed out waiting for live terminal tabs');
-      if(savedIDs.length){
+      const hasLiveSplits=Array.isArray(saved?.live_splits)&&saved.live_splits.length>0;
+      if(savedIDs.length||hasLiveSplits){
         applySavedLayout(saved,ids,{clearMissing:true});
       }else{
         // Legacy v1/v2 state has no stable session ids. Keep any split restored
