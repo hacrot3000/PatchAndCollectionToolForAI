@@ -3,8 +3,11 @@ package server
 import (
 	"container/heap"
 	"context"
+	"errors"
 	"net/http"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -53,6 +56,9 @@ func (s *Server) projectFileSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	results := searchProjectFileIndex(idx, query, limit)
+	if r.URL.Query().Get("refresh") == "1" && !strings.ContainsAny(query, "*?%/\\") && !projectSearchHasExactName(results, query) {
+		results = mergeExactProjectFileResults(results, s.findExactProjectBasename(r.Context(), query, limit), limit)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
@@ -112,6 +118,95 @@ func (s *Server) refreshProjectFileIndex(root string) {
 	}
 	s.projectIndex = idx
 	_ = saveProjectIndexCache(root, idx)
+}
+
+func projectSearchHasExactName(results []projectFileSearchResult, query string) bool {
+	for _, result := range results {
+		if strings.EqualFold(result.Name, strings.TrimSpace(query)) {
+			return true
+		}
+	}
+	return false
+}
+
+func mergeExactProjectFileResults(base, exact []projectFileSearchResult, limit int) []projectFileSearchResult {
+	if len(exact) == 0 {
+		return base
+	}
+	seen := make(map[string]struct{}, len(base)+len(exact))
+	merged := make([]projectFileSearchResult, 0, projectSearchMin(limit, len(base)+len(exact)))
+	for _, result := range exact {
+		if _, ok := seen[result.Path]; ok {
+			continue
+		}
+		seen[result.Path] = struct{}{}
+		merged = append(merged, result)
+		if len(merged) >= limit {
+			return merged
+		}
+	}
+	for _, result := range base {
+		if _, ok := seen[result.Path]; ok {
+			continue
+		}
+		seen[result.Path] = struct{}{}
+		merged = append(merged, result)
+		if len(merged) >= limit {
+			break
+		}
+	}
+	return merged
+}
+
+var errExactProjectSearchDone = errors.New("exact project search done")
+
+func (s *Server) findExactProjectBasename(parent context.Context, query string, limit int) []projectFileSearchResult {
+	root, err := s.projectRoot()
+	if err != nil || limit <= 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(parent, 1500*time.Millisecond)
+	defer cancel()
+	wanted := strings.TrimSpace(query)
+	results := make([]projectFileSearchResult, 0, projectSearchMin(limit, 8))
+	_ = filepath.WalkDir(root, func(current string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if entry != nil && entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return errExactProjectSearchDone
+		}
+		if current == root {
+			return nil
+		}
+		if entry.IsDir() {
+			if entry.Name() == ".git" || entry.Type()&os.ModeSymlink != 0 {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() || !strings.EqualFold(entry.Name(), wanted) {
+			return nil
+		}
+		rel, err := filepath.Rel(root, current)
+		if err != nil {
+			return nil
+		}
+		rel = normalizeProjectIndexPath(filepath.ToSlash(rel))
+		if rel == "" {
+			return nil
+		}
+		results = append(results, projectFileSearchResult{Path: rel, Name: entry.Name(), Score: 25000})
+		if len(results) >= limit {
+			return errExactProjectSearchDone
+		}
+		return nil
+	})
+	sort.Slice(results, func(i, j int) bool { return results[i].Path < results[j].Path })
+	return results
 }
 
 func (s *Server) refreshProjectFileIndexNow(ctx context.Context) (*projectFileIndex, error) {
@@ -375,3 +470,10 @@ func wildcardProjectMatch(value, pattern string) bool {
 	return j == len(p)
 }
 
+
+func projectSearchMin(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
