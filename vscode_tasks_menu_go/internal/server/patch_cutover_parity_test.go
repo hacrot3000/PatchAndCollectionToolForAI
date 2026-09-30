@@ -77,7 +77,11 @@ func TestPatchProtocolParityAndHeadlessBackingGate(t *testing.T) {
 	}
 	uiSrc := string(uiData)
 	for _, want := range []string{
-		"return !(Number(meta?.task_id)===-1&&meta?.kind==='patch');",
+		"function isHeadlessPatchSession(meta)",
+		"if(Number(meta?.task_id)!==-1)return false;",
+		"if(meta?.kind==='patch')return true;",
+		"return String(meta?.label||'').startsWith('Patch Tool · ');",
+		"return !isHeadlessPatchSession(meta);",
 		"else if(autoAttachSession(meta))attach(meta,false);",
 		"function materializeSession(meta,activate=true)",
 	} {
@@ -132,7 +136,11 @@ func TestPatchNativeProductAcceptanceGate(t *testing.T) {
 	// reserved as task_id=-1 and excluded from normal terminal-tab sync.
 	for _, want := range []string{
 		"ID:        -1,",
-		"return !(Number(meta?.task_id)===-1&&meta?.kind==='patch');",
+		"function isHeadlessPatchSession(meta)",
+		"if(Number(meta?.task_id)!==-1)return false;",
+		"if(meta?.kind==='patch')return true;",
+		"return String(meta?.label||'').startsWith('Patch Tool · ');",
+		"return !isHeadlessPatchSession(meta);",
 		"else if(autoAttachSession(meta))attach(meta,false);",
 	} {
 		source := server
