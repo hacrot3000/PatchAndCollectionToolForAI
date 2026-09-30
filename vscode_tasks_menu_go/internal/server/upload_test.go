@@ -121,6 +121,15 @@ func TestUploadDirectoryBrowserSupportsFileSaveMode(t *testing.T) {
 }
 
 
+func TestWorkspaceBrowserStaysAboveTasksEditor(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/upload.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	if !strings.Contains(js, ".upload-destination-overlay{position:fixed;inset:0;z-index:17000") {
+		t.Fatal("workspace browser must render above the tasks editor dialog")
+	}
+}
+
 func TestWorkspaceBrowserCanPickExistingFile(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/upload.js")
 	if err != nil { t.Fatal(err) }
