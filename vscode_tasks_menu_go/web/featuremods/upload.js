@@ -69,6 +69,11 @@ function installDestinationBrowser(){
   close.onclick=cancel.onclick=()=>closeDestinationBrowser(null);
   destinationConfirm.onclick=()=>{
     const dir=destinationInput.value.trim()||'.';
+    if(destinationMode==='pick'){
+      if(!destinationInput.value.trim()){app.showError(new Error('Choose a file'));return;}
+      closeDestinationBrowser(destinationInput.value.trim());
+      return;
+    }
     if(destinationMode==='file'){
       const name=destinationFilename.value.trim();
       if(!name){app.showError(new Error('File name is required'));destinationFilename.focus();return;}
@@ -90,13 +95,19 @@ function installDestinationBrowser(){
   destinationOverlay.addEventListener('pointerdown',event=>{if(event.target===destinationOverlay)closeDestinationBrowser(null);});
 }
 
+function destinationCacheKey(pathValue){
+  const key=pathValue==='.'?'':pathValue;
+  return (destinationMode==='pick'?'pick:':'dir:')+key;
+}
+
 async function loadDestinationDirectory(pathValue,force=false){
   const key=pathValue==='.'?'':pathValue;
-  if(!force&&destinationLoaded.has(key))return destinationLoaded.get(key);
+  const cacheKey=destinationCacheKey(key);
+  if(!force&&destinationLoaded.has(cacheKey))return destinationLoaded.get(cacheKey);
   const items=await app.jsonFetch('/api/project/tree?path='+encodeURIComponent(key));
-  const dirs=(Array.isArray(items)?items:[]).filter(item=>item?.type==='dir');
-  destinationLoaded.set(key,dirs);
-  return dirs;
+  const visible=(Array.isArray(items)?items:[]).filter(item=>item?.type==='dir'||(destinationMode==='pick'&&item?.type==='file'));
+  destinationLoaded.set(cacheKey,visible);
+  return visible;
 }
 
 function selectDestination(pathValue){
@@ -117,7 +128,7 @@ function renderDestinationTree(){
   const wrapper=document.createElement('div');wrapper.append(root);
   if(destinationExpanded.has('')){
     const children=document.createElement('div');children.className='upload-directory-children';
-    const list=destinationLoaded.get('');
+    const list=destinationLoaded.get(destinationCacheKey(''));
     if(!list){const msg=document.createElement('div');msg.className='upload-directory-message';msg.textContent='Loading…';children.append(msg);}
     else if(!list.length){const msg=document.createElement('div');msg.className='upload-directory-message';msg.textContent='No subdirectories';children.append(msg);}
     else for(const item of list)children.append(renderDestinationDirectoryItem('',item));
@@ -130,14 +141,26 @@ function renderDestinationDirectoryItem(parent,item){
   const fullPath=joinDir(parent,item.name);
   const wrap=document.createElement('div');
   const row=document.createElement('div');row.className='upload-directory-row'+(destinationSelected===fullPath?' selected':'');
-  const toggle=document.createElement('button');toggle.type='button';toggle.className='upload-directory-toggle';toggle.textContent=destinationExpanded.has(fullPath)?'▾':'▸';
-  const name=document.createElement('button');name.type='button';name.className='upload-directory-name';name.textContent='📁 '+item.name;name.title=fullPath;
+  const toggle=document.createElement('button');toggle.type='button';toggle.className='upload-directory-toggle';
+  const name=document.createElement('button');name.type='button';name.className='upload-directory-name';name.title=fullPath;
+  if(item?.type==='file'){
+    toggle.textContent='';toggle.disabled=true;
+    name.textContent='📄 '+item.name;
+    name.onclick=()=>{destinationSelected=fullPath;destinationInput.value=fullPath;destinationConfirm.disabled=false;renderDestinationTree();};
+    name.ondblclick=()=>closeDestinationBrowser(fullPath);
+    row.append(toggle,name);wrap.append(row);return wrap;
+  }
+  toggle.textContent=destinationExpanded.has(fullPath)?'▾':'▸';
+  name.textContent='📁 '+item.name;
   toggle.onclick=()=>toggleDestinationDirectory(fullPath);
-  name.onclick=()=>{selectDestination(fullPath);if(!destinationExpanded.has(fullPath))toggleDestinationDirectory(fullPath);};
+  name.onclick=()=>{
+    if(destinationMode!=='pick')selectDestination(fullPath);
+    if(!destinationExpanded.has(fullPath))toggleDestinationDirectory(fullPath);
+  };
   row.append(toggle,name);wrap.append(row);
   if(destinationExpanded.has(fullPath)){
     const children=document.createElement('div');children.className='upload-directory-children';
-    const list=destinationLoaded.get(fullPath);
+    const list=destinationLoaded.get(destinationCacheKey(fullPath));
     if(!list){const msg=document.createElement('div');msg.className='upload-directory-message';msg.textContent='Loading…';children.append(msg);}
     else if(!list.length){const msg=document.createElement('div');msg.className='upload-directory-message';msg.textContent='Empty';children.append(msg);}
     else for(const child of list)children.append(renderDestinationDirectoryItem(fullPath,child));
@@ -151,7 +174,7 @@ async function toggleDestinationDirectory(pathValue){
     destinationExpanded.delete(pathValue);renderDestinationTree();return;
   }
   destinationExpanded.add(pathValue);renderDestinationTree();
-  if(!destinationLoaded.has(pathValue)){
+  if(!destinationLoaded.has(destinationCacheKey(pathValue))){
     try{await loadDestinationDirectory(pathValue);if(destinationExpanded.has(pathValue))renderDestinationTree();}
     catch(error){destinationExpanded.delete(pathValue);renderDestinationTree();app.showError(error);}
   }
@@ -177,15 +200,17 @@ async function openWorkspaceBrowser(options={},mode='directory'){
   if(destinationResolve)throw new Error('Directory browser is already open');
   destinationMode=mode;
   const initial=String(options.initial||'.').trim()||'.';
-  destinationTitle.textContent=String(options.title||(mode==='file'?'Choose file destination':'Choose directory'));
-  destinationLabel.textContent=String(options.label||'Directory relative to the workspace:');
-  destinationConfirm.textContent=String(options.confirm||(mode==='file'?'Save here':'Use directory'));
+  destinationTitle.textContent=String(options.title||(mode==='pick'?'Choose workspace file':(mode==='file'?'Choose file destination':'Choose directory')));
+  destinationLabel.textContent=String(options.label||(mode==='pick'?'File relative to the workspace:':'Directory relative to the workspace:'));
+  destinationConfirm.textContent=String(options.confirm||(mode==='pick'?'Use file':(mode==='file'?'Save here':'Use directory')));
   destinationFileBox.classList.toggle('hidden',mode!=='file');
   destinationFileLabel.textContent=String(options.fileLabel||'File name:');
   destinationFilename.value=mode==='file'?String(options.fileName||''):'';
-  destinationSelected=initial;
-  destinationInput.value=destinationSelected;
-  destinationExpanded.add('');
+  destinationSelected=mode==='pick'?'':initial;
+  destinationInput.value=mode==='pick'?String(options.filePath||''):destinationSelected;
+  destinationConfirm.disabled=mode==='pick'&&!destinationInput.value.trim();
+  destinationExpanded.clear();destinationExpanded.add('');
+  destinationLoaded.clear();
   destinationOverlay.classList.add('visible');
   renderDestinationTree();
   loadDestinationDirectory('').then(()=>renderDestinationTree()).catch(app.showError);
@@ -201,6 +226,10 @@ function chooseWorkspaceFile(options={}){
   return openWorkspaceBrowser(options,'file');
 }
 
+function pickWorkspaceFile(options={}){
+  return openWorkspaceBrowser(options,'pick');
+}
+
 async function chooseDestination(){
   return chooseWorkspaceDirectory({
     title:'Choose upload destination',
@@ -210,7 +239,7 @@ async function chooseDestination(){
   });
 }
 
-globalThis.TaskMenuDirectoryBrowser={choose:chooseWorkspaceDirectory,chooseFile:chooseWorkspaceFile};
+globalThis.TaskMenuDirectoryBrowser={choose:chooseWorkspaceDirectory,chooseFile:chooseWorkspaceFile,pickFile:pickWorkspaceFile};
 
 async function chooseDestinationAndUpload(files){
   const value=await chooseDestination();if(value===null)return;
