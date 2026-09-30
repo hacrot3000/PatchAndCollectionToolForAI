@@ -24,12 +24,12 @@ function snapshotPayload(){
   const sessionIDs=terminalIDsInTabOrder();
   const activeSessionID=sessionIDs.includes(app.active)?app.active:'';
   const splits=[];
-  const used=new Set();
+  const introduced=new Set();
   for(const group of globalThis.TaskMenuSplit?.getGroups?.()||[]){
     const left=String(group?.first??group?.left??'');
     const right=String(group?.second??group?.right??'');
-    if(!sessionIDs.includes(left)||!sessionIDs.includes(right)||left===right||used.has(left)||used.has(right))continue;
-    used.add(left);used.add(right);
+    if(!sessionIDs.includes(left)||!sessionIDs.includes(right)||left===right||introduced.has(right))continue;
+    introduced.add(left);introduced.add(right);
     splits.push({left_session_id:left,right_session_id:right,ratio:Number(group.ratio)||0.5,orientation:group.orientation==='horizontal'?'horizontal':'vertical'});
   }
   return {session_ids:sessionIDs,active_session_id:activeSessionID,splits};
@@ -106,14 +106,13 @@ function restoredSessionIDAt(saved,index,ids,exclude=new Set()){
 function restoredGroups(restored,ids){
   if(app.layoutProfile==='mobile')return [];
   const raw=Array.isArray(restored?.splits)&&restored.splits.length?restored.splits:(restored?.split?[restored.split]:[]);
-  const groups=[];const used=new Set();
+  const groups=[];const introduced=new Set();
   for(const split of raw){
     if(!Number.isInteger(split?.left)||!Number.isInteger(split?.right)||split.left===split.right)continue;
-    const first=restoredSessionIDAt(restored,split.left,ids,used);
-    const reserved=new Set(used);if(first)reserved.add(first);
-    const second=restoredSessionIDAt(restored,split.right,ids,reserved);
-    if(!first||!second||first===second)continue;
-    used.add(first);used.add(second);
+    const first=restoredSessionIDAt(restored,split.left,ids);
+    const second=restoredSessionIDAt(restored,split.right,ids);
+    if(!first||!second||first===second||introduced.has(second))continue;
+    introduced.add(first);introduced.add(second);
     groups.push({first,second,ratio:Number(split.ratio)||0.5,orientation:split.orientation==='horizontal'?'horizontal':'vertical'});
   }
   return groups;
