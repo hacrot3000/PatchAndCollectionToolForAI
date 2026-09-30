@@ -164,7 +164,7 @@ Launcher luôn dùng **working directory hiện tại làm workspace**, tự bui
 Các chức năng chính gồm:
 
 - mỗi task chạy trong PTY/session/tab riêng, hỗ trợ ANSI, prompt tương tác, Ctrl+C và reconnect/replay scrollback;
-- terminal tab, đổi tên tab, sắp xếp/khôi phục tab, split dọc/ngang, nhiều split group, active tab và CWD được lưu theo project;
+- terminal tab, đổi tên tab, sắp xếp/khôi phục tab, split dọc/ngang và nhiều split group; trong layout split có thể kéo title của pane rồi thả vào vùng trái/phải/trên/dưới của pane khác để sắp xếp lại trực quan theo kiểu Terminator; active tab, CWD và split layout được lưu theo project;
 - Broadcast Groups: click phải tab để gán/tạo/xóa khỏi group; menu `Broadcast` hỗ trợ `None / All / Group`, gửi raw key/Enter/Ctrl+C/arrow tới các session đích và tô màu tab theo preset group;
 - Preset command cho terminal tab: click phải `Preset command ▶` để chọn chuỗi lệnh project-local; lệnh chạy tuần tự trong chính shell terminal, dừng ngay khi command trả exit code khác 0; dialog riêng hỗ trợ Add/Edit/Delete/Close và lưu tại `vscode_tasks_menu.presets.json`;
 - reload browser vẫn khôi phục terminal layout; self-update giữ session broker sống qua daemon replacement nên process/PTY/session ID/scrollback tiếp tục tồn tại, đồng thời tabs, CWD, order và split layout được attach lại;
@@ -398,7 +398,7 @@ The launcher always uses the **current working directory as the workspace**, bui
 Main capabilities include:
 
 - one PTY/session/tab per task, with ANSI output, interactive prompts, Ctrl+C, reconnect, and scrollback replay;
-- terminal tabs, tab renaming, tab ordering/restoration, vertical and horizontal splits, multiple split groups, active-tab state, and per-terminal CWD persistence;
+- terminal tabs, tab renaming, tab ordering/restoration, vertical and horizontal splits, and multiple split groups; within a split layout, drag a pane title and drop it on the left/right/top/bottom region of another pane for Terminator-style visual rearrangement; active-tab state, per-terminal CWD, and split layout persist per project;
 - Broadcast Groups: right-click a tab to assign/create/remove group membership; the `Broadcast` menu provides `None / All / Group`, fans out raw key/Enter/Ctrl+C/arrow input to matching sessions, and colors grouped tabs using readable presets;
 - Terminal-only Preset command: right-click `Preset command ▶` to run a project-local command sequence in the current shell; commands execute sequentially and stop immediately on a non-zero exit code, with Add/Edit/Delete/Close management persisted in `vscode_tasks_menu.presets.json`;
 - browser reload restores terminal layout; self-update keeps the independent session broker alive across web-daemon replacement so process/PTY/session IDs and scrollback survive while tabs, CWDs, ordering, and split layout are reattached;
