@@ -55,7 +55,8 @@ func TestTerminalReloadCanRemapChangedSessionIDsByCwdWithoutWrongSplitFallback(t
 		"normalizedCwd(meta.cwd)===wantedCwd",
 		"if(item)return ''",
 		"const groups=[];const introduced=new Set()",
-		"if(!first||!second||first===second||introduced.has(second))continue",
+		"const pushGroup=(first,second,ratio,orientation)=>",
+		"if(!first||!second||first===second||introduced.has(second))return",
 		"introduced.add(first);introduced.add(second)",
 	} {
 		if !strings.Contains(js, want) {
