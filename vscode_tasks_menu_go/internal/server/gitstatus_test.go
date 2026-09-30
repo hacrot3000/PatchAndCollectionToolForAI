@@ -20,6 +20,11 @@ func TestGitStatusFeatureModule(t *testing.T) {
 		"↑",
 		"↓",
 		"setInterval(refresh,5000)",
+		"git-repo-bar",
+		"repoSelect",
+		"repo_name",
+		"repo_path",
+		"refreshRepositories(false)",
 		".git-panel{display:none;position:fixed;z-index:1500;top:calc(var(--taskmenu-header-height,30px) + 6px);",
 	} {
 		if !strings.Contains(js, want) {
