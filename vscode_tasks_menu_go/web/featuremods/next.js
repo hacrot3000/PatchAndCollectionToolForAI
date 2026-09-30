@@ -22,6 +22,7 @@ import '/featuremods/clearfiles.js';
 import '/featuremods/selfupdate.js';
 import '/featuremods/runningindicator.js';
 import '/featuremods/quickopen.js';
+import '/featuremods/filepreview.js';
 import '/featuremods/explorer.js';
 import '/featuremods/editor.js';
 import '/featuremods/projectsearch.js';
