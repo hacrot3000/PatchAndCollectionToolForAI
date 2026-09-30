@@ -83,6 +83,7 @@ function installDestinationBrowser(){
     }
     closeDestinationBrowser(dir);
   };
+  destinationInput.oninput=()=>{if(destinationMode==='pick')destinationConfirm.disabled=!destinationInput.value.trim();};
   destinationInput.onkeydown=event=>{
     if(event.key==='Enter'){event.preventDefault();if(destinationMode==='file')destinationFilename.focus();else destinationConfirm.click();}
     else if(event.key==='Escape'){event.preventDefault();closeDestinationBrowser(null);}
@@ -123,7 +124,7 @@ function renderDestinationTree(){
   const rootToggle=document.createElement('button');rootToggle.type='button';rootToggle.className='upload-directory-toggle';rootToggle.textContent=destinationExpanded.has('')?'▾':'▸';
   const rootName=document.createElement('button');rootName.type='button';rootName.className='upload-directory-name';rootName.textContent='. (workspace root)';rootName.title='Workspace root';
   rootToggle.onclick=()=>toggleDestinationDirectory('');
-  rootName.onclick=()=>{selectDestination('.');if(!destinationExpanded.has(''))toggleDestinationDirectory('');};
+  rootName.onclick=()=>{if(destinationMode!=='pick')selectDestination('.');if(!destinationExpanded.has(''))toggleDestinationDirectory('');};
   root.append(rootToggle,rootName);
   const wrapper=document.createElement('div');wrapper.append(root);
   if(destinationExpanded.has('')){
