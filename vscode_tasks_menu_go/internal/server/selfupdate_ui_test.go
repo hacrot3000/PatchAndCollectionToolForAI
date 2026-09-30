@@ -23,7 +23,7 @@ func TestSelfUpdateBrowserWorkflow(t *testing.T) {
 		"function copyText(text)",
 		"navigator.clipboard.writeText(value)",
 		"document.execCommand('copy')",
-		"copyError.dataset.details=selfUpdateErrorDetails(req)",
+		"copyError.dataset.details=failed?selfUpdateErrorDetails(req):''",
 		"copyError.onclick=async()=>",
 		"postAction('ack',id)",
 		"action='+encodeURIComponent(action)",
