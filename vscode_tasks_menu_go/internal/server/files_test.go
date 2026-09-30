@@ -184,3 +184,83 @@ func TestFileSelectionAPIAndDownload(t *testing.T) {
 		t.Fatalf("Cache-Control = %q, want no-store", got)
 	}
 }
+
+
+func TestSelectedFilePreviewValidatesTextImageBinaryAndSize(t *testing.T) {
+	workspace := t.TempDir()
+	s := &Server{Workspace: workspace}
+
+	textPath := filepath.Join(workspace, "notes.txt")
+	if err := os.WriteFile(textPath, []byte("hello preview\n"), 0o644); err != nil { t.Fatal(err) }
+	info, _, err := s.filePreviewInfo(textPath)
+	if err != nil { t.Fatal(err) }
+	if info.Kind != "text" || info.ProjectPath != "notes.txt" || info.Size == 0 {
+		t.Fatalf("text preview info=%+v", info)
+	}
+
+	imagePath := filepath.Join(workspace, "image.png")
+	png := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, []byte("payload")...)
+	if err := os.WriteFile(imagePath, png, 0o644); err != nil { t.Fatal(err) }
+	info, _, err = s.filePreviewInfo(imagePath)
+	if err != nil { t.Fatal(err) }
+	if info.Kind != "image" || info.ContentType != "image/png" || !strings.Contains(info.URL, "/api/files/preview?mode=content") {
+		t.Fatalf("image preview info=%+v", info)
+	}
+
+	binaryPath := filepath.Join(workspace, "binary.bin")
+	if err := os.WriteFile(binaryPath, []byte{0, 1, 2, 3, 4}, 0o644); err != nil { t.Fatal(err) }
+	if _, _, err := s.filePreviewInfo(binaryPath); err == nil || !strings.Contains(err.Error(), "neither") {
+		t.Fatalf("binary preview err=%v, want unsupported", err)
+	}
+
+	largePath := filepath.Join(workspace, "large.txt")
+	fh, err := os.Create(largePath)
+	if err != nil { t.Fatal(err) }
+	if err := fh.Truncate(filePreviewTextLimit + 1); err != nil { fh.Close(); t.Fatal(err) }
+	if err := fh.Close(); err != nil { t.Fatal(err) }
+	if _, _, err := s.filePreviewInfo(largePath); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("large preview err=%v, want too large", err)
+	}
+}
+
+func TestSelectedFilePreviewAPIRevalidatesImageContent(t *testing.T) {
+	workspace := t.TempDir()
+	imagePath := filepath.Join(workspace, "preview.png")
+	png := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, []byte("image-data")...)
+	if err := os.WriteFile(imagePath, png, 0o644); err != nil { t.Fatal(err) }
+	s := &Server{Workspace: workspace}
+
+	metaReq := httptest.NewRequest(http.MethodGet, "/api/files/preview?path="+url.QueryEscape(imagePath), nil)
+	metaRR := httptest.NewRecorder()
+	s.filePreview(metaRR, metaReq)
+	if metaRR.Code != http.StatusOK || !strings.Contains(metaRR.Body.String(), `"kind":"image"`) {
+		t.Fatalf("preview meta status=%d body=%s", metaRR.Code, metaRR.Body.String())
+	}
+
+	contentReq := httptest.NewRequest(http.MethodGet, "/api/files/preview?mode=content&path="+url.QueryEscape(imagePath), nil)
+	contentRR := httptest.NewRecorder()
+	s.filePreview(contentRR, contentReq)
+	if contentRR.Code != http.StatusOK {
+		t.Fatalf("preview content status=%d body=%s", contentRR.Code, contentRR.Body.String())
+	}
+	if got := contentRR.Header().Get("Content-Type"); got != "image/png" {
+		t.Fatalf("preview content type=%q", got)
+	}
+
+	if err := os.WriteFile(imagePath, []byte{0, 1, 2}, 0o644); err != nil { t.Fatal(err) }
+	contentRR = httptest.NewRecorder()
+	s.filePreview(contentRR, contentReq)
+	if contentRR.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("changed binary preview status=%d body=%s", contentRR.Code, contentRR.Body.String())
+	}
+}
+
+func TestSelectedFileSelectionIncludesPreviewHint(t *testing.T) {
+	workspace := t.TempDir()
+	textPath := filepath.Join(workspace, "preview.txt")
+	if err := os.WriteFile(textPath, []byte("hello"), 0o644); err != nil { t.Fatal(err) }
+	files := (&Server{Workspace: workspace}).downloadableFilesFromText(textPath)
+	if len(files) != 1 || files[0].PreviewKind != "text" {
+		t.Fatalf("preview hint files=%+v", files)
+	}
+}
