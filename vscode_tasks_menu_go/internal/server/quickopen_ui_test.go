@@ -24,6 +24,13 @@ func TestQuickOpenUsesBackendBoundedSearchAndKeyboardNavigation(t *testing.T) {
 		"globalQuickOpenShortcut",
 		"taskmenu:project-file-open-request",
 		"data.results.slice(0,50)",
+		"fuzzyNameIndexes(name,query)",
+		"quick-open-match",
+		"renderHighlightedName(name",
+		"hasExactFilename(query)",
+		"&refresh=1",
+		"setTimeout(()=>{",
+		"input.value.trim()===query",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("quickopen.js missing %q", want)
