@@ -80,11 +80,19 @@ function updateButtons(){
     const horizontal=view.pane.querySelector('.session-split-horizontal');
     const mergeV=view.pane.querySelector('.session-merge-vertical');
     const mergeH=view.pane.querySelector('.session-merge-horizontal');
+    const swap=view.pane.querySelector('.session-swap-split');
     const unsplit=view.pane.querySelector('.session-unsplit');
     if(vertical){vertical.textContent=group?'Use vertical split':'Split vertical';vertical.title=group?'Switch this group to a vertical split':'Open a new terminal in a vertical split';}
     if(horizontal){horizontal.textContent=group?'Use horizontal split':'Split horizontal';horizontal.title=group?'Switch this group to a horizontal split':'Open a new terminal in a horizontal split';}
     if(mergeV)mergeV.disabled=!canMerge;
     if(mergeH)mergeH.disabled=!canMerge;
+    if(swap){
+      swap.hidden=!group;
+      swap.textContent=group?.orientation==='horizontal'?'Swap top / bottom':'Swap left / right';
+      swap.title=group?.orientation==='horizontal'
+        ?'Swap the top and bottom terminals in this split'
+        :'Swap the left and right terminals in this split';
+    }
     if(unsplit)unsplit.hidden=!group;
   }
 }
@@ -177,6 +185,13 @@ function createGroup(first,second,orientation,ratio=0.5,persist=true){
   groups.push(group);if(persist)saveState();syncForActive();updateButtons();return group;
 }
 
+function swapSplitView(view){
+  const group=groupFor(view.meta.id);if(!group)return;
+  const first=group.first;group.first=group.second;group.second=first;
+  cleanupPresentation();saveState();syncForActive();updateButtons();
+  fitSoon(app.views.get(group.first));fitSoon(app.views.get(group.second));
+}
+
 function unsplitView(view){
   const group=groupFor(view.meta.id);if(!group)return;
   groups=groups.filter(item=>item!==group);cleanupPresentation();saveState();app.activateView(view.meta.id);setTimeout(syncForActive,0);updateButtons();
@@ -230,8 +245,9 @@ function install(view){
   const horizontal=document.createElement('button');horizontal.className='session-split-horizontal';horizontal.textContent='Split horizontal';horizontal.onclick=()=>splitFrom(view,'horizontal').catch(app.showError);
   const mergeV=document.createElement('button');mergeV.className='session-merge-vertical';mergeV.textContent='Merge vertical…';mergeV.title='Merge this tab with an existing tab in a vertical split';mergeV.onclick=()=>{try{mergeWith(view,'vertical');}catch(e){app.showError(e);}};
   const mergeH=document.createElement('button');mergeH.className='session-merge-horizontal';mergeH.textContent='Merge horizontal…';mergeH.title='Merge this tab with an existing tab in a horizontal split';mergeH.onclick=()=>{try{mergeWith(view,'horizontal');}catch(e){app.showError(e);}};
+  const swap=document.createElement('button');swap.className='session-swap-split';swap.textContent='Swap panes';swap.hidden=true;swap.onclick=()=>swapSplitView(view);
   const unsplit=document.createElement('button');unsplit.className='session-unsplit';unsplit.textContent='Unsplit';unsplit.onclick=()=>unsplitView(view);
-  const stop=view.pane.querySelector('.stop');if(stop)stop.before(vertical,horizontal,mergeV,mergeH,unsplit);else view.pane.querySelector('.pane-head')?.append(vertical,horizontal,mergeV,mergeH,unsplit);
+  const stop=view.pane.querySelector('.stop');if(stop)stop.before(vertical,horizontal,mergeV,mergeH,swap,unsplit);else view.pane.querySelector('.pane-head')?.append(vertical,horizontal,mergeV,mergeH,swap,unsplit);
   updateButtons();
 }
 
@@ -297,4 +313,4 @@ const observer=new MutationObserver(()=>{
 });
 observer.observe(panes,{childList:true});
 
-globalThis.TaskMenuSplit={getState,getGroups,restoreProjectSplit,restoreProjectGroups,clearSplit,clearAll,clearPresentation,syncForActive,isSupported:()=>splitSupported};
+globalThis.TaskMenuSplit={getState,getGroups,restoreProjectSplit,restoreProjectGroups,swapSplitView,clearSplit,clearAll,clearPresentation,syncForActive,isSupported:()=>splitSupported};
