@@ -35,6 +35,24 @@ enabled = false
 username = admin
 password = change-me
 
+
+[git]
+# Quét các Git repository nằm trong workspace. Mặc định bật.
+scan_enabled = true
+# Độ sâu tối đa tính từ workspace root; mặc định 4, tối đa 12.
+scan_depth = 4
+# Repo mặc định dùng khi mở Git Quick Actions lần đầu.
+# "." = workspace root; repo con dùng đường dẫn tương đối.
+default_repository = .
+# Nếu true, khi active terminal nằm trong repo con thì Git panel tự chọn repo đó.
+# Mặc định false để tránh tự đổi repository ngoài ý muốn.
+auto_select_from_terminal_cwd = false
+
+[git.repositories]
+# Optional: đặt tên/khai báo cố định repo. Auto-scan vẫn có thể bổ sung repo khác.
+# M3 Client = projects/m3-client
+# M3 Server = projects/m3-server
+
 [shared_server]
 # Multi-user shared-project mode. Mặc định false để giữ nguyên behavior hiện tại.
 # Yêu cầu protocol=https và Python 3.10+ (stdlib sqlite3/hashlib.scrypt).
