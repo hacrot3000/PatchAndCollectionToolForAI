@@ -561,9 +561,15 @@ function setViewReadOnly(viewOrID,enabled){
   view.term.options.disableStdin=!view.canControl||view.tabReadOnly;
   view.term.options.cursorBlink=view.canControl&&!view.tabReadOnly;
   view.tab.classList.toggle('taskdeck-tab-readonly',view.tabReadOnly);
-  if(view.tabReadOnly)view.pane.dataset.taskdeckReadonly='1';else delete view.pane.dataset.taskdeckReadonly;
+  if(view.tabReadOnly){
+    view.pane.dataset.taskdeckReadonly='1';
+    view.pane.dataset.taskdeckReadonlyKind='terminal';
+  }else{
+    delete view.pane.dataset.taskdeckReadonly;
+    delete view.pane.dataset.taskdeckReadonlyKind;
+  }
   view.pane.setAttribute('aria-readonly',view.tabReadOnly?'true':'false');
-  if(view.stop)view.stop.disabled=view.tabReadOnly||view.meta?.status!=='running';
+  if(view.stop)view.stop.disabled=view.meta?.status!=='running';
   return view.tabReadOnly;
 }
 
@@ -574,7 +580,7 @@ function updateMeta(meta){
   if(!featureOwnsRunningStatus)view.status.textContent=meta.status+(meta.exit_code!=null?' '+meta.exit_code:'');
   view.stop.textContent=meta.task_id===0?'Close terminal':'Stop';
   view.stop.title=meta.task_id===0?'Close the terminal and its running processes':'Stop task';
-  view.stop.hidden=!view.canControl;view.stop.disabled=Boolean(view.tabReadOnly)||meta.status!=='running';
+  view.stop.hidden=!view.canControl;view.stop.disabled=meta.status!=='running';
   window.dispatchEvent(new CustomEvent('taskmenu:session',{detail:{view,meta}}));
 }
 
