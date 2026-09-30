@@ -49,6 +49,7 @@ func TestGitQuickActionsUI(t *testing.T) {
 		"Local and remote versions differ",
 		"Type LOCAL or REMOTE",
 		"expected_sha:expectedSHA",
+		"expected_current:check.current",
 		"expectedSHA.slice(0,12)",
 	} {
 		if !strings.Contains(js, want) {
