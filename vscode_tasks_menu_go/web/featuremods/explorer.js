@@ -3,7 +3,7 @@ if(!app)throw new Error('TaskMenuApp unavailable for Explorer');
 
 const style=document.createElement('style');
 style.textContent=`
-.project-explorer{display:none;position:fixed;top:52px;bottom:0;left:0;z-index:1800;width:min(370px,92vw);background:#11151b;border-right:1px solid #3b414d;box-shadow:10px 0 28px rgba(0,0,0,.28);flex-direction:column}
+.project-explorer{display:none;position:fixed;top:var(--taskmenu-header-height,34px);bottom:0;left:0;z-index:1800;width:min(370px,92vw);background:#11151b;border-right:1px solid #3b414d;box-shadow:10px 0 28px rgba(0,0,0,.28);flex-direction:column}
 .project-explorer.visible{display:flex}
 .project-explorer-head{height:42px;display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #30343b}
 .project-explorer-title{font-size:12px;font-weight:700;letter-spacing:.04em;flex:1}
