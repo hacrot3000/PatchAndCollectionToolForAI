@@ -19,6 +19,10 @@ style.textContent=`
 .tab-context-separator{height:1px;background:#30343b;margin:6px 3px}
 .tab-context-menu button.context-check{display:flex;align-items:center;gap:8px}
 .tab-context-menu button.context-check input{margin:0;pointer-events:none}
+.pane-head>.terminal-context-trigger{flex:0 0 18px;width:18px;height:18px;min-width:18px;padding:0!important;display:inline-flex;align-items:center;justify-content:center;border:1px solid #48515f!important;border-radius:3px!important;background:#171a20!important;font:700 13px/1 ui-monospace,monospace!important;opacity:.78}
+.pane-head>.terminal-context-trigger:hover:not(:disabled),.pane-head>.terminal-context-trigger[aria-expanded="true"]{background:#2b3440!important;border-color:#6b7788!important;opacity:1}
+html[data-taskmenu-theme="light"] .pane-head>.terminal-context-trigger{background:#fff!important;border-color:#b9c0c8!important;color:#202124}
+html[data-taskmenu-theme="light"] .pane-head>.terminal-context-trigger:hover:not(:disabled),html[data-taskmenu-theme="light"] .pane-head>.terminal-context-trigger[aria-expanded="true"]{background:#edf2f7!important}
 .taskdeck-tab-readonly::before{content:'🔒';font-size:10px;opacity:.72;margin-right:4px}
 [data-taskdeck-readonly="1"]:not([data-taskdeck-readonly-kind="terminal"]) button,[data-taskdeck-readonly="1"]:not([data-taskdeck-readonly-kind="terminal"]) input,[data-taskdeck-readonly="1"]:not([data-taskdeck-readonly-kind="terminal"]) textarea,[data-taskdeck-readonly="1"]:not([data-taskdeck-readonly-kind="terminal"]) select{opacity:.55}
 [data-taskdeck-readonly="1"]:not([data-taskdeck-readonly-kind="terminal"]) .cm-content{caret-color:transparent}
@@ -117,10 +121,35 @@ function setDescriptorReadOnly(descriptor,enabled){
   return next;
 }
 
+function decorateTerminalPane(view){
+  const head=view?.pane?.querySelector('.pane-head');
+  if(!head)return null;
+  let trigger=head.querySelector(':scope > .terminal-context-trigger');
+  if(trigger)return trigger;
+  trigger=document.createElement('button');
+  trigger.type='button';
+  trigger.className='terminal-context-trigger';
+  trigger.textContent='⋮';
+  trigger.title='Open the same context menu as right-clicking this terminal tab';
+  trigger.setAttribute('aria-label','Open terminal context menu');
+  trigger.setAttribute('aria-haspopup','menu');
+  trigger.setAttribute('aria-expanded','false');
+  trigger.onclick=event=>{
+    event.preventDefault();event.stopPropagation();
+    const rect=trigger.getBoundingClientRect();
+    openContextMenu(view,rect.left,rect.bottom+3);
+    trigger.setAttribute('aria-expanded','true');
+  };
+  head.prepend(trigger);
+  return trigger;
+}
+
 function registerTab(tab){
   setTimeout(()=>{
     const descriptor=descriptorForTab(tab);
-    if(descriptor)applyDescriptorReadOnly(descriptor,descriptorReadOnly(descriptor));
+    if(!descriptor)return;
+    applyDescriptorReadOnly(descriptor,descriptorReadOnly(descriptor));
+    if(descriptor.kind==='terminal')decorateTerminalPane(descriptor.view);
   },0);
 }
 
@@ -133,6 +162,7 @@ function closeContextMenu(){
   closeSubmenu();
   menu.classList.remove('open');
   menu.replaceChildren();
+  for(const trigger of document.querySelectorAll('.terminal-context-trigger[aria-expanded="true"]'))trigger.setAttribute('aria-expanded','false');
   contextView=null;
 }
 
@@ -465,6 +495,7 @@ globalThis.TaskMenuTabContext={
   openContextMenu,
   closeContextMenu,
   registerTab,
+  decorateTerminalPane,
   setReadOnly(tabOrDescriptor,enabled){
     const descriptor=tabOrDescriptor?.kind?tabOrDescriptor:descriptorForTab(tabOrDescriptor);
     return setDescriptorReadOnly(descriptor,enabled);
