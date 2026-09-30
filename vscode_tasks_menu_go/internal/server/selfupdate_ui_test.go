@@ -42,6 +42,14 @@ func TestSelfUpdateBrowserWorkflow(t *testing.T) {
 		"Automatic self-update did not start.",
 		"checkUpdate.textContent='Updating…'",
 		"overlay.classList.add('visible','nonblocking')",
+		"function showStartingProgress()",
+		"function showReconnectProgress()",
+		"showStartingProgress();",
+		"if(req.status==='completed'){show(req);redirectAfterUpdate(req);return;}",
+		"if(startingFromSettings||currentID)",
+		"showReconnectProgress();",
+		"actions.style.display=failed?'flex':'none'",
+		"Update completed. Reloading TaskDeck…",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("selfupdate.js missing %q", want)
@@ -109,5 +117,31 @@ func TestSelfUpdateFailureCopyIncludesRevisionAndFullError(t *testing.T) {
 		if !strings.Contains(block,want) {
 			t.Fatalf("self-update copied failure details missing %q",want)
 		}
+	}
+}
+
+
+func TestSelfUpdateBrowserShowsProgressForMenuAndCLIUpdates(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/selfupdate.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function show(req,{reconnecting=false,starting=false}={})",
+		"currentID=req?.id||currentID||''",
+		"intro.textContent=String(req?.message||'Update is running in the background.",
+		"show(req);",
+		"if(startingFromSettings||currentID)",
+		"Waiting for the TaskDeck daemon to reconnect…",
+		"if(req.status==='completed'){show(req);redirectAfterUpdate(req);return;}",
+		"setTimeout(()=>location.replace(url.toString()),450)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("selfupdate.js missing shared menu/CLI progress behavior %q", want)
+		}
+	}
+	if strings.Contains(js, "if(!failed){hide();return;}") {
+		t.Fatal("active self-update state must remain visible as a nonblocking status toast")
 	}
 }
