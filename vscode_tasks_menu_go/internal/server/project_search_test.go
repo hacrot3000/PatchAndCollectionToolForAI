@@ -128,3 +128,61 @@ func TestSearchProjectFileIndexTopKPreservesRankingAndTieBreak(t *testing.T) {
 		t.Fatalf("top result=%#v want feature.go", results[0])
 	}
 }
+
+
+func TestProjectFileSearchFuzzySubsequenceAndWildcardRanking(t *testing.T) {
+	paths := []string{
+		"src/abcdef.go",
+		"src/abXXdef.go",
+		"docs/notes_abcdef.txt",
+		"src/other.go",
+	}
+	idx, err := newProjectFileIndex(paths, time.Now())
+	if err != nil { t.Fatal(err) }
+
+	results := searchProjectFileIndex(idx, "abdef", 10)
+	if len(results) == 0 || results[0].Path != "src/abcdef.go" {
+		t.Fatalf("fuzzy results=%+v, want src/abcdef.go first", results)
+	}
+
+	results = searchProjectFileIndex(idx, "ab*def.go", 10)
+	if len(results) < 2 {
+		t.Fatalf("wildcard results=%+v, want matching files", results)
+	}
+	if results[0].Path != "src/abcdef.go" {
+		t.Fatalf("wildcard top=%+v, want compact basename first", results[0])
+	}
+
+	results = searchProjectFileIndex(idx, "ab?def.go", 10)
+	if len(results) != 1 || results[0].Path != "src/abcdef.go" {
+		t.Fatalf("single-char wildcard results=%+v", results)
+	}
+
+	results = searchProjectFileIndex(idx, "ab%def.go", 10)
+	if len(results) < 2 {
+		t.Fatalf("percent wildcard results=%+v", results)
+	}
+}
+
+func TestProjectFileSearchRefreshFindsFileMissingFromStaleIndex(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	root := t.TempDir()
+	stale, err := newProjectFileIndex([]string{"old.txt"}, time.Now().Add(-time.Hour))
+	if err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(root, "exact_new_file.txt"), []byte("new"), 0o644); err != nil { t.Fatal(err) }
+
+	s := &Server{Workspace: root, projectIndex: stale}
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/project/files/search?q=exact_new_file.txt&limit=50&refresh=1", nil)
+	s.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("refresh search status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var got struct {
+		Results []projectFileSearchResult `json:"results"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil { t.Fatal(err) }
+	if len(got.Results) == 0 || got.Results[0].Path != "exact_new_file.txt" {
+		t.Fatalf("refresh results=%+v", got.Results)
+	}
+}
