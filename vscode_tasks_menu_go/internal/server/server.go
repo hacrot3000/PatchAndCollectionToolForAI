@@ -50,6 +50,12 @@ type Server struct {
 	projectIndex           *projectFileIndex
 	projectIndexRefreshing bool
 
+	gitReposMu      sync.Mutex
+	gitRepos        []gitRepository
+	gitReposAt      time.Time
+	gitSettings     config.GitSettings
+	gitDefaultRepo  string
+
 	authMu        sync.Mutex
 	authFailures  map[string]authFailureState
 	sharedLoginMu sync.Mutex
