@@ -6,9 +6,9 @@ if(!tabsHost)throw new Error('Tab host unavailable for tab context menu');
 
 const style=document.createElement('style');
 style.textContent=`
-.tab-context-menu{position:fixed;z-index:4000;display:none;min-width:230px;max-width:min(360px,92vw);max-height:min(620px,86vh);overflow:auto;padding:7px;border:1px solid #3b414d;border-radius:8px;background:#171a20;box-shadow:0 12px 34px rgba(0,0,0,.42)}
+.tab-context-menu{position:fixed;z-index:4000;display:none;min-width:230px;max-width:min(360px,92vw);max-height:min(620px,86vh);overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:7px;border:1px solid #3b414d;border-radius:8px;background:#171a20;box-shadow:0 12px 34px rgba(0,0,0,.42)}
 .tab-context-menu.open{display:block}
-.tab-context-submenu{position:fixed;z-index:4100;display:none;min-width:300px;max-width:min(520px,92vw);max-height:min(620px,86vh);overflow:auto;padding:7px;border:1px solid #3b414d;border-radius:8px;background:#171a20;box-shadow:0 12px 34px rgba(0,0,0,.42)}
+.tab-context-submenu{position:fixed;z-index:4100;display:none;min-width:300px;max-width:min(520px,92vw);max-height:min(620px,86vh);overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:7px;border:1px solid #3b414d;border-radius:8px;background:#171a20;box-shadow:0 12px 34px rgba(0,0,0,.42)}
 .tab-context-submenu.open{display:block}
 .tab-context-submenu button{display:block;width:100%;text-align:left;margin:2px 0;padding:6px 9px;font-size:12px}
 .tab-context-submenu .context-danger{background:#4a252a;border-color:#7a4048;color:#ffe2e4}
@@ -442,7 +442,8 @@ document.addEventListener('pointerdown',event=>{
 document.addEventListener('keydown',event=>{if(event.key==='Escape')closeContextMenu();});
 window.addEventListener('blur',closeContextMenu);
 window.addEventListener('resize',closeContextMenu);
-window.addEventListener('scroll',closeContextMenu,true);
+menu.addEventListener('scroll',()=>closeSubmenu(),{passive:true});
+menu.addEventListener('wheel',event=>event.stopPropagation(),{passive:true});
 
 const tabObserver=new MutationObserver(records=>{
   for(const record of records){
