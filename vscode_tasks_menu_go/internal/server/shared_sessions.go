@@ -142,7 +142,7 @@ func sharedSessionActionAllowed(principal identity.Principal, meta session.Metad
 	if principal.Allowed(identity.PermissionSessionsManage) {
 		return true
 	}
-	view := (action == "" && method == http.MethodGet) || action == "protocol" || action == "ws" || action == "cwd"
+	view := (action == "" && method == http.MethodGet) || action == "protocol" || action == "ws" || (action == "cwd" && method == http.MethodGet)
 	switch meta.Kind {
 	case tasks.SessionKindTerminal:
 		if view {
