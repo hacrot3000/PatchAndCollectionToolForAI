@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRequestLifecycle(t *testing.T) {
@@ -36,6 +37,46 @@ func TestRequestLifecycle(t *testing.T) {
 	}
 	if completed.CompletedAt == "" || completed.TargetURL == "" {
 		t.Fatalf("completion not recorded: %#v", completed)
+	}
+}
+
+
+func TestReconcileAbandonedLegacyConfirmedRequest(t *testing.T) {
+	workspace := t.TempDir()
+	req, err := CreateRequest(workspace, "0123456789abcdef", "https://127.0.0.1:42881", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.UpdaterPID = 0
+	req.UpdatedAt = time.Now().Add(-time.Minute).Format(time.RFC3339)
+	req.ConfirmedAt = req.UpdatedAt
+	if err := Save(workspace, req); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReconcileAbandoned(workspace, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "failed" || !strings.Contains(got.Error, "stopped before completion") {
+		t.Fatalf("reconciled request=%#v", got)
+	}
+}
+
+func TestBindUpdaterPIDRecordsOwner(t *testing.T) {
+	workspace := t.TempDir()
+	req, err := CreateRequest(workspace, "0123456789abcdef", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := BindUpdaterPID(workspace, req.ID, os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.UpdaterPID != os.Getpid() || got.UpdatedAt == "" {
+		t.Fatalf("updater owner not recorded: %#v", got)
+	}
+	if !ActiveStatus(got.Status) {
+		t.Fatalf("confirmed request should be active: %#v", got)
 	}
 }
 
