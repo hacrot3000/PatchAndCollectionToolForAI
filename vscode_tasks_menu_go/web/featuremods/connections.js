@@ -11,7 +11,7 @@ let connectionContextMenu=null;
 
 const style=document.createElement('style');
 style.textContent=`
-.task-connections-panel{display:none;position:fixed;top:var(--taskmenu-header-height,34px);bottom:0;left:48px;z-index:1800;width:min(var(--taskmenu-sidebar-panel-width,310px),calc(100vw - 48px));background:#11151b;border-right:1px solid #3b414d;box-shadow:10px 0 28px rgba(0,0,0,.28);flex-direction:column}
+.task-connections-panel{display:none;position:fixed;top:var(--taskmenu-header-height,30px);bottom:0;left:48px;z-index:1800;width:min(var(--taskmenu-sidebar-panel-width,310px),calc(100vw - 48px));background:#11151b;border-right:1px solid #3b414d;box-shadow:10px 0 28px rgba(0,0,0,.28);flex-direction:column}
 .task-connections-panel.visible{display:flex}
 .task-connections-head{height:42px;display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #30343b}
 .task-connections-title{font-size:12px;font-weight:700;letter-spacing:.04em;flex:1}
@@ -44,7 +44,7 @@ style.textContent=`
 .task-connection-dialog-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:7px;margin-top:5px}
 .task-connection-primary{background:#244c70;border-color:#3f79a8}
 .task-connection-danger{background:#54252a;border-color:#7b3941}
-body:not(.task-sidebar-auto-hide) .task-connections-panel{top:calc(var(--taskmenu-header-height,34px) + 46px);left:0;width:var(--taskmenu-sidebar-inline-width,310px);box-shadow:none}
+body:not(.task-sidebar-auto-hide) .task-connections-panel{top:calc(var(--taskmenu-header-height,30px) + 46px);left:0;width:var(--taskmenu-sidebar-inline-width,310px);box-shadow:none}
 html[data-taskmenu-theme="light"] .task-connections-panel{background:#fff;border-color:#b9c0c8;box-shadow:10px 0 28px rgba(0,0,0,.12)}
 html[data-taskmenu-theme="light"] body:not(.task-sidebar-auto-hide) .task-connections-panel{box-shadow:none}
 html[data-taskmenu-theme="light"] .task-connection-row:hover{background:#eef2f6}
