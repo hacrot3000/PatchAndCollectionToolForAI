@@ -153,6 +153,10 @@ func TestFeatureTabsSupportPersistentReadOnlyMode(t *testing.T) {
 		"function setDescriptorReadOnly(descriptor,enabled)",
 		"taskmenu:tab-readonly-changed",
 		"data-taskdeck-readonly",
+		"descriptor.pane.dataset.taskdeckReadonlyKind=descriptor.kind",
+		"[data-taskdeck-readonly=\"1\"]:not([data-taskdeck-readonly-kind=\"terminal\"])",
+		"function readonlyMutationPaneFromTarget(target)",
+		"if(!pane||pane.dataset.taskdeckReadonlyKind==='terminal')return null",
 		"document.addEventListener('beforeinput',stopReadonlyMutation,true)",
 		"document.addEventListener('click',event=>",
 		"document.addEventListener('contextmenu',event=>",
@@ -170,11 +174,17 @@ func TestFeatureTabsSupportPersistentReadOnlyMode(t *testing.T) {
 		"view.tabReadOnly=Boolean(enabled)",
 		"view.term.options.disableStdin=!view.canControl||view.tabReadOnly",
 		"view.canControl&&!view.tabReadOnly&&!browserLeaseLost",
+		"view.pane.dataset.taskdeckReadonlyKind='terminal'",
+		"if(view.stop)view.stop.disabled=view.meta?.status!=='running'",
+		"view.stop.hidden=!view.canControl;view.stop.disabled=meta.status!=='running'",
 		"materializeSession,setViewReadOnly,addOutputFilter",
 	} {
 		if !strings.Contains(appJS, want) {
 			t.Fatalf("core terminal UI missing tab read-only behavior %q", want)
 		}
+	}
+	if strings.Contains(appJS, "view.stop.disabled=Boolean(view.tabReadOnly)") || strings.Contains(appJS, "view.stop.disabled=view.tabReadOnly") {
+		t.Fatal("terminal read-only must not disable Stop or other utility controls")
 	}
 
 	editorData, err := webassets.Files.ReadFile("featuremods/editor.js")
