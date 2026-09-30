@@ -937,14 +937,16 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		branch := strings.TrimSpace(req.Branch)
 		if err := s.validBranchName(r.Context(), branch); err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
 		if !s.localBranchExists(r.Context(), branch) { http.Error(w, "local branch not found", http.StatusNotFound); return }
-		clean, err := s.gitWorktreeClean(r.Context()); if err != nil { http.Error(w, err.Error(), http.StatusConflict); return }
-		if !clean { http.Error(w, "working tree must be clean before switching branch; commit or stash changes first", http.StatusConflict); return }
+		// Let Git decide whether local changes can move safely with the switch.
+		// Non-conflicting staged/unstaged/untracked changes are preserved; Git
+		// itself refuses the switch if checkout would overwrite local work.
 		args = []string{"switch", branch}
 	case "create_branch":
 		branch := strings.TrimSpace(req.Branch)
 		if err := s.validBranchName(r.Context(), branch); err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
-		clean, err := s.gitWorktreeClean(r.Context()); if err != nil { http.Error(w, err.Error(), http.StatusConflict); return }
-		if !clean { http.Error(w, "working tree must be clean before creating/switching branch; commit or stash changes first", http.StatusConflict); return }
+		// Creating a branch at the current HEAD does not require a clean tree.
+		// Keep local changes attached to the new branch exactly as git switch -c
+		// normally does.
 		args = []string{"switch", "-c", branch}
 	case "merge":
 		branch := strings.TrimSpace(req.Branch)
