@@ -522,6 +522,14 @@ func (s *Server) gitRemoteNames(ctx context.Context) []string {
 	return names
 }
 
+func (s *Server) gitConfiguredBranchUpstream(ctx context.Context, branch string) string {
+	out, _, _, err := s.runGit(ctx, 3*time.Second, "for-each-ref", "--format=%(upstream:short)", "refs/heads/"+branch)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
 func (s *Server) gitMergeToPushDestination(ctx context.Context, targetSource, branch string) (string, string, error) {
 	switch targetSource {
 	case "remote":
@@ -535,7 +543,7 @@ func (s *Server) gitMergeToPushDestination(ctx context.Context, targetSource, br
 		}
 		return remote, pushBranch, nil
 	case "local":
-		upstream := s.gitLocalBranchUpstream(ctx, branch)
+		upstream := s.gitConfiguredBranchUpstream(ctx, branch)
 		if upstream != "" {
 			remote := s.gitRemoteNameForRef(ctx, upstream)
 			if remote != "" {
