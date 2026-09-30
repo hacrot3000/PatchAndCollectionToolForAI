@@ -4,7 +4,7 @@ if(!app)throw new Error('TaskMenuApp unavailable for git status');
 const style=document.createElement('style');
 style.textContent=`
 .git-status-pill{display:none;white-space:nowrap;font-family:ui-monospace,monospace;font-size:11px;padding:5px 8px;max-width:360px;overflow:hidden;text-overflow:ellipsis}.git-status-pill.visible{display:block}.git-status-pill.dirty{border-color:#8a6d3b;background:#3a2f1d}.git-status-pill.clean{border-color:#3f6b4a;background:#1f3526}
-.git-panel{display:none;position:fixed;z-index:1500;top:calc(var(--taskmenu-header-height,30px) + 6px);right:12px;bottom:12px;width:min(780px,calc(100vw - 24px));border:1px solid #3b414d;border-radius:10px;background:#11161d;box-shadow:0 16px 42px rgba(0,0,0,.48);overflow:hidden}.git-panel.visible{display:flex;flex-direction:column}.git-panel-head{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid #30343b}.git-panel-title{font-weight:700}.git-panel-summary{font:11px ui-monospace,monospace;opacity:.65;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-panel-close{padding:4px 8px}.git-quick-groups{display:flex;gap:7px;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid #30343b}.git-quick-group{display:flex;align-items:center;gap:4px;padding:4px;border:1px solid #30343b;border-radius:7px;background:#151b23}.git-quick-group strong{font-size:10px;opacity:.55;margin:0 3px}.git-quick-group button{padding:4px 7px;font-size:11px}.git-nav{display:flex;gap:4px;overflow:auto;padding:7px 10px;border-bottom:1px solid #30343b}.git-nav button{padding:5px 8px;font-size:11px;white-space:nowrap}.git-nav button.active{background:#34445a;border-color:#52719a}.git-panel-content{flex:1;min-height:0;overflow:auto;padding:10px}.git-empty{opacity:.6;padding:18px;text-align:center}.git-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:7px;align-items:center;padding:7px 5px;border-bottom:1px solid #252c35}.git-row:last-child{border-bottom:0}.git-row-code{font:11px ui-monospace,monospace;min-width:28px;opacity:.75}.git-row-main{min-width:0}.git-row-title{font:12px ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-row-sub{font-size:10px;opacity:.55;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-row-actions{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}.git-row-actions button{padding:3px 6px;font-size:10px}.git-diff-pre,.git-operation-output,.git-compare-pre{white-space:pre-wrap;word-break:break-word;font:11px/1.45 ui-monospace,monospace;background:#090d12;border:1px solid #30343b;border-radius:7px;padding:9px;margin:8px 0;overflow:auto}.git-operation{border-top:1px solid #30343b;padding:7px 10px;max-height:160px;overflow:auto}.git-operation-head{display:flex;align-items:center;gap:6px}.git-operation-command{flex:1;min-width:0;font:10px ui-monospace,monospace;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-operation button{padding:3px 6px;font-size:10px}.git-operation-output{margin:5px 0 0;max-height:90px}.git-branch-create,.git-compare-controls{display:flex;gap:6px;align-items:center;margin-bottom:8px}.git-branch-create input,.git-compare-controls select{flex:1;min-width:0;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:6px 8px}.git-direction-ahead{color:#72cf8a}.git-direction-behind{color:#e5b85c}
+.git-panel{display:none;position:fixed;z-index:1500;top:calc(var(--taskmenu-header-height,30px) + 6px);right:12px;bottom:12px;width:min(780px,calc(100vw - 24px));border:1px solid #3b414d;border-radius:10px;background:#11161d;box-shadow:0 16px 42px rgba(0,0,0,.48);overflow:hidden}.git-panel.visible{display:flex;flex-direction:column}.git-panel-head{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid #30343b}.git-panel-title{font-weight:700}.git-panel-summary{font:11px ui-monospace,monospace;opacity:.65;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-panel-close{padding:4px 8px}.git-quick-groups{display:flex;gap:7px;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid #30343b}.git-quick-group{display:flex;align-items:center;gap:4px;padding:4px;border:1px solid #30343b;border-radius:7px;background:#151b23}.git-quick-group strong{font-size:10px;opacity:.55;margin:0 3px}.git-quick-group button{padding:4px 7px;font-size:11px}.git-action-running{background:#34445a!important;border-color:#6f91bb!important;box-shadow:0 0 0 1px rgba(111,145,187,.35) inset}.git-action-success{background:#21452d!important;border-color:#4f8d61!important}.git-action-error{background:#51262b!important;border-color:#9b5059!important}.git-action-running,.git-action-success,.git-action-error{transition:background .12s ease,border-color .12s ease,transform .12s ease}.git-action-running{transform:translateY(1px)}.git-nav{display:flex;gap:4px;overflow:auto;padding:7px 10px;border-bottom:1px solid #30343b}.git-nav button{padding:5px 8px;font-size:11px;white-space:nowrap}.git-nav button.active{background:#34445a;border-color:#52719a}.git-panel-content{flex:1;min-height:0;overflow:auto;padding:10px}.git-empty{opacity:.6;padding:18px;text-align:center}.git-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:7px;align-items:center;padding:7px 5px;border-bottom:1px solid #252c35}.git-row:last-child{border-bottom:0}.git-row-code{font:11px ui-monospace,monospace;min-width:28px;opacity:.75}.git-row-main{min-width:0}.git-row-title{font:12px ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-row-sub{font-size:10px;opacity:.55;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-row-actions{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}.git-row-actions button{padding:3px 6px;font-size:10px}.git-diff-pre,.git-operation-output,.git-compare-pre{white-space:pre-wrap;word-break:break-word;font:11px/1.45 ui-monospace,monospace;background:#090d12;border:1px solid #30343b;border-radius:7px;padding:9px;margin:8px 0;overflow:auto}.git-operation{border-top:1px solid #30343b;padding:7px 10px;max-height:160px;overflow:auto}.git-operation.running{box-shadow:inset 3px 0 0 #6f91bb}.git-operation-head{display:flex;align-items:center;gap:6px}.git-operation-command{flex:1;min-width:0;font:10px ui-monospace,monospace;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-operation button{padding:3px 6px;font-size:10px}.git-operation-output{margin:5px 0 0;max-height:90px}.git-branch-create,.git-compare-controls{display:flex;gap:6px;align-items:center;margin-bottom:8px}.git-branch-create input,.git-compare-controls select{flex:1;min-width:0;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:6px 8px}.git-direction-ahead{color:#72cf8a}.git-direction-behind{color:#e5b85c}
 html[data-taskmenu-theme="light"] .git-panel{background:#fff;border-color:#b9c0c8;box-shadow:0 16px 42px rgba(0,0,0,.18)}html[data-taskmenu-theme="light"] .git-panel-head,html[data-taskmenu-theme="light"] .git-quick-groups,html[data-taskmenu-theme="light"] .git-nav,html[data-taskmenu-theme="light"] .git-operation{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-quick-group{background:#f6f8fa;border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-diff-pre,html[data-taskmenu-theme="light"] .git-operation-output,html[data-taskmenu-theme="light"] .git-compare-pre{background:#f6f8fa;border-color:#d0d7de;color:#202124}
 `;
 document.head.append(style);
@@ -31,23 +31,28 @@ operationHead.append(operationCommand,operationCopy,operationClear);operation.ap
 panel.append(panelHead,quickGroups,nav,content,operation);document.body.append(panel);
 
 let currentStatus=null,currentView='changes',refreshing=false,lastCommand='';
+const runningActions=new Map();
 function el(tag,className,text){const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node;}
 function q(value){value=String(value??'');return /^[A-Za-z0-9_./:@+\-]+$/.test(value)?value:"'"+value.replace(/'/g,"'\\''")+"'";}
 function actionCommand(action,payload={}){
   switch(action){
     case 'fetch':return 'git fetch --prune';case 'pull':return 'git pull --ff-only';case 'push':return 'git push';case 'stage_all':return 'git add -A';
     case 'stage':return 'git add -- '+q(payload.path);case 'unstage':return 'git restore --staged -- '+q(payload.path);case 'commit':return 'git commit -m '+q(payload.message);
-    case 'switch':return 'git switch '+q(payload.branch);case 'create_branch':return 'git switch -c '+q(payload.branch);case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
+    case 'switch':return 'git switch '+q(payload.branch);case 'create_branch':return 'git switch -c '+q(payload.branch);case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
   }
 }
 async function copyText(text){
   if(navigator.clipboard&&window.isSecureContext){try{await navigator.clipboard.writeText(text);return;}catch{}}
   const area=document.createElement('textarea');area.value=text;area.setAttribute('readonly','');area.style.position='fixed';area.style.left='-9999px';document.body.append(area);area.select();try{document.execCommand('copy');}finally{area.remove();}
 }
-function showOperation(command,output,error=''){
-  lastCommand=command||'';operation.hidden=false;operationCommand.textContent=command||'Git';operationOutput.textContent=[error&&('ERROR: '+error),output].filter(Boolean).join('\n')||'(no output)';
+function showOperation(command,output,error='',state='done'){
+  lastCommand=command||'';operation.hidden=false;operation.classList.toggle('running',state==='running');operationCommand.textContent=command||'Git';operationOutput.textContent=[error&&('ERROR: '+error),output].filter(Boolean).join('\n')||'(no output)';
 }
-operationCopy.onclick=()=>copyText(lastCommand).catch(app.showError);operationClear.onclick=()=>{operation.hidden=true;operationOutput.textContent='';lastCommand='';};
+function beginOperation(command,message='Running…'){
+  showOperation(command,message,'','running');
+  requestAnimationFrame(()=>operation.scrollIntoView({block:'nearest'}));
+}
+operationCopy.onclick=()=>copyText(lastCommand).catch(app.showError);operationClear.onclick=()=>{operation.hidden=true;operation.classList.remove('running');operationOutput.textContent='';lastCommand='';};
 
 function renderStatus(data){
   currentStatus=data;
@@ -62,16 +67,55 @@ async function refresh(){
   finally{refreshing=false;}
 }
 async function gitView(view,params={}){const query=new URLSearchParams({view,...params});return app.jsonFetch('/api/git/status?'+query.toString());}
+function actionKey(actionName,payload={}){
+  const entries=Object.entries(payload).filter(([key])=>key!=='merge_ref').sort(([a],[b])=>a.localeCompare(b));
+  return actionName+':'+JSON.stringify(Object.fromEntries(entries));
+}
 async function action(actionName,payload={},confirmText=''){
-  if(confirmText&&!window.confirm(confirmText))return null;
+  const key=actionKey(actionName,payload);
+  if(runningActions.has(key))return runningActions.get(key);
+  if(confirmText&&!window.confirm(confirmText))return false;
   const command=actionCommand(actionName,payload);
-  const data=await app.jsonFetch('/api/git/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:actionName,...payload})});
-  showOperation(command,data.output||'',data.ok?'':(data.error||'Git action failed'));
-  if(!data.ok)throw new Error(data.error||'Git action failed');
-  await refresh();await loadCurrentView();return data;
+  beginOperation(command);
+  const pending=(async()=>{
+    try{
+      const data=await app.jsonFetch('/api/git/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:actionName,...payload})});
+      showOperation(command,data.output||'',data.ok?'':(data.error||'Git action failed'));
+      if(!data.ok)throw new Error(data.error||'Git action failed');
+      await refresh();await loadCurrentView();return data;
+    }catch(error){
+      showOperation(command,'',error?.message||String(error));
+      throw error;
+    }finally{
+      runningActions.delete(key);
+    }
+  })();
+  runningActions.set(key,pending);
+  return pending;
+}
+function bindActionButton(button,run){
+  const label=button.textContent;
+  button.onclick=async()=>{
+    if(button.dataset.gitBusy==='1')return;
+    button.dataset.gitBusy='1';button.disabled=true;button.setAttribute('aria-busy','true');button.classList.remove('git-action-success','git-action-error');button.classList.add('git-action-running');button.textContent='⏳ '+label;
+    let state='success';
+    try{
+      const result=await run();
+      if(result===false)state='';
+    }catch(error){
+      state='error';app.showError(error);
+    }finally{
+      button.classList.remove('git-action-running');
+      button.removeAttribute('aria-busy');
+      if(state){button.classList.add(state==='success'?'git-action-success':'git-action-error');button.textContent=(state==='success'?'✓ ':'✕ ')+label;}
+      else button.textContent=label;
+      setTimeout(()=>{if(!button.isConnected)return;button.classList.remove('git-action-success','git-action-error');button.textContent=label;button.disabled=false;delete button.dataset.gitBusy;},state?850:0);
+    }
+  };
+  return button;
 }
 
-function quickGroup(label,buttons){const group=el('div','git-quick-group');group.append(el('strong','',label));for(const spec of buttons){const b=el('button','',spec.label);b.title=spec.title||spec.label;b.onclick=()=>Promise.resolve(spec.run()).catch(app.showError);group.append(b);}quickGroups.append(group);}
+function quickGroup(label,buttons){const group=el('div','git-quick-group');group.append(el('strong','',label));for(const spec of buttons){const b=el('button','',spec.label);b.title=spec.title||spec.label;bindActionButton(b,spec.run);group.append(b);}quickGroups.append(group);}
 quickGroup('SYNC',[
   {label:'Refresh',run:async()=>{await refresh();await loadCurrentView();}},
   {label:'Fetch',run:()=>action('fetch')},
@@ -85,14 +129,14 @@ quickGroup('WORKTREE',[
   {label:'Stash',run:()=>stashPush()}
 ]);
 
-async function commit(pushAfter){const message=window.prompt('Commit message:','');if(message===null||!message.trim())return;await action('commit',{message:message.trim()});if(pushAfter)await action('push');}
-async function stashPush(){const message=window.prompt('Stash message (leave blank to use the default):','');if(message===null)return;await action('stash_push',{message:message.trim()});}
+async function commit(pushAfter){const message=window.prompt('Commit message:','');if(message===null||!message.trim())return false;await action('commit',{message:message.trim()});if(pushAfter)await action('push');return true;}
+async function stashPush(){const message=window.prompt('Stash message (leave blank to use the default):','');if(message===null)return false;await action('stash_push',{message:message.trim()});return true;}
 
 const views=[['changes','Changes'],['branches','Branches'],['log','Log'],['ahead-behind','Ahead / Behind'],['stashes','Stash'],['compare','Compare']];
 for(const [id,label] of views){const b=el('button','',label);b.dataset.gitView=id;b.onclick=()=>{currentView=id;updateNav();loadCurrentView().catch(app.showError);};nav.append(b);}
 function updateNav(){for(const b of nav.querySelectorAll('button'))b.classList.toggle('active',b.dataset.gitView===currentView);}
 function empty(message){content.replaceChildren(el('div','git-empty',message));}
-function actionButton(label,run,title=''){const b=el('button','',label);if(title)b.title=title;b.onclick=()=>Promise.resolve(run()).catch(app.showError);return b;}
+function actionButton(label,run,title=''){const b=el('button','',label);if(title)b.title=title;return bindActionButton(b,run);}
 
 async function showDiff(path,mode){
   const data=await gitView('diff',{path,mode});content.replaceChildren();
@@ -106,9 +150,42 @@ async function loadChanges(){
     if(change.unstaged||change.untracked)actions.append(actionButton('Stage',()=>action('stage',{path:change.path})));if(change.staged)actions.append(actionButton('Unstage',()=>action('unstage',{path:change.path})));actions.append(actionButton('Copy path',()=>copyText(change.path)));row.append(code,main,actions);content.append(row);
   }
 }
+async function mergeBranch(branch){
+  const label='Merge '+branch.name;
+  beginOperation(label,'Checking working tree and local/remote branch revisions…');
+  let check;
+  try{
+    check=await gitView('merge-preflight',{branch:branch.name});
+  }catch(error){
+    showOperation(label,'',error?.message||String(error));
+    throw error;
+  }
+  let source=check.default_source||'';
+  if(check.requires_choice){
+    const localSHA=(check.local_sha||'').slice(0,12);
+    const remoteSHA=(check.remote_sha||'').slice(0,12);
+    const answer=window.prompt(
+      'Local and remote versions differ for '+branch.name+'.\n\n'+
+      'LOCAL  : '+check.local_ref+' @ '+localSHA+'\n'+
+      'REMOTE : '+check.remote_ref+' @ '+remoteSHA+'\n\n'+
+      'Type LOCAL or REMOTE to choose the version merged into '+check.current+':',
+      branch.remote?'REMOTE':'LOCAL'
+    );
+    if(answer===null){showOperation(label,'Merge canceled');return false;}
+    source=answer.trim().toLowerCase();
+    if(source!=='local'&&source!=='remote'){
+      const error=new Error('Merge canceled: enter LOCAL or REMOTE.');
+      showOperation(label,'',error.message);throw error;
+    }
+  }
+  const mergeRef=source==='remote'?check.remote_ref:check.local_ref;
+  if(!mergeRef){const error=new Error('Selected merge source is unavailable.');showOperation(label,'',error.message);throw error;}
+  if(!window.confirm('Merge '+mergeRef+' into current branch '+check.current+'?')){showOperation(label,'Merge canceled');return false;}
+  return action('merge',{branch:branch.name,source,merge_ref:mergeRef});
+}
 async function loadBranches(){
-  const data=await gitView('branches');content.replaceChildren();const create=el('div','git-branch-create');const input=document.createElement('input');input.placeholder='new branch name';const button=actionButton('Create & switch',async()=>{const name=input.value.trim();if(!name)return;await action('create_branch',{branch:name});input.value='';});create.append(input,button);content.append(create);
-  const addRows=(label,rows)=>{content.append(el('div','taskmenu-menu-label',label));for(const branch of rows||[]){const row=el('div','git-row');const code=el('span','git-row-code',branch.current?'*':'');const main=el('div','git-row-main');main.append(el('div','git-row-title',branch.name),el('div','git-row-sub',branch.upstream||''));const actions=el('div','git-row-actions');if(!branch.remote&&!branch.current)actions.append(actionButton('Switch',()=>action('switch',{branch:branch.name})));actions.append(actionButton('Compare',()=>loadCompare(branch.name)),actionButton('Copy',()=>copyText(branch.name)));row.append(code,main,actions);content.append(row);}};
+  const data=await gitView('branches');content.replaceChildren();const create=el('div','git-branch-create');const input=document.createElement('input');input.placeholder='new branch name';const button=actionButton('Create & switch',async()=>{const name=input.value.trim();if(!name)return false;await action('create_branch',{branch:name});input.value='';return true;});create.append(input,button);content.append(create);
+  const addRows=(label,rows)=>{content.append(el('div','taskmenu-menu-label',label));for(const branch of rows||[]){const row=el('div','git-row');const code=el('span','git-row-code',branch.current?'*':'');const main=el('div','git-row-main');main.append(el('div','git-row-title',branch.name),el('div','git-row-sub',branch.upstream||''));const actions=el('div','git-row-actions');if(!branch.remote&&!branch.current)actions.append(actionButton('Switch',()=>action('switch',{branch:branch.name})));if(branch.remote||!branch.current)actions.append(actionButton('Merge',()=>mergeBranch(branch),'Merge this branch into the current branch'));actions.append(actionButton('Compare',()=>loadCompare(branch.name)),actionButton('Copy',()=>copyText(branch.name)));row.append(code,main,actions);content.append(row);}};
   addRows('LOCAL',data.local);addRows('REMOTE',data.remote);
 }
 async function loadLog(){const data=await gitView('log',{limit:'50'});content.replaceChildren();for(const commit of data.commits||[]){const row=el('div','git-row');const code=el('span','git-row-code',commit.short);const main=el('div','git-row-main');main.append(el('div','git-row-title',commit.subject),el('div','git-row-sub',commit.date+' · '+commit.author));const actions=el('div','git-row-actions');actions.append(actionButton('Copy SHA',()=>copyText(commit.sha)));row.append(code,main,actions);content.append(row);}if(!content.childElementCount)empty('No commits');}
