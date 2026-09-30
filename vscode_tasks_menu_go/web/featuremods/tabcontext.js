@@ -20,8 +20,8 @@ style.textContent=`
 .tab-context-menu button.context-check{display:flex;align-items:center;gap:8px}
 .tab-context-menu button.context-check input{margin:0;pointer-events:none}
 .taskdeck-tab-readonly::before{content:'🔒';font-size:10px;opacity:.72;margin-right:4px}
-[data-taskdeck-readonly="1"] button,[data-taskdeck-readonly="1"] input,[data-taskdeck-readonly="1"] textarea,[data-taskdeck-readonly="1"] select{opacity:.55}
-[data-taskdeck-readonly="1"] .cm-content{caret-color:transparent}
+[data-taskdeck-readonly="1"]:not([data-taskdeck-readonly-kind="terminal"]) button,[data-taskdeck-readonly="1"]:not([data-taskdeck-readonly-kind="terminal"]) input,[data-taskdeck-readonly="1"]:not([data-taskdeck-readonly-kind="terminal"]) textarea,[data-taskdeck-readonly="1"]:not([data-taskdeck-readonly-kind="terminal"]) select{opacity:.55}
+[data-taskdeck-readonly="1"]:not([data-taskdeck-readonly-kind="terminal"]) .cm-content{caret-color:transparent}
 html[data-taskmenu-theme="light"] .tab-context-menu,html[data-taskmenu-theme="light"] .tab-context-submenu{background:#fff;border-color:#b9c0c8;box-shadow:0 12px 34px rgba(0,0,0,.18)}
 html[data-taskmenu-theme="light"] .tab-context-menu button:hover:not(:disabled),html[data-taskmenu-theme="light"] .tab-context-submenu button:hover:not(:disabled){background:#edf2f7}
 html[data-taskmenu-theme="light"] .tab-context-menu button.context-danger,html[data-taskmenu-theme="light"] .tab-context-submenu button.context-danger{color:#7b3037}
@@ -90,7 +90,13 @@ function applyDescriptorReadOnly(descriptor,enabled){
   const next=Boolean(enabled);
   descriptor.tab?.classList.toggle('taskdeck-tab-readonly',next);
   if(descriptor.pane){
-    if(next)descriptor.pane.dataset.taskdeckReadonly='1';else delete descriptor.pane.dataset.taskdeckReadonly;
+    if(next){
+      descriptor.pane.dataset.taskdeckReadonly='1';
+      descriptor.pane.dataset.taskdeckReadonlyKind=descriptor.kind;
+    }else{
+      delete descriptor.pane.dataset.taskdeckReadonly;
+      delete descriptor.pane.dataset.taskdeckReadonlyKind;
+    }
     descriptor.pane.setAttribute('aria-readonly',next?'true':'false');
   }
   if(descriptor.kind==='terminal')app.setViewReadOnly?.(descriptor.view,next);
@@ -166,7 +172,7 @@ function addReadOnlyToggle(descriptor){
   const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.tabIndex=-1;checkbox.checked=descriptorReadOnly(descriptor);
   const label=document.createElement('span');label.textContent='Read only';
   item.append(checkbox,label);
-  item.title='When enabled, this tab keeps receiving output but ignores user input and actions';
+  item.title='When enabled, content input is read-only; toolbar and utility actions stay available';
   item.onclick=event=>{
     event.preventDefault();event.stopPropagation();
     checkbox.checked=setDescriptorReadOnly(descriptor,!checkbox.checked);
@@ -370,8 +376,14 @@ function readonlyPaneFromTarget(target){
   return target instanceof Element?target.closest('[data-taskdeck-readonly="1"]'):null;
 }
 
+function readonlyMutationPaneFromTarget(target){
+  const pane=readonlyPaneFromTarget(target);
+  if(!pane||pane.dataset.taskdeckReadonlyKind==='terminal')return null;
+  return pane;
+}
+
 function stopReadonlyMutation(event){
-  const pane=readonlyPaneFromTarget(event.target);
+  const pane=readonlyMutationPaneFromTarget(event.target);
   if(!pane)return;
   event.preventDefault();
   event.stopImmediatePropagation();
@@ -383,7 +395,7 @@ function readonlyKeyAllowed(event){
 }
 
 document.addEventListener('pointerdown',event=>{
-  const pane=readonlyPaneFromTarget(event.target);
+  const pane=readonlyMutationPaneFromTarget(event.target);
   if(!pane)return;
   const target=event.target instanceof Element?event.target:null;
   const interactive=target?.closest('button,input,select,textarea,[role="button"],[role="tab"]');
@@ -397,19 +409,19 @@ document.addEventListener('drop',stopReadonlyMutation,true);
 document.addEventListener('change',stopReadonlyMutation,true);
 document.addEventListener('submit',stopReadonlyMutation,true);
 document.addEventListener('keydown',event=>{
-  if(!readonlyPaneFromTarget(event.target)||readonlyKeyAllowed(event))return;
+  if(!readonlyMutationPaneFromTarget(event.target)||readonlyKeyAllowed(event))return;
   event.preventDefault();event.stopImmediatePropagation();
 },true);
 document.addEventListener('click',event=>{
-  if(!readonlyPaneFromTarget(event.target))return;
+  if(!readonlyMutationPaneFromTarget(event.target))return;
   event.preventDefault();event.stopImmediatePropagation();
 },true);
 document.addEventListener('dblclick',event=>{
-  if(!readonlyPaneFromTarget(event.target))return;
+  if(!readonlyMutationPaneFromTarget(event.target))return;
   event.preventDefault();event.stopImmediatePropagation();
 },true);
 document.addEventListener('contextmenu',event=>{
-  if(!readonlyPaneFromTarget(event.target))return;
+  if(!readonlyMutationPaneFromTarget(event.target))return;
   event.stopImmediatePropagation();
 },true);
 
