@@ -54,7 +54,9 @@ func TestTerminalReloadCanRemapChangedSessionIDsByCwdWithoutWrongSplitFallback(t
 		"const liveCwd=normalizedCwd(app.views.get(id)?.meta?.cwd)",
 		"normalizedCwd(meta.cwd)===wantedCwd",
 		"if(item)return ''",
-		"const reserved=new Set(used);if(first)reserved.add(first)",
+		"const groups=[];const introduced=new Set()",
+		"if(!first||!second||first===second||introduced.has(second))continue",
+		"introduced.add(first);introduced.add(second)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("terminalrestore.js missing safe CWD remap behavior %q", want)
