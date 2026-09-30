@@ -45,7 +45,12 @@ func TestSplitTerminalFeature(t *testing.T) {
 		"orientation==='horizontal'",
 		"function bindFocusTracking(view)",
 		"split-input-focused",
+		"let focusTrackingSuspendDepth=0",
+		"function suspendFocusTracking()",
+		"function resumeFocusTracking(preferredID='')",
+		"if(focusTrackingSuspendDepth>0||!id)return",
 		"markFocused(view.meta.id)",
+		"suspendFocusTracking,resumeFocusTracking",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("split.js missing behavior %q", want)
