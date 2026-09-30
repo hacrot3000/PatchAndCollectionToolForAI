@@ -127,16 +127,30 @@ function savedActiveSessionID(saved,ids){
 
 function applySavedLayout(saved,ids,{clearMissing=true}={}){
   if(!ids.length)return;
-  restoreTabOrder(ids);
-  const groups=restoredGroups(saved,ids);
-  if(app.layoutProfile==='mobile'){
-    globalThis.TaskMenuSplit?.clearPresentation?.();
-  }else if(groups.length)globalThis.TaskMenuSplit?.restoreProjectGroups?.(groups);
-  else if(clearMissing)globalThis.TaskMenuSplit?.clearAll?.();
-  const activeID=savedActiveSessionID(saved,ids);
-  if(activeID){
-    app.activateView(activeID);
-    setTimeout(()=>globalThis.TaskMenuSplit?.syncForActive?.(),0);
+  const split=globalThis.TaskMenuSplit;
+  split?.suspendFocusTracking?.();
+  let resumeScheduled=false;
+  try{
+    restoreTabOrder(ids);
+    const groups=restoredGroups(saved,ids);
+    if(app.layoutProfile==='mobile'){
+      split?.clearPresentation?.();
+    }else if(groups.length)split?.restoreProjectGroups?.(groups);
+    else if(clearMissing)split?.clearAll?.();
+    const activeID=savedActiveSessionID(saved,ids);
+    if(activeID){
+      app.activateView(activeID,{focus:false});
+      resumeScheduled=true;
+      setTimeout(()=>{
+        try{split?.syncForActive?.();}
+        finally{
+          split?.resumeFocusTracking?.(activeID);
+          app.focusView?.(activeID);
+        }
+      },0);
+    }
+  }finally{
+    if(!resumeScheduled)split?.resumeFocusTracking?.();
   }
 }
 
