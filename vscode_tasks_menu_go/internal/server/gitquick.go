@@ -45,7 +45,7 @@ func (s *Server) runGit(parent context.Context, timeout time.Duration, args ...s
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = s.Workspace
+	cmd.Dir = s.gitDirectory(parent)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "LC_ALL=C")
 	stdout := &cappedGitBuffer{limit: gitOutputLimit}
 	stderr := &cappedGitBuffer{limit: gitOutputLimit}
