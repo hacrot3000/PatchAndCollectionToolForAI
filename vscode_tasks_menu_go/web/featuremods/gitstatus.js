@@ -138,8 +138,16 @@ async function refresh(){
   if(refreshing)return;refreshing=true;
   try{
     if(!activeRepoID)await refreshRepositories(false);
+    const selectedBefore=activeRepoID;
     const query=new URLSearchParams();if(activeRepoID)query.set('repo',activeRepoID);
-    const data=await app.jsonFetch('/api/git/status'+(query.size?'?'+query.toString():''));
+    let data=await app.jsonFetch('/api/git/status'+(query.size?'?'+query.toString():''));
+    if(!data?.repository&&selectedBefore){
+      await refreshRepositories(true);
+      if(activeRepoID&&activeRepoID!==selectedBefore){
+        const retry=new URLSearchParams({repo:activeRepoID});
+        data=await app.jsonFetch('/api/git/status?'+retry.toString());
+      }
+    }
     renderStatus(data);
     const item=repositories.find(repo=>repo.id===activeRepoID);
     if(item&&data?.repository)Object.assign(item,{branch:data.branch,head:data.head,changed:data.changed,ahead:data.ahead,behind:data.behind});
