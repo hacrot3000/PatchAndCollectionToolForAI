@@ -68,7 +68,11 @@ func TestTerminalReloadCanRemapChangedSessionIDsByCwdWithoutWrongSplitFallback(t
 func TestCoreUIRestoresSSHMinusOneTerminalButKeepsPatchHeadless(t *testing.T) {
 	for _, want := range []string{
 		"function autoAttachSession(meta)",
-		"return !(Number(meta?.task_id)===-1&&meta?.kind==='patch');",
+		"function isHeadlessPatchSession(meta)",
+		"if(Number(meta?.task_id)!==-1)return false;",
+		"if(meta?.kind==='patch')return true;",
+		"return String(meta?.label||'').startsWith('Patch Tool · ');",
+		"return !isHeadlessPatchSession(meta);",
 		"else if(autoAttachSession(meta))attach(meta,false);",
 	} {
 		if !strings.Contains(appJS, want) {
