@@ -30,7 +30,7 @@ func TestGitQuickActionsUI(t *testing.T) {
 		"git-repo-select",
 		"view:'repositories'",
 		"repoStorageKey()",
-		"if(activeRepoID)query.set('repo',activeRepoID)",
+		"if(repoID)query.set('repo',repoID)",
 		"repoID+'|'+actionName",
 		"auto_select_from_terminal_cwd",
 		"repositoryForCWD(cwd)",
