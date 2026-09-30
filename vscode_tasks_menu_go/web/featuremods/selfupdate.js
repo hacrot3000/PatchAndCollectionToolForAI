@@ -14,7 +14,7 @@ style.textContent=`
 .self-update-overlay.nonblocking{inset:auto 16px 16px auto;display:block;background:transparent;padding:0;pointer-events:none}
 .self-update-overlay.nonblocking .self-update-dialog{width:min(560px,calc(100vw - 32px));pointer-events:auto}
 .self-update-dialog{width:min(560px,96vw);background:#171a20;border:1px solid #48515f;border-radius:10px;box-shadow:0 18px 55px rgba(0,0,0,.5);padding:18px}
-.self-update-dialog h3{margin:0 0 8px;font-size:16px}.self-update-dialog p{margin:7px 0;line-height:1.45}.self-update-revision{font-family:ui-monospace,monospace;font-size:12px;opacity:.75;word-break:break-all}.self-update-status{margin-top:12px;padding:9px 10px;border-radius:6px;background:#0d1117;border:1px solid #30343b;font-size:12px;white-space:pre-wrap}.self-update-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.self-update-confirm{background:#24472f;border-color:#3b7850}.self-update-cancel{background:#3b2528;border-color:#684047}.self-update-error{color:#ff8994}
+.self-update-dialog h3{margin:0 0 8px;font-size:16px}.self-update-dialog p{margin:7px 0;line-height:1.45}.self-update-revision{font-family:ui-monospace,monospace;font-size:12px;opacity:.75;word-break:break-all}.self-update-status{margin-top:12px;padding:9px 10px;border-radius:6px;background:#0d1117;border:1px solid #30343b;font-size:12px;white-space:pre-wrap}.self-update-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.self-update-error{color:#ff8994}
 html[data-taskmenu-theme="light"] .self-update-dialog{background:#fff;border-color:#b9c0c8}html[data-taskmenu-theme="light"] .self-update-status{background:#f5f6f8;border-color:#c8ced6}
 `;
 document.head.append(style);
@@ -26,11 +26,9 @@ const intro=document.createElement('p');
 const revision=document.createElement('div');revision.className='self-update-revision';
 const status=document.createElement('div');status.className='self-update-status';
 const actions=document.createElement('div');actions.className='self-update-actions';
-const cancel=document.createElement('button');cancel.className='self-update-cancel';cancel.textContent='Cancel';
 const copyError=document.createElement('button');copyError.textContent='Copy error details';copyError.style.display='none';copyError.title='Copy revision and full self-update error details';
 const dismiss=document.createElement('button');dismiss.textContent='Close';dismiss.style.display='none';
-const confirm=document.createElement('button');confirm.className='self-update-confirm';confirm.textContent='Update now';
-actions.append(cancel,copyError,dismiss,confirm);dialog.append(title,intro,revision,status,actions);overlay.append(dialog);document.body.append(overlay);
+actions.append(copyError,dismiss);dialog.append(title,intro,revision,status,actions);overlay.append(dialog);document.body.append(overlay);
 
 const checkUpdate=document.createElement('button');
 checkUpdate.id='self-update-check';
@@ -96,24 +94,17 @@ function statusText(req){
 }
 
 function show(req){
-  currentID=req.id||'';overlay.classList.add('visible');
-  const waiting=req.status==='awaiting_confirmation';
-  const failed=req.status==='failed';
-  overlay.classList.toggle('nonblocking',failed);
+  const failed=req?.status==='failed';
+  if(!failed){hide();return;}
+  currentID=req.id||'';overlay.classList.add('visible','nonblocking');
   revision.textContent=req.revision?'Revision: '+req.revision:'';
-  status.classList.toggle('self-update-error',failed);
+  status.classList.add('self-update-error');
   status.textContent=statusText(req);
-  cancel.style.display=waiting?'':'none';
-  confirm.style.display=waiting?'':'none';
-  copyError.style.display=failed?'':'none';
-  dismiss.style.display=failed?'':'none';
-  copyError.dataset.details=failed?selfUpdateErrorDetails(req):'';
-  actions.style.display=(waiting||failed)?'flex':'none';
-  intro.textContent=waiting
-    ?'A new TaskDeck version is available. The candidate will be downloaded, tested and built before the running release is changed.'
-    :failed
-      ?'Candidate validation or activation failed. The current TaskDeck remains usable; close this notice and continue working.'
-      :'Validating the candidate before activation. This page will reconnect automatically only after the new release is ready.';
+  copyError.style.display='';
+  dismiss.style.display='';
+  copyError.dataset.details=selfUpdateErrorDetails(req);
+  actions.style.display='flex';
+  intro.textContent='Candidate validation or activation failed. The current TaskDeck remains usable; close this notice and continue working.';
 }
 function hide(){overlay.classList.remove('visible','nonblocking');currentID='';copyError.dataset.details='';}
 
@@ -134,12 +125,8 @@ async function checkAndStartUpdate(){
     startingFromSettings=true;
     settingsStartDeadline=Date.now()+10000;
     checkUpdate.textContent='Updating…';
-    overlay.classList.add('visible');
-    revision.textContent=result.remote_revision?'Revision: '+result.remote_revision:'';
-    intro.textContent='A newer version is available. Starting the existing self-update pipeline automatically…';
-    status.classList.remove('self-update-error');
-    status.textContent='Starting automatic self-update…';
-    actions.style.display='none';
+    checkUpdate.title='Starting TaskDeck self-update…';
+    hide();
     await app.jsonFetch(endpoint+'&action=start',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
   }catch(e){
     startingFromSettings=false;
@@ -156,16 +143,6 @@ async function postAction(action,id){
   return app.jsonFetch(endpoint+'&action='+encodeURIComponent(action),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
 }
 
-confirm.onclick=async()=>{
-  if(!currentID)return;
-  confirm.disabled=true;cancel.disabled=true;
-  try{
-    await terminalRestore()?.persistSnapshot?.();
-    const req=await postAction('confirm',currentID);show(req);
-  }catch(e){
-    app.showError(e);confirm.disabled=false;cancel.disabled=false;
-  }
-};
 copyError.onclick=async()=>{
   const details=String(copyError.dataset.details||'');
   if(!details)return;
@@ -178,11 +155,6 @@ copyError.onclick=async()=>{
   }catch(e){
     app.showError(e);
   }
-};
-cancel.onclick=async()=>{
-  if(!currentID)return;
-  cancel.disabled=true;confirm.disabled=true;
-  try{await postAction('cancel',currentID);resumeTerminalPersistence();hide();}catch(e){app.showError(e);cancel.disabled=false;confirm.disabled=false;}
 };
 dismiss.onclick=async()=>{
   const id=currentID;
@@ -237,9 +209,9 @@ async function poll(){
     if(!req||req.status==='idle'||!req.id){
       if(startingFromSettings){
         if(Date.now()<settingsStartDeadline){
-          overlay.classList.add('visible');
-          status.textContent='Waiting for the updater process to start…';
-          actions.style.display='none';
+          checkUpdate.disabled=true;
+          checkUpdate.textContent='Updating…';
+          checkUpdate.title='Waiting for the updater process to start…';
           return;
         }
         startingFromSettings=false;
@@ -256,12 +228,19 @@ async function poll(){
       startingFromSettings=false;
       settingsStartDeadline=0;
     }
-    if(req.status==='cancelled'){startingFromSettings=false;settingsStartDeadline=0;resumeTerminalPersistence();resetCheckUpdateButton();if(req.id===currentID)hide();return;}
-    if(req.status==='completed'){show(req);redirectAfterUpdate(req);return;}
+    if(req.status==='cancelled'){startingFromSettings=false;settingsStartDeadline=0;resumeTerminalPersistence();resetCheckUpdateButton();hide();return;}
+    if(req.status==='completed'){hide();redirectAfterUpdate(req);return;}
     if(req.status==='failed'){startingFromSettings=false;settingsStartDeadline=0;resumeTerminalPersistence();resetCheckUpdateButton();show(req);return;}
-    show(req);
+    hide();
+    checkUpdate.disabled=true;
+    checkUpdate.textContent='Updating…';
+    checkUpdate.title=statusText(req)||'TaskDeck self-update is running';
   }catch(e){
-    if(currentID){overlay.classList.add('visible');status.textContent='Waiting for the new daemon to start…';actions.style.display='none';}
+    if(startingFromSettings){
+      checkUpdate.disabled=true;
+      checkUpdate.textContent='Updating…';
+      checkUpdate.title='Waiting for the TaskDeck daemon to reconnect…';
+    }
   }
 }
 
