@@ -137,6 +137,7 @@ func TestGitQuickMergeToPushesCommittedHEADAndLeavesDirtyWorktreeUntouched(t *te
 	gitQuickRun(t, workspace, "add", "source.txt")
 	gitQuickRun(t, workspace, "commit", "-m", "source branch change")
 	sourceSHA := gitQuickRun(t, workspace, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("dirty tracked local\n"), 0o644); err != nil { t.Fatal(err) }
 	if err := os.WriteFile(filepath.Join(workspace, "dirty-local.txt"), []byte("keep me local\n"), 0o644); err != nil { t.Fatal(err) }
 
 	rr := callGitStatusHandler(t, s, http.MethodGet, "/api/git/status?view=merge-to-preflight&branch=target%2Fmerge-to&target_source=local", "")
@@ -164,14 +165,19 @@ func TestGitQuickMergeToPushesCommittedHEADAndLeavesDirtyWorktreeUntouched(t *te
 	if got := gitQuickRun(t, workspace, "branch", "--show-current"); got != current {
 		t.Fatalf("current branch changed to %q, want %q", got, current)
 	}
+	trackedContent, err := os.ReadFile(filepath.Join(workspace, "tracked.txt"))
+	if err != nil { t.Fatal(err) }
+	if string(trackedContent) != "dirty tracked local\n" {
+		t.Fatalf("dirty tracked file changed: %q", trackedContent)
+	}
 	dirtyContent, err := os.ReadFile(filepath.Join(workspace, "dirty-local.txt"))
 	if err != nil { t.Fatal(err) }
 	if string(dirtyContent) != "keep me local\n" {
-		t.Fatalf("dirty local file changed: %q", dirtyContent)
+		t.Fatalf("dirty untracked file changed: %q", dirtyContent)
 	}
 	status := gitQuickRun(t, workspace, "status", "--porcelain=v1", "--untracked-files=normal")
-	if !strings.Contains(status, "?? dirty-local.txt") {
-		t.Fatalf("dirty local change disappeared after Merge To: %q", status)
+	if !strings.Contains(status, " M tracked.txt") || !strings.Contains(status, "?? dirty-local.txt") {
+		t.Fatalf("dirty local changes disappeared after Merge To: %q", status)
 	}
 
 	remoteTarget := gitQuickRun(t, workspace, "ls-remote", remote, "refs/heads/target/merge-to")
