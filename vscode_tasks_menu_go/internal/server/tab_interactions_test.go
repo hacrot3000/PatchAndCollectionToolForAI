@@ -62,11 +62,12 @@ func TestTabContextMenuReusesSessionAndConsoleActions(t *testing.T) {
 		"app.activateView(targetView.meta.id)",
 		"source.click()",
 		"event.preventDefault()",
-		"context-copy",
-		"context-find",
-		"context-save",
-		"context-danger",
-		"session-clear-console",
+		".tab-context-menu button,.tab-context-submenu button{display:block;width:100%;text-align:left;margin:0;border:0;background:transparent",
+		".tab-context-menu button:hover:not(:disabled),.tab-context-submenu button:hover:not(:disabled){background:#2b3440}",
+		"function semanticClass(button,label)",
+		"if(label==='Console')return ''",
+		"if(button.classList.contains('stop'))return 'context-danger'",
+		"sourceActions(view,'Console')",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("tabcontext.js missing %q", want)
