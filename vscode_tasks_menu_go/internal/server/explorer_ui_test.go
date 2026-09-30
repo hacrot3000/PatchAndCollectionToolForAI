@@ -65,3 +65,15 @@ func TestExplorerRestoresNestedExpandedDirectories(t *testing.T) {
 		t.Fatal("Explorer restore must not skip nested expanded directories")
 	}
 }
+
+
+func TestExplorerTracksSharedHeaderHeight(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	if !strings.Contains(js, ".project-explorer{display:none;position:fixed;top:var(--taskmenu-header-height,34px)") {
+		t.Fatal("Explorer must track the shared compact TaskDeck header height")
+	}
+}
