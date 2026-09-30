@@ -208,6 +208,8 @@ func TestTerminalStatePreservesIndependentLiveSplitGroupsForTaskAndShellSessions
 	}
 
 	taskSpec := shellSpec
+	taskSpec.Command = "/bin/sh"
+	taskSpec.Args = []string{"-c", "exit 0"}
 	taskSpec.TaskID = 101
 	taskSpec.Label = "task-a"
 	taskA, err := m.Start(taskSpec)
@@ -219,6 +221,18 @@ func TestTerminalStatePreservesIndependentLiveSplitGroupsForTaskAndShellSessions
 	taskB, err := m.Start(taskSpec)
 	if err != nil {
 		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		metaA, okA := m.Metadata(taskA.ID)
+		metaB, okB := m.Metadata(taskB.ID)
+		if okA && okB && metaA.Status != "running" && metaB.Status != "running" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("task terminals did not finish before split snapshot: a=%#v b=%#v", metaA, metaB)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	value, err := srv.captureTerminalState(terminalSnapshotRequest{
