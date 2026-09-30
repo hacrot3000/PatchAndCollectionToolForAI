@@ -123,20 +123,21 @@ function repositoryForCWD(cwd){
   }
   return best;
 }
-async function autoSelectRepositoryForTerminal(id){
-  if(!gitAutoSelectFromTerminalCWD||!id)return;
+async function autoSelectRepositoryForTerminal(id,{reload=true}={}){
+  if(!gitAutoSelectFromTerminalCWD||!id)return false;
   const view=app.views.get(String(id));
-  if(!view||String(view.meta?.target_type||'').toLowerCase()==='ssh'||view.meta?.target_profile_id)return;
+  if(!view||String(view.meta?.target_type||'').toLowerCase()==='ssh'||view.meta?.target_profile_id)return false;
   let cwd=view.meta?.cwd||'';
   try{
     const live=await app.jsonFetch('/api/sessions/'+encodeURIComponent(String(id))+'/cwd');
-    if(live?.local===false)return;
+    if(live?.local===false)return false;
     if(live?.cwd)cwd=live.cwd;
   }catch(error){
     console.warn('Git repository auto-select live CWD unavailable',error);
   }
   const match=repositoryForCWD(cwd);
-  if(match&&match.id!==activeRepoID)await selectRepository(match.id);
+  if(match&&match.id!==activeRepoID)return selectRepository(match.id,{reload});
+  return false;
 }
 
 function renderStatus(data){
@@ -328,10 +329,10 @@ async function loadCurrentView(){updateNav();if(currentView==='repositories')ret
 
 repoSelect.onchange=()=>selectRepository(repoSelect.value).catch(app.showError);
 repoRescan.onclick=async()=>{try{await refreshRepositories(true);await refresh();await loadCurrentView();}catch(error){app.showError(error);}};
-pill.onclick=async()=>{panel.classList.toggle('visible');if(panel.classList.contains('visible')){await refreshRepositories(false);await refresh();await loadCurrentView();}};panelClose.onclick=()=>panel.classList.remove('visible');
+pill.onclick=async()=>{panel.classList.toggle('visible');if(panel.classList.contains('visible')){await refreshRepositories(false);if(app.views.has(String(app.active||'')))await autoSelectRepositoryForTerminal(app.active,{reload:false});await refresh();await loadCurrentView();}};panelClose.onclick=()=>panel.classList.remove('visible');
 window.addEventListener('focus',refresh);
 window.addEventListener('taskmenu:session',event=>{const meta=event.detail?.meta;if(meta&&meta.status!=='running')setTimeout(refresh,150);});
 window.addEventListener('taskmenu:view-activated',event=>{if(event.detail?.kind==='terminal')autoSelectRepositoryForTerminal(event.detail.id).catch(app.showError);});
 setInterval(refresh,5000);
-refreshRepositories(false).then(refresh).catch(error=>{console.warn('Git repository discovery failed',error);return refresh();});
+refreshRepositories(false).then(async()=>{if(app.views.has(String(app.active||'')))await autoSelectRepositoryForTerminal(app.active,{reload:false});return refresh();}).catch(error=>{console.warn('Git repository discovery failed',error);return refresh();});
 updateNav();
