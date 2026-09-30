@@ -228,3 +228,23 @@ func TestFeatureTabsSupportPersistentReadOnlyMode(t *testing.T) {
 		}
 	}
 }
+
+
+func TestTabContextMenuKeepsLongMenusOpenWhileScrolling(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/tabcontext.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"overscroll-behavior:contain",
+		"scrollbar-gutter:stable",
+		"menu.addEventListener('scroll',()=>closeSubmenu(),{passive:true})",
+		"menu.addEventListener('wheel',event=>event.stopPropagation(),{passive:true})",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("tabcontext.js missing long-menu scroll behavior %q", want)
+		}
+	}
+	if strings.Contains(js, "window.addEventListener('scroll',closeContextMenu,true)") {
+		t.Fatal("tab context menu must not close itself when its own scroll container moves")
+	}
+}
