@@ -34,6 +34,7 @@ func TestGitQuickActionsUI(t *testing.T) {
 		"repoID+'|'+actionName",
 		"auto_select_from_terminal_cwd",
 		"repositoryForCWD(cwd)",
+		"else if(workspaceRoot&&(value.startsWith('/')||/^[A-Za-z]:\\//.test(value)))return null",
 		"taskmenu:view-activated",
 		"refreshSeq=0",
 		"if(changed)refreshSeq++",
