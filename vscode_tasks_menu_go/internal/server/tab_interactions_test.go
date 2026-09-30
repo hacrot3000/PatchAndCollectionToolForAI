@@ -87,6 +87,30 @@ func TestTabContextMenuReusesSessionAndConsoleActions(t *testing.T) {
 }
 
 
+func TestTerminalPaneHasContextMenuTrigger(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/tabcontext.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function decorateTerminalPane(view)",
+		"terminal-context-trigger",
+		"trigger.textContent='⋮'",
+		"head.prepend(trigger)",
+		"openContextMenu(view,rect.left,rect.bottom+3)",
+		"if(descriptor.kind==='terminal')decorateTerminalPane(descriptor.view)",
+		"aria-haspopup','menu'",
+		"aria-expanded','false'",
+		"document.querySelectorAll('.terminal-context-trigger[aria-expanded=\"true\"]')",
+		"decorateTerminalPane,",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("tabcontext.js missing terminal pane context trigger behavior %q", want)
+		}
+	}
+}
+
 func TestEditorTabContextMenuUsesEditorOnlyActions(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/tabcontext.js")
 	if err != nil {
