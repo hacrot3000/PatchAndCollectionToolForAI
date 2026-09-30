@@ -118,6 +118,123 @@ func TestGitQuickMergeRejectsDirtyWorktree(t *testing.T) {
 	}
 }
 
+func TestGitQuickMergeToPushesCommittedHEADAndLeavesDirtyWorktreeUntouched(t *testing.T) {
+	workspace, s, current := setupGitQuickRepo(t)
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	gitQuickRun(t, filepath.Dir(remote), "init", "--bare", remote)
+	gitQuickRun(t, workspace, "remote", "add", "origin", remote)
+	gitQuickRun(t, workspace, "push", "-u", "origin", current)
+
+	gitQuickRun(t, workspace, "switch", "-c", "target/merge-to")
+	if err := os.WriteFile(filepath.Join(workspace, "target.txt"), []byte("target only\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "target.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "target branch change")
+	gitQuickRun(t, workspace, "push", "-u", "origin", "target/merge-to")
+	targetBefore := gitQuickRun(t, workspace, "rev-parse", "target/merge-to")
+
+	gitQuickRun(t, workspace, "switch", current)
+	if err := os.WriteFile(filepath.Join(workspace, "source.txt"), []byte("source committed\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "source.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "source branch change")
+	sourceSHA := gitQuickRun(t, workspace, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(workspace, "dirty-local.txt"), []byte("keep me local\n"), 0o644); err != nil { t.Fatal(err) }
+
+	rr := callGitStatusHandler(t, s, http.MethodGet, "/api/git/status?view=merge-to-preflight&branch=target%2Fmerge-to&target_source=local", "")
+	if rr.Code != http.StatusOK { t.Fatalf("Merge To preflight status=%d body=%s", rr.Code, rr.Body.String()) }
+	var preflight gitMergeToPreflightResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &preflight); err != nil { t.Fatal(err) }
+	if !preflight.Dirty || preflight.Current != current || preflight.CurrentSHA != sourceSHA || preflight.TargetSHA != targetBefore {
+		t.Fatalf("Merge To preflight=%+v", preflight)
+	}
+	if preflight.MergeEngine == "" {
+		t.Fatalf("Merge To preflight missing engine: %+v", preflight)
+	}
+
+	body := `{"action":"merge_to","branch":"target/merge-to","target_source":"local","expected_current":"`+current+`","expected_source_sha":"`+sourceSHA+`","expected_target_sha":"`+targetBefore+`"}`
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":false`) || !strings.Contains(rr.Body.String(), "uncommitted changes") {
+		t.Fatalf("Merge To without dirty confirmation status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	body = `{"action":"merge_to","branch":"target/merge-to","target_source":"local","expected_current":"`+current+`","expected_source_sha":"`+sourceSHA+`","expected_target_sha":"`+targetBefore+`","allow_dirty":true}`
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("Merge To status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := gitQuickRun(t, workspace, "branch", "--show-current"); got != current {
+		t.Fatalf("current branch changed to %q, want %q", got, current)
+	}
+	dirtyContent, err := os.ReadFile(filepath.Join(workspace, "dirty-local.txt"))
+	if err != nil { t.Fatal(err) }
+	if string(dirtyContent) != "keep me local\n" {
+		t.Fatalf("dirty local file changed: %q", dirtyContent)
+	}
+	status := gitQuickRun(t, workspace, "status", "--porcelain=v1", "--untracked-files=normal")
+	if !strings.Contains(status, "?? dirty-local.txt") {
+		t.Fatalf("dirty local change disappeared after Merge To: %q", status)
+	}
+
+	remoteTarget := gitQuickRun(t, workspace, "ls-remote", remote, "refs/heads/target/merge-to")
+	fields := strings.Fields(remoteTarget)
+	if len(fields) != 2 {
+		t.Fatalf("unexpected remote target ref: %q", remoteTarget)
+	}
+	resultSHA := fields[0]
+	if got := gitQuickRun(t, workspace, "rev-parse", "target/merge-to"); got != resultSHA {
+		t.Fatalf("local target=%s remote target=%s", got, resultSHA)
+	}
+	gitQuickRun(t, workspace, "merge-base", "--is-ancestor", sourceSHA, resultSHA)
+	gitQuickRun(t, workspace, "merge-base", "--is-ancestor", targetBefore, resultSHA)
+}
+
+func TestGitQuickMergeToRemoteTargetAndRaceGuards(t *testing.T) {
+	workspace, s, current := setupGitQuickRepo(t)
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	gitQuickRun(t, filepath.Dir(remote), "init", "--bare", remote)
+	gitQuickRun(t, workspace, "remote", "add", "origin", remote)
+	gitQuickRun(t, workspace, "push", "-u", "origin", current)
+
+	gitQuickRun(t, workspace, "switch", "-c", "target/remote-only")
+	if err := os.WriteFile(filepath.Join(workspace, "target-remote.txt"), []byte("target\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "target-remote.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "remote target")
+	gitQuickRun(t, workspace, "push", "-u", "origin", "target/remote-only")
+	gitQuickRun(t, workspace, "switch", current)
+	gitQuickRun(t, workspace, "branch", "-D", "target/remote-only")
+
+	if err := os.WriteFile(filepath.Join(workspace, "source-remote.txt"), []byte("source\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "source-remote.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "source for remote target")
+	sourceSHA := gitQuickRun(t, workspace, "rev-parse", "HEAD")
+
+	rr := callGitStatusHandler(t, s, http.MethodGet, "/api/git/status?view=merge-to-preflight&branch=origin%2Ftarget%2Fremote-only&target_source=remote", "")
+	if rr.Code != http.StatusOK { t.Fatalf("remote Merge To preflight status=%d body=%s", rr.Code, rr.Body.String()) }
+	var preflight gitMergeToPreflightResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &preflight); err != nil { t.Fatal(err) }
+	if preflight.TargetRef != "origin/target/remote-only" || preflight.PushRemote != "origin" || preflight.PushBranch != "target/remote-only" {
+		t.Fatalf("remote Merge To preflight=%+v", preflight)
+	}
+
+	staleBody := `{"action":"merge_to","branch":"origin/target/remote-only","target_source":"remote","expected_current":"`+current+`","expected_source_sha":"`+sourceSHA+`","expected_target_sha":"deadbeef"}`
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", staleBody)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":false`) || !strings.Contains(rr.Body.String(), "target branch changed after confirmation") {
+		t.Fatalf("stale Merge To target status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	body := `{"action":"merge_to","branch":"origin/target/remote-only","target_source":"remote","expected_current":"`+current+`","expected_source_sha":"`+sourceSHA+`","expected_target_sha":"`+preflight.TargetSHA+`"}`
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("remote Merge To status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	remoteTarget := gitQuickRun(t, workspace, "ls-remote", remote, "refs/heads/target/remote-only")
+	fields := strings.Fields(remoteTarget)
+	if len(fields) != 2 { t.Fatalf("unexpected remote target ref: %q", remoteTarget) }
+	gitQuickRun(t, workspace, "merge-base", "--is-ancestor", sourceSHA, fields[0])
+	if got := gitQuickRun(t, workspace, "branch", "--show-current"); got != current {
+		t.Fatalf("current branch changed to %q, want %q", got, current)
+	}
+}
+
 func TestGitQuickMergePreflightChoosesDivergedLocalOrRemote(t *testing.T) {
 	workspace, s, originalBranch := setupGitQuickRepo(t)
 	remote := filepath.Join(t.TempDir(), "remote.git")
