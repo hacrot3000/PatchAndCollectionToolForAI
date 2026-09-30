@@ -5,7 +5,7 @@ if(app.layoutProfile==='mobile'){
   const style=document.createElement('style');
   style.dataset.taskmenuMobile='1';
   style.textContent=`
-  html[data-taskmenu-layout="mobile"]{--taskmenu-mobile-height:100dvh}
+  html[data-taskmenu-layout="mobile"]{--taskmenu-mobile-height:100dvh;--taskmenu-header-height:50px}
   html[data-taskmenu-layout="mobile"] body{height:var(--taskmenu-mobile-height,100dvh)!important;max-height:var(--taskmenu-mobile-height,100dvh)!important;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
   html[data-taskmenu-layout="mobile"] body>header{height:50px!important;min-height:50px!important;max-height:50px!important;padding:0 8px!important;gap:8px!important;z-index:1300;background:#101216}
   html[data-taskmenu-layout="mobile"] body.mobile-actions-open>header{z-index:1600}
