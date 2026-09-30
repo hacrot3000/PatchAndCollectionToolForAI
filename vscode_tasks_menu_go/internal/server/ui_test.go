@@ -81,8 +81,8 @@ func TestStaticUIHasCopyConsoleAction(t *testing.T) {
 			t.Fatalf("app JS missing copy-console behavior %q", want)
 		}
 	}
-	if !strings.Contains(appCSS, ".copy-console{margin-left:24px") {
-		t.Fatalf("copy console button must be visually separated from Stop")
+	if !strings.Contains(appCSS, ".copy-console{margin-left:10px") {
+		t.Fatalf("copy console action must keep compact visual separation from Stop")
 	}
 	if strings.Contains(appJS, "button:last-child") {
 		t.Fatalf("Stop button must not be located by last-child after adding Copy console")
@@ -156,5 +156,21 @@ func TestStaticUINotFoundForUnknownAsset(t *testing.T) {
 	staticUI(rr, req)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+
+func TestStaticUIUsesCompactDesktopHeaders(t *testing.T) {
+	for _, want := range []string{
+		"header{height:34px;display:flex;align-items:center;gap:9px;padding:0 10px",
+		"main{display:grid;grid-template-columns:310px 1fr;height:calc(100vh - 34px)",
+		".pane-head{display:flex;gap:5px;align-items:center;min-height:28px;padding:2px 6px",
+		"body>header>button{background:transparent;border:0",
+		".pane-head>button{background:transparent;border:0",
+		".terminal{flex:1;min-height:0;padding:4px",
+	} {
+		if !strings.Contains(appCSS, want) {
+			t.Fatalf("compact desktop header CSS missing %q", want)
+		}
 	}
 }
