@@ -127,6 +127,7 @@ async function autoSelectRepositoryForTerminal(id,{reload=true}={}){
   if(!gitAutoSelectFromTerminalCWD||!id)return false;
   const view=app.views.get(String(id));
   if(!view||String(view.meta?.target_type||'').toLowerCase()==='ssh'||view.meta?.target_profile_id)return false;
+  const repoAtStart=activeRepoID;
   let cwd=view.meta?.cwd||'';
   try{
     const live=await app.jsonFetch('/api/sessions/'+encodeURIComponent(String(id))+'/cwd');
@@ -135,6 +136,7 @@ async function autoSelectRepositoryForTerminal(id,{reload=true}={}){
   }catch(error){
     console.warn('Git repository auto-select live CWD unavailable',error);
   }
+  if(String(app.active||'')!==String(id)||activeRepoID!==repoAtStart)return false;
   const match=repositoryForCWD(cwd);
   if(match&&match.id!==activeRepoID)return selectRepository(match.id,{reload});
   return false;
