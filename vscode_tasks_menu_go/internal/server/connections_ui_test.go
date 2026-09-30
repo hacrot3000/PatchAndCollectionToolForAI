@@ -176,3 +176,20 @@ func TestTerminalCWDInjectionPreservesExplicitConnectionTarget(t *testing.T) {
 		}
 	}
 }
+
+
+func TestConnectionsPanelTracksSharedHeaderHeight(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/connections.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		".task-connections-panel{display:none;position:fixed;top:var(--taskmenu-header-height,34px)",
+		"body:not(.task-sidebar-auto-hide) .task-connections-panel{top:calc(var(--taskmenu-header-height,34px) + 46px)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Connections compact header offset missing %q", want)
+		}
+	}
+}
