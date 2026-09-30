@@ -518,11 +518,18 @@ function connect(view,replay){
   };
 }
 
-function activateView(id){
+function focusView(id){
+  const view=views.get(id);
+  if(!view||view.closed)return false;
+  setTimeout(()=>{try{view.fit.fit();view.term.focus();}catch{}},0);
+  return true;
+}
+
+function activateView(id,{focus=true}={}){
   active=id;
   for(const [sid,v] of views){
     const yes=sid===id;v.tab.classList.toggle('active',yes);v.pane.classList.toggle('hidden',!yes);
-    if(yes)setTimeout(()=>{try{v.fit.fit();v.term.focus();}catch{}},0);
+    if(yes)setTimeout(()=>{try{v.fit.fit();if(focus)v.term.focus();}catch{}},0);
   }
   window.dispatchEvent(new CustomEvent('taskmenu:view-activated',{detail:{kind:'terminal',id}}));
 }
@@ -614,7 +621,7 @@ globalThis.TaskMenuApp={
   get layoutProfile(){return layoutProfile;},
   get currentUser(){return currentUser;},
   get sharedMode(){return sharedMode;},
-	views,jsonFetch,fetchWithLease,showError,consoleText,startTask,startTerminal,activateView,activateExternalView,loadTasks,syncSessions,attachSession:attach,materializeSession,setViewReadOnly,addOutputFilter,hasPermission,hasAnyPermission,canControlSession
+	views,jsonFetch,fetchWithLease,showError,consoleText,startTask,startTerminal,activateView,focusView,activateExternalView,loadTasks,syncSessions,attachSession:attach,materializeSession,setViewReadOnly,addOutputFilter,hasPermission,hasAnyPermission,canControlSession
 };
 document.querySelector('#open-terminal').onclick=()=>startTerminal().catch(showError);
 document.querySelector('#logout').onclick=()=>logout().catch(showError);
