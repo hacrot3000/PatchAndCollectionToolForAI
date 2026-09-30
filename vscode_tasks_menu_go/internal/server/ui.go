@@ -571,11 +571,18 @@ function updateMeta(meta){
   window.dispatchEvent(new CustomEvent('taskmenu:session',{detail:{view,meta}}));
 }
 
+function isHeadlessPatchSession(meta){
+  // Native Patch/COLLECT backing PTYs are intentionally headless. In local
+  // (non-shared) mode older/current session metadata may not carry kind=patch,
+  // so keep the stable built-in label as a compatibility discriminator.
+  if(Number(meta?.task_id)!==-1)return false;
+  if(meta?.kind==='patch')return true;
+  return String(meta?.label||'').startsWith('Patch Tool · ');
+}
+
 function autoAttachSession(meta){
-  // Built-in Patch sessions may use task_id=-1 as a headless
-  // compatibility/evidence PTY. SSH terminals also use task_id=-1, but they
-  // are real terminal sessions and must be re-attached after a browser reload.
-  return !(Number(meta?.task_id)===-1&&meta?.kind==='patch');
+  // SSH terminals also use task_id=-1, so never hide task_id=-1 by itself.
+  return !isHeadlessPatchSession(meta);
 }
 
 function materializeSession(meta,activate=true){
