@@ -97,3 +97,70 @@ func TestGitQuickReadViewsAndValidation(t *testing.T) {
 	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"stage","path":"../outside.txt"}`)
 	if rr.Code != http.StatusBadRequest { t.Fatalf("unsafe path status=%d body=%s", rr.Code, rr.Body.String()) }
 }
+
+
+func TestGitQuickMergeRejectsDirtyWorktree(t *testing.T) {
+	workspace, s, originalBranch := setupGitQuickRepo(t)
+	gitQuickRun(t, workspace, "switch", "-c", "feature/merge-dirty")
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("feature\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "tracked.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "feature change")
+	gitQuickRun(t, workspace, "switch", originalBranch)
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("local modify\n"), 0o644); err != nil { t.Fatal(err) }
+
+	rr := callGitStatusHandler(t, s, http.MethodGet, "/api/git/status?view=merge-preflight&branch=feature%2Fmerge-dirty", "")
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "working tree must be clean before merging") {
+		t.Fatalf("dirty merge preflight status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"merge","branch":"feature/merge-dirty","source":"local"}`)
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "working tree must be clean before merging") {
+		t.Fatalf("dirty merge action status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestGitQuickMergePreflightChoosesDivergedLocalOrRemote(t *testing.T) {
+	workspace, s, originalBranch := setupGitQuickRepo(t)
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	gitQuickRun(t, filepath.Dir(remote), "init", "--bare", remote)
+	gitQuickRun(t, workspace, "remote", "add", "origin", remote)
+	gitQuickRun(t, workspace, "push", "-u", "origin", originalBranch)
+
+	gitQuickRun(t, workspace, "switch", "-c", "feature/merge-source")
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("remote version\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "tracked.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "remote feature")
+	gitQuickRun(t, workspace, "push", "-u", "origin", "feature/merge-source")
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("local version\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "tracked.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "local-only feature")
+	gitQuickRun(t, workspace, "switch", originalBranch)
+
+	rr := callGitStatusHandler(t, s, http.MethodGet, "/api/git/status?view=merge-preflight&branch=feature%2Fmerge-source", "")
+	if rr.Code != http.StatusOK { t.Fatalf("merge preflight status=%d body=%s", rr.Code, rr.Body.String()) }
+	var preflight gitMergePreflightResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &preflight); err != nil { t.Fatal(err) }
+	if !preflight.RequiresChoice || preflight.Same {
+		t.Fatalf("preflight=%+v, want diverged local/remote choice", preflight)
+	}
+	if preflight.LocalRef != "feature/merge-source" || preflight.RemoteRef != "origin/feature/merge-source" {
+		t.Fatalf("preflight refs=%+v", preflight)
+	}
+	if preflight.LocalSHA == "" || preflight.RemoteSHA == "" || preflight.LocalSHA == preflight.RemoteSHA {
+		t.Fatalf("preflight SHAs=%+v", preflight)
+	}
+
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"merge","branch":"feature/merge-source"}`)
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "choose merge source") {
+		t.Fatalf("merge without source status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"merge","branch":"feature/merge-source","source":"remote"}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("remote merge status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	content, err := os.ReadFile(filepath.Join(workspace, "tracked.txt"))
+	if err != nil { t.Fatal(err) }
+	if string(content) != "remote version\n" {
+		t.Fatalf("merged content=%q, want remote branch version", content)
+	}
+}
