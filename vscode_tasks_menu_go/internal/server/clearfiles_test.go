@@ -16,6 +16,8 @@ func TestClearDetectedItemsFeature(t *testing.T) {
 	for _, want := range []string{
 		"detected-file-controls",
 		"detected-files-toggle",
+		".detected-files-toggle{border:0!important;background:transparent!important",
+		"padding:1px 3px!important",
 		"Files/URLs: ON",
 		"Files/URLs: OFF",
 		"TaskMenuFileDetection",
@@ -34,6 +36,9 @@ func TestClearDetectedItemsFeature(t *testing.T) {
 	}
 	if strings.Contains(js, "observe(document.body") {
 		t.Fatal("detected file controls must not observe the whole document body")
+	}
+	if strings.Contains(js, ".detected-files-toggle.off{opacity:.72;background:#34281b") {
+		t.Fatal("file/URL tracking toggle must stay visually label-like instead of restoring button chrome")
 	}
 	loader, err := webassets.Files.ReadFile("featuremods/next.js")
 	if err != nil {
