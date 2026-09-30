@@ -461,6 +461,182 @@ func (s *Server) gitMergePreflight(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, data)
 }
 
+type gitMergeToPreflightResponse struct {
+	Current       string `json:"current"`
+	CurrentSHA    string `json:"current_sha"`
+	Dirty         bool   `json:"dirty"`
+	TargetSource  string `json:"target_source"`
+	TargetBranch  string `json:"target_branch"`
+	TargetRef     string `json:"target_ref"`
+	TargetSHA     string `json:"target_sha"`
+	PushRemote    string `json:"push_remote"`
+	PushBranch    string `json:"push_branch"`
+	PushRemoteRef string `json:"push_remote_ref,omitempty"`
+	PushRemoteSHA string `json:"push_remote_sha,omitempty"`
+}
+
+func (s *Server) gitRemoteNames(ctx context.Context) []string {
+	out, _, _, err := s.runGit(ctx, 3*time.Second, "remote")
+	if err != nil {
+		return nil
+	}
+	names := []string{}
+	for _, line := range strings.Split(out, "\n") {
+		name := strings.TrimSpace(line)
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func (s *Server) gitMergeToPushDestination(ctx context.Context, targetSource, branch string) (string, string, error) {
+	switch targetSource {
+	case "remote":
+		remote := s.gitRemoteNameForRef(ctx, branch)
+		if remote == "" {
+			return "", "", fmt.Errorf("cannot determine remote for target branch")
+		}
+		pushBranch := strings.TrimPrefix(branch, remote+"/")
+		if pushBranch == "" || pushBranch == branch {
+			return "", "", fmt.Errorf("invalid remote target branch")
+		}
+		return remote, pushBranch, nil
+	case "local":
+		upstream := s.gitLocalBranchUpstream(ctx, branch)
+		if upstream != "" {
+			remote := s.gitRemoteNameForRef(ctx, upstream)
+			if remote != "" {
+				pushBranch := strings.TrimPrefix(upstream, remote+"/")
+				if pushBranch != "" && pushBranch != upstream {
+					return remote, pushBranch, nil
+				}
+			}
+		}
+		names := s.gitRemoteNames(ctx)
+		for _, name := range names {
+			if name == "origin" {
+				return "origin", branch, nil
+			}
+		}
+		if len(names) == 1 {
+			return names[0], branch, nil
+		}
+		if len(names) == 0 {
+			return "", "", fmt.Errorf("Merge To requires a Git remote so the target branch can be pushed")
+		}
+		return "", "", fmt.Errorf("target branch has no upstream and repository has multiple remotes; configure an upstream first")
+	default:
+		return "", "", fmt.Errorf("invalid Merge To target source")
+	}
+}
+
+func (s *Server) gitCommitIsAncestor(ctx context.Context, ancestor, descendant string) bool {
+	if ancestor == "" || descendant == "" {
+		return false
+	}
+	_, _, _, err := s.runGit(ctx, 4*time.Second, "merge-base", "--is-ancestor", ancestor, descendant)
+	return err == nil
+}
+
+func (s *Server) gitMergeToPreflightData(ctx context.Context, branch, targetSource string) (gitMergeToPreflightResponse, error) {
+	branch = strings.TrimSpace(branch)
+	targetSource = strings.ToLower(strings.TrimSpace(targetSource))
+	if targetSource != "local" && targetSource != "remote" {
+		return gitMergeToPreflightResponse{}, fmt.Errorf("invalid Merge To target source")
+	}
+	if err := s.validBranchName(ctx, branch); err != nil {
+		return gitMergeToPreflightResponse{}, err
+	}
+	current, err := s.gitCurrentBranch(ctx)
+	if err != nil {
+		return gitMergeToPreflightResponse{}, err
+	}
+	currentSHA := s.gitBranchSHA(ctx, "HEAD")
+	if currentSHA == "" {
+		return gitMergeToPreflightResponse{}, fmt.Errorf("cannot resolve current HEAD")
+	}
+	clean, err := s.gitWorktreeClean(ctx)
+	if err != nil {
+		return gitMergeToPreflightResponse{}, err
+	}
+
+	targetRef := ""
+	switch targetSource {
+	case "local":
+		if !s.localBranchExists(ctx, branch) {
+			return gitMergeToPreflightResponse{}, fmt.Errorf("local target branch not found")
+		}
+		if branch == current {
+			return gitMergeToPreflightResponse{}, fmt.Errorf("cannot Merge To the current branch")
+		}
+		targetRef = branch
+	case "remote":
+		if !s.remoteBranchExists(ctx, branch) {
+			return gitMergeToPreflightResponse{}, fmt.Errorf("remote target branch not found")
+		}
+		targetRef = branch
+	}
+
+	pushRemote, pushBranch, err := s.gitMergeToPushDestination(ctx, targetSource, branch)
+	if err != nil {
+		return gitMergeToPreflightResponse{}, err
+	}
+	if pushBranch == current {
+		return gitMergeToPreflightResponse{}, fmt.Errorf("cannot Merge To the current branch")
+	}
+	if _, _, _, err := s.runGit(ctx, 15*time.Second, "fetch", "--prune", pushRemote); err != nil {
+		return gitMergeToPreflightResponse{}, fmt.Errorf("cannot refresh remote %s before Merge To: %w", pushRemote, err)
+	}
+
+	if targetSource == "remote" {
+		targetRef = pushRemote + "/" + pushBranch
+		if !s.remoteBranchExists(ctx, targetRef) {
+			return gitMergeToPreflightResponse{}, fmt.Errorf("remote target branch not found after refresh")
+		}
+	}
+	targetSHA := s.gitBranchSHA(ctx, targetRef)
+	if targetSHA == "" {
+		return gitMergeToPreflightResponse{}, fmt.Errorf("cannot resolve target branch revision")
+	}
+	pushRemoteRef := pushRemote + "/" + pushBranch
+	pushRemoteSHA := s.gitBranchSHA(ctx, pushRemoteRef)
+	if targetSource == "local" && pushRemoteSHA != "" && !s.gitCommitIsAncestor(ctx, pushRemoteSHA, targetSHA) {
+		return gitMergeToPreflightResponse{}, fmt.Errorf("target local branch %s is behind or diverged from %s; sync the target branch before Merge To", branch, pushRemoteRef)
+	}
+
+	return gitMergeToPreflightResponse{
+		Current: current,
+		CurrentSHA: currentSHA,
+		Dirty: !clean,
+		TargetSource: targetSource,
+		TargetBranch: branch,
+		TargetRef: targetRef,
+		TargetSHA: targetSHA,
+		PushRemote: pushRemote,
+		PushBranch: pushBranch,
+		PushRemoteRef: pushRemoteRef,
+		PushRemoteSHA: pushRemoteSHA,
+	}, nil
+}
+
+func (s *Server) gitMergeToPreflight(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	data, err := s.gitMergeToPreflightData(
+		r.Context(),
+		r.URL.Query().Get("branch"),
+		r.URL.Query().Get("target_source"),
+	)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	writeJSON(w, http.StatusOK, data)
+}
+
 func (s *Server) gitCompare(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
