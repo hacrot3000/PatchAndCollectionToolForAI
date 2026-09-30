@@ -9,6 +9,7 @@ let roots=[];
 let pendingSaved=[];
 let renderedRoot=null;
 let focusedID='';
+let focusTrackingSuspendDepth=0;
 let dragging=null;
 const resizers=new Map();
 const nodeRects=new WeakMap();
@@ -175,8 +176,19 @@ function applyFocusClasses(){
     view.tab.classList.toggle('split-input-focused',on);
   }
 }
+function suspendFocusTracking(){
+  focusTrackingSuspendDepth++;
+  focusedID='';
+  applyFocusClasses();
+}
+function resumeFocusTracking(preferredID=''){
+  if(focusTrackingSuspendDepth>0)focusTrackingSuspendDepth--;
+  if(focusTrackingSuspendDepth>0)return;
+  focusedID=preferredID&&app.views.has(preferredID)?preferredID:'';
+  applyFocusClasses();
+}
 function markFocused(id){
-  if(!id)return;
+  if(focusTrackingSuspendDepth>0||!id)return;
   focusedID=id;applyFocusClasses();
   if(app.active!==id){
     app.activateView(id);
@@ -184,7 +196,9 @@ function markFocused(id){
   }
 }
 function clearFocused(id){
+  if(focusTrackingSuspendDepth>0)return;
   setTimeout(()=>{
+    if(focusTrackingSuspendDepth>0)return;
     const view=app.views.get(id);
     const active=document.activeElement;
     if(view?.pane?.contains(active)&&active?.closest?.('.xterm'))return;
@@ -443,4 +457,4 @@ window.addEventListener('resize',()=>{if(renderedRoot)layoutCurrentRoot();});
 const observer=new MutationObserver(()=>setTimeout(()=>{pruneMissingViews();tryRestoreSaved();syncForActive();updateButtons();},0));
 observer.observe(panes,{childList:true});
 
-globalThis.TaskMenuSplit={getState,getGroups,restoreProjectSplit,restoreProjectGroups,swapSplitView,clearSplit,clearAll,clearPresentation,syncForActive,isSupported:()=>splitSupported};
+globalThis.TaskMenuSplit={getState,getGroups,restoreProjectSplit,restoreProjectGroups,swapSplitView,clearSplit,clearAll,clearPresentation,syncForActive,suspendFocusTracking,resumeFocusTracking,isSupported:()=>splitSupported};
