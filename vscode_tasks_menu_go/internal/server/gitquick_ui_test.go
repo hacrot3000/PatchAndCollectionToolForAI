@@ -78,6 +78,8 @@ func TestGitQuickActionsUI(t *testing.T) {
 		"'merge-to-preflight'",
 		"target_source:targetSource",
 		"allow_dirty:allowDirty",
+		"allow_slow_fallback:allowSlowFallback",
+		"let allowSlowFallback=false",
 		"Only committed HEAD",
 		"will remain untouched",
 		"slow_fallback",
