@@ -473,6 +473,34 @@ type gitMergeToPreflightResponse struct {
 	PushBranch    string `json:"push_branch"`
 	PushRemoteRef string `json:"push_remote_ref,omitempty"`
 	PushRemoteSHA string `json:"push_remote_sha,omitempty"`
+	MergeEngine   string `json:"merge_engine"`
+	SlowFallback  bool   `json:"slow_fallback"`
+}
+
+var gitVersionPattern = regexp.MustCompile(`git version ([0-9]+)\.([0-9]+)`)
+
+func (s *Server) gitSupportsMergeTreeWriteTree(ctx context.Context) bool {
+	out, _, _, err := s.runGit(ctx, 3*time.Second, "--version")
+	if err != nil {
+		return false
+	}
+	match := gitVersionPattern.FindStringSubmatch(out)
+	if len(match) != 3 {
+		return false
+	}
+	major, _ := strconv.Atoi(match[1])
+	minor, _ := strconv.Atoi(match[2])
+	return major > 2 || (major == 2 && minor >= 38)
+}
+
+func (s *Server) gitMergeToEngine(ctx context.Context, targetSHA, sourceSHA string) (string, bool) {
+	if targetSHA == sourceSHA || s.gitCommitIsAncestor(ctx, targetSHA, sourceSHA) || s.gitCommitIsAncestor(ctx, sourceSHA, targetSHA) {
+		return "fast-forward", false
+	}
+	if s.gitSupportsMergeTreeWriteTree(ctx) {
+		return "merge-tree", false
+	}
+	return "worktree", true
 }
 
 func (s *Server) gitRemoteNames(ctx context.Context) []string {
@@ -605,6 +633,7 @@ func (s *Server) gitMergeToPreflightData(ctx context.Context, branch, targetSour
 		return gitMergeToPreflightResponse{}, fmt.Errorf("target local branch %s is behind or diverged from %s; sync the target branch before Merge To", branch, pushRemoteRef)
 	}
 
+	engine, slowFallback := s.gitMergeToEngine(ctx, targetSHA, currentSHA)
 	return gitMergeToPreflightResponse{
 		Current: current,
 		CurrentSHA: currentSHA,
@@ -617,6 +646,8 @@ func (s *Server) gitMergeToPreflightData(ctx context.Context, branch, targetSour
 		PushBranch: pushBranch,
 		PushRemoteRef: pushRemoteRef,
 		PushRemoteSHA: pushRemoteSHA,
+		MergeEngine: engine,
+		SlowFallback: slowFallback,
 	}, nil
 }
 
