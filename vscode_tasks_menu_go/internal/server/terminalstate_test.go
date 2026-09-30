@@ -110,7 +110,8 @@ func TestProjectTerminalStateTracksCwdOrderMultipleSplitsAndRestores(t *testing.
 		ActiveSessionID: order[3].ID,
 		Splits: []terminalSnapshotSplitRequest{
 			{LeftSessionID: order[0].ID, RightSessionID: order[1].ID, Ratio: 0.65, Orientation: "vertical"},
-			{LeftSessionID: order[2].ID, RightSessionID: order[3].ID, Ratio: 0.4, Orientation: "horizontal"},
+			{LeftSessionID: order[1].ID, RightSessionID: order[2].ID, Ratio: 0.4, Orientation: "horizontal"},
+			{LeftSessionID: order[2].ID, RightSessionID: order[3].ID, Ratio: 0.55, Orientation: "vertical"},
 		},
 	})
 	if err != nil {
@@ -128,14 +129,17 @@ func TestProjectTerminalStateTracksCwdOrderMultipleSplitsAndRestores(t *testing.
 			t.Fatalf("terminal[%d].session_id=%q want %q", i, value.Terminals[i].SessionID, order[i].ID)
 		}
 	}
-	if value.ActiveIndex != 3 || len(value.Splits) != 2 {
-		t.Fatalf("active/splits not preserved: %#v", value)
+	if value.ActiveIndex != 3 || len(value.Splits) != 3 {
+		t.Fatalf("active/nested splits not preserved: %#v", value)
 	}
 	if value.Splits[0].Left != 0 || value.Splits[0].Right != 1 || value.Splits[0].Ratio != 0.65 || value.Splits[0].Orientation != "vertical" {
 		t.Fatalf("first split=%#v", value.Splits[0])
 	}
-	if value.Splits[1].Left != 2 || value.Splits[1].Right != 3 || value.Splits[1].Ratio != 0.4 || value.Splits[1].Orientation != "horizontal" {
-		t.Fatalf("second split=%#v", value.Splits[1])
+	if value.Splits[1].Left != 1 || value.Splits[1].Right != 2 || value.Splits[1].Ratio != 0.4 || value.Splits[1].Orientation != "horizontal" {
+		t.Fatalf("nested second split=%#v", value.Splits[1])
+	}
+	if value.Splits[2].Left != 2 || value.Splits[2].Right != 3 || value.Splits[2].Ratio != 0.55 || value.Splits[2].Orientation != "vertical" {
+		t.Fatalf("nested third split=%#v", value.Splits[2])
 	}
 	if err := writeProjectTerminalState(root, value); err != nil {
 		t.Fatal(err)
@@ -155,10 +159,10 @@ func TestProjectTerminalStateTracksCwdOrderMultipleSplitsAndRestores(t *testing.
 		t.Fatal(err)
 	}
 	defer m2.Shutdown(time.Second)
-	if len(resp.Sessions) != 4 || resp.ActiveIndex != 3 || len(resp.Splits) != 2 {
+	if len(resp.Sessions) != 4 || resp.ActiveIndex != 3 || len(resp.Splits) != 3 {
 		t.Fatalf("restore response=%#v", resp)
 	}
-	if resp.Splits[0].Orientation != "vertical" || resp.Splits[1].Orientation != "horizontal" {
+	if resp.Splits[0].Orientation != "vertical" || resp.Splits[1].Orientation != "horizontal" || resp.Splits[2].Orientation != "vertical" {
 		t.Fatalf("restore orientations=%#v", resp.Splits)
 	}
 	for i, want := range wantCwds {
