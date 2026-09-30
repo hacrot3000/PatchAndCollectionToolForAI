@@ -459,6 +459,14 @@ Task `type=process` chạy command/args trực tiếp. Task shell mặc định 
 
 Parser hỗ trợ JSONC của VS Code: `// comment`, `/* block comment */` và trailing comma; comment marker nằm bên trong chuỗi/URL vẫn được giữ nguyên.
 
+### Visual editor cho tasks.json
+
+Trong **Settings → Workspace → Edit tasks.json…**, TaskDeck có editor trực quan cho `.vscode/tasks.json`. Editor đọc/ghi qua cùng project-file API đã có optimistic SHA check, workspace path containment và mutation lock; không có đường ghi cấu hình task thứ hai.
+
+Visual mode hỗ trợ add/clone/delete/reorder task, label/menu group/detail, shell/process, command, args, cwd, environment và các template phổ biến cho Bash, Python, Node.js, Go, Rust, Make, CMake, Gradle, Maven và Docker Compose. Các field VS Code nâng cao vẫn được giữ trong object và có thể chỉnh đầy đủ ở **Raw JSON**. Lưu từ Visual mode sẽ normalize JSON và bỏ JSONC comment; UI cảnh báo trước về đặc điểm này.
+
+Command, file argument và danh sách execution file có thể chọn bằng workspace file browser. Multi-file/script execution được materialize thành một shell command tuần tự dùng `&&` (dừng ở lỗi đầu tiên) hoặc `;` (tiếp tục độc lập), nên task đã lưu vẫn đi qua runner hiện hữu. Metadata `taskdeck.template`, `taskdeck.runner`, `taskdeck.executionFiles` và `taskdeck.executionMode` chỉ giúp visual editor dựng lại cấu hình.
+
 ## Browser assets chạy offline và được vendor thủ công
 
 Web UI dùng các bản đã pin:
