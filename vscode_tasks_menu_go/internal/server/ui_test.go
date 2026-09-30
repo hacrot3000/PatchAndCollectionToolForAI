@@ -81,7 +81,7 @@ func TestStaticUIHasCopyConsoleAction(t *testing.T) {
 			t.Fatalf("app JS missing copy-console behavior %q", want)
 		}
 	}
-	if !strings.Contains(appCSS, ".copy-console{margin-left:10px") {
+	if !strings.Contains(appCSS, ".copy-console{margin-left:6px") {
 		t.Fatalf("copy console action must keep compact visual separation from Stop")
 	}
 	if strings.Contains(appJS, "button:last-child") {
