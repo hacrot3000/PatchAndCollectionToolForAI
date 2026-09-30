@@ -119,6 +119,37 @@ func TestSplitSuspendsForExternalEditorViewWithoutDestroyingGroups(t *testing.T)
 }
 
 
+func TestSplitTerminalSupportsTerminatorStyleTitleDragRearrangement(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/split.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"split-drag-handle",
+		"handle.draggable=true",
+		"Drag this terminal title to rearrange split panes",
+		"panes.addEventListener('dragover'",
+		"panes.addEventListener('drop'",
+		"function dropSideFor(view,event)",
+		"showDropOverlay(target,side)",
+		"['left','right','top','bottom'].includes(side)",
+		"function moveTerminalToSide(sourceID,targetID,side)",
+		"extractLeaf(sourceRoot,sourceID)",
+		"?splitNode(extracted.removed,target,orientation,0.5)",
+		":splitNode(target,extracted.removed,orientation,0.5)",
+		"saveState();app.activateView(sourceID)",
+		"moveTerminalToSide,clearSplit",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("split title drag/drop behavior missing %q", want)
+		}
+	}
+	if strings.Contains(js, "Sortable.create") || strings.Contains(js, "new Sortable") {
+		t.Fatal("split pane drag/drop must stay dependency-free and must not require SortableJS")
+	}
+}
+
 func TestSplitTerminalLeavesTopLeftForComputedPaneCoordinates(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/split.js")
 	if err != nil {
