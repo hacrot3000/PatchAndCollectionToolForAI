@@ -226,6 +226,7 @@ func readProjectTerminalStateProfile(workspace, profile string) (projectTerminal
 	value = normalizeProjectTerminalState(value)
 	if profile == "mobile" {
 		value.Splits = []terminalSplitState{}
+		value.LiveSplits = []terminalSnapshotSplitRequest{}
 		value.Split = nil
 	}
 	return value, nil
@@ -240,6 +241,7 @@ func writeProjectTerminalStateProfile(workspace, profile string, value projectTe
 	value = normalizeProjectTerminalState(value)
 	if profile == "mobile" {
 		value.Splits = []terminalSplitState{}
+		value.LiveSplits = []terminalSnapshotSplitRequest{}
 		value.Split = nil
 	}
 	data, err := json.MarshalIndent(value, "", "  ")
@@ -310,6 +312,7 @@ func (s *Server) terminalState(w http.ResponseWriter, r *http.Request) {
 		}
 		if profile == "mobile" {
 			value.Splits = []terminalSplitState{}
+			value.LiveSplits = []terminalSnapshotSplitRequest{}
 			value.Split = nil
 		}
 		previous, _ := readProjectTerminalStateProfile(s.Workspace, profile)
