@@ -12,7 +12,7 @@ func TestCoreSupportsExternalViewActivationWithoutSessionRegistration(t *testing
 		"v.tab.classList.remove('active')",
 		"v.pane.classList.add('hidden')",
 		"taskmenu:view-activated",
-		"activateView,activateExternalView",
+		"activateView,focusView,activateExternalView",
 	} {
 		if !strings.Contains(appJS, want) {
 			t.Fatalf("appJS missing external-view hook %q", want)
