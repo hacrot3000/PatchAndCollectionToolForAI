@@ -1529,7 +1529,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		localTerminal := meta.TaskID == 0 && !strings.EqualFold(strings.TrimSpace(meta.TargetType), "ssh") && strings.TrimSpace(meta.TargetProfileID) == ""
+		localTerminal := meta.Kind == tasks.SessionKindTerminal && meta.TaskID == 0 && !strings.EqualFold(strings.TrimSpace(meta.TargetType), "ssh") && strings.TrimSpace(meta.TargetProfileID) == ""
 		if !localTerminal {
 			writeJSON(w, http.StatusOK, map[string]any{"local": false, "cwd": ""})
 			return
