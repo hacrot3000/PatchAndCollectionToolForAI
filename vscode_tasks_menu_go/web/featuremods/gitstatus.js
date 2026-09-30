@@ -45,7 +45,7 @@ function actionCommand(action,payload={}){
   switch(action){
     case 'fetch':return 'git fetch --prune';case 'pull':return 'git pull --ff-only';case 'push':return 'git push';case 'stage_all':return 'git add -A';
     case 'stage':return 'git add -- '+q(payload.path);case 'unstage':return 'git restore --staged -- '+q(payload.path);case 'commit':return 'git commit -m '+q(payload.message);
-    case 'switch':return 'git switch '+q(payload.branch);case 'create_branch':return 'git switch -c '+q(payload.branch);case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
+    case 'switch':return 'git switch '+q(payload.branch);case 'create_branch':return 'git switch -c '+q(payload.branch);case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'merge_to':return 'Merge To '+q(payload.expected_current)+' -> '+q(payload.branch)+' and push';case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
   }
 }
 async function copyText(text){
@@ -281,7 +281,7 @@ async function loadChanges(){
   }
 }
 async function mergeBranch(branch){
-  const label='Merge '+branch.name;
+  const label='Merge From '+branch.name;
   beginOperation(label,'Checking working tree and local/remote branch revisions…');
   let check;
   try{
@@ -312,12 +312,67 @@ async function mergeBranch(branch){
   const mergeRef=source==='remote'?check.remote_ref:check.local_ref;
   const expectedSHA=source==='remote'?check.remote_sha:check.local_sha;
   if(!mergeRef||!expectedSHA){const error=new Error('Selected merge source is unavailable.');showOperation(label,'',error.message);throw error;}
-  if(!window.confirm('Repository: '+(activeRepository()?.name||activeRepoID)+'\nMerge '+mergeRef+' @ '+expectedSHA.slice(0,12)+' into current branch '+check.current+'?')){showOperation(label,'Merge canceled');return false;}
+  if(!window.confirm('Repository: '+(activeRepository()?.name||activeRepoID)+'\nMerge From: '+mergeRef+' @ '+expectedSHA.slice(0,12)+'\nInto current branch: '+check.current+'?')){showOperation(label,'Merge canceled');return false;}
   return action('merge',{branch:branch.name,source,expected_sha:expectedSHA,expected_current:check.current,merge_ref:mergeRef});
+}
+
+async function mergeToBranch(branch){
+  const label='Merge To '+branch.name;
+  const targetSource=branch.remote?'remote':'local';
+  beginOperation(label,'Checking source HEAD, target branch, remote and working tree…');
+  let check;
+  try{
+    check=await gitView('merge-to-preflight',{branch:branch.name,target_source:targetSource});
+    if(!check){showOperation(label,'Repository selection changed; Merge To canceled');return false;}
+  }catch(error){
+    showOperation(label,'',error?.message||String(error));
+    throw error;
+  }
+
+  let allowDirty=false;
+  if(check.dirty){
+    allowDirty=window.confirm(
+      'Repository: '+(activeRepository()?.name||activeRepoID)+'\n\n'+
+      'The current working tree has uncommitted changes.\n\n'+
+      'Continue Merge To?\n\n'+
+      'Only committed HEAD '+check.current+' @ '+check.current_sha.slice(0,12)+' will be merged.\n'+
+      'Uncommitted/staged local changes are NOT included and will remain untouched.'
+    );
+    if(!allowDirty){showOperation(label,'Merge To canceled because the working tree has uncommitted changes.');return false;}
+  }
+
+  if(check.slow_fallback){
+    const proceed=window.confirm(
+      'This Git version does not support the no-checkout Merge To engine.\n\n'+
+      'TaskDeck must use a temporary worktree for the target branch. On repositories with many files this can be slower.\n\n'+
+      'Continue?'
+    );
+    if(!proceed){showOperation(label,'Merge To canceled before temporary-worktree fallback.');return false;}
+  }
+
+  const engine=check.merge_engine==='merge-tree'?'no-checkout merge-tree':check.merge_engine==='fast-forward'?'fast-forward/no-op':'temporary worktree fallback';
+  const confirmed=window.confirm(
+    'Repository: '+(activeRepository()?.name||activeRepoID)+'\n'+
+    'Merge To: '+check.current+' @ '+check.current_sha.slice(0,12)+'\n'+
+    'Target: '+check.target_ref+' @ '+check.target_sha.slice(0,12)+'\n'+
+    'Push: '+check.push_remote+'/'+check.push_branch+'\n'+
+    'Engine: '+engine+'\n\n'+
+    'Proceed?'
+  );
+  if(!confirmed){showOperation(label,'Merge To canceled');return false;}
+
+  return action('merge_to',{
+    branch:branch.name,
+    target_source:targetSource,
+    expected_current:check.current,
+    expected_source_sha:check.current_sha,
+    expected_target_sha:check.target_sha,
+    allow_dirty:allowDirty
+  });
 }
 async function loadBranches(){
   const data=await gitView('branches');if(!data)return false;content.replaceChildren();const create=el('div','git-branch-create');const input=document.createElement('input');input.placeholder='new branch name';const button=actionButton('Create & switch',async()=>{const name=input.value.trim();if(!name)return false;await action('create_branch',{branch:name});input.value='';return true;});create.append(input,button);content.append(create);
-  const appendRows=(target,rows)=>{for(const branch of rows||[]){const row=el('div','git-row');const code=el('span','git-row-code',branch.current?'*':'');const main=el('div','git-row-main');main.append(el('div','git-row-title',branch.name),el('div','git-row-sub',branch.upstream||''));const actions=el('div','git-row-actions');if(!branch.remote&&!branch.current)actions.append(actionButton('Switch',()=>action('switch',{branch:branch.name})));if(branch.remote||!branch.current)actions.append(actionButton('Merge',()=>mergeBranch(branch),'Merge this branch into the current branch'));actions.append(actionButton('Compare',()=>loadCompare(branch.name)),actionButton('Copy',()=>copyText(branch.name)));row.append(code,main,actions);target.append(row);}};
+  const appendRows=(target,rows)=>{for(const branch of rows||[]){const row=el('div','git-row');const code=el('span','git-row-code',branch.current?'*':'');const main=el('div','git-row-main');main.append(el('div','git-row-title',branch.name),el('div','git-row-sub',branch.upstream||''));const actions=el('div','git-row-actions');if(!branch.remote&&!branch.current)actions.append(actionButton('Switch',()=>action('switch',{branch:branch.name})));if(branch.remote||!branch.current)actions.append(actionButton('Merge From',()=>mergeBranch(branch),'Merge the selected branch into the current branch'),actionButton('Merge To',()=>mergeToBranch(branch),'Merge committed HEAD of the current branch into the selected branch, then push the target'));actions.append(actionButton('Compare',()=>loadCompare(branch.name)),actionButton('Copy',()=>copyText(branch.name)));row.append(code,main,actions);target.append(row);}};
   content.append(el('div','taskmenu-menu-label','LOCAL'));appendRows(content,data.local);
   const remoteRows=Array.isArray(data.remote)?data.remote:[];
   const remoteToggle=el('button','git-branch-section-toggle');remoteToggle.type='button';remoteToggle.setAttribute('aria-expanded','false');
