@@ -162,10 +162,10 @@ func TestStaticUINotFoundForUnknownAsset(t *testing.T) {
 
 func TestStaticUIUsesCompactDesktopHeaders(t *testing.T) {
 	for _, want := range []string{
-		":root{--taskmenu-header-height:34px",
-		"header{height:var(--taskmenu-header-height);display:flex;align-items:center;gap:9px;padding:0 10px",
+		":root{--taskmenu-header-height:30px",
+		"header{height:var(--taskmenu-header-height);display:flex;align-items:center;gap:7px;padding:0 8px",
 		"main{display:grid;grid-template-columns:310px 1fr;height:calc(100vh - var(--taskmenu-header-height))",
-		".pane-head{display:flex;gap:5px;align-items:center;min-height:28px;padding:2px 6px",
+		".pane-head{display:flex;gap:4px;align-items:center;min-height:24px;padding:1px 5px",
 		"body>header>button{background:transparent;border:0",
 		".pane-head>button{background:transparent;border:0",
 		".terminal{flex:1;min-height:0;padding:4px",
