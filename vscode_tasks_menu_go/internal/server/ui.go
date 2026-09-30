@@ -82,7 +82,7 @@ const indexHTML = `<!doctype html>
 </body>
 </html>`
 
-const appCSS = `:root{--taskmenu-header-height:30px;font-family:system-ui,sans-serif;color-scheme:dark;background:#101216;color:#e8eaed}*{box-sizing:border-box}body{margin:0}header{height:var(--taskmenu-header-height);display:flex;align-items:center;gap:7px;padding:0 8px;border-bottom:1px solid #30343b}header>strong{font-size:13px;white-space:nowrap}header #workspace{opacity:.65;flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#identity{font-size:11px;opacity:.8;white-space:nowrap}#mutation-lock{font-size:11px;white-space:nowrap;padding:2px 6px;border:1px solid #7a6233;border-radius:999px;background:#3b2f18;color:#f5d98a;max-width:360px;overflow:hidden;text-overflow:ellipsis}#account,#shared-admin{color:#d8e9ff;text-decoration:none;border:0;border-radius:4px;padding:2px 4px;white-space:nowrap;font-size:11px}#account:hover,#shared-admin:hover{background:#242a34}#logout{white-space:nowrap}button,select{background:#252a33;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:7px 10px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}body>header>button{background:transparent;border:0;border-radius:4px;padding:2px 4px;font-size:11px}body>header>button:hover:not(:disabled){background:#242a34}#open-terminal{background:transparent;border:0;white-space:nowrap}#edit-title{white-space:nowrap}main{display:grid;grid-template-columns:310px 1fr;height:calc(100vh - var(--taskmenu-header-height))}aside{overflow:auto;border-right:1px solid #30343b;padding:10px}.group{margin:5px 0}.group>button,.task{width:100%;text-align:left}.children{padding-left:14px}.task{margin:2px 0;background:#171a20}.task:hover{background:#242a34}section{min-width:0;display:flex;flex-direction:column}#tabs{height:42px;border-bottom:1px solid #30343b;display:flex;align-items:end;overflow:auto;white-space:nowrap}.tab{border-radius:6px 6px 0 0;border-bottom:0;margin-left:4px}.tab.active{background:#343b48}.tab .status{opacity:.65;margin-left:6px}.tab .close{margin-left:8px}#panes{flex:1;min-height:0;position:relative}.pane{position:absolute;inset:0;display:flex;flex-direction:column}.pane.hidden{display:none}.pane-head{display:flex;gap:4px;align-items:center;min-height:24px;padding:1px 5px;border-bottom:1px solid #30343b}.pane-head .command{font-family:ui-monospace,monospace;font-size:11px;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.pane-head>button{background:transparent;border:0;border-radius:4px;padding:2px 4px;font-size:10px}.pane-head>button:hover:not(:disabled){background:#242a34}.download-select{max-width:280px;min-width:140px}.download{white-space:nowrap;background:#24472f;border-color:#3b7850}.copy-console{margin-left:6px;white-space:nowrap}.terminal{flex:1;min-height:0;padding:4px;background:#050607}.browser-lease-lost>header,.browser-lease-lost>main{filter:blur(1px);opacity:.45;pointer-events:none}.browser-lease-overlay{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px;background:rgba(4,6,9,.72)}.browser-lease-card{width:min(520px,100%);padding:22px;border:1px solid #48515f;border-radius:12px;background:#171a20;box-shadow:0 18px 55px rgba(0,0,0,.45);text-align:center}.browser-lease-card strong{display:block;font-size:18px;margin-bottom:10px}.browser-lease-card p{margin:8px 0;line-height:1.45}.browser-lease-card .browser-lease-hint{font-size:12px;opacity:.7}.browser-lease-card button{margin-top:10px;background:#244c70;border-color:#3f79a8;padding:10px 14px}`
+const appCSS = `:root{--taskmenu-header-height:30px;font-family:system-ui,sans-serif;color-scheme:dark;background:#101216;color:#e8eaed}*{box-sizing:border-box}body{margin:0}header{height:var(--taskmenu-header-height);display:flex;align-items:center;gap:7px;padding:0 8px;border-bottom:1px solid #30343b}header>strong{font-size:13px;white-space:nowrap}header #workspace{opacity:.65;flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#identity{font-size:11px;opacity:.8;white-space:nowrap}#mutation-lock{font-size:11px;white-space:nowrap;padding:2px 6px;border:1px solid #7a6233;border-radius:999px;background:#3b2f18;color:#f5d98a;max-width:360px;overflow:hidden;text-overflow:ellipsis}#account,#shared-admin{color:#d8e9ff;text-decoration:none;border:0;border-radius:4px;padding:2px 4px;white-space:nowrap;font-size:11px}#account:hover,#shared-admin:hover{background:#242a34}#logout{white-space:nowrap}button,select{background:#252a33;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:7px 10px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}body>header>button{background:transparent;border:0;border-radius:4px;padding:2px 4px;font-size:11px}body>header>button:hover:not(:disabled){background:#242a34}#open-terminal{background:transparent;border:0;white-space:nowrap}#edit-title{white-space:nowrap}main{display:grid;grid-template-columns:310px 1fr;height:calc(100vh - var(--taskmenu-header-height))}aside{overflow:auto;border-right:1px solid #30343b;padding:10px}.group{margin:5px 0}.group>button,.task{width:100%;text-align:left}.children{padding-left:14px}.task{margin:2px 0;background:#171a20}.task:hover{background:#242a34}section{min-width:0;display:flex;flex-direction:column}#tabs{height:42px;border-bottom:1px solid #30343b;display:flex;align-items:end;overflow:auto;white-space:nowrap}.tab{border-radius:6px 6px 0 0;border-bottom:0;margin-left:4px}.tab.active{background:#343b48}.tab .status{opacity:.65;margin-left:6px}.tab .close{margin-left:8px}#panes{flex:1;min-height:0;position:relative}.pane{position:absolute;inset:0;display:flex;flex-direction:column}.pane.hidden{display:none}.pane-head{display:flex;gap:4px;align-items:center;min-height:24px;padding:1px 5px;border-bottom:1px solid #30343b}.pane-head .command{font-family:ui-monospace,monospace;font-size:11px;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.pane-head>button{background:transparent;border:0;border-radius:4px;padding:2px 4px;font-size:10px}.pane-head>button:hover:not(:disabled){background:#242a34}.download-select{max-width:280px;min-width:140px}.download{white-space:nowrap;background:#24472f;border-color:#3b7850}.preview{white-space:nowrap;background:#243b57;border-color:#3e6790}.copy-console{margin-left:6px;white-space:nowrap}.terminal{flex:1;min-height:0;padding:4px;background:#050607}.browser-lease-lost>header,.browser-lease-lost>main{filter:blur(1px);opacity:.45;pointer-events:none}.browser-lease-overlay{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px;background:rgba(4,6,9,.72)}.browser-lease-card{width:min(520px,100%);padding:22px;border:1px solid #48515f;border-radius:12px;background:#171a20;box-shadow:0 18px 55px rgba(0,0,0,.45);text-align:center}.browser-lease-card strong{display:block;font-size:18px;margin-bottom:10px}.browser-lease-card p{margin:8px 0;line-height:1.45}.browser-lease-card .browser-lease-hint{font-size:12px;opacity:.7}.browser-lease-card button{margin-top:10px;background:#244c70;border-color:#3f79a8;padding:10px 14px}`
 
 const appJS = `const TerminalCtor=globalThis.Terminal;
 const FitAddonCtor=globalThis.FitAddon?.FitAddon;
@@ -384,21 +384,23 @@ function attach(meta,activate){
   const cmd=document.createElement('div');cmd.className='command';cmd.textContent=meta.command_preview;
   const downloadSelect=document.createElement('select');downloadSelect.className='download-select';downloadSelect.hidden=true;
   const download=document.createElement('button');download.className='download';download.textContent='Download';download.hidden=true;
+  const preview=document.createElement('button');preview.className='preview';preview.textContent='View';preview.hidden=true;
   const stop=document.createElement('button');stop.className='stop';stop.textContent='Stop';
   stop.hidden=!canControl;
   stop.onclick=async()=>{try{updateMeta(await jsonFetch('/api/sessions/'+meta.id+'/stop',{method:'POST'}));}catch(e){showError(e);}};
   const copy=document.createElement('button');copy.className='copy-console';copy.textContent='📋 Copy console';copy.title='Copy the entire console output';
   copy.onclick=()=>copyConsole(view).catch(showError);
-  head.append(cmd,downloadSelect,download,stop,copy);
+  head.append(cmd,downloadSelect,download,preview,stop,copy);
   const terminalHost=document.createElement('div');terminalHost.className='terminal';
   pane.append(head,terminalHost);panes.append(pane);
 
   const term=new TerminalCtor({convertEol:false,cursorBlink:canControl,disableStdin:!canControl,scrollback:10000,fontSize:13,theme:{background:'#050607'}});
   const fit=new FitAddonCtor();term.loadAddon(fit);term.open(terminalHost);fit.fit();
-  view={meta,canControl,tab,status,pane,term,fit,ws:null,ro:null,closed:false,tabReadOnly:false,reconnectTimer:null,selectionTimer:null,selectionSeq:0,downloadFiles:[],downloadSelect,download,stop,copy,copyTimer:null};
+  view={meta,canControl,tab,status,pane,term,fit,ws:null,ro:null,closed:false,tabReadOnly:false,reconnectTimer:null,selectionTimer:null,selectionSeq:0,downloadFiles:[],downloadSelect,download,preview,stop,copy,copyTimer:null};
   views.set(meta.id,view);
-  downloadSelect.onchange=()=>updateDownloadButton(view);
+  downloadSelect.onchange=()=>updateFileActionButtons(view);
   download.onclick=()=>downloadSelectedFile(view);
+  preview.onclick=()=>previewSelectedFile(view).catch(showError);
   term.onSelectionChange(()=>scheduleSelectionScan(view));
   term.onData(data=>{if(view.canControl&&!view.tabReadOnly&&!browserLeaseLost&&view.ws&&view.ws.readyState===WebSocket.OPEN)view.ws.send(data);});
   const resize=()=>{
@@ -408,6 +410,12 @@ function attach(meta,activate){
   };
   view.ro=new ResizeObserver(resize);view.ro.observe(terminalHost);
   connect(view,false);updateMeta(meta);if(activate)activateView(meta.id);return view;
+}
+
+function selectedDownloadFile(view){
+  if(!view.downloadFiles.length)return null;
+  const idx=view.downloadSelect.hidden?0:Number(view.downloadSelect.value||0);
+  return view.downloadFiles[idx]||view.downloadFiles[0]||null;
 }
 
 function setDownloadFiles(view,files){
@@ -420,23 +428,42 @@ function setDownloadFiles(view,files){
   }
   view.download.hidden=view.downloadFiles.length===0;
   view.downloadSelect.hidden=view.downloadFiles.length<=1;
-  updateDownloadButton(view);
+  updateFileActionButtons(view);
 }
 
-function updateDownloadButton(view){
-  if(!view.downloadFiles.length){view.download.textContent='Download';view.download.title='';return;}
-  const idx=view.downloadSelect.hidden?0:Number(view.downloadSelect.value||0);
-  const file=view.downloadFiles[idx]||view.downloadFiles[0];
+function updateFileActionButtons(view){
+  const file=selectedDownloadFile(view);
+  if(!file){
+    view.download.textContent='Download';view.download.title='';
+    view.preview.hidden=true;view.preview.title='';
+    return;
+  }
   view.download.textContent=view.downloadFiles.length>1?'Download ('+view.downloadFiles.length+')':'Download';
-  view.download.title=file?.path?'Download '+file.path:'Download the selected file';
+  view.download.title=file.path?'Download '+file.path:'Download the selected file';
+  view.preview.hidden=!(file.preview_kind==='text'||file.preview_kind==='image');
+  view.preview.title=view.preview.hidden?'':'View '+(file.name||file.path);
 }
 
 function downloadSelectedFile(view){
-  if(!view.downloadFiles.length)return;
-  const idx=view.downloadSelect.hidden?0:Number(view.downloadSelect.value||0);
-  const file=view.downloadFiles[idx]||view.downloadFiles[0];
+  const file=selectedDownloadFile(view);
   if(!file?.url)return;
   const a=document.createElement('a');a.href=file.url;a.download=file.name||'';a.rel='noopener';document.body.append(a);a.click();a.remove();
+}
+
+async function previewSelectedFile(view){
+  const file=selectedDownloadFile(view);
+  if(!file?.path)return;
+  const info=await jsonFetch('/api/files/preview?path='+encodeURIComponent(file.path));
+  if(info.kind==='text'){
+    if(!info.project_path)throw new Error('Preview server did not return a project path');
+    window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path:info.project_path,source:'terminal-preview'}}));
+    return;
+  }
+  if(info.kind==='image'){
+    window.dispatchEvent(new CustomEvent('taskmenu:file-image-preview',{detail:info}));
+    return;
+  }
+  throw new Error('This file cannot be previewed');
 }
 
 function consoleText(view){
