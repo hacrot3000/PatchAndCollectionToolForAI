@@ -113,3 +113,20 @@ func TestUnknownGitRepositoryIDIsRejected(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
+
+
+func TestGitWorkspaceRootSurvivesDisabledNestedScan(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	configPath := filepath.Join(workspace, ".vscode", "vscode_tasks_menu.ini")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(configPath, []byte("[git]\nscan_enabled = false\n"), 0o600); err != nil { t.Fatal(err) }
+
+	repos, settings, err := s.discoverGitRepositories(true)
+	if err != nil { t.Fatal(err) }
+	if settings.ScanEnabled {
+		t.Fatalf("scan_enabled=%v, want false", settings.ScanEnabled)
+	}
+	if len(repos) != 1 || repos[0].ID != "." {
+		t.Fatalf("repos=%+v, want workspace root only", repos)
+	}
+}
