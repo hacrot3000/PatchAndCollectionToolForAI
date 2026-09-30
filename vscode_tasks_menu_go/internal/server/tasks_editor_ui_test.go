@@ -40,7 +40,7 @@ func TestTasksJSONVisualEditorFeature(t *testing.T) {
 		"expected_sha256:fileMeta.sha256",
 		"method:'PUT'",
 		"await app.loadTasks()",
-		"Ctrl",
+		"event.ctrlKey||event.metaKey",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("taskseditor.js missing visual tasks editor behavior %q", want)
