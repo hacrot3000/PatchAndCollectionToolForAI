@@ -222,11 +222,10 @@ func main() {
 		return
 	}
 	if *selfUpdateFlag || *selfUpdateAuto {
-		// Reaching this branch already represents an explicit update request:
-		// --self-update was entered by the user in the CLI, while
-		// --self-update-auto is launched only after the web UI confirmed it.
-		// Never make the recovery-capable CLI depend on a working browser UI.
-		fatalIf(runSelfUpdate(ws, cfg, true))
+		// Reaching this branch is already an explicit update request. The CLI
+		// updater must remain usable even when the currently running web UI is
+		// broken, so it never waits for browser confirmation.
+		fatalIf(runSelfUpdate(ws, cfg))
 		return
 	}
 
@@ -1133,7 +1132,7 @@ func startAutoSelfUpdate(ws string) error {
 	return logFile.Close()
 }
 
-func runSelfUpdate(ws string, cfg config.Config, autoConfirm bool) (err error) {
+func runSelfUpdate(ws string, cfg config.Config) (err error) {
 	lock, err := state.AcquireStartLock(ws)
 	if err != nil {
 		return err
@@ -1187,7 +1186,10 @@ func runSelfUpdate(ws string, cfg config.Config, autoConfirm bool) (err error) {
 	if daemonRunning {
 		currentURL = oldState.URL
 	}
-	req, err := selfupdate.CreateRequest(ws, remote, currentURL, !daemonRunning || autoConfirm)
+	// --self-update itself is explicit confirmation from the caller.
+	// Keep the request state machine for progress/reporting, but never park a
+	// CLI recovery command in awaiting_confirmation.
+	req, err := selfupdate.CreateRequest(ws, remote, currentURL, true)
 	if err != nil {
 		return err
 	}
@@ -1196,28 +1198,13 @@ func runSelfUpdate(ws string, cfg config.Config, autoConfirm bool) (err error) {
 		return cause
 	}
 
-	if daemonRunning && !autoConfirm {
-		switch {
-		case !releaseReady:
-			fmt.Printf("TaskDeck sẽ cài release %s gồm binary + Patch add-on. Chờ xác nhận tại %s ...\n", remote[:12], oldState.URL)
-		case migratingToGlobal:
-			fmt.Printf("TaskDeck sẽ chuyển daemon sang global release tại %s. Chờ xác nhận tại %s ...\n", global, oldState.URL)
-		default:
-			fmt.Printf("Có bản mới %s. Chờ xác nhận tại %s ...\n", remote[:12], oldState.URL)
-		}
-		decision, decisionErr := selfupdate.WaitForDecision(ws, req.ID, 30*time.Minute)
-		if decisionErr != nil {
-			if decision.Status == "cancelled" {
-				fmt.Println("Đã hủy self-update.")
-				return nil
-			}
-			return fail(decisionErr)
-		}
-	} else if daemonRunning {
+	if daemonRunning {
 		if !releaseReady {
-			fmt.Printf("Tự động cài TaskDeck + Patch add-on release %s từ Settings.\n", remote[:12])
+			fmt.Printf("Đang cài TaskDeck + Patch add-on release %s.\n", remote[:12])
 		} else if migratingToGlobal {
-			fmt.Printf("Tự động chuyển daemon sang global TaskDeck: %s\n", global)
+			fmt.Printf("Đang chuyển daemon sang global TaskDeck: %s\n", global)
+		} else {
+			fmt.Printf("Đang cập nhật TaskDeck lên %s.\n", remote[:12])
 		}
 	}
 
