@@ -11,6 +11,8 @@ let renderedRoot=null;
 let focusedID='';
 let focusTrackingSuspendDepth=0;
 let dragging=null;
+let paneDrag=null;
+let dropOverlay=null;
 const resizers=new Map();
 const nodeRects=new WeakMap();
 
@@ -27,6 +29,15 @@ style.textContent=`
 .split-tree-resizer.horizontal:hover::after,.split-tree-resizer.horizontal.dragging::after{top:1px;height:3px;background:#5a6575}
 body.split-resizing-x{user-select:none;cursor:col-resize}
 body.split-resizing-y{user-select:none;cursor:row-resize}
+body.split-pane-dragging{user-select:none}
+.pane-head .command.split-drag-handle{cursor:grab;user-select:none}
+.pane-head .command.split-drag-handle:active{cursor:grabbing}
+.pane.split-drag-source>.pane-head{opacity:.72}
+.split-drop-overlay{position:absolute;z-index:16;display:none;align-items:center;justify-content:center;pointer-events:none;border:2px solid #6ea8df;border-radius:6px;background:rgba(68,132,190,.24);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+.split-drop-overlay.visible{display:flex}
+.split-drop-overlay::after{content:attr(data-label);font:600 11px system-ui,sans-serif;letter-spacing:.08em;color:#d8ecff;background:rgba(16,18,22,.78);border:1px solid rgba(110,168,223,.65);border-radius:999px;padding:3px 7px}
+html[data-taskmenu-theme="light"] .split-drop-overlay{background:rgba(73,139,199,.18)}
+html[data-taskmenu-theme="light"] .split-drop-overlay::after{color:#174c78;background:rgba(255,255,255,.9)}
 .session-split-vertical,.session-split-horizontal,.session-merge-vertical,.session-merge-horizontal,.session-unsplit{white-space:nowrap}
 .tab.split-peer{box-shadow:inset 0 -2px #5a88b4}
 .pane.split-input-focused>.pane-head,.pane.split-input-focused .pane-head:first-child{background:#26384a!important;box-shadow:inset 0 -2px #6ea8df}
@@ -151,6 +162,93 @@ function emitChanged(){window.dispatchEvent(new CustomEvent('taskmenu:split-chan
 function fitSoon(view){setTimeout(()=>{try{view?.fit?.fit();}catch{}},0);}
 function fitRoot(root){for(const id of leafIDs(root,[]))fitSoon(app.views.get(id));}
 
+function extractLeaf(node,id){
+  if(!node)return {node:null,removed:null};
+  if(node.type==='leaf')return node.id===id?{node:null,removed:node}:{node,removed:null};
+  const first=extractLeaf(node.first,id);
+  if(first.removed){
+    if(!first.node)return {node:node.second,removed:first.removed};
+    node.first=first.node;return {node,removed:first.removed};
+  }
+  const second=extractLeaf(node.second,id);
+  if(second.removed){
+    if(!second.node)return {node:node.first,removed:second.removed};
+    node.second=second.node;return {node,removed:second.removed};
+  }
+  return {node,removed:null};
+}
+function moveTerminalToSide(sourceID,targetID,side){
+  if(!sourceID||!targetID||sourceID===targetID||!['left','right','top','bottom'].includes(side))return false;
+  const sourceRoot=findRoot(sourceID),targetRoot=findRoot(targetID);
+  if(!sourceRoot||!targetRoot)return false;
+  const sourceIndex=roots.indexOf(sourceRoot);
+  const extracted=extractLeaf(sourceRoot,sourceID);
+  if(!extracted.removed)return false;
+  if(isSplit(extracted.node))roots[sourceIndex]=extracted.node;
+  else roots.splice(sourceIndex,1);
+  let target=findLeafNode(targetID);
+  if(!target&&extracted.node?.type==='leaf'&&extracted.node.id===targetID)target=extracted.node;
+  if(!target)return false;
+  const orientation=(side==='left'||side==='right')?'vertical':'horizontal';
+  const before=side==='left'||side==='top';
+  const replacement=before
+    ?splitNode(extracted.removed,target,orientation,0.5)
+    :splitNode(target,extracted.removed,orientation,0.5);
+  if(!findRoot(targetID))roots.push(replacement);
+  else if(!replaceNode(target,replacement))return false;
+  pruneRootList();
+  return true;
+}
+function ensureDropOverlay(){
+  if(dropOverlay?.isConnected)return dropOverlay;
+  dropOverlay=document.createElement('div');dropOverlay.className='split-drop-overlay';panes.append(dropOverlay);return dropOverlay;
+}
+function hideDropOverlay(){
+  if(!dropOverlay)return;
+  dropOverlay.classList.remove('visible');dropOverlay.removeAttribute('data-label');
+}
+function clearPaneDrag(){
+  if(paneDrag?.sourceID)app.views.get(paneDrag.sourceID)?.pane?.classList.remove('split-drag-source');
+  paneDrag=null;hideDropOverlay();document.body.classList.remove('split-pane-dragging');
+}
+function viewFromPaneElement(element){
+  const pane=element?.closest?.('.pane[data-id]');if(!pane)return null;
+  return app.views.get(pane.dataset.id||'')||null;
+}
+function dropSideFor(view,event){
+  const rect=view?.pane?.getBoundingClientRect?.();if(!rect||rect.width<=0||rect.height<=0)return '';
+  const nx=(event.clientX-(rect.left+rect.width/2))/Math.max(1,rect.width/2);
+  const ny=(event.clientY-(rect.top+rect.height/2))/Math.max(1,rect.height/2);
+  if(Math.abs(nx)>=Math.abs(ny))return nx<0?'left':'right';
+  return ny<0?'top':'bottom';
+}
+function showDropOverlay(view,side){
+  if(!view||!side){hideDropOverlay();return;}
+  const overlay=ensureDropOverlay(),host=panes.getBoundingClientRect(),rect=view.pane.getBoundingClientRect();
+  let left=rect.left-host.left,top=rect.top-host.top,width=rect.width,height=rect.height;
+  if(side==='left'||side==='right'){width/=2;if(side==='right')left+=width;}
+  else{height/=2;if(side==='bottom')top+=height;}
+  overlay.style.left=Math.round(left)+'px';overlay.style.top=Math.round(top)+'px';
+  overlay.style.width=Math.max(0,Math.round(width))+'px';overlay.style.height=Math.max(0,Math.round(height))+'px';
+  overlay.dataset.label=side.toUpperCase();overlay.classList.add('visible');
+}
+function bindPaneDragging(view){
+  const handle=view?.pane?.querySelector('.pane-head>.command');if(!handle||handle.classList.contains('split-drag-handle'))return;
+  handle.classList.add('split-drag-handle');handle.draggable=true;
+  handle.title='Drag this terminal title to rearrange split panes';
+  handle.addEventListener('dragstart',event=>{
+    const root=findRoot(view.meta.id);
+    if(!root||root!==renderedRoot){event.preventDefault();return;}
+    paneDrag={sourceID:view.meta.id,targetID:'',side:''};
+    view.pane.classList.add('split-drag-source');document.body.classList.add('split-pane-dragging');
+    if(event.dataTransfer){
+      event.dataTransfer.effectAllowed='move';
+      try{event.dataTransfer.setData('text/plain','taskdeck-terminal:'+view.meta.id);}catch{}
+    }
+  });
+  handle.addEventListener('dragend',clearPaneDrag);
+}
+
 function readSaved(){
   try{
     const value=JSON.parse(sessionStorage.getItem(storageKey())||'null');
@@ -207,7 +305,7 @@ function clearFocused(id){
 }
 
 function cleanupPresentation(){
-  renderedRoot=null;dragging=null;
+  renderedRoot=null;dragging=null;clearPaneDrag();
   for(const view of app.views.values()){
     view.pane.classList.remove('split-leaf','split-input-focused');
     view.tab.classList.remove('split-peer','split-input-focused');
@@ -388,7 +486,7 @@ function bindFocusTracking(view){
 }
 function install(view){
   if(!splitSupported||!view?.pane||installed.has(view))return;
-  installed.add(view);bindFocusTracking(view);
+  installed.add(view);bindFocusTracking(view);bindPaneDragging(view);
   const vertical=document.createElement('button');vertical.className='session-split-vertical';vertical.textContent='Split vertical';vertical.onclick=()=>splitFrom(view,'vertical').catch(app.showError);
   const horizontal=document.createElement('button');horizontal.className='session-split-horizontal';horizontal.textContent='Split horizontal';horizontal.onclick=()=>splitFrom(view,'horizontal').catch(app.showError);
   const mergeV=document.createElement('button');mergeV.className='session-merge-vertical';mergeV.textContent='Merge vertical…';mergeV.title='Merge this tab with an existing tab in a vertical split';mergeV.onclick=()=>{try{mergeWith(view,'vertical');}catch(e){app.showError(e);}};
@@ -452,9 +550,27 @@ document.addEventListener('click',event=>{
   const tab=target?.closest('.tab');if(!tab)return;
   setTimeout(()=>{syncForActive();const root=findRoot(tab.dataset.id);if(root)app.views.get(tab.dataset.id)?.term.focus();},0);
 });
+panes.addEventListener('dragover',event=>{
+  if(!paneDrag)return;
+  const target=viewFromPaneElement(event.target instanceof Element?event.target:null);
+  if(!target||target.meta.id===paneDrag.sourceID||findRoot(target.meta.id)!==renderedRoot){hideDropOverlay();return;}
+  const side=dropSideFor(target,event);if(!side){hideDropOverlay();return;}
+  event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move';
+  paneDrag.targetID=target.meta.id;paneDrag.side=side;showDropOverlay(target,side);
+});
+panes.addEventListener('drop',event=>{
+  if(!paneDrag)return;
+  event.preventDefault();
+  const sourceID=paneDrag.sourceID,targetID=paneDrag.targetID,side=paneDrag.side;
+  clearPaneDrag();
+  if(!moveTerminalToSide(sourceID,targetID,side))return;
+  saveState();app.activateView(sourceID);
+  setTimeout(()=>{syncForActive();app.views.get(sourceID)?.term.focus();},0);
+});
+panes.addEventListener('dragleave',event=>{if(paneDrag&&!panes.contains(event.relatedTarget))hideDropOverlay();});
 window.addEventListener('resize',()=>{if(renderedRoot)layoutCurrentRoot();});
 
 const observer=new MutationObserver(()=>setTimeout(()=>{pruneMissingViews();tryRestoreSaved();syncForActive();updateButtons();},0));
 observer.observe(panes,{childList:true});
 
-globalThis.TaskMenuSplit={getState,getGroups,restoreProjectSplit,restoreProjectGroups,swapSplitView,clearSplit,clearAll,clearPresentation,syncForActive,suspendFocusTracking,resumeFocusTracking,isSupported:()=>splitSupported};
+globalThis.TaskMenuSplit={getState,getGroups,restoreProjectSplit,restoreProjectGroups,swapSplitView,moveTerminalToSide,clearSplit,clearAll,clearPresentation,syncForActive,suspendFocusTracking,resumeFocusTracking,isSupported:()=>splitSupported};
