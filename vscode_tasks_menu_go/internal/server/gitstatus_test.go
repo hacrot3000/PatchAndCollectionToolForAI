@@ -27,6 +27,11 @@ func TestGitStatusFeatureModule(t *testing.T) {
 		"refreshRepositories(false)",
 		"const selectedBefore=activeRepoID",
 		"await refreshRepositories(true)",
+		"'/api/sessions/'+encodeURIComponent(String(id))+'/cwd'",
+		"if(live?.local===false)return",
+		"if(live?.cwd)cwd=live.cwd",
+		"target_type||'').toLowerCase()==='ssh'",
+		"view.meta?.target_profile_id",
 		".git-panel{display:none;position:fixed;z-index:1500;top:calc(var(--taskmenu-header-height,30px) + 6px);",
 	} {
 		if !strings.Contains(js, want) {
