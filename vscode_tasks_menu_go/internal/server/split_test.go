@@ -14,31 +14,27 @@ func TestSplitTerminalFeature(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		"let groups=[]",
+		"let roots=[]",
 		"const splitSupported=app.layoutProfile!=='mobile'",
 		"if(!splitSupported||!view?.pane||installed.has(view))return",
 		"function clearPresentation()",
 		"isSupported:()=>splitSupported",
 		"'vscode-tasks-menu:split:'+(app.layoutProfile||'desktop')",
-		"split-vertical",
-		"split-horizontal",
+		"split-tree-mode",
+		"split-tree-resizer",
 		"session-split-vertical",
 		"session-split-horizontal",
 		"session-merge-vertical",
 		"session-merge-horizontal",
 		"session-swap-split",
 		"session-unsplit",
-		"function groupFor(id)",
-		"function createGroup(first,second,orientation",
-		"removeGroupsContaining([first,second])",
+		"function splitLeaf(firstID,secondID,orientation",
+		"function encodeNode(node,out)",
+		"function layoutNode(node,rect,used)",
 		"function mergeWith(view,orientation)",
 		"function swapSplitView(view)",
-		"const first=group.first;group.first=group.second;group.second=first",
-		"cleanupPresentation();saveState();syncForActive();updateButtons()",
-		"Swap left / right",
-		"Swap top / bottom",
+		"const first=parent.first;parent.first=parent.second;parent.second=first",
 		"function syncForActive()",
-		"cleanupPresentation();updateButtons()",
 		"await app.startTerminal()",
 		"pointermove",
 		"sessionStorage.setItem",
@@ -47,16 +43,19 @@ func TestSplitTerminalFeature(t *testing.T) {
 		"getGroups",
 		"taskmenu:split-changed",
 		"orientation==='horizontal'",
+		"function bindFocusTracking(view)",
+		"split-input-focused",
+		"markFocused(view.meta.id)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("split.js missing behavior %q", want)
 		}
 	}
-	if strings.Contains(js, "let pair=null") {
-		t.Fatal("split implementation must not regress to one global pair")
+	if strings.Contains(js, "let pair=null") || strings.Contains(js, "let groups=[]") {
+		t.Fatal("split implementation must use a recursive split tree, not a global pair/group list")
 	}
 	if strings.Contains(js, "else clearSplit();") || strings.Contains(js, "else clearAll();") {
-		t.Fatal("activating an unrelated task/tab must suspend split presentation, not destroy saved split groups")
+		t.Fatal("activating an unrelated task/tab must suspend split presentation, not destroy saved split trees")
 	}
 	if strings.Contains(js, "observe(document.body") {
 		t.Fatal("split feature must not observe the whole document body")
@@ -68,6 +67,29 @@ func TestSplitTerminalFeature(t *testing.T) {
 	}
 	if !strings.Contains(string(loader), "import '/featuremods/split.js';") {
 		t.Fatal("next.js must load split.js")
+	}
+}
+
+func TestSplitTerminalSupportsRecursiveNestedLayouts(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/split.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"replaceNode(first,node)",
+		"splitLeaf(view.meta.id,created,orientation,0.5)",
+		"layoutNode(node.first",
+		"layoutNode(node.second",
+		"const resizers=new Map()",
+		"ensureResizer(node)",
+		"roots.push(node)",
+		"encodeNode(node.first,out);encodeNode(node.second,out)",
+		"version:3,groups",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("recursive terminal split behavior missing %q", want)
+		}
 	}
 }
 
