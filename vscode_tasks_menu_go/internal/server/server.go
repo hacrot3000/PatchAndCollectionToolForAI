@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -1518,6 +1519,26 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch parts[1] {
+	case "cwd":
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		meta, ok := s.Sessions.Metadata(id)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		localTerminal := meta.TaskID == 0 && !strings.EqualFold(strings.TrimSpace(meta.TargetType), "ssh") && strings.TrimSpace(meta.TargetProfileID) == ""
+		if !localTerminal {
+			writeJSON(w, http.StatusOK, map[string]any{"local": false, "cwd": ""})
+			return
+		}
+		cwd, err := s.Sessions.CurrentCwd(id)
+		if err != nil || strings.TrimSpace(cwd) == "" {
+			cwd = meta.Cwd
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"local": true, "cwd": filepath.Clean(cwd)})
 	case "stop":
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
