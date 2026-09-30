@@ -68,6 +68,9 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	case "merge-preflight":
 		s.gitMergePreflight(w, r)
 		return
+	case "merge-to-preflight":
+		s.gitMergeToPreflight(w, r)
+		return
 	case "ahead-behind":
 		s.gitAheadBehind(w, r)
 		return
