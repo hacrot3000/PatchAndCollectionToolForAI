@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -115,6 +116,20 @@ func TestGitQuickMergeRejectsDirtyWorktree(t *testing.T) {
 	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"merge","branch":"feature/merge-dirty","source":"local"}`)
 	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "working tree must be clean before merging") {
 		t.Fatalf("dirty merge action status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestGitQuickMergeToFastForwardNeverNeedsWorktree(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	targetSHA := gitQuickRun(t, workspace, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(workspace, "ff.txt"), []byte("ff\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "ff.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "fast forward source")
+	sourceSHA := gitQuickRun(t, workspace, "rev-parse", "HEAD")
+
+	engine, slow := s.gitMergeToEngine(context.Background(), targetSHA, sourceSHA)
+	if engine != "fast-forward" || slow {
+		t.Fatalf("engine=%q slow=%v, want fast-forward without fallback", engine, slow)
 	}
 }
 
