@@ -84,6 +84,56 @@ func TestFileTransferWorkspaceRowSelectionDoesNotReplaceDoubleClickTarget(t *tes
 	}
 }
 
+
+func TestFileTransferWorkspaceSupportsMultiSelectAndContextActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"selectedKeys:new Set()",
+		"event.ctrlKey||event.metaKey",
+		"event.shiftKey&&panel.selectionAnchor",
+		"selectAll.type='checkbox'",
+		"selectAllEntries(panel)",
+		"tr.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();selectTableEntry(panel,entry,event,'context');onContextMenu(entry,event);}",
+		"if(!keys.has(key)){keys.clear();keys.add(key);}",
+		"Upload '+(files.length>1?files.length+' selected files':'to remote')+' →",
+		"Transfer '+(files.length>1?files.length+' selected files':'to left')+' ←",
+		"Delete '+(selected.length>1?selected.length+' selected items':'item')",
+		"Open folder",
+		"Copy selected paths",
+		"Select all",
+		"Clear selection",
+		"New remote folder",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing multi-select/context-menu contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferContextMenuAlwaysHasItemActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function showContextMenu(items,x,y,title='')",
+		"menu.setAttribute('role','menu')",
+		"button.setAttribute('role','menuitem')",
+		"function leftContext(view,entry,event)",
+		"function remoteContext(view,entry,event)",
+		"showContextMenu(items,event.clientX,event.clientY,contextTitle(panel,entry))",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing context menu contract %q", want)
+		}
+	}
+}
+
 func TestFileTransferWorkspaceUsesStructuredTransferAndMutationAPIs(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil {
