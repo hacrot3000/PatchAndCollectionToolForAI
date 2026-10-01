@@ -18,6 +18,21 @@ import (
 
 const maxFileTransferBytes int64 = 1 << 30 // 1 GiB initial safety boundary.
 
+type downloadResponseTracker struct {
+	http.ResponseWriter
+	wrote bool
+}
+
+func (w *downloadResponseTracker) Write(p []byte) (int, error) {
+	w.wrote = true
+	return w.ResponseWriter.Write(p)
+}
+
+func (w *downloadResponseTracker) WriteHeader(statusCode int) {
+	w.wrote = true
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
 type transferLimitWriter struct {
 	dst       io.Writer
 	remaining int64
@@ -90,12 +105,13 @@ func (s *Server) fileTransferDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := remoteDownloadName(req.Path)
+	tracked := &downloadResponseTracker{ResponseWriter: w}
 
 	switch profile.Protocol {
 	case filetransferprofile.ProtocolFTP:
 		err = s.withFTPClient(r.Context(), profile, nil, func(client *ftpclient.Client) error {
 			setRemoteDownloadHeaders(w, name)
-			writer := &transferLimitWriter{dst: w, remaining: maxFileTransferBytes}
+			writer := &transferLimitWriter{dst: tracked, remaining: maxFileTransferBytes}
 			return client.Retrieve(r.Context(), req.Path, writer)
 		})
 	case filetransferprofile.ProtocolSFTP:
@@ -139,32 +155,18 @@ func (s *Server) fileTransferDownload(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		setRemoteDownloadHeaders(w, name)
-		_, err = io.Copy(w, file)
+		_, err = io.Copy(tracked, file)
 	default:
 		err = fmt.Errorf("unsupported file-transfer protocol %q", profile.Protocol)
 	}
 	if err != nil {
 		s.auditConnection(r, ConnectionAuditEvent{Kind: "file_transfer", Action: "download", ProfileID: profile.ID, Success: false})
-		if !responseStarted(w) {
+		if !tracked.wrote {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 		}
 		return
 	}
 	s.auditConnection(r, ConnectionAuditEvent{Kind: "file_transfer", Action: "download", ProfileID: profile.ID, Success: true})
-}
-
-type responseWriteTracker interface {
-	Written() bool
-}
-
-func responseStarted(w http.ResponseWriter) bool {
-	if tracker, ok := w.(responseWriteTracker); ok {
-		return tracker.Written()
-	}
-	// net/http does not expose a portable committed-state API. Callers only
-	// reach this fallback after a protocol stream may have started, so avoid
-	// attempting to append a second error response to binary data.
-	return true
 }
 
 func (s *Server) fileTransferUpload(w http.ResponseWriter, r *http.Request) {
