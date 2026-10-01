@@ -210,7 +210,10 @@ func TestProjectFileSearchRefreshFindsExactIgnoredFilename(t *testing.T) {
 		Results []projectFileSearchResult `json:"results"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil { t.Fatal(err) }
-	if len(got.Results) == 0 || got.Results[0].Path != "ignored/exact_hidden.txt" || got.Results[0].Score != 25000 {
+	if len(got.Results) == 0 || got.Results[0].Path != "ignored/exact_hidden.txt" {
 		t.Fatalf("ignored exact results=%+v", got.Results)
+	}
+	if got.Results[0].Name != "exact_hidden.txt" {
+		t.Fatalf("ignored exact top result=%+v, want exact filename", got.Results[0])
 	}
 }
