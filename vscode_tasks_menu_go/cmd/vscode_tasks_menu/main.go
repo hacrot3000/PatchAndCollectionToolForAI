@@ -647,7 +647,9 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 		SSHTunnels: dbRuntime.Tunnels,
 		ConnectionSecrets: dbRuntime.Secrets,
 	}
-	server.RegisterSelfUpdateCheck(srv, checkSelfUpdate)
+	server.RegisterSelfUpdateCheck(srv, func(ctx context.Context) (server.SelfUpdateCheckResult, error) {
+		return checkSelfUpdate(ctx, ws)
+	})
 	defer server.RegisterSelfUpdateCheck(srv, nil)
 	server.RegisterSelfUpdateStart(srv, func() error { return startAutoSelfUpdate(ws) })
 	defer server.RegisterSelfUpdateStart(srv, nil)
@@ -1076,10 +1078,14 @@ func daemonNeedsGlobalMigration(st state.State, global string) bool {
 	return !selfupdate.SameExecutablePath(exe, global)
 }
 
-func checkSelfUpdate(ctx context.Context) (server.SelfUpdateCheckResult, error) {
-	remote, err := selfupdate.RemoteRevision(ctx)
+func checkSelfUpdate(ctx context.Context, workspace string) (server.SelfUpdateCheckResult, error) {
+	settings, err := config.ReadSelfUpdateSettings(workspace)
 	if err != nil {
-		return server.SelfUpdateCheckResult{}, fmt.Errorf("check latest revision: %w", err)
+		return server.SelfUpdateCheckResult{}, fmt.Errorf("read self-update settings: %w", err)
+	}
+	remote, err := selfupdate.RemoteRevisionForBranch(ctx, settings.Branch)
+	if err != nil {
+		return server.SelfUpdateCheckResult{}, fmt.Errorf("check latest revision for branch %q: %w", settings.Branch, err)
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -1141,9 +1147,13 @@ func runSelfUpdate(ws string, cfg config.Config) (err error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
-	remote, err := selfupdate.RemoteRevision(ctx)
+	selfUpdateBranch, err := config.NormalizeSelfUpdateBranch(cfg.SelfUpdateBranch)
 	if err != nil {
-		return fmt.Errorf("check latest revision: %w", err)
+		return err
+	}
+	remote, err := selfupdate.RemoteRevisionForBranch(ctx, selfUpdateBranch)
+	if err != nil {
+		return fmt.Errorf("check latest revision for branch %q: %w", selfUpdateBranch, err)
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -1203,6 +1213,7 @@ func runSelfUpdate(ws string, cfg config.Config) (err error) {
 	}
 
 	if daemonRunning {
+		fmt.Printf("Self-update branch: %s\n", selfUpdateBranch)
 		if !releaseReady {
 			fmt.Printf("Đang cài TaskDeck + Patch add-on release %s.\n", remote[:12])
 		} else if migratingToGlobal {
