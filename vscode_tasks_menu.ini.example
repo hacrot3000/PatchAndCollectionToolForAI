@@ -39,6 +39,9 @@ password = change-me
 # Branch dùng để Check update và tải source self-update. Mặc định main.
 # Ví dụ: develop, feat/test-update, release/1.2.3
 branch = main
+# Full developer test suite before activation. Mặc định false cho end users.
+# Build + binary/release validation vẫn luôn chạy khi false.
+run_full_validation_tests = false
 
 
 [git]
