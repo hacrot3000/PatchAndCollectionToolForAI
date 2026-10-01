@@ -327,8 +327,9 @@ function renderTransferQueue(view){
 async function afterTransferQueueIdle(view){
   const queue=view.transferQueue;if(!queue)return;
   const currentRemote=remoteCacheKey(view.remote.currentPath||'.');
-  if(queue.remoteDirty?.has(currentRemote)){
-    queue.remoteDirty.delete(currentRemote);
+  const refreshCurrentRemote=queue.remoteDirty?.has(currentRemote);
+  queue.remoteDirty?.clear();
+  if(refreshCurrentRemote){
     try{await loadRemoteDirectory(view,currentRemote,{force:true});}catch(error){console.warn('Cannot refresh remote transfer target',error);}
   }
   if(queue.leftDirty){
