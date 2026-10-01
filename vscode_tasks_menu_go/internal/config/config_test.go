@@ -280,3 +280,60 @@ func TestSharedServerRequiresHTTPSAndIgnoresLegacyCredentials(t *testing.T) {
 		}
 	}
 }
+
+
+func TestSelfUpdateFullValidationDefaultsDisabledAndWritesINI(t *testing.T) {
+	workspace := t.TempDir()
+	cfg, path, err := Load(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SelfUpdateFullValidation {
+		t.Fatal("self-update full validation must default to disabled")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		"[self_update]",
+		"run_full_validation_tests = false",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("generated config missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestLoadSelfUpdateFullValidationSetting(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	content := "[server]\nprotocol = https\nbind = 127.0.0.1\nport = 0\nopen_browser = false\n\n[auth]\nenabled = false\nusername = admin\npassword = change-me\n\n[self_update]\nrun_full_validation_tests = true\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := Load(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.SelfUpdateFullValidation {
+		t.Fatal("self-update full validation setting was not parsed")
+	}
+}
+
+func TestLegacyConfigWithoutSelfUpdateSectionDefaultsValidationOff(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	content := "[server]\nprotocol = https\nbind = 127.0.0.1\nport = 0\nopen_browser = false\n\n[auth]\nenabled = false\nusername = admin\npassword = change-me\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := Load(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SelfUpdateFullValidation {
+		t.Fatal("legacy config must default self-update full validation to disabled")
+	}
+}
