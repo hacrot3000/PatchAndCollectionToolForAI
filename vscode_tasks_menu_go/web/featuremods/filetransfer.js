@@ -856,128 +856,156 @@ async function fetchHostDirectoryEntries(path){
   const data=await app.jsonFetch('/api/project/tree?path='+encodeURIComponent(path==='.'?'':path));
   return (Array.isArray(data)?data:[]).map(item=>({...item,type:item.type==='dir'?'directory':entryType(item)}));
 }
-async function collectHostUploadEntry(view,parent,entry,remoteParent,plan){
-  const sourcePath=joinPath(parent,entry.name,false),targetPath=joinPath(remoteParent,entry.name,true);
-  if(entryType(entry)==='directory'){
-    plan.directories.push(targetPath);
-    const children=await fetchHostDirectoryEntries(sourcePath);
-    for(const child of children)await collectHostUploadEntry(view,sourcePath,child,targetPath,plan);
-    return;
-  }
-  plan.files.push({kind:'host',sourcePath,targetPath,size:Number(entry.size)||0});
+function newRemoteScanState(basePath){
+  const base=normalizeRemotePath(basePath||'.');
+  return {base,remoteDirectories:new Set(['.','/',base]),remoteListings:new Map(),files:0,folders:0,errors:0};
 }
-async function collectLocalUploadHandle(handle,targetPath,sourceLabel,plan){
-  if(handle.kind==='directory'){
-    plan.directories.push(targetPath);
-    for await(const [name,child] of handle.entries()){
-      await collectLocalUploadHandle(child,joinPath(targetPath,name,true),joinPath(sourceLabel,name,false),plan);
-    }
-    return;
-  }
-  const file=await handle.getFile();
-  plan.files.push({kind:'local',file,sourcePath:sourceLabel,targetPath,size:file.size});
-}
-async function buildLeftUploadPlan(view,entries){
-  const selected=[...(entries||[])];if(!selected.length)throw new Error('Select one or more left items first');
-  const plan={directories:[],files:[]};
-  view.left.status.textContent='Scanning '+selected.length+' selected item(s)…';
-  if(view.left.source==='host'){
-    for(const entry of selected)await collectHostUploadEntry(view,view.left.currentPath,entry,view.remote.currentPath,plan);
-  }else{
-    const base=await localDirectoryHandle(view);
-    for(const entry of selected){
-      const handle=entryType(entry)==='directory'?await base.getDirectoryHandle(entry.name):await base.getFileHandle(entry.name);
-      await collectLocalUploadHandle(handle,joinPath(view.remote.currentPath,entry.name,true),joinPath(view.left.currentPath,entry.name,false),plan);
-    }
-  }
-  return plan;
-}
-async function ensureRemoteDirectory(view,target,ensured,touched){
+async function ensureRemoteScanDirectory(view,target,state){
   target=normalizeRemotePath(target);
-  if(target==='.'||target==='/'||ensured.has(target))return;
+  if(target==='.'||target==='/'||state.remoteDirectories.has(target))return;
   const parent=parentPath(target,true);
-  await ensureRemoteDirectory(view,parent,ensured,touched);
+  await ensureRemoteScanDirectory(view,parent,state);
   const name=pathLeaf(target,true);
-  let listing=await fetchRemoteDirectory(view,parent);
-  let existing=listing.entries.find(item=>item.name===name);
+  let entries=state.remoteListings.get(parent);
+  if(!entries){
+    const listing=await fetchRemoteDirectory(view,parent);
+    entries=listing.entries.map(item=>({...item,type:entryType(item)}));
+    state.remoteListings.set(parent,entries);
+  }
+  let existing=entries.find(item=>item.name===name);
   if(existing){
     if(entryType(existing)!=='directory')throw new Error('Remote path exists and is not a folder: '+target);
-    ensured.add(target);return;
+    state.remoteDirectories.add(target);
+    if(!state.remoteListings.has(target)){
+      const cached=remoteCacheGet(view,target);
+      if(cached)state.remoteListings.set(target,cached.entries.map(item=>({...item,type:entryType(item)})));
+    }
+    return;
   }
   try{
     await mutateRemoteRequest(view,'mkdir',target,'',true);
   }catch(error){
-    listing=await fetchRemoteDirectory(view,parent,{force:true});
-    existing=listing.entries.find(item=>item.name===name);
+    const listing=await fetchRemoteDirectory(view,parent,{force:true});
+    entries=listing.entries.map(item=>({...item,type:entryType(item)}));
+    state.remoteListings.set(parent,entries);
+    existing=entries.find(item=>item.name===name);
     if(!existing||entryType(existing)!=='directory')throw error;
-    ensured.add(target);return;
+    state.remoteDirectories.add(target);return;
   }
-  const parentCache=remoteCacheGet(view,parent);
-  if(parentCache&&!parentCache.entries.some(item=>item.name===name))parentCache.entries.push({name,type:'directory',size:0,modified:''});
-  if(!remoteCacheGet(view,target))remoteCacheSet(view,target,{path:target,protocol:view.profile.protocol,entries:[]});
-  touched.add(parent);ensured.add(target);
+  entries.push({name,type:'directory',size:0,modified:''});
+  state.remoteListings.set(target,[]);
+  state.remoteDirectories.add(target);state.folders++;
+  markRemoteQueueDirty(view,parent);
 }
-async function prepareRemoteDirectories(view,directories){
-  const ensured=new Set(['.','/']),touched=new Set();
-  const unique=[...new Set((directories||[]).map(path=>normalizeRemotePath(path)))].sort((a,b)=>pathDepth(a,true)-pathDepth(b,true));
-  for(const dir of unique)await ensureRemoteDirectory(view,dir,ensured,touched);
-  for(const parent of touched)markRemoteQueueDirty(view,parent);
-}
-async function collectRemoteDownloadEntry(view,remoteParent,entry,leftParent,plan){
-  const remotePath=joinPath(remoteParent,entry.name,true),leftPath=joinPath(leftParent,entry.name,false);
-  if(entryType(entry)==='directory'){
-    plan.directories.push(leftPath);
-    const listing=await fetchRemoteDirectory(view,remotePath);
-    for(const child of listing.entries)await collectRemoteDownloadEntry(view,remotePath,child,leftPath,plan);
-    return;
-  }
-  plan.files.push({remotePath,leftPath,size:Number(entry.size)||0});
-}
-async function buildRemoteDownloadPlan(view,entries){
-  const selected=[...(entries||[])];if(!selected.length)throw new Error('Select one or more remote items first');
-  const plan={directories:[],files:[]};
-  view.remote.status.textContent='Scanning '+selected.length+' remote item(s)…';
-  for(const entry of selected)await collectRemoteDownloadEntry(view,view.remote.currentPath,entry,view.left.currentPath,plan);
-  return plan;
-}
-async function ensureHostDirectories(view,directories){
-  const unique=[...new Set((directories||[]).map(path=>normalizeRelativePath(path)))].sort((a,b)=>pathDepth(a,false)-pathDepth(b,false));
-  for(const dir of unique){
-    if(dir==='.')continue;
-    const parent=parentPath(dir,false),name=pathLeaf(dir,false);
-    let entries=await fetchHostDirectoryEntries(parent);
-    const existing=entries.find(item=>item.name===name);
-    if(existing){
-      if(entryType(existing)!=='directory')throw new Error('Host path exists and is not a folder: '+dir);
-      continue;
+function enqueueHostUploadFile(view,sourcePath,targetPath,size,state){
+  state.files++;
+  enqueueTransferTasks(view,[{
+    direction:'→',source:sourcePath,target:targetPath,size:Number(size)||0,
+    run:async()=>{
+      await app.jsonFetch('/api/file-transfer/host-to-remote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        profile_id:view.profile.id,host_path:sourcePath,remote_path:targetPath
+      })});
+      markRemoteQueueDirty(view,parentPath(targetPath,true));
     }
-    try{await hostMutation(view,'mkdir',dir);}
-    catch(error){
-      entries=await fetchHostDirectoryEntries(parent);
-      const retry=entries.find(item=>item.name===name);
-      if(!retry||entryType(retry)!=='directory')throw error;
+  }]);
+}
+function enqueueLocalUploadHandle(view,handle,sourcePath,targetPath,state){
+  state.files++;
+  enqueueTransferTasks(view,[{
+    direction:'→',source:sourcePath,target:targetPath,size:0,
+    run:async item=>{
+      const file=await handle.getFile();
+      item.size=file.size;renderTransferQueue(view);
+      await uploadBrowserFileToPath(view,file,targetPath);
+      markRemoteQueueDirty(view,parentPath(targetPath,true));
     }
+  }]);
+}
+async function scanHostUploadEntry(view,parent,entry,remoteParent,state){
+  const sourcePath=joinPath(parent,entry.name,false),targetPath=joinPath(remoteParent,entry.name,true);
+  if(entryType(entry)!=='directory'){
+    enqueueHostUploadFile(view,sourcePath,targetPath,entry.size,state);return;
+  }
+  await ensureRemoteScanDirectory(view,targetPath,state);
+  const children=await fetchHostDirectoryEntries(sourcePath);
+  for(const child of children)await scanHostUploadEntry(view,sourcePath,child,targetPath,state);
+}
+async function scanLocalUploadHandle(view,handle,targetPath,sourcePath,state){
+  if(handle.kind!=='directory'){
+    enqueueLocalUploadHandle(view,handle,sourcePath,targetPath,state);return;
+  }
+  await ensureRemoteScanDirectory(view,targetPath,state);
+  for await(const [name,child] of handle.entries()){
+    await scanLocalUploadHandle(view,child,joinPath(targetPath,name,true),joinPath(sourcePath,name,false),state);
   }
 }
-async function ensureLocalDirectories(view,directories){
-  if(!view.left.localRoot)throw new Error('Choose a local folder first');
-  const granted=await ensureHandlePermission(view.left.localRoot.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
-  const unique=[...new Set((directories||[]).map(path=>normalizeRelativePath(path)))].sort((a,b)=>pathDepth(a,false)-pathDepth(b,false));
-  for(const dir of unique){
-    if(dir==='.')continue;
-    let handle=view.left.localRoot.handle;
-    for(const part of dir.split('/').filter(Boolean))handle=await handle.getDirectoryHandle(part,{create:true});
+async function streamLeftEntriesToRemote(view,entries){
+  const selected=[...(entries||[])];if(!selected.length)throw new Error('Select one or more left items first');
+  const source=view.left.source,sourceBase=normalizeRelativePath(view.left.currentPath||'.'),remoteBase=normalizeRemotePath(view.remote.currentPath||'.');
+  const state=newRemoteScanState(remoteBase);
+  let localBase=null;
+  if(source==='local'){
+    const root=view.left.localRoot;if(!root)throw new Error('Choose a local folder first');
+    const granted=await ensureHandlePermission(root.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
+    localBase=await directoryHandleForPath(root.handle,sourceBase);
   }
+  view.remote.status.textContent='Scanning and uploading '+selected.length+' selected item(s)…';
+  await runTransferScan(view,'Upload scan',async()=>{
+    for(const entry of selected){
+      if(source==='host'){
+        await scanHostUploadEntry(view,sourceBase,entry,remoteBase,state);
+      }else{
+        const handle=entryType(entry)==='directory'?await localBase.getDirectoryHandle(entry.name):await localBase.getFileHandle(entry.name);
+        await scanLocalUploadHandle(view,handle,joinPath(remoteBase,entry.name,true),joinPath(sourceBase,entry.name,false),state);
+      }
+    }
+  });
+  view.remote.status.textContent='Scan complete · '+state.files+' file(s) discovered · '+state.folders+' folder(s) created';
 }
-async function prepareLeftDirectories(view,directories){
-  if(view.left.source==='host')return ensureHostDirectories(view,directories);
-  return ensureLocalDirectories(view,directories);
+function newLeftScanState(view){
+  const source=view.left.source,base=normalizeRelativePath(view.left.currentPath||'.');
+  return {source,base,localRoot:view.left.localRoot||null,hostDirectories:new Set(['.',base]),hostListings:new Map(),localHandles:new Map(),files:0,folders:0};
 }
-async function writeRemotePathToLocal(view,remotePath,leftPath){
-  if(!view.left.localRoot)throw new Error('Choose a local folder first');
-  const granted=await ensureHandlePermission(view.left.localRoot.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
+async function ensureHostScanDirectory(view,target,state){
+  target=normalizeRelativePath(target);
+  if(target==='.'||state.hostDirectories.has(target))return;
+  const parent=parentPath(target,false);
+  await ensureHostScanDirectory(view,parent,state);
+  const name=pathLeaf(target,false);
+  let entries=state.hostListings.get(parent);
+  if(!entries){entries=await fetchHostDirectoryEntries(parent);state.hostListings.set(parent,entries);}
+  const existing=entries.find(item=>item.name===name);
+  if(existing){
+    if(entryType(existing)!=='directory')throw new Error('Host path exists and is not a folder: '+target);
+    state.hostDirectories.add(target);return;
+  }
+  try{await hostMutation(view,'mkdir',target);}
+  catch(error){
+    entries=await fetchHostDirectoryEntries(parent);state.hostListings.set(parent,entries);
+    const retry=entries.find(item=>item.name===name);
+    if(!retry||entryType(retry)!=='directory')throw error;
+    state.hostDirectories.add(target);return;
+  }
+  entries.push({name,type:'directory',size:0,modified:''});
+  state.hostDirectories.add(target);state.folders++;markLeftQueueDirty(view);
+}
+async function ensureLocalScanDirectory(target,state){
+  target=normalizeRelativePath(target);
+  if(target==='.')return state.localRoot.handle;
+  if(state.localHandles.has(target))return state.localHandles.get(target);
+  const parent=parentPath(target,false),name=pathLeaf(target,false);
+  const parentHandle=parent==='.'?state.localRoot.handle:await ensureLocalScanDirectory(parent,state);
+  const handle=await parentHandle.getDirectoryHandle(name,{create:true});
+  state.localHandles.set(target,handle);state.folders++;markLeftQueueDirty(state.view);
+  return handle;
+}
+async function ensureLeftScanDirectory(view,target,state){
+  if(state.source==='host')return ensureHostScanDirectory(view,target,state);
+  return ensureLocalScanDirectory(target,state);
+}
+async function writeRemotePathToLocalRoot(view,root,remotePath,leftPath){
   const dirPath=parentPath(leftPath,false),name=pathLeaf(leftPath,false);
-  let dir=view.left.localRoot.handle;
+  let dir=root.handle;
   if(dirPath!=='.')for(const part of dirPath.split('/').filter(Boolean))dir=await dir.getDirectoryHandle(part,{create:true});
   let exists=false;
   try{await dir.getFileHandle(name);exists=true;}catch(error){if(error?.name!=='NotFoundError')throw error;}
@@ -1002,42 +1030,45 @@ async function writeRemotePathToHost(view,remotePath,leftPath){
   }
   if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
 }
-
-async function transferLeftEntriesToRemote(view,entries){
-  const plan=await buildLeftUploadPlan(view,entries);
-  await prepareRemoteDirectories(view,plan.directories);
-  const tasks=plan.files.map(file=>({
-    direction:'→',source:file.sourcePath,target:file.targetPath,size:file.size,
+function enqueueRemoteDownloadFile(view,remotePath,leftPath,size,state){
+  state.files++;
+  const source=state.source,localRoot=state.localRoot;
+  enqueueTransferTasks(view,[{
+    direction:'←',source:remotePath,target:leftPath,size:Number(size)||0,
     run:async()=>{
-      if(file.kind==='host'){
-        await app.jsonFetch('/api/file-transfer/host-to-remote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-          profile_id:view.profile.id,host_path:file.sourcePath,remote_path:file.targetPath
-        })});
-      }else await uploadBrowserFileToPath(view,file.file,file.targetPath);
-      markRemoteQueueDirty(view,parentPath(file.targetPath,true));
-    }
-  }));
-  if(tasks.length)enqueueTransferTasks(view,tasks);
-  else await afterTransferQueueIdle(view);
-  view.remote.status.textContent='Queued '+tasks.length+' upload file(s)';
-}
-async function transferLeftToRemote(view){return transferLeftEntriesToRemote(view,selectedEntries(view.left));}
-
-async function transferRemoteEntriesToLeft(view,entries){
-  const plan=await buildRemoteDownloadPlan(view,entries);
-  await prepareLeftDirectories(view,plan.directories);
-  const tasks=plan.files.map(file=>({
-    direction:'←',source:file.remotePath,target:file.leftPath,size:file.size,
-    run:async()=>{
-      if(view.left.source==='host')await writeRemotePathToHost(view,file.remotePath,file.leftPath);
-      else await writeRemotePathToLocal(view,file.remotePath,file.leftPath);
+      if(source==='host')await writeRemotePathToHost(view,remotePath,leftPath);
+      else await writeRemotePathToLocalRoot(view,localRoot,remotePath,leftPath);
       markLeftQueueDirty(view);
     }
-  }));
-  if(tasks.length)enqueueTransferTasks(view,tasks);
-  else{markLeftQueueDirty(view);await afterTransferQueueIdle(view);}
-  view.left.status.textContent='Queued '+tasks.length+' download file(s)';
+  }]);
 }
+async function scanRemoteDownloadEntry(view,remoteParent,entry,leftParent,state){
+  const remotePath=joinPath(remoteParent,entry.name,true),leftPath=joinPath(leftParent,entry.name,false);
+  if(entryType(entry)!=='directory'){
+    enqueueRemoteDownloadFile(view,remotePath,leftPath,entry.size,state);return;
+  }
+  await ensureLeftScanDirectory(view,leftPath,state);
+  const listing=await fetchRemoteDirectory(view,remotePath);
+  for(const child of listing.entries)await scanRemoteDownloadEntry(view,remotePath,child,leftPath,state);
+}
+async function streamRemoteEntriesToLeft(view,entries){
+  const selected=[...(entries||[])];if(!selected.length)throw new Error('Select one or more remote items first');
+  const remoteBase=normalizeRemotePath(view.remote.currentPath||'.'),state=newLeftScanState(view);
+  state.view=view;
+  if(state.source==='local'){
+    if(!state.localRoot)throw new Error('Choose a local folder first');
+    const granted=await ensureHandlePermission(state.localRoot.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
+    state.localHandles.set('.',state.localRoot.handle);
+  }
+  view.left.status.textContent='Scanning and downloading '+selected.length+' selected item(s)…';
+  await runTransferScan(view,'Download scan',async()=>{
+    for(const entry of selected)await scanRemoteDownloadEntry(view,remoteBase,entry,state.base,state);
+  });
+  view.left.status.textContent='Scan complete · '+state.files+' file(s) discovered · '+state.folders+' folder(s) prepared';
+}
+async function transferLeftEntriesToRemote(view,entries){return streamLeftEntriesToRemote(view,entries);}
+async function transferLeftToRemote(view){return transferLeftEntriesToRemote(view,selectedEntries(view.left));}
+async function transferRemoteEntriesToLeft(view,entries){return streamRemoteEntriesToLeft(view,entries);}
 async function transferRemoteToLeft(view){return transferRemoteEntriesToLeft(view,selectedEntries(view.remote));}
 
 async function deleteRemoteEntries(view,entries){
