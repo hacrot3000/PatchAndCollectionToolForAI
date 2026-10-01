@@ -226,13 +226,27 @@ func leftExpandedPathSuffixes(prefix, selected string) []string {
 	}
 	normalized := filepath.ToSlash(prefix)
 	absolute := strings.HasPrefix(normalized, "/")
+	trailingSlash := strings.HasSuffix(normalized, "/")
 	parts := strings.Split(strings.Trim(normalized, "/"), "/")
 	if len(parts) == 0 {
 		return nil
 	}
 	out := make([]string, 0, len(parts))
 	current := selected
-	for i := len(parts) - 1; i >= 0; i-- {
+	i := len(parts) - 1
+	if !trailingSlash && i >= 0 && parts[i] != "" {
+		// Selection may start in the middle of a path segment, e.g. selecting
+		// "4/a5/file.txt" from "a4/a5/file.txt". Reattach the missing "a"
+		// without inserting a slash before walking parent segments.
+		current = parts[i] + current
+		candidate := current
+		if absolute && i == 0 {
+			candidate = "/" + candidate
+		}
+		out = append(out, candidate)
+		i--
+	}
+	for ; i >= 0; i-- {
 		if parts[i] == "" {
 			continue
 		}
