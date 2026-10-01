@@ -29,7 +29,7 @@ func TestRunFeedsCommandsAndKeepsArgsSeparate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result.Stdout, "args:-q -P 22 deploy@example.com") || !strings.Contains(result.Stdout, "stdin:\npwd") {
+	if !strings.Contains(result.Stdout, "args:-q -P 22 deploy@example.com") || !strings.Contains(result.Stdout, "stdin:pwd") {
 		t.Fatalf("stdout=%q", result.Stdout)
 	}
 }
