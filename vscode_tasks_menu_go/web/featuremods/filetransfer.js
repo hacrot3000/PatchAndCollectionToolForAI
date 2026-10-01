@@ -38,8 +38,9 @@ style.textContent=`
 .ft-table th{position:sticky;top:0;background:#171c23;z-index:2;font-size:10px;opacity:.86;cursor:pointer;user-select:none}
 .ft-table th.ft-nosort{cursor:default}.ft-table th .sort{margin-left:4px;opacity:.7}
 .ft-table tbody tr{cursor:default}.ft-table tbody tr:hover{background:#202731}.ft-table tbody tr.selected{background:#29384b}
-.ft-table tbody tr:focus,.ft-table tbody tr:focus-visible,.ft-table tbody td:focus,.ft-table tbody td:focus-visible,.ft-table tbody tr.selected,.ft-table tbody tr.selected td{outline:none!important;box-shadow:none!important}
-.ft-table tbody tr.selected td,.ft-table tbody td:focus,.ft-table tbody td:focus-visible{border-top:0!important;border-left:0!important;border-right:0!important}
+.ft-table tbody tr,.ft-table tbody td{user-select:none;-moz-user-select:none;-webkit-user-select:none}
+.ft-table tbody tr:focus,.ft-table tbody tr:focus-visible,.ft-table tbody tr:focus-within,.ft-table tbody tr:active,.ft-table tbody td:focus,.ft-table tbody td:focus-visible,.ft-table tbody td:active,.ft-table tbody tr.selected,.ft-table tbody tr.selected td{outline:none!important;box-shadow:none!important}
+.ft-table tbody tr.selected td,.ft-table tbody tr:focus-within td,.ft-table tbody tr:active td,.ft-table tbody td:focus,.ft-table tbody td:focus-visible,.ft-table tbody td:active{border-top:0!important;border-left:0!important;border-right:0!important}
 .ft-parent-row{font-weight:600}.ft-parent-row td{background:#11161d}.ft-parent-row:hover td{background:#202731!important}
 .ft-name{max-width:480px;overflow:hidden;text-overflow:ellipsis}.ft-kind{display:inline-block;min-width:17px;margin-right:5px;opacity:.78}
 .ft-size{text-align:right!important;font-family:ui-monospace,monospace}.ft-type{opacity:.72}.ft-modified{font-family:ui-monospace,monospace;font-size:10px}
@@ -435,7 +436,8 @@ function renderTable(panel,onDoubleClick,onContextMenu){
     const size=document.createElement('td');size.className='ft-size';
     const modified=document.createElement('td');modified.className='ft-modified';
     tr.append(selectCell,name,type,size,modified);
-    tr.onclick=event=>{event.preventDefault();panel.goUp?.().catch(app.showError);};
+    tr.onclick=event=>event.preventDefault();
+    tr.ondblclick=event=>{event.preventDefault();panel.goUp?.().catch(app.showError);};
     tr.oncontextmenu=event=>event.preventDefault();
     panel.tbody.append(tr);
   }
