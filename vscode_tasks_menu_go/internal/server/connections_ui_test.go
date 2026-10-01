@@ -192,7 +192,7 @@ func TestConnectionsPanelTracksSharedHeaderHeight(t *testing.T) {
 			t.Fatalf("Connections compact header offset missing %q", want)
 		}
 	}
-
+}
 
 func TestConnectionsUIIncludesFTPAndSFTPProfiles(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/connections.js")
@@ -213,5 +213,4 @@ func TestConnectionsUIIncludesFTPAndSFTPProfiles(t *testing.T) {
 			t.Fatalf("connections.js missing file-transfer UI contract %q", want)
 		}
 	}
-}
 }
