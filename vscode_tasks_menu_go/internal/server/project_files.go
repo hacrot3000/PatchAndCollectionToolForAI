@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -22,9 +23,10 @@ const (
 )
 
 type projectTreeEntry struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
-	Size int64  `json:"size,omitempty"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Size     int64  `json:"size,omitempty"`
+	Modified string `json:"modified,omitempty"`
 }
 
 type projectFileResponse struct {
@@ -380,11 +382,12 @@ func (s *Server) projectTreeItem(parent string, entry os.DirEntry) (projectTreeE
 	if err != nil {
 		return projectTreeEntry{}, false
 	}
+	modified := info.ModTime().UTC().Format(time.RFC3339)
 	switch {
 	case info.IsDir():
-		return projectTreeEntry{Name: entry.Name(), Type: "dir"}, true
+		return projectTreeEntry{Name: entry.Name(), Type: "dir", Modified: modified}, true
 	case info.Mode().IsRegular():
-		return projectTreeEntry{Name: entry.Name(), Type: "file", Size: info.Size()}, true
+		return projectTreeEntry{Name: entry.Name(), Type: "file", Size: info.Size(), Modified: modified}, true
 	default:
 		return projectTreeEntry{}, false
 	}
