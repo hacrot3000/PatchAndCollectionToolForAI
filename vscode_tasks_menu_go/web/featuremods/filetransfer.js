@@ -327,7 +327,10 @@ async function mutateRemoteRequest(view,action,path,newPath='',directory=false){
 }
 async function mutateRemote(view,action,path,newPath='',directory=false){
   await mutateRemoteRequest(view,action,path,newPath,directory);
-  await loadRemoteDirectory(view,view.remote.currentPath);
+  invalidateRemoteCache(view,parentPath(path,true));
+  if(directory)invalidateRemoteCache(view,path,true);
+  if(newPath){invalidateRemoteCache(view,parentPath(newPath,true));if(directory)invalidateRemoteCache(view,newPath,true);}
+  await loadRemoteDirectory(view,view.remote.currentPath,{force:true});
 }
 async function renameRemoteEntry(view,entry){
   const oldPath=joinPath(view.remote.currentPath,entry.name,true),nextName=prompt('Rename to:',entry.name);
@@ -492,14 +495,58 @@ function markPathLoaded(panel,path){
   const scope=panel.memoryScope?.();if(scope){rememberPath(scope,path);panel.refreshPathMemory?.();}
 }
 
-async function loadRemoteDirectory(view,path){
+function remoteCacheKey(path){return normalizeRemotePath(path||'.');}
+function remoteCacheGet(view,path){return view.remoteCache?.get(remoteCacheKey(path))||null;}
+function remoteCacheSet(view,path,data){
+  if(!view.remoteCache)view.remoteCache=new Map();
+  const key=remoteCacheKey(path);
+  const entry={
+    path:String(data?.path||key),
+    protocol:String(data?.protocol||view.profile.protocol||''),
+    entries:(Array.isArray(data?.entries)?data.entries:[]).map(item=>({...item,type:entryType(item)})),
+    cachedAt:Date.now()
+  };
+  view.remoteCache.set(key,entry);return entry;
+}
+function invalidateRemoteCache(view,path,recursive=false){
+  if(!view.remoteCache)return;
+  const key=remoteCacheKey(path);
+  view.remoteCache.delete(key);
+  if(recursive){
+    const prefix=key==='/'?'/':key.replace(/\/$/,'')+'/';
+    for(const cachedKey of [...view.remoteCache.keys()]){
+      if(cachedKey.startsWith(prefix))view.remoteCache.delete(cachedKey);
+    }
+  }
+}
+async function fetchRemoteDirectory(view,path,{force=false}={}){
+  const key=remoteCacheKey(path);
+  if(!force){
+    const cached=remoteCacheGet(view,key);
+    if(cached)return {...cached,fromCache:true};
+  }
+  const data=await app.jsonFetch('/api/file-transfer/list',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({profile_id:view.profile.id,path:key})
+  });
+  return {...remoteCacheSet(view,key,data),fromCache:false};
+}
+function renderRemoteDirectory(view,data){
+  const panel=view.remote;
+  panel.entries=(Array.isArray(data?.entries)?data.entries:[]).map(item=>({...item,type:entryType(item)}));resetPanelSelection(panel);
+  markPathLoaded(panel,String(data?.path||'.'));
+  renderTable(panel,entry=>remoteDoubleClick(view,entry),(entry,event)=>remoteContext(view,entry,event));
+  const cached=data?.fromCache?' · cached':'';
+  panel.status.textContent=(data?.protocol||view.profile.protocol).toUpperCase()+' · '+panel.entries.length+' item(s)'+cached;
+}
+
+async function loadRemoteDirectory(view,path,options={}){
   const panel=view.remote;path=normalizeRemotePath(path||profileFor(view)?.initial_path||'.');
-  panel.status.textContent='Loading '+path+'…';panel.refresh.disabled=true;
+  const cached=!options.force&&remoteCacheGet(view,path);
+  panel.status.textContent=cached?'Opening cached '+path+'…':'Loading '+path+'…';panel.refresh.disabled=true;
   try{
-    const data=await app.jsonFetch('/api/file-transfer/list',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:view.profile.id,path})});
-    panel.entries=(Array.isArray(data?.entries)?data.entries:[]).map(item=>({...item,type:entryType(item)}));resetPanelSelection(panel);
-    markPathLoaded(panel,String(data?.path||path));renderTable(panel,entry=>remoteDoubleClick(view,entry),(entry,event)=>remoteContext(view,entry,event));
-    panel.status.textContent=(data?.protocol||view.profile.protocol).toUpperCase()+' · '+panel.entries.length+' item(s)';
+    const data=await fetchRemoteDirectory(view,path,{force:Boolean(options.force)});
+    renderRemoteDirectory(view,data);
   }catch(error){panel.status.textContent=String(error?.message||error);throw error;}
   finally{panel.refresh.disabled=false;updateTransferButtons(view);}
 }
@@ -728,9 +775,12 @@ async function deleteRemoteEntries(view,entries){
     :'Delete '+selected.length+' selected item(s)?'+(dirs?'\n\nSelected directories are removed non-recursively and must be empty.':'');
   if(!confirm(message))return;
   for(const entry of selected){
-    await mutateRemoteRequest(view,'delete',joinPath(view.remote.currentPath,entry.name,true),'',entryType(entry)==='directory');
+    const target=joinPath(view.remote.currentPath,entry.name,true);
+    await mutateRemoteRequest(view,'delete',target,'',entryType(entry)==='directory');
+    if(entryType(entry)==='directory')invalidateRemoteCache(view,target,true);
   }
-  await loadRemoteDirectory(view,view.remote.currentPath);
+  invalidateRemoteCache(view,view.remote.currentPath);
+  await loadRemoteDirectory(view,view.remote.currentPath,{force:true});
 }
 
 async function copyText(value){
@@ -804,7 +854,7 @@ function remoteContext(view,entry,event){
     if(clean.includes('/')||clean.includes('\\'))throw new Error('Folder name must not contain path separators');
     return mutateRemote(view,'mkdir',joinPath(panel.currentPath,clean,true));
   }});
-  items.push({separator:true},...commonSelectionMenu(panel,true,()=>loadRemoteDirectory(view,panel.currentPath)));
+  items.push({separator:true},...commonSelectionMenu(panel,true,()=>loadRemoteDirectory(view,panel.currentPath,{force:true})));
   showContextMenu(items,event.clientX,event.clientY,contextTitle(panel,entry));
 }
 
@@ -854,7 +904,7 @@ function attachView(profile){
   const left=createSiteShell('Left');
   const remote=createSiteShell('Remote · '+String(profile.protocol||'').toUpperCase());
 
-  const view={profile,tab,pane,left,remote};
+  const view={profile,tab,pane,left,remote,remoteCache:new Map()};
 
   const source=document.createElement('select');source.className='ft-source-select';
   for(const [value,label] of [['host','Host'],['local','Local browser']]){const option=document.createElement('option');option.value=value;option.textContent=label;source.append(option);}
@@ -877,7 +927,7 @@ function attachView(profile){
   });
   const remotePathBar=pathBar(remote,{
     remote:true,onLoad:path=>loadRemoteDirectory(view,path),
-    onRefresh:()=>loadRemoteDirectory(view,remote.currentPath),
+    onRefresh:()=>loadRemoteDirectory(view,remote.currentPath,{force:true}),
     onUp:()=>loadRemoteDirectory(view,parentPath(remote.currentPath,true))
   });
 
