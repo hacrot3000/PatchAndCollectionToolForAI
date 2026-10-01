@@ -307,7 +307,8 @@ function queueCounts(view){
 function renderTransferQueue(view){
   const queue=view.transferQueue;if(!queue?.body)return;
   const counts=queueCounts(view);
-  queue.summary.textContent='Queued '+counts.queued+' · Running '+counts.running+' · Done '+counts.success+' · Failed '+counts.failed;
+  const scanText=queue.activeScans>0?'Scanning '+queue.activeScans+' · ':'';
+  queue.summary.textContent=scanText+'Queued '+counts.queued+' · Running '+counts.running+' · Done '+counts.success+' · Failed '+counts.failed;
   queue.retry.disabled=counts.failed===0;queue.clear.disabled=counts.success===0;
   queue.body.replaceChildren();
   if(!queue.items.length){
@@ -346,7 +347,7 @@ async function processTransferQueue(view){
       if(!item)break;
       item.status='running';item.error='';renderTransferQueue(view);
       try{
-        await item.run();
+        await item.run(item);
         item.status='success';
       }catch(error){
         item.status='failed';item.error=String(error?.message||error||'Transfer failed');
@@ -354,7 +355,8 @@ async function processTransferQueue(view){
       renderTransferQueue(view);
     }
   }finally{
-    queue.running=false;renderTransferQueue(view);await afterTransferQueueIdle(view);
+    queue.running=false;renderTransferQueue(view);
+    if(queue.activeScans===0)await afterTransferQueueIdle(view);
     if(queue.items.some(item=>item.status==='queued'))processTransferQueue(view);
   }
 }
@@ -368,6 +370,22 @@ function enqueueTransferTasks(view,tasks){
     });
   }
   renderTransferQueue(view);processTransferQueue(view);
+}
+function runTransferScan(view,label,scanner){
+  const queue=view.transferQueue;if(!queue)throw new Error('Transfer queue is unavailable');
+  const execute=async()=>{
+    queue.activeScans++;queue.scanLabel=String(label||'Scanning');renderTransferQueue(view);
+    try{return await scanner();}
+    finally{
+      queue.activeScans=Math.max(0,queue.activeScans-1);
+      if(queue.activeScans===0)queue.scanLabel='';
+      renderTransferQueue(view);
+      if(queue.items.some(item=>item.status==='queued'))processTransferQueue(view);
+      else if(!queue.running&&queue.activeScans===0)await afterTransferQueueIdle(view);
+    }
+  };
+  queue.scanChain=queue.scanChain.then(execute,execute);
+  return queue.scanChain;
 }
 function markRemoteQueueDirty(view,path){
   const queue=view.transferQueue;if(!queue)return;
@@ -388,7 +406,7 @@ function createTransferQueue(view){
   const thead=document.createElement('thead'),hr=document.createElement('tr');
   for(const label of ['','Source','Target','Size','Status','Error']){const th=document.createElement('th');th.textContent=label;hr.append(th);}
   thead.append(hr);const body=document.createElement('tbody');table.append(thead,body);wrap.append(table);root.append(head,wrap);
-  const queue={root,body,summary,retry,clear,items:[],sequence:0,running:false,remoteDirty:new Set(),leftDirty:false};
+  const queue={root,body,summary,retry,clear,items:[],sequence:0,running:false,activeScans:0,scanLabel:'',scanChain:Promise.resolve(),remoteDirty:new Set(),leftDirty:false};
   view.transferQueue=queue;
   retry.onclick=()=>{for(const item of queue.items)if(item.status==='failed'){item.status='queued';item.error='';}renderTransferQueue(view);processTransferQueue(view);};
   clear.onclick=()=>{queue.items=queue.items.filter(item=>item.status!=='success');renderTransferQueue(view);};
