@@ -161,6 +161,51 @@ func TestFileTransferContextMenuAlwaysHasItemActions(t *testing.T) {
 	}
 }
 
+
+func TestFileTransferWorkspaceHasParentRowsAndBackgroundOnlySelection(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function canGoParentPath(value,remote=false)",
+		"tr.className='ft-parent-row'",
+		"label.textContent='..'",
+		"tr.onclick=event=>{event.preventDefault();panel.goUp?.().catch(app.showError);}",
+		"outline:none!important;box-shadow:none!important",
+		".ft-table tbody tr.selected{background:#29384b}",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing parent/selection visual contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferPathHistoryIsAutomaticCompactDropdown(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const maxRecentPaths=50;",
+		"history.className='ft-path-history-select'",
+		"history.setAttribute('aria-label','Visited paths')",
+		"addGroup('Recent paths',memory.recent)",
+		"rememberPath(scope,path)",
+		"markPathLoaded(panel,path)",
+		"history.onchange=()=>{if(history.value){input.value=history.value;onLoad(history.value).catch(app.showError);}history.value='';}",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing automatic path history contract %q", want)
+		}
+	}
+	if strings.Contains(js, "ft-favorite-select") {
+		t.Fatal("legacy wide saved-path select should not remain")
+	}
+}
+
 func TestFileTransferWorkspaceUsesStructuredTransferAndMutationAPIs(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil {
