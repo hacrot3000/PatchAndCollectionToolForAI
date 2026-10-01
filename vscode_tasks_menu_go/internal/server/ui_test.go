@@ -180,6 +180,27 @@ func TestStaticUIUsesCompactDesktopHeaders(t *testing.T) {
 }
 
 
+func TestStaticUIPreservesSelectionDuringDetectedFileResize(t *testing.T) {
+	for _, want := range []string{
+		"if(term.hasSelection()){",
+		"view.resizePending=true",
+		"term.onSelectionChange(()=>{",
+		"if(!selected&&view.resizePending){",
+		"requestAnimationFrame(applyResize)",
+		"function downloadFilesKey(files)",
+		"if(key===view.downloadFilesKey)return",
+	} {
+		if !strings.Contains(appJS, want) {
+			t.Fatalf("terminal selection resize protection missing %q", want)
+		}
+	}
+	resizeGuard := strings.Index(appJS, "if(term.hasSelection()){")
+	fitCall := strings.Index(appJS[resizeGuard:], "applyResize();")
+	if resizeGuard < 0 || fitCall < 0 {
+		t.Fatal("terminal resize guard must run before resize application")
+	}
+}
+
 func TestStaticUITerminalActivationCanSkipFocus(t *testing.T) {
 	for _, want := range []string{
 		"function focusView(id)",
