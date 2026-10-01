@@ -110,6 +110,86 @@ func TestDownloadableFilesAcceptRelativeWorkspacePath(t *testing.T) {
 	}
 }
 
+func TestDownloadableFilesAcceptRootFilenameSelection(t *testing.T) {
+	workspace := t.TempDir()
+	rootFile := filepath.Join(workspace, "revertchat.txt")
+	if err := os.WriteFile(rootFile, []byte("root file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files := (&Server{Workspace: workspace}).downloadableFilesFromSelection("revertchat.txt", "        modified:   revertchat.txt")
+	if len(files) != 1 || files[0].Path != rootFile {
+		t.Fatalf("root filename selection files=%#v want %q", files, rootFile)
+	}
+}
+
+func TestDownloadableFilesPreferExactPartialPathBeforeContextExpansion(t *testing.T) {
+	workspace := t.TempDir()
+	exact := filepath.Join(workspace, "4", "a5", "file.txt")
+	full := filepath.Join(workspace, "a1", "a2", "a3", "a4", "a5", "file.txt")
+	for _, path := range []string{exact, full} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { t.Fatal(err) }
+		if err := os.WriteFile(path, []byte(path), 0o644); err != nil { t.Fatal(err) }
+	}
+	s := &Server{Workspace: workspace}
+	files := s.downloadableFilesFromSelection("4/a5/file.txt", "modified: a1/a2/a3/a4/a5/file.txt")
+	if len(files) != 1 || files[0].Path != exact {
+		t.Fatalf("partial exact selection files=%#v want %q", files, exact)
+	}
+}
+
+func TestDownloadableFilesExpandPartialPathLeftUntilFirstExistingFile(t *testing.T) {
+	workspace := t.TempDir()
+	expected := filepath.Join(workspace, "a2", "a3", "a4", "a5", "file.txt")
+	full := filepath.Join(workspace, "a1", "a2", "a3", "a4", "a5", "file.txt")
+	if err := os.MkdirAll(filepath.Dir(expected), 0o755); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(expected, []byte("expected"), 0o644); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(full, []byte("full"), 0o644); err != nil { t.Fatal(err) }
+
+	s := &Server{Workspace: workspace}
+	files := s.downloadableFilesFromSelection("4/a5/file.txt", "modified: a1/a2/a3/a4/a5/file.txt")
+	if len(files) != 1 || files[0].Path != expected {
+		t.Fatalf("expanded selection files=%#v want first existing suffix %q", files, expected)
+	}
+}
+
+func TestDownloadableFilesExpandBareFilenameToContextPath(t *testing.T) {
+	workspace := t.TempDir()
+	expected := filepath.Join(workspace, ".vscode", "vscode_tasks_menu.ini")
+	if err := os.MkdirAll(filepath.Dir(expected), 0o755); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(expected, []byte("config"), 0o644); err != nil { t.Fatal(err) }
+
+	s := &Server{Workspace: workspace}
+	files := s.downloadableFilesFromSelection("vscode_tasks_menu.ini", "modified: .vscode/vscode_tasks_menu.ini")
+	if len(files) != 1 || files[0].Path != expected {
+		t.Fatalf("bare filename expansion files=%#v want %q", files, expected)
+	}
+}
+
+func TestDownloadableFilesBareFilenamePrefersWorkspaceRootOverContextPath(t *testing.T) {
+	workspace := t.TempDir()
+	rootFile := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	nested := filepath.Join(workspace, ".vscode", "vscode_tasks_menu.ini")
+	if err := os.WriteFile(rootFile, []byte("root"), 0o644); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(filepath.Dir(nested), 0o755); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(nested, []byte("nested"), 0o644); err != nil { t.Fatal(err) }
+
+	s := &Server{Workspace: workspace}
+	files := s.downloadableFilesFromSelection("vscode_tasks_menu.ini", "modified: .vscode/vscode_tasks_menu.ini")
+	if len(files) != 1 || files[0].Path != rootFile {
+		t.Fatalf("root precedence files=%#v want %q", files, rootFile)
+	}
+}
+
+func TestDownloadableFilesStopAfterFullContextStillMissing(t *testing.T) {
+	workspace := t.TempDir()
+	s := &Server{Workspace: workspace}
+	files := s.downloadableFilesFromSelection("4/a5/file.txt", "modified: a1/a2/a3/a4/a5/file.txt")
+	if len(files) != 0 {
+		t.Fatalf("missing expanded path files=%#v want none", files)
+	}
+}
+
 func TestResolveDownloadPathRejectsOutsideWorkspaceAndSymlink(t *testing.T) {
 	workspace := t.TempDir()
 	outsideDir := t.TempDir()
