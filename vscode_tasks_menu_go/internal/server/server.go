@@ -23,6 +23,7 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/dbprofile"
 	"bletonfc/vscode_tasks_menu/internal/dbsession"
 	"bletonfc/vscode_tasks_menu/internal/identity"
+	"bletonfc/vscode_tasks_menu/internal/filetransferprofile"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 	"bletonfc/vscode_tasks_menu/internal/secretstore"
 	"bletonfc/vscode_tasks_menu/internal/session"
@@ -40,6 +41,7 @@ type Server struct {
 	Identity             identity.Store
 	InternalControlToken string
 	SSHProfiles          *sshprofile.Store
+	FileTransferProfiles *filetransferprofile.Store
 	DBProfiles           *dbprofile.Store
 	DBAdapters           *dbadapter.Registry
 	DBSessions           *dbsession.Manager
@@ -98,6 +100,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/ssh/profiles", s.sshProfiles)
 	mux.HandleFunc("/api/ssh/profiles/", s.sshProfileItem)
 	mux.HandleFunc("/api/ssh/test", s.sshTest)
+	mux.HandleFunc("/api/file-transfer/profiles", s.fileTransferProfiles)
+	mux.HandleFunc("/api/file-transfer/profiles/", s.fileTransferProfileItem)
 	mux.HandleFunc("/api/db/adapters", s.dbAdapters)
 	mux.HandleFunc("/api/db/profiles", s.dbProfiles)
 	mux.HandleFunc("/api/db/profiles/", s.dbProfileItem)
