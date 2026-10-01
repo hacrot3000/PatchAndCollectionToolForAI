@@ -75,6 +75,9 @@ func (s *Server) resolveFileTransferTestProfile(req fileTransferOperationRequest
 		return profile, nil, err
 	}
 	draft := *req.Profile
+	if draft.Protocol == filetransferprofile.ProtocolSFTP && draft.Secret != nil {
+		return filetransferprofile.Profile{}, nil, errors.New("sftp profile must use the referenced SSH profile authentication")
+	}
 	id := "test"
 	var secretRef string
 	var ephemeralSecret *string
