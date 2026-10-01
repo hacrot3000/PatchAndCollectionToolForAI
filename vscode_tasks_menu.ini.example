@@ -35,6 +35,11 @@ enabled = false
 username = admin
 password = change-me
 
+[self_update]
+# Branch dùng để Check update và tải source self-update. Mặc định main.
+# Ví dụ: develop, feat/test-update, release/1.2.3
+branch = main
+
 
 [git]
 # Quét các Git repository nằm trong workspace. Mặc định bật.
