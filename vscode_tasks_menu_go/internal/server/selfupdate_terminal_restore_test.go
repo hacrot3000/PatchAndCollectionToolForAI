@@ -74,6 +74,8 @@ func TestSelfUpdateUIDoesNotFreezeTerminalPersistenceDuringDryRun(t *testing.T) 
 		"freezeForSelfUpdate",
 		"persistenceFrozen=true",
 		"resumeAfterSelfUpdate",
+		"taskmenu:terminal-presentation-changed",
+		"taskmenu:broadcast-state",
 	} {
 		if !strings.Contains(restoreJS, want) {
 			t.Fatalf("terminalrestore.js missing %q", want)
