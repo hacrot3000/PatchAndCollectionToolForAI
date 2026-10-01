@@ -15,6 +15,7 @@ hint.textContent='Developer mode · slower updates';
 hint.style.opacity='.6';
 hint.style.marginLeft='6px';
 control.append(checkbox,text,hint);
+control.hidden=true;
 document.querySelector('header')?.append(control);
 
 let loaded=false;
