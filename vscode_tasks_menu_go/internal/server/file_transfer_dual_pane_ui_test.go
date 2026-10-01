@@ -115,6 +115,32 @@ func TestFileTransferWorkspaceSupportsMultiSelectAndContextActions(t *testing.T)
 	}
 }
 
+func TestFileTransferLeftContextMenuHasCommonFileManagerActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"/api/file-transfer/host-mutate",
+		"function renameHostEntry(view,entry)",
+		"function deleteHostEntries(view,entries)",
+		"function newHostFolder(view)",
+		"function renameLocalEntry(view,entry)",
+		"dir.removeEntry(entry.name,{recursive:false})",
+		"getDirectoryHandle(name,{create:true})",
+		"function renameLeftEntry(view,entry)",
+		"function deleteLeftEntries(view,entries)",
+		"function newLeftFolder(view)",
+		"label:'Rename'",
+		"label:'New folder'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing left context action %q", want)
+		}
+	}
+}
+
 func TestFileTransferContextMenuAlwaysHasItemActions(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil {
