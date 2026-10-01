@@ -8,23 +8,30 @@ style.textContent=`
 .terminal-rename{white-space:nowrap;padding:5px 8px}
 `;document.head.append(style);
 
-function key(id){return `vscode-tasks-menu:tab-title:${app.taskData.workspace}:${id}`;}
-function legacyKey(id){return `vscode-tasks-menu:terminal-title:${app.taskData.workspace}:${id}`;}
+function workspaceID(){return String(app.taskData?.workspace||'').trim();}
+function key(id){const workspace=workspaceID();return workspace?`vscode-tasks-menu:tab-title:${workspace}:${id}`:'';}
+function legacyKey(id){const workspace=workspaceID();return workspace?`vscode-tasks-menu:terminal-title:${workspace}:${id}`:'';}
 function saved(view){
+  const cacheKey=key(view.meta.id);if(!cacheKey)return '';
   try{
-    const value=localStorage.getItem(key(view.meta.id));
+    const value=localStorage.getItem(cacheKey);
     if(value!==null)return value;
     if(view.meta.task_id===0){
-      const legacy=localStorage.getItem(legacyKey(view.meta.id));
-      if(legacy!==null){localStorage.setItem(key(view.meta.id),legacy);return legacy;}
+      const oldKey=legacyKey(view.meta.id);
+      if(!oldKey)return '';
+      const legacy=localStorage.getItem(oldKey);
+      if(legacy!==null){localStorage.setItem(cacheKey,legacy);return legacy;}
     }
   }catch{}
   return '';
 }
 function store(view,value){
+  const cacheKey=key(view.meta.id);if(!cacheKey)return;
   try{
-    if(value)localStorage.setItem(key(view.meta.id),value);else localStorage.removeItem(key(view.meta.id));
-    if(view.meta.task_id===0)localStorage.removeItem(legacyKey(view.meta.id));
+    if(value)localStorage.setItem(cacheKey,value);else localStorage.removeItem(cacheKey);
+    if(view.meta.task_id===0){
+      const oldKey=legacyKey(view.meta.id);if(oldKey)localStorage.removeItem(oldKey);
+    }
   }catch(e){console.warn('Cannot persist tab title cache',e);}
 }
 function brokerTitle(view){return String(view?.meta?.title||'').trim();}
@@ -53,6 +60,7 @@ async function persistTitle(view,value){
   return view.meta.title;
 }
 async function migrateLegacyBrowserTitle(view){
+  if(!workspaceID())return;
   if(brokerTitle(view)){store(view,brokerTitle(view));return;}
   const value=saved(view);
   if(!value||migrating.has(view.meta.id))return;
@@ -104,4 +112,5 @@ if(tabsHost&&!tabsHost.dataset.renameDelegated){
 }
 
 window.addEventListener('taskmenu:session',event=>{const view=event.detail?.view;if(view)ensure(view);});
+window.addEventListener('taskmenu:tasks',()=>{for(const view of app.views.values())ensure(view);});
 for(const view of app.views.values())ensure(view);

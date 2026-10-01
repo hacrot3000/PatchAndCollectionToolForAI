@@ -28,6 +28,9 @@ func TestPopupTabTitleRename(t *testing.T) {
 		"migrateLegacyBrowserTitle(view)",
 		"vscode-tasks-menu:tab-title:",
 		"vscode-tasks-menu:terminal-title:",
+		"app.taskData?.workspace",
+		"if(!workspaceID())return",
+		"window.addEventListener('taskmenu:tasks'",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("rename.js missing %q", want)

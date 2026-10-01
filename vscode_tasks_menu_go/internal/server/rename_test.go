@@ -23,6 +23,9 @@ func TestTerminalRenameFeatureModule(t *testing.T) {
 		"persistTitle(view,value)",
 		"/api/sessions/'+encodeURIComponent(view.meta.id)+'/title",
 		"migrateLegacyBrowserTitle(view)",
+		"app.taskData?.workspace",
+		"if(!cacheKey)return",
+		"taskmenu:tasks",
 		"promptRename(view)",
 		"window.prompt('Tab title:',before)",
 	} {
