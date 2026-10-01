@@ -83,6 +83,27 @@ Nút **☆ / ★** pin hoặc bỏ pin path hiện tại; Recent được cập 
 
 Danh sách file có các header **Name / Type / Size / Modified** có thể click để đổi sort. Mặc định sort theo **Type tăng dần**, nên folder nằm trước file; khi sort theo Name/Size/Modified, folder vẫn được giữ thành nhóm trước file.
 
+### Multi-select và context menu
+
+Cả hai pane hỗ trợ chọn nhiều item:
+
+- click thường: chọn một item;
+- **Ctrl/Cmd-click**: thêm/bỏ từng item;
+- **Shift-click**: chọn một dải theo thứ tự đang hiển thị;
+- checkbox từng dòng: thêm/bỏ item;
+- checkbox ở header: chọn/bỏ toàn bộ danh sách hiện tại;
+- **Ctrl/Cmd+A** khi focus file list: chọn toàn bộ;
+- **Esc**: bỏ selection.
+
+Right-click một item chưa chọn sẽ chọn item đó rồi mở menu. Right-click một item đã nằm trong selection nhiều item sẽ giữ nguyên selection và menu sẽ thao tác trên cả nhóm.
+
+Menu được tạo theo pane, loại item và số lượng selection:
+
+- **Host / Local**: Open Folder, Upload selected files → Remote, Rename (single item), Delete selected items, New Folder, Copy Name/Path, Select All/Clear Selection, Refresh; Host file còn có Download to browser.
+- **Remote FTP/SFTP**: Open Folder, Transfer selected files ← Left, Download to browser (single file), Rename (single item), Delete selected items, New Remote Folder, Copy Name/Path, Select All/Clear Selection, Refresh.
+- Folder delete ở cả Host/Local/Remote là **non-recursive** và chỉ thành công khi folder rỗng.
+- Local rename dùng native `FileSystemHandle.move()`; nếu browser không hỗ trợ API này TaskDeck sẽ báo rõ thay vì mô phỏng bằng copy/delete.
+
 Các thao tác remote hiện có:
 
 - browse path, Up, Refresh;
