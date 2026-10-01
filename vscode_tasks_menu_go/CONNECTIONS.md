@@ -66,7 +66,8 @@ Click một SFTP/FTP profile sẽ mở workspace hai pane kiểu FileZilla:
 - **pane trái**: chọn nhanh giữa **Host** và **Local browser**;
 - **pane phải**: filesystem của FTP/SFTP profile đang mở;
 - divider ở giữa có thể kéo để đổi tỷ lệ trái/phải, double-click để reset 50/50;
-- nút **→ / ←** truyền file đang chọn sang pane đối diện;
+- nút **→ / ←** truyền item đang chọn sang pane đối diện;
+- folder upload/download được duyệt đệ quy; empty folder vẫn được tạo;
 - double-click folder để đi vào; double-click file để truyền sang bên kia.
 
 **Host** là filesystem của máy chạy TaskDeck nhưng vẫn bị giới hạn trong workspace hiện tại. Transfer Host ↔ Remote chạy trực tiếp server-side, không phải tải file vòng qua browser.
@@ -99,8 +100,8 @@ Right-click một item chưa chọn sẽ chọn item đó rồi mở menu. Right
 
 Menu được tạo theo pane, loại item và số lượng selection:
 
-- **Host / Local**: Open Folder, Upload selected files → Remote, Rename (single item), Delete selected items, New Folder, Copy Name/Path, Select All/Clear Selection, Refresh; Host file còn có Download to browser.
-- **Remote FTP/SFTP**: Open Folder, Transfer selected files ← Left, Download to browser (single file), Rename (single item), Delete selected items, New Remote Folder, Copy Name/Path, Select All/Clear Selection, Refresh.
+- **Host / Local**: Open Folder, **Upload to remote FTP/SFTP** cho cả file/folder/mixed selection, Rename (single item), Delete selected items, New Folder, Copy Name/Path, Select All/Clear Selection, Refresh; Host file còn có Download to browser.
+- **Remote FTP/SFTP**: Open Folder, **Download to left** cho cả file/folder/mixed selection, Download to browser (single file), Rename (single item), Delete selected items, New Remote Folder, Copy Name/Path, Select All/Clear Selection, Refresh.
 - Folder delete ở cả Host/Local/Remote là **non-recursive** và chỉ thành công khi folder rỗng.
 - Local rename dùng native `FileSystemHandle.move()`; nếu browser không hỗ trợ API này TaskDeck sẽ báo rõ thay vì mô phỏng bằng copy/delete.
 
@@ -118,6 +119,30 @@ Double-click folder để đi vào. Double-click file để transfer qua pane đ
 Download tới browser vẫn dùng one-time ticket 90 giây để tương thích browser control lease mà không đưa remote path vào URL. FTP download stream trực tiếp; SFTP dùng private temporary file rồi cleanup. Upload tối đa 1 GiB theo safety boundary hiện tại.
 
 Directory listing, FTP control reply và SFTP stdout/stderr đều bị bound để tránh output không giới hạn.
+
+### Remote folder session cache
+
+Remote listing được cache theo **FTP/SFTP profile + remote path** trong session của tab browser:
+
+- đi lại folder đã mở dùng cache ngay, không gọi lại FTP/SFTP;
+- nút **Refresh** luôn ép tải lại folder hiện tại;
+- rename/delete/new-folder sẽ invalidate đúng listing bị thay đổi;
+- upload chỉ invalidate các destination folder thực sự có thay đổi;
+- khi queue kết thúc, chỉ destination folder đang hiển thị mới được reload ngay; các folder đã invalidate khác sẽ reload khi người dùng mở lại;
+- cache là session-only, không ghi vào cấu hình lâu dài.
+
+### Transfer Queue
+
+Bên dưới hai file panes có **Transfer Queue** dùng chung cho upload/download:
+
+- mỗi file là một queue item độc lập;
+- trạng thái: **Queued / Running / Done / Failed**;
+- hiển thị direction, source, target, size và lỗi;
+- lỗi một file không chặn các file độc lập phía sau;
+- **Retry failed** đưa các item lỗi trở lại queue;
+- **Clear done** xóa các item hoàn tất khỏi lịch sử session;
+- folder transfer được scan đệ quy và bung thành từng file trong queue; empty folder vẫn được tạo dù không có file queue item.
+
 
 ## Database profiles
 
