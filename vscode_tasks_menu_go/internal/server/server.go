@@ -106,6 +106,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/file-transfer/test", s.fileTransferTest)
 	mux.HandleFunc("/api/file-transfer/list", s.fileTransferList)
 	mux.HandleFunc("/api/file-transfer/mutate", s.fileTransferMutate)
+	mux.HandleFunc("/api/file-transfer/download", s.fileTransferDownload)
+	mux.HandleFunc("/api/file-transfer/upload", s.fileTransferUpload)
 	mux.HandleFunc("/api/db/adapters", s.dbAdapters)
 	mux.HandleFunc("/api/db/profiles", s.dbProfiles)
 	mux.HandleFunc("/api/db/profiles/", s.dbProfileItem)
