@@ -491,6 +491,16 @@ func Install(stagedPath, targetBinary, revision string) error {
 	return os.Rename(tmp, MarkerPath(targetBinary))
 }
 
+func validateCandidateSources(ctx context.Context, goSource, sourceRoot string, runFullTests bool) error {
+	if !runFullTests {
+		return validatePythonEntrySyntax(ctx, sourceRoot)
+	}
+	if out, err := runGo(ctx, goSource, "test", "./..."); err != nil {
+		return fmt.Errorf("go test failed: %w\n%s", err, trimOutput(out))
+	}
+	return runPythonEntryTests(ctx, sourceRoot)
+}
+
 func pythonForSelfUpdate(ctx context.Context) (string, error) {
 	for _, name := range []string{"python3", "python"} {
 		path, err := exec.LookPath(name)
@@ -650,16 +660,9 @@ func PrepareGlobalRelease(ctx context.Context, revision string, options PrepareG
 
 	if options.RunFullValidationTests {
 		progress("testing", "Dry-run: đang chạy full Go và Patch entry tests; release hiện tại chưa bị thay đổi…")
-		if out, err := runGo(ctx, source, "test", "./..."); err != nil {
-			return "", fmt.Errorf("go test failed: %w\n%s", err, trimOutput(out))
-		}
-		if err := runPythonEntryTests(ctx, tmpRoot); err != nil {
-			return "", err
-		}
-	} else {
-		if err := validatePythonEntrySyntax(ctx, tmpRoot); err != nil {
-			return "", err
-		}
+	}
+	if err := validateCandidateSources(ctx, source, tmpRoot, options.RunFullValidationTests); err != nil {
+		return "", err
 	}
 
 	progress("building", "Dry-run: đang compile và xác minh candidate TaskDeck release…")
