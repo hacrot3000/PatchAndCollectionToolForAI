@@ -69,6 +69,8 @@ func TestSharedRoutePermissionsSeparateReadWriteAndGitViews(t *testing.T) {
 		{http.MethodPut, "/api/config/page-title", []string{identity.PermissionSettingsWrite}},
 		{http.MethodGet, "/api/config/running-indicator", []string{identity.PermissionSettingsRead}},
 		{http.MethodPut, "/api/config/running-indicator", []string{identity.PermissionSettingsWrite}},
+		{http.MethodGet, "/api/config/self-update", []string{identity.PermissionSettingsRead}},
+		{http.MethodPut, "/api/config/self-update", []string{identity.PermissionSettingsWrite}},
 		{http.MethodGet, "/api/sessions", nil},
 		{http.MethodGet, "/api/admin/users", []string{identity.PermissionUsersView}},
 		{http.MethodPost, "/api/admin/users", []string{identity.PermissionUsersManage}},
