@@ -140,3 +140,82 @@ func TestFileTransferSFTPRemoteToHostUsesWorkspaceDestination(t *testing.T) {
 		t.Fatalf("conflict status=%d body=%s", conflictRR.Code, conflictRR.Body.String())
 	}
 }
+
+func TestFileTransferHostMutationsStayInsideWorkspace(t *testing.T) {
+	s, _, _ := newFileTransferProfileAPITestServer(t)
+	workspace := t.TempDir()
+	s.Workspace = workspace
+	if err := os.WriteFile(filepath.Join(workspace, "old.txt"), []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(workspace, "empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h := s.Handler()
+
+	call := func(payload map[string]any) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/file-transfer/host-mutate", fileTransferJSONBody(t, payload))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		return rr
+	}
+
+	if rr := call(map[string]any{"action": "mkdir", "path": "created"}); rr.Code != http.StatusNoContent {
+		t.Fatalf("mkdir status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if info, err := os.Stat(filepath.Join(workspace, "created")); err != nil || !info.IsDir() {
+		t.Fatalf("created folder info=%v err=%v", info, err)
+	}
+
+	if rr := call(map[string]any{"action": "rename", "path": "old.txt", "new_path": "new.txt"}); rr.Code != http.StatusNoContent {
+		t.Fatalf("rename status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "new.txt")); err != nil {
+		t.Fatalf("renamed file missing: %v", err)
+	}
+
+	if rr := call(map[string]any{"action": "delete", "path": "new.txt"}); rr.Code != http.StatusNoContent {
+		t.Fatalf("delete file status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "new.txt")); !os.IsNotExist(err) {
+		t.Fatalf("deleted file still exists: %v", err)
+	}
+
+	if rr := call(map[string]any{"action": "delete", "path": "empty"}); rr.Code != http.StatusNoContent {
+		t.Fatalf("delete directory status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	if rr := call(map[string]any{"action": "mkdir", "path": "../escape"}); rr.Code == http.StatusNoContent {
+		t.Fatal("workspace traversal unexpectedly succeeded")
+	}
+}
+
+func TestFileTransferHostMutationsRejectSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink fixture")
+	}
+	s, _, _ := newFileTransferProfileAPITestServer(t)
+	workspace := t.TempDir()
+	s.Workspace = workspace
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(workspace, "link.txt")); err != nil {
+		t.Fatal(err)
+	}
+	h := s.Handler()
+	req := httptest.NewRequest(http.MethodPost, "/api/file-transfer/host-mutate", fileTransferJSONBody(t, map[string]any{
+		"action": "delete", "path": "link.txt",
+	}))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code == http.StatusNoContent {
+		t.Fatal("symlink mutation unexpectedly succeeded")
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatalf("outside target changed: %v", err)
+	}
+}

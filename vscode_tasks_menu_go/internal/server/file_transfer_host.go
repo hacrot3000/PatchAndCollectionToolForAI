@@ -256,3 +256,175 @@ func validateHostTransferTarget(target string, overwrite bool) error {
 	return nil
 }
 
+
+type fileTransferHostMutationRequest struct {
+	Action  string `json:"action"`
+	Path    string `json:"path"`
+	NewPath string `json:"new_path,omitempty"`
+}
+
+func (s *Server) resolveHostWorkspaceEntry(requested string) (string, string, os.FileInfo, error) {
+	root, err := s.projectRoot()
+	if err != nil {
+		return "", "", nil, err
+	}
+	rel, err := cleanProjectRelativePath(requested, false)
+	if err != nil {
+		return "", "", nil, err
+	}
+	candidate := filepath.Join(root, filepath.FromSlash(rel))
+	info, err := os.Lstat(candidate)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("host item not found")
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", "", nil, fmt.Errorf("host symlink mutations are not allowed")
+	}
+	resolved, err := filepath.EvalSymlinks(candidate)
+	if err != nil || !pathWithin(root, resolved) {
+		return "", "", nil, fmt.Errorf("host item is outside workspace")
+	}
+	info, err = os.Stat(resolved)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("host item not found")
+	}
+	if !info.Mode().IsRegular() && !info.IsDir() {
+		return "", "", nil, fmt.Errorf("host item type is unsupported")
+	}
+	return filepath.ToSlash(rel), resolved, info, nil
+}
+
+func (s *Server) resolveHostWorkspaceDestination(requested string) (string, string, error) {
+	root, err := s.projectRoot()
+	if err != nil {
+		return "", "", err
+	}
+	rel, err := cleanProjectRelativePath(requested, false)
+	if err != nil {
+		return "", "", err
+	}
+	clean := filepath.FromSlash(rel)
+	parent := filepath.Dir(clean)
+	base := filepath.Base(clean)
+	if base == "" || base == "." || base == ".." {
+		return "", "", fmt.Errorf("invalid host destination")
+	}
+	parentPath := root
+	if parent != "." {
+		parentPath = filepath.Join(root, parent)
+	}
+	resolvedParent, err := filepath.EvalSymlinks(parentPath)
+	if err != nil || !pathWithin(root, resolvedParent) {
+		return "", "", fmt.Errorf("host destination parent not found")
+	}
+	parentInfo, err := os.Stat(resolvedParent)
+	if err != nil || !parentInfo.IsDir() {
+		return "", "", fmt.Errorf("host destination parent not found")
+	}
+	target := filepath.Join(resolvedParent, base)
+	if info, err := os.Lstat(target); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", "", fmt.Errorf("host destination symlink is not allowed")
+		}
+		return "", "", fmt.Errorf("host destination already exists")
+	} else if !os.IsNotExist(err) {
+		return "", "", fmt.Errorf("host destination unavailable")
+	}
+	return filepath.ToSlash(rel), target, nil
+}
+
+func (s *Server) fileTransferHostMutate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req fileTransferHostMutationRequest
+	if err := decodeFileTransferJSON(w, r, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	req.Action = strings.TrimSpace(req.Action)
+	req.Path = strings.TrimSpace(req.Path)
+	req.NewPath = strings.TrimSpace(req.NewPath)
+
+	switch req.Action {
+	case "mkdir":
+		if req.Path == "" {
+			http.Error(w, "host path is required", http.StatusBadRequest)
+			return
+		}
+		rel, target, err := s.resolveHostWorkspaceDestination(req.Path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		lease, ok := s.acquireSharedMutation(w, r, "file.mkdir", rel)
+		if !ok {
+			return
+		}
+		defer s.releaseSharedMutation(lease)
+		if err := os.Mkdir(target, 0o755); err != nil {
+			http.Error(w, "cannot create host folder", http.StatusConflict)
+			return
+		}
+		s.auditSharedSuccess(r, "file.mkdir", "directory", rel, nil)
+		w.WriteHeader(http.StatusNoContent)
+	case "rename":
+		if req.Path == "" || req.NewPath == "" {
+			http.Error(w, "host path and new_path are required", http.StatusBadRequest)
+			return
+		}
+		oldRel, source, _, err := s.resolveHostWorkspaceEntry(req.Path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		newRel, target, err := s.resolveHostWorkspaceDestination(req.NewPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		lease, ok := s.acquireSharedMutation(w, r, "file.rename", oldRel)
+		if !ok {
+			return
+		}
+		defer s.releaseSharedMutation(lease)
+		if err := os.Rename(source, target); err != nil {
+			http.Error(w, "cannot rename host item", http.StatusConflict)
+			return
+		}
+		s.auditSharedSuccess(r, "file.rename", "file", oldRel, map[string]any{"new_path": newRel})
+		w.WriteHeader(http.StatusNoContent)
+	case "delete":
+		if req.Path == "" {
+			http.Error(w, "host path is required", http.StatusBadRequest)
+			return
+		}
+		rel, target, info, err := s.resolveHostWorkspaceEntry(req.Path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		lease, ok := s.acquireSharedMutation(w, r, "file.delete", rel)
+		if !ok {
+			return
+		}
+		defer s.releaseSharedMutation(lease)
+		if err := os.Remove(target); err != nil {
+			message := "cannot delete host file"
+			if info.IsDir() {
+				message = "cannot delete host folder; it must be empty"
+			}
+			http.Error(w, message, http.StatusConflict)
+			return
+		}
+		kind := "file"
+		if info.IsDir() {
+			kind = "directory"
+		}
+		s.auditSharedSuccess(r, "file.delete", kind, rel, nil)
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "unsupported host mutation action", http.StatusBadRequest)
+	}
+}
