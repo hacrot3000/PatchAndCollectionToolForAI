@@ -182,11 +182,10 @@ func TestFileTransferWorkspaceHasParentRowsAndBackgroundOnlySelection(t *testing
 			t.Fatalf("filetransfer.js missing parent/selection visual contract %q", want)
 		}
 	}
-}
 	if strings.Contains(js, "tr.onclick=event=>{event.preventDefault();panel.goUp?.().catch(app.showError);}") {
 		t.Fatal("parent row must not navigate on single click")
 	}
-
+}
 
 func TestFileTransferPathHistoryIsAutomaticCompactDropdown(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
