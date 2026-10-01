@@ -34,10 +34,11 @@ type Config struct {
 	SharedServerEnabled bool
 	SharedProjectID     string
 	SharedIdentityDB    string
+	SelfUpdateBranch    string
 }
 
 func Default() Config {
-	return Config{Protocol: ProtocolHTTPS, Bind: "127.0.0.1", Port: 0, OpenBrowser: true, Username: "admin"}
+	return Config{Protocol: ProtocolHTTPS, Bind: "127.0.0.1", Port: 0, OpenBrowser: true, Username: "admin", SelfUpdateBranch: DefaultSelfUpdateBranch}
 }
 
 func Load(workspace string) (Config, string, error) {
@@ -109,6 +110,8 @@ func Load(workspace string) (Config, string, error) {
 			cfg.SharedProjectID = value
 		case "shared_server.identity_db":
 			cfg.SharedIdentityDB = value
+		case "self_update.branch":
+			cfg.SelfUpdateBranch = value
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -144,6 +147,9 @@ func (c Config) Validate() error {
 		if identityDB := strings.TrimSpace(c.SharedIdentityDB); identityDB != "" && !filepath.IsAbs(identityDB) {
 			return fmt.Errorf("[shared_server] identity_db phải là đường dẫn tuyệt đối khi được cấu hình")
 		}
+	}
+	if _, err := NormalizeSelfUpdateBranch(c.SelfUpdateBranch); err != nil {
+		return err
 	}
 	if err := c.validateRemoteAuthHost(c.Bind); err != nil {
 		return err
@@ -230,6 +236,10 @@ enabled = false
 # project_id = my-project
 # Optional absolute path tới identity DB dùng chung giữa nhiều TaskDeck process.
 # identity_db = /var/lib/taskdeck/identity.db
+
+[self_update]
+# Branch dùng để check/download source khi self-update.
+branch = main
 `, cfg.Protocol, cfg.Bind, cfg.Port, cfg.OpenBrowser, cfg.Username)
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("tạo %s: %w", path, err)
