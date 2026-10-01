@@ -9,7 +9,7 @@ func TestGitHubCommitURLUsesMainByDefault(t *testing.T) {
 	got := githubCommitURL("")
 	want := "https://api.github.com/repos/" + Repository + "/commits/main"
 	if got != want {
-		t.Fatalf("githubCommitURL("")=%q want %q", got, want)
+		t.Fatalf("githubCommitURL(\"\")=%q want %q", got, want)
 	}
 }
 
