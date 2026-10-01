@@ -491,33 +491,47 @@ func Install(stagedPath, targetBinary, revision string) error {
 	return os.Rename(tmp, MarkerPath(targetBinary))
 }
 
-func runPythonEntryTests(ctx context.Context, sourceRoot string) error {
-	python := ""
+func pythonForSelfUpdate(ctx context.Context) (string, error) {
 	for _, name := range []string{"python3", "python"} {
-		if path, err := exec.LookPath(name); err == nil {
-			python = path
-			break
+		path, err := exec.LookPath(name)
+		if err != nil {
+			continue
 		}
-	}
-	if python == "" {
-		return fmt.Errorf("Python 3.10+ was not found in PATH")
-	}
-	probe := exec.CommandContext(ctx, python, "-c", "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 3)")
-	if out, err := probe.CombinedOutput(); err != nil {
-		return fmt.Errorf("Python 3.10+ is required: %w: %s", err, trimOutput(out))
-	}
-	for _, args := range [][]string{
-		{"test_python_patch_entry.py"},
-		{"-m", "py_compile", "python_patch_entry.py"},
-	} {
-		cmd := exec.CommandContext(ctx, python, args...)
-		cmd.Dir = sourceRoot
-		cmd.Env = append(os.Environ(), "PYTHONDONTWRITEBYTECODE=1")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("Patch entry validation failed: %w\n%s", err, trimOutput(out))
+		probe := exec.CommandContext(ctx, path, "-c", "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 3)")
+		if out, err := probe.CombinedOutput(); err != nil {
+			return "", fmt.Errorf("Python 3.10+ is required: %w: %s", err, trimOutput(out))
 		}
+		return path, nil
+	}
+	return "", fmt.Errorf("Python 3.10+ was not found in PATH")
+}
+
+func validatePythonEntrySyntax(ctx context.Context, sourceRoot string) error {
+	python, err := pythonForSelfUpdate(ctx)
+	if err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, python, "-m", "py_compile", "python_patch_entry.py")
+	cmd.Dir = sourceRoot
+	cmd.Env = append(os.Environ(), "PYTHONDONTWRITEBYTECODE=1")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("Patch entry syntax validation failed: %w\n%s", err, trimOutput(out))
 	}
 	return nil
+}
+
+func runPythonEntryTests(ctx context.Context, sourceRoot string) error {
+	python, err := pythonForSelfUpdate(ctx)
+	if err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, python, "test_python_patch_entry.py")
+	cmd.Dir = sourceRoot
+	cmd.Env = append(os.Environ(), "PYTHONDONTWRITEBYTECODE=1")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("Patch entry validation failed: %w\n%s", err, trimOutput(out))
+	}
+	return validatePythonEntrySyntax(ctx, sourceRoot)
 }
 
 func copyPatchRuntime(sourceRoot, release string) error {
@@ -573,7 +587,11 @@ func validateReleaseBinary(ctx context.Context, release, revision string) error 
 	return nil
 }
 
-func PrepareGlobalRelease(ctx context.Context, revision string, progress func(status, message string)) (staged string, err error) {
+type PrepareGlobalReleaseOptions struct {
+	RunFullValidationTests bool
+}
+
+func PrepareGlobalRelease(ctx context.Context, revision string, options PrepareGlobalReleaseOptions, progress func(status, message string)) (staged string, err error) {
 	if progress == nil {
 		progress = func(string, string) {}
 	}
@@ -630,12 +648,18 @@ func PrepareGlobalRelease(ctx context.Context, revision string, progress func(st
 		return "", fmt.Errorf("archive thiếu Patch add-on runtime")
 	}
 
-	progress("testing", "Dry-run: đang chạy Go và Patch entry tests; release hiện tại chưa bị thay đổi…")
-	if out, err := runGo(ctx, source, "test", "./..."); err != nil {
-		return "", fmt.Errorf("go test failed: %w\n%s", err, trimOutput(out))
-	}
-	if err := runPythonEntryTests(ctx, tmpRoot); err != nil {
-		return "", err
+	if options.RunFullValidationTests {
+		progress("testing", "Dry-run: đang chạy full Go và Patch entry tests; release hiện tại chưa bị thay đổi…")
+		if out, err := runGo(ctx, source, "test", "./..."); err != nil {
+			return "", fmt.Errorf("go test failed: %w\n%s", err, trimOutput(out))
+		}
+		if err := runPythonEntryTests(ctx, tmpRoot); err != nil {
+			return "", err
+		}
+	} else {
+		if err := validatePythonEntrySyntax(ctx, tmpRoot); err != nil {
+			return "", err
+		}
 	}
 
 	progress("building", "Dry-run: đang compile và xác minh candidate TaskDeck release…")
