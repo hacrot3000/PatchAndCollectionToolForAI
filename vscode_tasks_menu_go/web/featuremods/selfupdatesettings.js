@@ -6,8 +6,27 @@ control.id='self-update-branch-settings';
 control.className='self-update-branch-settings';
 control.hidden=true;
 
-const label=document.createElement('span');
-label.textContent='Self-update branch';
+const validation=document.createElement('label');
+validation.className='self-update-validation-setting';
+validation.title='Run the complete developer test suite before activating updates. Build and runtime validation always run.';
+const validationCheckbox=document.createElement('input');
+validationCheckbox.type='checkbox';
+validationCheckbox.id='self-update-full-validation';
+const validationText=document.createElement('span');
+validationText.textContent='Run full validation tests before self-update';
+validation.append(validationCheckbox,validationText);
+
+const branchDetails=document.createElement('details');
+branchDetails.id='self-update-branch-details';
+branchDetails.className='self-update-branch-details';
+branchDetails.hidden=true;
+branchDetails.open=false;
+
+const branchSummary=document.createElement('summary');
+branchSummary.textContent='Self-update branch';
+
+const branchEditor=document.createElement('div');
+branchEditor.className='self-update-branch-editor';
 
 const select=document.createElement('select');
 select.id='self-update-branch';
@@ -19,21 +38,13 @@ save.type='button';
 save.textContent='Save';
 save.title='Save self-update settings for this workspace';
 
-const validation=document.createElement('label');
-validation.className='self-update-validation-setting';
-validation.title='Run the complete developer test suite before activating updates. Build and runtime validation always run.';
-const validationCheckbox=document.createElement('input');
-validationCheckbox.type='checkbox';
-validationCheckbox.id='self-update-full-validation';
-const validationText=document.createElement('span');
-validationText.textContent='Run full validation tests before self-update';
-validation.append(validationCheckbox,validationText);
-
 const status=document.createElement('small');
 status.className='self-update-branch-status';
 status.style.opacity='.6';
 
-control.append(label,select,save,validation,status);
+branchEditor.append(select,save,status);
+branchDetails.append(branchSummary,branchEditor);
+control.append(validation,branchDetails);
 document.querySelector('header')?.append(control);
 
 let currentBranch='main';
@@ -66,6 +77,8 @@ function apply(settings){
   currentBranch=normalizeBranch(settings?.branch);
   currentFullValidation=Boolean(settings?.run_full_validation_tests);
   validationCheckbox.checked=currentFullValidation;
+  branchDetails.hidden=!currentFullValidation;
+  if(!currentFullValidation)branchDetails.open=false;
   renderBranches([...select.options].map(option=>option.value));
   status.textContent='Current: '+currentBranch+(currentFullValidation?' · full validation ON':' · full validation OFF');
   const check=document.querySelector('#self-update-check');
@@ -117,6 +130,8 @@ async function saveSettings(){
   }catch(error){
     select.value=currentBranch;
     validationCheckbox.checked=currentFullValidation;
+    branchDetails.hidden=!currentFullValidation;
+    if(!currentFullValidation)branchDetails.open=false;
     status.textContent='Save failed';
     app.showError(error);
   }finally{
@@ -126,10 +141,16 @@ async function saveSettings(){
   }
 }
 
+branchDetails.addEventListener('toggle',()=>{
+  if(branchDetails.open&&!branchDetails.hidden)loadBranches();
+});
 select.addEventListener('focus',()=>{loadBranches();});
-select.addEventListener('pointerdown',()=>{loadBranches();},{once:true});
 save.onclick=()=>{saveSettings();};
-validationCheckbox.onchange=()=>{saveSettings();};
+validationCheckbox.onchange=()=>{
+  branchDetails.hidden=!validationCheckbox.checked;
+  if(!validationCheckbox.checked)branchDetails.open=false;
+  saveSettings();
+};
 
 async function bootstrap(){
   try{await loadSettings();}
