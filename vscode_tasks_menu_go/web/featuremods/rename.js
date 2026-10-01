@@ -49,6 +49,7 @@ async function persistTitle(view,value){
   });
   view.meta.title=String(meta?.title||'');
   store(view,view.meta.title);
+  window.dispatchEvent(new CustomEvent('taskmenu:terminal-presentation-changed',{detail:{view,kind:'title'}}));
   return view.meta.title;
 }
 async function migrateLegacyBrowserTitle(view){
