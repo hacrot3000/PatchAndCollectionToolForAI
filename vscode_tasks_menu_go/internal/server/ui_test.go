@@ -167,6 +167,7 @@ func TestStaticUIUsesCompactDesktopHeaders(t *testing.T) {
 	for _, want := range []string{
 		":root{--taskmenu-header-height:30px",
 		"header{height:var(--taskmenu-header-height);display:flex;align-items:center;gap:7px;padding:0 8px",
+		"header #workspace{opacity:.65;flex:0 1 auto;min-width:0;max-width:min(48vw,720px)",
 		"main{display:grid;grid-template-columns:310px 1fr;height:calc(100vh - var(--taskmenu-header-height))",
 		".pane-head{display:flex;gap:4px;align-items:center;min-height:24px;padding:1px 5px",
 		"body>header>button{background:transparent;border:0",
