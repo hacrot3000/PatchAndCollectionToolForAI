@@ -23,6 +23,9 @@ import (
 type fileTransferOperationRequest struct {
 	ProfileID string                      `json:"profile_id"`
 	Path      string                      `json:"path,omitempty"`
+	NewPath   string                      `json:"new_path,omitempty"`
+	Action    string                      `json:"action,omitempty"`
+	Directory bool                        `json:"directory,omitempty"`
 	Profile   *fileTransferProfileRequest `json:"profile,omitempty"`
 }
 
@@ -48,6 +51,8 @@ func decodeFileTransferOperationRequest(w http.ResponseWriter, r *http.Request) 
 	}
 	req.ProfileID = strings.TrimSpace(req.ProfileID)
 	req.Path = strings.TrimSpace(req.Path)
+	req.NewPath = strings.TrimSpace(req.NewPath)
+	req.Action = strings.TrimSpace(req.Action)
 	return req, nil
 }
 
@@ -318,4 +323,79 @@ func (s *Server) fileTransferList(w http.ResponseWriter, r *http.Request) {
 		"path":       path,
 		"entries":    entries,
 	})
+}
+
+
+func (s *Server) fileTransferMutate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	req, err := decodeFileTransferOperationRequest(w, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.ProfileID == "" || req.Profile != nil {
+		http.Error(w, "saved file-transfer profile id is required", http.StatusBadRequest)
+		return
+	}
+	switch req.Action {
+	case "mkdir", "delete":
+		if req.Path == "" {
+			http.Error(w, "remote path is required", http.StatusBadRequest)
+			return
+		}
+	case "rename":
+		if req.Path == "" || req.NewPath == "" {
+			http.Error(w, "old and new remote paths are required", http.StatusBadRequest)
+			return
+		}
+	default:
+		http.Error(w, "unsupported file-transfer mutation action", http.StatusBadRequest)
+		return
+	}
+	profile, err := s.resolveFileTransferProfile(req.ProfileID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	switch profile.Protocol {
+	case filetransferprofile.ProtocolFTP:
+		err = s.withFTPClient(r.Context(), profile, nil, func(client *ftpclient.Client) error {
+			switch req.Action {
+			case "mkdir":
+				return client.Mkdir(r.Context(), req.Path)
+			case "rename":
+				return client.Rename(r.Context(), req.Path, req.NewPath)
+			case "delete":
+				return client.Delete(r.Context(), req.Path, req.Directory)
+			default:
+				return errors.New("unsupported file-transfer mutation action")
+			}
+		})
+	case filetransferprofile.ProtocolSFTP:
+		var command string
+		switch req.Action {
+		case "mkdir":
+			command, err = sftpclient.MkdirCommand(req.Path)
+		case "rename":
+			command, err = sftpclient.RenameCommand(req.Path, req.NewPath)
+		case "delete":
+			command, err = sftpclient.RemoveCommand(req.Path, req.Directory)
+		}
+		if err == nil {
+			_, err = s.runSFTP(r.Context(), profile, command+"quit\n", 64<<10)
+		}
+	default:
+		err = fmt.Errorf("unsupported file-transfer protocol %q", profile.Protocol)
+	}
+	if err != nil {
+		s.auditConnection(r, ConnectionAuditEvent{Kind: "file_transfer", Action: req.Action, ProfileID: profile.ID, Success: false})
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.auditConnection(r, ConnectionAuditEvent{Kind: "file_transfer", Action: req.Action, ProfileID: profile.ID, Success: true})
+	w.WriteHeader(http.StatusNoContent)
 }
