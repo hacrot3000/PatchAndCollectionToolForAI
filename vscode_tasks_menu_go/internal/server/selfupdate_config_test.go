@@ -38,7 +38,7 @@ func TestSelfUpdateConfigAPIReadsWritesBranchAndPreservesINI(t *testing.T) {
 		t.Fatalf("default branch=%q want main", initial.Branch)
 	}
 
-	put := httptest.NewRequest(http.MethodPut, "/api/config/self-update", strings.NewReader(`{"branch":"feat/update-test"}`))
+	put := httptest.NewRequest(http.MethodPut, "/api/config/self-update", strings.NewReader(`{"branch":"feat/update-test","run_full_validation_tests":true}`))
 	put.Header.Set("Content-Type", "application/json")
 	putRR := httptest.NewRecorder()
 	s.selfUpdateConfig(putRR, put)
@@ -49,8 +49,8 @@ func TestSelfUpdateConfigAPIReadsWritesBranchAndPreservesINI(t *testing.T) {
 	if err := json.Unmarshal(putRR.Body.Bytes(), &saved); err != nil {
 		t.Fatal(err)
 	}
-	if saved.Branch != "feat/update-test" {
-		t.Fatalf("saved branch=%q", saved.Branch)
+	if saved.Branch != "feat/update-test" || !saved.RunFullValidationTests {
+		t.Fatalf("saved settings=%+v", saved)
 	}
 
 	data, err := os.ReadFile(configPath)
@@ -63,6 +63,7 @@ func TestSelfUpdateConfigAPIReadsWritesBranchAndPreservesINI(t *testing.T) {
 		"password = keep-me",
 		"[self_update]",
 		"branch = feat/update-test",
+		"run_full_validation_tests = true",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("config missing %q:\n%s", want, text)
