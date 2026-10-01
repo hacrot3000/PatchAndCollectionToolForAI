@@ -24,6 +24,7 @@ func TestPopupTabTitleRename(t *testing.T) {
 		"answer===null",
 		"await persistTitle(view,value&&value!==fallback?value:'')",
 		"view.meta.title=String(meta?.title||'')",
+		"taskmenu:terminal-presentation-changed",
 		"migrateLegacyBrowserTitle(view)",
 		"vscode-tasks-menu:tab-title:",
 		"vscode-tasks-menu:terminal-title:",
