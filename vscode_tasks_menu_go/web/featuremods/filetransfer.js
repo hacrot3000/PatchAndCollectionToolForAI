@@ -8,7 +8,7 @@ let contextMenu=null;
 const localDBName='TaskDeckFileTransfer';
 const localDBStore='localRoots';
 const localDBVersion=1;
-const maxRecentPaths=12;
+const maxRecentPaths=50;
 const maxFavoritePaths=20;
 
 const style=document.createElement('style');
@@ -23,8 +23,10 @@ style.textContent=`
 .ft-site{min-width:0;min-height:0;display:flex;flex-direction:column}
 .ft-site-head{display:flex;align-items:center;gap:6px;padding:6px 7px;border-bottom:1px solid #30343b;background:#11151b}
 .ft-site-title{font-size:11px;font-weight:700;white-space:nowrap}
-.ft-source-select,.ft-root-select,.ft-favorite-select{height:28px;min-height:28px;padding:3px 6px;font-size:11px}
-.ft-root-select{max-width:210px}.ft-favorite-select{max-width:180px}
+.ft-source-select,.ft-root-select{height:28px;min-height:28px;padding:3px 6px;font-size:11px}
+.ft-root-select{max-width:210px}
+.ft-path-history-select{width:30px;min-width:30px;height:28px;padding:0 2px;border:1px solid #3b414d;border-radius:5px;background:#161b22;color:inherit;font-size:11px;text-align:center;appearance:none;-webkit-appearance:none;cursor:pointer}
+.ft-path-history-select option,.ft-path-history-select optgroup{font-size:11px;text-align:left}
 .ft-pathbar{display:flex;align-items:center;gap:5px;padding:6px 7px;border-bottom:1px solid #30343b;background:#11151b}
 .ft-pathbar input[type=text]{flex:1;min-width:80px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:6px 8px;font:11px ui-monospace,monospace}
 .ft-pathbar button,.ft-site-head button{height:28px;padding:3px 7px;font-size:11px}
@@ -58,7 +60,7 @@ body.ft-resizing{user-select:none;cursor:col-resize}
 .ft-local-note{font-size:10px;opacity:.65}
 html[data-taskmenu-theme="light"] .ft-pane{background:#fff}
 html[data-taskmenu-theme="light"] .ft-site-head,html[data-taskmenu-theme="light"] .ft-pathbar{background:#f2f5f8;border-color:#b9c0c8}
-html[data-taskmenu-theme="light"] .ft-pathbar input[type=text]{background:#fff;border-color:#b9c0c8}
+html[data-taskmenu-theme="light"] .ft-pathbar input[type=text],html[data-taskmenu-theme="light"] .ft-path-history-select{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .ft-table th{background:#e9eef3}
 html[data-taskmenu-theme="light"] .ft-table tbody tr:hover{background:#eef2f6}
 html[data-taskmenu-theme="light"] .ft-table tbody tr.selected{background:#dde8f3}
@@ -195,19 +197,20 @@ function toggleFavorite(scope,path){
 function populatePathMemory(select,star,scope,current){
   const memory=readPathMemory(scope);
   select.replaceChildren();
-  const placeholder=document.createElement('option');placeholder.value='';placeholder.textContent='★ Saved paths';select.append(placeholder);
+  const placeholder=document.createElement('option');placeholder.value='';placeholder.textContent='▾';select.append(placeholder);
   const addGroup=(label,values)=>{
     if(!values.length)return;
     const group=document.createElement('optgroup');group.label=label;
     for(const value of values){const option=document.createElement('option');option.value=value;option.textContent=value;group.append(option);}
     select.append(group);
   };
-  addGroup('Favorites',memory.favorites);
-  addGroup('Recent',memory.recent.filter(item=>!memory.favorites.includes(item)));
+  addGroup('Recent paths',memory.recent);
+  addGroup('Favorites',memory.favorites.filter(item=>!memory.recent.includes(item)));
   select.value='';
+  select.title=memory.recent.length?'Visited paths · '+memory.recent.length+' remembered':'Visited paths';
   const saved=memory.favorites.includes(current);
   star.classList.toggle('saved',saved);star.textContent=saved?'★':'☆';
-  star.title=saved?'Remove current path from favorites':'Save current path to favorites';
+  star.title=saved?'Remove current path from favorites':'Pin current path as favorite';
 }
 
 function openLocalDB(){
@@ -466,14 +469,14 @@ function pathBar(panel,{remote=false,onLoad,onRefresh,onUp}){
   const bar=document.createElement('div');bar.className='ft-pathbar';
   const up=document.createElement('button');up.type='button';up.textContent='↑';up.title='Parent directory';
   const input=document.createElement('input');input.type='text';input.spellcheck=false;input.autocomplete='off';
-  const favorites=document.createElement('select');favorites.className='ft-favorite-select';favorites.title='Favorite and recent paths';
+  const history=document.createElement('select');history.className='ft-path-history-select';history.setAttribute('aria-label','Visited paths');history.title='Visited paths';
   const star=document.createElement('button');star.type='button';star.className='ft-favorite-toggle';star.textContent='☆';
   const go=document.createElement('button');go.type='button';go.textContent='Go';
   const refresh=document.createElement('button');refresh.type='button';refresh.textContent='↻';refresh.title='Refresh';
-  bar.append(up,input,favorites,star,go,refresh);
-  panel.pathInput=input;panel.favoriteSelect=favorites;panel.favoriteToggle=star;panel.refresh=refresh;
-  const reloadMemory=()=>populatePathMemory(favorites,star,panel.memoryScope?.()||'',input.value||'.');
-  favorites.onchange=()=>{if(favorites.value){input.value=favorites.value;onLoad(favorites.value).catch(app.showError);}favorites.value='';};
+  bar.append(up,input,history,star,go,refresh);
+  panel.pathInput=input;panel.pathHistorySelect=history;panel.favoriteToggle=star;panel.refresh=refresh;
+  const reloadMemory=()=>populatePathMemory(history,star,panel.memoryScope?.()||'',input.value||'.');
+  history.onchange=()=>{if(history.value){input.value=history.value;onLoad(history.value).catch(app.showError);}history.value='';};
   star.onclick=()=>{const scope=panel.memoryScope?.();if(!scope)return;toggleFavorite(scope,input.value||'.');reloadMemory();};
   go.onclick=()=>onLoad(input.value).catch(app.showError);
   input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();go.click();}});
