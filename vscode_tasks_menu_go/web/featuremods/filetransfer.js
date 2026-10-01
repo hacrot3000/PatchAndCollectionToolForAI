@@ -230,15 +230,17 @@ async function getLocalRoot(id){
   });
 }
 function localRootID(){return globalThis.crypto?.randomUUID?.()||('root-'+Date.now()+'-'+Math.random().toString(16).slice(2));}
-async function ensureHandlePermission(handle,request=false){
+async function ensureHandlePermission(handle){
   if(!handle)return false;
   const opts={mode:'readwrite'};
-  if(typeof handle.queryPermission==='function'){
-    const state=await handle.queryPermission(opts);
-    if(state==='granted')return true;
-  }
-  if(request&&typeof handle.requestPermission==='function')return (await handle.requestPermission(opts))==='granted';
+  if(typeof handle.queryPermission==='function')return (await handle.queryPermission(opts))==='granted';
   return false;
+}
+async function requestHandlePermission(handle){
+  if(!handle)return false;
+  const opts={mode:'readwrite'};
+  if(typeof handle.requestPermission==='function')return (await handle.requestPermission(opts))==='granted';
+  return ensureHandlePermission(handle);
 }
 async function directoryHandleForPath(rootHandle,path){
   let handle=rootHandle;
@@ -404,10 +406,10 @@ async function chooseLocalRoot(view){
   const handle=await globalThis.showDirectoryPicker({mode:'readwrite'});
   const id=localRootID(),record={id,label:handle.name||'Local folder',handle,lastUsed:Date.now()};
   await putLocalRoot(record);safeStorageSet('taskdeck:file-transfer:last-local-root:'+workspaceKey(),id);
-  await refreshLocalRoots(view,id,true);return record;
+  await refreshLocalRoots(view,id);return record;
 }
 
-async function refreshLocalRoots(view,selectID='',requestPermission=false){
+async function refreshLocalRoots(view,selectID=''){
   const panel=view.left,records=await localRootRecords();panel.localRoots=records;
   panel.rootSelect.replaceChildren();
   if(!records.length){const option=document.createElement('option');option.value='';option.textContent='Choose local folder…';panel.rootSelect.append(option);}
@@ -417,19 +419,19 @@ async function refreshLocalRoots(view,selectID='',requestPermission=false){
   panel.localRoot=records.find(item=>item.id===panel.rootSelect.value)||null;
   if(panel.localRoot){
     safeStorageSet('taskdeck:file-transfer:last-local-root:'+workspaceKey(),panel.localRoot.id);
-    const granted=await ensureHandlePermission(panel.localRoot.handle,requestPermission);
+    const granted=await ensureHandlePermission(panel.localRoot.handle);
     panel.localPermission=granted;
-    panel.chooseLocal.textContent=granted?'Change folder':'Grant / Choose';
+    panel.grantLocal.hidden=granted;panel.chooseLocal.textContent='Choose…';
     if(granted){panel.localRoot.lastUsed=Date.now();await putLocalRoot(panel.localRoot);}
-  }else panel.localPermission=false;
+  }else{panel.localPermission=false;panel.grantLocal.hidden=true;}
 }
 
-async function loadLocalDirectory(view,path,requestPermission=false){
+async function loadLocalDirectory(view,path){
   const panel=view.left;
   if(!panel.localRoot){panel.status.textContent='Choose a local folder first';panel.entries=[];renderTable(panel,entry=>leftDoubleClick(view,entry),(entry,event)=>leftContext(view,entry,event));return;}
-  const granted=await ensureHandlePermission(panel.localRoot.handle,requestPermission);
+  const granted=await ensureHandlePermission(panel.localRoot.handle);
   panel.localPermission=granted;
-  if(!granted){panel.status.textContent='Local folder permission is required. Click Grant / Choose.';panel.entries=[];renderTable(panel,entry=>leftDoubleClick(view,entry),(entry,event)=>leftContext(view,entry,event));return;}
+  if(!granted){panel.status.textContent='Local folder permission is required. Click Grant.';panel.entries=[];renderTable(panel,entry=>leftDoubleClick(view,entry),(entry,event)=>leftContext(view,entry,event));return;}
   path=normalizeRelativePath(path||'.');panel.status.textContent='Loading local '+path+'…';panel.refresh.disabled=true;
   try{
     const dir=await directoryHandleForPath(panel.localRoot.handle,path),entries=[];
@@ -448,22 +450,22 @@ function currentLeftScope(view){
   if(panel.source==='host')return 'host:'+workspaceKey();
   return panel.localRoot?'local:'+panel.localRoot.id:'local:none';
 }
-async function loadLeftDirectory(view,path,requestPermission=false){
-  return view.left.source==='local'?loadLocalDirectory(view,path,requestPermission):loadHostDirectory(view,path);
+async function loadLeftDirectory(view,path){
+  return view.left.source==='local'?loadLocalDirectory(view,path):loadHostDirectory(view,path);
 }
 
-async function switchLeftSource(view,source,userGesture=false){
+async function switchLeftSource(view,source){
   const panel=view.left;panel.source=source==='local'?'local':'host';
   safeStorageSet('taskdeck:file-transfer:left-source:'+workspaceKey()+':'+view.profile.id,panel.source);
   panel.rootSelect.hidden=panel.source!=='local';panel.chooseLocal.hidden=panel.source!=='local';
   panel.pathInput.placeholder=panel.source==='local'?'Path relative to selected local folder':'Path relative to TaskDeck workspace';
   panel.currentPath='.';panel.entries=[];panel.selected=null;
   if(panel.source==='local'){
-    if(typeof globalThis.showDirectoryPicker!=='function'){panel.status.textContent='Local browser requires File System Access API (Chromium, HTTPS/localhost).';panel.entries=[];renderTable(panel,entry=>leftDoubleClick(view,entry),(entry,event)=>leftContext(view,entry,event));updateTransferButtons(view);return;}
-    await refreshLocalRoots(view,'',userGesture);
-    if(!panel.localRoot&&userGesture)await chooseLocalRoot(view);
-  }
-  await loadLeftDirectory(view,'.',userGesture);
+    if(typeof globalThis.showDirectoryPicker!=='function'){panel.grantLocal.hidden=true;panel.status.textContent='Local browser requires File System Access API (Chromium, HTTPS/localhost).';panel.entries=[];renderTable(panel,entry=>leftDoubleClick(view,entry),(entry,event)=>leftContext(view,entry,event));updateTransferButtons(view);return;}
+    await refreshLocalRoots(view);
+    panel.grantLocal.hidden=!panel.localRoot||panel.localPermission;
+  }else panel.grantLocal.hidden=true;
+  await loadLeftDirectory(view,'.');
 }
 
 async function localSelectedFile(view,entry){
@@ -496,7 +498,7 @@ async function transferLeftToRemote(view){
 
 async function writeRemoteToLocal(view,entry){
   const panel=view.left;if(!panel.localRoot)throw new Error('Choose a local folder first');
-  const granted=await ensureHandlePermission(panel.localRoot.handle,true);if(!granted)throw new Error('Local folder permission was not granted');
+  const granted=await ensureHandlePermission(panel.localRoot.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
   const dir=await directoryHandleForPath(panel.localRoot.handle,panel.currentPath);
   let exists=false;
   try{await dir.getFileHandle(entry.name);exists=true;}catch(error){if(error?.name!=='NotFoundError')throw error;}
@@ -524,7 +526,7 @@ async function transferRemoteToLeft(view){
     }
     if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
   }else await writeRemoteToLocal(view,entry);
-  await loadLeftDirectory(view,view.left.currentPath,false);
+  await loadLeftDirectory(view,view.left.currentPath);
 }
 
 function updateTransferButtons(view){
@@ -534,7 +536,7 @@ function updateTransferButtons(view){
 }
 
 function leftDoubleClick(view,entry){
-  if(entryType(entry)==='directory')loadLeftDirectory(view,joinPath(view.left.currentPath,entry.name,false),false).catch(app.showError);
+  if(entryType(entry)==='directory')loadLeftDirectory(view,joinPath(view.left.currentPath,entry.name,false)).catch(app.showError);
   else transferLeftToRemote(view).catch(app.showError);
 }
 function remoteDoubleClick(view,entry){
@@ -610,9 +612,10 @@ function attachView(profile){
   for(const [value,label] of [['host','Host'],['local','Local browser']]){const option=document.createElement('option');option.value=value;option.textContent=label;source.append(option);}
   source.value=safeStorageGet('taskdeck:file-transfer:left-source:'+workspaceKey()+':'+profile.id,'host');
   const rootSelect=document.createElement('select');rootSelect.className='ft-root-select';rootSelect.hidden=true;
-  const chooseLocal=document.createElement('button');chooseLocal.type='button';chooseLocal.textContent='Choose folder';chooseLocal.hidden=true;
-  left.head.append(source,rootSelect,chooseLocal);
-  left.source=source.value;left.rootSelect=rootSelect;left.chooseLocal=chooseLocal;left.memoryScope=()=>currentLeftScope(view);
+  const grantLocal=document.createElement('button');grantLocal.type='button';grantLocal.textContent='Grant';grantLocal.hidden=true;grantLocal.title='Grant read/write access to the selected local folder';
+  const chooseLocal=document.createElement('button');chooseLocal.type='button';chooseLocal.textContent='Choose…';chooseLocal.hidden=true;
+  left.head.append(source,rootSelect,grantLocal,chooseLocal);
+  left.source=source.value;left.rootSelect=rootSelect;left.grantLocal=grantLocal;left.chooseLocal=chooseLocal;left.memoryScope=()=>currentLeftScope(view);
   left.onSelection=()=>updateTransferButtons(view);
 
   const remoteIdentity=document.createElement('span');remoteIdentity.className='ft-local-note';remoteIdentity.textContent=profile.name||profile.id;
@@ -620,9 +623,9 @@ function attachView(profile){
   remote.memoryScope=()=> 'remote:'+profile.id;remote.onSelection=()=>updateTransferButtons(view);
 
   const leftPathBar=pathBar(left,{
-    onLoad:path=>loadLeftDirectory(view,path,false),
-    onRefresh:()=>loadLeftDirectory(view,left.currentPath,false),
-    onUp:()=>loadLeftDirectory(view,parentPath(left.currentPath,false),false)
+    onLoad:path=>loadLeftDirectory(view,path),
+    onRefresh:()=>loadLeftDirectory(view,left.currentPath),
+    onUp:()=>loadLeftDirectory(view,parentPath(left.currentPath,false))
   });
   const remotePathBar=pathBar(remote,{
     remote:true,onLoad:path=>loadRemoteDirectory(view,path),
@@ -651,16 +654,28 @@ function attachView(profile){
 
   sites.append(left.site,divider,remote.site);pane.append(head,sites);panes.append(pane);views.set(id,view);installDivider(view,divider,sites);
 
-  source.onchange=()=>switchLeftSource(view,source.value,true).catch(app.showError);
+  source.onchange=()=>switchLeftSource(view,source.value).catch(app.showError);
   rootSelect.onchange=async()=>{
     const record=await getLocalRoot(rootSelect.value);left.localRoot=record;left.localPermission=false;
-    if(record){safeStorageSet('taskdeck:file-transfer:last-local-root:'+workspaceKey(),record.id);await loadLocalDirectory(view,'.',true);}
+    if(record){
+      safeStorageSet('taskdeck:file-transfer:last-local-root:'+workspaceKey(),record.id);
+      left.localPermission=await ensureHandlePermission(record.handle);
+      grantLocal.hidden=left.localPermission;
+      await loadLocalDirectory(view,'.');
+    }
   };
-  chooseLocal.onclick=()=>chooseLocalRoot(view).then(()=>loadLocalDirectory(view,'.',true)).catch(app.showError);
+  grantLocal.onclick=()=>{
+    if(!left.localRoot){app.showError(new Error('Choose a local folder first'));return;}
+    requestHandlePermission(left.localRoot.handle).then(granted=>{
+      if(!granted)throw new Error('Local folder permission was not granted');
+      left.localPermission=true;grantLocal.hidden=true;return loadLocalDirectory(view,'.');
+    }).catch(app.showError);
+  };
+  chooseLocal.onclick=()=>chooseLocalRoot(view).then(()=>{grantLocal.hidden=true;return loadLocalDirectory(view,'.');}).catch(app.showError);
 
   activateView(id);
   remote.currentPath=profile.initial_path||'.';remote.pathInput.value=remote.currentPath;remote.refreshPathMemory();
-  switchLeftSource(view,source.value,false).catch(app.showError);
+  switchLeftSource(view,source.value).catch(app.showError);
   loadRemoteDirectory(view,profile.initial_path||'.').catch(app.showError);
   return view;
 }
