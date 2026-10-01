@@ -567,6 +567,70 @@ async function uploadBrowserFile(view,file){
   if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
 }
 
+async function hostMutation(view,action,path,newPath=''){
+  await app.jsonFetch('/api/file-transfer/host-mutate',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action,path,new_path:newPath})
+  });
+}
+async function renameHostEntry(view,entry){
+  const before=String(entry.name||''),answer=prompt('Rename to:',before);if(answer===null)return;
+  const name=String(answer).trim();if(!name||name===before)return;
+  if(name.includes('/')||name.includes('\\'))throw new Error('New name must not contain path separators');
+  await hostMutation(view,'rename',joinPath(view.left.currentPath,before,false),joinPath(view.left.currentPath,name,false));
+  await loadHostDirectory(view,view.left.currentPath);
+}
+async function deleteHostEntries(view,entries){
+  const selected=[...(entries||[])];if(!selected.length)return;
+  const dirs=selected.filter(entry=>entryType(entry)==='directory').length;
+  if(!confirm('Delete '+selected.length+' selected host item(s)?'+(dirs?'\n\nSelected folders are removed non-recursively and must be empty.':'')))return;
+  for(const entry of selected)await hostMutation(view,'delete',joinPath(view.left.currentPath,entry.name,false));
+  await loadHostDirectory(view,view.left.currentPath);
+}
+async function newHostFolder(view){
+  const answer=prompt('New host folder name:','');if(answer===null)return;
+  const name=String(answer).trim();if(!name)return;
+  if(name.includes('/')||name.includes('\\'))throw new Error('Folder name must not contain path separators');
+  await hostMutation(view,'mkdir',joinPath(view.left.currentPath,name,false));
+  await loadHostDirectory(view,view.left.currentPath);
+}
+async function localDirectoryHandle(view){
+  const panel=view.left;if(!panel.localRoot)throw new Error('Choose a local folder first');
+  const granted=await ensureHandlePermission(panel.localRoot.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
+  return directoryHandleForPath(panel.localRoot.handle,panel.currentPath);
+}
+async function renameLocalEntry(view,entry){
+  const dir=await localDirectoryHandle(view),handle=entryType(entry)==='directory'?await dir.getDirectoryHandle(entry.name):await dir.getFileHandle(entry.name);
+  if(typeof handle.move!=='function')throw new Error('This browser does not support native local rename. Use Host mode or a browser version with FileSystemHandle.move().');
+  const answer=prompt('Rename to:',entry.name);if(answer===null)return;
+  const name=String(answer).trim();if(!name||name===entry.name)return;
+  if(name.includes('/')||name.includes('\\'))throw new Error('New name must not contain path separators');
+  await handle.move(name);await loadLocalDirectory(view,view.left.currentPath);
+}
+async function deleteLocalEntries(view,entries){
+  const selected=[...(entries||[])];if(!selected.length)return;
+  const dirs=selected.filter(entry=>entryType(entry)==='directory').length;
+  if(!confirm('Delete '+selected.length+' selected local item(s)?'+(dirs?'\n\nSelected folders are removed non-recursively and must be empty.':'')))return;
+  const dir=await localDirectoryHandle(view);
+  for(const entry of selected)await dir.removeEntry(entry.name,{recursive:false});
+  await loadLocalDirectory(view,view.left.currentPath);
+}
+async function newLocalFolder(view){
+  const answer=prompt('New local folder name:','');if(answer===null)return;
+  const name=String(answer).trim();if(!name)return;
+  if(name.includes('/')||name.includes('\\'))throw new Error('Folder name must not contain path separators');
+  const dir=await localDirectoryHandle(view);await dir.getDirectoryHandle(name,{create:true});await loadLocalDirectory(view,view.left.currentPath);
+}
+async function renameLeftEntry(view,entry){
+  return view.left.source==='host'?renameHostEntry(view,entry):renameLocalEntry(view,entry);
+}
+async function deleteLeftEntries(view,entries){
+  return view.left.source==='host'?deleteHostEntries(view,entries):deleteLocalEntries(view,entries);
+}
+async function newLeftFolder(view){
+  return view.left.source==='host'?newHostFolder(view):newLocalFolder(view);
+}
+
 async function transferLeftEntriesToRemote(view,entries){
   const files=(entries||[]).filter(entry=>entryType(entry)==='file');
   if(!files.length)throw new Error('Select one or more files on the left first');
@@ -686,7 +750,10 @@ function leftContext(view,entry,event){
     items.push({label:'Download host file to browser',action:()=>{downloadFrame().src='/api/files/download?path='+encodeURIComponent(joinPath(panel.currentPath,selected[0].name,false));}});
   }
   if(items.length)items.push({separator:true});
-  items.push(...commonSelectionMenu(panel,false,()=>loadLeftDirectory(view,panel.currentPath)));
+  if(selected.length===1)items.push({label:'Rename',action:()=>renameLeftEntry(view,selected[0])});
+  if(selected.length)items.push({label:'Delete '+(selected.length>1?selected.length+' selected items':'item'),danger:true,action:()=>deleteLeftEntries(view,selected)});
+  items.push({label:'New folder',action:()=>newLeftFolder(view)});
+  items.push({separator:true},...commonSelectionMenu(panel,false,()=>loadLeftDirectory(view,panel.currentPath)));
   showContextMenu(items,event.clientX,event.clientY,contextTitle(panel,entry));
 }
 function remoteContext(view,entry,event){
