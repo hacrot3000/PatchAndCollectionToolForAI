@@ -20,6 +20,7 @@ import '/featuremods/pagetitle.js';
 import '/featuremods/ptvpriority.js';
 import '/featuremods/clearfiles.js';
 import '/featuremods/selfupdate.js';
+import '/featuremods/selfupdatesettings.js';
 import '/featuremods/runningindicator.js';
 import '/featuremods/quickopen.js';
 import '/featuremods/filepreview.js';
