@@ -85,12 +85,26 @@ func setRemoteDownloadHeaders(w http.ResponseWriter, name string) {
 	w.Header().Set("Cache-Control", "no-store")
 }
 
+func decodeFileTransferDownloadRequest(w http.ResponseWriter, r *http.Request) (fileTransferOperationRequest, error) {
+	if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/x-www-form-urlencoded") {
+		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+		if err := r.ParseForm(); err != nil {
+			return fileTransferOperationRequest{}, errors.New("invalid download form")
+		}
+		return fileTransferOperationRequest{
+			ProfileID: strings.TrimSpace(r.FormValue("profile_id")),
+			Path:      strings.TrimSpace(r.FormValue("path")),
+		}, nil
+	}
+	return decodeFileTransferOperationRequest(w, r)
+}
+
 func (s *Server) fileTransferDownload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	req, err := decodeFileTransferOperationRequest(w, r)
+	req, err := decodeFileTransferDownloadRequest(w, r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
