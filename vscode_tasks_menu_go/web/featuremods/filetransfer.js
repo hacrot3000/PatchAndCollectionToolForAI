@@ -46,8 +46,13 @@ style.textContent=`
 .ft-transfer-tools button:disabled{opacity:.28}
 body.ft-resizing{user-select:none;cursor:col-resize}
 .ft-context{position:fixed;z-index:16000;min-width:175px;padding:4px;background:#171b22;border:1px solid #48515f;border-radius:7px;box-shadow:0 14px 38px rgba(0,0,0,.45)}
+.ft-context-title{padding:6px 9px 5px;font-size:10px;font-weight:700;opacity:.65;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ft-context-separator{height:1px;margin:4px 3px;background:#303844}
 .ft-context button{display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;padding:7px 9px;border-radius:4px}
 .ft-context button:hover{background:#2b3440}.ft-context button.danger{color:#ff9a9a}
+.ft-context button:disabled{opacity:.4;pointer-events:none}
+.ft-select-cell{width:26px;min-width:26px;text-align:center!important;padding-left:5px!important;padding-right:3px!important}
+.ft-select-cell input{margin:0;vertical-align:middle}
 .ft-local-note{font-size:10px;opacity:.65}
 html[data-taskmenu-theme="light"] .ft-pane{background:#fff}
 html[data-taskmenu-theme="light"] .ft-site-head,html[data-taskmenu-theme="light"] .ft-pathbar{background:#f2f5f8;border-color:#b9c0c8}
@@ -266,12 +271,21 @@ function activateView(id){
 }
 function closeView(id){const view=views.get(id);if(!view)return;view.tab.remove();view.pane.remove();views.delete(id);}
 function closeContextMenu(){contextMenu?.remove();contextMenu=null;}
-function showContextMenu(items,x,y){
+function showContextMenu(items,x,y,title=''){
   closeContextMenu();
   const menu=document.createElement('div');menu.className='ft-context';
+  menu.setAttribute('role','menu');
+  if(title){
+    const heading=document.createElement('div');heading.className='ft-context-title';heading.textContent=title;menu.append(heading);
+  }
   for(const item of items){
-    const button=document.createElement('button');button.type='button';button.textContent=item.label;if(item.danger)button.classList.add('danger');
-    button.onclick=()=>{closeContextMenu();Promise.resolve(item.action()).catch(app.showError);};menu.append(button);
+    if(item.separator){
+      const separator=document.createElement('div');separator.className='ft-context-separator';separator.setAttribute('role','separator');menu.append(separator);continue;
+    }
+    const button=document.createElement('button');button.type='button';button.textContent=item.label;button.disabled=Boolean(item.disabled);
+    if(item.danger)button.classList.add('danger');
+    button.setAttribute('role','menuitem');
+    button.onclick=()=>{closeContextMenu();Promise.resolve(item.action?.()).catch(app.showError);};menu.append(button);
   }
   document.body.append(menu);contextMenu=menu;const rect=menu.getBoundingClientRect();
   menu.style.left=Math.max(4,Math.min(x,window.innerWidth-rect.width-4))+'px';menu.style.top=Math.max(4,Math.min(y,window.innerHeight-rect.height-4))+'px';
@@ -295,10 +309,13 @@ async function downloadFileToBrowser(view,remotePath){
   const ticket=await issueDownloadTicket(view,remotePath);downloadFrame().src='/api/file-transfer/download?ticket='+encodeURIComponent(ticket);
 }
 
-async function mutateRemote(view,action,path,newPath='',directory=false){
-  await app.jsonFetch('/api/file-transfer/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+async function mutateRemoteRequest(view,action,path,newPath='',directory=false){
+  return app.jsonFetch('/api/file-transfer/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
     profile_id:view.profile.id,action,path,new_path:newPath,directory
   })});
+}
+async function mutateRemote(view,action,path,newPath='',directory=false){
+  await mutateRemoteRequest(view,action,path,newPath,directory);
   await loadRemoteDirectory(view,view.remote.currentPath);
 }
 async function renameRemoteEntry(view,entry){
@@ -330,34 +347,112 @@ function createSortableTable(panel,onDoubleClick,onContextMenu){
   }
   thead.append(hr);const tbody=document.createElement('tbody');panel.tbody=tbody;table.append(thead,tbody);wrap.append(table);return wrap;
 }
-function selectTableEntry(panel,entry,row){
-  panel.selected=entry;
-  for(const selected of panel.tbody.querySelectorAll('tr.selected'))selected.classList.remove('selected');
-  row?.classList.add('selected');
-  panel.onSelection?.();
+function entrySelectionKey(entry){return encodeURIComponent(entryType(entry))+':'+encodeURIComponent(String(entry?.name||''));}
+function selectedEntries(panel){
+  const keys=panel.selectedKeys||new Set();
+  return (panel.entries||[]).filter(entry=>keys.has(entrySelectionKey(entry)));
+}
+function selectedFiles(panel){return selectedEntries(panel).filter(entry=>entryType(entry)==='file');}
+function resetPanelSelection(panel){
+  panel.selectedKeys=new Set();panel.selected=null;panel.selectionAnchor='';
+}
+function syncSelectionRows(panel){
+  const keys=panel.selectedKeys||new Set();
+  for(const row of panel.tbody?.querySelectorAll('tr[data-selection-key]')||[]){
+    const selected=keys.has(row.dataset.selectionKey||'');
+    row.classList.toggle('selected',selected);
+    const checkbox=row.querySelector('input[type=checkbox]');if(checkbox)checkbox.checked=selected;
+  }
+  const visible=panel.visibleEntries||[],selectedCount=visible.filter(entry=>keys.has(entrySelectionKey(entry))).length;
+  if(panel.selectAllCheckbox){
+    panel.selectAllCheckbox.checked=visible.length>0&&selectedCount===visible.length;
+    panel.selectAllCheckbox.indeterminate=selectedCount>0&&selectedCount<visible.length;
+  }
+  const selected=selectedEntries(panel);panel.selected=selected[0]||null;panel.onSelection?.();
+}
+function selectOnlyEntry(panel,entry){
+  panel.selectedKeys=new Set([entrySelectionKey(entry)]);panel.selectionAnchor=entrySelectionKey(entry);syncSelectionRows(panel);
+}
+function selectAllEntries(panel){
+  panel.selectedKeys=new Set((panel.visibleEntries||[]).map(entrySelectionKey));
+  panel.selectionAnchor=(panel.visibleEntries?.[0]&&entrySelectionKey(panel.visibleEntries[0]))||'';
+  syncSelectionRows(panel);
+}
+function clearSelection(panel){resetPanelSelection(panel);syncSelectionRows(panel);}
+function selectTableEntry(panel,entry,event={},mode='click'){
+  const key=entrySelectionKey(entry),keys=panel.selectedKeys||(panel.selectedKeys=new Set());
+  if(mode==='context'){
+    if(!keys.has(key)){keys.clear();keys.add(key);}
+    panel.selectionAnchor=key;syncSelectionRows(panel);return;
+  }
+  const toggle=Boolean(event.ctrlKey||event.metaKey);
+  if(event.shiftKey&&panel.selectionAnchor){
+    const visible=panel.visibleEntries||[],anchorIndex=visible.findIndex(item=>entrySelectionKey(item)===panel.selectionAnchor),currentIndex=visible.findIndex(item=>entrySelectionKey(item)===key);
+    if(anchorIndex>=0&&currentIndex>=0){
+      if(!toggle)keys.clear();
+      const [from,to]=anchorIndex<=currentIndex?[anchorIndex,currentIndex]:[currentIndex,anchorIndex];
+      for(let i=from;i<=to;i++)keys.add(entrySelectionKey(visible[i]));
+    }else{keys.clear();keys.add(key);}
+  }else if(toggle){
+    if(keys.has(key))keys.delete(key);else keys.add(key);
+    panel.selectionAnchor=key;
+  }else{
+    keys.clear();keys.add(key);panel.selectionAnchor=key;
+  }
+  syncSelectionRows(panel);
 }
 
+function createSortableTable(panel,onDoubleClick,onContextMenu){
+  const wrap=document.createElement('div');wrap.className='ft-table-wrap';wrap.tabIndex=0;
+  const table=document.createElement('table');table.className='ft-table';
+  const thead=document.createElement('thead'),hr=document.createElement('tr');
+  const selectTH=document.createElement('th');selectTH.className='ft-nosort ft-select-cell';
+  const selectAll=document.createElement('input');selectAll.type='checkbox';selectAll.title='Select all visible items';
+  selectAll.onchange=()=>{if(selectAll.checked)selectAllEntries(panel);else clearSelection(panel);};selectTH.append(selectAll);hr.append(selectTH);panel.selectAllCheckbox=selectAll;
+  const columns=[['name','Name'],['type','Type'],['size','Size'],['modified','Modified']];
+  panel.headers=new Map();
+  for(const [key,label] of columns){
+    const th=document.createElement('th');th.dataset.sortKey=key;th.textContent=label;
+    const marker=document.createElement('span');marker.className='sort';th.append(marker);
+    th.onclick=()=>{
+      if(panel.sort.key===key)panel.sort.direction=panel.sort.direction==='asc'?'desc':'asc';
+      else{panel.sort.key=key;panel.sort.direction='asc';}
+      renderTable(panel,onDoubleClick,onContextMenu);
+    };
+    panel.headers.set(key,{th,marker});hr.append(th);
+  }
+  thead.append(hr);const tbody=document.createElement('tbody');panel.tbody=tbody;table.append(thead,tbody);wrap.append(table);
+  wrap.addEventListener('keydown',event=>{
+    if((event.ctrlKey||event.metaKey)&&String(event.key).toLowerCase()==='a'){event.preventDefault();selectAllEntries(panel);}
+    if(event.key==='Escape'){clearSelection(panel);closeContextMenu();}
+  });
+  return wrap;
+}
 function renderTable(panel,onDoubleClick,onContextMenu){
   for(const [key,item] of panel.headers||[]){item.marker.textContent=panel.sort.key===key?(panel.sort.direction==='asc'?'▲':'▼'):'';}
   panel.tbody.replaceChildren();
-  const entries=sortEntries(panel.entries,panel.sort);
+  const entries=sortEntries(panel.entries,panel.sort);panel.visibleEntries=entries;
   if(!entries.length){
-    const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=4;td.className='ft-empty';td.textContent=panel.emptyText||'Directory is empty';tr.append(td);panel.tbody.append(tr);return;
+    const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=5;td.className='ft-empty';td.textContent=panel.emptyText||'Directory is empty';tr.append(td);panel.tbody.append(tr);syncSelectionRows(panel);return;
   }
   for(const entry of entries){
-    const tr=document.createElement('tr');tr.classList.toggle('selected',panel.selected?.name===entry.name&&panel.selected?.type===entry.type);
+    const selectionKey=entrySelectionKey(entry),tr=document.createElement('tr');tr.dataset.selectionKey=selectionKey;
+    const selectCell=document.createElement('td');selectCell.className='ft-select-cell';
+    const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.checked=panel.selectedKeys?.has(selectionKey)||false;
+    checkbox.onclick=event=>{event.stopPropagation();selectTableEntry(panel,entry,{ctrlKey:true,metaKey:false,shiftKey:event.shiftKey});};selectCell.append(checkbox);
     const name=document.createElement('td');name.className='ft-name';
     const icon=document.createElement('span');icon.className='ft-kind';icon.textContent=entryType(entry)==='directory'?'📁':entryType(entry)==='symlink'?'↗':'📄';
     const label=document.createElement('span');label.textContent=entry.name;name.append(icon,label);
     const type=document.createElement('td');type.className='ft-type';type.textContent=typeLabel(entry.type);
     const size=document.createElement('td');size.className='ft-size';size.textContent=entryType(entry)==='directory'?'':formatSize(entry.size);
     const modified=document.createElement('td');modified.className='ft-modified';modified.textContent=formatModified(entry.modified);
-    tr.append(name,type,size,modified);
-    tr.onclick=()=>selectTableEntry(panel,entry,tr);
+    tr.append(selectCell,name,type,size,modified);
+    tr.onclick=event=>selectTableEntry(panel,entry,event);
     tr.ondblclick=event=>{event.preventDefault();onDoubleClick(entry);};
-    tr.oncontextmenu=event=>{event.preventDefault();selectTableEntry(panel,entry,tr);onContextMenu(entry,event);};
+    tr.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();selectTableEntry(panel,entry,event,'context');onContextMenu(entry,event);};
     panel.tbody.append(tr);
   }
+  syncSelectionRows(panel);
 }
 
 function pathBar(panel,{remote=false,onLoad,onRefresh,onUp}){
@@ -389,7 +484,7 @@ async function loadRemoteDirectory(view,path){
   panel.status.textContent='Loading '+path+'…';panel.refresh.disabled=true;
   try{
     const data=await app.jsonFetch('/api/file-transfer/list',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:view.profile.id,path})});
-    panel.entries=(Array.isArray(data?.entries)?data.entries:[]).map(item=>({...item,type:entryType(item)}));panel.selected=null;
+    panel.entries=(Array.isArray(data?.entries)?data.entries:[]).map(item=>({...item,type:entryType(item)}));resetPanelSelection(panel);
     markPathLoaded(panel,String(data?.path||path));renderTable(panel,entry=>remoteDoubleClick(view,entry),(entry,event)=>remoteContext(view,entry,event));
     panel.status.textContent=(data?.protocol||view.profile.protocol).toUpperCase()+' · '+panel.entries.length+' item(s)';
   }catch(error){panel.status.textContent=String(error?.message||error);throw error;}
@@ -401,7 +496,7 @@ async function loadHostDirectory(view,path){
   try{
     const query=path==='.'?'':path;
     const data=await app.jsonFetch('/api/project/tree?path='+encodeURIComponent(query));
-    panel.entries=(Array.isArray(data)?data:[]).map(item=>({...item,type:item.type==='dir'?'directory':entryType(item)}));panel.selected=null;
+    panel.entries=(Array.isArray(data)?data:[]).map(item=>({...item,type:item.type==='dir'?'directory':entryType(item)}));resetPanelSelection(panel);
     markPathLoaded(panel,path);renderTable(panel,entry=>leftDoubleClick(view,entry),(entry,event)=>leftContext(view,entry,event));
     panel.status.textContent='Host workspace · '+panel.entries.length+' item(s)';
   }catch(error){panel.status.textContent=String(error?.message||error);throw error;}
@@ -446,7 +541,7 @@ async function loadLocalDirectory(view,path){
       if(handle.kind==='directory')entries.push({name,type:'directory',size:0,modified:''});
       else if(handle.kind==='file'){const file=await handle.getFile();entries.push({name,type:'file',size:file.size,modified:new Date(file.lastModified).toISOString(),handle});}
     }
-    panel.entries=entries;panel.selected=null;panel.currentLocalHandle=dir;markPathLoaded(panel,path);
+    panel.entries=entries;resetPanelSelection(panel);panel.currentLocalHandle=dir;markPathLoaded(panel,path);
     renderTable(panel,entry=>leftDoubleClick(view,entry),(entry,event)=>leftContext(view,entry,event));panel.status.textContent='Local · '+(panel.localRoot.label||panel.localRoot.handle.name)+' · '+entries.length+' item(s)';
   }catch(error){panel.status.textContent=String(error?.message||error);throw error;}
   finally{panel.refresh.disabled=false;updateTransferButtons(view);}
@@ -466,7 +561,7 @@ async function switchLeftSource(view,source){
   safeStorageSet('taskdeck:file-transfer:left-source:'+workspaceKey()+':'+view.profile.id,panel.source);
   panel.rootSelect.hidden=panel.source!=='local';panel.chooseLocal.hidden=panel.source!=='local';
   panel.pathInput.placeholder=panel.source==='local'?'Path relative to selected local folder':'Path relative to TaskDeck workspace';
-  panel.currentPath='.';panel.entries=[];panel.selected=null;panel.pathInput.value='.';
+  panel.currentPath='.';panel.entries=[];resetPanelSelection(panel);panel.pathInput.value='.';
   if(panel.source==='local'){
     if(typeof globalThis.showDirectoryPicker!=='function'){panel.grantLocal.hidden=true;panel.status.textContent='Local browser requires File System Access API (Chromium, HTTPS/localhost).';panel.entries=[];renderTable(panel,entry=>leftDoubleClick(view,entry),(entry,event)=>leftContext(view,entry,event));updateTransferButtons(view);return;}
     await refreshLocalRoots(view);
@@ -490,19 +585,24 @@ async function uploadBrowserFile(view,file){
   if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
 }
 
-async function transferLeftToRemote(view){
-  const entry=view.left.selected;if(!entry||entryType(entry)!=='file')throw new Error('Select a file on the left first');
-  const remotePath=joinPath(view.remote.currentPath,entry.name,true);
-  if(view.left.source==='host'){
-    const hostPath=joinPath(view.left.currentPath,entry.name,false);
-    await app.jsonFetch('/api/file-transfer/host-to-remote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-      profile_id:view.profile.id,host_path:hostPath,remote_path:remotePath
-    })});
-  }else{
-    const file=await localSelectedFile(view,entry);await uploadBrowserFile(view,file);
+async function transferLeftEntriesToRemote(view,entries){
+  const files=(entries||[]).filter(entry=>entryType(entry)==='file');
+  if(!files.length)throw new Error('Select one or more files on the left first');
+  view.remote.status.textContent='Transferring '+files.length+' file(s) to remote…';
+  for(const entry of files){
+    const remotePath=joinPath(view.remote.currentPath,entry.name,true);
+    if(view.left.source==='host'){
+      const hostPath=joinPath(view.left.currentPath,entry.name,false);
+      await app.jsonFetch('/api/file-transfer/host-to-remote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        profile_id:view.profile.id,host_path:hostPath,remote_path:remotePath
+      })});
+    }else{
+      const file=await localSelectedFile(view,entry);await uploadBrowserFile(view,file);
+    }
   }
   await loadRemoteDirectory(view,view.remote.currentPath);
 }
+async function transferLeftToRemote(view){return transferLeftEntriesToRemote(view,selectedFiles(view.left));}
 
 async function writeRemoteToLocal(view,entry){
   const panel=view.left;if(!panel.localRoot)throw new Error('Choose a local folder first');
@@ -510,7 +610,7 @@ async function writeRemoteToLocal(view,entry){
   const dir=await directoryHandleForPath(panel.localRoot.handle,panel.currentPath);
   let exists=false;
   try{await dir.getFileHandle(entry.name);exists=true;}catch(error){if(error?.name!=='NotFoundError')throw error;}
-  if(exists&&!confirm(entry.name+' already exists locally. Overwrite it?'))return;
+  if(exists&&!confirm(entry.name+' already exists locally. Overwrite it?'))return false;
   const handle=await dir.getFileHandle(entry.name,{create:true}),writable=await handle.createWritable();
   try{
     const ticket=await issueDownloadTicket(view,joinPath(view.remote.currentPath,entry.name,true));
@@ -518,54 +618,114 @@ async function writeRemoteToLocal(view,entry){
     if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
     if(response.body&&typeof response.body.pipeTo==='function')await response.body.pipeTo(writable);
     else{await writable.write(await response.arrayBuffer());await writable.close();}
+    return true;
   }catch(error){try{await writable.abort();}catch{}throw error;}
 }
 
-async function transferRemoteToLeft(view){
-  const entry=view.remote.selected;if(!entry||entryType(entry)!=='file')throw new Error('Select a remote file first');
-  if(view.left.source==='host'){
-    const payload={profile_id:view.profile.id,remote_path:joinPath(view.remote.currentPath,entry.name,true),host_dir:view.left.currentPath,overwrite:false};
-    let response=await app.fetchWithLease('/api/file-transfer/remote-to-host',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),cache:'no-store'});
-    if(response.status===409){
-      const message=(await response.text()).trim();
-      if(message.includes('already exists')&&confirm(entry.name+' already exists on Host. Overwrite it?')){
-        payload.overwrite=true;response=await app.fetchWithLease('/api/file-transfer/remote-to-host',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),cache:'no-store'});
-      }else return;
-    }
-    if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
-  }else await writeRemoteToLocal(view,entry);
+async function transferRemoteEntriesToLeft(view,entries){
+  const files=(entries||[]).filter(entry=>entryType(entry)==='file');
+  if(!files.length)throw new Error('Select one or more remote files first');
+  view.left.status.textContent='Transferring '+files.length+' file(s) from remote…';
+  for(const entry of files){
+    if(view.left.source==='host'){
+      const payload={profile_id:view.profile.id,remote_path:joinPath(view.remote.currentPath,entry.name,true),host_dir:view.left.currentPath,overwrite:false};
+      let response=await app.fetchWithLease('/api/file-transfer/remote-to-host',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),cache:'no-store'});
+      if(response.status===409){
+        const message=(await response.text()).trim();
+        if(message.includes('already exists')&&confirm(entry.name+' already exists on Host. Overwrite it?')){
+          payload.overwrite=true;response=await app.fetchWithLease('/api/file-transfer/remote-to-host',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),cache:'no-store'});
+        }else continue;
+      }
+      if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
+    }else await writeRemoteToLocal(view,entry);
+  }
   await loadLeftDirectory(view,view.left.currentPath);
+}
+async function transferRemoteToLeft(view){return transferRemoteEntriesToLeft(view,selectedFiles(view.remote));}
+
+async function deleteRemoteEntries(view,entries){
+  const selected=[...(entries||[])];if(!selected.length)return;
+  const dirs=selected.filter(entry=>entryType(entry)==='directory').length;
+  const message=selected.length===1
+    ?'Delete '+selected[0].name+'?'+(dirs?'\n\nDirectory removal is non-recursive.':'')
+    :'Delete '+selected.length+' selected item(s)?'+(dirs?'\n\nSelected directories are removed non-recursively and must be empty.':'');
+  if(!confirm(message))return;
+  for(const entry of selected){
+    await mutateRemoteRequest(view,'delete',joinPath(view.remote.currentPath,entry.name,true),'',entryType(entry)==='directory');
+  }
+  await loadRemoteDirectory(view,view.remote.currentPath);
+}
+
+async function copyText(value){
+  const text=String(value??'');
+  if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(text);return;}
+  const area=document.createElement('textarea');area.value=text;area.style.position='fixed';area.style.opacity='0';document.body.append(area);area.select();
+  try{document.execCommand('copy');}finally{area.remove();}
 }
 
 function updateTransferButtons(view){
-  const left=view.left.selected,remote=view.remote.selected;
-  view.toRemote.disabled=!left||entryType(left)!=='file';
-  view.toLeft.disabled=!remote||entryType(remote)!=='file';
+  view.toRemote.disabled=selectedFiles(view.left).length===0;
+  view.toLeft.disabled=selectedFiles(view.remote).length===0;
 }
 
 function leftDoubleClick(view,entry){
   if(entryType(entry)==='directory')loadLeftDirectory(view,joinPath(view.left.currentPath,entry.name,false)).catch(app.showError);
-  else transferLeftToRemote(view).catch(app.showError);
+  else transferLeftEntriesToRemote(view,[entry]).catch(app.showError);
 }
 function remoteDoubleClick(view,entry){
   if(entryType(entry)==='directory')loadRemoteDirectory(view,joinPath(view.remote.currentPath,entry.name,true)).catch(app.showError);
-  else transferRemoteToLeft(view).catch(app.showError);
+  else transferRemoteEntriesToLeft(view,[entry]).catch(app.showError);
+}
+function contextTitle(panel,entry){
+  const selected=selectedEntries(panel);
+  return selected.length>1?selected.length+' items selected':String(entry?.name||'File actions');
+}
+function selectedPathText(panel,remote=false){
+  return selectedEntries(panel).map(entry=>joinPath(panel.currentPath,entry.name,remote)).join('\n');
+}
+function commonSelectionMenu(panel,remote,onRefresh){
+  const selected=selectedEntries(panel),items=[];
+  if(selected.length===1)items.push({label:'Copy name',action:()=>copyText(selected[0].name)});
+  if(selected.length)items.push({label:selected.length>1?'Copy selected paths':'Copy path',action:()=>copyText(selectedPathText(panel,remote))});
+  items.push({separator:true},{label:'Select all',action:()=>selectAllEntries(panel)});
+  if(selected.length>1)items.push({label:'Clear selection',action:()=>clearSelection(panel)});
+  items.push({label:'Refresh',action:onRefresh});
+  return items;
 }
 function leftContext(view,entry,event){
-  const items=[];
-  if(entryType(entry)==='file')items.push({label:'Upload to remote →',action:()=>transferLeftToRemote(view)});
-  if(view.left.source==='host'&&entryType(entry)==='file')items.push({label:'Download host file to browser',action:()=>{downloadFrame().src='/api/files/download?path='+encodeURIComponent(joinPath(view.left.currentPath,entry.name,false));}});
-  showContextMenu(items,event.clientX,event.clientY);
+  const panel=view.left,selected=selectedEntries(panel),files=selected.filter(item=>entryType(item)==='file'),items=[];
+  if(selected.length===1&&entryType(selected[0])==='directory'){
+    items.push({label:'Open folder',action:()=>loadLeftDirectory(view,joinPath(panel.currentPath,selected[0].name,false))});
+  }
+  if(files.length){
+    items.push({label:'Upload '+(files.length>1?files.length+' selected files':'to remote')+' →',action:()=>transferLeftEntriesToRemote(view,files)});
+  }
+  if(panel.source==='host'&&selected.length===1&&entryType(selected[0])==='file'){
+    items.push({label:'Download host file to browser',action:()=>{downloadFrame().src='/api/files/download?path='+encodeURIComponent(joinPath(panel.currentPath,selected[0].name,false));}});
+  }
+  if(items.length)items.push({separator:true});
+  items.push(...commonSelectionMenu(panel,false,()=>loadLeftDirectory(view,panel.currentPath)));
+  showContextMenu(items,event.clientX,event.clientY,contextTitle(panel,entry));
 }
 function remoteContext(view,entry,event){
-  const items=[];
-  if(entryType(entry)==='file'){
-    items.push({label:'Transfer to left ←',action:()=>transferRemoteToLeft(view)});
-    items.push({label:'Download to browser',action:()=>downloadFileToBrowser(view,joinPath(view.remote.currentPath,entry.name,true))});
+  const panel=view.remote,selected=selectedEntries(panel),files=selected.filter(item=>entryType(item)==='file'),items=[];
+  if(selected.length===1&&entryType(selected[0])==='directory'){
+    items.push({label:'Open folder',action:()=>loadRemoteDirectory(view,joinPath(panel.currentPath,selected[0].name,true))});
   }
-  items.push({label:'Rename',action:()=>renameRemoteEntry(view,entry)});
-  items.push({label:'Delete',danger:true,action:()=>deleteRemoteEntry(view,entry)});
-  showContextMenu(items,event.clientX,event.clientY);
+  if(files.length)items.push({label:'Transfer '+(files.length>1?files.length+' selected files':'to left')+' ←',action:()=>transferRemoteEntriesToLeft(view,files)});
+  if(selected.length===1&&entryType(selected[0])==='file'){
+    items.push({label:'Download to browser',action:()=>downloadFileToBrowser(view,joinPath(panel.currentPath,selected[0].name,true))});
+  }
+  if(items.length)items.push({separator:true});
+  if(selected.length===1)items.push({label:'Rename',action:()=>renameRemoteEntry(view,selected[0])});
+  if(selected.length)items.push({label:'Delete '+(selected.length>1?selected.length+' selected items':'item'),danger:true,action:()=>deleteRemoteEntries(view,selected)});
+  items.push({label:'New remote folder',action:()=>{
+    const name=prompt('New remote folder name:','');if(name===null)return;const clean=String(name).trim();if(!clean)return;
+    if(clean.includes('/')||clean.includes('\\'))throw new Error('Folder name must not contain path separators');
+    return mutateRemote(view,'mkdir',joinPath(panel.currentPath,clean,true));
+  }});
+  items.push({separator:true},...commonSelectionMenu(panel,true,()=>loadRemoteDirectory(view,panel.currentPath)));
+  showContextMenu(items,event.clientX,event.clientY,contextTitle(panel,entry));
 }
 
 function installDivider(view,divider,sites){
@@ -591,7 +751,7 @@ function createSiteShell(title){
   const head=document.createElement('div');head.className='ft-site-head';
   const label=document.createElement('span');label.className='ft-site-title';label.textContent=title;head.append(label);
   const status=document.createElement('div');status.className='ft-status';
-  return {site,head,label,status,entries:[],selected:null,sort:{key:'type',direction:'asc'},currentPath:'.',emptyText:'Directory is empty'};
+  return {site,head,label,status,entries:[],selected:null,selectedKeys:new Set(),selectionAnchor:'',visibleEntries:[],sort:{key:'type',direction:'asc'},currentPath:'.',emptyText:'Directory is empty'};
 }
 
 function attachView(profile){
