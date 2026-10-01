@@ -296,6 +296,7 @@ function activateView(id){
 }
 function closeView(id){const view=views.get(id);if(!view)return;view.tab.remove();view.pane.remove();views.delete(id);}
 function closeContextMenu(){contextMenu?.remove();contextMenu=null;}
+const maxRenderedTransferRows=2000;
 function queueStatusLabel(status){
   switch(status){case'queued':return 'Queued';case'running':return 'Running';case'success':return 'Done';case'failed':return 'Failed';default:return String(status||'');}
 }
@@ -308,13 +309,22 @@ function renderTransferQueue(view){
   const queue=view.transferQueue;if(!queue?.body)return;
   const counts=queueCounts(view);
   const scanText=queue.activeScans>0?'Scanning '+queue.activeScans+' · ':'';
-  queue.summary.textContent=scanText+'Queued '+counts.queued+' · Running '+counts.running+' · Done '+counts.success+' · Failed '+counts.failed;
+  let visible=queue.items;
+  if(visible.length>maxRenderedTransferRows){
+    const active=visible.filter(item=>item.status!=='success');
+    visible=active.length>=maxRenderedTransferRows
+      ?active.slice(0,maxRenderedTransferRows)
+      :active.concat(queue.items.filter(item=>item.status==='success').slice(-(maxRenderedTransferRows-active.length)));
+  }
+  const shown=visible.length<queue.items.length?' · Showing '+visible.length+'/'+queue.items.length:'';
+  queue.summary.textContent=scanText+'Queued '+counts.queued+' · Running '+counts.running+' · Done '+counts.success+' · Failed '+counts.failed+shown;
   queue.retry.disabled=counts.failed===0;queue.clear.disabled=counts.success===0;
   queue.body.replaceChildren();
   if(!queue.items.length){
     const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=6;td.className='ft-queue-empty';td.textContent='No transfers in this session';tr.append(td);queue.body.append(tr);return;
   }
-  for(const item of queue.items){
+  const fragment=document.createDocumentFragment();
+  for(const item of visible){
     const tr=document.createElement('tr');
     const direction=document.createElement('td');direction.textContent=item.direction||'';
     const source=document.createElement('td');source.className='ft-queue-path';source.textContent=item.source||'';source.title=item.source||'';
@@ -322,8 +332,13 @@ function renderTransferQueue(view){
     const size=document.createElement('td');size.className='ft-size';size.textContent=item.size?formatSize(item.size):'';
     const status=document.createElement('td');status.className='ft-queue-status '+item.status;status.textContent=queueStatusLabel(item.status);
     const error=document.createElement('td');error.className='ft-queue-error';error.textContent=item.error||'';error.title=item.error||'';
-    tr.append(direction,source,target,size,status,error);queue.body.append(tr);
+    tr.append(direction,source,target,size,status,error);fragment.append(tr);
   }
+  queue.body.append(fragment);
+}
+function scheduleTransferQueueRender(view){
+  const queue=view.transferQueue;if(!queue||queue.renderTimer)return;
+  queue.renderTimer=setTimeout(()=>{queue.renderTimer=0;renderTransferQueue(view);},80);
 }
 async function afterTransferQueueIdle(view){
   const queue=view.transferQueue;if(!queue)return;
@@ -345,17 +360,17 @@ async function processTransferQueue(view){
     while(true){
       const item=queue.items.find(candidate=>candidate.status==='queued');
       if(!item)break;
-      item.status='running';item.error='';renderTransferQueue(view);
+      item.status='running';item.error='';scheduleTransferQueueRender(view);
       try{
         await item.run(item);
         item.status='success';
       }catch(error){
         item.status='failed';item.error=String(error?.message||error||'Transfer failed');
       }
-      renderTransferQueue(view);
+      scheduleTransferQueueRender(view);
     }
   }finally{
-    queue.running=false;renderTransferQueue(view);
+    queue.running=false;scheduleTransferQueueRender(view);
     if(queue.activeScans===0)await afterTransferQueueIdle(view);
     if(queue.items.some(item=>item.status==='queued'))processTransferQueue(view);
   }
@@ -369,17 +384,17 @@ function enqueueTransferTasks(view,tasks){
       source:task.source||'',target:task.target||'',size:Number(task.size)||0,run:task.run
     });
   }
-  renderTransferQueue(view);processTransferQueue(view);
+  scheduleTransferQueueRender(view);processTransferQueue(view);
 }
 function runTransferScan(view,label,scanner){
   const queue=view.transferQueue;if(!queue)throw new Error('Transfer queue is unavailable');
   const execute=async()=>{
-    queue.activeScans++;queue.scanLabel=String(label||'Scanning');renderTransferQueue(view);
+    queue.activeScans++;queue.scanLabel=String(label||'Scanning');scheduleTransferQueueRender(view);
     try{return await scanner();}
     finally{
       queue.activeScans=Math.max(0,queue.activeScans-1);
       if(queue.activeScans===0)queue.scanLabel='';
-      renderTransferQueue(view);
+      scheduleTransferQueueRender(view);
       if(queue.items.some(item=>item.status==='queued'))processTransferQueue(view);
       else if(!queue.running&&queue.activeScans===0)await afterTransferQueueIdle(view);
     }
@@ -408,8 +423,8 @@ function createTransferQueue(view){
   thead.append(hr);const body=document.createElement('tbody');table.append(thead,body);wrap.append(table);root.append(head,wrap);
   const queue={root,body,summary,retry,clear,items:[],sequence:0,running:false,activeScans:0,scanLabel:'',scanChain:Promise.resolve(),remoteDirty:new Set(),leftDirty:false};
   view.transferQueue=queue;
-  retry.onclick=()=>{for(const item of queue.items)if(item.status==='failed'){item.status='queued';item.error='';}renderTransferQueue(view);processTransferQueue(view);};
-  clear.onclick=()=>{queue.items=queue.items.filter(item=>item.status!=='success');renderTransferQueue(view);};
+  retry.onclick=()=>{for(const item of queue.items)if(item.status==='failed'){item.status='queued';item.error='';}scheduleTransferQueueRender(view);processTransferQueue(view);};
+  clear.onclick=()=>{queue.items=queue.items.filter(item=>item.status!=='success');scheduleTransferQueueRender(view);};
   renderTransferQueue(view);return root;
 }
 function showContextMenu(items,x,y,title=''){
@@ -915,7 +930,7 @@ function enqueueLocalUploadHandle(view,handle,sourcePath,targetPath,state){
     direction:'→',source:sourcePath,target:targetPath,size:0,
     run:async item=>{
       const file=await handle.getFile();
-      item.size=file.size;renderTransferQueue(view);
+      item.size=file.size;scheduleTransferQueueRender(view);
       await uploadBrowserFileToPath(view,file,targetPath);
       markRemoteQueueDirty(view,parentPath(targetPath,true));
     }
