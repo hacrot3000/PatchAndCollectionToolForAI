@@ -24,8 +24,8 @@ vscode_tasks_menu --self-update
 2. Nếu revision hiện tại đã trùng bản mới nhất thì thoát ngay.
 3. `--self-update` được xem là xác nhận trực tiếp từ CLI; updater tạo request ở trạng thái đã xác nhận và bắt đầu dry-run ngay, không phụ thuộc browser/UI.
 4. Browser chỉ **persist snapshot** terminal/layout; không freeze UI hay terminal persistence trong lúc kiểm tra candidate.
-5. **Dry-run/staging:** tải đúng source revision vào thư mục tạm, chạy `go test ./...`, Patch entry tests, compile candidate và chạy `--version` để xác minh binary.
-6. Trong toàn bộ bước dry-run, daemon/release hiện tại vẫn chạy. Nếu download/test/build/validation lỗi thì không activate candidate; UI hiện lỗi dạng non-blocking và có thể đóng để tiếp tục làm việc.
+5. **Dry-run/staging:** tải đúng source revision vào thư mục tạm. Mặc định updater chạy **light validation**: kiểm tra Python 3.10+, compile syntax Patch entry, build candidate, kiểm tra release structure và chạy `taskdeck --version` để xác minh đúng revision. Full `go test ./...` + Patch entry test suite chỉ chạy khi bật `self_update.run_full_validation_tests=true`.
+6. Trong toàn bộ bước dry-run, daemon/release hiện tại vẫn chạy. Nếu download/build/validation (hoặc full tests khi được bật) lỗi thì không activate candidate; UI hiện lỗi dạng non-blocking và có thể đóng để tiếp tục làm việc.
 7. Chỉ khi candidate PASS toàn bộ dry-run mới cài vào versioned release và atomic-switch global activation.
 8. Trước activation, updater snapshot executable + revision global hiện tại. Nếu activation, handoff hoặc startup daemon mới thất bại, updater restore activation cũ; nếu daemon cũ đã rời listener thì restart trực tiếp executable cũ.
 9. Khi release mới đã sẵn sàng, terminal snapshot mới được bảo vệ khỏi teardown writes trong cửa sổ `ready_restart/restarting`.
@@ -38,7 +38,8 @@ Luồng an toàn:
 ```text
 current release keeps serving
         |
-        +--> candidate download/test/build/validate  [DRY-RUN]
+        +--> candidate download/light-validate/build/validate  [DRY-RUN]
+        |         |        \-> optional full developer tests
         |         |
         |         +--> FAIL -> discard staging, keep current daemon, UI remains usable
         |
@@ -51,6 +52,28 @@ current release keeps serving
                             +--> FAIL -> restore previous activation
                                         -> restart previous daemon if needed
 ```
+
+## Chế độ validation
+
+Mặc định TaskDeck ưu tiên update nhanh cho end user:
+
+```ini
+[self_update]
+run_full_validation_tests = false
+```
+
+Với giá trị mặc định này, updater **không** chạy toàn bộ `go test ./...` hoặc `test_python_patch_entry.py` trong mỗi lần update. Các kiểm tra an toàn nhẹ vẫn luôn chạy: source/runtime bắt buộc phải tồn tại, Python 3.10+ phải dùng được, Patch entry phải compile syntax, candidate Go binary phải build thành công, release structure phải đầy đủ và `taskdeck --version` phải trả đúng revision trước khi activation.
+
+Developer/maintainer có thể bật:
+
+```ini
+[self_update]
+run_full_validation_tests = true
+```
+
+hoặc dùng **Settings → UPDATE → Run full validation tests before self-update**. Khi bật, dry-run chạy thêm full Go test suite và Patch entry test suite trước bước build/activation. Setting được lưu theo project trong `.vscode/vscode_tasks_menu.ini`.
+
+Việc tắt full tests **không** tắt snapshot/rollback, atomic activation, binary/release validation hay daemon startup/handoff recovery.
 
 ## Terminal/session khi update
 
@@ -108,7 +131,7 @@ Nếu listener handoff thất bại, updater trước tiên yêu cầu daemon c�
 
 ## Khi không có daemon
 
-Dù daemon đang chạy hay chưa, CLI `--self-update` không yêu cầu browser confirmation. Updater vẫn thực hiện đầy đủ download -> test -> build -> validate -> atomic replace; nếu daemon đang chạy thì tiếp tục handoff/restart, còn nếu chưa chạy thì binary mới sẽ được dùng ở lần start tiếp theo.
+Dù daemon đang chạy hay chưa, CLI `--self-update` không yêu cầu browser confirmation. Updater vẫn thực hiện download -> light validation -> build -> validate -> atomic replace; nếu bật full validation thì test suite chạy giữa download và build. Nếu daemon đang chạy thì tiếp tục handoff/restart, còn nếu chưa chạy thì binary mới sẽ được dùng ở lần start tiếp theo.
 
 ## An toàn working tree
 
