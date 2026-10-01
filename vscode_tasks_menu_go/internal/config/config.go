@@ -34,6 +34,7 @@ type Config struct {
 	SharedServerEnabled bool
 	SharedProjectID     string
 	SharedIdentityDB    string
+	SelfUpdateFullValidation bool
 }
 
 func Default() Config {
@@ -109,6 +110,8 @@ func Load(workspace string) (Config, string, error) {
 			cfg.SharedProjectID = value
 		case "shared_server.identity_db":
 			cfg.SharedIdentityDB = value
+		case "self_update.run_full_validation_tests":
+			cfg.SelfUpdateFullValidation = parseBool(value, false)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -230,6 +233,11 @@ enabled = false
 # project_id = my-project
 # Optional absolute path tới identity DB dùng chung giữa nhiều TaskDeck process.
 # identity_db = /var/lib/taskdeck/identity.db
+
+[self_update]
+# Full developer test suite before activation. Mặc định tắt cho end users.
+# Build + binary/release validation vẫn luôn chạy dù setting này tắt.
+run_full_validation_tests = false
 `, cfg.Protocol, cfg.Bind, cfg.Port, cfg.OpenBrowser, cfg.Username)
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("tạo %s: %w", path, err)
