@@ -32,7 +32,7 @@ func TestProjectTerminalStateNormalizeMigratesLegacySplit(t *testing.T) {
 		value.Terminals = append(value.Terminals, terminalStateItem{Cwd: filepath.Join("/tmp", "terminal", string(rune('a'+i%26)))})
 	}
 	got := normalizeProjectTerminalState(value)
-	if got.Version != 4 || len(got.Terminals) != projectTerminalMaxTabs {
+	if got.Version != 5 || len(got.Terminals) != projectTerminalMaxTabs {
 		t.Fatalf("normalized terminal state = %#v", got)
 	}
 	if got.ActiveIndex != 0 {
@@ -187,6 +187,141 @@ func TestProjectTerminalStateTracksCwdOrderMultipleSplitsAndRestores(t *testing.
 	}
 }
 
+
+func TestTerminalStateRestoresTitleBroadcastGroupColorAndRemapsSessionIDs(t *testing.T) {
+	root := t.TempDir()
+	m := session.NewManager(64 << 10)
+	defer m.Shutdown(time.Second)
+	srv := &Server{Workspace: root, Sessions: m}
+	spec, err := workspaceTerminalExecutionAt(root, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := m.Start(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := m.Start(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SetTitle(first.ID, "Main build terminal"); err != nil {
+		t.Fatal(err)
+	}
+	groupID := createBroadcastGroupForTest(t, srv, "Build group", "violet")
+	assignBroadcastGroupForTest(t, srv, first.ID, groupID)
+
+	value, err := srv.captureTerminalState(terminalSnapshotRequest{
+		SessionIDs: []string{first.ID, second.ID},
+		ActiveSessionID: second.ID,
+		Splits: []terminalSnapshotSplitRequest{{
+			LeftSessionID: first.ID, RightSessionID: second.ID, Ratio: 0.6, Orientation: "vertical",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(value.Terminals) != 2 {
+		t.Fatalf("captured terminals=%#v", value.Terminals)
+	}
+	if value.Terminals[0].Title != "Main build terminal" || value.Terminals[0].BroadcastGroupID != groupID {
+		t.Fatalf("presentation metadata not captured: %#v", value.Terminals[0])
+	}
+	if err := writeProjectTerminalState(root, value); err != nil {
+		t.Fatal(err)
+	}
+
+	oldFirstID := first.ID
+	oldSecondID := second.ID
+	m2 := session.NewManager(64 << 10)
+	defer m2.Shutdown(time.Second)
+	srv2 := &Server{Workspace: root, Sessions: m2}
+	resp, err := srv2.restoreTerminalState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Sessions) != 2 {
+		t.Fatalf("restored sessions=%#v", resp.Sessions)
+	}
+	newFirstID := resp.Sessions[0].ID
+	newSecondID := resp.Sessions[1].ID
+	if newFirstID == oldFirstID || newSecondID == oldSecondID {
+		t.Fatalf("restore must create new session IDs: old=%q,%q new=%q,%q", oldFirstID, oldSecondID, newFirstID, newSecondID)
+	}
+	if resp.Sessions[0].Title != "Main build terminal" {
+		t.Fatalf("restored title=%q", resp.Sessions[0].Title)
+	}
+	if len(resp.LiveSplits) != 1 || resp.LiveSplits[0].LeftSessionID != newFirstID || resp.LiveSplits[0].RightSessionID != newSecondID {
+		t.Fatalf("live split IDs were not remapped: %#v", resp.LiveSplits)
+	}
+
+	broadcast, err := loadBroadcastState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if broadcast.Assignments[newFirstID] != groupID {
+		t.Fatalf("restored group assignment=%q want %q; state=%#v", broadcast.Assignments[newFirstID], groupID, broadcast)
+	}
+	if _, ok := broadcast.Assignments[oldFirstID]; ok {
+		t.Fatalf("stale old broadcast assignment remains: %#v", broadcast.Assignments)
+	}
+
+	persisted, err := readProjectTerminalState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Version != 5 || persisted.Terminals[0].SessionID != newFirstID {
+		t.Fatalf("persisted restored state=%#v", persisted)
+	}
+	if persisted.Terminals[0].Title != "Main build terminal" || persisted.Terminals[0].BroadcastGroupID != groupID {
+		t.Fatalf("presentation metadata lost after restore: %#v", persisted.Terminals[0])
+	}
+}
+
+func TestTerminalStateRestoresLegacyBroadcastAssignmentByOldSessionID(t *testing.T) {
+	root := t.TempDir()
+	oldID := "legacy-terminal-id"
+	groupID := ""
+	_, err := mutateBroadcastState(root, func(state *broadcastState) error {
+		groupID = "legacy-group"
+		state.Groups = append(state.Groups, broadcastGroup{ID: groupID, Name: "Legacy group", Preset: "ocean"})
+		state.Assignments[oldID] = groupID
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := projectTerminalState{
+		Version: 4,
+		Terminals: []terminalStateItem{{SessionID: oldID, Cwd: root}},
+		ActiveIndex: 0,
+	}
+	if err := writeProjectTerminalState(root, state); err != nil {
+		t.Fatal(err)
+	}
+
+	m := session.NewManager(64 << 10)
+	defer m.Shutdown(time.Second)
+	srv := &Server{Workspace: root, Sessions: m}
+	resp, err := srv.restoreTerminalState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Sessions) != 1 {
+		t.Fatalf("restored sessions=%#v", resp.Sessions)
+	}
+	newID := resp.Sessions[0].ID
+	broadcast, err := loadBroadcastState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if broadcast.Assignments[newID] != groupID {
+		t.Fatalf("legacy assignment was not remapped: %#v", broadcast.Assignments)
+	}
+	if _, ok := broadcast.Assignments[oldID]; ok {
+		t.Fatalf("legacy stale assignment remains: %#v", broadcast.Assignments)
+	}
+}
 
 func TestTerminalStatePreservesIndependentLiveSplitGroupsForTaskAndShellSessions(t *testing.T) {
 	root := t.TempDir()
