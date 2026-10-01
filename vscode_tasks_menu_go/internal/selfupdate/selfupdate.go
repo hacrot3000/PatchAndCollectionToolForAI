@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -222,9 +223,24 @@ func WaitForDecision(workspace, id string, timeout time.Duration) (Request, erro
 	return Request{}, fmt.Errorf("timed out waiting for update confirmation")
 }
 
+func githubCommitURL(branch string) string {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		branch = Branch
+	}
+	return "https://api.github.com/repos/" + Repository + "/commits/" + url.PathEscape(branch)
+}
+
 func RemoteRevision(ctx context.Context) (string, error) {
-	url := "https://api.github.com/repos/" + Repository + "/commits/" + Branch
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	return RemoteRevisionForBranch(ctx, Branch)
+}
+
+func RemoteRevisionForBranch(ctx context.Context, branch string) (string, error) {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		branch = Branch
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubCommitURL(branch), nil)
 	if err != nil {
 		return "", err
 	}
@@ -235,16 +251,60 @@ func RemoteRevision(ctx context.Context) (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub revision query returned %s", resp.Status)
+		return "", fmt.Errorf("GitHub revision query for branch %q returned %s", branch, resp.Status)
 	}
 	var value struct{ SHA string `json:"sha"` }
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&value); err != nil {
 		return "", err
 	}
 	if len(value.SHA) < 12 {
-		return "", fmt.Errorf("GitHub returned invalid revision")
+		return "", fmt.Errorf("GitHub returned invalid revision for branch %q", branch)
 	}
 	return value.SHA, nil
+}
+
+func RemoteBranches(ctx context.Context) ([]string, error) {
+	client := &http.Client{Timeout: 20 * time.Second}
+	branches := make([]string, 0, 64)
+	seen := make(map[string]struct{})
+	for page := 1; page <= 5; page++ {
+		endpoint := fmt.Sprintf("https://api.github.com/repos/%s/branches?per_page=100&page=%d", Repository, page)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", "vscode_tasks_menu-self-update")
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		var values []struct {
+			Name string `json:"name"`
+		}
+		decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&values)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("GitHub branch query returned %s", resp.Status)
+		}
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		for _, value := range values {
+			name := strings.TrimSpace(value.Name)
+			if name == "" {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			branches = append(branches, name)
+		}
+		if len(values) < 100 {
+			break
+		}
+	}
+	return branches, nil
 }
 
 func MarkerPath(binary string) string { return binary + ".revision" }
