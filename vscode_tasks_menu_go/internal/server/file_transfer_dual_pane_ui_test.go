@@ -172,8 +172,10 @@ func TestFileTransferWorkspaceHasParentRowsAndBackgroundOnlySelection(t *testing
 		"function canGoParentPath(value,remote=false)",
 		"tr.className='ft-parent-row'",
 		"label.textContent='..'",
-		"tr.onclick=event=>{event.preventDefault();panel.goUp?.().catch(app.showError);}",
+		"tr.onclick=event=>event.preventDefault();",
+		"tr.ondblclick=event=>{event.preventDefault();panel.goUp?.().catch(app.showError);}",
 		"outline:none!important;box-shadow:none!important",
+		"user-select:none;-moz-user-select:none;-webkit-user-select:none",
 		".ft-table tbody tr.selected{background:#29384b}",
 	} {
 		if !strings.Contains(js, want) {
@@ -181,6 +183,10 @@ func TestFileTransferWorkspaceHasParentRowsAndBackgroundOnlySelection(t *testing
 		}
 	}
 }
+	if strings.Contains(js, "tr.onclick=event=>{event.preventDefault();panel.goUp?.().catch(app.showError);}") {
+		t.Fatal("parent row must not navigate on single click")
+	}
+
 
 func TestFileTransferPathHistoryIsAutomaticCompactDropdown(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
