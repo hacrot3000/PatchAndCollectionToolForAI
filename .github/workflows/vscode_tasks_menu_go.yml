@@ -6,7 +6,6 @@ on:
       - "main"
       - "IDE_tool"
       - "feat/multi-user-shared-server"
-      - "feat/ftp-sftp-connections"
     paths:
       - "vscode_tasks_menu"
       - "install.sh"

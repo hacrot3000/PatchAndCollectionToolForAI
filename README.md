@@ -172,7 +172,7 @@ Các chức năng chính gồm:
 - phát hiện file path trong output để download, có thể bật/tắt theo từng tab và clear/ignore danh sách detect;
 - upload file vào workspace với kiểm tra traversal/symlink và xác nhận overwrite;
 - Git Quick Actions có kiểm soát và hỗ trợ **multi-repository workspace**: tự quét repo lồng nhau trong workspace, chọn repo active, xem tổng hợp `Repositories`, chạy status/branch/merge/fetch/pull/push theo đúng repo đã chọn và có thể auto-select theo terminal CWD; Favorites/Recent/History, task search, notification, theme/font và các tiện ích UI khác;
-- panel **Connections** hỗ trợ local terminal, SSH, **SFTP**, **FTP** và database; SFTP tái sử dụng system OpenSSH + SSH profile/askpass hiện có, FTP dùng client Go stdlib không có package ngoài; remote file workspace hỗ trợ browse/upload/download/new folder/rename/delete non-recursive, trong đó FTP plaintext được cảnh báo rõ;
+- panel **Connections** hỗ trợ local terminal, SSH, **SFTP**, **FTP** và database; file-transfer workspace dùng dual-pane kiểu FileZilla với trái = Host workspace hoặc Local browser, phải = FTP/SFTP remote, transfer hai chiều, path Favorites/Recent theo từng nguồn/profile và sortable file headers; SFTP tái sử dụng system OpenSSH, FTP dùng client Go stdlib, không thêm npm/package ngoài;
 - hỗ trợ local/remote access qua cấu hình `vscode_tasks_menu.ini`, với auth/TLS và các kiểm tra an toàn khi bind ra ngoài loopback.
 
 Quản lý daemon:
@@ -407,7 +407,7 @@ Main capabilities include:
 - file-path detection in terminal output for downloads, with per-tab enable/disable and clear/ignore controls;
 - workspace uploads with traversal/symlink protection and overwrite confirmation;
 - controlled Git Quick Actions with **multi-repository workspace** support: bounded discovery of nested repositories, active-repository selection, a `Repositories` overview, repo-scoped status/branch/merge/fetch/pull/push actions, and optional terminal-CWD auto-selection; Favorites/Recent/History, task search, notifications, theme/font controls, and other browser UI helpers;
-- the **Connections** panel supports local terminals, SSH, **SFTP**, **FTP**, and databases; SFTP reuses system OpenSSH plus existing SSH profiles/askpass, while FTP uses a Go-stdlib client with no extra package; the remote-file workspace supports browse/upload/download/new-folder/rename/non-recursive delete, with an explicit plaintext warning for FTP;
+- the **Connections** panel supports local terminals, SSH, **SFTP**, **FTP**, and databases; the file-transfer workspace is a FileZilla-style dual pane with Host-workspace or Local-browser files on the left, FTP/SFTP remote files on the right, bidirectional transfers, per-source/profile Favorites/Recent paths, and sortable file headers; SFTP reuses system OpenSSH and FTP remains Go-stdlib only, with no npm or new package dependency;
 - local or remote access through `vscode_tasks_menu.ini`, including auth/TLS and safety checks before binding outside loopback.
 
 Daemon management:

@@ -59,36 +59,44 @@ FTP client được viết bằng **Go standard library**, không dùng third-pa
 
 FTP password được lưu qua cùng encrypted secret store của SSH/database. Browser chỉ nhận `has_secret`, không nhận plaintext hoặc `secret_ref`.
 
-## Remote file workspace
+## Dual-pane file workspace
 
-Click một SFTP/FTP profile sẽ mở tab remote file riêng trong workspace.
+Click một SFTP/FTP profile sẽ mở workspace hai pane kiểu FileZilla:
 
-Các thao tác hiện có:
+- **pane trái**: chọn nhanh giữa **Host** và **Local browser**;
+- **pane phải**: filesystem của FTP/SFTP profile đang mở;
+- divider ở giữa có thể kéo để đổi tỷ lệ trái/phải, double-click để reset 50/50;
+- nút **→ / ←** truyền file đang chọn sang pane đối diện;
+- double-click folder để đi vào; double-click file để truyền sang bên kia.
 
-- browse directory và nhập trực tiếp remote path;
-- Up / Refresh;
-- upload file;
-- download file;
-- tạo folder;
-- rename file/folder;
+**Host** là filesystem của máy chạy TaskDeck nhưng vẫn bị giới hạn trong workspace hiện tại. Transfer Host ↔ Remote chạy trực tiếp server-side, không phải tải file vòng qua browser.
+
+**Local browser** dùng File System Access API của browser. Người dùng phải chọn/grant một folder local; TaskDeck lưu directory handle bằng IndexedDB của browser để chuyển nhanh giữa các local root đã cấp quyền. Browser không cho web app tự ý truy cập đường dẫn tuyệt đối ngoài các folder đã được người dùng cấp quyền.
+
+Mỗi pane có path input cùng danh sách xổ xuống **Favorites / Recent**:
+
+- Host: nhớ riêng theo workspace;
+- Local: nhớ riêng theo từng local root đã cấp quyền;
+- Remote: nhớ riêng theo từng FTP/SFTP profile.
+
+Nút **☆ / ★** pin hoặc bỏ pin path hiện tại; Recent được cập nhật tự động sau khi browse thành công.
+
+Danh sách file có các header **Name / Type / Size / Modified** có thể click để đổi sort. Mặc định sort theo **Type tăng dần**, nên folder nằm trước file; khi sort theo Name/Size/Modified, folder vẫn được giữ thành nhóm trước file.
+
+Các thao tác remote hiện có:
+
+- browse path, Up, Refresh;
+- upload/download;
+- New Folder;
+- rename;
 - delete file;
 - delete folder **non-recursive**.
 
-Double-click folder để đi vào. Double-click file hoặc dùng Download để tải.
+Double-click folder để đi vào. Double-click file để transfer qua pane đối diện.
 
-Download dùng hai bước để tương thích browser control lease mà không đưa remote path vào URL:
+Download tới browser vẫn dùng one-time ticket 90 giây để tương thích browser control lease mà không đưa remote path vào URL. FTP download stream trực tiếp; SFTP dùng private temporary file rồi cleanup. Upload tối đa 1 GiB theo safety boundary hiện tại.
 
-1. browser gửi `POST /api/file-transfer/download-ticket` qua request có browser-lease;
-2. server tạo random one-time ticket sống tối đa 90 giây;
-3. browser `GET /api/file-transfer/download?ticket=...`;
-4. ticket bị consume ngay và không thể replay.
-
-FTP download stream trực tiếp từ data connection tới HTTP response. SFTP CLI cần local pathname nên TaskDeck dùng temporary directory mode `0700` và file private, stream xong thì cleanup.
-
-Upload hiện giới hạn tối đa 1 GiB. FTP stream request body vào `STOR`; SFTP dùng temporary file private rồi `put`.
-
-Directory listing bị giới hạn kích thước/entry count. FTP control reply và SFTP stdout/stderr cũng bị bound để tránh output không giới hạn.
-
+Directory listing, FTP control reply và SFTP stdout/stderr đều bị bound để tránh output không giới hạn.
 
 ## Database profiles
 

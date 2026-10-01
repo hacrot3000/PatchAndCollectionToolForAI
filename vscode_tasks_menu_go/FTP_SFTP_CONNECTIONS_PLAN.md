@@ -1,6 +1,6 @@
 # TaskDeck FTP & SFTP Connections Plan
 
-Status: implementation complete in feature branch; automated CI green at checkpoint before final docs; real-server FTP/SFTP smoke still pending
+Status: merged to `main`; dual-pane Host/Local ↔ Remote workflow implemented; real-server FTP/SFTP smoke still recommended
 
 Branch: `feat/ftp-sftp-connections`
 
@@ -510,14 +510,14 @@ The feature is ready to merge when:
 
 ## 15. Implemented checkpoint summary
 
-Implemented on `feat/ftp-sftp-connections`:
+Implemented on `main`:
 
 - profile model/store + encrypted FTP password references;
 - SFTP via system OpenSSH only;
 - native Go-stdlib FTP transport;
 - Test/List/Mutation/Upload/Download APIs;
 - one-time 90-second download tickets compatible with TaskDeck browser lease;
-- vanilla-JS remote file workspace;
+- vanilla-JS dual-pane file workspace with Host/Local browser ↔ Remote transfers;
 - FTP/SFTP sections in Connections;
 - fake FTP and fake SFTP fixtures plus UI contract tests;
 - no npm package and no new third-party Go module.
@@ -526,4 +526,26 @@ Before merge/release:
 
 - run real-server smoke against FTP and SFTP;
 - decide and implement explicit shared-server RBAC integration if FTP/SFTP is required in shared mode;
-- remove the temporary feature-branch CI trigger when merging.
+- temporary feature-branch CI trigger removed after merge.
+
+
+## 16. Dual-pane follow-up
+
+Implemented directly on `main`:
+
+- [x] split Host/Local and Remote panes with draggable divider;
+- [x] Host workspace browser using the existing workspace sandbox;
+- [x] Local browser folder access through File System Access API;
+- [x] IndexedDB persistence for granted local directory handles;
+- [x] quick Host / Local browser source switch;
+- [x] direct Host → Remote and Remote → Host transfer endpoints;
+- [x] Local browser → Remote multipart upload;
+- [x] Remote → Local browser streaming through one-time download tickets;
+- [x] per-workspace Host path Favorites/Recent;
+- [x] per-local-root path Favorites/Recent;
+- [x] per-FTP/SFTP-profile remote path Favorites/Recent;
+- [x] clickable Name / Type / Size / Modified sorting;
+- [x] default folders-before-files sorting;
+- [x] no npm package and no new Go module dependency.
+
+Security boundary remains unchanged: Host browsing is workspace-scoped, and Local browsing requires explicit browser-granted directory handles.
