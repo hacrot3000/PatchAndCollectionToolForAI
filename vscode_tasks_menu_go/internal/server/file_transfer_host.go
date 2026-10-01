@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -209,7 +208,12 @@ func (s *Server) fileTransferRemoteToHost(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	rel, relErr := filepath.Rel(s.Workspace, target)
+	root, rootErr := s.projectRoot()
+	if rootErr != nil {
+		http.Error(w, "project root unavailable", http.StatusInternalServerError)
+		return
+	}
+	rel, relErr := filepath.Rel(root, target)
 	if relErr != nil {
 		rel = name
 	}
@@ -252,4 +256,3 @@ func validateHostTransferTarget(target string, overwrite bool) error {
 	return nil
 }
 
-var _ io.Reader = (*os.File)(nil)
