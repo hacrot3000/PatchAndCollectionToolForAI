@@ -711,3 +711,24 @@ func TestCLISelfUpdateDoesNotWaitForBrowserConfirmation(t *testing.T) {
 		t.Fatal("CLI dispatch must call runSelfUpdate without a confirmation mode")
 	}
 }
+
+
+func TestSelfUpdateUsesConfiguredBranch(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"config.ReadSelfUpdateSettings(workspace)",
+		"selfupdate.RemoteRevisionForBranch(ctx, settings.Branch)",
+		"config.NormalizeSelfUpdateBranch(cfg.SelfUpdateBranch)",
+		"selfupdate.RemoteRevisionForBranch(ctx, selfUpdateBranch)",
+		"return checkSelfUpdate(ctx, ws)",
+		"Self-update branch: %s",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("configured self-update branch wiring missing %q", want)
+		}
+	}
+}
