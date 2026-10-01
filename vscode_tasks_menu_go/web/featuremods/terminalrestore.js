@@ -253,6 +253,8 @@ window.addEventListener('taskmenu:output',event=>{
   if(event.detail?.view?.meta?.task_id===0)scheduleSave(700);
 });
 window.addEventListener('taskmenu:split-changed',()=>scheduleSave(150));
+window.addEventListener('taskmenu:terminal-presentation-changed',()=>scheduleSave(100));
+window.addEventListener('taskmenu:broadcast-state',()=>scheduleSave(100));
 
 document.addEventListener('click',event=>{
   const target=event.target instanceof Element?event.target:null;
