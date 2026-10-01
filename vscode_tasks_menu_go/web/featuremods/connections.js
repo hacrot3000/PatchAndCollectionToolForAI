@@ -7,6 +7,7 @@ let localSettings={selected_cwd:'.',custom_dirs:[]};
 let sshProfiles=[];
 let dbAdapters=[];
 let dbProfiles=[];
+let fileTransferProfiles=[];
 let connectionContextMenu=null;
 
 const style=document.createElement('style');
@@ -44,6 +45,7 @@ style.textContent=`
 .task-connection-dialog-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:7px;margin-top:5px}
 .task-connection-primary{background:#244c70;border-color:#3f79a8}
 .task-connection-danger{background:#54252a;border-color:#7b3941}
+.task-connection-warning{grid-column:1/-1;padding:8px 9px;border:1px solid #7b6332;background:#302814;border-radius:6px;font-size:11px;line-height:1.35}
 body:not(.task-sidebar-auto-hide) .task-connections-panel{top:calc(var(--taskmenu-header-height,30px) + 46px);left:0;width:var(--taskmenu-sidebar-inline-width,310px);box-shadow:none}
 html[data-taskmenu-theme="light"] .task-connections-panel{background:#fff;border-color:#b9c0c8;box-shadow:10px 0 28px rgba(0,0,0,.12)}
 html[data-taskmenu-theme="light"] body:not(.task-sidebar-auto-hide) .task-connections-panel{box-shadow:none}
@@ -74,16 +76,18 @@ function authLabel(profile){
 }
 
 async function loadData(){
-  const [local,ssh,adapters,databases]=await Promise.all([
+  const [local,ssh,adapters,databases,transfers]=await Promise.all([
     app.jsonFetch('/api/config/terminal-cwds'),
     app.jsonFetch('/api/ssh/profiles'),
     app.jsonFetch('/api/db/adapters'),
-    app.jsonFetch('/api/db/profiles')
+    app.jsonFetch('/api/db/profiles'),
+    app.jsonFetch('/api/file-transfer/profiles')
   ]);
   localSettings=normalizeLocalSettings(local);
   sshProfiles=Array.isArray(ssh?.profiles)?ssh.profiles:[];
   dbAdapters=Array.isArray(adapters?.adapters)?adapters.adapters:[];
   dbProfiles=Array.isArray(databases?.profiles)?databases.profiles:[];
+  fileTransferProfiles=Array.isArray(transfers?.profiles)?transfers.profiles:[];
   render();
 }
 
@@ -128,6 +132,47 @@ async function runSSHTest(payload,button){
 
 async function testSSH(profile,button){
   return runSSHTest({profile_id:profile.id},button);
+}
+
+async function openFileTransfer(profile){
+  const api=globalThis.TaskMenuFileTransfer;
+  if(typeof api?.openProfile!=='function')throw new Error('File-transfer workspace is unavailable');
+  await api.openProfile(profile);
+}
+
+async function runFileTransferTest(payload,button){
+  const api=globalThis.TaskMenuFileTransfer;
+  if(typeof api?.testProfile!=='function')throw new Error('File-transfer workspace is unavailable');
+  if(button)button.disabled=true;
+  try{
+    const result=payload?.profile
+      ?await api.testDraft(payload.profile_id||'',payload.profile)
+      :await api.testProfile(payload.profile_id);
+    if(!result?.ok)throw new Error(result?.message||'File-transfer connection test failed');
+    if(button){
+      const old=button.textContent;button.textContent='✓';
+      button.title=(result.message||'Connection succeeded')+(Number.isFinite(result.elapsed_ms)?' · '+result.elapsed_ms+' ms':'');
+      setTimeout(()=>{if(button.isConnected){button.textContent=old;button.title='Test connection';}},1400);
+    }
+    return result;
+  }finally{if(button?.isConnected)button.disabled=false;}
+}
+
+async function testFileTransfer(profile,button){
+  return runFileTransferTest({profile_id:profile.id},button);
+}
+
+async function testFileTransferDraft(profileID,profile,button){
+  return runFileTransferTest({profile_id:profileID||'',profile},button);
+}
+
+function fileTransferEndpoint(profile){
+  const initial=profile?.initial_path||'.';
+  if(profile?.protocol==='sftp'){
+    const ssh=sshProfiles.find(item=>item.id===profile.ssh_profile_id);
+    return (ssh?.name||profile.ssh_profile_id||'SSH profile')+' · '+initial;
+  }
+  return ((profile?.username?profile.username+'@':'')+(profile?.host||'FTP')+':'+(Number(profile?.port)||21))+' · '+initial;
 }
 
 async function openDatabase(profile){
@@ -404,6 +449,86 @@ async function deleteProfile(profile){
   await loadData();
 }
 
+function openFileTransferProfileDialog(protocol,profile=null){
+  protocol=String(profile?.protocol||protocol||'').toLowerCase();
+  if(protocol!=='ftp'&&protocol!=='sftp')throw new Error('Unsupported file-transfer protocol');
+  const editing=Boolean(profile?.id);
+  const label=protocol.toUpperCase();
+  const dialog=document.createElement('div');dialog.className='task-connection-dialog';
+  const card=document.createElement('div');card.className='task-connection-dialog-card';
+  const title=document.createElement('h3');title.textContent=(editing?'Edit ':'Add ')+label+' profile';
+  const form=document.createElement('form');form.className='task-connection-form';
+
+  const name=field(form,'Name','name',{value:profile?.name||''});
+  let sshProfile=null,host=null,port=null,username=null,secret=null,clearSecret=null,timeout=null;
+  if(protocol==='sftp'){
+    const options=sshProfiles.map(item=>[item.id,item.name||((item.username?item.username+'@':'')+item.host)]);
+    if(profile?.ssh_profile_id&&!options.some(option=>option[0]===profile.ssh_profile_id))options.unshift([profile.ssh_profile_id,profile.ssh_profile_id+' (unavailable)']);
+    if(!options.length)options.push(['','No SSH profiles available']);
+    sshProfile=field(form,'SSH profile','ssh_profile_id',{wide:true,value:profile?.ssh_profile_id||options[0]?.[0]||'',options});
+    sshProfile.input.value=profile?.ssh_profile_id||options[0]?.[0]||'';
+  }else{
+    host=field(form,'Host','host',{value:profile?.host||''});
+    port=field(form,'Port','port',{type:'number',value:String(profile?.port||21)});
+    username=field(form,'Username','username',{value:profile?.username||''});
+    secret=field(form,editing&&profile?.has_secret?'Password (leave blank to keep saved value)':'Password','secret',{type:'password',wide:true});
+    timeout=field(form,'Connect timeout (seconds)','connect_timeout_seconds',{type:'number',value:String(profile?.connect_timeout_seconds||10)});
+    clearSecret=editing&&profile?.has_secret?checkboxField(form,'Clear saved password','clear_secret',false,{wide:true}):null;
+    const warning=document.createElement('div');warning.className='task-connection-warning';
+    warning.textContent='FTP is not encrypted. Credentials and file contents can be observed on the network. Use SFTP when the server supports SSH.';
+    form.append(warning);
+  }
+  const initial=field(form,'Initial remote path','initial_path',{wide:true,value:profile?.initial_path||'.',placeholder:'e.g. /srv/app or .'});
+
+  function currentPayload(){
+    if(protocol==='sftp'){
+      return {name:name.input.value,protocol:'sftp',ssh_profile_id:sshProfile.input.value,initial_path:initial.input.value};
+    }
+    const payload={
+      name:name.input.value,protocol:'ftp',host:host.input.value,port:Number(port.input.value)||21,
+      username:username.input.value,initial_path:initial.input.value,
+      connect_timeout_seconds:Number(timeout.input.value)||10
+    };
+    if(secret.input.value)payload.secret=secret.input.value;
+    if(clearSecret?.input.checked)payload.clear_secret=true;
+    return payload;
+  }
+
+  const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
+  const test=document.createElement('button');test.type='button';test.textContent='Test';test.title='Test current values without saving';
+  test.onclick=()=>testFileTransferDraft(editing?profile.id:'',currentPayload(),test).catch(app.showError);
+  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>closeDialog(dialog);
+  const save=document.createElement('button');save.type='submit';save.className='task-connection-primary';save.textContent=editing?'Save':'Add profile';
+  actions.append(test,cancel,save);form.append(actions);
+  card.append(title,form);dialog.append(card);document.body.append(dialog);name.input.focus();
+
+  dialog.addEventListener('pointerdown',event=>{if(event.target===dialog)closeDialog(dialog);});
+  dialog.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();closeDialog(dialog);}});
+  form.onsubmit=async event=>{
+    event.preventDefault();save.disabled=true;
+    try{
+      await app.jsonFetch(editing?'/api/file-transfer/profiles/'+encodeURIComponent(profile.id):'/api/file-transfer/profiles',{
+        method:editing?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentPayload())
+      });
+      closeDialog(dialog);await loadData();
+      try{await globalThis.TaskMenuFileTransfer?.refreshProfiles?.();}catch{}
+    }catch(error){app.showError(error);}
+    finally{if(save.isConnected)save.disabled=false;}
+  };
+}
+
+async function deleteFileTransferProfile(profile){
+  if(!confirm('Delete '+String(profile.protocol||'').toUpperCase()+' profile "'+profile.name+'"?'))return;
+  await app.jsonFetch('/api/file-transfer/profiles/'+encodeURIComponent(profile.id),{method:'DELETE'});
+  await loadData();
+  try{await globalThis.TaskMenuFileTransfer?.refreshProfiles?.();}catch{}
+}
+
+async function testFileTransferFromMenu(profile){
+  const result=await testFileTransfer(profile,null);
+  alert(result?.message||String(profile.protocol||'').toUpperCase()+' connection succeeded');
+}
+
 function openDatabaseProfileDialog(profile=null){
   const editing=Boolean(profile?.id);
   if(!editing&&!dbAdapters.length)throw new Error('No database adapter is available on this server');
@@ -618,6 +743,28 @@ function render(){
     }
   }
   content.append(ssh);
+
+  for(const protocol of ['sftp','ftp']){
+    const title=protocol.toUpperCase();
+    const canAdd=protocol==='ftp'||sshProfiles.length>0;
+    const sectionBox=section(title,canAdd?()=>openFileTransferProfileDialog(protocol):null);
+    const profiles=fileTransferProfiles.filter(profile=>profile.protocol===protocol);
+    if(!profiles.length){
+      const empty=document.createElement('div');empty.className='task-connection-empty';
+      empty.textContent=protocol==='sftp'&&!sshProfiles.length?'Create an SSH profile first':'No '+title+' profiles yet';
+      sectionBox.append(empty);
+    }else{
+      for(const profile of profiles){
+        sectionBox.append(connectionRow(profile.name,fileTransferEndpoint(profile),()=>openFileTransfer(profile),{
+          onClone:()=>openFileTransferProfileDialog(protocol,clonedProfile(profile)),
+          onDelete:()=>deleteFileTransferProfile(profile),
+          onTest:()=>testFileTransferFromMenu(profile),
+          onEdit:()=>openFileTransferProfileDialog(protocol,profile)
+        }));
+      }
+    }
+    content.append(sectionBox);
+  }
 
   const databases=section('DATABASES',dbAdapters.length?()=>openDatabaseProfileDialog():null);
   if(!dbProfiles.length){

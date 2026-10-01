@@ -192,4 +192,26 @@ func TestConnectionsPanelTracksSharedHeaderHeight(t *testing.T) {
 			t.Fatalf("Connections compact header offset missing %q", want)
 		}
 	}
+
+
+func TestConnectionsUIIncludesFTPAndSFTPProfiles(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/connections.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"/api/file-transfer/profiles",
+		"openFileTransferProfileDialog",
+		"protocol==='sftp'",
+		"protocol==='ftp'",
+		"FTP is not encrypted",
+		"TaskMenuFileTransfer",
+		"testFileTransferDraft",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("connections.js missing file-transfer UI contract %q", want)
+		}
+	}
+}
 }
