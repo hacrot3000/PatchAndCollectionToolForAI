@@ -81,7 +81,7 @@ function statusText(req){
     awaiting_confirmation:'Waiting for confirmation.',
     confirmed:'Update confirmed. Preparing the update…',
     downloading:'Dry-run: downloading candidate source…',
-    testing:'Dry-run: running validation tests…',
+    testing:'Dry-run: running full validation tests…',
     building:'Dry-run: building and validating candidate binary…',
     installing:'Candidate passed dry-run. Activating validated release…',
     ready_restart:'New binary is ready. Preparing daemon handoff…',

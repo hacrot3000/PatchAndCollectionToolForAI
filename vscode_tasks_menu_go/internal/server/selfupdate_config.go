@@ -55,6 +55,7 @@ func (s *Server) selfUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		s.auditSharedSuccess(r, "settings.self_update.update", "setting", "self_update", map[string]any{
 			"branch": saved.Branch,
+			"run_full_validation_tests": saved.RunFullValidationTests,
 		})
 		writeJSON(w, http.StatusOK, saved)
 	default:

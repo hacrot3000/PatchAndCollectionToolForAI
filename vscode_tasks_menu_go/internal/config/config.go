@@ -35,6 +35,7 @@ type Config struct {
 	SharedProjectID     string
 	SharedIdentityDB    string
 	SelfUpdateBranch    string
+	SelfUpdateFullValidation bool
 }
 
 func Default() Config {
@@ -112,6 +113,8 @@ func Load(workspace string) (Config, string, error) {
 			cfg.SharedIdentityDB = value
 		case "self_update.branch":
 			cfg.SelfUpdateBranch = value
+		case "self_update.run_full_validation_tests":
+			cfg.SelfUpdateFullValidation = parseBool(value, false)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -240,6 +243,8 @@ enabled = false
 [self_update]
 # Branch dùng để check/download source khi self-update.
 branch = main
+# Full developer test suite before activation. Mặc định tắt cho end users.
+run_full_validation_tests = false
 `, cfg.Protocol, cfg.Bind, cfg.Port, cfg.OpenBrowser, cfg.Username)
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("tạo %s: %w", path, err)
