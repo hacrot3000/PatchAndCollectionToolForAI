@@ -58,6 +58,32 @@ func TestFileTransferWorkspaceKeepsPerScopePathMemoryAndSorting(t *testing.T) {
 	}
 }
 
+func TestFileTransferWorkspaceRowSelectionDoesNotReplaceDoubleClickTarget(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function selectTableEntry(panel,entry,row)",
+		"tr.onclick=()=>selectTableEntry(panel,entry,tr)",
+		"tr.ondblclick=event=>{event.preventDefault();onDoubleClick(entry);}",
+		"tr.oncontextmenu=event=>{event.preventDefault();selectTableEntry(panel,entry,tr);onContextMenu(entry,event);}",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing stable row event contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"tr.onclick=()=>{panel.selected=entry;renderTable(",
+		"tr.oncontextmenu=event=>{event.preventDefault();panel.selected=entry;renderTable(",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("row selection must not rebuild the table before dblclick/contextmenu: %q", forbidden)
+		}
+	}
+}
+
 func TestFileTransferWorkspaceUsesStructuredTransferAndMutationAPIs(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil {

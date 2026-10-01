@@ -330,6 +330,13 @@ function createSortableTable(panel,onDoubleClick,onContextMenu){
   }
   thead.append(hr);const tbody=document.createElement('tbody');panel.tbody=tbody;table.append(thead,tbody);wrap.append(table);return wrap;
 }
+function selectTableEntry(panel,entry,row){
+  panel.selected=entry;
+  for(const selected of panel.tbody.querySelectorAll('tr.selected'))selected.classList.remove('selected');
+  row?.classList.add('selected');
+  panel.onSelection?.();
+}
+
 function renderTable(panel,onDoubleClick,onContextMenu){
   for(const [key,item] of panel.headers||[]){item.marker.textContent=panel.sort.key===key?(panel.sort.direction==='asc'?'▲':'▼'):'';}
   panel.tbody.replaceChildren();
@@ -346,9 +353,9 @@ function renderTable(panel,onDoubleClick,onContextMenu){
     const size=document.createElement('td');size.className='ft-size';size.textContent=entryType(entry)==='directory'?'':formatSize(entry.size);
     const modified=document.createElement('td');modified.className='ft-modified';modified.textContent=formatModified(entry.modified);
     tr.append(name,type,size,modified);
-    tr.onclick=()=>{panel.selected=entry;renderTable(panel,onDoubleClick,onContextMenu);panel.onSelection?.();};
-    tr.ondblclick=()=>onDoubleClick(entry);
-    tr.oncontextmenu=event=>{event.preventDefault();panel.selected=entry;renderTable(panel,onDoubleClick,onContextMenu);panel.onSelection?.();onContextMenu(entry,event);};
+    tr.onclick=()=>selectTableEntry(panel,entry,tr);
+    tr.ondblclick=event=>{event.preventDefault();onDoubleClick(entry);};
+    tr.oncontextmenu=event=>{event.preventDefault();selectTableEntry(panel,entry,tr);onContextMenu(entry,event);};
     panel.tbody.append(tr);
   }
 }
