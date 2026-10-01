@@ -81,6 +81,23 @@ func TestGroupedMenusDefersWorkspaceSettingsUntilTasksLoaded(t *testing.T) {
 }
 
 
+func TestGroupedMenusPlaceGitBesideWorkspaceOnDesktop(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/menus.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"if(app.layoutProfile==='mobile'){",
+		"host.append(git)",
+		"git.classList.add('header-left-git')",
+		"workspace.after(git)",
+		"margin-left:auto",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("menus.js missing desktop Git header placement %q", want)
+		}
+	}
+}
+
 func TestGroupedMenusUseCompactTextActions(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/menus.js")
 	if err != nil {
@@ -91,8 +108,8 @@ func TestGroupedMenusUseCompactTextActions(t *testing.T) {
 		".taskmenu-menu-trigger{white-space:nowrap;padding:2px 4px;border:0!important",
 		"background:transparent!important;font-size:11px",
 		".taskmenu-menu-popover>button{width:100%;text-align:left;border:0;background:transparent",
-		".header-action-menus{display:flex;align-items:center;gap:1px",
-		".header-action-menus .git-status-pill{margin:0;border:0!important;background:transparent!important",
+		".header-action-menus{display:flex;align-items:center;gap:1px;white-space:nowrap;margin-left:auto}",
+		".header-left-git,.header-action-menus .git-status-pill{margin:0;border:0!important;background:transparent!important",
 		".pane-action-menus{display:flex;align-items:center;gap:1px",
 		".pane-action-menus .taskmenu-menu-trigger{padding:1px 4px;font-size:10px}",
 	} {
