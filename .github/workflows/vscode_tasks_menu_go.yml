@@ -6,7 +6,6 @@ on:
       - "main"
       - "IDE_tool"
       - "feat/multi-user-shared-server"
-      - "merge/self-update-validation-toggle"
     paths:
       - "vscode_tasks_menu"
       - "install.sh"
