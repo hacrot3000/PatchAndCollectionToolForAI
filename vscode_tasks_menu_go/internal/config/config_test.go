@@ -366,3 +366,38 @@ func TestSetSelfUpdateSettingsPreservesOtherINISections(t *testing.T) {
 		t.Fatalf("branch setting duplicated:\n%s", text)
 	}
 }
+
+
+func TestSelfUpdateFullValidationDefaultsDisabled(t *testing.T) {
+	workspace := t.TempDir()
+	cfg, path, err := Load(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SelfUpdateFullValidation {
+		t.Fatal("self-update full validation must default to disabled")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "run_full_validation_tests = false") {
+		t.Fatalf("generated config missing disabled validation flag:\n%s", data)
+	}
+}
+
+func TestSelfUpdateFullValidationParsesTrue(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	content := "[server]\nprotocol = https\nbind = 127.0.0.1\nport = 0\nopen_browser = false\n\n[auth]\nenabled = false\nusername = admin\npassword = change-me\n\n[self_update]\nbranch = main\nrun_full_validation_tests = true\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := Load(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.SelfUpdateFullValidation {
+		t.Fatal("self-update full validation true setting was not parsed")
+	}
+}
