@@ -22,8 +22,10 @@ const (
 )
 
 type terminalStateItem struct {
-	SessionID string `json:"session_id,omitempty"`
-	Cwd       string `json:"cwd"`
+	SessionID        string `json:"session_id,omitempty"`
+	Cwd              string `json:"cwd"`
+	Title            string `json:"title,omitempty"`
+	BroadcastGroupID string `json:"broadcast_group_id,omitempty"`
 }
 
 type terminalSplitState struct {
@@ -72,7 +74,7 @@ type terminalRestoreResponse struct {
 
 func defaultProjectTerminalState() projectTerminalState {
 	return projectTerminalState{
-		Version: 4, Terminals: []terminalStateItem{}, ActiveIndex: -1,
+		Version: 5, Terminals: []terminalStateItem{}, ActiveIndex: -1,
 		Splits: []terminalSplitState{}, LiveSplits: []terminalSnapshotSplitRequest{},
 	}
 }
@@ -140,7 +142,16 @@ func normalizeProjectTerminalState(value projectTerminalState) projectTerminalSt
 		if len(cwd) > 4096 {
 			cwd = cwd[:4096]
 		}
-		out.Terminals = append(out.Terminals, terminalStateItem{SessionID: normalizeTerminalSessionID(item.SessionID), Cwd: cwd})
+		groupID := strings.TrimSpace(item.BroadcastGroupID)
+		if len(groupID) > 160 || strings.ContainsRune(groupID, '\x00') {
+			groupID = ""
+		}
+		out.Terminals = append(out.Terminals, terminalStateItem{
+			SessionID: normalizeTerminalSessionID(item.SessionID),
+			Cwd: cwd,
+			Title: session.NormalizeTitle(item.Title),
+			BroadcastGroupID: groupID,
+		})
 		if len(out.Terminals) == projectTerminalMaxTabs {
 			break
 		}
@@ -339,6 +350,10 @@ func (s *Server) captureTerminalState(req terminalSnapshotRequest) (projectTermi
 	value := defaultProjectTerminalState()
 	indexByID := make(map[string]int)
 	seen := make(map[string]bool)
+	broadcast, broadcastErr := loadBroadcastState(s.Workspace)
+	if broadcastErr != nil {
+		broadcast = defaultBroadcastState()
+	}
 	for _, id := range req.SessionIDs {
 		id = strings.TrimSpace(id)
 		if id == "" || seen[id] {
@@ -357,8 +372,19 @@ func (s *Server) captureTerminalState(req terminalSnapshotRequest) (projectTermi
 		if cwd == "" {
 			continue
 		}
+		groupID := strings.TrimSpace(broadcast.Assignments[id])
+		if groupID != "" {
+			if _, ok := findBroadcastGroup(&broadcast, groupID); !ok {
+				groupID = ""
+			}
+		}
 		indexByID[id] = len(value.Terminals)
-		value.Terminals = append(value.Terminals, terminalStateItem{SessionID: id, Cwd: cwd})
+		value.Terminals = append(value.Terminals, terminalStateItem{
+			SessionID: id,
+			Cwd: cwd,
+			Title: session.NormalizeTitle(meta.Title),
+			BroadcastGroupID: groupID,
+		})
 		if len(value.Terminals) == projectTerminalMaxTabs {
 			break
 		}
