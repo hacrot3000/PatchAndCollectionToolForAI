@@ -280,3 +280,89 @@ func TestSharedServerRequiresHTTPSAndIgnoresLegacyCredentials(t *testing.T) {
 		}
 	}
 }
+
+
+func TestSelfUpdateBranchDefaultsToMainAndWritesINI(t *testing.T) {
+	workspace := t.TempDir()
+	cfg, path, err := Load(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SelfUpdateBranch != DefaultSelfUpdateBranch {
+		t.Fatalf("self-update branch=%q want %q", cfg.SelfUpdateBranch, DefaultSelfUpdateBranch)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{"[self_update]", "branch = main"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("generated config missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestSelfUpdateBranchParsesNestedBranch(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "vscode_tasks_menu.ini")
+	content := "[server]\nprotocol = https\nbind = 127.0.0.1\nport = 0\nopen_browser = false\n\n[auth]\nenabled = false\nusername = admin\npassword = change-me\n\n[self_update]\nbranch = feat/self-update-test\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := Load(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SelfUpdateBranch != "feat/self-update-test" {
+		t.Fatalf("branch=%q", cfg.SelfUpdateBranch)
+	}
+}
+
+func TestNormalizeSelfUpdateBranchRejectsUnsafeRefs(t *testing.T) {
+	for _, value := range []string{
+		"/main", "main/", "feature//x", "feature/../main",
+		"feature@{1}", "feature\\x", ".hidden", "feature/.hidden",
+		"feature.lock", "feature/x.lock", "feature name", "feature?x",
+	} {
+		if _, err := NormalizeSelfUpdateBranch(value); err == nil {
+			t.Fatalf("unsafe branch %q accepted", value)
+		}
+	}
+	for _, value := range []string{
+		"main", "develop", "feat/self-update", "release/1.2.3", "feature_name-1",
+	} {
+		got, err := NormalizeSelfUpdateBranch(value)
+		if err != nil || got != value {
+			t.Fatalf("valid branch %q => %q err=%v", value, got, err)
+		}
+	}
+}
+
+func TestSetSelfUpdateSettingsPreservesOtherINISections(t *testing.T) {
+	workspace := t.TempDir()
+	configPath := filepath.Join(workspace, ".vscode", "vscode_tasks_menu.ini")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := "[server]\nprotocol = https\nbind = 127.0.0.1\n\n[auth]\npassword = keep-me\n\n[self_update]\nbranch = main\n"
+	if err := os.WriteFile(configPath, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetSelfUpdateSettings(workspace, SelfUpdateSettings{Branch: "release/test"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{"protocol = https", "password = keep-me", "branch = release/test"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("updated config missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Count(text, "branch = ") != 1 {
+		t.Fatalf("branch setting duplicated:\n%s", text)
+	}
+}
