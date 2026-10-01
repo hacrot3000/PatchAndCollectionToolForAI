@@ -1,6 +1,6 @@
 # TaskDeck FTP & SFTP Connections Plan
 
-Status: design baseline / implementation branch created
+Status: implementation complete in feature branch; automated CI green at checkpoint before final docs; real-server FTP/SFTP smoke still pending
 
 Branch: `feat/ftp-sftp-connections`
 
@@ -411,69 +411,69 @@ Server-side authorization remains mandatory; hiding buttons is not a security bo
 
 - [x] Create `feat/ftp-sftp-connections` from current `main`.
 - [x] Record dependency/security/API/UI decisions in this plan.
-- [ ] Add CI coverage for the feature branch while implementation is active.
+- [x] Add CI coverage for the feature branch while implementation is active.
 
 ### Phase 1 — file-transfer profile foundation
 
-- [ ] Add `internal/filetransferprofile` model and validation.
-- [ ] Add atomic/locked `file_transfer_profiles.json` store.
-- [ ] Add tests for normalization, limits, duplicate IDs and persistence.
-- [ ] Add server CRUD API.
-- [ ] Reuse encrypted secret store for FTP passwords.
-- [ ] Ensure API projection never exposes `secret_ref`.
+- [x] Add `internal/filetransferprofile` model and validation.
+- [x] Add atomic/locked `file_transfer_profiles.json` store.
+- [x] Add tests for normalization, limits, duplicate IDs and persistence.
+- [x] Add server CRUD API.
+- [x] Reuse encrypted secret store for FTP passwords.
+- [x] Ensure API projection never exposes `secret_ref`.
 
 ### Phase 2 — SFTP transport
 
-- [ ] Add `FindOpenSFTP`.
-- [ ] Build safe sftp arguments from referenced SSH profile.
-- [ ] Reuse one-time askpass.
-- [ ] Add bounded batch runner.
-- [ ] Add test/list/get/put/mkdir/rename/rm/rmdir operations.
-- [ ] Add parser fixtures for directory listing output.
+- [x] Add `FindOpenSFTP`.
+- [x] Build safe sftp arguments from referenced SSH profile.
+- [x] Reuse one-time askpass.
+- [x] Add bounded batch/interactive stdin runner.
+- [x] Add test/list/get/put/mkdir/rename/rm/rmdir operations.
+- [x] Add parser fixtures for directory listing output.
 
 ### Phase 3 — native FTP transport
 
-- [ ] Implement bounded FTP reply parser.
-- [ ] Implement login + TYPE I.
-- [ ] Implement EPSV and IPv4 PASV fallback.
-- [ ] Implement FEAT and MLSD parser.
-- [ ] Add bounded LIST fallback.
-- [ ] Implement RETR/STOR/MKD/RNFR+RNTO/DELE/RMD.
-- [ ] Add fake-server tests; no real network dependency in unit tests.
+- [x] Implement bounded FTP reply parser.
+- [x] Implement login + TYPE I.
+- [x] Implement EPSV and IPv4 PASV fallback.
+- [x] Implement MLSD parser; FEAT probing was not required for the first implementation.
+- [x] Add bounded LIST fallback.
+- [x] Implement RETR/STOR/MKD/RNFR+RNTO/DELE/RMD.
+- [x] Add fake-server tests; no real network dependency in unit tests.
 
 ### Phase 4 — operation API
 
-- [ ] Add test/list/mkdir/rename/delete endpoints.
-- [ ] Add upload/download streaming endpoints.
-- [ ] Add timeouts, cancellation and resource limits.
-- [ ] Add audit events with no sensitive path/credential data.
+- [x] Add test/list/mkdir/rename/delete endpoints.
+- [x] Add upload/download endpoints; FTP streams directly and SFTP uses private temporary files.
+- [x] Add timeouts, cancellation and resource limits.
+- [x] Add audit events with no sensitive path/credential data.
 
 ### Phase 5 — CONNECTIONS UI
 
-- [ ] Load FTP/SFTP profiles in `connections.js`.
-- [ ] Add FTP and SFTP sections.
-- [ ] Add profile forms and draft connection tests.
-- [ ] Add clone/edit/delete context actions.
-- [ ] Add plain FTP security warning.
+- [x] Load FTP/SFTP profiles in `connections.js`.
+- [x] Add FTP and SFTP sections.
+- [x] Add profile forms and draft connection tests.
+- [x] Add clone/edit/delete context actions.
+- [x] Add plain FTP security warning.
 
 ### Phase 6 — remote file workspace
 
-- [ ] Add vanilla-JS remote file workspace.
-- [ ] Browse directories.
-- [ ] Upload/download.
-- [ ] New folder.
-- [ ] Rename/delete.
-- [ ] Refresh and current-path navigation.
-- [ ] Add UI contract tests.
+- [x] Add vanilla-JS remote file workspace.
+- [x] Browse directories.
+- [x] Upload/download.
+- [x] New folder.
+- [x] Rename/delete.
+- [x] Refresh and current-path navigation.
+- [x] Add UI contract tests.
 
 ### Phase 7 — docs and release validation
 
-- [ ] Update `CONNECTIONS.md`.
-- [ ] Update README feature list in both languages where appropriate.
-- [ ] Update credential backup/restore docs.
-- [ ] Run `go test ./...`.
-- [ ] Run `go vet ./...`.
-- [ ] Run offline build with `GOPROXY=off GOSUMDB=off`.
+- [x] Update `CONNECTIONS.md`.
+- [x] Update README feature list in both languages where appropriate.
+- [x] Update credential backup/restore docs.
+- [x] Run `go test ./...` in CI on Go 1.19.x and 1.23.x.
+- [x] Run `go vet ./...` in CI.
+- [x] Run offline build with `GOPROXY=off GOSUMDB=off` in CI.
 - [ ] Remove temporary feature-branch CI trigger before merge.
 
 ## 13. Explicit non-goals for the first implementation
@@ -504,4 +504,26 @@ The feature is ready to merge when:
 7. all operation paths are validated and bounded;
 8. temporary files are private and reliably removed;
 9. unit tests do not require internet access;
-10. offline Go test/build succeeds with `GOPROXY=off GOSUMDB=off`.
+10. offline Go test/build succeeds with `GOPROXY=off GOSUMDB=off`;
+11. real-server smoke is performed before merge/release for at least one FTP server and one OpenSSH SFTP server.
+
+
+## 15. Implemented checkpoint summary
+
+Implemented on `feat/ftp-sftp-connections`:
+
+- profile model/store + encrypted FTP password references;
+- SFTP via system OpenSSH only;
+- native Go-stdlib FTP transport;
+- Test/List/Mutation/Upload/Download APIs;
+- one-time 90-second download tickets compatible with TaskDeck browser lease;
+- vanilla-JS remote file workspace;
+- FTP/SFTP sections in Connections;
+- fake FTP and fake SFTP fixtures plus UI contract tests;
+- no npm package and no new third-party Go module.
+
+Before merge/release:
+
+- run real-server smoke against FTP and SFTP;
+- decide and implement explicit shared-server RBAC integration if FTP/SFTP is required in shared mode;
+- remove the temporary feature-branch CI trigger when merging.

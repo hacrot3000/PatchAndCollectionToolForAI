@@ -1,6 +1,6 @@
-# SSH & Database Connections
+# Connections: Local, SSH, SFTP, FTP & Database
 
-TaskDeck có panel **Connections** cho terminal local, SSH và database. Phần này mô tả cách dùng, giới hạn bảo mật và cách phục hồi credential.
+TaskDeck có panel **Connections** cho terminal local, SSH, SFTP, FTP và database. Phần này mô tả cách dùng, giới hạn bảo mật và cách phục hồi credential.
 
 ## SSH profiles
 
@@ -22,6 +22,73 @@ Host-key policy:
 - changed host key vẫn bị OpenSSH từ chối.
 
 Password/passphrase không được đưa vào argv. Stored secret được lấy từ encrypted secret store và cấp cho OpenSSH qua one-time Unix-socket askpass ticket.
+
+
+## SFTP profiles
+
+Trong **Connections → SFTP**, profile SFTP không lưu lại host/user/key/password riêng. Nó chỉ tham chiếu một SSH profile hiện có và thêm **Initial remote path**.
+
+Nhờ vậy SFTP tự kế thừa từ SSH profile:
+
+- host/port/user;
+- SSH agent, private key hoặc password auth;
+- private-key passphrase/password đã lưu trong encrypted secret store;
+- ProxyJump;
+- host-key verification policy;
+- connect timeout.
+
+TaskDeck dùng **system OpenSSH `sftp`**; không có SFTP Go package và không có npm package. Nếu máy chưa có executable `sftp`, Test/Open sẽ báo lỗi runtime rõ ràng.
+
+SFTP không chạy preset command hoặc custom terminal bootstrap của SSH terminal. Các file operation được gửi dưới dạng command SFTP có quote/validation riêng, không qua remote shell.
+
+## FTP profiles
+
+Trong **Connections → FTP**, profile gồm:
+
+- Name;
+- Host;
+- Port, mặc định `21`;
+- Username;
+- Password;
+- Initial remote path;
+- Connect timeout.
+
+FTP client được viết bằng **Go standard library**, không dùng third-party FTP package. Nó dùng binary mode `TYPE I`, ưu tiên `EPSV`, fallback `PASV` trên IPv4 và ưu tiên `MLSD` trước khi fallback `LIST`.
+
+> **Security:** FTP thường là plaintext. Username/password và file content không được mã hóa trên đường truyền. Nếu server hỗ trợ SSH, ưu tiên SFTP.
+
+FTP password được lưu qua cùng encrypted secret store của SSH/database. Browser chỉ nhận `has_secret`, không nhận plaintext hoặc `secret_ref`.
+
+## Remote file workspace
+
+Click một SFTP/FTP profile sẽ mở tab remote file riêng trong workspace.
+
+Các thao tác hiện có:
+
+- browse directory và nhập trực tiếp remote path;
+- Up / Refresh;
+- upload file;
+- download file;
+- tạo folder;
+- rename file/folder;
+- delete file;
+- delete folder **non-recursive**.
+
+Double-click folder để đi vào. Double-click file hoặc dùng Download để tải.
+
+Download dùng hai bước để tương thích browser control lease mà không đưa remote path vào URL:
+
+1. browser gửi `POST /api/file-transfer/download-ticket` qua request có browser-lease;
+2. server tạo random one-time ticket sống tối đa 90 giây;
+3. browser `GET /api/file-transfer/download?ticket=...`;
+4. ticket bị consume ngay và không thể replay.
+
+FTP download stream trực tiếp từ data connection tới HTTP response. SFTP CLI cần local pathname nên TaskDeck dùng temporary directory mode `0700` và file private, stream xong thì cleanup.
+
+Upload hiện giới hạn tối đa 1 GiB. FTP stream request body vào `STOR`; SFTP dùng temporary file private rồi `put`.
+
+Directory listing bị giới hạn kích thước/entry count. FTP control reply và SFTP stdout/stderr cũng bị bound để tránh output không giới hạn.
+
 
 ## Database profiles
 
@@ -250,6 +317,7 @@ Default user config files live under the OS user-config directory in the `taskde
 ├── master.key
 ├── secrets.json
 ├── ssh_profiles.json
+├── file_transfer_profiles.json
 └── db_profiles.json
 ```
 
@@ -276,6 +344,7 @@ For a usable credential backup, keep these files together:
 - `master.key`;
 - `secrets.json`;
 - `ssh_profiles.json`;
+- `file_transfer_profiles.json`;
 - `db_profiles.json`.
 
 Preserve private file permissions when restoring.
@@ -292,7 +361,7 @@ Recovery procedure:
 2. preserve the broken `master.key` and `secrets.json` elsewhere if forensic recovery is needed;
 3. move/remove the unusable secret store files;
 4. start TaskDeck so a fresh master key/store can be created;
-5. edit affected SSH/database profiles and re-enter their passwords/passphrases.
+5. edit affected SSH/FTP/database profiles and re-enter their passwords/passphrases.
 
 Do not edit `secret_ref` values by hand. The UI/API rotates references atomically with secret storage.
 
@@ -305,7 +374,7 @@ GOPROXY=off GOSUMDB=off go test ./...
 GOPROXY=off GOSUMDB=off go build ...
 ```
 
-The installer also verifies the embedded SQLite helper source is present before build. Redis adds no external package; MongoDB and SQLite dependencies are runtime executables (`mongosh` and Python 3), not build-time downloads.
+The installer also verifies the embedded SQLite helper source is present before build. Redis and FTP add no external package. SFTP uses the system OpenSSH `sftp` executable. MongoDB and SQLite dependencies are runtime executables (`mongosh` and Python 3), not build-time downloads.
 
 ## Audit hook and current shared-server boundary
 
@@ -322,3 +391,10 @@ The event contains only:
 It intentionally does not contain password/passphrase, host, SQL, Redis command, Mongo filter, request body or query string. If no external audit sink is configured, TaskDeck writes the same minimal metadata to its existing logger.
 
 This branch keeps the existing single-user/browser authorization model. Shared-server RBAC and user-aware audit attribution are intentionally deferred until the shared-server architecture is merged into the target branch; that architecture can attach its own sink through the connection audit hook rather than create a second incompatible auth/audit system inside Connections.
+
+
+## FTP/SFTP shared-server boundary
+
+FTP/SFTP was implemented first against the existing legacy/single-user Connections model. Shared-server authorization remains fail-closed: new or unmapped API routes are denied until a deliberate RBAC mapping is added.
+
+Do not weaken shared-server authorization merely to make the UI visible. A later shared-mode integration should explicitly map profile management, remote read/download, upload/write and connection-test actions to documented permissions and bind any one-time download token to the authenticated project/user context.
