@@ -35,6 +35,13 @@ enabled = false
 username = admin
 password = change-me
 
+[self_update]
+# Mặc định false cho người dùng bình thường: self-update vẫn build candidate,
+# kiểm tra Python syntax/runtime, release structure và taskdeck --version,
+# nhưng bỏ qua full Go/Patch test suite để update nhanh hơn.
+# Developer/maintainer có thể bật true trước khi tự cập nhật.
+run_full_validation_tests = false
+
 
 [git]
 # Quét các Git repository nằm trong workspace. Mặc định bật.
