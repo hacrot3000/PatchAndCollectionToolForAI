@@ -45,6 +45,18 @@ style.textContent=`
 .ft-name{max-width:480px;overflow:hidden;text-overflow:ellipsis}.ft-kind{display:inline-block;min-width:17px;margin-right:5px;opacity:.78}
 .ft-size{text-align:right!important;font-family:ui-monospace,monospace}.ft-type{opacity:.72}.ft-modified{font-family:ui-monospace,monospace;font-size:10px}
 .ft-empty{padding:20px;opacity:.55}
+.ft-queue{height:170px;min-height:110px;max-height:34vh;display:flex;flex-direction:column;border-top:1px solid #30343b;background:#0f1319}
+.ft-queue-head{display:flex;align-items:center;gap:7px;padding:5px 8px;border-bottom:1px solid #30343b;background:#141920}
+.ft-queue-title{font-size:11px;font-weight:700}.ft-queue-summary{font-size:10px;opacity:.68}.ft-queue-spacer{flex:1}
+.ft-queue-head button{height:25px;padding:2px 7px;font-size:10px}
+.ft-queue-wrap{flex:1;min-height:0;overflow:auto}
+.ft-queue-table{width:100%;border-collapse:collapse;font-size:10px}
+.ft-queue-table th,.ft-queue-table td{padding:5px 7px;border-bottom:1px solid #272d36;text-align:left;white-space:nowrap}
+.ft-queue-table th{position:sticky;top:0;background:#171c23;z-index:2}
+.ft-queue-path{max-width:420px;overflow:hidden;text-overflow:ellipsis}
+.ft-queue-status{font-weight:600}.ft-queue-status.running{opacity:1}.ft-queue-status.success{opacity:.72}.ft-queue-status.failed{font-weight:700}
+.ft-queue-error{max-width:440px;overflow:hidden;text-overflow:ellipsis;opacity:.82}
+.ft-queue-empty{padding:14px;opacity:.5}
 .ft-divider{position:relative;cursor:col-resize;background:#171b22;border-left:1px solid #30343b;border-right:1px solid #30343b;touch-action:none}
 .ft-divider:hover,.ft-divider.dragging{background:#26303c}
 .ft-transfer-tools{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;flex-direction:column;gap:8px;z-index:4}
@@ -67,6 +79,8 @@ html[data-taskmenu-theme="light"] .ft-table th{background:#e9eef3}
 html[data-taskmenu-theme="light"] .ft-table tbody tr:hover{background:#eef2f6}
 html[data-taskmenu-theme="light"] .ft-table tbody tr.selected{background:#dde8f3}
 html[data-taskmenu-theme="light"] .ft-context{background:#fff;border-color:#b9c0c8}
+html[data-taskmenu-theme="light"] .ft-queue{background:#fff;border-color:#b9c0c8}
+html[data-taskmenu-theme="light"] .ft-queue-head,html[data-taskmenu-theme="light"] .ft-queue-table th{background:#edf1f5;border-color:#b9c0c8}
 @media(max-width:850px){.ft-sites{grid-template-columns:1fr;grid-template-rows:minmax(220px,1fr) 8px minmax(220px,1fr)}.ft-divider{cursor:row-resize;border-left:0;border-right:0;border-top:1px solid #30343b;border-bottom:1px solid #30343b}.ft-transfer-tools{flex-direction:row}.ft-transfer-tools button:first-child{transform:rotate(90deg)}.ft-transfer-tools button:last-child{transform:rotate(90deg)}}
 `;
 document.head.append(style);
@@ -282,6 +296,103 @@ function activateView(id){
 }
 function closeView(id){const view=views.get(id);if(!view)return;view.tab.remove();view.pane.remove();views.delete(id);}
 function closeContextMenu(){contextMenu?.remove();contextMenu=null;}
+function queueStatusLabel(status){
+  switch(status){case'queued':return 'Queued';case'running':return 'Running';case'success':return 'Done';case'failed':return 'Failed';default:return String(status||'');}
+}
+function queueCounts(view){
+  const counts={queued:0,running:0,success:0,failed:0};
+  for(const item of view.transferQueue?.items||[])if(Object.prototype.hasOwnProperty.call(counts,item.status))counts[item.status]++;
+  return counts;
+}
+function renderTransferQueue(view){
+  const queue=view.transferQueue;if(!queue?.body)return;
+  const counts=queueCounts(view);
+  queue.summary.textContent='Queued '+counts.queued+' · Running '+counts.running+' · Done '+counts.success+' · Failed '+counts.failed;
+  queue.retry.disabled=counts.failed===0;queue.clear.disabled=counts.success===0;
+  queue.body.replaceChildren();
+  if(!queue.items.length){
+    const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=6;td.className='ft-queue-empty';td.textContent='No transfers in this session';tr.append(td);queue.body.append(tr);return;
+  }
+  for(const item of queue.items){
+    const tr=document.createElement('tr');
+    const direction=document.createElement('td');direction.textContent=item.direction||'';
+    const source=document.createElement('td');source.className='ft-queue-path';source.textContent=item.source||'';source.title=item.source||'';
+    const target=document.createElement('td');target.className='ft-queue-path';target.textContent=item.target||'';target.title=item.target||'';
+    const size=document.createElement('td');size.className='ft-size';size.textContent=item.size?formatSize(item.size):'';
+    const status=document.createElement('td');status.className='ft-queue-status '+item.status;status.textContent=queueStatusLabel(item.status);
+    const error=document.createElement('td');error.className='ft-queue-error';error.textContent=item.error||'';error.title=item.error||'';
+    tr.append(direction,source,target,size,status,error);queue.body.append(tr);
+  }
+}
+async function afterTransferQueueIdle(view){
+  const queue=view.transferQueue;if(!queue)return;
+  const currentRemote=remoteCacheKey(view.remote.currentPath||'.');
+  if(queue.remoteDirty?.has(currentRemote)){
+    queue.remoteDirty.delete(currentRemote);
+    try{await loadRemoteDirectory(view,currentRemote,{force:true});}catch(error){console.warn('Cannot refresh remote transfer target',error);}
+  }
+  if(queue.leftDirty){
+    queue.leftDirty=false;
+    try{await loadLeftDirectory(view,view.left.currentPath);}catch(error){console.warn('Cannot refresh left transfer target',error);}
+  }
+}
+async function processTransferQueue(view){
+  const queue=view.transferQueue;if(!queue||queue.running)return;
+  queue.running=true;
+  try{
+    while(true){
+      const item=queue.items.find(candidate=>candidate.status==='queued');
+      if(!item)break;
+      item.status='running';item.error='';renderTransferQueue(view);
+      try{
+        await item.run();
+        item.status='success';
+      }catch(error){
+        item.status='failed';item.error=String(error?.message||error||'Transfer failed');
+      }
+      renderTransferQueue(view);
+    }
+  }finally{
+    queue.running=false;renderTransferQueue(view);await afterTransferQueueIdle(view);
+    if(queue.items.some(item=>item.status==='queued'))processTransferQueue(view);
+  }
+}
+function enqueueTransferTasks(view,tasks){
+  const queue=view.transferQueue;if(!queue)throw new Error('Transfer queue is unavailable');
+  for(const task of tasks||[]){
+    queue.sequence++;
+    queue.items.push({
+      id:queue.sequence,status:'queued',error:'',direction:task.direction||'',
+      source:task.source||'',target:task.target||'',size:Number(task.size)||0,run:task.run
+    });
+  }
+  renderTransferQueue(view);processTransferQueue(view);
+}
+function markRemoteQueueDirty(view,path){
+  const queue=view.transferQueue;if(!queue)return;
+  const key=remoteCacheKey(path);queue.remoteDirty.add(key);invalidateRemoteCache(view,key);
+}
+function markLeftQueueDirty(view){if(view.transferQueue)view.transferQueue.leftDirty=true;}
+function createTransferQueue(view){
+  const root=document.createElement('div');root.className='ft-queue';
+  const head=document.createElement('div');head.className='ft-queue-head';
+  const title=document.createElement('span');title.className='ft-queue-title';title.textContent='Transfer Queue';
+  const summary=document.createElement('span');summary.className='ft-queue-summary';
+  const spacer=document.createElement('span');spacer.className='ft-queue-spacer';
+  const retry=document.createElement('button');retry.type='button';retry.textContent='Retry failed';
+  const clear=document.createElement('button');clear.type='button';clear.textContent='Clear done';
+  head.append(title,summary,spacer,retry,clear);
+  const wrap=document.createElement('div');wrap.className='ft-queue-wrap';
+  const table=document.createElement('table');table.className='ft-queue-table';
+  const thead=document.createElement('thead'),hr=document.createElement('tr');
+  for(const label of ['','Source','Target','Size','Status','Error']){const th=document.createElement('th');th.textContent=label;hr.append(th);}
+  thead.append(hr);const body=document.createElement('tbody');table.append(thead,body);wrap.append(table);root.append(head,wrap);
+  const queue={root,body,summary,retry,clear,items:[],sequence:0,running:false,remoteDirty:new Set(),leftDirty:false};
+  view.transferQueue=queue;
+  retry.onclick=()=>{for(const item of queue.items)if(item.status==='failed'){item.status='queued';item.error='';}renderTransferQueue(view);processTransferQueue(view);};
+  clear.onclick=()=>{queue.items=queue.items.filter(item=>item.status!=='success');renderTransferQueue(view);};
+  renderTransferQueue(view);return root;
+}
 function showContextMenu(items,x,y,title=''){
   closeContextMenu();
   const menu=document.createElement('div');menu.className='ft-context';
@@ -950,7 +1061,9 @@ function attachView(profile){
   tools.append(toRemote,toLeft);divider.append(tools);view.toRemote=toRemote;view.toLeft=toLeft;
   toRemote.onclick=()=>transferLeftToRemote(view).catch(app.showError);toLeft.onclick=()=>transferRemoteToLeft(view).catch(app.showError);
 
-  sites.append(left.site,divider,remote.site);pane.append(head,sites);panes.append(pane);views.set(id,view);installDivider(view,divider,sites);
+  sites.append(left.site,divider,remote.site);
+  const transferQueue=createTransferQueue(view);
+  pane.append(head,sites,transferQueue);panes.append(pane);views.set(id,view);installDivider(view,divider,sites);
 
   source.onchange=()=>switchLeftSource(view,source.value).catch(app.showError);
   rootSelect.onchange=async()=>{
