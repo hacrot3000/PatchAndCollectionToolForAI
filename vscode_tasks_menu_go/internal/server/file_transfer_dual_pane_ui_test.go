@@ -65,10 +65,10 @@ func TestFileTransferWorkspaceRowSelectionDoesNotReplaceDoubleClickTarget(t *tes
 	}
 	js := string(data)
 	for _, want := range []string{
-		"function selectTableEntry(panel,entry,row)",
-		"tr.onclick=()=>selectTableEntry(panel,entry,tr)",
+		"function selectTableEntry(panel,entry,event={},mode='click')",
+		"tr.onclick=event=>selectTableEntry(panel,entry,event)",
 		"tr.ondblclick=event=>{event.preventDefault();onDoubleClick(entry);}",
-		"tr.oncontextmenu=event=>{event.preventDefault();selectTableEntry(panel,entry,tr);onContextMenu(entry,event);}",
+		"tr.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();selectTableEntry(panel,entry,event,'context');onContextMenu(entry,event);}",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("filetransfer.js missing stable row event contract %q", want)
@@ -77,6 +77,7 @@ func TestFileTransferWorkspaceRowSelectionDoesNotReplaceDoubleClickTarget(t *tes
 	for _, forbidden := range []string{
 		"tr.onclick=()=>{panel.selected=entry;renderTable(",
 		"tr.oncontextmenu=event=>{event.preventDefault();panel.selected=entry;renderTable(",
+		"tr.onclick=event=>{panel.selected=entry;renderTable(",
 	} {
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("row selection must not rebuild the table before dblclick/contextmenu: %q", forbidden)
