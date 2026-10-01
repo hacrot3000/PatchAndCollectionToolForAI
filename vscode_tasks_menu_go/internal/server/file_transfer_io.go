@@ -237,6 +237,10 @@ func (s *Server) fileTransferDownload(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			break
 		}
+		if chmodErr := os.Chmod(localPath, 0o600); chmodErr != nil {
+			err = fmt.Errorf("protect sftp download temp file: %w", chmodErr)
+			break
+		}
 		var file *os.File
 		file, err = os.Open(localPath)
 		if err != nil {
