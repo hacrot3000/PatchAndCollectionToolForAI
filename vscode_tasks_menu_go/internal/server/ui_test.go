@@ -171,6 +171,7 @@ func TestStaticUIUsesCompactDesktopHeaders(t *testing.T) {
 		".pane-head{display:flex;gap:4px;align-items:center;min-height:24px;padding:1px 5px",
 		"body>header>button{background:transparent;border:0",
 		".pane-head>button{background:transparent;border:0",
+		".pane-head>select{height:20px;min-height:20px;padding:1px 5px;font-size:10px;line-height:16px}",
 		".terminal{flex:1;min-height:0;padding:4px",
 	} {
 		if !strings.Contains(appCSS, want) {
