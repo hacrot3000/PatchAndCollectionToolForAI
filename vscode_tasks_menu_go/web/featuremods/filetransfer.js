@@ -329,24 +329,6 @@ async function deleteRemoteEntry(view,entry){
   await mutateRemote(view,'delete',joinPath(view.remote.currentPath,entry.name,true),'',entryType(entry)==='directory');
 }
 
-function createSortableTable(panel,onDoubleClick,onContextMenu){
-  const wrap=document.createElement('div');wrap.className='ft-table-wrap';
-  const table=document.createElement('table');table.className='ft-table';
-  const thead=document.createElement('thead'),hr=document.createElement('tr');
-  const columns=[['name','Name'],['type','Type'],['size','Size'],['modified','Modified']];
-  panel.headers=new Map();
-  for(const [key,label] of columns){
-    const th=document.createElement('th');th.dataset.sortKey=key;th.textContent=label;
-    const marker=document.createElement('span');marker.className='sort';th.append(marker);
-    th.onclick=()=>{
-      if(panel.sort.key===key)panel.sort.direction=panel.sort.direction==='asc'?'desc':'asc';
-      else{panel.sort.key=key;panel.sort.direction='asc';}
-      renderTable(panel,onDoubleClick,onContextMenu);
-    };
-    panel.headers.set(key,{th,marker});hr.append(th);
-  }
-  thead.append(hr);const tbody=document.createElement('tbody');panel.tbody=tbody;table.append(thead,tbody);wrap.append(table);return wrap;
-}
 function entrySelectionKey(entry){return encodeURIComponent(entryType(entry))+':'+encodeURIComponent(String(entry?.name||''));}
 function selectedEntries(panel){
   const keys=panel.selectedKeys||new Set();
