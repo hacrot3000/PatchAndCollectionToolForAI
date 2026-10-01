@@ -307,10 +307,17 @@ func TestFileTransferQueueScalesForLargeStreamingScans(t *testing.T) {
 		"document.createDocumentFragment()",
 		"if(queue.activeScans===0)await afterTransferQueueIdle(view)",
 		"await item.run(item)",
+		"function nextPendingTransfer(queue)",
+		"queue.items.push(item);queue.pending.push(item)",
+		"pending:[],pendingHead:0",
+		"item.status='success';item.run=null",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("filetransfer.js missing large streaming queue contract %q", want)
 		}
+	}
+	if strings.Contains(js, "queue.items.find(candidate=>candidate.status==='queued')") {
+		t.Fatal("large transfer queue must not linearly rescan all items for every dequeue")
 	}
 }
 

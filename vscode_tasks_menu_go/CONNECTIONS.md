@@ -141,7 +141,11 @@ Bên dưới hai file panes có **Transfer Queue** dùng chung cho upload/downlo
 - lỗi một file không chặn các file độc lập phía sau;
 - **Retry failed** đưa các item lỗi trở lại queue;
 - **Clear done** xóa các item hoàn tất khỏi lịch sử session;
-- folder transfer được scan đệ quy và bung thành từng file trong queue; empty folder vẫn được tạo dù không có file queue item.
+- folder transfer dùng hai pipeline bất đồng bộ chạy song song: **scanner producer** duyệt cây thư mục và **transfer consumer** upload/download các file đã tìm thấy;
+- scanner phát hiện file đến đâu thì enqueue đến đó, không cần giữ toàn bộ cây hoặc chờ quét xong mới truyền;
+- chỉ có một scanner và một transfer worker hoạt động đồng thời cho mỗi workspace, nên listing/mkdir có thể chạy song song với một file transfer mà không tạo bão kết nối;
+- queue lớn dùng pending cursor O(1), throttle render và giới hạn tối đa 2000 row trong DOM; logical queue vẫn giữ đầy đủ trạng thái của toàn bộ item;
+- empty folder vẫn được tạo dù không có file queue item.
 
 
 ## Database profiles
