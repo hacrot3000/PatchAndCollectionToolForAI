@@ -187,7 +187,7 @@ function renderEntries(view,entries){
     const actions=document.createElement('td');actions.className='ft-actions';
     if(entry.type!=='directory'){
       const download=document.createElement('button');download.type='button';download.textContent='Download';
-      download.onclick=event=>{event.stopPropagation();downloadFile(view,joinRemotePath(view.currentPath,entry.name));};actions.append(download);
+      download.onclick=event=>{event.stopPropagation();downloadFile(view,joinRemotePath(view.currentPath,entry.name)).catch(app.showError);};actions.append(download);
     }
     const rename=document.createElement('button');rename.type='button';rename.textContent='Rename';rename.onclick=event=>{event.stopPropagation();renameEntry(view,entry).catch(app.showError);};
     const del=document.createElement('button');del.type='button';del.textContent='Delete';del.onclick=event=>{event.stopPropagation();deleteEntry(view,entry).catch(app.showError);};
