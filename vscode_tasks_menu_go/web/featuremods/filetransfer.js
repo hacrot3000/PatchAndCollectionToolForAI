@@ -748,12 +748,14 @@ async function localSelectedFile(view,entry){
   const handle=await dir.getFileHandle(entry.name);return handle.getFile();
 }
 
-async function uploadBrowserFile(view,file){
-  const target=joinPath(view.remote.currentPath,file.name,true),form=new FormData();
+async function uploadBrowserFileToPath(view,file,target){
+  const form=new FormData();
   form.append('profile_id',view.profile.id);form.append('path',target);form.append('file',file,file.name);
-  view.remote.status.textContent='Uploading '+file.name+'…';
   const response=await app.fetchWithLease('/api/file-transfer/upload',{method:'POST',body:form,cache:'no-store'});
   if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
+}
+async function uploadBrowserFile(view,file){
+  return uploadBrowserFileToPath(view,file,joinPath(view.remote.currentPath,file.name,true));
 }
 
 async function hostMutation(view,action,path,newPath=''){
@@ -820,63 +822,204 @@ async function newLeftFolder(view){
   return view.left.source==='host'?newHostFolder(view):newLocalFolder(view);
 }
 
-async function transferLeftEntriesToRemote(view,entries){
-  const files=(entries||[]).filter(entry=>entryType(entry)==='file');
-  if(!files.length)throw new Error('Select one or more files on the left first');
-  view.remote.status.textContent='Transferring '+files.length+' file(s) to remote…';
-  for(const entry of files){
-    const remotePath=joinPath(view.remote.currentPath,entry.name,true);
-    if(view.left.source==='host'){
-      const hostPath=joinPath(view.left.currentPath,entry.name,false);
-      await app.jsonFetch('/api/file-transfer/host-to-remote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-        profile_id:view.profile.id,host_path:hostPath,remote_path:remotePath
-      })});
-    }else{
-      const file=await localSelectedFile(view,entry);await uploadBrowserFile(view,file);
+function pathLeaf(value,remote=false){
+  const normalized=remote?normalizeRemotePath(value):normalizeRelativePath(value);
+  if(normalized==='.'||normalized==='/')return normalized;
+  const parts=normalized.split('/').filter(Boolean);return parts[parts.length-1]||normalized;
+}
+function pathDepth(value,remote=false){
+  const normalized=remote?normalizeRemotePath(value):normalizeRelativePath(value);
+  if(normalized==='.'||normalized==='/')return 0;
+  return normalized.split('/').filter(Boolean).length;
+}
+async function fetchHostDirectoryEntries(path){
+  path=normalizeRelativePath(path||'.');
+  const data=await app.jsonFetch('/api/project/tree?path='+encodeURIComponent(path==='.'?'':path));
+  return (Array.isArray(data)?data:[]).map(item=>({...item,type:item.type==='dir'?'directory':entryType(item)}));
+}
+async function collectHostUploadEntry(view,parent,entry,remoteParent,plan){
+  const sourcePath=joinPath(parent,entry.name,false),targetPath=joinPath(remoteParent,entry.name,true);
+  if(entryType(entry)==='directory'){
+    plan.directories.push(targetPath);
+    const children=await fetchHostDirectoryEntries(sourcePath);
+    for(const child of children)await collectHostUploadEntry(view,sourcePath,child,targetPath,plan);
+    return;
+  }
+  plan.files.push({kind:'host',sourcePath,targetPath,size:Number(entry.size)||0});
+}
+async function collectLocalUploadHandle(handle,targetPath,sourceLabel,plan){
+  if(handle.kind==='directory'){
+    plan.directories.push(targetPath);
+    for await(const [name,child] of handle.entries()){
+      await collectLocalUploadHandle(child,joinPath(targetPath,name,true),joinPath(sourceLabel,name,false),plan);
+    }
+    return;
+  }
+  const file=await handle.getFile();
+  plan.files.push({kind:'local',file,sourcePath:sourceLabel,targetPath,size:file.size});
+}
+async function buildLeftUploadPlan(view,entries){
+  const selected=[...(entries||[])];if(!selected.length)throw new Error('Select one or more left items first');
+  const plan={directories:[],files:[]};
+  view.left.status.textContent='Scanning '+selected.length+' selected item(s)…';
+  if(view.left.source==='host'){
+    for(const entry of selected)await collectHostUploadEntry(view,view.left.currentPath,entry,view.remote.currentPath,plan);
+  }else{
+    const base=await localDirectoryHandle(view);
+    for(const entry of selected){
+      const handle=entryType(entry)==='directory'?await base.getDirectoryHandle(entry.name):await base.getFileHandle(entry.name);
+      await collectLocalUploadHandle(handle,joinPath(view.remote.currentPath,entry.name,true),joinPath(view.left.currentPath,entry.name,false),plan);
     }
   }
-  await loadRemoteDirectory(view,view.remote.currentPath);
+  return plan;
 }
-async function transferLeftToRemote(view){return transferLeftEntriesToRemote(view,selectedFiles(view.left));}
-
-async function writeRemoteToLocal(view,entry){
-  const panel=view.left;if(!panel.localRoot)throw new Error('Choose a local folder first');
-  const granted=await ensureHandlePermission(panel.localRoot.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
-  const dir=await directoryHandleForPath(panel.localRoot.handle,panel.currentPath);
-  let exists=false;
-  try{await dir.getFileHandle(entry.name);exists=true;}catch(error){if(error?.name!=='NotFoundError')throw error;}
-  if(exists&&!confirm(entry.name+' already exists locally. Overwrite it?'))return false;
-  const handle=await dir.getFileHandle(entry.name,{create:true}),writable=await handle.createWritable();
+async function ensureRemoteDirectory(view,target,ensured,touched){
+  target=normalizeRemotePath(target);
+  if(target==='.'||target==='/'||ensured.has(target))return;
+  const parent=parentPath(target,true);
+  await ensureRemoteDirectory(view,parent,ensured,touched);
+  const name=pathLeaf(target,true);
+  let listing=await fetchRemoteDirectory(view,parent);
+  let existing=listing.entries.find(item=>item.name===name);
+  if(existing){
+    if(entryType(existing)!=='directory')throw new Error('Remote path exists and is not a folder: '+target);
+    ensured.add(target);return;
+  }
   try{
-    const ticket=await issueDownloadTicket(view,joinPath(view.remote.currentPath,entry.name,true));
+    await mutateRemoteRequest(view,'mkdir',target,'',true);
+  }catch(error){
+    listing=await fetchRemoteDirectory(view,parent,{force:true});
+    existing=listing.entries.find(item=>item.name===name);
+    if(!existing||entryType(existing)!=='directory')throw error;
+    ensured.add(target);return;
+  }
+  const parentCache=remoteCacheGet(view,parent);
+  if(parentCache&&!parentCache.entries.some(item=>item.name===name))parentCache.entries.push({name,type:'directory',size:0,modified:''});
+  if(!remoteCacheGet(view,target))remoteCacheSet(view,target,{path:target,protocol:view.profile.protocol,entries:[]});
+  touched.add(parent);ensured.add(target);
+}
+async function prepareRemoteDirectories(view,directories){
+  const ensured=new Set(['.','/']),touched=new Set();
+  const unique=[...new Set((directories||[]).map(path=>normalizeRemotePath(path)))].sort((a,b)=>pathDepth(a,true)-pathDepth(b,true));
+  for(const dir of unique)await ensureRemoteDirectory(view,dir,ensured,touched);
+  for(const parent of touched)markRemoteQueueDirty(view,parent);
+}
+async function collectRemoteDownloadEntry(view,remoteParent,entry,leftParent,plan){
+  const remotePath=joinPath(remoteParent,entry.name,true),leftPath=joinPath(leftParent,entry.name,false);
+  if(entryType(entry)==='directory'){
+    plan.directories.push(leftPath);
+    const listing=await fetchRemoteDirectory(view,remotePath);
+    for(const child of listing.entries)await collectRemoteDownloadEntry(view,remotePath,child,leftPath,plan);
+    return;
+  }
+  plan.files.push({remotePath,leftPath,size:Number(entry.size)||0});
+}
+async function buildRemoteDownloadPlan(view,entries){
+  const selected=[...(entries||[])];if(!selected.length)throw new Error('Select one or more remote items first');
+  const plan={directories:[],files:[]};
+  view.remote.status.textContent='Scanning '+selected.length+' remote item(s)…';
+  for(const entry of selected)await collectRemoteDownloadEntry(view,view.remote.currentPath,entry,view.left.currentPath,plan);
+  return plan;
+}
+async function ensureHostDirectories(view,directories){
+  const unique=[...new Set((directories||[]).map(path=>normalizeRelativePath(path)))].sort((a,b)=>pathDepth(a,false)-pathDepth(b,false));
+  for(const dir of unique){
+    if(dir==='.')continue;
+    const parent=parentPath(dir,false),name=pathLeaf(dir,false);
+    let entries=await fetchHostDirectoryEntries(parent);
+    const existing=entries.find(item=>item.name===name);
+    if(existing){
+      if(entryType(existing)!=='directory')throw new Error('Host path exists and is not a folder: '+dir);
+      continue;
+    }
+    try{await hostMutation(view,'mkdir',dir);}
+    catch(error){
+      entries=await fetchHostDirectoryEntries(parent);
+      const retry=entries.find(item=>item.name===name);
+      if(!retry||entryType(retry)!=='directory')throw error;
+    }
+  }
+}
+async function ensureLocalDirectories(view,directories){
+  if(!view.left.localRoot)throw new Error('Choose a local folder first');
+  const granted=await ensureHandlePermission(view.left.localRoot.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
+  const unique=[...new Set((directories||[]).map(path=>normalizeRelativePath(path)))].sort((a,b)=>pathDepth(a,false)-pathDepth(b,false));
+  for(const dir of unique){
+    if(dir==='.')continue;
+    let handle=view.left.localRoot.handle;
+    for(const part of dir.split('/').filter(Boolean))handle=await handle.getDirectoryHandle(part,{create:true});
+  }
+}
+async function prepareLeftDirectories(view,directories){
+  if(view.left.source==='host')return ensureHostDirectories(view,directories);
+  return ensureLocalDirectories(view,directories);
+}
+async function writeRemotePathToLocal(view,remotePath,leftPath){
+  if(!view.left.localRoot)throw new Error('Choose a local folder first');
+  const granted=await ensureHandlePermission(view.left.localRoot.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
+  const dirPath=parentPath(leftPath,false),name=pathLeaf(leftPath,false);
+  let dir=view.left.localRoot.handle;
+  if(dirPath!=='.')for(const part of dirPath.split('/').filter(Boolean))dir=await dir.getDirectoryHandle(part,{create:true});
+  let exists=false;
+  try{await dir.getFileHandle(name);exists=true;}catch(error){if(error?.name!=='NotFoundError')throw error;}
+  if(exists&&!confirm(leftPath+' already exists locally. Overwrite it?'))throw new Error('Skipped existing local file: '+leftPath);
+  const handle=await dir.getFileHandle(name,{create:true}),writable=await handle.createWritable();
+  try{
+    const ticket=await issueDownloadTicket(view,remotePath);
     const response=await fetch('/api/file-transfer/download?ticket='+encodeURIComponent(ticket),{cache:'no-store'});
     if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
     if(response.body&&typeof response.body.pipeTo==='function')await response.body.pipeTo(writable);
     else{await writable.write(await response.arrayBuffer());await writable.close();}
-    return true;
   }catch(error){try{await writable.abort();}catch{}throw error;}
 }
+async function writeRemotePathToHost(view,remotePath,leftPath){
+  const payload={profile_id:view.profile.id,remote_path:remotePath,host_dir:parentPath(leftPath,false),overwrite:false};
+  let response=await app.fetchWithLease('/api/file-transfer/remote-to-host',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),cache:'no-store'});
+  if(response.status===409){
+    const message=(await response.text()).trim();
+    if(message.includes('already exists')&&confirm(leftPath+' already exists on Host. Overwrite it?')){
+      payload.overwrite=true;response=await app.fetchWithLease('/api/file-transfer/remote-to-host',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),cache:'no-store'});
+    }else throw new Error(message||('Skipped existing host file: '+leftPath));
+  }
+  if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
+}
+
+async function transferLeftEntriesToRemote(view,entries){
+  const plan=await buildLeftUploadPlan(view,entries);
+  await prepareRemoteDirectories(view,plan.directories);
+  const tasks=plan.files.map(file=>({
+    direction:'→',source:file.sourcePath,target:file.targetPath,size:file.size,
+    run:async()=>{
+      if(file.kind==='host'){
+        await app.jsonFetch('/api/file-transfer/host-to-remote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+          profile_id:view.profile.id,host_path:file.sourcePath,remote_path:file.targetPath
+        })});
+      }else await uploadBrowserFileToPath(view,file.file,file.targetPath);
+      markRemoteQueueDirty(view,parentPath(file.targetPath,true));
+    }
+  }));
+  if(tasks.length)enqueueTransferTasks(view,tasks);
+  else await afterTransferQueueIdle(view);
+  view.remote.status.textContent='Queued '+tasks.length+' upload file(s)';
+}
+async function transferLeftToRemote(view){return transferLeftEntriesToRemote(view,selectedEntries(view.left));}
 
 async function transferRemoteEntriesToLeft(view,entries){
-  const files=(entries||[]).filter(entry=>entryType(entry)==='file');
-  if(!files.length)throw new Error('Select one or more remote files first');
-  view.left.status.textContent='Transferring '+files.length+' file(s) from remote…';
-  for(const entry of files){
-    if(view.left.source==='host'){
-      const payload={profile_id:view.profile.id,remote_path:joinPath(view.remote.currentPath,entry.name,true),host_dir:view.left.currentPath,overwrite:false};
-      let response=await app.fetchWithLease('/api/file-transfer/remote-to-host',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),cache:'no-store'});
-      if(response.status===409){
-        const message=(await response.text()).trim();
-        if(message.includes('already exists')&&confirm(entry.name+' already exists on Host. Overwrite it?')){
-          payload.overwrite=true;response=await app.fetchWithLease('/api/file-transfer/remote-to-host',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),cache:'no-store'});
-        }else continue;
-      }
-      if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
-    }else await writeRemoteToLocal(view,entry);
-  }
-  await loadLeftDirectory(view,view.left.currentPath);
+  const plan=await buildRemoteDownloadPlan(view,entries);
+  await prepareLeftDirectories(view,plan.directories);
+  const tasks=plan.files.map(file=>({
+    direction:'←',source:file.remotePath,target:file.leftPath,size:file.size,
+    run:async()=>{
+      if(view.left.source==='host')await writeRemotePathToHost(view,file.remotePath,file.leftPath);
+      else await writeRemotePathToLocal(view,file.remotePath,file.leftPath);
+      markLeftQueueDirty(view);
+    }
+  }));
+  if(tasks.length)enqueueTransferTasks(view,tasks);
+  else{markLeftQueueDirty(view);await afterTransferQueueIdle(view);}
+  view.left.status.textContent='Queued '+tasks.length+' download file(s)';
 }
-async function transferRemoteToLeft(view){return transferRemoteEntriesToLeft(view,selectedFiles(view.remote));}
+async function transferRemoteToLeft(view){return transferRemoteEntriesToLeft(view,selectedEntries(view.remote));}
 
 async function deleteRemoteEntries(view,entries){
   const selected=[...(entries||[])];if(!selected.length)return;
@@ -902,8 +1045,8 @@ async function copyText(value){
 }
 
 function updateTransferButtons(view){
-  view.toRemote.disabled=selectedFiles(view.left).length===0;
-  view.toLeft.disabled=selectedFiles(view.remote).length===0;
+  view.toRemote.disabled=selectedEntries(view.left).length===0;
+  view.toLeft.disabled=selectedEntries(view.remote).length===0;
 }
 
 function leftDoubleClick(view,entry){
@@ -931,12 +1074,12 @@ function commonSelectionMenu(panel,remote,onRefresh){
   return items;
 }
 function leftContext(view,entry,event){
-  const panel=view.left,selected=selectedEntries(panel),files=selected.filter(item=>entryType(item)==='file'),items=[];
+  const panel=view.left,selected=selectedEntries(panel),items=[];
   if(selected.length===1&&entryType(selected[0])==='directory'){
     items.push({label:'Open folder',action:()=>loadLeftDirectory(view,joinPath(panel.currentPath,selected[0].name,false))});
   }
-  if(files.length){
-    items.push({label:'Upload '+(files.length>1?files.length+' selected files':'to remote')+' →',action:()=>transferLeftEntriesToRemote(view,files)});
+  if(selected.length){
+    items.push({label:selected.length>1?'Upload selected items to remote FTP/SFTP →':'Upload to remote FTP/SFTP →',action:()=>transferLeftEntriesToRemote(view,selected)});
   }
   if(panel.source==='host'&&selected.length===1&&entryType(selected[0])==='file'){
     items.push({label:'Download host file to browser',action:()=>{downloadFrame().src='/api/files/download?path='+encodeURIComponent(joinPath(panel.currentPath,selected[0].name,false));}});
@@ -949,11 +1092,11 @@ function leftContext(view,entry,event){
   showContextMenu(items,event.clientX,event.clientY,contextTitle(panel,entry));
 }
 function remoteContext(view,entry,event){
-  const panel=view.remote,selected=selectedEntries(panel),files=selected.filter(item=>entryType(item)==='file'),items=[];
+  const panel=view.remote,selected=selectedEntries(panel),items=[];
   if(selected.length===1&&entryType(selected[0])==='directory'){
     items.push({label:'Open folder',action:()=>loadRemoteDirectory(view,joinPath(panel.currentPath,selected[0].name,true))});
   }
-  if(files.length)items.push({label:'Transfer '+(files.length>1?files.length+' selected files':'to left')+' ←',action:()=>transferRemoteEntriesToLeft(view,files)});
+  if(selected.length)items.push({label:selected.length>1?'Download selected items to left ←':'Download to left ←',action:()=>transferRemoteEntriesToLeft(view,selected)});
   if(selected.length===1&&entryType(selected[0])==='file'){
     items.push({label:'Download to browser',action:()=>downloadFileToBrowser(view,joinPath(panel.currentPath,selected[0].name,true))});
   }
@@ -1056,8 +1199,8 @@ function attachView(profile){
 
   const divider=document.createElement('div');divider.className='ft-divider';divider.title='Drag to resize · double-click to reset';
   const tools=document.createElement('div');tools.className='ft-transfer-tools';
-  const toRemote=document.createElement('button');toRemote.type='button';toRemote.textContent='→';toRemote.title='Transfer selected left file to remote';toRemote.disabled=true;
-  const toLeft=document.createElement('button');toLeft.type='button';toLeft.textContent='←';toLeft.title='Transfer selected remote file to left';toLeft.disabled=true;
+  const toRemote=document.createElement('button');toRemote.type='button';toRemote.textContent='→';toRemote.title='Upload selected left item(s) to remote FTP/SFTP';toRemote.disabled=true;
+  const toLeft=document.createElement('button');toLeft.type='button';toLeft.textContent='←';toLeft.title='Download selected remote item(s) to left';toLeft.disabled=true;
   tools.append(toRemote,toLeft);divider.append(tools);view.toRemote=toRemote;view.toLeft=toLeft;
   toRemote.onclick=()=>transferLeftToRemote(view).catch(app.showError);toLeft.onclick=()=>transferRemoteToLeft(view).catch(app.showError);
 
