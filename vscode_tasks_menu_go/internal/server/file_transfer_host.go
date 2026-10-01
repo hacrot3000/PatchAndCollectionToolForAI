@@ -374,7 +374,7 @@ func (s *Server) fileTransferHostMutate(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, "host path and new_path are required", http.StatusBadRequest)
 			return
 		}
-		oldRel, source, _, err := s.resolveHostWorkspaceEntry(req.Path)
+		oldRel, source, sourceInfo, err := s.resolveHostWorkspaceEntry(req.Path)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
@@ -393,7 +393,11 @@ func (s *Server) fileTransferHostMutate(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, "cannot rename host item", http.StatusConflict)
 			return
 		}
-		s.auditSharedSuccess(r, "file.rename", "file", oldRel, map[string]any{"new_path": newRel})
+		kind := "file"
+		if sourceInfo.IsDir() {
+			kind = "directory"
+		}
+		s.auditSharedSuccess(r, "file.rename", kind, oldRel, map[string]any{"new_path": newRel})
 		w.WriteHeader(http.StatusNoContent)
 	case "delete":
 		if req.Path == "" {
