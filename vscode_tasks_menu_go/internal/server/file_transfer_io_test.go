@@ -108,3 +108,17 @@ func TestFileTransferSFTPUploadUsesPutCommand(t *testing.T) {
 		t.Fatalf("unexpected sftp command %q", data)
 	}
 }
+
+
+func TestFileTransferDownloadAcceptsBrowserFormPost(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/file-transfer/download", strings.NewReader("profile_id=abc&path=%2Fsrv%2Ffile.txt"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	got, err := decodeFileTransferDownloadRequest(rr, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ProfileID != "abc" || got.Path != "/srv/file.txt" {
+		t.Fatalf("decoded=%+v", got)
+	}
+}
