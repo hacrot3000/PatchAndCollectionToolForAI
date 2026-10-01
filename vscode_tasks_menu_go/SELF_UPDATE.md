@@ -18,9 +18,29 @@ hoặc nếu launcher đã nằm trong `PATH`:
 vscode_tasks_menu --self-update
 ```
 
+## Chọn branch cập nhật
+
+Mặc định TaskDeck cập nhật từ branch `main`:
+
+```ini
+[self_update]
+branch = main
+```
+
+Có thể đổi trong **Settings → UPDATE → Self-update branch**. Dropdown tải danh sách branch hiện có từ GitHub; sau khi chọn, bấm **Save**. Setting được lưu theo workspace trong `.vscode/vscode_tasks_menu.ini`.
+
+Ví dụ:
+
+```ini
+[self_update]
+branch = feat/test-update
+```
+
+Cả **Check update** và lệnh self-update đều dùng branch đã lưu. Updater trước tiên resolve HEAD của branch thành commit SHA, sau đó download/build đúng SHA đó; vì vậy source cài đặt được cố định theo commit trong suốt một lần update.
+
 ## Quy trình
 
-1. Query revision mới nhất của branch `main` qua GitHub HTTPS API.
+1. Đọc branch self-update từ `[self_update] branch` (mặc định `main`) rồi query revision mới nhất của branch đó qua GitHub HTTPS API.
 2. Nếu revision hiện tại đã trùng bản mới nhất thì thoát ngay.
 3. `--self-update` được xem là xác nhận trực tiếp từ CLI; updater tạo request ở trạng thái đã xác nhận và bắt đầu dry-run ngay, không phụ thuộc browser/UI.
 4. Browser chỉ **persist snapshot** terminal/layout; không freeze UI hay terminal persistence trong lúc kiểm tra candidate.
