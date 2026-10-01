@@ -1218,7 +1218,9 @@ func runSelfUpdate(ws string, cfg config.Config) (err error) {
 	}
 
 	if !releaseReady {
-		prepared, prepareErr := selfupdate.PrepareGlobalRelease(ctx, remote, progress)
+		prepared, prepareErr := selfupdate.PrepareGlobalRelease(ctx, remote, selfupdate.PrepareGlobalReleaseOptions{
+			RunFullValidationTests: cfg.SelfUpdateFullValidation,
+		}, progress)
 		if prepareErr != nil {
 			return fail(prepareErr)
 		}
