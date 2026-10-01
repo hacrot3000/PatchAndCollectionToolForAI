@@ -531,19 +531,54 @@ function showCopyFeedback(view,label){
   view.copyTimer=setTimeout(()=>{if(!view.closed)view.copy.textContent='📋 Copy console';},1200);
 }
 
+function logicalBufferLine(buffer,row){
+  if(!buffer||!Number.isFinite(row)||row<0||row>=buffer.length)return '';
+  let start=row;
+  while(start>0){
+    const line=buffer.getLine(start);
+    if(!line?.isWrapped)break;
+    start--;
+  }
+  let text='';
+  for(let i=start;i<buffer.length;i++){
+    const line=buffer.getLine(i);
+    if(!line)break;
+    text+=line.translateToString(true);
+    const next=buffer.getLine(i+1);
+    if(!next?.isWrapped)break;
+  }
+  return text;
+}
+
+function selectionLineContext(view){
+  const position=view.term.getSelectionPosition?.();
+  const buffer=view.term.buffer?.active;
+  if(!position||!buffer||!buffer.length)return '';
+  const first=Math.max(0,Math.min(position.start.y,position.end.y));
+  const last=Math.min(buffer.length-1,Math.max(position.start.y,position.end.y));
+  const seen=new Set(),lines=[];
+  for(let row=first;row<=last&&lines.length<64;row++){
+    const line=logicalBufferLine(buffer,row);
+    if(!line||seen.has(line))continue;
+    seen.add(line);lines.push(line);
+  }
+  return lines.join('\n').slice(0,65536);
+}
+
 function scheduleSelectionScan(view){
   clearTimeout(view.selectionTimer);
   view.selectionSeq++;
   const text=view.term.getSelection();
   if(!text.trim()){setDownloadFiles(view,[]);return;}
+  const context=selectionLineContext(view);
   const seq=view.selectionSeq;
-  view.selectionTimer=setTimeout(()=>scanSelection(view,text,seq),120);
+  view.selectionTimer=setTimeout(()=>scanSelection(view,text,context,seq),120);
 }
 
-async function scanSelection(view,text,seq){
+async function scanSelection(view,text,context,seq){
   if(!hasPermission('files.read'))return;
   try{
-    const data=await jsonFetch('/api/files/selection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text.slice(0,65536)})});
+    const data=await jsonFetch('/api/files/selection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text.slice(0,65536),context:context.slice(0,65536)})});
     if(view.closed||seq!==view.selectionSeq)return;
     setDownloadFiles(view,data.files||[]);
   }catch(e){
