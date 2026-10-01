@@ -422,22 +422,24 @@ func (c *Client) readReply() (Reply, error) {
 }
 
 func readBoundedLine(r *bufio.Reader, limit int) (string, error) {
-	var b strings.Builder
+	var b []byte
 	for {
-		part, err := r.ReadString('\n')
-		b.WriteString(part)
-		if b.Len() > limit {
+		part, err := r.ReadSlice('\n')
+		if len(b)+len(part) > limit {
 			return "", fmt.Errorf("line exceeds %d bytes", limit)
 		}
-		if err == nil {
-			break
+		b = append(b, part...)
+		switch {
+		case err == nil:
+			return strings.TrimRight(string(b), "\r\n"), nil
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		case errors.Is(err, io.EOF) && len(b) > 0:
+			return strings.TrimRight(string(b), "\r\n"), nil
+		default:
+			return "", err
 		}
-		if errors.Is(err, io.EOF) && b.Len() > 0 {
-			break
-		}
-		return "", err
 	}
-	return strings.TrimRight(b.String(), "\r\n"), nil
 }
 
 func replyPayload(line string) string {

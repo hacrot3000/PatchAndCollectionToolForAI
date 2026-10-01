@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 	"unicode"
 )
 
@@ -198,8 +197,7 @@ func splitFieldsAndRest(value string, count int) ([]string, string) {
 }
 
 func normalizeListTime(month, day, clockOrYear string) string {
-	// OpenSSH long listings are locale-like display data, not a protocol
-	// timestamp. Keep a stable compact string rather than guessing timezone.
-	_ = time.Time{}
+	// OpenSSH long listings are display data, not a protocol timestamp.
+	// Keep the source fields instead of guessing a timezone.
 	return strings.Join([]string{month, day, clockOrYear}, " ")
 }

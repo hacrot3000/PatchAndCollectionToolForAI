@@ -18,7 +18,7 @@ func ParseMLSD(data string) ([]Entry, error) {
 	lines := strings.Split(strings.ReplaceAll(data, "\r\n", "\n"), "\n")
 	entries := make([]Entry, 0)
 	for _, raw := range lines {
-		line := strings.TrimSpace(raw)
+		line := strings.TrimLeft(strings.TrimRight(raw, "\r"), " \t")
 		if line == "" {
 			continue
 		}
@@ -27,7 +27,7 @@ func ParseMLSD(data string) ([]Entry, error) {
 			return nil, fmt.Errorf("malformed MLSD line")
 		}
 		factText := line[:space]
-		name := strings.TrimSpace(line[space+1:])
+		name := line[space+1:]
 		facts := make(map[string]string)
 		for _, item := range strings.Split(factText, ";") {
 			if item == "" {
