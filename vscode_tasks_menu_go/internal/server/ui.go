@@ -396,18 +396,34 @@ function attach(meta,activate){
 
   const term=new TerminalCtor({convertEol:false,cursorBlink:canControl,disableStdin:!canControl,scrollback:10000,fontSize:13,theme:{background:'#050607'}});
   const fit=new FitAddonCtor();term.loadAddon(fit);term.open(terminalHost);fit.fit();
-  view={meta,canControl,tab,status,pane,term,fit,ws:null,ro:null,closed:false,tabReadOnly:false,reconnectTimer:null,selectionTimer:null,selectionSeq:0,downloadFiles:[],downloadSelect,download,preview,stop,copy,copyTimer:null};
+  view={meta,canControl,tab,status,pane,term,fit,ws:null,ro:null,closed:false,tabReadOnly:false,reconnectTimer:null,selectionTimer:null,selectionSeq:0,selectionActive:false,resizePending:false,downloadFiles:[],downloadFilesKey:'',downloadSelect,download,preview,stop,copy,copyTimer:null};
   views.set(meta.id,view);
   downloadSelect.onchange=()=>updateFileActionButtons(view);
   download.onclick=()=>downloadSelectedFile(view);
   preview.onclick=()=>previewSelectedFile(view).catch(showError);
-  term.onSelectionChange(()=>scheduleSelectionScan(view));
-  term.onData(data=>{if(view.canControl&&!view.tabReadOnly&&!browserLeaseLost&&view.ws&&view.ws.readyState===WebSocket.OPEN)view.ws.send(data);});
-  const resize=()=>{
+  const applyResize=()=>{
     try{fit.fit();}catch{}
     clearTimeout(view.resizeTimer);
     if(view.canControl)view.resizeTimer=setTimeout(()=>jsonFetch('/api/sessions/'+meta.id+'/resize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows:term.rows,cols:term.cols})}).catch(()=>{}),60);
   };
+  const resize=()=>{
+    if(term.hasSelection()){
+      view.resizePending=true;
+      return;
+    }
+    view.resizePending=false;
+    applyResize();
+  };
+  term.onSelectionChange(()=>{
+    const selected=term.hasSelection();
+    view.selectionActive=selected;
+    scheduleSelectionScan(view);
+    if(!selected&&view.resizePending){
+      view.resizePending=false;
+      requestAnimationFrame(applyResize);
+    }
+  });
+  term.onData(data=>{if(view.canControl&&!view.tabReadOnly&&!browserLeaseLost&&view.ws&&view.ws.readyState===WebSocket.OPEN)view.ws.send(data);});
   view.ro=new ResizeObserver(resize);view.ro.observe(terminalHost);
   connect(view,false);updateMeta(meta);if(activate)activateView(meta.id);return view;
 }
@@ -418,14 +434,24 @@ function selectedDownloadFile(view){
   return view.downloadFiles[idx]||view.downloadFiles[0]||null;
 }
 
+function downloadFilesKey(files){
+  return (Array.isArray(files)?files:[]).map(file=>[file.path||'',file.name||'',file.preview_kind||''].join('\u0001')).join('\u0002');
+}
+
 function setDownloadFiles(view,files){
-  view.downloadFiles=Array.isArray(files)?files:[];
+  const next=Array.isArray(files)?files:[];
+  const key=downloadFilesKey(next);
+  if(key===view.downloadFilesKey)return;
+  view.downloadFilesKey=key;
+  view.downloadFiles=next;
+  const previousValue=view.downloadSelect.value;
   view.downloadSelect.replaceChildren();
   for(let i=0;i<view.downloadFiles.length;i++){
     const file=view.downloadFiles[i];
     const option=document.createElement('option');option.value=String(i);option.textContent=file.name||file.path;option.title=file.path||'';
     view.downloadSelect.append(option);
   }
+  if(previousValue&&Number(previousValue)<view.downloadFiles.length)view.downloadSelect.value=previousValue;
   view.download.hidden=view.downloadFiles.length===0;
   view.downloadSelect.hidden=view.downloadFiles.length<=1;
   updateFileActionButtons(view);
