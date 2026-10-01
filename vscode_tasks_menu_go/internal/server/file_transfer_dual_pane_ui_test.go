@@ -258,27 +258,58 @@ func TestFileTransferQueueTracksPerFileLifecycle(t *testing.T) {
 	}
 }
 
-func TestFileTransferFolderTransfersAreRecursiveBothDirections(t *testing.T) {
+func TestFileTransferFolderTransfersStreamWhileScanningBothDirections(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	js := string(data)
 	for _, want := range []string{
-		"async function collectHostUploadEntry(view,parent,entry,remoteParent,plan)",
-		"async function collectLocalUploadHandle(handle,targetPath,sourceLabel,plan)",
-		"async function collectRemoteDownloadEntry(view,remoteParent,entry,leftParent,plan)",
-		"async function prepareRemoteDirectories(view,directories)",
-		"async function prepareLeftDirectories(view,directories)",
+		"function runTransferScan(view,label,scanner)",
+		"activeScans",
+		"async function scanHostUploadEntry(view,parent,entry,remoteParent,state)",
+		"async function scanLocalUploadHandle(view,handle,targetPath,sourcePath,state)",
+		"enqueueHostUploadFile(view,sourcePath,targetPath,entry.size,state)",
+		"enqueueLocalUploadHandle(view,handle,sourcePath,targetPath,state)",
+		"async function scanRemoteDownloadEntry(view,remoteParent,entry,leftParent,state)",
+		"enqueueRemoteDownloadFile(view,remotePath,leftPath,entry.size,state)",
+		"async function streamLeftEntriesToRemote(view,entries)",
+		"async function streamRemoteEntriesToLeft(view,entries)",
 		"Upload to remote FTP/SFTP →",
 		"Download to left ←",
-		"transferLeftEntriesToRemote(view,selected)",
-		"transferRemoteEntriesToLeft(view,selected)",
 		"view.toRemote.disabled=selectedEntries(view.left).length===0",
 		"view.toLeft.disabled=selectedEntries(view.remote).length===0",
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("filetransfer.js missing recursive folder transfer contract %q", want)
+			t.Fatalf("filetransfer.js missing streaming folder transfer contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"const plan=await buildLeftUploadPlan",
+		"const plan=await buildRemoteDownloadPlan",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("folder transfer must not pre-scan the entire tree before transfer: %q", forbidden)
+		}
+	}
+}
+
+func TestFileTransferQueueScalesForLargeStreamingScans(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const maxRenderedTransferRows=2000;",
+		"function scheduleTransferQueueRender(view)",
+		"setTimeout(()=>{queue.renderTimer=0;renderTransferQueue(view);},80)",
+		"document.createDocumentFragment()",
+		"if(queue.activeScans===0)await afterTransferQueueIdle(view)",
+		"await item.run(item)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing large streaming queue contract %q", want)
 		}
 	}
 }
