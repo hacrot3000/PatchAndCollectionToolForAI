@@ -24,14 +24,15 @@ func (s *Server) filesSelection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Text string `json:"text"`
+		Text    string `json:"text"`
+		Context string `json:"context,omitempty"`
 	}
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 512<<10))
 	if err := dec.Decode(&req); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	files := s.downloadableFilesFromText(req.Text)
+	files := s.downloadableFilesFromSelection(req.Text, req.Context)
 	writeJSON(w, http.StatusOK, map[string]any{"files": files})
 }
 
@@ -69,16 +70,91 @@ func (s *Server) fileDownload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) downloadableFilesFromText(text string) []downloadableFile {
-	text = stripTerminalControlSequences(text)
-	if len(text) > 128<<10 {
-		// Automatic artifacts are emitted at the end of task output. Keep the
-		// newest window so long-running Patch Tool sessions cannot hide the
-		// ACTION REQUIRED result behind earlier console noise.
-		text = text[len(text)-(128<<10):]
-	}
-	text = stripGitShellOutput(text)
+	return s.downloadableFilesFromSelection(text, "")
+}
+
+func (s *Server) downloadableFilesFromSelection(text, context string) []downloadableFile {
+	text = normalizeDownloadDetectionText(text)
+	context = normalizeDownloadDetectionText(context)
+
 	seen := make(map[string]struct{})
 	var paths []string
+	addResolved := func(candidate string) bool {
+		candidate = trimPathCandidate(candidate)
+		if !looksLikePath(candidate) {
+			return false
+		}
+		resolved, err := s.resolveDownloadPath(candidate)
+		if err != nil {
+			return false
+		}
+		if _, ok := seen[resolved]; ok {
+			return true
+		}
+		seen[resolved] = struct{}{}
+		paths = append(paths, resolved)
+		return true
+	}
+
+	unresolved := make([]string, 0)
+	unresolvedSeen := make(map[string]struct{})
+	for _, candidate := range downloadPathCandidates(text) {
+		if addResolved(candidate) {
+			continue
+		}
+		if _, ok := unresolvedSeen[candidate]; !ok {
+			unresolvedSeen[candidate] = struct{}{}
+			unresolved = append(unresolved, candidate)
+		}
+	}
+
+	// The selected text has priority. Only candidates that did not resolve
+	// exactly are allowed to expand to their full terminal line context.
+	if context != "" {
+		contextLines := strings.Split(strings.ReplaceAll(context, "\r", ""), "\n")
+		for _, selected := range unresolved {
+			for _, rawLine := range contextLines {
+				line := strings.TrimSpace(rawLine)
+				if line == "" || ignoreDownloadDetectionLine(line) {
+					continue
+				}
+				found := false
+				for _, expanded := range expandedDownloadPathCandidates(selected, line) {
+					if addResolved(expanded) {
+						found = true
+						break
+					}
+				}
+				if found {
+					break
+				}
+			}
+		}
+	}
+
+	files := make([]downloadableFile, 0, len(paths))
+	for _, path := range paths {
+		files = append(files, downloadableFile{
+			Path:        path,
+			Name:        filepath.Base(path),
+			URL:         "/api/files/download?path=" + url.QueryEscape(path),
+			PreviewKind: previewFileHint(path),
+		})
+	}
+	return files
+}
+
+func normalizeDownloadDetectionText(text string) string {
+	text = stripTerminalControlSequences(text)
+	if len(text) > 128<<10 {
+		text = text[len(text)-(128<<10):]
+	}
+	return stripGitShellOutput(text)
+}
+
+func downloadPathCandidates(text string) []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0)
 	for _, rawLine := range strings.Split(strings.ReplaceAll(text, "\r", ""), "\n") {
 		line := strings.TrimSpace(rawLine)
 		if line == "" || ignoreDownloadDetectionLine(line) {
@@ -92,27 +168,82 @@ func (s *Server) downloadableFilesFromText(text string) []downloadableFile {
 			if !looksLikePath(candidate) {
 				continue
 			}
-			resolved, err := s.resolveDownloadPath(candidate)
-			if err != nil {
+			if _, ok := seen[candidate]; ok {
 				continue
 			}
-			if _, ok := seen[resolved]; ok {
-				continue
-			}
-			seen[resolved] = struct{}{}
-			paths = append(paths, resolved)
+			seen[candidate] = struct{}{}
+			out = append(out, candidate)
 		}
 	}
-	files := make([]downloadableFile, 0, len(paths))
-	for _, path := range paths {
-		files = append(files, downloadableFile{
-			Path:        path,
-			Name:        filepath.Base(path),
-			URL:         "/api/files/download?path=" + url.QueryEscape(path),
-			PreviewKind: previewFileHint(path),
-		})
+	return out
+}
+
+func expandedDownloadPathCandidates(selected, line string) []string {
+	selected = trimPathCandidate(selected)
+	if selected == "" {
+		return nil
 	}
-	return files
+	seen := make(map[string]struct{})
+	out := make([]string, 0)
+	for _, field := range strings.Fields(line) {
+		token := trimPathCandidate(field)
+		if token == "" || token == selected {
+			continue
+		}
+		searchFrom := 0
+		for {
+			rel := strings.Index(token[searchFrom:], selected)
+			if rel < 0 {
+				break
+			}
+			idx := searchFrom + rel
+			prefix := token[:idx]
+			suffix := token[idx+len(selected):]
+			// Expansion is intentionally left-biased. A selected suffix such as
+			// "4/a5/file.txt" grows to "a4/a5/file.txt", then
+			// "a3/a4/a5/file.txt", and so on. Do not guess text to the right.
+			if suffix == "" {
+				for _, expanded := range leftExpandedPathSuffixes(prefix, selected) {
+					if _, ok := seen[expanded]; ok {
+						continue
+					}
+					seen[expanded] = struct{}{}
+					out = append(out, expanded)
+				}
+			}
+			searchFrom = idx + 1
+			if searchFrom >= len(token) {
+				break
+			}
+		}
+	}
+	return out
+}
+
+func leftExpandedPathSuffixes(prefix, selected string) []string {
+	if prefix == "" {
+		return nil
+	}
+	normalized := filepath.ToSlash(prefix)
+	absolute := strings.HasPrefix(normalized, "/")
+	parts := strings.Split(strings.Trim(normalized, "/"), "/")
+	if len(parts) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(parts))
+	current := selected
+	for i := len(parts) - 1; i >= 0; i-- {
+		if parts[i] == "" {
+			continue
+		}
+		current = parts[i] + "/" + current
+		candidate := current
+		if absolute && i == 0 {
+			candidate = "/" + candidate
+		}
+		out = append(out, candidate)
+	}
+	return out
 }
 
 // stripGitShellOutput removes output belonging to an interactive Git command
@@ -229,13 +360,20 @@ func trimPathCandidate(value string) string {
 }
 
 func looksLikePath(value string) bool {
-	if value == "" || strings.ContainsRune(value, '\x00') {
+	if value == "" || strings.ContainsRune(value, '\x00') || strings.ContainsAny(value, "\r\n\t ") {
 		return false
 	}
-	if filepath.IsAbs(value) || strings.HasPrefix(value, "./") || strings.HasPrefix(value, "../") {
+	if strings.Contains(value, "://") {
+		return false
+	}
+	if filepath.IsAbs(value) || strings.HasPrefix(value, "./") || strings.HasPrefix(value, "../") || strings.Contains(value, "/") {
 		return true
 	}
-	return strings.Contains(value, "/") && !strings.Contains(value, "://")
+	// Root-level files have no slash. Require a filename-like extension so
+	// ordinary selected prose is not mistaken for a workspace file.
+	base := filepath.Base(value)
+	dot := strings.LastIndexByte(base, '.')
+	return dot > 0 && dot < len(base)-1
 }
 
 func (s *Server) resolveDownloadPath(requested string) (string, error) {
