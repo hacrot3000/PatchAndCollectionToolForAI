@@ -459,7 +459,6 @@ func (s *Server) restoreTerminalStateProfile(profile string) (terminalRestoreRes
 	resp := terminalRestoreResponse{
 		Sessions: []session.Metadata{}, ActiveIndex: value.ActiveIndex,
 		Splits: append([]terminalSplitState(nil), value.Splits...),
-		LiveSplits: append([]terminalSnapshotSplitRequest(nil), value.LiveSplits...),
 	}
 	if len(resp.Splits) > 0 {
 		first := resp.Splits[0]
@@ -477,7 +476,10 @@ func (s *Server) restoreTerminalStateProfile(profile string) (terminalRestoreRes
 		specs = append(specs, restoreTerminalSpec{spec: spec, warning: warning})
 	}
 	started := make([]string, 0, len(specs))
+	sessionIDRemap := make(map[string]string, len(specs))
+	savedItems := append([]terminalStateItem(nil), value.Terminals...)
 	for i, item := range specs {
+		saved := savedItems[i]
 		meta, err := s.Sessions.Start(item.spec)
 		if err != nil {
 			for _, id := range started {
@@ -486,12 +488,34 @@ func (s *Server) restoreTerminalStateProfile(profile string) (terminalRestoreRes
 			return terminalRestoreResponse{}, fmt.Errorf("restore terminal: %w", err)
 		}
 		started = append(started, meta.ID)
+		oldID := normalizeTerminalSessionID(saved.SessionID)
+		if oldID != "" {
+			sessionIDRemap[oldID] = meta.ID
+		}
+		if saved.Title != "" {
+			if titled, titleErr := s.Sessions.SetTitle(meta.ID, saved.Title); titleErr == nil {
+				meta = titled
+			} else {
+				resp.Warnings = append(resp.Warnings, "không thể khôi phục tên tab terminal: "+titleErr.Error())
+			}
+		}
 		resp.Sessions = append(resp.Sessions, meta)
 		value.Terminals[i].SessionID = meta.ID
+		value.Terminals[i].Title = session.NormalizeTitle(saved.Title)
 		if item.warning != "" {
 			resp.Warnings = append(resp.Warnings, item.warning)
 		}
 	}
+	for i := range value.LiveSplits {
+		if id := sessionIDRemap[value.LiveSplits[i].LeftSessionID]; id != "" {
+			value.LiveSplits[i].LeftSessionID = id
+		}
+		if id := sessionIDRemap[value.LiveSplits[i].RightSessionID]; id != "" {
+			value.LiveSplits[i].RightSessionID = id
+		}
+	}
+	resp.LiveSplits = append([]terminalSnapshotSplitRequest(nil), value.LiveSplits...)
+	resp.Warnings = append(resp.Warnings, restoreTerminalBroadcastAssignments(s.Workspace, savedItems, sessionIDRemap)...)
 	if err := writeProjectTerminalStateProfile(s.Workspace, profile, value); err != nil {
 		for _, id := range started {
 			_ = s.Sessions.Stop(id)
@@ -499,6 +523,43 @@ func (s *Server) restoreTerminalStateProfile(profile string) (terminalRestoreRes
 		return terminalRestoreResponse{}, fmt.Errorf("persist restored terminal ids: %w", err)
 	}
 	return resp, nil
+}
+
+func restoreTerminalBroadcastAssignments(workspace string, saved []terminalStateItem, remap map[string]string) []string {
+	if len(saved) == 0 || len(remap) == 0 {
+		return nil
+	}
+	warnings := []string{}
+	_, err := mutateBroadcastState(workspace, func(state *broadcastState) error {
+		for _, item := range saved {
+			oldID := normalizeTerminalSessionID(item.SessionID)
+			newID := remap[oldID]
+			if newID == "" {
+				continue
+			}
+			groupID := strings.TrimSpace(item.BroadcastGroupID)
+			if groupID == "" {
+				groupID = strings.TrimSpace(state.Assignments[oldID])
+			}
+			if oldID != "" {
+				delete(state.Assignments, oldID)
+			}
+			delete(state.Assignments, newID)
+			if groupID == "" {
+				continue
+			}
+			if _, ok := findBroadcastGroup(state, groupID); !ok {
+				warnings = append(warnings, "broadcast group cũ không còn tồn tại; bỏ qua assignment cho terminal đã khôi phục")
+				continue
+			}
+			state.Assignments[newID] = groupID
+		}
+		return nil
+	})
+	if err != nil {
+		warnings = append(warnings, "không thể khôi phục broadcast group/color: "+err.Error())
+	}
+	return warnings
 }
 
 // RestoreProjectTerminalsForStartup recreates the saved terminal PTYs before a
