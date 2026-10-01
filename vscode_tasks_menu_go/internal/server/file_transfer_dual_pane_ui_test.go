@@ -23,8 +23,8 @@ func TestFileTransferWorkspaceIsDualPaneWithHostAndLocalBrowser(t *testing.T) {
 		"/api/project/tree?path=",
 		"/api/file-transfer/host-to-remote",
 		"/api/file-transfer/remote-to-host",
-		"Transfer selected left file to remote",
-		"Transfer selected remote file to left",
+		"Upload selected left item(s) to remote FTP/SFTP",
+		"Download selected remote item(s) to left",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("filetransfer.js missing dual-pane contract %q", want)
@@ -100,8 +100,8 @@ func TestFileTransferWorkspaceSupportsMultiSelectAndContextActions(t *testing.T)
 		"selectAllEntries(panel)",
 		"tr.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();selectTableEntry(panel,entry,event,'context');onContextMenu(entry,event);}",
 		"if(!keys.has(key)){keys.clear();keys.add(key);}",
-		"Upload '+(files.length>1?files.length+' selected files':'to remote')+' →",
-		"Transfer '+(files.length>1?files.length+' selected files':'to left')+' ←",
+		"Upload selected items to remote FTP/SFTP →",
+		"Download selected items to left ←",
 		"Delete '+(selected.length>1?selected.length+' selected items':'item')",
 		"Open folder",
 		"Copy selected paths",
@@ -208,6 +208,78 @@ func TestFileTransferPathHistoryIsAutomaticCompactDropdown(t *testing.T) {
 	}
 	if strings.Contains(js, "ft-favorite-select") {
 		t.Fatal("legacy wide saved-path select should not remain")
+	}
+}
+
+
+func TestFileTransferRemoteFolderCacheIsSessionScopedAndRefreshable(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"remoteCache:new Map()",
+		"function remoteCacheGet(view,path)",
+		"function remoteCacheSet(view,path,data)",
+		"function invalidateRemoteCache(view,path,recursive=false)",
+		"async function fetchRemoteDirectory(view,path,{force=false}={})",
+		"if(cached)return {...cached,fromCache:true};",
+		"onRefresh:()=>loadRemoteDirectory(view,remote.currentPath,{force:true})",
+		"cached?'Opening cached '+path+'…':'Loading '+path+'…'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing remote cache contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferQueueTracksPerFileLifecycle(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"Transfer Queue",
+		"Queued '+counts.queued+' · Running '+counts.running+' · Done '+counts.success+' · Failed '+counts.failed",
+		"function enqueueTransferTasks(view,tasks)",
+		"async function processTransferQueue(view)",
+		"item.status='running'",
+		"item.status='success'",
+		"item.status='failed'",
+		"Retry failed",
+		"Clear done",
+		"ft-queue-error",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing transfer queue contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferFolderTransfersAreRecursiveBothDirections(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"async function collectHostUploadEntry(view,parent,entry,remoteParent,plan)",
+		"async function collectLocalUploadHandle(handle,targetPath,sourceLabel,plan)",
+		"async function collectRemoteDownloadEntry(view,remoteParent,entry,leftParent,plan)",
+		"async function prepareRemoteDirectories(view,directories)",
+		"async function prepareLeftDirectories(view,directories)",
+		"Upload to remote FTP/SFTP →",
+		"Download to left ←",
+		"transferLeftEntriesToRemote(view,selected)",
+		"transferRemoteEntriesToLeft(view,selected)",
+		"view.toRemote.disabled=selectedEntries(view.left).length===0",
+		"view.toLeft.disabled=selectedEntries(view.remote).length===0",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing recursive folder transfer contract %q", want)
+		}
 	}
 }
 
