@@ -13,10 +13,11 @@ const DefaultSelfUpdateBranch = "main"
 
 type SelfUpdateSettings struct {
 	Branch string `json:"branch"`
+	RunFullValidationTests bool `json:"run_full_validation_tests"`
 }
 
 func DefaultSelfUpdateSettings() SelfUpdateSettings {
-	return SelfUpdateSettings{Branch: DefaultSelfUpdateBranch}
+	return SelfUpdateSettings{Branch: DefaultSelfUpdateBranch, RunFullValidationTests: false}
 }
 
 func NormalizeSelfUpdateBranch(value string) (string, error) {
@@ -60,7 +61,7 @@ func ReadSelfUpdateSettings(workspace string) (SelfUpdateSettings, error) {
 	if err != nil {
 		return SelfUpdateSettings{}, err
 	}
-	return SelfUpdateSettings{Branch: branch}, nil
+	return SelfUpdateSettings{Branch: branch, RunFullValidationTests: cfg.SelfUpdateFullValidation}, nil
 }
 
 func SetSelfUpdateSettings(workspace string, value SelfUpdateSettings) error {
@@ -101,7 +102,9 @@ func SetSelfUpdateSettings(workspace string, value SelfUpdateSettings) error {
 		end = len(lines)
 	}
 
-	valueLine := "branch = " + branch
+	branchLine := "branch = " + branch
+	validationLine := "run_full_validation_tests = false"
+	if value.RunFullValidationTests { validationLine = "run_full_validation_tests = true" }
 	if start < 0 {
 		if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) != "" {
 			lines = append(lines, "")
@@ -109,15 +112,18 @@ func SetSelfUpdateSettings(workspace string, value SelfUpdateSettings) error {
 		lines = append(lines,
 			"[self_update]",
 			"# Branch dùng để check/download source khi self-update.",
-			valueLine,
+			branchLine,
+			"# Full developer test suite before activation. Mặc định tắt cho end users.",
+			validationLine,
 		)
 	} else {
 		body := make([]string, 0, end-start)
 		for _, raw := range lines[start+1 : end] {
 			line := strings.TrimSpace(raw)
 			key, _, ok := strings.Cut(line, "=")
-			if ok && strings.EqualFold(strings.TrimSpace(key), "branch") {
-				continue
+			if ok {
+				name := strings.ToLower(strings.TrimSpace(key))
+				if name == "branch" || name == "run_full_validation_tests" { continue }
 			}
 			body = append(body, raw)
 		}
@@ -127,7 +133,7 @@ func SetSelfUpdateSettings(workspace string, value SelfUpdateSettings) error {
 		if len(body) > 0 && strings.TrimSpace(body[len(body)-1]) != "" {
 			rebuilt = append(rebuilt, "")
 		}
-		rebuilt = append(rebuilt, valueLine)
+		rebuilt = append(rebuilt, branchLine, validationLine)
 		rebuilt = append(rebuilt, lines[end:]...)
 		lines = rebuilt
 	}
