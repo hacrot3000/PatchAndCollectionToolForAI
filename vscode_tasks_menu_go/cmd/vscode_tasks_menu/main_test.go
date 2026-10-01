@@ -415,7 +415,8 @@ func TestGlobalTaskdeckIsPreferredForRestartAndHandoff(t *testing.T) {
 		"func handoffToUpdatedDaemon",
 		"func startDaemonWithOptions",
 		"migrationPending := !selfupdate.GlobalReleaseReady(remote) || !selfupdate.SameExecutablePath(exe, global)",
-		"selfupdate.PrepareGlobalRelease(ctx, remote, progress)",
+		"selfupdate.PrepareGlobalRelease(ctx, remote, selfupdate.PrepareGlobalReleaseOptions{",
+		"RunFullValidationTests: cfg.SelfUpdateFullValidation",
 		"selfupdate.InstallGlobalRelease(prepared, remote)",
 		"Đã chuyển daemon sang TaskDeck global versioned release:",
 	} {
