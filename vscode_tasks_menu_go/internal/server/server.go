@@ -94,6 +94,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/config/page-title", s.pageTitle)
 	mux.HandleFunc("/api/config/terminal-cwds", s.terminalCWDConfig)
 	mux.HandleFunc("/api/config/running-indicator", s.runningIndicatorConfig)
+	mux.HandleFunc("/api/config/self-update", s.selfUpdateConfig)
 	mux.HandleFunc("/api/ssh/profiles", s.sshProfiles)
 	mux.HandleFunc("/api/ssh/profiles/", s.sshProfileItem)
 	mux.HandleFunc("/api/ssh/test", s.sshTest)
