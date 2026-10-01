@@ -182,6 +182,22 @@ func TestStaticUIUsesCompactDesktopHeaders(t *testing.T) {
 }
 
 
+func TestStaticUISendsTerminalLineContextForPartialFileSelection(t *testing.T) {
+	for _, want := range []string{
+		"function logicalBufferLine(buffer,row)",
+		"function selectionLineContext(view)",
+		"view.term.getSelectionPosition?.()",
+		"line.translateToString(true)",
+		"const context=selectionLineContext(view)",
+		"scanSelection(view,text,context,seq)",
+		"context:context.slice(0,65536)",
+	} {
+		if !strings.Contains(appJS, want) {
+			t.Fatalf("terminal partial-file context missing %q", want)
+		}
+	}
+}
+
 func TestStaticUIPreservesSelectionDuringDetectedFileResize(t *testing.T) {
 	for _, want := range []string{
 		"if(term.hasSelection()){",
