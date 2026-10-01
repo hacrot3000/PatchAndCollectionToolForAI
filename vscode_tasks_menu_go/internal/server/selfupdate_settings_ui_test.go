@@ -22,6 +22,7 @@ func TestSelfUpdateValidationSettingsUIUsesProjectConfig(t *testing.T) {
 		"Run full validation tests before self-update",
 		"Developer mode · slower updates",
 		"checkbox.checked=value",
+		"control.hidden=true",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("selfupdatesettings.js missing %q", want)
@@ -46,8 +47,13 @@ func TestSelfUpdateControlsHaveDedicatedSettingsSection(t *testing.T) {
 		t.Fatal(err)
 	}
 	js := string(data)
-	want := "addSection(settings.pop,'UPDATE',[document.querySelector('#self-update-validation-settings'),document.querySelector('#self-update-check')])"
-	if !strings.Contains(js, want) {
-		t.Fatalf("menus.js missing UPDATE settings section %q", want)
+	for _, want := range []string{
+		"const selfUpdateValidation=document.querySelector('#self-update-validation-settings')",
+		"if(selfUpdateValidation)selfUpdateValidation.hidden=false",
+		"addSection(settings.pop,'UPDATE',[selfUpdateValidation,document.querySelector('#self-update-check')])",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("menus.js missing UPDATE settings section behavior %q", want)
+		}
 	}
 }
