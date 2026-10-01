@@ -32,6 +32,32 @@ func TestCommandsQuoteAllPaths(t *testing.T) {
 	}
 }
 
+
+func TestParseLongListNormalizesOpenSSHPathPrefixes(t *testing.T) {
+	input := strings.Join([]string{
+		`sftp> ls -lan "."`,
+		"drwxr-xr-x    4 1000 1000       4096 Oct 01 10:00 ./.",
+		"drwxr-xr-x    8 0    0          4096 Oct 01 10:00 ./..",
+		"drwxr-xr-x    2 1000 1000       4096 Oct 01 10:00 ./folder",
+		"-rw-r--r--    1 1000 1000         42 Oct 01 10:00 ./file.txt",
+		"-rw-r--r--    1 1000 1000         43 Oct 01 10:00 /srv/root/absolute.txt",
+	}, "\n")
+	entries, err := ParseLongList(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("entries=%#v", entries)
+	}
+	got := []string{entries[0].Name, entries[1].Name, entries[2].Name}
+	want := []string{"folder", "file.txt", "absolute.txt"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("entry %d name=%q want %q; entries=%#v", i, got[i], want[i], entries)
+		}
+	}
+}
+
 func TestParseLongList(t *testing.T) {
 	input := strings.Join([]string{
 		"sftp> ls -lan \"/srv/app\"",

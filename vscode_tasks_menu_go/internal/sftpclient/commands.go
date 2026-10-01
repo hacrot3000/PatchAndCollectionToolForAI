@@ -3,6 +3,7 @@ package sftpclient
 import (
 	"errors"
 	"fmt"
+	"path"
 	"strconv"
 	"strings"
 	"unicode"
@@ -158,7 +159,12 @@ func ParseLongList(output string) ([]Entry, error) {
 				entryType = "other"
 			}
 		}
-		if name == "." || name == ".." {
+		// OpenSSH sftp may prefix names with the listed path, especially when
+		// listing "." (for example "./.", "./..", "./file"). A directory
+		// entry name itself cannot contain '/', so expose only the basename to
+		// the UI and then filter the synthetic dot entries.
+		name = path.Base(strings.TrimSpace(name))
+		if name == "." || name == ".." || name == "/" || name == "" {
 			continue
 		}
 		entries = append(entries, Entry{
