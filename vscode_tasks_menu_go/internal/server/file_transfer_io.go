@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -10,13 +12,88 @@ import (
 	pathpkg "path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/filetransferprofile"
 	"bletonfc/vscode_tasks_menu/internal/ftpclient"
 	"bletonfc/vscode_tasks_menu/internal/sftpclient"
 )
 
-const maxFileTransferBytes int64 = 1 << 30 // 1 GiB initial safety boundary.
+const (
+	maxFileTransferBytes          int64 = 1 << 30 // 1 GiB initial safety boundary.
+	fileTransferDownloadTicketTTL       = 90 * time.Second
+	maxFileTransferDownloadTickets      = 128
+)
+
+type fileTransferDownloadTicket struct {
+	ProfileID string
+	Path      string
+	ExpiresAt time.Time
+}
+
+func newFileTransferDownloadTicketToken() (string, error) {
+	var raw [24]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("generate file-transfer download ticket: %w", err)
+	}
+	return hex.EncodeToString(raw[:]), nil
+}
+
+func (s *Server) issueFileTransferDownloadTicket(profileID, remotePath string) (string, error) {
+	profileID = strings.TrimSpace(profileID)
+	remotePath = strings.TrimSpace(remotePath)
+	if profileID == "" || remotePath == "" {
+		return "", errors.New("saved file-transfer profile id and remote path are required")
+	}
+	if _, err := s.resolveFileTransferProfile(profileID); err != nil {
+		return "", err
+	}
+	token, err := newFileTransferDownloadTicketToken()
+	if err != nil {
+		return "", err
+	}
+	now := time.Now()
+	s.fileTransferDownloadMu.Lock()
+	defer s.fileTransferDownloadMu.Unlock()
+	if s.fileTransferDownloads == nil {
+		s.fileTransferDownloads = make(map[string]fileTransferDownloadTicket)
+	}
+	for key, ticket := range s.fileTransferDownloads {
+		if !ticket.ExpiresAt.After(now) {
+			delete(s.fileTransferDownloads, key)
+		}
+	}
+	if len(s.fileTransferDownloads) >= maxFileTransferDownloadTickets {
+		return "", errors.New("too many pending file-transfer downloads")
+	}
+	s.fileTransferDownloads[token] = fileTransferDownloadTicket{
+		ProfileID: profileID,
+		Path:      remotePath,
+		ExpiresAt: now.Add(fileTransferDownloadTicketTTL),
+	}
+	return token, nil
+}
+
+func (s *Server) consumeFileTransferDownloadTicket(token string) (fileTransferDownloadTicket, bool) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return fileTransferDownloadTicket{}, false
+	}
+	now := time.Now()
+	s.fileTransferDownloadMu.Lock()
+	defer s.fileTransferDownloadMu.Unlock()
+	for key, ticket := range s.fileTransferDownloads {
+		if !ticket.ExpiresAt.After(now) {
+			delete(s.fileTransferDownloads, key)
+		}
+	}
+	ticket, ok := s.fileTransferDownloads[token]
+	if !ok {
+		return fileTransferDownloadTicket{}, false
+	}
+	delete(s.fileTransferDownloads, token)
+	return ticket, true
+}
 
 type downloadResponseTracker struct {
 	http.ResponseWriter
@@ -85,34 +162,45 @@ func setRemoteDownloadHeaders(w http.ResponseWriter, name string) {
 	w.Header().Set("Cache-Control", "no-store")
 }
 
-func decodeFileTransferDownloadRequest(w http.ResponseWriter, r *http.Request) (fileTransferOperationRequest, error) {
-	if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/x-www-form-urlencoded") {
-		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
-		if err := r.ParseForm(); err != nil {
-			return fileTransferOperationRequest{}, errors.New("invalid download form")
-		}
-		return fileTransferOperationRequest{
-			ProfileID: strings.TrimSpace(r.FormValue("profile_id")),
-			Path:      strings.TrimSpace(r.FormValue("path")),
-		}, nil
-	}
-	return decodeFileTransferOperationRequest(w, r)
-}
-
-func (s *Server) fileTransferDownload(w http.ResponseWriter, r *http.Request) {
+func (s *Server) fileTransferDownloadTicket(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	req, err := decodeFileTransferDownloadRequest(w, r)
+	req, err := decodeFileTransferOperationRequest(w, r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.ProfileID == "" || req.Path == "" || req.Profile != nil {
-		http.Error(w, "saved file-transfer profile id and remote path are required", http.StatusBadRequest)
+	if req.Profile != nil {
+		http.Error(w, "saved file-transfer profile id is required", http.StatusBadRequest)
 		return
 	}
+	token, err := s.issueFileTransferDownloadTicket(req.ProfileID, req.Path)
+	if err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "too many pending") {
+			status = http.StatusTooManyRequests
+		} else if strings.Contains(err.Error(), "profile not found") {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"ticket": token})
+}
+
+func (s *Server) fileTransferDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	ticket, ok := s.consumeFileTransferDownloadTicket(r.URL.Query().Get("ticket"))
+	if !ok {
+		http.Error(w, "download ticket not found or expired", http.StatusNotFound)
+		return
+	}
+	req := fileTransferOperationRequest{ProfileID: ticket.ProfileID, Path: ticket.Path}
 	profile, err := s.resolveFileTransferProfile(req.ProfileID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)

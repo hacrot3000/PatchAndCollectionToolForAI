@@ -138,13 +138,15 @@ function downloadFrame(){
   frame=document.createElement('iframe');frame.name='taskdeck-file-transfer-download';frame.hidden=true;document.body.append(frame);return frame;
 }
 
-function downloadFile(view,remotePath){
-  downloadFrame();
-  const form=document.createElement('form');
-  form.method='POST';form.action='/api/file-transfer/download';form.target='taskdeck-file-transfer-download';form.hidden=true;
-  const add=(name,value)=>{const input=document.createElement('input');input.type='hidden';input.name=name;input.value=value;form.append(input);};
-  add('profile_id',view.profile.id);add('path',remotePath);
-  document.body.append(form);form.submit();setTimeout(()=>form.remove(),1000);
+async function downloadFile(view,remotePath){
+  const data=await app.jsonFetch('/api/file-transfer/download-ticket',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({profile_id:view.profile.id,path:remotePath})
+  });
+  const ticket=String(data?.ticket||'').trim();
+  if(!ticket)throw new Error('Server did not return a download ticket');
+  const frame=downloadFrame();
+  frame.src='/api/file-transfer/download?ticket='+encodeURIComponent(ticket);
 }
 
 async function mutate(view,action,path,newPath='',directory=false){
@@ -192,7 +194,7 @@ function renderEntries(view,entries){
     actions.append(rename,del);tr.append(name,size,modified,actions);
     tr.ondblclick=()=>{
       if(entry.type==='directory')loadDirectory(view,joinRemotePath(view.currentPath,entry.name)).catch(app.showError);
-      else downloadFile(view,joinRemotePath(view.currentPath,entry.name));
+      else downloadFile(view,joinRemotePath(view.currentPath,entry.name)).catch(app.showError);
     };
     tr.oncontextmenu=event=>{
       event.preventDefault();

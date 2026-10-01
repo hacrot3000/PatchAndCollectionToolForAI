@@ -68,6 +68,9 @@ type Server struct {
 	browserLeaseMu sync.Mutex
 	browserLease   *browserLease
 
+	fileTransferDownloadMu sync.Mutex
+	fileTransferDownloads  map[string]fileTransferDownloadTicket
+
 	terminalStateMu     sync.RWMutex
 	terminalStateFrozen bool
 
@@ -106,6 +109,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/file-transfer/test", s.fileTransferTest)
 	mux.HandleFunc("/api/file-transfer/list", s.fileTransferList)
 	mux.HandleFunc("/api/file-transfer/mutate", s.fileTransferMutate)
+	mux.HandleFunc("/api/file-transfer/download-ticket", s.fileTransferDownloadTicket)
 	mux.HandleFunc("/api/file-transfer/download", s.fileTransferDownload)
 	mux.HandleFunc("/api/file-transfer/upload", s.fileTransferUpload)
 	mux.HandleFunc("/api/db/adapters", s.dbAdapters)

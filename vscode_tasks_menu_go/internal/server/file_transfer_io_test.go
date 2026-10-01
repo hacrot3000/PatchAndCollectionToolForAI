@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -27,7 +28,7 @@ func TestRemoteDownloadName(t *testing.T) {
 	}
 }
 
-func TestFileTransferSFTPDownloadUsesPrivateTempAndStreamsResult(t *testing.T) {
+func TestFileTransferSFTPDownloadTicketWorksWithActiveBrowserLease(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX shell fixture")
 	}
@@ -47,20 +48,60 @@ func TestFileTransferSFTPDownloadUsesPrivateTempAndStreamsResult(t *testing.T) {
 	}
 	s.SFTPExecutable = script
 	h := s.Handler()
-	req := httptest.NewRequest(http.MethodPost, "/api/file-transfer/download", fileTransferJSONBody(t, map[string]any{
+
+	leaseReq := httptest.NewRequest(http.MethodPost, "/api/browser/lease", nil)
+	leaseRR := httptest.NewRecorder()
+	h.ServeHTTP(leaseRR, leaseReq)
+	if leaseRR.Code != http.StatusOK {
+		t.Fatalf("lease status=%d body=%s", leaseRR.Code, leaseRR.Body.String())
+	}
+	var lease struct {
+		Lease string `json:"lease"`
+	}
+	if err := json.Unmarshal(leaseRR.Body.Bytes(), &lease); err != nil {
+		t.Fatal(err)
+	}
+	if lease.Lease == "" {
+		t.Fatal("empty browser lease")
+	}
+
+	ticketReq := httptest.NewRequest(http.MethodPost, "/api/file-transfer/download-ticket", fileTransferJSONBody(t, map[string]any{
 		"profile_id": profile.ID, "path": "/srv/app/hello.txt",
 	}))
-	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	ticketReq.Header.Set("Content-Type", "application/json")
+	ticketReq.Header.Set(browserLeaseHeader, lease.Lease)
+	ticketRR := httptest.NewRecorder()
+	h.ServeHTTP(ticketRR, ticketReq)
+	if ticketRR.Code != http.StatusCreated {
+		t.Fatalf("ticket status=%d body=%s", ticketRR.Code, ticketRR.Body.String())
 	}
-	if rr.Body.String() != "hello-sftp" {
-		t.Fatalf("body=%q", rr.Body.String())
+	var ticket struct {
+		Ticket string `json:"ticket"`
 	}
-	if disposition := rr.Header().Get("Content-Disposition"); !strings.Contains(disposition, "hello.txt") {
+	if err := json.Unmarshal(ticketRR.Body.Bytes(), &ticket); err != nil {
+		t.Fatal(err)
+	}
+	if ticket.Ticket == "" {
+		t.Fatal("empty download ticket")
+	}
+
+	downloadReq := httptest.NewRequest(http.MethodGet, "/api/file-transfer/download?ticket="+ticket.Ticket, nil)
+	downloadRR := httptest.NewRecorder()
+	h.ServeHTTP(downloadRR, downloadReq)
+	if downloadRR.Code != http.StatusOK {
+		t.Fatalf("download status=%d body=%s", downloadRR.Code, downloadRR.Body.String())
+	}
+	if downloadRR.Body.String() != "hello-sftp" {
+		t.Fatalf("body=%q", downloadRR.Body.String())
+	}
+	if disposition := downloadRR.Header().Get("Content-Disposition"); !strings.Contains(disposition, "hello.txt") {
 		t.Fatalf("Content-Disposition=%q", disposition)
+	}
+
+	replayRR := httptest.NewRecorder()
+	h.ServeHTTP(replayRR, httptest.NewRequest(http.MethodGet, "/api/file-transfer/download?ticket="+ticket.Ticket, nil))
+	if replayRR.Code != http.StatusNotFound {
+		t.Fatalf("replay status=%d body=%s", replayRR.Code, replayRR.Body.String())
 	}
 }
 
@@ -106,19 +147,5 @@ func TestFileTransferSFTPUploadUsesPutCommand(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if !strings.Contains(string(data), "put \"") || !strings.Contains(string(data), "\"/srv/app/new file.txt\"") {
 		t.Fatalf("unexpected sftp command %q", data)
-	}
-}
-
-
-func TestFileTransferDownloadAcceptsBrowserFormPost(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/api/file-transfer/download", strings.NewReader("profile_id=abc&path=%2Fsrv%2Ffile.txt"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rr := httptest.NewRecorder()
-	got, err := decodeFileTransferDownloadRequest(rr, req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.ProfileID != "abc" || got.Path != "/srv/file.txt" {
-		t.Fatalf("decoded=%+v", got)
 	}
 }
