@@ -459,12 +459,13 @@ async function switchLeftSource(view,source){
   safeStorageSet('taskdeck:file-transfer:left-source:'+workspaceKey()+':'+view.profile.id,panel.source);
   panel.rootSelect.hidden=panel.source!=='local';panel.chooseLocal.hidden=panel.source!=='local';
   panel.pathInput.placeholder=panel.source==='local'?'Path relative to selected local folder':'Path relative to TaskDeck workspace';
-  panel.currentPath='.';panel.entries=[];panel.selected=null;
+  panel.currentPath='.';panel.entries=[];panel.selected=null;panel.pathInput.value='.';
   if(panel.source==='local'){
     if(typeof globalThis.showDirectoryPicker!=='function'){panel.grantLocal.hidden=true;panel.status.textContent='Local browser requires File System Access API (Chromium, HTTPS/localhost).';panel.entries=[];renderTable(panel,entry=>leftDoubleClick(view,entry),(entry,event)=>leftContext(view,entry,event));updateTransferButtons(view);return;}
     await refreshLocalRoots(view);
     panel.grantLocal.hidden=!panel.localRoot||panel.localPermission;
   }else panel.grantLocal.hidden=true;
+  panel.refreshPathMemory?.();
   await loadLeftDirectory(view,'.');
 }
 
@@ -660,7 +661,7 @@ function attachView(profile){
     if(record){
       safeStorageSet('taskdeck:file-transfer:last-local-root:'+workspaceKey(),record.id);
       left.localPermission=await ensureHandlePermission(record.handle);
-      grantLocal.hidden=left.localPermission;
+      grantLocal.hidden=left.localPermission;left.currentPath='.';left.pathInput.value='.';left.refreshPathMemory?.();
       await loadLocalDirectory(view,'.');
     }
   };
