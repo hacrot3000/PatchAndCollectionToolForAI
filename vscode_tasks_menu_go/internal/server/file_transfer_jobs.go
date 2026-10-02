@@ -28,6 +28,8 @@ const (
 type fileTransferJobTarget struct {
 	Path      string `json:"path"`
 	Directory bool   `json:"directory,omitempty"`
+	Size      int64  `json:"size,omitempty"`
+	Modified  string `json:"modified,omitempty"`
 }
 
 type fileTransferJobCreateRequest struct {
@@ -746,6 +748,27 @@ func (s *Server) ensureBackgroundHostDirectory(rel string) (string, error) {
 
 func (s *Server) scanHostUploadJob(queue *fileTransferServerQueue, jobID string, req fileTransferJobCreateRequest) error {
 	knownRemote := map[string]bool{normalizeBackgroundRemotePath(req.RemoteDir): true, ".": true, "/": true}
+	listings := make(map[string][]fileTransferEntry)
+	remoteExisting := func(remotePath string) (*fileTransferEntry, error) {
+		parent := normalizeBackgroundRemotePath(pathpkg.Dir(normalizeBackgroundRemotePath(remotePath)))
+		name := pathpkg.Base(normalizeBackgroundRemotePath(remotePath))
+		entries, ok := listings[parent]
+		if !ok {
+			var err error
+			entries, err = s.backgroundListRemote(context.Background(), req.ProfileID, parent)
+			if err != nil {
+				return nil, err
+			}
+			listings[parent] = entries
+		}
+		for _, entry := range entries {
+			if entry.Name == name {
+				copy := entry
+				return &copy, nil
+			}
+		}
+		return nil, nil
+	}
 	var walk func(string, string) error
 	walk = func(hostRel, remotePath string) error {
 		rel, absolute, info, err := s.resolveHostWorkspaceEntry(hostRel)
@@ -756,6 +779,7 @@ func (s *Server) scanHostUploadJob(queue *fileTransferServerQueue, jobID string,
 			if err := s.ensureBackgroundRemoteDirectory(context.Background(), req.ProfileID, remotePath, knownRemote); err != nil {
 				return err
 			}
+			delete(listings, normalizeBackgroundRemotePath(pathpkg.Dir(remotePath)))
 			entries, err := os.ReadDir(absolute)
 			if err != nil {
 				return err
@@ -773,8 +797,23 @@ func (s *Server) scanHostUploadJob(queue *fileTransferServerQueue, jobID string,
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("unsupported host upload item %s", rel)
 		}
-		queue.addItem(jobID, "Upload", "→", rel, remotePath, "host_upload", info.Size(), false)
-		return nil
+		existing, err := remoteExisting(remotePath)
+		if err != nil {
+			return err
+		}
+		if existing == nil {
+			queue.addItem(jobID, "Upload", "→", rel, remotePath, "host_upload", info.Size(), false)
+			return nil
+		}
+		if existing.Type != "file" {
+			return fmt.Errorf("remote destination exists and is not a file: %s", remotePath)
+		}
+		conflict := &fileTransferConflictMeta{
+			SourceSize: info.Size(), TargetSize: existing.Size,
+			SourceModified: info.ModTime().UTC().Format(time.RFC3339Nano),
+			TargetModified: existing.Modified,
+		}
+		return s.enqueueServerTransferConflictAware(queue, jobID, "Upload", "→", rel, remotePath, "host_upload", info.Size(), conflict)
 	}
 	for _, requested := range req.HostPaths {
 		rel, _, info, err := s.resolveHostWorkspaceEntry(requested)
@@ -788,7 +827,9 @@ func (s *Server) scanHostUploadJob(queue *fileTransferServerQueue, jobID string,
 				return err
 			}
 		} else {
-			queue.addItem(jobID, "Upload", "→", rel, remoteTarget, "host_upload", info.Size(), false)
+			if err := walk(rel, remoteTarget); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -800,11 +841,38 @@ func (s *Server) scanHostDownloadJob(queue *fileTransferServerQueue, jobID strin
 	}
 	var walk func(fileTransferJobTarget, string) error
 	walk = func(target fileTransferJobTarget, hostParent string) error {
-		name := pathpkg.Base(normalizeBackgroundRemotePath(target.Path))
+		target.Path = normalizeBackgroundRemotePath(target.Path)
+		name := pathpkg.Base(target.Path)
 		hostRel := filepath.ToSlash(filepath.Join(filepath.FromSlash(hostParent), name))
 		if !target.Directory {
-			queue.addItem(jobID, "Download", "←", target.Path, hostRel, "host_download", 0, false)
-			return nil
+			if target.Size == 0 && target.Modified == "" {
+				entry, err := s.backgroundRemoteEntry(context.Background(), req.ProfileID, target.Path)
+				if err != nil {
+					return err
+				}
+				if entry == nil {
+					return fmt.Errorf("remote source not found: %s", target.Path)
+				}
+				if entry.Type != "file" {
+					return fmt.Errorf("remote source is not a file: %s", target.Path)
+				}
+				target.Size = entry.Size
+				target.Modified = entry.Modified
+			}
+			_, existing, exists, err := s.backgroundHostExistingMeta(hostRel)
+			if err != nil {
+				return err
+			}
+			if !exists {
+				queue.addItem(jobID, "Download", "←", target.Path, hostRel, "host_download", target.Size, false)
+				return nil
+			}
+			conflict := &fileTransferConflictMeta{
+				SourceSize: target.Size, TargetSize: existing.Size(),
+				SourceModified: target.Modified,
+				TargetModified: existing.ModTime().UTC().Format(time.RFC3339Nano),
+			}
+			return s.enqueueServerTransferConflictAware(queue, jobID, "Download", "←", target.Path, hostRel, "host_download", target.Size, conflict)
 		}
 		if _, err := s.ensureBackgroundHostDirectory(hostRel); err != nil {
 			return err
@@ -821,14 +889,11 @@ func (s *Server) scanHostDownloadJob(queue *fileTransferServerQueue, jobID strin
 			child := fileTransferJobTarget{
 				Path:      joinBackgroundRemotePath(target.Path, entry.Name),
 				Directory: entry.Type == "directory",
+				Size:      entry.Size,
+				Modified:  entry.Modified,
 			}
-			if child.Directory {
-				if err := walk(child, hostRel); err != nil {
-					return err
-				}
-			} else {
-				childHost := filepath.ToSlash(filepath.Join(filepath.FromSlash(hostRel), entry.Name))
-				queue.addItem(jobID, "Download", "←", child.Path, childHost, "host_download", entry.Size, false)
+			if err := walk(child, hostRel); err != nil {
+				return err
 			}
 		}
 		return nil
