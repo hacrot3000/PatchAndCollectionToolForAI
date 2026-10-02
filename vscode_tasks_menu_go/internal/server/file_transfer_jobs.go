@@ -182,7 +182,7 @@ func (q *fileTransferServerQueue) touchLocked() {
 	q.Revision++
 }
 
-func (q *fileTransferServerQueue) addItem(jobID, kind, direction, source, target, operation string, size int64, directory bool) {
+func (q *fileTransferServerQueue) addItem(jobID, kind, direction, source, target, operation string, size int64, directory bool) *fileTransferServerItem {
 	q.mu.Lock()
 	q.Sequence++
 	item := &fileTransferServerItem{
@@ -201,9 +201,10 @@ func (q *fileTransferServerQueue) addItem(jobID, kind, direction, source, target
 	q.touchLocked()
 	q.mu.Unlock()
 	signalFileTransferQueue(q)
+	return item
 }
 
-func (q *fileTransferServerQueue) addConflictItem(jobID, kind, direction, source, target, operation string, size int64, conflict fileTransferConflictMeta) {
+func (q *fileTransferServerQueue) addConflictItem(jobID, kind, direction, source, target, operation string, size int64, conflict fileTransferConflictMeta) *fileTransferServerItem {
 	q.mu.Lock()
 	q.Sequence++
 	item := &fileTransferServerItem{
@@ -222,6 +223,7 @@ func (q *fileTransferServerQueue) addConflictItem(jobID, kind, direction, source
 	q.touchLocked()
 	q.recomputeJobLocked(jobID)
 	q.mu.Unlock()
+	return item
 }
 
 func (q *fileTransferServerQueue) addSkippedItem(jobID, kind, direction, source, target, operation string, size int64, conflict fileTransferConflictMeta, decision string) {
