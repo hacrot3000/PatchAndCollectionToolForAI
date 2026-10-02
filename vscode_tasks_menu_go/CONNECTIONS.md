@@ -142,6 +142,7 @@ Bên dưới hai file panes có **Transfer Queue** dùng chung cho upload/downlo
 - **Retry failed** đưa các item lỗi trở lại queue;
 - **Clear done** xóa các item hoàn tất khỏi lịch sử session;
 - right-click queue có **Pause queue / Resume queue**; pause chỉ dừng worker transfer/delete, scanner nền vẫn tiếp tục scan và enqueue;
+- mép trên Transfer Queue có resize handle: kéo lên/xuống để đổi chiều cao; double-click reset về mặc định; chiều cao được lưu theo workspace + FTP/SFTP profile;
 - queue rows hỗ trợ multi-select; context menu có **Resume selected** (có thể chạy selected item dù global queue vẫn paused) và **Remove selected**;
 - operation đang Running không bị abort giữa request; nếu Remove selected trúng item đang chạy thì item được đánh dấu remove-after-run;
 - folder upload/download/delete dùng hai pipeline bất đồng bộ chạy song song: **scanner producer** duyệt cây thư mục và **queue worker** thực thi upload/download/delete đã tìm thấy;
