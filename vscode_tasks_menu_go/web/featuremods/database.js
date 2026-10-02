@@ -709,15 +709,16 @@ function setQueryWorkbenchReadOnly(queryView,enabled){
   return applyDatabaseQueryReadOnly(queryView);
 }
 
-function activateDatabaseView(id){
+function activateDatabaseView(id,{force=false}={}){
   const view=dbViews.get(id);
-  if(!view)return;
-  app.activateExternalView('database:'+id);
+  if(!view)return false;
+  if(app.activateExternalView('database:'+id,{force})===false)return false;
   for(const [otherID,other] of dbViews){
     const active=otherID===id;
     other.tab.classList.toggle('active',active);
     other.pane.classList.toggle('hidden',!active);
   }
+  return true;
 }
 
 function teardownDatabaseView(id){
@@ -1846,7 +1847,7 @@ function attachDatabaseView(meta,activate){
   const tab=document.createElement('button');tab.type='button';tab.className='db-tab';tab.dataset.id=meta.id;
   const label=document.createElement('span');label.textContent='DB · '+(profile?.name||meta.adapter_kind||'Database');
   const close=document.createElement('span');close.className='close';close.textContent='×';close.onclick=event=>{event.stopPropagation();closeDatabaseView(meta.id).catch(app.showError);};
-  tab.append(label,close);tab.onclick=()=>activateDatabaseView(meta.id);tabs.append(tab);
+  tab.append(label,close);tab.onclick=()=>activateDatabaseView(meta.id,{force:true});tabs.append(tab);
 
   const pane=document.createElement('div');pane.className='db-pane hidden';pane.dataset.id=meta.id;
   const head=document.createElement('div');head.className='db-pane-head';
