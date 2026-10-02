@@ -22,6 +22,15 @@ tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json
 
 AI must read that schema before generating a PATCH package. Do not invent manifest fields.
 
+## Runtime boundary: PATCH package vs Patch Tool internals
+
+A PATCH package describes project mutations and may contain its own payload/OPS files, but it must not depend on Patch Tool's private implementation layout.
+
+- Do **not** reference or invoke `tools/_patch_lib/python_patch_runner.py`, `python_patch_queue_dispatcher.py`, COLLECT helpers, or any other private Patch Tool module from a PATCH manifest, payload, post command, recovery command, or generated helper.
+- In TaskDeck-managed mode those private files live under the TaskDeck release, not necessarily under the project.
+- `<project>/patchs/`, project source, project config, and artifacts are project-scoped. Private runner/dispatcher/collector files are runtime-scoped.
+- If execution fails before payload start because TaskDeck/Patch Tool tried to open a missing private child under `<project>/tools/_patch_lib/`, do not "repair" the PATCH by adding that path. Preserve the failure lineage and treat it as an infrastructure/runtime-routing failure.
+
 
 ## v6.20.0: Git mutation retired; manual execution added
 
