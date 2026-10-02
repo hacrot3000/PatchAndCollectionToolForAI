@@ -73,7 +73,7 @@ func TestPatchForegroundLockCoversAllWorkspaceOpenPaths(t *testing.T) {
 			wants: []string{
 				"app.materializeSession(meta,true)",
 				"async function openSSH(profile)",
-				"return api.openProfile(profile)",
+				"await api.openProfile(profile)",
 			},
 		},
 		{
