@@ -7,9 +7,15 @@ S=(HERE/'python_patch_package_schema.py').read_text(encoding='utf-8')
 PS=(HERE.parent/'run_python_patches.ps1').read_text(encoding='utf-8')
 BAT=(HERE.parent/'run_python_patches.bat').read_text(encoding='utf-8')
 assert 'def _runner_command' in D and 'sys.executable' in D
+assert 'RUNTIME_LIB_DIR = Path(__file__).resolve().parent' in D
+assert 'runner = RUNTIME_LIB_DIR / "python_patch_runner.py"' in D
+assert 'root / "tools" / "_patch_lib" / "python_patch_runner.py"' not in D
 assert '_runner_command(root, "execute", item, no_validation=no_validation)' in D
 assert '--no-validation' in D
-assert 'python_patch_collect_progress_v6_7.py' in D and '[sys.executable, str(progress)' in D
+assert 'progress = RUNTIME_LIB_DIR / "python_patch_collect_progress_v6_7.py"' in D
+assert 'compat = RUNTIME_LIB_DIR / "python_patch_collect_compat.py"' in D
+assert 'root / "tools" / "_patch_lib" / "python_patch_collect_progress_v6_7.py"' not in D
+assert '[sys.executable, str(progress)' in D
 assert 'def _read_key_windows' in D and 'msvcrt.getwch()' in D
 assert 'def _enable_windows_vt' in D and 'ENABLE_VIRTUAL_TERMINAL_PROCESSING' in D
 assert 'use_windows_tty' in D and 'v: validate' in D

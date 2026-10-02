@@ -57,6 +57,9 @@ except ImportError:
         VERSION = str(_ptv_version_json.loads((_PTVVersionPath(__file__).resolve().parent / "docs" / "COLLECT_ACTION_SCHEMA.json").read_text(encoding="utf-8")).get("tool_version") or "unknown")
     except Exception:
         VERSION = "unknown"
+RUNTIME_LIB_DIR = Path(__file__).resolve().parent
+RUNTIME_ROOT = RUNTIME_LIB_DIR.parent
+
 MAX_COLLECT_REQUEST_JSON_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_BYTES = 1024 * 1024
 MAX_PATCH_MARKER_FILES = 8
@@ -2212,10 +2215,10 @@ def _create_fail_handoff(
                     summary["patch_attachment"] = "omitted_queue_input_attachment_failed"
                     attachment_warnings.append(f"patch attachment failed: {type(exc).__name__}")
             docs = [
-                root/"tools"/"implementing.md",
-                root/"tools"/"PYTHON_PATCH_TOOL_FEATURES_VI.md",
-                root/"tools"/"_patch_lib"/"VERSION",
-                root/"tools"/"_patch_lib"/"docs"/"PATCH_PACKAGE_SCHEMA.json",
+                RUNTIME_ROOT/"implementing.md",
+                RUNTIME_ROOT/"PYTHON_PATCH_TOOL_FEATURES_VI.md",
+                RUNTIME_LIB_DIR/"VERSION",
+                RUNTIME_LIB_DIR/"docs"/"PATCH_PACKAGE_SCHEMA.json",
             ]
             for doc in docs:
                 try:
@@ -2409,7 +2412,10 @@ def _run_foreground_child(
 
 
 def _runner_command(root: Path, action: str, item: QueueItem, *, no_validation: bool = False) -> list[str]:
-    runner = root / "tools" / "_patch_lib" / "python_patch_runner.py"
+    # Private Patch Tool children must come from the same installed runtime as
+    # this dispatcher. project_root is source/config/artifact scope only and
+    # may intentionally have no tools/_patch_lib after TaskDeck migration.
+    runner = RUNTIME_LIB_DIR / "python_patch_runner.py"
     cmd = [sys.executable, str(runner)]
     if action in {"inspect", "validate", "preview"}:
         cmd.append(action)
@@ -7015,8 +7021,8 @@ def execute_items(
                 duplicate_warnings.append(f"late duplicate check returned no decision for patchs/{item.name}; executing normally")
             cmd = _runner_command(root, "execute", item, no_validation=no_validation)
         elif item.kind == "COLLECT":
-            progress = root / "tools" / "_patch_lib" / "python_patch_collect_progress_v6_7.py"
-            compat = root / "tools" / "_patch_lib" / "python_patch_collect_compat.py"
+            progress = RUNTIME_LIB_DIR / "python_patch_collect_progress_v6_7.py"
+            compat = RUNTIME_LIB_DIR / "python_patch_collect_compat.py"
             cmd = [sys.executable, str(progress), "--project-root", str(root), "--collector", str(compat), "--", "request", f"patchs/{item.name}"]
         else:
             rc = 2
