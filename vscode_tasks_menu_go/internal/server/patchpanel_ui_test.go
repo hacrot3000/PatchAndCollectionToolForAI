@@ -285,7 +285,7 @@ func TestPatchPanelRunningViewKeepsPTYAsSecondaryEvidence(t *testing.T) {
 		"app.materializeSession(meta,false)",
 		"async function openTerminalEvidence()",
 		"app.views.has(sessionId)",
-		"app.activateView(sessionId)",
+		"app.activateView(sessionId,{force:true})",
 		"finishRunningView();",
 		"runningBack.onclick=()=>openQueueWhileRunning().catch(app.showError)",
 		"task-patch-panel.running .task-patch-summary",
@@ -627,7 +627,7 @@ func TestPatchPanelPlanKeepsPTYAsExplicitFallbackNotPrimary(t *testing.T) {
 		"planStatus.textContent='PTY fallback';",
 		"Use Terminal evidence/fallback.",
 		"app.views.has(sessionId)",
-		"app.activateView(sessionId)",
+		"app.activateView(sessionId,{force:true})",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("native Plan fallback contract missing %q", want)
@@ -694,7 +694,7 @@ func TestPatchPanelHealthKeepsPTYAsExplicitFallbackNotPrimary(t *testing.T) {
 		"healthStatus.textContent='PTY fallback';",
 		"Native Health protocol state unavailable. Use Terminal evidence/fallback.",
 		"app.views.has(sessionId)",
-		"app.activateView(sessionId)",
+		"app.activateView(sessionId,{force:true})",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("native Health fallback contract missing %q", want)
@@ -852,7 +852,7 @@ func TestPatchStartSeparatesNativeHeadlessAndLegacyTerminalModes(t *testing.T) {
 
 	for _, want := range []string{
 		"if(patchUIMode()==='terminal'){",
-		"app.materializeSession(meta,true)",
+		"app.materializeSession(meta,false)",
 		"await assertHeadlessNativeSession(meta);",
 		"patch_ui:patchUIMode()",
 	} {
@@ -1327,7 +1327,7 @@ func TestPatchHistoryTerminalStartsSeparateLegacyBrowserSession(t *testing.T) {
 	for _, want := range []string{
 		"async function openLegacyHistoryTerminal()",
 		"body:JSON.stringify({kind:'patch',patch_mode:'history',patch_ui:'terminal'})",
-		"app.materializeSession(meta,true)",
+		"app.materializeSession(meta,false)",
 		"historyTerminal.onclick=()=>openLegacyHistoryTerminal().catch(app.showError)",
 		"openLegacyHistoryTerminal,openQueueWhileRunning",
 	} {
