@@ -98,6 +98,7 @@ const tabs=document.querySelector('#tabs');
 const panes=document.querySelector('#panes');
 let taskData=null;
 let active=null;
+let foregroundViewLock='';
 const views=new Map();
 const hidden=new Set();
 const outputFilters=[];
@@ -345,8 +346,7 @@ function renderNode(node,host,open){
 async function startTask(t){
   if(!hasPermission('tasks.run'))throw new Error('Task execution permission is required');
   const meta=await jsonFetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:t.id})});
-  const keepPatchVisible=String(active||'')==='external:patch';
-  hidden.delete(meta.id);attach(meta,!keepPatchVisible);
+  hidden.delete(meta.id);attach(meta,true);
 }
 
 async function startTerminal(){
@@ -378,7 +378,7 @@ function attach(meta,activate){
   const status=document.createElement('span');status.className='status';
   const close=document.createElement('span');close.className='close';close.textContent='×';
   close.onclick=e=>{e.stopPropagation();closeView(meta.id).catch(showError);};
-  tab.append(label,status,close);tab.onclick=()=>activateView(meta.id);tabs.append(tab);
+  tab.append(label,status,close);tab.onclick=()=>activateView(meta.id,{force:true});tabs.append(tab);
 
   const pane=document.createElement('div');pane.className='pane hidden';pane.dataset.id=meta.id;
   const head=document.createElement('div');head.className='pane-head';
@@ -614,19 +614,47 @@ function focusView(id){
   return true;
 }
 
-function activateView(id,{focus=true}={}){
+function normalizeForegroundTarget(value){
+  value=String(value||'').trim();
+  if(!value)return '';
+  return value.startsWith('external:')?value:value;
+}
+function claimForegroundView(target){
+  foregroundViewLock=normalizeForegroundTarget(target);
+  return foregroundViewLock;
+}
+function releaseForegroundView(target=''){
+  const normalized=normalizeForegroundTarget(target);
+  if(!normalized||foregroundViewLock===normalized)foregroundViewLock='';
+  return foregroundViewLock;
+}
+function activationAllowed(target,force=false){
+  target=normalizeForegroundTarget(target);
+  if(!foregroundViewLock||foregroundViewLock===target)return true;
+  if(!force)return false;
+  foregroundViewLock='';
+  return true;
+}
+function activateView(id,{focus=true,force=false}={}){
+  id=String(id||'');
+  if(!activationAllowed(id,force))return false;
   active=id;
   for(const [sid,v] of views){
     const yes=sid===id;v.tab.classList.toggle('active',yes);v.pane.classList.toggle('hidden',!yes);
     if(yes)setTimeout(()=>{try{v.fit.fit();if(focus)v.term.focus();}catch{}},0);
   }
   window.dispatchEvent(new CustomEvent('taskmenu:view-activated',{detail:{kind:'terminal',id}}));
+  return true;
 }
 
-function activateExternalView(token){
-  active='external:'+String(token||'view');
+function activateExternalView(token,{force=false}={}){
+  token=String(token||'view');
+  const target='external:'+token;
+  if(!activationAllowed(target,force))return false;
+  active=target;
   for(const [,v] of views){v.tab.classList.remove('active');v.pane.classList.add('hidden');}
-  window.dispatchEvent(new CustomEvent('taskmenu:view-activated',{detail:{kind:'external',id:String(token||'view')}}));
+  window.dispatchEvent(new CustomEvent('taskmenu:view-activated',{detail:{kind:'external',id:token}}));
+  return true;
 }
 
 async function closeView(id){
@@ -716,7 +744,7 @@ globalThis.TaskMenuApp={
   get layoutProfile(){return layoutProfile;},
   get currentUser(){return currentUser;},
   get sharedMode(){return sharedMode;},
-	views,jsonFetch,fetchWithLease,showError,consoleText,startTask,startTerminal,activateView,focusView,activateExternalView,loadTasks,syncSessions,attachSession:attach,materializeSession,setViewReadOnly,addOutputFilter,hasPermission,hasAnyPermission,canControlSession
+	views,jsonFetch,fetchWithLease,showError,consoleText,startTask,startTerminal,activateView,focusView,activateExternalView,claimForegroundView,releaseForegroundView,get foregroundViewLock(){return foregroundViewLock;},loadTasks,syncSessions,attachSession:attach,materializeSession,setViewReadOnly,addOutputFilter,hasPermission,hasAnyPermission,canControlSession
 };
 document.querySelector('#open-terminal').onclick=()=>startTerminal().catch(showError);
 document.querySelector('#logout').onclick=()=>logout().catch(showError);
