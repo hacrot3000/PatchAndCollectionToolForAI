@@ -131,6 +131,17 @@ Remote listing được cache theo **FTP/SFTP profile + remote path** trong sess
 - khi queue kết thúc, chỉ destination folder đang hiển thị mới được reload ngay; các folder đã invalidate khác sẽ reload khi người dùng mở lại;
 - cache là session-only, không ghi vào cấu hình lâu dài.
 
+### Reload/session recovery
+
+FTP/SFTP workspace state được lưu theo workspace để browser reload không làm mất tab đang mở:
+
+- khôi phục các FTP/SFTP profile tab đang mở, tab đang active và left/remote current path;
+- restore được phối hợp sau terminal restore để không bị terminal/task khác ghi đè snapshot trước khi file-transfer đọc lại;
+- trạng thái **Pause queue** được lưu cùng session;
+- active remote-delete job có journal riêng theo workspace. Nếu reload khi background scanner/queue đang delete, TaskDeck tự mở lại profile cần thiết, scan lại target còn tồn tại và enqueue phần delete còn dang dở;
+- delete recovery là idempotent: target đã bị xóa trước reload được bỏ qua; job chỉ bị xóa khỏi journal khi scan thành công và toàn bộ delete item của lần scan đã hoàn tất;
+- nếu recovery scan bị lỗi/kết nối gián đoạn, journal được giữ để lần reload/reconnect sau tiếp tục.
+
 ### Transfer Queue
 
 Bên dưới hai file panes có **Transfer Queue** dùng chung cho upload/download/delete:
