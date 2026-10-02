@@ -597,6 +597,18 @@ async function createServerTransferJob(view,payload){
   await syncServerTransferQueue(view);
   return job;
 }
+async function migrateLegacyRemoteDeleteJobs(){
+  const jobs=readPersistentFileTransferJobs();if(!jobs.length)return;
+  for(const legacy of jobs){
+    const view=views.get(String(legacy.profile_id||''));if(!view)continue;
+    try{
+      await createServerTransferJob(view,{kind:'remote_delete',remote_targets:legacy.targets||[]});
+      removePersistentFileTransferJob(legacy.id);
+    }catch(error){
+      console.warn('Cannot migrate legacy remote delete job to daemon queue',error);
+    }
+  }
+}
 async function syncServerTransferQueue(view){
   const queue=view.transferQueue;if(!queue)return;
   const snapshot=await app.jsonFetch('/api/file-transfer/jobs?profile_id='+encodeURIComponent(view.profile.id),{cache:'no-store'});
@@ -1932,6 +1944,7 @@ async function restoreFileTransferSession(){
   }
   if(saved?.active_profile_id&&views.has(saved.active_profile_id))activateView(saved.active_profile_id);
   else persistFileTransferSession();
+  await migrateLegacyRemoteDeleteJobs();
   for(const view of views.values())syncServerTransferQueue(view).catch(()=>{});
   resumePersistentLocalScans();
 }
