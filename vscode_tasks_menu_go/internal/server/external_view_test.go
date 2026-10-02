@@ -63,6 +63,84 @@ func TestForegroundLockProtectsAllAutomaticTerminalAndTaskLaunches(t *testing.T)
 
 
 
+
+func TestWorkspaceOpenPathsDoNotForcePatchOutOfForeground(t *testing.T) {
+	for _, want := range []string{
+		"hidden.delete(meta.id);attach(meta,true)",
+		"if(view){updateMeta(meta);if(activate)activateView(meta.id);return view;}",
+		"connect(view,false);updateMeta(meta);if(activate)activateView(meta.id);return view;",
+	} {
+		if !strings.Contains(appJS, want) {
+			t.Fatalf("core automatic open path missing background activation contract %q", want)
+		}
+	}
+
+	checks := []struct {
+		file       string
+		required   []string
+		forbidden  []string
+	}{
+		{
+			file: "featuremods/connections.js",
+			required: []string{
+				"app.materializeSession(meta,true)",
+				"await api.openProfile(profile)",
+			},
+			forbidden: []string{
+				"app.materializeSession(meta,true,{force:true})",
+			},
+		},
+		{
+			file: "featuremods/database.js",
+			required: []string{
+				"if(activate)activateDatabaseView(meta.id)",
+				"return attachDatabaseView(meta,true)",
+			},
+			forbidden: []string{
+				"if(activate)activateDatabaseView(meta.id,{force:true})",
+				"return attachDatabaseView(meta,true,{force:true})",
+			},
+		},
+		{
+			file: "featuremods/filetransfer.js",
+			required: []string{
+				"if(activate)activateView(id)",
+				"return attachView(profile)",
+			},
+			forbidden: []string{
+				"if(activate)activateView(id,{force:true})",
+				"return attachView(profile,{activate:true,force:true})",
+			},
+		},
+		{
+			file: "featuremods/editor.js",
+			required: []string{
+				"const view=await promise;activateEditor(view.id);return view",
+			},
+			forbidden: []string{
+				"const view=await promise;activateEditor(view.id,{force:true});return view",
+			},
+		},
+	}
+	for _, check := range checks {
+		data, err := webassets.Files.ReadFile(check.file)
+		if err != nil {
+			t.Fatalf("%s: %v", check.file, err)
+		}
+		js := string(data)
+		for _, want := range check.required {
+			if !strings.Contains(js, want) {
+				t.Fatalf("%s missing background-open contract %q", check.file, want)
+			}
+		}
+		for _, forbidden := range check.forbidden {
+			if strings.Contains(js, forbidden) {
+				t.Fatalf("%s must not force foreground during automatic open: %q", check.file, forbidden)
+			}
+		}
+	}
+}
+
 func TestPatchForegroundLockCoversAllWorkspaceOpenPaths(t *testing.T) {
 	for _, want := range []string{
 		"async function startTask(t)",
