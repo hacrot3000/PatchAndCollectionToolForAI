@@ -108,7 +108,17 @@ PowerShell:   .\tools\run_python_patches.ps1
 
 All launchers resolve the same project root and call the same dispatcher/runner/collector. PATCH and COLLECT ZIPs are placed directly under `<project>/patchs/`. Windows requires Python 3.10+; the packaged PowerShell launcher probes `py -3`, `python`, then `python3`.
 
-Before creating artifacts, AI should read **all files under `tools/_patch_lib/docs/`**. When Patch Tool itself is being developed, also read:
+### Runtime location is not the project location
+
+The **project root** and the **Patch Tool runtime root** are separate concepts.
+
+- In the portable layout they may coincide because the runtime is extracted under `<project>/tools/`.
+- In TaskDeck-managed mode the active runtime lives under the TaskDeck release (for example `<taskdeck-release>/patchtool/`) and the project may intentionally contain **no** `tools/_patch_lib/` directory.
+- The dispatcher must resolve private children such as `python_patch_runner.py`, COLLECT progress/compat helpers and runtime docs relative to its own installed runtime, never by assuming `<project>/tools/_patch_lib/` exists.
+- PATCH/COLLECT packages must never invoke, embed, copy, or reference private Patch Tool modules such as `python_patch_runner.py`, `python_patch_queue_dispatcher.py`, `python_patch_collect_compat.py` or paths under `tools/_patch_lib/`. The public launcher/TaskDeck owns runtime dispatch.
+- Paths such as `tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json` in portable documentation describe the portable distribution layout. When those files are supplied through a TaskDeck AI Pack, treat the packaged document bytes as authoritative; do **not** infer that the target project contains the same filesystem path.
+
+Before creating artifacts, AI should read **all provided current Patch Tool contract documents**. In a portable project they normally live under `tools/_patch_lib/docs/`; in TaskDeck AI Pack they are supplied directly from the active bundled runtime. When Patch Tool itself is being developed, also read:
 
 - `tools/implementing.md`
 - `tools/PYTHON_PATCH_TOOL_FEATURES_VI.md`
@@ -224,6 +234,8 @@ If `truncated>0`, AI must treat evidence as bounded/incomplete and should reques
 ## Self-contained runtime
 
 v6.17.6 ships the documented PATCH runner, utilities, readonly collector, schemas, dispatcher, progress supervisor and Windows launchers. The documented current contract does not require an older **private core**. Historical formats outside the current schemas fail closed rather than being guessed.
+
+For TaskDeck-managed execution, "self-contained" means the whole private runtime stays with the TaskDeck release. A project-local `tools/_patch_lib/` is neither required nor consulted for private child execution. If a FAIL_HANDOFF reports that TaskDeck attempted to spawn a private child from `<project>/tools/_patch_lib/`, classify that as a Patch Tool infrastructure/runtime-routing defect, not as a PATCH-package requirement and not as evidence that the AI should add such a path to a successor PATCH.
 
 ## Duplicate rules
 
