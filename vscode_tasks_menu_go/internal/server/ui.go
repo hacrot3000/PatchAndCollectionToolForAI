@@ -644,7 +644,11 @@ function releaseForegroundView(target=''){
 function activationAllowed(target,force=false){
   target=normalizeForegroundTarget(target);
   if(!foregroundViewLock||foregroundViewLock===target)return true;
-  if(!force)return false;
+  // A foreground owner may only be displaced by a real user click on another
+  // workspace tab. Programmatic force=true is not sufficient: connectors,
+  // restore flows and feature modules must not be able to blank the current
+  // foreground surface while merely creating/opening a session.
+  if(!force||!explicitViewActivation())return false;
   foregroundViewLock='';
   return true;
 }
