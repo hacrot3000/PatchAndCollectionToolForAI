@@ -86,6 +86,39 @@ class RouteContractTests(unittest.TestCase):
         self.assertEqual(argv[-2:], ["run", "--all"])
 
 
+class BundledDispatcherRuntimeTests(unittest.TestCase):
+    def setUp(self):
+        self.base = Path(__file__).resolve().parent
+        entry._prepare_environment(self.base)
+
+    def test_dispatcher_private_children_follow_dispatcher_runtime_not_project(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        project = Path("/workspace/without-project-tools")
+        patch_item = dispatcher.QueueItem("demo.zip", "PATCH", "manifest")
+        patch_cmd = dispatcher._runner_command(project, "execute", patch_item)
+        self.assertEqual(Path(patch_cmd[1]), dispatcher.RUNTIME_LIB_DIR / "python_patch_runner.py")
+        self.assertNotEqual(Path(patch_cmd[1]), project / "tools" / "_patch_lib" / "python_patch_runner.py")
+
+        collect_item = dispatcher.QueueItem("collect.zip", "COLLECT", "request")
+        collect_cmd = dispatcher._collect_command(project, collect_item)
+        self.assertEqual(Path(collect_cmd[1]), dispatcher.RUNTIME_LIB_DIR / "python_patch_collect_progress_v6_7.py")
+        collector_index = collect_cmd.index("--collector") + 1
+        self.assertEqual(Path(collect_cmd[collector_index]), dispatcher.RUNTIME_LIB_DIR / "python_patch_collect_compat.py")
+        self.assertNotIn(str(project / "tools" / "_patch_lib"), " ".join(collect_cmd))
+
+    def test_dispatcher_failure_context_uses_active_runtime_docs(self):
+        dispatcher = (self.base / "_patch_lib" / "python_patch_queue_dispatcher.py").read_text(encoding="utf-8")
+        for want in (
+            'RUNTIME_ROOT/"implementing.md"',
+            'RUNTIME_ROOT/"PYTHON_PATCH_TOOL_FEATURES_VI.md"',
+            'RUNTIME_LIB_DIR/"VERSION"',
+            'RUNTIME_LIB_DIR/"docs"/"PATCH_PACKAGE_SCHEMA.json"',
+        ):
+            self.assertIn(want, dispatcher)
+        self.assertNotIn('root/"tools"/"_patch_lib"/"VERSION"', dispatcher)
+
+
 class TerminalHistoryCommandTests(unittest.TestCase):
     def setUp(self):
         self.base = Path(__file__).resolve().parent
