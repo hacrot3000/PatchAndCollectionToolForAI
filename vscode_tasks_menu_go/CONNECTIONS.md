@@ -137,10 +137,12 @@ FTP/SFTP workspace state được lưu theo workspace để browser reload khôn
 
 - khôi phục các FTP/SFTP profile tab đang mở, tab đang active và left/remote current path;
 - restore được phối hợp sau terminal restore để không bị terminal/task khác ghi đè snapshot trước khi file-transfer đọc lại;
-- trạng thái **Pause queue** được lưu cùng session;
-- active remote-delete job có journal riêng theo workspace. Nếu reload khi background scanner/queue đang delete, TaskDeck tự mở lại profile cần thiết, scan lại target còn tồn tại và enqueue phần delete còn dang dở;
-- delete recovery là idempotent: target đã bị xóa trước reload được bỏ qua; job chỉ bị xóa khỏi journal khi scan thành công và toàn bộ delete item của lần scan đã hoàn tất;
-- nếu recovery scan bị lỗi/kết nối gián đoạn, journal được giữ để lần reload/reconnect sau tiếp tục.
+- **Host workspace ↔ FTP/SFTP** và **remote delete** dùng queue/scanner/worker thuộc TaskDeck daemon. Reload browser không dừng job: browser mới chỉ reconnect vào `/api/file-transfer/jobs` và render lại snapshot `Queued / Running / Done / Failed`;
+- trạng thái **Pause queue**, active scans, queue items và history Host/Remote do daemon giữ trong suốt vòng đời daemon; Pause/Resume/Resume selected/Remove selected được gửi qua server queue control API;
+- remote delete chạy post-order ở daemon và idempotent: child được xóa trước parent; target đã bị xóa được coi là hoàn tất. Journal delete browser của các release cũ được migrate một lần sang daemon queue;
+- **Local browser ↔ FTP/SFTP** là ngoại lệ do browser sandbox: daemon không thể đọc `FileSystemHandle`. TaskDeck lưu queue item + scan descriptor ở browser storage, khôi phục handle từ IndexedDB sau reload, đổi item đang `Running` thành `Queued`, scan lại phần cây còn dang dở và dedup item đã discover;
+- nếu browser yêu cầu cấp lại quyền Local folder sau reload, queue/scanner vẫn được giữ. Bấm **Grant** rồi Retry/Resume để tiếp tục; item không bị xóa chỉ vì permission tạm thời chưa granted;
+- daemon restart là biên khác với browser reload: server-side jobs hiện được bảo toàn qua **page reload/reconnect**, không được mô tả là durable qua việc process TaskDeck daemon bị kill/restart.
 
 ### Transfer Queue
 
@@ -156,9 +158,9 @@ Bên dưới hai file panes có **Transfer Queue** dùng chung cho upload/downlo
 - mép trên Transfer Queue có resize handle: kéo lên/xuống để đổi chiều cao; double-click reset về mặc định; chiều cao được lưu theo workspace + FTP/SFTP profile;
 - queue rows hỗ trợ multi-select; context menu có **Resume selected** (có thể chạy selected item dù global queue vẫn paused) và **Remove selected**;
 - operation đang Running không bị abort giữa request; nếu Remove selected trúng item đang chạy thì item được đánh dấu remove-after-run;
-- folder upload/download/delete dùng hai pipeline bất đồng bộ chạy song song: **scanner producer** duyệt cây thư mục và **queue worker** thực thi upload/download/delete đã tìm thấy;
+- Host upload/download/delete dùng hai pipeline bất đồng bộ trong daemon: **scanner producer** duyệt cây thư mục và **queue worker** thực thi item đã tìm thấy; browser chỉ hiển thị và điều khiển;
 - scanner phát hiện item đến đâu thì enqueue đến đó, không cần giữ toàn bộ cây hoặc chờ quét xong mới xử lý; remote delete dùng post-order để parent `rmdir` luôn nằm sau child delete;
-- chỉ có một scanner và một transfer worker hoạt động đồng thời cho mỗi workspace, nên listing/mkdir có thể chạy song song với một file transfer mà không tạo bão kết nối;
+- mỗi FTP/SFTP profile có server queue worker riêng; scanner có thể tiếp tục listing/mkdir trong khi worker đang transfer/delete một item. Local-browser pipeline giữ cùng semantics nhưng phần đọc/ghi FileSystemHandle phải chạy ở browser;
 - queue lớn dùng pending cursor O(1), throttle render và giới hạn tối đa 2000 row trong DOM; logical queue vẫn giữ đầy đủ trạng thái của toàn bộ item;
 - empty folder vẫn được tạo dù không có file queue item.
 
