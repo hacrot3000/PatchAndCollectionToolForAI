@@ -23,3 +23,16 @@ func TestCoreSupportsExternalViewActivationWithoutSessionRegistration(t *testing
 		}
 	}
 }
+
+func TestTaskLaunchDoesNotStealPatchWorkspaceFocus(t *testing.T) {
+	for _, want := range []string{
+		"const keepPatchVisible=String(active||'')==='external:patch'",
+		"hidden.delete(meta.id);attach(meta,!keepPatchVisible)",
+	} {
+		if !strings.Contains(appJS, want) {
+			t.Fatalf("appJS missing Patch-preserving task launch contract %q", want)
+		}
+	}
+}
+
+
