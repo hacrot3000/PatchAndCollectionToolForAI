@@ -246,7 +246,7 @@ func TestFileTransferQueueTracksPerFileLifecycle(t *testing.T) {
 		"function enqueueTransferTasks(view,tasks)",
 		"async function processTransferQueue(view)",
 		"item.status='running'",
-		"item.status='success'",
+		"item.status=result?.skipped?'skipped':'success'",
 		"item.status='failed'",
 		"Retry failed",
 		"Clear done",
