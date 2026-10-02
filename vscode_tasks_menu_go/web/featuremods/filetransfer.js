@@ -1588,18 +1588,16 @@ function enqueueHostUploadFile(view,sourcePath,targetPath,size,state){
 }
 function enqueueLocalUploadHandle(view,handle,sourcePath,targetPath,state){
   state.files++;
+  const jobID=String(state?.jobID||''),policy=localJobConflictPolicy(jobID)!=='ask'?localJobConflictPolicy(jobID):normalizeConflictPolicy(state?.conflictPolicy);
   const spec={
     kind:'local_upload',profile_id:String(view.profile.id||''),root_id:String(view.left.localRoot?.id||''),
-    source_path:normalizeRelativePath(sourcePath),target_path:normalizeRemotePath(targetPath)
+    source_path:normalizeRelativePath(sourcePath),target_path:normalizeRemotePath(targetPath),
+    job_id:jobID
   };
   enqueueTransferTasks(view,[{
-    id:newFileTransferJobID(),direction:'→',kind:'Upload',source:sourcePath,target:targetPath,size:0,persistSpec:spec,
-    run:async item=>{
-      const file=await handle.getFile();
-      item.size=file.size;scheduleTransferQueueRender(view);
-      await uploadBrowserFileToPath(view,file,targetPath);
-      markRemoteQueueDirty(view,parentPath(targetPath,true));
-    }
+    id:newFileTransferJobID(),direction:'→',kind:'Upload',source:sourcePath,target:targetPath,size:0,
+    conflictJobID:jobID,conflictPolicy:policy,persistSpec:spec,
+    run:item=>persistentLocalTransferRun(view,spec,item)
   }]);
 }
 async function scanHostUploadEntry(view,parent,entry,remoteParent,state){
@@ -1629,6 +1627,7 @@ async function runPersistentLocalUploadScan(view,scan){
     if(!await ensureHandlePermission(root.handle))throw new Error('Local folder permission is required after reload. Click Grant to resume scanning.');
     view.left.localRoot=root;
     const state=newRemoteScanState(scan.remote_base||'.');
+    state.jobID=String(scan.id||'');state.conflictPolicy=normalizeConflictPolicy(scan.conflict_policy);
     await runTransferScan(view,'Upload scan',async()=>{
       for(const selected of scan.selected||[]){
         const sourcePath=normalizeRelativePath(selected.source_path||'.');
@@ -1656,13 +1655,14 @@ async function runPersistentLocalDownloadScan(view,scan){
     const state={
       source:'local',base:normalizeRelativePath(scan.left_base||'.'),localRoot:root,
       hostDirectories:new Set(['.',normalizeRelativePath(scan.left_base||'.')]),hostListings:new Map(),
-      localHandles:new Map([['.',root.handle]]),files:0,folders:0,view
+      localHandles:new Map([['.',root.handle]]),files:0,folders:0,view,
+      jobID:String(scan.id||''),conflictPolicy:normalizeConflictPolicy(scan.conflict_policy)
     };
     await runTransferScan(view,'Download scan',async()=>{
       for(const selected of scan.selected||[]){
         const remotePath=normalizeRemotePath(selected.remote_path);
         const remoteParent=parentPath(remotePath,true);
-        const entry={name:pathLeaf(remotePath,true),type:selected.directory?'directory':'file',size:Number(selected.size)||0};
+        const entry={name:pathLeaf(remotePath,true),type:selected.directory?'directory':'file',size:Number(selected.size)||0,modified:String(selected.modified||'')};
         await scanRemoteDownloadEntry(view,remoteParent,entry,state.base,state);
       }
     });
@@ -1695,7 +1695,7 @@ async function streamLeftEntriesToRemote(view,entries){
   const granted=await ensureHandlePermission(root.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
   const scan={
     id:newFileTransferJobID(),kind:'local_upload_scan',profile_id:String(view.profile.id||''),root_id:String(root.id||''),
-    source_base:sourceBase,remote_base:remoteBase,created_at:Date.now(),
+    source_base:sourceBase,remote_base:remoteBase,created_at:Date.now(),conflict_policy:effectiveDirectionConflictPolicy(view,'upload'),
     selected:selected.map(entry=>({
       source_path:joinPath(sourceBase,entry.name,false),
       target_path:joinPath(remoteBase,entry.name,true),
@@ -1747,13 +1747,13 @@ async function ensureLeftScanDirectory(view,target,state){
   if(state.source==='host')return ensureHostScanDirectory(view,target,state);
   return ensureLocalScanDirectory(target,state);
 }
-async function writeRemotePathToLocalRoot(view,root,remotePath,leftPath){
+async function writeRemotePathToLocalRoot(view,root,remotePath,leftPath,overwrite=false){
   const dirPath=parentPath(leftPath,false),name=pathLeaf(leftPath,false);
   let dir=root.handle;
   if(dirPath!=='.')for(const part of dirPath.split('/').filter(Boolean))dir=await dir.getDirectoryHandle(part,{create:true});
   let exists=false;
   try{await dir.getFileHandle(name);exists=true;}catch(error){if(error?.name!=='NotFoundError')throw error;}
-  if(exists&&!confirm(leftPath+' already exists locally. Overwrite it?'))throw new Error('Skipped existing local file: '+leftPath);
+  if(exists&&!overwrite)throw new Error('Local destination file appeared after conflict check: '+leftPath);
   const handle=await dir.getFileHandle(name,{create:true}),writable=await handle.createWritable();
   try{
     const ticket=await issueDownloadTicket(view,remotePath);
@@ -1774,26 +1774,27 @@ async function writeRemotePathToHost(view,remotePath,leftPath){
   }
   if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
 }
-function enqueueRemoteDownloadFile(view,remotePath,leftPath,size,state){
+function enqueueRemoteDownloadFile(view,remotePath,leftPath,size,state,modified=''){
   state.files++;
-  const source=state.source,localRoot=state.localRoot;
+  const source=state.source,localRoot=state.localRoot,jobID=String(state?.jobID||'');
+  const policy=localJobConflictPolicy(jobID)!=='ask'?localJobConflictPolicy(jobID):normalizeConflictPolicy(state?.conflictPolicy);
   const spec=source==='local'?{
     kind:'local_download',profile_id:String(view.profile.id||''),root_id:String(localRoot?.id||''),
-    remote_path:normalizeRemotePath(remotePath),left_path:normalizeRelativePath(leftPath)
+    remote_path:normalizeRemotePath(remotePath),left_path:normalizeRelativePath(leftPath),
+    remote_size:Number(size)||0,remote_modified:String(modified||''),job_id:jobID
   }:null;
   enqueueTransferTasks(view,[{
-    id:spec?newFileTransferJobID():undefined,direction:'←',kind:'Download',source:remotePath,target:leftPath,size:Number(size)||0,persistSpec:spec,
-    run:async()=>{
-      if(source==='host')await writeRemotePathToHost(view,remotePath,leftPath);
-      else await writeRemotePathToLocalRoot(view,localRoot,remotePath,leftPath);
-      markLeftQueueDirty(view);
+    id:spec?newFileTransferJobID():undefined,direction:'←',kind:'Download',source:remotePath,target:leftPath,size:Number(size)||0,
+    conflictJobID:jobID,conflictPolicy:policy,persistSpec:spec,
+    run:spec?(item=>persistentLocalTransferRun(view,spec,item)):async()=>{
+      await writeRemotePathToHost(view,remotePath,leftPath);markLeftQueueDirty(view);
     }
   }]);
 }
 async function scanRemoteDownloadEntry(view,remoteParent,entry,leftParent,state){
   const remotePath=joinPath(remoteParent,entry.name,true),leftPath=joinPath(leftParent,entry.name,false);
   if(entryType(entry)!=='directory'){
-    enqueueRemoteDownloadFile(view,remotePath,leftPath,entry.size,state);return;
+    enqueueRemoteDownloadFile(view,remotePath,leftPath,entry.size,state,entry.modified);return;
   }
   await ensureLeftScanDirectory(view,leftPath,state);
   const listing=await fetchRemoteDirectory(view,remotePath);
@@ -1813,9 +1814,9 @@ async function streamRemoteEntriesToLeft(view,entries){
   const leftBase=normalizeRelativePath(view.left.currentPath||'.');
   const scan={
     id:newFileTransferJobID(),kind:'local_download_scan',profile_id:String(view.profile.id||''),root_id:String(root.id||''),
-    remote_base:remoteBase,left_base:leftBase,created_at:Date.now(),
+    remote_base:remoteBase,left_base:leftBase,created_at:Date.now(),conflict_policy:effectiveDirectionConflictPolicy(view,'download'),
     selected:selected.map(entry=>({
-      remote_path:joinPath(remoteBase,entry.name,true),directory:entryType(entry)==='directory',size:Number(entry.size)||0
+      remote_path:joinPath(remoteBase,entry.name,true),directory:entryType(entry)==='directory',size:Number(entry.size)||0,modified:String(entry.modified||'')
     }))
   };
   upsertPersistentLocalScan(scan);
