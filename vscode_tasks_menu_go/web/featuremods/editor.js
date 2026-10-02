@@ -251,9 +251,9 @@ function activateEditorDOM(id){
     if(yes)setTimeout(()=>view.cm.focus(),0);
   }
 }
-function activateEditor(id){
-  if(!editors.has(id))return;
-  app.activateExternalView(id);
+function activateEditor(id,{force=false}={}){
+  if(!editors.has(id))return false;
+  return app.activateExternalView(id,{force});
 }
 function deactivateEditors(){
   activeEditorID='';
@@ -443,7 +443,7 @@ function createEditor(file){
       view.cm.dispatch(view.cm.state.replaceSelection('\t'));
     }
   },true);
-  tab.onclick=()=>activateEditor(id);
+  tab.onclick=()=>activateEditor(id,{force:true});
   close.onclick=event=>{event.stopPropagation();closeEditor(id).catch(app.showError);};
   save.onclick=()=>saveEditor(view).catch(app.showError);
   reload.onclick=()=>reloadEditor(view).catch(app.showError);
