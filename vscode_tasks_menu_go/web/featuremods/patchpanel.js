@@ -701,7 +701,7 @@ function installPatchPanel(){
       start('queue').catch(app.showError);
       return;
     }
-    if(lifecycleSuspended)rememberReturnView();
+    if(!panel.classList.contains('visible'))rememberReturnView();
     resumePatchPanelLifecycle();
     patchTab.hidden=false;
     app.activateExternalView('patch');
