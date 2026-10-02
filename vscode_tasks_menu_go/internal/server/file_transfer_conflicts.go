@@ -235,6 +235,75 @@ func (s *Server) backgroundRemoteSHA256(ctx context.Context, profileID, remotePa
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
+
+func (s *Server) enqueueServerTransferConflictAware(queue *fileTransferServerQueue, jobID, kind, direction, source, target, operation string, size int64, conflict *fileTransferConflictMeta) error {
+	if conflict == nil {
+		queue.addItem(jobID, kind, direction, source, target, operation, size, false)
+		return nil
+	}
+	policy := queue.effectiveConflictPolicy(jobID, kind)
+	if policy == fileTransferConflictAsk {
+		queue.addConflictItem(jobID, kind, direction, source, target, operation, size, *conflict)
+		return nil
+	}
+	item := &fileTransferServerItem{
+		JobID: jobID, Kind: kind, Direction: direction, Source: source, Target: target,
+		Size: size, Operation: operation, Conflict: conflict,
+	}
+	overwrite, err := s.evaluateServerConflict(context.Background(), queue.ProfileID, item, policy)
+	if err != nil {
+		conflictItem := queue.addConflictItem(jobID, kind, direction, source, target, operation, size, *conflict)
+		queue.mu.Lock()
+		conflictItem.Error = err.Error()
+		queue.touchLocked()
+		queue.mu.Unlock()
+		return nil
+	}
+	if !overwrite {
+		queue.addSkippedItem(jobID, kind, direction, source, target, operation, size, *conflict, policy)
+		return nil
+	}
+	queued := queue.addItem(jobID, kind, direction, source, target, operation, size, false)
+	queued.Conflict = conflict
+	queued.Decision = policy
+	if kind == "Download" {
+		queued.Overwrite = true
+	}
+	return nil
+}
+
+func (s *Server) resolveServerConflictItem(queue *fileTransferServerQueue, item *fileTransferServerItem, policy string) error {
+	if item == nil {
+		return nil
+	}
+	overwrite, err := s.evaluateServerConflict(context.Background(), queue.ProfileID, item, policy)
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	if item.Status != "conflict" || item.Removed {
+		return nil
+	}
+	if err != nil {
+		item.Error = err.Error()
+		queue.recomputeJobLocked(item.JobID)
+		queue.touchLocked()
+		return err
+	}
+	item.Error = ""
+	item.Decision = policy
+	if overwrite {
+		item.Status = "queued"
+		if item.Kind == "Download" {
+			item.Overwrite = true
+		}
+	} else {
+		item.Status = "skipped"
+		item.Overwrite = false
+	}
+	queue.recomputeJobLocked(item.JobID)
+	queue.touchLocked()
+	return nil
+}
+
 func (s *Server) evaluateServerConflict(ctx context.Context, profileID string, item *fileTransferServerItem, policy string) (bool, error) {
 	policy, err := normalizeFileTransferConflictPolicy(policy)
 	if err != nil {
