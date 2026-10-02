@@ -329,7 +329,7 @@ func TestFileTransferRemoteDeleteScansAndQueuesPostOrder(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		"function enqueueRemoteDeleteItem(view,path,directory,state)",
+		"function enqueueRemoteDeleteItem(view,path,directory,state,jobID='')",
 		"async function scanRemoteDeleteEntry(view,remoteParent,entry,state)",
 		"const listing=await fetchRemoteDirectory(view,remotePath,{force:true})",
 		"for(const child of listing.entries)await scanRemoteDeleteEntry(view,remotePath,child,state);",
