@@ -921,6 +921,29 @@ func TestPatchPanelOwnsTabbedNativeWorkspaceSurface(t *testing.T) {
 	}
 }
 
+
+func TestPatchPanelSurvivesProgrammaticWorkspaceOpens(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const explicit=Boolean(event.detail?.explicit)",
+		"if(!explicit&&panel.classList.contains('visible'))",
+		"app.claimForegroundView?.('external:patch')",
+		"app.activateExternalView('patch')",
+		"if(explicit)deactivate()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Patch foreground persistence missing %q", want)
+		}
+	}
+	if strings.Contains(js, "window.addEventListener('taskmenu:view-activated',()=>") {
+		t.Fatal("Patch panel must inspect activation metadata instead of deactivating on every view event")
+	}
+}
+
 func TestPatchFileActionsOpenEditorAndCopyFullPath(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
 	if err != nil { t.Fatal(err) }
