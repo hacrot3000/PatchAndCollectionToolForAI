@@ -8,6 +8,8 @@ let activeViewID='';
 let restoringSession=false;
 let sessionRestoreStarted=false;
 let sessionPersistenceReady=false;
+const activeRemoteDeleteJobs=new Set();
+const remoteDeleteRuntime=new Map();
 
 const localDBName='TaskDeckFileTransfer';
 const localDBStore='localRoots';
@@ -122,7 +124,8 @@ function readFileTransferSession(){
       open:raw.open.map(item=>({
         profile_id:String(item?.profile_id||''),
         left_path:normalizeRelativePath(item?.left_path||'.'),
-        remote_path:normalizeRemotePath(item?.remote_path||'.')
+        remote_path:normalizeRemotePath(item?.remote_path||'.'),
+        queue_paused:Boolean(item?.queue_paused)
       })).filter(item=>item.profile_id)
     };
   }catch{return null;}
@@ -135,13 +138,54 @@ function persistFileTransferSession(){
     open.push({
       profile_id:id,
       left_path:normalizeRelativePath(view.left?.currentPath||'.'),
-      remote_path:normalizeRemotePath(view.remote?.currentPath||view.profile?.initial_path||'.')
+      remote_path:normalizeRemotePath(view.remote?.currentPath||view.profile?.initial_path||'.'),
+      queue_paused:Boolean(view.transferQueue?.paused)
     });
   }
   try{
     if(!open.length){localStorage.removeItem(key);return;}
     localStorage.setItem(key,JSON.stringify({version:1,active_profile_id:activeViewID,open}));
   }catch(error){console.warn('Cannot persist file-transfer session',error);}
+}
+function fileTransferJobsKey(){
+  const workspace=fileTransferWorkspaceID();
+  return workspace?'taskdeck:file-transfer:jobs:'+workspace:'';
+}
+function readPersistentFileTransferJobs(){
+  const key=fileTransferJobsKey();if(!key)return [];
+  try{
+    const raw=JSON.parse(localStorage.getItem(key)||'null');
+    if(!raw||raw.version!==1||!Array.isArray(raw.jobs))return [];
+    return raw.jobs.map(job=>({
+      id:String(job?.id||''),
+      kind:String(job?.kind||''),
+      profile_id:String(job?.profile_id||''),
+      created_at:Number(job?.created_at)||0,
+      targets:(Array.isArray(job?.targets)?job.targets:[]).map(target=>({
+        path:normalizeRemotePath(target?.path||'.'),
+        directory:Boolean(target?.directory)
+      })).filter(target=>target.path!=='.'&&target.path!=='/')
+    })).filter(job=>job.id&&job.kind==='remote_delete'&&job.profile_id&&job.targets.length);
+  }catch{return [];}
+}
+function writePersistentFileTransferJobs(jobs){
+  const key=fileTransferJobsKey();if(!key)return;
+  try{
+    const clean=Array.isArray(jobs)?jobs:[];
+    if(!clean.length){localStorage.removeItem(key);return;}
+    localStorage.setItem(key,JSON.stringify({version:1,jobs:clean}));
+  }catch(error){console.warn('Cannot persist file-transfer jobs',error);}
+}
+function upsertPersistentFileTransferJob(job){
+  const jobs=readPersistentFileTransferJobs().filter(item=>item.id!==job.id);
+  jobs.push(job);writePersistentFileTransferJobs(jobs);
+}
+function removePersistentFileTransferJob(jobID){
+  writePersistentFileTransferJobs(readPersistentFileTransferJobs().filter(job=>job.id!==jobID));
+}
+function newFileTransferJobID(){
+  if(globalThis.crypto?.randomUUID)return globalThis.crypto.randomUUID();
+  return 'ft-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
 }
 function normalizeRemotePath(value){
   value=String(value||'.').trim()||'.';
@@ -492,6 +536,7 @@ async function processTransferQueue(view){
       try{
         await item.run(item);
         item.status='success';item.run=null;
+        if(item.jobID)markPersistentDeleteItemSuccess(view,item.jobID);
       }catch(error){
         item.status='failed';item.error=String(error?.message||error||'Transfer failed');
       }
@@ -510,7 +555,8 @@ function enqueueTransferTasks(view,tasks){
     queue.sequence++;
     const item={
       id:queue.sequence,status:'queued',error:'',direction:task.direction||'',kind:task.kind||'Transfer',
-      source:task.source||'',target:task.target||'',size:Number(task.size)||0,run:task.run,removeAfterRun:false
+      source:task.source||'',target:task.target||'',size:Number(task.size)||0,run:task.run,removeAfterRun:false,
+      jobID:String(task.jobID||'')
     };
     queue.items.push(item);queue.pending.push(item);
   }
@@ -534,11 +580,11 @@ function runTransferScan(view,label,scanner){
 }
 function pauseTransferQueue(view){
   const queue=view.transferQueue;if(!queue)return;
-  queue.paused=true;scheduleTransferQueueRender(view);
+  queue.paused=true;scheduleTransferQueueRender(view);persistFileTransferSession();
 }
 function resumeTransferQueue(view){
   const queue=view.transferQueue;if(!queue)return;
-  queue.paused=false;scheduleTransferQueueRender(view);processTransferQueue(view);
+  queue.paused=false;scheduleTransferQueueRender(view);persistFileTransferSession();processTransferQueue(view);
 }
 function resumeSelectedTransfers(view){
   const queue=view.transferQueue;if(!queue)return;
@@ -1517,6 +1563,7 @@ function attachView(profile,{activate=true,session=null}={}){
 
   sites.append(left.site,divider,remote.site);
   const transferQueue=createTransferQueue(view);
+  if(session?.queue_paused)view.transferQueue.paused=true;
   pane.append(head,sites,transferQueue);panes.append(pane);views.set(id,view);installDivider(view,divider,sites);installQueueResizer(view);
 
   source.onchange=()=>switchLeftSource(view,source.value).catch(app.showError);
