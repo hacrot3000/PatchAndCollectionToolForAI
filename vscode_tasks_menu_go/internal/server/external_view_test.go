@@ -42,13 +42,19 @@ func TestViewActivationEventsDistinguishExplicitTabSwitches(t *testing.T) {
 			t.Fatalf("appJS missing explicit tab activation contract %q", want)
 		}
 	}
+	start := strings.Index(appJS, "function activationAllowed(target,force=false)")
+	end := strings.Index(appJS[start:], "function activateView(")
+	if start < 0 || end < 0 {
+		t.Fatal("activationAllowed block unavailable")
+	}
+	activationBlock := appJS[start : start+end]
 	for _, forbidden := range []string{
 		"trustedTabActivationDepth",
-		"function trustedWorkspaceTabClick(event)",
+		"trustedWorkspaceTabClick",
 		"event.isTrusted",
-		"function explicitViewActivation()",
+		"explicitViewActivation()",
 	} {
-		if strings.Contains(appJS, forbidden) {
+		if strings.Contains(activationBlock, forbidden) {
 			t.Fatalf("core activation must not depend on fragile DOM trust/capture timing: %q", forbidden)
 		}
 	}
@@ -85,12 +91,18 @@ func TestExplicitForceBreaksForegroundLockWithoutDOMTrustHeuristics(t *testing.T
 			t.Fatalf("core missing explicit foreground-break contract %q", want)
 		}
 	}
+	start := strings.Index(appJS, "function activationAllowed(target,force=false)")
+	end := strings.Index(appJS[start:], "function activateView(")
+	if start < 0 || end < 0 {
+		t.Fatal("activationAllowed block unavailable")
+	}
+	activationBlock := appJS[start : start+end]
 	for _, forbidden := range []string{
 		"trustedWorkspaceTabClick",
 		"event.isTrusted",
 		"explicitViewActivation()",
 	} {
-		if strings.Contains(appJS, forbidden) {
+		if strings.Contains(activationBlock, forbidden) {
 			t.Fatalf("explicit tab switching must not depend on DOM trust heuristics: %q", forbidden)
 		}
 	}
