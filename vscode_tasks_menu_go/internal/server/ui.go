@@ -643,7 +643,7 @@ function activateView(id,{focus=true,force=false}={}){
     const yes=sid===id;v.tab.classList.toggle('active',yes);v.pane.classList.toggle('hidden',!yes);
     if(yes)setTimeout(()=>{try{v.fit.fit();if(focus)v.term.focus();}catch{}},0);
   }
-  window.dispatchEvent(new CustomEvent('taskmenu:view-activated',{detail:{kind:'terminal',id}}));
+  window.dispatchEvent(new CustomEvent('taskmenu:view-activated',{detail:{kind:'terminal',id,explicit:Boolean(force)}}));
   return true;
 }
 
@@ -653,7 +653,7 @@ function activateExternalView(token,{force=false}={}){
   if(!activationAllowed(target,force))return false;
   active=target;
   for(const [,v] of views){v.tab.classList.remove('active');v.pane.classList.add('hidden');}
-  window.dispatchEvent(new CustomEvent('taskmenu:view-activated',{detail:{kind:'external',id:token}}));
+  window.dispatchEvent(new CustomEvent('taskmenu:view-activated',{detail:{kind:'external',id:token,explicit:Boolean(force)}}));
   return true;
 }
 
