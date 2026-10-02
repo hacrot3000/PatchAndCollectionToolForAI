@@ -1100,7 +1100,7 @@ func TestPatchPanelForegroundLockPreservesContentAcrossAutomaticViewOpens(t *tes
 		"app.releaseForegroundView?.('external:patch')",
 		"app.activateExternalView('patch',{force:true})",
 		"const patchActive=String(app.active||'')==='external:patch'",
-		"Creating/opening a Terminal, task, SSH, FTP/SFTP, database, editor, etc.",
+		"Automatic/session creation, restore, split/layout and connector flows",
 		"const explicit=Boolean(event.detail?.explicit)",
 		"if(!explicit&&panel.classList.contains('visible'))",
 		"if(explicit)deactivate()",
