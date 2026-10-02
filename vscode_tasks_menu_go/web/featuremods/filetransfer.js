@@ -1566,8 +1566,10 @@ async function restoreFileTransferSession(){
   if(saved.active_profile_id&&views.has(saved.active_profile_id))activateView(saved.active_profile_id);
   else persistFileTransferSession();
 }
-function scheduleFileTransferSessionRestore(){
-  if(fileTransferWorkspaceID())restoreFileTransferSession();
+async function scheduleFileTransferSessionRestore(){
+  if(!fileTransferWorkspaceID()||sessionRestoreStarted)return;
+  try{await globalThis.TaskMenuTerminalRestore?.ready;}catch{}
+  await restoreFileTransferSession();
 }
 
 async function openProfile(profileOrID){
