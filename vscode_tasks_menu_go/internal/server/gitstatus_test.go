@@ -33,7 +33,8 @@ func TestGitStatusFeatureModule(t *testing.T) {
 		"if(live?.cwd)cwd=live.cwd",
 		"target_type||'').toLowerCase()==='ssh'",
 		"view.meta?.target_profile_id",
-		".git-panel{display:none;position:fixed;z-index:1500;top:calc(var(--taskmenu-header-height,30px) + 6px);",
+		".git-panel{display:none;position:fixed;z-index:2100;top:calc(var(--taskmenu-header-height,30px) + 6px);",
+		"body.task-sidebar-auto-hide .git-panel{left:60px;width:min(780px,calc(100vw - 72px))}",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("gitstatus.js missing behavior %q", want)
