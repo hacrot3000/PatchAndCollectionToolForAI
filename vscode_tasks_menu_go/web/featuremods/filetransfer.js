@@ -187,6 +187,68 @@ function newFileTransferJobID(){
   if(globalThis.crypto?.randomUUID)return globalThis.crypto.randomUUID();
   return 'ft-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
 }
+function localTransferQueueKey(){
+  const workspace=fileTransferWorkspaceID();
+  return workspace?'taskdeck:file-transfer:local-queue:'+workspace:'';
+}
+function localTransferScansKey(){
+  const workspace=fileTransferWorkspaceID();
+  return workspace?'taskdeck:file-transfer:local-scans:'+workspace:'';
+}
+function readPersistentLocalTransferItems(){
+  const key=localTransferQueueKey();if(!key)return [];
+  try{
+    const raw=JSON.parse(localStorage.getItem(key)||'null');
+    return raw?.version===1&&Array.isArray(raw.items)?raw.items:[];
+  }catch{return [];}
+}
+function writePersistentLocalTransferItems(items){
+  const key=localTransferQueueKey();if(!key)return;
+  try{
+    const clean=Array.isArray(items)?items:[];
+    if(!clean.length){localStorage.removeItem(key);return;}
+    localStorage.setItem(key,JSON.stringify({version:1,items:clean}));
+  }catch(error){console.warn('Cannot persist local-browser transfer queue',error);}
+}
+function readPersistentLocalScans(){
+  const key=localTransferScansKey();if(!key)return [];
+  try{
+    const raw=JSON.parse(localStorage.getItem(key)||'null');
+    return raw?.version===1&&Array.isArray(raw.scans)?raw.scans:[];
+  }catch{return [];}
+}
+function writePersistentLocalScans(scans){
+  const key=localTransferScansKey();if(!key)return;
+  try{
+    const clean=Array.isArray(scans)?scans:[];
+    if(!clean.length){localStorage.removeItem(key);return;}
+    localStorage.setItem(key,JSON.stringify({version:1,scans:clean}));
+  }catch(error){console.warn('Cannot persist local-browser transfer scans',error);}
+}
+function upsertPersistentLocalScan(scan){
+  const scans=readPersistentLocalScans().filter(item=>item.id!==scan.id);
+  scans.push(scan);writePersistentLocalScans(scans);
+}
+function removePersistentLocalScan(scanID){
+  writePersistentLocalScans(readPersistentLocalScans().filter(item=>item.id!==scanID));
+}
+function localPersistentKey(spec){
+  if(!spec)return '';
+  if(spec.kind==='local_upload')return 'upload:'+spec.root_id+':'+spec.source_path+'=>'+spec.profile_id+':'+spec.target_path;
+  if(spec.kind==='local_download')return 'download:'+spec.profile_id+':'+spec.remote_path+'=>'+spec.root_id+':'+spec.left_path;
+  return '';
+}
+function persistLocalTransferQueue(view){
+  const queue=view?.transferQueue;if(!queue)return;
+  const others=readPersistentLocalTransferItems().filter(item=>item.profile_id!==String(view.profile.id||''));
+  const current=queue.items.filter(item=>!item.server&&item.persistSpec).map(item=>({
+    id:String(item.id),profile_id:String(view.profile.id||''),kind:item.kind,direction:item.direction,
+    source:item.source,target:item.target,size:Number(item.size)||0,
+    status:item.status==='running'?'queued':item.status,error:String(item.error||''),
+    spec:item.persistSpec
+  }));
+  writePersistentLocalTransferItems(others.concat(current));
+}
 function normalizeRemotePath(value){
   value=String(value||'.').trim()||'.';
   if(value==='.')return '.';
