@@ -45,7 +45,10 @@ style.textContent=`
 .ft-name{max-width:480px;overflow:hidden;text-overflow:ellipsis}.ft-kind{display:inline-block;min-width:17px;margin-right:5px;opacity:.78}
 .ft-size{text-align:right!important;font-family:ui-monospace,monospace}.ft-type{opacity:.72}.ft-modified{font-family:ui-monospace,monospace;font-size:10px}
 .ft-empty{padding:20px;opacity:.55}
-.ft-queue{height:170px;min-height:110px;max-height:34vh;display:flex;flex-direction:column;border-top:1px solid #30343b;background:#0f1319}
+.ft-queue{height:170px;min-height:90px;display:flex;flex-direction:column;border-top:0;background:#0f1319}
+.ft-queue-resizer{height:8px;min-height:8px;flex:0 0 8px;cursor:row-resize;touch-action:none;background:#171b22;border-top:1px solid #30343b;border-bottom:1px solid #30343b;position:relative}
+.ft-queue-resizer::after{content:'';position:absolute;left:50%;top:3px;width:42px;height:2px;transform:translateX(-50%);border-radius:2px;background:#56606e;opacity:.75}
+.ft-queue-resizer:hover,.ft-queue-resizer.dragging{background:#26303c}
 .ft-queue-head{display:flex;align-items:center;gap:7px;padding:5px 8px;border-bottom:1px solid #30343b;background:#141920}
 .ft-queue-title{font-size:11px;font-weight:700}.ft-queue-summary{font-size:10px;opacity:.68}.ft-queue-spacer{flex:1}
 .ft-queue-head button{height:25px;padding:2px 7px;font-size:10px}
@@ -69,6 +72,7 @@ style.textContent=`
 .ft-transfer-tools button{width:34px;height:34px;padding:0;border-radius:50%;font-size:17px;background:#202a36;box-shadow:0 2px 7px rgba(0,0,0,.35)}
 .ft-transfer-tools button:disabled{opacity:.28}
 body.ft-resizing{user-select:none;cursor:col-resize}
+body.ft-queue-resizing{user-select:none;cursor:row-resize}
 .ft-context{position:fixed;z-index:16000;min-width:175px;padding:4px;background:#171b22;border:1px solid #48515f;border-radius:7px;box-shadow:0 14px 38px rgba(0,0,0,.45)}
 .ft-context-title{padding:6px 9px 5px;font-size:10px;font-weight:700;opacity:.65;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ft-context-separator{height:1px;margin:4px 3px;background:#303844}
@@ -86,6 +90,7 @@ html[data-taskmenu-theme="light"] .ft-table tbody tr:hover{background:#eef2f6}
 html[data-taskmenu-theme="light"] .ft-table tbody tr.selected{background:#dde8f3}
 html[data-taskmenu-theme="light"] .ft-context{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .ft-queue{background:#fff;border-color:#b9c0c8}
+html[data-taskmenu-theme="light"] .ft-queue-resizer{background:#e3e8ed;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .ft-queue-head,html[data-taskmenu-theme="light"] .ft-queue-table th{background:#edf1f5;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .ft-queue-table tbody tr:hover{background:#eef2f6}
 html[data-taskmenu-theme="light"] .ft-queue-table tbody tr.selected{background:#dde8f3}
@@ -533,6 +538,7 @@ function markRemoteQueueDirty(view,path){
 function markLeftQueueDirty(view){if(view.transferQueue)view.transferQueue.leftDirty=true;}
 function createTransferQueue(view){
   const root=document.createElement('div');root.className='ft-queue';
+  const resizer=document.createElement('div');resizer.className='ft-queue-resizer';resizer.title='Drag to resize Transfer Queue · double-click to reset';
   const head=document.createElement('div');head.className='ft-queue-head';
   const title=document.createElement('span');title.className='ft-queue-title';title.textContent='Transfer Queue';
   const summary=document.createElement('span');summary.className='ft-queue-summary';
@@ -544,9 +550,9 @@ function createTransferQueue(view){
   const table=document.createElement('table');table.className='ft-queue-table';
   const thead=document.createElement('thead'),hr=document.createElement('tr');
   for(const label of ['','', 'Kind','Source','Target','Size','Status','Error']){const th=document.createElement('th');th.textContent=label;hr.append(th);}
-  thead.append(hr);const body=document.createElement('tbody');table.append(thead,body);wrap.append(table);root.append(head,wrap);
+  thead.append(hr);const body=document.createElement('tbody');table.append(thead,body);wrap.append(table);root.append(resizer,head,wrap);
   const queue={
-    root,body,summary,retry,clear,items:[],pending:[],pendingHead:0,priorityPending:[],priorityHead:0,
+    root,resizer,body,summary,retry,clear,items:[],pending:[],pendingHead:0,priorityPending:[],priorityHead:0,
     sequence:0,running:false,paused:false,selectedIDs:new Set(),selectionAnchor:null,
     activeScans:0,scanLabel:'',scanChain:Promise.resolve(),remoteDirty:new Set(),leftDirty:false
   };
@@ -1350,6 +1356,42 @@ function installDivider(view,divider,sites){
   divider.onpointerup=finish;divider.onpointercancel=finish;divider.ondblclick=()=>{ratio=.5;apply();safeStorageSet(storageKey,'.5');};
 }
 
+function installQueueResizer(view){
+  const queue=view.transferQueue,resizer=queue?.resizer,root=queue?.root;if(!resizer||!root)return;
+  const storageKey='taskdeck:file-transfer:queue-height:'+workspaceKey()+':'+view.profile.id;
+  const defaultHeight=170,minHeight=90;
+  let height=Number(safeStorageGet(storageKey,String(defaultHeight)))||defaultHeight,dragging=false,startY=0,startHeight=height;
+  const maxHeight=()=>{
+    const paneHeight=view.pane.getBoundingClientRect().height||window.innerHeight||600;
+    return Math.max(minHeight,Math.floor(Math.min(paneHeight*.65,paneHeight-38-160)));
+  };
+  const apply=()=>{
+    height=Math.round(Math.min(maxHeight(),Math.max(minHeight,height)));
+    root.style.height=height+'px';
+    root.style.flex='0 0 '+height+'px';
+  };
+  apply();
+  resizer.onpointerdown=event=>{
+    if(event.button!==0)return;
+    dragging=true;startY=event.clientY;startHeight=root.getBoundingClientRect().height||height;
+    resizer.classList.add('dragging');document.body.classList.add('ft-queue-resizing');
+    resizer.setPointerCapture(event.pointerId);event.preventDefault();
+  };
+  resizer.onpointermove=event=>{
+    if(!dragging)return;
+    height=startHeight-(event.clientY-startY);apply();event.preventDefault();
+  };
+  const finish=event=>{
+    if(!dragging)return;
+    dragging=false;resizer.classList.remove('dragging');document.body.classList.remove('ft-queue-resizing');
+    safeStorageSet(storageKey,String(height));
+    try{resizer.releasePointerCapture(event.pointerId);}catch{}
+  };
+  resizer.onpointerup=finish;resizer.onpointercancel=finish;
+  resizer.ondblclick=()=>{height=defaultHeight;apply();safeStorageSet(storageKey,String(height));};
+  window.addEventListener('resize',apply);
+}
+
 function createSiteShell(title){
   const site=document.createElement('div');site.className='ft-site';
   const head=document.createElement('div');head.className='ft-site-head';
@@ -1426,7 +1468,7 @@ function attachView(profile){
 
   sites.append(left.site,divider,remote.site);
   const transferQueue=createTransferQueue(view);
-  pane.append(head,sites,transferQueue);panes.append(pane);views.set(id,view);installDivider(view,divider,sites);
+  pane.append(head,sites,transferQueue);panes.append(pane);views.set(id,view);installDivider(view,divider,sites);installQueueResizer(view);
 
   source.onchange=()=>switchLeftSource(view,source.value).catch(app.showError);
   rootSelect.onchange=async()=>{
