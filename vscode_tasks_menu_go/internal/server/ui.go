@@ -345,7 +345,8 @@ function renderNode(node,host,open){
 async function startTask(t){
   if(!hasPermission('tasks.run'))throw new Error('Task execution permission is required');
   const meta=await jsonFetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:t.id})});
-  hidden.delete(meta.id);attach(meta,true);
+  const keepPatchVisible=String(active||'')==='external:patch';
+  hidden.delete(meta.id);attach(meta,!keepPatchVisible);
 }
 
 async function startTerminal(){
