@@ -440,7 +440,8 @@ function renderTransferQueue(view){
   const queue=view.transferQueue;if(!queue?.body)return;
   pruneQueueSelection(queue);
   const counts=queueCounts(view);
-  const scanText=queue.activeScans>0?'Scanning '+queue.activeScans+' · ':'';
+  const totalScans=(queue.activeScans||0)+(queue.serverActiveScans||0);
+  const scanText=totalScans>0?'Scanning '+totalScans+' · ':'';
   const pauseText=queue.paused?'Paused · ':'';
   let visible=queue.items;
   if(visible.length>maxRenderedTransferRows){
@@ -480,6 +481,48 @@ function renderTransferQueue(view){
 function scheduleTransferQueueRender(view){
   const queue=view.transferQueue;if(!queue||queue.renderTimer)return;
   queue.renderTimer=setTimeout(()=>{queue.renderTimer=0;renderTransferQueue(view);},80);
+}
+async function serverTransferQueueControl(view,action,itemIDs=[]){
+  return app.jsonFetch('/api/file-transfer/jobs/control',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({profile_id:view.profile.id,action,item_ids:itemIDs})
+  });
+}
+async function createServerTransferJob(view,payload){
+  const job=await app.jsonFetch('/api/file-transfer/jobs',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({profile_id:view.profile.id,...payload})
+  });
+  await syncServerTransferQueue(view);
+  return job;
+}
+async function syncServerTransferQueue(view){
+  const queue=view.transferQueue;if(!queue)return;
+  const snapshot=await app.jsonFetch('/api/file-transfer/jobs?profile_id='+encodeURIComponent(view.profile.id),{cache:'no-store'});
+  const localItems=queue.items.filter(item=>!item.server);
+  const serverItems=(Array.isArray(snapshot?.items)?snapshot.items:[]).map(item=>({
+    id:'server:'+item.id,serverID:String(item.id||''),server:true,jobID:String(item.job_id||''),
+    status:String(item.status||'queued'),error:String(item.error||''),direction:String(item.direction||''),
+    kind:String(item.kind||'Transfer'),source:String(item.source||''),target:String(item.target||''),
+    size:Number(item.size)||0,run:null,removeAfterRun:false
+  }));
+  const wasBusy=Boolean(queue.serverBusy);
+  const busy=Number(snapshot?.active_scans||0)>0||serverItems.some(item=>item.status==='queued'||item.status==='running');
+  queue.serverActiveScans=Number(snapshot?.active_scans)||0;
+  queue.serverBusy=busy;queue.serverRevision=Number(snapshot?.revision)||0;
+  queue.paused=Boolean(snapshot?.paused);
+  queue.items=localItems.concat(serverItems);
+  scheduleTransferQueueRender(view);
+  if(wasBusy&&!busy){
+    invalidateRemoteCache(view,view.remote.currentPath||'.');
+    loadRemoteDirectory(view,view.remote.currentPath||'.',{force:true}).catch(()=>{});
+    if(view.left.source==='host')loadHostDirectory(view,view.left.currentPath||'.').catch(()=>{});
+  }
+}
+function startServerTransferQueuePolling(view){
+  if(view.serverQueueTimer)return;
+  const poll=()=>syncServerTransferQueue(view).catch(error=>console.warn('Cannot sync server file-transfer queue',error));
+  poll();view.serverQueueTimer=setInterval(poll,700);
 }
 async function afterTransferQueueIdle(view){
   const queue=view.transferQueue;if(!queue)return;
@@ -579,33 +622,40 @@ function runTransferScan(view,label,scanner){
   queue.scanChain=queue.scanChain.then(execute,execute);
   return queue.scanChain;
 }
-function pauseTransferQueue(view){
+async function pauseTransferQueue(view){
   const queue=view.transferQueue;if(!queue)return;
   queue.paused=true;scheduleTransferQueueRender(view);persistFileTransferSession();
+  await serverTransferQueueControl(view,'pause');await syncServerTransferQueue(view);
 }
-function resumeTransferQueue(view){
+async function resumeTransferQueue(view){
   const queue=view.transferQueue;if(!queue)return;
   queue.paused=false;scheduleTransferQueueRender(view);persistFileTransferSession();processTransferQueue(view);
+  await serverTransferQueueControl(view,'resume');await syncServerTransferQueue(view);
 }
-function resumeSelectedTransfers(view){
+async function resumeSelectedTransfers(view){
   const queue=view.transferQueue;if(!queue)return;
-  for(const item of queueSelectedItems(queue)){
+  const selected=queueSelectedItems(queue),serverIDs=[];
+  for(const item of selected){
+    if(item.server){if(item.serverID)serverIDs.push(item.serverID);continue;}
     if(item.status==='failed'&&typeof item.run==='function'){item.status='queued';item.error='';}
     if(item.status==='queued'&&typeof item.run==='function')queue.priorityPending.push(item);
   }
   scheduleTransferQueueRender(view);processTransferQueue(view);
+  if(serverIDs.length){await serverTransferQueueControl(view,'resume_selected',serverIDs);await syncServerTransferQueue(view);}
 }
-function removeSelectedTransfers(view){
+async function removeSelectedTransfers(view){
   const queue=view.transferQueue;if(!queue)return;
-  const selected=new Set(queue.selectedIDs);
+  const selectedIDs=new Set(queue.selectedIDs),serverIDs=[];
   for(const item of queue.items){
-    if(!selected.has(item.id))continue;
+    if(!selectedIDs.has(item.id))continue;
+    if(item.server){if(item.serverID)serverIDs.push(item.serverID);continue;}
     if(item.status==='running'){item.removeAfterRun=true;continue;}
     item.status='removed';item.run=null;
   }
   queue.items=queue.items.filter(item=>item.status!=='removed');
   queue.selectedIDs.clear();queue.selectionAnchor=null;
   scheduleTransferQueueRender(view);
+  if(serverIDs.length){await serverTransferQueueControl(view,'remove_selected',serverIDs);await syncServerTransferQueue(view);}
   if(!queue.running&&queue.activeScans===0&&!hasAnyPendingTransfer(queue))afterTransferQueueIdle(view);
 }
 function queueContextMenu(view,event,item=null,visible=[]){
@@ -615,7 +665,7 @@ function queueContextMenu(view,event,item=null,visible=[]){
     queue.selectedIDs.clear();queue.selectedIDs.add(item.id);queue.selectionAnchor=item.id;scheduleTransferQueueRender(view);
   }
   const selected=queueSelectedItems(queue);
-  const resumable=selected.some(candidate=>(candidate.status==='queued'||candidate.status==='failed')&&typeof candidate.run==='function');
+  const resumable=selected.some(candidate=>(candidate.status==='queued'||candidate.status==='failed')&&(candidate.server||typeof candidate.run==='function'));
   const menu=[
     {label:queue.paused?'Resume queue':'Pause queue',action:()=>queue.paused?resumeTransferQueue(view):pauseTransferQueue(view)}
   ];
@@ -649,17 +699,19 @@ function createTransferQueue(view){
   const queue={
     root,resizer,body,summary,retry,clear,items:[],pending:[],pendingHead:0,priorityPending:[],priorityHead:0,
     sequence:0,running:false,paused:false,selectedIDs:new Set(),selectionAnchor:null,
-    activeScans:0,scanLabel:'',scanChain:Promise.resolve(),remoteDirty:new Set(),leftDirty:false
+    activeScans:0,serverActiveScans:0,serverBusy:false,serverRevision:0,scanLabel:'',scanChain:Promise.resolve(),remoteDirty:new Set(),leftDirty:false
   };
   view.transferQueue=queue;
   root.oncontextmenu=event=>{if(event.target.closest('tbody tr'))return;queueContextMenu(view,event);};
-  retry.onclick=()=>{
-    for(const item of queue.items)if(item.status==='failed'&&typeof item.run==='function'){item.status='queued';item.error='';queue.pending.push(item);}
+  retry.onclick=async()=>{
+    for(const item of queue.items)if(!item.server&&item.status==='failed'&&typeof item.run==='function'){item.status='queued';item.error='';queue.pending.push(item);}
     scheduleTransferQueueRender(view);processTransferQueue(view);
+    await serverTransferQueueControl(view,'retry_failed');await syncServerTransferQueue(view);
   };
-  clear.onclick=()=>{
-    queue.items=queue.items.filter(item=>item.status!=='success');
+  clear.onclick=async()=>{
+    queue.items=queue.items.filter(item=>item.server||item.status!=='success');
     pruneQueueSelection(queue);scheduleTransferQueueRender(view);
+    await serverTransferQueueControl(view,'clear_done');await syncServerTransferQueue(view);
   };
   renderTransferQueue(view);return root;
 }
