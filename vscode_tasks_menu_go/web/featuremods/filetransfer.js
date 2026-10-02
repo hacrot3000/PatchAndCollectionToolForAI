@@ -101,6 +101,18 @@ html[data-taskmenu-theme="light"] .ft-queue-resizer{background:#e3e8ed;border-co
 html[data-taskmenu-theme="light"] .ft-queue-head,html[data-taskmenu-theme="light"] .ft-queue-table th{background:#edf1f5;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .ft-queue-table tbody tr:hover{background:#eef2f6}
 html[data-taskmenu-theme="light"] .ft-queue-table tbody tr.selected{background:#dde8f3}
+.ft-conflict-backdrop{position:fixed;inset:0;z-index:2600;background:rgba(0,0,0,.48);display:flex;align-items:center;justify-content:center;padding:18px}
+.ft-conflict-dialog{width:min(620px,calc(100vw - 36px));max-height:calc(100vh - 36px);overflow:auto;background:#11161d;border:1px solid #46505d;border-radius:10px;box-shadow:0 18px 52px rgba(0,0,0,.58);padding:14px}
+.ft-conflict-dialog h3{margin:0 0 9px;font-size:14px}.ft-conflict-note{font-size:10px;opacity:.7;margin-bottom:10px}
+.ft-conflict-path{font:10px/1.45 ui-monospace,monospace;word-break:break-all;background:#0b0f14;border:1px solid #303843;border-radius:6px;padding:6px;margin:4px 0 8px}
+.ft-conflict-meta{display:grid;grid-template-columns:110px 1fr 1fr;gap:4px 8px;font-size:10px;margin:8px 0 12px}.ft-conflict-meta strong{font-weight:700}
+.ft-conflict-controls{display:grid;grid-template-columns:1fr 1fr;gap:8px}.ft-conflict-controls label{display:flex;flex-direction:column;gap:4px;font-size:10px;font-weight:700}
+.ft-conflict-controls select{background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:7px}
+.ft-conflict-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:12px}.ft-conflict-actions button{padding:6px 11px}
+.ft-queue-status.conflict{font-weight:700}.ft-queue-status.skipped{opacity:.65}
+html[data-taskmenu-theme="light"] .ft-conflict-dialog{background:#fff;border-color:#b9c0c8;box-shadow:0 18px 52px rgba(0,0,0,.2)}
+html[data-taskmenu-theme="light"] .ft-conflict-path{background:#f6f8fa;border-color:#d0d7de}
+html[data-taskmenu-theme="light"] .ft-conflict-controls select{background:#fff;color:#202124;border-color:#b9c0c8}
 @media(max-width:850px){.ft-sites{grid-template-columns:1fr;grid-template-rows:minmax(220px,1fr) 8px minmax(220px,1fr)}.ft-divider{cursor:row-resize;border-left:0;border-right:0;border-top:1px solid #30343b;border-bottom:1px solid #30343b}.ft-transfer-tools{flex-direction:row}.ft-transfer-tools button:first-child{transform:rotate(90deg)}.ft-transfer-tools button:last-child{transform:rotate(90deg)}}
 `;
 document.head.append(style);
@@ -108,6 +120,125 @@ document.head.append(style);
 function workspaceKey(){return String(app.taskData?.workspace||'workspace');}
 function safeStorageGet(key,fallback=''){try{return localStorage.getItem(key)??fallback;}catch{return fallback;}}
 function safeStorageSet(key,value){try{localStorage.setItem(key,value);}catch(error){console.warn('Cannot persist file-transfer setting',error);}}
+
+const conflictPolicies=new Set(['ask','overwrite','skip','size_diff','source_newer','checksum_diff']);
+let conflictDialogChain=Promise.resolve();
+const activeServerConflictPrompts=new Set();
+function normalizeConflictPolicy(value){value=String(value||'ask').trim().toLowerCase();return conflictPolicies.has(value)?value:'ask';}
+function conflictDirectionFromKind(kind){return String(kind||'').toLowerCase()==='download'?'download':'upload';}
+function conflictDefaultKey(view,direction){return 'taskdeck:file-transfer:conflict-default:'+workspaceKey()+':'+view.profile.id+':'+direction;}
+function persistentConflictPolicy(view,direction){return normalizeConflictPolicy(safeStorageGet(conflictDefaultKey(view,direction),'ask'));}
+function rememberConflictPolicy(view,direction,policy){safeStorageSet(conflictDefaultKey(view,direction),normalizeConflictPolicy(policy));}
+function conflictJobPoliciesKey(){return 'taskdeck:file-transfer:conflict-jobs:'+workspaceKey();}
+function readConflictJobPolicies(){
+  try{
+    const raw=JSON.parse(safeStorageGet(conflictJobPoliciesKey(),'{}')),now=Date.now(),out={};
+    for(const [id,value] of Object.entries(raw||{})){
+      const policy=normalizeConflictPolicy(value?.policy),ts=Number(value?.ts)||0;
+      if(id&&policy!=='ask'&&now-ts<7*24*60*60*1000)out[id]={policy,ts};
+    }
+    return out;
+  }catch{return {};}
+}
+function localJobConflictPolicy(jobID){const item=readConflictJobPolicies()[String(jobID||'')];return item?normalizeConflictPolicy(item.policy):'ask';}
+function setLocalJobConflictPolicy(jobID,policy){
+  jobID=String(jobID||'');if(!jobID)return;
+  const all=readConflictJobPolicies();all[jobID]={policy:normalizeConflictPolicy(policy),ts:Date.now()};
+  const entries=Object.entries(all).sort((a,b)=>(b[1].ts||0)-(a[1].ts||0)).slice(0,128);
+  safeStorageSet(conflictJobPoliciesKey(),JSON.stringify(Object.fromEntries(entries)));
+}
+function effectiveDirectionConflictPolicy(view,direction){
+  const session=normalizeConflictPolicy(view?.conflictSessionPolicies?.[direction]);
+  if(session!=='ask')return session;
+  return persistentConflictPolicy(view,direction);
+}
+function effectiveLocalConflictPolicy(view,direction,item=null){
+  const own=normalizeConflictPolicy(item?.conflictPolicy);
+  if(own!=='ask')return own;
+  const job=localJobConflictPolicy(item?.conflictJobID);
+  if(job!=='ask')return job;
+  return effectiveDirectionConflictPolicy(view,direction);
+}
+function parseConflictTime(value){
+  value=String(value||'').trim();if(!value)return NaN;
+  const direct=Date.parse(value);if(Number.isFinite(direct))return direct;
+  const match=/^([A-Za-z]{3})\s+(\d{1,2})\s+(\d{1,2}):(\d{2})$/.exec(value);
+  if(!match)return NaN;
+  const months={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11},month=months[match[1]];
+  if(month===undefined)return NaN;
+  const now=new Date(),date=new Date(Date.UTC(now.getUTCFullYear(),month,Number(match[2]),Number(match[3]),Number(match[4])));
+  if(date.getTime()>Date.now()+24*60*60*1000)date.setUTCFullYear(date.getUTCFullYear()-1);
+  return date.getTime();
+}
+function conflictMetaText(value,kind){if(kind==='size')return formatSize(Number(value)||0);return value?formatModified(value):'Unavailable';}
+function requestTransferConflictDecision(conflict){
+  const run=()=>new Promise(resolve=>{
+    const direction=conflictDirectionFromKind(conflict.kind),backdrop=document.createElement('div');backdrop.className='ft-conflict-backdrop';
+    const dialog=document.createElement('div');dialog.className='ft-conflict-dialog';
+    const title=document.createElement('h3');title.textContent=(direction==='upload'?'Upload':'Download')+' file conflict';
+    const note=document.createElement('div');note.className='ft-conflict-note';note.textContent='Folder collisions are reused automatically. File collisions require a policy. SHA-256 reads the complete source and destination and can be slower.';
+    const sourceLabel=document.createElement('strong');sourceLabel.textContent='Source';
+    const sourcePath=document.createElement('div');sourcePath.className='ft-conflict-path';sourcePath.textContent=String(conflict.source||'');
+    const targetLabel=document.createElement('strong');targetLabel.textContent='Destination';
+    const targetPath=document.createElement('div');targetPath.className='ft-conflict-path';targetPath.textContent=String(conflict.target||'');
+    const meta=document.createElement('div');meta.className='ft-conflict-meta';
+    for(const row of [
+      ['','Source','Destination'],
+      ['Size',conflictMetaText(conflict.source_size,'size'),conflictMetaText(conflict.target_size,'size')],
+      ['Modified',conflictMetaText(conflict.source_modified,'modified'),conflictMetaText(conflict.target_modified,'modified')]
+    ])for(const value of row){const cell=document.createElement(row[0]===''?'strong':'span');cell.textContent=value;meta.append(cell);}
+    const controls=document.createElement('div');controls.className='ft-conflict-controls';
+    const policyLabel=document.createElement('label');policyLabel.textContent='Action / comparison';
+    const policy=document.createElement('select');
+    for(const [value,label] of [
+      ['overwrite','Overwrite destination'],
+      ['skip','Skip source file'],
+      ['size_diff','Overwrite only if size differs'],
+      ['source_newer','Overwrite only if source Modified time is newer'],
+      ['checksum_diff','Overwrite only if SHA-256 differs']
+    ]){const option=document.createElement('option');option.value=value;option.textContent=label;policy.append(option);}
+    policyLabel.append(policy);
+    const scopeLabel=document.createElement('label');scopeLabel.textContent='Apply to';
+    const scope=document.createElement('select');
+    const word=direction==='upload'?'uploads':'downloads';
+    for(const [value,label] of [
+      ['item','This file only'],
+      ['job','This transfer only'],
+      ['direction_session','All '+word+' in this TaskDeck session'],
+      ['direction_always','Always for '+word+' (remember)']
+    ]){const option=document.createElement('option');option.value=value;option.textContent=label;scope.append(option);}
+    scopeLabel.append(scope);controls.append(policyLabel,scopeLabel);
+    const actions=document.createElement('div');actions.className='ft-conflict-actions';
+    const apply=document.createElement('button');apply.type='button';apply.textContent='Apply';
+    apply.onclick=()=>{backdrop.remove();resolve({policy:policy.value,scope:scope.value,direction});};
+    actions.append(apply);
+    dialog.append(title,note,sourceLabel,sourcePath,targetLabel,targetPath,meta,controls,actions);backdrop.append(dialog);document.body.append(backdrop);policy.focus();
+  });
+  const promise=conflictDialogChain.then(run,run);conflictDialogChain=promise.catch(()=>{});return promise;
+}
+async function remoteFileSHA256(view,path){
+  const data=await app.jsonFetch('/api/file-transfer/hash',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:view.profile.id,path})});
+  return String(data?.sha256||'');
+}
+async function browserFileSHA256(file){
+  const form=new FormData();form.append('file',file,file.name||'file');
+  const response=await app.fetchWithLease('/api/file-transfer/hash-upload',{method:'POST',body:form,cache:'no-store'});
+  if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
+  const data=await response.json();return String(data?.sha256||'');
+}
+async function evaluateBrowserConflictPolicy(view,policy,conflict,sourceHash,targetHash){
+  policy=normalizeConflictPolicy(policy);
+  if(policy==='overwrite')return true;
+  if(policy==='skip')return false;
+  if(policy==='size_diff')return Number(conflict.source_size)!==Number(conflict.target_size);
+  if(policy==='source_newer'){
+    const source=parseConflictTime(conflict.source_modified),target=parseConflictTime(conflict.target_modified);
+    if(!Number.isFinite(source)||!Number.isFinite(target))throw new Error('Modified time is unavailable for source-newer comparison');
+    return source>target;
+  }
+  if(policy==='checksum_diff')return (await sourceHash())!==(await targetHash());
+  throw new Error('File conflict requires a user decision');
+}
 
 function fileTransferWorkspaceID(){return String(app.taskData?.workspace||'').trim();}
 function fileTransferSessionKey(){
