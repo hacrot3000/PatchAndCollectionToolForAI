@@ -321,6 +321,87 @@ func TestFileTransferQueueScalesForLargeStreamingScans(t *testing.T) {
 	}
 }
 
+
+func TestFileTransferRemoteDeleteScansAndQueuesPostOrder(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function enqueueRemoteDeleteItem(view,path,directory,state)",
+		"async function scanRemoteDeleteEntry(view,remoteParent,entry,state)",
+		"const listing=await fetchRemoteDirectory(view,remotePath,{force:true})",
+		"for(const child of listing.entries)await scanRemoteDeleteEntry(view,remotePath,child,state);",
+		"enqueueRemoteDeleteItem(view,remotePath,true,state);",
+		"kind:'Delete'",
+		"runTransferScan(view,'Delete scan'",
+		"deleted recursively through Transfer Queue",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing recursive delete queue contract %q", want)
+		}
+	}
+	if strings.Contains(js, "Directory removal is non-recursive") {
+		t.Fatal("remote delete UI must no longer describe folder delete as non-recursive")
+	}
+}
+
+func TestFileTransferQueueSupportsPauseSelectionAndKind(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"paused:false",
+		"selectedIDs:new Set()",
+		"priorityPending:[]",
+		"function pauseTransferQueue(view)",
+		"function resumeTransferQueue(view)",
+		"function resumeSelectedTransfers(view)",
+		"function removeSelectedTransfers(view)",
+		"function queueContextMenu(view,event,item=null,visible=[])",
+		"queue.paused?'Resume queue':'Pause queue'",
+		"Resume selected",
+		"Remove selected",
+		"if(queue.paused)return null;",
+		"const priority=nextQueuedFrom(queue.priorityPending,'priorityHead',queue);",
+		"queue.priorityPending.push(item)",
+		"activeScans",
+		"['','', 'Kind','Source','Target','Size','Status','Error']",
+		"kind:task.kind||'Transfer'",
+		"kind:'Upload'",
+		"kind:'Download'",
+		"kind:'Delete'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing pause/selection/kind queue contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferQueuePauseDoesNotStopScanners(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	pause := strings.Index(js, "function pauseTransferQueue(view)")
+	scan := strings.Index(js, "function runTransferScan(view,label,scanner)")
+	if pause < 0 || scan < 0 {
+		t.Fatal("pause/scanner functions missing")
+	}
+	scanEnd := strings.Index(js[scan:], "function pauseTransferQueue(view)")
+	if scanEnd < 0 {
+		t.Fatal("cannot isolate runTransferScan")
+	}
+	scanBody := js[scan : scan+scanEnd]
+	if strings.Contains(scanBody, "queue.paused") {
+		t.Fatal("background scanner must continue while transfer queue is paused")
+	}
+}
+
 func TestFileTransferWorkspaceUsesStructuredTransferAndMutationAPIs(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil {
