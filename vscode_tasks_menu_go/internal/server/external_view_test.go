@@ -34,12 +34,26 @@ func TestCoreSupportsGuardedExternalViewActivationWithoutSessionRegistration(t *
 
 func TestViewActivationEventsDistinguishExplicitTabSwitches(t *testing.T) {
 	for _, want := range []string{
-		"detail:{kind:'terminal',id,explicit:Boolean(force)}",
-		"detail:{kind:'external',id:token,explicit:Boolean(force)}",
+		"let trustedTabActivationDepth=0",
+		"function trustedWorkspaceTabClick(event)",
+		"if(event.isTrusted===false)return",
+		"if(!target||target.closest('.close'))return",
+		"tabs.addEventListener('click',trustedWorkspaceTabClick,true)",
+		"function explicitViewActivation(){return trustedTabActivationDepth>0;}",
+		"detail:{kind:'terminal',id,explicit:explicitViewActivation()}",
+		"detail:{kind:'external',id:token,explicit:explicitViewActivation()}",
 		"tab.onclick=()=>activateView(meta.id,{force:true})",
 	} {
 		if !strings.Contains(appJS, want) {
-			t.Fatalf("appJS missing explicit foreground activation contract %q", want)
+			t.Fatalf("appJS missing trusted-tab explicit activation contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"detail:{kind:'terminal',id,explicit:Boolean(force)}",
+		"detail:{kind:'external',id:token,explicit:Boolean(force)}",
+	} {
+		if strings.Contains(appJS, forbidden) {
+			t.Fatalf("force must not be treated as an explicit user tab switch: %q", forbidden)
 		}
 	}
 }
