@@ -1322,25 +1322,94 @@ async function transferLeftToRemote(view){return transferLeftEntriesToRemote(vie
 async function transferRemoteEntriesToLeft(view,entries){return streamRemoteEntriesToLeft(view,entries);}
 async function transferRemoteToLeft(view){return transferRemoteEntriesToLeft(view,selectedEntries(view.remote));}
 
-function enqueueRemoteDeleteItem(view,path,directory,state){
+function deleteJobRuntime(jobID){
+  let runtime=remoteDeleteRuntime.get(jobID);
+  if(!runtime){runtime={scanning:false,queued:0,completed:0};remoteDeleteRuntime.set(jobID,runtime);}
+  return runtime;
+}
+function markPersistentDeleteItemSuccess(view,jobID){
+  const runtime=remoteDeleteRuntime.get(jobID);if(!runtime)return;
+  runtime.completed++;maybeCompletePersistentDeleteJob(view,jobID);
+}
+function maybeCompletePersistentDeleteJob(view,jobID){
+  const runtime=remoteDeleteRuntime.get(jobID);if(!runtime||runtime.scanning)return;
+  if(runtime.completed<runtime.queued)return;
+  removePersistentFileTransferJob(jobID);remoteDeleteRuntime.delete(jobID);activeRemoteDeleteJobs.delete(jobID);
+  persistFileTransferSession();
+}
+async function remoteDeleteTargetEntry(view,path){
+  path=normalizeRemotePath(path);
+  if(path==='.'||path==='/')return null;
+  const parent=parentPath(path,true),name=pathLeaf(path,true);
+  const listing=await fetchRemoteDirectory(view,parent,{force:true});
+  return listing.entries.find(entry=>String(entry.name||'')===name)||null;
+}
+async function deleteRemotePathIdempotent(view,path,directory){
+  try{
+    await mutateRemoteRequest(view,'delete',path,'',directory);
+  }catch(error){
+    try{
+      const current=await remoteDeleteTargetEntry(view,path);
+      if(!current)return;
+    }catch{}
+    throw error;
+  }
+}
+function enqueueRemoteDeleteItem(view,path,directory,state,jobID=''){
   if(directory)state.folders++;else state.files++;
+  if(jobID)deleteJobRuntime(jobID).queued++;
   enqueueTransferTasks(view,[{
-    direction:'×',kind:'Delete',source:path,target:'',size:0,
+    direction:'×',kind:'Delete',source:path,target:'',size:0,jobID,
     run:async()=>{
-      await mutateRemoteRequest(view,'delete',path,'',directory);
+      await deleteRemotePathIdempotent(view,path,directory);
       if(directory)invalidateRemoteCache(view,path,true);
       markRemoteQueueDirty(view,parentPath(path,true));
     }
   }]);
 }
-async function scanRemoteDeleteEntry(view,remoteParent,entry,state){
+async function scanRemoteDeleteEntry(view,remoteParent,entry,state,jobID=''){
   const remotePath=joinPath(remoteParent,entry.name,true);
   if(entryType(entry)!=='directory'){
-    enqueueRemoteDeleteItem(view,remotePath,false,state);return;
+    enqueueRemoteDeleteItem(view,remotePath,false,state,jobID);return;
   }
   const listing=await fetchRemoteDirectory(view,remotePath,{force:true});
-  for(const child of listing.entries)await scanRemoteDeleteEntry(view,remotePath,child,state);
-  enqueueRemoteDeleteItem(view,remotePath,true,state);
+  for(const child of listing.entries)await scanRemoteDeleteEntry(view,remotePath,child,state,jobID);
+  enqueueRemoteDeleteItem(view,remotePath,true,state,jobID);
+}
+async function scanPersistentRemoteDeleteTarget(view,target,state,jobID){
+  const entry=await remoteDeleteTargetEntry(view,target.path);
+  if(!entry)return;
+  const actualDirectory=entryType(entry)==='directory';
+  if(!actualDirectory){
+    enqueueRemoteDeleteItem(view,target.path,false,state,jobID);return;
+  }
+  const listing=await fetchRemoteDirectory(view,target.path,{force:true});
+  for(const child of listing.entries)await scanRemoteDeleteEntry(view,target.path,child,state,jobID);
+  enqueueRemoteDeleteItem(view,target.path,true,state,jobID);
+}
+async function runPersistentRemoteDeleteJob(view,job){
+  if(!job?.id||activeRemoteDeleteJobs.has(job.id))return;
+  activeRemoteDeleteJobs.add(job.id);
+  const runtime=deleteJobRuntime(job.id);runtime.scanning=true;runtime.queued=0;runtime.completed=0;
+  const state={files:0,folders:0};
+  view.remote.status.textContent='Resuming delete scan…';
+  try{
+    await runTransferScan(view,'Delete scan',async()=>{
+      for(const target of job.targets)await scanPersistentRemoteDeleteTarget(view,target,state,job.id);
+    });
+    view.remote.status.textContent='Delete scan complete · '+state.files+' file(s) · '+state.folders+' folder(s) queued';
+  }catch(error){
+    view.remote.status.textContent='Delete scan interrupted · will resume after reload';
+    console.warn('Persistent remote delete scan failed',error);
+  }finally{
+    runtime.scanning=false;activeRemoteDeleteJobs.delete(job.id);maybeCompletePersistentDeleteJob(view,job.id);
+  }
+}
+async function resumePersistentRemoteDeleteJobs(){
+  for(const job of readPersistentFileTransferJobs()){
+    const view=views.get(job.profile_id);
+    if(view)runPersistentRemoteDeleteJob(view,job).catch(error=>console.warn('Cannot resume remote delete job',error));
+  }
 }
 async function streamRemoteDeleteEntries(view,entries){
   const selected=[...(entries||[])];if(!selected.length)return;
@@ -1349,12 +1418,13 @@ async function streamRemoteDeleteEntries(view,entries){
     ?'Delete '+selected[0].name+'?'+(dirs?'\n\nThe folder will be scanned in background and deleted recursively through Transfer Queue.':'')
     :'Delete '+selected.length+' selected item(s)?'+(dirs?'\n\nSelected folders will be scanned in background and deleted recursively through Transfer Queue.':'');
   if(!confirm(message))return;
-  const base=normalizeRemotePath(view.remote.currentPath||'.'),state={files:0,folders:0};
-  view.remote.status.textContent='Scanning delete targets…';
-  await runTransferScan(view,'Delete scan',async()=>{
-    for(const entry of selected)await scanRemoteDeleteEntry(view,base,entry,state);
-  });
-  view.remote.status.textContent='Delete scan complete · '+state.files+' file(s) · '+state.folders+' folder(s) queued';
+  const base=normalizeRemotePath(view.remote.currentPath||'.');
+  const job={
+    id:newFileTransferJobID(),kind:'remote_delete',profile_id:String(view.profile.id||''),created_at:Date.now(),
+    targets:selected.map(entry=>({path:joinPath(base,entry.name,true),directory:entryType(entry)==='directory'}))
+  };
+  upsertPersistentFileTransferJob(job);persistFileTransferSession();
+  await runPersistentRemoteDeleteJob(view,job);
 }
 async function deleteRemoteEntries(view,entries){return streamRemoteDeleteEntries(view,entries);}
 
