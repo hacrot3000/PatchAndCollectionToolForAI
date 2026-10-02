@@ -71,6 +71,9 @@ type Server struct {
 	fileTransferDownloadMu sync.Mutex
 	fileTransferDownloads  map[string]fileTransferDownloadTicket
 
+	fileTransferJobsMu     sync.Mutex
+	fileTransferJobQueues  map[string]*fileTransferServerQueue
+
 	terminalStateMu     sync.RWMutex
 	terminalStateFrozen bool
 
@@ -114,6 +117,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/file-transfer/upload", s.fileTransferUpload)
 	mux.HandleFunc("/api/file-transfer/host-to-remote", s.fileTransferHostToRemote)
 	mux.HandleFunc("/api/file-transfer/remote-to-host", s.fileTransferRemoteToHost)
+	mux.HandleFunc("/api/file-transfer/jobs", s.fileTransferJobs)
+	mux.HandleFunc("/api/file-transfer/jobs/control", s.fileTransferJobsControl)
 	mux.HandleFunc("/api/file-transfer/host-mutate", s.fileTransferHostMutate)
 	mux.HandleFunc("/api/db/adapters", s.dbAdapters)
 	mux.HandleFunc("/api/db/profiles", s.dbProfiles)
