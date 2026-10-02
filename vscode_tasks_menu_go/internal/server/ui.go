@@ -634,7 +634,7 @@ function activationAllowed(target,force=false){
   // Foreground protection applies only to automatic/programmatic opens.
   // Tab handlers pass force=true, which is the single shared escape hatch for
   // an explicit workspace-tab switch. This avoids per-feature exceptions and
-  // does not depend on fragile event.isTrusted/capture timing.
+  // does not depend on fragile DOM trust/capture timing.
   if(!force)return false;
   foregroundViewLock='';
   return true;
