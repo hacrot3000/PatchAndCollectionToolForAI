@@ -34,26 +34,22 @@ func TestCoreSupportsGuardedExternalViewActivationWithoutSessionRegistration(t *
 
 func TestViewActivationEventsDistinguishExplicitTabSwitches(t *testing.T) {
 	for _, want := range []string{
-		"let trustedTabActivationDepth=0",
-		"function trustedWorkspaceTabClick(event)",
-		"if(event.isTrusted===false)return",
-		"if(!target||target.closest('.close'))return",
-		"tabs.addEventListener('click',trustedWorkspaceTabClick,true)",
-		"function explicitViewActivation(){return trustedTabActivationDepth>0;}",
-		"detail:{kind:'terminal',id,explicit:explicitViewActivation()}",
-		"detail:{kind:'external',id:token,explicit:explicitViewActivation()}",
+		"detail:{kind:'terminal',id,explicit:Boolean(force)}",
+		"detail:{kind:'external',id:token,explicit:Boolean(force)}",
 		"tab.onclick=()=>activateView(meta.id,{force:true})",
 	} {
 		if !strings.Contains(appJS, want) {
-			t.Fatalf("appJS missing trusted-tab explicit activation contract %q", want)
+			t.Fatalf("appJS missing explicit tab activation contract %q", want)
 		}
 	}
 	for _, forbidden := range []string{
-		"detail:{kind:'terminal',id,explicit:Boolean(force)}",
-		"detail:{kind:'external',id:token,explicit:Boolean(force)}",
+		"trustedTabActivationDepth",
+		"function trustedWorkspaceTabClick(event)",
+		"event.isTrusted",
+		"function explicitViewActivation()",
 	} {
 		if strings.Contains(appJS, forbidden) {
-			t.Fatalf("force must not be treated as an explicit user tab switch: %q", forbidden)
+			t.Fatalf("core activation must not depend on fragile DOM trust/capture timing: %q", forbidden)
 		}
 	}
 }
@@ -63,7 +59,7 @@ func TestForegroundLockProtectsAllAutomaticTerminalAndTaskLaunches(t *testing.T)
 		"hidden.delete(meta.id);attach(meta,true)",
 		"tab.onclick=()=>activateView(meta.id,{force:true})",
 		"if(!foregroundViewLock||foregroundViewLock===target)return true",
-		"if(!force||!explicitViewActivation())return false",
+		"if(!force)return false",
 	} {
 		if !strings.Contains(appJS, want) {
 			t.Fatalf("appJS missing shared foreground protection %q", want)
@@ -79,18 +75,24 @@ func TestForegroundLockProtectsAllAutomaticTerminalAndTaskLaunches(t *testing.T)
 
 
 
-func TestProgrammaticForceCannotBreakForegroundLock(t *testing.T) {
+func TestExplicitForceBreaksForegroundLockWithoutDOMTrustHeuristics(t *testing.T) {
 	for _, want := range []string{
-		"if(!force||!explicitViewActivation())return false",
-		"tabs.addEventListener('click',trustedWorkspaceTabClick,true)",
+		"if(!force)return false",
+		"foregroundViewLock=''",
 		"tab.onclick=()=>activateView(meta.id,{force:true})",
 	} {
 		if !strings.Contains(appJS, want) {
-			t.Fatalf("core missing trusted foreground-break contract %q", want)
+			t.Fatalf("core missing explicit foreground-break contract %q", want)
 		}
 	}
-	if strings.Contains(appJS, "if(!force)return false\n  foregroundViewLock=''") {
-		t.Fatal("programmatic force=true must not be able to break the foreground lock")
+	for _, forbidden := range []string{
+		"trustedWorkspaceTabClick",
+		"event.isTrusted",
+		"explicitViewActivation()",
+	} {
+		if strings.Contains(appJS, forbidden) {
+			t.Fatalf("explicit tab switching must not depend on DOM trust heuristics: %q", forbidden)
+		}
 	}
 }
 
@@ -178,7 +180,7 @@ func TestPatchForegroundLockCoversAllWorkspaceOpenPaths(t *testing.T) {
 		"async function startTerminal()",
 		"tab.onclick=()=>activateView(meta.id,{force:true})",
 		"function activationAllowed(target,force=false)",
-		"if(!force||!explicitViewActivation())return false",
+		"if(!force)return false",
 	} {
 		if !strings.Contains(appJS, want) {
 			t.Fatalf("core foreground guard missing %q", want)
