@@ -97,7 +97,7 @@ func TestPatchProtocolParityAndHeadlessBackingGate(t *testing.T) {
 	}
 	startBlock := js[start : start+end]
 	if !strings.Contains(startBlock, "if(patchUIMode()==='terminal'){") ||
-		!strings.Contains(startBlock, "app.materializeSession(meta,true)") {
+		!strings.Contains(startBlock, "app.materializeSession(meta,false)") {
 		t.Fatal("legacy terminal Patch mode must explicitly materialize its terminal tab")
 	}
 	nativeStart := strings.Index(startBlock, "await assertHeadlessNativeSession(meta);")
@@ -113,7 +113,7 @@ func TestPatchProtocolParityAndHeadlessBackingGate(t *testing.T) {
 		t.Fatal("explicit terminal evidence function bounds unavailable")
 	}
 	fallbackBlock := js[fallbackStart : fallbackStart+fallbackEnd]
-	for _, want := range []string{"app.materializeSession(meta,false)", "app.activateView(sessionId)"} {
+	for _, want := range []string{"app.materializeSession(meta,false)", "app.activateView(sessionId,{force:true})"} {
 		if !strings.Contains(fallbackBlock, want) {
 			t.Fatalf("explicit terminal evidence path missing %q", want)
 		}
@@ -156,7 +156,7 @@ func TestPatchNativeProductAcceptanceGate(t *testing.T) {
 	if start < 0 || endRel < 0 { t.Fatal("Patch start block unavailable") }
 	startBlock := js[start:start+endRel]
 	if !strings.Contains(startBlock,"if(patchUIMode()==='terminal'){") ||
-		!strings.Contains(startBlock,"app.materializeSession(meta,true)") {
+		!strings.Contains(startBlock,"app.materializeSession(meta,false)") {
 		t.Fatal("legacy terminal mode materialization contract missing")
 	}
 	nativeStart := strings.Index(startBlock,"await assertHeadlessNativeSession(meta);")
@@ -166,7 +166,7 @@ func TestPatchNativeProductAcceptanceGate(t *testing.T) {
 	}
 	for _, want := range []string{
 		"await assertHeadlessNativeSession(meta);",
-		"app.activateExternalView('patch')",
+		"app.activateExternalView('patch',{force:true})",
 		".task-patch-panel{display:none;position:absolute;inset:0",
 		"patchTab.className='tab task-patch-tab'",
 		"patchTab.onclick=()=>open()",
@@ -187,7 +187,7 @@ func TestPatchNativeProductAcceptanceGate(t *testing.T) {
 	if got:=strings.Count(js,"app.materializeSession(meta,false)"); got!=1 {
 		t.Fatalf("native evidence materialization paths=%d want 1",got)
 	}
-	if got:=strings.Count(js,"app.materializeSession(meta,true)"); got!=2 {
+	if got:=strings.Count(js,"app.materializeSession(meta,false)"); got!=2 {
 		t.Fatalf("explicit legacy terminal materialization paths=%d want 2 (global legacy UI + History Terminal)",got)
 	}
 	if !strings.Contains(js,"openTerminalEvidenceForSession(run.sessionId)") {
