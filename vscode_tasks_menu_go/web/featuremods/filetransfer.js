@@ -1667,13 +1667,20 @@ function attachView(profile,{activate=true,session=null}={}){
 
 async function restoreFileTransferSession(){
   if(sessionRestoreStarted||!fileTransferWorkspaceID())return;
-  const saved=readFileTransferSession();sessionRestoreStarted=true;restoringSession=true;
+  const saved=readFileTransferSession(),jobs=readPersistentFileTransferJobs();
+  sessionRestoreStarted=true;restoringSession=true;
   try{
-    if(saved?.open?.length){
+    if(saved?.open?.length||jobs.length){
       await refreshProfiles();
-      for(const item of saved.open){
+      const restored=new Set();
+      for(const item of saved?.open||[]){
         const profile=profilesByID.get(item.profile_id);
-        if(profile)attachView(profile,{activate:false,session:item});
+        if(profile){attachView(profile,{activate:false,session:item});restored.add(item.profile_id);}
+      }
+      for(const job of jobs){
+        if(restored.has(job.profile_id))continue;
+        const profile=profilesByID.get(job.profile_id);
+        if(profile){attachView(profile,{activate:false,session:null});restored.add(job.profile_id);}
       }
     }
   }catch(error){
@@ -1683,6 +1690,7 @@ async function restoreFileTransferSession(){
   }
   if(saved?.active_profile_id&&views.has(saved.active_profile_id))activateView(saved.active_profile_id);
   else persistFileTransferSession();
+  resumePersistentRemoteDeleteJobs();
 }
 async function scheduleFileTransferSessionRestore(){
   if(!fileTransferWorkspaceID()||sessionRestoreStarted)return;
