@@ -549,7 +549,7 @@ func (s *Server) backgroundHostToRemote(ctx context.Context, profileID, hostRel,
 	}
 }
 
-func (s *Server) backgroundHostTarget(rel string) (string, error) {
+func (s *Server) backgroundHostTarget(rel string, overwrite bool) (string, error) {
 	root, err := s.projectRoot()
 	if err != nil {
 		return "", err
@@ -572,15 +572,17 @@ func (s *Server) backgroundHostTarget(rel string) (string, error) {
 		if existing.Mode()&os.ModeSymlink != 0 || !existing.Mode().IsRegular() {
 			return "", errors.New("host destination is not a regular file")
 		}
-		return "", errors.New("host destination file already exists")
+		if !overwrite {
+			return "", errors.New("host destination file already exists")
+		}
 	} else if !os.IsNotExist(err) {
 		return "", errors.New("host destination unavailable")
 	}
 	return target, nil
 }
 
-func (s *Server) backgroundRemoteToHost(ctx context.Context, profileID, remotePath, hostRel string) error {
-	target, err := s.backgroundHostTarget(hostRel)
+func (s *Server) backgroundRemoteToHost(ctx context.Context, profileID, remotePath, hostRel string, overwrite bool) error {
+	target, err := s.backgroundHostTarget(hostRel, overwrite)
 	if err != nil {
 		return err
 	}
@@ -638,8 +640,20 @@ func (s *Server) backgroundRemoteToHost(ctx context.Context, profileID, remotePa
 	if err := os.Chmod(tmpPath, 0o644); err != nil {
 		return err
 	}
-	if _, err := s.backgroundHostTarget(hostRel); err != nil {
+	if _, err := s.backgroundHostTarget(hostRel, overwrite); err != nil {
 		return err
+	}
+	if overwrite {
+		if existing, err := os.Lstat(target); err == nil {
+			if existing.Mode()&os.ModeSymlink != 0 || !existing.Mode().IsRegular() {
+				return errors.New("host destination changed to unsafe file type")
+			}
+			if err := os.Remove(target); err != nil {
+				return err
+			}
+		} else if !os.IsNotExist(err) {
+			return err
+		}
 	}
 	return os.Rename(tmpPath, target)
 }
