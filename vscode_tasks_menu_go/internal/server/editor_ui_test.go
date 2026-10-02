@@ -17,7 +17,7 @@ func TestEditorUsesVendoredCodeMirrorAndStaysOutsideTerminalSessions(t *testing.
 		"globalThis.cm6?.load",
 		"cmFactory.newEditor",
 		"dataset.viewKind='editor'",
-		"app.activateExternalView(id)",
+		"app.activateExternalView(id,{force})",
 		"/api/project/file?path=",
 		"taskmenu:project-file-open-request",
 		"contenteditable",
@@ -30,6 +30,25 @@ func TestEditorUsesVendoredCodeMirrorAndStaysOutsideTerminalSessions(t *testing.
 	}
 	if strings.Contains(js, "app.views.set(") || strings.Contains(js, "/api/sessions") {
 		t.Fatal("Editor must not register with terminal session broker")
+	}
+}
+
+
+func TestEditorAutoOpenRespectsForegroundLockButTabClickForcesSwitch(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function activateEditor(id,{force=false}={})",
+		"return app.activateExternalView(id,{force})",
+		"tab.onclick=()=>activateEditor(id,{force:true})",
+		"const view=await promise;activateEditor(view.id);return view",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor.js missing foreground-lock integration %q", want)
+		}
 	}
 }
 
