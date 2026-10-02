@@ -7,6 +7,27 @@ import (
 	webassets "bletonfc/vscode_tasks_menu/web"
 )
 
+
+func TestGitQuickPanelIsLeftAlignedAndCommandLogIsTaller(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/gitstatus.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"left:12px;right:auto",
+		"max-height:min(46vh,460px)",
+		"max-height:min(38vh,360px)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("gitstatus.js missing Git panel/log layout contract %q", want)
+		}
+	}
+	if strings.Contains(js, "top:calc(var(--taskmenu-header-height,30px) + 6px);right:12px;") {
+		t.Fatal("Git Quick Actions must not remain right-aligned")
+	}
+}
+
 func TestGitQuickActionsUI(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/gitstatus.js")
 	if err != nil {
