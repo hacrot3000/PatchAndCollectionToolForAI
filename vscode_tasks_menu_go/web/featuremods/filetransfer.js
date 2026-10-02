@@ -10,6 +10,7 @@ let sessionRestoreStarted=false;
 let sessionPersistenceReady=false;
 const activeRemoteDeleteJobs=new Set();
 const remoteDeleteRuntime=new Map();
+const activeLocalTransferScans=new Set();
 
 const localDBName='TaskDeckFileTransfer';
 const localDBStore='localRoots';
@@ -1352,6 +1353,68 @@ async function scanLocalUploadHandle(view,handle,targetPath,sourcePath,state){
     await scanLocalUploadHandle(view,child,joinPath(targetPath,name,true),joinPath(sourcePath,name,false),state);
   }
 }
+async function runPersistentLocalUploadScan(view,scan){
+  if(!scan?.id||activeLocalTransferScans.has(scan.id))return;
+  activeLocalTransferScans.add(scan.id);
+  try{
+    const root=await getLocalRoot(String(scan.root_id||''));
+    if(!root?.handle)throw new Error('Saved Local folder is unavailable. Choose the folder again to resume scanning.');
+    if(!await ensureHandlePermission(root.handle))throw new Error('Local folder permission is required after reload. Click Grant to resume scanning.');
+    view.left.localRoot=root;
+    const state=newRemoteScanState(scan.remote_base||'.');
+    await runTransferScan(view,'Upload scan',async()=>{
+      for(const selected of scan.selected||[]){
+        const sourcePath=normalizeRelativePath(selected.source_path||'.');
+        const parent=parentPath(sourcePath,false),name=pathLeaf(sourcePath,false);
+        const dir=await directoryHandleForPath(root.handle,parent);
+        const handle=selected.directory?await dir.getDirectoryHandle(name):await dir.getFileHandle(name);
+        await scanLocalUploadHandle(view,handle,normalizeRemotePath(selected.target_path),sourcePath,state);
+      }
+    });
+    removePersistentLocalScan(scan.id);
+    view.remote.status.textContent='Local upload scan complete · '+state.files+' file(s) discovered';
+  }catch(error){
+    view.remote.status.textContent=String(error?.message||error);
+    throw error;
+  }finally{activeLocalTransferScans.delete(scan.id);}
+}
+async function runPersistentLocalDownloadScan(view,scan){
+  if(!scan?.id||activeLocalTransferScans.has(scan.id))return;
+  activeLocalTransferScans.add(scan.id);
+  try{
+    const root=await getLocalRoot(String(scan.root_id||''));
+    if(!root?.handle)throw new Error('Saved Local folder is unavailable. Choose the folder again to resume scanning.');
+    if(!await ensureHandlePermission(root.handle))throw new Error('Local folder permission is required after reload. Click Grant to resume scanning.');
+    view.left.localRoot=root;
+    const state={
+      source:'local',base:normalizeRelativePath(scan.left_base||'.'),localRoot:root,
+      hostDirectories:new Set(['.',normalizeRelativePath(scan.left_base||'.')]),hostListings:new Map(),
+      localHandles:new Map([['.',root.handle]]),files:0,folders:0,view
+    };
+    await runTransferScan(view,'Download scan',async()=>{
+      for(const selected of scan.selected||[]){
+        const remotePath=normalizeRemotePath(selected.remote_path);
+        const remoteParent=parentPath(remotePath,true);
+        const entry={name:pathLeaf(remotePath,true),type:selected.directory?'directory':'file',size:Number(selected.size)||0};
+        await scanRemoteDownloadEntry(view,remoteParent,entry,state.base,state);
+      }
+    });
+    removePersistentLocalScan(scan.id);
+    view.left.status.textContent='Local download scan complete · '+state.files+' file(s) discovered';
+  }catch(error){
+    view.left.status.textContent=String(error?.message||error);
+    throw error;
+  }finally{activeLocalTransferScans.delete(scan.id);}
+}
+async function resumePersistentLocalScans(){
+  for(const scan of readPersistentLocalScans()){
+    const view=views.get(String(scan.profile_id||''));if(!view)continue;
+    const runner=scan.kind==='local_upload_scan'?runPersistentLocalUploadScan:
+      scan.kind==='local_download_scan'?runPersistentLocalDownloadScan:null;
+    if(runner)runner(view,scan).catch(error=>console.warn('Cannot resume Local browser transfer scan',error));
+  }
+}
+
 async function streamLeftEntriesToRemote(view,entries){
   const selected=[...(entries||[])];if(!selected.length)throw new Error('Select one or more left items first');
   const source=view.left.source,sourceBase=normalizeRelativePath(view.left.currentPath||'.'),remoteBase=normalizeRemotePath(view.remote.currentPath||'.');
@@ -1361,21 +1424,20 @@ async function streamLeftEntriesToRemote(view,entries){
     await createServerTransferJob(view,{kind:'host_upload',host_paths:hostPaths,remote_dir:remoteBase});
     return;
   }
-  const state=newRemoteScanState(remoteBase);
-  let localBase=null;
-  if(source==='local'){
-    const root=view.left.localRoot;if(!root)throw new Error('Choose a local folder first');
-    const granted=await ensureHandlePermission(root.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
-    localBase=await directoryHandleForPath(root.handle,sourceBase);
-  }
+  const root=view.left.localRoot;if(!root)throw new Error('Choose a local folder first');
+  const granted=await ensureHandlePermission(root.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
+  const scan={
+    id:newFileTransferJobID(),kind:'local_upload_scan',profile_id:String(view.profile.id||''),root_id:String(root.id||''),
+    source_base:sourceBase,remote_base:remoteBase,created_at:Date.now(),
+    selected:selected.map(entry=>({
+      source_path:joinPath(sourceBase,entry.name,false),
+      target_path:joinPath(remoteBase,entry.name,true),
+      directory:entryType(entry)==='directory'
+    }))
+  };
+  upsertPersistentLocalScan(scan);
   view.remote.status.textContent='Scanning and uploading '+selected.length+' selected item(s)…';
-  await runTransferScan(view,'Upload scan',async()=>{
-    for(const entry of selected){
-      const handle=entryType(entry)==='directory'?await localBase.getDirectoryHandle(entry.name):await localBase.getFileHandle(entry.name);
-      await scanLocalUploadHandle(view,handle,joinPath(remoteBase,entry.name,true),joinPath(sourceBase,entry.name,false),state);
-    }
-  });
-  view.remote.status.textContent='Scan complete · '+state.files+' file(s) discovered · '+state.folders+' folder(s) created';
+  await runPersistentLocalUploadScan(view,scan);
 }
 function newLeftScanState(view){
   const source=view.left.source,base=normalizeRelativePath(view.left.currentPath||'.');
@@ -1479,18 +1541,19 @@ async function streamRemoteEntriesToLeft(view,entries){
     await createServerTransferJob(view,{kind:'host_download',remote_targets:remoteTargets,host_dir:normalizeRelativePath(view.left.currentPath||'.')});
     return;
   }
-  const state=newLeftScanState(view);
-  state.view=view;
-  if(state.source==='local'){
-    if(!state.localRoot)throw new Error('Choose a local folder first');
-    const granted=await ensureHandlePermission(state.localRoot.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
-    state.localHandles.set('.',state.localRoot.handle);
-  }
+  const root=view.left.localRoot;if(!root)throw new Error('Choose a local folder first');
+  const granted=await ensureHandlePermission(root.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
+  const leftBase=normalizeRelativePath(view.left.currentPath||'.');
+  const scan={
+    id:newFileTransferJobID(),kind:'local_download_scan',profile_id:String(view.profile.id||''),root_id:String(root.id||''),
+    remote_base:remoteBase,left_base:leftBase,created_at:Date.now(),
+    selected:selected.map(entry=>({
+      remote_path:joinPath(remoteBase,entry.name,true),directory:entryType(entry)==='directory',size:Number(entry.size)||0
+    }))
+  };
+  upsertPersistentLocalScan(scan);
   view.left.status.textContent='Scanning and downloading '+selected.length+' selected item(s)…';
-  await runTransferScan(view,'Download scan',async()=>{
-    for(const entry of selected)await scanRemoteDownloadEntry(view,remoteBase,entry,state.base,state);
-  });
-  view.left.status.textContent='Scan complete · '+state.files+' file(s) discovered · '+state.folders+' folder(s) prepared';
+  await runPersistentLocalDownloadScan(view,scan);
 }
 async function transferLeftEntriesToRemote(view,entries){return streamLeftEntriesToRemote(view,entries);}
 async function transferLeftToRemote(view){return transferLeftEntriesToRemote(view,selectedEntries(view.left));}
@@ -1816,14 +1879,14 @@ function attachView(profile,{activate=true,session=null}={}){
       safeStorageSet('taskdeck:file-transfer:last-local-root:'+workspaceKey(),record.id);
       left.localPermission=await ensureHandlePermission(record.handle);
       grantLocal.hidden=left.localPermission;left.currentPath='.';left.pathInput.value='.';left.refreshPathMemory?.();
-      await loadLocalDirectory(view,'.');
+      await loadLocalDirectory(view,'.');resumePersistentLocalScans();
     }
   };
   grantLocal.onclick=()=>{
     if(!left.localRoot){app.showError(new Error('Choose a local folder first'));return;}
     requestHandlePermission(left.localRoot.handle).then(granted=>{
       if(!granted)throw new Error('Local folder permission was not granted');
-      left.localPermission=true;grantLocal.hidden=true;return loadLocalDirectory(view,'.');
+      left.localPermission=true;grantLocal.hidden=true;return loadLocalDirectory(view,'.').then(()=>resumePersistentLocalScans());
     }).catch(app.showError);
   };
   chooseLocal.onclick=()=>chooseLocalRoot(view).then(()=>{grantLocal.hidden=true;return loadLocalDirectory(view,'.');}).catch(app.showError);
@@ -1840,20 +1903,26 @@ function attachView(profile,{activate=true,session=null}={}){
 
 async function restoreFileTransferSession(){
   if(sessionRestoreStarted||!fileTransferWorkspaceID())return;
-  const saved=readFileTransferSession(),jobs=readPersistentFileTransferJobs();
+  const saved=readFileTransferSession(),legacyJobs=readPersistentFileTransferJobs();
+  const localItems=readPersistentLocalTransferItems(),localScans=readPersistentLocalScans();
   sessionRestoreStarted=true;restoringSession=true;
   try{
-    if(saved?.open?.length||jobs.length){
+    if(saved?.open?.length||legacyJobs.length||localItems.length||localScans.length){
       await refreshProfiles();
       const restored=new Set();
       for(const item of saved?.open||[]){
         const profile=profilesByID.get(item.profile_id);
         if(profile){attachView(profile,{activate:false,session:item});restored.add(item.profile_id);}
       }
-      for(const job of jobs){
-        if(restored.has(job.profile_id))continue;
-        const profile=profilesByID.get(job.profile_id);
-        if(profile){attachView(profile,{activate:false,session:null});restored.add(job.profile_id);}
+      const backgroundProfiles=new Set([
+        ...legacyJobs.map(item=>String(item.profile_id||'')),
+        ...localItems.map(item=>String(item.profile_id||'')),
+        ...localScans.map(item=>String(item.profile_id||''))
+      ]);
+      for(const profileID of backgroundProfiles){
+        if(!profileID||restored.has(profileID))continue;
+        const profile=profilesByID.get(profileID);
+        if(profile){attachView(profile,{activate:false,session:null});restored.add(profileID);}
       }
     }
   }catch(error){
@@ -1864,6 +1933,7 @@ async function restoreFileTransferSession(){
   if(saved?.active_profile_id&&views.has(saved.active_profile_id))activateView(saved.active_profile_id);
   else persistFileTransferSession();
   for(const view of views.values())syncServerTransferQueue(view).catch(()=>{});
+  resumePersistentLocalScans();
 }
 async function scheduleFileTransferSessionRestore(){
   if(!fileTransferWorkspaceID()||sessionRestoreStarted)return;
