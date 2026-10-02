@@ -1061,6 +1061,14 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	queue := s.fileTransferServerQueue(req.ProfileID)
+	if req.Action == "resolve_conflict" {
+		if err := s.resolveServerConflicts(queue, req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, http.StatusOK, queue.snapshot())
+		return
+	}
 	selected := make(map[string]bool, len(req.ItemIDs))
 	for _, id := range req.ItemIDs {
 		selected[strings.TrimSpace(id)] = true
