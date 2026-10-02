@@ -532,6 +532,25 @@ func TestRemoteDeleteJobSurvivesReloadAndRebuildsQueue(t *testing.T) {
 	}
 }
 
+func TestRemoteDeleteJournalSurvivesInterruptedRecoveryScan(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"scanFailed:false",
+		"runtime.scanFailed=false",
+		"runtime.scanFailed=true",
+		"if(!runtime||runtime.scanning||runtime.scanFailed)return",
+		"Delete scan interrupted · will resume after reload",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing interrupted delete recovery contract %q", want)
+		}
+	}
+}
+
 func TestRemoteDeleteRecoveryIsIdempotent(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil {
