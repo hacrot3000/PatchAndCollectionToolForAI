@@ -639,7 +639,7 @@ async function processTransferQueue(view){
     while(true){
       const item=nextPendingTransfer(queue);
       if(!item)break;
-      item.status='running';item.error='';scheduleTransferQueueRender(view);
+      item.status='running';item.error='';persistLocalTransferQueue(view);scheduleTransferQueueRender(view);
       try{
         await item.run(item);
         item.status='success';item.run=null;
@@ -648,7 +648,7 @@ async function processTransferQueue(view){
         item.status='failed';item.error=String(error?.message||error||'Transfer failed');
       }
       removeFinishedQueueItem(queue,item);
-      scheduleTransferQueueRender(view);
+      persistLocalTransferQueue(view);scheduleTransferQueueRender(view);
     }
   }finally{
     queue.running=false;scheduleTransferQueueRender(view);
@@ -658,16 +658,21 @@ async function processTransferQueue(view){
 }
 function enqueueTransferTasks(view,tasks){
   const queue=view.transferQueue;if(!queue)throw new Error('Transfer queue is unavailable');
+  const existingPersistent=new Set(queue.items.map(item=>localPersistentKey(item.persistSpec)).filter(Boolean));
   for(const task of tasks||[]){
+    const persistentKey=localPersistentKey(task.persistSpec);
+    if(persistentKey&&existingPersistent.has(persistentKey))continue;
     queue.sequence++;
     const item={
-      id:queue.sequence,status:'queued',error:'',direction:task.direction||'',kind:task.kind||'Transfer',
+      id:task.id||queue.sequence,status:task.status||'queued',error:task.error||'',direction:task.direction||'',kind:task.kind||'Transfer',
       source:task.source||'',target:task.target||'',size:Number(task.size)||0,run:task.run,removeAfterRun:false,
-      jobID:String(task.jobID||'')
+      jobID:String(task.jobID||''),persistSpec:task.persistSpec||null
     };
-    queue.items.push(item);queue.pending.push(item);
+    queue.items.push(item);
+    if(item.status==='queued')queue.pending.push(item);
+    if(persistentKey)existingPersistent.add(persistentKey);
   }
-  scheduleTransferQueueRender(view);if(!queue.paused)processTransferQueue(view);
+  persistLocalTransferQueue(view);scheduleTransferQueueRender(view);if(!queue.paused)processTransferQueue(view);
 }
 function runTransferScan(view,label,scanner){
   const queue=view.transferQueue;if(!queue)throw new Error('Transfer queue is unavailable');
@@ -703,7 +708,7 @@ async function resumeSelectedTransfers(view){
     if(item.status==='failed'&&typeof item.run==='function'){item.status='queued';item.error='';}
     if(item.status==='queued'&&typeof item.run==='function')queue.priorityPending.push(item);
   }
-  scheduleTransferQueueRender(view);processTransferQueue(view);
+  persistLocalTransferQueue(view);scheduleTransferQueueRender(view);processTransferQueue(view);
   if(serverIDs.length){await serverTransferQueueControl(view,'resume_selected',serverIDs);await syncServerTransferQueue(view);}
 }
 async function removeSelectedTransfers(view){
@@ -717,7 +722,7 @@ async function removeSelectedTransfers(view){
   }
   queue.items=queue.items.filter(item=>item.status!=='removed');
   queue.selectedIDs.clear();queue.selectionAnchor=null;
-  scheduleTransferQueueRender(view);
+  persistLocalTransferQueue(view);scheduleTransferQueueRender(view);
   if(serverIDs.length){await serverTransferQueueControl(view,'remove_selected',serverIDs);await syncServerTransferQueue(view);}
   if(!queue.running&&queue.activeScans===0&&!hasAnyPendingTransfer(queue))afterTransferQueueIdle(view);
 }
@@ -768,12 +773,12 @@ function createTransferQueue(view){
   root.oncontextmenu=event=>{if(event.target.closest('tbody tr'))return;queueContextMenu(view,event);};
   retry.onclick=async()=>{
     for(const item of queue.items)if(!item.server&&item.status==='failed'&&typeof item.run==='function'){item.status='queued';item.error='';queue.pending.push(item);}
-    scheduleTransferQueueRender(view);processTransferQueue(view);
+    persistLocalTransferQueue(view);scheduleTransferQueueRender(view);processTransferQueue(view);
     await serverTransferQueueControl(view,'retry_failed');await syncServerTransferQueue(view);
   };
   clear.onclick=async()=>{
     queue.items=queue.items.filter(item=>item.server||item.status!=='success');
-    pruneQueueSelection(queue);scheduleTransferQueueRender(view);
+    pruneQueueSelection(queue);persistLocalTransferQueue(view);scheduleTransferQueueRender(view);
     await serverTransferQueueControl(view,'clear_done');await syncServerTransferQueue(view);
   };
   renderTransferQueue(view);return root;
