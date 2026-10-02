@@ -440,6 +440,43 @@ async function directoryHandleForPath(rootHandle,path){
   return handle;
 }
 
+async function persistentLocalTransferRun(view,spec,item=null){
+  const root=await getLocalRoot(String(spec?.root_id||''));
+  if(!root?.handle)throw new Error('Saved Local folder is unavailable. Choose the folder again, then Retry failed.');
+  const granted=await ensureHandlePermission(root.handle);
+  if(!granted)throw new Error('Local folder permission is required after reload. Click Grant, then Retry failed.');
+  if(spec.kind==='local_upload'){
+    const sourcePath=normalizeRelativePath(spec.source_path||'.');
+    const parent=parentPath(sourcePath,false),name=pathLeaf(sourcePath,false);
+    const dir=await directoryHandleForPath(root.handle,parent);
+    const handle=await dir.getFileHandle(name),file=await handle.getFile();
+    if(item){item.size=file.size;scheduleTransferQueueRender(view);}
+    await uploadBrowserFileToPath(view,file,normalizeRemotePath(spec.target_path));
+    markRemoteQueueDirty(view,parentPath(spec.target_path,true));
+    return;
+  }
+  if(spec.kind==='local_download'){
+    await writeRemotePathToLocalRoot(view,root,normalizeRemotePath(spec.remote_path),normalizeRelativePath(spec.left_path));
+    markLeftQueueDirty(view);return;
+  }
+  throw new Error('Unsupported persisted Local transfer');
+}
+function localTransferTaskFromSaved(view,saved){
+  const spec=saved?.spec||null,status=saved?.status==='running'?'queued':String(saved?.status||'queued');
+  const runnable=status==='queued'||status==='failed';
+  return {
+    id:String(saved?.id||newFileTransferJobID()),status,error:String(saved?.error||''),
+    direction:String(saved?.direction||''),kind:String(saved?.kind||'Transfer'),
+    source:String(saved?.source||''),target:String(saved?.target||''),size:Number(saved?.size)||0,
+    persistSpec:spec,
+    run:runnable?(item=>persistentLocalTransferRun(view,spec,item)):null
+  };
+}
+function restorePersistentLocalTransferQueue(view){
+  const saved=readPersistentLocalTransferItems().filter(item=>item.profile_id===String(view.profile.id||''));
+  if(!saved.length)return;
+  enqueueTransferTasks(view,saved.map(item=>localTransferTaskFromSaved(view,item)));
+}
 async function refreshProfiles(){
   const data=await app.jsonFetch('/api/file-transfer/profiles');
   profilesByID=new Map((Array.isArray(data?.profiles)?data.profiles:[]).map(profile=>[String(profile.id||''),profile]));
@@ -1283,8 +1320,12 @@ function enqueueHostUploadFile(view,sourcePath,targetPath,size,state){
 }
 function enqueueLocalUploadHandle(view,handle,sourcePath,targetPath,state){
   state.files++;
+  const spec={
+    kind:'local_upload',profile_id:String(view.profile.id||''),root_id:String(view.left.localRoot?.id||''),
+    source_path:normalizeRelativePath(sourcePath),target_path:normalizeRemotePath(targetPath)
+  };
   enqueueTransferTasks(view,[{
-    direction:'→',kind:'Upload',source:sourcePath,target:targetPath,size:0,
+    id:newFileTransferJobID(),direction:'→',kind:'Upload',source:sourcePath,target:targetPath,size:0,persistSpec:spec,
     run:async item=>{
       const file=await handle.getFile();
       item.size=file.size;scheduleTransferQueueRender(view);
@@ -1407,8 +1448,12 @@ async function writeRemotePathToHost(view,remotePath,leftPath){
 function enqueueRemoteDownloadFile(view,remotePath,leftPath,size,state){
   state.files++;
   const source=state.source,localRoot=state.localRoot;
+  const spec=source==='local'?{
+    kind:'local_download',profile_id:String(view.profile.id||''),root_id:String(localRoot?.id||''),
+    remote_path:normalizeRemotePath(remotePath),left_path:normalizeRelativePath(leftPath)
+  }:null;
   enqueueTransferTasks(view,[{
-    direction:'←',kind:'Download',source:remotePath,target:leftPath,size:Number(size)||0,
+    id:spec?newFileTransferJobID():undefined,direction:'←',kind:'Download',source:remotePath,target:leftPath,size:Number(size)||0,persistSpec:spec,
     run:async()=>{
       if(source==='host')await writeRemotePathToHost(view,remotePath,leftPath);
       else await writeRemotePathToLocalRoot(view,localRoot,remotePath,leftPath);
@@ -1762,7 +1807,7 @@ function attachView(profile,{activate=true,session=null}={}){
   sites.append(left.site,divider,remote.site);
   const transferQueue=createTransferQueue(view);
   if(session?.queue_paused)view.transferQueue.paused=true;
-  pane.append(head,sites,transferQueue);panes.append(pane);views.set(id,view);installDivider(view,divider,sites);installQueueResizer(view);startServerTransferQueuePolling(view);
+  pane.append(head,sites,transferQueue);panes.append(pane);views.set(id,view);installDivider(view,divider,sites);installQueueResizer(view);startServerTransferQueuePolling(view);restorePersistentLocalTransferQueue(view);
 
   source.onchange=()=>switchLeftSource(view,source.value).catch(app.showError);
   rootSelect.onchange=async()=>{
