@@ -735,25 +735,18 @@ function installPatchPanel(){
       restoreReturnView();
     }
   });
-  window.addEventListener('taskmenu:view-activated',event=>{
+  window.addEventListener('taskmenu:view-activated',()=>{
     const patchActive=String(app.active||'')==='external:patch';
     if(patchActive){
       patchTab.hidden=false;
       setVisible(true);
       return;
     }
-    const explicit=Boolean(event.detail?.explicit);
-    if(!explicit&&panel.classList.contains('visible')){
-      // Automatic/session creation, restore, split/layout and connector flows
-      // are background opens. Only a trusted workspace-tab click may evict
-      // Patch Tool from the foreground.
-      app.claimForegroundView?.('external:patch');
-      app.activateExternalView('patch');
-      patchTab.hidden=false;
-      setVisible(true);
-      return;
-    }
-    if(explicit)deactivate();
+    // Core foreground locking is authoritative. If another view really became
+    // active, that transition was allowed by a trusted tab click; Patch Tool
+    // simply deactivates. Do not recursively re-activate Patch here because
+    // nested view-activated events race with other feature listeners.
+    deactivate();
   });
 
   function resetSummary(status='Not loaded'){
