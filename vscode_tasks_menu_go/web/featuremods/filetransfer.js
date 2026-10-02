@@ -765,7 +765,7 @@ function renderTransferQueue(view){
   }
   const shown=visible.length<queue.items.length?' · Showing '+visible.length+'/'+queue.items.length:'';
   queue.summary.textContent=pauseText+scanText+'Queued '+counts.queued+' · Running '+counts.running+' · Conflict '+counts.conflict+' · Done '+counts.success+' · Skipped '+counts.skipped+' · Failed '+counts.failed+shown;
-  queue.retry.disabled=counts.failed===0;queue.clear.disabled=counts.success===0;
+  queue.retry.disabled=counts.failed===0;queue.clear.disabled=counts.success===0&&counts.skipped===0;
   queue.body.replaceChildren();
   if(!queue.items.length){
     const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=8;td.className='ft-queue-empty';td.textContent='No transfers in this session';tr.append(td);queue.body.append(tr);return;
@@ -1804,7 +1804,10 @@ async function streamRemoteEntriesToLeft(view,entries){
   const selected=[...(entries||[])];if(!selected.length)throw new Error('Select one or more remote items first');
   const remoteBase=normalizeRemotePath(view.remote.currentPath||'.');
   if(view.left.source==='host'){
-    const remoteTargets=selected.map(entry=>({path:joinPath(remoteBase,entry.name,true),directory:entryType(entry)==='directory'}));
+    const remoteTargets=selected.map(entry=>({
+      path:joinPath(remoteBase,entry.name,true),directory:entryType(entry)==='directory',
+      size:Number(entry.size)||0,modified:String(entry.modified||'')
+    }));
     view.left.status.textContent='Background download queued on TaskDeck daemon…';
     await createServerTransferJob(view,{kind:'host_download',remote_targets:remoteTargets,host_dir:normalizeRelativePath(view.left.currentPath||'.')});
     return;
