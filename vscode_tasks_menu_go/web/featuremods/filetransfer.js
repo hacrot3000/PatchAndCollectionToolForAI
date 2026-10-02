@@ -1324,7 +1324,7 @@ async function transferRemoteToLeft(view){return transferRemoteEntriesToLeft(vie
 
 function deleteJobRuntime(jobID){
   let runtime=remoteDeleteRuntime.get(jobID);
-  if(!runtime){runtime={scanning:false,queued:0,completed:0};remoteDeleteRuntime.set(jobID,runtime);}
+  if(!runtime){runtime={scanning:false,scanFailed:false,queued:0,completed:0};remoteDeleteRuntime.set(jobID,runtime);}
   return runtime;
 }
 function markPersistentDeleteItemSuccess(view,jobID){
@@ -1332,7 +1332,7 @@ function markPersistentDeleteItemSuccess(view,jobID){
   runtime.completed++;maybeCompletePersistentDeleteJob(view,jobID);
 }
 function maybeCompletePersistentDeleteJob(view,jobID){
-  const runtime=remoteDeleteRuntime.get(jobID);if(!runtime||runtime.scanning)return;
+  const runtime=remoteDeleteRuntime.get(jobID);if(!runtime||runtime.scanning||runtime.scanFailed)return;
   if(runtime.completed<runtime.queued)return;
   removePersistentFileTransferJob(jobID);remoteDeleteRuntime.delete(jobID);activeRemoteDeleteJobs.delete(jobID);
   persistFileTransferSession();
@@ -1390,7 +1390,7 @@ async function scanPersistentRemoteDeleteTarget(view,target,state,jobID){
 async function runPersistentRemoteDeleteJob(view,job){
   if(!job?.id||activeRemoteDeleteJobs.has(job.id))return;
   activeRemoteDeleteJobs.add(job.id);
-  const runtime=deleteJobRuntime(job.id);runtime.scanning=true;runtime.queued=0;runtime.completed=0;
+  const runtime=deleteJobRuntime(job.id);runtime.scanning=true;runtime.scanFailed=false;runtime.queued=0;runtime.completed=0;
   const state={files:0,folders:0};
   view.remote.status.textContent='Resuming delete scan…';
   try{
@@ -1399,6 +1399,7 @@ async function runPersistentRemoteDeleteJob(view,job){
     });
     view.remote.status.textContent='Delete scan complete · '+state.files+' file(s) · '+state.folders+' folder(s) queued';
   }catch(error){
+    runtime.scanFailed=true;
     view.remote.status.textContent='Delete scan interrupted · will resume after reload';
     console.warn('Persistent remote delete scan failed',error);
   }finally{
