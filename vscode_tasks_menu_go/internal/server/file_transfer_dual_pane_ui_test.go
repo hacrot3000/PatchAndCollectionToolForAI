@@ -479,10 +479,74 @@ func TestFileTransferSessionRestoreDoesNotStealFocusFromOtherViews(t *testing.T)
 		"function attachView(profile,{activate=true,session=null}={})",
 		"if(activate)activateView(id)",
 		"activeViewID=activeID&&views.has(activeID)?activeID:''",
-		"if(saved.active_profile_id&&views.has(saved.active_profile_id))activateView(saved.active_profile_id)",
+		"if(saved?.active_profile_id&&views.has(saved.active_profile_id))activateView(saved.active_profile_id)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("filetransfer.js missing non-stealing restore contract %q", want)
+		}
+	}
+}
+
+
+func TestFileTransferRestoreCannotEraseSnapshotBeforeItReadsIt(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"let sessionPersistenceReady=false",
+		"if(restoringSession||!sessionPersistenceReady)return",
+		"restoringSession=false;sessionPersistenceReady=true",
+		"await scheduleFileTransferSessionRestore()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing restore snapshot guard %q", want)
+		}
+	}
+}
+
+func TestRemoteDeleteJobSurvivesReloadAndRebuildsQueue(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"taskdeck:file-transfer:jobs:",
+		"function readPersistentFileTransferJobs()",
+		"function upsertPersistentFileTransferJob(job)",
+		"function removePersistentFileTransferJob(jobID)",
+		"async function runPersistentRemoteDeleteJob(view,job)",
+		"async function resumePersistentRemoteDeleteJobs()",
+		"async function scanPersistentRemoteDeleteTarget(view,target,state,jobID)",
+		"jobID:String(task.jobID||'')",
+		"if(item.jobID)markPersistentDeleteItemSuccess(view,item.jobID)",
+		"upsertPersistentFileTransferJob(job);persistFileTransferSession()",
+		"resumePersistentRemoteDeleteJobs()",
+		"if(profile){attachView(profile,{activate:false,session:null});restored.add(job.profile_id);}",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing reload-safe remote delete contract %q", want)
+		}
+	}
+}
+
+func TestRemoteDeleteRecoveryIsIdempotent(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"async function remoteDeleteTargetEntry(view,path)",
+		"async function deleteRemotePathIdempotent(view,path,directory)",
+		"if(!current)return",
+		"const entry=await remoteDeleteTargetEntry(view,target.path)",
+		"if(!entry)return",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing idempotent delete recovery contract %q", want)
 		}
 	}
 }
