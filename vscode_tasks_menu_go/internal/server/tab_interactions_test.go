@@ -59,7 +59,7 @@ func TestTabContextMenuReusesSessionAndConsoleActions(t *testing.T) {
 		"addEventListener('contextmenu'",
 		"sourceActions(view,'Session')",
 		"sourceActions(view,'Console')",
-		"app.activateView(targetView.meta.id)",
+		"app.activateView(targetView.meta.id,{force:true})",
 		"source.click()",
 		"event.preventDefault()",
 		".tab-context-menu button,.tab-context-submenu button{display:block;width:100%;text-align:left;margin:0;border:0;background:transparent",
