@@ -226,7 +226,7 @@ function addActions(view,label,actions){
       const targetView=contextView||view;
       closeContextMenu();
       if(!targetView||targetView.closed)return;
-      app.activateView(targetView.meta.id);
+      app.activateView(targetView.meta.id,{force:true});
       setTimeout(()=>{
         if(!source.isConnected||source.disabled)return;
         source.click();
@@ -251,7 +251,7 @@ function runCustomAction(action,item){
   const targetView=contextView;
   closeContextMenu();
   if(!targetView||targetView.closed||item.disabled)return;
-  app.activateView(targetView.meta.id);
+  app.activateView(targetView.meta.id,{force:true});
   Promise.resolve(action.run?.(targetView)).catch(app.showError);
 }
 
