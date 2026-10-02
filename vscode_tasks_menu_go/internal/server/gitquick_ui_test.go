@@ -15,7 +15,9 @@ func TestGitQuickPanelIsLeftAlignedAndCommandLogIsTaller(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
+		"z-index:2100",
 		"left:12px;right:auto",
+		"body.task-sidebar-auto-hide .git-panel{left:60px;width:min(780px,calc(100vw - 72px))}",
 		"max-height:min(46vh,460px)",
 		"max-height:min(38vh,360px)",
 	} {
@@ -25,6 +27,10 @@ func TestGitQuickPanelIsLeftAlignedAndCommandLogIsTaller(t *testing.T) {
 	}
 	if strings.Contains(js, "top:calc(var(--taskmenu-header-height,30px) + 6px);right:12px;") {
 		t.Fatal("Git Quick Actions must not remain right-aligned")
+	}
+
+	if strings.Contains(js, "z-index:1500") {
+		t.Fatal("Git Quick Actions must stay above the task activity bar")
 	}
 }
 
