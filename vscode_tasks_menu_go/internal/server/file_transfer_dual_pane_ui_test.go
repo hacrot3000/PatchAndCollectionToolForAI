@@ -416,6 +416,31 @@ func TestFileTransferQueuePauseDoesNotStopScanners(t *testing.T) {
 	}
 }
 
+
+func TestFileTransferQueueIsVerticallyResizableAndPersistent(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"ft-queue-resizer",
+		"Drag to resize Transfer Queue · double-click to reset",
+		"function installQueueResizer(view)",
+		"taskdeck:file-transfer:queue-height:",
+		"height=startHeight-(event.clientY-startY)",
+		"root.style.height=height+'px'",
+		"root.style.flex='0 0 '+height+'px'",
+		"safeStorageSet(storageKey,String(height))",
+		"resizer.ondblclick=()=>{height=defaultHeight;apply();safeStorageSet(storageKey,String(height));}",
+		"installQueueResizer(view)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing queue resize contract %q", want)
+		}
+	}
+}
+
 func TestFileTransferWorkspaceUsesStructuredTransferAndMutationAPIs(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil {
