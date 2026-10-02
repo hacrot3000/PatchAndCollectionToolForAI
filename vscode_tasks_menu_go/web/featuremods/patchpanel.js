@@ -724,6 +724,17 @@ function installPatchPanel(){
     if(wasVisible||String(app.active||'')==='external:patch')restoreReturnView();
   }
   function toggle(){panel.classList.contains('visible')?close():open();}
+  function explicitWorkspaceTabSwitch(event){
+    if(!panel.classList.contains('visible'))return;
+    const target=event.target instanceof Element?event.target:null;
+    if(!target||target.closest('.close'))return;
+    const button=target.closest('button');
+    if(!button||button===patchTab||button.parentElement!==tabsHost)return;
+    // Only a real user click on another workspace tab is allowed to move the
+    // foreground away from Patch Tool. Programmatic opens/restores keep Patch.
+    deactivate();
+  }
+  tabsHost.addEventListener('click',explicitWorkspaceTabSwitch,true);
   patchTab.onclick=()=>open();
   patchTabClose.onclick=event=>{event.stopPropagation();close();};
   window.addEventListener('taskmenu:patch-ui-mode',event=>{
@@ -735,25 +746,23 @@ function installPatchPanel(){
       restoreReturnView();
     }
   });
-  window.addEventListener('taskmenu:view-activated',event=>{
+  window.addEventListener('taskmenu:view-activated',()=>{
     const patchActive=String(app.active||'')==='external:patch';
     if(patchActive){
       patchTab.hidden=false;
       setVisible(true);
       return;
     }
-    const explicit=Boolean(event.detail?.explicit);
-    if(!explicit&&panel.classList.contains('visible')){
-      // Creating/opening a Terminal, task, SSH, FTP/SFTP, database, editor, etc.
-      // must not evict the Patch Tool foreground. Only an explicit tab switch
-      // is allowed to move foreground ownership away from Patch.
+    if(panel.classList.contains('visible')){
+      // View activation events are also emitted by automatic/session creation,
+      // restore, split/layout and connector flows. They are not evidence of a
+      // user tab switch. Keep Patch Tool foreground unless the #tabs capture
+      // handler above observed an actual click on another tab.
       app.claimForegroundView?.('external:patch');
       app.activateExternalView('patch');
       patchTab.hidden=false;
       setVisible(true);
-      return;
     }
-    if(explicit)deactivate();
   });
 
   function resetSummary(status='Not loaded'){
