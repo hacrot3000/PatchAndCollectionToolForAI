@@ -24,12 +24,31 @@ spec.loader.exec_module(m)
 
 
 
+def test_runtime_lib(root: Path) -> Path:
+    return root/'.ptv-test-runtime'
+
+
 def install_runner_shim(root: Path):
-    lib=root/'tools'/'_patch_lib'; lib.mkdir(parents=True,exist_ok=True)
+    lib=test_runtime_lib(root); lib.mkdir(parents=True,exist_ok=True)
     shim=lib/'python_patch_runner.py'
     shim.write_text(
-        '#!/usr/bin/env python3\nimport subprocess,sys\nfrom pathlib import Path\nroot=Path(__file__).resolve().parents[2]\nlauncher=root/"tools"/"run_python_patches.sh"\nraise SystemExit(subprocess.run([str(launcher),*sys.argv[1:]],cwd=root).returncode)\n',
+        '#!/usr/bin/env python3\nimport subprocess,sys\nfrom pathlib import Path\n'
+        + 'root=Path(' + repr(str(root)) + ')\n'
+        + 'launcher=root/"tools"/"run_python_patches.sh"\n'
+        + 'raise SystemExit(subprocess.run([str(launcher),*sys.argv[1:]],cwd=root).returncode)\n',
         encoding='utf-8')
+    m.RUNTIME_LIB_DIR=lib
+
+
+def dispatcher_cmd(root: Path):
+    code=(
+        'import sys; from pathlib import Path; '
+        + 'sys.path.insert(0,' + repr(str(HERE)) + '); '
+        + 'import python_patch_queue_dispatcher as m; '
+        + 'm.RUNTIME_LIB_DIR=Path(' + repr(str(test_runtime_lib(root))) + '); '
+        + 'raise SystemExit(m.main(["--project-root",' + repr(str(root)) + ']))'
+    )
+    return [sys.executable,'-S','-c',code]
 
 def make_patch(path: Path, marker: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -107,7 +126,7 @@ with tempfile.TemporaryDirectory(prefix='ptv680dup_e2e_only_') as td:
     install_runner_shim(root)
 
     cp = subprocess.run(
-        [sys.executable, '-S', str(MOD), '--project-root', str(root)],
+        dispatcher_cmd(root),
         text=True,
         capture_output=True,
         timeout=15,
@@ -121,7 +140,7 @@ with tempfile.TemporaryDirectory(prefix='ptv680dup_e2e_only_') as td:
     assert len(ignored) == 1, ignored
     assert not duplicate.exists(), duplicate
     # A second zero-argument run must not report/offer the retired duplicate again.
-    cp2 = subprocess.run([sys.executable, '-S', str(MOD), '--project-root', str(root)], text=True, capture_output=True, timeout=15)
+    cp2 = subprocess.run(dispatcher_cmd(root), text=True, capture_output=True, timeout=15)
     assert cp2.returncode == 0, (cp2.stdout, cp2.stderr)
     assert 'patch_again.zip' not in cp2.stdout + cp2.stderr, (cp2.stdout, cp2.stderr)
 
@@ -153,7 +172,7 @@ with tempfile.TemporaryDirectory(prefix='ptv680dup_e2e_mixed_') as td:
     install_runner_shim(root)
 
     cp = subprocess.run(
-        [sys.executable, '-S', str(MOD), '--project-root', str(root)],
+        dispatcher_cmd(root),
         input='\n',
         text=True,
         capture_output=True,
@@ -297,7 +316,7 @@ with tempfile.TemporaryDirectory(prefix='ptv681dup_late_main_') as td:
     launcher.chmod(0o755)
     install_runner_shim(root)
     cp = subprocess.run(
-        [sys.executable, '-S', str(MOD), '--project-root', str(root)],
+        dispatcher_cmd(root),
         input='a\n', text=True, capture_output=True, timeout=15,
     )
     assert cp.returncode == 0, (cp.returncode, cp.stdout, cp.stderr)
@@ -344,9 +363,9 @@ with tempfile.TemporaryDirectory(prefix='ptv610_no_process_lock_') as td:
         'exit 0\n', encoding='utf-8')
     launcher.chmod(0o755)
     install_runner_shim(root)
-    p1=subprocess.Popen([sys.executable,'-S',str(MOD),'--project-root',str(root)],
+    p1=subprocess.Popen(dispatcher_cmd(root),
                         stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
-    p2=subprocess.Popen([sys.executable,'-S',str(MOD),'--project-root',str(root)],
+    p2=subprocess.Popen(dispatcher_cmd(root),
                         stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     out1,err1=p1.communicate(input='\n',timeout=5)
     out2,err2=p2.communicate(input='\n',timeout=5)
