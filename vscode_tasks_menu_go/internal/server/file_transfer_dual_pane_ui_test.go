@@ -441,6 +441,51 @@ func TestFileTransferQueueIsVerticallyResizableAndPersistent(t *testing.T) {
 	}
 }
 
+
+func TestFileTransferSessionRestoresOpenProfilesAndPathsAfterReload(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"taskdeck:file-transfer:session:",
+		"function readFileTransferSession()",
+		"function persistFileTransferSession()",
+		"function restoreFileTransferSession()",
+		"active_profile_id",
+		"profile_id:id",
+		"left_path:normalizeRelativePath(view.left?.currentPath||'.')",
+		"remote_path:normalizeRemotePath(view.remote?.currentPath||view.profile?.initial_path||'.')",
+		"attachView(profile,{activate:false,session:item})",
+		"window.addEventListener('taskmenu:tasks',scheduleFileTransferSessionRestore)",
+		"setTimeout(scheduleFileTransferSessionRestore,0)",
+		"restoreSession:restoreFileTransferSession",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing reload session persistence contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferSessionRestoreDoesNotStealFocusFromOtherViews(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function attachView(profile,{activate=true,session=null}={})",
+		"if(activate)activateView(id)",
+		"activeViewID=activeID&&views.has(activeID)?activeID:''",
+		"if(saved.active_profile_id&&views.has(saved.active_profile_id))activateView(saved.active_profile_id)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing non-stealing restore contract %q", want)
+		}
+	}
+}
+
 func TestFileTransferWorkspaceUsesStructuredTransferAndMutationAPIs(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil {
