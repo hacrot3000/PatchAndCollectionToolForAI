@@ -2424,6 +2424,16 @@ def _runner_command(root: Path, action: str, item: QueueItem, *, no_validation: 
         cmd.append("--no-validation")
     return cmd
 
+def _collect_command(root: Path, item: QueueItem) -> list[str]:
+    progress = RUNTIME_LIB_DIR / "python_patch_collect_progress_v6_7.py"
+    compat = RUNTIME_LIB_DIR / "python_patch_collect_compat.py"
+    return [
+        sys.executable, str(progress),
+        "--project-root", str(root),
+        "--collector", str(compat),
+        "--", "request", f"patchs/{item.name}",
+    ]
+
 
 def _run_runner_captured(
     root: Path, cmd: list[str], *, env: dict[str, str] | None = None, timeout: int = 120
@@ -7021,9 +7031,7 @@ def execute_items(
                 duplicate_warnings.append(f"late duplicate check returned no decision for patchs/{item.name}; executing normally")
             cmd = _runner_command(root, "execute", item, no_validation=no_validation)
         elif item.kind == "COLLECT":
-            progress = RUNTIME_LIB_DIR / "python_patch_collect_progress_v6_7.py"
-            compat = RUNTIME_LIB_DIR / "python_patch_collect_compat.py"
-            cmd = [sys.executable, str(progress), "--project-root", str(root), "--collector", str(compat), "--", "request", f"patchs/{item.name}"]
+            cmd = _collect_command(root, item)
         else:
             rc = 2
             executed.append((item.name, rc))
