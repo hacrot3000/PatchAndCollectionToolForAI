@@ -318,7 +318,15 @@ func (s *Server) executeFileTransferServerItem(ctx context.Context, profileID st
 	case "host_download":
 		return s.backgroundRemoteToHost(ctx, profileID, item.Source, item.Target)
 	case "remote_delete":
-		return s.backgroundRemoteMutation(ctx, profileID, "delete", item.Source, "", item.Directory)
+		err := s.backgroundRemoteMutation(ctx, profileID, "delete", item.Source, "", item.Directory)
+		if err == nil {
+			return nil
+		}
+		exists, checkErr := s.backgroundRemoteEntryExists(ctx, profileID, item.Source)
+		if checkErr == nil && !exists {
+			return nil
+		}
+		return err
 	default:
 		return fmt.Errorf("unsupported background file-transfer operation %q", item.Operation)
 	}
@@ -365,6 +373,25 @@ func (s *Server) backgroundListRemote(ctx context.Context, profileID, remotePath
 	default:
 		return nil, fmt.Errorf("unsupported file-transfer protocol %q", profile.Protocol)
 	}
+}
+
+func (s *Server) backgroundRemoteEntryExists(ctx context.Context, profileID, remotePath string) (bool, error) {
+	remotePath = normalizeBackgroundRemotePath(remotePath)
+	if remotePath == "." || remotePath == "/" {
+		return true, nil
+	}
+	parent := normalizeBackgroundRemotePath(pathpkg.Dir(remotePath))
+	name := pathpkg.Base(remotePath)
+	entries, err := s.backgroundListRemote(ctx, profileID, parent)
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range entries {
+		if entry.Name == name {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *Server) backgroundRemoteMutation(ctx context.Context, profileID, action, remotePath, newPath string, directory bool) error {
@@ -705,6 +732,10 @@ func (s *Server) scanHostDownloadJob(queue *fileTransferServerQueue, jobID strin
 		}
 		entries, err := s.backgroundListRemote(context.Background(), req.ProfileID, target.Path)
 		if err != nil {
+			exists, checkErr := s.backgroundRemoteEntryExists(context.Background(), req.ProfileID, target.Path)
+			if checkErr == nil && !exists {
+				return nil
+			}
 			return err
 		}
 		for _, entry := range entries {
