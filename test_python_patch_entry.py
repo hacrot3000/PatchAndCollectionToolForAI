@@ -116,7 +116,13 @@ class BundledDispatcherRuntimeTests(unittest.TestCase):
             'RUNTIME_LIB_DIR/"docs"/"PATCH_PACKAGE_SCHEMA.json"',
         ):
             self.assertIn(want, dispatcher)
-        self.assertNotIn('root/"tools"/"_patch_lib"/"VERSION"', dispatcher)
+        for forbidden in (
+            'root/"tools"/"_patch_lib"/"VERSION"',
+            'root / "tools" / "_patch_lib" / "python_patch_runner.py"',
+            'root / "tools" / "_patch_lib" / "python_patch_collect_progress_v6_7.py"',
+            'root / "tools" / "_patch_lib" / "python_patch_collect_compat.py"',
+        ):
+            self.assertNotIn(forbidden, dispatcher)
 
 
 class TerminalHistoryCommandTests(unittest.TestCase):
