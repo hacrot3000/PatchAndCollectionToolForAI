@@ -385,14 +385,15 @@ async function refreshProfiles(){
 }
 function profileFor(view){return profilesByID.get(view.profile.id)||view.profile;}
 
-function activateView(id){
-  const view=views.get(id);if(!view)return;
+function activateView(id,{force=false}={}){
+  const view=views.get(id);if(!view)return false;
+  if(app.activateExternalView('file-transfer:'+id,{force})===false)return false;
   activeViewID=id;
-  app.activateExternalView('file-transfer:'+id);
   for(const [otherID,other] of views){
     const active=otherID===id;other.tab.classList.toggle('active',active);other.pane.classList.toggle('hidden',!active);
   }
   persistFileTransferSession();
+  return true;
 }
 function closeView(id){
   const view=views.get(id);if(!view)return;
@@ -1573,7 +1574,7 @@ function attachView(profile,{activate=true,session=null}={}){
   const tab=document.createElement('button');tab.type='button';tab.className='ft-tab';tab.dataset.id='file-transfer:'+id;
   const tabLabel=document.createElement('span');tabLabel.textContent=String(profile.protocol||'file').toUpperCase()+' · '+(profile.name||'Files');
   const close=document.createElement('span');close.className='close';close.textContent='×';close.onclick=event=>{event.stopPropagation();closeView(id);};
-  tab.append(tabLabel,close);tab.onclick=()=>activateView(id);tabs.append(tab);
+  tab.append(tabLabel,close);tab.onclick=()=>activateView(id,{force:true});tabs.append(tab);
 
   const pane=document.createElement('div');pane.className='ft-pane hidden';pane.dataset.id='file-transfer:'+id;
   const head=document.createElement('div');head.className='ft-pane-head';
