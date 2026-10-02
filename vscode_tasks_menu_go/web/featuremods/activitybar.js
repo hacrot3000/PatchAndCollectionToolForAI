@@ -119,7 +119,9 @@ function installActivityBar(){
   }
   function updateButtons(){
     for(const button of [tasksButton,explorerButton,connectionsButton,patchButton,historyButton]){
-      const active=button.dataset.view===activeView;
+      const active=button===patchButton
+        ?Boolean(globalThis.TaskMenuPatchPanel?.visible)
+        :button.dataset.view===activeView;
       button.classList.toggle('active',active);
       button.setAttribute('aria-pressed',active?'true':'false');
     }
@@ -167,9 +169,6 @@ function installActivityBar(){
   function closeExplorer(){
     try{globalThis.TaskMenuExplorer?.close();}catch(error){console.warn('Auto sidebar could not close Explorer',error);}
   }
-  function deactivatePatchPanel(){
-    try{globalThis.TaskMenuPatchPanel?.deactivate();}catch(error){console.warn('Auto sidebar could not deactivate Patch Tool',error);}
-  }
   function closeConnections(){
     try{globalThis.TaskMenuConnections?.close();}catch(error){console.warn('Auto sidebar could not close Connections',error);}
   }
@@ -183,7 +182,6 @@ function installActivityBar(){
     hideTasksPanel();
     if(previous==='explorer')closeExplorer();
     if(previous==='connections')closeConnections();
-    if(previous==='patch')deactivatePatchPanel();
     if(previous==='history')closeHistoryPanel();
     updateButtons();
     fitTerminals();
@@ -192,7 +190,6 @@ function installActivityBar(){
     activeView='tasks';
     closeExplorer();
     closeConnections();
-    if(enabled())deactivatePatchPanel();
     closeHistoryPanel();
     restoreHistoryToTasks();
     document.body.classList.toggle('task-sidebar-panel-open',enabled());
@@ -203,7 +200,6 @@ function installActivityBar(){
     activeView='explorer';
     hideTasksPanel();
     closeConnections();
-    if(enabled())deactivatePatchPanel();
     closeHistoryPanel();
     try{globalThis.TaskMenuExplorer?.open();}catch(error){console.warn('Auto sidebar could not open Explorer',error);}
     updateButtons();
@@ -213,14 +209,15 @@ function installActivityBar(){
     activeView='connections';
     hideTasksPanel();
     closeExplorer();
-    if(enabled())deactivatePatchPanel();
     closeHistoryPanel();
     try{globalThis.TaskMenuConnections?.open();}catch(error){console.warn('Auto sidebar could not open Connections',error);}
     updateButtons();
     fitTerminals();
   }
   function showPatch(){
-    activeView='patch';
+    // Patch Tool is a workspace tab, not a sidebar view. Opening it may close
+    // transient sidebar panels, but sidebar navigation must never own or hide it.
+    if(enabled())activeView='';
     hideTasksPanel();
     closeExplorer();
     closeConnections();
@@ -234,19 +231,16 @@ function installActivityBar(){
     hideTasksPanel();
     closeExplorer();
     closeConnections();
-    if(enabled())deactivatePatchPanel();
     adoptHistoryFromTasks();
     historyPanel.classList.add('visible');
     updateButtons();
     fitTerminals();
   }
   function activate(view){
+    if(view==='patch'){showPatch();return;}
     if(activeView===view){
-      // Patch Tool is a workspace tab with its own close button, not a
-      // collapsible sidebar panel. Re-clicking it always keeps the tab active.
-      // In Always visible mode the other sidebar views are fixed as well, so
-      // re-clicking their icons keeps the selected view instead of hiding it.
-      if(view==='patch'){showPatch();return;}
+      // Sidebar views keep their existing toggle behavior. Patch Tool is
+      // intentionally excluded because it is a workspace tab.
       if(!enabled()){
         if(view==='tasks')showTasks();
         if(view==='explorer')showExplorer();
@@ -260,7 +254,6 @@ function installActivityBar(){
     if(view==='tasks')showTasks();
     if(view==='explorer')showExplorer();
     if(view==='connections')showConnections();
-    if(view==='patch')showPatch();
     if(view==='history')showHistory();
   }
 
@@ -288,26 +281,15 @@ function installActivityBar(){
       activeView='connections';
       hideTasksPanel();
       closeExplorer();
-      if(enabled())deactivatePatchPanel();
-      closeHistoryPanel();
+        closeHistoryPanel();
     }else if(activeView==='connections'){
       activeView=enabled()?'':'tasks';
     }
     updateButtons();
   });
 
-  window.addEventListener('taskmenu:patch-panel-visible',event=>{
-    const visible=Boolean(event.detail?.visible);
-    if(visible){
-      activeView='patch';
-      hideTasksPanel();
-      closeExplorer();
-      closeConnections();
-      closeHistoryPanel();
-    }else if(activeView==='patch'){
-      activeView=enabled()?'':'tasks';
-      if(!enabled())restoreHistoryToTasks();
-    }
+  window.addEventListener('taskmenu:patch-panel-visible',()=>{
+    // Visibility of the Patch workspace tab must not mutate sidebar ownership.
     updateButtons();
   });
 
@@ -335,7 +317,6 @@ function installActivityBar(){
     hideTasksPanel();
     closeExplorer();
     closeConnections();
-    deactivatePatchPanel();
     closeHistoryPanel();
     restoreHistoryToTasks();
     document.body.classList.toggle('task-sidebar-auto-hide',on);
@@ -360,13 +341,12 @@ function installActivityBar(){
     if(activeView==='tasks'&&menu.contains(target))return;
     if(activeView==='explorer'&&explorerPanel?.contains(target))return;
     if(activeView==='connections'&&globalThis.TaskMenuConnections?.panel?.contains(target))return;
-    if(activeView==='patch'&&globalThis.TaskMenuPatchPanel?.panel?.contains(target))return;
     if(activeView==='history'&&historyPanel.contains(target))return;
     closeActive();
   },true);
 
   document.addEventListener('keydown',event=>{
-    if(event.key==='Escape'&&enabled()&&(activeView==='tasks'||activeView==='connections'||activeView==='patch'||activeView==='history'))closeActive();
+    if(event.key==='Escape'&&enabled()&&(activeView==='tasks'||activeView==='connections'||activeView==='history'))closeActive();
   });
   window.addEventListener('resize',()=>{if(enabled())refreshPanelWidth();});
 
