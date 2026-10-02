@@ -591,6 +591,7 @@ function installPatchPanel(){
   let returnViewId='';
   let tabReadOnly=false;
   let protocolPollGeneration=0;
+  let lifecycleSuspended=false;
   let latestQueueSnapshot=null;
   let queueSummaryView='queue';
   let queueSearchQuery='';
@@ -653,14 +654,36 @@ function installPatchPanel(){
     return tabReadOnly;
   }
 
+  function cancelPatchPanelPolling(){
+    protocolPollGeneration+=1;
+    actionPollGeneration+=1;
+    queueMutationPollGeneration+=1;
+    historyPollGeneration+=1;
+    historyManagementPollGeneration+=1;
+    historySupportPollGeneration+=1;
+    historyCleanupPollGeneration+=1;
+    parallelCollectPollGeneration+=1;
+  }
+  function resumePatchPanelPolling(){
+    if(activeSessionId)void pollProtocol(activeSessionId,!runningMode&&!planMode&&!healthMode,true);
+    if(parallelCollectRuns.size)void pollParallelCollectRuns();
+  }
+  function suspendPatchPanelLifecycle(){
+    if(lifecycleSuspended)return;
+    lifecycleSuspended=true;
+    cancelPatchPanelPolling();
+  }
+  function resumePatchPanelLifecycle(){
+    if(!lifecycleSuspended)return;
+    lifecycleSuspended=false;
+    resumePatchPanelPolling();
+  }
   function setVisible(value){
     const visible=Boolean(value);
+    const changed=panel.classList.contains('visible')!==visible;
     panel.classList.toggle('visible',visible);
     patchTab.classList.toggle('active',visible);
-    if(!visible){protocolPollGeneration+=1;actionPollGeneration+=1;queueMutationPollGeneration+=1;historyPollGeneration+=1;historyManagementPollGeneration+=1;historySupportPollGeneration+=1;historyCleanupPollGeneration+=1;parallelCollectPollGeneration+=1;}
-    if(visible&&activeSessionId)void pollProtocol(activeSessionId,!runningMode&&!planMode&&!healthMode,true);
-    if(visible&&parallelCollectRuns.size)void pollParallelCollectRuns();
-    window.dispatchEvent(new CustomEvent('taskmenu:patch-panel-visible',{detail:{visible}}));
+    if(changed)window.dispatchEvent(new CustomEvent('taskmenu:patch-panel-visible',{detail:{visible}}));
   }
   function rememberReturnView(){
     const current=String(app.active||'');
@@ -678,7 +701,8 @@ function installPatchPanel(){
       start('queue').catch(app.showError);
       return;
     }
-    if(!panel.classList.contains('visible'))rememberReturnView();
+    if(lifecycleSuspended)rememberReturnView();
+    resumePatchPanelLifecycle();
     patchTab.hidden=false;
     app.activateExternalView('patch');
     setVisible(true);
@@ -691,6 +715,7 @@ function installPatchPanel(){
   }
   function close(){
     const wasVisible=panel.classList.contains('visible');
+    suspendPatchPanelLifecycle();
     setVisible(false);
     patchTab.hidden=true;
     if(wasVisible||String(app.active||'')==='external:patch')restoreReturnView();
@@ -700,21 +725,16 @@ function installPatchPanel(){
   patchTabClose.onclick=event=>{event.stopPropagation();close();};
   window.addEventListener('taskmenu:patch-ui-mode',event=>{
     if(String(event.detail?.mode||'')==='terminal'){
+      suspendPatchPanelLifecycle();
       setVisible(false);
       patchTab.hidden=true;
       restoreReturnView();
     }
   });
-  window.addEventListener('taskmenu:view-activated',event=>{
-    const kind=String(event.detail?.kind||'');
-    const id=String(event.detail?.id||'');
-    const active=String(app.active||'');
-    if(active==='external:patch'||(kind==='external'&&id==='patch')){
-      patchTab.hidden=false;
-      setVisible(true);
-      return;
-    }
-    if((kind==='terminal'||kind==='external')&&active!=='external:patch')deactivate();
+  window.addEventListener('taskmenu:view-activated',()=>{
+    const patchActive=String(app.active||'')==='external:patch';
+    if(patchActive)patchTab.hidden=false;
+    setVisible(patchActive);
   });
 
   function resetSummary(status='Not loaded'){
@@ -1097,7 +1117,7 @@ function installPatchPanel(){
   async function waitForHistorySupport(sessionId,supportID,promptID,runID,itemIndex){
     const generation=++historySupportPollGeneration;
     for(let attempt=0;attempt<1200;attempt+=1){
-      if(generation!==historySupportPollGeneration||!panel.classList.contains('visible')||sessionId!==activeSessionId)return null;
+      if(generation!==historySupportPollGeneration||lifecycleSuspended||sessionId!==activeSessionId)return null;
       const state=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/protocol`);
       const result=state?.history_support_result;
       if(result?.support_id===supportID){
@@ -1273,7 +1293,7 @@ function installPatchPanel(){
     const generation=++historyCleanupPollGeneration;
     let matched=null;
     for(let attempt=0;attempt<240;attempt+=1){
-      if(generation!==historyCleanupPollGeneration||!panel.classList.contains('visible')||sessionId!==activeSessionId)return null;
+      if(generation!==historyCleanupPollGeneration||lifecycleSuspended||sessionId!==activeSessionId)return null;
       const state=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/protocol`);
       const result=state?.history_cleanup_result;
       if(result?.cleanup_id===cleanupID){
@@ -1389,7 +1409,7 @@ function installPatchPanel(){
     const generation=++historyManagementPollGeneration;
     let matched=null;
     for(let attempt=0;attempt<240;attempt+=1){
-      if(generation!==historyManagementPollGeneration||!panel.classList.contains('visible')||sessionId!==activeSessionId)return null;
+      if(generation!==historyManagementPollGeneration||lifecycleSuspended||sessionId!==activeSessionId)return null;
       const state=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/protocol`);
       const result=state?.history_management_result;
       if(result?.management_id===managementID){
@@ -1569,7 +1589,7 @@ function installPatchPanel(){
   async function waitForHistoryReport(sessionId,runID){
     const generation=++historyPollGeneration;
     for(let attempt=0;attempt<240;attempt+=1){
-      if(generation!==historyPollGeneration||!panel.classList.contains('visible')||sessionId!==activeSessionId)return null;
+      if(generation!==historyPollGeneration||lifecycleSuspended||sessionId!==activeSessionId)return null;
       const state=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/protocol`);
       const report=state?.history_report;
       if(report?.status==='available'&&String(report?.run?.run_id||'')===runID){
@@ -2030,7 +2050,7 @@ function installPatchPanel(){
   async function waitForQueueMutation(sessionId,mutationID,oldPromptID){
     const generation=++queueMutationPollGeneration;
     for(let attempt=0;attempt<240;attempt+=1){
-      if(generation!==queueMutationPollGeneration||!panel.classList.contains('visible')||sessionId!==activeSessionId)return null;
+      if(generation!==queueMutationPollGeneration||lifecycleSuspended||sessionId!==activeSessionId)return null;
       const state=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/protocol`);
       const result=state?.queue_mutation_result;
       if(result?.mutation_id===mutationID){
@@ -2102,7 +2122,7 @@ function installPatchPanel(){
   async function waitForActionResult(sessionId,actionID){
     const generation=++actionPollGeneration;
     for(let attempt=0;attempt<3700;attempt+=1){
-      if(generation!==actionPollGeneration||!panel.classList.contains('visible')||sessionId!==activeSessionId)return null;
+      if(generation!==actionPollGeneration||lifecycleSuspended||sessionId!==activeSessionId)return null;
       const state=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/protocol`);
       if(state?.action_result?.action_id===actionID){renderActionResult(state.action_result);return state.action_result;}
       if(state?.last_event?.type==='run_finished')throw new Error('Patch session finished before native action result arrived');
@@ -3004,7 +3024,7 @@ function installPatchPanel(){
   async function pollParallelCollectRuns(){
     if(!parallelCollectRuns.size)return;
     const generation=++parallelCollectPollGeneration;
-    while(generation===parallelCollectPollGeneration&&panel.classList.contains('visible')){
+    while(generation===parallelCollectPollGeneration&&!lifecycleSuspended){
       let pending=0;
       for(const [key,run] of [...parallelCollectRuns.entries()]){
         if(run.error||!run.sessionId){parallelCollectRuns.delete(key);continue;}
@@ -3216,7 +3236,7 @@ function installPatchPanel(){
     const maxAttempts=followLifecycle?7200:40;
     const delayMs=followLifecycle?1000:250;
     for(let attempt=0;attempt<maxAttempts;attempt+=1){
-      if(generation!==protocolPollGeneration||!panel.classList.contains('visible'))return;
+      if(generation!==protocolPollGeneration||lifecycleSuspended)return;
       let state;
       try{
         state=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/protocol`);
@@ -3424,7 +3444,7 @@ function installPatchPanel(){
   summarySearchInput.oninput=()=>setQueueSearchQuery(summarySearchInput.value);
   summarySearchClear.onclick=()=>{setQueueSearchQuery('');summarySearchInput.focus();};
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,prepareAIPack,renderAIPack,copyAIPackPrompt,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,setReadOnly,isReadOnly:()=>tabReadOnly,get tab(){return patchTab;},get panel(){return panel;},get visible(){return panel.classList.contains('visible');}};
+  globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,prepareAIPack,renderAIPack,copyAIPackPrompt,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,setReadOnly,isReadOnly:()=>tabReadOnly,get tab(){return patchTab;},get panel(){return panel;},get visible(){return panel.classList.contains('visible');},get lifecycleSuspended(){return lifecycleSuspended;}};
   globalThis.TaskMenuTabContext?.registerTab?.(patchTab);
   return true;
 }
