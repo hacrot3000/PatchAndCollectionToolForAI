@@ -149,7 +149,7 @@ FTP/SFTP workspace state được lưu theo workspace để browser reload khôn
 Bên dưới hai file panes có **Transfer Queue** dùng chung cho upload/download/delete:
 
 - mỗi upload/download file và mỗi remote delete target là một queue item độc lập;
-- trạng thái: **Queued / Running / Done / Failed**;
+- trạng thái: **Queued / Running / Conflict / Done / Skipped / Failed**;
 - có cột **Kind** để phân biệt **Upload / Download / Delete**, cùng direction, source, target, size và lỗi;
 - lỗi một file không chặn các file độc lập phía sau;
 - **Retry failed** đưa các item lỗi trở lại queue;
@@ -163,6 +163,31 @@ Bên dưới hai file panes có **Transfer Queue** dùng chung cho upload/downlo
 - mỗi FTP/SFTP profile có server queue worker riêng; scanner có thể tiếp tục listing/mkdir trong khi worker đang transfer/delete một item. Local-browser pipeline giữ cùng semantics nhưng phần đọc/ghi FileSystemHandle phải chạy ở browser;
 - queue lớn dùng pending cursor O(1), throttle render và giới hạn tối đa 2000 row trong DOM; logical queue vẫn giữ đầy đủ trạng thái của toàn bộ item;
 - empty folder vẫn được tạo dù không có file queue item.
+
+### Duplicate file conflict policy
+
+Khi upload/download gặp destination đã tồn tại:
+
+- nếu **folder trùng folder**, TaskDeck dùng lại folder hiện có và tiếp tục recurse, không hiện confirmation;
+- nếu path đích tồn tại nhưng type không tương thích (ví dụ source file nhưng destination là folder), operation fail rõ ràng thay vì ghi đè type khác;
+- nếu **file trùng file**, item chuyển sang **Conflict** và dùng một conflict dialog chung cho Host ↔ Remote lẫn Local browser ↔ Remote;
+- các lựa chọn gồm:
+  - **Overwrite destination**;
+  - **Skip source file**;
+  - **Overwrite only if size differs**;
+  - **Overwrite only if source Modified time is newer**;
+  - **Overwrite only if SHA-256 differs**;
+- FTP/SFTP không có creation-time metadata thống nhất và đáng tin cậy, vì vậy TaskDeck dùng **Modified time**, không gọi trường này là Created time;
+- SHA-256 là checksum nội dung thật. Với remote/Local browser, kiểm tra này phải đọc toàn bộ source và destination nên chậm hơn so sánh size/Modified;
+- scope của một quyết định:
+  - **This file only** — chỉ item đang hỏi;
+  - **This transfer only** — áp dụng cho toàn bộ conflict còn lại của job/scan hiện tại;
+  - **All uploads/downloads in this TaskDeck session** — áp dụng theo chiều Upload hoặc Download cho session hiện tại;
+  - **Always for uploads/downloads (remember)** — lưu default theo workspace + FTP/SFTP profile + direction để các lần sau dùng lại;
+- Host ↔ Remote conflict thuộc daemon queue, nên trạng thái Conflict và quyết định job/session tiếp tục tồn tại qua browser reload trong vòng đời daemon;
+- Local browser ↔ Remote dùng cùng policy names/semantics; conflict policy của scan/queue được journal cùng Local transfer state để reload không quay lại confirm kiểu cũ.
+
+Không còn dùng confirmation rời rạc kiểu “file already exists, overwrite?” cho Local transfer; mọi file collision đi qua contract conflict ở trên.
 
 
 ## Database profiles
