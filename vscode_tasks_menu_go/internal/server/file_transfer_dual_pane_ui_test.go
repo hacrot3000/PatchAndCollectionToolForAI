@@ -308,7 +308,8 @@ func TestFileTransferQueueScalesForLargeStreamingScans(t *testing.T) {
 		"if(queue.activeScans===0&&!hasAnyPendingTransfer(queue))await afterTransferQueueIdle(view)",
 		"await item.run(item)",
 		"function nextPendingTransfer(queue)",
-		"queue.items.push(item);queue.pending.push(item)",
+		"queue.items.push(item)",
+		"if(item.status==='queued')queue.pending.push(item)",
 		"pending:[],pendingHead:0",
 		"item.status='success';item.run=null",
 	} {
@@ -551,6 +552,55 @@ func TestHostUploadAndDownloadUseDaemonJobs(t *testing.T) {
 	}
 }
 
+
+
+func TestLocalBrowserTransferQueueRehydratesAfterReload(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"taskdeck:file-transfer:local-queue:",
+		"function persistLocalTransferQueue(view)",
+		"status:item.status==='running'?'queued':item.status",
+		"async function persistentLocalTransferRun(view,spec,item=null)",
+		"function restorePersistentLocalTransferQueue(view)",
+		"persistSpec:spec",
+		"kind:'local_upload'",
+		"kind:'local_download'",
+		"restorePersistentLocalTransferQueue(view)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing Local queue reload recovery contract %q", want)
+		}
+	}
+}
+
+func TestLocalBrowserScannerJournalResumesAndDeduplicatesAfterReload(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"taskdeck:file-transfer:local-scans:",
+		"function upsertPersistentLocalScan(scan)",
+		"function removePersistentLocalScan(scanID)",
+		"async function runPersistentLocalUploadScan(view,scan)",
+		"async function runPersistentLocalDownloadScan(view,scan)",
+		"async function resumePersistentLocalScans()",
+		"kind:'local_upload_scan'",
+		"kind:'local_download_scan'",
+		"const existingPersistent=new Set(queue.items.map(item=>localPersistentKey(item.persistSpec)).filter(Boolean))",
+		"if(persistentKey&&existingPersistent.has(persistentKey))continue",
+		"resumePersistentLocalScans()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing Local scanner reload recovery contract %q", want)
+		}
+	}
+}
 
 func TestFileTransferWorkspaceUsesStructuredTransferAndMutationAPIs(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
