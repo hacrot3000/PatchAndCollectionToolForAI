@@ -704,7 +704,8 @@ function installPatchPanel(){
     if(!panel.classList.contains('visible'))rememberReturnView();
     resumePatchPanelLifecycle();
     patchTab.hidden=false;
-    app.activateExternalView('patch');
+    app.claimForegroundView?.('external:patch');
+    app.activateExternalView('patch',{force:true});
     setVisible(true);
     if(!activeSessionId&&!latestQueueSnapshot&&!runningMode&&!historyMode&&!planMode&&!healthMode){
       void start('queue').catch(app.showError);
@@ -712,12 +713,14 @@ function installPatchPanel(){
   }
   function deactivate(){
     if(panel.classList.contains('visible'))setVisible(false);
+    app.releaseForegroundView?.('external:patch');
   }
   function close(){
     const wasVisible=panel.classList.contains('visible');
     suspendPatchPanelLifecycle();
     setVisible(false);
     patchTab.hidden=true;
+    app.releaseForegroundView?.('external:patch');
     if(wasVisible||String(app.active||'')==='external:patch')restoreReturnView();
   }
   function toggle(){panel.classList.contains('visible')?close():open();}
@@ -728,13 +731,20 @@ function installPatchPanel(){
       suspendPatchPanelLifecycle();
       setVisible(false);
       patchTab.hidden=true;
+      app.releaseForegroundView?.('external:patch');
       restoreReturnView();
     }
   });
   window.addEventListener('taskmenu:view-activated',()=>{
     const patchActive=String(app.active||'')==='external:patch';
-    if(patchActive)patchTab.hidden=false;
-    setVisible(patchActive);
+    if(patchActive){
+      patchTab.hidden=false;
+      setVisible(true);
+      return;
+    }
+    // A non-Patch activation event now means an explicit foreground switch.
+    // Automatic opens are blocked centrally while Patch owns the foreground.
+    deactivate();
   });
 
   function resetSummary(status='Not loaded'){
@@ -1969,8 +1979,8 @@ function installPatchPanel(){
       const meta=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
       app.materializeSession(meta,false);
     }
-    setVisible(false);
-    app.activateView(sessionId);
+    deactivate();
+    app.activateView(sessionId,{force:true});
     returnViewId=sessionId;
     return true;
   }
@@ -1986,8 +1996,9 @@ function installPatchPanel(){
       body:JSON.stringify({kind:'patch',patch_mode:'history',patch_ui:'terminal'}),
     });
     if(!meta?.id)throw new Error('Terminal History session metadata is incomplete');
-    setVisible(false);
-    app.materializeSession(meta,true);
+    deactivate();
+    app.materializeSession(meta,false);
+    app.activateView(meta.id,{force:true});
     returnViewId=String(meta.id);
     return meta;
   }
@@ -3380,8 +3391,9 @@ function installPatchPanel(){
       if(patchUIMode()==='terminal'){
         activeSessionId=meta.id;
         patchTab.hidden=true;
-        setVisible(false);
-        app.materializeSession(meta,true);
+        deactivate();
+        app.materializeSession(meta,false);
+        app.activateView(meta.id,{force:true});
         return meta;
       }
       await assertHeadlessNativeSession(meta);
