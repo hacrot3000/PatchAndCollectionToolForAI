@@ -99,6 +99,7 @@ const panes=document.querySelector('#panes');
 let taskData=null;
 let active=null;
 let foregroundViewLock='';
+let trustedTabActivationDepth=0;
 const views=new Map();
 const hidden=new Set();
 const outputFilters=[];
@@ -607,6 +608,18 @@ function connect(view,replay){
   };
 }
 
+function trustedWorkspaceTabClick(event){
+  if(event.isTrusted===false)return;
+  const target=event.target instanceof Element?event.target:null;
+  if(!target||target.closest('.close'))return;
+  const button=target.closest('button');
+  if(!button||button.parentElement!==tabs)return;
+  trustedTabActivationDepth++;
+  queueMicrotask(()=>{trustedTabActivationDepth=Math.max(0,trustedTabActivationDepth-1);});
+}
+tabs.addEventListener('click',trustedWorkspaceTabClick,true);
+function explicitViewActivation(){return trustedTabActivationDepth>0;}
+
 function focusView(id){
   const view=views.get(id);
   if(!view||view.closed)return false;
@@ -643,7 +656,7 @@ function activateView(id,{focus=true,force=false}={}){
     const yes=sid===id;v.tab.classList.toggle('active',yes);v.pane.classList.toggle('hidden',!yes);
     if(yes)setTimeout(()=>{try{v.fit.fit();if(focus)v.term.focus();}catch{}},0);
   }
-  window.dispatchEvent(new CustomEvent('taskmenu:view-activated',{detail:{kind:'terminal',id,explicit:Boolean(force)}}));
+  window.dispatchEvent(new CustomEvent('taskmenu:view-activated',{detail:{kind:'terminal',id,explicit:explicitViewActivation()}}));
   return true;
 }
 
@@ -653,7 +666,7 @@ function activateExternalView(token,{force=false}={}){
   if(!activationAllowed(target,force))return false;
   active=target;
   for(const [,v] of views){v.tab.classList.remove('active');v.pane.classList.add('hidden');}
-  window.dispatchEvent(new CustomEvent('taskmenu:view-activated',{detail:{kind:'external',id:token,explicit:Boolean(force)}}));
+  window.dispatchEvent(new CustomEvent('taskmenu:view-activated',{detail:{kind:'external',id:token,explicit:explicitViewActivation()}}));
   return true;
 }
 
