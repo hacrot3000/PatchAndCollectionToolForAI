@@ -31,6 +31,19 @@ func TestCoreSupportsGuardedExternalViewActivationWithoutSessionRegistration(t *
 	}
 }
 
+
+func TestViewActivationEventsDistinguishExplicitTabSwitches(t *testing.T) {
+	for _, want := range []string{
+		"detail:{kind:'terminal',id,explicit:Boolean(force)}",
+		"detail:{kind:'external',id:token,explicit:Boolean(force)}",
+		"tab.onclick=()=>activateView(meta.id,{force:true})",
+	} {
+		if !strings.Contains(appJS, want) {
+			t.Fatalf("appJS missing explicit foreground activation contract %q", want)
+		}
+	}
+}
+
 func TestForegroundLockProtectsAllAutomaticTerminalAndTaskLaunches(t *testing.T) {
 	for _, want := range []string{
 		"hidden.delete(meta.id);attach(meta,true)",
