@@ -461,7 +461,7 @@ function enqueueTransferTasks(view,tasks){
     };
     queue.items.push(item);queue.pending.push(item);
   }
-  scheduleTransferQueueRender(view);processTransferQueue(view);
+  scheduleTransferQueueRender(view);if(!queue.paused)processTransferQueue(view);
 }
 function runTransferScan(view,label,scanner){
   const queue=view.transferQueue;if(!queue)throw new Error('Transfer queue is unavailable');
