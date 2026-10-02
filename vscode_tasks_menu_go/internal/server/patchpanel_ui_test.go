@@ -43,7 +43,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"enterRunningView()",
 		"finishRunningView()",
 		"Open terminal evidence",
-		"app.activateView(sessionId)",
+		"app.activateView(sessionId,{force:true})",
 		"panel.classList.add('running')",
 		"runningBack.hidden=false",
 		"renderProgress(state?.progress)",
@@ -900,11 +900,11 @@ func TestPatchPanelOwnsTabbedNativeWorkspaceSurface(t *testing.T) {
 		"patchTab.onclick=()=>open()",
 		"patchTabClose.onclick=event=>{event.stopPropagation();close();}",
 		"patchTab.classList.toggle('active',visible)",
-		"app.activateExternalView('patch')",
+		"app.claimForegroundView?.('external:patch')",
+		"app.activateExternalView('patch',{force:true})",
 		"window.addEventListener('taskmenu:view-activated'",
-		"const active=String(app.active||'')",
-		"if(active==='external:patch'||(kind==='external'&&id==='patch'))",
-		"if((kind==='terminal'||kind==='external')&&active!=='external:patch')deactivate()",
+		"const patchActive=String(app.active||'')==='external:patch'",
+		"deactivate()",
 	} {
 		if !strings.Contains(js,want) {
 			t.Fatalf("native Patch tab surface missing %q",want)
@@ -1061,7 +1061,7 @@ func TestPatchDeactivateKeepsTabAvailable(t *testing.T) {
 
 
 
-func TestPatchPanelViewSwitchPreservesLifecycleAndBackgroundState(t *testing.T) {
+func TestPatchPanelForegroundLockPreservesContentAcrossAutomaticViewOpens(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
 	if err != nil {
 		t.Fatal(err)
@@ -1073,15 +1073,16 @@ func TestPatchPanelViewSwitchPreservesLifecycleAndBackgroundState(t *testing.T) 
 		"function cancelPatchPanelPolling()",
 		"function suspendPatchPanelLifecycle()",
 		"function resumePatchPanelLifecycle()",
-		"function deactivate(){",
-		"if(panel.classList.contains('visible'))setVisible(false)",
+		"app.claimForegroundView?.('external:patch')",
+		"app.releaseForegroundView?.('external:patch')",
+		"app.activateExternalView('patch',{force:true})",
 		"const patchActive=String(app.active||'')==='external:patch'",
-		"setVisible(patchActive)",
+		"Automatic opens are blocked centrally while Patch owns the foreground.",
 		"if(generation!==protocolPollGeneration||lifecycleSuspended)return",
 		"while(generation===parallelCollectPollGeneration&&!lifecycleSuspended)",
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("Patch panel missing view-switch persistence contract %q", want)
+			t.Fatalf("Patch panel missing foreground-lock contract %q", want)
 		}
 	}
 
@@ -1094,22 +1095,10 @@ func TestPatchPanelViewSwitchPreservesLifecycleAndBackgroundState(t *testing.T) 
 	if strings.Contains(deactivateBlock, "suspendPatchPanelLifecycle") ||
 		strings.Contains(deactivateBlock, "cancelPatchPanelPolling") ||
 		strings.Contains(deactivateBlock, "PollGeneration+=") {
-		t.Fatal("switching away from Patch Tool must only change visibility, never suspend/cancel Patch Tool lifecycle")
+		t.Fatal("explicitly switching away from Patch Tool must hide/release foreground without destroying Patch lifecycle")
 	}
-
-	listenerStart := strings.Index(js, "window.addEventListener('taskmenu:view-activated'")
-	if listenerStart < 0 {
-		t.Fatal("Patch view activation listener unavailable")
-	}
-	listenerEnd := strings.Index(js[listenerStart:], "});")
-	if listenerEnd < 0 {
-		t.Fatal("cannot isolate Patch view activation listener")
-	}
-	listenerBlock := js[listenerStart : listenerStart+listenerEnd]
-	if strings.Contains(listenerBlock, "deactivate()") ||
-		strings.Contains(listenerBlock, "suspendPatchPanelLifecycle") ||
-		strings.Contains(listenerBlock, "cancelPatchPanelPolling") {
-		t.Fatal("generic terminal/external activation must not destroy Patch Tool lifecycle state")
+	if !strings.Contains(deactivateBlock, "app.releaseForegroundView?.('external:patch')") {
+		t.Fatal("Patch deactivate must release the shared foreground lock")
 	}
 
 	for _, forbidden := range []string{
