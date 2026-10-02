@@ -1221,21 +1221,41 @@ async function transferLeftToRemote(view){return transferLeftEntriesToRemote(vie
 async function transferRemoteEntriesToLeft(view,entries){return streamRemoteEntriesToLeft(view,entries);}
 async function transferRemoteToLeft(view){return transferRemoteEntriesToLeft(view,selectedEntries(view.remote));}
 
-async function deleteRemoteEntries(view,entries){
+function enqueueRemoteDeleteItem(view,path,directory,state){
+  if(directory)state.folders++;else state.files++;
+  enqueueTransferTasks(view,[{
+    direction:'×',kind:'Delete',source:path,target:'',size:0,
+    run:async()=>{
+      await mutateRemoteRequest(view,'delete',path,'',directory);
+      if(directory)invalidateRemoteCache(view,path,true);
+      markRemoteQueueDirty(view,parentPath(path,true));
+    }
+  }]);
+}
+async function scanRemoteDeleteEntry(view,remoteParent,entry,state){
+  const remotePath=joinPath(remoteParent,entry.name,true);
+  if(entryType(entry)!=='directory'){
+    enqueueRemoteDeleteItem(view,remotePath,false,state);return;
+  }
+  const listing=await fetchRemoteDirectory(view,remotePath,{force:true});
+  for(const child of listing.entries)await scanRemoteDeleteEntry(view,remotePath,child,state);
+  enqueueRemoteDeleteItem(view,remotePath,true,state);
+}
+async function streamRemoteDeleteEntries(view,entries){
   const selected=[...(entries||[])];if(!selected.length)return;
   const dirs=selected.filter(entry=>entryType(entry)==='directory').length;
   const message=selected.length===1
-    ?'Delete '+selected[0].name+'?'+(dirs?'\n\nDirectory removal is non-recursive.':'')
-    :'Delete '+selected.length+' selected item(s)?'+(dirs?'\n\nSelected directories are removed non-recursively and must be empty.':'');
+    ?'Delete '+selected[0].name+'?'+(dirs?'\n\nThe folder will be scanned in background and deleted recursively through Transfer Queue.':'')
+    :'Delete '+selected.length+' selected item(s)?'+(dirs?'\n\nSelected folders will be scanned in background and deleted recursively through Transfer Queue.':'');
   if(!confirm(message))return;
-  for(const entry of selected){
-    const target=joinPath(view.remote.currentPath,entry.name,true);
-    await mutateRemoteRequest(view,'delete',target,'',entryType(entry)==='directory');
-    if(entryType(entry)==='directory')invalidateRemoteCache(view,target,true);
-  }
-  invalidateRemoteCache(view,view.remote.currentPath);
-  await loadRemoteDirectory(view,view.remote.currentPath,{force:true});
+  const base=normalizeRemotePath(view.remote.currentPath||'.'),state={files:0,folders:0};
+  view.remote.status.textContent='Scanning delete targets…';
+  await runTransferScan(view,'Delete scan',async()=>{
+    for(const entry of selected)await scanRemoteDeleteEntry(view,base,entry,state);
+  });
+  view.remote.status.textContent='Delete scan complete · '+state.files+' file(s) · '+state.folders+' folder(s) queued';
 }
+async function deleteRemoteEntries(view,entries){return streamRemoteDeleteEntries(view,entries);}
 
 async function copyText(value){
   const text=String(value??'');
