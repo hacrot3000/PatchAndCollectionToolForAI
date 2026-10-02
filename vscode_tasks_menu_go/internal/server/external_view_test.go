@@ -63,7 +63,7 @@ func TestForegroundLockProtectsAllAutomaticTerminalAndTaskLaunches(t *testing.T)
 		"hidden.delete(meta.id);attach(meta,true)",
 		"tab.onclick=()=>activateView(meta.id,{force:true})",
 		"if(!foregroundViewLock||foregroundViewLock===target)return true",
-		"if(!force)return false",
+		"if(!force||!explicitViewActivation())return false",
 	} {
 		if !strings.Contains(appJS, want) {
 			t.Fatalf("appJS missing shared foreground protection %q", want)
@@ -77,6 +77,22 @@ func TestForegroundLockProtectsAllAutomaticTerminalAndTaskLaunches(t *testing.T)
 
 
 
+
+
+func TestProgrammaticForceCannotBreakForegroundLock(t *testing.T) {
+	for _, want := range []string{
+		"if(!force||!explicitViewActivation())return false",
+		"tabs.addEventListener('click',trustedWorkspaceTabClick,true)",
+		"tab.onclick=()=>activateView(meta.id,{force:true})",
+	} {
+		if !strings.Contains(appJS, want) {
+			t.Fatalf("core missing trusted foreground-break contract %q", want)
+		}
+	}
+	if strings.Contains(appJS, "if(!force)return false\n  foregroundViewLock=''") {
+		t.Fatal("programmatic force=true must not be able to break the foreground lock")
+	}
+}
 
 func TestWorkspaceOpenPathsDoNotForcePatchOutOfForeground(t *testing.T) {
 	for _, want := range []string{
@@ -162,7 +178,7 @@ func TestPatchForegroundLockCoversAllWorkspaceOpenPaths(t *testing.T) {
 		"async function startTerminal()",
 		"tab.onclick=()=>activateView(meta.id,{force:true})",
 		"function activationAllowed(target,force=false)",
-		"if(!force)return false",
+		"if(!force||!explicitViewActivation())return false",
 	} {
 		if !strings.Contains(appJS, want) {
 			t.Fatalf("core foreground guard missing %q", want)
