@@ -929,18 +929,24 @@ func TestPatchPanelSurvivesProgrammaticWorkspaceOpens(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		"const explicit=Boolean(event.detail?.explicit)",
-		"if(!explicit&&panel.classList.contains('visible'))",
 		"app.claimForegroundView?.('external:patch')",
-		"app.activateExternalView('patch')",
-		"if(explicit)deactivate()",
+		"app.activateExternalView('patch',{force:true})",
+		"window.addEventListener('taskmenu:view-activated',()=>",
+		"const patchActive=String(app.active||'')==='external:patch'",
+		"deactivate()",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("Patch foreground persistence missing %q", want)
 		}
 	}
-	if strings.Contains(js, "window.addEventListener('taskmenu:view-activated',()=>") {
-		t.Fatal("Patch panel must inspect activation metadata instead of deactivating on every view event")
+	for _, forbidden := range []string{
+		"app.activateExternalView('patch');",
+		"const explicit=Boolean(event.detail?.explicit)",
+		"if(!explicit&&panel.classList.contains('visible'))",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("Patch panel must not race core foreground activation with %q", forbidden)
+		}
 	}
 }
 
@@ -1100,10 +1106,8 @@ func TestPatchPanelForegroundLockPreservesContentAcrossAutomaticViewOpens(t *tes
 		"app.releaseForegroundView?.('external:patch')",
 		"app.activateExternalView('patch',{force:true})",
 		"const patchActive=String(app.active||'')==='external:patch'",
-		"Automatic/session creation, restore, split/layout and connector flows",
-		"const explicit=Boolean(event.detail?.explicit)",
-		"if(!explicit&&panel.classList.contains('visible'))",
-		"if(explicit)deactivate()",
+		"Core foreground locking is authoritative",
+		"deactivate()",
 		"if(generation!==protocolPollGeneration||lifecycleSuspended)return",
 		"while(generation===parallelCollectPollGeneration&&!lifecycleSuspended)",
 	} {
@@ -1131,6 +1135,8 @@ func TestPatchPanelForegroundLockPreservesContentAcrossAutomaticViewOpens(t *tes
 		"if(!visible){protocolPollGeneration+=1",
 		"generation!==protocolPollGeneration||!panel.classList.contains('visible')",
 		"while(generation===parallelCollectPollGeneration&&panel.classList.contains('visible'))",
+		"app.activateExternalView('patch');",
+		"const explicit=Boolean(event.detail?.explicit)",
 	} {
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("Patch background lifecycle must not depend on tab visibility: found %q", forbidden)
