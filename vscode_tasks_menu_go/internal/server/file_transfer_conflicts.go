@@ -263,12 +263,7 @@ func (s *Server) enqueueServerTransferConflictAware(queue *fileTransferServerQue
 		queue.addSkippedItem(jobID, kind, direction, source, target, operation, size, *conflict, policy)
 		return nil
 	}
-	queued := queue.addItem(jobID, kind, direction, source, target, operation, size, false)
-	queued.Conflict = conflict
-	queued.Decision = policy
-	if kind == "Download" {
-		queued.Overwrite = true
-	}
+	queue.addResolvedItem(jobID, kind, direction, source, target, operation, size, conflict, policy, kind == "Download")
 	return nil
 }
 
@@ -439,8 +434,6 @@ func (s *Server) evaluateServerConflict(ctx context.Context, profileID string, i
 		if err != nil {
 			return false, err
 		}
-		item.Conflict.SourceSHA256 = sourceHash
-		item.Conflict.TargetSHA256 = targetHash
 		return sourceHash != targetHash, nil
 	case fileTransferConflictAsk:
 		return false, errors.New("conflict requires user decision")
