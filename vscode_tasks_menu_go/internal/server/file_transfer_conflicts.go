@@ -448,3 +448,65 @@ func (s *Server) evaluateServerConflict(ctx context.Context, profileID string, i
 		return false, fmt.Errorf("unsupported conflict policy %q", policy)
 	}
 }
+
+type fileTransferRemoteHashRequest struct {
+	ProfileID string `json:"profile_id"`
+	Path      string `json:"path"`
+}
+
+func (s *Server) fileTransferRemoteHash(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req fileTransferRemoteHashRequest
+	if err := decodeFileTransferJSON(w, r, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	req.ProfileID = strings.TrimSpace(req.ProfileID)
+	req.Path = strings.TrimSpace(req.Path)
+	if req.ProfileID == "" || req.Path == "" {
+		http.Error(w, "profile_id and path are required", http.StatusBadRequest)
+		return
+	}
+	hash, err := s.backgroundRemoteSHA256(r.Context(), req.ProfileID, req.Path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"sha256": hash})
+}
+
+func (s *Server) fileTransferUploadedHash(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxFileTransferBytes+(8<<20))
+	if err := r.ParseMultipartForm(4 << 20); err != nil {
+		http.Error(w, "invalid or oversized multipart hash input", http.StatusBadRequest)
+		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "file is required", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+	hash := sha256.New()
+	reader := io.LimitReader(file, maxFileTransferBytes+1)
+	counter := &countingReader{src: reader}
+	if _, err := io.Copy(hash, counter); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if counter.n > maxFileTransferBytes {
+		http.Error(w, fmt.Sprintf("file transfer exceeds %d bytes", maxFileTransferBytes), http.StatusRequestEntityTooLarge)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"sha256": hex.EncodeToString(hash.Sum(nil))})
+}
