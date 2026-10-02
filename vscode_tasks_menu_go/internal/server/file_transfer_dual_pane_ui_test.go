@@ -343,8 +343,11 @@ func TestFileTransferRemoteDeleteScansAndQueuesPostOrder(t *testing.T) {
 		}
 	}
 	start := strings.Index(js, "async function streamRemoteDeleteEntries(view,entries)")
+	if start < 0 {
+		t.Fatal("cannot find remote delete UI block")
+	}
 	end := strings.Index(js[start:], "async function copyText(value)")
-	if start < 0 || end < 0 {
+	if end < 0 {
 		t.Fatal("cannot isolate remote delete UI block")
 	}
 	if strings.Contains(js[start:start+end], "non-recursive") {
