@@ -1100,7 +1100,10 @@ func TestPatchPanelForegroundLockPreservesContentAcrossAutomaticViewOpens(t *tes
 		"app.releaseForegroundView?.('external:patch')",
 		"app.activateExternalView('patch',{force:true})",
 		"const patchActive=String(app.active||'')==='external:patch'",
-		"Automatic opens are blocked centrally while Patch owns the foreground.",
+		"Creating/opening a Terminal, task, SSH, FTP/SFTP, database, editor, etc.",
+		"const explicit=Boolean(event.detail?.explicit)",
+		"if(!explicit&&panel.classList.contains('visible'))",
+		"if(explicit)deactivate()",
 		"if(generation!==protocolPollGeneration||lifecycleSuspended)return",
 		"while(generation===parallelCollectPollGeneration&&!lifecycleSuspended)",
 	} {
