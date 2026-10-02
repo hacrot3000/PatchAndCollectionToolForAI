@@ -222,7 +222,7 @@ func TestStaticUIPreservesSelectionDuringDetectedFileResize(t *testing.T) {
 func TestStaticUITerminalActivationCanSkipFocus(t *testing.T) {
 	for _, want := range []string{
 		"function focusView(id)",
-		"function activateView(id,{focus=true}={})",
+		"function activateView(id,{focus=true,force=false}={})",
 		"if(focus)v.term.focus()",
 		"activateView,focusView,activateExternalView",
 	} {
