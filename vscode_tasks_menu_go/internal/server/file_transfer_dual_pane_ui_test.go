@@ -415,7 +415,6 @@ func TestFileTransferWorkspaceUsesStructuredTransferAndMutationAPIs(t *testing.T
 		"/api/file-transfer/download-ticket",
 		"/api/file-transfer/download?ticket=",
 		"app.fetchWithLease('/api/file-transfer/upload'",
-		"Directory removal is non-recursive",
 		"New Folder",
 	} {
 		if !strings.Contains(js, want) {

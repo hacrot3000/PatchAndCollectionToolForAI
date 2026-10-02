@@ -102,7 +102,7 @@ Menu được tạo theo pane, loại item và số lượng selection:
 
 - **Host / Local**: Open Folder, **Upload to remote FTP/SFTP** cho cả file/folder/mixed selection, Rename (single item), Delete selected items, New Folder, Copy Name/Path, Select All/Clear Selection, Refresh; Host file còn có Download to browser.
 - **Remote FTP/SFTP**: Open Folder, **Download to left** cho cả file/folder/mixed selection, Download to browser (single file), Rename (single item), Delete selected items, New Remote Folder, Copy Name/Path, Select All/Clear Selection, Refresh.
-- Folder delete ở cả Host/Local/Remote là **non-recursive** và chỉ thành công khi folder rỗng.
+- Folder delete ở **Host/Local** vẫn non-recursive; **Remote FTP/SFTP** dùng background scanner + Transfer Queue để delete đệ quy theo post-order.
 - Local rename dùng native `FileSystemHandle.move()`; nếu browser không hỗ trợ API này TaskDeck sẽ báo rõ thay vì mô phỏng bằng copy/delete.
 
 Các thao tác remote hiện có:
@@ -112,7 +112,7 @@ Các thao tác remote hiện có:
 - New Folder;
 - rename;
 - delete file;
-- delete folder **non-recursive**.
+- delete remote folder **recursive qua background scan + Transfer Queue**; child file/folder được enqueue trước, parent folder enqueue sau.
 
 Double-click folder để đi vào. Double-click file để transfer qua pane đối diện.
 
@@ -133,16 +133,19 @@ Remote listing được cache theo **FTP/SFTP profile + remote path** trong sess
 
 ### Transfer Queue
 
-Bên dưới hai file panes có **Transfer Queue** dùng chung cho upload/download:
+Bên dưới hai file panes có **Transfer Queue** dùng chung cho upload/download/delete:
 
-- mỗi file là một queue item độc lập;
+- mỗi upload/download file và mỗi remote delete target là một queue item độc lập;
 - trạng thái: **Queued / Running / Done / Failed**;
-- hiển thị direction, source, target, size và lỗi;
+- có cột **Kind** để phân biệt **Upload / Download / Delete**, cùng direction, source, target, size và lỗi;
 - lỗi một file không chặn các file độc lập phía sau;
 - **Retry failed** đưa các item lỗi trở lại queue;
 - **Clear done** xóa các item hoàn tất khỏi lịch sử session;
-- folder transfer dùng hai pipeline bất đồng bộ chạy song song: **scanner producer** duyệt cây thư mục và **transfer consumer** upload/download các file đã tìm thấy;
-- scanner phát hiện file đến đâu thì enqueue đến đó, không cần giữ toàn bộ cây hoặc chờ quét xong mới truyền;
+- right-click queue có **Pause queue / Resume queue**; pause chỉ dừng worker transfer/delete, scanner nền vẫn tiếp tục scan và enqueue;
+- queue rows hỗ trợ multi-select; context menu có **Resume selected** (có thể chạy selected item dù global queue vẫn paused) và **Remove selected**;
+- operation đang Running không bị abort giữa request; nếu Remove selected trúng item đang chạy thì item được đánh dấu remove-after-run;
+- folder upload/download/delete dùng hai pipeline bất đồng bộ chạy song song: **scanner producer** duyệt cây thư mục và **queue worker** thực thi upload/download/delete đã tìm thấy;
+- scanner phát hiện item đến đâu thì enqueue đến đó, không cần giữ toàn bộ cây hoặc chờ quét xong mới xử lý; remote delete dùng post-order để parent `rmdir` luôn nằm sau child delete;
 - chỉ có một scanner và một transfer worker hoạt động đồng thời cho mỗi workspace, nên listing/mkdir có thể chạy song song với một file transfer mà không tạo bão kết nối;
 - queue lớn dùng pending cursor O(1), throttle render và giới hạn tối đa 2000 row trong DOM; logical queue vẫn giữ đầy đủ trạng thái của toàn bộ item;
 - empty folder vẫn được tạo dù không có file queue item.
