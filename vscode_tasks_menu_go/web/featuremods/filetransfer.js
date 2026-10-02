@@ -377,6 +377,7 @@ function persistLocalTransferQueue(view){
     id:String(item.id),profile_id:String(view.profile.id||''),kind:item.kind,direction:item.direction,
     source:item.source,target:item.target,size:Number(item.size)||0,
     status:item.status==='running'?'queued':item.status,error:String(item.error||''),
+    conflict_policy:normalizeConflictPolicy(item.conflictPolicy),conflict_job_id:String(item.conflictJobID||''),
     spec:item.persistSpec
   }));
   writePersistentLocalTransferItems(others.concat(current));
@@ -572,6 +573,59 @@ async function directoryHandleForPath(rootHandle,path){
   return handle;
 }
 
+async function remoteEntryAtPath(view,path){
+  path=normalizeRemotePath(path);
+  const parent=parentPath(path,true),name=pathLeaf(path,true);
+  const listing=await fetchRemoteDirectory(view,parent,{force:true});
+  return listing.entries.find(entry=>String(entry.name||'')===name)||null;
+}
+async function localBrowserExistingFile(root,leftPath){
+  leftPath=normalizeRelativePath(leftPath);
+  const parent=parentPath(leftPath,false),name=pathLeaf(leftPath,false);
+  let dir=root.handle;
+  if(parent!=='.'){
+    try{for(const part of parent.split('/').filter(Boolean))dir=await dir.getDirectoryHandle(part);}
+    catch(error){if(error?.name==='NotFoundError')return null;throw error;}
+  }
+  try{
+    const handle=await dir.getFileHandle(name),file=await handle.getFile();
+    return {handle,file};
+  }catch(error){if(error?.name==='NotFoundError')return null;throw error;}
+}
+function applyLocalConflictScope(view,item,decision){
+  const direction=decision.direction||conflictDirectionFromKind(item.kind);
+  const policy=normalizeConflictPolicy(decision.policy);
+  item.conflictPolicy=policy;
+  if(decision.scope==='job'&&item.conflictJobID){
+    setLocalJobConflictPolicy(item.conflictJobID,policy);
+    for(const candidate of view.transferQueue?.items||[])if(candidate.conflictJobID===item.conflictJobID)candidate.conflictPolicy=policy;
+    const scans=readPersistentLocalScans();
+    let changed=false;
+    for(const scan of scans)if(String(scan.id||'')===String(item.conflictJobID)){scan.conflict_policy=policy;changed=true;}
+    if(changed)writePersistentLocalScans(scans);
+  }
+  if(decision.scope==='direction_session'||decision.scope==='direction_always'){
+    view.conflictSessionPolicies[direction]=policy;
+    if(decision.scope==='direction_always')rememberConflictPolicy(view,direction,policy);
+  }
+  persistLocalTransferQueue(view);
+}
+async function resolveLocalBrowserConflict(view,item,conflict,sourceHash,targetHash){
+  const direction=conflictDirectionFromKind(item.kind);
+  let policy=effectiveLocalConflictPolicy(view,direction,item);
+  if(policy==='ask'){
+    const decision=await requestTransferConflictDecision({...conflict,kind:item.kind,source:item.source,target:item.target});
+    applyLocalConflictScope(view,item,decision);policy=normalizeConflictPolicy(decision.policy);
+  }
+  try{return await evaluateBrowserConflictPolicy(view,policy,conflict,sourceHash,targetHash);}
+  catch(error){
+    app.showError(error);
+    const decision=await requestTransferConflictDecision({...conflict,kind:item.kind,source:item.source,target:item.target});
+    item.conflictPolicy='ask';applyLocalConflictScope(view,item,decision);
+    return evaluateBrowserConflictPolicy(view,decision.policy,conflict,sourceHash,targetHash);
+  }
+}
+
 async function persistentLocalTransferRun(view,spec,item=null){
   const root=await getLocalRoot(String(spec?.root_id||''));
   if(!root?.handle)throw new Error('Saved Local folder is unavailable. Choose the folder again, then Retry failed.');
@@ -583,13 +637,39 @@ async function persistentLocalTransferRun(view,spec,item=null){
     const dir=await directoryHandleForPath(root.handle,parent);
     const handle=await dir.getFileHandle(name),file=await handle.getFile();
     if(item){item.size=file.size;scheduleTransferQueueRender(view);}
-    await uploadBrowserFileToPath(view,file,normalizeRemotePath(spec.target_path));
-    markRemoteQueueDirty(view,parentPath(spec.target_path,true));
-    return;
+    const targetPath=normalizeRemotePath(spec.target_path),existing=await remoteEntryAtPath(view,targetPath);
+    if(existing){
+      if(entryType(existing)!=='file')throw new Error('Remote destination exists and is not a file: '+targetPath);
+      const conflict={
+        source_size:file.size,target_size:Number(existing.size)||0,
+        source_modified:new Date(file.lastModified).toISOString(),target_modified:String(existing.modified||'')
+      };
+      const overwrite=await resolveLocalBrowserConflict(view,item,conflict,()=>browserFileSHA256(file),()=>remoteFileSHA256(view,targetPath));
+      if(!overwrite)return {skipped:true};
+    }
+    await uploadBrowserFileToPath(view,file,targetPath);
+    markRemoteQueueDirty(view,parentPath(targetPath,true));return {skipped:false};
   }
   if(spec.kind==='local_download'){
-    await writeRemotePathToLocalRoot(view,root,normalizeRemotePath(spec.remote_path),normalizeRelativePath(spec.left_path));
-    markLeftQueueDirty(view);return;
+    const remotePath=normalizeRemotePath(spec.remote_path),leftPath=normalizeRelativePath(spec.left_path);
+    let sourceMeta={size:Number(spec.remote_size)||0,modified:String(spec.remote_modified||'')};
+    if(!sourceMeta.size&&!sourceMeta.modified){
+      const remote=await remoteEntryAtPath(view,remotePath);
+      if(!remote)throw new Error('Remote source not found: '+remotePath);
+      sourceMeta={size:Number(remote.size)||0,modified:String(remote.modified||'')};
+    }
+    const existing=await localBrowserExistingFile(root,leftPath);
+    let overwrite=false;
+    if(existing){
+      const conflict={
+        source_size:sourceMeta.size,target_size:existing.file.size,
+        source_modified:sourceMeta.modified,target_modified:new Date(existing.file.lastModified).toISOString()
+      };
+      overwrite=await resolveLocalBrowserConflict(view,item,conflict,()=>remoteFileSHA256(view,remotePath),()=>browserFileSHA256(existing.file));
+      if(!overwrite)return {skipped:true};
+    }
+    await writeRemotePathToLocalRoot(view,root,remotePath,leftPath,overwrite);
+    markLeftQueueDirty(view);return {skipped:false};
   }
   throw new Error('Unsupported persisted Local transfer');
 }
@@ -600,6 +680,7 @@ function localTransferTaskFromSaved(view,saved){
     id:String(saved?.id||newFileTransferJobID()),status,error:String(saved?.error||''),
     direction:String(saved?.direction||''),kind:String(saved?.kind||'Transfer'),
     source:String(saved?.source||''),target:String(saved?.target||''),size:Number(saved?.size)||0,
+    conflictPolicy:normalizeConflictPolicy(saved?.conflict_policy),conflictJobID:String(saved?.conflict_job_id||spec?.job_id||''),
     persistSpec:spec,
     run:runnable?(item=>persistentLocalTransferRun(view,spec,item)):null
   };
@@ -863,8 +944,8 @@ async function processTransferQueue(view){
       if(!item)break;
       item.status='running';item.error='';persistLocalTransferQueue(view);scheduleTransferQueueRender(view);
       try{
-        await item.run(item);
-        item.status='success';item.run=null;
+        const result=await item.run(item);
+        item.status=result?.skipped?'skipped':'success';item.run=null;
         if(item.jobID)markPersistentDeleteItemSuccess(view,item.jobID);
       }catch(error){
         item.status='failed';item.error=String(error?.message||error||'Transfer failed');
@@ -888,7 +969,7 @@ function enqueueTransferTasks(view,tasks){
     const item={
       id:task.id||queue.sequence,status:task.status||'queued',error:task.error||'',direction:task.direction||'',kind:task.kind||'Transfer',
       source:task.source||'',target:task.target||'',size:Number(task.size)||0,run:task.run,removeAfterRun:false,
-      jobID:String(task.jobID||''),persistSpec:task.persistSpec||null
+      jobID:String(task.jobID||''),conflictPolicy:normalizeConflictPolicy(task.conflictPolicy),conflictJobID:String(task.conflictJobID||task.persistSpec?.job_id||''),persistSpec:task.persistSpec||null
     };
     queue.items.push(item);
     if(item.status==='queued')queue.pending.push(item);
