@@ -182,13 +182,13 @@ func TestPatchNativeProductAcceptanceGate(t *testing.T) {
 		if strings.Contains(js,forbidden) { t.Fatalf("Patch tab acceptance still contains obsolete overlay contract %q",forbidden) }
 	}
 
-	// Native evidence still has exactly one materialize(false) implementation;
-	// legacy mode uses the separate materialize(true) branch above.
-	if got:=strings.Count(js,"app.materializeSession(meta,false)"); got!=1 {
-		t.Fatalf("native evidence materialization paths=%d want 1",got)
+	// Evidence and both explicit legacy terminal surfaces materialize without
+	// implicit activation, then force the foreground switch through the shared guard.
+	if got:=strings.Count(js,"app.materializeSession(meta,false)"); got!=3 {
+		t.Fatalf("explicit terminal materialization paths=%d want 3 (evidence + global legacy UI + History Terminal)",got)
 	}
-	if got:=strings.Count(js,"app.materializeSession(meta,false)"); got!=2 {
-		t.Fatalf("explicit legacy terminal materialization paths=%d want 2 (global legacy UI + History Terminal)",got)
+	if strings.Contains(js,"app.materializeSession(meta,true)") {
+		t.Fatal("Patch terminal materialization must not bypass the shared foreground activation guard")
 	}
 	if !strings.Contains(js,"openTerminalEvidenceForSession(run.sessionId)") {
 		t.Fatal("parallel COLLECT terminal evidence must use the same explicit materialization path")
