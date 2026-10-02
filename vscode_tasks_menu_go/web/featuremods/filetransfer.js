@@ -53,6 +53,12 @@ style.textContent=`
 .ft-queue-table{width:100%;border-collapse:collapse;font-size:10px}
 .ft-queue-table th,.ft-queue-table td{padding:5px 7px;border-bottom:1px solid #272d36;text-align:left;white-space:nowrap}
 .ft-queue-table th{position:sticky;top:0;background:#171c23;z-index:2}
+.ft-queue-table tbody tr{cursor:default;user-select:none;-moz-user-select:none;-webkit-user-select:none}
+.ft-queue-table tbody tr:hover{background:#202731}.ft-queue-table tbody tr.selected{background:#29384b}
+.ft-queue-table tbody tr:focus,.ft-queue-table tbody tr:focus-visible,.ft-queue-table tbody td:focus,.ft-queue-table tbody td:focus-visible{outline:none!important;box-shadow:none!important}
+.ft-queue-select{width:26px;min-width:26px;text-align:center!important;padding-left:4px!important;padding-right:4px!important}
+.ft-queue-select input{margin:0;vertical-align:middle}
+.ft-queue-kind{font-weight:600;min-width:72px}
 .ft-queue-path{max-width:420px;overflow:hidden;text-overflow:ellipsis}
 .ft-queue-status{font-weight:600}.ft-queue-status.running{opacity:1}.ft-queue-status.success{opacity:.72}.ft-queue-status.failed{font-weight:700}
 .ft-queue-error{max-width:440px;overflow:hidden;text-overflow:ellipsis;opacity:.82}
@@ -81,6 +87,8 @@ html[data-taskmenu-theme="light"] .ft-table tbody tr.selected{background:#dde8f3
 html[data-taskmenu-theme="light"] .ft-context{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .ft-queue{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .ft-queue-head,html[data-taskmenu-theme="light"] .ft-queue-table th{background:#edf1f5;border-color:#b9c0c8}
+html[data-taskmenu-theme="light"] .ft-queue-table tbody tr:hover{background:#eef2f6}
+html[data-taskmenu-theme="light"] .ft-queue-table tbody tr.selected{background:#dde8f3}
 @media(max-width:850px){.ft-sites{grid-template-columns:1fr;grid-template-rows:minmax(220px,1fr) 8px minmax(220px,1fr)}.ft-divider{cursor:row-resize;border-left:0;border-right:0;border-top:1px solid #30343b;border-bottom:1px solid #30343b}.ft-transfer-tools{flex-direction:row}.ft-transfer-tools button:first-child{transform:rotate(90deg)}.ft-transfer-tools button:last-child{transform:rotate(90deg)}}
 `;
 document.head.append(style);
@@ -305,10 +313,37 @@ function queueCounts(view){
   for(const item of view.transferQueue?.items||[])if(Object.prototype.hasOwnProperty.call(counts,item.status))counts[item.status]++;
   return counts;
 }
+function queueSelectedItems(queue){return queue.items.filter(item=>queue.selectedIDs.has(item.id));}
+function pruneQueueSelection(queue){
+  const live=new Set(queue.items.map(item=>item.id));
+  for(const id of [...queue.selectedIDs])if(!live.has(id))queue.selectedIDs.delete(id);
+  if(queue.selectionAnchor!==null&&!live.has(queue.selectionAnchor))queue.selectionAnchor=null;
+}
+function selectQueueItem(queue,item,event={},visible=[]){
+  const ids=queue.selectedIDs,key=item.id;
+  if(event.shiftKey&&queue.selectionAnchor!==null){
+    const from=visible.findIndex(candidate=>candidate.id===queue.selectionAnchor),to=visible.findIndex(candidate=>candidate.id===key);
+    if(from>=0&&to>=0){
+      if(!(event.ctrlKey||event.metaKey))ids.clear();
+      for(let i=Math.min(from,to);i<=Math.max(from,to);i++)ids.add(visible[i].id);
+    }else{ids.clear();ids.add(key);}
+  }else if(event.ctrlKey||event.metaKey){
+    if(ids.has(key))ids.delete(key);else ids.add(key);
+    queue.selectionAnchor=key;
+  }else{
+    ids.clear();ids.add(key);queue.selectionAnchor=key;
+  }
+}
+function toggleQueueCheckbox(queue,item,checked){
+  if(checked)queue.selectedIDs.add(item.id);else queue.selectedIDs.delete(item.id);
+  queue.selectionAnchor=item.id;
+}
 function renderTransferQueue(view){
   const queue=view.transferQueue;if(!queue?.body)return;
+  pruneQueueSelection(queue);
   const counts=queueCounts(view);
   const scanText=queue.activeScans>0?'Scanning '+queue.activeScans+' · ':'';
+  const pauseText=queue.paused?'Paused · ':'';
   let visible=queue.items;
   if(visible.length>maxRenderedTransferRows){
     const active=visible.filter(item=>item.status!=='success');
@@ -317,22 +352,30 @@ function renderTransferQueue(view){
       :active.concat(queue.items.filter(item=>item.status==='success').slice(-(maxRenderedTransferRows-active.length)));
   }
   const shown=visible.length<queue.items.length?' · Showing '+visible.length+'/'+queue.items.length:'';
-  queue.summary.textContent=scanText+'Queued '+counts.queued+' · Running '+counts.running+' · Done '+counts.success+' · Failed '+counts.failed+shown;
+  queue.summary.textContent=pauseText+scanText+'Queued '+counts.queued+' · Running '+counts.running+' · Done '+counts.success+' · Failed '+counts.failed+shown;
   queue.retry.disabled=counts.failed===0;queue.clear.disabled=counts.success===0;
   queue.body.replaceChildren();
   if(!queue.items.length){
-    const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=6;td.className='ft-queue-empty';td.textContent='No transfers in this session';tr.append(td);queue.body.append(tr);return;
+    const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=8;td.className='ft-queue-empty';td.textContent='No transfers in this session';tr.append(td);queue.body.append(tr);return;
   }
   const fragment=document.createDocumentFragment();
   for(const item of visible){
-    const tr=document.createElement('tr');
+    const tr=document.createElement('tr');tr.classList.toggle('selected',queue.selectedIDs.has(item.id));
+    const select=document.createElement('td');select.className='ft-queue-select';
+    const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.checked=queue.selectedIDs.has(item.id);
+    checkbox.onclick=event=>{event.stopPropagation();toggleQueueCheckbox(queue,item,checkbox.checked);scheduleTransferQueueRender(view);};
+    select.append(checkbox);
     const direction=document.createElement('td');direction.textContent=item.direction||'';
+    const kind=document.createElement('td');kind.className='ft-queue-kind';kind.textContent=item.kind||'Transfer';
     const source=document.createElement('td');source.className='ft-queue-path';source.textContent=item.source||'';source.title=item.source||'';
     const target=document.createElement('td');target.className='ft-queue-path';target.textContent=item.target||'';target.title=item.target||'';
     const size=document.createElement('td');size.className='ft-size';size.textContent=item.size?formatSize(item.size):'';
-    const status=document.createElement('td');status.className='ft-queue-status '+item.status;status.textContent=queueStatusLabel(item.status);
+    const status=document.createElement('td');status.className='ft-queue-status '+item.status;status.textContent=queueStatusLabel(item.status)+(item.removeAfterRun?' · remove pending':'');
     const error=document.createElement('td');error.className='ft-queue-error';error.textContent=item.error||'';error.title=item.error||'';
-    tr.append(direction,source,target,size,status,error);fragment.append(tr);
+    tr.append(select,direction,kind,source,target,size,status,error);
+    tr.onclick=event=>{selectQueueItem(queue,item,event,visible);scheduleTransferQueueRender(view);};
+    tr.oncontextmenu=event=>queueContextMenu(view,event,item,visible);
+    fragment.append(tr);
   }
   queue.body.append(fragment);
 }
@@ -353,19 +396,37 @@ async function afterTransferQueueIdle(view){
     try{await loadLeftDirectory(view,view.left.currentPath);}catch(error){console.warn('Cannot refresh left transfer target',error);}
   }
 }
-function nextPendingTransfer(queue){
-  while(queue.pendingHead<queue.pending.length){
-    const item=queue.pending[queue.pendingHead++];
+function nextQueuedFrom(list,stateKey,queue){
+  let index=queue[stateKey]||0;
+  while(index<list.length){
+    const item=list[index++];
+    queue[stateKey]=index;
     if(item?.status==='queued')return item;
   }
-  if(queue.pendingHead>4096){
-    queue.pending=[];queue.pendingHead=0;
-  }
+  if(index>4096){list.splice(0,index);queue[stateKey]=0;}
   return null;
 }
-function hasPendingTransfer(queue){
-  for(let i=queue.pendingHead;i<queue.pending.length;i++)if(queue.pending[i]?.status==='queued')return true;
+function hasQueuedFrom(list,start=0){
+  for(let i=start;i<list.length;i++)if(list[i]?.status==='queued')return true;
   return false;
+}
+function nextPendingTransfer(queue){
+  const priority=nextQueuedFrom(queue.priorityPending,'priorityHead',queue);
+  if(priority)return priority;
+  if(queue.paused)return null;
+  return nextQueuedFrom(queue.pending,'pendingHead',queue);
+}
+function hasAnyPendingTransfer(queue){
+  return hasQueuedFrom(queue.priorityPending,queue.priorityHead)||hasQueuedFrom(queue.pending,queue.pendingHead);
+}
+function hasRunnableTransfer(queue){
+  if(hasQueuedFrom(queue.priorityPending,queue.priorityHead))return true;
+  return !queue.paused&&hasQueuedFrom(queue.pending,queue.pendingHead);
+}
+function removeFinishedQueueItem(queue,item){
+  if(!item.removeAfterRun)return;
+  queue.items=queue.items.filter(candidate=>candidate!==item);
+  queue.selectedIDs.delete(item.id);
 }
 async function processTransferQueue(view){
   const queue=view.transferQueue;if(!queue||queue.running)return;
@@ -381,12 +442,13 @@ async function processTransferQueue(view){
       }catch(error){
         item.status='failed';item.error=String(error?.message||error||'Transfer failed');
       }
+      removeFinishedQueueItem(queue,item);
       scheduleTransferQueueRender(view);
     }
   }finally{
     queue.running=false;scheduleTransferQueueRender(view);
-    if(queue.activeScans===0)await afterTransferQueueIdle(view);
-    if(hasPendingTransfer(queue))processTransferQueue(view);
+    if(queue.activeScans===0&&!hasAnyPendingTransfer(queue))await afterTransferQueueIdle(view);
+    if(hasRunnableTransfer(queue))processTransferQueue(view);
   }
 }
 function enqueueTransferTasks(view,tasks){
@@ -394,8 +456,8 @@ function enqueueTransferTasks(view,tasks){
   for(const task of tasks||[]){
     queue.sequence++;
     const item={
-      id:queue.sequence,status:'queued',error:'',direction:task.direction||'',
-      source:task.source||'',target:task.target||'',size:Number(task.size)||0,run:task.run
+      id:queue.sequence,status:'queued',error:'',direction:task.direction||'',kind:task.kind||'Transfer',
+      source:task.source||'',target:task.target||'',size:Number(task.size)||0,run:task.run,removeAfterRun:false
     };
     queue.items.push(item);queue.pending.push(item);
   }
@@ -410,12 +472,59 @@ function runTransferScan(view,label,scanner){
       queue.activeScans=Math.max(0,queue.activeScans-1);
       if(queue.activeScans===0)queue.scanLabel='';
       scheduleTransferQueueRender(view);
-      if(hasPendingTransfer(queue))processTransferQueue(view);
-      else if(!queue.running&&queue.activeScans===0)await afterTransferQueueIdle(view);
+      if(hasRunnableTransfer(queue))processTransferQueue(view);
+      else if(!queue.running&&queue.activeScans===0&&!hasAnyPendingTransfer(queue))await afterTransferQueueIdle(view);
     }
   };
   queue.scanChain=queue.scanChain.then(execute,execute);
   return queue.scanChain;
+}
+function pauseTransferQueue(view){
+  const queue=view.transferQueue;if(!queue)return;
+  queue.paused=true;scheduleTransferQueueRender(view);
+}
+function resumeTransferQueue(view){
+  const queue=view.transferQueue;if(!queue)return;
+  queue.paused=false;scheduleTransferQueueRender(view);processTransferQueue(view);
+}
+function resumeSelectedTransfers(view){
+  const queue=view.transferQueue;if(!queue)return;
+  for(const item of queueSelectedItems(queue)){
+    if(item.status==='failed'&&typeof item.run==='function'){item.status='queued';item.error='';}
+    if(item.status==='queued'&&typeof item.run==='function')queue.priorityPending.push(item);
+  }
+  scheduleTransferQueueRender(view);processTransferQueue(view);
+}
+function removeSelectedTransfers(view){
+  const queue=view.transferQueue;if(!queue)return;
+  const selected=new Set(queue.selectedIDs);
+  for(const item of queue.items){
+    if(!selected.has(item.id))continue;
+    if(item.status==='running'){item.removeAfterRun=true;continue;}
+    item.status='removed';item.run=null;
+  }
+  queue.items=queue.items.filter(item=>item.status!=='removed');
+  queue.selectedIDs.clear();queue.selectionAnchor=null;
+  scheduleTransferQueueRender(view);
+  if(!queue.running&&queue.activeScans===0&&!hasAnyPendingTransfer(queue))afterTransferQueueIdle(view);
+}
+function queueContextMenu(view,event,item=null,visible=[]){
+  event.preventDefault();event.stopPropagation();
+  const queue=view.transferQueue;if(!queue)return;
+  if(item&&!queue.selectedIDs.has(item.id)){
+    queue.selectedIDs.clear();queue.selectedIDs.add(item.id);queue.selectionAnchor=item.id;scheduleTransferQueueRender(view);
+  }
+  const selected=queueSelectedItems(queue);
+  const resumable=selected.some(candidate=>(candidate.status==='queued'||candidate.status==='failed')&&typeof candidate.run==='function');
+  const menu=[
+    {label:queue.paused?'Resume queue':'Pause queue',action:()=>queue.paused?resumeTransferQueue(view):pauseTransferQueue(view)}
+  ];
+  if(selected.length){
+    menu.push({separator:true});
+    menu.push({label:'Resume selected',disabled:!resumable,action:()=>resumeSelectedTransfers(view)});
+    menu.push({label:'Remove selected',danger:true,action:()=>removeSelectedTransfers(view)});
+  }
+  showContextMenu(menu,event.clientX,event.clientY,selected.length?selected.length+' queue item(s) selected':'Transfer Queue');
 }
 function markRemoteQueueDirty(view,path){
   const queue=view.transferQueue;if(!queue)return;
@@ -434,12 +543,23 @@ function createTransferQueue(view){
   const wrap=document.createElement('div');wrap.className='ft-queue-wrap';
   const table=document.createElement('table');table.className='ft-queue-table';
   const thead=document.createElement('thead'),hr=document.createElement('tr');
-  for(const label of ['','Source','Target','Size','Status','Error']){const th=document.createElement('th');th.textContent=label;hr.append(th);}
+  for(const label of ['','', 'Kind','Source','Target','Size','Status','Error']){const th=document.createElement('th');th.textContent=label;hr.append(th);}
   thead.append(hr);const body=document.createElement('tbody');table.append(thead,body);wrap.append(table);root.append(head,wrap);
-  const queue={root,body,summary,retry,clear,items:[],pending:[],pendingHead:0,sequence:0,running:false,activeScans:0,scanLabel:'',scanChain:Promise.resolve(),remoteDirty:new Set(),leftDirty:false};
+  const queue={
+    root,body,summary,retry,clear,items:[],pending:[],pendingHead:0,priorityPending:[],priorityHead:0,
+    sequence:0,running:false,paused:false,selectedIDs:new Set(),selectionAnchor:null,
+    activeScans:0,scanLabel:'',scanChain:Promise.resolve(),remoteDirty:new Set(),leftDirty:false
+  };
   view.transferQueue=queue;
-  retry.onclick=()=>{for(const item of queue.items)if(item.status==='failed'&&typeof item.run==='function'){item.status='queued';item.error='';queue.pending.push(item);}scheduleTransferQueueRender(view);processTransferQueue(view);};
-  clear.onclick=()=>{queue.items=queue.items.filter(item=>item.status!=='success');scheduleTransferQueueRender(view);};
+  root.oncontextmenu=event=>{if(event.target.closest('tbody tr'))return;queueContextMenu(view,event);};
+  retry.onclick=()=>{
+    for(const item of queue.items)if(item.status==='failed'&&typeof item.run==='function'){item.status='queued';item.error='';queue.pending.push(item);}
+    scheduleTransferQueueRender(view);processTransferQueue(view);
+  };
+  clear.onclick=()=>{
+    queue.items=queue.items.filter(item=>item.status!=='success');
+    pruneQueueSelection(queue);scheduleTransferQueueRender(view);
+  };
   renderTransferQueue(view);return root;
 }
 function showContextMenu(items,x,y,title=''){
@@ -930,7 +1050,7 @@ async function ensureRemoteScanDirectory(view,target,state){
 function enqueueHostUploadFile(view,sourcePath,targetPath,size,state){
   state.files++;
   enqueueTransferTasks(view,[{
-    direction:'→',source:sourcePath,target:targetPath,size:Number(size)||0,
+    direction:'→',kind:'Upload',source:sourcePath,target:targetPath,size:Number(size)||0,
     run:async()=>{
       await app.jsonFetch('/api/file-transfer/host-to-remote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
         profile_id:view.profile.id,host_path:sourcePath,remote_path:targetPath
@@ -942,7 +1062,7 @@ function enqueueHostUploadFile(view,sourcePath,targetPath,size,state){
 function enqueueLocalUploadHandle(view,handle,sourcePath,targetPath,state){
   state.files++;
   enqueueTransferTasks(view,[{
-    direction:'→',source:sourcePath,target:targetPath,size:0,
+    direction:'→',kind:'Upload',source:sourcePath,target:targetPath,size:0,
     run:async item=>{
       const file=await handle.getFile();
       item.size=file.size;scheduleTransferQueueRender(view);
@@ -1064,7 +1184,7 @@ function enqueueRemoteDownloadFile(view,remotePath,leftPath,size,state){
   state.files++;
   const source=state.source,localRoot=state.localRoot;
   enqueueTransferTasks(view,[{
-    direction:'←',source:remotePath,target:leftPath,size:Number(size)||0,
+    direction:'←',kind:'Download',source:remotePath,target:leftPath,size:Number(size)||0,
     run:async()=>{
       if(source==='host')await writeRemotePathToHost(view,remotePath,leftPath);
       else await writeRemotePathToLocalRoot(view,localRoot,remotePath,leftPath);
