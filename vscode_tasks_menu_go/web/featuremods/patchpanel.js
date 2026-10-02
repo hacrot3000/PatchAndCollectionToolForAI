@@ -735,16 +735,25 @@ function installPatchPanel(){
       restoreReturnView();
     }
   });
-  window.addEventListener('taskmenu:view-activated',()=>{
+  window.addEventListener('taskmenu:view-activated',event=>{
     const patchActive=String(app.active||'')==='external:patch';
     if(patchActive){
       patchTab.hidden=false;
       setVisible(true);
       return;
     }
-    // A non-Patch activation event now means an explicit foreground switch.
-    // Automatic opens are blocked centrally while Patch owns the foreground.
-    deactivate();
+    const explicit=Boolean(event.detail?.explicit);
+    if(!explicit&&panel.classList.contains('visible')){
+      // Creating/opening a Terminal, task, SSH, FTP/SFTP, database, editor, etc.
+      // must not evict the Patch Tool foreground. Only an explicit tab switch
+      // is allowed to move foreground ownership away from Patch.
+      app.claimForegroundView?.('external:patch');
+      app.activateExternalView('patch');
+      patchTab.hidden=false;
+      setVisible(true);
+      return;
+    }
+    if(explicit)deactivate();
   });
 
   function resetSummary(status='Not loaded'){
