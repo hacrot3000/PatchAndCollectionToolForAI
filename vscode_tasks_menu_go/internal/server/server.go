@@ -115,6 +115,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/file-transfer/download-ticket", s.fileTransferDownloadTicket)
 	mux.HandleFunc("/api/file-transfer/download", s.fileTransferDownload)
 	mux.HandleFunc("/api/file-transfer/upload", s.fileTransferUpload)
+	mux.HandleFunc("/api/file-transfer/hash", s.fileTransferRemoteHash)
+	mux.HandleFunc("/api/file-transfer/hash-upload", s.fileTransferUploadedHash)
 	mux.HandleFunc("/api/file-transfer/host-to-remote", s.fileTransferHostToRemote)
 	mux.HandleFunc("/api/file-transfer/remote-to-host", s.fileTransferRemoteToHost)
 	mux.HandleFunc("/api/file-transfer/jobs", s.fileTransferJobs)
