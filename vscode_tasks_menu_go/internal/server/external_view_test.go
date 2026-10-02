@@ -3,6 +3,8 @@ package server
 import (
 	"strings"
 	"testing"
+
+	webassets "bletonfc/vscode_tasks_menu/web"
 )
 
 func TestCoreSupportsGuardedExternalViewActivationWithoutSessionRegistration(t *testing.T) {
