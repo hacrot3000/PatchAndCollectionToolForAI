@@ -408,6 +408,12 @@ func TestFileTransferQueuePauseDoesNotStopScanners(t *testing.T) {
 	if strings.Contains(scanBody, "queue.paused") {
 		t.Fatal("background scanner must continue while transfer queue is paused")
 	}
+	if !strings.Contains(js, "scheduleTransferQueueRender(view);if(!queue.paused)processTransferQueue(view);") {
+		t.Fatal("paused queue must not auto-start worker for newly scanned items")
+	}
+	if !strings.Contains(js, "scheduleTransferQueueRender(view);processTransferQueue(view);") {
+		t.Fatal("resume-selected path must be able to wake the worker while global queue is paused")
+	}
 }
 
 func TestFileTransferWorkspaceUsesStructuredTransferAndMutationAPIs(t *testing.T) {
