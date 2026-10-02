@@ -322,38 +322,39 @@ func TestFileTransferQueueScalesForLargeStreamingScans(t *testing.T) {
 }
 
 
-func TestFileTransferRemoteDeleteScansAndQueuesPostOrder(t *testing.T) {
+func TestFileTransferRemoteDeleteUsesDaemonQueue(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	js := string(data)
 	for _, want := range []string{
-		"function enqueueRemoteDeleteItem(view,path,directory,state,jobID='')",
-		"async function scanRemoteDeleteEntry(view,remoteParent,entry,state,jobID='')",
-		"const listing=await fetchRemoteDirectory(view,remotePath,{force:true})",
-		"for(const child of listing.entries)await scanRemoteDeleteEntry(view,remotePath,child,state,jobID);",
-		"enqueueRemoteDeleteItem(view,remotePath,true,state,jobID);",
-		"kind:'Delete'",
-		"runTransferScan(view,'Delete scan'",
-		"deleted recursively through Transfer Queue",
+		"async function createServerTransferJob(view,payload)",
+		"async function syncServerTransferQueue(view)",
+		"startServerTransferQueuePolling(view)",
+		"kind:'remote_delete'",
+		"Background delete queued on TaskDeck daemon",
+		"/api/file-transfer/jobs?profile_id=",
+		"/api/file-transfer/jobs/control",
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("filetransfer.js missing recursive delete queue contract %q", want)
+			t.Fatalf("filetransfer.js missing daemon remote-delete queue contract %q", want)
 		}
 	}
 	start := strings.Index(js, "async function streamRemoteDeleteEntries(view,entries)")
 	if start < 0 {
 		t.Fatal("cannot find remote delete UI block")
 	}
-	end := strings.Index(js[start:], "async function copyText(value)")
+	end := strings.Index(js[start:], "async function deleteRemoteEntries(view,entries)")
 	if end < 0 {
 		t.Fatal("cannot isolate remote delete UI block")
 	}
-	if strings.Contains(js[start:start+end], "non-recursive") {
-		t.Fatal("remote delete UI must no longer describe folder delete as non-recursive")
+	block := js[start : start+end]
+	if strings.Contains(block, "runTransferScan(view,'Delete scan'") || strings.Contains(block, "upsertPersistentFileTransferJob") {
+		t.Fatal("remote delete must be daemon-owned instead of browser scan/journal")
 	}
 }
+
 
 func TestFileTransferQueueSupportsPauseSelectionAndKind(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
@@ -506,69 +507,50 @@ func TestFileTransferRestoreCannotEraseSnapshotBeforeItReadsIt(t *testing.T) {
 	}
 }
 
-func TestRemoteDeleteJobSurvivesReloadAndRebuildsQueue(t *testing.T) {
+func TestDaemonTransferQueueSurvivesBrowserReload(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	js := string(data)
 	for _, want := range []string{
-		"taskdeck:file-transfer:jobs:",
-		"function readPersistentFileTransferJobs()",
-		"function upsertPersistentFileTransferJob(job)",
-		"function removePersistentFileTransferJob(jobID)",
-		"async function runPersistentRemoteDeleteJob(view,job)",
-		"async function resumePersistentRemoteDeleteJobs()",
-		"async function scanPersistentRemoteDeleteTarget(view,target,state,jobID)",
-		"jobID:String(task.jobID||'')",
-		"if(item.jobID)markPersistentDeleteItemSuccess(view,item.jobID)",
-		"upsertPersistentFileTransferJob(job);persistFileTransferSession()",
-		"resumePersistentRemoteDeleteJobs()",
-		"if(profile){attachView(profile,{activate:false,session:null});restored.add(job.profile_id);}",
+		"function startServerTransferQueuePolling(view)",
+		"poll();view.serverQueueTimer=setInterval(poll,700)",
+		"const serverItems=(Array.isArray(snapshot?.items)?snapshot.items:[]).map",
+		"id:'server:'+item.id",
+		"serverID:String(item.id||'')",
+		"queue.serverActiveScans=Number(snapshot?.active_scans)||0",
+		"startServerTransferQueuePolling(view)",
+		"for(const view of views.values())syncServerTransferQueue(view).catch(()=>{})",
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("filetransfer.js missing reload-safe remote delete contract %q", want)
+			t.Fatalf("filetransfer.js missing daemon queue reload contract %q", want)
 		}
 	}
 }
 
-func TestRemoteDeleteJournalSurvivesInterruptedRecoveryScan(t *testing.T) {
+func TestHostUploadAndDownloadUseDaemonJobs(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	js := string(data)
 	for _, want := range []string{
-		"scanFailed:false",
-		"runtime.scanFailed=false",
-		"runtime.scanFailed=true",
-		"if(!runtime||runtime.scanning||runtime.scanFailed)return",
-		"Delete scan interrupted · will resume after reload",
+		"if(source==='host')",
+		"kind:'host_upload'",
+		"host_paths:hostPaths",
+		"Background upload queued on TaskDeck daemon",
+		"if(view.left.source==='host')",
+		"kind:'host_download'",
+		"remote_targets:remoteTargets",
+		"Background download queued on TaskDeck daemon",
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("filetransfer.js missing interrupted delete recovery contract %q", want)
+			t.Fatalf("filetransfer.js missing daemon host-transfer contract %q", want)
 		}
 	}
 }
 
-func TestRemoteDeleteRecoveryIsIdempotent(t *testing.T) {
-	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
-	if err != nil {
-		t.Fatal(err)
-	}
-	js := string(data)
-	for _, want := range []string{
-		"async function remoteDeleteTargetEntry(view,path)",
-		"async function deleteRemotePathIdempotent(view,path,directory)",
-		"if(!current)return",
-		"const entry=await remoteDeleteTargetEntry(view,target.path)",
-		"if(!entry)return",
-	} {
-		if !strings.Contains(js, want) {
-			t.Fatalf("filetransfer.js missing idempotent delete recovery contract %q", want)
-		}
-	}
-}
 
 func TestFileTransferWorkspaceUsesStructuredTransferAndMutationAPIs(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
