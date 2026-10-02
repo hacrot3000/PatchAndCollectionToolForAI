@@ -305,7 +305,7 @@ func TestFileTransferQueueScalesForLargeStreamingScans(t *testing.T) {
 		"function scheduleTransferQueueRender(view)",
 		"setTimeout(()=>{queue.renderTimer=0;renderTransferQueue(view);},80)",
 		"document.createDocumentFragment()",
-		"if(queue.activeScans===0)await afterTransferQueueIdle(view)",
+		"if(queue.activeScans===0&&!hasAnyPendingTransfer(queue))await afterTransferQueueIdle(view)",
 		"await item.run(item)",
 		"function nextPendingTransfer(queue)",
 		"queue.items.push(item);queue.pending.push(item)",
