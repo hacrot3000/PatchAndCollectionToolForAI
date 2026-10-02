@@ -7,6 +7,7 @@ let contextMenu=null;
 let activeViewID='';
 let restoringSession=false;
 let sessionRestoreStarted=false;
+let sessionPersistenceReady=false;
 
 const localDBName='TaskDeckFileTransfer';
 const localDBStore='localRoots';
@@ -127,7 +128,7 @@ function readFileTransferSession(){
   }catch{return null;}
 }
 function persistFileTransferSession(){
-  if(restoringSession)return;
+  if(restoringSession||!sessionPersistenceReady)return;
   const key=fileTransferSessionKey();if(!key)return;
   const open=[];
   for(const [id,view] of views){
@@ -1549,21 +1550,21 @@ function attachView(profile,{activate=true,session=null}={}){
 
 async function restoreFileTransferSession(){
   if(sessionRestoreStarted||!fileTransferWorkspaceID())return;
-  const saved=readFileTransferSession();sessionRestoreStarted=true;
-  if(!saved?.open?.length)return;
-  restoringSession=true;
+  const saved=readFileTransferSession();sessionRestoreStarted=true;restoringSession=true;
   try{
-    await refreshProfiles();
-    for(const item of saved.open){
-      const profile=profilesByID.get(item.profile_id);
-      if(profile)attachView(profile,{activate:false,session:item});
+    if(saved?.open?.length){
+      await refreshProfiles();
+      for(const item of saved.open){
+        const profile=profilesByID.get(item.profile_id);
+        if(profile)attachView(profile,{activate:false,session:item});
+      }
     }
   }catch(error){
     console.warn('Cannot restore file-transfer session',error);
   }finally{
-    restoringSession=false;
+    restoringSession=false;sessionPersistenceReady=true;
   }
-  if(saved.active_profile_id&&views.has(saved.active_profile_id))activateView(saved.active_profile_id);
+  if(saved?.active_profile_id&&views.has(saved.active_profile_id))activateView(saved.active_profile_id);
   else persistFileTransferSession();
 }
 async function scheduleFileTransferSessionRestore(){
@@ -1574,6 +1575,7 @@ async function scheduleFileTransferSessionRestore(){
 
 async function openProfile(profileOrID){
   const id=typeof profileOrID==='string'?profileOrID:profileOrID?.id;if(!id)throw new Error('File-transfer profile is required');
+  await scheduleFileTransferSessionRestore();
   await refreshProfiles();const profile=profilesByID.get(String(id))||(typeof profileOrID==='object'?profileOrID:null);
   if(!profile)throw new Error('File-transfer profile not found');return attachView(profile);
 }
