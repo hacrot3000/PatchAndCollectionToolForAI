@@ -649,7 +649,7 @@ func TestFileTransferDaemonConflictsRemainQueueItemsUntilResolved(t *testing.T) 
 		"conflict:item.conflict||null",
 		"async function resolveServerConflictItems(view,items)",
 		"async function maybePromptServerConflict(view)",
-		"action:'resolve_conflict'",
+		"serverTransferQueueControl(view,'resolve_conflict'",
 		"conflict_policy:decision.policy",
 		"conflict_scope:decision.scope",
 		"Resolve conflict…",
