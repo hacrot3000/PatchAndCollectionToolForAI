@@ -31,59 +31,69 @@ type fileTransferJobTarget struct {
 }
 
 type fileTransferJobCreateRequest struct {
-	ProfileID     string                  `json:"profile_id"`
-	Kind          string                  `json:"kind"`
-	HostPaths     []string                `json:"host_paths,omitempty"`
-	RemoteTargets []fileTransferJobTarget `json:"remote_targets,omitempty"`
-	RemoteDir     string                  `json:"remote_dir,omitempty"`
-	HostDir       string                  `json:"host_dir,omitempty"`
+	ProfileID       string                  `json:"profile_id"`
+	Kind            string                  `json:"kind"`
+	HostPaths       []string                `json:"host_paths,omitempty"`
+	RemoteTargets   []fileTransferJobTarget `json:"remote_targets,omitempty"`
+	RemoteDir       string                  `json:"remote_dir,omitempty"`
+	HostDir         string                  `json:"host_dir,omitempty"`
+	ConflictPolicy  string                  `json:"conflict_policy,omitempty"`
 }
 
 type fileTransferJobControlRequest struct {
-	ProfileID string   `json:"profile_id"`
-	Action    string   `json:"action"`
-	ItemIDs   []string `json:"item_ids,omitempty"`
+	ProfileID      string   `json:"profile_id"`
+	Action         string   `json:"action"`
+	ItemIDs        []string `json:"item_ids,omitempty"`
+	ConflictPolicy string   `json:"conflict_policy,omitempty"`
+	ConflictScope  string   `json:"conflict_scope,omitempty"`
+	JobID          string   `json:"job_id,omitempty"`
 }
 
 type fileTransferServerJob struct {
-	ID        string    `json:"id"`
-	ProfileID string    `json:"profile_id"`
-	Kind      string    `json:"kind"`
-	Status    string    `json:"status"`
-	Error     string    `json:"error,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	ScanDone  bool      `json:"scan_done"`
+	ID             string    `json:"id"`
+	ProfileID      string    `json:"profile_id"`
+	Kind           string    `json:"kind"`
+	Status         string    `json:"status"`
+	Error          string    `json:"error,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	ScanDone       bool      `json:"scan_done"`
+	ConflictPolicy string    `json:"conflict_policy,omitempty"`
 }
 
 type fileTransferServerItem struct {
-	ID             string `json:"id"`
-	JobID          string `json:"job_id"`
-	Kind           string `json:"kind"`
-	Direction      string `json:"direction"`
-	Source         string `json:"source"`
-	Target         string `json:"target,omitempty"`
-	Size           int64  `json:"size,omitempty"`
-	Status         string `json:"status"`
-	Error          string `json:"error,omitempty"`
-	Operation      string `json:"-"`
-	Directory      bool   `json:"-"`
-	Priority       bool   `json:"-"`
-	Removed        bool   `json:"-"`
-	RemoveAfterRun bool   `json:"-"`
+	ID             string                    `json:"id"`
+	JobID          string                    `json:"job_id"`
+	Kind           string                    `json:"kind"`
+	Direction      string                    `json:"direction"`
+	Source         string                    `json:"source"`
+	Target         string                    `json:"target,omitempty"`
+	Size           int64                     `json:"size,omitempty"`
+	Status         string                    `json:"status"`
+	Error          string                    `json:"error,omitempty"`
+	Decision       string                    `json:"decision,omitempty"`
+	Conflict       *fileTransferConflictMeta `json:"conflict,omitempty"`
+	Operation      string                    `json:"-"`
+	Directory      bool                      `json:"-"`
+	Overwrite      bool                      `json:"-"`
+	Priority       bool                      `json:"-"`
+	Removed        bool                      `json:"-"`
+	RemoveAfterRun bool                      `json:"-"`
 }
 
 type fileTransferServerQueue struct {
-	mu          sync.Mutex
-	ProfileID   string
-	Paused      bool
-	Items       []*fileTransferServerItem
-	Jobs        map[string]*fileTransferServerJob
-	Sequence    uint64
-	ActiveScans int
-	Revision    uint64
-	wake        chan struct{}
-	workerOnce  sync.Once
+	mu                     sync.Mutex
+	ProfileID              string
+	Paused                 bool
+	UploadConflictPolicy   string
+	DownloadConflictPolicy string
+	Items                  []*fileTransferServerItem
+	Jobs                   map[string]*fileTransferServerJob
+	Sequence               uint64
+	ActiveScans            int
+	Revision               uint64
+	wake                   chan struct{}
+	workerOnce             sync.Once
 }
 
 type fileTransferJobsSnapshot struct {
@@ -193,6 +203,68 @@ func (q *fileTransferServerQueue) addItem(jobID, kind, direction, source, target
 	signalFileTransferQueue(q)
 }
 
+func (q *fileTransferServerQueue) addConflictItem(jobID, kind, direction, source, target, operation string, size int64, conflict fileTransferConflictMeta) {
+	q.mu.Lock()
+	q.Sequence++
+	item := &fileTransferServerItem{
+		ID:        fmt.Sprintf("srv-%s-%d", jobID, q.Sequence),
+		JobID:     jobID,
+		Kind:      kind,
+		Direction: direction,
+		Source:    source,
+		Target:    target,
+		Size:      size,
+		Status:    "conflict",
+		Operation: operation,
+		Conflict:  &conflict,
+	}
+	q.Items = append(q.Items, item)
+	q.touchLocked()
+	q.recomputeJobLocked(jobID)
+	q.mu.Unlock()
+}
+
+func (q *fileTransferServerQueue) addSkippedItem(jobID, kind, direction, source, target, operation string, size int64, conflict fileTransferConflictMeta, decision string) {
+	q.mu.Lock()
+	q.Sequence++
+	item := &fileTransferServerItem{
+		ID:        fmt.Sprintf("srv-%s-%d", jobID, q.Sequence),
+		JobID:     jobID,
+		Kind:      kind,
+		Direction: direction,
+		Source:    source,
+		Target:    target,
+		Size:      size,
+		Status:    "skipped",
+		Operation: operation,
+		Conflict:  &conflict,
+		Decision:  decision,
+	}
+	q.Items = append(q.Items, item)
+	q.touchLocked()
+	q.recomputeJobLocked(jobID)
+	q.mu.Unlock()
+}
+
+func (q *fileTransferServerQueue) effectiveConflictPolicy(jobID, kind string) string {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if job := q.Jobs[jobID]; job != nil && job.ConflictPolicy != "" && job.ConflictPolicy != fileTransferConflictAsk {
+		return job.ConflictPolicy
+	}
+	switch kind {
+	case "Upload":
+		if q.UploadConflictPolicy != "" {
+			return q.UploadConflictPolicy
+		}
+	case "Download":
+		if q.DownloadConflictPolicy != "" {
+			return q.DownloadConflictPolicy
+		}
+	}
+	return fileTransferConflictAsk
+}
+
 func (q *fileTransferServerQueue) setScanState(jobID string, done bool, scanErr error) {
 	q.mu.Lock()
 	if job := q.Jobs[jobID]; job != nil {
@@ -222,6 +294,7 @@ func (q *fileTransferServerQueue) recomputeJobLocked(jobID string) {
 	hasQueued := false
 	hasRunning := false
 	hasFailed := false
+	hasConflict := false
 	hasItem := false
 	for _, item := range q.Items {
 		if item.JobID != jobID || item.Removed {
@@ -235,6 +308,8 @@ func (q *fileTransferServerQueue) recomputeJobLocked(jobID string) {
 			hasRunning = true
 		case "failed":
 			hasFailed = true
+		case "conflict":
+			hasConflict = true
 		}
 	}
 	switch {
@@ -244,6 +319,8 @@ func (q *fileTransferServerQueue) recomputeJobLocked(jobID string) {
 		job.Status = "scanning"
 	case hasQueued:
 		job.Status = "queued"
+	case hasConflict:
+		job.Status = "conflict"
 	case hasFailed:
 		job.Status = "failed"
 	case hasItem:
@@ -316,7 +393,7 @@ func (s *Server) executeFileTransferServerItem(ctx context.Context, profileID st
 	case "host_upload":
 		return s.backgroundHostToRemote(ctx, profileID, item.Source, item.Target)
 	case "host_download":
-		return s.backgroundRemoteToHost(ctx, profileID, item.Source, item.Target)
+		return s.backgroundRemoteToHost(ctx, profileID, item.Source, item.Target, item.Overwrite)
 	case "remote_delete":
 		err := s.backgroundRemoteMutation(ctx, profileID, "delete", item.Source, "", item.Directory)
 		if err == nil {
@@ -799,6 +876,11 @@ func (s *Server) createFileTransferServerJob(req fileTransferJobCreateRequest) (
 	req.Kind = strings.TrimSpace(req.Kind)
 	req.RemoteDir = normalizeBackgroundRemotePath(req.RemoteDir)
 	req.HostDir = strings.TrimSpace(req.HostDir)
+	policy, err := normalizeFileTransferConflictPolicy(req.ConflictPolicy)
+	if err != nil {
+		return nil, err
+	}
+	req.ConflictPolicy = policy
 	if req.HostDir == "" {
 		req.HostDir = "."
 	}
@@ -827,7 +909,7 @@ func (s *Server) createFileTransferServerJob(req fileTransferJobCreateRequest) (
 	now := time.Now().UTC()
 	job := &fileTransferServerJob{
 		ID: jobID, ProfileID: req.ProfileID, Kind: req.Kind,
-		Status: "scanning", CreatedAt: now, UpdatedAt: now,
+		Status: "scanning", CreatedAt: now, UpdatedAt: now, ConflictPolicy: req.ConflictPolicy,
 	}
 	queue := s.fileTransferServerQueue(req.ProfileID)
 	queue.mu.Lock()
