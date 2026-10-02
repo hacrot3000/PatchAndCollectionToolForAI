@@ -1060,6 +1060,69 @@ func TestPatchDeactivateKeepsTabAvailable(t *testing.T) {
 }
 
 
+
+func TestPatchPanelViewSwitchPreservesLifecycleAndBackgroundState(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+
+	for _, want := range []string{
+		"let lifecycleSuspended=false",
+		"function cancelPatchPanelPolling()",
+		"function suspendPatchPanelLifecycle()",
+		"function resumePatchPanelLifecycle()",
+		"function deactivate(){",
+		"if(panel.classList.contains('visible'))setVisible(false)",
+		"const patchActive=String(app.active||'')==='external:patch'",
+		"setVisible(patchActive)",
+		"if(generation!==protocolPollGeneration||lifecycleSuspended)return",
+		"while(generation===parallelCollectPollGeneration&&!lifecycleSuspended)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Patch panel missing view-switch persistence contract %q", want)
+		}
+	}
+
+	deactivateStart := strings.Index(js, "function deactivate(){")
+	closeStart := strings.Index(js, "function close(){")
+	if deactivateStart < 0 || closeStart <= deactivateStart {
+		t.Fatal("Patch deactivate/close functions unavailable")
+	}
+	deactivateBlock := js[deactivateStart:closeStart]
+	if strings.Contains(deactivateBlock, "suspendPatchPanelLifecycle") ||
+		strings.Contains(deactivateBlock, "cancelPatchPanelPolling") ||
+		strings.Contains(deactivateBlock, "PollGeneration+=") {
+		t.Fatal("switching away from Patch Tool must only change visibility, never suspend/cancel Patch Tool lifecycle")
+	}
+
+	listenerStart := strings.Index(js, "window.addEventListener('taskmenu:view-activated'")
+	if listenerStart < 0 {
+		t.Fatal("Patch view activation listener unavailable")
+	}
+	listenerEnd := strings.Index(js[listenerStart:], "});")
+	if listenerEnd < 0 {
+		t.Fatal("cannot isolate Patch view activation listener")
+	}
+	listenerBlock := js[listenerStart : listenerStart+listenerEnd]
+	if strings.Contains(listenerBlock, "deactivate()") ||
+		strings.Contains(listenerBlock, "suspendPatchPanelLifecycle") ||
+		strings.Contains(listenerBlock, "cancelPatchPanelPolling") {
+		t.Fatal("generic terminal/external activation must not destroy Patch Tool lifecycle state")
+	}
+
+	for _, forbidden := range []string{
+		"if(!visible){protocolPollGeneration+=1",
+		"generation!==protocolPollGeneration||!panel.classList.contains('visible')",
+		"while(generation===parallelCollectPollGeneration&&panel.classList.contains('visible'))",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("Patch background lifecycle must not depend on tab visibility: found %q", forbidden)
+		}
+	}
+}
+
 func TestPatchRunningViewShowsLiveProtocolHeartbeat(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
 	if err != nil { t.Fatal(err) }
