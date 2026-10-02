@@ -397,6 +397,7 @@ function activateView(id,{force=false}={}){
 }
 function closeView(id){
   const view=views.get(id);if(!view)return;
+  if(view.serverQueueTimer){clearInterval(view.serverQueueTimer);view.serverQueueTimer=0;}
   view.tab.remove();view.pane.remove();views.delete(id);
   if(activeViewID===id)activeViewID='';
   persistFileTransferSession();
@@ -1246,6 +1247,12 @@ async function scanLocalUploadHandle(view,handle,targetPath,sourcePath,state){
 async function streamLeftEntriesToRemote(view,entries){
   const selected=[...(entries||[])];if(!selected.length)throw new Error('Select one or more left items first');
   const source=view.left.source,sourceBase=normalizeRelativePath(view.left.currentPath||'.'),remoteBase=normalizeRemotePath(view.remote.currentPath||'.');
+  if(source==='host'){
+    const hostPaths=selected.map(entry=>joinPath(sourceBase,entry.name,false));
+    view.remote.status.textContent='Background upload queued on TaskDeck daemon…';
+    await createServerTransferJob(view,{kind:'host_upload',host_paths:hostPaths,remote_dir:remoteBase});
+    return;
+  }
   const state=newRemoteScanState(remoteBase);
   let localBase=null;
   if(source==='local'){
@@ -1256,12 +1263,8 @@ async function streamLeftEntriesToRemote(view,entries){
   view.remote.status.textContent='Scanning and uploading '+selected.length+' selected item(s)…';
   await runTransferScan(view,'Upload scan',async()=>{
     for(const entry of selected){
-      if(source==='host'){
-        await scanHostUploadEntry(view,sourceBase,entry,remoteBase,state);
-      }else{
-        const handle=entryType(entry)==='directory'?await localBase.getDirectoryHandle(entry.name):await localBase.getFileHandle(entry.name);
-        await scanLocalUploadHandle(view,handle,joinPath(remoteBase,entry.name,true),joinPath(sourceBase,entry.name,false),state);
-      }
+      const handle=entryType(entry)==='directory'?await localBase.getDirectoryHandle(entry.name):await localBase.getFileHandle(entry.name);
+      await scanLocalUploadHandle(view,handle,joinPath(remoteBase,entry.name,true),joinPath(sourceBase,entry.name,false),state);
     }
   });
   view.remote.status.textContent='Scan complete · '+state.files+' file(s) discovered · '+state.folders+' folder(s) created';
@@ -1357,7 +1360,14 @@ async function scanRemoteDownloadEntry(view,remoteParent,entry,leftParent,state)
 }
 async function streamRemoteEntriesToLeft(view,entries){
   const selected=[...(entries||[])];if(!selected.length)throw new Error('Select one or more remote items first');
-  const remoteBase=normalizeRemotePath(view.remote.currentPath||'.'),state=newLeftScanState(view);
+  const remoteBase=normalizeRemotePath(view.remote.currentPath||'.');
+  if(view.left.source==='host'){
+    const remoteTargets=selected.map(entry=>({path:joinPath(remoteBase,entry.name,true),directory:entryType(entry)==='directory'}));
+    view.left.status.textContent='Background download queued on TaskDeck daemon…';
+    await createServerTransferJob(view,{kind:'host_download',remote_targets:remoteTargets,host_dir:normalizeRelativePath(view.left.currentPath||'.')});
+    return;
+  }
+  const state=newLeftScanState(view);
   state.view=view;
   if(state.source==='local'){
     if(!state.localRoot)throw new Error('Choose a local folder first');
@@ -1469,16 +1479,13 @@ async function streamRemoteDeleteEntries(view,entries){
   const selected=[...(entries||[])];if(!selected.length)return;
   const dirs=selected.filter(entry=>entryType(entry)==='directory').length;
   const message=selected.length===1
-    ?'Delete '+selected[0].name+'?'+(dirs?'\n\nThe folder will be scanned in background and deleted recursively through Transfer Queue.':'')
-    :'Delete '+selected.length+' selected item(s)?'+(dirs?'\n\nSelected folders will be scanned in background and deleted recursively through Transfer Queue.':'');
+    ?'Delete '+selected[0].name+'?'+(dirs?'\n\nThe folder will be scanned and deleted by the TaskDeck daemon.':'')
+    :'Delete '+selected.length+' selected item(s)?'+(dirs?'\n\nSelected folders will be scanned and deleted by the TaskDeck daemon.':'');
   if(!confirm(message))return;
   const base=normalizeRemotePath(view.remote.currentPath||'.');
-  const job={
-    id:newFileTransferJobID(),kind:'remote_delete',profile_id:String(view.profile.id||''),created_at:Date.now(),
-    targets:selected.map(entry=>({path:joinPath(base,entry.name,true),directory:entryType(entry)==='directory'}))
-  };
-  upsertPersistentFileTransferJob(job);persistFileTransferSession();
-  await runPersistentRemoteDeleteJob(view,job);
+  const targets=selected.map(entry=>({path:joinPath(base,entry.name,true),directory:entryType(entry)==='directory'}));
+  view.remote.status.textContent='Background delete queued on TaskDeck daemon…';
+  await createServerTransferJob(view,{kind:'remote_delete',remote_targets:targets});
 }
 async function deleteRemoteEntries(view,entries){return streamRemoteDeleteEntries(view,entries);}
 
@@ -1688,7 +1695,7 @@ function attachView(profile,{activate=true,session=null}={}){
   sites.append(left.site,divider,remote.site);
   const transferQueue=createTransferQueue(view);
   if(session?.queue_paused)view.transferQueue.paused=true;
-  pane.append(head,sites,transferQueue);panes.append(pane);views.set(id,view);installDivider(view,divider,sites);installQueueResizer(view);
+  pane.append(head,sites,transferQueue);panes.append(pane);views.set(id,view);installDivider(view,divider,sites);installQueueResizer(view);startServerTransferQueuePolling(view);
 
   source.onchange=()=>switchLeftSource(view,source.value).catch(app.showError);
   rootSelect.onchange=async()=>{
@@ -1744,7 +1751,7 @@ async function restoreFileTransferSession(){
   }
   if(saved?.active_profile_id&&views.has(saved.active_profile_id))activateView(saved.active_profile_id);
   else persistFileTransferSession();
-  resumePersistentRemoteDeleteJobs();
+  for(const view of views.values())syncServerTransferQueue(view).catch(()=>{});
 }
 async function scheduleFileTransferSessionRestore(){
   if(!fileTransferWorkspaceID()||sessionRestoreStarted)return;
