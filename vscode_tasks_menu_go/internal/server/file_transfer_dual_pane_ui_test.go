@@ -242,7 +242,7 @@ func TestFileTransferQueueTracksPerFileLifecycle(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"Transfer Queue",
-		"Queued '+counts.queued+' · Running '+counts.running+' · Done '+counts.success+' · Failed '+counts.failed",
+		"Queued '+counts.queued+' · Running '+counts.running+' · Conflict '+counts.conflict+' · Done '+counts.success+' · Skipped '+counts.skipped+' · Failed '+counts.failed",
 		"function enqueueTransferTasks(view,tasks)",
 		"async function processTransferQueue(view)",
 		"item.status='running'",
@@ -272,7 +272,7 @@ func TestFileTransferFolderTransfersStreamWhileScanningBothDirections(t *testing
 		"enqueueHostUploadFile(view,sourcePath,targetPath,entry.size,state)",
 		"enqueueLocalUploadHandle(view,handle,sourcePath,targetPath,state)",
 		"async function scanRemoteDownloadEntry(view,remoteParent,entry,leftParent,state)",
-		"enqueueRemoteDownloadFile(view,remotePath,leftPath,entry.size,state)",
+		"enqueueRemoteDownloadFile(view,remotePath,leftPath,entry.size,state,entry.modified)",
 		"async function streamLeftEntriesToRemote(view,entries)",
 		"async function streamRemoteEntriesToLeft(view,entries)",
 		"Upload to remote FTP/SFTP →",
@@ -311,7 +311,7 @@ func TestFileTransferQueueScalesForLargeStreamingScans(t *testing.T) {
 		"queue.items.push(item)",
 		"if(item.status==='queued')queue.pending.push(item)",
 		"pending:[],pendingHead:0",
-		"item.status='success';item.run=null",
+		"item.status=result?.skipped?'skipped':'success';item.run=null",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("filetransfer.js missing large streaming queue contract %q", want)
@@ -598,6 +598,87 @@ func TestLocalBrowserScannerJournalResumesAndDeduplicatesAfterReload(t *testing.
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("filetransfer.js missing Local scanner reload recovery contract %q", want)
+		}
+	}
+}
+
+
+func TestFileTransferDuplicateFilesUseSharedConflictPolicyDialog(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function requestTransferConflictDecision(conflict)",
+		"Folder collisions are reused automatically.",
+		"Overwrite destination",
+		"Skip source file",
+		"Overwrite only if size differs",
+		"Overwrite only if source Modified time is newer",
+		"Overwrite only if SHA-256 differs",
+		"This file only",
+		"This transfer only",
+		"All '+word+' in this TaskDeck session",
+		"Always for '+word+' (remember)",
+		"/api/file-transfer/hash",
+		"/api/file-transfer/hash-upload",
+		"function evaluateBrowserConflictPolicy(view,policy,conflict,sourceHash,targetHash)",
+		"effectiveDirectionConflictPolicy(view,'upload')",
+		"effectiveDirectionConflictPolicy(view,'download')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing duplicate conflict policy contract %q", want)
+		}
+	}
+	if strings.Contains(js, "already exists locally. Overwrite it?") {
+		t.Fatal("Local duplicate handling must use shared conflict policy dialog instead of legacy confirm")
+	}
+}
+
+func TestFileTransferDaemonConflictsRemainQueueItemsUntilResolved(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"case'conflict':return 'Conflict'",
+		"case'skipped':return 'Skipped'",
+		"status:String(item.status||'queued')",
+		"conflict:item.conflict||null",
+		"async function resolveServerConflictItems(view,items)",
+		"async function maybePromptServerConflict(view)",
+		"action:'resolve_conflict'",
+		"conflict_policy:decision.policy",
+		"conflict_scope:decision.scope",
+		"Resolve conflict…",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing daemon conflict queue contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferConflictDefaultsSupportJobSessionAndRememberedDirection(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"taskdeck:file-transfer:conflict-default:",
+		"taskdeck:file-transfer:conflict-jobs:",
+		"function setLocalJobConflictPolicy(jobID,policy)",
+		"function effectiveLocalConflictPolicy(view,direction,item=null)",
+		"decision.scope==='job'",
+		"decision.scope==='direction_session'||decision.scope==='direction_always'",
+		"if(decision.scope==='direction_always')rememberConflictPolicy(view,direction,decision.policy)",
+		"conflict_policy:effectiveDirectionConflictPolicy(view,'upload')",
+		"conflict_policy:effectiveDirectionConflictPolicy(view,'download')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing conflict scope persistence contract %q", want)
 		}
 	}
 }
