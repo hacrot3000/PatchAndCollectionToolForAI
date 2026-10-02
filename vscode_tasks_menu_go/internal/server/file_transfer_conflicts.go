@@ -304,6 +304,100 @@ func (s *Server) resolveServerConflictItem(queue *fileTransferServerQueue, item 
 	return nil
 }
 
+func (s *Server) resolveServerConflicts(queue *fileTransferServerQueue, req fileTransferJobControlRequest) error {
+	policy, err := normalizeFileTransferConflictPolicy(req.ConflictPolicy)
+	if err != nil {
+		return err
+	}
+	if policy == fileTransferConflictAsk {
+		return errors.New("resolve_conflict requires a concrete conflict policy")
+	}
+	scope, err := normalizeFileTransferConflictScope(req.ConflictScope)
+	if err != nil {
+		return err
+	}
+	selected := make(map[string]bool, len(req.ItemIDs))
+	for _, id := range req.ItemIDs {
+		if id = strings.TrimSpace(id); id != "" {
+			selected[id] = true
+		}
+	}
+
+	queue.mu.Lock()
+	jobID := strings.TrimSpace(req.JobID)
+	kind := ""
+	if jobID == "" || scope == fileTransferConflictScopeDirectionSession || scope == fileTransferConflictScopeDirectionAlways {
+		for _, item := range queue.Items {
+			if item.Removed || item.Status != "conflict" {
+				continue
+			}
+			if selected[item.ID] || (jobID != "" && item.JobID == jobID) {
+				if jobID == "" {
+					jobID = item.JobID
+				}
+				if kind == "" {
+					kind = item.Kind
+				}
+				break
+			}
+		}
+	}
+	if scope == fileTransferConflictScopeJob {
+		if jobID == "" {
+			queue.mu.Unlock()
+			return errors.New("conflict job is required")
+		}
+		if job := queue.Jobs[jobID]; job != nil {
+			job.ConflictPolicy = policy
+			job.UpdatedAt = time.Now().UTC()
+		} else {
+			queue.mu.Unlock()
+			return errors.New("conflict job not found")
+		}
+	}
+	if scope == fileTransferConflictScopeDirectionSession || scope == fileTransferConflictScopeDirectionAlways {
+		if kind == "" {
+			queue.mu.Unlock()
+			return errors.New("conflict direction is required")
+		}
+		switch kind {
+		case "Upload":
+			queue.UploadConflictPolicy = policy
+		case "Download":
+			queue.DownloadConflictPolicy = policy
+		default:
+			queue.mu.Unlock()
+			return fmt.Errorf("conflict scope is unsupported for %s", kind)
+		}
+	}
+	items := make([]*fileTransferServerItem, 0)
+	for _, item := range queue.Items {
+		if item.Removed || item.Status != "conflict" {
+			continue
+		}
+		match := false
+		switch scope {
+		case fileTransferConflictScopeItem:
+			match = selected[item.ID]
+		case fileTransferConflictScopeJob:
+			match = item.JobID == jobID
+		case fileTransferConflictScopeDirectionSession, fileTransferConflictScopeDirectionAlways:
+			match = item.Kind == kind
+		}
+		if match {
+			items = append(items, item)
+		}
+	}
+	queue.touchLocked()
+	queue.mu.Unlock()
+
+	for _, item := range items {
+		_ = s.resolveServerConflictItem(queue, item, policy)
+	}
+	signalFileTransferQueue(queue)
+	return nil
+}
+
 func (s *Server) evaluateServerConflict(ctx context.Context, profileID string, item *fileTransferServerItem, policy string) (bool, error) {
 	policy, err := normalizeFileTransferConflictPolicy(policy)
 	if err != nil {
