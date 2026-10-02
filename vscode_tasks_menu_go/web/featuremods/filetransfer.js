@@ -636,10 +636,10 @@ function closeView(id){
 function closeContextMenu(){contextMenu?.remove();contextMenu=null;}
 const maxRenderedTransferRows=2000;
 function queueStatusLabel(status){
-  switch(status){case'queued':return 'Queued';case'running':return 'Running';case'success':return 'Done';case'failed':return 'Failed';default:return String(status||'');}
+  switch(status){case'queued':return 'Queued';case'running':return 'Running';case'success':return 'Done';case'failed':return 'Failed';case'conflict':return 'Conflict';case'skipped':return 'Skipped';default:return String(status||'');}
 }
 function queueCounts(view){
-  const counts={queued:0,running:0,success:0,failed:0};
+  const counts={queued:0,running:0,success:0,failed:0,conflict:0,skipped:0};
   for(const item of view.transferQueue?.items||[])if(Object.prototype.hasOwnProperty.call(counts,item.status))counts[item.status]++;
   return counts;
 }
@@ -683,7 +683,7 @@ function renderTransferQueue(view){
       :active.concat(queue.items.filter(item=>item.status==='success').slice(-(maxRenderedTransferRows-active.length)));
   }
   const shown=visible.length<queue.items.length?' · Showing '+visible.length+'/'+queue.items.length:'';
-  queue.summary.textContent=pauseText+scanText+'Queued '+counts.queued+' · Running '+counts.running+' · Done '+counts.success+' · Failed '+counts.failed+shown;
+  queue.summary.textContent=pauseText+scanText+'Queued '+counts.queued+' · Running '+counts.running+' · Conflict '+counts.conflict+' · Done '+counts.success+' · Skipped '+counts.skipped+' · Failed '+counts.failed+shown;
   queue.retry.disabled=counts.failed===0;queue.clear.disabled=counts.success===0;
   queue.body.replaceChildren();
   if(!queue.items.length){
@@ -714,13 +714,18 @@ function scheduleTransferQueueRender(view){
   const queue=view.transferQueue;if(!queue||queue.renderTimer)return;
   queue.renderTimer=setTimeout(()=>{queue.renderTimer=0;renderTransferQueue(view);},80);
 }
-async function serverTransferQueueControl(view,action,itemIDs=[]){
+async function serverTransferQueueControl(view,action,itemIDs=[],extra={}){
   return app.jsonFetch('/api/file-transfer/jobs/control',{
     method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({profile_id:view.profile.id,action,item_ids:itemIDs})
+    body:JSON.stringify({profile_id:view.profile.id,action,item_ids:itemIDs,...extra})
   });
 }
 async function createServerTransferJob(view,payload){
+  payload={...payload};
+  if(!payload.conflict_policy){
+    if(payload.kind==='host_upload')payload.conflict_policy=effectiveDirectionConflictPolicy(view,'upload');
+    if(payload.kind==='host_download')payload.conflict_policy=effectiveDirectionConflictPolicy(view,'download');
+  }
   const job=await app.jsonFetch('/api/file-transfer/jobs',{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({profile_id:view.profile.id,...payload})
@@ -748,15 +753,16 @@ async function syncServerTransferQueue(view){
     id:'server:'+item.id,serverID:String(item.id||''),server:true,jobID:String(item.job_id||''),
     status:String(item.status||'queued'),error:String(item.error||''),direction:String(item.direction||''),
     kind:String(item.kind||'Transfer'),source:String(item.source||''),target:String(item.target||''),
-    size:Number(item.size)||0,run:null,removeAfterRun:false
+    size:Number(item.size)||0,decision:String(item.decision||''),conflict:item.conflict||null,run:null,removeAfterRun:false
   }));
   const wasBusy=Boolean(queue.serverBusy);
-  const busy=Number(snapshot?.active_scans||0)>0||serverItems.some(item=>item.status==='queued'||item.status==='running');
+  const busy=Number(snapshot?.active_scans||0)>0||serverItems.some(item=>item.status==='queued'||item.status==='running'||item.status==='conflict');
   queue.serverActiveScans=Number(snapshot?.active_scans)||0;
   queue.serverBusy=busy;queue.serverRevision=Number(snapshot?.revision)||0;
   queue.paused=Boolean(snapshot?.paused);
   queue.items=localItems.concat(serverItems);
   scheduleTransferQueueRender(view);
+  setTimeout(()=>maybePromptServerConflict(view),0);
   if(wasBusy&&!busy){
     invalidateRemoteCache(view,view.remote.currentPath||'.');
     loadRemoteDirectory(view,view.remote.currentPath||'.',{force:true}).catch(()=>{});
@@ -767,6 +773,41 @@ function startServerTransferQueuePolling(view){
   if(view.serverQueueTimer)return;
   const poll=()=>syncServerTransferQueue(view).catch(error=>console.warn('Cannot sync server file-transfer queue',error));
   poll();view.serverQueueTimer=setInterval(poll,700);
+}
+async function applyServerConflictDecision(view,items,decision){
+  const serverItems=(items||[]).filter(item=>item.server&&item.serverID&&item.status==='conflict');
+  if(!serverItems.length)return;
+  const direction=decision.direction||conflictDirectionFromKind(serverItems[0].kind);
+  if(decision.scope==='direction_session'||decision.scope==='direction_always'){
+    view.conflictSessionPolicies[direction]=normalizeConflictPolicy(decision.policy);
+  }
+  if(decision.scope==='direction_always')rememberConflictPolicy(view,direction,decision.policy);
+  await serverTransferQueueControl(view,'resolve_conflict',serverItems.map(item=>item.serverID),{
+    conflict_policy:decision.policy,
+    conflict_scope:decision.scope,
+    job_id:String(serverItems[0].jobID||'')
+  });
+  await syncServerTransferQueue(view);
+}
+async function resolveServerConflictItems(view,items){
+  const conflicts=(items||[]).filter(item=>item.server&&item.status==='conflict'&&item.conflict);
+  if(!conflicts.length)return;
+  const first=conflicts[0],meta=first.conflict||{};
+  const decision=await requestTransferConflictDecision({
+    kind:first.kind,source:first.source,target:first.target,
+    source_size:meta.source_size,target_size:meta.target_size,
+    source_modified:meta.source_modified,target_modified:meta.target_modified
+  });
+  await applyServerConflictDecision(view,conflicts,decision);
+}
+async function maybePromptServerConflict(view){
+  const queue=view.transferQueue;if(!queue)return;
+  const item=queue.items.find(candidate=>candidate.server&&candidate.status==='conflict'&&candidate.conflict&&!activeServerConflictPrompts.has(candidate.serverID));
+  if(!item)return;
+  activeServerConflictPrompts.add(item.serverID);
+  try{await resolveServerConflictItems(view,[item]);}
+  catch(error){console.warn('Cannot resolve file-transfer conflict',error);}
+  finally{activeServerConflictPrompts.delete(item.serverID);}
 }
 async function afterTransferQueueIdle(view){
   const queue=view.transferQueue;if(!queue)return;
@@ -915,11 +956,13 @@ function queueContextMenu(view,event,item=null,visible=[]){
   }
   const selected=queueSelectedItems(queue);
   const resumable=selected.some(candidate=>(candidate.status==='queued'||candidate.status==='failed')&&(candidate.server||typeof candidate.run==='function'));
+  const conflicts=selected.filter(candidate=>candidate.status==='conflict');
   const menu=[
     {label:queue.paused?'Resume queue':'Pause queue',action:()=>queue.paused?resumeTransferQueue(view):pauseTransferQueue(view)}
   ];
   if(selected.length){
     menu.push({separator:true});
+    if(conflicts.length)menu.push({label:'Resolve conflict…',action:()=>resolveServerConflictItems(view,conflicts)});
     menu.push({label:'Resume selected',disabled:!resumable,action:()=>resumeSelectedTransfers(view)});
     menu.push({label:'Remove selected',danger:true,action:()=>removeSelectedTransfers(view)});
   }
@@ -958,7 +1001,7 @@ function createTransferQueue(view){
     await serverTransferQueueControl(view,'retry_failed');await syncServerTransferQueue(view);
   };
   clear.onclick=async()=>{
-    queue.items=queue.items.filter(item=>item.server||item.status!=='success');
+    queue.items=queue.items.filter(item=>item.server||(item.status!=='success'&&item.status!=='skipped'));
     pruneQueueSelection(queue);persistLocalTransferQueue(view);scheduleTransferQueueRender(view);
     await serverTransferQueueControl(view,'clear_done');await syncServerTransferQueue(view);
   };
@@ -1964,7 +2007,7 @@ function attachView(profile,{activate=true,session=null}={}){
   const left=createSiteShell('Left');
   const remote=createSiteShell('Remote · '+String(profile.protocol||'').toUpperCase());
 
-  const view={profile,tab,pane,left,remote,remoteCache:new Map()};
+  const view={profile,tab,pane,left,remote,remoteCache:new Map(),conflictSessionPolicies:{upload:'ask',download:'ask'}};
 
   const source=document.createElement('select');source.className='ft-source-select';
   for(const [value,label] of [['host','Host'],['local','Local browser']]){const option=document.createElement('option');option.value=value;option.textContent=label;source.append(option);}
