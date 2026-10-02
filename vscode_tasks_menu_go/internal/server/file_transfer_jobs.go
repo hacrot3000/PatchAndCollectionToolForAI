@@ -155,6 +155,10 @@ func cloneFileTransferItem(item *fileTransferServerItem) *fileTransferServerItem
 		return nil
 	}
 	copy := *item
+	if item.Conflict != nil {
+		conflict := *item.Conflict
+		copy.Conflict = &conflict
+	}
 	return &copy
 }
 
@@ -198,6 +202,30 @@ func (q *fileTransferServerQueue) addItem(jobID, kind, direction, source, target
 		Status:    "queued",
 		Operation: operation,
 		Directory: directory,
+	}
+	q.Items = append(q.Items, item)
+	q.touchLocked()
+	q.mu.Unlock()
+	signalFileTransferQueue(q)
+	return item
+}
+
+func (q *fileTransferServerQueue) addResolvedItem(jobID, kind, direction, source, target, operation string, size int64, conflict *fileTransferConflictMeta, decision string, overwrite bool) *fileTransferServerItem {
+	q.mu.Lock()
+	q.Sequence++
+	item := &fileTransferServerItem{
+		ID:        fmt.Sprintf("srv-%s-%d", jobID, q.Sequence),
+		JobID:     jobID,
+		Kind:      kind,
+		Direction: direction,
+		Source:    source,
+		Target:    target,
+		Size:      size,
+		Status:    "queued",
+		Operation: operation,
+		Conflict:  conflict,
+		Decision:  decision,
+		Overwrite: overwrite,
 	}
 	q.Items = append(q.Items, item)
 	q.touchLocked()
@@ -1113,7 +1141,7 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
 		}
 	case "clear_done":
 		for _, item := range queue.Items {
-			if item.Status == "success" {
+			if item.Status == "success" || item.Status == "skipped" {
 				item.Removed = true
 			}
 		}
