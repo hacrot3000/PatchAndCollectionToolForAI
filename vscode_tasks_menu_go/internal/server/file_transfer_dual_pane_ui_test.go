@@ -460,6 +460,7 @@ func TestFileTransferSessionRestoresOpenProfilesAndPathsAfterReload(t *testing.T
 		"attachView(profile,{activate:false,session:item})",
 		"window.addEventListener('taskmenu:tasks',scheduleFileTransferSessionRestore)",
 		"setTimeout(scheduleFileTransferSessionRestore,0)",
+		"await globalThis.TaskMenuTerminalRestore?.ready",
 		"restoreSession:restoreFileTransferSession",
 	} {
 		if !strings.Contains(js, want) {
