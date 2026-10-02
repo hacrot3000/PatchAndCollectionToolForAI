@@ -4,6 +4,9 @@ if(!app)throw new Error('TaskMenuApp unavailable for file transfer workspace');
 const views=new Map();
 let profilesByID=new Map();
 let contextMenu=null;
+let activeViewID='';
+let restoringSession=false;
+let sessionRestoreStarted=false;
 
 const localDBName='TaskDeckFileTransfer';
 const localDBStore='localRoots';
@@ -102,6 +105,43 @@ function workspaceKey(){return String(app.taskData?.workspace||'workspace');}
 function safeStorageGet(key,fallback=''){try{return localStorage.getItem(key)??fallback;}catch{return fallback;}}
 function safeStorageSet(key,value){try{localStorage.setItem(key,value);}catch(error){console.warn('Cannot persist file-transfer setting',error);}}
 
+function fileTransferWorkspaceID(){return String(app.taskData?.workspace||'').trim();}
+function fileTransferSessionKey(){
+  const workspace=fileTransferWorkspaceID();
+  return workspace?'taskdeck:file-transfer:session:'+workspace:'';
+}
+function readFileTransferSession(){
+  const key=fileTransferSessionKey();if(!key)return null;
+  try{
+    const raw=JSON.parse(localStorage.getItem(key)||'null');
+    if(!raw||raw.version!==1||!Array.isArray(raw.open))return null;
+    return {
+      version:1,
+      active_profile_id:String(raw.active_profile_id||''),
+      open:raw.open.map(item=>({
+        profile_id:String(item?.profile_id||''),
+        left_path:normalizeRelativePath(item?.left_path||'.'),
+        remote_path:normalizeRemotePath(item?.remote_path||'.')
+      })).filter(item=>item.profile_id)
+    };
+  }catch{return null;}
+}
+function persistFileTransferSession(){
+  if(restoringSession)return;
+  const key=fileTransferSessionKey();if(!key)return;
+  const open=[];
+  for(const [id,view] of views){
+    open.push({
+      profile_id:id,
+      left_path:normalizeRelativePath(view.left?.currentPath||'.'),
+      remote_path:normalizeRemotePath(view.remote?.currentPath||view.profile?.initial_path||'.')
+    });
+  }
+  try{
+    if(!open.length){localStorage.removeItem(key);return;}
+    localStorage.setItem(key,JSON.stringify({version:1,active_profile_id:activeViewID,open}));
+  }catch(error){console.warn('Cannot persist file-transfer session',error);}
+}
 function normalizeRemotePath(value){
   value=String(value||'.').trim()||'.';
   if(value==='.')return '.';
@@ -302,12 +342,19 @@ function profileFor(view){return profilesByID.get(view.profile.id)||view.profile
 
 function activateView(id){
   const view=views.get(id);if(!view)return;
+  activeViewID=id;
   app.activateExternalView('file-transfer:'+id);
   for(const [otherID,other] of views){
     const active=otherID===id;other.tab.classList.toggle('active',active);other.pane.classList.toggle('hidden',!active);
   }
+  persistFileTransferSession();
 }
-function closeView(id){const view=views.get(id);if(!view)return;view.tab.remove();view.pane.remove();views.delete(id);}
+function closeView(id){
+  const view=views.get(id);if(!view)return;
+  view.tab.remove();view.pane.remove();views.delete(id);
+  if(activeViewID===id)activeViewID='';
+  persistFileTransferSession();
+}
 function closeContextMenu(){contextMenu?.remove();contextMenu=null;}
 const maxRenderedTransferRows=2000;
 function queueStatusLabel(status){
@@ -820,7 +867,7 @@ async function fetchRemoteDirectory(view,path,{force=false}={}){
 function renderRemoteDirectory(view,data){
   const panel=view.remote;
   panel.entries=(Array.isArray(data?.entries)?data.entries:[]).map(item=>({...item,type:entryType(item)}));resetPanelSelection(panel);
-  markPathLoaded(panel,String(data?.path||'.'));
+  markPathLoaded(panel,String(data?.path||'.'));persistFileTransferSession();
   renderTable(panel,entry=>remoteDoubleClick(view,entry),(entry,event)=>remoteContext(view,entry,event));
   const cached=data?.fromCache?' · cached':'';
   panel.status.textContent=(data?.protocol||view.profile.protocol).toUpperCase()+' · '+panel.entries.length+' item(s)'+cached;
@@ -843,7 +890,7 @@ async function loadHostDirectory(view,path){
     const query=path==='.'?'':path;
     const data=await app.jsonFetch('/api/project/tree?path='+encodeURIComponent(query));
     panel.entries=(Array.isArray(data)?data:[]).map(item=>({...item,type:item.type==='dir'?'directory':entryType(item)}));resetPanelSelection(panel);
-    markPathLoaded(panel,path);renderTable(panel,entry=>leftDoubleClick(view,entry),(entry,event)=>leftContext(view,entry,event));
+    markPathLoaded(panel,path);persistFileTransferSession();renderTable(panel,entry=>leftDoubleClick(view,entry),(entry,event)=>leftContext(view,entry,event));
     panel.status.textContent='Host workspace · '+panel.entries.length+' item(s)';
   }catch(error){panel.status.textContent=String(error?.message||error);throw error;}
   finally{panel.refresh.disabled=false;updateTransferButtons(view);}
@@ -887,7 +934,7 @@ async function loadLocalDirectory(view,path){
       if(handle.kind==='directory')entries.push({name,type:'directory',size:0,modified:''});
       else if(handle.kind==='file'){const file=await handle.getFile();entries.push({name,type:'file',size:file.size,modified:new Date(file.lastModified).toISOString(),handle});}
     }
-    panel.entries=entries;resetPanelSelection(panel);panel.currentLocalHandle=dir;markPathLoaded(panel,path);
+    panel.entries=entries;resetPanelSelection(panel);panel.currentLocalHandle=dir;markPathLoaded(panel,path);persistFileTransferSession();
     renderTable(panel,entry=>leftDoubleClick(view,entry),(entry,event)=>leftContext(view,entry,event));panel.status.textContent='Local · '+(panel.localRoot.label||panel.localRoot.handle.name)+' · '+entries.length+' item(s)';
   }catch(error){panel.status.textContent=String(error?.message||error);throw error;}
   finally{panel.refresh.disabled=false;updateTransferButtons(view);}
@@ -902,19 +949,20 @@ async function loadLeftDirectory(view,path){
   return view.left.source==='local'?loadLocalDirectory(view,path):loadHostDirectory(view,path);
 }
 
-async function switchLeftSource(view,source){
+async function switchLeftSource(view,source,startPath='.'){
   const panel=view.left;panel.source=source==='local'?'local':'host';
   safeStorageSet('taskdeck:file-transfer:left-source:'+workspaceKey()+':'+view.profile.id,panel.source);
   panel.rootSelect.hidden=panel.source!=='local';panel.chooseLocal.hidden=panel.source!=='local';
   panel.pathInput.placeholder=panel.source==='local'?'Path relative to selected local folder':'Path relative to TaskDeck workspace';
-  panel.currentPath='.';panel.entries=[];resetPanelSelection(panel);panel.pathInput.value='.';
+  startPath=normalizeRelativePath(startPath||'.');
+  panel.currentPath=startPath;panel.entries=[];resetPanelSelection(panel);panel.pathInput.value=startPath;
   if(panel.source==='local'){
     if(typeof globalThis.showDirectoryPicker!=='function'){panel.grantLocal.hidden=true;panel.status.textContent='Local browser requires File System Access API (Chromium, HTTPS/localhost).';panel.entries=[];renderTable(panel,entry=>leftDoubleClick(view,entry),(entry,event)=>leftContext(view,entry,event));updateTransferButtons(view);return;}
     await refreshLocalRoots(view);
     panel.grantLocal.hidden=!panel.localRoot||panel.localPermission;
   }else panel.grantLocal.hidden=true;
   panel.refreshPathMemory?.();
-  await loadLeftDirectory(view,'.');
+  await loadLeftDirectory(view,startPath);
 }
 
 async function localSelectedFile(view,entry){
@@ -1400,8 +1448,8 @@ function createSiteShell(title){
   return {site,head,label,status,entries:[],selected:null,selectedKeys:new Set(),selectionAnchor:'',visibleEntries:[],sort:{key:'type',direction:'asc'},currentPath:'.',emptyText:'Directory is empty'};
 }
 
-function attachView(profile){
-  const id=String(profile.id||'');if(views.has(id)){activateView(id);return views.get(id);}
+function attachView(profile,{activate=true,session=null}={}){
+  const id=String(profile.id||'');if(views.has(id)){if(activate)activateView(id);return views.get(id);}
   const tabs=document.querySelector('#tabs'),panes=document.querySelector('#panes');if(!tabs||!panes)throw new Error('Workspace tabs are unavailable');
 
   const tab=document.createElement('button');tab.type='button';tab.className='ft-tab';tab.dataset.id='file-transfer:'+id;
@@ -1489,11 +1537,37 @@ function attachView(profile){
   };
   chooseLocal.onclick=()=>chooseLocalRoot(view).then(()=>{grantLocal.hidden=true;return loadLocalDirectory(view,'.');}).catch(app.showError);
 
-  activateView(id);
-  remote.currentPath=profile.initial_path||'.';remote.pathInput.value=remote.currentPath;remote.refreshPathMemory();
-  switchLeftSource(view,source.value).catch(app.showError);
-  loadRemoteDirectory(view,profile.initial_path||'.').catch(app.showError);
+  const leftStart=normalizeRelativePath(session?.left_path||'.');
+  const remoteStart=normalizeRemotePath(session?.remote_path||profile.initial_path||'.');
+  remote.currentPath=remoteStart;remote.pathInput.value=remoteStart;remote.refreshPathMemory();
+  switchLeftSource(view,source.value,leftStart).catch(app.showError);
+  loadRemoteDirectory(view,remoteStart).catch(app.showError);
+  if(activate)activateView(id);
+  else persistFileTransferSession();
   return view;
+}
+
+async function restoreFileTransferSession(){
+  if(sessionRestoreStarted||!fileTransferWorkspaceID())return;
+  const saved=readFileTransferSession();sessionRestoreStarted=true;
+  if(!saved?.open?.length)return;
+  restoringSession=true;
+  try{
+    await refreshProfiles();
+    for(const item of saved.open){
+      const profile=profilesByID.get(item.profile_id);
+      if(profile)attachView(profile,{activate:false,session:item});
+    }
+  }catch(error){
+    console.warn('Cannot restore file-transfer session',error);
+  }finally{
+    restoringSession=false;
+  }
+  if(saved.active_profile_id&&views.has(saved.active_profile_id))activateView(saved.active_profile_id);
+  else persistFileTransferSession();
+}
+function scheduleFileTransferSessionRestore(){
+  if(fileTransferWorkspaceID())restoreFileTransferSession();
 }
 
 async function openProfile(profileOrID){
@@ -1513,7 +1587,11 @@ async function testDraft(profileID,profile){
 window.addEventListener('taskmenu:view-activated',event=>{
   const detail=event.detail||{},external=detail.kind==='external'&&String(detail.id||'').startsWith('file-transfer:');
   const activeID=external?String(detail.id).slice('file-transfer:'.length):'';
-  for(const [id,view] of views){const active=id===activeID;view.tab.classList.toggle('active',active);view.pane.classList.toggle('hidden',!active);}
+  activeViewID=activeID&&views.has(activeID)?activeID:'';
+  for(const [id,view] of views){const active=id===activeViewID;view.tab.classList.toggle('active',active);view.pane.classList.toggle('hidden',!active);}
+  persistFileTransferSession();
 });
+window.addEventListener('taskmenu:tasks',scheduleFileTransferSessionRestore);
+setTimeout(scheduleFileTransferSessionRestore,0);
 
-globalThis.TaskMenuFileTransfer={openProfile,testProfile,testDraft,refreshProfiles,getProfile:id=>profilesByID.get(String(id||''))||null};
+globalThis.TaskMenuFileTransfer={openProfile,testProfile,testDraft,refreshProfiles,getProfile:id=>profilesByID.get(String(id||''))||null,restoreSession:restoreFileTransferSession};
