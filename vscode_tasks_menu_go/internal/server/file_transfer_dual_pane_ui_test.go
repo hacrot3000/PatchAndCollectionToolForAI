@@ -342,7 +342,12 @@ func TestFileTransferRemoteDeleteScansAndQueuesPostOrder(t *testing.T) {
 			t.Fatalf("filetransfer.js missing recursive delete queue contract %q", want)
 		}
 	}
-	if strings.Contains(js, "Directory removal is non-recursive") {
+	start := strings.Index(js, "async function streamRemoteDeleteEntries(view,entries)")
+	end := strings.Index(js[start:], "async function copyText(value)")
+	if start < 0 || end < 0 {
+		t.Fatal("cannot isolate remote delete UI block")
+	}
+	if strings.Contains(js[start:start+end], "non-recursive") {
 		t.Fatal("remote delete UI must no longer describe folder delete as non-recursive")
 	}
 }
