@@ -9,7 +9,15 @@ unzip -o python_patch_tool_v6.20.2.zip -d "$PWD"
 ./tools/run_python_patches.sh
 ```
 
-The release already contains final project-relative paths under `tools/`. No installer is required for normal installation or upgrade. The release does not contain `.python_patch_tool.json`, so project-local configuration is not overwritten by extraction.
+The standalone portable release contains final project-relative paths under `tools/`. No installer is required for that portable installation or upgrade. The release does not contain `.python_patch_tool.json`, so project-local configuration is not overwritten by extraction.
+
+TaskDeck also supports a **managed bundled layout**. In that mode the active Patch Tool runtime is stored beside the TaskDeck binary under a release-local `patchtool/` directory, while the target project may have no Patch Tool runtime files at all. TaskDeck passes the project root separately to the bundled public entry.
+
+The invariant is:
+
+- public/project data scope: `<project>/patchs/`, `.python_patch_tool.json`, source files and `artifacts/patch_tool/`;
+- private runtime scope: the directory containing the active `python_patch_entry.py` and its sibling `_patch_lib/`;
+- dispatcher child processes must resolve from the private runtime scope, not from `<project>/tools/_patch_lib/`.
 
 ## Public/private layout
 
@@ -34,7 +42,9 @@ project/
         └── SHA256SUMS
 ```
 
-`tools/run_python_patches.sh` (or the Windows wrapper) is the normal public runtime entry point. Modules under `_patch_lib/` are internal/maintenance utilities.
+`tools/run_python_patches.sh` (or the Windows wrapper) is the normal public entry point for the portable layout. Under TaskDeck-managed execution, TaskDeck invokes the bundled `patchtool/python_patch_entry.py` directly. Modules under `_patch_lib/` are private runtime/maintenance utilities in either layout and must not be invoked by project PATCH payloads.
+
+A migrated TaskDeck project may therefore intentionally contain only a compatibility launcher shim (or no private runtime payload) under `tools/`. Missing `<project>/tools/_patch_lib/python_patch_runner.py` is not a project defect in managed mode.
 
 For `database_select`, copy `tools/db_profiles.example.json` to `tools/db_profiles.local.json` and edit it locally. The release ZIP deliberately never contains `db_profiles.local.json`; upgrades must not overwrite it, and COLLECT/PATCH handoffs must not package its credentials. MySQL remote access is represented by an SSH target/profile, not by embedding an SSH private key in Patch Tool configuration.
 
