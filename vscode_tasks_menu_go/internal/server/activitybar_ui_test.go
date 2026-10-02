@@ -31,15 +31,15 @@ func TestActivityBarIsAdditiveAndFailureIsolated(t *testing.T) {
 		"appearance.append(toggle)",
 		"TaskMenuExplorer?.open()",
 		"TaskMenuExplorer?.close()",
-		"TaskMenuPatchPanel?.deactivate()",
 		"document.addEventListener('pointerdown'",
 		"rail.contains(target)",
 		"const headerMenus=document.querySelector('.header-action-menus')",
 		"if(headerMenus?.contains(target))return",
 		"activeView==='tasks'&&menu.contains(target)",
 		"activeView==='explorer'&&explorerPanel?.contains(target)",
-		"activeView==='patch'&&globalThis.TaskMenuPatchPanel?.panel?.contains(target)",
 		"activeView==='history'&&historyPanel.contains(target)",
+		"button===patchButton",
+		"Boolean(globalThis.TaskMenuPatchPanel?.visible)",
 		"},true)",
 	} {
 		if !strings.Contains(js, want) {
@@ -72,65 +72,61 @@ func TestActivityBarLoadsAfterAllExistingFeatureModules(t *testing.T) {
 }
 
 
-func TestActivityBarDoesNotClosePatchTabWhenSwitchingViews(t *testing.T) {
+func TestActivityBarKeepsPatchWorkspaceVisibleWhileSidebarViewsChange(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/activitybar.js")
 	if err != nil { t.Fatal(err) }
 	js := string(data)
 	for _, want := range []string{
-		"function deactivatePatchPanel()",
-		"globalThis.TaskMenuPatchPanel?.deactivate()",
-		"if(previous==='patch')deactivatePatchPanel()",
+		"Patch Tool is a workspace tab, not a sidebar view",
+		"if(view==='patch'){showPatch();return;}",
+		"button===patchButton",
+		"Boolean(globalThis.TaskMenuPatchPanel?.visible)",
+		"Visibility of the Patch workspace tab must not mutate sidebar ownership.",
 		"showTasks()",
 		"showExplorer()",
+		"showConnections()",
 		"showHistory()",
 	} {
 		if !strings.Contains(js,want) {
-			t.Fatalf("activity bar Patch tab persistence missing %q",want)
+			t.Fatalf("activity bar Patch/sidebar separation missing %q",want)
 		}
 	}
-	if strings.Contains(js,"TaskMenuPatchPanel?.close()") {
-		t.Fatal("activity bar must not hard-close the native Patch tab when switching views")
+	for _, forbidden := range []string{
+		"TaskMenuPatchPanel?.deactivate()",
+		"if(previous==='patch')",
+		"activeView='patch'",
+		"activeView==='patch'",
+	} {
+		if strings.Contains(js,forbidden) {
+			t.Fatalf("Patch Tool must not be owned or deactivated by sidebar state: %q",forbidden)
+		}
 	}
 }
 
-func TestAlwaysVisibleSidebarSwitchKeepsPatchWorkspaceVisible(t *testing.T) {
+func TestSidebarSwitchNeverDeactivatesPatchWorkspace(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/activitybar.js")
 	if err != nil { t.Fatal(err) }
 	js := string(data)
-	for _, want := range []string{
-		"function showTasks(){",
-		"function showExplorer(){",
-		"function showHistory(){",
-		"if(enabled())deactivatePatchPanel()",
-	} {
-		if !strings.Contains(js,want) {
-			t.Fatalf("always-visible Patch persistence missing %q",want)
-		}
-	}
-	for _, name := range []string{"showTasks","showExplorer","showHistory"} {
+	for _, name := range []string{"showTasks","showExplorer","showConnections","showHistory"} {
 		start:=strings.Index(js,"function "+name+"(){")
 		if start<0 { t.Fatalf("%s unavailable",name) }
 		endRel:=strings.Index(js[start:],"\n  function ")
 		if endRel<0 { endRel=len(js)-start }
 		block:=js[start:start+endRel]
-		if strings.Contains(block,"\n    deactivatePatchPanel();") {
-			t.Fatalf("%s must not unconditionally deactivate Patch in Always visible mode",name)
-		}
-		if !strings.Contains(block,"if(enabled())deactivatePatchPanel()") {
-			t.Fatalf("%s must deactivate Patch only in Auto-hide mode",name)
+		if strings.Contains(block,"PatchPanel?.deactivate") || strings.Contains(block,"deactivatePatchPanel") {
+			t.Fatalf("%s must not deactivate Patch Tool in any sidebar mode",name)
 		}
 	}
 }
-
 
 func TestActivityBarPatchIconIsIdempotentWorkspaceNavigation(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/activitybar.js")
 	if err != nil { t.Fatal(err) }
 	js := string(data)
 	for _, want := range []string{
-		"if(activeView===view){",
 		"if(view==='patch'){showPatch();return;}",
-		"Patch Tool is a workspace tab with its own close button",
+		"Patch Tool is a workspace tab, not a sidebar view",
+		"if(activeView===view){",
 		"if(!enabled()){",
 		"if(view==='tasks')showTasks()",
 		"if(view==='explorer')showExplorer()",
@@ -179,7 +175,8 @@ func TestActivityBarAlwaysVisibleViewsStayInFixedSidebar(t *testing.T) {
 		"body:not(.task-sidebar-auto-hide) .task-history-panel{top:calc(var(--taskmenu-header-height,30px) + 46px);left:0",
 		"activeView=on?'':'tasks'",
 		"restoreHistoryToTasks()",
-		"const active=button.dataset.view===activeView",
+		"const active=button===patchButton",
+		"Boolean(globalThis.TaskMenuPatchPanel?.visible)",
 		"if(!enabled()){",
 		"showTasks()",
 		"if(!enabled())restoreHistoryToTasks()",
