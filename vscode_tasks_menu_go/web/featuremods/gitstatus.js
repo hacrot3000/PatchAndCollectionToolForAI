@@ -192,15 +192,16 @@ function gitFailureError(message,data={}){
   const error=new Error(message||data.error||'Git action failed');
   error.gitOutput=String(data.output||'');
   error.gitFailureCode=String(data.failure_code||'');
+  error.gitDetails=data&&typeof data==='object'?data:{};
   return error;
 }
-function openGitRecovery({actionName='unknown',payload={},command='',error='',output='',failureCode='',repoID=activeRepoID}={}){
+function openGitRecovery({actionName='unknown',payload={},command='',error='',output='',failureCode='',details={},repoID=activeRepoID}={}){
   if(!gitRecovery?.open)return false;
   const selected=repositories.find(item=>item.id===repoID)||activeRepository()||{};
   const repository={...selected,branch:(repoID===activeRepoID?currentStatus?.branch:'')||selected.branch||''};
   const ensureRepo=()=>{if(!repoID)throw new Error('Git repository selection is unavailable');};
   gitRecovery.open({
-    actionName,payload,command,error:String(error||''),output:String(output||''),failureCode:String(failureCode||''),repository,
+    actionName,payload,command,error:String(error||''),output:String(output||''),failureCode:String(failureCode||''),details:details&&typeof details==='object'?details:{},repository,
     runRepair:(repair,repairPayload={})=>{ensureRepo();return repairAction(repair,repairPayload,repoID);},
     retry:actionName&&actionName!=='unknown'?()=>{ensureRepo();return action(actionName,payload,'',{recovery:false,repoID});}:null,
     runAction:(name,nextPayload={})=>{ensureRepo();return action(name,nextPayload,'',{recovery:false,repoID});},
@@ -242,13 +243,13 @@ async function action(actionName,payload={},confirmText='',options={}){
       showOperation(command,data.output||'',data.ok?'':(data.error||'Git action failed'));
       if(!data.ok){
         const failure=gitFailureError(data.error||'Git action failed',data);
-        if(recoveryEnabled&&openGitRecovery({actionName,payload,command,error:failure.message,output:failure.gitOutput,failureCode:failure.gitFailureCode,repoID}))failure.gitWizardShown=true;
+        if(recoveryEnabled&&openGitRecovery({actionName,payload,command,error:failure.message,output:failure.gitOutput,failureCode:failure.gitFailureCode,details:failure.gitDetails,repoID}))failure.gitWizardShown=true;
         throw failure;
       }
       if(activeRepoID===repoID){await refresh();await loadCurrentView();}return data;
     }catch(error){
       showOperation(command,error?.gitOutput||'',error?.message||String(error));
-      if(recoveryEnabled&&!error?.gitWizardShown&&openGitRecovery({actionName,payload,command,error:error?.message||String(error),output:error?.gitOutput||'',failureCode:error?.gitFailureCode||'',repoID}))error.gitWizardShown=true;
+      if(recoveryEnabled&&!error?.gitWizardShown&&openGitRecovery({actionName,payload,command,error:error?.message||String(error),output:error?.gitOutput||'',failureCode:error?.gitFailureCode||'',details:error?.gitDetails||{},repoID}))error.gitWizardShown=true;
       throw error;
     }finally{
       runningActions.delete(key);
@@ -269,7 +270,7 @@ function bindActionButton(button,run){
     }catch(error){
       state='error';
       if(!error?.gitWizardShown){
-        if(openGitRecovery({actionName:'unknown',command:label,error:error?.message||String(error),output:error?.gitOutput||'',failureCode:error?.gitFailureCode||''}))error.gitWizardShown=true;
+        if(openGitRecovery({actionName:'unknown',command:label,error:error?.message||String(error),output:error?.gitOutput||'',failureCode:error?.gitFailureCode||'',details:error?.gitDetails||{}}))error.gitWizardShown=true;
       }
       if(!error?.gitWizardShown)app.showError(error);
     }finally{

@@ -57,6 +57,24 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&backdrop.cl
 function combinedText(ctx){
   return [ctx?.error,ctx?.output].filter(Boolean).join('\n').trim();
 }
+function largeFilesFromContext(ctx){
+  const structured=Array.isArray(ctx?.details?.large_files)?ctx.details.large_files:[];
+  const rows=[];
+  const seen=new Set();
+  for(const item of structured){
+    const path=String(item?.path||'').trim();if(!path||seen.has(path))continue;
+    seen.add(path);
+    rows.push({path,sizeMiB:Number(item?.size_mib)||0,limitMiB:Number(item?.limit_mib)||100});
+  }
+  const text=combinedText(ctx);
+  const re=/File (.+?) is ([0-9.]+) MB; this exceeds GitHub's file size limit of ([0-9.]+) MB/g;
+  let match;
+  while((match=re.exec(text))){
+    const path=String(match[1]||'').trim();if(!path||seen.has(path))continue;
+    seen.add(path);rows.push({path,sizeMiB:Number(match[2])||0,limitMiB:Number(match[3])||100});
+  }
+  return rows;
+}
 function classifyLocal(ctx){
   const text=combinedText(ctx).toLowerCase();
   if(/detected dubious ownership/.test(text))return 'dubious_ownership';
@@ -83,6 +101,7 @@ function classifyLocal(ctx){
   if(/rebase in progress|rebase-merge|rebase-apply|already a rebase-merge directory/.test(text))return 'rebase_in_progress';
   if(/cherry-pick is currently in progress|cherry_pick_head/.test(text))return 'cherry_pick_in_progress';
   if(/you have unmerged files|needs merge|fix conflicts and then commit|resolve all conflicts manually|unresolved conflict/.test(text))return 'conflicts';
+  if(/exceeds github's file size limit|gh001|large files detected/.test(text))return 'file_too_large';
   if(/protected branch|protected branch hook declined|gh013|pre-receive hook declined/.test(text))return 'protected_branch';
   if(/src refspec .* does not match any/.test(text))return 'refspec_missing';
   if(/couldn't find remote ref|remote ref does not exist/.test(text))return 'remote_ref_missing';
@@ -93,7 +112,6 @@ function classifyLocal(ctx){
   if(/nothing to commit|no changes added to commit/.test(text))return 'nothing_to_commit';
   if(/you are not currently on a branch|detached head/.test(text))return 'detached_head';
   if(/refusing to merge unrelated histories/.test(text))return 'unrelated_histories';
-  if(/exceeds github's file size limit|gh001|large files detected/.test(text))return 'file_too_large';
   if(/no space left on device|disk quota exceeded/.test(text))return 'disk_full';
   if(/bad object|object file .* is empty|corrupt loose object|invalid object/.test(text))return 'repository_corrupt';
   if(/hook/.test(text)&&/failed|declined|exit code/.test(text))return 'hook_failed';
@@ -291,8 +309,26 @@ function issueFor(ctx){
         option('Rescan repositories','Rescan the workspace and refresh the Git panel.',()=>ctx.rescan()),
         statusOpt
       ]};
-    case 'file_too_large':
-      return {code,title:'Remote rejected a large file',summary:'This usually requires removing the large object from the commits or using the remote provider\'s large-file workflow. TaskDeck will not rewrite history automatically.',options:[statusOpt]};
+    case 'file_too_large': {
+      const large=largeFilesFromContext(ctx);
+      const first=large[0]||{};
+      const pathInput=input('large_path','Oversized file path','logic/capture.csv',first.path||'',true);
+      const details=large.length
+        ? large.map(item=>item.path+(item.sizeMiB?' ('+item.sizeMiB.toFixed(2)+' MiB)':'')).join(', ')
+        : 'the oversized file reported by the remote';
+      const summary='GitHub rejected '+details+'. Files above the remote limit must be removed from the outgoing Git history or migrated to a large-file system such as Git LFS. TaskDeck can safely handle the common accidental-commit cases below.';
+      const options=[
+        option('Remove from latest commit, ignore, then retry push','For a file introduced by the latest local commit: keep the physical file, add an exact .gitignore rule, amend the latest commit, then retry the original push.',async values=>{
+          const cleaned=await repair(ctx,'large_file_remove_latest',{large_path:values.large_path,confirmed:true});
+          if(!ctx.retry)return cleaned;
+          const pushed=await retryOriginal(ctx);
+          return {ok:true,output:[cleaned?.output,pushed?.output||'Push succeeded.'].filter(Boolean).join('\n')};
+        },{inputs:[pathInput],risk:'This rewrites the latest local commit. It only proceeds when tracked files/index are clean and the oversized file did not exist in the parent commit. The working-tree file is kept and ignored.'}),
+        option('Prepare all unpushed commits for recommit','For a large file that appears in older unpushed commits: move HEAD back to the upstream branch with --soft, keep the combined outgoing changes staged, untrack and ignore the large file, then let you review and recommit.',values=>repair(ctx,'large_file_prepare_recommit',{large_path:values.large_path,confirmed:true}),{inputs:[pathInput],risk:'Advanced: this rewrites local unpushed history by removing its commit boundaries. Your combined changes remain staged and the original HEAD is reported/recoverable via reflog. You must review and commit again before pushing.'}),
+        statusOpt
+      ];
+      return {code,title:'Push rejected: file exceeds remote size limit',summary,options};
+    }
     case 'disk_full':
       return {code,title:'Disk space or quota is exhausted',summary:'Free disk space before retrying. Git may be unable to create lock, index, pack, or object files until space is available.',options:[retryOpt]};
     case 'filesystem_permission':
@@ -342,7 +378,7 @@ async function runOption(ctx,issue,spec,card,values){
     if(ctx.refresh)await ctx.refresh();
     setTimeout(()=>{if(backdrop.classList.contains('visible'))closeWizard();},900);
   }catch(error){
-    const next={...ctx,error:error?.message||String(error),output:error?.gitOutput||'',failureCode:error?.gitFailureCode||''};
+    const next={...ctx,error:error?.message||String(error),output:error?.gitOutput||'',failureCode:error?.gitFailureCode||'',details:error?.gitDetails||{}};
     result.textContent='Failed: '+(error?.message||String(error));
     setTimeout(()=>open(next),0);
   }finally{
@@ -395,7 +431,7 @@ function open(ctx){
   retry.hidden=!ctx.retry;
   retry.onclick=async()=>{
     try{result.classList.add('visible');result.textContent='Retrying original command…';const response=await ctx.retry();result.textContent=response?.output||'Retry succeeded.';if(ctx.refresh)await ctx.refresh();setTimeout(closeWizard,700);}
-    catch(error){open({...ctx,error:error?.message||String(error),output:error?.gitOutput||'',failureCode:error?.gitFailureCode||''});}
+    catch(error){open({...ctx,error:error?.message||String(error),output:error?.gitOutput||'',failureCode:error?.gitFailureCode||'',details:error?.gitDetails||{}});}
   };
   backdrop.classList.add('visible');
   close.focus();
