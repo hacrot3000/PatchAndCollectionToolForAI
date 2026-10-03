@@ -25,6 +25,7 @@ type filePreviewResponse struct {
 	Name        string `json:"name"`
 	Size        int64  `json:"size"`
 	ContentType string `json:"content_type,omitempty"`
+	Encoding    string `json:"encoding,omitempty"`
 	URL         string `json:"url,omitempty"`
 	Content     string `json:"content,omitempty"`
 }
@@ -77,11 +78,16 @@ func previewFileHint(resolved string) string {
 		}
 		return ""
 	}
-	if info.Size() <= filePreviewTextLimit && previewTextBytesValid(sample) {
+	if info.Size() <= filePreviewTextLimit {
 		if isMarkdownPreviewPath(resolved) {
-			return "markdown"
+			if _, err := decodeMarkdownText(sample); err == nil {
+				return "markdown"
+			}
+			return ""
 		}
-		return "text"
+		if previewTextBytesValid(sample) {
+			return "text"
+		}
 	}
 	return ""
 }
@@ -139,7 +145,14 @@ func (s *Server) filePreviewInfo(requested string) (filePreviewResponse, string,
 	if err != nil || int64(len(data)) > filePreviewTextLimit {
 		return filePreviewResponse{}, "", fmt.Errorf("text file is too large to preview (limit 10 MiB)")
 	}
-	if !previewTextBytesValid(data) {
+	markdown := isMarkdownPreviewPath(resolved)
+	decoded := decodedText{}
+	if markdown {
+		decoded, err = decodeMarkdownText(data)
+		if err != nil {
+			return filePreviewResponse{}, "", fmt.Errorf("Markdown file could not be decoded: %w", err)
+		}
+	} else if !previewTextBytesValid(data) {
 		return filePreviewResponse{}, "", fmt.Errorf("file is neither a supported image nor UTF-8 text")
 	}
 
@@ -158,14 +171,16 @@ func (s *Server) filePreviewInfo(requested string) (filePreviewResponse, string,
 	kind := "text"
 	contentType := "text/plain; charset=utf-8"
 	content := ""
-	if isMarkdownPreviewPath(resolved) {
+	encoding := "utf-8"
+	if markdown {
 		kind = "markdown"
 		contentType = "text/markdown; charset=utf-8"
-		content = string(data)
+		content = decoded.Text
+		encoding = decoded.Encoding
 	}
 	return filePreviewResponse{
 		Kind: kind, Path: resolved, ProjectPath: filepath.ToSlash(rel), Name: name, Size: info.Size(),
-		ContentType: contentType, Content: content,
+		ContentType: contentType, Encoding: encoding, Content: content,
 	}, resolved, nil
 }
 

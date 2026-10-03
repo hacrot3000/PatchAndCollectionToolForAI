@@ -517,3 +517,43 @@ func TestProjectTreeHidesGitDirectory(t *testing.T) {
 		t.Fatalf("entries=%#v", got)
 	}
 }
+
+func TestProjectFileReadDecodesNonUTF8MarkdownReadOnly(t *testing.T) {
+	root := t.TempDir()
+	content := "# Báo cáo UART NVS\r\n\r\nPASS\r\n"
+	raw := utf16LEWithBOM(content)
+	path := filepath.Join(root, "BAO_CAO_MAINPCB_UART_NVS_20261003.md")
+	if err := os.WriteFile(path, raw, 0o644); err != nil { t.Fatal(err) }
+
+	s := &Server{Workspace: root}
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/project/file?path=BAO_CAO_MAINPCB_UART_NVS_20261003.md", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var got projectFileResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil { t.Fatal(err) }
+	if got.Content != content || got.Encoding != "utf-16le" || !got.ReadOnly {
+		t.Fatalf("response=%#v", got)
+	}
+	if !strings.Contains(got.Warning, "read-only") || !strings.Contains(got.Warning, "utf-16le") {
+		t.Fatalf("warning=%q", got.Warning)
+	}
+}
+
+func TestProjectFileReadDecodesWindows1252MarkdownReadOnly(t *testing.T) {
+	root := t.TempDir()
+	raw := []byte{'#',' ','C','a','f',0xE9,'\n'}
+	if err := os.WriteFile(filepath.Join(root, "legacy.md"), raw, 0o644); err != nil { t.Fatal(err) }
+	s := &Server{Workspace: root}
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/project/file?path=legacy.md", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var got projectFileResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil { t.Fatal(err) }
+	if got.Content != "# Café\n" || got.Encoding != "windows-1252" || !got.ReadOnly {
+		t.Fatalf("response=%#v", got)
+	}
+}

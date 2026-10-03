@@ -239,20 +239,39 @@ func (s *Server) projectFileRead(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "project file unavailable", http.StatusNotFound)
 		return
 	}
-	if !projectTextBytesValid(data) {
+	encoding := "utf-8"
+	bom := bytes.HasPrefix(data, []byte{0xEF, 0xBB, 0xBF})
+	textData := data
+	decodedReadOnly := false
+	warning := ""
+	if projectTextBytesValid(data) {
+		if bom {
+			textData = textData[3:]
+		}
+	} else if isMarkdownPreviewPath(rel) {
+		decoded, decodeErr := decodeMarkdownText(data)
+		if decodeErr != nil {
+			http.Error(w, "project Markdown file could not be decoded", http.StatusUnsupportedMediaType)
+			return
+		}
+		textData = []byte(decoded.Text)
+		encoding = decoded.Encoding
+		bom = decoded.BOM
+		decodedReadOnly = encoding != "utf-8"
+		if decodedReadOnly {
+			warning = "Markdown was decoded from " + encoding + " and is opened read-only to preserve the original encoding."
+		}
+	} else {
 		http.Error(w, "project file is not valid editable UTF-8 text", http.StatusUnsupportedMediaType)
 		return
 	}
-	bom := bytes.HasPrefix(data, []byte{0xEF, 0xBB, 0xBF})
-	textData := data
-	if bom {
-		textData = textData[3:]
-	}
 	sum := sha256.Sum256(data)
-	readOnly := info.Mode().Perm()&0o222 == 0 || info.Size() > projectEditableLimit
-	warning := ""
+	readOnly := decodedReadOnly || info.Mode().Perm()&0o222 == 0 || info.Size() > projectEditableLimit
 	if info.Size() > projectEditableLimit {
-		warning = "File is larger than 2 MiB and is read-only by default."
+		if warning != "" {
+			warning += " "
+		}
+		warning += "File is larger than 2 MiB and is read-only by default."
 	}
 	writeJSON(w, http.StatusOK, projectFileResponse{
 		Path:       rel,
@@ -260,7 +279,7 @@ func (s *Server) projectFileRead(w http.ResponseWriter, r *http.Request) {
 		SHA256:     hex.EncodeToString(sum[:]),
 		MtimeNS:    info.ModTime().UnixNano(),
 		Size:       info.Size(),
-		Encoding:   "utf-8",
+		Encoding:   encoding,
 		LineEnding: detectProjectLineEnding(textData),
 		ReadOnly:   readOnly,
 		BOM:        bom,
