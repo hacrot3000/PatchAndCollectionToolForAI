@@ -78,7 +78,6 @@ func TestGitRecoverySetUpstreamAfterFetch(t *testing.T) {
 	gitQuickRun(t, workspace, "remote", "add", "origin", remote)
 	gitQuickRun(t, workspace, "push", "origin", branch)
 	gitQuickRun(t, workspace, "fetch", "origin")
-	gitQuickRun(t, workspace, "branch", "--unset-upstream")
 
 	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"repair","repair":"set_upstream"}`)
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
