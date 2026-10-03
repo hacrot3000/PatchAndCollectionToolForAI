@@ -44,6 +44,14 @@ func gitIgnorePatternJoin(dir, name string) string {
 	return "/" + strings.TrimSuffix(filepath.ToSlash(dir), "/") + "/" + name
 }
 
+func escapeGitIgnoreGeneratedFamily(value string) string {
+	parts := strings.Split(value, "*")
+	for i := range parts {
+		parts[i] = escapeGitIgnoreLiteral(parts[i])
+	}
+	return strings.Join(parts, "*")
+}
+
 func splitGitIgnoreName(path string) (dir, base, stem, ext string) {
 	path = filepath.ToSlash(path)
 	dir = filepath.ToSlash(filepath.Dir(path))
@@ -279,7 +287,7 @@ func (s *Server) gitIgnoreSuggestions(ctx context.Context, rawPath string) ([]gi
 		if family != stem && strings.Contains(family, "*") {
 			addGitIgnoreSuggestion(patterns, gitIgnoreSuggestion{
 				ID: "normalized-family-folder", Label: "Ignore files from the same generated-name family",
-				Pattern: gitIgnorePatternJoin(dir, escapeGitIgnoreLiteral(family)+escapeGitIgnoreLiteral(ext)),
+				Pattern: gitIgnorePatternJoin(dir, escapeGitIgnoreGeneratedFamily(family)+escapeGitIgnoreLiteral(ext)),
 				Kind: "family", Description: "Treat numeric/hash/version-like parts of the filename as variable.",
 			})
 		}
