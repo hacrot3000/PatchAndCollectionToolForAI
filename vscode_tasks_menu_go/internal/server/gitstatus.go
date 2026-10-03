@@ -53,6 +53,14 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	case "diff":
 		s.gitDiff(w, r)
 		return
+	case "ignore-suggestions":
+		rows, err := s.gitIgnoreSuggestions(r.Context(), r.URL.Query().Get("path"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"path": r.URL.Query().Get("path"), "suggestions": rows})
+		return
 	case "log":
 		s.gitLog(w, r)
 		return

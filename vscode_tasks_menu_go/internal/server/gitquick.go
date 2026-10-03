@@ -771,6 +771,7 @@ type gitActionRequest struct {
 	Name              string `json:"name,omitempty"`
 	Email             string `json:"email,omitempty"`
 	NewBranch         string `json:"new_branch,omitempty"`
+	IgnoreID          string `json:"ignore_id,omitempty"`
 	Confirmed         bool   `json:"confirmed,omitempty"`
 }
 
@@ -943,6 +944,18 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		path, err := validGitRelativePath(req.Path)
 		if err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
 		args = []string{"restore", "--staged", "--", path}
+	case "ignore":
+		item, added, err := s.gitIgnoreApply(r.Context(), req.Path, req.IgnoreID)
+		if err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": err.Error()})
+			return
+		}
+		message := "Ignore rule already exists in .gitignore."
+		if added {
+			message = "Added ignore rule to .gitignore."
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "action": action, "output": message, "suggestion": item, "added": added})
+		return
 	case "stage_all":
 		args = []string{"add", "-A"}
 	case "commit":
