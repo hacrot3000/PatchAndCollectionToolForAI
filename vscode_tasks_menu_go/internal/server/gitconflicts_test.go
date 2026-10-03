@@ -206,3 +206,21 @@ func TestNestedRepositoryConflictProjectPath(t *testing.T) {
 		t.Fatalf("state=%+v", state)
 	}
 }
+
+func TestGitChangesMarksUnmergedRowsAndReturnsConflictState(t *testing.T) {
+	workspace, server, _, feature := setupMergeConflictRepo(t)
+	startMergeConflict(t, workspace, feature)
+	rr := callGitStatusHandler(t, server, http.MethodGet, "/api/git/status?view=changes", "")
+	if rr.Code != http.StatusOK { t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String()) }
+	var response struct {
+		Changes []gitChange `json:"changes"`
+		ConflictState gitConflictState `json:"conflict_state"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil { t.Fatal(err) }
+	if len(response.Changes) != 1 || !response.Changes[0].Conflicted || response.Changes[0].Path != "tracked.txt" {
+		t.Fatalf("changes=%+v", response.Changes)
+	}
+	if response.ConflictState.Operation != "merge" || len(response.ConflictState.Files) != 1 {
+		t.Fatalf("conflict_state=%+v", response.ConflictState)
+	}
+}

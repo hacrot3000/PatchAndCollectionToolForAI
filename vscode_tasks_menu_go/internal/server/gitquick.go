@@ -80,6 +80,7 @@ type gitChange struct {
 	Staged        bool   `json:"staged"`
 	Unstaged      bool   `json:"unstaged"`
 	Untracked     bool   `json:"untracked"`
+	Conflicted    bool   `json:"conflicted,omitempty"`
 }
 
 func parseGitStatusZ(raw string) []gitChange {
@@ -98,6 +99,7 @@ func parseGitStatusZ(raw string) []gitChange {
 			Staged:         x != ' ' && x != '?',
 			Unstaged:       y != ' ' && y != '?',
 			Untracked:      x == '?' && y == '?',
+			Conflicted:     isGitUnmergedStatus(x, y),
 		}
 		if x == 'R' || x == 'C' || y == 'R' || y == 'C' {
 			if i+1 < len(parts) && parts[i+1] != "" {
@@ -120,7 +122,17 @@ func (s *Server) gitChanges(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"changes": parseGitStatusZ(out), "truncated": truncated})
+	changes := parseGitStatusZ(out)
+	payload := map[string]any{"changes": changes, "truncated": truncated}
+	for _, change := range changes {
+		if change.Conflicted {
+			if state, stateErr := s.gitConflictState(r.Context()); stateErr == nil {
+				payload["conflict_state"] = state
+			}
+			break
+		}
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func validGitRelativePath(value string) (string, error) {
