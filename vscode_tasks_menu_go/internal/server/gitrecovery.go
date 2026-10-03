@@ -50,7 +50,7 @@ func classifyGitFailure(action, output, errorText string) string {
 		return "push_non_fast_forward"
 	case strings.Contains(text, "not possible to fast-forward") || strings.Contains(text, "divergent branches") || strings.Contains(text, "need to specify how to reconcile"):
 		return "pull_diverged"
-	case strings.Contains(text, "would be overwritten by merge") || strings.Contains(text, "would be overwritten by checkout") || strings.Contains(text, "please commit your changes or stash them") || strings.Contains(text, "cannot pull with rebase") || strings.Contains(text, "you have unstaged changes") || strings.Contains(text, "index contains uncommitted changes"):
+	case strings.Contains(text, "would be overwritten by merge") || strings.Contains(text, "would be overwritten by checkout") || strings.Contains(text, "please commit your changes or stash them") || strings.Contains(text, "cannot pull with rebase") || strings.Contains(text, "you have unstaged changes") || strings.Contains(text, "index contains uncommitted changes") || strings.Contains(text, "working tree must be clean"):
 		return "dirty_worktree"
 	case strings.Contains(text, "merge_head exists") || strings.Contains(text, "you have not concluded your merge"):
 		return "merge_in_progress"
@@ -68,6 +68,8 @@ func classifyGitFailure(action, output, errorText string) string {
 		return "remote_ref_missing"
 	case strings.Contains(text, "already exists") && strings.Contains(text, "branch"):
 		return "branch_exists"
+	case strings.Contains(text, "pathspec") && strings.Contains(text, "did not match"):
+		return "pathspec_missing"
 	case strings.Contains(text, "local branch not found") || strings.Contains(text, "no such branch") || strings.Contains(text, "invalid reference") || strings.Contains(text, "unknown revision"):
 		return "branch_missing"
 	case strings.Contains(text, "cannot lock ref") || strings.Contains(text, "is at") && strings.Contains(text, "but expected"):

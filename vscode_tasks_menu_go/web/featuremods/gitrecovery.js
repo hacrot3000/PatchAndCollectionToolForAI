@@ -77,7 +77,7 @@ function classifyLocal(ctx){
   if(/there is no tracking information for the current branch|no upstream configured/.test(text))return 'no_upstream_pull';
   if(/non-fast-forward|fetch first|updates were rejected because the remote contains work/.test(text))return 'push_non_fast_forward';
   if(/not possible to fast-forward|divergent branches|need to specify how to reconcile/.test(text))return 'pull_diverged';
-  if(/would be overwritten by merge|would be overwritten by checkout|please commit your changes or stash them|cannot pull with rebase|you have unstaged changes|index contains uncommitted changes/.test(text))return 'dirty_worktree';
+  if(/would be overwritten by merge|would be overwritten by checkout|please commit your changes or stash them|cannot pull with rebase|you have unstaged changes|index contains uncommitted changes|working tree must be clean/.test(text))return 'dirty_worktree';
   if(/merge_head exists|you have not concluded your merge/.test(text))return 'merge_in_progress';
   if(/rebase in progress|rebase-merge|rebase-apply|already a rebase-merge directory/.test(text))return 'rebase_in_progress';
   if(/cherry-pick is currently in progress|cherry_pick_head/.test(text))return 'cherry_pick_in_progress';
@@ -86,6 +86,7 @@ function classifyLocal(ctx){
   if(/src refspec .* does not match any/.test(text))return 'refspec_missing';
   if(/couldn't find remote ref|remote ref does not exist/.test(text))return 'remote_ref_missing';
   if(/already exists/.test(text)&&/branch/.test(text))return 'branch_exists';
+  if(/pathspec/.test(text)&&/did not match/.test(text))return 'pathspec_missing';
   if(/local branch not found|no such branch|invalid reference|unknown revision/.test(text))return 'branch_missing';
   if(/cannot lock ref/.test(text)||/is at .* but expected/.test(text))return 'ref_lock';
   if(/nothing to commit|no changes added to commit/.test(text))return 'nothing_to_commit';
@@ -127,7 +128,9 @@ function withValues(base,values){return {...base,...values};}
 
 function issueFor(ctx){
   const code=ctx.failureCode||classifyLocal(ctx);
-  const retryOpt=option('Retry original command','Run the failed Git action again without changing repository state.',()=>retryOriginal(ctx));
+  const retryOpt=ctx.retry
+    ? option('Retry original command','Run the failed Git action again without changing repository state.',()=>retryOriginal(ctx))
+    : option('Refresh Git panel','Refresh repository status and the current Git view.',async()=>{if(ctx.refresh)await ctx.refresh();return {ok:true,output:'Git panel refreshed.'};});
   const statusOpt=option('Inspect repository status','Run git status --short --branch and show the result.',()=>repair(ctx,'status'));
   const remoteCheck=option('Test remote access','Run git ls-remote --heads against the selected/default remote.',values=>repair(ctx,'remote_check',values),{inputs:[remoteInput()]});
   const setRemote=option('Change remote URL','Update the selected/default Git remote URL, then you can retry.',values=>repair(ctx,'set_remote_url',values),{inputs:remoteURLInputs(),risk:'This changes repository remote configuration.'});
@@ -216,6 +219,11 @@ function issueFor(ctx){
       return {code,title:'Remote policy rejected this push',summary:'The destination may be protected or governed by repository rules. A common safe path is to publish the same HEAD to a new branch.',options:[
         option('Push HEAD to a new branch','Create/update a new remote branch from the current HEAD.',values=>repair(ctx,'push_new_branch',values),{inputs:[remoteInput(),branchInput(ctx,'Remote branch name')]}),
         remoteCheck,statusOpt
+      ]};
+    case 'pathspec_missing':
+      return {code,title:'Selected Git path no longer exists',summary:'The file/path used by the action is no longer known at that location. Refresh Changes before retrying.',options:[
+        statusOpt,
+        option('Refresh Git panel','Reload status and the current Git view.',async()=>{if(ctx.refresh)await ctx.refresh();return {ok:true,output:'Git panel refreshed.'};})
       ]};
     case 'branch_missing':
       return {code,title:'Requested branch or revision was not found',summary:'Refresh remote refs, switch/create a valid local branch, or verify the requested branch name.',options:[

@@ -39,6 +39,7 @@ func TestClassifyGitFailureCommonCases(t *testing.T) {
 		{"dubious", "status", "fatal: detected dubious ownership in repository at '/tmp/repo'", "dubious_ownership"},
 		{"protected", "push", "remote: error: GH013: Repository rule violations found\nremote: protected branch", "protected_branch"},
 
+		{"pathspec missing", "stage", "error: pathspec 'gone.txt' did not match any file(s) known to git", "pathspec_missing"},
 		{"branch missing", "switch", "local branch not found", "branch_missing"},
 		{"ref lock", "push", "cannot lock ref 'refs/heads/main': is at abc but expected def", "ref_lock"},
 		{"nothing to commit", "commit", "nothing to commit, working tree clean", "nothing_to_commit"},
