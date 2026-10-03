@@ -1,6 +1,7 @@
 const app=globalThis.TaskMenuApp;
 if(!app)throw new Error('TaskMenuApp unavailable for git status');
 const gitRecovery=globalThis.TaskDeckGitRecovery;
+const gitIgnoreWizard=globalThis.TaskDeckGitIgnoreWizard;
 
 const style=document.createElement('style');
 style.textContent=`
@@ -46,7 +47,7 @@ function q(value){value=String(value??'');return /^[A-Za-z0-9_./:@+\-]+$/.test(v
 function actionCommand(action,payload={}){
   switch(action){
     case 'fetch':return 'git fetch --prune';case 'pull':return 'git pull --ff-only';case 'push':return 'git push';case 'stage_all':return 'git add -A';
-    case 'stage':return 'git add -- '+q(payload.path);case 'unstage':return 'git restore --staged -- '+q(payload.path);case 'commit':return 'git commit -m '+q(payload.message);
+    case 'stage':return 'git add -- '+q(payload.path);case 'unstage':return 'git restore --staged -- '+q(payload.path);case 'ignore':return 'Add .gitignore rule for '+q(payload.path);case 'commit':return 'git commit -m '+q(payload.message);
     case 'switch':return 'git switch '+q(payload.branch);case 'create_branch':return 'git switch -c '+q(payload.branch);case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'merge_to':return 'Merge To '+q(payload.expected_current)+' -> '+q(payload.branch)+' and push';case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
   }
 }
@@ -323,12 +324,30 @@ async function showDiff(path,mode){
   const data=await gitView('diff',{path,mode});if(!data)return false;content.replaceChildren();
   const back=actionButton('← Changes',()=>{currentView='changes';updateNav();return loadChanges();});const title=el('strong','',`${mode==='staged'?'STAGED ':'DIFF '}${path}`);const pre=el('pre','git-diff-pre',data.diff||'(no tracked diff; untracked files can be staged directly)');content.append(back,title,pre);
 }
+async function openIgnoreWizard(change){
+  if(!gitIgnoreWizard?.open)throw new Error('Git ignore wizard unavailable');
+  const repoID=activeRepoID;
+  if(!repoID)throw new Error('Git repository selection is unavailable');
+  const selected=repositories.find(item=>item.id===repoID)||activeRepository()||{};
+  const repository={...selected,branch:(repoID===activeRepoID?currentStatus?.branch:'')||selected.branch||''};
+  const path=String(change?.path||'');
+  const loadSuggestions=async()=>{
+    const query=new URLSearchParams({view:'ignore-suggestions',path});query.set('repo',repoID);
+    return app.jsonFetch('/api/git/status?'+query.toString());
+  };
+  const applyIgnore=item=>action('ignore',{path,ignore_id:item.id},'',{recovery:false,repoID});
+  return gitIgnoreWizard.open({
+    path,repository,loadSuggestions,apply:applyIgnore,
+    refresh:async()=>{if(activeRepoID===repoID){await refresh();if(currentView==='changes')await loadChanges();}}
+  });
+}
+
 async function loadChanges(){
   const data=await gitView('changes');if(!data)return false;const rows=data.changes||[];content.replaceChildren();if(!rows.length){empty('Working tree clean');return;}
   for(const change of rows){
     const row=el('div','git-row');const code=el('span','git-row-code',(change.index_status||' ')+(change.worktree_status||' '));const main=el('div','git-row-main');main.append(el('div','git-row-title',change.path),el('div','git-row-sub',[change.staged&&'staged',change.unstaged&&'unstaged',change.untracked&&'untracked',change.original_path&&('from '+change.original_path)].filter(Boolean).join(' · ')));const actions=el('div','git-row-actions');
     if(change.unstaged&&!change.untracked)actions.append(actionButton('Diff',()=>showDiff(change.path,'worktree')));if(change.staged)actions.append(actionButton('Staged diff',()=>showDiff(change.path,'staged')));
-    if(change.unstaged||change.untracked)actions.append(actionButton('Stage',()=>action('stage',{path:change.path})));if(change.staged)actions.append(actionButton('Unstage',()=>action('unstage',{path:change.path})));actions.append(actionButton('Copy path',()=>copyText(change.path)));row.append(code,main,actions);content.append(row);
+    if(change.unstaged||change.untracked)actions.append(actionButton('Stage',()=>action('stage',{path:change.path})));if(change.staged)actions.append(actionButton('Unstage',()=>action('unstage',{path:change.path})));if(change.untracked&&change.path!=='.gitignore')actions.append(actionButton('Ignore',()=>openIgnoreWizard(change),'Ignore this untracked path or choose a smart pattern for similar files'));actions.append(actionButton('Copy path',()=>copyText(change.path)));row.append(code,main,actions);content.append(row);
   }
 }
 async function mergeBranch(branch){
