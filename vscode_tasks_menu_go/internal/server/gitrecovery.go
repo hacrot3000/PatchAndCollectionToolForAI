@@ -95,20 +95,6 @@ func (s *Server) gitCurrentBranchName(ctx context.Context) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
-func (s *Server) gitRemoteNames(ctx context.Context) ([]string, error) {
-	out, _, _, err := s.runGit(ctx, 5*time.Second, "remote")
-	if err != nil {
-		return nil, err
-	}
-	var remotes []string
-	for _, line := range strings.Split(out, "\n") {
-		if value := strings.TrimSpace(line); value != "" {
-			remotes = append(remotes, value)
-		}
-	}
-	return remotes, nil
-}
-
 func stringInList(items []string, value string) bool {
 	for _, item := range items {
 		if item == value {
@@ -119,10 +105,7 @@ func stringInList(items []string, value string) bool {
 }
 
 func (s *Server) gitPreferredRemote(ctx context.Context, requested string) (string, error) {
-	remotes, err := s.gitRemoteNames(ctx)
-	if err != nil {
-		return "", err
-	}
+	remotes := s.gitRemoteNames(ctx)
 	if len(remotes) == 0 {
 		return "", fmt.Errorf("repository has no configured Git remote")
 	}
