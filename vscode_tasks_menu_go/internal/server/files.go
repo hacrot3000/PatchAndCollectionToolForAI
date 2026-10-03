@@ -26,13 +26,14 @@ func (s *Server) filesSelection(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Text    string `json:"text"`
 		Context string `json:"context,omitempty"`
+		Cwd     string `json:"cwd,omitempty"`
 	}
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 512<<10))
 	if err := dec.Decode(&req); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	files := s.downloadableFilesFromSelection(req.Text, req.Context)
+	files := s.downloadableFilesFromSelectionAt(req.Text, req.Context, req.Cwd)
 	writeJSON(w, http.StatusOK, map[string]any{"files": files})
 }
 
@@ -74,8 +75,13 @@ func (s *Server) downloadableFilesFromText(text string) []downloadableFile {
 }
 
 func (s *Server) downloadableFilesFromSelection(text, context string) []downloadableFile {
+	return s.downloadableFilesFromSelectionAt(text, context, "")
+}
+
+func (s *Server) downloadableFilesFromSelectionAt(text, context, cwd string) []downloadableFile {
 	text = normalizeDownloadDetectionText(text)
 	context = normalizeDownloadDetectionText(context)
+	cwd = strings.TrimSpace(cwd)
 
 	seen := make(map[string]struct{})
 	var paths []string
@@ -95,11 +101,26 @@ func (s *Server) downloadableFilesFromSelection(text, context string) []download
 		paths = append(paths, resolved)
 		return true
 	}
+	addCandidate := func(candidate string) bool {
+		candidate = trimPathCandidate(candidate)
+		if !looksLikePath(candidate) {
+			return false
+		}
+		// Shell-relative paths belong to the terminal/task working directory,
+		// not automatically to the workspace root. The final resolver still
+		// enforces the workspace boundary and rejects escaping symlinks.
+		if cwd != "" && !filepath.IsAbs(candidate) {
+			if addResolved(filepath.Join(cwd, candidate)) {
+				return true
+			}
+		}
+		return addResolved(candidate)
+	}
 
 	unresolved := make([]string, 0)
 	unresolvedSeen := make(map[string]struct{})
 	for _, candidate := range downloadPathCandidates(text) {
-		if addResolved(candidate) {
+		if addCandidate(candidate) {
 			continue
 		}
 		if _, ok := unresolvedSeen[candidate]; !ok {
@@ -120,7 +141,7 @@ func (s *Server) downloadableFilesFromSelection(text, context string) []download
 				}
 				found := false
 				for _, expanded := range expandedDownloadPathCandidates(selected, line) {
-					if addResolved(expanded) {
+					if addCandidate(expanded) {
 						found = true
 						break
 					}

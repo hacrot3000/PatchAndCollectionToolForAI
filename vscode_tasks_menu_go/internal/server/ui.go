@@ -579,7 +579,15 @@ function scheduleSelectionScan(view){
 async function scanSelection(view,text,context,seq){
   if(!hasPermission('files.read'))return;
   try{
-    const data=await jsonFetch('/api/files/selection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text.slice(0,65536),context:context.slice(0,65536)})});
+    let cwd=String(view.meta?.cwd||'').trim();
+    try{
+      const state=await jsonFetch('/api/sessions/'+encodeURIComponent(view.meta.id)+'/cwd');
+      if(state?.local===true&&String(state.cwd||'').trim())cwd=String(state.cwd).trim();
+      else if(String(view.meta?.target_type||'').toLowerCase()==='ssh'||view.meta?.target_profile_id)cwd='';
+    }catch(error){
+      console.debug('Live terminal CWD unavailable; using session CWD fallback',error);
+    }
+    const data=await jsonFetch('/api/files/selection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text.slice(0,65536),context:context.slice(0,65536),cwd})});
     if(view.closed||seq!==view.selectionSeq)return;
     setDownloadFiles(view,data.files||[]);
   }catch(e){
