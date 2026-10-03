@@ -26,6 +26,7 @@ type filePreviewResponse struct {
 	Size        int64  `json:"size"`
 	ContentType string `json:"content_type,omitempty"`
 	URL         string `json:"url,omitempty"`
+	Content     string `json:"content,omitempty"`
 }
 
 func detectPreviewImageType(sample []byte) string {
@@ -42,6 +43,15 @@ func detectPreviewImageType(sample []byte) string {
 		return "image/bmp"
 	default:
 		return ""
+	}
+}
+
+func isMarkdownPreviewPath(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".md", ".markdown", ".mdown", ".mkd", ".mkdn":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -68,6 +78,9 @@ func previewFileHint(resolved string) string {
 		return ""
 	}
 	if info.Size() <= filePreviewTextLimit && previewTextBytesValid(sample) {
+		if isMarkdownPreviewPath(resolved) {
+			return "markdown"
+		}
 		return "text"
 	}
 	return ""
@@ -142,9 +155,17 @@ func (s *Server) filePreviewInfo(requested string) (filePreviewResponse, string,
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return filePreviewResponse{}, "", fmt.Errorf("file unavailable")
 	}
+	kind := "text"
+	contentType := "text/plain; charset=utf-8"
+	content := ""
+	if isMarkdownPreviewPath(resolved) {
+		kind = "markdown"
+		contentType = "text/markdown; charset=utf-8"
+		content = string(data)
+	}
 	return filePreviewResponse{
-		Kind: "text", Path: resolved, ProjectPath: filepath.ToSlash(rel), Name: name, Size: info.Size(),
-		ContentType: "text/plain; charset=utf-8",
+		Kind: kind, Path: resolved, ProjectPath: filepath.ToSlash(rel), Name: name, Size: info.Size(),
+		ContentType: contentType, Content: content,
 	}, resolved, nil
 }
 

@@ -386,22 +386,24 @@ function attach(meta,activate){
   const downloadSelect=document.createElement('select');downloadSelect.className='download-select';downloadSelect.hidden=true;
   const download=document.createElement('button');download.className='download';download.textContent='Download';download.hidden=true;
   const preview=document.createElement('button');preview.className='preview';preview.textContent='View';preview.hidden=true;
+  const markdownPreview=document.createElement('button');markdownPreview.className='preview markdown-preview';markdownPreview.textContent='Preview';markdownPreview.hidden=true;
   const stop=document.createElement('button');stop.className='stop';stop.textContent='Stop';
   stop.hidden=!canControl;
   stop.onclick=async()=>{try{updateMeta(await jsonFetch('/api/sessions/'+meta.id+'/stop',{method:'POST'}));}catch(e){showError(e);}};
   const copy=document.createElement('button');copy.className='copy-console';copy.textContent='📋 Copy console';copy.title='Copy the entire console output';
   copy.onclick=()=>copyConsole(view).catch(showError);
-  head.append(cmd,downloadSelect,download,preview,stop,copy);
+  head.append(cmd,downloadSelect,download,preview,markdownPreview,stop,copy);
   const terminalHost=document.createElement('div');terminalHost.className='terminal';
   pane.append(head,terminalHost);panes.append(pane);
 
   const term=new TerminalCtor({convertEol:false,cursorBlink:canControl,disableStdin:!canControl,scrollback:10000,fontSize:13,theme:{background:'#050607'}});
   const fit=new FitAddonCtor();term.loadAddon(fit);term.open(terminalHost);fit.fit();
-  view={meta,canControl,tab,status,pane,term,fit,ws:null,ro:null,closed:false,tabReadOnly:false,reconnectTimer:null,selectionTimer:null,selectionSeq:0,selectionActive:false,resizePending:false,downloadFiles:[],downloadFilesKey:'',downloadSelect,download,preview,stop,copy,copyTimer:null};
+  view={meta,canControl,tab,status,pane,term,fit,ws:null,ro:null,closed:false,tabReadOnly:false,reconnectTimer:null,selectionTimer:null,selectionSeq:0,selectionActive:false,resizePending:false,downloadFiles:[],downloadFilesKey:'',downloadSelect,download,preview,markdownPreview,stop,copy,copyTimer:null};
   views.set(meta.id,view);
   downloadSelect.onchange=()=>updateFileActionButtons(view);
   download.onclick=()=>downloadSelectedFile(view);
   preview.onclick=()=>previewSelectedFile(view).catch(showError);
+  markdownPreview.onclick=()=>previewSelectedMarkdown(view).catch(showError);
   const applyResize=()=>{
     try{fit.fit();}catch{}
     clearTimeout(view.resizeTimer);
@@ -463,12 +465,15 @@ function updateFileActionButtons(view){
   if(!file){
     view.download.textContent='Download';view.download.title='';
     view.preview.hidden=true;view.preview.title='';
+    view.markdownPreview.hidden=true;view.markdownPreview.title='';
     return;
   }
   view.download.textContent=view.downloadFiles.length>1?'Download ('+view.downloadFiles.length+')':'Download';
   view.download.title=file.path?'Download '+file.path:'Download the selected file';
-  view.preview.hidden=!(file.preview_kind==='text'||file.preview_kind==='image');
+  view.preview.hidden=!((file.preview_kind==='text'||file.preview_kind==='image')||file.preview_kind==='markdown');
   view.preview.title=view.preview.hidden?'':'View '+(file.name||file.path);
+  view.markdownPreview.hidden=file.preview_kind!=='markdown';
+  view.markdownPreview.title=view.markdownPreview.hidden?'':'Preview rendered Markdown '+(file.name||file.path);
 }
 
 function downloadSelectedFile(view){
@@ -481,7 +486,7 @@ async function previewSelectedFile(view){
   const file=selectedDownloadFile(view);
   if(!file?.path)return;
   const info=await jsonFetch('/api/files/preview?path='+encodeURIComponent(file.path));
-  if(info.kind==='text'){
+  if(info.kind==='text'||info.kind==='markdown'){
     if(!info.project_path)throw new Error('Preview server did not return a project path');
     window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path:info.project_path,source:'terminal-preview'}}));
     return;
@@ -491,6 +496,14 @@ async function previewSelectedFile(view){
     return;
   }
   throw new Error('This file cannot be previewed');
+}
+
+async function previewSelectedMarkdown(view){
+  const file=selectedDownloadFile(view);
+  if(!file?.path||file.preview_kind!=='markdown')return;
+  const info=await jsonFetch('/api/files/preview?path='+encodeURIComponent(file.path));
+  if(info.kind!=='markdown')throw new Error('The selected file is no longer Markdown');
+  window.dispatchEvent(new CustomEvent('taskmenu:file-markdown-preview',{detail:info}));
 }
 
 function consoleText(view){
