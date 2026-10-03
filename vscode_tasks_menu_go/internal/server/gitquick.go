@@ -764,6 +764,14 @@ type gitActionRequest struct {
 	ExpectedTargetSHA string `json:"expected_target_sha,omitempty"`
 	AllowDirty        bool   `json:"allow_dirty,omitempty"`
 	AllowSlowFallback bool   `json:"allow_slow_fallback,omitempty"`
+	Repair            string `json:"repair,omitempty"`
+	OriginalAction    string `json:"original_action,omitempty"`
+	Remote            string `json:"remote,omitempty"`
+	RemoteURL         string `json:"remote_url,omitempty"`
+	Name              string `json:"name,omitempty"`
+	Email             string `json:"email,omitempty"`
+	NewBranch         string `json:"new_branch,omitempty"`
+	Confirmed         bool   `json:"confirmed,omitempty"`
 }
 
 func joinGitOutput(parts ...string) string {
@@ -910,6 +918,17 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 	args := []string{}
 	timeout := 20 * time.Second
 	switch action {
+	case "repair":
+		output, truncated, err := s.gitRepairAction(r.Context(), req)
+		if err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok": false, "action": action, "repair": req.Repair, "output": output,
+				"error": err.Error(), "failure_code": classifyGitFailure(action, output, err.Error()), "truncated": truncated,
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "action": action, "repair": req.Repair, "output": output, "truncated": truncated})
+		return
 	case "fetch":
 		args = []string{"fetch", "--prune"}
 	case "pull":
@@ -987,7 +1006,7 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 	case "merge_to":
 		output, truncated, err := s.gitMergeToAction(r.Context(), req)
 		if err != nil {
-			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "output": output, "error": err.Error(), "truncated": truncated})
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "output": output, "error": err.Error(), "failure_code": classifyGitFailure(action, output, err.Error()), "truncated": truncated})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "action": action, "output": output, "truncated": truncated})
@@ -1008,7 +1027,7 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 	stdout, stderr, truncated, err := s.runGit(r.Context(), timeout, args...)
 	output := strings.TrimSpace(strings.TrimSpace(stdout) + "\n" + strings.TrimSpace(stderr))
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "output": output, "error": err.Error(), "truncated": truncated})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "output": output, "error": err.Error(), "failure_code": classifyGitFailure(action, output, err.Error()), "truncated": truncated})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "action": action, "output": output, "truncated": truncated})
