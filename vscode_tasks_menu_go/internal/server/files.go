@@ -82,6 +82,7 @@ func (s *Server) downloadableFilesFromSelectionAt(text, context, cwd string) []d
 	text = normalizeDownloadDetectionText(text)
 	context = normalizeDownloadDetectionText(context)
 	cwd = strings.TrimSpace(cwd)
+	contextDirs := s.downloadSelectionContextDirs(context, cwd)
 
 	seen := make(map[string]struct{})
 	var paths []string
@@ -106,9 +107,19 @@ func (s *Server) downloadableFilesFromSelectionAt(text, context, cwd string) []d
 		if !looksLikePath(candidate) {
 			return false
 		}
-		// Shell-relative paths belong to the terminal/task working directory,
-		// not automatically to the workspace root. The final resolver still
-		// enforces the workspace boundary and rejects escaping symlinks.
+		// If the selected row belongs to an ls/ll command that listed another
+		// directory, that command directory is stronger evidence than the shell
+		// CWD. This avoids opening a same-named workspace-root file by accident.
+		if !filepath.IsAbs(candidate) {
+			for _, dir := range contextDirs {
+				if addResolved(filepath.Join(dir, candidate)) {
+					return true
+				}
+			}
+		}
+		// Otherwise shell-relative paths belong to the terminal/task working
+		// directory. The final resolver still enforces the workspace boundary
+		// and rejects escaping symlinks.
 		if cwd != "" && !filepath.IsAbs(candidate) {
 			if addResolved(filepath.Join(cwd, candidate)) {
 				return true
@@ -163,6 +174,172 @@ func (s *Server) downloadableFilesFromSelectionAt(text, context, cwd string) []d
 		})
 	}
 	return files
+}
+
+func (s *Server) downloadSelectionContextDirs(context, cwd string) []string {
+	if strings.TrimSpace(context) == "" || strings.TrimSpace(cwd) == "" {
+		return nil
+	}
+	lines := strings.Split(strings.ReplaceAll(context, "\r", ""), "\n")
+	command := ""
+	for i := len(lines) - 1; i >= 0; i-- {
+		if value, ok := shellPromptCommand(lines[i]); ok {
+			command = value
+			break
+		}
+	}
+	operand, ok := shellListDirectoryOperand(command)
+	if !ok || operand == "" {
+		return nil
+	}
+	if strings.ContainsAny(operand, "*?[") || strings.Contains(operand, "$") || strings.Contains(operand, "://") {
+		return nil
+	}
+	candidate := filepath.FromSlash(operand)
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(cwd, candidate)
+	}
+	candidate, err := filepath.Abs(candidate)
+	if err != nil {
+		return nil
+	}
+	candidate, err = filepath.EvalSymlinks(candidate)
+	if err != nil {
+		return nil
+	}
+	workspace, err := filepath.Abs(s.Workspace)
+	if err != nil {
+		return nil
+	}
+	workspace, err = filepath.EvalSymlinks(workspace)
+	if err != nil || !pathWithin(workspace, candidate) {
+		return nil
+	}
+	info, err := os.Stat(candidate)
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+	return []string{candidate}
+}
+
+func shellListDirectoryOperand(command string) (string, bool) {
+	words, ok := splitSimpleShellWords(command)
+	if !ok || len(words) == 0 {
+		return "", false
+	}
+	i := 0
+	for i < len(words) && shellAssignmentField(words[i]) {
+		i++
+	}
+	if i < len(words) && (words[i] == "command" || words[i] == "builtin") {
+		i++
+	}
+	if i < len(words) && words[i] == "sudo" {
+		i++
+		for i < len(words) && strings.HasPrefix(words[i], "-") {
+			i++
+		}
+	}
+	if i < len(words) && words[i] == "env" {
+		i++
+		for i < len(words) && (strings.HasPrefix(words[i], "-") || shellAssignmentField(words[i])) {
+			i++
+		}
+	}
+	if i >= len(words) {
+		return "", false
+	}
+	name := filepath.Base(words[i])
+	if name != "ls" && name != "ll" {
+		return "", false
+	}
+	i++
+	operands := make([]string, 0, 2)
+	options := true
+	for ; i < len(words); i++ {
+		word := words[i]
+		if options && word == "--" {
+			options = false
+			continue
+		}
+		if options && strings.HasPrefix(word, "-") && word != "-" {
+			continue
+		}
+		operands = append(operands, word)
+		if len(operands) > 1 {
+			return "", false
+		}
+	}
+	if len(operands) != 1 {
+		return "", false
+	}
+	return operands[0], true
+}
+
+func splitSimpleShellWords(command string) ([]string, bool) {
+	var words []string
+	var current strings.Builder
+	var quote byte
+	escaped := false
+	have := false
+	flush := func() {
+		if have {
+			words = append(words, current.String())
+			current.Reset()
+			have = false
+		}
+	}
+	for i := 0; i < len(command); i++ {
+		ch := command[i]
+		if escaped {
+			current.WriteByte(ch)
+			have = true
+			escaped = false
+			continue
+		}
+		if quote == '\'' {
+			if ch == '\'' {
+				quote = 0
+			} else {
+				current.WriteByte(ch)
+				have = true
+			}
+			continue
+		}
+		if quote == '"' {
+			if ch == '"' {
+				quote = 0
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			current.WriteByte(ch)
+			have = true
+			continue
+		}
+		switch ch {
+		case '\\':
+			escaped = true
+			have = true
+		case '\'', '"':
+			quote = ch
+			have = true
+		case ' ', '\t':
+			flush()
+		case ';', '|', '&', '<', '>':
+			return nil, false
+		default:
+			current.WriteByte(ch)
+			have = true
+		}
+	}
+	if escaped || quote != 0 {
+		return nil, false
+	}
+	flush()
+	return words, true
 }
 
 func normalizeDownloadDetectionText(text string) string {

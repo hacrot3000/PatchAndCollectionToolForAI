@@ -564,19 +564,45 @@ function logicalBufferLine(buffer,row){
   return text;
 }
 
+function shellPromptContextLine(line){
+  const markers=['$ ','# ','% ','> ','❯ ','➜ '];
+  let best=-1,bestLen=0;
+  for(const marker of markers){
+    const index=String(line||'').lastIndexOf(marker);
+    if(index>best){best=index;bestLen=marker.length;}
+  }
+  return best>=0&&String(line).slice(best+bestLen).trim().length>0;
+}
+
 function selectionLineContext(view){
   const position=view.term.getSelectionPosition?.();
   const buffer=view.term.buffer?.active;
   if(!position||!buffer||!buffer.length)return '';
   const first=Math.max(0,Math.min(position.start.y,position.end.y));
   const last=Math.min(buffer.length-1,Math.max(position.start.y,position.end.y));
-  const seen=new Set(),lines=[];
-  for(let row=first;row<=last&&lines.length<64;row++){
+  const seen=new Set(),selected=[];
+  for(let row=first;row<=last&&selected.length<64;row++){
     const line=logicalBufferLine(buffer,row);
     if(!line||seen.has(line))continue;
-    seen.add(line);lines.push(line);
+    seen.add(line);selected.push(line);
   }
-  return lines.join('\n').slice(0,65536);
+
+  // Preserve the command that produced the selected output. Walking backward
+  // to the nearest prompt lets the server distinguish "ll child/" output from
+  // a later "ll" in the current directory without parsing the prompt path.
+  const before=[];
+  let budget=48*1024;
+  for(let row=first-1;row>=0&&before.length<256&&budget>0;row--){
+    const line=logicalBufferLine(buffer,row);
+    if(!line||seen.has(line))continue;
+    seen.add(line);
+    const clipped=line.length>4096?line.slice(0,4096):line;
+    before.push(clipped);budget-=clipped.length+1;
+    if(shellPromptContextLine(clipped))break;
+  }
+  before.reverse();
+  const context=before.concat(selected).join('\n');
+  return context.length<=65536?context:context.slice(context.length-65536);
 }
 
 function scheduleSelectionScan(view){

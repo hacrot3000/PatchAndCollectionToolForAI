@@ -17,3 +17,17 @@ func TestSelectedFileDetectionSendsLiveWorkingDirectory(t *testing.T) {
 		}
 	}
 }
+
+func TestSelectedFileDetectionCarriesNearestShellCommandContext(t *testing.T) {
+	for _, want := range []string{
+		"function shellPromptContextLine(line)",
+		"for(let row=first-1;row>=0&&before.length<256&&budget>0;row--)",
+		"if(shellPromptContextLine(clipped))break",
+		"before.reverse()",
+		"const context=before.concat(selected).join('\\n')",
+	} {
+		if !strings.Contains(appJS, want) {
+			t.Fatalf("appJS missing command-output context behavior %q", want)
+		}
+	}
+}
