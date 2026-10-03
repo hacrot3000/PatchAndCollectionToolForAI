@@ -25,6 +25,7 @@ func TestClassifyGitFailureCommonCases(t *testing.T) {
 		{"conflict", "merge", "error: you have unmerged files. fix conflicts and then commit", "conflicts"},
 		{"identity", "commit", "Author identity unknown\nPlease tell me who you are.", "identity_missing"},
 		{"gpg", "commit", "error: gpg failed to sign the data", "gpg_signing"},
+		{"remote missing", "push", "fatal: No configured push destination.", "remote_missing"},
 		{"ssh auth", "pull", "git@github.com: Permission denied (publickey).", "ssh_auth"},
 		{"host key", "fetch", "Host key verification failed.", "ssh_host_key"},
 		{"https auth", "fetch", "fatal: could not read Username for 'https://github.com': terminal prompts disabled", "https_auth"},
@@ -33,9 +34,14 @@ func TestClassifyGitFailureCommonCases(t *testing.T) {
 		{"connect", "fetch", "Failed to connect to github.com port 443: Connection timed out", "network_connect"},
 		{"tls", "fetch", "SSL certificate problem: unable to get local issuer certificate", "tls"},
 		{"transport", "fetch", "RPC failed; HTTP/2 stream 5 was not closed cleanly", "transport"},
+		{"rate limit", "fetch", "remote: HTTP 429 rate limit exceeded", "rate_limited"},
 		{"index lock", "commit", "fatal: Unable to create '.git/index.lock': File exists.", "index_lock"},
 		{"dubious", "status", "fatal: detected dubious ownership in repository at '/tmp/repo'", "dubious_ownership"},
 		{"protected", "push", "remote: error: GH013: Repository rule violations found\nremote: protected branch", "protected_branch"},
+
+		{"branch missing", "switch", "local branch not found", "branch_missing"},
+		{"ref lock", "push", "cannot lock ref 'refs/heads/main': is at abc but expected def", "ref_lock"},
+		{"nothing to commit", "commit", "nothing to commit, working tree clean", "nothing_to_commit"},
 		{"detached", "push", "fatal: You are not currently on a branch.", "detached_head"},
 		{"unrelated", "pull", "fatal: refusing to merge unrelated histories", "unrelated_histories"},
 		{"large", "push", "remote: error: GH001: Large files detected.", "file_too_large"},
@@ -160,5 +166,20 @@ func TestGitRecoveryRejectsUnknownRepairAndReportsFailureCode(t *testing.T) {
 	}
 	if response["failure_code"] == nil {
 		t.Fatalf("missing failure_code: %v", response)
+	}
+}
+
+func TestGitRecoveryAddRemote(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	gitQuickRun(t, filepath.Dir(remote), "init", "--bare", remote)
+
+	body := `{"action":"repair","repair":"add_remote","remote":"origin","remote_url":"` + remote + `"}`
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("add remote status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := gitQuickRun(t, workspace, "remote", "get-url", "origin"); got != remote {
+		t.Fatalf("origin url=%q want=%q", got, remote)
 	}
 }

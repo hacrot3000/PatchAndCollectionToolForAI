@@ -22,21 +22,25 @@ func classifyGitFailure(action, output, errorText string) string {
 		return "identity_missing"
 	case strings.Contains(text, "gpg failed to sign") || strings.Contains(text, "failed to sign the data") || strings.Contains(text, "signing failed"):
 		return "gpg_signing"
+	case strings.Contains(text, "no configured push destination") || strings.Contains(text, "does not appear to be a git repository") || strings.Contains(text, "no such remote") || strings.Contains(text, "repository has no configured git remote"):
+		return "remote_missing"
 	case strings.Contains(text, "permission denied (publickey") || strings.Contains(text, "could not read from remote repository") && strings.Contains(text, "permission denied"):
 		return "ssh_auth"
 	case strings.Contains(text, "host key verification failed") || strings.Contains(text, "remote host identification has changed"):
 		return "ssh_host_key"
-	case strings.Contains(text, "authentication failed") || strings.Contains(text, "could not read username") || strings.Contains(text, "could not read password") || strings.Contains(text, "http basic: access denied"):
+	case strings.Contains(text, "authentication failed") || strings.Contains(text, "could not read username") || strings.Contains(text, "could not read password") || strings.Contains(text, "http basic: access denied") || strings.Contains(text, "password authentication was removed"):
 		return "https_auth"
-	case strings.Contains(text, "repository not found") || strings.Contains(text, "the requested url returned error: 403") || strings.Contains(text, "permission to") && strings.Contains(text, "denied"):
+	case strings.Contains(text, "repository not found") || strings.Contains(text, "the requested url returned error: 403") || strings.Contains(text, "permission to") && strings.Contains(text, "denied") || strings.Contains(text, "write access to repository not granted"):
 		return "remote_permission"
-	case strings.Contains(text, "could not resolve host") || strings.Contains(text, "temporary failure in name resolution") || strings.Contains(text, "name or service not known"):
+	case strings.Contains(text, "could not resolve host") || strings.Contains(text, "could not resolve hostname") || strings.Contains(text, "could not resolve proxy") || strings.Contains(text, "temporary failure in name resolution") || strings.Contains(text, "name or service not known"):
 		return "network_dns"
-	case strings.Contains(text, "failed to connect") || strings.Contains(text, "connection timed out") || strings.Contains(text, "connection refused") || strings.Contains(text, "network is unreachable"):
+	case strings.Contains(text, "failed to connect") || strings.Contains(text, "connection timed out") || strings.Contains(text, "operation timed out") || strings.Contains(text, "connection refused") || strings.Contains(text, "network is unreachable"):
 		return "network_connect"
-	case strings.Contains(text, "ssl certificate problem") || strings.Contains(text, "certificate verify failed") || strings.Contains(text, "tls"):
+	case strings.Contains(text, "ssl certificate problem") || strings.Contains(text, "certificate verify failed") || strings.Contains(text, "server certificate verification failed") || strings.Contains(text, "tls"):
 		return "tls"
-	case strings.Contains(text, "rpc failed") || strings.Contains(text, "http/2 stream") || strings.Contains(text, "early eof") || strings.Contains(text, "remote end hung up unexpectedly"):
+	case strings.Contains(text, "429") && strings.Contains(text, "rate") || strings.Contains(text, "rate limit exceeded"):
+		return "rate_limited"
+	case strings.Contains(text, "rpc failed") || strings.Contains(text, "http/2 stream") || strings.Contains(text, "early eof") || strings.Contains(text, "remote end hung up unexpectedly") || strings.Contains(text, "requested url returned error: 502") || strings.Contains(text, "requested url returned error: 503"):
 		return "transport"
 	case strings.Contains(text, "has no upstream branch"):
 		return "no_upstream_push"
@@ -46,16 +50,16 @@ func classifyGitFailure(action, output, errorText string) string {
 		return "push_non_fast_forward"
 	case strings.Contains(text, "not possible to fast-forward") || strings.Contains(text, "divergent branches") || strings.Contains(text, "need to specify how to reconcile"):
 		return "pull_diverged"
-	case strings.Contains(text, "would be overwritten by merge") || strings.Contains(text, "would be overwritten by checkout") || strings.Contains(text, "please commit your changes or stash them"):
+	case strings.Contains(text, "would be overwritten by merge") || strings.Contains(text, "would be overwritten by checkout") || strings.Contains(text, "please commit your changes or stash them") || strings.Contains(text, "cannot pull with rebase") || strings.Contains(text, "you have unstaged changes") || strings.Contains(text, "index contains uncommitted changes"):
 		return "dirty_worktree"
-	case strings.Contains(text, "you have unmerged files") || strings.Contains(text, "needs merge") || strings.Contains(text, "fix conflicts and then commit") || strings.Contains(text, "resolve all conflicts manually"):
-		return "conflicts"
 	case strings.Contains(text, "merge_head exists") || strings.Contains(text, "you have not concluded your merge"):
 		return "merge_in_progress"
-	case strings.Contains(text, "rebase in progress") || strings.Contains(text, "rebase-merge") || strings.Contains(text, "rebase-apply"):
+	case strings.Contains(text, "rebase in progress") || strings.Contains(text, "rebase-merge") || strings.Contains(text, "rebase-apply") || strings.Contains(text, "already a rebase-merge directory"):
 		return "rebase_in_progress"
 	case strings.Contains(text, "cherry-pick is currently in progress") || strings.Contains(text, "cherry_pick_head"):
 		return "cherry_pick_in_progress"
+	case strings.Contains(text, "you have unmerged files") || strings.Contains(text, "needs merge") || strings.Contains(text, "fix conflicts and then commit") || strings.Contains(text, "resolve all conflicts manually") || strings.Contains(text, "unresolved conflict"):
+		return "conflicts"
 	case strings.Contains(text, "protected branch") || strings.Contains(text, "protected branch hook declined") || strings.Contains(text, "gh013") || strings.Contains(text, "pre-receive hook declined"):
 		return "protected_branch"
 	case strings.Contains(text, "src refspec") && strings.Contains(text, "does not match any"):
@@ -64,6 +68,12 @@ func classifyGitFailure(action, output, errorText string) string {
 		return "remote_ref_missing"
 	case strings.Contains(text, "already exists") && strings.Contains(text, "branch"):
 		return "branch_exists"
+	case strings.Contains(text, "local branch not found") || strings.Contains(text, "no such branch") || strings.Contains(text, "invalid reference") || strings.Contains(text, "unknown revision"):
+		return "branch_missing"
+	case strings.Contains(text, "cannot lock ref") || strings.Contains(text, "is at") && strings.Contains(text, "but expected"):
+		return "ref_lock"
+	case strings.Contains(text, "nothing to commit") || strings.Contains(text, "no changes added to commit"):
+		return "nothing_to_commit"
 	case strings.Contains(text, "you are not currently on a branch") || strings.Contains(text, "detached head"):
 		return "detached_head"
 	case strings.Contains(text, "refusing to merge unrelated histories"):
@@ -333,6 +343,25 @@ func (s *Server) gitRepairAction(ctx context.Context, req gitActionRequest) (str
 			return run(60*time.Second, "push", "--set-upstream", remote, "HEAD:refs/heads/"+branch)
 		}
 		return run(60*time.Second, "push", remote, "HEAD:refs/heads/"+branch)
+	case "add_remote":
+		remote := strings.TrimSpace(req.Remote)
+		if remote == "" {
+			remote = "origin"
+		}
+		if len(remote) > 200 || strings.HasPrefix(remote, "-") || strings.ContainsAny(remote, " \t\r\n\x00") {
+			return "", false, fmt.Errorf("invalid Git remote name")
+		}
+		if stringInList(s.gitRemoteNames(ctx), remote) {
+			return "", false, fmt.Errorf("Git remote %q already exists; use Change remote URL instead", remote)
+		}
+		if _, _, _, err := s.runGit(ctx, 5*time.Second, "check-ref-format", "refs/remotes/"+remote+"/placeholder"); err != nil {
+			return "", false, fmt.Errorf("invalid Git remote name %q", remote)
+		}
+		value := strings.TrimSpace(req.RemoteURL)
+		if value == "" || len(value) > 4096 || strings.ContainsAny(value, "\r\n\x00") {
+			return "", false, fmt.Errorf("valid remote URL is required")
+		}
+		return run(10*time.Second, "remote", "add", remote, value)
 	case "set_remote_url":
 		remote, err := s.gitPreferredRemote(ctx, req.Remote)
 		if err != nil {

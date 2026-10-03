@@ -63,27 +63,32 @@ function classifyLocal(ctx){
   if(/another git process seems to be running|index\.lock|unable to create .*\.git\/.*\.lock/.test(text))return 'index_lock';
   if(/author identity unknown|please tell me who you are|unable to auto-detect email address/.test(text))return 'identity_missing';
   if(/gpg failed to sign|failed to sign the data|signing failed/.test(text))return 'gpg_signing';
+  if(/no configured push destination|does not appear to be a git repository|no such remote|repository has no configured git remote/.test(text))return 'remote_missing';
   if(/permission denied \(publickey|could not read from remote repository[\s\S]*permission denied/.test(text))return 'ssh_auth';
   if(/host key verification failed|remote host identification has changed/.test(text))return 'ssh_host_key';
-  if(/authentication failed|could not read username|could not read password|http basic: access denied/.test(text))return 'https_auth';
-  if(/repository not found|requested url returned error: 403|permission to .* denied/.test(text))return 'remote_permission';
-  if(/could not resolve host|temporary failure in name resolution|name or service not known/.test(text))return 'network_dns';
-  if(/failed to connect|connection timed out|connection refused|network is unreachable/.test(text))return 'network_connect';
-  if(/ssl certificate problem|certificate verify failed|\btls\b/.test(text))return 'tls';
-  if(/rpc failed|http\/2 stream|early eof|remote end hung up unexpectedly/.test(text))return 'transport';
+  if(/authentication failed|could not read username|could not read password|http basic: access denied|password authentication was removed/.test(text))return 'https_auth';
+  if(/repository not found|requested url returned error: 403|permission to .* denied|write access to repository not granted/.test(text))return 'remote_permission';
+  if(/could not resolve host|could not resolve hostname|could not resolve proxy|temporary failure in name resolution|name or service not known/.test(text))return 'network_dns';
+  if(/failed to connect|connection timed out|operation timed out|connection refused|network is unreachable/.test(text))return 'network_connect';
+  if(/ssl certificate problem|certificate verify failed|server certificate verification failed|\btls\b/.test(text))return 'tls';
+  if(/429/.test(text)&&/rate/.test(text)||/rate limit exceeded/.test(text))return 'rate_limited';
+  if(/rpc failed|http\/2 stream|early eof|remote end hung up unexpectedly|requested url returned error: 502|requested url returned error: 503/.test(text))return 'transport';
   if(/has no upstream branch/.test(text))return 'no_upstream_push';
   if(/there is no tracking information for the current branch|no upstream configured/.test(text))return 'no_upstream_pull';
   if(/non-fast-forward|fetch first|updates were rejected because the remote contains work/.test(text))return 'push_non_fast_forward';
   if(/not possible to fast-forward|divergent branches|need to specify how to reconcile/.test(text))return 'pull_diverged';
-  if(/would be overwritten by merge|would be overwritten by checkout|please commit your changes or stash them/.test(text))return 'dirty_worktree';
-  if(/you have unmerged files|needs merge|fix conflicts and then commit|resolve all conflicts manually/.test(text))return 'conflicts';
+  if(/would be overwritten by merge|would be overwritten by checkout|please commit your changes or stash them|cannot pull with rebase|you have unstaged changes|index contains uncommitted changes/.test(text))return 'dirty_worktree';
   if(/merge_head exists|you have not concluded your merge/.test(text))return 'merge_in_progress';
-  if(/rebase in progress|rebase-merge|rebase-apply/.test(text))return 'rebase_in_progress';
+  if(/rebase in progress|rebase-merge|rebase-apply|already a rebase-merge directory/.test(text))return 'rebase_in_progress';
   if(/cherry-pick is currently in progress|cherry_pick_head/.test(text))return 'cherry_pick_in_progress';
+  if(/you have unmerged files|needs merge|fix conflicts and then commit|resolve all conflicts manually|unresolved conflict/.test(text))return 'conflicts';
   if(/protected branch|protected branch hook declined|gh013|pre-receive hook declined/.test(text))return 'protected_branch';
   if(/src refspec .* does not match any/.test(text))return 'refspec_missing';
   if(/couldn't find remote ref|remote ref does not exist/.test(text))return 'remote_ref_missing';
   if(/already exists/.test(text)&&/branch/.test(text))return 'branch_exists';
+  if(/local branch not found|no such branch|invalid reference|unknown revision/.test(text))return 'branch_missing';
+  if(/cannot lock ref/.test(text)||/is at .* but expected/.test(text))return 'ref_lock';
+  if(/nothing to commit|no changes added to commit/.test(text))return 'nothing_to_commit';
   if(/you are not currently on a branch|detached head/.test(text))return 'detached_head';
   if(/refusing to merge unrelated histories/.test(text))return 'unrelated_histories';
   if(/exceeds github's file size limit|gh001|large files detected/.test(text))return 'file_too_large';
@@ -115,6 +120,9 @@ function branchInput(ctx,label='New branch'){
 function remoteURLInputs(){
   return [remoteInput(),input('remote_url','New remote URL','git@github.com:owner/repository.git','',true)];
 }
+function addRemoteInputs(){
+  return [input('remote','Remote name','origin','origin',true),input('remote_url','Remote URL','git@github.com:owner/repository.git','',true)];
+}
 function withValues(base,values){return {...base,...values};}
 
 function issueFor(ctx){
@@ -126,6 +134,12 @@ function issueFor(ctx){
   const fetch=option('Fetch remote refs','Run git fetch --prune to refresh remote state.',values=>repair(ctx,'fetch',values),{inputs:[remoteInput()]});
 
   switch(code){
+    case 'remote_missing':
+      return {code,title:'No usable Git remote is configured',summary:'The repository has no push destination, the selected remote is missing, or its URL no longer points to a Git repository.',options:[
+        option('Add remote','Create a new Git remote, usually origin.',values=>repair(ctx,'add_remote',values),{inputs:addRemoteInputs(),risk:'This changes repository remote configuration.'}),
+        option('Change existing remote URL','Update an existing remote URL.',values=>repair(ctx,'set_remote_url',values),{inputs:remoteURLInputs(),risk:'This changes repository remote configuration.'}),
+        statusOpt
+      ]};
     case 'no_upstream_push':
       return {code,title:'Current branch has no upstream',summary:'Git cannot decide where to push this branch. You can publish it and set the upstream automatically.',options:[
         option('Publish branch + set upstream','Push the current branch to the selected/default remote with --set-upstream.',values=>repair(ctx,'push_set_upstream',values),{inputs:[remoteInput()]}),
@@ -191,6 +205,8 @@ function issueFor(ctx){
       return {code,title:'Network connection to Git remote failed',summary:'The repository was not changed by the failed network operation. Retry after connectivity is restored or test the remote directly.',options:[retryOpt,remoteCheck,fetch]};
     case 'tls':
       return {code,title:'TLS certificate validation failed',summary:'TaskDeck will not disable SSL verification automatically. Correct the certificate/CA or remote URL, then retry.',options:[remoteCheck,setRemote,retryOpt]};
+    case 'rate_limited':
+      return {code,title:'Remote service rate limit reached',summary:'The remote temporarily rejected requests because a request quota or abuse limit was reached. Retrying immediately may fail again.',options:[remoteCheck,retryOpt]};
     case 'transport':
       return {code,title:'Git transport/RPC failure',summary:'Transient HTTP/2 or connection interruptions can often be retried using HTTP/1.1 for this invocation only.',options:[
         option('Retry using HTTP/1.1','Retry fetch/pull/push with -c http.version=HTTP/1.1 without changing Git config.',()=>repair(ctx,'retry_http1')),
@@ -201,6 +217,16 @@ function issueFor(ctx){
         option('Push HEAD to a new branch','Create/update a new remote branch from the current HEAD.',values=>repair(ctx,'push_new_branch',values),{inputs:[remoteInput(),branchInput(ctx,'Remote branch name')]}),
         remoteCheck,statusOpt
       ]};
+    case 'branch_missing':
+      return {code,title:'Requested branch or revision was not found',summary:'Refresh remote refs, switch/create a valid local branch, or verify the requested branch name.',options:[
+        fetch,
+        option('Create branch at current HEAD','Create and switch to a new local branch.',values=>repair(ctx,'create_branch_from_head',values),{inputs:[branchInput(ctx)]}),
+        statusOpt
+      ]};
+    case 'ref_lock':
+      return {code,title:'A Git ref changed while the operation was running',summary:'Another process or a newer remote update changed the expected ref. Refresh state before retrying.',options:[fetch,statusOpt,retryOpt]};
+    case 'nothing_to_commit':
+      return {code,title:'There is nothing to commit',summary:'Git did not create a commit because the index contains no staged changes.',options:[statusOpt]};
     case 'detached_head':
       return {code,title:'HEAD is detached',summary:'Create a local branch at the current commit before normal pull/push workflows.',options:[
         option('Create local branch here','Run git switch -c <new branch> at the current HEAD.',values=>repair(ctx,'create_branch_from_head',values),{inputs:[branchInput(ctx)]}),
@@ -282,6 +308,17 @@ function detailsText(ctx,issue){
   ].join('\n');
 }
 
+async function copyText(value){
+  value=String(value??'');
+  if(navigator.clipboard&&window.isSecureContext){
+    try{await navigator.clipboard.writeText(value);return true;}catch{}
+  }
+  const area=document.createElement('textarea');area.value=value;area.setAttribute('readonly','');area.style.position='fixed';area.style.left='-9999px';document.body.append(area);area.select();
+  let copied=false;try{copied=document.execCommand('copy');}finally{area.remove();}
+  if(!copied)throw new Error('Cannot copy Git recovery details');
+  return true;
+}
+
 async function runOption(ctx,issue,spec,card,values){
   const button=card.querySelector('button[data-run]');
   if(button){button.disabled=true;button.classList.add('running');button.textContent='Running…';}
@@ -346,7 +383,7 @@ function open(ctx){
   optionsHost.replaceChildren();
   for(const spec of issue.options)optionsHost.append(renderOption(ctx,issue,spec));
   result.classList.remove('visible');result.textContent='';
-  copy.onclick=()=>app.copyText?app.copyText(detailsText(ctx,issue)):navigator.clipboard.writeText(detailsText(ctx,issue));
+  copy.onclick=async()=>{try{await copyText(detailsText(ctx,issue));const old=copy.textContent;copy.textContent='✓ Copied';setTimeout(()=>{if(copy.isConnected)copy.textContent=old;},1000);}catch(error){app.showError(error);}};
   retry.hidden=!ctx.retry;
   retry.onclick=async()=>{
     try{result.classList.add('visible');result.textContent='Retrying original command…';const response=await ctx.retry();result.textContent=response?.output||'Retry succeeded.';if(ctx.refresh)await ctx.refresh();setTimeout(closeWizard,700);}

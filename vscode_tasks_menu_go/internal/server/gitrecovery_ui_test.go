@@ -38,7 +38,13 @@ func TestGitRecoveryWizardModule(t *testing.T) {
 		"dubious_ownership",
 		"repository_corrupt",
 		"file_too_large",
+		"remote_missing",
+		"branch_missing",
+		"ref_lock",
+		"nothing_to_commit",
+		"rate_limited",
 		"filesystem_permission",
+		"add_remote",
 		"push_set_upstream",
 		"set_upstream",
 		"pull_rebase",
@@ -56,6 +62,7 @@ func TestGitRecoveryWizardModule(t *testing.T) {
 		"Copy details",
 		"Retry original",
 		"window.confirm",
+		"function copyText(value)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("gitrecovery.js missing recovery behavior %q", want)
