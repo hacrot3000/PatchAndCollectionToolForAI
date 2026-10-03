@@ -96,7 +96,7 @@ func TestGitConflictMarkEditedFileResolved(t *testing.T) {
 }
 
 func TestGitMergeActionReturnsConflictDetails(t *testing.T) {
-	_, s, mainBranch, feature := setupMergeConflictRepo(t)
+	_, s, mainBranch, _ := setupMergeConflictRepo(t)
 	body := `{"action":"merge","branch":"feature/conflict","source":"local","expected_current":"`+mainBranch+`"}`
 	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
 	if rr.Code != http.StatusOK { t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String()) }
@@ -199,7 +199,7 @@ func TestNestedRepositoryConflictProjectPath(t *testing.T) {
 	gitQuickRun(t, nested, "commit", "-am", "main")
 	startMergeConflict(t, nested, "other")
 
-	ctx := withGitRepository(context.Background(), "projects/client")
+	ctx := withGitRepository(context.Background(), gitRepository{ID:"projects/client", Name:"client", Path:"projects/client", Root:nested})
 	state, err := (&Server{Workspace: root}).gitConflictState(ctx)
 	if err != nil { t.Fatal(err) }
 	if len(state.Files) != 1 || state.Files[0].ProjectPath != "projects/client/a.txt" {
