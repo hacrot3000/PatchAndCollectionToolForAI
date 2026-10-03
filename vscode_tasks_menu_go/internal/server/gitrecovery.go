@@ -32,6 +32,8 @@ func classifyGitFailure(action, output, errorText string) string {
 		return "https_auth"
 	case strings.Contains(text, "repository not found") || strings.Contains(text, "the requested url returned error: 403") || strings.Contains(text, "permission to") && strings.Contains(text, "denied") || strings.Contains(text, "write access to repository not granted"):
 		return "remote_permission"
+	case strings.Contains(text, "git operation timed out"):
+		return "timeout"
 	case strings.Contains(text, "could not resolve host") || strings.Contains(text, "could not resolve hostname") || strings.Contains(text, "could not resolve proxy") || strings.Contains(text, "temporary failure in name resolution") || strings.Contains(text, "name or service not known"):
 		return "network_dns"
 	case strings.Contains(text, "failed to connect") || strings.Contains(text, "connection timed out") || strings.Contains(text, "operation timed out") || strings.Contains(text, "connection refused") || strings.Contains(text, "network is unreachable"):
@@ -90,8 +92,6 @@ func classifyGitFailure(action, output, errorText string) string {
 		return "hook_failed"
 	case strings.Contains(text, "not a git repository"):
 		return "not_git_repository"
-	case strings.Contains(text, "git operation timed out"):
-		return "timeout"
 	case strings.Contains(text, "permission denied") || strings.Contains(text, "operation not permitted"):
 		return "filesystem_permission"
 	}

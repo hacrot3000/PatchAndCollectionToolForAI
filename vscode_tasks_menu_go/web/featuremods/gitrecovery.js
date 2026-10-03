@@ -68,6 +68,7 @@ function classifyLocal(ctx){
   if(/host key verification failed|remote host identification has changed/.test(text))return 'ssh_host_key';
   if(/authentication failed|could not read username|could not read password|http basic: access denied|password authentication was removed/.test(text))return 'https_auth';
   if(/repository not found|requested url returned error: 403|permission to .* denied|write access to repository not granted/.test(text))return 'remote_permission';
+  if(/git operation timed out/.test(text))return 'timeout';
   if(/could not resolve host|could not resolve hostname|could not resolve proxy|temporary failure in name resolution|name or service not known/.test(text))return 'network_dns';
   if(/failed to connect|connection timed out|operation timed out|connection refused|network is unreachable/.test(text))return 'network_connect';
   if(/ssl certificate problem|certificate verify failed|server certificate verification failed|\btls\b/.test(text))return 'tls';
@@ -97,7 +98,6 @@ function classifyLocal(ctx){
   if(/bad object|object file .* is empty|corrupt loose object|invalid object/.test(text))return 'repository_corrupt';
   if(/hook/.test(text)&&/failed|declined|exit code/.test(text))return 'hook_failed';
   if(/not a git repository/.test(text))return 'not_git_repository';
-  if(/git operation timed out/.test(text))return 'timeout';
   if(/permission denied|operation not permitted/.test(text))return 'filesystem_permission';
   return 'generic';
 }
