@@ -60,7 +60,9 @@ func classifyGitFailure(action, output, errorText string) string {
 		return "rebase_in_progress"
 	case strings.Contains(text, "cherry-pick is currently in progress") || strings.Contains(text, "cherry_pick_head"):
 		return "cherry_pick_in_progress"
-	case strings.Contains(text, "you have unmerged files") || strings.Contains(text, "needs merge") || strings.Contains(text, "fix conflicts and then commit") || strings.Contains(text, "resolve all conflicts manually") || strings.Contains(text, "unresolved conflict"):
+	case action == "merge_to" && (strings.Contains(text, "conflict") || strings.Contains(text, "automatic merge failed")):
+		return "merge_to_conflicts"
+	case strings.Contains(text, "you have unmerged files") || strings.Contains(text, "needs merge") || strings.Contains(text, "fix conflicts and then commit") || strings.Contains(text, "resolve all conflicts manually") || strings.Contains(text, "unresolved conflict") || strings.Contains(text, "automatic merge failed"):
 		return "conflicts"
 	case strings.Contains(text, "exceeds github's file size limit") || strings.Contains(text, "gh001") || strings.Contains(text, "large files detected") || strings.Contains(text, "oversized file") || strings.Contains(text, "oversized blob"):
 		return "file_too_large"
@@ -173,7 +175,7 @@ func (s *Server) gitOperationState(ctx context.Context) (string, error) {
 
 func gitRecoveryNeedsConfirmation(repair string) bool {
 	switch repair {
-	case "push_force_with_lease", "trust_repository", "remove_stale_index_lock", "pull_allow_unrelated", "commit_no_verify", "push_no_verify", "large_file_remove_latest", "large_file_prepare_recommit":
+	case "push_force_with_lease", "trust_repository", "remove_stale_index_lock", "pull_allow_unrelated", "commit_no_verify", "push_no_verify", "large_file_remove_latest", "large_file_prepare_recommit", "conflict_resolve_all", "merge_to_prepare_resolution":
 		return true
 	default:
 		return false
@@ -263,6 +265,14 @@ func (s *Server) gitRepairAction(ctx context.Context, req gitActionRequest) (str
 		return s.gitLargeFileRemoveFromLatest(ctx, req.LargePath, gitHubPushBlobLimit)
 	case "large_file_prepare_recommit":
 		return s.gitLargeFilePrepareRecommit(ctx, req.LargePath, gitHubPushBlobLimit)
+	case "conflict_take_side":
+		return s.gitResolveConflictSide(ctx, req.Path, req.ConflictSide)
+	case "conflict_mark_resolved":
+		return s.gitMarkConflictResolved(ctx, req.Path)
+	case "conflict_resolve_all":
+		return s.gitResolveAllConflictsSide(ctx, req.ConflictSide)
+	case "merge_to_prepare_resolution":
+		return s.gitMergeToPrepareResolution(ctx, req)
 	case "abort_in_progress":
 		state, err := s.gitOperationState(ctx)
 		if err != nil {
@@ -287,13 +297,13 @@ func (s *Server) gitRepairAction(ctx context.Context, req gitActionRequest) (str
 		}
 		switch state {
 		case "merge":
-			return run(30*time.Second, "-c", "core.editor=true", "merge", "--continue")
+			return run(gitMergeTimeout, "-c", "core.editor=true", "merge", "--continue")
 		case "rebase":
-			return run(30*time.Second, "-c", "core.editor=true", "rebase", "--continue")
+			return run(gitMergeTimeout, "-c", "core.editor=true", "rebase", "--continue")
 		case "cherry-pick":
-			return run(30*time.Second, "-c", "core.editor=true", "cherry-pick", "--continue")
+			return run(gitMergeTimeout, "-c", "core.editor=true", "cherry-pick", "--continue")
 		case "revert":
-			return run(30*time.Second, "-c", "core.editor=true", "revert", "--continue")
+			return run(gitMergeTimeout, "-c", "core.editor=true", "revert", "--continue")
 		default:
 			return "", false, fmt.Errorf("no merge, rebase, cherry-pick, or revert operation is in progress")
 		}

@@ -773,6 +773,7 @@ type gitActionRequest struct {
 	NewBranch         string `json:"new_branch,omitempty"`
 	IgnoreID          string `json:"ignore_id,omitempty"`
 	LargePath         string `json:"large_path,omitempty"`
+	ConflictSide      string `json:"conflict_side,omitempty"`
 	Confirmed         bool   `json:"confirmed,omitempty"`
 }
 
@@ -798,7 +799,7 @@ func (s *Server) gitMergeToResult(ctx context.Context, data gitMergeToPreflightR
 	}
 
 	if data.MergeEngine == "merge-tree" {
-		stdout, stderr, truncated, err := s.runGit(ctx, 30*time.Second, "merge-tree", "--write-tree", data.TargetSHA, data.CurrentSHA)
+		stdout, stderr, truncated, err := s.runGit(ctx, gitMergeTimeout, "merge-tree", "--write-tree", data.TargetSHA, data.CurrentSHA)
 		if err != nil {
 			return "", joinGitOutput(stdout, stderr), truncated, fmt.Errorf("Merge To has conflicts or could not compute a merge tree: %w", err)
 		}
@@ -843,7 +844,7 @@ func (s *Server) gitMergeToResult(ctx context.Context, data gitMergeToPreflightR
 	if err != nil {
 		return "", joinGitOutput(addOut, addErrOut), addTruncated, fmt.Errorf("cannot prepare temporary target worktree: %w", err)
 	}
-	mergeOut, mergeErrOut, mergeTruncated, err := runGitInDirectory(ctx, 45*time.Second, tmp, "merge", "--no-edit", data.CurrentSHA)
+	mergeOut, mergeErrOut, mergeTruncated, err := runGitInDirectory(ctx, gitMergeTimeout, tmp, "merge", "--no-edit", data.CurrentSHA)
 	truncated := addTruncated || mergeTruncated
 	output := joinGitOutput("Used temporary worktree fallback because this Git version lacks merge-tree --write-tree.", addOut, addErrOut, mergeOut, mergeErrOut)
 	if err != nil {
@@ -923,13 +924,16 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 	case "repair":
 		output, truncated, err := s.gitRepairAction(r.Context(), req)
 		if err != nil {
-			writeJSON(w, http.StatusOK, map[string]any{
-				"ok": false, "action": action, "repair": req.Repair, "output": output,
-				"error": err.Error(), "failure_code": classifyGitFailure(action, output, err.Error()), "truncated": truncated,
-			})
+			payload := s.gitFailurePayload(r.Context(), action, output, err.Error(), truncated)
+			payload["repair"] = req.Repair
+			writeJSON(w, http.StatusOK, payload)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "action": action, "repair": req.Repair, "output": output, "truncated": truncated})
+		payload := map[string]any{"ok": true, "action": action, "repair": req.Repair, "output": output, "truncated": truncated}
+		if strings.HasPrefix(strings.TrimSpace(req.Repair), "conflict_") || strings.TrimSpace(req.Repair) == "continue_in_progress" || strings.TrimSpace(req.Repair) == "merge_to_prepare_resolution" {
+			s.gitAttachConflictState(r.Context(), payload)
+		}
+		writeJSON(w, http.StatusOK, payload)
 		return
 	case "fetch":
 		timeout = gitNetworkReadTimeout
@@ -1031,11 +1035,12 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "cannot merge the current branch into itself", http.StatusBadRequest)
 			return
 		}
+		timeout = gitMergeTimeout
 		args = []string{"merge", "--no-edit", mergeRef}
 	case "merge_to":
 		output, truncated, err := s.gitMergeToAction(r.Context(), req)
 		if err != nil {
-			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "output": output, "error": err.Error(), "failure_code": classifyGitFailure(action, output, err.Error()), "truncated": truncated})
+			writeJSON(w, http.StatusOK, s.gitFailurePayload(r.Context(), action, output, err.Error(), truncated))
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "action": action, "output": output, "truncated": truncated})
@@ -1056,7 +1061,7 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 	stdout, stderr, truncated, err := s.runGit(r.Context(), timeout, args...)
 	output := strings.TrimSpace(strings.TrimSpace(stdout) + "\n" + strings.TrimSpace(stderr))
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "output": output, "error": err.Error(), "failure_code": classifyGitFailure(action, output, err.Error()), "truncated": truncated})
+		writeJSON(w, http.StatusOK, s.gitFailurePayload(r.Context(), action, output, err.Error(), truncated))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "action": action, "output": output, "truncated": truncated})
