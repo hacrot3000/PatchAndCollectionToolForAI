@@ -62,6 +62,8 @@ func classifyGitFailure(action, output, errorText string) string {
 		return "cherry_pick_in_progress"
 	case strings.Contains(text, "you have unmerged files") || strings.Contains(text, "needs merge") || strings.Contains(text, "fix conflicts and then commit") || strings.Contains(text, "resolve all conflicts manually") || strings.Contains(text, "unresolved conflict"):
 		return "conflicts"
+	case strings.Contains(text, "exceeds github's file size limit") || strings.Contains(text, "gh001") || strings.Contains(text, "large files detected"):
+		return "file_too_large"
 	case strings.Contains(text, "protected branch") || strings.Contains(text, "protected branch hook declined") || strings.Contains(text, "gh013") || strings.Contains(text, "pre-receive hook declined"):
 		return "protected_branch"
 	case strings.Contains(text, "src refspec") && strings.Contains(text, "does not match any"):
@@ -82,8 +84,6 @@ func classifyGitFailure(action, output, errorText string) string {
 		return "detached_head"
 	case strings.Contains(text, "refusing to merge unrelated histories"):
 		return "unrelated_histories"
-	case strings.Contains(text, "exceeds github's file size limit") || strings.Contains(text, "gh001") || strings.Contains(text, "large files detected"):
-		return "file_too_large"
 	case strings.Contains(text, "no space left on device") || strings.Contains(text, "disk quota exceeded"):
 		return "disk_full"
 	case strings.Contains(text, "bad object") || strings.Contains(text, "object file") && strings.Contains(text, "is empty") || strings.Contains(text, "corrupt loose object") || strings.Contains(text, "invalid object"):
@@ -173,7 +173,7 @@ func (s *Server) gitOperationState(ctx context.Context) (string, error) {
 
 func gitRecoveryNeedsConfirmation(repair string) bool {
 	switch repair {
-	case "push_force_with_lease", "trust_repository", "remove_stale_index_lock", "pull_allow_unrelated", "commit_no_verify", "push_no_verify":
+	case "push_force_with_lease", "trust_repository", "remove_stale_index_lock", "pull_allow_unrelated", "commit_no_verify", "push_no_verify", "large_file_remove_latest", "large_file_prepare_recommit":
 		return true
 	default:
 		return false
@@ -235,7 +235,7 @@ func (s *Server) gitRepairAction(ctx context.Context, req gitActionRequest) (str
 		if err != nil {
 			return "", false, err
 		}
-		return run(45*time.Second, "push", "--set-upstream", remote, branch)
+		return run(gitNetworkPushTimeout, "push", "--set-upstream", remote, branch)
 	case "pull_rebase":
 		return run(60*time.Second, "pull", "--rebase")
 	case "pull_merge":
@@ -243,20 +243,26 @@ func (s *Server) gitRepairAction(ctx context.Context, req gitActionRequest) (str
 	case "pull_allow_unrelated":
 		return run(60*time.Second, "-c", "core.editor=true", "pull", "--no-rebase", "--allow-unrelated-histories")
 	case "push_force_with_lease":
-		return run(60*time.Second, "push", "--force-with-lease")
+		return run(gitNetworkPushTimeout, "push", "--force-with-lease")
 	case "retry_http1":
 		var args []string
+		timeout := gitNetworkReadTimeout
 		switch strings.TrimSpace(req.OriginalAction) {
 		case "fetch":
 			args = []string{"-c", "http.version=HTTP/1.1", "fetch", "--prune"}
 		case "pull":
 			args = []string{"-c", "http.version=HTTP/1.1", "pull", "--ff-only"}
 		case "push":
+			timeout = gitNetworkPushTimeout
 			args = []string{"-c", "http.version=HTTP/1.1", "push"}
 		default:
 			return "", false, fmt.Errorf("HTTP/1.1 retry is only supported for fetch, pull, or push")
 		}
-		return run(60*time.Second, args...)
+		return run(timeout, args...)
+	case "large_file_remove_latest":
+		return s.gitLargeFileRemoveFromLatest(ctx, req.LargePath, gitHubPushBlobLimit)
+	case "large_file_prepare_recommit":
+		return s.gitLargeFilePrepareRecommit(ctx, req.LargePath, gitHubPushBlobLimit)
 	case "abort_in_progress":
 		state, err := s.gitOperationState(ctx)
 		if err != nil {
@@ -325,7 +331,7 @@ func (s *Server) gitRepairAction(ctx context.Context, req gitActionRequest) (str
 		}
 		return run(30*time.Second, "commit", "--no-verify", "-m", message)
 	case "push_no_verify":
-		return run(60*time.Second, "push", "--no-verify")
+		return run(gitNetworkPushTimeout, "push", "--no-verify")
 	case "create_branch_from_head":
 		branch := strings.TrimSpace(req.NewBranch)
 		if err := s.validBranchName(ctx, branch); err != nil {
@@ -342,9 +348,9 @@ func (s *Server) gitRepairAction(ctx context.Context, req gitActionRequest) (str
 			return "", false, err
 		}
 		if _, branchErr := s.gitCurrentBranchName(ctx); branchErr == nil {
-			return run(60*time.Second, "push", "--set-upstream", remote, "HEAD:refs/heads/"+branch)
+			return run(gitNetworkPushTimeout, "push", "--set-upstream", remote, "HEAD:refs/heads/"+branch)
 		}
-		return run(60*time.Second, "push", remote, "HEAD:refs/heads/"+branch)
+		return run(gitNetworkPushTimeout, "push", remote, "HEAD:refs/heads/"+branch)
 	case "add_remote":
 		remote := strings.TrimSpace(req.Remote)
 		if remote == "" {

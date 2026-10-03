@@ -772,6 +772,7 @@ type gitActionRequest struct {
 	Email             string `json:"email,omitempty"`
 	NewBranch         string `json:"new_branch,omitempty"`
 	IgnoreID          string `json:"ignore_id,omitempty"`
+	LargePath         string `json:"large_path,omitempty"`
 	Confirmed         bool   `json:"confirmed,omitempty"`
 }
 
@@ -887,7 +888,7 @@ func (s *Server) gitMergeToAction(ctx context.Context, req gitActionRequest) (st
 	}
 
 	pushSpec := resultSHA + ":refs/heads/" + data.PushBranch
-	pushOut, pushErrOut, pushTruncated, err := s.runGit(ctx, 45*time.Second, "push", data.PushRemote, pushSpec)
+	pushOut, pushErrOut, pushTruncated, err := s.runGit(ctx, gitNetworkPushTimeout, "push", data.PushRemote, pushSpec)
 	truncated = truncated || pushTruncated
 	output := joinGitOutput(mergeOutput, pushOut, pushErrOut)
 	if err != nil {
@@ -931,10 +932,25 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "action": action, "repair": req.Repair, "output": output, "truncated": truncated})
 		return
 	case "fetch":
+		timeout = gitNetworkReadTimeout
 		args = []string{"fetch", "--prune"}
 	case "pull":
+		timeout = gitNetworkReadTimeout
 		args = []string{"pull", "--ff-only"}
 	case "push":
+		timeout = gitNetworkPushTimeout
+		if large, inspected := s.gitHubPushLargeBlobPreflight(r.Context()); inspected && len(large) > 0 {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok": false, "action": action,
+				"output": formatGitLargeBlobOutput("github", large),
+				"error": "GitHub push blocked before upload because outgoing commits contain files larger than 100 MiB",
+				"failure_code": "file_too_large",
+				"provider": "github",
+				"limit_bytes": gitHubPushBlobLimit,
+				"large_files": large,
+			})
+			return
+		}
 		args = []string{"push"}
 	case "stage":
 		path, err := validGitRelativePath(req.Path)
