@@ -210,7 +210,7 @@ func (s *Server) gitLargePathIsOutgoing(ctx context.Context, path string, limit 
 			return item, upstream, nil
 		}
 	}
-	return gitLargeBlobInfo{}, upstream, fmt.Errorf("%s is not currently an oversized blob in outgoing commits", path)
+	return gitLargeBlobInfo{}, upstream, fmt.Errorf("oversized blob %s is not currently present in outgoing commits", path)
 }
 
 func (s *Server) gitLargeFileRemoveFromLatest(ctx context.Context, rawPath string, limit int64) (string, bool, error) {
@@ -230,13 +230,13 @@ func (s *Server) gitLargeFileRemoveFromLatest(ctx context.Context, rawPath strin
 		if treeOut, _, _, treeErr := s.runGit(ctx, 8*time.Second, "ls-tree", "-r", "--name-only", parent, "--", path); treeErr != nil {
 			return "", false, treeErr
 		} else if strings.TrimSpace(treeOut) != "" {
-			return "", false, fmt.Errorf("%s already exists before the latest commit; use the multi-commit cleanup option instead", path)
+			return "", false, fmt.Errorf("oversized file %s already exists before the latest commit; use the multi-commit cleanup option instead", path)
 		}
 	}
 	if headOut, _, _, err := s.runGit(ctx, 8*time.Second, "ls-tree", "-r", "--name-only", "HEAD", "--", path); err != nil {
 		return "", false, err
 	} else if strings.TrimSpace(headOut) == "" {
-		return "", false, fmt.Errorf("%s is not present in the latest commit; use the multi-commit cleanup option instead", path)
+		return "", false, fmt.Errorf("oversized file %s is not present in the latest commit; use the multi-commit cleanup option instead", path)
 	}
 
 	pattern := "/" + escapeGitIgnoreLiteral(path)

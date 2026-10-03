@@ -101,7 +101,7 @@ function classifyLocal(ctx){
   if(/rebase in progress|rebase-merge|rebase-apply|already a rebase-merge directory/.test(text))return 'rebase_in_progress';
   if(/cherry-pick is currently in progress|cherry_pick_head/.test(text))return 'cherry_pick_in_progress';
   if(/you have unmerged files|needs merge|fix conflicts and then commit|resolve all conflicts manually|unresolved conflict/.test(text))return 'conflicts';
-  if(/exceeds github's file size limit|gh001|large files detected/.test(text))return 'file_too_large';
+  if(/exceeds github's file size limit|gh001|large files detected|oversized file|oversized blob/.test(text))return 'file_too_large';
   if(/protected branch|protected branch hook declined|gh013|pre-receive hook declined/.test(text))return 'protected_branch';
   if(/src refspec .* does not match any/.test(text))return 'refspec_missing';
   if(/couldn't find remote ref|remote ref does not exist/.test(text))return 'remote_ref_missing';

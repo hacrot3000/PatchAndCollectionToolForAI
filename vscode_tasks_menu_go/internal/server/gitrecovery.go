@@ -62,7 +62,7 @@ func classifyGitFailure(action, output, errorText string) string {
 		return "cherry_pick_in_progress"
 	case strings.Contains(text, "you have unmerged files") || strings.Contains(text, "needs merge") || strings.Contains(text, "fix conflicts and then commit") || strings.Contains(text, "resolve all conflicts manually") || strings.Contains(text, "unresolved conflict"):
 		return "conflicts"
-	case strings.Contains(text, "exceeds github's file size limit") || strings.Contains(text, "gh001") || strings.Contains(text, "large files detected"):
+	case strings.Contains(text, "exceeds github's file size limit") || strings.Contains(text, "gh001") || strings.Contains(text, "large files detected") || strings.Contains(text, "oversized file") || strings.Contains(text, "oversized blob"):
 		return "file_too_large"
 	case strings.Contains(text, "protected branch") || strings.Contains(text, "protected branch hook declined") || strings.Contains(text, "gh013") || strings.Contains(text, "pre-receive hook declined"):
 		return "protected_branch"
