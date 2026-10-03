@@ -100,7 +100,8 @@ function classifyLocal(ctx){
   if(/merge_head exists|you have not concluded your merge/.test(text))return 'merge_in_progress';
   if(/rebase in progress|rebase-merge|rebase-apply|already a rebase-merge directory/.test(text))return 'rebase_in_progress';
   if(/cherry-pick is currently in progress|cherry_pick_head/.test(text))return 'cherry_pick_in_progress';
-  if(/you have unmerged files|needs merge|fix conflicts and then commit|resolve all conflicts manually|unresolved conflict/.test(text))return 'conflicts';
+  if(ctx?.actionName==='merge_to'&&(/conflict|automatic merge failed/.test(text)))return 'merge_to_conflicts';
+  if(/you have unmerged files|needs merge|fix conflicts and then commit|resolve all conflicts manually|unresolved conflict|automatic merge failed/.test(text))return 'conflicts';
   if(/exceeds github's file size limit|gh001|large files detected|oversized file|oversized blob/.test(text))return 'file_too_large';
   if(/protected branch|protected branch hook declined|gh013|pre-receive hook declined/.test(text))return 'protected_branch';
   if(/src refspec .* does not match any/.test(text))return 'refspec_missing';
@@ -122,6 +123,27 @@ function classifyLocal(ctx){
 
 function input(key,label,placeholder='',value='',required=false,type='text'){
   return {key,label,placeholder,value,required,type};
+}
+function selectInput(key,label,choices,value=''){
+  return {key,label,type:'select',choices:Array.isArray(choices)?choices:[],value,required:true};
+}
+function conflictState(ctx){
+  const state=ctx?.details?.conflict_state;
+  return state&&typeof state==='object'?state:{operation:'',branch:'',files:[]};
+}
+function conflictFileChoices(ctx){
+  return (Array.isArray(conflictState(ctx).files)?conflictState(ctx).files:[]).map(item=>({
+    value:String(item?.path||''),label:[String(item?.status||'UU'),String(item?.path||'')].filter(Boolean).join(' · ')
+  })).filter(item=>item.value);
+}
+function openConflictFile(ctx,path){
+  const state=conflictState(ctx);
+  const item=(Array.isArray(state.files)?state.files:[]).find(entry=>String(entry?.path||'')===String(path||''));
+  const projectPath=String(item?.project_path||'').trim();
+  if(!projectPath)throw new Error('This conflict path cannot be opened in the project editor.');
+  if(!ctx.openFile)throw new Error('Project editor integration is unavailable.');
+  ctx.openFile(projectPath);
+  return {ok:true,output:'Opened conflicted file: '+projectPath};
 }
 function option(label,description,run,{risk='',inputs=[]}={}){
   return {label,description,run,risk,inputs};
@@ -196,13 +218,55 @@ function issueFor(ctx){
     case 'merge_in_progress':
     case 'rebase_in_progress':
     case 'cherry_pick_in_progress': {
-      const opts=[
-        statusOpt,
-        option('Continue operation','Continue the active merge/rebase/cherry-pick/revert after you have resolved and staged conflicts.',()=>repair(ctx,'continue_in_progress'),{risk:'Only use after resolving conflicts and staging the intended files.'}),
-        option('Abort operation','Abort the active merge/rebase/cherry-pick/revert and return to the pre-operation state.',()=>repair(ctx,'abort_in_progress'),{risk:'This discards conflict-resolution work made for the current Git operation.'})
-      ];
-      if(code==='rebase_in_progress')opts.splice(2,0,option('Skip current rebase commit','Run git rebase --skip for the current conflicting commit.',()=>repair(ctx,'skip_rebase'),{risk:'The skipped commit will not be applied.'}));
-      return {code,title:'Git operation stopped on conflicts',summary:'Resolve the listed conflicts, stage the resolved files, then continue; or abort the active operation.',options:opts};
+      const state=conflictState(ctx);
+      const files=Array.isArray(state.files)?state.files:[];
+      const choices=conflictFileChoices(ctx);
+      const operation=String(state.operation||'').trim()||(
+        code==='rebase_in_progress'?'rebase':code==='cherry_pick_in_progress'?'cherry-pick':'merge'
+      );
+      const branch=String(state.branch||ctx.repository?.branch||'').trim();
+      const semantics=operation==='rebase'
+        ? 'During rebase, Current (ours/stage 2) is the rebased upstream/base side and Incoming (theirs/stage 3) is the commit being replayed.'
+        : 'Current (ours/stage 2) is the checked-out branch; Incoming (theirs/stage 3) is the branch/commit being merged in.';
+      const opts=[];
+      if(choices.length){
+        const selected=selectInput('path','Conflicted file',choices,choices[0].value);
+        if(ctx.openFile)opts.push(option('Open conflicted file','Open the selected working-tree file in TaskDeck editor so you can resolve conflict markers manually.',values=>openConflictFile(ctx,values.path),{inputs:[selected]}));
+        opts.push(
+          option('Use Current for selected file','Replace the selected conflicted path with Git stage 2/current side and stage the result.',values=>repair(ctx,'conflict_take_side',{path:values.path,conflict_side:'current'}),{inputs:[selected],risk:'This discards the Incoming side for the selected path. For delete/modify conflicts it may delete the working-tree file.'}),
+          option('Use Incoming for selected file','Replace the selected conflicted path with Git stage 3/incoming side and stage the result.',values=>repair(ctx,'conflict_take_side',{path:values.path,conflict_side:'incoming'}),{inputs:[selected],risk:'This discards the Current side for the selected path. For delete/modify conflicts it may delete the working-tree file.'}),
+          option('Mark selected file resolved','Stage the current working-tree version of the selected path after you have edited and verified it.',values=>repair(ctx,'conflict_mark_resolved',{path:values.path}),{inputs:[selected],risk:'Git will consider this path resolved exactly as it currently exists. Verify conflict markers and content first.'}),
+          option('Use Current for ALL conflicts','Resolve every currently unmerged path using the Current/stage 2 side and stage them.',()=>repair(ctx,'conflict_resolve_all',{conflict_side:'current',confirmed:true}),{risk:'High impact: discards the Incoming side for every remaining conflict path.'}),
+          option('Use Incoming for ALL conflicts','Resolve every currently unmerged path using the Incoming/stage 3 side and stage them.',()=>repair(ctx,'conflict_resolve_all',{conflict_side:'incoming',confirmed:true}),{risk:'High impact: discards the Current side for every remaining conflict path.'})
+        );
+      }
+      opts.push(statusOpt);
+      if(!files.length)opts.push(option('Continue operation','No unmerged paths remain. Continue the active '+operation+' operation.',()=>repair(ctx,'continue_in_progress'),{risk:'Git will create/continue commits from the currently staged resolution.'}));
+      if(operation==='rebase')opts.push(option('Skip current rebase commit','Run git rebase --skip for the current conflicting commit.',()=>repair(ctx,'skip_rebase'),{risk:'The skipped commit will not be applied.'}));
+      opts.push(option('Abort operation','Abort the active '+operation+' and return to the pre-operation state.',()=>repair(ctx,'abort_in_progress'),{risk:'This discards conflict-resolution work made for the current Git operation.'}));
+      const fileSummary=files.length
+        ? files.length+' unmerged path(s): '+files.slice(0,5).map(item=>item.path).join(', ')+(files.length>5?' …':'')
+        : 'No unmerged paths remain; you can continue the operation.';
+      return {code,title:'Git '+operation+' stopped on conflicts',summary:[branch&&('Branch: '+branch+'.'),fileSummary,semantics].filter(Boolean).join(' '),options:opts};
+    }
+    case 'merge_to_conflicts': {
+      const target=String(ctx.payload?.branch||'target').trim();
+      const safeTarget=target.replace(/^origin\//,'').replace(/[^A-Za-z0-9._/-]+/g,'-').replace(/^[-/.]+|[-/.]+$/g,'')||'target';
+      const suggested=('taskdeck/resolve-'+safeTarget).slice(0,180);
+      const canPrepare=Boolean(ctx.payload?.expected_source_sha&&ctx.payload?.expected_target_sha);
+      const opts=[statusOpt];
+      if(canPrepare)opts.unshift(option(
+        'Create local resolution branch',
+        'Create a new local branch at the Merge To target commit, switch to it, and merge the original source commit there. If conflicts occur, TaskDeck will reopen this wizard with per-file resolution choices.',
+        values=>repair(ctx,'merge_to_prepare_resolution',{
+          new_branch:values.new_branch,
+          expected_source_sha:ctx.payload.expected_source_sha,
+          expected_target_sha:ctx.payload.expected_target_sha,
+          confirmed:true
+        }),
+        {inputs:[input('new_branch','Resolution branch','taskdeck/resolve-target',suggested,true)],risk:'This switches your working tree to a new local branch at the Merge To target commit. The working tree must be clean. Nothing is pushed automatically.'}
+      ));
+      return {code,title:'Merge To has conflicts',summary:'Merge To intentionally did not modify the current working tree or push anything. Create a local resolution branch to resolve the conflict safely, or inspect status and cancel.',options:opts};
     }
     case 'identity_missing':
       return {code,title:'Git author identity is not configured',summary:'Configure repository-local user.name and user.email. TaskDeck will not change your global Git identity.',options:[
@@ -376,6 +440,11 @@ async function runOption(ctx,issue,spec,card,values){
     const output=response?.output||'Completed successfully.';
     result.textContent=output;
     if(ctx.refresh)await ctx.refresh();
+    if(response?.conflict_state&&['conflicts','merge_in_progress','rebase_in_progress','cherry_pick_in_progress'].includes(issue.code)){
+      const next={...ctx,details:{...(ctx.details||{}),conflict_state:response.conflict_state}};
+      setTimeout(()=>open(next),250);
+      return;
+    }
     setTimeout(()=>{if(backdrop.classList.contains('visible'))closeWizard();},900);
   }catch(error){
     const next={...ctx,error:error?.message||String(error),output:error?.gitOutput||'',failureCode:error?.gitFailureCode||'',details:error?.gitDetails||{}};
@@ -396,7 +465,13 @@ function renderOption(ctx,issue,spec){
   for(const item of spec.inputs||[]){
     const field=document.createElement('div');field.className='git-recovery-field';
     const label=document.createElement('label');label.textContent=item.label;
-    const control=document.createElement('input');control.type=item.type||'text';control.placeholder=item.placeholder||'';control.value=item.value||'';control.required=Boolean(item.required);
+    const control=item.type==='select'?document.createElement('select'):document.createElement('input');
+    if(item.type==='select'){
+      for(const choice of item.choices||[]){const optionNode=document.createElement('option');optionNode.value=String(choice.value||'');optionNode.textContent=String(choice.label||choice.value||'');control.append(optionNode);}
+    }else{
+      control.type=item.type||'text';control.placeholder=item.placeholder||'';
+    }
+    control.value=item.value||'';control.required=Boolean(item.required);
     field.append(label,control);inputs.append(field);fields.set(item.key,{spec:item,control});
   }
   if(fields.size)card.append(inputs);

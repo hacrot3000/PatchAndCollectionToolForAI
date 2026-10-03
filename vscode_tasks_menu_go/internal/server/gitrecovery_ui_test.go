@@ -38,6 +38,22 @@ func TestGitRecoveryWizardModule(t *testing.T) {
 		"dubious_ownership",
 		"repository_corrupt",
 		"file_too_large",
+		"merge_to_conflicts",
+		"function conflictState(ctx)",
+		"function conflictFileChoices(ctx)",
+		"function openConflictFile(ctx,path)",
+		"conflict_take_side",
+		"conflict_mark_resolved",
+		"conflict_resolve_all",
+		"merge_to_prepare_resolution",
+		"Use Current for selected file",
+		"Use Incoming for selected file",
+		"Mark selected file resolved",
+		"Use Current for ALL conflicts",
+		"Use Incoming for ALL conflicts",
+		"Create local resolution branch",
+		"No unmerged paths remain",
+		"item.type==='select'",
 		"function largeFilesFromContext(ctx)",
 		"large_file_remove_latest",
 		"large_file_prepare_recommit",
@@ -102,6 +118,9 @@ func TestGitStatusRoutesFailuresIntoRecoveryWizard(t *testing.T) {
 		"runRepair:",
 		"runAction:",
 		"rescan:",
+		"openFile:path=>window.dispatchEvent",
+		"taskmenu:project-file-open-request",
+		"git-conflict-recovery",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("gitstatus.js missing Git recovery integration %q", want)
@@ -117,5 +136,26 @@ func TestGitRecoveryLoadsBeforeGitStatus(t *testing.T) {
 	status := strings.Index(js, "featuremods/gitstatus.js")
 	if recovery < 0 || status < 0 || recovery > status {
 		t.Fatalf("gitrecovery.js must load before gitstatus.js: recovery=%d status=%d", recovery, status)
+	}
+}
+
+func TestGitChangesConflictRecoveryUI(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/gitstatus.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const conflictState=data.conflict_state",
+		"Merge conflicts need resolution",
+		"Resolve conflicts",
+		"change.conflicted",
+		"git-row-conflicted",
+		"Open conflicted working-tree file",
+		"git-conflict-changes",
+		"failureCode:'conflicts'",
+		"details:{conflict_state:",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("gitstatus.js missing conflict recovery UI %q", want)
+		}
 	}
 }

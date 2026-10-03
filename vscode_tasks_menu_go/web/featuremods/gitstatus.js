@@ -206,7 +206,8 @@ function openGitRecovery({actionName='unknown',payload={},command='',error='',ou
     retry:actionName&&actionName!=='unknown'?()=>{ensureRepo();return action(actionName,payload,'',{recovery:false,repoID});}:null,
     runAction:(name,nextPayload={})=>{ensureRepo();return action(name,nextPayload,'',{recovery:false,repoID});},
     refresh:async()=>{if(activeRepoID===repoID){await refresh();await loadCurrentView();}},
-    rescan:async()=>{await refreshRepositories(true);if(activeRepoID===repoID){await refresh();await loadCurrentView();}return {ok:true,output:'Repository scan completed.'};}
+    rescan:async()=>{await refreshRepositories(true);if(activeRepoID===repoID){await refresh();await loadCurrentView();}return {ok:true,output:'Repository scan completed.'};},
+    openFile:path=>window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path,source:'git-conflict-recovery'}}))
   });
   return true;
 }
@@ -345,10 +346,32 @@ async function openIgnoreWizard(change){
 
 async function loadChanges(){
   const data=await gitView('changes');if(!data)return false;const rows=data.changes||[];content.replaceChildren();if(!rows.length){empty('Working tree clean');return;}
+  const conflictState=data.conflict_state&&typeof data.conflict_state==='object'?data.conflict_state:null;
+  const openConflictRecovery=()=>openGitRecovery({
+    actionName:'merge',
+    command:'Resolve Git conflicts',
+    error:'Git operation has unresolved conflicts',
+    failureCode:'conflicts',
+    details:{conflict_state:conflictState||{operation:'merge',files:rows.filter(item=>item.conflicted).map(item=>({path:item.path,status:(item.index_status||'')+(item.worktree_status||'')}))}},
+    repoID:activeRepoID
+  });
+  if(conflictState&&Array.isArray(conflictState.files)&&conflictState.files.length){
+    const banner=el('div','git-row git-conflict-banner');
+    const main=el('div','git-row-main');
+    main.append(el('div','git-row-title','Merge conflicts need resolution'),el('div','git-row-sub',conflictState.files.length+' unmerged path(s) · '+(conflictState.operation||'merge')));
+    const actions=el('div','git-row-actions');actions.append(actionButton('Resolve conflicts',openConflictRecovery,'Open the Git conflict recovery wizard'));
+    banner.append(el('span','git-row-code','!!'),main,actions);content.append(banner);
+  }
   for(const change of rows){
-    const row=el('div','git-row');const code=el('span','git-row-code',(change.index_status||' ')+(change.worktree_status||' '));const main=el('div','git-row-main');main.append(el('div','git-row-title',change.path),el('div','git-row-sub',[change.staged&&'staged',change.unstaged&&'unstaged',change.untracked&&'untracked',change.original_path&&('from '+change.original_path)].filter(Boolean).join(' · ')));const actions=el('div','git-row-actions');
-    if(change.unstaged&&!change.untracked)actions.append(actionButton('Diff',()=>showDiff(change.path,'worktree')));if(change.staged)actions.append(actionButton('Staged diff',()=>showDiff(change.path,'staged')));
-    if(change.unstaged||change.untracked)actions.append(actionButton('Stage',()=>action('stage',{path:change.path})));if(change.staged)actions.append(actionButton('Unstage',()=>action('unstage',{path:change.path})));if(change.untracked&&change.path!=='.gitignore')actions.append(actionButton('Ignore',()=>openIgnoreWizard(change),'Ignore this untracked path or choose a smart pattern for similar files'));actions.append(actionButton('Copy path',()=>copyText(change.path)));row.append(code,main,actions);content.append(row);
+    const row=el('div','git-row'+(change.conflicted?' git-row-conflicted':''));const code=el('span','git-row-code',(change.index_status||' ')+(change.worktree_status||' '));const main=el('div','git-row-main');main.append(el('div','git-row-title',change.path),el('div','git-row-sub',[change.conflicted&&'conflict',change.staged&&!change.conflicted&&'staged',change.unstaged&&!change.conflicted&&'unstaged',change.untracked&&'untracked',change.original_path&&('from '+change.original_path)].filter(Boolean).join(' · ')));const actions=el('div','git-row-actions');
+    if(change.conflicted){
+      actions.append(actionButton('Resolve',openConflictRecovery,'Open the Git conflict recovery wizard'));
+      actions.append(actionButton('Open',()=>{const item=(conflictState?.files||[]).find(file=>file.path===change.path);const path=item?.project_path;if(!path)throw new Error('Project path unavailable for conflicted file');window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path,source:'git-conflict-changes'}}));},'Open conflicted working-tree file'));
+    }else{
+      if(change.unstaged&&!change.untracked)actions.append(actionButton('Diff',()=>showDiff(change.path,'worktree')));if(change.staged)actions.append(actionButton('Staged diff',()=>showDiff(change.path,'staged')));
+      if(change.unstaged||change.untracked)actions.append(actionButton('Stage',()=>action('stage',{path:change.path})));if(change.staged)actions.append(actionButton('Unstage',()=>action('unstage',{path:change.path})));if(change.untracked&&change.path!=='.gitignore')actions.append(actionButton('Ignore',()=>openIgnoreWizard(change),'Ignore this untracked path or choose a smart pattern for similar files'));
+    }
+    actions.append(actionButton('Copy path',()=>copyText(change.path)));row.append(code,main,actions);content.append(row);
   }
 }
 async function mergeBranch(branch){
