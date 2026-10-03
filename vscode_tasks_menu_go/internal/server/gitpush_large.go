@@ -127,7 +127,7 @@ func (s *Server) gitOutgoingLargeBlobs(ctx context.Context, upstream string, lim
 	if upstream == "" {
 		return nil, fmt.Errorf("upstream is required")
 	}
-	objects, stderr, truncated, err := s.runGit(ctx, 20*time.Second, "rev-list", "--objects", upstream+"..HEAD")
+	objects, _, truncated, err := s.runGit(ctx, 20*time.Second, "rev-list", "--objects", upstream+"..HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("enumerate outgoing Git objects: %w", err)
 	}
