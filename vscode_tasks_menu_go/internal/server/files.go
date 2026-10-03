@@ -88,7 +88,7 @@ func (s *Server) downloadableFilesFromSelectionAt(text, context, cwd string) []d
 	var paths []string
 	addResolved := func(candidate string) bool {
 		candidate = trimPathCandidate(candidate)
-		if !looksLikePath(candidate) {
+		if candidate == "" {
 			return false
 		}
 		resolved, err := s.resolveDownloadPath(candidate)
