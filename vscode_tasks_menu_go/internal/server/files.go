@@ -177,7 +177,18 @@ func (s *Server) downloadableFilesFromSelectionAt(text, context, cwd string) []d
 }
 
 func (s *Server) downloadSelectionContextDirs(context, cwd string) []string {
-	if strings.TrimSpace(context) == "" || strings.TrimSpace(cwd) == "" {
+	if strings.TrimSpace(context) == "" {
+		return nil
+	}
+	// Live CWD is preferred, but it is not guaranteed to be available for every
+	// restored/shared session. When it is missing, the workspace root is still a
+	// valid base for commands issued from the project root and is strictly safer
+	// than discarding the listing-command context entirely.
+	baseDir := strings.TrimSpace(cwd)
+	if baseDir == "" {
+		baseDir = strings.TrimSpace(s.Workspace)
+	}
+	if baseDir == "" {
 		return nil
 	}
 	lines := strings.Split(strings.ReplaceAll(context, "\r", ""), "\n")
@@ -197,7 +208,7 @@ func (s *Server) downloadSelectionContextDirs(context, cwd string) []string {
 	}
 	candidate := filepath.FromSlash(operand)
 	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(cwd, candidate)
+		candidate = filepath.Join(baseDir, candidate)
 	}
 	candidate, err := filepath.Abs(candidate)
 	if err != nil {
