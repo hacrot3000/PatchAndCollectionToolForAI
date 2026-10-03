@@ -1,5 +1,6 @@
 const app=globalThis.TaskMenuApp;
 if(!app)throw new Error('TaskMenuApp unavailable for git status');
+const gitRecovery=globalThis.TaskDeckGitRecovery;
 
 const style=document.createElement('style');
 style.textContent=`
@@ -186,8 +187,48 @@ function actionKey(actionName,payload={},repoID=activeRepoID){
   const entries=Object.entries(payload).filter(([key])=>key!=='merge_ref').sort(([a],[b])=>a.localeCompare(b));
   return repoID+'|'+actionName+':'+JSON.stringify(Object.fromEntries(entries));
 }
-async function action(actionName,payload={},confirmText=''){
-  const repoID=activeRepoID;
+function gitFailureError(message,data={}){
+  const error=new Error(message||data.error||'Git action failed');
+  error.gitOutput=String(data.output||'');
+  error.gitFailureCode=String(data.failure_code||'');
+  return error;
+}
+function openGitRecovery({actionName='unknown',payload={},command='',error='',output='',failureCode='',repoID=activeRepoID}={}){
+  if(!gitRecovery?.open)return false;
+  const selected=repositories.find(item=>item.id===repoID)||activeRepository()||{};
+  const repository={...selected,branch:(repoID===activeRepoID?currentStatus?.branch:'')||selected.branch||''};
+  const ensureRepo=()=>{if(!repoID)throw new Error('Git repository selection is unavailable');};
+  gitRecovery.open({
+    actionName,payload,command,error:String(error||''),output:String(output||''),failureCode:String(failureCode||''),repository,
+    runRepair:(repair,repairPayload={})=>{ensureRepo();return repairAction(repair,repairPayload,repoID);},
+    retry:actionName&&actionName!=='unknown'?()=>{ensureRepo();return action(actionName,payload,'',{recovery:false,repoID});}:null,
+    runAction:(name,nextPayload={})=>{ensureRepo();return action(name,nextPayload,'',{recovery:false,repoID});},
+    refresh:async()=>{if(activeRepoID===repoID){await refresh();await loadCurrentView();}},
+    rescan:async()=>{await refreshRepositories(true);if(activeRepoID===repoID){await refresh();await loadCurrentView();}return {ok:true,output:'Repository scan completed.'};}
+  });
+  return true;
+}
+async function repairAction(repair,payload={},repoID=activeRepoID){
+  const command='Git recovery · '+String(repair||'repair').replaceAll('_',' ');
+  beginOperation(command);
+  try{
+    const query=new URLSearchParams();if(repoID)query.set('repo',repoID);
+    const data=await app.jsonFetch('/api/git/status'+(query.size?'?'+query.toString():''),{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'repair',repair,...payload})
+    });
+    showOperation(command,data.output||'',data.ok?'':(data.error||'Git recovery action failed'));
+    if(!data.ok)throw gitFailureError(data.error||'Git recovery action failed',data);
+    if(activeRepoID===repoID){await refresh();await loadCurrentView();}
+    return data;
+  }catch(error){
+    showOperation(command,error?.gitOutput||'',error?.message||String(error));
+    throw error;
+  }
+}
+async function action(actionName,payload={},confirmText='',options={}){
+  const repoID=options.repoID??activeRepoID;
+  const recoveryEnabled=options.recovery!==false;
   const key=actionKey(actionName,payload,repoID);
   if(runningActions.has(key))return runningActions.get(key);
   if(confirmText&&!window.confirm(confirmText))return false;
@@ -198,10 +239,15 @@ async function action(actionName,payload={},confirmText=''){
       const query=new URLSearchParams();if(repoID)query.set('repo',repoID);
       const data=await app.jsonFetch('/api/git/status'+(query.size?'?'+query.toString():''),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:actionName,...payload})});
       showOperation(command,data.output||'',data.ok?'':(data.error||'Git action failed'));
-      if(!data.ok)throw new Error(data.error||'Git action failed');
+      if(!data.ok){
+        const failure=gitFailureError(data.error||'Git action failed',data);
+        if(recoveryEnabled&&openGitRecovery({actionName,payload,command,error:failure.message,output:failure.gitOutput,failureCode:failure.gitFailureCode,repoID}))failure.gitWizardShown=true;
+        throw failure;
+      }
       if(activeRepoID===repoID){await refresh();await loadCurrentView();}return data;
     }catch(error){
-      showOperation(command,'',error?.message||String(error));
+      showOperation(command,error?.gitOutput||'',error?.message||String(error));
+      if(recoveryEnabled&&!error?.gitWizardShown&&openGitRecovery({actionName,payload,command,error:error?.message||String(error),output:error?.gitOutput||'',failureCode:error?.gitFailureCode||'',repoID}))error.gitWizardShown=true;
       throw error;
     }finally{
       runningActions.delete(key);
@@ -220,7 +266,11 @@ function bindActionButton(button,run){
       const result=await run();
       if(result===false)state='';
     }catch(error){
-      state='error';app.showError(error);
+      state='error';
+      if(!error?.gitWizardShown){
+        if(openGitRecovery({actionName:'unknown',command:label,error:error?.message||String(error),output:error?.gitOutput||'',failureCode:error?.gitFailureCode||''}))error.gitWizardShown=true;
+      }
+      if(!error?.gitWizardShown)app.showError(error);
     }finally{
       button.classList.remove('git-action-running');
       button.removeAttribute('aria-busy');

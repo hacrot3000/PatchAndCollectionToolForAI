@@ -10,6 +10,7 @@ import '/featuremods/database_workbench.js';
 import '/featuremods/filetransfer.js';
 import '/featuremods/connections.js';
 import '/featuremods/restartclear.js';
+import '/featuremods/gitrecovery.js';
 import '/featuremods/gitstatus.js';
 import '/featuremods/sidebar.js';
 import '/featuremods/appearance.js';
