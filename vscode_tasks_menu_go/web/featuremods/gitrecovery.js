@@ -75,6 +75,26 @@ function largeFilesFromContext(ctx){
   }
   return rows;
 }
+function defaultLFSPattern(path){
+  const name=String(path||'').split('/').pop()||'';
+  const index=name.lastIndexOf('.');
+  return index>0&&index<name.length-1?'*'+name.slice(index):String(path||'').trim();
+}
+function lfsMigrationRisk(plan,pattern){
+  const version=String(plan?.version||'Git LFS').trim();
+  const range=String(plan?.range||'unpushed commits').trim();
+  const count=Number(plan?.outgoing_commits);
+  const head=String(plan?.head||'').trim();
+  return [
+    'This rewrites local unpushed commit IDs so matching files are stored through Git LFS.',
+    'Git LFS: '+version+'.',
+    'Range: '+range+(Number.isFinite(count)?' · '+count+' commit(s).':''),
+    pattern?'Track pattern: '+pattern+'.':'',
+    head?'Current HEAD: '+head+'.':'',
+    'No remote refs are modified automatically. The original HEAD remains recoverable through Git reflog.'
+  ].filter(Boolean).join('\n');
+}
+
 function classifyLocal(ctx){
   const text=combinedText(ctx).toLowerCase();
   if(/detected dubious ownership/.test(text))return 'dubious_ownership';
@@ -380,8 +400,26 @@ function issueFor(ctx){
       const details=large.length
         ? large.map(item=>item.path+(item.sizeMiB?' ('+item.sizeMiB.toFixed(2)+' MiB)':'')).join(', ')
         : 'the oversized file reported by the remote';
-      const summary='GitHub rejected '+details+'. Files above the remote limit must be removed from the outgoing Git history or migrated to a large-file system such as Git LFS. TaskDeck can safely handle the common accidental-commit cases below.';
-      const options=[
+      const lfsPlan=ctx?.details?.lfs_plan&&typeof ctx.details.lfs_plan==='object'?ctx.details.lfs_plan:null;
+      const lfsAvailable=lfsPlan?.available===true;
+      const summary='GitHub rejected '+details+'. Files above the remote limit must be removed from outgoing Git history or stored through Git LFS. TaskDeck only offers LFS migration when git lfs is installed and the outgoing range can be verified safely.';
+      const options=[];
+      if(lfsAvailable){
+        options.push(option('Migrate this file to Git LFS, then retry push','Rewrite the verified unpushed commit range so this exact path is stored through Git LFS, then retry the normal push.',async values=>{
+          const migrated=await repair(ctx,'large_file_lfs_migrate',{large_path:values.large_path,lfs_pattern:'',confirmed:true});
+          if(!ctx.retry)return migrated;
+          const pushed=await retryOriginal(ctx);
+          return {ok:true,output:[migrated?.output,pushed?.output||'Push succeeded.'].filter(Boolean).join('\n')};
+        },{inputs:[pathInput],risk:lfsMigrationRisk(lfsPlan,first.path||'the selected path')}));
+        const suggested=defaultLFSPattern(first.path||'');
+        options.push(option('Track matching files with Git LFS, then retry push','Rewrite the verified unpushed commit range and migrate files matching one Git LFS include pattern such as *.csv.',async values=>{
+          const migrated=await repair(ctx,'large_file_lfs_migrate',{large_path:values.large_path,lfs_pattern:values.lfs_pattern,confirmed:true});
+          if(!ctx.retry)return migrated;
+          const pushed=await retryOriginal(ctx);
+          return {ok:true,output:[migrated?.output,pushed?.output||'Push succeeded.'].filter(Boolean).join('\n')};
+        },{inputs:[pathInput,input('lfs_pattern','Git LFS pattern','*.csv',suggested,true)],risk:lfsMigrationRisk(lfsPlan,suggested)}));
+      }
+      options.push(
         option('Remove from latest commit, ignore, then retry push','For a file introduced by the latest local commit: keep the physical file, add an exact .gitignore rule, amend the latest commit, then retry the original push.',async values=>{
           const cleaned=await repair(ctx,'large_file_remove_latest',{large_path:values.large_path,confirmed:true});
           if(!ctx.retry)return cleaned;
@@ -390,7 +428,7 @@ function issueFor(ctx){
         },{inputs:[pathInput],risk:'This rewrites the latest local commit. It only proceeds when tracked files/index are clean and the oversized file did not exist in the parent commit. The working-tree file is kept and ignored.'}),
         option('Prepare all unpushed commits for recommit','For a large file that appears in older unpushed commits: move HEAD back to the upstream branch with --soft, keep the combined outgoing changes staged, untrack and ignore the large file, then let you review and recommit.',values=>repair(ctx,'large_file_prepare_recommit',{large_path:values.large_path,confirmed:true}),{inputs:[pathInput],risk:'Advanced: this rewrites local unpushed history by removing its commit boundaries. Your combined changes remain staged and the original HEAD is reported/recoverable via reflog. You must review and commit again before pushing.'}),
         statusOpt
-      ];
+      );
       return {code,title:'Push rejected: file exceeds remote size limit',summary,options};
     }
     case 'disk_full':
