@@ -34,13 +34,15 @@ const operation=document.createElement('div');operation.className='git-operation
 const operationHead=document.createElement('div');operationHead.className='git-operation-head';
 const operationCommand=document.createElement('span');operationCommand.className='git-operation-command';
 const operationCopy=document.createElement('button');operationCopy.textContent='Copy command';
+const operationCancel=document.createElement('button');operationCancel.textContent='Cancel';operationCancel.hidden=true;operationCancel.title='Cancel running Git process';
 const operationClear=document.createElement('button');operationClear.textContent='Clear';
 const operationOutput=document.createElement('pre');operationOutput.className='git-operation-output';
-operationHead.append(operationCommand,operationCopy,operationClear);operation.append(operationHead,operationOutput);
+operationHead.append(operationCommand,operationCopy,operationCancel,operationClear);operation.append(operationHead,operationOutput);
 panel.append(panelHead,repoBar,quickGroups,nav,content,operation);document.body.append(panel);
 
 let currentStatus=null,currentView='changes',refreshing=false,lastCommand='',refreshSeq=0;
 let repositories=[],activeRepoID='',gitAutoSelectFromTerminalCWD=false;
+let activeGitJob=null;
 const runningActions=new Map();
 function el(tag,className,text){const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node;}
 function q(value){value=String(value??'');return /^[A-Za-z0-9_./:@+\-]+$/.test(value)?value:"'"+value.replace(/'/g,"'\\''")+"'";}
@@ -62,7 +64,46 @@ function beginOperation(command,message='Running…'){
   showOperation(command,message,'','running');
   requestAnimationFrame(()=>operation.scrollIntoView({block:'nearest'}));
 }
-operationCopy.onclick=()=>copyText(lastCommand).catch(app.showError);operationClear.onclick=()=>{operation.hidden=true;operation.classList.remove('running');operationOutput.textContent='';lastCommand='';};
+function gitUIAsyncAction(action){return ['fetch','pull','push','merge'].includes(String(action||''));}
+function gitJobElapsed(startedAt){
+  const start=Date.parse(startedAt||'');if(!Number.isFinite(start))return '';
+  const seconds=Math.max(0,Math.round((Date.now()-start)/1000));
+  if(seconds<60)return seconds+'s';
+  return Math.floor(seconds/60)+'m '+String(seconds%60).padStart(2,'0')+'s';
+}
+function renderGitJob(snapshot,command){
+  const state=String(snapshot?.state||'running');
+  const elapsed=gitJobElapsed(snapshot?.started_at);
+  const header=[state.toUpperCase(),elapsed&&('elapsed '+elapsed)].filter(Boolean).join(' · ');
+  showOperation(snapshot?.command||command,[header,snapshot?.output||''].filter(Boolean).join('\n'),snapshot?.error||'',state==='running'?'running':'done');
+  operationCancel.hidden=state!=='running';
+}
+async function cancelGitJob(){
+  const job=activeGitJob;if(!job?.id)return false;
+  operationCancel.disabled=true;operationCancel.textContent='Canceling…';
+  try{
+    await app.jsonFetch('/api/git/jobs/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:job.id,action:'cancel'})});
+    return true;
+  }finally{
+    operationCancel.disabled=false;operationCancel.textContent='Cancel';
+  }
+}
+async function waitGitJob(initial,command){
+  const jobID=String(initial?.job_id||'');if(!jobID)return initial;
+  activeGitJob={id:jobID,command};operationCancel.hidden=false;
+  try{
+    while(true){
+      const data=await app.jsonFetch('/api/git/jobs?id='+encodeURIComponent(jobID));
+      renderGitJob(data,command);
+      if(String(data.state||'')!=='running')return data;
+      await new Promise(resolve=>setTimeout(resolve,250));
+    }
+  }finally{
+    activeGitJob=null;operationCancel.hidden=true;
+  }
+}
+operationCancel.onclick=()=>cancelGitJob().catch(app.showError);
+operationCopy.onclick=()=>copyText(lastCommand).catch(app.showError);operationClear.onclick=()=>{if(activeGitJob)return;operation.hidden=true;operation.classList.remove('running');operationOutput.textContent='';lastCommand='';};
 
 function repoStorageKey(){return 'taskdeck:git-repository:'+(String(app.taskData?.workspace||'').trim()||'global');}
 function activeRepository(){return repositories.find(item=>item.id===activeRepoID)||null;}
@@ -240,7 +281,8 @@ async function action(actionName,payload={},confirmText='',options={}){
   const pending=(async()=>{
     try{
       const query=new URLSearchParams();if(repoID)query.set('repo',repoID);
-      const data=await app.jsonFetch('/api/git/status'+(query.size?'?'+query.toString():''),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:actionName,...payload})});
+      let data=await app.jsonFetch('/api/git/status'+(query.size?'?'+query.toString():''),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:actionName,...payload,async:gitUIAsyncAction(actionName)})});
+      if(data?.async&&data?.job_id)data=await waitGitJob(data,command);
       showOperation(command,data.output||'',data.ok?'':(data.error||'Git action failed'));
       if(!data.ok){
         const failure=gitFailureError(data.error||'Git action failed',data);
