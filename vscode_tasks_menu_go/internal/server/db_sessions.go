@@ -332,7 +332,7 @@ func sqlScriptExtensionAllowed(name string) bool {
 
 func normalizeBrowserDBOperation(operation dbadapter.Operation, raw json.RawMessage) (interface{}, error) {
 	switch operation {
-	case dbadapter.OpPing, dbadapter.OpListCatalogs:
+	case dbadapter.OpPing, dbadapter.OpListCatalogs, dbadapter.OpBegin, dbadapter.OpCommit, dbadapter.OpRollback:
 		if len(raw) != 0 && string(raw) != "null" && string(raw) != "{}" {
 			return nil, fmt.Errorf("database operation %q does not accept a payload", operation)
 		}

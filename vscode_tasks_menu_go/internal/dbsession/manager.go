@@ -25,8 +25,9 @@ type Metadata struct {
 	ID          string `json:"id"`
 	ProfileID   string `json:"profile_id"`
 	AdapterID   string `json:"adapter_id"`
-	AdapterKind string `json:"adapter_kind"`
-	StartedAt   string `json:"started_at"`
+	AdapterKind       string `json:"adapter_kind"`
+	StartedAt         string `json:"started_at"`
+	TransactionActive bool   `json:"transaction_active,omitempty"`
 }
 
 type session struct {
@@ -199,7 +200,28 @@ func (m *Manager) Request(ctx context.Context, id string, operation dbadapter.Op
 	if err != nil {
 		return dbadapter.Envelope{}, err
 	}
-	return item.process.Request(ctx, operation, payload, item.meta.ID)
+	response, err := item.process.Request(ctx, operation, payload, item.meta.ID)
+	if err != nil {
+		return dbadapter.Envelope{}, err
+	}
+	switch operation {
+	case dbadapter.OpBegin:
+		m.setTransactionActive(item, true)
+	case dbadapter.OpCommit, dbadapter.OpRollback:
+		m.setTransactionActive(item, false)
+	}
+	return response, nil
+}
+
+func (m *Manager) setTransactionActive(item *session, active bool) {
+	if m == nil || item == nil {
+		return
+	}
+	m.mu.Lock()
+	if current, ok := m.sessions[item.meta.ID]; ok && current == item {
+		current.meta.TransactionActive = active
+	}
+	m.mu.Unlock()
 }
 
 func (m *Manager) Diagnostics(id string) (string, error) {

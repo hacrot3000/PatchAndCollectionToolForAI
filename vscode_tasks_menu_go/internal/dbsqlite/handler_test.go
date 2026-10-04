@@ -2,6 +2,7 @@ package dbsqlite
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -368,5 +369,145 @@ func TestSQLiteManifestAdvertisesWorkbenchCapabilities(t *testing.T) {
 	}
 	if !manifest.Capabilities.BrowseRows || !manifest.Capabilities.MutateRows || !manifest.Capabilities.ObjectActions {
 		t.Fatalf("workbench capabilities=%+v", manifest.Capabilities)
+	}
+}
+
+func TestSQLiteTransactionsCommitAndRollback(t *testing.T) {
+	python, err := FindPython()
+	if err != nil {
+		t.Skipf("Python 3 unavailable: %v", err)
+	}
+	path := createSQLiteFixture(t, python)
+	handler := connectSQLiteHandler(t, path, false)
+	defer handler.disconnect()
+
+	beginPayload, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "begin-1", dbadapter.OpBegin, nil))
+	if protocolErr != nil {
+		t.Fatalf("begin error=%+v", protocolErr)
+	}
+	if result := beginPayload.(dbadapter.TransactionResult); !result.Active {
+		t.Fatalf("begin result=%+v", result)
+	}
+	if handler.transaction == nil {
+		t.Fatal("transaction worker was not retained")
+	}
+
+	_, protocolErr = handler.Handle(context.Background(), sqliteAdapterRequest(t, "insert-1", dbadapter.OpExecute, dbadapter.ExecutePayload{
+		Statement: "INSERT INTO users(name,active) VALUES ('TxRollback',1)",
+		MaxRows:   10,
+	}))
+	if protocolErr != nil {
+		t.Fatalf("transaction insert error=%+v", protocolErr)
+	}
+	insidePayload, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "inside-1", dbadapter.OpExecute, dbadapter.ExecutePayload{
+		Statement: "SELECT COUNT(*) AS n FROM users WHERE name='TxRollback'",
+		MaxRows:   10,
+	}))
+	if protocolErr != nil {
+		t.Fatalf("transaction select error=%+v", protocolErr)
+	}
+	inside := insidePayload.(dbadapter.ExecuteResult)
+	if len(inside.Rows) != 1 || fmt.Sprint(inside.Rows[0][0]) != "1" {
+		t.Fatalf("inside transaction=%+v", inside)
+	}
+
+	_, protocolErr = handler.Handle(context.Background(), sqliteAdapterRequest(t, "browse-blocked", dbadapter.OpBrowseRows, dbadapter.BrowseRowsPayload{Name: "users", Limit: 10}))
+	if protocolErr == nil || protocolErr.Code != "TRANSACTION_ACTIVE" {
+		t.Fatalf("grid operation should be blocked during transaction: %+v", protocolErr)
+	}
+
+	rollbackPayload, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "rollback-1", dbadapter.OpRollback, nil))
+	if protocolErr != nil {
+		t.Fatalf("rollback error=%+v", protocolErr)
+	}
+	if result := rollbackPayload.(dbadapter.TransactionResult); result.Active {
+		t.Fatalf("rollback result=%+v", result)
+	}
+	if handler.transaction != nil {
+		t.Fatal("transaction worker remains after rollback")
+	}
+
+	verifyPayload, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "verify-rollback", dbadapter.OpExecute, dbadapter.ExecutePayload{
+		Statement: "SELECT COUNT(*) AS n FROM users WHERE name='TxRollback'",
+		MaxRows:   10,
+	}))
+	if protocolErr != nil {
+		t.Fatalf("verify rollback error=%+v", protocolErr)
+	}
+	verify := verifyPayload.(dbadapter.ExecuteResult)
+	if len(verify.Rows) != 1 || fmt.Sprint(verify.Rows[0][0]) != "0" {
+		t.Fatalf("rollback persisted row: %+v", verify)
+	}
+
+	_, protocolErr = handler.Handle(context.Background(), sqliteAdapterRequest(t, "begin-2", dbadapter.OpBegin, nil))
+	if protocolErr != nil {
+		t.Fatalf("second begin error=%+v", protocolErr)
+	}
+	_, protocolErr = handler.Handle(context.Background(), sqliteAdapterRequest(t, "insert-2", dbadapter.OpExecute, dbadapter.ExecutePayload{
+		Statement: "INSERT INTO users(name,active) VALUES ('TxCommit',1)",
+		MaxRows:   10,
+	}))
+	if protocolErr != nil {
+		t.Fatalf("commit insert error=%+v", protocolErr)
+	}
+	commitPayload, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "commit-1", dbadapter.OpCommit, nil))
+	if protocolErr != nil {
+		t.Fatalf("commit error=%+v", protocolErr)
+	}
+	if result := commitPayload.(dbadapter.TransactionResult); result.Active {
+		t.Fatalf("commit result=%+v", result)
+	}
+
+	verifyPayload, protocolErr = handler.Handle(context.Background(), sqliteAdapterRequest(t, "verify-commit", dbadapter.OpExecute, dbadapter.ExecutePayload{
+		Statement: "SELECT COUNT(*) AS n FROM users WHERE name='TxCommit'",
+		MaxRows:   10,
+	}))
+	if protocolErr != nil {
+		t.Fatalf("verify commit error=%+v", protocolErr)
+	}
+	verify = verifyPayload.(dbadapter.ExecuteResult)
+	if len(verify.Rows) != 1 || fmt.Sprint(verify.Rows[0][0]) != "1" {
+		t.Fatalf("commit did not persist row: %+v", verify)
+	}
+}
+
+func TestSQLiteTransactionDisconnectRollsBack(t *testing.T) {
+	python, err := FindPython()
+	if err != nil {
+		t.Skipf("Python 3 unavailable: %v", err)
+	}
+	path := createSQLiteFixture(t, python)
+	handler := connectSQLiteHandler(t, path, false)
+	if _, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "begin-disconnect", dbadapter.OpBegin, nil)); protocolErr != nil {
+		t.Fatal(protocolErr)
+	}
+	if _, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "insert-disconnect", dbadapter.OpExecute, dbadapter.ExecutePayload{
+		Statement: "INSERT INTO users(name,active) VALUES ('DisconnectRollback',1)", MaxRows: 10,
+	})); protocolErr != nil {
+		t.Fatal(protocolErr)
+	}
+	handler.disconnect()
+
+	verifyHandler := connectSQLiteHandler(t, path, false)
+	defer verifyHandler.disconnect()
+	payload, protocolErr := verifyHandler.Handle(context.Background(), sqliteAdapterRequest(t, "verify-disconnect", dbadapter.OpExecute, dbadapter.ExecutePayload{
+		Statement: "SELECT COUNT(*) AS n FROM users WHERE name='DisconnectRollback'", MaxRows: 10,
+	}))
+	if protocolErr != nil {
+		t.Fatal(protocolErr)
+	}
+	result := payload.(dbadapter.ExecuteResult)
+	if fmt.Sprint(result.Rows[0][0]) != "0" {
+		t.Fatalf("disconnect did not rollback: %+v", result)
+	}
+}
+
+func TestSQLiteManifestAdvertisesTransactionsAndCancel(t *testing.T) {
+	manifest, err := BuiltinManifest("/opt/taskdeck")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manifest.Capabilities.Transactions || !manifest.Capabilities.Cancel {
+		t.Fatalf("capabilities=%+v", manifest.Capabilities)
 	}
 }

@@ -108,6 +108,7 @@ func BuiltinManifest(taskdeckExecutable string) (dbadapter.Manifest, error) {
 			ObjectActions:  true,
 			Execute:        true,
 			Cancel:         true,
+			Transactions:   true,
 			ImportSQL:      true,
 		},
 	}

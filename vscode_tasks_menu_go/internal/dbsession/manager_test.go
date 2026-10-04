@@ -32,6 +32,12 @@ func (h *helperHandler) Handle(_ context.Context, request dbadapter.Envelope) (i
 		return map[string]bool{"disconnected": true}, nil
 	case dbadapter.OpPing:
 		return map[string]bool{"pong": true}, nil
+	case dbadapter.OpBegin:
+		return dbadapter.TransactionResult{Active: true, Message: "fixture transaction started"}, nil
+	case dbadapter.OpCommit:
+		return dbadapter.TransactionResult{Active: false, Message: "fixture transaction committed"}, nil
+	case dbadapter.OpRollback:
+		return dbadapter.TransactionResult{Active: false, Message: "fixture transaction rolled back"}, nil
 	case dbadapter.OpExecute:
 		return dbadapter.ExecuteResult{
 			Columns: []dbadapter.Column{{Name: "value", Type: "integer"}},
@@ -51,9 +57,10 @@ func sessionTestManifest(id string) dbadapter.Manifest {
 		Command:         os.Args[0],
 		Args:            []string{"-test.run=TestDBSessionHelperProcess"},
 		Capabilities: dbadapter.CapabilitySet{
-			Connect: true,
-			Ping:    true,
-			Execute: true,
+			Connect:      true,
+			Ping:         true,
+			Execute:      true,
+			Transactions: true,
 		},
 	}
 }
@@ -111,6 +118,36 @@ func TestManagerOpenRequestAndClose(t *testing.T) {
 	if _, err := manager.Get(meta.ID); err != ErrSessionNotFound {
 		t.Fatalf("Get after close error=%v", err)
 	}
+}
+
+func TestManagerTracksTransactionState(t *testing.T) {
+	registry := dbadapter.NewRegistry()
+	manifest := sessionTestManifest("tx-adapter")
+	if err := registry.Register(manifest); err != nil { t.Fatal(err) }
+	manager, err := NewManager(registry, 2)
+	if err != nil { t.Fatal(err) }
+	defer manager.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	meta, err := manager.Open(ctx, "profile-tx", manifest.ID, dbadapter.ProcessOptions{Env: sessionHelperEnv(manifest.ID)}, dbadapter.ConnectPayload{})
+	if err != nil { t.Fatal(err) }
+	if meta.TransactionActive { t.Fatalf("new session unexpectedly active: %+v", meta) }
+
+	if _, err := manager.Request(ctx, meta.ID, dbadapter.OpBegin, nil); err != nil { t.Fatal(err) }
+	afterBegin, err := manager.Get(meta.ID)
+	if err != nil { t.Fatal(err) }
+	if !afterBegin.TransactionActive { t.Fatalf("begin state=%+v", afterBegin) }
+
+	if _, err := manager.Request(ctx, meta.ID, dbadapter.OpRollback, nil); err != nil { t.Fatal(err) }
+	afterRollback, err := manager.Get(meta.ID)
+	if err != nil { t.Fatal(err) }
+	if afterRollback.TransactionActive { t.Fatalf("rollback state=%+v", afterRollback) }
+
+	if _, err := manager.Request(ctx, meta.ID, dbadapter.OpBegin, nil); err != nil { t.Fatal(err) }
+	if _, err := manager.Request(ctx, meta.ID, dbadapter.OpCommit, nil); err != nil { t.Fatal(err) }
+	afterCommit, err := manager.Get(meta.ID)
+	if err != nil { t.Fatal(err) }
+	if afterCommit.TransactionActive { t.Fatalf("commit state=%+v", afterCommit) }
 }
 
 func TestManagerRejectsAdapterIdentityMismatch(t *testing.T) {

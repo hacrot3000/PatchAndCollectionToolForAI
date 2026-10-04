@@ -205,12 +205,17 @@ func TestBrowserDatabaseOperationsAreStrictlyAllowlisted(t *testing.T) {
 		dbadapter.OpDisconnect,
 		dbadapter.OpImportSQL,
 		dbadapter.OpCancel,
-		dbadapter.OpBegin,
-		dbadapter.OpCommit,
-		dbadapter.OpRollback,
 	} {
 		if _, err := normalizeBrowserDBOperation(operation, nil); err == nil {
 			t.Fatalf("operation %q unexpectedly exposed to browser", operation)
+		}
+	}
+	for _, operation := range []dbadapter.Operation{dbadapter.OpBegin, dbadapter.OpCommit, dbadapter.OpRollback} {
+		if payload, err := normalizeBrowserDBOperation(operation, nil); err != nil || payload != nil {
+			t.Fatalf("transaction operation %q payload=%#v err=%v", operation, payload, err)
+		}
+		if _, err := normalizeBrowserDBOperation(operation, json.RawMessage(`{"unexpected":true}`)); err == nil {
+			t.Fatalf("transaction operation %q unexpectedly accepted a payload", operation)
 		}
 	}
 

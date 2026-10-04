@@ -11,10 +11,11 @@ import (
 )
 
 type Handler struct {
-	manifest  dbadapter.Manifest
-	python    Python
-	config    Config
-	connected bool
+	manifest    dbadapter.Manifest
+	python      Python
+	config      Config
+	connected   bool
+	transaction *sqliteTransactionWorker
 }
 
 func NewHandler(taskdeckExecutable string) (*Handler, error) {
@@ -36,6 +37,51 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 	case dbadapter.OpDisconnect:
 		h.disconnect()
 		return map[string]bool{"disconnected": true}, nil
+	case dbadapter.OpBegin:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		if h.transaction != nil {
+			return nil, &dbadapter.ProtocolError{Code: "TRANSACTION_ACTIVE", Message: "SQLite transaction is already active"}
+		}
+		transaction, err := startSQLiteTransaction(ctx, h.python, h.config)
+		if err != nil {
+			return nil, sqliteProtocolError("TRANSACTION_BEGIN_FAILED", err)
+		}
+		h.transaction = transaction
+		return dbadapter.TransactionResult{Active: true, Message: "SQLite transaction started"}, nil
+	case dbadapter.OpCommit:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		if h.transaction == nil {
+			return nil, &dbadapter.ProtocolError{Code: "NO_TRANSACTION", Message: "SQLite transaction is not active"}
+		}
+		transaction := h.transaction
+		result, err := transaction.Commit(ctx)
+		if err != nil {
+			transaction.forceClose()
+			h.transaction = nil
+			return nil, sqliteProtocolError("TRANSACTION_COMMIT_FAILED", err)
+		}
+		h.transaction = nil
+		return result, nil
+	case dbadapter.OpRollback:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		if h.transaction == nil {
+			return nil, &dbadapter.ProtocolError{Code: "NO_TRANSACTION", Message: "SQLite transaction is not active"}
+		}
+		transaction := h.transaction
+		result, err := transaction.Rollback(ctx)
+		if err != nil {
+			transaction.forceClose()
+			h.transaction = nil
+			return nil, sqliteProtocolError("TRANSACTION_ROLLBACK_FAILED", err)
+		}
+		h.transaction = nil
+		return result, nil
 	case dbadapter.OpPing:
 		if protocolErr := h.requireConnected(); protocolErr != nil {
 			return nil, protocolErr
@@ -102,6 +148,9 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 		if protocolErr := h.requireConnected(); protocolErr != nil {
 			return nil, protocolErr
 		}
+		if h.transaction != nil {
+			return nil, &dbadapter.ProtocolError{Code: "TRANSACTION_ACTIVE", Message: "Use Query SQL statements while the SQLite transaction is active; commit or rollback before using grid/object operations"}
+		}
 		var payload dbadapter.BrowseRowsPayload
 		if err := decodeSQLitePayload(request.Payload, &payload); err != nil {
 			return nil, sqliteProtocolError("INVALID_PAYLOAD", err)
@@ -124,6 +173,9 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 	case dbadapter.OpMutateRows:
 		if protocolErr := h.requireConnected(); protocolErr != nil {
 			return nil, protocolErr
+		}
+		if h.transaction != nil {
+			return nil, &dbadapter.ProtocolError{Code: "TRANSACTION_ACTIVE", Message: "Use Query SQL statements while the SQLite transaction is active; commit or rollback before using grid/object operations"}
 		}
 		if h.config.ReadOnly {
 			return nil, &dbadapter.ProtocolError{Code: "READ_ONLY", Message: "SQLite connection is read-only"}
@@ -150,6 +202,9 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 	case dbadapter.OpObjectAction:
 		if protocolErr := h.requireConnected(); protocolErr != nil {
 			return nil, protocolErr
+		}
+		if h.transaction != nil {
+			return nil, &dbadapter.ProtocolError{Code: "TRANSACTION_ACTIVE", Message: "Use Query SQL statements while the SQLite transaction is active; commit or rollback before using grid/object operations"}
 		}
 		var payload dbadapter.ObjectActionPayload
 		if err := decodeSQLitePayload(request.Payload, &payload); err != nil {
@@ -186,7 +241,15 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 			return nil, sqliteProtocolError("INVALID_QUERY", err)
 		}
 		var result dbadapter.ExecuteResult
-		if err := runHelper(ctx, h.python, h.config, "execute", normalized, &result); err != nil {
+		if h.transaction != nil {
+			if result, err = h.transaction.Execute(ctx, normalized); err != nil {
+				if h.transaction.broken.Load() {
+					h.transaction.forceClose()
+					h.transaction = nil
+				}
+				return nil, sqliteProtocolError("QUERY_FAILED", err)
+			}
+		} else if err := runHelper(ctx, h.python, h.config, "execute", normalized, &result); err != nil {
 			return nil, sqliteProtocolError("QUERY_FAILED", err)
 		}
 		if err := dbadapter.ValidateExecuteResult(result); err != nil {
@@ -196,6 +259,9 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 	case dbadapter.OpImportSQL:
 		if protocolErr := h.requireConnected(); protocolErr != nil {
 			return nil, protocolErr
+		}
+		if h.transaction != nil {
+			return nil, &dbadapter.ProtocolError{Code: "TRANSACTION_ACTIVE", Message: "Use Query SQL statements while the SQLite transaction is active; commit or rollback before using grid/object operations"}
 		}
 		if h.config.ReadOnly {
 			return nil, &dbadapter.ProtocolError{Code: "READ_ONLY", Message: "SQLite connection is read-only"}
@@ -252,6 +318,10 @@ func (h *Handler) connect(ctx context.Context, request dbadapter.Envelope) (inte
 func (h *Handler) disconnect() {
 	if h == nil {
 		return
+	}
+	if h.transaction != nil {
+		h.transaction.rollbackBestEffort()
+		h.transaction = nil
 	}
 	h.python = Python{}
 	h.config = Config{}
