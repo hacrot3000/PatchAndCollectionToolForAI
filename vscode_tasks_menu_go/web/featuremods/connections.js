@@ -386,6 +386,12 @@ function openProfileDialog(profile=null){
   const secret=field(form,editing&&profile?.has_secret?'Password / passphrase (leave blank to keep saved value)':'Password / passphrase','secret',{type:'password',wide:true});
   const home=field(form,'Custom remote home directory','custom_home_dir',{wide:true,value:profile?.custom_home_dir||'',placeholder:'Optional, e.g. /srv/app'});
   const proxy=field(form,'ProxyJump','proxy_jump',{wide:true,value:profile?.proxy_jump||'',placeholder:'Optional, e.g. jump@example.com'});
+  const connectTimeout=field(form,'Connect timeout (seconds)','connect_timeout_seconds',{type:'number',value:String(profile?.connect_timeout_seconds||10)});
+  connectTimeout.input.min='1';connectTimeout.input.max='300';
+  const aliveInterval=field(form,'Server alive interval (seconds)','server_alive_interval_seconds',{type:'number',value:String(profile?.server_alive_interval_seconds||15)});
+  aliveInterval.input.min='1';aliveInterval.input.max='3600';
+  const aliveCount=field(form,'Server alive count max','server_alive_count_max',{type:'number',value:String(profile?.server_alive_count_max||3)});
+  aliveCount.input.min='1';aliveCount.input.max='20';
   const presets=field(form,'Preset commands — one command per line, run after connection','preset_commands',{type:'textarea',wide:true,value:profilePresetText(profile)});
 
   function syncAuthFields(){
@@ -405,6 +411,9 @@ function openProfileDialog(profile=null){
       identity_file:identity.input.value,
       custom_home_dir:home.input.value,
       proxy_jump:proxy.input.value,
+      connect_timeout_seconds:Number(connectTimeout.input.value)||10,
+      server_alive_interval_seconds:Number(aliveInterval.input.value)||15,
+      server_alive_count_max:Number(aliveCount.input.value)||3,
       preset_commands:presetCommandsFromText(presets.input.value)
     };
     if(auth.input.value!=='agent'&&secret.input.value!=='')payload.secret=secret.input.value;
