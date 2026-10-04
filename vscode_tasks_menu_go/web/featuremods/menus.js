@@ -97,9 +97,9 @@ function decoratePane(view){
   const head=view?.pane?.querySelector('.pane-head');if(!head||head.querySelector('.pane-action-menus'))return;
   const host=document.createElement('div');host.className='pane-action-menus';
   const session=paneMenu(view,'Session',[
-    ['PROCESS',['.session-force-restart','.terminal-rename']],
+    ['PROCESS',['.session-force-restart','.terminal-rename','.session-process-tree']],
     ['SPLIT',['.session-split-vertical','.session-split-horizontal','.session-merge-vertical','.session-merge-horizontal','.session-swap-split','.session-unsplit']],
-    ['LIFECYCLE',['.stop']]
+    ['LIFECYCLE',['.stop','.session-terminate','.session-force-kill']]
   ]);
   const consoleMenu=paneMenu(view,'Console',[
     ['CONSOLE',['.copy-console','.console-search-btn','.console-save-btn','.session-clear-console']]
