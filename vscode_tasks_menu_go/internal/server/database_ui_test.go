@@ -1472,3 +1472,34 @@ func TestDatabaseCapabilityBridgeBetweenModules(t *testing.T) {
 		t.Fatal("database_workbench.js does not export supports")
 	}
 }
+
+func TestDatabaseTransactionControls(t *testing.T) {
+	databaseData, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil { t.Fatal(err) }
+	workbenchData, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil { t.Fatal(err) }
+	js := string(databaseData)
+	for _, want := range []string{
+		"function databaseTransactionRoot(view)",
+		"function syncQueryTransactionControls(view)",
+		"function syncAllQueryTransactionControls(root)",
+		"async function transactionAction(view,operation)",
+		"databaseSupports(view,'transactions')",
+		"beginTransaction.textContent='Begin'",
+		"commitTransaction.textContent='Commit'",
+		"rollbackTransaction.textContent='Rollback'",
+		"transactionState.className='db-transaction-state'",
+		"transactionState.textContent=active?'TX ACTIVE':'AUTO COMMIT'",
+		"sessionRequest(root.meta.id,operation)",
+		"transactionActive:Boolean(meta.transaction_active)",
+		"refreshQueryControls:syncAllQueryTransactionControls",
+		".db-transaction-state.active",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database.js missing transaction control %q", want)
+		}
+	}
+	if !strings.Contains(string(workbenchData), "database.refreshQueryControls?.(view)") {
+		t.Fatal("database_workbench.js does not refresh transaction controls after adapter metadata loads")
+	}
+}

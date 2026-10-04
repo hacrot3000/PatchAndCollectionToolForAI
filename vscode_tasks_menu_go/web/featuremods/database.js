@@ -45,6 +45,8 @@ style.textContent=`
 .db-query{min-width:0;display:flex;flex-direction:column;background:#090c10}
 .db-query-tools{display:flex;align-items:center;gap:6px;padding:7px;border-bottom:1px solid #30343b;background:#11151b}
 .db-query-tools .db-run{background:#244c70;border-color:#3f79a8}
+.db-transaction-state{font-size:9px;font-weight:800;letter-spacing:.04em;opacity:.55;border:1px solid #39414d;border-radius:999px;padding:3px 6px;white-space:nowrap}
+.db-transaction-state.active{opacity:1;color:#f1c46e;border-color:#8a692d;background:#2a2110}
 .db-query-tools label{font-size:10px;opacity:.65}
 .db-query-tools input{width:72px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:6px}
 .db-script-dialog{position:fixed;inset:0;z-index:16000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.58);padding:18px}
@@ -1853,6 +1855,50 @@ async function loadCatalogs(view){
   else renderObjects(view,[]);
 }
 
+function databaseTransactionRoot(view){
+  return view?.workbenchRoot||view;
+}
+
+function syncQueryTransactionControls(view){
+  if(!view)return;
+  const root=databaseTransactionRoot(view);
+  const supported=databaseSupports(view,'transactions');
+  const active=Boolean(root?.transactionActive||root?.meta?.transaction_active);
+  if(view.beginTransaction){view.beginTransaction.hidden=!supported||active;view.beginTransaction.disabled=!supported||active;}
+  if(view.commitTransaction){view.commitTransaction.hidden=!supported||!active;view.commitTransaction.disabled=!supported||!active;}
+  if(view.rollbackTransaction){view.rollbackTransaction.hidden=!supported||!active;view.rollbackTransaction.disabled=!supported||!active;}
+  if(view.transactionState){
+    view.transactionState.hidden=!supported;
+    view.transactionState.textContent=active?'TX ACTIVE':'AUTO COMMIT';
+    view.transactionState.classList.toggle('active',active);
+  }
+}
+
+function syncAllQueryTransactionControls(root){
+  root=databaseTransactionRoot(root);
+  for(const queryView of databaseQueryViews(root))syncQueryTransactionControls(queryView);
+}
+
+async function transactionAction(view,operation){
+  const root=databaseTransactionRoot(view);
+  if(!databaseSupports(view,'transactions'))throw new Error('This database adapter does not support explicit transactions');
+  if(root.queryAbortController)throw new Error('Cancel or finish the running query before changing transaction state');
+  const active=Boolean(root.transactionActive||root.meta?.transaction_active);
+  if(operation==='begin'&&active)return;
+  if((operation==='commit'||operation==='rollback')&&!active)return;
+  if((operation==='commit'||operation==='rollback')&&queryResultHasPendingChanges(view)&&!confirm('Discard unsaved result-grid edits before '+operation+'?'))return;
+  const result=await sessionRequest(root.meta.id,operation);
+  root.transactionActive=Boolean(result?.active);
+  if(root.meta)root.meta.transaction_active=root.transactionActive;
+  if(operation!=='begin'){
+    for(const queryView of databaseQueryViews(root)){
+      queryView.queryDirtyRows=new Map();queryView.queryNewRows=[];queryView.querySelectedRows?.clear?.();
+    }
+  }
+  syncAllQueryTransactionControls(root);
+  return result;
+}
+
 function defaultDatabaseQueryText(adapterKind){
   return adapterKind==='redis'
     ?'PING'
@@ -1865,6 +1911,10 @@ function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValu
   const query=document.createElement('div');query.className='db-query';
   const tools=document.createElement('div');tools.className='db-query-tools';
   const run=document.createElement('button');run.type='button';run.className='db-run';run.textContent='Run';
+  const beginTransaction=document.createElement('button');beginTransaction.type='button';beginTransaction.textContent='Begin';beginTransaction.hidden=true;
+  const commitTransaction=document.createElement('button');commitTransaction.type='button';commitTransaction.textContent='Commit';commitTransaction.hidden=true;
+  const rollbackTransaction=document.createElement('button');rollbackTransaction.type='button';rollbackTransaction.textContent='Rollback';rollbackTransaction.hidden=true;
+  const transactionState=document.createElement('span');transactionState.className='db-transaction-state';transactionState.hidden=true;
   const relational=view.meta.adapter_kind==='mysql'||view.meta.adapter_kind==='sqlite';
   const explain=document.createElement('button');explain.type='button';explain.textContent=view.meta.adapter_kind==='sqlite'?'Explain Plan':'Explain';explain.hidden=!relational;
   const explainAnalyze=document.createElement('button');explainAnalyze.type='button';explainAnalyze.textContent='Explain Analyze';explainAnalyze.hidden=view.meta.adapter_kind!=='mysql';
@@ -1872,13 +1922,13 @@ function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValu
   const saveSQL=document.createElement('button');saveSQL.type='button';saveSQL.textContent='Save SQL';saveSQL.hidden=openSQL.hidden;
   const rowsLabel=document.createElement('label');rowsLabel.textContent='Max rows';
   const maxRows=document.createElement('input');maxRows.type='number';maxRows.min='1';maxRows.max='1000';maxRows.value=String(maxRowsValue||'100');
-  tools.append(run,explain,explainAnalyze,openSQL,saveSQL,rowsLabel,maxRows);
+  tools.append(run,explain,explainAnalyze,beginTransaction,commitTransaction,rollbackTransaction,transactionState,openSQL,saveSQL,rowsLabel,maxRows);
   const editor=document.createElement('textarea');editor.className='db-query-editor';editor.spellcheck=false;editor.value=String(initialText||'');
   const result=document.createElement('div');result.className='db-result-wrap';
   query.append(tools,editor,result);
 
   Object.assign(view,{
-    queryPanel:query,editor,run,explain,explainAnalyze,openSQL,saveSQL,maxRows,result,
+    queryPanel:query,editor,run,explain,explainAnalyze,beginTransaction,commitTransaction,rollbackTransaction,transactionState,openSQL,saveSQL,maxRows,result,
     scriptName:scriptName||'query.sql',scriptSource:null,
     queryFilter:null,queryOrder:null,lastExecutedStatement:'',queryNewRows:[],
     queryDirtyRows:new Map(),querySelectedRows:new Set(),querySelectionAnchor:null,
@@ -1896,6 +1946,9 @@ function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValu
   };
   explain.onclick=()=>explainQuery(view,false).catch(app.showError);
   explainAnalyze.onclick=()=>explainQuery(view,true).catch(app.showError);
+  beginTransaction.onclick=()=>transactionAction(view,'begin').catch(app.showError);
+  commitTransaction.onclick=()=>transactionAction(view,'commit').catch(app.showError);
+  rollbackTransaction.onclick=()=>transactionAction(view,'rollback').catch(app.showError);
   openSQL.onclick=()=>openSQLScript(view).catch(app.showError);
   saveSQL.onclick=()=>saveSQLScript(view).catch(app.showError);
   if(!view.queryCM){
@@ -1905,6 +1958,7 @@ function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValu
     editor.addEventListener('input',()=>notifyQueryStateChanged(view));
   }
   maxRows.addEventListener('input',()=>notifyQueryStateChanged(view));
+  queueMicrotask(()=>syncQueryTransactionControls(view));
   return query;
 }
 
@@ -1952,7 +2006,7 @@ function attachDatabaseView(meta,activate){
   const detail=document.createElement('div');detail.className='db-object-detail';
   browser.append(browserHead,objects,detail);
 
-  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,objectData:[],querySchemaCache:new Map(),databaseTabReadOnly:false,workbenchTabReadOnly:false,tabReadOnly:false};
+  const view={meta,profile,tab,pane,catalog,refresh,objects,detail,objectData:[],querySchemaCache:new Map(),databaseTabReadOnly:false,workbenchTabReadOnly:false,tabReadOnly:false,transactionActive:Boolean(meta.transaction_active)};
   const query=setupQueryPanel(view,{initialText:defaultDatabaseQueryText(meta.adapter_kind),scriptName:'query.sql'});
   body.append(browser,query);pane.append(head,body);panes.append(pane);
 
@@ -2046,6 +2100,7 @@ globalThis.TaskMenuDatabase={
   queryHasPendingChanges:queryViewHasPendingChanges,
   setTabReadOnly:setDatabaseTabReadOnly,
   setQueryTabReadOnly:setQueryWorkbenchReadOnly,
+  refreshQueryControls:syncAllQueryTransactionControls,
   isTabReadOnly:viewOrID=>{
     const view=typeof viewOrID==='string'?dbViews.get(viewOrID):viewOrID;
     return Boolean(view?.databaseTabReadOnly);

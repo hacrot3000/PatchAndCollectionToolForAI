@@ -1089,6 +1089,7 @@ function refreshWorkbenchCapabilities(view){
   const wb=view.workbench;if(!wb?.controls)return;
   wb.controls.count.disabled=!supports(view,'object_actions');
   wb.controls.filter.disabled=!filterCapable(view);
+  database.refreshQueryControls?.(view);
   updateEditControls(view);
 }
 
