@@ -287,6 +287,62 @@ function presetCommandsFromText(text){
     .map((command,index)=>({id:'preset-'+(index+1),name:'Preset '+(index+1),command}));
 }
 
+function forwardingHostPort(host,port){
+  host=String(host||'127.0.0.1').trim()||'127.0.0.1';
+  port=Number(port)||0;
+  return host.includes(':')?'['+host.replace(/^\[|\]$/g,'')+']:'+port:host+':'+port;
+}
+
+function profileForwardingsText(profile){
+  return (Array.isArray(profile?.forwardings)?profile.forwardings:[]).map(item=>{
+    const kind=String(item?.kind||'').toLowerCase();
+    const listen=forwardingHostPort(item?.bind_host||'127.0.0.1',item?.bind_port);
+    if(kind==='dynamic')return 'D '+listen;
+    const prefix=kind==='remote'?'R':'L';
+    return prefix+' '+listen+' '+forwardingHostPort(item?.target_host,item?.target_port);
+  }).join('\n');
+}
+
+function parseForwardHostPort(value,label){
+  value=String(value||'').trim();
+  let host='',portText='';
+  if(value.startsWith('[')){
+    const end=value.indexOf(']:');
+    if(end<0)throw new Error(label+' must use [IPv6]:port');
+    host=value.slice(1,end);portText=value.slice(end+2);
+  }else{
+    const index=value.lastIndexOf(':');
+    if(index<=0)throw new Error(label+' must use host:port');
+    host=value.slice(0,index);portText=value.slice(index+1);
+  }
+  host=host.trim();
+  const port=Number(portText);
+  if(!host||!Number.isInteger(port)||port<1||port>65535)throw new Error(label+' has an invalid host or port');
+  return {host,port};
+}
+
+function forwardingsFromText(text){
+  const rows=[];
+  for(const [index,raw] of String(text||'').split(/\r?\n/).entries()){
+    const line=raw.trim();if(!line)continue;
+    const parts=line.split(/\s+/);
+    const kind=String(parts.shift()||'').toUpperCase();
+    if(!['L','R','D'].includes(kind))throw new Error('SSH forwarding line '+(index+1)+' must start with L, R, or D');
+    if(kind==='D'){
+      if(parts.length!==1)throw new Error('SSH dynamic forwarding line '+(index+1)+' must be: D bind_host:port');
+      const bind=parseForwardHostPort(parts[0],'SSH dynamic forwarding line '+(index+1));
+      rows.push({kind:'dynamic',bind_host:bind.host,bind_port:bind.port});
+      continue;
+    }
+    if(parts.length!==2)throw new Error('SSH forwarding line '+(index+1)+' must be: '+kind+' bind_host:port target_host:port');
+    const bind=parseForwardHostPort(parts[0],'SSH forwarding line '+(index+1)+' bind');
+    const target=parseForwardHostPort(parts[1],'SSH forwarding line '+(index+1)+' target');
+    rows.push({kind:kind==='L'?'local':'remote',bind_host:bind.host,bind_port:bind.port,target_host:target.host,target_port:target.port});
+  }
+  if(rows.length>16)throw new Error('SSH profile supports at most 16 forwarding rules');
+  return rows;
+}
+
 function field(form,labelText,name,{type='text',value='',wide=false,placeholder='',options=null}={}){
   const wrap=document.createElement('div');wrap.className='task-connection-field'+(wide?' wide':'');
   const label=document.createElement('label');label.textContent=labelText;
@@ -392,6 +448,10 @@ function openProfileDialog(profile=null){
   aliveInterval.input.min='1';aliveInterval.input.max='3600';
   const aliveCount=field(form,'Server alive count max','server_alive_count_max',{type:'number',value:String(profile?.server_alive_count_max||3)});
   aliveCount.input.min='1';aliveCount.input.max='20';
+  const forwards=field(form,'Port forwarding — one rule per line (L/R/D)','forwardings',{type:'textarea',wide:true,value:profileForwardingsText(profile),placeholder:'L 127.0.0.1:8080 app.internal:80\nR 127.0.0.1:9000 127.0.0.1:9001\nD 127.0.0.1:1080'});
+  const forwardingHint=document.createElement('div');forwardingHint.className='task-connection-warning';
+  forwardingHint.textContent='Forwarding rules apply only to interactive SSH terminals. SSH Test checks login only; SFTP and database tunnels do not inherit these L/R/D rules.';
+  form.append(forwardingHint);
   const presets=field(form,'Preset commands — one command per line, run after connection','preset_commands',{type:'textarea',wide:true,value:profilePresetText(profile)});
 
   function syncAuthFields(){
@@ -414,6 +474,7 @@ function openProfileDialog(profile=null){
       connect_timeout_seconds:Number(connectTimeout.input.value)||10,
       server_alive_interval_seconds:Number(aliveInterval.input.value)||15,
       server_alive_count_max:Number(aliveCount.input.value)||3,
+      forwardings:forwardingsFromText(forwards.input.value),
       preset_commands:presetCommandsFromText(presets.input.value)
     };
     if(auth.input.value!=='agent'&&secret.input.value!=='')payload.secret=secret.input.value;
