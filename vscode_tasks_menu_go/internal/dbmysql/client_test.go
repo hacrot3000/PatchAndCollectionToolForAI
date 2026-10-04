@@ -68,7 +68,7 @@ func TestBuiltinManifestUsesTaskDeckProcessBoundary(t *testing.T) {
 	if strings.Join(manifest.Args, " ") != "--db-adapter mysql" {
 		t.Fatalf("args=%#v", manifest.Args)
 	}
-	if !manifest.Capabilities.Connect || !manifest.Capabilities.Execute || !manifest.Capabilities.ImportSQL || manifest.Capabilities.Transactions {
+	if !manifest.Capabilities.Connect || !manifest.Capabilities.Execute || !manifest.Capabilities.ImportSQL || !manifest.Capabilities.Cancel || !manifest.Capabilities.Transactions {
 		t.Fatalf("capabilities=%+v", manifest.Capabilities)
 	}
 }

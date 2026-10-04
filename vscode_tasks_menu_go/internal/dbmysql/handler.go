@@ -15,10 +15,11 @@ import (
 )
 
 type Handler struct {
-	manifest  dbadapter.Manifest
-	client    Client
-	config    Config
-	connected bool
+	manifest    dbadapter.Manifest
+	client      Client
+	config      Config
+	connected   bool
+	transaction *mysqlTransactionWorker
 }
 
 func NewHandler(taskdeckExecutable string) (*Handler, error) {
@@ -38,11 +39,53 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 	case dbadapter.OpConnect:
 		return h.connect(ctx, request)
 	case dbadapter.OpDisconnect:
-		h.config.Secret = ""
-		h.config = Config{}
-		h.client = Client{}
-		h.connected = false
+		h.disconnect()
 		return map[string]bool{"disconnected": true}, nil
+	case dbadapter.OpBegin:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		if h.transaction != nil {
+			return nil, &dbadapter.ProtocolError{Code: "TRANSACTION_ACTIVE", Message: "MySQL transaction is already active"}
+		}
+		transaction, err := startMySQLTransaction(ctx, h.client, h.config)
+		if err != nil {
+			return nil, mysqlProtocolError("TRANSACTION_BEGIN_FAILED", err)
+		}
+		h.transaction = transaction
+		return dbadapter.TransactionResult{Active: true, Message: "MySQL transaction started"}, nil
+	case dbadapter.OpCommit:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		if h.transaction == nil {
+			return nil, &dbadapter.ProtocolError{Code: "NO_TRANSACTION", Message: "MySQL transaction is not active"}
+		}
+		transaction := h.transaction
+		result, err := transaction.Commit(ctx)
+		if err != nil {
+			transaction.forceClose()
+			h.transaction = nil
+			return nil, mysqlProtocolError("TRANSACTION_COMMIT_FAILED", err)
+		}
+		h.transaction = nil
+		return result, nil
+	case dbadapter.OpRollback:
+		if protocolErr := h.requireConnected(); protocolErr != nil {
+			return nil, protocolErr
+		}
+		if h.transaction == nil {
+			return nil, &dbadapter.ProtocolError{Code: "NO_TRANSACTION", Message: "MySQL transaction is not active"}
+		}
+		transaction := h.transaction
+		result, err := transaction.Rollback(ctx)
+		if err != nil {
+			transaction.forceClose()
+			h.transaction = nil
+			return nil, mysqlProtocolError("TRANSACTION_ROLLBACK_FAILED", err)
+		}
+		h.transaction = nil
+		return result, nil
 	case dbadapter.OpPing:
 		if protocolErr := h.requireConnected(); protocolErr != nil {
 			return nil, protocolErr
@@ -82,6 +125,9 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 		if protocolErr := h.requireConnected(); protocolErr != nil {
 			return nil, protocolErr
 		}
+		if h.transaction != nil {
+			return nil, &dbadapter.ProtocolError{Code: "TRANSACTION_ACTIVE", Message: "Use Query SQL statements while the MySQL transaction is active; commit or rollback before using grid/object operations"}
+		}
 		var payload dbadapter.BrowseRowsPayload
 		if err := decodePayload(request.Payload, &payload); err != nil {
 			return nil, mysqlProtocolError("INVALID_PAYLOAD", err)
@@ -94,6 +140,9 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 	case dbadapter.OpMutateRows:
 		if protocolErr := h.requireConnected(); protocolErr != nil {
 			return nil, protocolErr
+		}
+		if h.transaction != nil {
+			return nil, &dbadapter.ProtocolError{Code: "TRANSACTION_ACTIVE", Message: "Use Query SQL statements while the MySQL transaction is active; commit or rollback before using grid/object operations"}
 		}
 		if h.config.ReadOnly {
 			return nil, &dbadapter.ProtocolError{Code: "READ_ONLY", Message: "MySQL connection is read-only"}
@@ -110,6 +159,9 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 	case dbadapter.OpObjectAction:
 		if protocolErr := h.requireConnected(); protocolErr != nil {
 			return nil, protocolErr
+		}
+		if h.transaction != nil {
+			return nil, &dbadapter.ProtocolError{Code: "TRANSACTION_ACTIVE", Message: "Use Query SQL statements while the MySQL transaction is active; commit or rollback before using grid/object operations"}
 		}
 		var payload dbadapter.ObjectActionPayload
 		if err := decodePayload(request.Payload, &payload); err != nil {
@@ -145,15 +197,30 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 		if catalog := firstNonEmpty(normalized.Catalog, normalized.Schema); catalog != "" {
 			config.Database = catalog
 		}
-		result, err := h.queryWithConfig(ctx, config, statement, normalized.MaxRows)
-		if err != nil {
-			return nil, mysqlProtocolError("QUERY_FAILED", err)
+		var result dbadapter.ExecuteResult
+		if h.transaction != nil {
+			result, err = h.transaction.Execute(ctx, config, statement, normalized.MaxRows)
+			if err != nil {
+				if h.transaction.broken {
+					h.transaction.forceClose()
+					h.transaction = nil
+				}
+				return nil, mysqlProtocolError("QUERY_FAILED", err)
+			}
+		} else {
+			result, err = h.queryWithConfig(ctx, config, statement, normalized.MaxRows)
+			if err != nil {
+				return nil, mysqlProtocolError("QUERY_FAILED", err)
+			}
 		}
 		h.attachEditableSelectInfo(ctx, config, statement, &result)
 		return result, nil
 	case dbadapter.OpImportSQL:
 		if protocolErr := h.requireConnected(); protocolErr != nil {
 			return nil, protocolErr
+		}
+		if h.transaction != nil {
+			return nil, &dbadapter.ProtocolError{Code: "TRANSACTION_ACTIVE", Message: "Use Query SQL statements while the MySQL transaction is active; commit or rollback before using grid/object operations"}
 		}
 		if h.config.ReadOnly {
 			return nil, &dbadapter.ProtocolError{Code: "READ_ONLY", Message: "MySQL connection is read-only"}
@@ -211,7 +278,7 @@ func (h *Handler) connect(ctx context.Context, request dbadapter.Envelope) (inte
 		return nil, mysqlProtocolError("CONNECT_FAILED", err)
 	}
 
-	h.config.Secret = ""
+	h.disconnect()
 	h.config = config
 	h.client = client
 	h.connected = true
@@ -222,6 +289,20 @@ func (h *Handler) connect(ctx context.Context, request dbadapter.Envelope) (inte
 			"version": client.Version,
 		},
 	}, nil
+}
+
+func (h *Handler) disconnect() {
+	if h == nil {
+		return
+	}
+	if h.transaction != nil {
+		h.transaction.rollbackBestEffort()
+		h.transaction = nil
+	}
+	h.config.Secret = ""
+	h.config = Config{}
+	h.client = Client{}
+	h.connected = false
 }
 
 func (h *Handler) requireConnected() *dbadapter.ProtocolError {
