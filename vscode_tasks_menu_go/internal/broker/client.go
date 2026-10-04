@@ -231,9 +231,20 @@ func (c *Client) action(id, action string) error {
 	return c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(id)+"/"+action, nil, &meta)
 }
 
-func (c *Client) Stop(id string) error  { return c.action(id, "stop") }
-func (c *Client) Kill(id string) error  { return c.action(id, "kill") }
-func (c *Client) Clear(id string) error { return c.action(id, "clear") }
+func (c *Client) Stop(id string) error      { return c.action(id, "stop") }
+func (c *Client) Terminate(id string) error { return c.action(id, "terminate") }
+func (c *Client) Kill(id string) error      { return c.action(id, "kill") }
+func (c *Client) Clear(id string) error     { return c.action(id, "clear") }
+
+func (c *Client) ProcessTree(id string) ([]session.ProcessInfo, error) {
+	var payload struct {
+		Processes []session.ProcessInfo `json:"processes"`
+	}
+	if err := c.doJSON(http.MethodGet, "/v1/sessions/"+url.PathEscape(id)+"/process-tree", nil, &payload); err != nil {
+		return nil, err
+	}
+	return payload.Processes, nil
+}
 
 func (c *Client) Remove(id string) error {
 	resp, err := c.do(http.MethodDelete, "/v1/sessions/"+url.PathEscape(id), nil, "")

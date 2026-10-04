@@ -108,6 +108,20 @@ func (s *CompatibilityService) Stop(id string) error {
 	return s.primary.Stop(id)
 }
 
+func (s *CompatibilityService) Terminate(id string) error {
+	if s.local(id) {
+		return s.fallback.Terminate(id)
+	}
+	return s.primary.Terminate(id)
+}
+
+func (s *CompatibilityService) ProcessTree(id string) ([]session.ProcessInfo, error) {
+	if s.local(id) {
+		return s.fallback.ProcessTree(id)
+	}
+	return s.primary.ProcessTree(id)
+}
+
 func (s *CompatibilityService) Kill(id string) error {
 	if s.local(id) {
 		return s.fallback.Kill(id)

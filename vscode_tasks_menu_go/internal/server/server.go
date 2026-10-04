@@ -157,6 +157,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/admin/access", s.sharedAdminUI)
 	mux.HandleFunc("/admin/access.css", s.sharedAdminUI)
 	mux.HandleFunc("/admin/access.js", s.sharedAdminUI)
+	mux.HandleFunc("/api/sessions/terminate", s.sessionTerminate)
+	mux.HandleFunc("/api/sessions/process-tree", s.sessionProcessTree)
 	mux.HandleFunc("/api/sessions/force-kill", s.sessionForceKill)
 	mux.HandleFunc("/api/sessions/clear-console", s.sessionClearConsole)
 	mux.HandleFunc("/api/sessions", s.sessionsRoot)

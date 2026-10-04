@@ -5,6 +5,30 @@ import (
 	"syscall"
 )
 
+// Terminate asks the whole process group to exit cleanly with SIGTERM.
+func (m *Manager) Terminate(id string) error {
+	s, ok := m.Get(id)
+	if !ok {
+		return fmt.Errorf("session not found")
+	}
+	s.mu.Lock()
+	if s.meta.Status != "running" || s.cmd == nil || s.cmd.Process == nil {
+		s.mu.Unlock()
+		return nil
+	}
+	s.stopRequested = true
+	pid := s.cmd.Process.Pid
+	process := s.cmd.Process
+	s.mu.Unlock()
+	if err := syscall.Kill(-pid, syscall.SIGTERM); err == nil {
+		return nil
+	}
+	if err := process.Signal(syscall.SIGTERM); err != nil {
+		return fmt.Errorf("terminate session: %w", err)
+	}
+	return nil
+}
+
 // Kill forcefully terminates the whole process group owned by a running session.
 // It is intentionally separate from Stop, which remains a graceful interrupt.
 func (m *Manager) Kill(id string) error {

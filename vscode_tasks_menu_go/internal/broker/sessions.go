@@ -155,6 +155,8 @@ func (a *sessionAPI) sessionItem(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	case "stop":
 		a.simpleAction(w, r, id, a.manager.Stop)
+	case "terminate":
+		a.simpleAction(w, r, id, a.manager.Terminate)
 	case "kill":
 		a.simpleAction(w, r, id, a.manager.Kill)
 	case "clear":
@@ -185,6 +187,17 @@ func (a *sessionAPI) sessionItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeBrokerJSON(w, http.StatusOK, state)
+	case "process-tree":
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		processes, err := a.manager.ProcessTree(id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeBrokerJSON(w, http.StatusOK, map[string]any{"processes": processes})
 	case "cwd":
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

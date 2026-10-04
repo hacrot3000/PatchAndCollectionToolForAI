@@ -142,14 +142,14 @@ func sharedSessionActionAllowed(principal identity.Principal, meta session.Metad
 	if principal.Allowed(identity.PermissionSessionsManage) {
 		return true
 	}
-	view := (action == "" && method == http.MethodGet) || action == "protocol" || action == "ws" || (action == "cwd" && method == http.MethodGet)
+	view := (action == "" && method == http.MethodGet) || action == "protocol" || action == "ws" || (action == "cwd" && method == http.MethodGet) || (action == "process-tree" && method == http.MethodGet)
 	switch meta.Kind {
 	case tasks.SessionKindTerminal:
 		if view {
 			return sharedSessionViewAllowed(principal, meta)
 		}
 		switch action {
-		case "", "stop", "kill", "clear", "title", "resize":
+		case "", "stop", "terminate", "kill", "clear", "title", "resize":
 			return sharedTerminalControlAllowed(principal, meta)
 		default:
 			return false
@@ -159,7 +159,7 @@ func sharedSessionActionAllowed(principal identity.Principal, meta session.Metad
 			return principal.Allowed(identity.PermissionTasksView)
 		}
 		switch action {
-		case "", "stop", "kill", "clear", "title", "resize":
+		case "", "stop", "terminate", "kill", "clear", "title", "resize":
 			return principal.Allowed(identity.PermissionTasksRun)
 		default:
 			return false
@@ -171,7 +171,7 @@ func sharedSessionActionAllowed(principal identity.Principal, meta session.Metad
 				return principal.Allowed(identity.PermissionPatchRun)
 			}
 			return principal.Allowed(identity.PermissionPatchView) || principal.Allowed(identity.PermissionPatchHistory)
-		case "stop", "kill", "clear", "title", "resize", "prompt-response", "item-action", "queue-delete", "resume-action":
+		case "stop", "terminate", "kill", "clear", "title", "resize", "prompt-response", "item-action", "queue-delete", "resume-action":
 			return principal.Allowed(identity.PermissionPatchRun)
 		case "parallel-collect":
 			return principal.Allowed(identity.PermissionPatchCollect)
