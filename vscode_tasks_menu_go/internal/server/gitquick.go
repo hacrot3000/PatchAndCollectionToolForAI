@@ -786,6 +786,7 @@ type gitActionRequest struct {
 	IgnoreID          string `json:"ignore_id,omitempty"`
 	LargePath         string `json:"large_path,omitempty"`
 	ConflictSide      string `json:"conflict_side,omitempty"`
+	Async             bool   `json:"async,omitempty"`
 	Confirmed         bool   `json:"confirmed,omitempty"`
 }
 
@@ -1068,6 +1069,23 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		args = []string{"stash", "pop"}; if ref != "" { args = append(args, ref) }
 	default:
 		http.Error(w, "unsupported git action", http.StatusBadRequest)
+		return
+	}
+	if req.Async && gitAsyncActionAllowed(action) {
+		repo, ok := gitRepositoryFromContext(r.Context())
+		if !ok {
+			http.Error(w, "Git repository context unavailable", http.StatusConflict)
+			return
+		}
+		job, err := s.startGitCommandJob(repo, action, args, timeout)
+		if err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"ok": true, "action": action, "async": true,
+			"job_id": job.ID, "state": "running", "command": job.Command,
+		})
 		return
 	}
 	stdout, stderr, truncated, err := s.runGit(r.Context(), timeout, args...)

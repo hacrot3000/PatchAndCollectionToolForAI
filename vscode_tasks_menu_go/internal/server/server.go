@@ -59,6 +59,8 @@ type Server struct {
 	gitReposAt      time.Time
 	gitSettings     config.GitSettings
 	gitDefaultRepo  string
+	gitJobsMu       sync.Mutex
+	gitJobs         map[string]*gitJob
 
 	authMu        sync.Mutex
 	authFailures  map[string]authFailureState
@@ -131,6 +133,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/broadcast", s.broadcastStateAPI)
 	mux.HandleFunc("/api/command-presets", s.commandPresets)
 	mux.HandleFunc("/api/git/status", s.gitStatus)
+	mux.HandleFunc("/api/git/jobs", s.gitJobsAPI)
+	mux.HandleFunc("/api/git/jobs/control", s.gitJobsControl)
 	mux.HandleFunc("/api/patch/ai-pack", s.patchAIPack)
 	mux.HandleFunc("/api/files/selection", s.filesSelection)
 	mux.HandleFunc("/api/files/preview", s.filePreview)
