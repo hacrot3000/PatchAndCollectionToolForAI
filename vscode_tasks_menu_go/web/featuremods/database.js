@@ -668,14 +668,16 @@ async function refreshProfiles(){
   return profilesByID;
 }
 
-async function sessionRequest(id,operation,payload){
+async function sessionRequest(id,operation,payload,options={}){
   const body={operation};
   if(payload!==undefined)body.payload=payload;
-  const response=await app.jsonFetch('/api/db/sessions/'+encodeURIComponent(id)+'/request',{
+  const requestOptions={
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify(body)
-  });
+  };
+  if(options?.signal)requestOptions.signal=options.signal;
+  const response=await app.jsonFetch('/api/db/sessions/'+encodeURIComponent(id)+'/request',requestOptions);
   return response?.result;
 }
 
@@ -1534,6 +1536,54 @@ function renderQueryResultError(view,error,elapsed){
   const message=document.createElement('div');message.className='db-query-result-error';message.textContent=String(error?.message||error||'Query failed');
   view.result.append(status,message);
 }
+function renderQueryCanceled(view,elapsed){
+  view.result.replaceChildren();
+  const status=document.createElement('div');status.className='db-result-status';
+  status.textContent='CANCELED'+(Number.isFinite(elapsed)?' · '+elapsed+' ms':'');
+  view.result.append(status);
+}
+
+function explainStatementFor(view,statement,analyze){
+  statement=String(statement||'').trim();
+  if(!statement)throw new Error('Enter or select one statement to explain');
+  const statements=splitSQLStatements(statement);
+  if(statements.length!==1)throw new Error('Explain works on exactly one SQL statement at a time');
+  statement=statements[0];
+  const kind=String(view.meta?.adapter_kind||'').toLowerCase();
+  if(kind==='sqlite'){
+    if(analyze)throw new Error('SQLite exposes EXPLAIN QUERY PLAN; EXPLAIN ANALYZE is not supported by this adapter');
+    return 'EXPLAIN QUERY PLAN '+statement;
+  }
+  if(kind==='mysql'){
+    if(analyze&&!/^(select|with)\b/i.test(statement))throw new Error('Explain Analyze is limited to SELECT/WITH statements because it executes the query');
+    return (analyze?'EXPLAIN ANALYZE ':'EXPLAIN ')+statement;
+  }
+  throw new Error('Explain is available for MySQL/MariaDB and SQLite only');
+}
+
+async function explainQuery(view,analyze=false){
+  const owner=view.resultOwner||view;
+  if(owner.queryAbortController)throw new Error('A database query is already running');
+  const statement=explainStatementFor(owner,queryEditorExecutionText(owner));
+  const maxRows=Math.max(1,Math.min(1000,Number(owner.maxRows.value)||100));
+  const payload={statement,max_rows:maxRows};if(owner.catalog.value)payload.catalog=owner.catalog.value;
+  const controller=new AbortController();owner.queryAbortController=controller;
+  const cancelable=supports(owner,'cancel');
+  owner.run.disabled=!cancelable;owner.run.textContent=cancelable?'Cancel':'Running…';
+  owner.explain.disabled=true;owner.explainAnalyze.disabled=true;
+  const started=performance.now();
+  try{
+    const result=await sessionRequest(owner.meta.id,'execute',payload,{signal:controller.signal});
+    owner.resultStatement=statement;
+    renderResult(owner,result,Math.round(performance.now()-started));
+  }catch(error){
+    if(controller.signal.aborted){renderQueryCanceled(owner,Math.round(performance.now()-started));return;}
+    throw error;
+  }finally{
+    if(owner.queryAbortController===controller)owner.queryAbortController=null;
+    owner.run.disabled=false;owner.run.textContent='Run';owner.explain.disabled=false;owner.explainAnalyze.disabled=false;
+  }
+}
 
 async function refreshQueryResult(view){
   if(!view.resultStatement)return executeQuery(view);
@@ -1548,6 +1598,10 @@ async function refreshQueryResult(view){
 
 async function executeQuery(view,{discardPending=false}={}){
   const owner=view.resultOwner||view;
+  if(owner.queryAbortController){
+    owner.queryAbortController.abort();
+    return;
+  }
   if(!discardPending&&queryResultHasPendingChanges(owner)&&!confirm('Discard unsaved query result changes and run again?'))return;
   const script=queryEditorExecutionText(owner).trim();
   if(!script)throw new Error('Enter a database statement or select SQL to run');
@@ -1558,7 +1612,10 @@ async function executeQuery(view,{discardPending=false}={}){
   owner.queryDirtyRows=new Map();owner.queryNewRows=[];owner.querySelectedRows=new Set();owner.querySelectionAnchor=null;
   owner.queryFilter=null;owner.queryOrder=null;
   const maxRows=Math.max(1,Math.min(1000,Number(owner.maxRows.value)||100));
-  owner.run.disabled=true;owner.run.textContent=statements.length>1?'Running 1/'+statements.length+'…':'Running…';
+  const controller=new AbortController();owner.queryAbortController=controller;
+  const cancelable=supports(owner,'cancel');
+  owner.run.disabled=!cancelable;owner.run.textContent=cancelable?'Cancel':(statements.length>1?'Running 1/'+statements.length+'…':'Running…');
+  owner.explain.disabled=true;owner.explainAnalyze.disabled=true;
   owner.queryResultTabs=null;owner.queryResultPanels=null;owner.queryResultContexts=[];
   try{
     if(statements.length===1){
@@ -1567,7 +1624,7 @@ async function executeQuery(view,{discardPending=false}={}){
       const started=performance.now();
       const payload={statement:statements[0],max_rows:maxRows};
       if(owner.catalog.value)payload.catalog=owner.catalog.value;
-      const result=await sessionRequest(owner.meta.id,'execute',payload);
+      const result=await sessionRequest(owner.meta.id,'execute',payload,{signal:controller.signal});
       owner.resultStatement=statements[0];
       renderResult(owner,result,Math.round(performance.now()-started));
       return;
@@ -1576,24 +1633,37 @@ async function executeQuery(view,{discardPending=false}={}){
     owner.result.replaceChildren();
     let firstError=null;
     for(let index=0;index<statements.length;index++){
-      owner.run.textContent='Running '+(index+1)+'/'+statements.length+'…';
+      if(!cancelable)owner.run.textContent='Running '+(index+1)+'/'+statements.length+'…';
       const ctx=createQueryResultContext(owner,statements[index],index);
       const payload={statement:statements[index],max_rows:maxRows};
       if(owner.catalog.value)payload.catalog=owner.catalog.value;
       const started=performance.now();
       try{
-        const result=await sessionRequest(owner.meta.id,'execute',payload);
+        const result=await sessionRequest(owner.meta.id,'execute',payload,{signal:controller.signal});
         renderResult(ctx,result,Math.round(performance.now()-started));
       }catch(error){
-        renderQueryResultError(ctx,error,Math.round(performance.now()-started));
+        const elapsed=Math.round(performance.now()-started);
+        if(controller.signal.aborted){
+          renderQueryCanceled(ctx,elapsed);
+          activateQueryResult(owner,index);
+          return;
+        }
+        renderQueryResultError(ctx,error,elapsed);
         activateQueryResult(owner,index);
         firstError=error;
         break;
       }
     }
     if(firstError)throw firstError;
+  }catch(error){
+    if(controller.signal.aborted){
+      if(statements.length===1)renderQueryCanceled(owner,null);
+      return;
+    }
+    throw error;
   }finally{
-    owner.run.disabled=false;owner.run.textContent='Run';
+    if(owner.queryAbortController===controller)owner.queryAbortController=null;
+    owner.run.disabled=false;owner.run.textContent='Run';owner.explain.disabled=false;owner.explainAnalyze.disabled=false;
   }
 }
 
@@ -1791,17 +1861,20 @@ function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValu
   const query=document.createElement('div');query.className='db-query';
   const tools=document.createElement('div');tools.className='db-query-tools';
   const run=document.createElement('button');run.type='button';run.className='db-run';run.textContent='Run';
-  const openSQL=document.createElement('button');openSQL.type='button';openSQL.textContent='Open SQL';openSQL.hidden=!(view.meta.adapter_kind==='mysql'||view.meta.adapter_kind==='sqlite');
+  const relational=view.meta.adapter_kind==='mysql'||view.meta.adapter_kind==='sqlite';
+  const explain=document.createElement('button');explain.type='button';explain.textContent=view.meta.adapter_kind==='sqlite'?'Explain Plan':'Explain';explain.hidden=!relational;
+  const explainAnalyze=document.createElement('button');explainAnalyze.type='button';explainAnalyze.textContent='Explain Analyze';explainAnalyze.hidden=view.meta.adapter_kind!=='mysql';
+  const openSQL=document.createElement('button');openSQL.type='button';openSQL.textContent='Open SQL';openSQL.hidden=!relational;
   const saveSQL=document.createElement('button');saveSQL.type='button';saveSQL.textContent='Save SQL';saveSQL.hidden=openSQL.hidden;
   const rowsLabel=document.createElement('label');rowsLabel.textContent='Max rows';
   const maxRows=document.createElement('input');maxRows.type='number';maxRows.min='1';maxRows.max='1000';maxRows.value=String(maxRowsValue||'100');
-  tools.append(run,openSQL,saveSQL,rowsLabel,maxRows);
+  tools.append(run,explain,explainAnalyze,openSQL,saveSQL,rowsLabel,maxRows);
   const editor=document.createElement('textarea');editor.className='db-query-editor';editor.spellcheck=false;editor.value=String(initialText||'');
   const result=document.createElement('div');result.className='db-result-wrap';
   query.append(tools,editor,result);
 
   Object.assign(view,{
-    queryPanel:query,editor,run,openSQL,saveSQL,maxRows,result,
+    queryPanel:query,editor,run,explain,explainAnalyze,openSQL,saveSQL,maxRows,result,
     scriptName:scriptName||'query.sql',scriptSource:null,
     queryFilter:null,queryOrder:null,lastExecutedStatement:'',queryNewRows:[],
     queryDirtyRows:new Map(),querySelectedRows:new Set(),querySelectionAnchor:null,
@@ -1810,7 +1883,15 @@ function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValu
   });
   if(!(view.querySchemaCache instanceof Map))view.querySchemaCache=new Map();
   initQueryEditor(view);
-  run.onclick=()=>executeQuery(view).catch(app.showError);
+  run.onclick=()=>{
+    if(view.queryAbortController){
+      view.queryAbortController.abort();
+      return;
+    }
+    executeQuery(view).catch(app.showError);
+  };
+  explain.onclick=()=>explainQuery(view,false).catch(app.showError);
+  explainAnalyze.onclick=()=>explainQuery(view,true).catch(app.showError);
   openSQL.onclick=()=>openSQLScript(view).catch(app.showError);
   saveSQL.onclick=()=>saveSQLScript(view).catch(app.showError);
   if(!view.queryCM){

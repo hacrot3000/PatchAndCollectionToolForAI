@@ -1417,3 +1417,37 @@ func TestDatabaseWorkbenchTabsSupportReadOnlyToggle(t *testing.T) {
 		}
 	}
 }
+
+func TestDatabaseQueryCancelAndExplainUI(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"async function sessionRequest(id,operation,payload,options={})",
+		"if(options?.signal)requestOptions.signal=options.signal",
+		"const controller=new AbortController()",
+		"owner.queryAbortController=controller",
+		"supports(owner,'cancel')",
+		"owner.queryAbortController.abort()",
+		"function renderQueryCanceled(view,elapsed)",
+		"status.textContent='CANCELED'",
+		"function explainStatementFor(view,statement,analyze)",
+		"'EXPLAIN QUERY PLAN '+statement",
+		"(analyze?'EXPLAIN ANALYZE ':'EXPLAIN ')+statement",
+		"Explain Analyze is limited to SELECT/WITH statements",
+		"async function explainQuery(view,analyze=false)",
+		"explain.textContent=view.meta.adapter_kind==='sqlite'?'Explain Plan':'Explain'",
+		"explainAnalyze.textContent='Explain Analyze'",
+		"explainAnalyze.hidden=view.meta.adapter_kind!=='mysql'",
+		"renderQueryCanceled(ctx,elapsed)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database.js missing query cancel/explain behavior %q", want)
+		}
+	}
+	if strings.Contains(js, "owner.run.disabled=true;owner.run.textContent='Running") {
+		t.Fatal("query execution must allow the Run button to become Cancel when adapter supports cancellation")
+	}
+}
