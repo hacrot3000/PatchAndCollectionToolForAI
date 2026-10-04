@@ -117,7 +117,13 @@ async function runSSHTest(payload,button){
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify(payload)
     });
-    if(!result?.ok)throw new Error(result?.message||'SSH connection test failed');
+    if(!result?.ok){
+      if((result?.failure_code==='host_key_changed'||result?.failure_code==='host_key_verification')&&result?.host_key){
+        openSSHHostKeyRecovery(payload,result);
+        return result;
+      }
+      throw new Error(result?.message||'SSH connection test failed');
+    }
     if(button){
       const old=button.textContent;
       button.textContent='✓';
@@ -132,6 +138,52 @@ async function runSSHTest(payload,button){
 
 async function testSSH(profile,button){
   return runSSHTest({profile_id:profile.id},button);
+}
+
+function openSSHHostKeyRecovery(payload,result){
+  const info=result?.host_key||{};
+  const profileID=String(payload?.profile_id||'').trim();
+  const dialog=document.createElement('div');dialog.className='task-connection-dialog';
+  const card=document.createElement('div');card.className='task-connection-dialog-card';
+  const title=document.createElement('h3');title.textContent=result?.failure_code==='host_key_changed'?'SSH host key changed':'SSH host key verification failed';
+  const warning=document.createElement('div');warning.className='task-connection-warning';
+  warning.textContent='TaskDeck will not trust a replacement host key automatically. Verify the host and fingerprint through a trusted channel before removing any saved key.';
+  const details=document.createElement('div');details.className='task-connection-form';details.style.marginTop='10px';
+  const row=(label,value)=>{
+    const item=document.createElement('div');item.className='task-connection-field wide';
+    const key=document.createElement('label');key.textContent=label;
+    const text=document.createElement('div');text.style.fontFamily='ui-monospace,monospace';text.style.fontSize='11px';text.style.overflowWrap='anywhere';text.textContent=String(value||'—');
+    item.append(key,text);details.append(item);
+  };
+  row('Host lookup',info.lookup);
+  row('Candidate fingerprint from OpenSSH',info.candidate_fingerprint||'Not reported by OpenSSH');
+  const matches=Array.isArray(info.matches)?info.matches:[];
+  row('Matching known_hosts entries',matches.length?matches.map(item=>item.file+' · '+item.entries+' entr'+(item.entries===1?'y':'ies')).join('\n'):'No matching configured known_hosts entry found');
+  const status=document.createElement('div');status.className='task-connection-warning';status.style.marginTop='10px';status.hidden=true;
+  const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
+  const close=document.createElement('button');close.type='button';close.textContent='Close';close.onclick=()=>closeDialog(dialog);
+  const remove=document.createElement('button');remove.type='button';remove.className='task-connection-danger';remove.textContent='Remove old known_hosts entry';
+  remove.hidden=!profileID||info.can_remove!==true;
+  remove.onclick=async()=>{
+    const target=String(info.lookup||'this host');
+    if(!confirm('Remove the existing known_hosts entry for '+target+'?\n\nOnly continue after you have independently verified that the server host key really changed. TaskDeck will NOT reconnect automatically.'))return;
+    remove.disabled=true;close.disabled=true;
+    try{
+      const response=await app.jsonFetch('/api/ssh/host-key',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({profile_id:profileID,action:'remove',confirmed:true})
+      });
+      if(!response?.ok)throw new Error(response?.error||'Could not remove old SSH host key');
+      status.hidden=false;status.textContent=response.message||'Old known_hosts entry removed. Reconnect explicitly and verify the replacement key.';
+      remove.hidden=true;
+    }catch(error){app.showError(error);}
+    finally{close.disabled=false;if(remove.isConnected)remove.disabled=false;}
+  };
+  actions.append(close,remove);card.append(title,warning,details,status,actions);dialog.append(card);document.body.append(dialog);
+  dialog.addEventListener('pointerdown',event=>{if(event.target===dialog)closeDialog(dialog);});
+  dialog.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();closeDialog(dialog);}});
+  close.focus();
 }
 
 async function openFileTransfer(profile){
@@ -414,6 +466,7 @@ function clonedProfile(profile){
 
 async function testSSHFromMenu(profile){
   const result=await runSSHTest({profile_id:profile.id},null);
+  if(!result?.ok)return;
   alert('SSH connection succeeded'+(Number.isFinite(result?.elapsed_ms)?' · '+result.elapsed_ms+' ms':''));
 }
 
