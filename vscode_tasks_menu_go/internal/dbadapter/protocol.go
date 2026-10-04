@@ -56,6 +56,19 @@ type ProtocolError struct {
 	Message string `json:"message"`
 }
 
+type CancelPayload struct {
+	RequestID string `json:"request_id"`
+}
+
+type CancelResult struct {
+	Canceled bool `json:"canceled"`
+}
+
+type TransactionResult struct {
+	Active  bool   `json:"active"`
+	Message string `json:"message,omitempty"`
+}
+
 type Column struct {
 	Name string `json:"name"`
 	Type string `json:"type,omitempty"`
@@ -251,6 +264,18 @@ func ValidateResponsePayload(env Envelope) error {
 			return fmt.Errorf("database SQL import result has negative imported_bytes")
 		}
 		return validateText("database SQL import message", strings.TrimSpace(result.Message), 1024, false)
+	case OpCancel:
+		var result CancelResult
+		if err := json.Unmarshal(env.Payload, &result); err != nil {
+			return fmt.Errorf("decode database cancel result: %w", err)
+		}
+		return nil
+	case OpBegin, OpCommit, OpRollback:
+		var result TransactionResult
+		if err := json.Unmarshal(env.Payload, &result); err != nil {
+			return fmt.Errorf("decode database transaction result: %w", err)
+		}
+		return validateText("database transaction message", strings.TrimSpace(result.Message), 1024, false)
 	default:
 		return nil
 	}

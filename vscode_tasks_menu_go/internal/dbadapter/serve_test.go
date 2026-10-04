@@ -129,3 +129,52 @@ func TestServeReturnsProtocolErrorForUnsupportedOperation(t *testing.T) {
 		t.Fatalf("response error=%+v", response.Error)
 	}
 }
+
+func TestServeCancelInterruptsActiveOperation(t *testing.T) {
+	manifest := testServeManifest()
+	manifest.Capabilities.Execute = true
+	manifest.Capabilities.Cancel = true
+	handler := &cancelServeHandler{manifest: manifest}
+	execute, err := NewRequest("req-execute", OpExecute, nil)
+	if err != nil { t.Fatal(err) }
+	cancelReq, err := NewRequest("req-cancel", OpCancel, CancelPayload{RequestID: "req-execute"})
+	if err != nil { t.Fatal(err) }
+	first, _ := json.Marshal(execute)
+	second, _ := json.Marshal(cancelReq)
+	var output bytes.Buffer
+	if err := Serve(context.Background(), strings.NewReader(string(first)+"\n"+string(second)+"\n"), &output, handler); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+	if len(lines) != 2 { t.Fatalf("responses=%d output=%q", len(lines), output.String()) }
+	byID := map[string]Envelope{}
+	for _, line := range lines {
+		var env Envelope
+		if err := json.Unmarshal([]byte(line), &env); err != nil { t.Fatal(err) }
+		byID[env.RequestID] = env
+	}
+	if byID["req-execute"].Error == nil || byID["req-execute"].Error.Code != "CANCELED" {
+		t.Fatalf("execute response=%+v", byID["req-execute"])
+	}
+	var canceled CancelResult
+	if err := json.Unmarshal(byID["req-cancel"].Payload, &canceled); err != nil { t.Fatal(err) }
+	if !canceled.Canceled { t.Fatalf("cancel response=%+v", byID["req-cancel"]) }
+}
+
+type cancelServeHandler struct {
+	manifest Manifest
+}
+
+func (h *cancelServeHandler) Manifest() Manifest { return h.manifest }
+
+func (h *cancelServeHandler) Handle(ctx context.Context, request Envelope) (interface{}, *ProtocolError) {
+	switch request.Operation {
+	case OpExecute:
+		<-ctx.Done()
+		return nil, &ProtocolError{Code: "QUERY_CANCELED", Message: ctx.Err().Error()}
+	case OpPing:
+		return map[string]bool{"pong": true}, nil
+	default:
+		return map[string]bool{"ok": true}, nil
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 )
 
 const maxDiagnosticBytes = 64 << 10
@@ -158,9 +159,29 @@ func (p *Process) Request(ctx context.Context, operation Operation, payload inte
 	case result := <-responseCh:
 		return result.envelope, result.err
 	case <-ctx.Done():
-		p.removePending(requestID)
-		_ = p.Close()
-		return Envelope{}, ctx.Err()
+		if operation == OpCancel || !p.manifest.Capabilities.Cancel {
+			p.removePending(requestID)
+			_ = p.Close()
+			return Envelope{}, ctx.Err()
+		}
+		if err := p.cancelRequest(requestID, request.SessionID); err != nil {
+			p.removePending(requestID)
+			_ = p.Close()
+			return Envelope{}, ctx.Err()
+		}
+		timer := time.NewTimer(2 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-responseCh:
+			return Envelope{}, ctx.Err()
+		case <-timer.C:
+			p.removePending(requestID)
+			_ = p.Close()
+			return Envelope{}, ctx.Err()
+		case <-p.done:
+			p.removePending(requestID)
+			return Envelope{}, ctx.Err()
+		}
 	case <-p.done:
 		p.removePending(requestID)
 		p.mu.Lock()
@@ -170,6 +191,54 @@ func (p *Process) Request(ctx context.Context, operation Operation, payload inte
 			err = errors.New("database adapter process exited")
 		}
 		return Envelope{}, err
+	}
+}
+
+func (p *Process) cancelRequest(targetRequestID, sessionID string) error {
+	if p == nil {
+		return errors.New("database adapter process is nil")
+	}
+	cancelID, err := newRequestID()
+	if err != nil {
+		return err
+	}
+	request, err := NewRequest(cancelID, OpCancel, CancelPayload{RequestID: targetRequestID})
+	if err != nil {
+		return err
+	}
+	request.SessionID = strings.TrimSpace(sessionID)
+	if err := ValidateEnvelope(request); err != nil {
+		return err
+	}
+	responseCh := make(chan responseResult, 1)
+	p.mu.Lock()
+	select {
+	case <-p.done:
+		err := p.waitErr
+		p.mu.Unlock()
+		if err == nil {
+			err = errors.New("database adapter process is not running")
+		}
+		return err
+	default:
+	}
+	p.pending[cancelID] = responseCh
+	p.mu.Unlock()
+	if err := p.writeEnvelope(request); err != nil {
+		p.removePending(cancelID)
+		return err
+	}
+	timer := time.NewTimer(1500 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case result := <-responseCh:
+		return result.err
+	case <-timer.C:
+		p.removePending(cancelID)
+		return errors.New("database adapter cancel request timed out")
+	case <-p.done:
+		p.removePending(cancelID)
+		return errors.New("database adapter process exited during cancel")
 	}
 }
 

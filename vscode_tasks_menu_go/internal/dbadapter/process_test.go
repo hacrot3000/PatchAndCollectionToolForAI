@@ -114,6 +114,34 @@ func TestAdapterProcessRequestCancellationStopsProcess(t *testing.T) {
 	}
 }
 
+func TestAdapterProcessCancellationKeepsCancelableAdapterAlive(t *testing.T) {
+	parent, parentCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer parentCancel()
+	process, err := StartProcess(parent, testAdapterManifest(), ProcessOptions{Env: helperProcessEnv("serve-cancel")})
+	if err != nil { t.Fatal(err) }
+	defer process.Close()
+
+	requestCtx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+	_, err = process.Request(requestCtx, OpExecute, map[string]string{"query": "SELECT sleep"}, "session-1")
+	if err == nil || !strings.Contains(err.Error(), "deadline exceeded") {
+		t.Fatalf("cancel error=%v", err)
+	}
+
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer pingCancel()
+	response, err := process.Request(pingCtx, OpPing, nil, "session-1")
+	if err != nil { t.Fatalf("ping after cancel failed: %v", err) }
+	var payload map[string]bool
+	if err := json.Unmarshal(response.Payload, &payload); err != nil { t.Fatal(err) }
+	if !payload["pong"] { t.Fatalf("payload=%v", payload) }
+	select {
+	case <-process.Done():
+		t.Fatalf("adapter process exited after a cancelable request: %v", process.WaitError())
+	default:
+	}
+}
+
 func TestBoundedDiagnosticTruncates(t *testing.T) {
 	diagnostic := boundedDiagnostic{remaining: 5}
 	if n, err := diagnostic.Write([]byte("abcdefgh")); err != nil || n != 8 {
@@ -129,6 +157,13 @@ func TestDBAdapterHelperProcess(t *testing.T) {
 		return
 	}
 	mode := os.Getenv("TASKDECK_DB_TEST_MODE")
+	if mode == "serve-cancel" {
+		if err := Serve(context.Background(), os.Stdin, os.Stdout, &cancelServeHandler{manifest: testAdapterManifest()}); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(10)
+		}
+		os.Exit(0)
+	}
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 64<<10), MaxMessageBytes)
 	if !scanner.Scan() {

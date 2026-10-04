@@ -40,6 +40,7 @@ func BuiltinManifest(taskdeckExecutable string) (dbadapter.Manifest, error) {
 			MutateRows:     true,
 			ObjectActions:  true,
 			Execute:        true,
+			Cancel:         true,
 		},
 	}
 	if err := manifest.Validate(); err != nil {
