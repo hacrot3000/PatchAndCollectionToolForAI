@@ -112,6 +112,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/ssh/profiles", s.sshProfiles)
 	mux.HandleFunc("/api/ssh/profiles/", s.sshProfileItem)
 	mux.HandleFunc("/api/ssh/test", s.sshTest)
+	mux.HandleFunc("/api/ssh/host-key", s.sshHostKeyRecovery)
 	mux.HandleFunc("/api/file-transfer/profiles", s.fileTransferProfiles)
 	mux.HandleFunc("/api/file-transfer/profiles/", s.fileTransferProfileItem)
 	mux.HandleFunc("/api/file-transfer/test", s.fileTransferTest)

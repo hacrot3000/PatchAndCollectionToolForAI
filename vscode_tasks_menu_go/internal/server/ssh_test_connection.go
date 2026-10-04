@@ -55,9 +55,11 @@ func (w *boundedCommandOutput) String() string {
 }
 
 type sshConnectionTestResult struct {
-	OK        bool   `json:"ok"`
-	Message   string `json:"message"`
-	ElapsedMS int64  `json:"elapsed_ms"`
+	OK          bool            `json:"ok"`
+	Message     string          `json:"message"`
+	ElapsedMS   int64           `json:"elapsed_ms"`
+	FailureCode string          `json:"failure_code,omitempty"`
+	HostKey     *sshHostKeyInfo `json:"host_key,omitempty"`
 }
 
 type sshEphemeralSecretStore struct {
@@ -213,6 +215,11 @@ func (s *Server) testSSHConnection(profile sshprofile.Profile, secret *string) s
 			message = err.Error()
 		}
 		result.Message = message
+		if code := classifySSHHostKeyFailure(message); code != "" {
+			result.FailureCode = code
+			info := inspectSSHHostKey(context.Background(), profile, message)
+			result.HostKey = &info
+		}
 		return result
 	}
 
