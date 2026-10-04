@@ -158,20 +158,15 @@ func (s *Server) gitDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mode := strings.TrimSpace(r.URL.Query().Get("mode"))
-	args := []string{"diff", "--no-ext-diff", "--no-color", "--unified=3"}
-	if mode == "staged" {
-		args = append(args, "--cached")
-	} else if mode != "" && mode != "worktree" {
-		http.Error(w, "invalid diff mode", http.StatusBadRequest)
-		return
-	}
-	args = append(args, "--", path)
-	out, _, truncated, runErr := s.runGit(r.Context(), 5*time.Second, args...)
+	set, truncated, runErr := s.gitDiffHunkSet(r.Context(), path, mode)
 	if runErr != nil {
 		http.Error(w, runErr.Error(), http.StatusConflict)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"path": path, "mode": mode, "diff": out, "truncated": truncated})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"path": set.Path, "mode": set.Mode, "diff": set.Diff,
+		"diff_sha256": set.DiffSHA256, "hunks": set.Hunks, "truncated": truncated,
+	})
 }
 
 type gitCommitRow struct {
@@ -786,6 +781,8 @@ type gitActionRequest struct {
 	IgnoreID          string `json:"ignore_id,omitempty"`
 	LargePath         string `json:"large_path,omitempty"`
 	ConflictSide      string `json:"conflict_side,omitempty"`
+	HunkIndex         int    `json:"hunk_index,omitempty"`
+	ExpectedDiffSHA   string `json:"expected_diff_sha,omitempty"`
 	Async             bool   `json:"async,omitempty"`
 	Confirmed         bool   `json:"confirmed,omitempty"`
 }
@@ -977,6 +974,25 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		path, err := validGitRelativePath(req.Path)
 		if err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
 		args = []string{"restore", "--staged", "--", path}
+	case "stage_hunk", "unstage_hunk", "discard_hunk":
+		operation := "stage"
+		mode := "worktree"
+		if action == "unstage_hunk" {
+			operation, mode = "unstage", "staged"
+		} else if action == "discard_hunk" {
+			operation = "discard"
+			if !req.Confirmed {
+				writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "discard hunk requires explicit confirmation", "failure_code": "confirmation_required"})
+				return
+			}
+		}
+		output, truncated, err := s.gitApplyHunk(r.Context(), req.Path, mode, req.HunkIndex, req.ExpectedDiffSHA, operation)
+		if err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "output": output, "error": err.Error(), "truncated": truncated})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "action": action, "output": output, "truncated": truncated})
+		return
 	case "ignore":
 		item, added, err := s.gitIgnoreApply(r.Context(), req.Path, req.IgnoreID)
 		if err != nil {
