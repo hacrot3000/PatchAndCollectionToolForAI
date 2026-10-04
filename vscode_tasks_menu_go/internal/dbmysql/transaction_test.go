@@ -93,7 +93,8 @@ func TestMySQLTransactionWorkerCommitRollbackAndCatalog(t *testing.T) {
 }
 
 func TestMySQLTransactionCancelKeepsSessionAlive(t *testing.T) {
-	writeTransactionFixture(t)
+	_, logPath := writeTransactionFixture(t)
+	_ = os.Remove(os.Getenv("TASKDECK_MYSQL_TX_CANCEL"))
 	client := transactionFixtureClient(t)
 	config := Config{Host: "127.0.0.1", Port: 3306, Username: "app", Database: "main", Charset: defaultCharset, ConnectTimeoutSeconds: defaultConnectTimeout}
 	worker, err := startMySQLTransaction(context.Background(), client, config)
@@ -104,7 +105,8 @@ func TestMySQLTransactionCancelKeepsSessionAlive(t *testing.T) {
 	defer cancel()
 	_, err = worker.Execute(ctx, config, "SELECT taskdeck_slow", 10)
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("cancel error=%v", err)
+		raw, _ := os.ReadFile(logPath)
+		t.Fatalf("cancel error=%v\nSQL log:\n%s", err, raw)
 	}
 	if worker.broken || worker.closed {
 		t.Fatalf("worker unusable after query cancel: broken=%v closed=%v", worker.broken, worker.closed)
