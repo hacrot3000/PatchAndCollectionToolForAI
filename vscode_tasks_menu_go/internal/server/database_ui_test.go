@@ -1000,7 +1000,9 @@ func TestDatabaseQueryPanelOwnsItsControlsAfterRefactor(t *testing.T) {
 	}
 	setup := js[setupStart : setupStart+setupEnd]
 	for _, want := range []string{
-		"run.onclick=()=>executeQuery(view).catch(app.showError)",
+		"run.onclick=()=>{",
+		"if(view.queryAbortController){",
+		"executeQuery(view).catch(app.showError)",
 		"openSQL.onclick=()=>openSQLScript(view).catch(app.showError)",
 		"saveSQL.onclick=()=>saveSQLScript(view).catch(app.showError)",
 		"if(!view.queryCM){",
@@ -1429,7 +1431,7 @@ func TestDatabaseQueryCancelAndExplainUI(t *testing.T) {
 		"if(options?.signal)requestOptions.signal=options.signal",
 		"const controller=new AbortController()",
 		"owner.queryAbortController=controller",
-		"supports(owner,'cancel')",
+		"databaseSupports(owner,'cancel')",
 		"owner.queryAbortController.abort()",
 		"function renderQueryCanceled(view,elapsed)",
 		"status.textContent='CANCELED'",
