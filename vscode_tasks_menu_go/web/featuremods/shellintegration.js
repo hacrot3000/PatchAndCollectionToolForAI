@@ -10,7 +10,7 @@ function isRemote(view){return String(view?.meta?.target_type||'').toLowerCase()
 function stateFor(view){
   const id=viewID(view);
   let state=states.get(id);
-  if(!state){state={cwd:'',remote:isRemote(view),promptRow:null,commandRow:null,lastPromptAt:0,commands:[]};states.set(id,state);}
+  if(!state){state={cwd:'',remote:isRemote(view),promptRow:null,commandRow:null,commandCol:0,lastPromptAt:0,commands:[]};states.set(id,state);}
   return state;
 }
 function absoluteCursorRow(view){const buffer=view?.term?.buffer?.active;if(!buffer)return 0;return Number(buffer.baseY||0)+Number(buffer.cursorY||0);}
@@ -29,17 +29,27 @@ function parseOSC7(value){
 }
 function handleOSC7(view,value){const cwd=parseOSC7(value);if(!cwd)return true;const state=stateFor(view);state.cwd=cwd;state.remote=isRemote(view);view.shellCwd=cwd;if(!state.remote&&view.meta)view.meta.cwd=cwd;emit(view,'cwd',{cwd,remote:state.remote});return true;}
 function parseExitStatus(value){const parts=String(value||'').split(';');if(parts[0]!=='D'||parts.length<2||parts[1]==='')return null;const status=Number(parts[1]);return Number.isInteger(status)?status:null;}
+function commandText(view,row,col){
+  const buffer=view?.term?.buffer?.active;if(!buffer)return {text:'',lastRow:row};
+  const first=buffer.getLine(row);if(!first)return {text:'',lastRow:row};
+  let text=first.translateToString(true).slice(Math.max(0,Number(col)||0)),lastRow=row;
+  for(let next=row+1;next<buffer.length;next++){
+    const line=buffer.getLine(next);if(!line?.isWrapped)break;
+    text+=line.translateToString(true);lastRow=next;
+  }
+  return {text:text.trim(),lastRow};
+}
 function finalizeCommand(view,status){
   const state=stateFor(view);if(state.commandRow==null)return;
-  const endRow=absoluteCursorRow(view),commandLine=lineText(view.term.buffer.active,state.commandRow),outputStart=Math.min(endRow,state.commandRow+1),output=rowsText(view,outputStart,Math.max(outputStart,endRow-1));
-  const item={command:commandLine.trim(),output,exitCode:status,startedAt:state.lastPromptAt||Date.now(),finishedAt:Date.now(),startRow:state.commandRow,endRow};
+  const endRow=absoluteCursorRow(view),parsed=commandText(view,state.commandRow,state.commandCol),outputStart=Math.min(endRow,parsed.lastRow+1),output=rowsText(view,outputStart,Math.max(outputStart,endRow-1));
+  const item={command:parsed.text,output,exitCode:status,cwd:state.cwd||'',remote:Boolean(state.remote),startedAt:state.lastPromptAt||Date.now(),finishedAt:Date.now(),startRow:state.commandRow,endRow};
   if(item.command||item.output){state.commands.push(item);if(state.commands.length>maxCommands)state.commands.splice(0,state.commands.length-maxCommands);emit(view,'command-finished',{command:item});}
-  state.commandRow=null;
+  state.commandRow=null;state.commandCol=0;
 }
 function handleOSC133(view,value){
   value=String(value||'');const code=value.split(';',1)[0],state=stateFor(view);
   if(code==='A'){state.promptRow=absoluteCursorRow(view);state.lastPromptAt=Date.now();emit(view,'prompt');return true;}
-  if(code==='B'){state.commandRow=absoluteCursorRow(view);emit(view,'command-started',{row:state.commandRow});return true;}
+  if(code==='B'){state.commandRow=absoluteCursorRow(view);state.commandCol=Number(view?.term?.buffer?.active?.cursorX||0);emit(view,'command-started',{row:state.commandRow,col:state.commandCol});return true;}
   if(code==='C'){emit(view,'command-output',{row:absoluteCursorRow(view)});return true;}
   if(code==='D'){finalizeCommand(view,parseExitStatus(value));return true;}
   return false;
