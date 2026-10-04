@@ -264,7 +264,7 @@ func (s *Server) enqueueServerTransferConflictAware(queue *fileTransferServerQue
 		queue.addSkippedItem(jobID, kind, direction, source, target, operation, size, *conflict, policy)
 		return nil
 	}
-	queue.addResolvedItem(jobID, kind, direction, source, target, operation, size, conflict, policy, kind == "Download")
+	queue.addResolvedItem(jobID, kind, direction, source, target, operation, size, conflict, policy, true)
 	return nil
 }
 

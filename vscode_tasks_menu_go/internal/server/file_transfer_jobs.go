@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	cryptorand "crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -74,6 +75,7 @@ type fileTransferServerItem struct {
 	Source         string                    `json:"source"`
 	Target         string                    `json:"target,omitempty"`
 	Size           int64                     `json:"size,omitempty"`
+	Attempts       int                       `json:"attempts,omitempty"`
 	Status         string                    `json:"status"`
 	Error          string                    `json:"error,omitempty"`
 	Decision       string                    `json:"decision,omitempty"`
@@ -434,6 +436,7 @@ func (s *Server) runFileTransferServerQueue(queue *fileTransferServerQueue) {
 			}
 			item.Status = "running"
 			item.Error = ""
+			item.Attempts++
 			queue.recomputeJobLocked(item.JobID)
 			queue.touchLocked()
 			queue.mu.Unlock()
@@ -461,9 +464,9 @@ func (s *Server) runFileTransferServerQueue(queue *fileTransferServerQueue) {
 func (s *Server) executeFileTransferServerItem(ctx context.Context, profileID string, item *fileTransferServerItem) error {
 	switch item.Operation {
 	case "host_upload":
-		return s.backgroundHostToRemote(ctx, profileID, item.Source, item.Target)
+		return s.backgroundHostToRemote(ctx, profileID, item.Source, item.Target, item.Attempts)
 	case "host_download":
-		return s.backgroundRemoteToHost(ctx, profileID, item.Source, item.Target, item.Overwrite)
+		return s.backgroundRemoteToHost(ctx, profileID, item.Source, item.Target, item.Overwrite, item.Size)
 	case "remote_delete":
 		err := s.backgroundRemoteMutation(ctx, profileID, "delete", item.Source, "", item.Directory)
 		if err == nil {
@@ -578,41 +581,50 @@ func (s *Server) backgroundRemoteMutation(ctx context.Context, profileID, action
 	}
 }
 
-func (s *Server) backgroundHostToRemote(ctx context.Context, profileID, hostRel, remotePath string) error {
+func (s *Server) backgroundHostToRemote(ctx context.Context, profileID, hostRel, remotePath string, attempts int) error {
 	_, hostPath, info, err := s.resolveHostWorkspaceEntry(hostRel)
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() {
-		return errors.New("host upload source is not a regular file")
-	}
-	if info.Size() > maxFileTransferBytes {
-		return fmt.Errorf("file transfer exceeds %d bytes", maxFileTransferBytes)
-	}
+	if err != nil { return err }
+	if !info.Mode().IsRegular() { return errors.New("host upload source is not a regular file") }
+	if info.Size() > maxFileTransferBytes { return fmt.Errorf("file transfer exceeds %d bytes", maxFileTransferBytes) }
 	profile, err := s.resolveFileTransferProfile(profileID)
-	if err != nil {
-		return err
+	if err != nil { return err }
+
+	resumeOffset := int64(0)
+	if attempts > 1 {
+		if entry, entryErr := s.backgroundRemoteEntry(ctx, profileID, remotePath); entryErr == nil && entry != nil && entry.Type == "file" && entry.Size > 0 && entry.Size < info.Size() {
+			resumeOffset = entry.Size
+		}
 	}
+	file, err := os.Open(hostPath)
+	if err != nil { return err }
+	defer file.Close()
+	if resumeOffset > 0 {
+		if _, err := file.Seek(resumeOffset, 0); err != nil { return err }
+	}
+
 	switch profile.Protocol {
 	case filetransferprofile.ProtocolFTP:
-		file, err := os.Open(hostPath)
-		if err != nil {
-			return err
-		}
-		defer file.Close()
-		return s.withFTPClient(ctx, profile, nil, func(client *ftpclient.Client) error {
+		err = s.withFTPClient(ctx, profile, nil, func(client *ftpclient.Client) error {
+			if resumeOffset > 0 {
+				resumeErr := client.StoreFrom(ctx, remotePath, resumeOffset, file)
+				if resumeErr == nil { return nil }
+				if !errors.Is(resumeErr, ftpclient.ErrResumeUnsupported) { return resumeErr }
+				if _, seekErr := file.Seek(0, 0); seekErr != nil { return seekErr }
+			}
 			return client.Store(ctx, remotePath, file)
 		})
 	case filetransferprofile.ProtocolSFTP:
-		command, err := sftpclient.PutCommand(hostPath, remotePath)
-		if err != nil {
-			return err
-		}
-		_, err = s.runSFTP(ctx, profile, command+"quit\n", 64<<10)
-		return err
+		var command string
+		if resumeOffset > 0 { command, err = sftpclient.ReputCommand(hostPath, remotePath) } else { command, err = sftpclient.PutCommand(hostPath, remotePath) }
+		if err == nil { _, err = s.runSFTP(ctx, profile, command+"quit\n", 64<<10) }
 	default:
-		return fmt.Errorf("unsupported file-transfer protocol %q", profile.Protocol)
+		err = fmt.Errorf("unsupported file-transfer protocol %q", profile.Protocol)
 	}
+	if err != nil { return err }
+	if entry, entryErr := s.backgroundRemoteEntry(ctx, profileID, remotePath); entryErr == nil && entry != nil && entry.Type == "file" && entry.Size != info.Size() {
+		return fmt.Errorf("uploaded file size mismatch: remote=%d local=%d", entry.Size, info.Size())
+	}
+	return nil
 }
 
 func (s *Server) backgroundHostTarget(rel string, overwrite bool) (string, error) {
@@ -647,81 +659,75 @@ func (s *Server) backgroundHostTarget(rel string, overwrite bool) (string, error
 	return target, nil
 }
 
-func (s *Server) backgroundRemoteToHost(ctx context.Context, profileID, remotePath, hostRel string, overwrite bool) error {
+func fileTransferPartialHostPath(target, remotePath string) string {
+	sum := sha256.Sum256([]byte(filepath.Clean(target) + "\x00" + remotePath))
+	return filepath.Join(filepath.Dir(target), "."+filepath.Base(target)+".taskdeck-part-"+hex.EncodeToString(sum[:6]))
+}
+
+func (s *Server) backgroundRemoteToHost(ctx context.Context, profileID, remotePath, hostRel string, overwrite bool, expectedSize int64) error {
 	target, err := s.backgroundHostTarget(hostRel, overwrite)
-	if err != nil {
-		return err
+	if err != nil { return err }
+	partial := fileTransferPartialHostPath(target, remotePath)
+	if info, statErr := os.Lstat(partial); statErr == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() { return errors.New("download partial path is not a regular file") }
+		if info.Size() > maxFileTransferBytes || (expectedSize > 0 && info.Size() > expectedSize) {
+			if err := os.Remove(partial); err != nil { return err }
+		}
+	} else if !os.IsNotExist(statErr) { return statErr }
+
+	part, err := os.OpenFile(partial, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil { return err }
+	info, err := part.Stat()
+	if err != nil { _ = part.Close(); return err }
+	resumeOffset := info.Size()
+	if resumeOffset > 0 {
+		if _, err := part.Seek(resumeOffset, 0); err != nil { _ = part.Close(); return err }
 	}
-	hostDir := filepath.Dir(target)
-	tmp, err := os.CreateTemp(hostDir, ".taskdeck-file-transfer-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer func() {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-	}()
-	if err := tmp.Chmod(0o600); err != nil {
-		return err
-	}
+
 	profile, err := s.resolveFileTransferProfile(profileID)
-	if err != nil {
-		return err
-	}
+	if err != nil { _ = part.Close(); return err }
 	switch profile.Protocol {
 	case filetransferprofile.ProtocolFTP:
-		writer := &transferLimitWriter{dst: tmp, remaining: maxFileTransferBytes}
+		writer := &transferLimitWriter{dst: part, remaining: maxFileTransferBytes - resumeOffset}
 		err = s.withFTPClient(ctx, profile, nil, func(client *ftpclient.Client) error {
+			if resumeOffset > 0 {
+				resumeErr := client.RetrieveFrom(ctx, remotePath, resumeOffset, writer)
+				if resumeErr == nil { return nil }
+				if !errors.Is(resumeErr, ftpclient.ErrResumeUnsupported) { return resumeErr }
+				if err := part.Truncate(0); err != nil { return err }
+				if _, err := part.Seek(0, 0); err != nil { return err }
+				writer.remaining = maxFileTransferBytes
+			}
 			return client.Retrieve(ctx, remotePath, writer)
 		})
-		if syncErr := tmp.Sync(); err == nil {
-			err = syncErr
-		}
-		if closeErr := tmp.Close(); err == nil {
-			err = closeErr
-		}
+		if syncErr := part.Sync(); err == nil { err = syncErr }
+		if closeErr := part.Close(); err == nil { err = closeErr }
 	case filetransferprofile.ProtocolSFTP:
-		if closeErr := tmp.Close(); closeErr != nil {
-			return closeErr
-		}
-		command, cmdErr := sftpclient.GetCommand(remotePath, tmpPath)
-		if cmdErr != nil {
-			return cmdErr
-		}
-		_, err = s.runSFTP(ctx, profile, command+"quit\n", 64<<10)
+		if closeErr := part.Close(); closeErr != nil { return closeErr }
+		var command string
+		if resumeOffset > 0 { command, err = sftpclient.RegetCommand(remotePath, partial) } else { command, err = sftpclient.GetCommand(remotePath, partial) }
+		if err == nil { _, err = s.runSFTP(ctx, profile, command+"quit\n", 64<<10) }
 	default:
+		_ = part.Close()
 		err = fmt.Errorf("unsupported file-transfer protocol %q", profile.Protocol)
 	}
-	if err != nil {
-		return err
+	if err != nil { return err }
+
+	finalInfo, err := os.Stat(partial)
+	if err != nil || !finalInfo.Mode().IsRegular() { return errors.New("downloaded host partial file unavailable") }
+	if finalInfo.Size() > maxFileTransferBytes { return fmt.Errorf("file transfer exceeds %d bytes", maxFileTransferBytes) }
+	if expectedSize > 0 && finalInfo.Size() != expectedSize {
+		return fmt.Errorf("downloaded file size mismatch: got=%d expected=%d; partial file kept for retry", finalInfo.Size(), expectedSize)
 	}
-	info, err := os.Stat(tmpPath)
-	if err != nil || !info.Mode().IsRegular() {
-		return errors.New("downloaded host temp file unavailable")
-	}
-	if info.Size() > maxFileTransferBytes {
-		return fmt.Errorf("file transfer exceeds %d bytes", maxFileTransferBytes)
-	}
-	if err := os.Chmod(tmpPath, 0o644); err != nil {
-		return err
-	}
-	if _, err := s.backgroundHostTarget(hostRel, overwrite); err != nil {
-		return err
-	}
+	if err := os.Chmod(partial, 0o644); err != nil { return err }
+	if _, err := s.backgroundHostTarget(hostRel, overwrite); err != nil { return err }
 	if overwrite {
 		if existing, err := os.Lstat(target); err == nil {
-			if existing.Mode()&os.ModeSymlink != 0 || !existing.Mode().IsRegular() {
-				return errors.New("host destination changed to unsafe file type")
-			}
-			if err := os.Remove(target); err != nil {
-				return err
-			}
-		} else if !os.IsNotExist(err) {
-			return err
-		}
+			if existing.Mode()&os.ModeSymlink != 0 || !existing.Mode().IsRegular() { return errors.New("host destination changed to unsafe file type") }
+			if err := os.Remove(target); err != nil { return err }
+		} else if !os.IsNotExist(err) { return err }
 	}
-	return os.Rename(tmpPath, target)
+	return os.Rename(partial, target)
 }
 
 func normalizeBackgroundRemotePath(value string) string {
