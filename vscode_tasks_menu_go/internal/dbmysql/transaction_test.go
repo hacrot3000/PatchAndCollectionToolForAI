@@ -39,8 +39,12 @@ while IFS= read -r sql; do
       if [ "$pending" = "1" ]; then : > "$TASKDECK_MYSQL_TX_STATE"; fi
       pending=0 ;;
     "ROLLBACK;") pending=0 ;;
+    *taskdeck_slow*)
+      while [ ! -f "$TASKDECK_MYSQL_TX_CANCEL" ]; do sleep 0.01; done
+      printf "%s\n" "ERROR 1317 (70100): Query execution was interrupted" >&2 ;;
     USE*) : ;;
-    KILL\ QUERY*) : ;;
+    KILL\ QUERY*)
+      : > "$TASKDECK_MYSQL_TX_CANCEL" ;;
     SELECT\ 1\ AS\ taskdeck_connect\;*)
       printf "%s\n" '<resultset><row><field name="taskdeck_connect">1</field></row></resultset>' ;;
     *__taskdeck_boundary*)
