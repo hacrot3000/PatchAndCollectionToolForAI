@@ -7,6 +7,10 @@ const cmFactory=globalThis.cm6?.load?.()||null;
 const QUERY_SCHEMA_CONCURRENCY=4;
 const SQL_SCRIPT_EDIT_LIMIT=2<<20;
 
+function databaseSupports(view,name){
+  return Boolean(globalThis.TaskMenuDatabaseWorkbench?.supports?.(view,name));
+}
+
 const style=document.createElement('style');
 style.textContent=`
 .db-tab{border-radius:6px 6px 0 0;border-bottom:0;margin-left:4px}
@@ -1568,7 +1572,7 @@ async function explainQuery(view,analyze=false){
   const maxRows=Math.max(1,Math.min(1000,Number(owner.maxRows.value)||100));
   const payload={statement,max_rows:maxRows};if(owner.catalog.value)payload.catalog=owner.catalog.value;
   const controller=new AbortController();owner.queryAbortController=controller;
-  const cancelable=supports(owner,'cancel');
+  const cancelable=databaseSupports(owner,'cancel');
   owner.run.disabled=!cancelable;owner.run.textContent=cancelable?'Cancel':'Running…';
   owner.explain.disabled=true;owner.explainAnalyze.disabled=true;
   const started=performance.now();
@@ -1613,7 +1617,7 @@ async function executeQuery(view,{discardPending=false}={}){
   owner.queryFilter=null;owner.queryOrder=null;
   const maxRows=Math.max(1,Math.min(1000,Number(owner.maxRows.value)||100));
   const controller=new AbortController();owner.queryAbortController=controller;
-  const cancelable=supports(owner,'cancel');
+  const cancelable=databaseSupports(owner,'cancel');
   owner.run.disabled=!cancelable;owner.run.textContent=cancelable?'Cancel':(statements.length>1?'Running 1/'+statements.length+'…':'Running…');
   owner.explain.disabled=true;owner.explainAnalyze.disabled=true;
   owner.queryResultTabs=null;owner.queryResultPanels=null;owner.queryResultContexts=[];

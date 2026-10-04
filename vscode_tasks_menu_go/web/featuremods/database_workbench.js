@@ -1877,6 +1877,7 @@ globalThis.TaskMenuDatabaseWorkbench={
     }
     return false;
   },
+  supports,
   copyText,
   serializeClipboardData
 };

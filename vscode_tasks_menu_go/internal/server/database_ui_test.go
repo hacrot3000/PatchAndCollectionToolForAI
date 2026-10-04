@@ -1451,3 +1451,24 @@ func TestDatabaseQueryCancelAndExplainUI(t *testing.T) {
 		t.Fatal("query execution must allow the Run button to become Cancel when adapter supports cancellation")
 	}
 }
+
+func TestDatabaseCapabilityBridgeBetweenModules(t *testing.T) {
+	databaseData, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil { t.Fatal(err) }
+	workbenchData, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil { t.Fatal(err) }
+	databaseJS := string(databaseData)
+	workbenchJS := string(workbenchData)
+	for _, want := range []string{
+		"function databaseSupports(view,name)",
+		"TaskMenuDatabaseWorkbench?.supports?.(view,name)",
+		"databaseSupports(owner,'cancel')",
+	} {
+		if !strings.Contains(databaseJS, want) {
+			t.Fatalf("database.js missing capability bridge %q", want)
+		}
+	}
+	if !strings.Contains(workbenchJS, "  supports,") {
+		t.Fatal("database_workbench.js does not export supports")
+	}
+}
