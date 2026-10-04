@@ -1500,6 +1500,7 @@ func workspaceTerminalExecution(workspace string) (tasks.Execution, error) {
 			return tasks.Execution{}, err
 		}
 		spec.TargetType = "local"
+		_ = configureTerminalShellIntegration(&spec)
 		return spec, nil
 	}
 	return tasks.Execution{}, fmt.Errorf("không tìm thấy shell tương tác ($SHELL, /bin/bash hoặc /bin/sh)")
