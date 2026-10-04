@@ -14,6 +14,9 @@ func TestBuildTunnelCommandBindsLoopbackAndKeepsDestinationLast(t *testing.T) {
 		Host:       "jump.example.com",
 		Username:   "deploy",
 		AuthMethod: sshprofile.AuthAgent,
+		Forwardings: []sshprofile.PortForwarding{
+			{Kind: sshprofile.ForwardLocal, BindPort: 8080, TargetHost: "other.internal", TargetPort: 80},
+		},
 	}, 43123, "db.internal", 3306)
 	if err != nil {
 		t.Fatal(err)
@@ -32,6 +35,9 @@ func TestBuildTunnelCommandBindsLoopbackAndKeepsDestinationLast(t *testing.T) {
 	}
 	if command.Args[len(command.Args)-1] != "deploy@jump.example.com" {
 		t.Fatalf("destination is not final argv item: %#v", command.Args)
+	}
+	if strings.Contains(joined, "8080:other.internal:80") {
+		t.Fatalf("generic profile forwarding leaked into database tunnel command: %#v", command.Args)
 	}
 }
 

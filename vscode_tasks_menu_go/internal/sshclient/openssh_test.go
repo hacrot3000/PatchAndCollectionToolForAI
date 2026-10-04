@@ -120,6 +120,30 @@ func TestBuildCommandIncludesProxyJumpAsSingleArgument(t *testing.T) {
 	}
 }
 
+func TestBuildCommandAddsProfilePortForwardings(t *testing.T) {
+	cmd, err := BuildCommand("/usr/bin/ssh", sshprofile.Profile{
+		ID: "prod", Name: "Production", Host: "prod.example.com", Username: "deploy", AuthMethod: sshprofile.AuthAgent,
+		Forwardings: []sshprofile.PortForwarding{
+			{Kind: sshprofile.ForwardLocal, BindHost: "127.0.0.1", BindPort: 8080, TargetHost: "app.internal", TargetPort: 80},
+			{Kind: sshprofile.ForwardRemote, BindHost: "127.0.0.1", BindPort: 9000, TargetHost: "127.0.0.1", TargetPort: 9001},
+			{Kind: sshprofile.ForwardDynamic, BindHost: "::1", BindPort: 1080},
+		},
+	})
+	if err != nil { t.Fatal(err) }
+	joined := strings.Join(cmd.Args, "\n")
+	for _, want := range []string{
+		"ExitOnForwardFailure=yes",
+		"127.0.0.1:8080:app.internal:80",
+		"127.0.0.1:9000:127.0.0.1:9001",
+		"[::1]:1080",
+	} {
+		if !strings.Contains(joined, want) { t.Fatalf("args missing %q: %#v", want, cmd.Args) }
+	}
+	for _, flag := range []string{"-L", "-R", "-D"} {
+		if !strings.Contains(joined, flag) { t.Fatalf("args missing forwarding flag %q: %#v", flag, cmd.Args) }
+	}
+}
+
 func TestBuildProbeCommandDisablesTTYAndSkipsRemoteBootstrap(t *testing.T) {
 	cmd, err := BuildProbeCommand("/usr/bin/ssh", sshprofile.Profile{
 		ID:            "prod",
@@ -130,6 +154,9 @@ func TestBuildProbeCommandDisablesTTYAndSkipsRemoteBootstrap(t *testing.T) {
 		CustomHomeDir: "/srv/app",
 		PresetCommands: []sshprofile.PresetCommand{
 			{ID: "env", Name: "Environment", Command: "export APP_ENV=prod"},
+		},
+		Forwardings: []sshprofile.PortForwarding{
+			{Kind: sshprofile.ForwardLocal, BindPort: 8080, TargetHost: "app.internal", TargetPort: 80},
 		},
 	})
 	if err != nil {
@@ -145,8 +172,8 @@ func TestBuildProbeCommandDisablesTTYAndSkipsRemoteBootstrap(t *testing.T) {
 		t.Fatalf("probe destination/command = %#v", cmd.Args)
 	}
 	joined := strings.Join(cmd.Args, "\n")
-	if strings.Contains(joined, "/srv/app") || strings.Contains(joined, "APP_ENV") {
-		t.Fatalf("probe unexpectedly runs terminal bootstrap: %#v", cmd.Args)
+	if strings.Contains(joined, "/srv/app") || strings.Contains(joined, "APP_ENV") || strings.Contains(joined, "8080:app.internal:80") {
+		t.Fatalf("probe unexpectedly runs terminal bootstrap/forwarding: %#v", cmd.Args)
 	}
 }
 

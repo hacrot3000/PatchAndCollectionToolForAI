@@ -25,6 +25,7 @@ type sshProfileRequest struct {
 	ServerAliveIntervalSeconds int                        `json:"server_alive_interval_seconds,omitempty"`
 	ServerAliveCountMax        int                        `json:"server_alive_count_max,omitempty"`
 	ProxyJump                  string                     `json:"proxy_jump,omitempty"`
+	Forwardings                []sshprofile.PortForwarding `json:"forwardings,omitempty"`
 }
 
 type sshProfileView struct {
@@ -52,6 +53,7 @@ func (req sshProfileRequest) profile(id, secretRef string) sshprofile.Profile {
 		ServerAliveIntervalSeconds: req.ServerAliveIntervalSeconds,
 		ServerAliveCountMax:        req.ServerAliveCountMax,
 		ProxyJump:                  req.ProxyJump,
+		Forwardings:                req.Forwardings,
 	}
 }
 

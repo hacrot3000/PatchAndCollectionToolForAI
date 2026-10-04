@@ -30,7 +30,7 @@ func BuildTunnelCommand(
 		return Command{}, errors.New("SSH tunnel remote host must not contain whitespace or slash")
 	}
 
-	command, err := buildCommand(executable, profile, "-T", false)
+	command, err := buildCommand(executable, profile, "-T", false, false)
 	if err != nil {
 		return Command{}, err
 	}

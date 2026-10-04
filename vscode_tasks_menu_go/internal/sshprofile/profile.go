@@ -25,6 +25,7 @@ const (
 	maxConnectTimeoutSec = 300
 	maxServerAliveSec    = 3600
 	maxServerAliveCount  = 20
+	maxPortForwardings    = 16
 )
 
 type AuthMethod string
@@ -40,6 +41,22 @@ type PresetCommand struct {
 	Name    string `json:"name"`
 	Command string `json:"command"`
 	Cwd     string `json:"cwd,omitempty"`
+}
+
+type ForwardingKind string
+
+const (
+	ForwardLocal   ForwardingKind = "local"
+	ForwardRemote  ForwardingKind = "remote"
+	ForwardDynamic ForwardingKind = "dynamic"
+)
+
+type PortForwarding struct {
+	Kind       ForwardingKind `json:"kind"`
+	BindHost   string         `json:"bind_host,omitempty"`
+	BindPort   int            `json:"bind_port"`
+	TargetHost string         `json:"target_host,omitempty"`
+	TargetPort int            `json:"target_port,omitempty"`
 }
 
 type Profile struct {
@@ -62,7 +79,8 @@ type Profile struct {
 	ConnectTimeoutSeconds    int    `json:"connect_timeout_seconds,omitempty"`
 	ServerAliveIntervalSeconds int  `json:"server_alive_interval_seconds,omitempty"`
 	ServerAliveCountMax      int    `json:"server_alive_count_max,omitempty"`
-	ProxyJump                string `json:"proxy_jump,omitempty"`
+	ProxyJump                string           `json:"proxy_jump,omitempty"`
+	Forwardings              []PortForwarding `json:"forwardings,omitempty"`
 }
 
 func Normalize(p Profile) (Profile, error) {
@@ -149,6 +167,40 @@ func Normalize(p Profile) (Profile, error) {
 		return Profile{}, fmt.Errorf("ssh server alive count must be between 1 and %d", maxServerAliveCount)
 	}
 
+	if len(p.Forwardings) > maxPortForwardings {
+		return Profile{}, fmt.Errorf("ssh port forwardings exceed %d entries", maxPortForwardings)
+	}
+	for i := range p.Forwardings {
+		item := p.Forwardings[i]
+		item.BindHost = strings.TrimSpace(item.BindHost)
+		item.TargetHost = strings.TrimSpace(item.TargetHost)
+		if item.BindHost == "" {
+			item.BindHost = "127.0.0.1"
+		}
+		if err := validateForwardHost("forward bind host", item.BindHost, true); err != nil {
+			return Profile{}, fmt.Errorf("forwarding %d: %w", i+1, err)
+		}
+		if item.BindPort < 1 || item.BindPort > 65535 {
+			return Profile{}, fmt.Errorf("forwarding %d: bind port must be between 1 and 65535", i+1)
+		}
+		switch item.Kind {
+		case ForwardLocal, ForwardRemote:
+			if err := validateForwardHost("forward target host", item.TargetHost, true); err != nil {
+				return Profile{}, fmt.Errorf("forwarding %d: %w", i+1, err)
+			}
+			if item.TargetPort < 1 || item.TargetPort > 65535 {
+				return Profile{}, fmt.Errorf("forwarding %d: target port must be between 1 and 65535", i+1)
+			}
+		case ForwardDynamic:
+			if item.TargetHost != "" || item.TargetPort != 0 {
+				return Profile{}, fmt.Errorf("forwarding %d: dynamic forwarding must not define a target host or port", i+1)
+			}
+		default:
+			return Profile{}, fmt.Errorf("forwarding %d: unsupported forwarding kind %q", i+1, item.Kind)
+		}
+		p.Forwardings[i] = item
+	}
+
 	if len(p.PresetCommands) > maxPresetCommands {
 		return Profile{}, fmt.Errorf("ssh preset commands exceed %d entries", maxPresetCommands)
 	}
@@ -207,6 +259,16 @@ func validateHost(value string) error {
 	}
 	if strings.ContainsAny(value, " 	/@") {
 		return fmt.Errorf("ssh host must not contain whitespace, slash, or @")
+	}
+	return nil
+}
+
+func validateForwardHost(label, value string, required bool) error {
+	if err := validateText(label, value, maxHostLen, required); err != nil {
+		return err
+	}
+	if strings.ContainsAny(value, " \t/@") {
+		return fmt.Errorf("%s must not contain whitespace, slash, or @", label)
 	}
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -62,14 +63,14 @@ func ProbeOpenSSH(path string) (string, error) {
 }
 
 func BuildCommand(executable string, profile sshprofile.Profile) (Command, error) {
-	return buildCommand(executable, profile, "-tt", false)
+	return buildCommand(executable, profile, "-tt", false, true)
 }
 
 func BuildProbeCommand(executable string, profile sshprofile.Profile) (Command, error) {
-	return buildCommand(executable, profile, "-T", true)
+	return buildCommand(executable, profile, "-T", true, false)
 }
 
-func buildCommand(executable string, profile sshprofile.Profile, ttyFlag string, probe bool) (Command, error) {
+func buildCommand(executable string, profile sshprofile.Profile, ttyFlag string, probe bool, includeProfileForwardings bool) (Command, error) {
 	executable = strings.TrimSpace(executable)
 	if executable == "" {
 		return Command{}, errors.New("OpenSSH client path is required")
@@ -96,6 +97,23 @@ func buildCommand(executable string, profile sshprofile.Profile, ttyFlag string,
 	}
 	if p.ProxyJump != "" {
 		args = append(args, "-J", p.ProxyJump)
+	}
+
+	if includeProfileForwardings && len(p.Forwardings) != 0 {
+		args = append(args, "-o", "ExitOnForwardFailure=yes")
+		for _, forwarding := range p.Forwardings {
+			bind := net.JoinHostPort(forwarding.BindHost, strconv.Itoa(forwarding.BindPort))
+			switch forwarding.Kind {
+			case sshprofile.ForwardLocal:
+				target := net.JoinHostPort(forwarding.TargetHost, strconv.Itoa(forwarding.TargetPort))
+				args = append(args, "-L", bind+":"+target)
+			case sshprofile.ForwardRemote:
+				target := net.JoinHostPort(forwarding.TargetHost, strconv.Itoa(forwarding.TargetPort))
+				args = append(args, "-R", bind+":"+target)
+			case sshprofile.ForwardDynamic:
+				args = append(args, "-D", bind)
+			}
+		}
 	}
 
 	switch p.AuthMethod {

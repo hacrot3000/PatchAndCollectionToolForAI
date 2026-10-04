@@ -132,3 +132,39 @@ func TestSecretRefIsNotSerialized(t *testing.T) {
 		t.Fatalf("secret reference leaked into JSON: %s", data)
 	}
 }
+
+func TestNormalizePortForwardings(t *testing.T) {
+	got, err := Normalize(Profile{
+		ID: "prod", Name: "Production", Host: "example.com", Username: "deploy", AuthMethod: AuthAgent,
+		Forwardings: []PortForwarding{
+			{Kind: ForwardLocal, BindPort: 8080, TargetHost: "app.internal", TargetPort: 80},
+			{Kind: ForwardRemote, BindHost: "127.0.0.1", BindPort: 9000, TargetHost: "127.0.0.1", TargetPort: 9001},
+			{Kind: ForwardDynamic, BindHost: "::1", BindPort: 1080},
+		},
+	})
+	if err != nil { t.Fatal(err) }
+	if got.Forwardings[0].BindHost != "127.0.0.1" {
+		t.Fatalf("default bind host=%q", got.Forwardings[0].BindHost)
+	}
+	if got.Forwardings[2].BindHost != "::1" {
+		t.Fatalf("IPv6 bind host=%q", got.Forwardings[2].BindHost)
+	}
+}
+
+func TestNormalizeRejectsInvalidPortForwardings(t *testing.T) {
+	base := Profile{ID: "prod", Name: "Production", Host: "example.com", Username: "deploy", AuthMethod: AuthAgent}
+	tests := []PortForwarding{
+		{Kind: ForwardLocal, BindPort: 0, TargetHost: "app", TargetPort: 80},
+		{Kind: ForwardLocal, BindPort: 8080, TargetHost: "", TargetPort: 80},
+		{Kind: ForwardRemote, BindPort: 9000, TargetHost: "bad host", TargetPort: 80},
+		{Kind: ForwardDynamic, BindPort: 1080, TargetHost: "unexpected", TargetPort: 80},
+		{Kind: ForwardingKind("bad"), BindPort: 1080},
+	}
+	for _, item := range tests {
+		profile := base
+		profile.Forwardings = []PortForwarding{item}
+		if _, err := Normalize(profile); err == nil {
+			t.Fatalf("invalid forwarding accepted: %+v", item)
+		}
+	}
+}
