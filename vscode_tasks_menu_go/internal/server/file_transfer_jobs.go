@@ -61,6 +61,9 @@ type fileTransferServerJob struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 	ScanDone       bool      `json:"scan_done"`
 	ConflictPolicy string    `json:"conflict_policy,omitempty"`
+	Recovered      bool      `json:"recovered,omitempty"`
+	Request        *fileTransferJobCreateRequest `json:"-"`
+	NeedsRescan    bool      `json:"-"`
 }
 
 type fileTransferServerItem struct {
@@ -96,6 +99,8 @@ type fileTransferServerQueue struct {
 	Revision               uint64
 	wake                   chan struct{}
 	workerOnce             sync.Once
+	Recovered              bool
+	persist                func()
 }
 
 type fileTransferJobsSnapshot struct {
@@ -119,6 +124,7 @@ func (s *Server) fileTransferServerQueue(profileID string) *fileTransferServerQu
 	profileID = strings.TrimSpace(profileID)
 	s.fileTransferJobsMu.Lock()
 	defer s.fileTransferJobsMu.Unlock()
+	s.ensureFileTransferQueuesLoadedLocked()
 	if s.fileTransferJobQueues == nil {
 		s.fileTransferJobQueues = make(map[string]*fileTransferServerQueue)
 	}
@@ -129,6 +135,7 @@ func (s *Server) fileTransferServerQueue(profileID string) *fileTransferServerQu
 		ProfileID: profileID,
 		Jobs:      make(map[string]*fileTransferServerJob),
 		wake:      make(chan struct{}, 1),
+		persist:   s.scheduleFileTransferQueuePersist,
 	}
 	s.fileTransferJobQueues[profileID] = queue
 	queue.workerOnce.Do(func() { go s.runFileTransferServerQueue(queue) })
@@ -186,10 +193,29 @@ func (q *fileTransferServerQueue) snapshot() fileTransferJobsSnapshot {
 
 func (q *fileTransferServerQueue) touchLocked() {
 	q.Revision++
+	if q.persist != nil {
+		q.persist()
+	}
+}
+
+func (q *fileTransferServerQueue) existingItemLocked(jobID, operation, source, target string, directory bool) *fileTransferServerItem {
+	for _, item := range q.Items {
+		if item == nil {
+			continue
+		}
+		if item.JobID == jobID && item.Operation == operation && item.Source == source && item.Target == target && item.Directory == directory {
+			return item
+		}
+	}
+	return nil
 }
 
 func (q *fileTransferServerQueue) addItem(jobID, kind, direction, source, target, operation string, size int64, directory bool) *fileTransferServerItem {
 	q.mu.Lock()
+	if existing := q.existingItemLocked(jobID, operation, source, target, directory); existing != nil {
+		q.mu.Unlock()
+		return existing
+	}
 	q.Sequence++
 	item := &fileTransferServerItem{
 		ID:        fmt.Sprintf("srv-%s-%d", jobID, q.Sequence),
@@ -212,6 +238,10 @@ func (q *fileTransferServerQueue) addItem(jobID, kind, direction, source, target
 
 func (q *fileTransferServerQueue) addResolvedItem(jobID, kind, direction, source, target, operation string, size int64, conflict *fileTransferConflictMeta, decision string, overwrite bool) *fileTransferServerItem {
 	q.mu.Lock()
+	if existing := q.existingItemLocked(jobID, operation, source, target, false); existing != nil {
+		q.mu.Unlock()
+		return existing
+	}
 	q.Sequence++
 	item := &fileTransferServerItem{
 		ID:        fmt.Sprintf("srv-%s-%d", jobID, q.Sequence),
@@ -236,6 +266,10 @@ func (q *fileTransferServerQueue) addResolvedItem(jobID, kind, direction, source
 
 func (q *fileTransferServerQueue) addConflictItem(jobID, kind, direction, source, target, operation string, size int64, conflict fileTransferConflictMeta) *fileTransferServerItem {
 	q.mu.Lock()
+	if existing := q.existingItemLocked(jobID, operation, source, target, false); existing != nil {
+		q.mu.Unlock()
+		return existing
+	}
 	q.Sequence++
 	item := &fileTransferServerItem{
 		ID:        fmt.Sprintf("srv-%s-%d", jobID, q.Sequence),
@@ -258,6 +292,10 @@ func (q *fileTransferServerQueue) addConflictItem(jobID, kind, direction, source
 
 func (q *fileTransferServerQueue) addSkippedItem(jobID, kind, direction, source, target, operation string, size int64, conflict fileTransferConflictMeta, decision string) {
 	q.mu.Lock()
+	if q.existingItemLocked(jobID, operation, source, target, false) != nil {
+		q.mu.Unlock()
+		return
+	}
 	q.Sequence++
 	item := &fileTransferServerItem{
 		ID:        fmt.Sprintf("srv-%s-%d", jobID, q.Sequence),
@@ -1019,6 +1057,7 @@ func (s *Server) createFileTransferServerJob(req fileTransferJobCreateRequest) (
 	job := &fileTransferServerJob{
 		ID: jobID, ProfileID: req.ProfileID, Kind: req.Kind,
 		Status: "scanning", CreatedAt: now, UpdatedAt: now, ConflictPolicy: req.ConflictPolicy,
+		Request: cloneFileTransferJobRequest(&req),
 	}
 	queue := s.fileTransferServerQueue(req.ProfileID)
 	queue.mu.Lock()
@@ -1152,6 +1191,9 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
 	}
 	queue.touchLocked()
 	queue.mu.Unlock()
+	if req.Action == "resume" {
+		s.restartRecoveredFileTransferScans(queue)
+	}
 	signalFileTransferQueue(queue)
 	writeJSON(w, http.StatusOK, queue.snapshot())
 }

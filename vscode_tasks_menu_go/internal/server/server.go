@@ -73,8 +73,11 @@ type Server struct {
 	fileTransferDownloadMu sync.Mutex
 	fileTransferDownloads  map[string]fileTransferDownloadTicket
 
-	fileTransferJobsMu     sync.Mutex
-	fileTransferJobQueues  map[string]*fileTransferServerQueue
+	fileTransferJobsMu       sync.Mutex
+	fileTransferJobQueues    map[string]*fileTransferServerQueue
+	fileTransferJobsLoaded    bool
+	fileTransferPersistMu     sync.Mutex
+	fileTransferPersistTimer  *time.Timer
 
 	terminalStateMu     sync.RWMutex
 	terminalStateFrozen bool
