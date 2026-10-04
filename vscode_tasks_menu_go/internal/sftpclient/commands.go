@@ -93,6 +93,30 @@ func PutCommand(localPath, remotePath string) (string, error) {
 	return "put " + local + " " + remote + "\n", nil
 }
 
+func RegetCommand(remotePath, localPath string) (string, error) {
+	remote, err := QuotePath(remotePath)
+	if err != nil {
+		return "", err
+	}
+	local, err := QuotePath(localPath)
+	if err != nil {
+		return "", err
+	}
+	return "reget " + remote + " " + local + "\n", nil
+}
+
+func ReputCommand(localPath, remotePath string) (string, error) {
+	local, err := QuotePath(localPath)
+	if err != nil {
+		return "", err
+	}
+	remote, err := QuotePath(remotePath)
+	if err != nil {
+		return "", err
+	}
+	return "reput " + local + " " + remote + "\n", nil
+}
+
 func MkdirCommand(remotePath string) (string, error) {
 	path, err := QuotePath(remotePath)
 	if err != nil {

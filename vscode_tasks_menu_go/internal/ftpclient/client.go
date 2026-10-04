@@ -19,6 +19,8 @@ const (
 	MaxListEntries       = 5000
 )
 
+var ErrResumeUnsupported = errors.New("ftp server does not support transfer resume")
+
 type Reply struct {
 	Code int
 	Text string
@@ -203,8 +205,35 @@ func (c *Client) List(ctx context.Context, path string) ([]Entry, error) {
 	return ParseLIST(string(data))
 }
 
+func (c *Client) setRestartOffset(ctx context.Context, offset int64) error {
+	if offset <= 0 {
+		return nil
+	}
+	reply, err := c.command(ctx, "REST "+strconv.FormatInt(offset, 10))
+	if err != nil {
+		return err
+	}
+	if reply.Code == 350 {
+		return nil
+	}
+	if reply.Code == 500 || reply.Code == 501 || reply.Code == 502 || reply.Code == 504 {
+		return fmt.Errorf("%w: %d %s", ErrResumeUnsupported, reply.Code, reply.Text)
+	}
+	return fmt.Errorf("ftp REST rejected: %d %s", reply.Code, reply.Text)
+}
+
 func (c *Client) Retrieve(ctx context.Context, remotePath string, dst io.Writer) error {
+	return c.RetrieveFrom(ctx, remotePath, 0, dst)
+}
+
+func (c *Client) RetrieveFrom(ctx context.Context, remotePath string, offset int64, dst io.Writer) error {
 	if err := validateCommandArg("ftp remote path", remotePath); err != nil {
+		return err
+	}
+	if offset < 0 {
+		return errors.New("ftp resume offset must be non-negative")
+	}
+	if err := c.setRestartOffset(ctx, offset); err != nil {
 		return err
 	}
 	return c.dataStream(ctx, "RETR "+remotePath, func(conn net.Conn) error {
@@ -214,7 +243,17 @@ func (c *Client) Retrieve(ctx context.Context, remotePath string, dst io.Writer)
 }
 
 func (c *Client) Store(ctx context.Context, remotePath string, src io.Reader) error {
+	return c.StoreFrom(ctx, remotePath, 0, src)
+}
+
+func (c *Client) StoreFrom(ctx context.Context, remotePath string, offset int64, src io.Reader) error {
 	if err := validateCommandArg("ftp remote path", remotePath); err != nil {
+		return err
+	}
+	if offset < 0 {
+		return errors.New("ftp resume offset must be non-negative")
+	}
+	if err := c.setRestartOffset(ctx, offset); err != nil {
 		return err
 	}
 	return c.dataStream(ctx, "STOR "+remotePath, func(conn net.Conn) error {

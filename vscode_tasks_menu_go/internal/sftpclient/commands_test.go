@@ -84,3 +84,16 @@ func TestParseLongList(t *testing.T) {
 		t.Fatalf("symlink=%#v", entries[2])
 	}
 }
+
+func TestResumeCommandsQuotePaths(t *testing.T) {
+	got, err := RegetCommand("/remote file.bin", "/tmp/local file.bin")
+	if err != nil { t.Fatal(err) }
+	if got != "reget \"/remote file.bin\" \"/tmp/local file.bin\"\n" {
+		t.Fatalf("reget=%q", got)
+	}
+	got, err = ReputCommand("/tmp/local file.bin", "/remote file.bin")
+	if err != nil { t.Fatal(err) }
+	if got != "reput \"/tmp/local file.bin\" \"/remote file.bin\"\n" {
+		t.Fatalf("reput=%q", got)
+	}
+}
