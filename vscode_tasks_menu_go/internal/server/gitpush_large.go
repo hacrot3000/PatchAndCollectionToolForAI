@@ -29,6 +29,16 @@ type gitLargeBlobInfo struct {
 	LimitMiB   float64 `json:"limit_mib"`
 }
 
+type gitLFSMigrationPlan struct {
+	Available       bool   `json:"available"`
+	Version         string `json:"version,omitempty"`
+	Branch          string `json:"branch,omitempty"`
+	Upstream        string `json:"upstream,omitempty"`
+	Range           string `json:"range,omitempty"`
+	OutgoingCommits int    `json:"outgoing_commits,omitempty"`
+	Head            string `json:"head,omitempty"`
+}
+
 var gitHubRemotePattern = regexp.MustCompile(`(?i)(^|[@/:])github\.com([/:]|$)`)
 
 func isGitHubRemoteURL(value string) bool {
@@ -84,6 +94,155 @@ func (s *Server) gitPushUpstream(ctx context.Context) (branch, upstream, remote,
 	}
 	remoteURL = strings.TrimSpace(out)
 	return branch, upstream, remote, remoteURL, nil
+}
+
+func (s *Server) gitLFSVersion(ctx context.Context) (string, bool) {
+	stdout, stderr, _, err := s.runGit(ctx, 5*time.Second, "lfs", "version")
+	if err != nil {
+		return "", false
+	}
+	version := strings.TrimSpace(joinGitOutput(stdout, stderr))
+	if version == "" {
+		return "", false
+	}
+	if len(version) > 512 {
+		version = version[:512]
+	}
+	return version, true
+}
+
+func (s *Server) gitLFSMigrationPlan(ctx context.Context) gitLFSMigrationPlan {
+	version, available := s.gitLFSVersion(ctx)
+	plan := gitLFSMigrationPlan{Available: available, Version: version}
+	if !available {
+		return plan
+	}
+	branch, upstream, _, _, err := s.gitPushUpstream(ctx)
+	if err != nil {
+		return plan
+	}
+	if _, _, _, err := s.runGit(ctx, 8*time.Second, "merge-base", "--is-ancestor", upstream, "HEAD"); err != nil {
+		return plan
+	}
+	countOut, _, _, err := s.runGit(ctx, 8*time.Second, "rev-list", "--count", upstream+"..HEAD")
+	if err != nil {
+		return plan
+	}
+	count, err := strconv.Atoi(strings.TrimSpace(countOut))
+	if err != nil || count < 0 {
+		return plan
+	}
+	headOut, _, _, err := s.runGit(ctx, 5*time.Second, "rev-parse", "HEAD")
+	if err != nil {
+		return plan
+	}
+	plan.Branch = branch
+	plan.Upstream = upstream
+	plan.Range = upstream + "..HEAD"
+	plan.OutgoingCommits = count
+	plan.Head = strings.TrimSpace(headOut)
+	return plan
+}
+
+func validGitLFSPattern(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("Git LFS include pattern is required")
+	}
+	if len(value) > 512 || strings.ContainsAny(value, "\x00\r\n") {
+		return "", fmt.Errorf("Git LFS include pattern is invalid")
+	}
+	if strings.Contains(value, ",") {
+		return "", fmt.Errorf("Git LFS include pattern must contain exactly one pattern")
+	}
+	return value, nil
+}
+
+func gitLFSMigrateArgs(pattern string) []string {
+	return []string{"lfs", "migrate", "import", "--yes", "--skip-fetch", "--include=" + pattern}
+}
+
+func (s *Server) gitLargeFileMigrateLFS(ctx context.Context, rawPath, rawPattern string, limit int64) (string, bool, error) {
+	path, err := validGitRelativePath(rawPath)
+	if err != nil {
+		return "", false, err
+	}
+	item, upstream, err := s.gitLargePathIsOutgoing(ctx, path, limit)
+	if err != nil {
+		return "", false, err
+	}
+	version, available := s.gitLFSVersion(ctx)
+	if !available {
+		return "", false, fmt.Errorf("Git LFS is not installed or git lfs version failed")
+	}
+	clean, err := s.gitWorktreeClean(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	if !clean {
+		return "", false, fmt.Errorf("working tree and index must be clean before Git LFS history migration")
+	}
+	if _, _, _, err := s.runGit(ctx, 8*time.Second, "merge-base", "--is-ancestor", upstream, "HEAD"); err != nil {
+		return "", false, fmt.Errorf("upstream is not an ancestor of HEAD; integrate remote history before Git LFS migration")
+	}
+	pattern := strings.TrimSpace(rawPattern)
+	if pattern == "" {
+		pattern = path
+	}
+	pattern, err = validGitLFSPattern(pattern)
+	if err != nil {
+		return "", false, err
+	}
+	headOut, _, _, err := s.runGit(ctx, 5*time.Second, "rev-parse", "HEAD")
+	if err != nil {
+		return "", false, err
+	}
+	originalHEAD := strings.TrimSpace(headOut)
+	countOut, _, _, err := s.runGit(ctx, 8*time.Second, "rev-list", "--count", upstream+"..HEAD")
+	if err != nil {
+		return "", false, err
+	}
+	count := strings.TrimSpace(countOut)
+
+	var output []string
+	run := func(timeout time.Duration, args ...string) error {
+		stdout, stderr, truncated, runErr := s.runGit(ctx, timeout, args...)
+		if text := joinGitOutput(stdout, stderr); text != "" {
+			output = append(output, text)
+		}
+		if truncated {
+			output = append(output, "Git output was truncated.")
+		}
+		return runErr
+	}
+	if err := run(20*time.Second, "lfs", "install", "--local"); err != nil {
+		return joinGitOutput(output...), false, fmt.Errorf("initialize Git LFS for this repository: %w", err)
+	}
+	if err := run(10*time.Minute, gitLFSMigrateArgs(pattern)...); err != nil {
+		return joinGitOutput(output...), false, fmt.Errorf("migrate unpushed history to Git LFS: %w", err)
+	}
+	remaining, err := s.gitOutgoingLargeBlobs(ctx, upstream, limit)
+	if err != nil {
+		return joinGitOutput(output...), false, fmt.Errorf("verify Git LFS migration: %w", err)
+	}
+	for _, candidate := range remaining {
+		if filepath.ToSlash(candidate.Path) == path {
+			return joinGitOutput(output...), false, fmt.Errorf("Git LFS migration completed but %s is still an oversized outgoing Git blob", path)
+		}
+	}
+	newHeadOut, _, _, err := s.runGit(ctx, 5*time.Second, "rev-parse", "HEAD")
+	if err != nil {
+		return joinGitOutput(output...), false, err
+	}
+	output = append(output,
+		fmt.Sprintf("Migrated %s (%.2f MiB) to Git LFS using pattern %q.", path, item.SizeMiB, pattern),
+		"Git LFS: "+version,
+		fmt.Sprintf("Rewrote %s unpushed commit(s) in %s.", count, upstream+"..HEAD"),
+		"Original HEAD: "+originalHEAD+" (recoverable via Git reflog).",
+		"New HEAD: "+strings.TrimSpace(newHeadOut)+".",
+		"No remote refs were modified. Review the rewritten commits, then retry the normal push.",
+	)
+	return joinGitOutput(output...), false, nil
 }
 
 func parseGitLargeBlobBatch(raw string, limit int64) []gitLargeBlobInfo {

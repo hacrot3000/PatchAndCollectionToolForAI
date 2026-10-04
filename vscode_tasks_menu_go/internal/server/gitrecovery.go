@@ -175,7 +175,7 @@ func (s *Server) gitOperationState(ctx context.Context) (string, error) {
 
 func gitRecoveryNeedsConfirmation(repair string) bool {
 	switch repair {
-	case "push_force_with_lease", "trust_repository", "remove_stale_index_lock", "pull_allow_unrelated", "commit_no_verify", "push_no_verify", "large_file_remove_latest", "large_file_prepare_recommit", "conflict_resolve_all", "merge_to_prepare_resolution":
+	case "push_force_with_lease", "trust_repository", "remove_stale_index_lock", "pull_allow_unrelated", "commit_no_verify", "push_no_verify", "large_file_remove_latest", "large_file_prepare_recommit", "large_file_lfs_migrate", "conflict_resolve_all", "merge_to_prepare_resolution":
 		return true
 	default:
 		return false
@@ -265,6 +265,8 @@ func (s *Server) gitRepairAction(ctx context.Context, req gitActionRequest) (str
 		return s.gitLargeFileRemoveFromLatest(ctx, req.LargePath, gitHubPushBlobLimit)
 	case "large_file_prepare_recommit":
 		return s.gitLargeFilePrepareRecommit(ctx, req.LargePath, gitHubPushBlobLimit)
+	case "large_file_lfs_migrate":
+		return s.gitLargeFileMigrateLFS(ctx, req.LargePath, req.LFSPattern, gitHubPushBlobLimit)
 	case "conflict_take_side":
 		return s.gitResolveConflictSide(ctx, req.Path, req.ConflictSide)
 	case "conflict_mark_resolved":

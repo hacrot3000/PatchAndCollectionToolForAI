@@ -780,6 +780,7 @@ type gitActionRequest struct {
 	NewBranch         string `json:"new_branch,omitempty"`
 	IgnoreID          string `json:"ignore_id,omitempty"`
 	LargePath         string `json:"large_path,omitempty"`
+	LFSPattern        string `json:"lfs_pattern,omitempty"`
 	ConflictSide      string `json:"conflict_side,omitempty"`
 	HunkIndex         int    `json:"hunk_index,omitempty"`
 	ExpectedDiffSHA   string `json:"expected_diff_sha,omitempty"`
@@ -962,6 +963,7 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 				"provider": "github",
 				"limit_bytes": gitHubPushBlobLimit,
 				"large_files": large,
+				"lfs_plan": s.gitLFSMigrationPlan(r.Context()),
 			})
 			return
 		}

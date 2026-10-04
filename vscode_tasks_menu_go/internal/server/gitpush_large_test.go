@@ -32,6 +32,55 @@ func writeLargeTestFile(t *testing.T, root, rel string, size int) {
 	if err := os.WriteFile(path, data, 0o644); err != nil { t.Fatal(err) }
 }
 
+func installFakeGitLFS(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "git-lfs")
+	script := "#!/bin/sh\n" +
+		"case \"$1\" in\n" +
+		"  version) echo 'git-lfs/3.7.1 (TaskDeck fixture)' ;;\n" +
+		"  install) echo 'Updated Git hooks.' ;;\n" +
+		"  migrate) echo 'migrate fixture' ;;\n" +
+		"  *) exit 2 ;;\n" +
+		"esac\n"
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { t.Fatal(err) }
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return path
+}
+
+func TestGitLFSPatternValidationAndArguments(t *testing.T) {
+	for _, value := range []string{"logic/capture.csv", "*.csv", "assets/**/large.bin"} {
+		if got, err := validGitLFSPattern(value); err != nil || got != value {
+			t.Fatalf("pattern %q got=%q err=%v", value, got, err)
+		}
+	}
+	for _, value := range []string{"", "a,b", "bad\npattern"} {
+		if _, err := validGitLFSPattern(value); err == nil {
+			t.Fatalf("invalid pattern %q accepted", value)
+		}
+	}
+	args := strings.Join(gitLFSMigrateArgs("*.csv"), " ")
+	for _, want := range []string{"lfs migrate import", "--yes", "--skip-fetch", "--include=*.csv"} {
+		if !strings.Contains(args, want) { t.Fatalf("args=%q missing %q", args, want) }
+	}
+}
+
+func TestGitLFSMigrationPlanUsesVerifiedOutgoingRange(t *testing.T) {
+	workspace, s, branch, upstream := setupGitPushLargeRepo(t)
+	installFakeGitLFS(t)
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("two\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "tracked.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "outgoing")
+
+	plan := s.gitLFSMigrationPlan(context.Background())
+	if !plan.Available || !strings.Contains(plan.Version, "git-lfs/3.7.1") {
+		t.Fatalf("plan=%+v", plan)
+	}
+	if plan.Branch != branch || plan.Upstream != upstream || plan.Range != upstream+"..HEAD" || plan.OutgoingCommits != 1 || plan.Head == "" {
+		t.Fatalf("plan=%+v", plan)
+	}
+}
+
 func TestParseGitLargeBlobBatch(t *testing.T) {
 	raw := strings.Join([]string{
 		"aaaaaaaa blob 512 small.txt",
@@ -77,6 +126,8 @@ func TestGitPushPreflightStopsGitHubLargeBlobBeforeNetwork(t *testing.T) {
 	gitQuickRun(t, workspace, "add", "logic/capture.csv")
 	gitQuickRun(t, workspace, "commit", "-m", "add capture")
 
+	installFakeGitLFS(t)
+
 	oldLimit := gitHubPushBlobLimit
 	gitHubPushBlobLimit = 1024
 	defer func(){ gitHubPushBlobLimit = oldLimit }()
@@ -86,11 +137,12 @@ func TestGitPushPreflightStopsGitHubLargeBlobBeforeNetwork(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 	var response struct {
-		OK          bool               `json:"ok"`
-		FailureCode string             `json:"failure_code"`
-		Provider    string             `json:"provider"`
-		LargeFiles  []gitLargeBlobInfo `json:"large_files"`
-		Output      string             `json:"output"`
+		OK          bool                `json:"ok"`
+		FailureCode string              `json:"failure_code"`
+		Provider    string              `json:"provider"`
+		LargeFiles  []gitLargeBlobInfo  `json:"large_files"`
+		LFSPlan     gitLFSMigrationPlan `json:"lfs_plan"`
+		Output      string              `json:"output"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil { t.Fatal(err) }
 	if response.OK || response.FailureCode != "file_too_large" || response.Provider != "github" {
@@ -98,6 +150,9 @@ func TestGitPushPreflightStopsGitHubLargeBlobBeforeNetwork(t *testing.T) {
 	}
 	if len(response.LargeFiles) != 1 || response.LargeFiles[0].Path != "logic/capture.csv" {
 		t.Fatalf("large_files=%+v", response.LargeFiles)
+	}
+	if !response.LFSPlan.Available || response.LFSPlan.OutgoingCommits != 1 || response.LFSPlan.Range == "" {
+		t.Fatalf("lfs_plan=%+v", response.LFSPlan)
 	}
 	if !strings.Contains(response.Output, "stopped before uploading") {
 		t.Fatalf("output=%q", response.Output)

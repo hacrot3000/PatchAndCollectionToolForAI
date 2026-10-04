@@ -291,6 +291,9 @@ func (s *Server) gitFailurePayload(ctx context.Context, action, output, errorTex
 			payload["conflict_state"] = state
 		}
 	}
+	if code == "file_too_large" {
+		payload["lfs_plan"] = s.gitLFSMigrationPlan(ctx)
+	}
 	return payload
 }
 
