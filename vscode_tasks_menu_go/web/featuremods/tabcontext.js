@@ -340,6 +340,22 @@ function openEditorContextMenu(view,x,y){
   const sep=document.createElement('div');sep.className='tab-context-separator';menu.append(sep);
   addHeading('Editor');
   const editor=globalThis.TaskMenuEditor;
+  const projectActions=(globalThis.TaskMenuProjectFileActions?.standardActions?.(view.file?.path,'file')||[]).filter(action=>action.label!=='Open');
+  if(projectActions.length){
+    addHeading('Project');
+    for(const action of projectActions){
+      if(action.separator){const projectSep=document.createElement('div');projectSep.className='tab-context-separator';menu.append(projectSep);continue;}
+      const projectItem=document.createElement('button');projectItem.type='button';projectItem.textContent=action.label||'Action';styleCustomItem(projectItem,action);
+      projectItem.onclick=event=>{
+        event.preventDefault();event.stopPropagation();closeContextMenu();
+        if(view.closed||projectItem.disabled)return;
+        editor?.activateEditor?.(view.id);
+        Promise.resolve(action.run?.()).catch(app.showError);
+      };
+      menu.append(projectItem);
+    }
+    const projectEnd=document.createElement('div');projectEnd.className='tab-context-separator';menu.append(projectEnd);
+  }
   const splitParent=editor?.getSplitParent?.(view);
   const actions=[
     {label:'Save',title:'Save file',disabled:Boolean(view.file?.read_only)||Boolean(view.tabReadOnly)||!view.dirty,run:()=>editor?.saveEditor?.(view)},
