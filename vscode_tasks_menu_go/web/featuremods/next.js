@@ -47,3 +47,4 @@ import '/featuremods/mobile.js';
 import '/featuremods/viewportfix.js';
 import '/featuremods/patchpanel.js';
 import '/featuremods/activitybar.js';
+import '/featuremods/workspacesnapshots.js';
