@@ -187,7 +187,11 @@ Quản lý daemon:
 
 TaskDeck hỗ trợ chế độ **shared server nhiều người dùng** theo mô hình **1 daemon = 1 workspace/project**. Nhiều daemon trên cùng host có thể dùng chung một identity DB để một user global tham gia nhiều project nhưng vẫn giữ quyền, session và dữ liệu vận hành tách biệt theo project.
 
-Bật chế độ này bằng `[shared_server] enabled=true` trong `vscode_tasks_menu.ini`. Legacy mode vẫn giữ nguyên khi shared mode tắt.
+Có thể bật/tắt chế độ này trực tiếp trong **Settings → Security → Authentication mode…** bằng wizard 3 bước `Mode → Setup → Review`, hoặc cấu hình thủ công `[shared_server] enabled=true` trong `vscode_tasks_menu.ini`. Wizard hỗ trợ migrate hai chiều:
+
+- **Single → Shared:** tạo/reuse identity DB ngoài workspace, provision hoặc xác minh admin, gán `system:admin` cho project, bật HTTPS, tắt Basic Auth và scrub plaintext password legacy khỏi config. Nếu username đã tồn tại trong identity DB dùng chung, password phải xác minh đúng; TaskDeck không tự reset credential global.
+- **Shared → Single:** yêu cầu đặt username/password Basic Auth mới vì shared password hash không thể/không được giải mã ngược; toàn bộ browser session của project bị revoke, nhưng identity DB/users/roles vẫn được giữ để có thể chuyển lại Shared sau này.
+- Trên nền tảng hỗ trợ `--reload-config`, web daemon được reload sau migration trong khi independent session broker tiếp tục giữ task/terminal đang chạy.
 
 Các capability chính đã triển khai:
 
@@ -422,7 +426,11 @@ Daemon management:
 
 TaskDeck supports a **multi-user shared-server mode** built around the invariant **one daemon = one workspace/project**. Multiple daemons on the same host may share one identity database, allowing a global user to participate in multiple projects while project permissions, sessions, and operational data remain isolated.
 
-Enable it with `[shared_server] enabled=true` in `vscode_tasks_menu.ini`. Legacy mode remains unchanged when shared mode is disabled.
+The mode can be switched directly from **Settings → Security → Authentication mode…** through a three-step `Mode → Setup → Review` wizard, or configured manually with `[shared_server] enabled=true` in `vscode_tasks_menu.ini`. The wizard supports both migration directions:
+
+- **Single → Shared:** creates/reuses an identity DB outside the workspace, provisions or verifies the initial administrator, grants `system:admin` for the project, enables HTTPS, disables Basic Auth, and scrubs the legacy plaintext Basic Auth password from the active config. If the username already exists in a shared identity DB, its password must verify; TaskDeck never silently resets a global identity.
+- **Shared → Single:** requires a new Basic Auth username/password because a shared password hash cannot and must not be reversed; all browser sessions for the project are revoked while the identity DB/users/roles are retained for a later switch back to Shared.
+- On platforms supporting `--reload-config`, the web daemon reloads after migration while the independent session broker keeps running tasks/terminals alive.
 
 Implemented capabilities include:
 
