@@ -151,3 +151,47 @@ func TestGitFileContentReturnsHeadAndIndexStatesForCompare(t *testing.T) {
 		}
 	}
 }
+
+func TestGitFileContentAllowMissingForCommitCompare(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	parent := gitQuickRun(t, workspace, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(workspace, "added later.txt"), []byte("later\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitQuickRun(t, workspace, "add", "added later.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "add later file")
+	commit := gitQuickRun(t, workspace, "rev-parse", "HEAD")
+
+	missing := callGitStatusHandler(t, s, http.MethodGet,
+		"/api/git/status?view=file-content&path=added%20later.txt&ref="+parent+"&allow_missing=1", "")
+	if missing.Code != http.StatusOK {
+		t.Fatalf("missing side status=%d body=%s", missing.Code, missing.Body.String())
+	}
+	var left struct {
+		Exists  bool   `json:"exists"`
+		Content string `json:"content"`
+		Commit  string `json:"commit"`
+	}
+	if err := json.Unmarshal(missing.Body.Bytes(), &left); err != nil {
+		t.Fatal(err)
+	}
+	if left.Exists || left.Content != "" || left.Commit != parent {
+		t.Fatalf("missing side=%+v", left)
+	}
+
+	present := callGitStatusHandler(t, s, http.MethodGet,
+		"/api/git/status?view=file-content&path=added%20later.txt&ref="+commit+"&allow_missing=1", "")
+	if present.Code != http.StatusOK {
+		t.Fatalf("present side status=%d body=%s", present.Code, present.Body.String())
+	}
+	var right struct {
+		Exists  bool   `json:"exists"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(present.Body.Bytes(), &right); err != nil {
+		t.Fatal(err)
+	}
+	if !right.Exists || right.Content != "later\n" {
+		t.Fatalf("present side=%+v", right)
+	}
+}
