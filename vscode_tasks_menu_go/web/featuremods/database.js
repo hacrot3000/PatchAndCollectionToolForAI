@@ -6,6 +6,99 @@ let profilesByID=new Map();
 const cmFactory=globalThis.cm6?.load?.()||null;
 const QUERY_SCHEMA_CONCURRENCY=4;
 const SQL_SCRIPT_EDIT_LIMIT=2<<20;
+const QUERY_ARCHIVE_STORAGE_VERSION=1;
+const QUERY_HISTORY_LIMIT=200;
+const QUERY_SNIPPET_LIMIT=100;
+const QUERY_ARCHIVE_TEXT_LIMIT=64<<10;
+
+
+function databaseArchiveScope(view){
+  const root=view?.workbenchRoot||view||{};
+  const workspace=String(app.taskData?.workspace||'workspace').trim()||'workspace';
+  const profileID=String(root.meta?.profile_id||root.profile?.id||'profile').trim()||'profile';
+  return workspace+'\u0000'+profileID;
+}
+
+function queryArchiveStorageKey(view,kind){
+  return 'taskdeck:db:'+kind+':v'+QUERY_ARCHIVE_STORAGE_VERSION+':'+databaseArchiveScope(view);
+}
+
+function boundedQueryArchiveText(value,limit=QUERY_ARCHIVE_TEXT_LIMIT){
+  const text=String(value??'');
+  return text.length>limit?text.slice(0,limit):text;
+}
+
+function readQueryArchive(view,kind,limit){
+  try{
+    const raw=JSON.parse(localStorage.getItem(queryArchiveStorageKey(view,kind))||'null');
+    if(!raw||raw.version!==QUERY_ARCHIVE_STORAGE_VERSION||!Array.isArray(raw.items))return [];
+    return raw.items.filter(item=>item&&typeof item==='object').slice(0,limit);
+  }catch{return [];}
+}
+
+function writeQueryArchive(view,kind,items,limit){
+  const key=queryArchiveStorageKey(view,kind);
+  const clean=(Array.isArray(items)?items:[]).slice(0,limit);
+  try{
+    if(!clean.length){localStorage.removeItem(key);return;}
+    localStorage.setItem(key,JSON.stringify({version:QUERY_ARCHIVE_STORAGE_VERSION,items:clean}));
+  }catch(error){console.warn('Cannot persist database '+kind,error);}
+}
+
+function queryHistory(view){return readQueryArchive(view,'query-history',QUERY_HISTORY_LIMIT);}
+function querySnippets(view){return readQueryArchive(view,'query-snippets',QUERY_SNIPPET_LIMIT);}
+
+function newQueryArchiveID(prefix){
+  return globalThis.crypto?.randomUUID?.()||(prefix+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10));
+}
+
+function recordQueryHistory(view,{statement,durationMS=0,status='success',error=''}={}){
+  statement=boundedQueryArchiveText(statement).trim();
+  if(!statement)return;
+  const root=view?.workbenchRoot||view||{};
+  const entry={
+    id:newQueryArchiveID('history'),
+    ts:Date.now(),
+    statement,
+    catalog:String(view?.catalog?.value||root?.catalog?.value||''),
+    adapter_kind:String(root?.meta?.adapter_kind||view?.meta?.adapter_kind||''),
+    duration_ms:Math.max(0,Math.round(Number(durationMS)||0)),
+    status:['success','failed','canceled'].includes(status)?status:'failed',
+    error:boundedQueryArchiveText(error,2000)
+  };
+  const items=queryHistory(view);
+  items.unshift(entry);
+  writeQueryArchive(view,'query-history',items,QUERY_HISTORY_LIMIT);
+  return entry;
+}
+
+function saveQuerySnippet(view,name,statement){
+  name=String(name||'').trim();
+  statement=boundedQueryArchiveText(statement).trim();
+  if(!name)throw new Error('Snippet name is required');
+  if(name.length>160)throw new Error('Snippet name exceeds 160 characters');
+  if(!statement)throw new Error('Snippet query is empty');
+  const items=querySnippets(view);
+  const existing=items.find(item=>String(item?.name||'').toLocaleLowerCase()===name.toLocaleLowerCase());
+  const now=Date.now();
+  if(existing){
+    existing.name=name;existing.statement=statement;existing.updated_at=now;
+    existing.catalog=String(view?.catalog?.value||'');
+    writeQueryArchive(view,'query-snippets',items,QUERY_SNIPPET_LIMIT);
+    return existing;
+  }
+  const item={id:newQueryArchiveID('snippet'),name,statement,catalog:String(view?.catalog?.value||''),created_at:now,updated_at:now};
+  items.unshift(item);writeQueryArchive(view,'query-snippets',items,QUERY_SNIPPET_LIMIT);return item;
+}
+
+function deleteQuerySnippet(view,id){
+  const items=querySnippets(view).filter(item=>String(item?.id||'')!==String(id||''));
+  writeQueryArchive(view,'query-snippets',items,QUERY_SNIPPET_LIMIT);
+}
+
+function clearQueryHistory(view){
+  writeQueryArchive(view,'query-history',[],QUERY_HISTORY_LIMIT);
+}
 
 function databaseSupports(view,name){
   return Boolean(globalThis.TaskMenuDatabaseWorkbench?.supports?.(view,name));
@@ -1623,6 +1716,8 @@ async function executeQuery(view,{discardPending=false}={}){
   owner.run.disabled=!cancelable;owner.run.textContent=cancelable?'Cancel':(statements.length>1?'Running 1/'+statements.length+'…':'Running…');
   owner.explain.disabled=true;owner.explainAnalyze.disabled=true;
   owner.queryResultTabs=null;owner.queryResultPanels=null;owner.queryResultContexts=[];
+  const historyStarted=performance.now();
+  let historyStatus='success',historyError='';
   try{
     if(statements.length===1){
       owner.result.classList.remove('has-result-tabs');
@@ -1650,6 +1745,7 @@ async function executeQuery(view,{discardPending=false}={}){
       }catch(error){
         const elapsed=Math.round(performance.now()-started);
         if(controller.signal.aborted){
+          historyStatus='canceled';historyError='Query canceled';
           renderQueryCanceled(ctx,elapsed);
           activateQueryResult(owner,index);
           return;
@@ -1663,11 +1759,19 @@ async function executeQuery(view,{discardPending=false}={}){
     if(firstError)throw firstError;
   }catch(error){
     if(controller.signal.aborted){
+      historyStatus='canceled';historyError='Query canceled';
       if(statements.length===1)renderQueryCanceled(owner,null);
       return;
     }
+    historyStatus='failed';historyError=String(error?.message||error);
     throw error;
   }finally{
+    recordQueryHistory(owner,{
+      statement:script,
+      durationMS:performance.now()-historyStarted,
+      status:historyStatus,
+      error:historyError
+    });
     if(owner.queryAbortController===controller)owner.queryAbortController=null;
     owner.run.disabled=false;owner.run.textContent='Run';owner.explain.disabled=false;owner.explainAnalyze.disabled=false;
   }

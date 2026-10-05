@@ -1505,3 +1505,32 @@ func TestDatabaseTransactionControls(t *testing.T) {
 		t.Fatal("database_workbench.js does not refresh transaction controls after adapter metadata loads")
 	}
 }
+
+func TestDatabaseQueryHistoryAndSnippetPersistence(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const QUERY_ARCHIVE_STORAGE_VERSION=1",
+		"const QUERY_HISTORY_LIMIT=200",
+		"const QUERY_SNIPPET_LIMIT=100",
+		"const QUERY_ARCHIVE_TEXT_LIMIT=64<<10",
+		"function databaseArchiveScope(view)",
+		"function queryArchiveStorageKey(view,kind)",
+		"'taskdeck:db:'+kind+':v'+QUERY_ARCHIVE_STORAGE_VERSION+':'",
+		"function recordQueryHistory(view,{statement,durationMS=0,status='success',error=''}={})",
+		"status:['success','failed','canceled'].includes(status)?status:'failed'",
+		"function saveQuerySnippet(view,name,statement)",
+		"function deleteQuerySnippet(view,id)",
+		"function clearQueryHistory(view)",
+		"const historyStarted=performance.now()",
+		"historyStatus='canceled';historyError='Query canceled'",
+		"historyStatus='failed';historyError=String(error?.message||error)",
+		"recordQueryHistory(owner,{",
+		"durationMS:performance.now()-historyStarted",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database.js missing query history/snippet persistence %q", want)
+		}
+	}
+}
