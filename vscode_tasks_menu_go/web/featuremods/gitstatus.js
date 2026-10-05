@@ -55,7 +55,7 @@ function el(tag,className,text){const node=document.createElement(tag);if(classN
 function q(value){value=String(value??'');return /^[A-Za-z0-9_./:@+\-]+$/.test(value)?value:"'"+value.replace(/'/g,"'\\''")+"'";}
 function actionCommand(action,payload={}){
   switch(action){
-    case 'interactive_rebase':return 'git rebase -i '+q(payload.ref);case 'fetch':return 'git fetch --prune';case 'pull':return 'git pull --ff-only';case 'push':return 'git push';case 'stage_all':return 'git add -A';
+    case 'interactive_rebase':return 'git rebase -i '+q(payload.ref);case 'restore_file_commit':return 'git restore --source='+q(payload.ref)+' --worktree -- '+q(payload.path);case 'restore_staged_commit':return 'git restore --source='+q(payload.ref)+' --staged -- '+q(payload.path);case 'fetch':return 'git fetch --prune';case 'pull':return 'git pull --ff-only';case 'push':return 'git push';case 'stage_all':return 'git add -A';
     case 'stage':return 'git add -- '+q(payload.path);case 'unstage':return 'git restore --staged -- '+q(payload.path);case 'stage_hunk':return 'Stage hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'unstage_hunk':return 'Unstage hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'discard_hunk':return 'Discard hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'ignore':return 'Add .gitignore rule for '+q(payload.path);case 'commit':return 'git commit -m '+q(payload.message);
     case 'switch':return 'git switch '+q(payload.branch);case 'create_branch':return 'git switch -c '+q(payload.branch);case 'checkout_commit':return 'git switch --detach '+q(payload.ref);case 'create_branch_at':return 'git switch -c '+q(payload.branch)+' '+q(payload.ref);case 'create_branch_ref':return 'git branch '+q(payload.branch)+' '+q(payload.ref);case 'reset_commit':return 'git reset --'+q(payload.mode)+' '+q(payload.ref);case 'worktree_add_branch':return 'git worktree add '+q(payload.directory_name)+' '+q(payload.branch);case 'worktree_add_new_branch':return 'git worktree add -b '+q(payload.branch)+' '+q(payload.directory_name)+' '+q(payload.ref||'HEAD');case 'worktree_remove':return 'git worktree remove <selected worktree>';case 'worktree_open':return 'taskdeck --workspace <selected worktree>';case 'worktree_prune':return 'git worktree prune --verbose --expire now';case 'delete_branch':return 'git branch -d '+q(payload.branch);case 'force_delete_branch':return 'git branch -D '+q(payload.branch);case 'delete_remote_tracking':return 'git branch -dr '+q(payload.branch);case 'delete_remote_branch':return 'git push '+q(String(payload.branch||'').split('/')[0])+' --delete '+q(String(payload.branch||'').split('/').slice(1).join('/'));case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'merge_to':return 'Merge To '+q(payload.expected_current)+' -> '+q(payload.branch)+' and push';case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
   }
@@ -875,16 +875,68 @@ async function gitGraphTag(commit){
   if(message===null)return false;
   return action('create_tag',{name:name.trim(),message,ref:commit.sha});
 }
-async function gitGraphReset(commit){
-  const raw=window.prompt('Reset current branch to '+commit.short+'.\n\nChoose mode: soft, mixed, or hard.\nsoft: move HEAD only; keep index + worktree.\nmixed: move HEAD + reset index; keep worktree.\nhard: reset HEAD + index + worktree (destructive).','mixed');
-  if(raw===null)return false;
-  const mode=raw.trim().toLowerCase();
-  if(!['soft','mixed','hard'].includes(mode))throw new Error('Reset mode must be soft, mixed, or hard');
-  const warning=mode==='hard'
-    ?'HARD RESET current branch to '+commit.short+'?\n\nThis permanently discards tracked staged and working-tree changes not preserved elsewhere.'
-    :mode.toUpperCase()+' reset current branch to '+commit.short+'?\n\nReview the mode semantics before continuing.';
-  return action('reset_commit',{ref:commit.sha,expected_sha:commit.sha,mode,confirmed:true},warning);
+async function gitSemanticsPreview(ref,path=''){
+  const params={ref};if(path)params.path=path;
+  const data=await gitView('semantics-preview',params);
+  return data?.preview||null;
 }
+function gitDirtyEditorForWorkspacePath(pathValue){
+  const normalized=String(pathValue||'').replace(/\\/g,'/').replace(/^\.\//,'');
+  const editor=globalThis.TaskMenuEditor;if(!editor?.editors)return null;
+  for(const view of editor.editors.values()){
+    if(view?.closed)continue;
+    const current=String(view?.file?.path||'').replace(/\\/g,'/').replace(/^\.\//,'');
+    if(current===normalized&&view.dirty)return view;
+  }
+  return null;
+}
+async function gitReloadWorkspaceEditor(pathValue){
+  const normalized=String(pathValue||'').replace(/\\/g,'/').replace(/^\.\//,'');
+  const editor=globalThis.TaskMenuEditor;if(!editor?.editors)return;
+  for(const view of editor.editors.values()){
+    if(view?.closed||view.dirty)continue;
+    const current=String(view?.file?.path||'').replace(/\\/g,'/').replace(/^\.\//,'');
+    if(current===normalized){await editor.reloadEditor?.(view);return;}
+  }
+}
+async function openGitCommitSemantics(commit,preferred='mixed'){
+  const wizard=globalThis.TaskDeckGitSemanticsWizard;if(!wizard?.open)throw new Error('Git semantics wizard unavailable');
+  const preview=await gitSemanticsPreview(commit.sha);if(!preview)return false;
+  return wizard.open({
+    kind:'commit',preview,preferred,
+    onCompareFile:file=>{
+      const compare=globalThis.TaskMenuFileCompare;if(!compare?.openGitCommitFileDiffBetween)throw new Error('File Compare unavailable');
+      return compare.openGitCommitFileDiffBetween(activeRepoID,file,preview.target_sha,preview.head_sha,{title:'Target ↔ HEAD'});
+    },
+    onConfirm:async operation=>{
+      if(operation==='revert'){
+        return action('revert_commit',{ref:preview.target_sha,expected_sha:preview.target_sha,expected_head_sha:preview.head_sha});
+      }
+      if(!['soft','mixed','hard'].includes(operation))throw new Error('Unsupported reset mode');
+      return action('reset_commit',{ref:preview.target_sha,expected_sha:preview.target_sha,expected_head_sha:preview.head_sha,mode:operation,confirmed:true});
+    }
+  });
+}
+async function openGitFileRestoreSemantics(commit,pathValue){
+  const wizard=globalThis.TaskDeckGitSemanticsWizard;if(!wizard?.open)throw new Error('Git semantics wizard unavailable');
+  const preview=await gitSemanticsPreview(commit.sha,pathValue);if(!preview)return false;
+  const workspacePath=workspacePathForActiveRepository(pathValue);
+  return wizard.open({
+    kind:'file',preview,path:pathValue,preferred:'worktree',
+    onCompareFile:()=>{
+      const compare=globalThis.TaskMenuFileCompare;if(!compare?.openGitCommitAgainstProject)throw new Error('File Compare unavailable');
+      return compare.openGitCommitAgainstProject(activeRepoID,pathValue,workspacePath,preview.target_sha);
+    },
+    onConfirm:async operation=>{
+      if(operation==='worktree'&&gitDirtyEditorForWorkspacePath(workspacePath))throw new Error('Save or close the unsaved editor before restoring this Working tree file');
+      const actionName=operation==='staged'?'restore_staged_commit':'restore_file_commit';
+      const data=await action(actionName,{path:pathValue,ref:preview.target_sha,expected_sha:preview.target_sha,expected_head_sha:preview.head_sha,confirmed:true});
+      if(operation==='worktree')await gitReloadWorkspaceEditor(workspacePath);
+      return data;
+    }
+  });
+}
+async function gitGraphReset(commit){return openGitCommitSemantics(commit,'mixed');}
 function closeGitGraphContext(){
   document.querySelectorAll('.git-graph-context').forEach(node=>node.remove());
 }
@@ -895,7 +947,7 @@ function showGitGraphContext(event,commit,detailHost){
   add('Checkout commit (detached)',()=>gitGraphCheckout(commit));
   add('Create branch here…',()=>gitGraphCreateBranch(commit));
   add('Cherry-pick',()=>action('cherry_pick',{ref:commit.sha,expected_sha:commit.sha},'Cherry-pick '+commit.short+' onto the current branch? The working tree must be clean.'));
-  add('Revert',()=>action('revert_commit',{ref:commit.sha,expected_sha:commit.sha},'Create a new commit that reverts '+commit.short+'? The working tree must be clean.'));
+  add('Revert…',()=>openGitCommitSemantics(commit,'revert'));
   add('Reset current branch here…',()=>gitGraphReset(commit),true);
   add('Create tag here…',()=>gitGraphTag(commit));
   add('Compare with HEAD',()=>renderGitGraphHeadCompare(commit,detailHost));
@@ -917,7 +969,7 @@ function gitGraphDetailHeader(commit,host,subtitle=''){
   const actions=el('div','git-graph-detail-actions');
   actions.append(
     actionButton('Cherry-pick',()=>action('cherry_pick',{ref:commit.sha,expected_sha:commit.sha},'Cherry-pick '+commit.short+'? The working tree must be clean.')),
-    actionButton('Revert',()=>action('revert_commit',{ref:commit.sha,expected_sha:commit.sha},'Revert '+commit.short+' with a new commit? The working tree must be clean.')),
+    actionButton('Revert…',()=>openGitCommitSemantics(commit,'revert')),
     actionButton('More…',event=>false,'Right-click the selected commit for checkout, branch, reset, tag and compare actions')
   );
   const more=actions.lastElementChild;more.onclick=event=>showGitGraphContext(event,commit,host);
@@ -1291,7 +1343,7 @@ function renderRebaseWorkspace(meta,controls){
 async function loadLog(){const data=await gitView('log',{limit:'50'});if(!data)return false;content.replaceChildren();for(const commit of data.commits||[]){const row=el('div','git-row');const code=el('span','git-row-code',commit.short);const main=el('div','git-row-main');main.append(el('div','git-row-title',commit.subject),el('div','git-row-sub',commit.date+' · '+commit.author));const actions=el('div','git-row-actions');
     actions.append(
       actionButton('Cherry-pick',()=>action('cherry_pick',{ref:commit.sha,expected_sha:commit.sha},'Cherry-pick '+commit.short+' onto the current branch? The working tree must be clean.'),'Apply this commit onto the current branch'),
-      actionButton('Revert',()=>action('revert_commit',{ref:commit.sha,expected_sha:commit.sha},'Create a new commit that reverts '+commit.short+'? The working tree must be clean.'),'Create a revert commit'),
+      actionButton('Revert…',()=>openGitCommitSemantics(commit,'revert'),'Open reset/revert semantics wizard'),
       actionButton('Copy SHA',()=>copyText(commit.sha))
     );
     row.append(code,main,actions);content.append(row);}if(!content.childElementCount)empty('No commits');}
@@ -1347,6 +1399,7 @@ async function loadFileHistory(){
       const compare=globalThis.TaskMenuFileCompare;if(!compare?.openGitCommits)throw new Error('File Compare unavailable');
       return compare.openGitCommits(activeRepoID,gitFilePath,gitFileCompareRef,commit.sha);
     },'Compare selected commit A with this commit'));
+    actions.append(actionButton('Restore…',()=>openGitFileRestoreSemantics(commit,gitFilePath),'Restore Working tree file or Index-only from this commit with semantics preview'));
     actions.append(actionButton('Copy SHA',()=>copyText(commit.sha)));
     row.append(code,main,actions);content.append(row);
   }
