@@ -540,7 +540,7 @@ function installPatchPanel(){
   const runningTitle=document.createElement('div');runningTitle.className='task-patch-running-title';runningTitle.textContent='Running';
   const runningMeta=document.createElement('div');runningMeta.className='task-patch-running-meta';runningMeta.textContent='Waiting for Python execution state…';
   const runningActions=document.createElement('div');runningActions.className='task-patch-running-actions';
-  const copyFailureLog=document.createElement('button');copyFailureLog.type='button';copyFailureLog.textContent='📋 Copy error log';copyFailureLog.title='Copy failure reason and recent console output';copyFailureLog.hidden=true;
+  const copyFailureLog=document.createElement('button');copyFailureLog.type='button';copyFailureLog.textContent='📋 Copy error log';copyFailureLog.title='Copy full Patch failure evidence for AI diagnosis';copyFailureLog.hidden=true;
   const terminalEvidence=document.createElement('button');terminalEvidence.type='button';terminalEvidence.textContent='Open terminal evidence';
   const runningBack=document.createElement('button');runningBack.type='button';runningBack.textContent='Back to Queue';runningBack.hidden=true;
   runningActions.append(copyFailureLog,terminalEvidence,runningBack);
@@ -2400,7 +2400,18 @@ function installPatchPanel(){
       const fallback=[...rows].reverse().find(item=>String(item?.failure_reason||item?.diagnosis_kind||item?.output_tail||'').trim());
       if(fallback)failed=[fallback];
     }
-    const blocks=[];
+
+    const sections=[];
+    const header=['TaskDeck Patch Tool failure evidence'];
+    const workspace=String(app.taskData?.workspace||'').trim();
+    const name=foregroundRunName(state);
+    const outcome=foregroundRunOutcome(state);
+    if(workspace)header.push('Project: '+workspace);
+    if(activeSessionId)header.push('Session: '+activeSessionId);
+    if(name)header.push('Run: '+name);
+    if(outcome&&outcome.exitCode!==null)header.push('Exit: rc='+outcome.exitCode+(outcome.status?' · status='+outcome.status:''));
+    sections.push(header.join('\n'));
+
     for(const item of failed){
       const rc=item?.rc;
       const lines=[
@@ -2412,21 +2423,43 @@ function installPatchPanel(){
       if(diagnosis)lines.push('Diagnosis: '+diagnosis);
       if(reason)lines.push('Reason: '+reason);
       if(outputTail)lines.push('', 'Recent console output:', outputTail);
-      blocks.push(lines.join('\n').trim());
+      sections.push(lines.join('\n').trim());
     }
-    if(blocks.length)return blocks.join('\n\n---\n\n');
 
-    const event=state?.last_event&&typeof state.last_event==='object'?state.last_event:{};
-    const outcome=foregroundRunOutcome(state);
-    const lines=[];
-    const name=foregroundRunName(state);
-    const rc=outcome?.exitCode;
-    lines.push([name||'Patch Tool run','FAILED',rc===undefined||rc===null?'':`rc=${rc}`].filter(Boolean).join(' · '));
-    for(const value of [event?.error,event?.message,event?.detail,state?.error]){
-      const text=String(value||'').trim();
-      if(text&&!lines.includes(text))lines.push(text);
+    const runErrors=Array.isArray(state?.run_errors)?state.run_errors:[];
+    const protocolStateError=String(state?.error||'').trim();
+    if(runErrors.length||protocolStateError){
+      const lines=['Run-level protocol errors:'];
+      for(const error of runErrors){
+        const phase=String(error?.phase||'').trim();
+        const message=String(error?.message||'').trim();
+        if(message)lines.push('- '+(phase?phase+': ':'')+message);
+      }
+      if(protocolStateError)lines.push('- protocol state: '+protocolStateError);
+      sections.push(lines.join('\n'));
     }
-    return lines.join('\n').trim();
+
+    if(!failed.length){
+      const event=state?.last_event&&typeof state.last_event==='object'?state.last_event:{};
+      const lines=[];
+      for(const value of [event?.error,event?.message,event?.detail]){
+        const text=String(value||'').trim();
+        if(text&&!lines.includes(text))lines.push(text);
+      }
+      if(lines.length)sections.push(lines.join('\n'));
+    }
+
+    const artifactPaths=[];
+    for(const artifact of (Array.isArray(state?.artifacts)?state.artifacts:[])){
+      const family=String(artifact?.artifact_kind||'').replace(/_(?:zip|text)$/i,'');
+      if(family!=='fail_handoff'&&family!=='ai_sync')continue;
+      const path=String(artifact?.path||'').trim();
+      if(path&&!artifactPaths.includes(path))artifactPaths.push(path);
+    }
+    if(artifactPaths.length){
+      sections.push('Failure handoff / AI artifacts:\n'+artifactPaths.map(path=>'- '+path).join('\n'));
+    }
+    return sections.filter(Boolean).join('\n\n---\n\n').trim();
   }
 
   async function copyForegroundErrorLog(button){
