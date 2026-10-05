@@ -352,6 +352,9 @@ func projectSearchGlobMatch(pattern, rel string) bool {
 	if pattern == "" {
 		return false
 	}
+	if strings.Contains(pattern, "**") {
+		return projectSearchDoublestarMatch(pattern, rel)
+	}
 	if ok, _ := path.Match(pattern, rel); ok {
 		return true
 	}
@@ -360,11 +363,38 @@ func projectSearchGlobMatch(pattern, rel string) bool {
 			return true
 		}
 	}
-	if strings.HasSuffix(pattern, "/**") {
-		prefix := strings.TrimSuffix(pattern, "/**")
-		return rel == prefix || strings.HasPrefix(rel, prefix+"/")
-	}
 	return false
+}
+
+func projectSearchDoublestarMatch(pattern, rel string) bool {
+	var expr strings.Builder
+	expr.WriteString("^")
+	for i := 0; i < len(pattern); {
+		switch pattern[i] {
+		case '*':
+			if i+1 < len(pattern) && pattern[i+1] == '*' {
+				i += 2
+				if i < len(pattern) && pattern[i] == '/' {
+					expr.WriteString("(?:.*/)?")
+					i++
+				} else {
+					expr.WriteString(".*")
+				}
+			} else {
+				expr.WriteString("[^/]*")
+				i++
+			}
+		case '?':
+			expr.WriteString("[^/]")
+			i++
+		default:
+			expr.WriteString(regexp.QuoteMeta(string(pattern[i])))
+			i++
+		}
+	}
+	expr.WriteString("$")
+	matcher, err := regexp.Compile(expr.String())
+	return err == nil && matcher.MatchString(rel)
 }
 
 func projectSearchPathAllowed(rel string, options projectContentSearchOptions) bool {
