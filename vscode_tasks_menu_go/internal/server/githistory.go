@@ -2,8 +2,12 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -129,4 +133,70 @@ func (s *Server) gitFileBlame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"path": path, "lines": rows, "truncated": truncated})
+}
+
+var gitCompareCommitPattern = regexp.MustCompile(`^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
+
+func (s *Server) gitFileContent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	pathValue, err := validGitRelativePath(r.URL.Query().Get("path"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
+	if !gitCompareCommitPattern.MatchString(ref) {
+		http.Error(w, "Git compare ref must be a full commit SHA", http.StatusBadRequest)
+		return
+	}
+	repo, ok := gitRepositoryFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Git repository context unavailable", http.StatusConflict)
+		return
+	}
+	commit, stderr, _, err := s.runGit(r.Context(), 4*time.Second, "rev-parse", "--verify", ref+"^{commit}")
+	if err != nil {
+		http.Error(w, strings.TrimSpace(joinGitOutput(stderr, err.Error())), http.StatusNotFound)
+		return
+	}
+	commit = strings.TrimSpace(commit)
+	if !gitCompareCommitPattern.MatchString(commit) {
+		http.Error(w, "resolved Git commit is invalid", http.StatusConflict)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "show", "--no-ext-diff", commit+":"+pathValue)
+	cmd.Dir = repo.Root
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "LC_ALL=C")
+	stdout := &cappedGitBuffer{limit: int(projectEditableLimit) + 1}
+	stderrBuffer := &cappedGitBuffer{limit: 64 << 10}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderrBuffer
+	if err := cmd.Run(); err != nil {
+		message := strings.TrimSpace(stderrBuffer.String())
+		if ctx.Err() == context.DeadlineExceeded {
+			message = "Git file content lookup timed out"
+		}
+		if message == "" {
+			message = err.Error()
+		}
+		http.Error(w, message, http.StatusNotFound)
+		return
+	}
+	content := []byte(stdout.String())
+	if stdout.truncated || int64(len(content)) > projectEditableLimit {
+		http.Error(w, "Git file content exceeds compare limit", http.StatusRequestEntityTooLarge)
+		return
+	}
+	if !projectTextBytesValid(content) {
+		http.Error(w, "Git file content is binary or unsupported text", http.StatusUnsupportedMediaType)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"repo_id": repo.ID, "path": pathValue, "ref": ref, "commit": commit, "content": string(content),
+	})
 }
