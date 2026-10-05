@@ -286,7 +286,11 @@ func (s *Server) gitRepairAction(ctx context.Context, req gitActionRequest) (str
 		case "merge":
 			return run(20*time.Second, "merge", "--abort")
 		case "rebase":
-			return run(20*time.Second, "rebase", "--abort")
+			output, truncated, runErr := run(20*time.Second, "rebase", "--abort")
+			if runErr == nil {
+				s.gitCleanupRebaseEditorState(ctx)
+			}
+			return output, truncated, runErr
 		case "cherry-pick":
 			return run(20*time.Second, "cherry-pick", "--abort")
 		case "revert":
@@ -303,7 +307,7 @@ func (s *Server) gitRepairAction(ctx context.Context, req gitActionRequest) (str
 		case "merge":
 			return run(gitMergeTimeout, "-c", "core.editor=true", "merge", "--continue")
 		case "rebase":
-			return run(gitMergeTimeout, "-c", "core.editor=true", "rebase", "--continue")
+			return s.gitRunRebaseContinuation(ctx, "rebase", "--continue")
 		case "cherry-pick":
 			return run(gitMergeTimeout, "-c", "core.editor=true", "cherry-pick", "--continue")
 		case "revert":
@@ -319,7 +323,7 @@ func (s *Server) gitRepairAction(ctx context.Context, req gitActionRequest) (str
 		if state != "rebase" {
 			return "", false, fmt.Errorf("no rebase operation is in progress")
 		}
-		return run(30*time.Second, "rebase", "--skip")
+		return s.gitRunRebaseContinuation(ctx, "rebase", "--skip")
 	case "configure_identity":
 		name := strings.TrimSpace(req.Name)
 		email := strings.TrimSpace(req.Email)
