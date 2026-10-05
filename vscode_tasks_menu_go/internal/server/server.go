@@ -50,6 +50,7 @@ type Server struct {
 	ConnectionAudit      ConnectionAuditFunc
 	SFTPExecutable       string
 	OpenWorkspace        func(string) error
+	GitRebaseEditorCommand string // internal/test override; production defaults to the TaskDeck executable
 
 	projectIndexMu         sync.Mutex
 	projectIndex           *projectFileIndex
