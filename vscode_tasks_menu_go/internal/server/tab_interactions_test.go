@@ -31,6 +31,11 @@ func TestTabDragOrderingFeature(t *testing.T) {
 		"tab&&tab.parentElement===tabsHost?tab:null",
 		"function workspaceTabByID(id)",
 		"#tabs>[data-id][draggable=\"true\"] .close{cursor:pointer}",
+		"const tabObserver=new MutationObserver(records=>",
+		"node.parentElement!==tabsHost||!node.dataset.id",
+		"installTab(node);added=true",
+		"if(added&&!dragged)",
+		"tabObserver.observe(tabsHost,{childList:true})",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("tabdrag.js missing %q", want)
