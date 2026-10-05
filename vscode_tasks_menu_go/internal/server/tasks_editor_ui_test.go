@@ -12,7 +12,7 @@ func TestTasksJSONVisualEditorFeature(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	js := string(data)
 	for _, want := range []string{
-		"const TASKS_PATH='.vscode/tasks.json'",
+		"const PRIMARY_TASKS_PATH='.vscode/tasks.json'",
 		"button.id='tasks-json-editor'",
 		"button.textContent='Edit tasks.json…'",
 		"Visual",
@@ -119,6 +119,32 @@ func TestTasksEditorRawSelectionJumpsWithoutRerendering(t *testing.T) {
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("taskseditor.js missing raw task navigation behavior %q", want)
+		}
+	}
+}
+
+func TestTasksEditorSupportsWorkspaceRoots(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/taskseditor.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"let workspaceRoots=[],selectedRootID='primary'",
+		"function tasksRootBase(root)",
+		"function tasksPathForRoot(root)",
+		"async function loadWorkspaceRoots()",
+		"app.jsonFetch('/api/workspace-roots')",
+		"async function currentTasksFileExists()",
+		"async function ensureCurrentTasksFile()",
+		"action:'mkdir',path:currentTasksDir()",
+		"action:'create_file',path:currentTasksPath()",
+		"rootSelect=document.createElement('select')",
+		"rootSelect.className='tasks-editor-root'",
+		"Discard unsaved tasks.json changes before switching workspace root?",
+		"body:JSON.stringify({path:currentTasksPath(),content,expected_sha256:fileMeta.sha256})",
+		"fileMeta={path,content,sha256:'',missing:true}",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("taskseditor.js missing workspace-root behavior %q", want)
 		}
 	}
 }

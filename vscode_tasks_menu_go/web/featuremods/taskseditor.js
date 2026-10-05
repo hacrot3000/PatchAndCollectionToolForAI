@@ -1,7 +1,7 @@
 const app=globalThis.TaskMenuApp;
 if(!app)throw new Error('TaskMenuApp unavailable for tasks.json editor');
 
-const TASKS_PATH='.vscode/tasks.json';
+const PRIMARY_TASKS_PATH='.vscode/tasks.json';
 const WORKSPACE_TOKEN='$'+'{workspaceFolder}';
 
 const style=document.createElement('style');
@@ -11,6 +11,7 @@ style.textContent=`
 .tasks-editor-dialog{width:min(1180px,98vw);height:min(880px,95vh);display:flex;flex-direction:column;background:#15191f;border:1px solid #48515f;border-radius:10px;box-shadow:0 18px 55px rgba(0,0,0,.55);overflow:hidden}
 .tasks-editor-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #30343b}
 .tasks-editor-head strong{font-size:13px}.tasks-editor-head .spacer{flex:1}.tasks-editor-head .dirty{font-size:10px;opacity:.7}
+.tasks-editor-root{max-width:220px;min-width:120px;height:25px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:5px;font:11px ui-monospace,monospace}
 .tasks-editor-mode{display:flex;gap:4px}.tasks-editor-mode button.active{background:#244c70;border-color:#3f79a8}
 .tasks-editor-body{display:grid;grid-template-columns:270px minmax(0,1fr);min-height:0;flex:1}
 .tasks-editor-list{display:flex;flex-direction:column;min-height:0;border-right:1px solid #30343b}
@@ -30,7 +31,7 @@ style.textContent=`
 .tasks-editor-save{background:#24472f;border-color:#3b7850}
 .tasks-editor-warning{padding:7px 9px;margin-bottom:10px;border:1px solid #755d2b;background:#302714;border-radius:5px;font-size:10px}
 html[data-taskmenu-theme="light"] .tasks-editor-dialog{background:#fff;border-color:#b9c0c8}
-html[data-taskmenu-theme="light"] .tasks-editor-form input,html[data-taskmenu-theme="light"] .tasks-editor-form select,html[data-taskmenu-theme="light"] .tasks-editor-form textarea,html[data-taskmenu-theme="light"] .tasks-editor-exec-row code,html[data-taskmenu-theme="light"] .tasks-editor-raw{background:#f7f9fb;border-color:#b9c0c8;color:#202124}
+html[data-taskmenu-theme="light"] .tasks-editor-root,html[data-taskmenu-theme="light"] .tasks-editor-form input,html[data-taskmenu-theme="light"] .tasks-editor-form select,html[data-taskmenu-theme="light"] .tasks-editor-form textarea,html[data-taskmenu-theme="light"] .tasks-editor-exec-row code,html[data-taskmenu-theme="light"] .tasks-editor-raw{background:#f7f9fb;border-color:#b9c0c8;color:#202124}
 html[data-taskmenu-theme="light"] .tasks-editor-item:hover{background:#edf1f5}html[data-taskmenu-theme="light"] .tasks-editor-item.active{background:#dce8f4}html[data-taskmenu-theme="light"] .tasks-editor-group-children{border-color:#dfe3e8}
 `;
 document.head.append(style);
@@ -53,12 +54,69 @@ const templates=[
 ];
 const templateByID=new Map(templates.map(item=>[item.id,item]));
 
-let overlay=null,list=null,main=null,rawArea=null,saveButton=null,dirtyBadge=null;
+let overlay=null,list=null,main=null,rawArea=null,saveButton=null,dirtyBadge=null,pathNode=null,rootSelect=null;
 let visualButton=null,rawButton=null;
 let fileMeta=null,doc=null,selectedIndex=0,mode='visual',dirty=false;
+let workspaceRoots=[],selectedRootID='primary';
 
 function canRead(){return app.hasPermission?.('files.read')!==false;}
 function canWrite(){return app.hasPermission?.('files.write')!==false;}
+
+function tasksRootBase(root){
+  return root?.primary?'':'@root/'+String(root?.id||'');
+}
+function selectedWorkspaceRoot(){
+  return workspaceRoots.find(root=>String(root?.id||'')===selectedRootID)||workspaceRoots.find(root=>root?.primary)||null;
+}
+function tasksPathForRoot(root){
+  const base=tasksRootBase(root);
+  return base?base+'/'+PRIMARY_TASKS_PATH:PRIMARY_TASKS_PATH;
+}
+function currentTasksPath(){return tasksPathForRoot(selectedWorkspaceRoot());}
+function currentTasksDir(){
+  const path=currentTasksPath();
+  const index=path.lastIndexOf('/');
+  return index<0?'':path.slice(0,index);
+}
+async function loadWorkspaceRoots(){
+  const data=await app.jsonFetch('/api/workspace-roots');
+  workspaceRoots=(Array.isArray(data?.roots)?data.roots:[]).filter(root=>root?.available!==false);
+  if(!workspaceRoots.some(root=>String(root?.id||'')===selectedRootID)){
+    selectedRootID=String(workspaceRoots.find(root=>root?.primary)?.id||workspaceRoots[0]?.id||'primary');
+  }
+  if(rootSelect){
+    rootSelect.replaceChildren();
+    for(const root of workspaceRoots){
+      const option=document.createElement('option');option.value=String(root.id||'');option.textContent=String(root.name||root.id||'Workspace')+(root.primary?' · primary':'');rootSelect.append(option);
+    }
+    rootSelect.value=selectedRootID;
+  }
+}
+async function projectTree(path){
+  return app.jsonFetch('/api/project/tree?path='+encodeURIComponent(path||''));
+}
+async function currentTasksFileExists(){
+  const root=selectedWorkspaceRoot();if(!root)return false;
+  const base=tasksRootBase(root);
+  const rootItems=await projectTree(base);
+  const vscode=(Array.isArray(rootItems)?rootItems:[]).find(item=>item?.name==='.vscode'&&item?.type==='dir');
+  if(!vscode)return false;
+  const dir=base?base+'/.vscode':'.vscode';
+  const items=await projectTree(dir);
+  return (Array.isArray(items)?items:[]).some(item=>item?.name==='tasks.json'&&item?.type==='file');
+}
+async function ensureCurrentTasksFile(){
+  if(!fileMeta?.missing)return;
+  const root=selectedWorkspaceRoot();if(!root)throw new Error('Workspace root is unavailable');
+  const base=tasksRootBase(root);
+  const rootItems=await projectTree(base);
+  const hasVSCode=(Array.isArray(rootItems)?rootItems:[]).some(item=>item?.name==='.vscode'&&item?.type==='dir');
+  if(!hasVSCode){
+    await app.jsonFetch('/api/project/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'mkdir',path:currentTasksDir()})});
+  }
+  await app.jsonFetch('/api/project/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'create_file',path:currentTasksPath()})});
+  fileMeta=await app.jsonFetch('/api/project/file?path='+encodeURIComponent(currentTasksPath()));
+}
 
 function stripJSONC(text){
   const src=String(text||'');let out='';let string=false,escape=false,line=false,block=false;
@@ -504,8 +562,18 @@ function moveTask(delta){
 
 async function load(){
   if(!canRead())throw new Error('File read permission is required to edit tasks.json');
-  const response=await app.jsonFetch('/api/project/file?path='+encodeURIComponent(TASKS_PATH));
-  fileMeta=response;doc=parseTasksDocument(response.content);selectedIndex=0;mode='visual';clearDirty();render();
+  await loadWorkspaceRoots();
+  const path=currentTasksPath();
+  const exists=await currentTasksFileExists();
+  if(exists){
+    const response=await app.jsonFetch('/api/project/file?path='+encodeURIComponent(path));
+    fileMeta=response;doc=parseTasksDocument(response.content);
+  }else{
+    const content=JSON.stringify({version:'2.0.0',tasks:[]},null,2)+'\n';
+    fileMeta={path,content,sha256:'',missing:true};doc=parseTasksDocument(content);
+  }
+  if(pathNode){pathNode.textContent=path;pathNode.title=path;}
+  selectedIndex=0;mode='visual';clearDirty();render();
 }
 
 async function save(){
@@ -519,10 +587,11 @@ async function save(){
   }
   saveButton.disabled=true;
   try{
+    await ensureCurrentTasksFile();
     const saved=await app.jsonFetch('/api/project/file',{
       method:'PUT',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({path:TASKS_PATH,content,expected_sha256:fileMeta.sha256})
+      body:JSON.stringify({path:currentTasksPath(),content,expected_sha256:fileMeta.sha256})
     });
     fileMeta=saved;fileMeta.content=content;clearDirty();
     await app.loadTasks();
@@ -546,7 +615,13 @@ function install(){
   const dialog=document.createElement('div');dialog.className='tasks-editor-dialog';
   const head=document.createElement('div');head.className='tasks-editor-head';
   const title=document.createElement('strong');title.textContent='tasks.json';
-  const path=document.createElement('code');path.textContent=TASKS_PATH;
+  rootSelect=document.createElement('select');rootSelect.className='tasks-editor-root';rootSelect.title='Workspace root whose .vscode/tasks.json is being edited';
+  rootSelect.onchange=()=>{
+    const next=rootSelect.value;
+    if(dirty&&!confirm('Discard unsaved tasks.json changes before switching workspace root?')){rootSelect.value=selectedRootID;return;}
+    selectedRootID=next;load().catch(app.showError);
+  };
+  pathNode=document.createElement('code');pathNode.textContent=PRIMARY_TASKS_PATH;
   dirtyBadge=document.createElement('span');dirtyBadge.className='dirty';
   const spacer=document.createElement('span');spacer.className='spacer';
   const modes=document.createElement('div');modes.className='tasks-editor-mode';
@@ -555,7 +630,7 @@ function install(){
   visualButton.onclick=()=>switchMode('visual');rawButton.onclick=()=>switchMode('raw');modes.append(visualButton,rawButton);
   const reloadButton=document.createElement('button');reloadButton.type='button';reloadButton.textContent='Reload';reloadButton.onclick=()=>{if(dirty&&!confirm('Discard unsaved tasks.json changes?'))return;load().catch(app.showError);};
   const close=document.createElement('button');close.type='button';close.textContent='×';close.onclick=()=>closeEditor();
-  head.append(title,path,dirtyBadge,spacer,modes,reloadButton,close);
+  head.append(title,rootSelect,pathNode,dirtyBadge,spacer,modes,reloadButton,close);
 
   const body=document.createElement('div');body.className='tasks-editor-body';
   const sidebar=document.createElement('div');sidebar.className='tasks-editor-list';
