@@ -11,8 +11,11 @@ func TestProjectProfileFrontendCapabilityAdapters(t *testing.T) {
 	tests := []struct{ file string; required []string }{
 		{file:"featuremods/envprofiles.js",required:[]string{
 			"globalThis.TaskMenuEnvProfiles={",
-			"currentName:selectedName",
+			"currentName,",
 			"currentEnv",
+			"applySnapshot,",
+			"clearOverride,",
+			"get(name)",
 			"Object.prototype.hasOwnProperty.call(readProfiles(),name)",
 			"setSelected(name)",
 		}},
