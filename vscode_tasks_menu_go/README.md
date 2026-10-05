@@ -145,11 +145,21 @@ Repo khai báo trong `[git.repositories]` được ưu tiên đặt tên; auto-s
 
 Git workflow nâng cao hiện có:
 
-- các operation dài `fetch / pull / push / merge` chạy dưới dạng cancellable job, hiển thị stdout/stderr/progress trực tiếp trong Git panel và có **Cancel**;
-- Diff hỗ trợ **Stage hunk / Unstage hunk / Discard hunk**; discard có confirmation;
+- các operation dài `fetch / pull / push / merge` và xóa branch thật trên remote chạy dưới dạng cancellable job, hiển thị stdout/stderr/progress trực tiếp trong Git panel và có **Cancel**;
+- **Branches** phân biệt rõ phạm vi xóa:
+  - **Delete local** → `git branch -d <branch>`: chỉ xóa local branch và Git từ chối nếu chưa merge an toàn;
+  - **Force delete local** → `git branch -D <branch>`: chỉ xóa local branch nhưng cho phép bỏ branch chưa merge, vì vậy UI cảnh báo nguy cơ mất commit;
+  - **Forget local ref** → `git branch -dr <remote>/<branch>`: chỉ xóa remote-tracking ref trong máy hiện tại; branch trên server không đổi và lần fetch sau có thể tạo ref lại;
+  - **Delete on remote / Delete upstream remote** → `git push <remote> --delete <branch>`: xóa branch thật trên remote server nhưng không xóa local branch cùng tên;
+- Diff dùng **visual side-by-side** theo hunk, có line number và highlight added/removed; raw unified patch vẫn có thể mở bên dưới để đối chiếu chính xác output Git;
+- Diff biểu diễn đúng ba lớp state của Git theo chuỗi **HEAD (committed) → Index (staged) → Working tree (not staged)**:
+  - **HEAD ↔ Staged** chỉ xem phần đã stage, đồng thời hỗ trợ **Unstage hunk**;
+  - **Staged ↔ Working** chỉ xem phần sửa tiếp nhưng chưa stage, đồng thời hỗ trợ **Stage hunk / Discard hunk**;
+  - **HEAD ↔ Working** xem tổng thay đổi tracked từ commit hiện tại đến file đang làm việc, là view read-only để tránh áp dụng hunk sai layer;
+- khi một file đồng thời có staged và unstaged changes, hàng **Changes** hiện cả ba nút diff trên để có thể kiểm tra riêng từng lớp thay vì trộn chúng vào một patch;
 - merge/rebase/cherry-pick/revert conflict mở recovery wizard theo file, hỗ trợ Current/Incoming/Mark resolved/Continue/Abort;
 - large-file preflight phát hiện blob vượt giới hạn GitHub trước khi upload; nếu `git lfs` có sẵn, wizard có thể migrate exact file hoặc pattern vào Git LFS trên phần history chưa push;
-- có file history + blame, tag management, cherry-pick, revert và safe branch cleanup;
+- có file history + blame, tag management, cherry-pick và revert;
 - recovery wizard giữ classification riêng cho network/auth/timeout/conflict/large-file/host-side rejection để không chỉ hiện raw Git error.
 
 ### Lifecycle của tab/session
