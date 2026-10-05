@@ -700,19 +700,34 @@ async function reloadEditor(view){
   const file=await app.jsonFetch('/api/project/file?path='+encodeURIComponent(view.file.path));
   setEditorDocument(view,file);
 }
+function announceOpenedFile(pathValue){
+  window.dispatchEvent(new CustomEvent('taskmenu:project-file-opened',{detail:{path:pathValue}}));
+}
 async function openFile(pathValue){
   pathValue=String(pathValue||'').trim();
   if(!pathValue)return;
   const id=editorID(pathValue);
-  if(editors.has(id)){activateEditor(id);return editors.get(id);}
-  if(opening.has(pathValue)){const pending=await opening.get(pathValue);activateEditor(pending.id);return pending;}
+  if(editors.has(id)){
+    activateEditor(id);
+    announceOpenedFile(pathValue);
+    return editors.get(id);
+  }
+  if(opening.has(pathValue)){
+    const pending=await opening.get(pathValue);
+    activateEditor(pending.id);
+    announceOpenedFile(pathValue);
+    return pending;
+  }
   const promise=(async()=>{
     const file=await app.jsonFetch('/api/project/file?path='+encodeURIComponent(pathValue));
     return createEditor(file);
   })();
   opening.set(pathValue,promise);
   try{
-    const view=await promise;activateEditor(view.id);return view;
+    const view=await promise;
+    activateEditor(view.id);
+    announceOpenedFile(pathValue);
+    return view;
   }finally{opening.delete(pathValue);}
 }
 
