@@ -28,6 +28,14 @@ const (
 	ProtocolSFTP Protocol = "sftp"
 )
 
+type FTPTLSMode string
+
+const (
+	FTPTLSPlain    FTPTLSMode = "plain"
+	FTPTLSExplicit FTPTLSMode = "explicit"
+	FTPTLSImplicit FTPTLSMode = "implicit"
+)
+
 type Profile struct {
 	ID       string   `json:"id"`
 	Name     string   `json:"name"`
@@ -40,7 +48,8 @@ type Profile struct {
 	SSHProfileID string `json:"ssh_profile_id,omitempty"`
 	InitialPath  string `json:"initial_path,omitempty"`
 
-	ConnectTimeoutSeconds int `json:"connect_timeout_seconds,omitempty"`
+	ConnectTimeoutSeconds int        `json:"connect_timeout_seconds,omitempty"`
+	FTPTLSMode            FTPTLSMode `json:"ftp_tls_mode,omitempty"`
 
 	// SecretRef points at the private encrypted secret store. It must never be
 	// serialized through public profile APIs.
@@ -79,8 +88,20 @@ func Normalize(profile Profile) (Profile, error) {
 
 	switch profile.Protocol {
 	case ProtocolFTP:
+		if profile.FTPTLSMode == "" {
+			profile.FTPTLSMode = FTPTLSPlain
+		}
+		switch profile.FTPTLSMode {
+		case FTPTLSPlain, FTPTLSExplicit, FTPTLSImplicit:
+		default:
+			return Profile{}, fmt.Errorf("unsupported ftp tls mode %q", profile.FTPTLSMode)
+		}
 		if profile.Port == 0 {
-			profile.Port = DefaultFTPPort
+			if profile.FTPTLSMode == FTPTLSImplicit {
+				profile.Port = 990
+			} else {
+				profile.Port = DefaultFTPPort
+			}
 		}
 		if profile.ConnectTimeoutSeconds == 0 {
 			profile.ConnectTimeoutSeconds = DefaultConnectTimeoutSecond
@@ -109,7 +130,7 @@ func Normalize(profile Profile) (Profile, error) {
 		if err := validateToken("ssh profile id", profile.SSHProfileID, maxIDBytes, true); err != nil {
 			return Profile{}, err
 		}
-		if profile.Host != "" || profile.Port != 0 || profile.Username != "" || profile.SecretRef != "" || profile.ConnectTimeoutSeconds != 0 {
+		if profile.Host != "" || profile.Port != 0 || profile.Username != "" || profile.SecretRef != "" || profile.ConnectTimeoutSeconds != 0 || profile.FTPTLSMode != "" {
 			return Profile{}, fmt.Errorf("sftp profile must inherit host, port, username, authentication and timeout from its SSH profile")
 		}
 	default:

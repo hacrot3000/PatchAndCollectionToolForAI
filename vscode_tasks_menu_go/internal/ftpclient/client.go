@@ -3,6 +3,8 @@ package ftpclient
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -21,22 +23,51 @@ const (
 
 var ErrResumeUnsupported = errors.New("ftp server does not support transfer resume")
 
+type TLSMode string
+
+const (
+	TLSPlain    TLSMode = "plain"
+	TLSExplicit TLSMode = "explicit"
+	TLSImplicit TLSMode = "implicit"
+)
+
+type TLSOptions struct {
+	Mode       TLSMode
+	ServerName string
+	RootCAs    *x509.CertPool
+	MinVersion uint16
+}
+
 type Reply struct {
 	Code int
 	Text string
 }
 
 type Client struct {
-	conn    net.Conn
-	reader  *bufio.Reader
-	writer  *bufio.Writer
-	peerIP  net.IP
-	timeout time.Duration
+	conn          net.Conn
+	reader        *bufio.Reader
+	writer        *bufio.Writer
+	peerIP        net.IP
+	timeout       time.Duration
+	tlsConfig     *tls.Config
+	dataProtected bool
 }
 
 func Dial(ctx context.Context, address, username, password string, timeout time.Duration) (*Client, error) {
+	return DialTLS(ctx, address, username, password, timeout, TLSOptions{Mode: TLSPlain})
+}
+
+func DialTLS(ctx context.Context, address, username, password string, timeout time.Duration, options TLSOptions) (*Client, error) {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
+	}
+	if options.Mode == "" {
+		options.Mode = TLSPlain
+	}
+	switch options.Mode {
+	case TLSPlain, TLSExplicit, TLSImplicit:
+	default:
+		return nil, fmt.Errorf("unsupported ftp tls mode %q", options.Mode)
 	}
 	if err := validateCommandArg("ftp address", address); err != nil {
 		return nil, err
@@ -47,17 +78,51 @@ func Dial(ctx context.Context, address, username, password string, timeout time.
 	if err := validateCommandArgAllowEmpty("ftp password", password); err != nil {
 		return nil, err
 	}
+	var tlsConfig *tls.Config
+	if options.Mode != TLSPlain {
+		serverName := strings.TrimSpace(options.ServerName)
+		if serverName == "" {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, fmt.Errorf("ftp tls server name: %w", err)
+			}
+			serverName = strings.Trim(host, "[]")
+		}
+		if err := validateCommandArg("ftp tls server name", serverName); err != nil {
+			return nil, err
+		}
+		minVersion := options.MinVersion
+		if minVersion == 0 {
+			minVersion = tls.VersionTLS12
+		}
+		tlsConfig = &tls.Config{ServerName: serverName, RootCAs: options.RootCAs, MinVersion: minVersion}
+	}
 	dialer := net.Dialer{Timeout: timeout}
 	conn, err := dialer.DialContext(ctx, "tcp", address)
 	if err != nil {
 		return nil, fmt.Errorf("ftp connect: %w", err)
 	}
+	peerIP := net.IP(nil)
+	if tcp, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
+		peerIP = append(net.IP(nil), tcp.IP...)
+	}
+	if options.Mode == TLSImplicit {
+		secure := tls.Client(conn, tlsConfig.Clone())
+		if err := applyConnDeadline(secure, ctx, timeout); err != nil {
+			conn.Close()
+			return nil, err
+		}
+		if err := secure.HandshakeContext(ctx); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("ftps implicit tls handshake: %w", err)
+		}
+		conn = secure
+	}
 	client := &Client{
 		conn: conn, reader: bufio.NewReaderSize(conn, 32<<10),
 		writer: bufio.NewWriterSize(conn, 8<<10), timeout: timeout,
-	}
-	if tcp, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
-		client.peerIP = append(net.IP(nil), tcp.IP...)
+		peerIP: peerIP, tlsConfig: tlsConfig,
+		dataProtected: options.Mode == TLSImplicit,
 	}
 	if err := client.applyDeadline(ctx); err != nil {
 		conn.Close()
@@ -71,6 +136,22 @@ func Dial(ctx context.Context, address, username, password string, timeout time.
 	if greeting.Code != 220 {
 		conn.Close()
 		return nil, fmt.Errorf("ftp greeting rejected: %d %s", greeting.Code, greeting.Text)
+	}
+	if options.Mode == TLSExplicit {
+		authReply, err := client.command(ctx, "AUTH TLS")
+		if err != nil {
+			conn.Close()
+			return nil, err
+		}
+		if authReply.Code != 234 && authReply.Code != 334 {
+			conn.Close()
+			return nil, fmt.Errorf("ftp AUTH TLS rejected: %d %s", authReply.Code, authReply.Text)
+		}
+		if err := client.upgradeControlTLS(ctx, tlsConfig); err != nil {
+			conn.Close()
+			return nil, err
+		}
+		client.dataProtected = true
 	}
 	userReply, err := client.command(ctx, "USER "+username)
 	if err != nil {
@@ -94,6 +175,26 @@ func Dial(ctx context.Context, address, username, password string, timeout time.
 		conn.Close()
 		return nil, fmt.Errorf("ftp USER rejected: %d %s", userReply.Code, userReply.Text)
 	}
+	if client.dataProtected {
+		pbszReply, err := client.command(ctx, "PBSZ 0")
+		if err != nil {
+			conn.Close()
+			return nil, err
+		}
+		if pbszReply.Code/100 != 2 {
+			conn.Close()
+			return nil, fmt.Errorf("ftp PBSZ 0 rejected: %d %s", pbszReply.Code, pbszReply.Text)
+		}
+		protReply, err := client.command(ctx, "PROT P")
+		if err != nil {
+			conn.Close()
+			return nil, err
+		}
+		if protReply.Code/100 != 2 {
+			conn.Close()
+			return nil, fmt.Errorf("ftp PROT P rejected: %d %s", protReply.Code, protReply.Text)
+		}
+	}
 	typeReply, err := client.command(ctx, "TYPE I")
 	if err != nil {
 		conn.Close()
@@ -104,6 +205,23 @@ func Dial(ctx context.Context, address, username, password string, timeout time.
 		return nil, fmt.Errorf("ftp TYPE I rejected: %d %s", typeReply.Code, typeReply.Text)
 	}
 	return client, nil
+}
+
+func (c *Client) upgradeControlTLS(ctx context.Context, config *tls.Config) error {
+	if c == nil || c.conn == nil || config == nil {
+		return errors.New("ftp tls control upgrade is unavailable")
+	}
+	secure := tls.Client(c.conn, config.Clone())
+	if err := applyConnDeadline(secure, ctx, c.timeout); err != nil {
+		return err
+	}
+	if err := secure.HandshakeContext(ctx); err != nil {
+		return fmt.Errorf("ftps explicit tls handshake: %w", err)
+	}
+	c.conn = secure
+	c.reader = bufio.NewReaderSize(secure, 32<<10)
+	c.writer = bufio.NewWriterSize(secure, 8<<10)
+	return nil
 }
 
 func (c *Client) Close() error {
@@ -399,7 +517,23 @@ func (c *Client) dialData(ctx context.Context, port int) (net.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ftp data connect: %w", err)
 	}
-	return conn, nil
+	if !c.dataProtected {
+		return conn, nil
+	}
+	if c.tlsConfig == nil {
+		conn.Close()
+		return nil, errors.New("ftp data tls configuration is unavailable")
+	}
+	secure := tls.Client(conn, c.tlsConfig.Clone())
+	if err := applyConnDeadline(secure, ctx, c.timeout); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := secure.HandshakeContext(ctx); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("ftps data tls handshake: %w", err)
+	}
+	return secure, nil
 }
 
 func (c *Client) command(ctx context.Context, command string) (Reply, error) {

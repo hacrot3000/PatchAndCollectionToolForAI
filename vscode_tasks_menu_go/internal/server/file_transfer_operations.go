@@ -137,7 +137,19 @@ func (s *Server) withFTPClient(ctx context.Context, profile filetransferprofile.
 	}
 	timeout := time.Duration(profile.ConnectTimeoutSeconds) * time.Second
 	address := net.JoinHostPort(profile.Host, fmt.Sprintf("%d", profile.Port))
-	client, err := ftpclient.Dial(ctx, address, profile.Username, password, timeout)
+	var client *ftpclient.Client
+	switch profile.FTPTLSMode {
+	case filetransferprofile.FTPTLSExplicit:
+		client, err = ftpclient.DialTLS(ctx, address, profile.Username, password, timeout, ftpclient.TLSOptions{
+			Mode: ftpclient.TLSExplicit, ServerName: profile.Host,
+		})
+	case filetransferprofile.FTPTLSImplicit:
+		client, err = ftpclient.DialTLS(ctx, address, profile.Username, password, timeout, ftpclient.TLSOptions{
+			Mode: ftpclient.TLSImplicit, ServerName: profile.Host,
+		})
+	default:
+		client, err = ftpclient.Dial(ctx, address, profile.Username, password, timeout)
+	}
 	if err != nil {
 		return err
 	}

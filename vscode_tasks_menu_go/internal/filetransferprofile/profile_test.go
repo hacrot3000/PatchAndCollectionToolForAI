@@ -18,7 +18,7 @@ func TestNormalizeFTPDefaultsAndHidesSecretRef(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Port != DefaultFTPPort || got.ConnectTimeoutSeconds != DefaultConnectTimeoutSecond || got.InitialPath != "." {
+	if got.Port != DefaultFTPPort || got.ConnectTimeoutSeconds != DefaultConnectTimeoutSecond || got.InitialPath != "." || got.FTPTLSMode != FTPTLSPlain {
 		t.Fatalf("unexpected defaults: %#v", got)
 	}
 	data, err := json.Marshal(got)
@@ -70,5 +70,41 @@ func TestNormalizeRejectsRemotePathControlCharacters(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "control") {
 		t.Fatalf("expected control-character error, got %v", err)
+	}
+}
+
+func TestNormalizeFTPTLSModesAndPorts(t *testing.T) {
+	for _, tc := range []struct {
+		mode FTPTLSMode
+		port int
+	}{
+		{FTPTLSPlain, 21},
+		{FTPTLSExplicit, 21},
+		{FTPTLSImplicit, 990},
+	} {
+		got, err := Normalize(Profile{
+			ID: "ftp-prod", Name: "FTP", Protocol: ProtocolFTP,
+			Host: "ftp.example.com", Username: "deploy", FTPTLSMode: tc.mode,
+		})
+		if err != nil { t.Fatalf("mode=%q: %v", tc.mode, err) }
+		if got.FTPTLSMode != tc.mode || got.Port != tc.port {
+			t.Fatalf("mode=%q got=%#v", tc.mode, got)
+		}
+	}
+	if _, err := Normalize(Profile{
+		ID: "ftp-prod", Name: "FTP", Protocol: ProtocolFTP,
+		Host: "ftp.example.com", Username: "deploy", FTPTLSMode: FTPTLSMode("broken"),
+	}); err == nil || !strings.Contains(err.Error(), "unsupported ftp tls mode") {
+		t.Fatalf("invalid TLS mode error=%v", err)
+	}
+}
+
+func TestNormalizeSFTPRejectsFTPTLSMode(t *testing.T) {
+	_, err := Normalize(Profile{
+		ID: "sftp-prod", Name: "SFTP", Protocol: ProtocolSFTP,
+		SSHProfileID: "prod-ssh", FTPTLSMode: FTPTLSExplicit,
+	})
+	if err == nil || !strings.Contains(err.Error(), "must inherit") {
+		t.Fatalf("expected SFTP TLS-field rejection, got %v", err)
 	}
 }
