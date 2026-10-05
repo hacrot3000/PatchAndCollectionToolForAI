@@ -135,7 +135,7 @@ func TestExplorerCreatesRenamesAndMovesProjectItems(t *testing.T) {
 		"async function renameProjectItem(pathValue)",
 		"async function moveSelectedProjectItems()",
 		"function topLevelSelectedPaths(paths)",
-		"body:JSON.stringify({action,path:pathValue,new_path:newPath})",
+		"body:JSON.stringify({action,path:pathValue,new_path:newPath,token})",
 		"create_file",
 		"Rename…",
 		"Move selected…",
@@ -169,6 +169,31 @@ func TestExplorerClipboardAndDuplicateActions(t *testing.T) {
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("Explorer clipboard/duplicate support missing %q", want)
+		}
+	}
+}
+
+func TestExplorerTrashAndUndoActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"let lastUndo=null",
+		"function recordUndo(label,steps)",
+		"async function trashPaths(paths",
+		"async function undoLastOperation()",
+		"projectMutation('trash',source)",
+		"projectMutation('restore',step.path,'',step.token||'')",
+		"Save or close unsaved editor",
+		"taskmenu:project-path-trashed",
+		"Move selected to Trash",
+		"undoButton.onclick",
+		"undo:undoLastOperation",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Explorer trash/undo support missing %q", want)
 		}
 	}
 }
