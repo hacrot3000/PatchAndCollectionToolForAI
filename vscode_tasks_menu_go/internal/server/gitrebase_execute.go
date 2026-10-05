@@ -228,11 +228,14 @@ func (s *Server) gitRebaseEditorEnv(ctx context.Context) (map[string]string, str
 	if err != nil {
 		return nil, "", "", err
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return nil, "", "", fmt.Errorf("resolve TaskDeck executable: %w", err)
+	command := strings.TrimSpace(s.GitRebaseEditorCommand)
+	if command == "" {
+		exe, err := os.Executable()
+		if err != nil {
+			return nil, "", "", fmt.Errorf("resolve TaskDeck executable: %w", err)
+		}
+		command = gitEditorCommand(exe)
 	}
-	command := gitEditorCommand(exe)
 	env := map[string]string{
 		"GIT_SEQUENCE_EDITOR":                  command,
 		"GIT_EDITOR":                           command,
