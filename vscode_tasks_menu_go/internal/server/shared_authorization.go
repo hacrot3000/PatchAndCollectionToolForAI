@@ -155,6 +155,14 @@ func sharedRoutePermissions(r *http.Request) []string {
 			permissions = append(permissions, identity.PermissionFilesWrite)
 		}
 		return permissions
+	case "/api/file-transfer/text":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionFilesDownload}
+		}
+		if r.Method == http.MethodPut {
+			return []string{identity.PermissionFilesUpload, identity.PermissionFilesWrite}
+		}
+		return nil
 	case "/api/project/tree", "/api/project/files/search", "/api/project/content/search":
 		return []string{identity.PermissionFilesRead}
 	case "/api/project/content/replace":
