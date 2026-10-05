@@ -147,3 +147,28 @@ func TestExplorerCreatesRenamesAndMovesProjectItems(t *testing.T) {
 		}
 	}
 }
+
+func TestExplorerClipboardAndDuplicateActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"let fileClipboard={mode:'',paths:[]}",
+		"function setProjectClipboard(mode,paths)",
+		"async function duplicateSelectedProjectItems()",
+		"async function pasteProjectClipboard(destinationDir)",
+		"projectMutation('copy',source,target)",
+		"projectMutation('rename',source,target)",
+		"Copy selected",
+		"Cut selected",
+		"Duplicate selected",
+		"Paste ",
+		"get clipboard()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Explorer clipboard/duplicate support missing %q", want)
+		}
+	}
+}
