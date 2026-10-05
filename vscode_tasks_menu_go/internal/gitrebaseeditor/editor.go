@@ -117,6 +117,14 @@ func RunMessageEditor(target, statePath string) error {
 	}
 	message, ok := state.Reword[sha]
 	if !ok {
+		for full, candidate := range state.Reword {
+			if strings.HasPrefix(full, sha) || strings.HasPrefix(sha, full) {
+				message, ok = candidate, true
+				break
+			}
+		}
+	}
+	if !ok {
 		return nil
 	}
 	message = strings.TrimSpace(message)
