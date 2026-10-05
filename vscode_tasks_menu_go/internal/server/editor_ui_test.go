@@ -336,3 +336,20 @@ func TestVendoredCodeMirrorExposesIDEHooksAndTypeScriptModes(t *testing.T) {
 		}
 	}
 }
+
+func TestEditorAnnouncesOpenedProjectFiles(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function announceOpenedFile(pathValue)",
+		"taskmenu:project-file-opened",
+		"announceOpenedFile(pathValue)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor opened-file event missing %q", want)
+		}
+	}
+}
