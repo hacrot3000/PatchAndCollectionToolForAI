@@ -88,6 +88,15 @@ function editorFindSplitParent(node,id,parent=null){
 function editorSplitParentFor(id){
   const root=editorFindSplitRoot(id);return root?editorFindSplitParent(root,id,null):null;
 }
+function remapEditorSplitID(node,oldID,newID){
+  if(!node)return;
+  if(node.type==='leaf'){
+    if(node.id===oldID)node.id=newID;
+    return;
+  }
+  remapEditorSplitID(node.first,oldID,newID);
+  remapEditorSplitID(node.second,oldID,newID);
+}
 function editorReplaceSplitNode(target,replacement){
   const inside=node=>{
     if(!editorIsSplit(node))return false;
@@ -703,6 +712,33 @@ async function reloadEditor(view){
 function announceOpenedFile(pathValue){
   window.dispatchEvent(new CustomEvent('taskmenu:project-file-opened',{detail:{path:pathValue}}));
 }
+
+function remapOpenedEditorPaths(oldPath,newPath){
+  oldPath=String(oldPath||'').trim();newPath=String(newPath||'').trim();
+  if(!oldPath||!newPath||oldPath===newPath)return;
+  const prefix=oldPath+'/';
+  const changes=[...editors.entries()].filter(([,view])=>view.file.path===oldPath||view.file.path.startsWith(prefix));
+  for(const [oldID,view] of changes){
+    const suffix=view.file.path===oldPath?'':view.file.path.slice(oldPath.length);
+    const nextPath=newPath+suffix;
+    const nextID=editorID(nextPath);
+    if(nextID!==oldID&&editors.has(nextID))continue;
+    editors.delete(oldID);
+    view.id=nextID;
+    view.file.path=nextPath;
+    view.tab.dataset.id=nextID;
+    view.pane.dataset.id=nextID;
+    view.label.textContent=basename(nextPath);
+    view.path.textContent=nextPath;
+    view.path.title=nextPath;
+    view.tab.title=(view.dirty?'● ':'')+nextPath;
+    editors.set(nextID,view);
+    if(activeEditorID===oldID)activeEditorID=nextID;
+    for(const root of editorSplitRoots)remapEditorSplitID(root,oldID,nextID);
+  }
+  pruneEditorSplitRoots();
+  syncEditorSplitForActive();
+}
 async function openFile(pathValue){
   pathValue=String(pathValue||'').trim();
   if(!pathValue)return;
@@ -763,6 +799,9 @@ window.addEventListener('beforeunload',event=>{
 
 window.addEventListener('taskmenu:project-file-open-request',event=>{
   const pathValue=event.detail?.path;if(pathValue)openFile(pathValue).catch(app.showError);
+});
+window.addEventListener('taskmenu:project-path-renamed',event=>{
+  remapOpenedEditorPaths(event.detail?.old_path,event.detail?.new_path);
 });
 window.addEventListener('taskmenu:view-activated',event=>{
   if(event.detail?.kind==='terminal'){deactivateEditors();return;}
