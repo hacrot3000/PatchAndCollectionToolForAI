@@ -10,7 +10,8 @@ style.textContent=`
 body.task-sidebar-auto-hide .git-panel{left:60px;width:min(780px,calc(100vw - 72px))}.git-panel.visible{display:flex;flex-direction:column}.git-panel-head{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid #30343b}.git-panel-title{font-weight:700}.git-panel-summary{font:11px ui-monospace,monospace;opacity:.65;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-panel-close{padding:4px 8px}.git-repo-bar{display:flex;align-items:center;gap:7px;padding:7px 10px;border-bottom:1px solid #30343b}.git-repo-bar label{font-size:10px;font-weight:700;opacity:.6}.git-repo-select{min-width:180px;max-width:310px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:5px 7px}.git-repo-path{flex:1;min-width:0;font:10px ui-monospace,monospace;opacity:.6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-repo-rescan{padding:4px 7px;font-size:10px}.git-quick-groups{display:flex;gap:7px;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid #30343b}.git-quick-group{display:flex;align-items:center;gap:4px;padding:4px;border:1px solid #30343b;border-radius:7px;background:#151b23}.git-quick-group strong{font-size:10px;opacity:.55;margin:0 3px}.git-quick-group button{padding:4px 7px;font-size:11px}.git-action-running{background:#34445a!important;border-color:#6f91bb!important;box-shadow:0 0 0 1px rgba(111,145,187,.35) inset}.git-action-success{background:#21452d!important;border-color:#4f8d61!important}.git-action-error{background:#51262b!important;border-color:#9b5059!important}.git-action-running,.git-action-success,.git-action-error{transition:background .12s ease,border-color .12s ease,transform .12s ease}.git-action-running{transform:translateY(1px)}.git-nav{display:flex;gap:4px;overflow:auto;padding:7px 10px;border-bottom:1px solid #30343b}.git-nav button{padding:5px 8px;font-size:11px;white-space:nowrap}.git-nav button.active{background:#34445a;border-color:#52719a}.git-panel-content{flex:1;min-height:0;overflow:auto;padding:10px}.git-empty{opacity:.6;padding:18px;text-align:center}.git-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:7px;align-items:center;padding:7px 5px;border-bottom:1px solid #252c35}.git-row:last-child{border-bottom:0}.git-row-code{font:11px ui-monospace,monospace;min-width:28px;opacity:.75}.git-row-main{min-width:0}.git-row-title{font:12px ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-row-sub{font-size:10px;opacity:.55;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-row-actions{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}.git-row-actions button{padding:3px 6px;font-size:10px}.git-diff-pre,.git-operation-output,.git-compare-pre{white-space:pre-wrap;word-break:break-word;font:11px/1.45 ui-monospace,monospace;background:#090d12;border:1px solid #30343b;border-radius:7px;padding:9px;margin:8px 0;overflow:auto}.git-hunk{border:1px solid #30343b;border-radius:8px;margin:8px 0;overflow:hidden}.git-hunk-head{display:flex;align-items:center;gap:7px;padding:6px 8px;background:#151b23}.git-hunk-title{flex:1;min-width:0;font:10px ui-monospace,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.git-hunk-actions{display:flex;gap:5px}.git-hunk-actions button{padding:3px 6px;font-size:10px}.git-hunk pre{margin:0;border:0;border-radius:0;border-top:1px solid #30343b;max-height:300px}.git-panel.git-panel-wide{width:min(1180px,calc(100vw - 24px))}body.task-sidebar-auto-hide .git-panel.git-panel-wide{width:min(1180px,calc(100vw - 72px))}.git-diff-mode-bar{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin:8px 0}.git-diff-mode-bar button{padding:4px 7px;font-size:10px}.git-diff-mode-bar button.active{background:#34445a;border-color:#6f91bb}.git-visual-diff{overflow:auto;border-top:1px solid #30343b;background:#0b0f14}.git-visual-grid{min-width:760px}.git-diff-columns-head,.git-diff-visual-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.git-diff-columns-head{position:sticky;top:0;z-index:1;background:#151b23;border-bottom:1px solid #30343b}.git-diff-column-head{padding:5px 8px;font:10px ui-monospace,monospace;font-weight:700}.git-diff-column-head+.git-diff-column-head{border-left:1px solid #30343b}.git-diff-cell{display:grid;grid-template-columns:48px minmax(0,1fr);min-width:0;border-bottom:1px solid rgba(255,255,255,.035)}.git-diff-cell+.git-diff-cell{border-left:1px solid #30343b}.git-diff-line-no{padding:1px 7px;text-align:right;user-select:none;opacity:.48;font:10px/1.45 ui-monospace,monospace;border-right:1px solid rgba(255,255,255,.06)}.git-diff-code{padding:1px 7px;white-space:pre;overflow-x:auto;font:11px/1.45 ui-monospace,monospace}.git-diff-cell.removed{background:rgba(185,67,67,.18)}.git-diff-cell.added{background:rgba(54,145,78,.18)}.git-diff-cell.blank{opacity:.36}.git-diff-note{grid-column:1/3;padding:3px 8px;font:10px ui-monospace,monospace;opacity:.62;border-bottom:1px solid #252c35}.git-diff-raw{border-top:1px solid #30343b}.git-diff-raw>summary{cursor:pointer;padding:5px 8px;font-size:10px;opacity:.68}.git-diff-raw>pre{max-height:260px}.git-operation{border-top:1px solid #30343b;padding:7px 10px;max-height:min(46vh,460px);overflow:auto}.git-operation.running{box-shadow:inset 3px 0 0 #6f91bb}.git-operation-head{display:flex;align-items:center;gap:6px}.git-operation-command{flex:1;min-width:0;font:10px ui-monospace,monospace;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-operation button{padding:3px 6px;font-size:10px}.git-operation-output{margin:5px 0 0;max-height:min(38vh,360px)}.git-branch-create,.git-compare-controls,.git-file-controls{display:flex;gap:6px;align-items:center;margin-bottom:8px}.git-branch-create input,.git-compare-controls select,.git-file-controls input{flex:1;min-width:0;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:6px 8px}.git-branch-section-toggle{display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;padding:7px 0 5px;font-size:10px;font-weight:700;opacity:.72}.git-branch-section-toggle:hover{opacity:1}.git-branch-section-toggle:focus-visible{outline:1px solid #52719a;outline-offset:2px}.git-direction-ahead{color:#72cf8a}.git-direction-behind{color:#e5b85c}
 .git-graph-controls{display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:6px;margin-bottom:8px}.git-graph-controls input{min-width:0;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:5px 7px;font-size:10px}.git-graph-controls-actions{grid-column:1/-1;display:flex;gap:6px}.git-graph-shell{display:grid;grid-template-columns:minmax(430px,1.2fr) minmax(300px,.8fr);gap:8px;min-height:0;height:100%}.git-graph-list,.git-graph-detail{min-height:0;overflow:auto;border:1px solid #30343b;border-radius:8px}.git-graph-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px;align-items:center;padding:4px 5px;border-bottom:1px solid #252c35;cursor:pointer}.git-graph-row:hover,.git-graph-row.selected{background:#293241}.git-graph-svg{display:block;overflow:visible}.git-graph-main{min-width:0}.git-graph-title{font:11px ui-monospace,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.git-graph-sub{font-size:9px;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.git-graph-refs{display:flex;gap:3px;flex-wrap:wrap;margin-top:2px}.git-graph-ref{font:9px ui-monospace,monospace;padding:1px 4px;border:1px solid #46505d;border-radius:8px;opacity:.82}.git-graph-ref.head{font-weight:700}.git-graph-ref.tag{border-style:dashed}.git-graph-detail{padding:8px}.git-graph-detail-head{display:flex;align-items:flex-start;gap:6px;flex-wrap:wrap}.git-graph-detail-title{flex:1;min-width:180px}.git-graph-detail-actions{display:flex;gap:4px;flex-wrap:wrap}.git-graph-file{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:6px;align-items:center;padding:6px 2px;border-top:1px solid #252c35}.git-graph-file-path{font:10px ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-graph-context{position:fixed;z-index:17010;min-width:230px;padding:5px;border:1px solid #48515f;border-radius:8px;background:#171b22;box-shadow:0 14px 38px rgba(0,0,0,.45)}.git-graph-context button{display:block;width:100%;border:0;background:transparent;color:inherit;text-align:left;padding:6px 8px;border-radius:4px;font-size:11px}.git-graph-context button:hover{background:#2b3440}.git-graph-context .danger{color:#ff9a9a}
 .git-recovery-lost{border:1px solid #30343b;border-radius:8px;padding:7px;margin-bottom:8px}.git-recovery-lost-head{display:flex;align-items:center;gap:7px}.git-recovery-lost-head strong{flex:1;font-size:11px}.git-recovery-lost-note{font-size:10px;opacity:.62;margin-top:4px}.git-recovery-lost-list{margin-top:6px;max-height:240px;overflow:auto}
-html[data-taskmenu-theme="light"] .git-graph-controls input{background:#fff;color:#202124;border-color:#b9c0c8}html[data-taskmenu-theme="light"] .git-graph-list,html[data-taskmenu-theme="light"] .git-graph-detail{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-recovery-lost{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-graph-context{background:#fff;border-color:#b9c0c8}html[data-taskmenu-theme="light"] .git-graph-context button:hover{background:#edf2f7}html[data-taskmenu-theme="light"] .git-panel{background:#fff;border-color:#b9c0c8;box-shadow:0 16px 42px rgba(0,0,0,.18)}html[data-taskmenu-theme="light"] .git-panel-head,html[data-taskmenu-theme="light"] .git-repo-bar,html[data-taskmenu-theme="light"] .git-quick-groups,html[data-taskmenu-theme="light"] .git-nav,html[data-taskmenu-theme="light"] .git-operation{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-quick-group{background:#f6f8fa;border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-repo-select{background:#fff;border-color:#b9c0c8;color:#202124}html[data-taskmenu-theme="light"] .git-diff-pre,html[data-taskmenu-theme="light"] .git-operation-output,html[data-taskmenu-theme="light"] .git-compare-pre{background:#f6f8fa;border-color:#d0d7de;color:#202124}html[data-taskmenu-theme="light"] .git-hunk{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-hunk-head{background:#f6f8fa}html[data-taskmenu-theme="light"] .git-hunk pre{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-visual-diff{background:#fff;border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-diff-columns-head{background:#f6f8fa;border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-diff-column-head+.git-diff-column-head,html[data-taskmenu-theme="light"] .git-diff-cell+.git-diff-cell{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-diff-cell.removed{background:#fff0f0}html[data-taskmenu-theme="light"] .git-diff-cell.added{background:#effaf1}html[data-taskmenu-theme="light"] .git-diff-line-no{border-color:#e2e6eb}
+.git-rebase-controls{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.git-rebase-controls input,.git-rebase-controls select{min-width:180px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:5px 7px}.git-rebase-warning{padding:7px 9px;border:1px solid #8a6d3b;border-radius:7px;background:#3a2f1d;font-size:10px;margin:6px 0}.git-rebase-shell{display:grid;grid-template-columns:minmax(460px,1.15fr) minmax(300px,.85fr);gap:8px;min-height:0}.git-rebase-plan,.git-rebase-preview{border:1px solid #30343b;border-radius:8px;overflow:auto;min-height:120px}.git-rebase-item{display:grid;grid-template-columns:22px 92px minmax(0,1fr);gap:6px;align-items:center;padding:6px;border-bottom:1px solid #252c35}.git-rebase-item.dragging{opacity:.45}.git-rebase-drag{cursor:grab;text-align:center;opacity:.58;user-select:none}.git-rebase-action{min-width:0;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:4px}.git-rebase-main{min-width:0}.git-rebase-message{width:100%;margin-top:4px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:4px 6px;font:10px ui-monospace,monospace}.git-rebase-preview-row{padding:6px 8px;border-bottom:1px solid #252c35}.git-rebase-preview-row strong{font:11px ui-monospace,monospace}.git-rebase-preview-row div{font-size:9px;opacity:.6;margin-top:2px}
+html[data-taskmenu-theme="light"] .git-graph-controls input{background:#fff;color:#202124;border-color:#b9c0c8}html[data-taskmenu-theme="light"] .git-graph-list,html[data-taskmenu-theme="light"] .git-graph-detail{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-rebase-controls input,html[data-taskmenu-theme="light"] .git-rebase-controls select,html[data-taskmenu-theme="light"] .git-rebase-action,html[data-taskmenu-theme="light"] .git-rebase-message{background:#fff;color:#202124;border-color:#b9c0c8}html[data-taskmenu-theme="light"] .git-rebase-plan,html[data-taskmenu-theme="light"] .git-rebase-preview{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-rebase-warning{background:#fff8e6;color:#202124}html[data-taskmenu-theme="light"] .git-recovery-lost{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-graph-context{background:#fff;border-color:#b9c0c8}html[data-taskmenu-theme="light"] .git-graph-context button:hover{background:#edf2f7}html[data-taskmenu-theme="light"] .git-panel{background:#fff;border-color:#b9c0c8;box-shadow:0 16px 42px rgba(0,0,0,.18)}html[data-taskmenu-theme="light"] .git-panel-head,html[data-taskmenu-theme="light"] .git-repo-bar,html[data-taskmenu-theme="light"] .git-quick-groups,html[data-taskmenu-theme="light"] .git-nav,html[data-taskmenu-theme="light"] .git-operation{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-quick-group{background:#f6f8fa;border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-repo-select{background:#fff;border-color:#b9c0c8;color:#202124}html[data-taskmenu-theme="light"] .git-diff-pre,html[data-taskmenu-theme="light"] .git-operation-output,html[data-taskmenu-theme="light"] .git-compare-pre{background:#f6f8fa;border-color:#d0d7de;color:#202124}html[data-taskmenu-theme="light"] .git-hunk{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-hunk-head{background:#f6f8fa}html[data-taskmenu-theme="light"] .git-hunk pre{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-visual-diff{background:#fff;border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-diff-columns-head{background:#f6f8fa;border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-diff-column-head+.git-diff-column-head,html[data-taskmenu-theme="light"] .git-diff-cell+.git-diff-cell{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-diff-cell.removed{background:#fff0f0}html[data-taskmenu-theme="light"] .git-diff-cell.added{background:#effaf1}html[data-taskmenu-theme="light"] .git-diff-line-no{border-color:#e2e6eb}
 `;
 document.head.append(style);
 
@@ -47,6 +48,7 @@ let repositories=[],activeRepoID='',gitAutoSelectFromTerminalCWD=false;
 let gitFilePath='',gitFileMode='history',gitFileCompareRef='';
 let gitGraphFilters={search:'',author:'',message:'',since:'',until:'',path:''},gitGraphSelectedSHA='';
 let gitReflogFilters={search:'',ref:'',kind:''},gitReflogSelected='';
+let gitRebaseBase='',gitRebasePlanState=[];
 let activeGitJob=null;
 const runningActions=new Map();
 function el(tag,className,text){const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node;}
@@ -354,7 +356,7 @@ quickGroup('WORKTREE',[
 async function commit(pushAfter){const message=window.prompt('Commit message:','');if(message===null||!message.trim())return false;await action('commit',{message:message.trim()});if(pushAfter)await action('push');return true;}
 async function stashPush(){const message=window.prompt('Stash message (leave blank to use the default):','');if(message===null)return false;await action('stash_push',{message:message.trim()});return true;}
 
-const views=[['repositories','Repositories'],['changes','Changes'],['branches','Branches'],['worktrees','Worktrees'],['tags','Tags'],['log','Log'],['graph','Graph'],['reflog','Recovery'],['file-history','File History'],['ahead-behind','Ahead / Behind'],['stashes','Stash'],['compare','Compare']];
+const views=[['repositories','Repositories'],['changes','Changes'],['branches','Branches'],['worktrees','Worktrees'],['tags','Tags'],['log','Log'],['graph','Graph'],['reflog','Recovery'],['rebase','Rebase'],['file-history','File History'],['ahead-behind','Ahead / Behind'],['stashes','Stash'],['compare','Compare']];
 for(const [id,label] of views){const b=el('button','',label);b.dataset.gitView=id;b.onclick=()=>{currentView=id;updateNav();loadCurrentView().catch(app.showError);};nav.append(b);}
 function updateNav(){for(const b of nav.querySelectorAll('button'))b.classList.toggle('active',b.dataset.gitView===currentView);}
 function empty(message){content.replaceChildren(el('div','git-empty',message));}
@@ -1106,6 +1108,132 @@ async function loadReflog(){
   await renderGitReflogDetail(selected,detail);return true;
 }
 
+
+const gitRebaseActions=['pick','reword','edit','squash','fixup','drop'];
+function normalizeRebasePlan(commits){
+  const previous=new Map((gitRebasePlanState||[]).map(item=>[item.sha,item]));
+  gitRebasePlanState=(commits||[]).map(commit=>{
+    const saved=previous.get(commit.sha);
+    return {sha:commit.sha,short:commit.short,subject:commit.subject,author:commit.author,date:commit.date,merge:Boolean(commit.merge),action:saved?.action||'pick',message:saved?.message||commit.subject};
+  });
+}
+function validateRebasePlanClient(plan){
+  let kept=0;
+  for(let i=0;i<plan.length;i++){
+    const item=plan[i],action=String(item.action||'pick');
+    if(!gitRebaseActions.includes(action))return 'Unsupported action at row '+(i+1);
+    if((action==='squash'||action==='fixup')&&kept===0)return action+' cannot be the first non-dropped commit';
+    if(action!=='drop')kept++;
+    if(action==='reword'&&!String(item.message||'').trim())return 'Reword commit '+item.short+' needs a non-empty message';
+  }
+  if(kept===0)return 'Plan drops every commit; use reset/recovery tools instead of an empty interactive rebase.';
+  return '';
+}
+function projectedRebaseHistory(plan){
+  const rows=[];
+  for(const item of plan){
+    const action=item.action||'pick';
+    if(action==='drop')continue;
+    if(action==='squash'||action==='fixup'){
+      const prior=rows[rows.length-1];
+      if(prior){
+        prior.folded.push({action,short:item.short,subject:item.subject});
+        if(action==='squash')prior.subject=prior.subject+' + '+item.subject;
+      }
+      continue;
+    }
+    rows.push({
+      short:item.short,
+      subject:action==='reword'?(String(item.message||'').trim()||item.subject):item.subject,
+      action,folded:[],stop:action==='edit'
+    });
+  }
+  return rows;
+}
+function renderRebasePreview(host,meta){
+  host.replaceChildren();
+  host.append(el('div','git-row-sub','Projected history · '+meta.branch+' · base '+String(meta.base_sha||'').slice(0,12)));
+  const problem=validateRebasePlanClient(gitRebasePlanState);
+  if(problem)host.append(el('div','git-rebase-warning',problem));
+  for(const item of projectedRebaseHistory(gitRebasePlanState)){
+    const row=el('div','git-rebase-preview-row');
+    row.append(el('strong','',item.subject),el('div','',[item.action,item.short,item.stop?'stops for edit':'',item.folded.length?(item.folded.length+' folded commit(s)'):''].filter(Boolean).join(' · ')));
+    if(item.folded.length){
+      row.append(el('div','',item.folded.map(x=>x.action+' '+x.short+' '+x.subject).join(' | ')));
+    }
+    host.append(row);
+  }
+}
+function renderRebasePlanList(host,preview,meta){
+  host.replaceChildren();
+  gitRebasePlanState.forEach((item,index)=>{
+    const row=el('div','git-rebase-item');row.draggable=true;row.dataset.sha=item.sha;
+    const drag=el('span','git-rebase-drag','↕');drag.title='Drag to reorder';
+    const select=document.createElement('select');select.className='git-rebase-action';
+    for(const actionName of gitRebaseActions){const option=document.createElement('option');option.value=actionName;option.textContent=actionName;select.append(option);}
+    select.value=item.action;
+    select.onchange=()=>{item.action=select.value;message.hidden=item.action!=='reword';renderRebasePreview(preview,meta);};
+    const main=el('div','git-rebase-main');
+    main.append(el('div','git-row-title',(item.merge?'MERGE · ':'')+item.subject),el('div','git-row-sub',[item.short,item.author,item.date].filter(Boolean).join(' · ')));
+    const message=document.createElement('input');message.className='git-rebase-message';message.value=item.message||item.subject;message.hidden=item.action!=='reword';message.placeholder='New commit message';
+    message.oninput=()=>{item.message=message.value;renderRebasePreview(preview,meta);};main.append(message);
+    row.append(drag,select,main);
+    row.ondragstart=event=>{row.classList.add('dragging');event.dataTransfer?.setData('text/plain',item.sha);if(event.dataTransfer)event.dataTransfer.effectAllowed='move';};
+    row.ondragend=()=>row.classList.remove('dragging');
+    row.ondragover=event=>{event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move';};
+    row.ondrop=event=>{
+      event.preventDefault();
+      const fromSHA=event.dataTransfer?.getData('text/plain')||'';
+      const from=gitRebasePlanState.findIndex(x=>x.sha===fromSHA),to=gitRebasePlanState.findIndex(x=>x.sha===item.sha);
+      if(from<0||to<0||from===to)return;
+      const [moved]=gitRebasePlanState.splice(from,1);gitRebasePlanState.splice(to,0,moved);
+      renderRebasePlanList(host,preview,meta);renderRebasePreview(preview,meta);
+    };
+    host.append(row);
+  });
+}
+function chooseDefaultRebaseBase(branches){
+  if(gitRebaseBase)return gitRebaseBase;
+  const current=(branches.local||[]).find(branch=>branch.current);
+  if(current?.upstream)return current.upstream;
+  const main=(branches.local||[]).find(branch=>['main','master','develop'].includes(branch.name)&&!branch.current);
+  return main?.name||'';
+}
+async function loadRebase(){
+  setGitPanelWide(true);
+  const branches=await gitView('branches');if(!branches)return false;
+  content.replaceChildren();
+  const controls=el('div','git-rebase-controls');
+  const base=document.createElement('input');base.placeholder='Base branch or full commit SHA (exclusive)';base.value=chooseDefaultRebaseBase(branches);base.spellcheck=false;
+  const suggestions=document.createElement('select');suggestions.title='Choose a local/remote branch as base';
+  const emptyOption=document.createElement('option');emptyOption.value='';emptyOption.textContent='Choose branch…';suggestions.append(emptyOption);
+  for(const branch of [...(branches.local||[]),...(branches.remote||[])]){if(branch.current)continue;const option=document.createElement('option');option.value=branch.name;option.textContent=(branch.remote?'remote · ':'local · ')+branch.name;suggestions.append(option);}
+  suggestions.onchange=()=>{if(suggestions.value)base.value=suggestions.value;};
+  const load=actionButton('Load plan',async()=>{
+    const value=base.value.trim();if(!value)throw new Error('Choose a base branch or full commit SHA');
+    gitRebaseBase=value;
+    const data=await gitView('rebase-plan',{base:value,limit:'150'});if(!data)return false;
+    normalizeRebasePlan(data.commits||[]);
+    renderRebaseWorkspace(data,controls);
+    return true;
+  });
+  base.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();load.onclick();}});
+  controls.append(base,suggestions,load);content.append(controls);
+  if(gitRebaseBase)await load.onclick();
+  else content.append(el('div','git-empty','Choose the commit immediately before the range you want to rewrite. Planner is read-only until you explicitly start a rebase.'));
+  return true;
+}
+function renderRebaseWorkspace(meta,controls){
+  content.replaceChildren(controls);
+  const summary=el('div','git-row-sub',[meta.branch,'base '+String(meta.base_sha||'').slice(0,12),'HEAD '+String(meta.head_sha||'').slice(0,12),(meta.commits||[]).length+' commit(s)'].join(' · '));content.append(summary);
+  if(!meta.clean)content.append(el('div','git-rebase-warning','Working tree is dirty. Planning is allowed, but execution will require a clean Index/Working tree.'));
+  if(meta.has_merge_commits)content.append(el('div','git-rebase-warning','This range contains merge commits. The first execution milestone will refuse merge-containing plans until --rebase-merges semantics are explicitly supported.'));
+  if(meta.truncated)content.append(el('div','git-rebase-warning','Range is truncated. Choose a closer base before executing.'));
+  const shell=el('div','git-rebase-shell'),plan=el('div','git-rebase-plan'),preview=el('div','git-rebase-preview');shell.append(plan,preview);content.append(shell);
+  renderRebasePlanList(plan,preview,meta);renderRebasePreview(preview,meta);
+  const status=el('div','git-row-sub','Planner only: no Git history has been modified. Execution will be enabled after todo/sequence-editor validation.');
+  content.append(status);
+}
 async function loadLog(){const data=await gitView('log',{limit:'50'});if(!data)return false;content.replaceChildren();for(const commit of data.commits||[]){const row=el('div','git-row');const code=el('span','git-row-code',commit.short);const main=el('div','git-row-main');main.append(el('div','git-row-title',commit.subject),el('div','git-row-sub',commit.date+' · '+commit.author));const actions=el('div','git-row-actions');
     actions.append(
       actionButton('Cherry-pick',()=>action('cherry_pick',{ref:commit.sha,expected_sha:commit.sha},'Cherry-pick '+commit.short+' onto the current branch? The working tree must be clean.'),'Apply this commit onto the current branch'),
@@ -1177,7 +1305,7 @@ async function loadCompare(base=''){
   currentView='compare';updateNav();const branches=await gitView('branches');if(!branches)return false;content.replaceChildren();const controls=el('div','git-compare-controls');const select=document.createElement('select');for(const branch of [...(branches.local||[]),...(branches.remote||[])]){if(branch.current)continue;const o=document.createElement('option');o.value=branch.name;o.textContent=branch.name;select.append(o);}if(base&&[...select.options].some(o=>o.value===base))select.value=base;const run=actionButton('Compare',async()=>{if(!select.value)return false;const data=await gitView('compare',{base:select.value});if(!data)return false;renderCompare(data,controls);return true;});controls.append(select,run);content.append(controls);if(base&&select.value)await run.onclick();
 }
 function renderCompare(data,controls){content.replaceChildren(controls);content.append(el('strong','',`Compare ${data.base}...HEAD`),el('pre','git-compare-pre',(data.stat||'(no differences)')+'\n'+(data.files||'')));}
-async function loadCurrentView(){setGitPanelWide(false);updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'worktrees':return loadWorktrees();case 'tags':return loadTags();case 'log':return loadLog();case 'graph':return loadGraph();case 'reflog':return loadReflog();case 'file-history':return loadFileHistory();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
+async function loadCurrentView(){setGitPanelWide(false);updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'worktrees':return loadWorktrees();case 'tags':return loadTags();case 'log':return loadLog();case 'graph':return loadGraph();case 'reflog':return loadReflog();case 'rebase':return loadRebase();case 'file-history':return loadFileHistory();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
 
 function workspacePathForActiveRepository(pathValue){
   pathValue=String(pathValue||'').replace(/\\/g,'/').replace(/^\.\//,'');
