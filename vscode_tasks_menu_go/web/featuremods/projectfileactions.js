@@ -55,6 +55,10 @@ function standardActions(pathValue,type='file'){
     {label:type==='dir'?'Search / Replace in folder…':'Search / Replace in containing folder…',run:()=>searchScope(pathValue,type)}
   );
   if(type==='file')actions.push(
+    {label:'Compare with another file…',run:()=>{
+      const compare=globalThis.TaskMenuFileCompare;if(!compare?.promptProjectCompare)throw new Error('File Compare unavailable');
+      return compare.promptProjectCompare(pathValue);
+    }},
     {label:'Git History',run:()=>gitFileView(pathValue,'history')},
     {label:'Git Blame',run:()=>gitFileView(pathValue,'blame')}
   );
