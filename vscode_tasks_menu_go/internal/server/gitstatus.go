@@ -64,6 +64,12 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	case "log":
 		s.gitLog(w, r)
 		return
+	case "graph":
+		s.gitGraph(w, r)
+		return
+	case "commit-files":
+		s.gitCommitFiles(w, r)
+		return
 	case "file-history":
 		s.gitFileHistory(w, r)
 		return
