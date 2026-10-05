@@ -232,3 +232,55 @@ func TestProjectContentSearchAPIRejectsInvalidScopeAndRegex(t *testing.T) {
 		t.Fatalf("invalid regex API status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
+
+func TestProjectContentSearchAcrossAttachedRoots(t *testing.T) {
+	base := t.TempDir()
+	primary := filepath.Join(base, "main")
+	attached := filepath.Join(base, "client")
+	if err := os.MkdirAll(primary, 0o755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(filepath.Join(attached, "src"), 0o755); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(primary, "server.txt"), []byte("needle primary\n"), 0o644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(attached, "src", "client.txt"), []byte("needle attached\n"), 0o644); err != nil { t.Fatal(err) }
+	s := &Server{Workspace: primary}
+	create := callWorkspaceRoots(t, s, http.MethodPost, "/api/workspace-roots", `{"path":"../client","name":"Client"}`)
+	if create.Code != http.StatusCreated { t.Fatalf("attach status=%d body=%s", create.Code, create.Body.String()) }
+	var root workspaceRootView
+	if err := json.Unmarshal(create.Body.Bytes(), &root); err != nil { t.Fatal(err) }
+
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/project/content/search?q=needle&case=1", nil))
+	if rr.Code != http.StatusOK { t.Fatalf("search status=%d body=%s", rr.Code, rr.Body.String()) }
+	var payload struct{ Results []projectContentSearchResult `json:"results"` }
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil { t.Fatal(err) }
+	if len(payload.Results) != 2 { t.Fatalf("results=%+v", payload.Results) }
+	paths := map[string]bool{}
+	for _, row := range payload.Results { paths[row.Path] = true }
+	if !paths["server.txt"] || !paths[workspaceVirtualPath(root.ID, "src/client.txt")] {
+		t.Fatalf("paths=%+v", paths)
+	}
+}
+
+func TestProjectContentSearchAttachedRootScope(t *testing.T) {
+	base := t.TempDir()
+	primary := filepath.Join(base, "main")
+	attached := filepath.Join(base, "client")
+	if err := os.MkdirAll(primary, 0o755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(filepath.Join(attached, "src"), 0o755); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(primary, "primary.txt"), []byte("needle\n"), 0o644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(attached, "src", "client.txt"), []byte("needle\n"), 0o644); err != nil { t.Fatal(err) }
+	s := &Server{Workspace: primary}
+	create := callWorkspaceRoots(t, s, http.MethodPost, "/api/workspace-roots", `{"path":"../client"}`)
+	if create.Code != http.StatusCreated { t.Fatal(create.Body.String()) }
+	var root workspaceRootView
+	if err := json.Unmarshal(create.Body.Bytes(), &root); err != nil { t.Fatal(err) }
+	scope := workspaceVirtualPath(root.ID, "src")
+
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/project/content/search?q=needle&case=1&path="+urlQueryEscape(scope), nil))
+	if rr.Code != http.StatusOK { t.Fatalf("search status=%d body=%s", rr.Code, rr.Body.String()) }
+	var payload struct{ Results []projectContentSearchResult `json:"results"` }
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil { t.Fatal(err) }
+	if len(payload.Results) != 1 || payload.Results[0].Path != workspaceVirtualPath(root.ID, "src/client.txt") {
+		t.Fatalf("results=%+v", payload.Results)
+	}
+}

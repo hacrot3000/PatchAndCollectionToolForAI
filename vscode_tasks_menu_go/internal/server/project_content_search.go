@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -57,6 +58,50 @@ type rgJSONMatch struct {
 	} `json:"data"`
 }
 
+type projectContentSearchTarget struct {
+	Root  workspaceRootView
+	Scope string
+}
+
+func (s *Server) projectContentSearchTargets(scope string) ([]projectContentSearchTarget, error) {
+	scope = strings.TrimSpace(scope)
+	if scope != "" && scope != "." {
+		root, rootRelative, err := s.projectRootForVirtualPath(scope)
+		if err != nil {
+			return nil, err
+		}
+		rel, err := cleanProjectRelativePath(rootRelative, true)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := s.resolveProjectPath(scope, true, true); err != nil {
+			return nil, fmt.Errorf("project search folder unavailable")
+		}
+		return []projectContentSearchTarget{{Root: root, Scope: rel}}, nil
+	}
+	roots, err := s.workspaceRootViews(!s.Config.SharedServerEnabled)
+	if err != nil {
+		return nil, err
+	}
+	targets := make([]projectContentSearchTarget, 0, len(roots))
+	for _, root := range roots {
+		if !root.Available {
+			continue
+		}
+		targets = append(targets, projectContentSearchTarget{Root: root})
+	}
+	return targets, nil
+}
+
+func prefixProjectSearchResults(root workspaceRootView, rows []projectContentSearchResult) {
+	if root.ID == "" || root.ID == workspacePrimaryRootID {
+		return
+	}
+	for index := range rows {
+		rows[index].Path = workspaceVirtualPath(root.ID, rows[index].Path)
+	}
+}
+
 func (s *Server) projectContentSearch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -70,30 +115,14 @@ func (s *Server) projectContentSearch(w http.ResponseWriter, r *http.Request) {
 		Include:       splitProjectSearchGlobs(r.URL.Query().Get("include")),
 		Exclude:       splitProjectSearchGlobs(r.URL.Query().Get("exclude")),
 	}
-	if scope := strings.TrimSpace(r.URL.Query().Get("path")); scope != "" && scope != "." {
-		rel, cleanErr := cleanProjectRelativePath(scope, true)
-		if cleanErr != nil {
-			http.Error(w, cleanErr.Error(), http.StatusBadRequest)
-			return
-		}
-		if _, resolveErr := s.resolveProjectPath(rel, true, true); resolveErr != nil {
-			http.Error(w, "project search folder unavailable", http.StatusNotFound)
-			return
-		}
-		options.Scope = rel
-	}
 	limit := projectContentSearchDefaultLimit
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
 		if parsed, err := strconv.Atoi(raw); err == nil {
 			limit = parsed
 		}
 	}
-	if limit < 1 {
-		limit = 1
-	}
-	if limit > projectContentSearchMaxLimit {
-		limit = projectContentSearchMaxLimit
-	}
+	if limit < 1 { limit = 1 }
+	if limit > projectContentSearchMaxLimit { limit = projectContentSearchMaxLimit }
 	if options.Query == "" {
 		writeJSON(w, http.StatusOK, map[string]any{"results": []projectContentSearchResult{}})
 		return
@@ -102,18 +131,27 @@ func (s *Server) projectContentSearch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid regular expression", http.StatusBadRequest)
 		return
 	}
-	root, err := s.projectRoot()
+	targets, err := s.projectContentSearchTargets(r.URL.Query().Get("path"))
 	if err != nil {
-		http.Error(w, "project root unavailable", http.StatusInternalServerError)
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "unavailable") { status = http.StatusNotFound }
+		http.Error(w, err.Error(), status)
 		return
 	}
-	results, err := searchProjectContentWithOptions(r.Context(), root, options, limit)
-	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	results := make([]projectContentSearchResult, 0, minInt(limit, 32))
+	for _, target := range targets {
+		remaining := limit - len(results)
+		if remaining <= 0 { break }
+		targetOptions := options
+		targetOptions.Scope = target.Scope
+		rows, searchErr := searchProjectContentWithOptions(r.Context(), target.Root.Path, targetOptions, remaining)
+		if searchErr != nil {
+			if errors.Is(searchErr, context.Canceled) || errors.Is(searchErr, context.DeadlineExceeded) { return }
+			http.Error(w, "project content search failed", http.StatusInternalServerError)
 			return
 		}
-		http.Error(w, "project content search failed", http.StatusInternalServerError)
-		return
+		prefixProjectSearchResults(target.Root, rows)
+		results = append(results, rows...)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
 }
