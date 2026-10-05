@@ -12,6 +12,7 @@ import '/featuremods/database.js';
 import '/featuremods/database_workbench.js';
 import '/featuremods/projectfileactions.js';
 import '/featuremods/filecompare.js';
+import '/featuremods/gitmergeeditor.js';
 import '/featuremods/filetransfer.js';
 import '/featuremods/connections.js';
 import '/featuremods/restartclear.js';
