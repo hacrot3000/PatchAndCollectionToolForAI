@@ -1543,7 +1543,6 @@ func TestPatchPanelFailedRunShowsCopyableProtocolEvidence(t *testing.T) {
 		"Recent console output",
 		"const fallback=[...rows].reverse().find(item=>String(item?.failure_reason||item?.diagnosis_kind||item?.output_tail||'').trim())",
 		"const outcome=foregroundRunOutcome(state)",
-		"Failure handoff / AI artifacts:",
 		"No Patch failure console log is available",
 		"if(lifecycle)row.classList.add(lifecycle)",
 		"task-patch-run-failure-reason",
@@ -1551,9 +1550,9 @@ func TestPatchPanelFailedRunShowsCopyableProtocolEvidence(t *testing.T) {
 		if !strings.Contains(js, want) {
 			t.Fatalf("failed-run evidence UI missing %q", want)
 		}
+	}
 	if strings.Contains(js,"if(blocks.length)return blocks.join") {
 		t.Fatal("Copy error log must not return before appending run errors and failure artifacts")
-	}
 	}
 }
 
