@@ -38,6 +38,7 @@ type projectFileResponse struct {
 	Encoding   string `json:"encoding"`
 	LineEnding string `json:"line_ending"`
 	ReadOnly   bool   `json:"read_only"`
+	LargeFile  bool   `json:"large_file,omitempty"`
 	BOM        bool   `json:"bom,omitempty"`
 	Warning    string `json:"warning,omitempty"`
 }
@@ -289,8 +290,9 @@ func (s *Server) projectFileRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sum := sha256.Sum256(data)
-	readOnly := decodedReadOnly || info.Mode().Perm()&0o222 == 0 || info.Size() > projectEditableLimit
-	if info.Size() > projectEditableLimit {
+	largeFile := info.Size() > projectEditableLimit
+	readOnly := decodedReadOnly || info.Mode().Perm()&0o222 == 0 || largeFile
+	if largeFile {
 		if warning != "" {
 			warning += " "
 		}
@@ -305,6 +307,7 @@ func (s *Server) projectFileRead(w http.ResponseWriter, r *http.Request) {
 		Encoding:   encoding,
 		LineEnding: detectProjectLineEnding(textData),
 		ReadOnly:   readOnly,
+		LargeFile:  largeFile,
 		BOM:        bom,
 		Warning:    warning,
 	})

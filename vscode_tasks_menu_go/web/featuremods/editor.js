@@ -17,6 +17,7 @@ style.textContent=`
 .editor-head .editor-format:disabled{opacity:.45}
 html[data-taskmenu-theme="light"] .editor-head .editor-format{background:#fff;border-color:#c8ced6}
 .editor-head .editor-readonly,.editor-head .editor-warning{font-size:10px;padding:2px 6px;border:1px solid #7d6733;border-radius:10px;color:#ffe29a;background:#493b1d;white-space:nowrap}.editor-head .editor-warning{max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.editor-head .editor-large-file{font-size:10px;padding:2px 6px;border:1px solid #5b6f90;border-radius:10px;color:#cfe2ff;background:#24354b;white-space:nowrap}
 .editor-host{flex:1;min-height:0;overflow:hidden}
 .editor-host .cm-editor{height:100%;font-size:13px}
 .editor-host .cm-scroller{overflow:auto;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
@@ -466,6 +467,9 @@ function editorMetaText(file){
   const bom=file.bom?' + BOM':'';
   return [languageLabel(file.path),'UTF-8'+bom,ending,formatBytes(file.size)].join(' • ');
 }
+function editorOptionsForFile(file){
+  return file?.large_file?{}:languageOptions(file.path);
+}
 function editorEncodingChoice(file){
   return file?.bom?'utf-8-bom':'utf-8';
 }
@@ -496,6 +500,7 @@ function applyReadOnly(view){
   view.save.disabled=readonly||!view.dirty||view.saving;
   if(view.lineEndingSelect)view.lineEndingSelect.disabled=readonly;
   if(view.encodingSelect)view.encodingSelect.disabled=readonly;
+  if(view.whitespace)view.whitespace.disabled=Boolean(view.file?.large_file);
   view.tab.classList.toggle('taskdeck-tab-readonly',Boolean(view.tabReadOnly));
   if(view.tabReadOnly)view.pane.dataset.taskdeckReadonly='1';else delete view.pane.dataset.taskdeckReadonly;
   view.pane.setAttribute('aria-readonly',readonly?'true':'false');
@@ -537,6 +542,8 @@ function setEditorDocument(view,file){
   view.warningBadge.hidden=!file.warning;
   view.warningBadge.textContent=file.warning?'WARNING':'';
   view.warningBadge.title=file.warning||'';
+  if(view.largeFileBadge)view.largeFileBadge.hidden=!file.large_file;
+  view.pane.classList.toggle('editor-large-file-mode',Boolean(file.large_file));
   applyReadOnly(view);
   setDirty(view,false);
 }
@@ -751,6 +758,7 @@ function createEditor(file){
   const encodingSelect=document.createElement('select');encodingSelect.className='editor-format editor-encoding';encodingSelect.title='UTF-8 encoding used when saving';
   for(const [value,labelText] of [['utf-8','UTF-8'],['utf-8-bom','UTF-8 BOM']]){const option=document.createElement('option');option.value=value;option.textContent=labelText;encodingSelect.append(option);}
   encodingSelect.value=editorEncodingChoice(file);
+  const largeFileBadge=document.createElement('span');largeFileBadge.className='editor-large-file';largeFileBadge.textContent='LARGE FILE';largeFileBadge.title='Large-file mode: read-only plain text without syntax/whitespace decorations';largeFileBadge.hidden=!file.large_file;
   const readonlyBadge=document.createElement('span');readonlyBadge.className='editor-readonly';readonlyBadge.textContent='READ-ONLY';readonlyBadge.hidden=!file.read_only;
   const warningBadge=document.createElement('span');warningBadge.className='editor-warning';warningBadge.textContent=file.warning?'WARNING':'';warningBadge.title=file.warning||'';warningBadge.hidden=!file.warning;
   const save=document.createElement('button');save.type='button';save.className='editor-save';save.textContent='Save';save.title='Save file (Ctrl/Cmd+S)';
@@ -760,13 +768,14 @@ function createEditor(file){
   const splitHorizontal=document.createElement('button');splitHorizontal.type='button';splitHorizontal.className='editor-split-action editor-split-horizontal';splitHorizontal.textContent='Split ↕';splitHorizontal.title='Split editor horizontally with another/open file';
   const splitSwap=document.createElement('button');splitSwap.type='button';splitSwap.className='editor-split-action editor-split-swap';splitSwap.textContent='Swap';splitSwap.title='Swap this editor split';splitSwap.hidden=true;
   const splitUnsplit=document.createElement('button');splitUnsplit.type='button';splitUnsplit.className='editor-split-action editor-unsplit';splitUnsplit.textContent='Unsplit';splitUnsplit.title='Remove this editor from its split';splitUnsplit.hidden=true;
-  head.append(pathNode,meta,lineEndingSelect,encodingSelect,readonlyBadge,warningBadge,save,reload,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
+  head.append(pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,reload,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
   const host=document.createElement('div');host.className='editor-host';
   pane.append(head,host);panesHost.append(pane);
 
-  const cm=cmFactory.newEditor(host,file.content||'',languageOptions(file.path));
-  const view={id,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,meta,lineEndingSelect,encodingSelect,readonlyBadge,warningBadge,save,reload,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null};
+  const cm=cmFactory.newEditor(host,file.content||'',editorOptionsForFile(file));
+  const view={id,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,reload,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null};
   editors.set(id,view);
+  pane.classList.toggle('editor-large-file-mode',Boolean(file.large_file));
   installEditorDispatchGuard(view);
   applyReadOnly(view);
   setDirty(view,false);

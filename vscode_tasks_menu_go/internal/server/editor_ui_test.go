@@ -471,3 +471,23 @@ func TestEditorReopensRecentlyClosedTabs(t *testing.T) {
 		t.Fatal("closed editor stack must remain in-memory only")
 	}
 }
+
+func TestEditorLargeFileMode(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function editorOptionsForFile(file)",
+		"file?.large_file?{}:languageOptions(file.path)",
+		"editor-large-file",
+		"LARGE FILE",
+		"Large-file mode: read-only plain text without syntax/whitespace decorations",
+		"editor-large-file-mode",
+		"view.whitespace.disabled=Boolean(view.file?.large_file)",
+		"cmFactory.newEditor(host,file.content||'',editorOptionsForFile(file))",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor large-file mode missing %q", want)
+		}
+	}
+}

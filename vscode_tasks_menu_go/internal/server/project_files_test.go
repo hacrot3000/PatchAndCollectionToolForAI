@@ -204,7 +204,7 @@ func TestProjectFileReadMarksMediumAndPermissionFilesReadOnly(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if !got.ReadOnly || got.Warning == "" {
+	if !got.ReadOnly || !got.LargeFile || got.Warning == "" {
 		t.Fatalf("medium response=%#v", got)
 	}
 
