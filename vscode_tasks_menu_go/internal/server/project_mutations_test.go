@@ -176,3 +176,77 @@ func TestProjectMutationCopyRejectsNestedSymlinkAndCleansDestination(t *testing.
 		t.Fatalf("outside file changed data=%q err=%v", data, err)
 	}
 }
+
+func TestProjectMutationTrashAndRestore(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "docs", "note.txt"), []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: workspace}
+	h := s.Handler()
+
+	rr := projectMutationRequestForTest(t, h, map[string]any{"action": "trash", "path": "docs"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("trash status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var trashed struct {
+		Path  string `json:"path"`
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &trashed); err != nil {
+		t.Fatal(err)
+	}
+	if trashed.Path != "docs" || len(trashed.Token) != 32 {
+		t.Fatalf("trash response=%+v", trashed)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "docs")); !os.IsNotExist(err) {
+		t.Fatalf("trashed source still exists: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, ".taskdeck-trash")); !os.IsNotExist(err) {
+		t.Fatalf("trash must not be stored inside workspace: %v", err)
+	}
+
+	rr = projectMutationRequestForTest(t, h, map[string]any{"action": "restore", "path": "docs", "token": trashed.Token})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("restore status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if data, err := os.ReadFile(filepath.Join(workspace, "docs", "note.txt")); err != nil || string(data) != "keep me" {
+		t.Fatalf("restored data=%q err=%v", data, err)
+	}
+
+	rr = projectMutationRequestForTest(t, h, map[string]any{"action": "restore", "path": "docs2", "token": trashed.Token})
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("reused trash token status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestProjectMutationRestoreRejectsExistingDestination(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "note.txt"), []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: workspace}
+	h := s.Handler()
+
+	rr := projectMutationRequestForTest(t, h, map[string]any{"action": "trash", "path": "note.txt"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("trash status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var trashed struct{ Token string `json:"token"` }
+	if err := json.Unmarshal(rr.Body.Bytes(), &trashed); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "note.txt"), []byte("replacement"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rr = projectMutationRequestForTest(t, h, map[string]any{"action": "restore", "path": "note.txt", "token": trashed.Token})
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("restore conflict status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if data, err := os.ReadFile(filepath.Join(workspace, "note.txt")); err != nil || string(data) != "replacement" {
+		t.Fatalf("existing destination changed data=%q err=%v", data, err)
+	}
+}
