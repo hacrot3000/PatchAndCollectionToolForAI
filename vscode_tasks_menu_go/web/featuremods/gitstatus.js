@@ -53,7 +53,7 @@ function actionCommand(action,payload={}){
   switch(action){
     case 'fetch':return 'git fetch --prune';case 'pull':return 'git pull --ff-only';case 'push':return 'git push';case 'stage_all':return 'git add -A';
     case 'stage':return 'git add -- '+q(payload.path);case 'unstage':return 'git restore --staged -- '+q(payload.path);case 'stage_hunk':return 'Stage hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'unstage_hunk':return 'Unstage hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'discard_hunk':return 'Discard hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'ignore':return 'Add .gitignore rule for '+q(payload.path);case 'commit':return 'git commit -m '+q(payload.message);
-    case 'switch':return 'git switch '+q(payload.branch);case 'create_branch':return 'git switch -c '+q(payload.branch);case 'delete_branch':return 'git branch -d '+q(payload.branch);case 'force_delete_branch':return 'git branch -D '+q(payload.branch);case 'delete_remote_tracking':return 'git branch -dr '+q(payload.branch);case 'delete_remote_branch':return 'git push '+q(String(payload.branch||'').split('/')[0])+' --delete '+q(String(payload.branch||'').split('/').slice(1).join('/'));case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'merge_to':return 'Merge To '+q(payload.expected_current)+' -> '+q(payload.branch)+' and push';case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
+    case 'switch':return 'git switch '+q(payload.branch);case 'create_branch':return 'git switch -c '+q(payload.branch);case 'checkout_commit':return 'git switch --detach '+q(payload.ref);case 'create_branch_at':return 'git switch -c '+q(payload.branch)+' '+q(payload.ref);case 'reset_commit':return 'git reset --'+q(payload.mode)+' '+q(payload.ref);case 'delete_branch':return 'git branch -d '+q(payload.branch);case 'force_delete_branch':return 'git branch -D '+q(payload.branch);case 'delete_remote_tracking':return 'git branch -dr '+q(payload.branch);case 'delete_remote_branch':return 'git push '+q(String(payload.branch||'').split('/')[0])+' --delete '+q(String(payload.branch||'').split('/').slice(1).join('/'));case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'merge_to':return 'Merge To '+q(payload.expected_current)+' -> '+q(payload.branch)+' and push';case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
   }
 }
 async function copyText(text){
@@ -816,6 +816,7 @@ function showGitGraphContext(event,commit,detailHost){
   add('Create tag here…',()=>gitGraphTag(commit));
   add('Compare with HEAD',()=>renderGitGraphHeadCompare(commit,detailHost));
   add('Copy SHA',()=>copyText(commit.sha));
+  menu.onpointerdown=event=>event.stopPropagation();
   document.body.append(menu);
   menu.style.left=Math.max(4,event.clientX)+'px';menu.style.top=Math.max(4,event.clientY)+'px';
   requestAnimationFrame(()=>{
