@@ -1286,6 +1286,12 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "commit changed after confirmation; refresh the log and confirm again", http.StatusConflict)
 			return
 		}
+		if action == "revert_commit" {
+			if _, headErr := s.gitCheckExpectedHead(r.Context(), req.ExpectedHeadSHA); headErr != nil {
+				http.Error(w, headErr.Error(), http.StatusConflict)
+				return
+			}
+		}
 		timeout = gitMergeTimeout
 		if action == "cherry_pick" {
 			args = []string{"cherry-pick", sha}
