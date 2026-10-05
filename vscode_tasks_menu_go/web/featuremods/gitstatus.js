@@ -345,7 +345,7 @@ quickGroup('WORKTREE',[
 async function commit(pushAfter){const message=window.prompt('Commit message:','');if(message===null||!message.trim())return false;await action('commit',{message:message.trim()});if(pushAfter)await action('push');return true;}
 async function stashPush(){const message=window.prompt('Stash message (leave blank to use the default):','');if(message===null)return false;await action('stash_push',{message:message.trim()});return true;}
 
-const views=[['repositories','Repositories'],['changes','Changes'],['branches','Branches'],['log','Log'],['file-history','File History'],['ahead-behind','Ahead / Behind'],['stashes','Stash'],['compare','Compare']];
+const views=[['repositories','Repositories'],['changes','Changes'],['branches','Branches'],['tags','Tags'],['log','Log'],['file-history','File History'],['ahead-behind','Ahead / Behind'],['stashes','Stash'],['compare','Compare']];
 for(const [id,label] of views){const b=el('button','',label);b.dataset.gitView=id;b.onclick=()=>{currentView=id;updateNav();loadCurrentView().catch(app.showError);};nav.append(b);}
 function updateNav(){for(const b of nav.querySelectorAll('button'))b.classList.toggle('active',b.dataset.gitView===currentView);}
 function empty(message){content.replaceChildren(el('div','git-empty',message));}
@@ -557,6 +557,29 @@ async function loadBranches(){
   remoteToggle.onclick=()=>{const expanded=remoteToggle.getAttribute('aria-expanded')==='true';remoteToggle.setAttribute('aria-expanded',expanded?'false':'true');remoteList.hidden=expanded;renderRemoteToggle();};
   renderRemoteToggle();content.append(remoteToggle,remoteList);
 }
+async function loadTags(){
+  const data=await gitView('tags');if(!data)return false;content.replaceChildren();
+  const create=el('div','git-branch-create');
+  const input=document.createElement('input');input.placeholder='tag name, e.g. v1.2.0';input.spellcheck=false;
+  const add=actionButton('Create at HEAD',async()=>{
+    const name=input.value.trim();if(!name)return false;
+    const message=window.prompt('Optional annotated tag message. Leave blank for a lightweight tag:','');
+    if(message===null)return false;
+    const result=await action('create_tag',{name,message,ref:'HEAD'});
+    if(result===false)return false;input.value='';return loadTags();
+  });
+  create.append(input,add);content.append(create);
+  for(const tag of data.tags||[]){
+    const row=el('div','git-row');const code=el('span','git-row-code',tag.annotated?'●':'○');const main=el('div','git-row-main');
+    main.append(el('div','git-row-title',tag.name),el('div','git-row-sub',[tag.sha?.slice(0,12),tag.date,tag.annotated?'annotated':'lightweight',tag.subject].filter(Boolean).join(' · ')));
+    const actions=el('div','git-row-actions');
+    actions.append(actionButton('Copy tag',()=>copyText(tag.name)),actionButton('Copy SHA',()=>copyText(tag.sha)));
+    actions.append(actionButton('Delete',()=>action('delete_tag',{name:tag.name,confirmed:true},'Delete local Git tag '+tag.name+'? This does not delete a remote tag.').then(result=>result===false?false:loadTags()),'Delete this local tag only'));
+    row.append(code,main,actions);content.append(row);
+  }
+  if(!(data.tags||[]).length)content.append(el('div','git-empty','No local tags'));
+}
+
 async function loadLog(){const data=await gitView('log',{limit:'50'});if(!data)return false;content.replaceChildren();for(const commit of data.commits||[]){const row=el('div','git-row');const code=el('span','git-row-code',commit.short);const main=el('div','git-row-main');main.append(el('div','git-row-title',commit.subject),el('div','git-row-sub',commit.date+' · '+commit.author));const actions=el('div','git-row-actions');actions.append(actionButton('Copy SHA',()=>copyText(commit.sha)));row.append(code,main,actions);content.append(row);}if(!content.childElementCount)empty('No commits');}
 function openGitFileView(path,mode='history'){
   gitFilePath=String(path||'').trim();
@@ -604,7 +627,7 @@ async function loadCompare(base=''){
   currentView='compare';updateNav();const branches=await gitView('branches');if(!branches)return false;content.replaceChildren();const controls=el('div','git-compare-controls');const select=document.createElement('select');for(const branch of [...(branches.local||[]),...(branches.remote||[])]){if(branch.current)continue;const o=document.createElement('option');o.value=branch.name;o.textContent=branch.name;select.append(o);}if(base&&[...select.options].some(o=>o.value===base))select.value=base;const run=actionButton('Compare',async()=>{if(!select.value)return false;const data=await gitView('compare',{base:select.value});if(!data)return false;renderCompare(data,controls);return true;});controls.append(select,run);content.append(controls);if(base&&select.value)await run.onclick();
 }
 function renderCompare(data,controls){content.replaceChildren(controls);content.append(el('strong','',`Compare ${data.base}...HEAD`),el('pre','git-compare-pre',(data.stat||'(no differences)')+'\n'+(data.files||'')));}
-async function loadCurrentView(){updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'log':return loadLog();case 'file-history':return loadFileHistory();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
+async function loadCurrentView(){updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'tags':return loadTags();case 'log':return loadLog();case 'file-history':return loadFileHistory();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
 
 repoSelect.onchange=()=>selectRepository(repoSelect.value).catch(app.showError);
 repoRescan.onclick=async()=>{try{await refreshRepositories(true);await refresh();await loadCurrentView();}catch(error){app.showError(error);}};

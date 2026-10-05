@@ -412,3 +412,55 @@ func TestGitQuickMergePreflightChoosesDivergedLocalOrRemote(t *testing.T) {
 		t.Fatalf("merged content=%q, want remote branch version", content)
 	}
 }
+
+func TestGitTagsCreateListDelete(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"create_tag","name":"v1.0.0","message":"Release 1.0","ref":"HEAD"}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("create annotated tag status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"create_tag","name":"snapshot","ref":"HEAD"}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("create lightweight tag status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	rr = callGitStatusHandler(t, s, http.MethodGet, "/api/git/status?view=tags", "")
+	if rr.Code != http.StatusOK { t.Fatalf("tags status=%d body=%s", rr.Code, rr.Body.String()) }
+	var response struct { Tags []gitTagRow `json:"tags"` }
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil { t.Fatal(err) }
+	if len(response.Tags) != 2 { t.Fatalf("tags=%+v", response.Tags) }
+	byName := map[string]gitTagRow{}
+	for _, tag := range response.Tags { byName[tag.Name] = tag }
+	if !byName["v1.0.0"].Annotated || byName["snapshot"].Annotated {
+		t.Fatalf("tags=%+v", response.Tags)
+	}
+
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"delete_tag","name":"v1.0.0"}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "confirmation_required") {
+		t.Fatalf("unconfirmed delete status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"delete_tag","name":"v1.0.0","confirmed":true}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("delete tag status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := gitQuickRun(t, workspace, "tag", "--list", "v1.0.0"); got != "" {
+		t.Fatalf("tag still exists: %q", got)
+	}
+}
+
+func TestGitCreateTagRejectsInvalidNameAndDuplicate(t *testing.T) {
+	_, s, _ := setupGitQuickRepo(t)
+	if _, err := validGitTagName(context.Background(), s, "bad tag"); err == nil {
+		t.Fatal("invalid tag name accepted")
+	}
+	args, err := s.gitCreateTagArgs(context.Background(), "v2.0.0", "message", "HEAD")
+	if err != nil || len(args) < 5 || args[0] != "tag" || args[1] != "-a" {
+		t.Fatalf("args=%v err=%v", args, err)
+	}
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"create_tag","name":"v2.0.0","message":"message"}`)
+	if rr.Code != http.StatusOK { t.Fatalf("create status=%d body=%s", rr.Code, rr.Body.String()) }
+	if _, err := s.gitCreateTagArgs(context.Background(), "v2.0.0", "", "HEAD"); err == nil {
+		t.Fatal("duplicate tag accepted")
+	}
+}

@@ -1031,6 +1031,22 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		// Keep local changes attached to the new branch exactly as git switch -c
 		// normally does.
 		args = []string{"switch", "-c", branch}
+	case "create_tag":
+		tagArgs, err := s.gitCreateTagArgs(r.Context(), req.Name, req.Message, req.Ref)
+		if err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
+		args = tagArgs
+	case "delete_tag":
+		if !req.Confirmed {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "deleting a Git tag requires explicit confirmation", "failure_code": "confirmation_required"})
+			return
+		}
+		tag, err := validGitTagName(r.Context(), s, req.Name)
+		if err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
+		if _, _, _, err := s.runGit(r.Context(), 3*time.Second, "show-ref", "--verify", "--quiet", "refs/tags/"+tag); err != nil {
+			http.Error(w, "Git tag not found", http.StatusNotFound)
+			return
+		}
+		args = []string{"tag", "-d", tag}
 	case "merge":
 		branch := strings.TrimSpace(req.Branch)
 		data, err := s.gitMergePreflightData(r.Context(), branch)

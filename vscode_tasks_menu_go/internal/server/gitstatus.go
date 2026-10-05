@@ -73,6 +73,9 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	case "branches":
 		s.gitBranches(w, r)
 		return
+	case "tags":
+		s.gitTags(w, r)
+		return
 	case "stashes":
 		s.gitStashes(w, r)
 		return
