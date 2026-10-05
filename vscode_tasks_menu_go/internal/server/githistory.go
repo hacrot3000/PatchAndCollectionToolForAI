@@ -148,8 +148,13 @@ func (s *Server) gitFileContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
-	if !gitCompareCommitPattern.MatchString(ref) {
-		http.Error(w, "Git compare ref must be a full commit SHA", http.StatusBadRequest)
+	state := strings.TrimSpace(r.URL.Query().Get("state"))
+	if ref != "" && state != "" {
+		http.Error(w, "Git compare accepts ref or state, not both", http.StatusBadRequest)
+		return
+	}
+	if ref == "" && state == "" {
+		http.Error(w, "Git compare ref or state is required", http.StatusBadRequest)
 		return
 	}
 	repo, ok := gitRepositoryFromContext(r.Context())
@@ -157,19 +162,46 @@ func (s *Server) gitFileContent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Git repository context unavailable", http.StatusConflict)
 		return
 	}
-	commit, stderr, _, err := s.runGit(r.Context(), 4*time.Second, "rev-parse", "--verify", ref+"^{commit}")
-	if err != nil {
-		http.Error(w, strings.TrimSpace(joinGitOutput(stderr, err.Error())), http.StatusNotFound)
-		return
-	}
-	commit = strings.TrimSpace(commit)
-	if !gitCompareCommitPattern.MatchString(commit) {
-		http.Error(w, "resolved Git commit is invalid", http.StatusConflict)
+	commit := ""
+	spec := ""
+	switch state {
+	case "":
+		if !gitCompareCommitPattern.MatchString(ref) {
+			http.Error(w, "Git compare ref must be a full commit SHA", http.StatusBadRequest)
+			return
+		}
+		resolved, stderr, _, resolveErr := s.runGit(r.Context(), 4*time.Second, "rev-parse", "--verify", ref+"^{commit}")
+		if resolveErr != nil {
+			http.Error(w, strings.TrimSpace(joinGitOutput(stderr, resolveErr.Error())), http.StatusNotFound)
+			return
+		}
+		commit = strings.TrimSpace(resolved)
+		if !gitCompareCommitPattern.MatchString(commit) {
+			http.Error(w, "resolved Git commit is invalid", http.StatusConflict)
+			return
+		}
+		spec = commit + ":" + pathValue
+	case "head":
+		resolved, stderr, _, resolveErr := s.runGit(r.Context(), 4*time.Second, "rev-parse", "--verify", "HEAD^{commit}")
+		if resolveErr != nil {
+			http.Error(w, strings.TrimSpace(joinGitOutput(stderr, resolveErr.Error())), http.StatusNotFound)
+			return
+		}
+		commit = strings.TrimSpace(resolved)
+		if !gitCompareCommitPattern.MatchString(commit) {
+			http.Error(w, "resolved Git HEAD is invalid", http.StatusConflict)
+			return
+		}
+		spec = commit + ":" + pathValue
+	case "index":
+		spec = ":" + pathValue
+	default:
+		http.Error(w, "Git compare state must be head or index", http.StatusBadRequest)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "show", "--no-ext-diff", commit+":"+pathValue)
+	cmd := exec.CommandContext(ctx, "git", "show", "--no-ext-diff", spec)
 	cmd.Dir = repo.Root
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "LC_ALL=C")
 	stdout := &cappedGitBuffer{limit: int(projectEditableLimit) + 1}
@@ -197,6 +229,6 @@ func (s *Server) gitFileContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"repo_id": repo.ID, "path": pathValue, "ref": ref, "commit": commit, "content": string(content),
+		"repo_id": repo.ID, "path": pathValue, "ref": ref, "state": state, "commit": commit, "content": string(content),
 	})
 }
