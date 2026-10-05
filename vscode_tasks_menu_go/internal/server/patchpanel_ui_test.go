@@ -1524,7 +1524,12 @@ func TestPatchPanelFailedRunShowsCopyableProtocolEvidence(t *testing.T) {
 		"function foregroundErrorLogText(state=foregroundProtocolState)",
 		"function copyForegroundErrorLog(button)",
 		"copyFailureLog.textContent='📋 Copy error log'",
-		"copyFailureLog.title='Copy failure reason and recent console output'",
+		"copyFailureLog.title='Copy full Patch failure evidence for AI diagnosis'",
+		"TaskDeck Patch Tool failure evidence",
+		"Project: '+workspace",
+		"Session: '+activeSessionId",
+		"Run-level protocol errors:",
+		"Array.isArray(state?.run_errors)?state.run_errors:[]",
 		"copyFailureLog.hidden=!failed",
 		"copyFailureLog.onclick=()=>copyForegroundErrorLog(copyFailureLog).catch(app.showError)",
 		"item?.failure_reason",
@@ -1538,6 +1543,7 @@ func TestPatchPanelFailedRunShowsCopyableProtocolEvidence(t *testing.T) {
 		"Recent console output",
 		"const fallback=[...rows].reverse().find(item=>String(item?.failure_reason||item?.diagnosis_kind||item?.output_tail||'').trim())",
 		"const outcome=foregroundRunOutcome(state)",
+		"Failure handoff / AI artifacts:",
 		"No Patch failure console log is available",
 		"if(lifecycle)row.classList.add(lifecycle)",
 		"task-patch-run-failure-reason",
@@ -1545,6 +1551,9 @@ func TestPatchPanelFailedRunShowsCopyableProtocolEvidence(t *testing.T) {
 		if !strings.Contains(js, want) {
 			t.Fatalf("failed-run evidence UI missing %q", want)
 		}
+	if strings.Contains(js,"if(blocks.length)return blocks.join") {
+		t.Fatal("Copy error log must not return before appending run errors and failure artifacts")
+	}
 	}
 }
 
