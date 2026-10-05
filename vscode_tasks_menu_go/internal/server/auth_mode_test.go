@@ -43,12 +43,12 @@ func TestSingleAuthMigratesToSharedIdentityAndScrubsBasicPassword(t *testing.T) 
 		TargetMode: authModeShared,
 		ProjectID:  "project-one",
 		IdentityDB: dbPath,
-		Username:   "legacy-admin",
+		Username:   "shared-admin",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Mode != authModeShared || resp.ProjectID != "project-one" || resp.Username != "legacy-admin" {
+	if resp.Mode != authModeShared || resp.ProjectID != "project-one" || resp.Username != "shared-admin" {
 		t.Fatalf("unexpected migration response: %#v", resp)
 	}
 
@@ -72,7 +72,7 @@ func TestSingleAuthMigratesToSharedIdentityAndScrubsBasicPassword(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer store.Close()
-	user, err := store.UserByUsername(ctx, "legacy-admin")
+	user, err := store.UserByUsername(ctx, "shared-admin")
 	if err != nil {
 		t.Fatal(err)
 	}
