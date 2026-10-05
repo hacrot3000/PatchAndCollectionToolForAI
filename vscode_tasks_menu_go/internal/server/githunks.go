@@ -72,9 +72,14 @@ func (s *Server) gitDiffHunkSet(ctx context.Context, path, mode string) (gitDiff
 	args := []string{"diff", "--no-ext-diff", "--no-color", "--unified=3"}
 	switch mode {
 	case "staged":
+		// HEAD -> index: only what is staged for the next commit.
 		args = append(args, "--cached")
 	case "", "worktree":
+		// Index -> working tree: only changes that are not staged yet.
 		mode = "worktree"
+	case "head-worktree":
+		// HEAD -> working tree: staged + unstaged tracked changes together.
+		args = append(args, "HEAD")
 	default:
 		return gitDiffHunkSet{}, false, fmt.Errorf("invalid diff mode")
 	}
