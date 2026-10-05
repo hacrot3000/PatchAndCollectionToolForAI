@@ -84,6 +84,7 @@ type Server struct {
 	terminalStateMu     sync.RWMutex
 	terminalStateFrozen bool
 	workspaceSnapshotsMu sync.Mutex
+	projectProfilesMu     sync.Mutex
 
 	sharedMutation sharedMutationLock
 }
@@ -109,6 +110,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/tasks", s.tasks)
 	mux.HandleFunc("/api/state/tasks", s.taskState)
 	mux.HandleFunc("/api/workspace-snapshots", s.workspaceSnapshots)
+	mux.HandleFunc("/api/project-profiles", s.projectProfiles)
 	mux.HandleFunc("/api/config/page-title", s.pageTitle)
 	mux.HandleFunc("/api/config/terminal-cwds", s.terminalCWDConfig)
 	mux.HandleFunc("/api/config/running-indicator", s.runningIndicatorConfig)
