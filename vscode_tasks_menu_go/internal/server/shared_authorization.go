@@ -164,6 +164,8 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionFilesWrite}
 	case "/api/project/mutate":
 		return []string{identity.PermissionFilesWrite}
+	case "/api/project/git-status":
+		return []string{identity.PermissionFilesRead, identity.PermissionGitStatus}
 	case "/api/state/tasks":
 		switch r.URL.Query().Get("scope") {
 		case "self-update":
