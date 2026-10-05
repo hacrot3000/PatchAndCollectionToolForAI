@@ -164,7 +164,7 @@ func TestWorkspaceOpenPathsDoNotForcePatchOutOfForeground(t *testing.T) {
 				"announceOpenedFile(pathValue)",
 			},
 			forbidden: []string{
-				"activateEditor(view.id,{force:true})",
+				"const view=await promise;activateEditor(view.id,{force:true});return view",
 			},
 		},
 	}
