@@ -703,3 +703,50 @@ func TestFileTransferWorkspaceUsesStructuredTransferAndMutationAPIs(t *testing.T
 		}
 	}
 }
+
+func TestFileTransferFolderSyncUsesDryRunBeforeSyncOrMirror(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"Folder Sync / Mirror dry run",
+		"async function compareFoldersDryRun(view)",
+		"async function collectHostSyncTree(base)",
+		"async function collectLocalSyncTree(view,base)",
+		"async function collectRemoteSyncTree(view,base)",
+		"function compareSyncTrees(left,remote)",
+		"Folder Sync / Mirror — Dry run",
+		"Recursive metadata comparison only",
+		"Left only ",
+		"Remote only ",
+		"Different ",
+		"Type mismatch ",
+		"Sync →",
+		"← Sync",
+		"Mirror →",
+		"← Mirror",
+		"Remote-only files/folders will be deleted",
+		"Left-only files/folders will be deleted",
+		"Type-mismatch paths are NOT changed automatically",
+		"maxSyncPlanEntries=10000",
+		"maxSyncPlanDepth=64",
+		"kind:'host_upload'",
+		"kind:'host_download'",
+		"kind:'remote_delete'",
+		"dir.removeEntry(name,{recursive:false})",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing folder sync dry-run contract %q", want)
+		}
+	}
+	compare := strings.Index(js, "async function compareFoldersDryRun(view)")
+	dialog := strings.Index(js, "function openFolderSyncDryRun(view,rows)")
+	if compare < 0 || dialog < 0 {
+		t.Fatal("folder sync compare/dialog missing")
+	}
+	end := compare + 2500
+	if end > len(js) { end = len(js) }
+	if strings.Contains(js[compare:end], "syncPlanToRemote(view,rows)") {
+		t.Fatal("dry-run compare must not start transfers before explicit dialog action")
+	}
+}

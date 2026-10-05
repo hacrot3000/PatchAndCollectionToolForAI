@@ -78,6 +78,16 @@ style.textContent=`
 .ft-transfer-tools{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;flex-direction:column;gap:8px;z-index:4}
 .ft-transfer-tools button{width:34px;height:34px;padding:0;border-radius:50%;font-size:17px;background:#202a36;box-shadow:0 2px 7px rgba(0,0,0,.35)}
 .ft-transfer-tools button:disabled{opacity:.28}
+.ft-sync-backdrop{position:fixed;inset:0;z-index:16500;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(0,0,0,.58)}
+.ft-sync-dialog{width:min(980px,calc(100vw - 36px));max-height:calc(100vh - 36px);display:flex;flex-direction:column;background:#11161d;border:1px solid #46505d;border-radius:10px;box-shadow:0 18px 52px rgba(0,0,0,.58);padding:14px}
+.ft-sync-dialog h3{margin:0 0 5px;font-size:14px}.ft-sync-note{font-size:10px;opacity:.72;margin-bottom:9px}
+.ft-sync-summary{font-size:11px;margin-bottom:8px}.ft-sync-table-wrap{overflow:auto;min-height:160px;max-height:56vh;border:1px solid #303843;border-radius:6px}
+.ft-sync-table{width:100%;border-collapse:collapse;font-size:10px}.ft-sync-table th,.ft-sync-table td{padding:5px 7px;border-bottom:1px solid #272d36;text-align:left;white-space:nowrap}
+.ft-sync-table th{position:sticky;top:0;background:#171c23;z-index:2}.ft-sync-path{max-width:480px;overflow:hidden;text-overflow:ellipsis}
+.ft-sync-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px;margin-top:11px}.ft-sync-actions button{padding:6px 10px}
+.ft-sync-danger{background:#54252a;border-color:#7b3941}
+html[data-taskmenu-theme="light"] .ft-sync-dialog{background:#fff;border-color:#b9c0c8;box-shadow:0 18px 52px rgba(0,0,0,.2)}
+html[data-taskmenu-theme="light"] .ft-sync-table th{background:#e9eef3}.ft-sync-status{font-weight:700}
 body.ft-resizing{user-select:none;cursor:col-resize}
 body.ft-queue-resizing{user-select:none;cursor:row-resize}
 .ft-context{position:fixed;z-index:16000;min-width:175px;padding:4px;background:#171b22;border:1px solid #48515f;border-radius:7px;box-shadow:0 14px 38px rgba(0,0,0,.45)}
@@ -1533,6 +1543,272 @@ async function fetchHostDirectoryEntries(path){
   const data=await app.jsonFetch('/api/project/tree?path='+encodeURIComponent(path==='.'?'':path));
   return (Array.isArray(data)?data:[]).map(item=>({...item,type:item.type==='dir'?'directory':entryType(item)}));
 }
+
+const maxSyncPlanEntries=10000;
+const maxSyncPlanDepth=64;
+
+function syncPlanAdd(map,path,entry){
+  path=normalizeRelativePath(path||'.');
+  if(path==='.')return;
+  if(map.size>=maxSyncPlanEntries)throw new Error('Folder compare exceeds '+maxSyncPlanEntries+' entries. Compare a smaller subtree.');
+  if(pathDepth(path,false)>maxSyncPlanDepth)throw new Error('Folder compare exceeds maximum depth '+maxSyncPlanDepth+'.');
+  map.set(path,{path,type:entryType(entry),size:Number(entry?.size)||0,modified:String(entry?.modified||'')});
+}
+
+async function collectHostSyncTree(base){
+  const result=new Map();
+  const walk=async(path,relative)=>{
+    const entries=await fetchHostDirectoryEntries(path);
+    for(const entry of entries){
+      const rel=relative==='.'?entry.name:joinPath(relative,entry.name,false);
+      syncPlanAdd(result,rel,entry);
+      if(entryType(entry)==='directory')await walk(joinPath(path,entry.name,false),rel);
+    }
+  };
+  await walk(normalizeRelativePath(base||'.'),'.');
+  return result;
+}
+
+async function collectLocalSyncTree(view,base){
+  const panel=view.left;
+  if(!panel.localRoot)throw new Error('Choose a local folder first');
+  const granted=await ensureHandlePermission(panel.localRoot.handle);
+  if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
+  const root=await directoryHandleForPath(panel.localRoot.handle,normalizeRelativePath(base||'.'));
+  const result=new Map();
+  const walk=async(handle,relative)=>{
+    for await(const [name,child] of handle.entries()){
+      const rel=relative==='.'?name:joinPath(relative,name,false);
+      if(child.kind==='directory'){
+        syncPlanAdd(result,rel,{type:'directory',size:0,modified:''});
+        await walk(child,rel);
+      }else if(child.kind==='file'){
+        const file=await child.getFile();
+        syncPlanAdd(result,rel,{type:'file',size:file.size,modified:new Date(file.lastModified).toISOString()});
+      }
+    }
+  };
+  await walk(root,'.');
+  return result;
+}
+
+async function collectRemoteSyncTree(view,base){
+  const result=new Map();
+  const walk=async(path,relative)=>{
+    const listing=await fetchRemoteDirectory(view,path,{force:true});
+    for(const entry of listing.entries){
+      const rel=relative==='.'?entry.name:joinPath(relative,entry.name,false);
+      syncPlanAdd(result,rel,entry);
+      if(entryType(entry)==='directory')await walk(joinPath(path,entry.name,true),rel);
+    }
+  };
+  await walk(normalizeRemotePath(base||'.'),'.');
+  return result;
+}
+
+function syncModifiedTime(value){
+  const time=Date.parse(String(value||''));
+  return Number.isFinite(time)?time:NaN;
+}
+
+function compareSyncTrees(left,remote){
+  const paths=new Set([...left.keys(),...remote.keys()]);
+  const rows=[];
+  for(const path of [...paths].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}))){
+    const l=left.get(path)||null,r=remote.get(path)||null;
+    let status='same';
+    if(l&&!r)status='left_only';
+    else if(!l&&r)status='remote_only';
+    else if(l&&r&&l.type!==r.type)status='type_mismatch';
+    else if(l?.type==='file'&&r?.type==='file'){
+      if(Number(l.size)!==Number(r.size))status='different';
+      else{
+        const lm=syncModifiedTime(l.modified),rm=syncModifiedTime(r.modified);
+        if(Number.isFinite(lm)&&Number.isFinite(rm)&&Math.abs(lm-rm)>2000)status='different';
+      }
+    }
+    rows.push({path,status,left:l,remote:r});
+  }
+  return rows;
+}
+
+function syncPlanCounts(rows){
+  const counts={left_only:0,remote_only:0,different:0,same:0,type_mismatch:0};
+  for(const row of rows)counts[row.status]=(counts[row.status]||0)+1;
+  return counts;
+}
+
+function topLevelSyncRows(rows,status){
+  const paths=new Set(rows.filter(row=>row.status===status).map(row=>row.path));
+  return rows.filter(row=>{
+    if(row.status!==status)return false;
+    let parent=parentPath(row.path,false);
+    while(parent!=='.'){
+      if(paths.has(parent))return false;
+      const next=parentPath(parent,false);if(next===parent)break;parent=next;
+    }
+    return true;
+  });
+}
+
+async function syncPlanToRemote(view,rows){
+  const selected=rows.filter(row=>(row.status==='left_only'||row.status==='different')&&row.left?.type==='file');
+  const directories=rows.filter(row=>row.status==='left_only'&&row.left?.type==='directory')
+    .sort((a,b)=>pathDepth(a.path,false)-pathDepth(b.path,false));
+  const remoteBase=normalizeRemotePath(view.remote.currentPath||'.');
+  const leftBase=normalizeRelativePath(view.left.currentPath||'.');
+  const state=newRemoteScanState(remoteBase);
+  for(const row of directories)await ensureRemoteScanDirectory(view,joinPath(remoteBase,row.path,true),state);
+  if(view.left.source==='host'){
+    const groups=new Map();
+    for(const row of selected){
+      const sourcePath=joinPath(leftBase,row.path,false),targetPath=joinPath(remoteBase,row.path,true);
+      const targetDir=parentPath(targetPath,true);
+      if(!groups.has(targetDir))groups.set(targetDir,[]);
+      groups.get(targetDir).push(sourcePath);
+    }
+    for(const [remoteDir,hostPaths] of groups)await createServerTransferJob(view,{kind:'host_upload',host_paths:hostPaths,remote_dir:remoteDir});
+  }else{
+    const root=view.left.localRoot;
+    if(!root)throw new Error('Choose a local folder first');
+    const granted=await ensureHandlePermission(root.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
+    const localState={jobID:newFileTransferJobID(),conflictPolicy:effectiveDirectionConflictPolicy(view,'upload'),files:0};
+    for(const row of selected){
+      const sourcePath=joinPath(leftBase,row.path,false),targetPath=joinPath(remoteBase,row.path,true);
+      const dir=await directoryHandleForPath(root.handle,parentPath(sourcePath,false));
+      const handle=await dir.getFileHandle(pathLeaf(sourcePath,false));
+      enqueueLocalUploadHandle(view,handle,sourcePath,targetPath,localState);
+    }
+  }
+  return selected.length;
+}
+
+async function syncPlanToLeft(view,rows){
+  const selected=rows.filter(row=>(row.status==='remote_only'||row.status==='different')&&row.remote?.type==='file');
+  const leftBase=normalizeRelativePath(view.left.currentPath||'.');
+  const remoteBase=normalizeRemotePath(view.remote.currentPath||'.');
+  if(view.left.source==='host'){
+    const groups=new Map();
+    for(const row of selected){
+      const remotePath=joinPath(remoteBase,row.path,true),leftPath=joinPath(leftBase,row.path,false);
+      const hostDir=parentPath(leftPath,false);
+      if(!groups.has(hostDir))groups.set(hostDir,[]);
+      groups.get(hostDir).push({path:remotePath,directory:false,size:Number(row.remote?.size)||0,modified:String(row.remote?.modified||'')});
+    }
+    for(const [hostDir,remoteTargets] of groups)await createServerTransferJob(view,{kind:'host_download',remote_targets:remoteTargets,host_dir:hostDir});
+  }else{
+    const root=view.left.localRoot;if(!root)throw new Error('Choose a local folder first');
+    const granted=await ensureHandlePermission(root.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
+    const state={
+      source:'local',base:leftBase,localRoot:root,hostDirectories:new Set(['.',leftBase]),hostListings:new Map(),
+      localHandles:new Map([['.',root.handle]]),files:0,folders:0,view,
+      jobID:newFileTransferJobID(),conflictPolicy:effectiveDirectionConflictPolicy(view,'download')
+    };
+    const directories=rows.filter(row=>row.status==='remote_only'&&row.remote?.type==='directory')
+      .sort((a,b)=>pathDepth(a.path,false)-pathDepth(b.path,false));
+    for(const row of directories)await ensureLeftScanDirectory(view,joinPath(leftBase,row.path,false),state);
+    for(const row of selected){
+      enqueueRemoteDownloadFile(
+        view,joinPath(remoteBase,row.path,true),joinPath(leftBase,row.path,false),
+        row.remote?.size,state,row.remote?.modified
+      );
+    }
+  }
+  return selected.length;
+}
+
+async function mirrorDeleteRemoteOnly(view,rows){
+  const remoteBase=normalizeRemotePath(view.remote.currentPath||'.');
+  const targets=topLevelSyncRows(rows,'remote_only').map(row=>({
+    path:joinPath(remoteBase,row.path,true),directory:row.remote?.type==='directory'
+  }));
+  if(targets.length)await createServerTransferJob(view,{kind:'remote_delete',remote_targets:targets});
+  return targets.length;
+}
+
+async function mirrorDeleteLeftOnly(view,rows){
+  const leftBase=normalizeRelativePath(view.left.currentPath||'.');
+  const selected=rows.filter(row=>row.status==='left_only').sort((a,b)=>pathDepth(b.path,false)-pathDepth(a.path,false));
+  if(view.left.source==='host'){
+    for(const row of selected)await hostMutation(view,'delete',joinPath(leftBase,row.path,false));
+  }else{
+    const root=view.left.localRoot;if(!root)throw new Error('Choose a local folder first');
+    const granted=await ensureHandlePermission(root.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
+    for(const row of selected){
+      const full=joinPath(leftBase,row.path,false),parent=parentPath(full,false),name=pathLeaf(full,false);
+      const dir=await directoryHandleForPath(root.handle,parent);
+      await dir.removeEntry(name,{recursive:false});
+    }
+  }
+  return selected.length;
+}
+
+function openFolderSyncDryRun(view,rows){
+  const counts=syncPlanCounts(rows);
+  const actionable=counts.left_only+counts.remote_only+counts.different;
+  const backdrop=document.createElement('div');backdrop.className='ft-sync-backdrop';
+  const dialog=document.createElement('div');dialog.className='ft-sync-dialog';
+  const title=document.createElement('h3');title.textContent='Folder Sync / Mirror — Dry run';
+  const note=document.createElement('div');note.className='ft-sync-note';
+  note.textContent='Recursive metadata comparison only (type, size, modified time when both sides provide it). No file is changed until you choose a Sync or Mirror action.';
+  const summary=document.createElement('div');summary.className='ft-sync-summary';
+  summary.textContent='Left only '+counts.left_only+' · Remote only '+counts.remote_only+' · Different '+counts.different+' · Same '+counts.same+' · Type mismatch '+counts.type_mismatch;
+  const wrap=document.createElement('div');wrap.className='ft-sync-table-wrap';
+  const table=document.createElement('table');table.className='ft-sync-table';
+  const thead=document.createElement('thead'),hr=document.createElement('tr');
+  for(const label of ['Status','Path','Left','Remote']){const th=document.createElement('th');th.textContent=label;hr.append(th);}
+  thead.append(hr);const tbody=document.createElement('tbody');
+  const labels={left_only:'Left only',remote_only:'Remote only',different:'Different',same:'Same',type_mismatch:'Type mismatch'};
+  for(const row of rows.slice(0,maxSyncPlanEntries)){
+    const tr=document.createElement('tr');
+    const status=document.createElement('td');status.className='ft-sync-status';status.textContent=labels[row.status]||row.status;
+    const path=document.createElement('td');path.className='ft-sync-path';path.textContent=row.path;path.title=row.path;
+    const left=document.createElement('td');left.textContent=row.left?(row.left.type+(row.left.type==='file'?' · '+formatSize(row.left.size):'')):'—';
+    const remote=document.createElement('td');remote.textContent=row.remote?(row.remote.type+(row.remote.type==='file'?' · '+formatSize(row.remote.size):'')):'—';
+    tr.append(status,path,left,remote);tbody.append(tr);
+  }
+  table.append(thead,tbody);wrap.append(table);
+  const actions=document.createElement('div');actions.className='ft-sync-actions';
+  const close=document.createElement('button');close.type='button';close.textContent='Close';close.onclick=()=>backdrop.remove();
+  const runButton=(label,handler,{danger=false}={})=>{
+    const button=document.createElement('button');button.type='button';button.textContent=label;if(danger)button.classList.add('ft-sync-danger');
+    button.disabled=!actionable;button.onclick=async()=>{
+      button.disabled=true;
+      try{await handler();backdrop.remove();await loadRemoteDirectory(view,view.remote.currentPath,{force:true});await loadLeftDirectory(view,view.left.currentPath);}
+      catch(error){app.showError(error);}
+      finally{if(button.isConnected)button.disabled=false;}
+    };
+    return button;
+  };
+  const syncRight=runButton('Sync →',()=>syncPlanToRemote(view,rows));
+  const syncLeft=runButton('← Sync',()=>syncPlanToLeft(view,rows));
+  const mirrorRight=runButton('Mirror →',async()=>{
+    if(!confirm('Mirror Left → Remote?\\n\\nRemote-only files/folders will be deleted. Type-mismatch paths are NOT changed automatically.'))return;
+    await syncPlanToRemote(view,rows);await mirrorDeleteRemoteOnly(view,rows);
+  },{danger:true});
+  const mirrorLeft=runButton('← Mirror',async()=>{
+    if(!confirm('Mirror Remote → Left?\\n\\nLeft-only files/folders will be deleted. Type-mismatch paths are NOT changed automatically.'))return;
+    await syncPlanToLeft(view,rows);await mirrorDeleteLeftOnly(view,rows);
+  },{danger:true});
+  actions.append(close,syncRight,syncLeft,mirrorRight,mirrorLeft);
+  dialog.append(title,note,summary,wrap,actions);backdrop.append(dialog);document.body.append(backdrop);close.focus();
+  backdrop.addEventListener('pointerdown',event=>{if(event.target===backdrop)backdrop.remove();});
+  backdrop.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();backdrop.remove();}});
+}
+
+async function compareFoldersDryRun(view){
+  view.left.status.textContent='Scanning left folder for dry-run compare…';
+  const left=view.left.source==='host'
+    ?await collectHostSyncTree(view.left.currentPath||'.')
+    :await collectLocalSyncTree(view,view.left.currentPath||'.');
+  view.remote.status.textContent='Scanning remote folder for dry-run compare…';
+  const remote=await collectRemoteSyncTree(view,view.remote.currentPath||'.');
+  const rows=compareSyncTrees(left,remote);
+  view.left.status.textContent='Dry-run compare complete · '+left.size+' left item(s)';
+  view.remote.status.textContent='Dry-run compare complete · '+remote.size+' remote item(s)';
+  openFolderSyncDryRun(view,rows);
+}
+
 function newRemoteScanState(basePath){
   const base=normalizeRemotePath(basePath||'.');
   return {base,remoteDirectories:new Set(['.','/',base]),remoteListings:new Map(),files:0,folders:0,errors:0};
@@ -2134,9 +2410,11 @@ function attachView(profile,{activate=true,session=null}={}){
   const divider=document.createElement('div');divider.className='ft-divider';divider.title='Drag to resize · double-click to reset';
   const tools=document.createElement('div');tools.className='ft-transfer-tools';
   const toRemote=document.createElement('button');toRemote.type='button';toRemote.textContent='→';toRemote.title='Upload selected left item(s) to remote FTP/SFTP';toRemote.disabled=true;
+  const compare=document.createElement('button');compare.type='button';compare.textContent='⇄';compare.title='Folder Sync / Mirror dry run';
   const toLeft=document.createElement('button');toLeft.type='button';toLeft.textContent='←';toLeft.title='Download selected remote item(s) to left';toLeft.disabled=true;
-  tools.append(toRemote,toLeft);divider.append(tools);view.toRemote=toRemote;view.toLeft=toLeft;
+  tools.append(toRemote,compare,toLeft);divider.append(tools);view.toRemote=toRemote;view.toLeft=toLeft;view.compare=compare;
   toRemote.onclick=()=>transferLeftToRemote(view).catch(app.showError);toLeft.onclick=()=>transferRemoteToLeft(view).catch(app.showError);
+  compare.onclick=()=>compareFoldersDryRun(view).catch(app.showError);
 
   sites.append(left.site,divider,remote.site);
   const transferQueue=createTransferQueue(view);
