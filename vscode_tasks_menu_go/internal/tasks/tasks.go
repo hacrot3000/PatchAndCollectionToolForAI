@@ -21,17 +21,19 @@ type Input struct {
 }
 
 type Task struct {
-	ID        int            `json:"id"`
-	Label     string         `json:"label"`
-	MenuLabel string         `json:"menu_label"`
-	Group     []string       `json:"group"`
-	Detail    string         `json:"detail"`
-	Type      string         `json:"type"`
-	Command   any            `json:"command"`
-	Args      any            `json:"args,omitempty"`
-	Options   map[string]any `json:"options,omitempty"`
-	Inputs    []Input        `json:"inputs,omitempty"`
-	Raw       map[string]any `json:"raw"`
+	ID                int            `json:"id"`
+	Label             string         `json:"label"`
+	MenuLabel         string         `json:"menu_label"`
+	Group             []string       `json:"group"`
+	Detail            string         `json:"detail"`
+	Type              string         `json:"type"`
+	Command           any            `json:"command"`
+	Args              any            `json:"args,omitempty"`
+	Options           map[string]any `json:"options,omitempty"`
+	Inputs            []Input        `json:"inputs,omitempty"`
+	Raw               map[string]any `json:"raw"`
+	WorkspaceRootID   string         `json:"workspace_root_id,omitempty"`
+	WorkspaceRootName string         `json:"workspace_root_name,omitempty"`
 }
 
 type document struct {

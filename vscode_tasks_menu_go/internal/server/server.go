@@ -248,7 +248,7 @@ func (s *Server) tasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	items, err := tasks.Load(s.Workspace)
+	items, err := s.loadWorkspaceTasks()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -380,23 +380,12 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		items, err := tasks.Load(s.Workspace)
+		selected, taskRoot, err := s.workspaceTaskByID(req.TaskID)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		var selected *tasks.Task
-		for i := range items {
-			if items[i].ID == req.TaskID {
-				selected = &items[i]
-				break
-			}
-		}
-		if selected == nil {
 			http.Error(w, "task not found; reload tasks.json", http.StatusNotFound)
 			return
 		}
-		spec, err := tasks.ResolveExecutionWithInputs(*selected, s.Workspace, req.Inputs)
+		spec, err := tasks.ResolveExecutionWithInputs(selected, taskRoot.Path, req.Inputs)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
