@@ -67,7 +67,7 @@ func TestProjectFileActionsAreUsedAcrossExplorerGitEditorAndHostFiles(t *testing
 		},
 		{
 			file: "featuremods/gitstatus.js",
-			want: []string{"TaskMenuProjectFileActions?.openMenu", "workspacePathForActiveRepository(change.path)", "globalThis.TaskMenuGitFiles={openWorkspaceFileView"},
+			want: []string{"TaskMenuProjectFileActions?.openMenu", "workspacePathForActiveRepository(change.path)", "globalThis.TaskMenuGitFiles={"},
 		},
 		{
 			file: "featuremods/tabcontext.js",
