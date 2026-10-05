@@ -62,14 +62,21 @@ function currentModeLabel(){
 function targetLabel(){
   return selectedMode==='shared'?'Multi-user shared-server':'Single authentication';
 }
+function clearSetupState(){
+  const saved=globalThis.__taskdeckAuthModeSetup;
+  if(saved){saved.password='';saved.confirm='';}
+  try{delete globalThis.__taskdeckAuthModeSetup;}catch{globalThis.__taskdeckAuthModeSetup={};}
+}
 function closeWizard(){
   if(dialog){dialog.remove();dialog=null;}
+  clearSetupState();
   status=null;selectedMode='';step=1;
 }
 async function loadStatus(){
   return app.jsonFetch(endpoint);
 }
 async function openWizard(){
+  clearSetupState();
   status=await loadStatus();
   if(status.mode==='shared'&&!status.can_migrate){
     throw new Error('Project administrator permission is required to change authentication mode.');
