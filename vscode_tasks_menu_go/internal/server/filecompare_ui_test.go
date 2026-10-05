@@ -84,3 +84,70 @@ func TestProjectAndEditorMenusExposeGenericCompare(t *testing.T) {
 		}
 	}
 }
+
+func TestFileCompareSupportsGitAndRemoteSources(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function gitCommitSource(repoID,pathValue,ref",
+		"view:'file-content'",
+		"async function openGitCommitAgainstProject",
+		"async function openGitCommits",
+		"function remoteSource(profileID,pathValue",
+		"/api/file-transfer/text?",
+		"expected_sha256:sha",
+		"function browserFileHandleSource(handle",
+		"Local browser file changed after compare load",
+		"async function openLeftRemote",
+		"source_kind:to.kind",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("file compare external source support missing %q", want)
+		}
+	}
+}
+
+func TestGitFileHistoryExposesCommitCompareActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/gitstatus.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"gitFileCompareRef",
+		"Compare working",
+		"Use as Compare A",
+		"Compare A ↔ this",
+		"openGitCommitAgainstProject",
+		"openGitCommits",
+		"function setGitFilePath(path)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Git file-history compare support missing %q", want)
+		}
+	}
+}
+
+func TestFileTransferMenusExposeSelectedLocalRemoteCompare(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function compareLeftFileSource(view,entry)",
+		"async function compareLeftRemoteFiles(view,leftEntry,remoteEntry)",
+		"Compare with selected remote file",
+		"Compare with selected left file",
+		"TaskMenuFileCompare",
+		"browserFileHandleSource",
+		"openLeftRemote",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("File Transfer compare integration missing %q", want)
+		}
+	}
+}
