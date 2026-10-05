@@ -139,6 +139,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/broadcast", s.broadcastStateAPI)
 	mux.HandleFunc("/api/command-presets", s.commandPresets)
 	mux.HandleFunc("/api/git/status", s.gitStatus)
+	mux.HandleFunc("/api/git/conflict-file", s.gitConflictFile)
 	mux.HandleFunc("/api/git/jobs", s.gitJobsAPI)
 	mux.HandleFunc("/api/git/jobs/control", s.gitJobsControl)
 	mux.HandleFunc("/api/patch/ai-pack", s.patchAIPack)
