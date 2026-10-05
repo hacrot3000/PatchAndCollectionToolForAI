@@ -702,6 +702,213 @@ async function loadTags(){
   if(!(data.tags||[]).length)content.append(el('div','git-empty','No local tags'));
 }
 
+
+function gitGraphLayout(commits){
+  const lanes=[],rows=[];
+  for(const commit of commits||[]){
+    let lane=lanes.indexOf(commit.sha);
+    if(lane<0){lane=0;lanes.unshift(commit.sha);}
+    const before=lanes.slice();
+    const parents=Array.isArray(commit.parents)?commit.parents.filter(Boolean):[];
+    if(parents.length){
+      lanes[lane]=parents[0];
+      let insertAt=lane+1;
+      for(const parent of parents.slice(1)){
+        if(!lanes.includes(parent)){lanes.splice(insertAt,0,parent);insertAt++;}
+      }
+    }else lanes.splice(lane,1);
+    const seen=new Set();
+    for(let i=lanes.length-1;i>=0;i--){
+      if(seen.has(lanes[i]))lanes.splice(i,1);else seen.add(lanes[i]);
+    }
+    rows.push({commit,lane,before,after:lanes.slice()});
+  }
+  return rows;
+}
+function gitGraphSVG(layout){
+  const NS='http://www.w3.org/2000/svg',step=16,height=30;
+  const count=Math.max(1,layout.before.length,layout.after.length);
+  const svg=document.createElementNS(NS,'svg');svg.classList.add('git-graph-svg');svg.setAttribute('width',String(count*step+8));svg.setAttribute('height',String(height));svg.setAttribute('viewBox','0 0 '+(count*step+8)+' '+height);
+  const x=index=>8+index*step;
+  const line=(x1,y1,x2,y2)=>{
+    const node=document.createElementNS(NS,'path');node.setAttribute('d','M '+x1+' '+y1+' C '+x1+' 15 '+x2+' 15 '+x2+' '+y2);node.setAttribute('fill','none');node.setAttribute('stroke','currentColor');node.setAttribute('stroke-width','1.4');node.setAttribute('opacity','.55');svg.append(node);
+  };
+  for(let i=0;i<layout.before.length;i++){
+    if(i===layout.lane)continue;
+    const ref=layout.before[i],next=layout.after.indexOf(ref);
+    if(next>=0)line(x(i),0,x(next),height);
+  }
+  const parents=Array.isArray(layout.commit.parents)?layout.commit.parents:[];
+  for(const parent of parents){
+    const target=layout.after.indexOf(parent);
+    if(target>=0)line(x(layout.lane),15,x(target),height);
+  }
+  const circle=document.createElementNS(NS,'circle');circle.setAttribute('cx',String(x(layout.lane)));circle.setAttribute('cy','15');circle.setAttribute('r','4');circle.setAttribute('fill','currentColor');svg.append(circle);
+  return svg;
+}
+function gitGraphRefNodes(refs){
+  const host=el('div','git-graph-refs');
+  for(const ref of refs||[]){
+    const chip=el('span','git-graph-ref '+String(ref.kind||'other'),ref.name||'');chip.title=(ref.kind||'ref')+': '+(ref.name||'');host.append(chip);
+  }
+  return host;
+}
+function gitGraphInput(key,placeholder,type='text'){
+  const input=document.createElement('input');input.type=type;input.placeholder=placeholder;input.value=gitGraphFilters[key]||'';input.spellcheck=false;
+  input.oninput=()=>{gitGraphFilters[key]=input.value;};
+  return input;
+}
+function gitGraphControls(run){
+  const controls=el('div','git-graph-controls');
+  const search=gitGraphInput('search','Search hash / author / message / ref');
+  const author=gitGraphInput('author','Author filter');
+  const message=gitGraphInput('message','Message contains');
+  const since=gitGraphInput('since','Since','date');
+  const until=gitGraphInput('until','Until','date');
+  const pathInput=gitGraphInput('path','Path filter');
+  const actions=el('div','git-graph-controls-actions');
+  const apply=actionButton('Apply filters',run);
+  const clear=actionButton('Clear',async()=>{
+    gitGraphFilters={search:'',author:'',message:'',since:'',until:'',path:''};gitGraphSelectedSHA='';return loadGraph();
+  });
+  actions.append(apply,clear);
+  controls.append(search,author,message,since,until,pathInput,actions);
+  for(const input of [search,author,message,since,until,pathInput])input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();run().catch(app.showError);}});
+  return controls;
+}
+async function gitGraphCheckout(commit){
+  return action('checkout_commit',{ref:commit.sha,expected_sha:commit.sha},'Checkout '+commit.short+' in detached HEAD mode?\n\nThe working tree must be clean. You can create a branch later to keep new commits.');
+}
+async function gitGraphCreateBranch(commit){
+  const name=window.prompt('New branch name at '+commit.short+':','');
+  if(name===null||!name.trim())return false;
+  return action('create_branch_at',{branch:name.trim(),ref:commit.sha,expected_sha:commit.sha},'Create and switch to '+name.trim()+' at '+commit.short+'?\n\nThe working tree must be clean.');
+}
+async function gitGraphTag(commit){
+  const name=window.prompt('Tag name for '+commit.short+':','');
+  if(name===null||!name.trim())return false;
+  const message=window.prompt('Optional annotated tag message. Leave blank for a lightweight tag:','');
+  if(message===null)return false;
+  return action('create_tag',{name:name.trim(),message,ref:commit.sha});
+}
+async function gitGraphReset(commit){
+  const raw=window.prompt('Reset current branch to '+commit.short+'.\n\nChoose mode: soft, mixed, or hard.\nsoft: move HEAD only; keep index + worktree.\nmixed: move HEAD + reset index; keep worktree.\nhard: reset HEAD + index + worktree (destructive).','mixed');
+  if(raw===null)return false;
+  const mode=raw.trim().toLowerCase();
+  if(!['soft','mixed','hard'].includes(mode))throw new Error('Reset mode must be soft, mixed, or hard');
+  const warning=mode==='hard'
+    ?'HARD RESET current branch to '+commit.short+'?\n\nThis permanently discards tracked staged and working-tree changes not preserved elsewhere.'
+    :mode.toUpperCase()+' reset current branch to '+commit.short+'?\n\nReview the mode semantics before continuing.';
+  return action('reset_commit',{ref:commit.sha,expected_sha:commit.sha,mode,confirmed:true},warning);
+}
+function closeGitGraphContext(){
+  document.querySelectorAll('.git-graph-context').forEach(node=>node.remove());
+}
+function showGitGraphContext(event,commit,detailHost){
+  event.preventDefault();event.stopPropagation();closeGitGraphContext();
+  const menu=el('div','git-graph-context');
+  const add=(label,run,danger=false)=>{const b=el('button',danger?'danger':'',label);b.onclick=()=>{menu.remove();Promise.resolve(run()).catch(app.showError);};menu.append(b);};
+  add('Checkout commit (detached)',()=>gitGraphCheckout(commit));
+  add('Create branch here…',()=>gitGraphCreateBranch(commit));
+  add('Cherry-pick',()=>action('cherry_pick',{ref:commit.sha,expected_sha:commit.sha},'Cherry-pick '+commit.short+' onto the current branch? The working tree must be clean.'));
+  add('Revert',()=>action('revert_commit',{ref:commit.sha,expected_sha:commit.sha},'Create a new commit that reverts '+commit.short+'? The working tree must be clean.'));
+  add('Reset current branch here…',()=>gitGraphReset(commit),true);
+  add('Create tag here…',()=>gitGraphTag(commit));
+  add('Compare with HEAD',()=>renderGitGraphHeadCompare(commit,detailHost));
+  add('Copy SHA',()=>copyText(commit.sha));
+  document.body.append(menu);
+  menu.style.left=Math.max(4,event.clientX)+'px';menu.style.top=Math.max(4,event.clientY)+'px';
+  requestAnimationFrame(()=>{
+    const rect=menu.getBoundingClientRect();
+    menu.style.left=Math.max(4,Math.min(event.clientX,window.innerWidth-rect.width-4))+'px';
+    menu.style.top=Math.max(4,Math.min(event.clientY,window.innerHeight-rect.height-4))+'px';
+    const close=()=>menu.remove();setTimeout(()=>document.addEventListener('pointerdown',close,{once:true}),0);
+  });
+}
+function gitGraphDetailHeader(commit,host,subtitle=''){
+  const head=el('div','git-graph-detail-head');
+  const main=el('div','git-graph-detail-title');
+  main.append(el('div','git-row-title',commit.subject||'(no subject)'),el('div','git-row-sub',[commit.sha,commit.date,commit.author,subtitle].filter(Boolean).join(' · ')),gitGraphRefNodes(commit.refs));
+  const actions=el('div','git-graph-detail-actions');
+  actions.append(
+    actionButton('Cherry-pick',()=>action('cherry_pick',{ref:commit.sha,expected_sha:commit.sha},'Cherry-pick '+commit.short+'? The working tree must be clean.')),
+    actionButton('Revert',()=>action('revert_commit',{ref:commit.sha,expected_sha:commit.sha},'Revert '+commit.short+' with a new commit? The working tree must be clean.')),
+    actionButton('More…',event=>false,'Right-click the selected commit for checkout, branch, reset, tag and compare actions')
+  );
+  const more=actions.lastElementChild;more.onclick=event=>showGitGraphContext(event,commit,host);
+  head.append(main,actions);host.append(head);return head;
+}
+async function renderGitGraphCommitDetail(commit,host,parentOverride=''){
+  host.replaceChildren();gitGraphDetailHeader(commit,host);
+  const params={ref:commit.sha};if(parentOverride)params.parent=parentOverride;
+  const data=await gitView('commit-files',params);if(!data)return;
+  if((data.parents||[]).length>1){
+    const parentRow=el('div','git-file-controls');const label=el('span','git-row-sub','Diff parent');
+    const select=document.createElement('select');
+    data.parents.forEach((parent,index)=>{const o=document.createElement('option');o.value=parent;o.textContent='#'+(index+1)+' · '+parent.slice(0,12);select.append(o);});
+    select.value=data.parent||data.parents[0];select.onchange=()=>renderGitGraphCommitDetail(commit,host,select.value).catch(app.showError);parentRow.append(label,select);host.append(parentRow);
+  }
+  const note=el('div','git-row-sub',(data.parent?'Changed vs parent '+data.parent.slice(0,12):'Root commit vs empty tree')+' · '+(data.files||[]).length+' file(s)');host.append(note);
+  for(const file of data.files||[]){
+    const row=el('div','git-graph-file');const code=el('span','git-row-code',file.status||'');
+    const pathNode=el('span','git-graph-file-path',file.old_path?(file.old_path+' → '+file.path):file.path);pathNode.title=pathNode.textContent;
+    const actions=el('div','git-row-actions');
+    actions.append(actionButton('Visual diff',()=>{
+      const compare=globalThis.TaskMenuFileCompare;if(!compare)throw new Error('File Compare unavailable');
+      if(data.parent)return compare.openGitCommitFileDiffBetween(activeRepoID,file,data.parent,commit.sha,{title:'Commit diff · '+commit.short});
+      return compare.openGitCommitFileDiff(activeRepoID,file,commit);
+    }));
+    actions.append(actionButton('History',()=>openGitFileView(file.path,'history')));
+    row.append(code,pathNode,actions);host.append(row);
+  }
+  if(!(data.files||[]).length)host.append(el('div','git-empty','No changed files for this parent comparison'));
+}
+async function renderGitGraphHeadCompare(commit,host){
+  host.replaceChildren();gitGraphDetailHeader(commit,host,'Compare with HEAD');
+  const data=await gitView('graph-compare-head',{ref:commit.sha});if(!data)return;
+  host.append(el('div','git-row-sub',commit.short+' ↔ HEAD '+String(data.right||'').slice(0,12)+' · '+(data.files||[]).length+' file(s)'));
+  for(const file of data.files||[]){
+    const row=el('div','git-graph-file');const code=el('span','git-row-code',file.status||'');
+    const pathNode=el('span','git-graph-file-path',file.old_path?(file.old_path+' → '+file.path):file.path);pathNode.title=pathNode.textContent;
+    const actions=el('div','git-row-actions');
+    actions.append(actionButton('Visual diff',()=>{
+      const compare=globalThis.TaskMenuFileCompare;if(!compare?.openGitCommitFileDiffBetween)throw new Error('File Compare unavailable');
+      return compare.openGitCommitFileDiffBetween(activeRepoID,file,data.left,data.right,{title:'Commit ↔ HEAD'});
+    }));
+    row.append(code,pathNode,actions);host.append(row);
+  }
+  if(!(data.files||[]).length)host.append(el('div','git-empty','Selected commit matches HEAD'));
+}
+async function loadGraph(){
+  setGitPanelWide(true);
+  const params={limit:'300'};
+  for(const [key,value] of Object.entries(gitGraphFilters))if(String(value||'').trim())params[key]=String(value).trim();
+  const data=await gitView('graph',params);if(!data)return false;
+  content.replaceChildren();
+  const controls=gitGraphControls(loadGraph);content.append(controls);
+  const shell=el('div','git-graph-shell'),list=el('div','git-graph-list'),detail=el('div','git-graph-detail');
+  shell.append(list,detail);content.append(shell);
+  const commits=Array.isArray(data.commits)?data.commits:[];
+  if(!commits.length){list.append(el('div','git-empty','No commits match the current graph filters'));detail.append(el('div','git-empty','Select a commit'));return true;}
+  const layouts=gitGraphLayout(commits);
+  if(!commits.some(item=>item.sha===gitGraphSelectedSHA))gitGraphSelectedSHA=commits[0].sha;
+  for(const layout of layouts){
+    const commit=layout.commit,row=el('div','git-graph-row');row.classList.toggle('selected',commit.sha===gitGraphSelectedSHA);
+    const main=el('div','git-graph-main');main.append(el('div','git-graph-title',commit.subject||'(no subject)'),el('div','git-graph-sub',commit.short+' · '+commit.author+' · '+commit.date),gitGraphRefNodes(commit.refs));
+    row.append(gitGraphSVG(layout),main);
+    row.onclick=()=>{
+      gitGraphSelectedSHA=commit.sha;
+      list.querySelectorAll('.git-graph-row').forEach(node=>node.classList.toggle('selected',node===row));
+      renderGitGraphCommitDetail(commit,detail).catch(app.showError);
+    };
+    row.oncontextmenu=event=>{gitGraphSelectedSHA=commit.sha;showGitGraphContext(event,commit,detail);};
+    list.append(row);
+  }
+  const selected=commits.find(item=>item.sha===gitGraphSelectedSHA)||commits[0];
+  await renderGitGraphCommitDetail(selected,detail);
+  return true;
+}
+
 async function loadLog(){const data=await gitView('log',{limit:'50'});if(!data)return false;content.replaceChildren();for(const commit of data.commits||[]){const row=el('div','git-row');const code=el('span','git-row-code',commit.short);const main=el('div','git-row-main');main.append(el('div','git-row-title',commit.subject),el('div','git-row-sub',commit.date+' · '+commit.author));const actions=el('div','git-row-actions');
     actions.append(
       actionButton('Cherry-pick',()=>action('cherry_pick',{ref:commit.sha,expected_sha:commit.sha},'Cherry-pick '+commit.short+' onto the current branch? The working tree must be clean.'),'Apply this commit onto the current branch'),
@@ -773,7 +980,7 @@ async function loadCompare(base=''){
   currentView='compare';updateNav();const branches=await gitView('branches');if(!branches)return false;content.replaceChildren();const controls=el('div','git-compare-controls');const select=document.createElement('select');for(const branch of [...(branches.local||[]),...(branches.remote||[])]){if(branch.current)continue;const o=document.createElement('option');o.value=branch.name;o.textContent=branch.name;select.append(o);}if(base&&[...select.options].some(o=>o.value===base))select.value=base;const run=actionButton('Compare',async()=>{if(!select.value)return false;const data=await gitView('compare',{base:select.value});if(!data)return false;renderCompare(data,controls);return true;});controls.append(select,run);content.append(controls);if(base&&select.value)await run.onclick();
 }
 function renderCompare(data,controls){content.replaceChildren(controls);content.append(el('strong','',`Compare ${data.base}...HEAD`),el('pre','git-compare-pre',(data.stat||'(no differences)')+'\n'+(data.files||'')));}
-async function loadCurrentView(){setGitPanelWide(false);updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'tags':return loadTags();case 'log':return loadLog();case 'file-history':return loadFileHistory();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
+async function loadCurrentView(){setGitPanelWide(false);updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'tags':return loadTags();case 'log':return loadLog();case 'graph':return loadGraph();case 'file-history':return loadFileHistory();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
 
 function workspacePathForActiveRepository(pathValue){
   pathValue=String(pathValue||'').replace(/\\/g,'/').replace(/^\.\//,'');
