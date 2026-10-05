@@ -177,3 +177,22 @@ func TestGitJobFailureKeepsRecoveryClassification(t *testing.T) {
 }
 
 var _ = context.Background
+
+func TestGitSubmoduleActionsAreAsyncWithoutForcedProgressFlag(t *testing.T) {
+	for _, action := range []string{
+		"submodule_init",
+		"submodule_update",
+		"submodule_checkout_expected",
+		"submodule_update_recursive",
+		"submodule_sync",
+	} {
+		if !gitAsyncActionAllowed(action) {
+			t.Fatalf("%s should support cancellable background Git jobs", action)
+		}
+		args := []string{"submodule", "update", "--init", "--checkout"}
+		got := gitAsyncArgs(action, args)
+		if strings.Join(got, " ") != strings.Join(args, " ") {
+			t.Fatalf("%s unexpectedly rewrote args: %v", action, got)
+		}
+	}
+}
