@@ -2,6 +2,7 @@ const app=globalThis.TaskMenuApp;
 if(!app)throw new Error('TaskMenuApp unavailable for progressive features');
 
 const seenRecentSessions=new Set();
+let projectProfileTaskIDs=[];
 const style=document.createElement('style');
 style.textContent=`
 .quick-task-section{margin:6px 0 10px;border:1px solid #30343b;border-radius:6px;background:#12161d;overflow:hidden}
@@ -140,7 +141,10 @@ function renderQuickSections(){
   const menu=document.querySelector('#menu');if(!menu||!app.taskData)return;
   menu.querySelectorAll('.quick-task-section').forEach(el=>el.remove());
   const search=menu.querySelector('.task-search-panel');const anchor=search?.nextSibling||menu.firstChild;
-  const blocks=[];const fav=createQuickSection('★ FAVORITES',favorites(),true);if(fav)blocks.push(fav);const rec=createQuickSection('↻ RECENT',recent(),false);if(rec)blocks.push(rec);
+  const blocks=[];
+  const profileTasks=createQuickSection('◆ PROFILE TASKS',projectProfileTaskIDs.filter(id=>taskByID(id)),false);if(profileTasks)blocks.push(profileTasks);
+  const fav=createQuickSection('★ FAVORITES',favorites(),true);if(fav)blocks.push(fav);
+  const rec=createQuickSection('↻ RECENT',recent(),false);if(rec)blocks.push(rec);
   for(const block of blocks){if(anchor)menu.insertBefore(block,anchor);else menu.append(block);}
 }
 
@@ -234,6 +238,15 @@ function applyRunningIndicatorSettings(value){
 }
 
 window.addEventListener('taskmenu:running-indicator-settings',event=>applyRunningIndicatorSettings(event.detail||{}));
+globalThis.TaskMenuTaskSet={
+  apply(ids){
+    const valid=new Set((app.taskData?.tasks||[]).map(task=>Number(task.id)));
+    projectProfileTaskIDs=[...new Set((Array.isArray(ids)?ids:[]).map(Number).filter(id=>Number.isInteger(id)&&valid.has(id)))];
+    renderQuickSections();return [...projectProfileTaskIDs];
+  },
+  get ids(){return [...projectProfileTaskIDs];}
+};
+
 globalThis.TaskMenuRunningIndicator={
   get settings(){return {...runningIndicatorSettings};},
   apply:applyRunningIndicatorSettings

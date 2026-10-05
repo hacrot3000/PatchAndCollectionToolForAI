@@ -50,4 +50,16 @@ window.fetch=async function(input,init={}){
   }catch(e){console.warn('Environment profile injection skipped',e);}
   return nativeFetch(input,init);
 };
+globalThis.TaskMenuEnvProfiles={
+  list(){return {...readProfiles()};},
+  currentName:selectedName,
+  currentEnv,
+  has(name){name=String(name||'').trim();return !name||Object.prototype.hasOwnProperty.call(readProfiles(),name);},
+  select(name){
+    name=String(name||'').trim();
+    if(name&&!Object.prototype.hasOwnProperty.call(readProfiles(),name))throw new Error('Environment profile "'+name+'" is not available in this browser');
+    setSelected(name);return name;
+  },
+  refresh:refreshSelect
+};
 install();

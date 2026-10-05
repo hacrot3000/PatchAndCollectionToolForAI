@@ -3,6 +3,7 @@ if(!app)throw new Error('TaskMenuApp unavailable for command presets');
 
 let state={version:1,presets:[]};
 let fingerprint='';
+let projectPresetIDs=[];
 const runs=new Map();
 const decoder=new TextDecoder();
 let managerHost=null;
@@ -425,10 +426,22 @@ async function openManager(selectedID=''){
   managerDirty=false;renderManager();
 }
 
+function selectedProjectPresets(){
+  if(!projectPresetIDs.length)return state.presets;
+  const wanted=new Set(projectPresetIDs);
+  return state.presets.filter(preset=>wanted.has(preset.id));
+}
+function setProjectPresetIDs(ids){
+  const available=new Set(state.presets.map(preset=>preset.id));
+  projectPresetIDs=[...new Set((Array.isArray(ids)?ids:[]).map(String).filter(id=>available.has(id)))];
+  window.dispatchEvent(new CustomEvent('taskmenu:project-command-presets',{detail:{ids:[...projectPresetIDs]}}));
+  return [...projectPresetIDs];
+}
+
 function presetContextActions(view){
   if(!view||view.meta.task_id!==0)return [];
   const running=isRunning(view);
-  const children=state.presets.map(preset=>({
+  const children=selectedProjectPresets().map(preset=>({
     label:preset.name+' — '+(firstCommandSnippet(preset)||'(no command)'),
     title:'Run preset "'+preset.name+'"',
     disabled:running||view.meta.status!=='running',
@@ -460,5 +473,8 @@ globalThis.TaskMenuCommandPresets={
   markerPrefix,
   openManager,
   contextActions:presetContextActions,
-  firstCommandSnippet
+  firstCommandSnippet,
+  selectedProjectPresets,
+  setProjectPresetIDs,
+  get projectPresetIDs(){return [...projectPresetIDs];}
 };

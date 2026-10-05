@@ -959,7 +959,17 @@ function close(){
 }
 function visible(){return Boolean(panel?.classList.contains('visible'));}
 
-globalThis.TaskMenuConnections={open,close,refresh:loadData,get panel(){return panel;},get visible(){return visible();}};
+globalThis.TaskMenuConnections={
+  open,close,refresh:loadData,
+  async openLocal(cwd='.'){return openLocal(String(cwd||'.'));},
+  async openSSHProfile(id){
+    id=String(id||'').trim();if(!id)throw new Error('SSH profile id is required');
+    await loadData();const profile=sshProfiles.find(item=>item.id===id);if(!profile)throw new Error('SSH profile not found: '+id);
+    return openSSH(profile);
+  },
+  get sshProfiles(){return [...sshProfiles];},
+  get panel(){return panel;},get visible(){return visible();}
+};
 
 if(app.taskData?.workspace)install();
 else window.addEventListener('taskmenu:tasks',install,{once:true});
