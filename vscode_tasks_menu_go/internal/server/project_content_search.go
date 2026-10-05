@@ -98,6 +98,10 @@ func (s *Server) projectContentSearch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"results": []projectContentSearchResult{}})
 		return
 	}
+	if _, regexErr := projectSearchRegexp(options); regexErr != nil {
+		http.Error(w, "invalid regular expression", http.StatusBadRequest)
+		return
+	}
 	root, err := s.projectRoot()
 	if err != nil {
 		http.Error(w, "project root unavailable", http.StatusInternalServerError)
