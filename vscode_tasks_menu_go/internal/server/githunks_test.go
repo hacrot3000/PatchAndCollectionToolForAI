@@ -52,6 +52,36 @@ func TestGitDiffHunkSetReturnsStableStructuredHunks(t *testing.T) {
 	}
 }
 
+func TestGitDiffModesSeparateCommittedStagedAndWorkingVersions(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	file := filepath.Join(workspace, "tracked.txt")
+
+	if err := os.WriteFile(file, []byte("staged version\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "tracked.txt")
+	if err := os.WriteFile(file, []byte("working version\n"), 0o644); err != nil { t.Fatal(err) }
+
+	staged, _, err := s.gitDiffHunkSet(context.Background(), "tracked.txt", "staged")
+	if err != nil { t.Fatal(err) }
+	if !strings.Contains(staged.Diff, "staged version") || strings.Contains(staged.Diff, "working version") {
+		t.Fatalf("HEAD -> staged diff mixed working-tree content:\n%s", staged.Diff)
+	}
+
+	worktree, _, err := s.gitDiffHunkSet(context.Background(), "tracked.txt", "worktree")
+	if err != nil { t.Fatal(err) }
+	if !strings.Contains(worktree.Diff, "-staged version") || !strings.Contains(worktree.Diff, "+working version") {
+		t.Fatalf("staged -> working diff does not isolate unstaged edit:\n%s", worktree.Diff)
+	}
+
+	combined, _, err := s.gitDiffHunkSet(context.Background(), "tracked.txt", "head-worktree")
+	if err != nil { t.Fatal(err) }
+	if !strings.Contains(combined.Diff, "-one") || !strings.Contains(combined.Diff, "+working version") {
+		t.Fatalf("HEAD -> working diff does not show total tracked change:\n%s", combined.Diff)
+	}
+	if strings.Contains(combined.Diff, "staged version") {
+		t.Fatalf("HEAD -> working diff should compare endpoints, not expose intermediate index content:\n%s", combined.Diff)
+	}
+}
+
 func TestGitStageAndUnstageSingleHunk(t *testing.T) {
 	workspace, s := setupGitHunkRepo(t)
 	set, _, err := s.gitDiffHunkSet(context.Background(), "tracked.txt", "worktree")
