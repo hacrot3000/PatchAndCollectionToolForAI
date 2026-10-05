@@ -58,7 +58,7 @@ func TestGitQuickActionsUI(t *testing.T) {
 		"git-branch-section-toggle",
 		"remoteList.hidden=true",
 		"remoteToggle.setAttribute('aria-expanded','false')",
-		"'▸ ')+'REMOTE ('+remoteRows.length+')'",
+		"'▸ ')+'REMOTE-TRACKING REFS ('+remoteRows.length+')'",
 		"'▾ ':'▸ '",
 		"remoteList.hidden=expanded",
 		"'log','Log'",
