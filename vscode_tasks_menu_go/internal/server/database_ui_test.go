@@ -1578,3 +1578,29 @@ func TestDatabaseQueryHistoryAndSnippetUI(t *testing.T) {
 		}
 	}
 }
+
+func TestDatabaseForeignKeyNavigationUI(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function relationshipTarget(relation)",
+		"function relationshipSource(relation)",
+		"async function openRelatedTable(view,object",
+		"function appendRelationshipTable(panel,view,relations",
+		"async function ensureForeignKeyMetadata(view)",
+		"function foreignKeyForColumn(view,columnName)",
+		"async function openReferencedCell(view,column,value)",
+		"appendStructureHeading(panel,'Foreign Keys')",
+		"appendStructureHeading(panel,'Referenced By')",
+		"Open referenced table",
+		"Open source table",
+		"Go to referenced row",
+		"state.filters=[{column,operator:'eq',value}]",
+		"await ensureForeignKeyMetadata(view)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database_workbench.js missing foreign-key navigation behavior %q", want)
+		}
+	}
+}

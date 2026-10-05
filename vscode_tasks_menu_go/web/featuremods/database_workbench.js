@@ -615,6 +615,86 @@ function appendStructureTable(panel,headers,rows){
   table.append(tbody);panel.append(table);
 }
 
+function relationshipTarget(relation){
+  const table=String(relation?.referenced_table||'').trim();
+  if(!table)return null;
+  return {kind:'table',name:table,catalog:String(relation?.referenced_catalog||'').trim()};
+}
+
+function relationshipSource(relation){
+  const table=String(relation?.table||'').trim();
+  if(!table)return null;
+  return {kind:'table',name:table,catalog:String(relation?.catalog||'').trim()};
+}
+
+async function openRelatedTable(view,object,{column='',value,filter=false}={}){
+  if(!object?.name)throw new Error('Related table metadata is incomplete');
+  const root=rootWorkbenchView(view);
+  const page=ensureDataPage(root,object);
+  const state=dataState(page.ctx);
+  if(hasPendingChanges(page.ctx)&&!confirmDiscardChanges(page.ctx))return;
+  state.filters=[];
+  if(filter&&column&&value!==null&&value!==undefined){
+    state.filters=[{column,operator:'eq',value}];
+  }
+  state.offset=0;
+  activatePanel(root,page.key);
+  await loadData(page.ctx);
+}
+
+function appendRelationshipTable(panel,view,relations,{incoming=false}={}){
+  const rows=Array.isArray(relations)?relations:[];
+  if(!rows.length)return;
+  const table=document.createElement('table');table.className='db-structure-table db-relationship-table';
+  const thead=document.createElement('thead');const hr=document.createElement('tr');
+  for(const label of incoming?['Name','Source','Column','References','Rules','Open']:['Name','Column','References','Rules','Open']){
+    const th=document.createElement('th');th.textContent=label;hr.append(th);
+  }
+  thead.append(hr);table.append(thead);
+  const tbody=document.createElement('tbody');
+  for(const relation of rows){
+    const tr=document.createElement('tr');
+    const values=incoming
+      ?[relation?.name||'',relation?.table||'',relation?.column||'',(relation?.referenced_table||'')+'.'+(relation?.referenced_column||''),[relation?.update_rule,relation?.delete_rule].filter(Boolean).join(' / ')]
+      :[relation?.name||'',relation?.column||'',(relation?.referenced_table||'')+'.'+(relation?.referenced_column||''),[relation?.update_rule,relation?.delete_rule].filter(Boolean).join(' / ')];
+    for(const value of values){const td=document.createElement('td');td.textContent=value==null?'':String(value);tr.append(td);}
+    const action=document.createElement('td');const button=document.createElement('button');button.type='button';
+    const target=incoming?relationshipSource(relation):relationshipTarget(relation);
+    button.textContent=incoming?'Open source table':'Open referenced table';button.disabled=!target;
+    button.onclick=()=>openRelatedTable(view,target).catch(app.showError);
+    action.append(button);tr.append(action);tbody.append(tr);
+  }
+  table.append(tbody);panel.append(table);
+}
+
+async function ensureForeignKeyMetadata(view){
+  const state=dataState(view);const object=state.object;
+  if(!object||!filterCapable(view)){state.foreignKeys=[];return [];}
+  const root=rootWorkbenchView(view);const key=objectKey(object);
+  let detail=root.workbench.details.get(key);
+  if(!detail){
+    try{detail=await inspectObject(root,object,{open:false});}
+    catch(error){console.warn('TaskDeck foreign-key metadata unavailable',error);detail=null;}
+  }
+  const rows=Array.isArray(detail?.foreign_keys)?detail.foreign_keys:[];
+  state.foreignKeys=rows;
+  return rows;
+}
+
+function foreignKeyForColumn(view,columnName){
+  const name=String(columnName||'');
+  return (Array.isArray(dataState(view).foreignKeys)?dataState(view).foreignKeys:[]).find(item=>String(item?.column||'')===name)||null;
+}
+
+async function openReferencedCell(view,column,value){
+  const relation=foreignKeyForColumn(view,column?.name);
+  if(!relation)throw new Error('This column does not have a foreign-key relationship');
+  const target=relationshipTarget(relation);
+  if(!target)throw new Error('Foreign-key target metadata is incomplete');
+  const targetColumn=String(relation?.referenced_column||'').trim();
+  await openRelatedTable(view,target,{column:targetColumn,value,filter:Boolean(targetColumn)});
+}
+
 function renderStructure(view,object,detail){
   const panel=view.workbench?.panels?.structure;if(!panel)return;
   panel.replaceChildren();
@@ -644,6 +724,17 @@ function renderStructure(view,object,detail){
       const unique=typeof index?.unique==='boolean'?index.unique:(index?.name==='_id_'?true:'');
       return [index?.name||'',key,unique===true?'YES':(unique===false?'NO':''),index?.type||index?.origin||'',index?.sequence??index?.seq??''];
     }));
+  }
+
+  const foreignKeys=Array.isArray(detail?.foreign_keys)?detail.foreign_keys:[];
+  if(foreignKeys.length){
+    appendStructureHeading(panel,'Foreign Keys');
+    appendRelationshipTable(panel,view,foreignKeys,{incoming:false});
+  }
+  const referencedBy=Array.isArray(detail?.referenced_by)?detail.referenced_by:[];
+  if(referencedBy.length){
+    appendStructureHeading(panel,'Referenced By');
+    appendRelationshipTable(panel,view,referencedBy,{incoming:true});
   }
 
   const sql=detail?.sql;
@@ -1116,6 +1207,7 @@ async function loadData(view,{resetOffset=false}={}){
     state.result=result||{};
     state.selectedRows?.clear?.();state.selectionAnchor=null;
     clearPendingChanges(view);
+    await ensureForeignKeyMetadata(view);
     renderDataGrid(view);
   }catch(error){
     if(status){
@@ -1294,6 +1386,7 @@ function showCellMenu(view,rowIndex,columnIndex,x,y){
     [
       {label:'Copy Value',action:()=>copyText(displayValue(value))},
       {label:'Copy Column Name',action:()=>copyText(column?.name||'')},
+      ...(foreignKeyForColumn(view,column?.name)?[{label:'Go to referenced row',disabled:value===null||value===undefined,action:()=>openReferencedCell(view,column,value).catch(app.showError)}]:[]),
       ...copyGridMenuItems(view)
     ],
     tableGridActionMenuItems(view),
