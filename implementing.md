@@ -2,7 +2,7 @@ Dựa trên những gì TaskDeck hiện đã có, phần nền tảng đã khá 
 
 Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
 
-1. **P0 — Project/File Explorer thực sự hoàn chỉnh**
+1. **P0 — Project/File Explorer thực sự hoàn chỉnh** — ✅ **COMPLETE**
    - Tree file/folder riêng bên trái, không phụ thuộc Patch/File Transfer.
    - Multi-select file/folder.
    - Cut / Copy / Paste / Rename / Move / Duplicate.
@@ -17,7 +17,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
    - Hiển thị Git status trực tiếp cạnh file: `M`, `A`, `D`, `U`, untracked…
    - Context menu thống nhất giữa File Editor, SFTP, Git và Project Explorer.
 
-2. **P0 — Project-wide Search / Replace**
+2. **P0 — Project-wide Search / Replace** — ✅ **COMPLETE**
    - Dùng `ripgrep` nếu có, fallback Go implementation, không cần npm.
    - Search text toàn project.
    - Regex / case-sensitive / whole word.
@@ -32,7 +32,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
    
    Đây là tính năng tôi đánh giá **nên làm rất sớm**, vì nó nối File Manager + Editor + Git thành một workflow thực sự.
 
-3. **P0 — File compare / compare arbitrary versions**
+3. **P0 — File compare / compare arbitrary versions** — ✅ **COMPLETE**
    - Bạn vừa có Git visual diff, nên mở rộng engine này thành generic compare.
    - Compare:
      - file A ↔ file B;
@@ -44,6 +44,12 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
    - Side-by-side hoặc inline.
    - Copy change trái→phải / phải→trái.
    - Khi có conflict có thể dùng cùng component làm merge editor 3-way.
+
+   Hoàn tất hiện tại:
+   - generic compare độc lập với Git panel, có side-by-side/inline và copy từng change block theo chiều writable;
+   - nguồn Project file, buffer Editor chưa save, Saved file, Clipboard, Git commit, Git HEAD/Index/Working, Host/Local browser file và FTP/SFTP remote text;
+   - Git commit ↔ current ưu tiên buffer editor đang mở; Git state compare hỗ trợ HEAD ↔ Staged, Staged ↔ Working và HEAD ↔ Working;
+   - remote compare dùng text API giới hạn kích thước + SHA compare-and-swap để không overwrite file đã đổi sau lúc load.
 
 4. **P0 — Git 3-way conflict editor**
    Hiện conflict wizard đã tốt, nhưng bước tiếp theo nên là:
