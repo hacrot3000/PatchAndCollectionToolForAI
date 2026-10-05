@@ -261,6 +261,13 @@ function gitCommitSource(repoID,pathValue,ref,{label='',allowMissing=false}={}){
 function emptyCompareSource(label='(file absent)'){
   return {kind:'empty',label,load:async()=>({text:'',exists:false})};
 }
+async function openGitCommitFileDiffBetween(repoID,file,leftRef,rightRef,{title='Commit ↔ Commit file diff'}={}){
+  const pathValue=String(file?.path||'').trim(),oldPath=String(file?.old_path||pathValue).trim();
+  if(!pathValue||!leftRef||!rightRef)throw new Error('Commit file compare requires path and both commits');
+  const left=gitCommitSource(repoID,oldPath,leftRef,{label:'Git '+String(leftRef).slice(0,8)+' · '+oldPath,allowMissing:true});
+  const right=gitCommitSource(repoID,pathValue,rightRef,{label:'Git '+String(rightRef).slice(0,8)+' · '+pathValue,allowMissing:true});
+  return open({title,left,right});
+}
 async function openGitCommitFileDiff(repoID,file,commit){
   const pathValue=String(file?.path||'').trim(),oldPath=String(file?.old_path||pathValue).trim();
   if(!pathValue||!commit?.sha)throw new Error('Commit file compare requires file path and commit');
@@ -337,4 +344,4 @@ reloadButton.onclick=()=>reload().catch(app.showError);closeButton.onclick=close
 backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)close();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&backdrop.classList.contains('visible'))close();});
 
-globalThis.TaskMenuFileCompare={open,close,reload,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,emptyCompareSource,openGitCommitFileDiff,gitStateSource,workingProjectSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,openGitStatePair,promptProjectCompare,get current(){return current;}};
+globalThis.TaskMenuFileCompare={open,close,reload,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,emptyCompareSource,openGitCommitFileDiff,openGitCommitFileDiffBetween,gitStateSource,workingProjectSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,openGitStatePair,promptProjectCompare,get current(){return current;}};
