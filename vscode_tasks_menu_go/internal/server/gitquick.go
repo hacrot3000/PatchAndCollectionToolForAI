@@ -785,6 +785,7 @@ type gitActionRequest struct {
 	Source            string `json:"source,omitempty"`
 	TargetSource      string `json:"target_source,omitempty"`
 	ExpectedSHA       string `json:"expected_sha,omitempty"`
+	ExpectedHeadSHA   string `json:"expected_head_sha,omitempty"`
 	ExpectedCurrent   string `json:"expected_current,omitempty"`
 	ExpectedSourceSHA string `json:"expected_source_sha,omitempty"`
 	ExpectedTargetSHA string `json:"expected_target_sha,omitempty"`
