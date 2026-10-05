@@ -83,6 +83,7 @@ type Server struct {
 
 	terminalStateMu     sync.RWMutex
 	terminalStateFrozen bool
+	workspaceSnapshotsMu sync.Mutex
 
 	sharedMutation sharedMutationLock
 }
