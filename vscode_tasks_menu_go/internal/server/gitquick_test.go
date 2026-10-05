@@ -643,4 +643,16 @@ func TestGitSafeBranchDeleteRefusesUnmergedBranch(t *testing.T) {
 	if got := gitQuickRun(t, workspace, "branch", "--list", "feature/unmerged"); !strings.Contains(got, "feature/unmerged") {
 		t.Fatalf("unmerged branch disappeared: %q", got)
 	}
+
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"force_delete_branch","branch":"feature/unmerged"}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "confirmation_required") {
+		t.Fatalf("unconfirmed force delete status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"force_delete_branch","branch":"feature/unmerged","confirmed":true}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("force delete status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := gitQuickRun(t, workspace, "branch", "--list", "feature/unmerged"); got != "" {
+		t.Fatalf("force-deleted branch remains: %q", got)
+	}
 }
