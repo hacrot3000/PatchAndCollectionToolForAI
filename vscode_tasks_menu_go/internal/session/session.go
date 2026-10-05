@@ -196,6 +196,7 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 	}
 	raw := append(json.RawMessage(nil), line...)
 	var itemState ProtocolItemState
+	var runErrorState ProtocolRunErrorState
 	var artifactState ProtocolArtifactState
 	var progressState ProtocolProgressState
 	var actionResultState ProtocolActionResultState
@@ -214,6 +215,14 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 	if envelope.Type == "item_started" || envelope.Type == "item_finished" {
 		var err error
 		itemState, _, err = protocolItemEvent(raw)
+		if err != nil {
+			s.setProtocolError(err.Error())
+			return
+		}
+	}
+	if envelope.Type == "error" {
+		var err error
+		runErrorState, err = protocolRunErrorEvent(raw)
 		if err != nil {
 			s.setProtocolError(err.Error())
 			return
@@ -300,6 +309,7 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 	case "run_started":
 		s.protocol.Items = nil
 		s.protocol.Artifacts = nil
+		s.protocol.RunErrors = nil
 		s.protocol.Progress = nil
 		s.protocol.ActionResult = nil
 		s.protocol.QueueMutation = nil
@@ -329,6 +339,8 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 		s.protocol.HistoryReport = nil
 	case "item_started", "item_finished":
 		s.protocol.Items = upsertProtocolItem(s.protocol.Items, itemState)
+	case "error":
+		s.protocol.RunErrors = appendProtocolRunError(s.protocol.RunErrors, runErrorState)
 	case "artifact":
 		s.protocol.Artifacts = upsertProtocolArtifact(s.protocol.Artifacts, artifactState)
 	case "progress":
