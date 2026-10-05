@@ -67,3 +67,45 @@ func TestParseGitBlamePorcelain(t *testing.T) {
 		t.Fatalf("rows=%+v", rows)
 	}
 }
+
+func TestGitFileContentReturnsExactCommitVersionForCompare(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	commit := gitQuickRun(t, workspace, "rev-parse", "HEAD")
+	if len(commit) != 40 && len(commit) != 64 {
+		t.Fatalf("unexpected commit=%q", commit)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("working tree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	target := "/api/git/status?view=file-content&repo=.&path=tracked.txt&ref=" + commit
+	rr := callGitStatusHandler(t, s, http.MethodGet, target, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("file-content status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var got struct {
+		Path    string `json:"path"`
+		Ref     string `json:"ref"`
+		Commit  string `json:"commit"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Path != "tracked.txt" || got.Ref != commit || got.Commit != commit || got.Content != "one\n" {
+		t.Fatalf("unexpected Git file content: %+v", got)
+	}
+}
+
+func TestGitFileContentRejectsUnsafeRefAndPath(t *testing.T) {
+	_, s, _ := setupGitQuickRepo(t)
+	for _, target := range []string{
+		"/api/git/status?view=file-content&repo=.&path=tracked.txt&ref=HEAD",
+		"/api/git/status?view=file-content&repo=.&path=../outside&ref=0123456789012345678901234567890123456789",
+	} {
+		rr := callGitStatusHandler(t, s, http.MethodGet, target, "")
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("%s status=%d body=%s", target, rr.Code, rr.Body.String())
+		}
+	}
+}
