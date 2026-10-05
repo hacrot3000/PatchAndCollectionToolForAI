@@ -733,6 +733,35 @@ async function loadCompare(base=''){
 function renderCompare(data,controls){content.replaceChildren(controls);content.append(el('strong','',`Compare ${data.base}...HEAD`),el('pre','git-compare-pre',(data.stat||'(no differences)')+'\n'+(data.files||'')));}
 async function loadCurrentView(){setGitPanelWide(false);updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'tags':return loadTags();case 'log':return loadLog();case 'file-history':return loadFileHistory();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
 
+function repositoryForProjectPath(pathValue){
+  const value=String(pathValue||'').replace(/\\/g,'/').replace(/^\.\//,'').replace(/^\/+|\/+$/g,'');
+  let best=null,bestRoot='';
+  for(const item of repositories){
+    const root=item.path==='.'?'':String(item.path||item.id||'').replace(/\\/g,'/').replace(/^\.\//,'').replace(/\/+$/,'');
+    if(root===''||value===root||value.startsWith(root+'/')){
+      if(!best||root.length>bestRoot.length){best=item;bestRoot=root;}
+    }
+  }
+  return best?{repo:best,root:bestRoot}:null;
+}
+async function openWorkspaceFileView(pathValue,mode='history'){
+  pathValue=String(pathValue||'').replace(/\\/g,'/').replace(/^\.\//,'');
+  if(!pathValue)throw new Error('Project file path is required');
+  if(!repositories.length)await refreshRepositories(false);
+  let match=repositoryForProjectPath(pathValue);
+  if(!match){
+    await refreshRepositories(true);
+    match=repositoryForProjectPath(pathValue);
+  }
+  if(!match)throw new Error('No Git repository contains '+pathValue);
+  await selectRepository(match.repo.id,{reload:false});
+  await refresh();
+  panel.classList.add('visible');
+  const repoPath=match.root?pathValue.slice(match.root.length+1):pathValue;
+  return openGitFileView(repoPath,mode);
+}
+globalThis.TaskMenuGitFiles={openWorkspaceFileView,repositoryForProjectPath};
+
 repoSelect.onchange=()=>selectRepository(repoSelect.value).catch(app.showError);
 repoRescan.onclick=async()=>{try{await refreshRepositories(true);await refresh();await loadCurrentView();}catch(error){app.showError(error);}};
 pill.onclick=async()=>{panel.classList.toggle('visible');if(panel.classList.contains('visible')){await refreshRepositories(false);if(app.views.has(String(app.active||'')))await autoSelectRepositoryForTerminal(app.active,{reload:false});await refresh();await loadCurrentView();}};panelClose.onclick=()=>panel.classList.remove('visible');
