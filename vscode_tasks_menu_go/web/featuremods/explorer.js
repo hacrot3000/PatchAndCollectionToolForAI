@@ -12,6 +12,8 @@ style.textContent=`
 .project-explorer-row{display:flex;align-items:center;min-width:0;height:26px;border-radius:4px;padding-right:4px}
 .project-explorer-row:hover{background:#232a34}
 .project-explorer-row.selected{background:#20334a;outline:1px solid #31577d}
+.project-explorer-row.drag-over{background:#294565;outline:1px dashed #6f9bc7}
+.project-explorer-tree.drag-over-root{outline:1px dashed #6f9bc7;outline-offset:-3px}
 .project-explorer-saved{display:none;border-bottom:1px solid #30343b;padding:5px 7px;max-height:150px;overflow:auto}
 .project-explorer-saved.visible{display:block}
 .project-explorer-saved-group{display:flex;align-items:center;gap:5px;min-height:24px}
@@ -62,6 +64,7 @@ let recent=[];
 let lastSelectedPath='';
 let fileClipboard={mode:'',paths:[]};
 let lastUndo=null;
+let dragPaths=[];
 let rootLoaded=false;
 let requestSeq=0;
 
@@ -260,6 +263,12 @@ function renderItem(parent,item){
     name.ondblclick=()=>openFile(fullPath);
   }
   row.oncontextmenu=event=>showContextMenu(event,fullPath,item.type);
+  row.draggable=true;
+  row.ondragstart=event=>startExplorerDrag(event,fullPath,row);
+  row.ondragend=clearExplorerDrag;
+  row.ondragover=event=>dragOverExplorerRow(event,fullPath,item.type,row);
+  row.ondragleave=()=>row.classList.remove('drag-over');
+  row.ondrop=event=>dropExplorerRow(event,fullPath,item.type,row).catch(app.showError);
   row.append(toggle,name,gitBadge);wrap.append(row);
   if(item.type==='dir'&&expanded.has(fullPath)){
     const children=document.createElement('div');children.className='project-explorer-children';
@@ -482,13 +491,13 @@ async function pasteProjectClipboard(destinationDir){
   lastSelectedPath=[...selected].at(-1)||'';
   render();
 }
-async function moveSelectedProjectItems(){
-  const sources=topLevelSelectedPaths([...selected]);
-  if(!sources.length)return;
-  const raw=window.prompt('Move selected item(s) to project-relative folder. Use . for workspace root:',sources.length===1?parentPath(sources[0])||'.':'.');
-  if(raw===null)return;
-  const destination=String(raw||'').trim();
-  const dir=destination===''||destination==='.'?'':destination.replace(/^\.\//,'').replace(/\/$/,'');
+function canMovePathsToDirectory(paths,dir){
+  return topLevelSelectedPaths(paths).every(source=>source!==dir&&!dir.startsWith(source+'/'));
+}
+async function movePathsToDirectory(paths,dir,label='Move selected'){
+  const sources=topLevelSelectedPaths(paths);
+  if(!sources.length)return [];
+  if(!canMovePathsToDirectory(sources,dir))throw new Error('Cannot move a folder into itself or one of its descendants');
   const moved=[];
   for(const source of sources){
     const nextPath=joinPath(dir,basename(source));
@@ -499,12 +508,69 @@ async function moveSelectedProjectItems(){
     remapStoredPaths(source,resolved);
     window.dispatchEvent(new CustomEvent('taskmenu:project-path-renamed',{detail:{old_path:source,new_path:resolved}}));
   }
-  if(moved.length)recordUndo('Move selected',moved.map(([oldPath,newPath])=>({action:'rename',path:newPath,new_path:oldPath})));
+  if(moved.length)recordUndo(label,moved.map(([oldPath,newPath])=>({action:'rename',path:newPath,new_path:oldPath})));
   await reload();
   selected.clear();
   for(const [,nextPath] of moved)selected.add(nextPath);
   lastSelectedPath=moved.at(-1)?.[1]||'';
   render();
+  return moved;
+}
+async function moveSelectedProjectItems(){
+  const sources=topLevelSelectedPaths([...selected]);
+  if(!sources.length)return;
+  const raw=window.prompt('Move selected item(s) to project-relative folder. Use . for workspace root:',sources.length===1?parentPath(sources[0])||'.':'.');
+  if(raw===null)return;
+  const destination=String(raw||'').trim();
+  const dir=destination===''||destination==='.'?'':destination.replace(/^\.\//,'').replace(/\/$/,'');
+  await movePathsToDirectory(sources,dir,'Move selected');
+}
+function startExplorerDrag(event,pathValue,row){
+  if(!selected.has(pathValue)){
+    selected.clear();selected.add(pathValue);lastSelectedPath=pathValue;
+    row.classList.add('selected');
+  }
+  dragPaths=topLevelSelectedPaths([...selected]);
+  if(event.dataTransfer){
+    event.dataTransfer.effectAllowed='move';
+    try{event.dataTransfer.setData('text/plain',dragPaths.join('\n'));}catch{}
+  }
+}
+function clearExplorerDrag(){
+  dragPaths=[];
+  tree.classList.remove('drag-over-root');
+  for(const row of tree.querySelectorAll('.project-explorer-row.drag-over'))row.classList.remove('drag-over');
+}
+function explorerDropDirectory(pathValue,type){
+  return type==='dir'?pathValue:parentPath(pathValue);
+}
+function dragOverExplorerRow(event,pathValue,type,row){
+  if(!dragPaths.length)return;
+  const dir=explorerDropDirectory(pathValue,type);
+  if(!canMovePathsToDirectory(dragPaths,dir))return;
+  event.preventDefault();event.stopPropagation();
+  if(event.dataTransfer)event.dataTransfer.dropEffect='move';
+  row.classList.add('drag-over');
+}
+async function dropExplorerRow(event,pathValue,type,row){
+  if(!dragPaths.length)return;
+  const sources=[...dragPaths];
+  const dir=explorerDropDirectory(pathValue,type);
+  event.preventDefault();event.stopPropagation();row.classList.remove('drag-over');
+  clearExplorerDrag();
+  await movePathsToDirectory(sources,dir,'Drag and drop move');
+}
+function dragOverExplorerRoot(event){
+  if(!dragPaths.length||!canMovePathsToDirectory(dragPaths,''))return;
+  event.preventDefault();
+  if(event.dataTransfer)event.dataTransfer.dropEffect='move';
+  tree.classList.add('drag-over-root');
+}
+async function dropExplorerRoot(event){
+  if(!dragPaths.length)return;
+  const sources=[...dragPaths];
+  event.preventDefault();clearExplorerDrag();
+  await movePathsToDirectory(sources,'','Drag and drop move');
 }
 function closeContextMenu(){contextMenu.classList.remove('visible');contextMenu.replaceChildren();}
 function contextAction(label,run){
@@ -586,6 +652,9 @@ async function reload(){try{await ensureRoot(true);}catch(error){app.showError(e
 newFileButton.onclick=()=>createProjectItem('file').catch(app.showError);
 newFolderButton.onclick=()=>createProjectItem('dir').catch(app.showError);
 undoButton.onclick=()=>undoLastOperation().catch(app.showError);
+tree.ondragover=dragOverExplorerRoot;
+tree.ondragleave=event=>{if(event.target===tree)tree.classList.remove('drag-over-root');};
+tree.ondrop=event=>dropExplorerRoot(event).catch(app.showError);
 refresh.onclick=reload;
 closeButton.onclick=close;
 document.addEventListener('keydown',event=>{if(event.key==='Escape'){closeContextMenu();if(panel.classList.contains('visible'))close();}});
@@ -601,4 +670,4 @@ window.addEventListener('taskmenu:git-status-refreshed',()=>{
   loadGitStatus().then(()=>render()).catch(()=>{});
 });
 
-globalThis.TaskMenuExplorer={open,close,reload,reveal:revealPath,undo:undoLastOperation,refreshGitStatus:async()=>{await loadGitStatus();render();},get selectedPaths(){return [...selected];},get favorites(){return [...favorites];},get recent(){return [...recent];},get clipboard(){return {mode:fileClipboard.mode,paths:[...fileClipboard.paths]};},get gitStatusAvailable(){return gitStatusAvailable;},get lastUndo(){return lastUndo?{label:lastUndo.label,steps:[...lastUndo.steps]}:null;}};
+globalThis.TaskMenuExplorer={open,close,reload,reveal:revealPath,undo:undoLastOperation,movePathsToDirectory,refreshGitStatus:async()=>{await loadGitStatus();render();},get selectedPaths(){return [...selected];},get favorites(){return [...favorites];},get recent(){return [...recent];},get clipboard(){return {mode:fileClipboard.mode,paths:[...fileClipboard.paths]};},get gitStatusAvailable(){return gitStatusAvailable;},get lastUndo(){return lastUndo?{label:lastUndo.label,steps:[...lastUndo.steps]}:null;}};
