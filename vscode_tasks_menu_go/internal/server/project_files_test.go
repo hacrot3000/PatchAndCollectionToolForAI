@@ -627,3 +627,96 @@ func TestAttachedWorkspaceRootSymlinkCannotEscape(t *testing.T) {
 	s.Handler().ServeHTTP(read, httptest.NewRequest(http.MethodGet, "/api/project/file?path="+urlQueryEscape(workspaceVirtualPath(root.ID, "secret-link")), nil))
 	if read.Code != http.StatusNotFound { t.Fatalf("escape read status=%d body=%s", read.Code, read.Body.String()) }
 }
+
+func TestProjectFileSaveExplicitLineEndingAndEncodingConversion(t *testing.T) {
+	root := t.TempDir()
+	original := append([]byte{0xEF, 0xBB, 0xBF}, []byte("one\r\ntwo\r\n")...)
+	path := filepath.Join(root, "convert.txt")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := sha256.Sum256(original)
+	body, err := json.Marshal(projectFileSaveRequest{
+		Path:           "convert.txt",
+		Content:        "alpha\nbeta\n",
+		ExpectedSHA256: hex.EncodeToString(old[:]),
+		LineEnding:     "lf",
+		Encoding:       "utf-8",
+	})
+	if err != nil { t.Fatal(err) }
+	s := &Server{Workspace: root}
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodPut, "/api/project/file", strings.NewReader(string(body))))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("save status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil { t.Fatal(err) }
+	if string(data) != "alpha\nbeta\n" {
+		t.Fatalf("LF conversion bytes=%q", data)
+	}
+	var got projectFileResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil { t.Fatal(err) }
+	if got.LineEnding != "lf" || got.BOM {
+		t.Fatalf("LF conversion response=%+v", got)
+	}
+
+	old = sha256.Sum256(data)
+	body, err = json.Marshal(projectFileSaveRequest{
+		Path:           "convert.txt",
+		Content:        "gamma\ndelta\n",
+		ExpectedSHA256: hex.EncodeToString(old[:]),
+		LineEnding:     "crlf",
+		Encoding:       "utf-8-bom",
+	})
+	if err != nil { t.Fatal(err) }
+	rr = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodPut, "/api/project/file", strings.NewReader(string(body))))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("second save status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	data, err = os.ReadFile(path)
+	if err != nil { t.Fatal(err) }
+	want := append([]byte{0xEF, 0xBB, 0xBF}, []byte("gamma\r\ndelta\r\n")...)
+	if !bytes.Equal(data, want) {
+		t.Fatalf("CRLF+BOM conversion bytes=%q want=%q", data, want)
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil { t.Fatal(err) }
+	if got.LineEnding != "crlf" || !got.BOM || got.Encoding != "utf-8" {
+		t.Fatalf("CRLF+BOM conversion response=%+v", got)
+	}
+}
+
+func TestProjectFileSaveRejectsInvalidTextFormatOptions(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "format.txt")
+	initial := []byte("initial\n")
+	if err := os.WriteFile(path, initial, 0o644); err != nil { t.Fatal(err) }
+	sum := sha256.Sum256(initial)
+	s := &Server{Workspace: root}
+	for _, tc := range []projectFileSaveRequest{
+		{Path: "format.txt", Content: "x\n", ExpectedSHA256: hex.EncodeToString(sum[:]), LineEnding: "native"},
+		{Path: "format.txt", Content: "x\n", ExpectedSHA256: hex.EncodeToString(sum[:]), Encoding: "utf-16"},
+	} {
+		body, err := json.Marshal(tc)
+		if err != nil { t.Fatal(err) }
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodPut, "/api/project/file", strings.NewReader(string(body))))
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("request=%+v status=%d body=%s", tc, rr.Code, rr.Body.String())
+		}
+	}
+}
+
+func TestApplyProjectLineEndingMode(t *testing.T) {
+	current := []byte("one\r\ntwo\r\n")
+	if label, got := applyProjectLineEndingMode("a\nb\n", current, "preserve"); label != "crlf" || got != "a\r\nb\r\n" {
+		t.Fatalf("preserve label=%q got=%q", label, got)
+	}
+	if label, got := applyProjectLineEndingMode("a\r\nb\r\n", current, "lf"); label != "lf" || got != "a\nb\n" {
+		t.Fatalf("lf label=%q got=%q", label, got)
+	}
+	if label, got := applyProjectLineEndingMode("a\nb\n", []byte("one\ntwo\n"), "crlf"); label != "crlf" || got != "a\r\nb\r\n" {
+		t.Fatalf("crlf label=%q got=%q", label, got)
+	}
+}

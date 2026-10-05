@@ -46,6 +46,8 @@ type projectFileSaveRequest struct {
 	Path           string `json:"path"`
 	Content        string `json:"content"`
 	ExpectedSHA256 string `json:"expected_sha256"`
+	LineEnding     string `json:"line_ending,omitempty"`
+	Encoding       string `json:"encoding,omitempty"`
 }
 
 
@@ -80,6 +82,20 @@ func (s *Server) projectFileSave(w http.ResponseWriter, r *http.Request) {
 	}
 	if int64(len(req.Content)) > projectEditableLimit {
 		http.Error(w, "editor content is too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	req.LineEnding = strings.ToLower(strings.TrimSpace(req.LineEnding))
+	switch req.LineEnding {
+	case "", "preserve", "lf", "crlf":
+	default:
+		http.Error(w, "line_ending must be preserve, lf, or crlf", http.StatusBadRequest)
+		return
+	}
+	req.Encoding = strings.ToLower(strings.TrimSpace(req.Encoding))
+	switch req.Encoding {
+	case "", "preserve", "utf-8", "utf-8-bom":
+	default:
+		http.Error(w, "encoding must be preserve, utf-8, or utf-8-bom", http.StatusBadRequest)
 		return
 	}
 	if len(req.ExpectedSHA256) != sha256.Size*2 {
@@ -129,14 +145,21 @@ func (s *Server) projectFileSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bom := bytes.HasPrefix(current, []byte{0xEF, 0xBB, 0xBF})
+	currentBOM := bytes.HasPrefix(current, []byte{0xEF, 0xBB, 0xBF})
 	currentText := current
-	if bom {
+	if currentBOM {
 		currentText = currentText[3:]
 	}
-	lineEnding, normalized := applyProjectLineEndings(req.Content, currentText)
+	lineEnding, normalized := applyProjectLineEndingMode(req.Content, currentText, req.LineEnding)
+	nextBOM := currentBOM
+	switch req.Encoding {
+	case "utf-8":
+		nextBOM = false
+	case "utf-8-bom":
+		nextBOM = true
+	}
 	next := []byte(normalized)
-	if bom {
+	if nextBOM {
 		next = append([]byte{0xEF, 0xBB, 0xBF}, next...)
 	}
 	if int64(len(next)) > projectEditableLimit {
@@ -178,7 +201,7 @@ func (s *Server) projectFileSave(w http.ResponseWriter, r *http.Request) {
 		"size": savedInfo.Size(),
 	})
 	text := next
-	if bom {
+	if nextBOM {
 		text = text[3:]
 	}
 	writeJSON(w, http.StatusOK, projectFileResponse{
@@ -190,7 +213,7 @@ func (s *Server) projectFileSave(w http.ResponseWriter, r *http.Request) {
 		Encoding:   "utf-8",
 		LineEnding: lineEnding,
 		ReadOnly:   false,
-		BOM:        bom,
+		BOM:        nextBOM,
 	})
 }
 
@@ -319,6 +342,21 @@ func projectLineEndingProfile(data []byte) (label, preferred string, endings []s
 		preferred = "\r\n"
 	}
 	return label, preferred, endings
+}
+
+func applyProjectLineEndingMode(content string, current []byte, requested string) (string, string) {
+	requested = strings.ToLower(strings.TrimSpace(requested))
+	if requested == "" || requested == "preserve" {
+		return applyProjectLineEndings(content, current)
+	}
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	switch requested {
+	case "crlf":
+		return "crlf", strings.ReplaceAll(normalized, "\n", "\r\n")
+	default:
+		return "lf", normalized
+	}
 }
 
 func applyProjectLineEndings(content string, current []byte) (string, string) {
