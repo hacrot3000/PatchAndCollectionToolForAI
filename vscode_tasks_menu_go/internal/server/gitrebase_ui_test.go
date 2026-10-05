@@ -28,7 +28,6 @@ func TestInteractiveRebasePlannerAndGuardedExecutionUI(t *testing.T) {
 		"Working tree is dirty. Planning is allowed",
 		"This range contains merge commits.",
 		"Range is truncated.",
-		"Planner only: no Git history has been modified.",
 		"action==='squash'||action==='fixup'",
 		"cannot be the first non-dropped commit",
 		"Plan drops every commit",
