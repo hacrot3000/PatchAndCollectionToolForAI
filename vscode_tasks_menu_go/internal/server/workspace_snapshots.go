@@ -442,7 +442,7 @@ func (s *Server) workspaceSnapshots(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		s.auditSharedSuccess(r, "workspace_snapshot.save", "workspace_snapshot", snapshot.ID, map[string]any{"name": snapshot.Name})
+		s.auditSharedSuccess(r, "workspace_snapshot.save", "workspace_snapshot", snapshot.ID, nil)
 		writeJSON(w, http.StatusOK, snapshot)
 	case http.MethodDelete:
 		id := strings.TrimSpace(r.URL.Query().Get("id"))
