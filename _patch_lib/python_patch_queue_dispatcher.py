@@ -6673,6 +6673,7 @@ def _materialize_batch_preflight_failure(
         "preflight_log_path": row.get("log_path"),
         "recovery_collect_request": recovery_request.relative_to(root).as_posix() if recovery_request is not None else None,
         "fail_handoff": fail_handoff.relative_to(root).as_posix() if fail_handoff is not None else None,
+        "output_tail": _bounded_failure_output_tail(log_text),
         "continue_decision": {"allowed": True, "reason": "read_only_preflight_failure_project_unchanged"},
     }
     row["recovery_collect_request"] = detail["recovery_collect_request"]
@@ -6813,6 +6814,45 @@ def _emit_protocol_event(event_type: str, **payload: object) -> bool:
         return bool(emit_runtime_event(event_type, **payload))
     except Exception:
         return False
+
+
+def _emit_preexecution_failure_details(details: list[dict[str, object]]) -> None:
+    """Publish bounded evidence for failures that happen before payload execution."""
+    total = len(details)
+    if total < 1:
+        return
+    for index, detail in enumerate(details, 1):
+        status = str(detail.get("status") or "").upper()
+        if status not in {"FAIL", "FAILED", "PREFLIGHT_FAIL", "INCOMPLETE"}:
+            continue
+        # Runtime items already emit their own richer item_finished event.
+        if detail.get("started_at"):
+            continue
+        diagnosis = detail.get("diagnosis") if isinstance(detail.get("diagnosis"), dict) else {}
+        diagnosis_kind = _safe_display(str(diagnosis.get("kind") or "")).strip()[:128]
+        failure_reason = _safe_display(str(diagnosis.get("message") or "")).strip()[:2048]
+        if not failure_reason:
+            failure_reason = f"{detail.get('kind') or 'PATCH'} failed before execution"
+        output_tail = _bounded_failure_output_tail(detail.get("output_tail"))
+        if not output_tail:
+            output_tail = _bounded_failure_output_tail(
+                " | ".join(x for x in (status, diagnosis_kind, failure_reason) if x)
+            )
+        payload: dict[str, object] = {
+            "run_id": _ACTIVE_RUN_ID,
+            "index": index,
+            "total": total,
+            "name": str(detail.get("name") or f"preflight-{index}"),
+            "kind": str(detail.get("kind") or "PATCH"),
+            "status": status,
+            "rc": detail.get("rc"),
+            "failure_reason": failure_reason,
+        }
+        if diagnosis_kind:
+            payload["diagnosis_kind"] = diagnosis_kind
+        if output_tail:
+            payload["output_tail"] = output_tail
+        _emit_protocol_event("item_finished", **payload)
 
 
 def _project_artifact_rel(root: Path, raw: object) -> str | None:
@@ -8676,17 +8716,20 @@ def _run_queue(
             "previous_resume_items": resume_items if status != "IDLE" else [],
             "previous_failed_item": (meaningful_previous.get("failed_item") or meaningful_previous.get("previous_failed_item")) if isinstance(meaningful_previous, dict) else None,
         }
+        _emit_preexecution_failure_details(list(_LAST_EXECUTION_DETAILS))
         _persist_queue_report_side_effects(root, report)
         return rc
 
     if recipe_error is not None:
         kind = getattr(recipe_error, "kind", "recipe_invalid")
+        failure_line = f"BATCH RECIPE FAIL — project unchanged | {kind}: {_safe_display(str(recipe_error))}"
         _LAST_EXECUTION_DETAILS = [{
             "name": Path(recipe_path).name if recipe_path else "BATCH_RECIPE.json",
             "kind": "RECIPE", "status": "PREFLIGHT_FAIL", "rc": 2,
             "diagnosis": {"kind": kind, "message": str(recipe_error)},
+            "output_tail": failure_line,
         }]
-        print(f"BATCH RECIPE FAIL — project unchanged | {kind}: {_safe_display(str(recipe_error))}", file=sys.stderr)
+        print(failure_line, file=sys.stderr)
         return finish_report("FAIL", 2, failed_item=Path(recipe_path).name if recipe_path else "BATCH_RECIPE.json")
 
     if queue_safety_error is not None:
@@ -8725,11 +8768,13 @@ def _run_queue(
             )
             print("EXPLICIT SELECTION: " + ", ".join(item.name for item in chosen))
         except Exception as exc:
+            failure_line = f"SELECTION FAIL — project unchanged | {_safe_display(str(exc))}"
             _LAST_EXECUTION_DETAILS = [{
                 "name": "CLI_SELECTION", "kind": "SELECTION", "status": "PREFLIGHT_FAIL", "rc": 2,
                 "diagnosis": {"kind": "selection_invalid", "message": str(exc)},
+                "output_tail": failure_line,
             }]
-            print(f"SELECTION FAIL — project unchanged | {_safe_display(str(exc))}", file=sys.stderr)
+            print(failure_line, file=sys.stderr)
             return finish_report("FAIL", 2, failed_item="CLI_SELECTION")
     # v6.20.2: persistent failed grouping; recovery no longer hijacks the next ordinary zero-argument run.
     # Smart Resume remains available explicitly through the ``resume`` command;
@@ -8834,11 +8879,13 @@ def _run_queue(
         chosen, metas, previous_action = _build_batch_plan(root, chosen, items, _planning_previous(root, previous))
     except Exception as exc:
         kind = getattr(exc, "kind", "batch_plan_invalid")
+        failure_line = f"BATCH PREFLIGHT FAIL — project unchanged | {kind}: {_safe_display(str(exc))}"
         _LAST_EXECUTION_DETAILS = [{
             "name": x.name, "kind": x.kind, "status": "PREFLIGHT_FAIL" if i == 0 else "NOT_EXECUTED", "rc": 2 if i == 0 else None,
             "diagnosis": {"kind": kind, "message": str(exc)},
+            "output_tail": failure_line if i == 0 else "",
         } for i, x in enumerate(chosen)]
-        print(f"BATCH PREFLIGHT FAIL — project unchanged | {kind}: {_safe_display(str(exc))}", file=sys.stderr)
+        print(failure_line, file=sys.stderr)
         return finish_report("FAIL", 2, chosen=chosen, remaining=chosen, failed_item=chosen[0].name if chosen else None)
 
     if metas:
@@ -8866,12 +8913,14 @@ def _run_queue(
             + f" | temp_free={resource_preflight_report.get('actual_temp_free_bytes')} required={resource_preflight_report.get('required_temp_free_bytes')}"
         )
         if resource_preflight_report.get("status") != "PASS":
+            failure_line = "BATCH PREFLIGHT FAIL — project unchanged | insufficient_disk_space"
             _LAST_EXECUTION_DETAILS = [{
                 "name": x.name, "kind": x.kind, "status": "PREFLIGHT_FAIL" if i == 0 else "NOT_EXECUTED",
                 "rc": 2 if i == 0 else None,
                 "diagnosis": {"kind":"insufficient_disk_space","message":"resource preflight found insufficient project/temp free space"},
+                "output_tail": failure_line if i == 0 else "",
             } for i, x in enumerate(chosen)]
-            print("BATCH PREFLIGHT FAIL — project unchanged | insufficient_disk_space", file=sys.stderr)
+            print(failure_line, file=sys.stderr)
             return finish_report("FAIL", 2, chosen=chosen, remaining=chosen, failed_item=chosen[0].name if chosen else None)
 
     print(f"BATCH POLICY: failure={failure_policy} | transaction={transaction_policy}")
@@ -8965,12 +9014,14 @@ def _run_queue(
         and previous_action.get("result") not in {"moved_to_ignore", "already_absent"}
     ):
         reason = str(previous_action.get("error") or previous_action.get("result") or "previous failure delete failed")
+        failure_line = f"PREVIOUS FAILED PATCH ACTION: DELETE FAILED — {_safe_display(reason)}"
         _LAST_EXECUTION_DETAILS = [{
             "name": str(previous_action.get("queue_file") or previous_action.get("patch_file") or "previous-failure"),
             "kind": "PATCH", "status": "PREFLIGHT_FAIL", "rc": 2,
             "diagnosis": {"kind": "previous_failure_identity_changed", "message": reason},
+            "output_tail": failure_line,
         }]
-        print(f"PREVIOUS FAILED PATCH ACTION: DELETE FAILED — {_safe_display(reason)}", file=sys.stderr)
+        print(failure_line, file=sys.stderr)
         return finish_report("FAIL", 2, chosen=chosen, remaining=chosen, failed_item=str(previous_action.get("queue_file") or previous_action.get("patch_file") or "previous-failure"))
 
     transaction_snapshot_root = None
