@@ -55,3 +55,27 @@ func TestGitReflogBackendClassifiesRecoveryKinds(t *testing.T) {
 		}
 	}
 }
+
+func TestGitRecoveryCenterScansLostCommits(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/gitstatus.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"Unreachable / lost commits",
+		"Scan lost commits",
+		"gitView('lost-commits',params)",
+		"git fsck --no-reflogs --unreachable",
+		"not visible in reflog",
+		"Use this scan after force-deleting a branch",
+		"Recover branch",
+		"Compare HEAD",
+		"Copy SHA",
+		"Recovery only creates a branch ref; it does not modify HEAD, Index, or Working tree.",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Git lost-commit Recovery Center UI missing %q", want)
+		}
+	}
+}
