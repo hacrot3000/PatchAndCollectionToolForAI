@@ -199,6 +199,16 @@ func (s *Server) gitFileContent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Git compare state must be head or index", http.StatusBadRequest)
 		return
 	}
+	allowMissing := r.URL.Query().Get("allow_missing") == "1"
+	if allowMissing && ref != "" {
+		_, _, _, existsErr := s.runGit(r.Context(), 4*time.Second, "cat-file", "-e", spec)
+		if existsErr != nil {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"repo_id": repo.ID, "path": pathValue, "ref": ref, "state": state, "commit": commit, "exists": false, "content": "",
+			})
+			return
+		}
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "show", "--no-ext-diff", spec)
@@ -229,6 +239,6 @@ func (s *Server) gitFileContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"repo_id": repo.ID, "path": pathValue, "ref": ref, "state": state, "commit": commit, "content": string(content),
+		"repo_id": repo.ID, "path": pathValue, "ref": ref, "state": state, "commit": commit, "exists": true, "content": string(content),
 	})
 }
