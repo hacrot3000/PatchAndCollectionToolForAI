@@ -340,10 +340,15 @@ function openEditorContextMenu(view,x,y){
   const sep=document.createElement('div');sep.className='tab-context-separator';menu.append(sep);
   addHeading('Editor');
   const editor=globalThis.TaskMenuEditor;
+  const splitParent=editor?.getSplitParent?.(view);
   const actions=[
     {label:'Save',title:'Save file',disabled:Boolean(view.file?.read_only)||Boolean(view.tabReadOnly)||!view.dirty,run:()=>editor?.saveEditor?.(view)},
     {label:'Reload',title:'Reload file from disk',run:()=>editor?.reloadEditor?.(view)},
     {label:'Go to line…',title:'Go to a line in this file',run:()=>editor?.goToLine?.(view)},
+    {label:'Split vertical…',title:'Show another file beside this editor',disabled:editor?.splitSupported===false,run:()=>editor?.splitEditor?.(view,'vertical')},
+    {label:'Split horizontal…',title:'Show another file below this editor',disabled:editor?.splitSupported===false,run:()=>editor?.splitEditor?.(view,'horizontal')},
+    {label:'Swap split panes',title:'Swap this editor with its split sibling',disabled:!splitParent,run:()=>editor?.swapEditorSplit?.(view)},
+    {label:'Unsplit',title:'Remove this editor from its current split',disabled:!splitParent,run:()=>editor?.unsplitEditor?.(view)},
     {label:'Close',title:'Close editor tab',danger:true,run:()=>editor?.closeEditor?.(view.id)}
   ];
   for(const action of actions){
