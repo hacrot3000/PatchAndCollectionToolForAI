@@ -24,6 +24,7 @@ style.textContent=`
 .project-explorer-context.visible{display:block}
 .project-explorer-context button{display:block;width:100%;border:0;background:transparent;text-align:left;padding:6px 8px;border-radius:4px}
 .project-explorer-context button:hover{background:#293341}
+.project-explorer-context-separator{height:1px;margin:4px 3px;background:#303844}
 .project-explorer-toggle{border:0;background:transparent;padding:2px 4px;min-width:22px}
 .project-explorer-name{border:0;background:transparent;text-align:left;flex:1;min-width:0;padding:3px 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .project-explorer-name.file{opacity:.9}
@@ -573,17 +574,28 @@ async function dropExplorerRoot(event){
   await movePathsToDirectory(sources,'','Drag and drop move');
 }
 function closeContextMenu(){contextMenu.classList.remove('visible');contextMenu.replaceChildren();}
-function contextAction(label,run){
-  const button=document.createElement('button');button.type='button';button.textContent=label;
+function contextAction(label,run,options={}){
+  const button=document.createElement('button');button.type='button';button.textContent=label;button.disabled=Boolean(options.disabled);if(options.danger)button.style.color='#ff9a9a';
   button.onclick=()=>{closeContextMenu();Promise.resolve(run()).catch(app.showError);};
   contextMenu.append(button);
+}
+function contextSeparator(){const sep=document.createElement('div');sep.className='project-explorer-context-separator';contextMenu.append(sep);}
+function appendSharedProjectActions(pathValue,type){
+  const actions=globalThis.TaskMenuProjectFileActions?.standardActions?.(pathValue,type)||[];
+  for(const action of actions){
+    if(action.separator)contextSeparator();
+    else contextAction(action.label,action.run,action);
+  }
 }
 function showContextMenu(event,pathValue,type){
   event.preventDefault();event.stopPropagation();
   if(!selected.has(pathValue)){selected.clear();selected.add(pathValue);lastSelectedPath=pathValue;render();}
   closeContextMenu();
   const paths=[...selected];
-  if(type==='file'&&paths.length===1)contextAction('Open',()=>openFile(pathValue));
+  if(paths.length===1){
+    appendSharedProjectActions(pathValue,type);
+    contextSeparator();
+  }
   contextAction(paths.length>1?'Copy selected':'Copy',()=>setProjectClipboard('copy',paths));
   contextAction(paths.length>1?'Cut selected':'Cut',()=>setProjectClipboard('cut',paths));
   contextAction(paths.length>1?'Duplicate selected':'Duplicate',()=>duplicateSelectedProjectItems());
@@ -600,10 +612,7 @@ function showContextMenu(event,pathValue,type){
   if(type==='dir'&&paths.length===1){
     contextAction('New file here…',()=>createProjectItem('file'));
     contextAction('New folder here…',()=>createProjectItem('dir'));
-    contextAction('Search / Replace in folder…',()=>globalThis.TaskMenuProjectSearch?.open?.({scope:pathValue}));
   }
-  contextAction('Reveal in Explorer',()=>revealPath(pathValue));
-  contextAction('Open containing folder',()=>openContainingFolder(pathValue));
   if(paths.every(value=>favorites.has(value)))contextAction(paths.length>1?'Unpin selected':'Unpin',()=>unpinPaths(paths));
   else contextAction(paths.length>1?'Pin selected':'Pin',()=>pinPaths(paths));
   if(paths.length>1)contextAction('Clear selection',()=>{selected.clear();lastSelectedPath='';render();});
@@ -671,4 +680,4 @@ window.addEventListener('taskmenu:git-status-refreshed',()=>{
   loadGitStatus().then(()=>render()).catch(()=>{});
 });
 
-globalThis.TaskMenuExplorer={open,close,reload,reveal:revealPath,undo:undoLastOperation,movePathsToDirectory,refreshGitStatus:async()=>{await loadGitStatus();render();},get selectedPaths(){return [...selected];},get favorites(){return [...favorites];},get recent(){return [...recent];},get clipboard(){return {mode:fileClipboard.mode,paths:[...fileClipboard.paths]};},get gitStatusAvailable(){return gitStatusAvailable;},get lastUndo(){return lastUndo?{label:lastUndo.label,steps:[...lastUndo.steps]}:null;}};
+globalThis.TaskMenuExplorer={open,close,reload,reveal:revealPath,openContainingFolder,undo:undoLastOperation,movePathsToDirectory,refreshGitStatus:async()=>{await loadGitStatus();render();},get selectedPaths(){return [...selected];},get favorites(){return [...favorites];},get recent(){return [...recent];},get clipboard(){return {mode:fileClipboard.mode,paths:[...fileClipboard.paths]};},get gitStatusAvailable(){return gitStatusAvailable;},get lastUndo(){return lastUndo?{label:lastUndo.label,steps:[...lastUndo.steps]}:null;}};
