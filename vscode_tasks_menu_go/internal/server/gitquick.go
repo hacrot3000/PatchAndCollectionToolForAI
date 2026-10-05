@@ -802,6 +802,8 @@ type gitActionRequest struct {
 	LFSPattern        string `json:"lfs_pattern,omitempty"`
 	ConflictSide      string `json:"conflict_side,omitempty"`
 	Mode              string `json:"mode,omitempty"`
+	WorktreeID        string `json:"worktree_id,omitempty"`
+	DirectoryName     string `json:"directory_name,omitempty"`
 	HunkIndex         int    `json:"hunk_index,omitempty"`
 	ExpectedDiffSHA   string `json:"expected_diff_sha,omitempty"`
 	Async             bool   `json:"async,omitempty"`
@@ -1108,6 +1110,56 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 			}
 			args = []string{"reset", "--" + mode, sha}
 		}
+	case "worktree_add_branch":
+		repo, ok := gitRepositoryFromContext(r.Context())
+		if !ok { http.Error(w, "Git repository context unavailable", http.StatusConflict); return }
+		branch := strings.TrimSpace(req.Branch)
+		if err := s.validBranchName(r.Context(), branch); err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
+		if !s.localBranchExists(r.Context(), branch) { http.Error(w, "local branch not found", http.StatusNotFound); return }
+		rows, rowsErr := s.gitWorktreeRows(r.Context())
+		if rowsErr != nil { http.Error(w, rowsErr.Error(), http.StatusConflict); return }
+		if location := gitWorktreeBranchLocation(rows, branch); location != "" {
+			http.Error(w, "branch is already checked out in worktree "+location, http.StatusConflict)
+			return
+		}
+		target, targetErr := gitWorktreeTargetPath(repo, req.DirectoryName)
+		if targetErr != nil { http.Error(w, targetErr.Error(), http.StatusBadRequest); return }
+		timeout = gitMergeTimeout
+		args = []string{"worktree", "add", "--", target, branch}
+	case "worktree_add_new_branch":
+		repo, ok := gitRepositoryFromContext(r.Context())
+		if !ok { http.Error(w, "Git repository context unavailable", http.StatusConflict); return }
+		branch := strings.TrimSpace(req.Branch)
+		if err := s.validBranchName(r.Context(), branch); err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
+		if s.localBranchExists(r.Context(), branch) { http.Error(w, "local branch already exists", http.StatusConflict); return }
+		target, targetErr := gitWorktreeTargetPath(repo, req.DirectoryName)
+		if targetErr != nil { http.Error(w, targetErr.Error(), http.StatusBadRequest); return }
+		sha, sourceErr := s.gitWorktreeSourceSHA(r.Context(), req.Ref)
+		if sourceErr != nil { http.Error(w, sourceErr.Error(), http.StatusBadRequest); return }
+		if expected := strings.TrimSpace(req.ExpectedSHA); expected != "" && expected != sha {
+			http.Error(w, "worktree source changed after confirmation; refresh and confirm again", http.StatusConflict)
+			return
+		}
+		timeout = gitMergeTimeout
+		args = []string{"worktree", "add", "-b", branch, "--", target, sha}
+	case "worktree_remove":
+		rows, rowsErr := s.gitWorktreeRows(r.Context())
+		if rowsErr != nil { http.Error(w, rowsErr.Error(), http.StatusConflict); return }
+		item, found := gitWorktreeByID(rows, req.WorktreeID)
+		if !found { http.Error(w, "worktree identity is stale or unknown", http.StatusNotFound); return }
+		if item.Current || item.Primary { http.Error(w, "cannot remove the active primary worktree", http.StatusConflict); return }
+		if !req.Confirmed {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "worktree removal requires explicit confirmation", "failure_code": "confirmation_required"})
+			return
+		}
+		timeout = gitMergeTimeout
+		args = []string{"worktree", "remove", item.path}
+	case "worktree_prune":
+		if !req.Confirmed {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "worktree prune requires explicit confirmation", "failure_code": "confirmation_required"})
+			return
+		}
+		args = []string{"worktree", "prune", "--verbose", "--expire", "now"}
 	case "delete_branch", "force_delete_branch":
 		if !req.Confirmed {
 			message := "deleting a local branch requires explicit confirmation"
