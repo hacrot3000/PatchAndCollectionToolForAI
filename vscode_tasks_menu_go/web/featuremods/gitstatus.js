@@ -521,6 +521,10 @@ async function loadChanges(){
   for(const change of rows){
     const row=el('div','git-row'+(change.conflicted?' git-row-conflicted':''));const code=el('span','git-row-code',(change.index_status||' ')+(change.worktree_status||' '));const main=el('div','git-row-main');main.append(el('div','git-row-title',change.path),el('div','git-row-sub',[change.conflicted&&'conflict',change.staged&&!change.conflicted&&'staged/index changed',change.unstaged&&!change.conflicted&&'working tree changed after index',change.staged&&change.unstaged&&!change.conflicted&&'3-state file: HEAD → staged → working',change.untracked&&'untracked',change.original_path&&('from '+change.original_path)].filter(Boolean).join(' · ')));const actions=el('div','git-row-actions');
     if(change.conflicted){
+      actions.append(actionButton('3-way editor',()=>{
+        const editor=globalThis.TaskMenuGitMergeEditor;if(!editor?.open)throw new Error('Git 3-way merge editor unavailable');
+        return editor.open({repoID:activeRepoID,path:change.path});
+      },'Open Base / Current / Incoming / Result merge editor'));
       actions.append(actionButton('Resolve',openConflictRecovery,'Open the Git conflict recovery wizard'));
       actions.append(actionButton('Open',()=>{const item=(conflictState?.files||[]).find(file=>file.path===change.path);const path=item?.project_path;if(!path)throw new Error('Project path unavailable for conflicted file');window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path,source:'git-conflict-changes'}}));},'Open conflicted working-tree file'));
     }else{
@@ -798,7 +802,12 @@ async function openWorkspaceFileView(pathValue,mode='history'){
   const repoPath=match.root?pathValue.slice(match.root.length+1):pathValue;
   return openGitFileView(repoPath,mode);
 }
-globalThis.TaskMenuGitFiles={openWorkspaceFileView,repositoryForProjectPath};
+globalThis.TaskMenuGitFiles={
+  openWorkspaceFileView,
+  repositoryForProjectPath,
+  runRepair:(repair,payload={},repoID=activeRepoID)=>repairAction(repair,payload,repoID),
+  refresh:async()=>{await refresh();if(currentView==='changes')await loadChanges();}
+};
 
 repoSelect.onchange=()=>selectRepository(repoSelect.value).catch(app.showError);
 repoRescan.onclick=async()=>{try{await refreshRepositories(true);await refresh();await loadCurrentView();}catch(error){app.showError(error);}};
