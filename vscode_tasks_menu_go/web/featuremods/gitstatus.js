@@ -213,6 +213,7 @@ async function refresh(){
     }
     if(seq!==refreshSeq||requestedRepo!==activeRepoID)return;
     renderStatus(data);
+    window.dispatchEvent(new CustomEvent('taskmenu:git-status-refreshed',{detail:{repo_id:activeRepoID,changed:Number(data?.changed||0)}}));
     const item=repositories.find(repo=>repo.id===activeRepoID);
     if(item&&data?.repository)Object.assign(item,{branch:data.branch,head:data.head,changed:data.changed,ahead:data.ahead,behind:data.behind});
     renderRepositorySelector();
