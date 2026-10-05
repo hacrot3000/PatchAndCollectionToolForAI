@@ -11,16 +11,27 @@ let suppressClickUntil=0;
 
 const style=document.createElement('style');
 style.textContent=`
-#tabs .tab[draggable="true"]{cursor:grab}
-#tabs .tab[draggable="true"] .close{cursor:pointer}
-#tabs .tab.tab-dragging{opacity:.5;cursor:grabbing}
+#tabs>[data-id][draggable="true"]{cursor:grab}
+#tabs>[data-id][draggable="true"] .close{cursor:pointer}
+#tabs>[data-id].tab-dragging{opacity:.5;cursor:grabbing}
 body.tab-reordering,#tabs.tab-reordering{user-select:none}
 `;
 document.head.append(style);
 
 function storageKey(){return 'vscode-tasks-menu:tab-order:'+(app.layoutProfile||'desktop')+':'+app.taskData.workspace;}
+function workspaceTabs(){
+  return [...tabsHost.children].filter(node=>node instanceof HTMLElement&&Boolean(node.dataset.id));
+}
+function workspaceTabFromTarget(target){
+  const tab=target instanceof Element?target.closest('[data-id]'):null;
+  return tab&&tab.parentElement===tabsHost?tab:null;
+}
+function workspaceTabByID(id){
+  id=String(id||'');
+  return workspaceTabs().find(tab=>tab.dataset.id===id)||null;
+}
 function currentIDs(){
-  return [...tabsHost.querySelectorAll('.tab[data-id]')].map(tab=>tab.dataset.id||'').filter(Boolean);
+  return workspaceTabs().map(tab=>tab.dataset.id||'').filter(Boolean);
 }
 function saveOrder(){
   try{sessionStorage.setItem(storageKey(),JSON.stringify(currentIDs()));}
@@ -35,7 +46,7 @@ function readOrder(){
 }
 function applyOrder(ids){
   if(!Array.isArray(ids)||!ids.length)return;
-  const byID=new Map([...tabsHost.querySelectorAll('.tab[data-id]')].map(tab=>[tab.dataset.id,tab]));
+  const byID=new Map(workspaceTabs().map(tab=>[tab.dataset.id,tab]));
   for(const id of ids){
     const tab=byID.get(id);
     if(tab){tabsHost.append(tab);byID.delete(id);}
@@ -51,13 +62,13 @@ function installTab(tab){
   tab.draggable=true;
 }
 function installAll(){
-  for(const tab of tabsHost.querySelectorAll('.tab[data-id]'))installTab(tab);
+  for(const tab of workspaceTabs())installTab(tab);
 }
 
 function tabAtPointer(event){
-  const direct=(event.target instanceof Element)?event.target.closest('.tab[data-id]'):null;
+  const direct=workspaceTabFromTarget(event.target);
   if(direct&&direct!==dragged)return direct;
-  const tabs=[...tabsHost.querySelectorAll('.tab[data-id]')].filter(tab=>tab!==dragged);
+  const tabs=workspaceTabs().filter(tab=>tab!==dragged);
   for(const tab of tabs){
     const rect=tab.getBoundingClientRect();
     if(event.clientX<rect.left+rect.width/2)return tab;
@@ -84,14 +95,14 @@ function cleanup(){
 
 tabsHost.addEventListener('pointerdown',event=>{
   const target=event.target instanceof Element?event.target:null;
-  const tab=target?.closest('.tab[data-id]');
+  const tab=workspaceTabFromTarget(target);
   if(!tab)return;
   tab.dataset.dragHandleAllowed=target?.closest('.close')?'0':'1';
 },true);
 
 tabsHost.addEventListener('dragstart',event=>{
   const target=event.target instanceof Element?event.target:null;
-  const tab=target?.closest('.tab[data-id]');
+  const tab=workspaceTabFromTarget(target);
   if(!tab||tab.dataset.dragHandleAllowed==='0'){event.preventDefault();return;}
   dragged=tab;originalOrder=currentIDs();committed=false;
   tab.classList.add('tab-dragging');tabsHost.classList.add('tab-reordering');document.body.classList.add('tab-reordering');
@@ -134,7 +145,7 @@ window.addEventListener('taskmenu:session',event=>{
 window.addEventListener('taskmenu:view-activated',event=>{
   if(event.detail?.kind!=='external')return;
   const id=String(event.detail?.id||'');
-  const tab=[...tabsHost.querySelectorAll('.tab[data-id]')].find(node=>node.dataset.id===id);
+  const tab=workspaceTabByID(id);
   if(tab)installTab(tab);
 });
 
