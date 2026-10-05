@@ -118,7 +118,7 @@ func TestGitFileHistoryExposesCommitCompareActions(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"gitFileCompareRef",
-		"Compare working",
+		"Compare current",
 		"Use as Compare A",
 		"Compare A ↔ this",
 		"openGitCommitAgainstProject",
