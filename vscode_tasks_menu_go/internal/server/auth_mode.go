@@ -181,7 +181,10 @@ func (s *Server) migrateSingleToShared(r *http.Request, request authModeMigratio
 		return authModeMigrationResponse{}, authModeClientError{err}
 	}
 	password := request.Password
-	if password == "" && s.Config.AuthEnabled && username == strings.TrimSpace(s.Config.Username) && identity.ValidateNewPassword(s.Config.Password) == nil {
+	if password == "" && s.Config.AuthEnabled && identity.ValidateNewPassword(s.Config.Password) == nil {
+		// The authenticated operator may choose a different shared username while
+		// reusing the current Basic Auth secret. The plaintext never leaves the
+		// server in the wizard status response.
 		password = s.Config.Password
 	}
 	if err := identity.ValidateNewPassword(password); err != nil {
