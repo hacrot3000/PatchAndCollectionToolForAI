@@ -70,6 +70,7 @@ func TestSharedRoutePermissionsSeparateReadWriteAndGitViews(t *testing.T) {
 		{http.MethodGet, "/api/git/status?view=diff", []string{identity.PermissionGitDiff}},
 		{http.MethodGet, "/api/git/status?view=file-content", []string{identity.PermissionGitDiff}},
 		{http.MethodGet, "/api/git/status?view=graph", []string{identity.PermissionGitLog}},
+		{http.MethodGet, "/api/git/status?view=reflog", []string{identity.PermissionGitLog}},
 		{http.MethodGet, "/api/git/status?view=commit-files", []string{identity.PermissionGitDiff}},
 		{http.MethodGet, "/api/git/status?view=graph-compare-head", []string{identity.PermissionGitDiff}},
 		{http.MethodGet, "/api/git/conflict-file", []string{identity.PermissionGitDiff, identity.PermissionFilesRead}},
