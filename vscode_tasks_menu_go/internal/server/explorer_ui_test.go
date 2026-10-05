@@ -222,3 +222,20 @@ func TestExplorerShowsGitStatusBadges(t *testing.T) {
 		}
 	}
 }
+
+func TestExplorerRefreshesBadgesAfterGitPanelStatus(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"taskmenu:git-status-refreshed",
+		"if(!panel.classList.contains('visible'))return",
+		"loadGitStatus().then(()=>render()).catch(()=>{})",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Explorer live Git badge refresh missing %q", want)
+		}
+	}
+}
