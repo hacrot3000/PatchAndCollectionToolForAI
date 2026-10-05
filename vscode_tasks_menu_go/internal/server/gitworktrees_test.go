@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -92,5 +94,127 @@ func TestGitWorktreeByIDMatchesOnlyListedIdentity(t *testing.T) {
 	}
 	if _, ok := gitWorktreeByID(rows, "../tmp/b"); ok {
 		t.Fatal("arbitrary path must not match worktree identity")
+	}
+}
+
+func TestGitWorktreeCreateExistingAndNewBranch(t *testing.T) {
+	workspace, s, mainBranch := setupGitQuickRepo(t)
+	head := gitQuickRun(t, workspace, "rev-parse", "HEAD")
+	gitQuickRun(t, workspace, "branch", "feature/existing")
+
+	existingBody := `{"action":"worktree_add_branch","branch":"feature/existing","directory_name":"wt-existing"}`
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", existingBody)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("add existing status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	existingPath := filepath.Join(filepath.Dir(workspace), "wt-existing")
+	if got := gitQuickRun(t, existingPath, "branch", "--show-current"); got != "feature/existing" {
+		t.Fatalf("existing branch=%q", got)
+	}
+	if got := gitQuickRun(t, workspace, "branch", "--show-current"); got != mainBranch {
+		t.Fatalf("active branch changed=%q want=%q", got, mainBranch)
+	}
+
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", existingBody)
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "already checked out") {
+		t.Fatalf("duplicate branch status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	newBody := `{"action":"worktree_add_new_branch","branch":"feature/new-worktree","directory_name":"wt-new","ref":"HEAD","expected_sha":"` + head + `"}`
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", newBody)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("add new status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	newPath := filepath.Join(filepath.Dir(workspace), "wt-new")
+	if got := gitQuickRun(t, newPath, "branch", "--show-current"); got != "feature/new-worktree" {
+		t.Fatalf("new branch=%q", got)
+	}
+	if got := gitQuickRun(t, newPath, "rev-parse", "HEAD"); got != head {
+		t.Fatalf("new worktree HEAD=%q want=%q", got, head)
+	}
+}
+
+func TestGitWorktreeCreateRejectsUnsafeTargetAndStaleSource(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	head := gitQuickRun(t, workspace, "rev-parse", "HEAD")
+	gitQuickRun(t, workspace, "branch", "feature/existing")
+
+	for _, name := range []string{"../escape", "nested/path", "nested\\path", "..", ""} {
+		body := `{"action":"worktree_add_branch","branch":"feature/existing","directory_name":"` + strings.ReplaceAll(name, "\\", "\\\\") + `"}`
+		rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("unsafe %q status=%d body=%s", name, rr.Code, rr.Body.String())
+		}
+	}
+	stale := strings.Repeat("f", len(head))
+	body := `{"action":"worktree_add_new_branch","branch":"feature/stale","directory_name":"wt-stale","ref":"HEAD","expected_sha":"` + stale + `"}`
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "source changed") {
+		t.Fatalf("stale source status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestGitWorktreeRemoveUsesOpaqueListedIdentityAndRequiresConfirmation(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	linked := filepath.Join(filepath.Dir(workspace), "wt-remove")
+	gitQuickRun(t, workspace, "worktree", "add", "-b", "feature/remove", linked)
+	rows, err := s.gitWorktreeRows(withGitRepository(context.Background(), gitRepository{ID: ".", Name: filepath.Base(workspace), Path: ".", Root: workspace}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var target gitWorktreeRow
+	for _, row := range rows {
+		if row.Branch == "feature/remove" {
+			target = row
+		}
+	}
+	if target.ID == "" {
+		t.Fatalf("linked worktree not found: %+v", rows)
+	}
+
+	body := `{"action":"worktree_remove","worktree_id":"` + target.ID + `"}`
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "confirmation_required") {
+		t.Fatalf("unconfirmed remove status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if _, err := os.Stat(linked); err != nil {
+		t.Fatalf("unconfirmed remove changed worktree: %v", err)
+	}
+
+	body = `{"action":"worktree_remove","worktree_id":"` + target.ID + `","confirmed":true}`
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("remove status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if _, err := os.Stat(linked); !os.IsNotExist(err) {
+		t.Fatalf("linked worktree still exists err=%v", err)
+	}
+
+	stale := `{"action":"worktree_remove","worktree_id":"../../tmp","confirmed":true}`
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", stale)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("arbitrary ID status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestGitWorktreePruneRequiresConfirmation(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	linked := filepath.Join(filepath.Dir(workspace), "wt-prune")
+	gitQuickRun(t, workspace, "worktree", "add", "-b", "feature/prune", linked)
+	if err := os.RemoveAll(linked); err != nil {
+		t.Fatal(err)
+	}
+
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"worktree_prune"}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "confirmation_required") {
+		t.Fatalf("unconfirmed prune status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"worktree_prune","confirmed":true}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("prune status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	out := gitQuickRun(t, workspace, "worktree", "list", "--porcelain")
+	if strings.Contains(out, "feature/prune") || strings.Contains(out, linked) {
+		t.Fatalf("stale worktree not pruned: %s", out)
 	}
 }
