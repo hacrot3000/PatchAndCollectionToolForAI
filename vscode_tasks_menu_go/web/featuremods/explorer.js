@@ -680,4 +680,20 @@ window.addEventListener('taskmenu:git-status-refreshed',()=>{
   loadGitStatus().then(()=>render()).catch(()=>{});
 });
 
-globalThis.TaskMenuExplorer={open,close,reload,reveal:revealPath,openContainingFolder,undo:undoLastOperation,movePathsToDirectory,refreshGitStatus:async()=>{await loadGitStatus();render();},get selectedPaths(){return [...selected];},get favorites(){return [...favorites];},get recent(){return [...recent];},get clipboard(){return {mode:fileClipboard.mode,paths:[...fileClipboard.paths]};},get gitStatusAvailable(){return gitStatusAvailable;},get lastUndo(){return lastUndo?{label:lastUndo.label,steps:[...lastUndo.steps]}:null;}};
+globalThis.TaskMenuExplorer={
+  open,close,reload,reveal:revealPath,openContainingFolder,undo:undoLastOperation,movePathsToDirectory,refreshGitStatus:async()=>{await loadGitStatus();render();},
+  snapshotState(){return {expanded:[...expanded]};},
+  async restoreState(state){
+    expanded.clear();
+    for(const pathValue of Array.isArray(state?.expanded)?state.expanded:[]){
+      const value=String(pathValue||'').trim();
+      if(value)expanded.add(value);
+    }
+    persistExpanded();
+    await ensureRoot(false);
+    await restoreExpandedDirectories();
+    render();
+    return true;
+  },
+  get selectedPaths(){return [...selected];},get favorites(){return [...favorites];},get recent(){return [...recent];},get clipboard(){return {mode:fileClipboard.mode,paths:[...fileClipboard.paths]};},get gitStatusAvailable(){return gitStatusAvailable;},get lastUndo(){return lastUndo?{label:lastUndo.label,steps:[...lastUndo.steps]}:null;}
+};

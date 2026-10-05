@@ -827,6 +827,22 @@ window.addEventListener('resize',()=>{if(renderedEditorSplitRoot)layoutEditorSpl
 
 globalThis.TaskMenuEditor={
   editors,
+  snapshotState(){
+    const files=[...editors.values()].filter(view=>!view.closed).map(view=>String(view.file?.path||'')).filter(Boolean);
+    const activeView=activeEditorID?editors.get(activeEditorID):null;
+    return {files,active:String(activeView?.file?.path||'')};
+  },
+  async restoreState(state){
+    const files=Array.isArray(state?.files)?state.files.map(String).filter(Boolean):[];
+    for(const pathValue of files){
+      try{await openFile(pathValue);}catch(error){console.warn('Snapshot editor restore skipped '+pathValue,error);}
+    }
+    const active=String(state?.active||'').trim();
+    if(active&&files.includes(active)){
+      try{await openFile(active);}catch(error){console.warn('Snapshot active editor restore failed',error);}
+    }
+    return true;
+  },
   openFile,
   reloadEditor,
   saveEditor,

@@ -180,4 +180,4 @@ installAll();
   globalThis.TaskMenuTerminalRestore?.persistSnapshot?.();
 })();
 
-globalThis.TaskMenuTabOrder={saveOrder,restoreSavedOrder,currentIDs};
+globalThis.TaskMenuTabOrder={saveOrder,restoreSavedOrder,currentIDs,applyOrder};

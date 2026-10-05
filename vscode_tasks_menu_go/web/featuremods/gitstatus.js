@@ -1512,6 +1512,18 @@ async function openWorkspaceFileView(pathValue,mode='history'){
   return openGitFileView(repoPath,mode);
 }
 globalThis.TaskMenuGitFiles={
+  snapshotState(){
+    const repo=activeRepository();
+    return {repository_id:String(activeRepoID||''),branch:String(repo?.branch||currentStatus?.branch||''),head:String(currentStatus?.head||'')};
+  },
+  async restoreState(state){
+    const id=String(state?.repository_id||'').trim();
+    if(!id)return false;
+    if(!repositories.some(item=>item.id===id))await refreshRepositories(true);
+    const selected=await selectRepository(id,{reload:false,persist:true});
+    if(selected){await refresh();await loadCurrentView();}
+    return selected;
+  },
   openWorkspaceFileView,
   repositoryForProjectPath,
   runRepair:(repair,payload={},repoID=activeRepoID)=>repairAction(repair,payload,repoID),
