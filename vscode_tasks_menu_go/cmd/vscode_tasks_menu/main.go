@@ -646,6 +646,7 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 		DBSessions: dbRuntime.Sessions,
 		SSHTunnels: dbRuntime.Tunnels,
 		ConnectionSecrets: dbRuntime.Secrets,
+		OpenWorkspace: launchTaskdeckWorkspace,
 	}
 	server.RegisterSelfUpdateCheck(srv, func(ctx context.Context) (server.SelfUpdateCheckResult, error) {
 		return checkSelfUpdate(ctx, ws)
@@ -1107,6 +1108,34 @@ func checkSelfUpdate(ctx context.Context, workspace string) (server.SelfUpdateCh
 		RemoteRevision:    remote,
 	}, nil
 }
+func launchTaskdeckWorkspace(workspace string) error {
+	abs, err := filepath.Abs(strings.TrimSpace(workspace))
+	if err != nil {
+		return fmt.Errorf("resolve worktree workspace: %w", err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return fmt.Errorf("inspect worktree workspace: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("worktree workspace is not a directory")
+	}
+	exe, err := preferredTaskdeckExecutable()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(exe, "--workspace", abs)
+	cmd.Dir = abs
+	cmd.Stdin = nil
+	if runtime.GOOS != "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("launch TaskDeck workspace: %w", err)
+	}
+	return cmd.Process.Release()
+}
+
 func preferredTaskdeckExecutable() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
