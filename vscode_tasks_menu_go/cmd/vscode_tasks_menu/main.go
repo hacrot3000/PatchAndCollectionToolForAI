@@ -27,6 +27,7 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/dbredis"
 	"bletonfc/vscode_tasks_menu/internal/dbsqlite"
 	"bletonfc/vscode_tasks_menu/internal/gittextconv"
+	"bletonfc/vscode_tasks_menu/internal/gitrebaseeditor"
 	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 	"bletonfc/vscode_tasks_menu/internal/selfupdate"
@@ -43,6 +44,13 @@ var activeWorkspaceForUpdateCheck string
 const reloadConfigSignal = syscall.Signal(1)
 
 func main() {
+	if mode := gitrebaseeditor.ActiveMode(); mode != "" {
+		if err := gitrebaseeditor.Run(mode, os.Args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "TaskDeck Git rebase editor failed:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if os.Getenv("TASKDECK_SSH_ASKPASS") == "1" {
 		prompt := strings.Join(os.Args[1:], " ")
 		if err := sshaskpass.RunHelper(
