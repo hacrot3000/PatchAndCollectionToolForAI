@@ -190,3 +190,33 @@ func TestGitCommitFilesRejectsSymbolicRef(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
+
+func TestGitGraphCompareHeadReturnsChangedFiles(t *testing.T) {
+	_, s, _, featureSHA, _ := setupGitGraphRepo(t)
+	head := gitQuickRun(t, s.Workspace, "rev-parse", "HEAD")
+
+	rr := callGitStatusHandler(t, s, http.MethodGet, "/api/git/status?view=graph-compare-head&ref="+featureSHA, "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("graph compare HEAD status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var got struct {
+		Left  string         `json:"left"`
+		Right string         `json:"right"`
+		Files []gitGraphFile `json:"files"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Left != featureSHA || got.Right != head {
+		t.Fatalf("compare refs=%+v", got)
+	}
+	foundMain := false
+	for _, file := range got.Files {
+		if file.Path == "main.txt" {
+			foundMain = true
+		}
+	}
+	if !foundMain {
+		t.Fatalf("compare files=%+v; want main.txt difference", got.Files)
+	}
+}
