@@ -287,9 +287,39 @@ function warnInput(error){
   const now=Date.now();if(now-lastInputWarningAt<3000)return;lastInputWarningAt=now;
   console.warn('Broadcast input failed',error);
 }
+function broadcastTargetCount(view){
+  if(state.mode==='none')return 0;
+  const source=String(view?.meta?.id||'');
+  const groupID=state.assignments?.[source]||'';
+  let count=0;
+  for(const candidate of app.views.values()){
+    if(!candidate||candidate.closed||candidate.meta?.status!=='running'||String(candidate.meta?.id||'')===source)continue;
+    if(state.mode==='group'&&(!groupID||state.assignments?.[candidate.meta.id]!==groupID))continue;
+    count++;
+  }
+  return count;
+}
+function riskyBroadcastInput(data){
+  data=String(data||'');
+  const bracketed=data.includes('\x1b[200~')||data.includes('\x1b[201~');
+  const lines=(data.match(/[\r\n]/g)||[]).length;
+  return bracketed||lines>=2||data.length>=256;
+}
+function confirmBroadcastInput(view,data){
+  if(!riskyBroadcastInput(data))return true;
+  const targets=broadcastTargetCount(view);
+  if(targets<1)return false;
+  const lineCount=(String(data).match(/[\r\n]/g)||[]).length+1;
+  const summary=String(data).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g,'').replace(/[\r\n]+/g,' ↵ ').slice(0,180);
+  return window.confirm(
+    'Broadcast '+(state.mode==='all'?'All':'Group')+' will send this paste/input to '+targets+' other terminal'+(targets===1?'':'s')+'.\n\n'+
+    lineCount+' line(s) · '+String(data).length+' characters\n'+summary+'\n\nSend to broadcast targets?'
+  );
+}
 function queueBroadcast(view,data){
   if(!view||view.closed||view.meta.status!=='running'||!data||state.mode==='none')return;
   if(state.mode==='group'&&!state.assignments?.[view.meta.id])return;
+  if(!confirmBroadcastInput(view,data))return;
   const previous=inputQueues.get(view.meta.id)||Promise.resolve();
   const next=previous.catch(()=>{}).then(()=>app.jsonFetch('/api/broadcast',{
     method:'POST',headers:{'Content-Type':'application/json'},
