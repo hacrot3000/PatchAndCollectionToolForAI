@@ -44,7 +44,9 @@ func TestEditorAutoOpenRespectsForegroundLockButTabClickForcesSwitch(t *testing.
 		"function activateEditor(id,{force=false}={})",
 		"return app.activateExternalView(id,{force})",
 		"tab.onclick=()=>activateEditor(id,{force:true})",
-		"const view=await promise;activateEditor(view.id);return view",
+		"const view=await promise",
+		"activateEditor(view.id)",
+		"announceOpenedFile(pathValue)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("editor.js missing foreground-lock integration %q", want)
