@@ -6,6 +6,7 @@ let dialog=null;
 let status=null;
 let selectedMode='';
 let step=1;
+let setup={};
 
 const style=document.createElement('style');
 style.textContent=
@@ -63,9 +64,8 @@ function targetLabel(){
   return selectedMode==='shared'?'Multi-user shared-server':'Single authentication';
 }
 function clearSetupState(){
-  const saved=globalThis.__taskdeckAuthModeSetup;
-  if(saved){saved.password='';saved.confirm='';}
-  try{delete globalThis.__taskdeckAuthModeSetup;}catch{globalThis.__taskdeckAuthModeSetup={};}
+  setup.password='';setup.confirm='';
+  setup={};
 }
 function closeWizard(){
   if(dialog){dialog.remove();dialog=null;}
@@ -154,7 +154,7 @@ function renderModeStep(body,actions){
   actions.append(cancel,next);
 }
 function setupState(){
-  return globalThis.__taskdeckAuthModeSetup||(globalThis.__taskdeckAuthModeSetup={});
+  return setup;
 }
 function renderSetupStep(body,actions){
   body.append(currentSummary());
