@@ -135,7 +135,7 @@ func TestExplorerCreatesRenamesAndMovesProjectItems(t *testing.T) {
 		"async function renameProjectItem(pathValue)",
 		"async function moveSelectedProjectItems()",
 		"function topLevelSelectedPaths(paths)",
-		"action:pathValue",
+		"body:JSON.stringify({action,path:pathValue,new_path:newPath})",
 		"create_file",
 		"Rename…",
 		"Move selected…",
