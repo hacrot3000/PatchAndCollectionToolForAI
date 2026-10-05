@@ -112,3 +112,31 @@ func TestWorkspaceRootsRejectPrimaryAndInvalidName(t *testing.T) {
 	bad:=callWorkspaceRoots(t,s,http.MethodPost,"/api/workspace-roots",`{"path":"child","name":"bad\nname"}`)
 	if bad.Code!=http.StatusBadRequest { t.Fatalf("bad name status=%d body=%s",bad.Code,bad.Body.String()) }
 }
+
+func TestWorkspaceVirtualPathResolution(t *testing.T) {
+	base := t.TempDir()
+	primary := filepath.Join(base, "main")
+	attached := filepath.Join(base, "client")
+	if err := os.MkdirAll(primary, 0o755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(attached, 0o755); err != nil { t.Fatal(err) }
+	s := &Server{Workspace: primary}
+	create := callWorkspaceRoots(t, s, http.MethodPost, "/api/workspace-roots", `{"path":"../client","name":"Client"}`)
+	if create.Code != http.StatusCreated { t.Fatalf("create status=%d body=%s", create.Code, create.Body.String()) }
+	var item workspaceRootView
+	if err := json.Unmarshal(create.Body.Bytes(), &item); err != nil { t.Fatal(err) }
+
+	virtual := workspaceVirtualPath(item.ID, "src/main.go")
+	root, rel, err := s.projectRootForVirtualPath(virtual)
+	if err != nil { t.Fatal(err) }
+	if root.ID != item.ID || root.Path != item.Path || rel != "src/main.go" {
+		t.Fatalf("root=%+v rel=%q virtual=%q", root, rel, virtual)
+	}
+	primaryRoot, primaryRel, err := s.projectRootForVirtualPath("src/main.go")
+	if err != nil { t.Fatal(err) }
+	if !primaryRoot.Primary || primaryRel != "src/main.go" {
+		t.Fatalf("primary root=%+v rel=%q", primaryRoot, primaryRel)
+	}
+	if _, _, err := s.projectRootForVirtualPath("@root/unknown/file.txt"); err == nil {
+		t.Fatal("unknown attached root resolved")
+	}
+}

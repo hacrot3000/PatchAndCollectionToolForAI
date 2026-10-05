@@ -95,12 +95,12 @@ func (s *Server) projectFileSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	root, err := s.projectRoot()
+	rootView, _, err := s.projectRootForVirtualPath(rel)
 	if err != nil {
 		http.Error(w, "project root unavailable", http.StatusInternalServerError)
 		return
 	}
-	pinned, err := openProjectPinnedFile(root, path)
+	pinned, err := openProjectPinnedFile(rootView.Path, path)
 	if err != nil {
 		http.Error(w, "project file unavailable", http.StatusNotFound)
 		return
@@ -219,12 +219,12 @@ func (s *Server) projectFileRead(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	root, err := s.projectRoot()
+	rootView, _, err := s.projectRootForVirtualPath(rel)
 	if err != nil {
 		http.Error(w, "project root unavailable", http.StatusInternalServerError)
 		return
 	}
-	pinned, err := openProjectPinnedFile(root, path)
+	pinned, err := openProjectPinnedFile(rootView.Path, path)
 	if err != nil {
 		http.Error(w, "project file unavailable", http.StatusNotFound)
 		return
@@ -354,7 +354,13 @@ func (s *Server) projectTree(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	dir, err := s.resolveProjectPath(r.URL.Query().Get("path"), true, true)
+	requested := r.URL.Query().Get("path")
+	rootView, _, rootErr := s.projectRootForVirtualPath(requested)
+	if rootErr != nil {
+		http.Error(w, rootErr.Error(), http.StatusBadRequest)
+		return
+	}
+	dir, err := s.resolveProjectPath(requested, true, true)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -369,7 +375,7 @@ func (s *Server) projectTree(w http.ResponseWriter, r *http.Request) {
 		if entry.IsDir() && entry.Name() == ".git" {
 			continue
 		}
-		item, ok := s.projectTreeItem(dir, entry)
+		item, ok := s.projectTreeItem(rootView.Path, dir, entry)
 		if !ok {
 			continue
 		}
@@ -384,13 +390,9 @@ func (s *Server) projectTree(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, items)
 }
 
-func (s *Server) projectTreeItem(parent string, entry os.DirEntry) (projectTreeEntry, bool) {
+func (s *Server) projectTreeItem(root, parent string, entry os.DirEntry) (projectTreeEntry, bool) {
 	candidate := filepath.Join(parent, entry.Name())
 	if entry.Type()&os.ModeSymlink != 0 {
-		root, err := s.projectRoot()
-		if err != nil {
-			return projectTreeEntry{}, false
-		}
 		resolved, err := filepath.EvalSymlinks(candidate)
 		if err != nil || !pathWithin(root, resolved) {
 			return projectTreeEntry{}, false
@@ -429,11 +431,12 @@ func (s *Server) projectRoot() (string, error) {
 }
 
 func (s *Server) resolveProjectPath(requested string, allowRoot, wantDir bool) (string, error) {
-	root, err := s.projectRoot()
+	rootView, rootRelative, err := s.projectRootForVirtualPath(requested)
 	if err != nil {
 		return "", err
 	}
-	rel, err := cleanProjectRelativePath(requested, allowRoot)
+	root := rootView.Path
+	rel, err := cleanProjectRelativePath(rootRelative, allowRoot)
 	if err != nil {
 		return "", err
 	}

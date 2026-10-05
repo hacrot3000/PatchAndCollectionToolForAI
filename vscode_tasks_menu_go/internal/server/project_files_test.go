@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -556,4 +557,73 @@ func TestProjectFileReadDecodesWindows1252MarkdownReadOnly(t *testing.T) {
 	if got.Content != "# Café\n" || got.Encoding != "windows-1252" || !got.ReadOnly {
 		t.Fatalf("response=%#v", got)
 	}
+}
+
+func TestAttachedWorkspaceRootTreeAndEditorRoundTrip(t *testing.T) {
+	base := t.TempDir()
+	primary := filepath.Join(base, "main")
+	attached := filepath.Join(base, "client")
+	if err := os.MkdirAll(primary, 0o755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(filepath.Join(attached, "src"), 0o755); err != nil { t.Fatal(err) }
+	filePath := filepath.Join(attached, "src", "main.txt")
+	if err := os.WriteFile(filePath, []byte("before\n"), 0o644); err != nil { t.Fatal(err) }
+	s := &Server{Workspace: primary}
+
+	create := callWorkspaceRoots(t, s, http.MethodPost, "/api/workspace-roots", `{"path":"../client","name":"Client"}`)
+	if create.Code != http.StatusCreated { t.Fatalf("attach status=%d body=%s", create.Code, create.Body.String()) }
+	var root workspaceRootView
+	if err := json.Unmarshal(create.Body.Bytes(), &root); err != nil { t.Fatal(err) }
+	virtualDir := workspaceVirtualPath(root.ID, "src")
+	virtualFile := workspaceVirtualPath(root.ID, "src/main.txt")
+
+	tree := httptest.NewRecorder()
+	s.Handler().ServeHTTP(tree, httptest.NewRequest(http.MethodGet, "/api/project/tree?path="+urlQueryEscape(virtualDir), nil))
+	if tree.Code != http.StatusOK { t.Fatalf("tree status=%d body=%s", tree.Code, tree.Body.String()) }
+	var entries []projectTreeEntry
+	if err := json.Unmarshal(tree.Body.Bytes(), &entries); err != nil { t.Fatal(err) }
+	if len(entries) != 1 || entries[0].Name != "main.txt" { t.Fatalf("entries=%+v", entries) }
+
+	read := httptest.NewRecorder()
+	s.Handler().ServeHTTP(read, httptest.NewRequest(http.MethodGet, "/api/project/file?path="+urlQueryEscape(virtualFile), nil))
+	if read.Code != http.StatusOK { t.Fatalf("read status=%d body=%s", read.Code, read.Body.String()) }
+	var file projectFileResponse
+	if err := json.Unmarshal(read.Body.Bytes(), &file); err != nil { t.Fatal(err) }
+	if file.Path != virtualFile || file.Content != "before\n" { t.Fatalf("file=%+v", file) }
+
+	body, err := json.Marshal(projectFileSaveRequest{Path: virtualFile, Content: "after\n", ExpectedSHA256: file.SHA256})
+	if err != nil { t.Fatal(err) }
+	save := httptest.NewRecorder()
+	s.Handler().ServeHTTP(save, httptest.NewRequest(http.MethodPut, "/api/project/file", bytes.NewReader(body)))
+	if save.Code != http.StatusOK { t.Fatalf("save status=%d body=%s", save.Code, save.Body.String()) }
+	raw, err := os.ReadFile(filePath)
+	if err != nil { t.Fatal(err) }
+	if string(raw) != "after\n" { t.Fatalf("attached file=%q", raw) }
+}
+
+func TestAttachedWorkspaceRootSymlinkCannotEscape(t *testing.T) {
+	if runtime.GOOS == "windows" { t.Skip("symlink test") }
+	base := t.TempDir()
+	primary := filepath.Join(base, "main")
+	attached := filepath.Join(base, "client")
+	outside := filepath.Join(base, "outside")
+	for _, dir := range []string{primary, attached, outside} {
+		if err := os.MkdirAll(dir, 0o755); err != nil { t.Fatal(err) }
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret"), 0o644); err != nil { t.Fatal(err) }
+	if err := os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(attached, "secret-link")); err != nil { t.Skipf("symlink unavailable: %v", err) }
+	s := &Server{Workspace: primary}
+	create := callWorkspaceRoots(t, s, http.MethodPost, "/api/workspace-roots", `{"path":"../client"}`)
+	if create.Code != http.StatusCreated { t.Fatal(create.Body.String()) }
+	var root workspaceRootView
+	if err := json.Unmarshal(create.Body.Bytes(), &root); err != nil { t.Fatal(err) }
+	virtualRoot := workspaceVirtualPath(root.ID, "")
+
+	tree := httptest.NewRecorder()
+	s.Handler().ServeHTTP(tree, httptest.NewRequest(http.MethodGet, "/api/project/tree?path="+urlQueryEscape(virtualRoot), nil))
+	if tree.Code != http.StatusOK { t.Fatalf("tree status=%d body=%s", tree.Code, tree.Body.String()) }
+	if strings.Contains(tree.Body.String(), "secret-link") { t.Fatalf("escaping symlink exposed: %s", tree.Body.String()) }
+
+	read := httptest.NewRecorder()
+	s.Handler().ServeHTTP(read, httptest.NewRequest(http.MethodGet, "/api/project/file?path="+urlQueryEscape(workspaceVirtualPath(root.ID, "secret-link")), nil))
+	if read.Code != http.StatusNotFound { t.Fatalf("escape read status=%d body=%s", read.Code, read.Body.String()) }
 }

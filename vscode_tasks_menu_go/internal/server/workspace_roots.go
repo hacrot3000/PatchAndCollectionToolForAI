@@ -182,6 +182,48 @@ func (s *Server) resolveWorkspaceRoot(id string) (workspaceRootView, error) {
 	return workspaceRootView{}, fmt.Errorf("workspace root not found")
 }
 
+func (s *Server) projectRootForVirtualPath(requested string) (workspaceRootView, string, error) {
+	requested = strings.TrimSpace(strings.ReplaceAll(requested, "\\", "/"))
+	if requested == "" || requested == "." {
+		root, err := s.primaryWorkspaceRoot()
+		return root, "", err
+	}
+	const prefix = "@root/"
+	if !strings.HasPrefix(requested, prefix) {
+		root, err := s.primaryWorkspaceRoot()
+		return root, requested, err
+	}
+	rest := strings.TrimPrefix(requested, prefix)
+	index := strings.IndexByte(rest, '/')
+	id := rest
+	rel := ""
+	if index >= 0 {
+		id = rest[:index]
+		rel = rest[index+1:]
+	}
+	id = normalizeWorkspaceRootID(id)
+	if id == "" || id == workspacePrimaryRootID {
+		return workspaceRootView{}, "", fmt.Errorf("attached workspace root id is invalid")
+	}
+	root, err := s.resolveWorkspaceRoot(id)
+	if err != nil {
+		return workspaceRootView{}, "", err
+	}
+	return root, rel, nil
+}
+
+func workspaceVirtualPath(rootID, rel string) string {
+	rootID = normalizeWorkspaceRootID(rootID)
+	rel = strings.Trim(strings.ReplaceAll(rel, "\\", "/"), "/")
+	if rootID == "" || rootID == workspacePrimaryRootID {
+		return rel
+	}
+	if rel == "" {
+		return "@root/" + rootID
+	}
+	return "@root/" + rootID + "/" + rel
+}
+
 func (s *Server) workspaceRoots(w http.ResponseWriter, r *http.Request) {
 	s.workspaceRootsMu.Lock()
 	defer s.workspaceRootsMu.Unlock()
