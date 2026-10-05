@@ -209,7 +209,7 @@ func TestTabDragInstallsForExternalEditorTabs(t *testing.T) {
 	for _, want := range []string{
 		"window.addEventListener('taskmenu:view-activated'",
 		"event.detail?.kind!=='external'",
-		"node.dataset.id===id",
+		"const tab=workspaceTabByID(id)",
 		"if(tab)installTab(tab)",
 	} {
 		if !strings.Contains(js, want) {
