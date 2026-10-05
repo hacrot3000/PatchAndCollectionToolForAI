@@ -713,6 +713,16 @@ function announceOpenedFile(pathValue){
   window.dispatchEvent(new CustomEvent('taskmenu:project-file-opened',{detail:{path:pathValue}}));
 }
 
+function closeEditorsForTrashedPath(pathValue){
+  pathValue=String(pathValue||'').trim();
+  if(!pathValue)return;
+  const prefix=pathValue+'/';
+  const affected=[...editors.values()].filter(view=>view.file.path===pathValue||view.file.path.startsWith(prefix));
+  for(const view of affected){
+    if(view.dirty)continue;
+    destroyEditor(view.id);
+  }
+}
 function remapOpenedEditorPaths(oldPath,newPath){
   oldPath=String(oldPath||'').trim();newPath=String(newPath||'').trim();
   if(!oldPath||!newPath||oldPath===newPath)return;
@@ -802,6 +812,9 @@ window.addEventListener('taskmenu:project-file-open-request',event=>{
 });
 window.addEventListener('taskmenu:project-path-renamed',event=>{
   remapOpenedEditorPaths(event.detail?.old_path,event.detail?.new_path);
+});
+window.addEventListener('taskmenu:project-path-trashed',event=>{
+  closeEditorsForTrashedPath(event.detail?.path);
 });
 window.addEventListener('taskmenu:view-activated',event=>{
   if(event.detail?.kind==='terminal'){deactivateEditors();return;}
