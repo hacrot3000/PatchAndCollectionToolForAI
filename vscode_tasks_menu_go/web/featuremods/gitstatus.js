@@ -55,7 +55,7 @@ function el(tag,className,text){const node=document.createElement(tag);if(classN
 function q(value){value=String(value??'');return /^[A-Za-z0-9_./:@+\-]+$/.test(value)?value:"'"+value.replace(/'/g,"'\\''")+"'";}
 function actionCommand(action,payload={}){
   switch(action){
-    case 'fetch':return 'git fetch --prune';case 'pull':return 'git pull --ff-only';case 'push':return 'git push';case 'stage_all':return 'git add -A';
+    case 'interactive_rebase':return 'git rebase -i '+q(payload.ref);case 'fetch':return 'git fetch --prune';case 'pull':return 'git pull --ff-only';case 'push':return 'git push';case 'stage_all':return 'git add -A';
     case 'stage':return 'git add -- '+q(payload.path);case 'unstage':return 'git restore --staged -- '+q(payload.path);case 'stage_hunk':return 'Stage hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'unstage_hunk':return 'Unstage hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'discard_hunk':return 'Discard hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'ignore':return 'Add .gitignore rule for '+q(payload.path);case 'commit':return 'git commit -m '+q(payload.message);
     case 'switch':return 'git switch '+q(payload.branch);case 'create_branch':return 'git switch -c '+q(payload.branch);case 'checkout_commit':return 'git switch --detach '+q(payload.ref);case 'create_branch_at':return 'git switch -c '+q(payload.branch)+' '+q(payload.ref);case 'create_branch_ref':return 'git branch '+q(payload.branch)+' '+q(payload.ref);case 'reset_commit':return 'git reset --'+q(payload.mode)+' '+q(payload.ref);case 'worktree_add_branch':return 'git worktree add '+q(payload.directory_name)+' '+q(payload.branch);case 'worktree_add_new_branch':return 'git worktree add -b '+q(payload.branch)+' '+q(payload.directory_name)+' '+q(payload.ref||'HEAD');case 'worktree_remove':return 'git worktree remove <selected worktree>';case 'worktree_open':return 'taskdeck --workspace <selected worktree>';case 'worktree_prune':return 'git worktree prune --verbose --expire now';case 'delete_branch':return 'git branch -d '+q(payload.branch);case 'force_delete_branch':return 'git branch -D '+q(payload.branch);case 'delete_remote_tracking':return 'git branch -dr '+q(payload.branch);case 'delete_remote_branch':return 'git push '+q(String(payload.branch||'').split('/')[0])+' --delete '+q(String(payload.branch||'').split('/').slice(1).join('/'));case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'merge_to':return 'Merge To '+q(payload.expected_current)+' -> '+q(payload.branch)+' and push';case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
   }
@@ -1223,6 +1223,56 @@ async function loadRebase(){
   else content.append(el('div','git-empty','Choose the commit immediately before the range you want to rewrite. Planner is read-only until you explicitly start a rebase.'));
   return true;
 }
+async function runRebasePauseRepair(meta,repair,label){
+  const confirmText=repair==='abort_in_progress'
+    ?'Abort the active interactive rebase and restore the branch to its original pre-rebase state?'
+    :'Continue the active interactive rebase from the current stop?';
+  const data=await action('repair',{repair,confirmed:repair==='abort_in_progress'},confirmText,{refresh:false});
+  if(data?.conflict_state?.operation==='rebase'){
+    renderRebasePausedControls(meta,data);
+    return data;
+  }
+  await refresh();
+  await loadRebase();
+  return data;
+}
+function renderRebasePausedControls(meta,data){
+  const box=el('div','git-rebase-warning');
+  box.append(el('div','git-row-title','Interactive rebase is paused'));
+  box.append(el('div','git-row-sub',data?.output||'Resolve/edit the current stop, then continue or abort.'));
+  const actions=el('div','git-row-actions');
+  actions.append(
+    actionButton('Continue rebase',()=>runRebasePauseRepair(meta,'continue_in_progress','Continue rebase')),
+    actionButton('Abort rebase',()=>runRebasePauseRepair(meta,'abort_in_progress','Abort rebase'))
+  );
+  box.append(actions);
+  content.append(box);
+}
+function structuredRebasePlan(){
+  return gitRebasePlanState.map(item=>({sha:item.sha,action:item.action,message:item.action==='reword'?String(item.message||''):''}));
+}
+async function startInteractiveRebase(meta){
+  const problem=validateRebasePlanClient(gitRebasePlanState);
+  if(problem)throw new Error(problem);
+  if(!meta.clean)throw new Error('Working tree and index must be clean before starting interactive rebase');
+  if(meta.has_merge_commits)throw new Error('Merge-containing ranges are not yet supported for interactive rebase execution');
+  if(meta.truncated)throw new Error('The selected range is truncated; choose a closer base before executing');
+  const plan=structuredRebasePlan();
+  const confirmText='Rewrite '+plan.length+' commit(s) on '+meta.branch+' using interactive rebase?\n\nBase: '+String(meta.base_sha||'').slice(0,12)+'\nHEAD: '+String(meta.head_sha||'').slice(0,12)+'\n\nThis rewrites commit history. Push may require force-with-lease afterward.';
+  const data=await action('interactive_rebase',{
+    ref:meta.base_sha,
+    expected_sha:meta.head_sha,
+    expected_current:meta.branch,
+    rebase_plan:plan
+  },confirmText,{refresh:false});
+  if(data?.conflict_state?.operation==='rebase'){
+    renderRebasePausedControls(meta,data);
+    return data;
+  }
+  await refresh();
+  await loadRebase();
+  return data;
+}
 function renderRebaseWorkspace(meta,controls){
   content.replaceChildren(controls);
   const summary=el('div','git-row-sub',[meta.branch,'base '+String(meta.base_sha||'').slice(0,12),'HEAD '+String(meta.head_sha||'').slice(0,12),(meta.commits||[]).length+' commit(s)'].join(' · '));content.append(summary);
@@ -1231,8 +1281,12 @@ function renderRebaseWorkspace(meta,controls){
   if(meta.truncated)content.append(el('div','git-rebase-warning','Range is truncated. Choose a closer base before executing.'));
   const shell=el('div','git-rebase-shell'),plan=el('div','git-rebase-plan'),preview=el('div','git-rebase-preview');shell.append(plan,preview);content.append(shell);
   renderRebasePlanList(plan,preview,meta);renderRebasePreview(preview,meta);
-  const status=el('div','git-row-sub','Planner only: no Git history has been modified. Execution will be enabled after todo/sequence-editor validation.');
-  content.append(status);
+  const status=el('div','git-row-sub','Structured plan is validated again server-side against branch/base/HEAD/full SHA before Git starts.');
+  const execute=actionButton('Start interactive rebase',()=>startInteractiveRebase(meta),'Execute this structured plan using TaskDeck\'s backend-controlled sequence/message editor');
+  const problem=validateRebasePlanClient(gitRebasePlanState);
+  execute.disabled=Boolean(problem)||!meta.clean||Boolean(meta.has_merge_commits)||Boolean(meta.truncated);
+  execute.title=problem||(!meta.clean?'Clean the Index/Working tree before execution':meta.has_merge_commits?'Merge-containing ranges are not yet supported':meta.truncated?'Choose a closer base so the full range is loaded':'Rewrite the selected commits');
+  const footer=el('div','git-row-actions');footer.append(execute);content.append(status,footer);
 }
 async function loadLog(){const data=await gitView('log',{limit:'50'});if(!data)return false;content.replaceChildren();for(const commit of data.commits||[]){const row=el('div','git-row');const code=el('span','git-row-code',commit.short);const main=el('div','git-row-main');main.append(el('div','git-row-title',commit.subject),el('div','git-row-sub',commit.date+' · '+commit.author));const actions=el('div','git-row-actions');
     actions.append(
