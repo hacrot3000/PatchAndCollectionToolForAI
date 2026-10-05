@@ -534,3 +534,42 @@ func TestGitCherryPickRequiresCleanWorktree(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
+
+func TestGitSafeLocalBranchDelete(t *testing.T) {
+	workspace, s, mainBranch := setupGitQuickRepo(t)
+	gitQuickRun(t, workspace, "branch", "feature/merged")
+
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"delete_branch","branch":"feature/merged"}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "confirmation_required") {
+		t.Fatalf("unconfirmed delete status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"delete_branch","branch":"feature/merged","confirmed":true}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("delete merged branch status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := gitQuickRun(t, workspace, "branch", "--list", "feature/merged"); got != "" {
+		t.Fatalf("branch remains: %q", got)
+	}
+
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"delete_branch","branch":"`+mainBranch+`","confirmed":true}`)
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "cannot delete the current branch") {
+		t.Fatalf("current branch delete status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestGitSafeBranchDeleteRefusesUnmergedBranch(t *testing.T) {
+	workspace, s, mainBranch := setupGitQuickRepo(t)
+	gitQuickRun(t, workspace, "switch", "-c", "feature/unmerged")
+	if err := os.WriteFile(filepath.Join(workspace, "only-feature.txt"), []byte("feature\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "only-feature.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "unmerged work")
+	gitQuickRun(t, workspace, "switch", mainBranch)
+
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"delete_branch","branch":"feature/unmerged","confirmed":true}`)
+	if rr.Code != http.StatusOK || strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("unmerged delete unexpectedly succeeded status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := gitQuickRun(t, workspace, "branch", "--list", "feature/unmerged"); !strings.Contains(got, "feature/unmerged") {
+		t.Fatalf("unmerged branch disappeared: %q", got)
+	}
+}
