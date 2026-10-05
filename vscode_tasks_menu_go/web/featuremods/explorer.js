@@ -55,6 +55,7 @@ const selected=new Set();
 const favorites=new Set();
 let recent=[];
 let lastSelectedPath='';
+let fileClipboard={mode:'',paths:[]};
 let rootLoaded=false;
 let requestSeq=0;
 
@@ -97,6 +98,14 @@ function childName(value){
 function topLevelSelectedPaths(paths){
   const ordered=[...new Set(paths)].sort((a,b)=>a.split('/').length-b.split('/').length||a.localeCompare(b));
   return ordered.filter((pathValue,index)=>!ordered.slice(0,index).some(parent=>pathValue.startsWith(parent+'/')));
+}
+function copyName(pathValue,index=1){
+  const name=basename(pathValue);
+  const dot=name.lastIndexOf('.');
+  const hasExt=dot>0;
+  const stem=hasExt?name.slice(0,dot):name;
+  const ext=hasExt?name.slice(dot):'';
+  return stem+' copy'+(index>1?' '+index:'')+ext;
 }
 function showMessage(message){tree.replaceChildren();const node=document.createElement('div');node.className='project-explorer-message';node.textContent=message;tree.append(node);}
 function rememberRecent(pathValue){
@@ -287,6 +296,65 @@ async function renameProjectItem(pathValue){
   await reload();
   await revealPath(resolved);
 }
+function setProjectClipboard(mode,paths){
+  fileClipboard={mode,paths:topLevelSelectedPaths(paths)};
+}
+function destinationDirectoryForPath(pathValue,type){
+  return type==='dir'?pathValue:parentPath(pathValue);
+}
+function nextDuplicatePath(source){
+  const parent=parentPath(source);
+  const existing=new Set((loaded.get(parent)||[]).map(item=>item.name));
+  for(let index=1;index<1000;index++){
+    const name=copyName(source,index);
+    if(!existing.has(name))return joinPath(parent,name);
+  }
+  throw new Error('Cannot find an available duplicate name');
+}
+async function duplicateSelectedProjectItems(){
+  const sources=topLevelSelectedPaths([...selected]);
+  if(!sources.length)return;
+  const created=[];
+  for(const source of sources){
+    const target=nextDuplicatePath(source);
+    const result=await projectMutation('copy',source,target);
+    created.push(result.path||target);
+  }
+  await reload();
+  selected.clear();for(const pathValue of created)selected.add(pathValue);
+  lastSelectedPath=created.at(-1)||'';
+  render();
+}
+async function pasteProjectClipboard(destinationDir){
+  const sources=topLevelSelectedPaths(fileClipboard.paths);
+  if(!fileClipboard.mode||!sources.length)return;
+  const moved=[];
+  const created=[];
+  for(const source of sources){
+    let target=joinPath(destinationDir,basename(source));
+    if(target===source){
+      if(fileClipboard.mode==='cut')continue;
+      target=nextDuplicatePath(source);
+    }
+    if(fileClipboard.mode==='cut'){
+      const result=await projectMutation('rename',source,target);
+      const resolved=result.path||target;
+      moved.push([source,resolved]);
+      remapStoredPaths(source,resolved);
+      window.dispatchEvent(new CustomEvent('taskmenu:project-path-renamed',{detail:{old_path:source,new_path:resolved}}));
+    }else{
+      const result=await projectMutation('copy',source,target);
+      created.push(result.path||target);
+    }
+  }
+  if(fileClipboard.mode==='cut')fileClipboard={mode:'',paths:[]};
+  await reload();
+  selected.clear();
+  for(const [,pathValue] of moved)selected.add(pathValue);
+  for(const pathValue of created)selected.add(pathValue);
+  lastSelectedPath=[...selected].at(-1)||'';
+  render();
+}
 async function moveSelectedProjectItems(){
   const sources=topLevelSelectedPaths([...selected]);
   if(!sources.length)return;
@@ -322,6 +390,13 @@ function showContextMenu(event,pathValue,type){
   closeContextMenu();
   const paths=[...selected];
   if(type==='file'&&paths.length===1)contextAction('Open',()=>openFile(pathValue));
+  contextAction(paths.length>1?'Copy selected':'Copy',()=>setProjectClipboard('copy',paths));
+  contextAction(paths.length>1?'Cut selected':'Cut',()=>setProjectClipboard('cut',paths));
+  contextAction(paths.length>1?'Duplicate selected':'Duplicate',()=>duplicateSelectedProjectItems());
+  if(fileClipboard.paths.length){
+    const destination=destinationDirectoryForPath(pathValue,type);
+    contextAction('Paste '+(fileClipboard.mode==='cut'?'move':'copy')+' here',()=>pasteProjectClipboard(destination));
+  }
   if(paths.length===1)contextAction('Rename…',()=>renameProjectItem(pathValue));
   contextAction(paths.length>1?'Move selected…':'Move…',()=>moveSelectedProjectItems());
   if(type==='dir'&&paths.length===1){
@@ -388,4 +463,4 @@ window.addEventListener('taskmenu:project-file-opened',event=>{
   if(panel.classList.contains('visible'))revealPath(pathValue).catch(app.showError);
 });
 
-globalThis.TaskMenuExplorer={open,close,reload,reveal:revealPath,get selectedPaths(){return [...selected];},get favorites(){return [...favorites];},get recent(){return [...recent];}};
+globalThis.TaskMenuExplorer={open,close,reload,reveal:revealPath,get selectedPaths(){return [...selected];},get favorites(){return [...favorites];},get recent(){return [...recent];},get clipboard(){return {mode:fileClipboard.mode,paths:[...fileClipboard.paths]};}};
