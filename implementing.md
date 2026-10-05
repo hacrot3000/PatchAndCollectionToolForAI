@@ -201,7 +201,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Open repo rescan multi-repo và chuyển Git Panel sang repository con;
     - integration tests local-only bao phủ clean/dirty/mismatch/uninitialized, init/update/recursive/sync, stale SHA, unknown ID và dirty Init bypass.
 
-11. **P1 — Project snapshots/checkpoints**
+11. **P1 — Project snapshots/checkpoints** — ✅ **COMPLETE**
     Không phải Git commit, mà là checkpoint TaskDeck:
     - File layout.
     - Open tabs.
@@ -215,6 +215,16 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     `Save workspace snapshot: "Debug NFC issue"`
     
     Sau đó restore nguyên context làm việc.
+
+    Hoàn tất Project snapshots hiện tại:
+    - store project-scoped + user-scoped trong shared-server mode, có giới hạn kích thước/số lượng, normalize path và permission `settings.read/settings.write`;
+    - Save / Update / Restore / Delete từ Workspace Snapshots manager, có `Ctrl+Alt+S`;
+    - semantic tab identity thay cho runtime session ID để snapshot vẫn restore được sau daemon/session ID thay đổi;
+    - khôi phục Editor files/active editor, Explorer expanded folders, Database query tabs, FTP/SFTP profile + local/remote location và Git repository đang chọn;
+    - terminal local được tạo lại với CWD, title, broadcast group khi group còn tồn tại và split layout; mapping theo đúng snapshot index nên một terminal restore lỗi không làm lệch split sang terminal khác;
+    - global tab order và active tab được dựng lại sau khi các subsystem đã khôi phục;
+    - Git branch + HEAD được capture làm context/evidence, nhưng restore chỉ chọn đúng repository và **không tự switch branch**, tránh thay đổi worktree ngoài ý muốn;
+    - shared-server audit không ghi snapshot name vào shared metadata.
 
 12. **P1 — Project profiles**
     Một project có thể có nhiều profile:
