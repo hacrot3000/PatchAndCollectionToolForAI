@@ -25,6 +25,8 @@ style.textContent=`
 .project-explorer-toggle{border:0;background:transparent;padding:2px 4px;min-width:22px}
 .project-explorer-name{border:0;background:transparent;text-align:left;flex:1;min-width:0;padding:3px 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .project-explorer-name.file{opacity:.9}
+.project-explorer-git{min-width:20px;padding:1px 4px;border-radius:4px;text-align:center;font:10px ui-monospace,monospace;font-weight:700;opacity:.9}
+.project-explorer-git.status-M{color:#e5b85c}.project-explorer-git.status-A{color:#72cf8a}.project-explorer-git.status-D{color:#ef7d88}.project-explorer-git.status-U{color:#ff8c8c;background:#4a2228}.project-explorer-git.status-q{color:#7eb6f0}.project-explorer-git.status-R,.project-explorer-git.status-C{color:#c596e8}.project-explorer-git.status-T{color:#e5b85c}.project-explorer-git.dir{opacity:.52;font-weight:500}
 .project-explorer-children{margin-left:13px;border-left:1px solid #252c35;padding-left:4px}
 .project-explorer-message{padding:10px 8px;opacity:.65}
 html[data-taskmenu-theme="light"] .project-explorer{background:#fff;border-color:#b9c0c8;box-shadow:10px 0 28px rgba(0,0,0,.12)}
@@ -54,6 +56,8 @@ const loaded=new Map();
 const expanded=new Set();
 const selected=new Set();
 const favorites=new Set();
+const gitStatusByPath=new Map();
+let gitStatusAvailable=false;
 let recent=[];
 let lastSelectedPath='';
 let fileClipboard={mode:'',paths:[]};
@@ -187,6 +191,31 @@ function renderSaved(){
   saved.classList.toggle('visible',Boolean(saved.childElementCount));
 }
 
+async function loadGitStatus(){
+  try{
+    const data=await app.jsonFetch('/api/project/git-status');
+    gitStatusByPath.clear();
+    gitStatusAvailable=Boolean(data?.available);
+    for(const change of Array.isArray(data?.changes)?data.changes:[]){
+      const pathValue=String(change?.path||'').trim();
+      const status=String(change?.status||'').trim();
+      if(pathValue&&status)gitStatusByPath.set(pathValue,{...change,status});
+    }
+    return true;
+  }catch{
+    gitStatusByPath.clear();gitStatusAvailable=false;return false;
+  }
+}
+function gitBadgeForPath(pathValue,type){
+  const exact=gitStatusByPath.get(pathValue);
+  if(exact)return {text:exact.status,title:[exact.status,pathValue,exact.repository&&('repo '+exact.repository)].filter(Boolean).join(' · '),className:'status-'+(exact.status==='?'?'q':exact.status)};
+  if(type!=='dir')return null;
+  const prefix=pathValue+'/';
+  let count=0;
+  for(const key of gitStatusByPath.keys())if(key.startsWith(prefix))count++;
+  if(!count)return null;
+  return {text:String(count),title:count+' changed path'+(count===1?'':'s')+' under '+pathValue,className:'dir'};
+}
 async function loadDirectory(pathValue,force=false){
   if(!force&&loaded.has(pathValue))return loaded.get(pathValue);
   const seq=++requestSeq;
@@ -211,6 +240,9 @@ function renderItem(parent,item){
   const row=document.createElement('div');row.className='project-explorer-row';row.dataset.path=fullPath;row.dataset.type=item.type;row.classList.toggle('selected',selected.has(fullPath));
   const toggle=document.createElement('button');toggle.type='button';toggle.className='project-explorer-toggle';
   const name=document.createElement('button');name.type='button';name.className='project-explorer-name '+item.type;name.textContent=item.name;name.title=fullPath;
+  const gitBadge=document.createElement('span');gitBadge.className='project-explorer-git';
+  const badge=gitBadgeForPath(fullPath,item.type);
+  if(badge){gitBadge.textContent=badge.text;gitBadge.title=badge.title;gitBadge.classList.add(badge.className);}else gitBadge.hidden=true;
   row.style.paddingLeft='0px';
   if(item.type==='dir'){
     toggle.textContent=expanded.has(fullPath)?'▾':'▸';toggle.title='Expand '+fullPath;
@@ -228,7 +260,7 @@ function renderItem(parent,item){
     name.ondblclick=()=>openFile(fullPath);
   }
   row.oncontextmenu=event=>showContextMenu(event,fullPath,item.type);
-  row.append(toggle,name);wrap.append(row);
+  row.append(toggle,name,gitBadge);wrap.append(row);
   if(item.type==='dir'&&expanded.has(fullPath)){
     const children=document.createElement('div');children.className='project-explorer-children';
     const list=loaded.get(fullPath);
@@ -540,6 +572,7 @@ async function ensureRoot(force=false){
   if(rootLoaded&&!force)return;
   try{
     await loadDirectory('',force);rootLoaded=true;render();
+    loadGitStatus().then(()=>render()).catch(()=>{});
     await restoreExpandedDirectories();
     render();
   }catch(error){rootLoaded=false;showMessage('Explorer unavailable');throw error;}
@@ -564,4 +597,4 @@ window.addEventListener('taskmenu:project-file-opened',event=>{
   if(panel.classList.contains('visible'))revealPath(pathValue).catch(app.showError);
 });
 
-globalThis.TaskMenuExplorer={open,close,reload,reveal:revealPath,undo:undoLastOperation,get selectedPaths(){return [...selected];},get favorites(){return [...favorites];},get recent(){return [...recent];},get clipboard(){return {mode:fileClipboard.mode,paths:[...fileClipboard.paths]};},get lastUndo(){return lastUndo?{label:lastUndo.label,steps:[...lastUndo.steps]}:null;}};
+globalThis.TaskMenuExplorer={open,close,reload,reveal:revealPath,undo:undoLastOperation,refreshGitStatus:async()=>{await loadGitStatus();render();},get selectedPaths(){return [...selected];},get favorites(){return [...favorites];},get recent(){return [...recent];},get clipboard(){return {mode:fileClipboard.mode,paths:[...fileClipboard.paths]};},get gitStatusAvailable(){return gitStatusAvailable;},get lastUndo(){return lastUndo?{label:lastUndo.label,steps:[...lastUndo.steps]}:null;}};
