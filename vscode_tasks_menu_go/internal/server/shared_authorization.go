@@ -142,7 +142,7 @@ func sharedRoutePermissions(r *http.Request) []string {
 			return nil // Shared mode has no Git mutation capability.
 		}
 		switch strings.TrimSpace(r.URL.Query().Get("view")) {
-		case "log", "graph", "reflog":
+		case "log", "graph", "reflog", "lost-commits":
 			return []string{identity.PermissionGitLog}
 		case "diff", "compare", "file-content", "commit-files", "graph-compare-head":
 			return []string{identity.PermissionGitDiff}
