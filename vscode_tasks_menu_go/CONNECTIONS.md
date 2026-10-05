@@ -11,15 +11,33 @@ Trong **Connections → SSH**, tạo profile gồm:
 - authentication bằng SSH agent, private key hoặc password;
 - optional ProxyJump;
 - optional remote home directory;
-- optional preset commands.
+- optional preset commands;
+- connect timeout;
+- `ServerAliveInterval` và `ServerAliveCountMax`;
+- optional interactive-terminal forwarding rules:
+  - Local `-L`;
+  - Remote `-R`;
+  - Dynamic SOCKS `-D`.
 
 TaskDeck dùng system OpenSSH client. Không có SSH library riêng và không tắt host-key verification.
+
+Generic forwarding trong SSH profile chỉ được inject vào **interactive SSH terminal**. SSH Test chỉ kiểm tra login/host identity; SFTP và database tunnel không kế thừa các rule `-L/-R/-D` này để tránh vô tình mở port khi chỉ transfer file hoặc mở DB tunnel. TaskDeck thêm `ExitOnForwardFailure=yes` khi interactive profile có forwarding.
 
 Host-key policy:
 
 - agent/private key không có stored secret: `StrictHostKeyChecking=ask`;
 - password hoặc encrypted private-key passphrase dùng one-time askpass: `StrictHostKeyChecking=accept-new`;
 - changed host key vẫn bị OpenSSH từ chối.
+
+Nếu OpenSSH báo changed/verification failure, TaskDeck có recovery dialog an toàn:
+
+1. lấy effective `UserKnownHostsFile` bằng `ssh -G`;
+2. inspect đúng host/port entry bằng `ssh-keygen -F`;
+3. hiển thị lookup/fingerprint mà OpenSSH báo và matching file;
+4. chỉ cho phép **Remove old known_hosts entry** sau explicit confirmation;
+5. không reconnect tự động và không tự trust key mới.
+
+TaskDeck không dùng `StrictHostKeyChecking=no`. Sau khi xóa old entry, người dùng phải reconnect và tự xác minh replacement host key qua trusted channel.
 
 Password/passphrase không được đưa vào argv. Stored secret được lấy từ encrypted secret store và cấp cho OpenSSH qua one-time Unix-socket askpass ticket.
 
@@ -51,11 +69,16 @@ Trong **Connections → FTP**, profile gồm:
 - Username;
 - Password;
 - Initial remote path;
-- Connect timeout.
+- Connect timeout;
+- transport security:
+  - Plain FTP;
+  - Explicit TLS / FTPES;
+  - Implicit FTPS;
+- TLS certificate verification policy.
 
-FTP client được viết bằng **Go standard library**, không dùng third-party FTP package. Nó dùng binary mode `TYPE I`, ưu tiên `EPSV`, fallback `PASV` trên IPv4 và ưu tiên `MLSD` trước khi fallback `LIST`.
+FTP/FTPS client được viết bằng **Go standard library**, không dùng third-party FTP package. Nó dùng binary mode `TYPE I`, ưu tiên `EPSV`, fallback `PASV` trên IPv4 và ưu tiên `MLSD` trước khi fallback `LIST`.
 
-> **Security:** FTP thường là plaintext. Username/password và file content không được mã hóa trên đường truyền. Nếu server hỗ trợ SSH, ưu tiên SFTP.
+FTPS mặc định xác minh TLS certificate/hostname. TaskDeck không tự tắt certificate verification. Plain FTP vẫn được hỗ trợ cho hệ thống cũ nhưng username/password và file content không được mã hóa trên đường truyền; nếu server hỗ trợ SFTP hoặc verified FTPS thì nên dùng transport mã hóa.
 
 FTP password được lưu qua cùng encrypted secret store của SSH/database. Browser chỉ nhận `has_secret`, không nhận plaintext hoặc `secret_ref`.
 
@@ -142,7 +165,9 @@ FTP/SFTP workspace state được lưu theo workspace để browser reload khôn
 - remote delete chạy post-order ở daemon và idempotent: child được xóa trước parent; target đã bị xóa được coi là hoàn tất. Journal delete browser của các release cũ được migrate một lần sang daemon queue;
 - **Local browser ↔ FTP/SFTP** là ngoại lệ do browser sandbox: daemon không thể đọc `FileSystemHandle`. TaskDeck lưu queue item + scan descriptor ở browser storage, khôi phục handle từ IndexedDB sau reload, đổi item đang `Running` thành `Queued`, scan lại phần cây còn dang dở và dedup item đã discover;
 - nếu browser yêu cầu cấp lại quyền Local folder sau reload, queue/scanner vẫn được giữ. Bấm **Grant** rồi Retry/Resume để tiếp tục; item không bị xóa chỉ vì permission tạm thời chưa granted;
-- daemon restart là biên khác với browser reload: server-side jobs hiện được bảo toàn qua **page reload/reconnect**, không được mô tả là durable qua việc process TaskDeck daemon bị kill/restart.
+- server-side transfer queue có **durable journal**: TaskDeck ghi state atomic để daemon restart/self-update có thể khôi phục queue/scanner/history. Item đang Running được reconcile về trạng thái có thể resume/retry thay vì bị coi là hoàn tất;
+- trước khi tiếp tục sau daemon restart, TaskDeck validate lại source/destination/profile context; không tự chạy mù job stale;
+- upload/download dùng partial-transfer state và resumable primitive khi FTP/SFTP transport hỗ trợ; final destination chỉ được coi hoàn tất sau khi transfer hoàn thành.
 
 ### Transfer Queue
 
@@ -163,6 +188,17 @@ Bên dưới hai file panes có **Transfer Queue** dùng chung cho upload/downlo
 - mỗi FTP/SFTP profile có server queue worker riêng; scanner có thể tiếp tục listing/mkdir trong khi worker đang transfer/delete một item. Local-browser pipeline giữ cùng semantics nhưng phần đọc/ghi FileSystemHandle phải chạy ở browser;
 - queue lớn dùng pending cursor O(1), throttle render và giới hạn tối đa 2000 row trong DOM; logical queue vẫn giữ đầy đủ trạng thái của toàn bộ item;
 - empty folder vẫn được tạo dù không có file queue item.
+
+### Folder sync / mirror
+
+File workspace có compare/sync workflow cho Host ↔ Remote:
+
+- scan hai phía và phân loại Only source / Only destination / Different / Same;
+- **dry-run plan** được tạo trước khi thay đổi;
+- copy/update/delete actions được biểu diễn rõ trong plan;
+- mirror/delete không chạy trực tiếp khi chưa qua preview/confirmation;
+- execution dùng cùng transfer queue/scanner/recovery model, không tạo pipeline song song riêng.
+
 
 ### Duplicate file conflict policy
 
@@ -204,6 +240,27 @@ Supported adapters:
 | SQLite | Python 3 stdlib `sqlite3` | local file only | no | SQL, explicit read-only/read-write |
 
 TaskDeck advertises MySQL/MongoDB/SQLite adapters only when their required local runtime can be probed successfully. Redis is always available because its client is built into TaskDeck.
+
+### Query execution, cancel, transactions và explain
+
+Query execution dùng adapter capability thay vì giả định mọi backend giống nhau.
+
+- adapter có capability `cancel`: nút **Run** đổi thành **Cancel** trong lúc query chạy; cancel request không kill toàn adapter process;
+- multi-statement dừng tại statement hiện tại khi Cancel;
+- SQLite dùng `EXPLAIN QUERY PLAN`;
+- MySQL/MariaDB dùng `EXPLAIN` và có `EXPLAIN ANALYZE` cho `SELECT/WITH` vì ANALYZE thực sự thực thi query;
+- SQLite và MySQL/MariaDB hỗ trợ explicit **Begin / Commit / Rollback**.
+
+Transaction là connection thật, không chỉ là label UI:
+
+- SQLite giữ một Python `sqlite3.Connection` xuyên nhiều request;
+- MySQL giữ một `mysql`/MariaDB CLI process và server connection xuyên transaction;
+- MySQL query cancel trong transaction dùng `CONNECTION_ID()` + `KILL QUERY` từ control connection để transaction connection không bị kill;
+- Data-grid/object actions bị gate khi explicit transaction đang active vì chúng có pipeline/connection riêng; trong transaction dùng Query editor cho SQL rồi Commit/Rollback;
+- disconnect với transaction chưa hoàn tất cố gắng rollback.
+
+Query workspace còn có persisted **Query History** và **Saved Snippets**. Relational structure metadata có foreign-key/reference information và UI navigation tới referenced relation khi adapter cung cấp metadata phù hợp.
+
 
 ### Database Workbench UI
 
