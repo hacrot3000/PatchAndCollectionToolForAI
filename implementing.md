@@ -51,7 +51,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
    - Git commit ↔ current ưu tiên buffer editor đang mở; Git state compare hỗ trợ HEAD ↔ Staged, Staged ↔ Working và HEAD ↔ Working;
    - remote compare dùng text API giới hạn kích thước + SHA compare-and-swap để không overwrite file đã đổi sau lúc load.
 
-4. **P0 — Git 3-way conflict editor**
+4. **P0 — Git 3-way conflict editor** — ✅ **COMPLETE**
    Hiện conflict wizard đã tốt, nhưng bước tiếp theo nên là:
    - `Base`
    - `Current / Ours`
@@ -68,7 +68,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
    
    Đây sẽ là nâng cấp rất lớn so với conflict wizard dạng command.
 
-5. **P0 — Git commit graph**
+5. **P0 — Git commit graph** — ✅ **COMPLETE**
    - Graph branch/merge trực quan.
    - Local + remote refs.
    - Tags.
@@ -86,6 +86,15 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
      - compare with HEAD.
    
    Với lượng tính năng Git hiện có, commit graph là phần UI còn thiếu rõ nhất.
+
+   
+   Hoàn tất commit graph hiện tại:
+   - DAG branch/merge bằng SVG, hiển thị HEAD/local/remote/tag refs;
+   - search và filter author/date/message/path;
+   - click commit xem changed files, merge commit chọn parent làm baseline;
+   - visual diff commit↔parent và commit↔HEAD dùng lại generic File Compare, kể cả add/delete/rename;
+   - context menu checkout detached, create branch here, cherry-pick, revert, reset soft/mixed/hard, tag, compare with HEAD;
+   - mutation theo full SHA + expected SHA; checkout/create-branch-at yêu cầu clean worktree, reset bắt buộc confirmation.
 
 6. **P0 — Git Reflog + Recovery Center**
    Vì TaskDeck đã hỗ trợ khá nhiều thao tác Git nguy hiểm, nên nên có một lớp cứu hộ:
