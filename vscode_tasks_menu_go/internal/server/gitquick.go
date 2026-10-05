@@ -803,7 +803,8 @@ type gitActionRequest struct {
 	ConflictSide      string `json:"conflict_side,omitempty"`
 	Mode              string `json:"mode,omitempty"`
 	WorktreeID        string `json:"worktree_id,omitempty"`
-	DirectoryName     string `json:"directory_name,omitempty"`
+	DirectoryName     string                `json:"directory_name,omitempty"`
+	RebasePlan        []gitRebaseActionItem `json:"rebase_plan,omitempty"`
 	HunkIndex         int    `json:"hunk_index,omitempty"`
 	ExpectedDiffSHA   string `json:"expected_diff_sha,omitempty"`
 	Async             bool   `json:"async,omitempty"`
@@ -966,6 +967,18 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(strings.TrimSpace(req.Repair), "conflict_") || strings.TrimSpace(req.Repair) == "continue_in_progress" || strings.TrimSpace(req.Repair) == "merge_to_prepare_resolution" {
 			s.gitAttachConflictState(r.Context(), payload)
 		}
+		writeJSON(w, http.StatusOK, payload)
+		return
+	case "interactive_rebase":
+		output, truncated, err := s.gitInteractiveRebaseExecute(r.Context(), req)
+		if err != nil {
+			payload := s.gitFailurePayload(r.Context(), action, output, err.Error(), truncated)
+			s.gitAttachConflictState(r.Context(), payload)
+			writeJSON(w, http.StatusOK, payload)
+			return
+		}
+		payload := map[string]any{"ok": true, "action": action, "output": output, "truncated": truncated}
+		s.gitAttachConflictState(r.Context(), payload)
 		writeJSON(w, http.StatusOK, payload)
 		return
 	case "fetch":
