@@ -151,3 +151,46 @@ func TestFileTransferMenusExposeSelectedLocalRemoteCompare(t *testing.T) {
 		}
 	}
 }
+
+func TestFileCompareSupportsGitThreeStateAndOpenEditorBuffer(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function gitStateSource(repoID,pathValue,state",
+		"state!=='head'&&state!=='index'",
+		"function editorForProjectPath(pathValue)",
+		"for(const view of editor.editors.values())",
+		"function workingProjectSource(pathValue",
+		"if(view)return editorSource(view",
+		"async function openGitStatePair(repoID,repoPath,workspacePath,mode)",
+		"title:'HEAD ↔ Staged'",
+		"title:'Staged ↔ Working'",
+		"title:'HEAD ↔ Working'",
+		"right:workingProjectSource(workspacePath",
+		"title:'Git commit ↔ Current'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Git three-state generic compare missing %q", want)
+		}
+	}
+
+	gitData, err := webassets.Files.ReadFile("featuremods/gitstatus.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitJS := string(gitData)
+	for _, want := range []string{
+		"function openGenericGitStateCompare(path,mode)",
+		"compare.openGitStatePair(activeRepoID,path,workspacePathForActiveRepository(path),mode)",
+		"Open File Compare",
+		"Compare current",
+		"current editor buffer when open",
+	} {
+		if !strings.Contains(gitJS, want) {
+			t.Fatalf("Git panel generic compare integration missing %q", want)
+		}
+	}
+}
