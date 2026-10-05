@@ -57,7 +57,7 @@ function actionCommand(action,payload={}){
   switch(action){
     case 'interactive_rebase':return 'git rebase -i '+q(payload.ref);case 'restore_file_commit':return 'git restore --source='+q(payload.ref)+' --worktree -- '+q(payload.path);case 'restore_staged_commit':return 'git restore --source='+q(payload.ref)+' --staged -- '+q(payload.path);case 'fetch':return 'git fetch --prune';case 'pull':return 'git pull --ff-only';case 'push':return 'git push';case 'stage_all':return 'git add -A';
     case 'stage':return 'git add -- '+q(payload.path);case 'unstage':return 'git restore --staged -- '+q(payload.path);case 'stage_hunk':return 'Stage hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'unstage_hunk':return 'Unstage hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'discard_hunk':return 'Discard hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'ignore':return 'Add .gitignore rule for '+q(payload.path);case 'commit':return 'git commit -m '+q(payload.message);
-    case 'switch':return 'git switch '+q(payload.branch);case 'create_branch':return 'git switch -c '+q(payload.branch);case 'checkout_commit':return 'git switch --detach '+q(payload.ref);case 'create_branch_at':return 'git switch -c '+q(payload.branch)+' '+q(payload.ref);case 'create_branch_ref':return 'git branch '+q(payload.branch)+' '+q(payload.ref);case 'reset_commit':return 'git reset --'+q(payload.mode)+' '+q(payload.ref);case 'worktree_add_branch':return 'git worktree add '+q(payload.directory_name)+' '+q(payload.branch);case 'worktree_add_new_branch':return 'git worktree add -b '+q(payload.branch)+' '+q(payload.directory_name)+' '+q(payload.ref||'HEAD');case 'worktree_remove':return 'git worktree remove <selected worktree>';case 'worktree_open':return 'taskdeck --workspace <selected worktree>';case 'worktree_prune':return 'git worktree prune --verbose --expire now';case 'delete_branch':return 'git branch -d '+q(payload.branch);case 'force_delete_branch':return 'git branch -D '+q(payload.branch);case 'delete_remote_tracking':return 'git branch -dr '+q(payload.branch);case 'delete_remote_branch':return 'git push '+q(String(payload.branch||'').split('/')[0])+' --delete '+q(String(payload.branch||'').split('/').slice(1).join('/'));case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'merge_to':return 'Merge To '+q(payload.expected_current)+' -> '+q(payload.branch)+' and push';case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
+    case 'switch':return 'git switch '+q(payload.branch);case 'create_branch':return 'git switch -c '+q(payload.branch);case 'checkout_commit':return 'git switch --detach '+q(payload.ref);case 'create_branch_at':return 'git switch -c '+q(payload.branch)+' '+q(payload.ref);case 'create_branch_ref':return 'git branch '+q(payload.branch)+' '+q(payload.ref);case 'reset_commit':return 'git reset --'+q(payload.mode)+' '+q(payload.ref);case 'worktree_add_branch':return 'git worktree add '+q(payload.directory_name)+' '+q(payload.branch);case 'worktree_add_new_branch':return 'git worktree add -b '+q(payload.branch)+' '+q(payload.directory_name)+' '+q(payload.ref||'HEAD');case 'worktree_remove':return 'git worktree remove <selected worktree>';case 'worktree_open':return 'taskdeck --workspace <selected worktree>';case 'worktree_prune':return 'git worktree prune --verbose --expire now';case 'submodule_init':return 'git submodule update --init --checkout <selected submodule>';case 'submodule_update':return 'git submodule update --init --checkout <selected submodule>';case 'submodule_checkout_expected':return 'git submodule update --init --checkout <selected submodule>';case 'submodule_update_recursive':return 'git submodule update --init --recursive --checkout';case 'submodule_sync':return 'git submodule sync --recursive';case 'delete_branch':return 'git branch -d '+q(payload.branch);case 'force_delete_branch':return 'git branch -D '+q(payload.branch);case 'delete_remote_tracking':return 'git branch -dr '+q(payload.branch);case 'delete_remote_branch':return 'git push '+q(String(payload.branch||'').split('/')[0])+' --delete '+q(String(payload.branch||'').split('/').slice(1).join('/'));case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'merge_to':return 'Merge To '+q(payload.expected_current)+' -> '+q(payload.branch)+' and push';case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
   }
 }
 async function copyText(text){
@@ -71,7 +71,7 @@ function beginOperation(command,message='Running…'){
   showOperation(command,message,'','running');
   requestAnimationFrame(()=>operation.scrollIntoView({block:'nearest'}));
 }
-function gitUIAsyncAction(action){return ['fetch','pull','push','merge','delete_remote_branch'].includes(String(action||''));}
+function gitUIAsyncAction(action){return ['fetch','pull','push','merge','delete_remote_branch','submodule_init','submodule_update','submodule_checkout_expected','submodule_update_recursive','submodule_sync'].includes(String(action||''));}
 function gitJobElapsed(startedAt){
   const start=Date.parse(startedAt||'');if(!Number.isFinite(start))return '';
   const seconds=Math.max(0,Math.round((Date.now()-start)/1000));
@@ -356,7 +356,7 @@ quickGroup('WORKTREE',[
 async function commit(pushAfter){const message=window.prompt('Commit message:','');if(message===null||!message.trim())return false;await action('commit',{message:message.trim()});if(pushAfter)await action('push');return true;}
 async function stashPush(){const message=window.prompt('Stash message (leave blank to use the default):','');if(message===null)return false;await action('stash_push',{message:message.trim()});return true;}
 
-const views=[['repositories','Repositories'],['changes','Changes'],['branches','Branches'],['worktrees','Worktrees'],['tags','Tags'],['log','Log'],['graph','Graph'],['reflog','Recovery'],['rebase','Rebase'],['file-history','File History'],['ahead-behind','Ahead / Behind'],['stashes','Stash'],['compare','Compare']];
+const views=[['repositories','Repositories'],['changes','Changes'],['branches','Branches'],['worktrees','Worktrees'],['submodules','Submodules'],['tags','Tags'],['log','Log'],['graph','Graph'],['reflog','Recovery'],['rebase','Rebase'],['file-history','File History'],['ahead-behind','Ahead / Behind'],['stashes','Stash'],['compare','Compare']];
 for(const [id,label] of views){const b=el('button','',label);b.dataset.gitView=id;b.onclick=()=>{currentView=id;updateNav();loadCurrentView().catch(app.showError);};nav.append(b);}
 function updateNav(){for(const b of nav.querySelectorAll('button'))b.classList.toggle('active',b.dataset.gitView===currentView);}
 function empty(message){content.replaceChildren(el('div','git-empty',message));}
@@ -758,6 +758,70 @@ async function loadWorktrees(){
     if(!item.current&&!item.primary){
       actions.append(actionButton('Remove',()=>action('worktree_remove',{worktree_id:item.id,confirmed:true},'Remove worktree '+item.display_path+'?\n\nGit will refuse if the worktree contains uncommitted changes. No force removal is used.'),'Remove this linked worktree without --force'));
     }
+    row.append(code,main,actions);content.append(row);
+  }
+  return true;
+}
+
+
+function submoduleProjectPath(item){
+  const repo=activeRepository();
+  const root=repo?.path==='.'?'':String(repo?.path||repo?.id||'').replace(/\\/g,'/').replace(/^\.\//,'').replace(/\/+$/,'');
+  const child=String(item?.path||'').replace(/\\/g,'/').replace(/^\.\//,'').replace(/^\/+|\/+$/g,'');
+  return root?(root+'/'+child):child;
+}
+async function openSubmoduleRepository(item){
+  if(!item?.initialized)throw new Error('Initialize the submodule before opening it as a repository');
+  const target=submoduleProjectPath(item);
+  await refreshRepositories(true);
+  const match=repositories.find(repo=>String(repo.path||repo.id||'').replace(/\\/g,'/').replace(/^\.\//,'').replace(/\/+$/,'')===target);
+  if(!match)throw new Error('Initialized submodule repository was not discovered: '+target);
+  currentView='changes';updateNav();
+  return selectRepository(match.id);
+}
+function submoduleStatusSummary(item){
+  const parts=[item.status||'unknown'];
+  if(item.expected_sha)parts.push('expected '+String(item.expected_sha).slice(0,12));
+  if(item.actual_sha)parts.push('actual '+String(item.actual_sha).slice(0,12));
+  if(item.branch)parts.push('branch '+item.branch);
+  if(item.dirty)parts.push('local changes');
+  return parts.join(' · ');
+}
+async function loadSubmodules(){
+  const data=await gitView('submodules');if(!data)return false;
+  content.replaceChildren();
+  const rows=Array.isArray(data.submodules)?data.submodules:[];
+  const tools=el('div','git-row-actions');
+  tools.append(
+    actionButton('↻ Refresh',()=>loadSubmodules()),
+    actionButton('Update recursive',()=>action('submodule_update_recursive',{confirmed:true},'Update and initialize all submodules recursively to the commits recorded by the current superproject?\n\nTaskDeck blocks this when a top-level submodule has local changes.'),'git submodule update --init --recursive --checkout'),
+    actionButton('Sync URLs',()=>action('submodule_sync',{confirmed:true},'Sync submodule URLs from .gitmodules into local Git configuration recursively?'),'git submodule sync --recursive')
+  );
+  content.append(tools);
+  if(!rows.length){
+    content.append(el('div','git-empty','No submodules declared by .gitmodules in this repository'));
+    return true;
+  }
+  for(const item of rows){
+    const row=el('div','git-row');
+    const code=el('span','git-row-code',item.initialized?(item.dirty?'!':(item.mismatch?'≠':'✓')):'-');
+    const main=el('div','git-row-main');
+    const title=(item.name||item.path)+(item.initialized?'':' · uninitialized');
+    const sub=el('div','git-row-sub',item.path+' · '+submoduleStatusSummary(item));sub.title=[item.url,item.branch].filter(Boolean).join(' · ');
+    main.append(el('div','git-row-title',title),sub);
+    const actions=el('div','git-row-actions');
+    if(!item.initialized){
+      actions.append(actionButton('Init',()=>action('submodule_init',{submodule_id:item.id,expected_sha:item.expected_sha,confirmed:true},'Initialize '+item.path+' and checkout the commit recorded by the current superproject?')));
+    }else{
+      actions.append(actionButton('Open repo',()=>openSubmoduleRepository(item),'Open this initialized submodule as the active repository in Git Panel'));
+      const update=actionButton('Update',()=>action('submodule_update',{submodule_id:item.id,expected_sha:item.expected_sha,confirmed:true},'Update '+item.path+' to the commit recorded by the current superproject?'));
+      update.disabled=Boolean(item.dirty);if(item.dirty)update.title='Blocked because this submodule has local changes';actions.append(update);
+      if(item.mismatch){
+        const checkout=actionButton('Checkout expected',()=>action('submodule_checkout_expected',{submodule_id:item.id,expected_sha:item.expected_sha,confirmed:true},'Checkout recorded commit '+String(item.expected_sha||'').slice(0,12)+' in '+item.path+'?'));
+        checkout.disabled=Boolean(item.dirty);if(item.dirty)checkout.title='Blocked because this submodule has local changes';actions.append(checkout);
+      }
+    }
+    actions.append(actionButton('Copy path',()=>copyText(item.path)),actionButton('Copy expected SHA',()=>copyText(item.expected_sha||'')));
     row.append(code,main,actions);content.append(row);
   }
   return true;
@@ -1412,7 +1476,7 @@ async function loadCompare(base=''){
   currentView='compare';updateNav();const branches=await gitView('branches');if(!branches)return false;content.replaceChildren();const controls=el('div','git-compare-controls');const select=document.createElement('select');for(const branch of [...(branches.local||[]),...(branches.remote||[])]){if(branch.current)continue;const o=document.createElement('option');o.value=branch.name;o.textContent=branch.name;select.append(o);}if(base&&[...select.options].some(o=>o.value===base))select.value=base;const run=actionButton('Compare',async()=>{if(!select.value)return false;const data=await gitView('compare',{base:select.value});if(!data)return false;renderCompare(data,controls);return true;});controls.append(select,run);content.append(controls);if(base&&select.value)await run.onclick();
 }
 function renderCompare(data,controls){content.replaceChildren(controls);content.append(el('strong','',`Compare ${data.base}...HEAD`),el('pre','git-compare-pre',(data.stat||'(no differences)')+'\n'+(data.files||'')));}
-async function loadCurrentView(){setGitPanelWide(false);updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'worktrees':return loadWorktrees();case 'tags':return loadTags();case 'log':return loadLog();case 'graph':return loadGraph();case 'reflog':return loadReflog();case 'rebase':return loadRebase();case 'file-history':return loadFileHistory();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
+async function loadCurrentView(){setGitPanelWide(false);updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'worktrees':return loadWorktrees();case 'submodules':return loadSubmodules();case 'tags':return loadTags();case 'log':return loadLog();case 'graph':return loadGraph();case 'reflog':return loadReflog();case 'rebase':return loadRebase();case 'file-history':return loadFileHistory();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
 
 function workspacePathForActiveRepository(pathValue){
   pathValue=String(pathValue||'').replace(/\\/g,'/').replace(/^\.\//,'');
