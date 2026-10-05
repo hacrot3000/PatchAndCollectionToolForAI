@@ -104,3 +104,21 @@ func TestExplorerSupportsSelectionFavoritesAndRecentPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestExplorerRevealsFilesOpenedByEditor(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"taskmenu:project-file-opened",
+		"rememberRecent(pathValue)",
+		"panel.classList.contains('visible')",
+		"revealPath(pathValue).catch(app.showError)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("explorer editor integration missing %q", want)
+		}
+	}
+}
