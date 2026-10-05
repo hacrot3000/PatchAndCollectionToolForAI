@@ -76,6 +76,9 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	case "worktrees":
 		s.gitWorktrees(w, r)
 		return
+	case "submodules":
+		s.gitSubmodules(w, r)
+		return
 	case "rebase-plan":
 		s.gitRebasePlan(w, r)
 		return
