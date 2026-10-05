@@ -96,7 +96,7 @@ func newBroadcastGroupID() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
-func decodeBroadcastState(data []byte) (broadcastState, error) {
+func decodeBroadcastStateFile(data []byte) (broadcastState, error) {
 	if len(data) > projectBroadcastStateMax {
 		return broadcastState{}, fmt.Errorf("broadcast state file is too large")
 	}
@@ -126,7 +126,7 @@ func readBroadcastState(workspace string) (broadcastState, error) {
 	}
 	data, err := os.ReadFile(path)
 	if err == nil {
-		return decodeBroadcastState(data)
+		return decodeBroadcastStateFile(data)
 	}
 	if !os.IsNotExist(err) {
 		return broadcastState{}, fmt.Errorf("read broadcast state: %w", err)
@@ -140,7 +140,7 @@ func readBroadcastState(workspace string) (broadcastState, error) {
 	if legacyErr != nil {
 		return broadcastState{}, fmt.Errorf("read legacy broadcast state: %w", legacyErr)
 	}
-	state, err := decodeBroadcastState(legacyData)
+	state, err := decodeBroadcastStateFile(legacyData)
 	if err != nil {
 		return broadcastState{}, err
 	}
