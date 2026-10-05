@@ -147,7 +147,8 @@ func readBroadcastState(workspace string) (broadcastState, error) {
 	if err := writeBroadcastState(workspace, state); err != nil {
 		return broadcastState{}, fmt.Errorf("migrate broadcast state: %w", err)
 	}
-	_ = os.Remove(legacyPath)
+	// Keep the legacy runtime copy untouched so an immediate self-update
+	// rollback to an older TaskDeck build can still recover the same groups.
 	return state, nil
 }
 
