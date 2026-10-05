@@ -596,5 +596,9 @@ window.addEventListener('taskmenu:project-file-opened',event=>{
   rememberRecent(pathValue);
   if(panel.classList.contains('visible'))revealPath(pathValue).catch(app.showError);
 });
+window.addEventListener('taskmenu:git-status-refreshed',()=>{
+  if(!panel.classList.contains('visible'))return;
+  loadGitStatus().then(()=>render()).catch(()=>{});
+});
 
 globalThis.TaskMenuExplorer={open,close,reload,reveal:revealPath,undo:undoLastOperation,refreshGitStatus:async()=>{await loadGitStatus();render();},get selectedPaths(){return [...selected];},get favorites(){return [...favorites];},get recent(){return [...recent];},get clipboard(){return {mode:fileClipboard.mode,paths:[...fileClipboard.paths]};},get gitStatusAvailable(){return gitStatusAvailable;},get lastUndo(){return lastUndo?{label:lastUndo.label,steps:[...lastUndo.steps]}:null;}};
