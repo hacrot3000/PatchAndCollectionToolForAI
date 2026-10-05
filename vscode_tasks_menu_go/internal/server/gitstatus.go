@@ -70,6 +70,9 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	case "commit-files":
 		s.gitCommitFiles(w, r)
 		return
+	case "graph-compare-head":
+		s.gitGraphCompareHead(w, r)
+		return
 	case "file-history":
 		s.gitFileHistory(w, r)
 		return
