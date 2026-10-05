@@ -22,7 +22,7 @@ func TestGroupedMenusFeature(t *testing.T) {
 		"const terminal=document.querySelector('#open-terminal')",
 		"terminal.classList.add('taskmenu-menu-trigger','taskmenu-direct-action')",
 		"terminal.textContent='Terminal'",
-		"terminal.title='Open a new terminal · Ctrl+Shift+\\`'",
+		"terminal.title='Open a new terminal · Ctrl+Shift+`'",
 		"addSection(settings.pop,'TERMINAL',[document.querySelector('#terminal-cwd')])",
 		"makeMenu('Settings'",
 		"addSection(settings.pop,'PATCH TOOL',[patchUIControl])",
