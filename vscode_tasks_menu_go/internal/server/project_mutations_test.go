@@ -117,3 +117,62 @@ func TestProjectMutationsRejectSymlinkSourceAndParent(t *testing.T) {
 		t.Fatalf("outside file changed data=%q err=%v", data, err)
 	}
 }
+
+func TestProjectMutationsCopyFilesAndDirectories(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, "src", "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "src", "a.txt"), []byte("alpha"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "src", "nested", "b.txt"), []byte("beta"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: workspace}
+	h := s.Handler()
+
+	if rr := projectMutationRequestForTest(t, h, map[string]any{"action": "copy", "path": "src/a.txt", "new_path": "copied.txt"}); rr.Code != http.StatusCreated {
+		t.Fatalf("copy file status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if data, err := os.ReadFile(filepath.Join(workspace, "copied.txt")); err != nil || string(data) != "alpha" {
+		t.Fatalf("copied file data=%q err=%v", data, err)
+	}
+
+	if rr := projectMutationRequestForTest(t, h, map[string]any{"action": "copy", "path": "src", "new_path": "src-copy"}); rr.Code != http.StatusCreated {
+		t.Fatalf("copy directory status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if data, err := os.ReadFile(filepath.Join(workspace, "src-copy", "nested", "b.txt")); err != nil || string(data) != "beta" {
+		t.Fatalf("copied directory nested data=%q err=%v", data, err)
+	}
+}
+
+func TestProjectMutationCopyRejectsNestedSymlinkAndCleansDestination(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink fixture")
+	}
+	workspace := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(workspace, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(workspace, "src", "link.txt")); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: workspace}
+	h := s.Handler()
+
+	rr := projectMutationRequestForTest(t, h, map[string]any{"action": "copy", "path": "src", "new_path": "copy"})
+	if rr.Code < 400 {
+		t.Fatalf("copy with nested symlink unexpectedly succeeded status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "copy")); !os.IsNotExist(err) {
+		t.Fatalf("failed copy destination was not cleaned: %v", err)
+	}
+	if data, err := os.ReadFile(outside); err != nil || string(data) != "outside" {
+		t.Fatalf("outside file changed data=%q err=%v", data, err)
+	}
+}
