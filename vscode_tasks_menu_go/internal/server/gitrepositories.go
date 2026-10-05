@@ -212,6 +212,34 @@ func (s *Server) discoverGitRepositories(force bool) ([]gitRepository, config.Gi
 		})
 	}
 
+	// Initialized submodules are first-class repositories even when bounded
+	// recursive discovery is disabled or the submodule path is deeper than the
+	// configured scan depth. Follow only paths declared by .gitmodules and
+	// verify each candidate stays inside the workspace before adding it.
+	for pass := 0; pass < 32; pass++ {
+		before := len(byID)
+		snapshot := make([]gitRepository, 0, len(byID))
+		for _, item := range byID {
+			snapshot = append(snapshot, item)
+		}
+		for _, parentRepo := range snapshot {
+			ctx := withGitRepository(context.Background(), parentRepo)
+			configs, configErr := s.gitSubmoduleConfigs(ctx)
+			if configErr != nil {
+				continue
+			}
+			for _, submodule := range configs {
+				candidate := filepath.Join(parentRepo.Root, filepath.FromSlash(submodule.Path))
+				if candidateHasGitMarker(candidate) {
+					add(candidate, submodule.Name, false)
+				}
+			}
+		}
+		if len(byID) == before {
+			break
+		}
+	}
+
 	repos := make([]gitRepository, 0, len(byID))
 	for _, item := range byID {
 		repos = append(repos, item)
