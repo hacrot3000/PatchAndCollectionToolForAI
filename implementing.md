@@ -96,7 +96,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
    - context menu checkout detached, create branch here, cherry-pick, revert, reset soft/mixed/hard, tag, compare with HEAD;
    - mutation theo full SHA + expected SHA; checkout/create-branch-at yêu cầu clean worktree, reset bắt buộc confirmation.
 
-6. **P0 — Git Reflog + Recovery Center**
+6. **P0 — Git Reflog + Recovery Center** — ✅ **COMPLETE**
    Vì TaskDeck đã hỗ trợ khá nhiều thao tác Git nguy hiểm, nên nên có một lớp cứu hộ:
    - `git reflog`.
    - Restore branch accidentally deleted.
@@ -107,6 +107,14 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
    - Copy SHA.
    
    Đặc biệt sau khi vừa thêm `Force delete local`, đây là tính năng rất hợp lý.
+
+   Hoàn tất Recovery Center hiện tại:
+   - reflog read-only toàn repo, phân loại reset/checkout/commit/merge/rebase/cherry-pick/revert/pull/branch và filter search/ref/kind;
+   - tạo recovery branch tại full SHA mà không switch, nên không thay đổi HEAD/Index/Working tree kể cả worktree đang dirty;
+   - checkout detached, reset có semantics soft/mixed/hard, tag, compare with HEAD, copy SHA/selector;
+   - scan `git fsck --no-reflogs --unreachable` theo yêu cầu để tìm commit không còn branch/tag và thậm chí không còn trong reflog sau force-delete branch;
+   - lost commit scan cho Recover branch / Compare HEAD / Copy SHA;
+   - regression test chứng minh commit của branch đã force-delete không còn trong reflog vẫn được tìm và phục hồi an toàn.
 
 7. **P1 — Git Worktree Manager**
    Rất phù hợp với workflow developer:
