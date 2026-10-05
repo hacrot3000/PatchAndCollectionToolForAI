@@ -395,3 +395,32 @@ func TestEditorClosesCleanTabsForTrashedProjectPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestEditorTextFormatControls(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function editorEncodingChoice(file)",
+		"function syncEditorFormatControls(view)",
+		"editor-line-ending",
+		"editor-encoding",
+		"Line ending used when saving",
+		"UTF-8 encoding used when saving",
+		"['lf','LF']",
+		"['crlf','CRLF']",
+		"['utf-8','UTF-8']",
+		"['utf-8-bom','UTF-8 BOM']",
+		"line_ending:view.desiredLineEnding",
+		"encoding:view.desiredEncoding",
+		"view.desiredLineEnding=lineEndingSelect.value",
+		"view.desiredEncoding=encodingSelect.value",
+		"setDirty(view,true)",
+		"lineEndingSelect.disabled=readonly",
+		"encodingSelect.disabled=readonly",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor text format control missing %q", want)
+		}
+	}
+}

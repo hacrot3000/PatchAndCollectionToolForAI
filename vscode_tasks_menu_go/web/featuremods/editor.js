@@ -13,6 +13,9 @@ style.textContent=`
 .editor-head{min-height:40px;padding:5px 9px}
 .editor-head .editor-path{font:12px ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;opacity:.82}
 .editor-head .editor-meta{font-size:10px;opacity:.58;white-space:nowrap}
+.editor-head .editor-format{font:10px ui-monospace,monospace;background:#151b23;color:inherit;border:1px solid #39414d;border-radius:5px;padding:3px 5px;max-width:110px}
+.editor-head .editor-format:disabled{opacity:.45}
+html[data-taskmenu-theme="light"] .editor-head .editor-format{background:#fff;border-color:#c8ced6}
 .editor-head .editor-readonly,.editor-head .editor-warning{font-size:10px;padding:2px 6px;border:1px solid #7d6733;border-radius:10px;color:#ffe29a;background:#493b1d;white-space:nowrap}.editor-head .editor-warning{max-width:260px;overflow:hidden;text-overflow:ellipsis}
 .editor-host{flex:1;min-height:0;overflow:hidden}
 .editor-host .cm-editor{height:100%;font-size:13px}
@@ -422,6 +425,17 @@ function editorMetaText(file){
   const bom=file.bom?' + BOM':'';
   return [languageLabel(file.path),'UTF-8'+bom,ending,formatBytes(file.size)].join(' • ');
 }
+function editorEncodingChoice(file){
+  return file?.bom?'utf-8-bom':'utf-8';
+}
+function syncEditorFormatControls(view){
+  if(!view)return;
+  if(view.lineEndingSelect)view.lineEndingSelect.value=view.desiredLineEnding||view.file?.line_ending||'lf';
+  if(view.encodingSelect)view.encodingSelect.value=view.desiredEncoding||editorEncodingChoice(view.file);
+  const readonly=editorReadOnly(view);
+  if(view.lineEndingSelect)view.lineEndingSelect.disabled=readonly;
+  if(view.encodingSelect)view.encodingSelect.disabled=readonly;
+}
 function setDirty(view,dirty){
   if(!view||view.closed)return;
   view.dirty=Boolean(dirty);
@@ -439,6 +453,8 @@ function applyReadOnly(view){
   view.cm.contentDOM.setAttribute('contenteditable',readonly?'false':'true');
   view.cm.contentDOM.setAttribute('aria-readonly',readonly?'true':'false');
   view.save.disabled=readonly||!view.dirty||view.saving;
+  if(view.lineEndingSelect)view.lineEndingSelect.disabled=readonly;
+  if(view.encodingSelect)view.encodingSelect.disabled=readonly;
   view.tab.classList.toggle('taskdeck-tab-readonly',Boolean(view.tabReadOnly));
   if(view.tabReadOnly)view.pane.dataset.taskdeckReadonly='1';else delete view.pane.dataset.taskdeckReadonly;
   view.pane.setAttribute('aria-readonly',readonly?'true':'false');
@@ -471,6 +487,9 @@ function setEditorDocument(view,file){
     view.internalUpdate=false;
   }
   view.file={...file};
+  view.desiredLineEnding=file.line_ending||'lf';
+  view.desiredEncoding=editorEncodingChoice(file);
+  syncEditorFormatControls(view);
   view.path.textContent=file.path;
   view.path.title=file.path;
   view.meta.textContent=editorMetaText(file);
@@ -534,7 +553,9 @@ async function putEditorFile(view,expectedSHA256){
     body:JSON.stringify({
       path:view.file.path,
       content:view.cm.state.doc.toString(),
-      expected_sha256:expectedSHA256
+      expected_sha256:expectedSHA256,
+      line_ending:view.desiredLineEnding||view.file.line_ending||'preserve',
+      encoding:view.desiredEncoding||editorEncodingChoice(view.file)
     })
   });
   if(response.status===409)return {conflict:true};
@@ -665,6 +686,12 @@ function createEditor(file){
   const head=document.createElement('div');head.className='pane-head editor-head';
   const pathNode=document.createElement('div');pathNode.className='editor-path';pathNode.textContent=file.path;pathNode.title=file.path;
   const meta=document.createElement('div');meta.className='editor-meta';meta.textContent=editorMetaText(file);
+  const lineEndingSelect=document.createElement('select');lineEndingSelect.className='editor-format editor-line-ending';lineEndingSelect.title='Line ending used when saving';
+  for(const [value,labelText] of [['lf','LF'],['crlf','CRLF']]){const option=document.createElement('option');option.value=value;option.textContent=labelText;lineEndingSelect.append(option);}
+  lineEndingSelect.value=file.line_ending==='crlf'?'crlf':'lf';
+  const encodingSelect=document.createElement('select');encodingSelect.className='editor-format editor-encoding';encodingSelect.title='UTF-8 encoding used when saving';
+  for(const [value,labelText] of [['utf-8','UTF-8'],['utf-8-bom','UTF-8 BOM']]){const option=document.createElement('option');option.value=value;option.textContent=labelText;encodingSelect.append(option);}
+  encodingSelect.value=editorEncodingChoice(file);
   const readonlyBadge=document.createElement('span');readonlyBadge.className='editor-readonly';readonlyBadge.textContent='READ-ONLY';readonlyBadge.hidden=!file.read_only;
   const warningBadge=document.createElement('span');warningBadge.className='editor-warning';warningBadge.textContent=file.warning?'WARNING':'';warningBadge.title=file.warning||'';warningBadge.hidden=!file.warning;
   const save=document.createElement('button');save.type='button';save.className='editor-save';save.textContent='Save';save.title='Save file (Ctrl/Cmd+S)';
@@ -673,12 +700,12 @@ function createEditor(file){
   const splitHorizontal=document.createElement('button');splitHorizontal.type='button';splitHorizontal.className='editor-split-action editor-split-horizontal';splitHorizontal.textContent='Split ↕';splitHorizontal.title='Split editor horizontally with another/open file';
   const splitSwap=document.createElement('button');splitSwap.type='button';splitSwap.className='editor-split-action editor-split-swap';splitSwap.textContent='Swap';splitSwap.title='Swap this editor split';splitSwap.hidden=true;
   const splitUnsplit=document.createElement('button');splitUnsplit.type='button';splitUnsplit.className='editor-split-action editor-unsplit';splitUnsplit.textContent='Unsplit';splitUnsplit.title='Remove this editor from its split';splitUnsplit.hidden=true;
-  head.append(pathNode,meta,readonlyBadge,warningBadge,save,reload,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
+  head.append(pathNode,meta,lineEndingSelect,encodingSelect,readonlyBadge,warningBadge,save,reload,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
   const host=document.createElement('div');host.className='editor-host';
   pane.append(head,host);panesHost.append(pane);
 
   const cm=cmFactory.newEditor(host,file.content||'',languageOptions(file.path));
-  const view={id,file:{...file},tab,label,dirty,pane,head,path:pathNode,meta,readonlyBadge,warningBadge,save,reload,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null};
+  const view={id,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,meta,lineEndingSelect,encodingSelect,readonlyBadge,warningBadge,save,reload,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null};
   editors.set(id,view);
   installEditorDispatchGuard(view);
   applyReadOnly(view);
@@ -694,6 +721,16 @@ function createEditor(file){
   tab.onclick=()=>activateEditor(id,{force:true});
   close.onclick=event=>{event.stopPropagation();closeEditor(id).catch(app.showError);};
   save.onclick=()=>saveEditor(view).catch(app.showError);
+  lineEndingSelect.onchange=()=>{
+    if(editorReadOnly(view)){syncEditorFormatControls(view);return;}
+    view.desiredLineEnding=lineEndingSelect.value;
+    setDirty(view,true);
+  };
+  encodingSelect.onchange=()=>{
+    if(editorReadOnly(view)){syncEditorFormatControls(view);return;}
+    view.desiredEncoding=encodingSelect.value;
+    setDirty(view,true);
+  };
   reload.onclick=()=>reloadEditor(view).catch(app.showError);
   splitVertical.onclick=()=>splitEditor(view,'vertical').catch(app.showError);
   splitHorizontal.onclick=()=>splitEditor(view,'horizontal').catch(app.showError);
