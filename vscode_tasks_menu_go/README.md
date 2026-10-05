@@ -219,7 +219,16 @@ Click phải một tab mở thêm phần **Broadcast group**:
 
 Mỗi group chọn một trong các preset màu nền/chữ có độ tương phản cao: Slate, Ocean, Forest, Amber, Violet, Rose, Cyan và Lime. Tab thuộc group được tô theo preset đó để dễ nhận biết. Có thể edit/delete group từ menu Broadcast; xóa group sẽ tự bỏ assignment của các tab thuộc group.
 
-Mode, group definitions, preset màu và mapping `session_id -> group_id` được lưu atomic trong runtime state của workspace, nên reload browser và self-update giữ nguyên khi session ID được broker bảo toàn.
+Mode, group definitions, preset màu và mapping `session_id -> group_id` được lưu atomic tại `.vscode/vscode_tasks_menu.broadcast.json`; runtime state legacy được tự migrate nhưng vẫn giữ bản cũ để rollback tức thời. Vì vậy cấu hình Broadcast sống qua browser reload, daemon restart, self-update và reboot, đồng thời assignment được remap khi terminal session ID cần recreate.
+
+### Authentication mode migration wizard
+
+Trong **Settings → Security → Authentication mode…**, TaskDeck có wizard 3 bước `Mode → Setup → Review` để chuyển hai chiều giữa single authentication và multi-user shared-server mà không cần sửa INI thủ công.
+
+- **Single → Shared:** wizard chọn project ID, identity DB và admin. Nếu Basic Auth hiện tại đạt shared password policy, có thể reuse credential mà không gửi ngược plaintext hiện tại ra UI; backend hash vào identity DB, grant `system:admin`, bật HTTPS, tắt Basic Auth và scrub password legacy khỏi config. Username global đã tồn tại phải verify đúng password trước khi được thêm vào project.
+- **Shared → Single:** project admin phải đặt credential Basic Auth mới; shared hash không bao giờ được giải mã. Trước khi chuyển, TaskDeck revoke toàn bộ browser session của project để cookie cũ không thể sống lại nếu sau này bật Shared trở lại.
+- Identity DB, project, users và roles không bị xóa khi chuyển về Single. Các giá trị `project_id` / `identity_db` cũng được giữ trong config để lần chuyển lại Shared có thể reuse.
+- Config được ghi atomic. Trên Linux/Unix hiện hỗ trợ broker-preserving `--reload-config`, daemon web tự reload sau wizard trong khi PTY/session broker tiếp tục chạy. Nền tảng chưa hỗ trợ reload an toàn sẽ báo cần restart thủ công thay vì âm thầm kill session.
 
 ### Preset command cho terminal
 
