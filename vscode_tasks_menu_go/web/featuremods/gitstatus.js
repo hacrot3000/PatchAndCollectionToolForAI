@@ -250,7 +250,11 @@ function openGitRecovery({actionName='unknown',payload={},command='',error='',ou
     runAction:(name,nextPayload={})=>{ensureRepo();return action(name,nextPayload,'',{recovery:false,repoID});},
     refresh:async()=>{if(activeRepoID===repoID){await refresh();await loadCurrentView();}},
     rescan:async()=>{await refreshRepositories(true);if(activeRepoID===repoID){await refresh();await loadCurrentView();}return {ok:true,output:'Repository scan completed.'};},
-    openFile:path=>window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path,source:'git-conflict-recovery'}}))
+    openFile:path=>window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path,source:'git-conflict-recovery'}})),
+    openMergeEditor:path=>{
+      const editor=globalThis.TaskMenuGitMergeEditor;if(!editor?.open)throw new Error('Git 3-way merge editor unavailable');
+      return editor.open({repoID,path});
+    }
   });
   return true;
 }
