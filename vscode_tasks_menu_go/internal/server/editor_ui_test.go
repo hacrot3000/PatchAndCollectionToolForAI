@@ -52,6 +52,27 @@ func TestEditorAutoOpenRespectsForegroundLockButTabClickForcesSwitch(t *testing.
 	}
 }
 
+func TestEditorDeactivatesWhenAnotherExternalViewIsActivated(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"if(event.detail?.kind==='external'){",
+		"if(editors.has(event.detail.id))activateEditorDOM(event.detail.id)",
+		"else deactivateEditors()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor external-view deactivation missing %q", want)
+		}
+	}
+	if strings.Contains(js, "if(event.detail?.kind==='external'&&editors.has(event.detail.id))activateEditorDOM(event.detail.id);") {
+		t.Fatal("editor must also hide when SFTP/FTP, database, Patch, or another external view becomes active")
+	}
+}
+
+
 func TestEditorInitialLanguageCoverageMapping(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/editor.js")
 	if err != nil {
