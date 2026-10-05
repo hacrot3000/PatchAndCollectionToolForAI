@@ -376,3 +376,22 @@ func TestEditorRemapsOpenTabsAfterProjectRename(t *testing.T) {
 		}
 	}
 }
+
+func TestEditorClosesCleanTabsForTrashedProjectPaths(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function closeEditorsForTrashedPath(pathValue)",
+		"view.file.path===pathValue||view.file.path.startsWith(prefix)",
+		"if(view.dirty)continue",
+		"destroyEditor(view.id)",
+		"taskmenu:project-path-trashed",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor trash integration missing %q", want)
+		}
+	}
+}
