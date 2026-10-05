@@ -1,9 +1,12 @@
 package server
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -130,6 +133,78 @@ func (s *Server) gitWorktrees(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"worktrees": rows, "count": len(rows), "truncated": truncated,
 	})
+}
+
+func (s *Server) gitWorktreeRows(ctx context.Context) ([]gitWorktreeRow, error) {
+	repo, ok := gitRepositoryFromContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("Git repository context unavailable")
+	}
+	out, stderr, _, err := s.runGit(ctx, 8*time.Second, "worktree", "list", "--porcelain", "-z")
+	if err != nil {
+		return nil, fmt.Errorf("%s", strings.TrimSpace(joinGitOutput(stderr, err.Error())))
+	}
+	return parseGitWorktreePorcelain(out, repo.Root), nil
+}
+
+func validGitWorktreeDirectoryName(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 128 || value == "." || value == ".." ||
+		strings.ContainsAny(value, "/\\\x00\r\n") {
+		return "", fmt.Errorf("worktree directory name must be one safe path segment")
+	}
+	return value, nil
+}
+
+func gitWorktreeTargetPath(repo gitRepository, directoryName string) (string, error) {
+	name, err := validGitWorktreeDirectoryName(directoryName)
+	if err != nil {
+		return "", err
+	}
+	parent := filepath.Dir(filepath.Clean(repo.Root))
+	target := filepath.Join(parent, name)
+	if filepath.Dir(filepath.Clean(target)) != parent {
+		return "", fmt.Errorf("worktree target escapes repository parent")
+	}
+	if _, err := os.Lstat(target); err == nil {
+		return "", fmt.Errorf("worktree target already exists")
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("inspect worktree target: %w", err)
+	}
+	return target, nil
+}
+
+func gitWorktreeBranchLocation(rows []gitWorktreeRow, branch string) string {
+	branch = strings.TrimSpace(branch)
+	for _, row := range rows {
+		if row.Branch == branch {
+			return row.DisplayPath
+		}
+	}
+	return ""
+}
+
+func (s *Server) gitWorktreeSourceSHA(ctx context.Context, ref string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" || ref == "HEAD" {
+		ref = "HEAD"
+	} else if !gitCompareCommitPattern.MatchString(ref) {
+		if err := s.validBranchName(ctx, ref); err != nil {
+			return "", fmt.Errorf("worktree source must be HEAD, full commit SHA, or existing branch")
+		}
+		if !s.localBranchExists(ctx, ref) && !s.remoteBranchExists(ctx, ref) {
+			return "", fmt.Errorf("worktree source branch not found")
+		}
+	}
+	out, stderr, _, err := s.runGit(ctx, 4*time.Second, "rev-parse", "--verify", ref+"^{commit}")
+	if err != nil {
+		return "", fmt.Errorf("%s", strings.TrimSpace(joinGitOutput(stderr, err.Error())))
+	}
+	sha := strings.TrimSpace(out)
+	if !gitCompareCommitPattern.MatchString(sha) {
+		return "", fmt.Errorf("resolved worktree source commit is invalid")
+	}
+	return sha, nil
 }
 
 func gitWorktreeByID(rows []gitWorktreeRow, id string) (gitWorktreeRow, bool) {
