@@ -52,6 +52,7 @@ function currentDraft(name=''){
   return {
     name:String(name||''),
     environment_profile:String(globalThis.TaskMenuEnvProfiles?.currentName?.()||''),
+    environment:{...(globalThis.TaskMenuEnvProfiles?.currentEnv?.()||{})},
     command_preset_ids:uniqueStrings(globalThis.TaskMenuCommandPresets?.projectPresetIDs||[]),
     terminals,
     database_profile_ids:openDatabaseProfileIDs(),
@@ -83,7 +84,12 @@ async function applyProfile(profile,{confirmOpen=true}={}){
   if(confirmOpen&&resources&& !window.confirm('Apply project profile "'+profile.name+'"?\n\nThis will select its environment/task/preset/Git context and open '+resources+' configured terminal/connection resource(s). No task or command preset will run automatically.'))return false;
   const warnings=[];
   const envName=String(profile.environment_profile||'');
-  if(envName){try{globalThis.TaskMenuEnvProfiles?.select?.(envName);}catch(error){warnings.push(String(error?.message||error));}}else globalThis.TaskMenuEnvProfiles?.select?.('');
+  const envSnapshot=profile.environment&&typeof profile.environment==='object'&&!Array.isArray(profile.environment)?profile.environment:{};
+  if(Object.keys(envSnapshot).length){
+    try{globalThis.TaskMenuEnvProfiles?.applySnapshot?.(envName||profile.name||'Project profile',envSnapshot);}catch(error){warnings.push(String(error?.message||error));}
+  }else if(envName){
+    try{globalThis.TaskMenuEnvProfiles?.select?.(envName);}catch(error){warnings.push(String(error?.message||error));}
+  }else globalThis.TaskMenuEnvProfiles?.select?.('');
   globalThis.TaskMenuCommandPresets?.setProjectPresetIDs?.(profile.command_preset_ids||[]);
   globalThis.TaskMenuTaskSet?.apply?.(profile.task_ids||[]);
   if(profile.default_git_repository){try{await globalThis.TaskMenuGitFiles?.restoreState?.({repository_id:profile.default_git_repository});}catch(error){warnings.push('Git: '+String(error?.message||error));}}
@@ -162,7 +168,7 @@ async function openManager(selectedID=''){
   const renderEditor=()=>{
     const draft=manager.draft||currentDraft('');editor.replaceChildren();
     const name=field('Profile name',draft.name);
-    const envWrap=document.createElement('div');envWrap.className='project-profile-field';const envLabel=document.createElement('label');envLabel.textContent='Environment profile';const env=document.createElement('select');const def=document.createElement('option');def.value='';def.textContent='Default';env.append(def);for(const item of options.env){const option=document.createElement('option');option.value=item;option.textContent=item;env.append(option);}env.value=draft.environment_profile||'';envWrap.append(envLabel,env);
+    const envWrap=document.createElement('div');envWrap.className='project-profile-field';const envLabel=document.createElement('label');envLabel.textContent='Environment profile';const env=document.createElement('select');const def=document.createElement('option');def.value='';def.textContent='Default';env.append(def);for(const item of options.env){const option=document.createElement('option');option.value=item;option.textContent=item;env.append(option);}if(draft.environment_profile&&!options.env.includes(draft.environment_profile)){const snapshot=document.createElement('option');snapshot.value=draft.environment_profile;snapshot.textContent=draft.environment_profile+' (saved snapshot)';env.append(snapshot);}env.value=draft.environment_profile||'';envWrap.append(envLabel,env);
     const git=field('Default Git repository',draft.default_git_repository||'.');
     const terminals=textarea('Startup terminals — one cwd | title per line',terminalsText(draft.terminals));
     const presets=checkboxGroup('Command preset set (selected only; never auto-run)',options.presets,draft.command_preset_ids,item=>item.id,item=>item.name);
@@ -171,13 +177,13 @@ async function openManager(selectedID=''){
     const db=checkboxGroup('Database profiles to open',options.db,draft.database_profile_ids,item=>item.id,item=>item.name||item.id);
     const transfer=checkboxGroup('FTP/SFTP profiles to open',options.transfer,draft.transfer_profile_ids,item=>item.id,item=>(item.name||item.id)+' · '+String(item.protocol||'').toUpperCase());
     const grid=document.createElement('div');grid.className='project-profile-grid';grid.append(name.wrap,envWrap,git.wrap,terminals.wrap);editor.append(grid,presets.wrap,tasks.wrap,ssh.wrap,db.wrap,transfer.wrap);
-    const note=document.createElement('div');note.className='project-profile-note';note.textContent='Project profiles store only references to existing connection profiles. Passwords, private-key passphrases and database/FTP secrets remain in their existing secret stores and are never copied here.';editor.append(note);
+    const note=document.createElement('div');note.className='project-profile-note';note.textContent='Project profiles store only references to existing connection profiles. Environment values are snapshotted so the profile remains usable if the browser env profile disappears; do not put passwords/tokens in environment values. Connection secrets remain in their encrypted secret stores.';editor.append(note);
     const actions=document.createElement('div');actions.className='project-profile-actions';
     const close=document.createElement('button');close.type='button';close.textContent='Close';close.onclick=closeManager;
     const apply=document.createElement('button');apply.type='button';apply.textContent='Apply';apply.disabled=!draft.id;apply.onclick=()=>applyProfile(draft).catch(app.showError);
     const spacer=document.createElement('span');spacer.className='spacer';actions.append(close,apply,spacer);
     if(draft.id&&canWrite()){const del=document.createElement('button');del.type='button';del.className='project-profile-danger';del.textContent='Delete';del.onclick=async()=>{if(await deleteProfile(draft)){selectDraft(profiles[0]||null);}};actions.append(del);}
-    if(canWrite()){const save=document.createElement('button');save.type='button';save.textContent='Save';save.onclick=async()=>{const payload={id:draft.id||'',name:name.input.value,environment_profile:env.value,command_preset_ids:presets.values(),terminals:parseTerminals(terminals.input.value),database_profile_ids:db.values(),ssh_profile_ids:ssh.values(),transfer_profile_ids:transfer.values(),default_git_repository:git.input.value,task_ids:tasks.values().map(Number)};const saved=await saveDraft(payload);selectDraft(saved);};actions.append(save);}
+    if(canWrite()){const save=document.createElement('button');save.type='button';save.textContent='Save';save.onclick=async()=>{const localEnv=globalThis.TaskMenuEnvProfiles?.get?.(env.value);const savedEnv=env.value===String(draft.environment_profile||'')?(draft.environment||{}):{};const payload={id:draft.id||'',name:name.input.value,environment_profile:env.value,environment:{...(localEnv||savedEnv)},command_preset_ids:presets.values(),terminals:parseTerminals(terminals.input.value),database_profile_ids:db.values(),ssh_profile_ids:ssh.values(),transfer_profile_ids:transfer.values(),default_git_repository:git.input.value,task_ids:tasks.values().map(Number)};const saved=await saveDraft(payload);selectDraft(saved);};actions.append(save);}
     editor.append(actions);
   };
   add.onclick=()=>selectDraft(currentDraft(''));
