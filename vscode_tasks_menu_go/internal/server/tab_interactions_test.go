@@ -25,7 +25,12 @@ func TestTabDragOrderingFeature(t *testing.T) {
 		"TaskMenuTerminalRestore?.ready",
 		"TaskMenuTerminalRestore?.persistSnapshot?.()",
 		"target?.closest('.close')?'0':'1'",
-		"#tabs .tab[draggable=\"true\"] .close{cursor:pointer}",
+		"function workspaceTabs()",
+		"node instanceof HTMLElement&&Boolean(node.dataset.id)",
+		"function workspaceTabFromTarget(target)",
+		"tab&&tab.parentElement===tabsHost?tab:null",
+		"function workspaceTabByID(id)",
+		"#tabs>[data-id][draggable=\"true\"] .close{cursor:pointer}",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("tabdrag.js missing %q", want)
@@ -48,6 +53,53 @@ func TestTabDragOrderingFeature(t *testing.T) {
 		t.Fatal("next.js must load tabdrag.js")
 	}
 }
+
+func TestTabDragSupportsPatchFileTransferAndDatabaseWorkspaceTabs(t *testing.T) {
+	dragData, err := webassets.Files.ReadFile("featuremods/tabdrag.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dragJS := string(dragData)
+	for _, want := range []string{
+		"workspaceTabs().map(tab=>tab.dataset.id||'').filter(Boolean)",
+		"const byID=new Map(workspaceTabs().map(tab=>[tab.dataset.id,tab]))",
+		"for(const tab of workspaceTabs())installTab(tab)",
+		"const direct=workspaceTabFromTarget(event.target)",
+		"const tab=workspaceTabByID(id)",
+	} {
+		if !strings.Contains(dragJS, want) {
+			t.Fatalf("tabdrag.js missing shared workspace-tab support %q", want)
+		}
+	}
+	if strings.Contains(dragJS, "querySelectorAll('.tab[data-id]')") {
+		t.Fatal("tab drag ordering must not exclude FTP/SFTP or database tabs by requiring the generic .tab class")
+	}
+
+	patchData, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(patchData), "patchTab.dataset.id='patch'") {
+		t.Fatal("Patch Tool tab must expose a stable data-id so shared drag ordering can track it")
+	}
+
+	transferData, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(transferData), "tab.dataset.id='file-transfer:'+id") {
+		t.Fatal("FTP/SFTP tabs must expose their existing stable data-id to shared drag ordering")
+	}
+
+	databaseData, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(databaseData), "tab.className='db-tab';tab.dataset.id=meta.id") {
+		t.Fatal("database tabs must remain compatible with shared data-id drag ordering")
+	}
+}
+
 
 func TestTabContextMenuReusesSessionAndConsoleActions(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/tabcontext.js")
