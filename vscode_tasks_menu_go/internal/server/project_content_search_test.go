@@ -225,4 +225,10 @@ func TestProjectContentSearchAPIRejectsInvalidScopeAndRegex(t *testing.T) {
 	if err == nil {
 		t.Fatal("invalid regex unexpectedly accepted")
 	}
+
+	rr = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/project/content/search?q=%5B&regex=1", nil))
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("invalid regex API status=%d body=%s", rr.Code, rr.Body.String())
+	}
 }
