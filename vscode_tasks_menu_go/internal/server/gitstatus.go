@@ -79,6 +79,9 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	case "rebase-plan":
 		s.gitRebasePlan(w, r)
 		return
+	case "semantics-preview":
+		s.gitSemanticsPreview(w, r)
+		return
 	case "commit-files":
 		s.gitCommitFiles(w, r)
 		return
