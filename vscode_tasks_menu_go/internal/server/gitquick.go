@@ -1051,7 +1051,7 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		// Keep local changes attached to the new branch exactly as git switch -c
 		// normally does.
 		args = []string{"switch", "-c", branch}
-	case "checkout_commit", "create_branch_at", "reset_commit":
+	case "checkout_commit", "create_branch_at", "create_branch_ref", "reset_commit":
 		ref := strings.TrimSpace(req.Ref)
 		if !gitCompareCommitPattern.MatchString(ref) {
 			http.Error(w, "full commit SHA is required", http.StatusBadRequest)
@@ -1091,6 +1091,11 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			args = []string{"switch", "-c", branch, sha}
+		case "create_branch_ref":
+			branch := strings.TrimSpace(req.Branch)
+			if err := s.validBranchName(r.Context(), branch); err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
+			if s.localBranchExists(r.Context(), branch) { http.Error(w, "local branch already exists", http.StatusConflict); return }
+			args = []string{"branch", branch, sha}
 		case "reset_commit":
 			if !req.Confirmed {
 				writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "reset requires explicit confirmation", "failure_code": "confirmation_required"})
