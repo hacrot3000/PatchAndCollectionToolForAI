@@ -600,6 +600,7 @@ function showContextMenu(event,pathValue,type){
   if(type==='dir'&&paths.length===1){
     contextAction('New file here…',()=>createProjectItem('file'));
     contextAction('New folder here…',()=>createProjectItem('dir'));
+    contextAction('Search / Replace in folder…',()=>globalThis.TaskMenuProjectSearch?.open?.({scope:pathValue}));
   }
   contextAction('Reveal in Explorer',()=>revealPath(pathValue));
   contextAction('Open containing folder',()=>openContainingFolder(pathValue));
