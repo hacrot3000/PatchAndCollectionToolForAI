@@ -73,6 +73,9 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	case "lost-commits":
 		s.gitLostCommits(w, r)
 		return
+	case "worktrees":
+		s.gitWorktrees(w, r)
+		return
 	case "commit-files":
 		s.gitCommitFiles(w, r)
 		return
