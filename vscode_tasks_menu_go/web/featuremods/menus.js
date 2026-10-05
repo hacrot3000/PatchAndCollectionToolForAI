@@ -65,6 +65,11 @@ function installHeaderMenus(){
   globalThis.TaskMenuPatchUISettings={get mode(){return patchUIMode;}};
 
   addSection(settings.pop,'PATCH TOOL',[patchUIControl]);
+  const authModeSettings=document.querySelector('#auth-mode-settings');
+  if(authModeSettings&&(!app.sharedMode||app.hasPermission('project.admin'))){
+    authModeSettings.hidden=false;
+    addSection(settings.pop,'SECURITY',[authModeSettings]);
+  }
   addSection(settings.pop,'ENVIRONMENT',[document.querySelector('#env-profile'),document.querySelector('#env-profile-manage')]);
   addSection(settings.pop,'NOTIFICATIONS',[document.querySelector('#notifications-toggle')]);
   addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls'),document.querySelector('#running-indicator-settings')]);
