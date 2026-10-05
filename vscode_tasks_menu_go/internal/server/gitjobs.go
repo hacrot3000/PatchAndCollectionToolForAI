@@ -111,7 +111,7 @@ func (s *Server) findGitJob(id string) (*gitJob, bool) {
 
 func gitAsyncActionAllowed(action string) bool {
 	switch strings.TrimSpace(action) {
-	case "fetch", "pull", "push", "merge":
+	case "fetch", "pull", "push", "merge", "delete_remote_branch":
 		return true
 	default:
 		return false
