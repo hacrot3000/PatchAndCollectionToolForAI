@@ -131,6 +131,15 @@ M3 Server = projects/m3-server
 
 Repo khai báo trong `[git.repositories]` được ưu tiên đặt tên; auto-scan vẫn bổ sung các repo khác. `default_repository = .` chọn repo ở workspace root.
 
+Git workflow nâng cao hiện có:
+
+- các operation dài `fetch / pull / push / merge` chạy dưới dạng cancellable job, hiển thị stdout/stderr/progress trực tiếp trong Git panel và có **Cancel**;
+- Diff hỗ trợ **Stage hunk / Unstage hunk / Discard hunk**; discard có confirmation;
+- merge/rebase/cherry-pick/revert conflict mở recovery wizard theo file, hỗ trợ Current/Incoming/Mark resolved/Continue/Abort;
+- large-file preflight phát hiện blob vượt giới hạn GitHub trước khi upload; nếu `git lfs` có sẵn, wizard có thể migrate exact file hoặc pattern vào Git LFS trên phần history chưa push;
+- có file history + blame, tag management, cherry-pick, revert và safe branch cleanup;
+- recovery wizard giữ classification riêng cho network/auth/timeout/conflict/large-file/host-side rejection để không chỉ hiện raw Git error.
+
 ### Lifecycle của tab/session
 
 - Reload browser hoặc đóng/mở lại browser: task đang chạy **không bị kill**; tab được phục hồi từ daemon và log PTY được replay.
@@ -138,6 +147,9 @@ Repo khai báo trong `[git.repositories]` được ưu tiên đặt tên; auto-s
 - Khi self-update thay web daemon, broker tiếp tục giữ process group, PTY, session ID và scrollback; daemon mới reconnect lại các session hiện hữu thay vì chạy lại task.
 - **Close** một tab đang chạy: chỉ đóng UI, process vẫn chạy và sẽ xuất hiện lại sau reload/mở lại web.
 - **Stop**: gửi `SIGINT` cho process group của task.
+- menu process control còn có **Terminate** (`SIGTERM`) và **Kill** (`SIGKILL`) cho cả process group, cùng **Process tree** và resource monitor để xem PID/CPU/RSS của process con.
+- local Bash terminal dùng TaskDeck-generated rc wrapper để phát **OSC 7 / OSC 133** mà không sửa `~/.bashrc`; browser nhờ đó biết semantic CWD, command boundary và exit status.
+- terminal header có **Commands** history với command/output/exit code/duration/CWD, hỗ trợ Copy command, Copy output và Rerun.
 - Close tab đã `exited/stopped`: session đã hoàn tất được xóa khỏi daemon.
 - Daemon giữ tối đa khoảng 4 MiB scrollback cho mỗi session để reconnect/replay.
 
@@ -196,6 +208,8 @@ Web UI có menu **Broadcast** ở bên trái **Terminal** với ba mode:
 - **Group**: raw key/input chỉ được gửi thêm tới các session cùng broadcast group với tab nguồn; nếu tab nguồn không thuộc group nào thì không fan-out.
 
 Broadcast giữ nguyên dữ liệu từ `xterm.onData()`, vì vậy ký tự thường, Enter, Ctrl+C, phím mũi tên và paste đều đi qua cùng cơ chế. Session nguồn vẫn dùng WebSocket input cũ; fan-out luôn loại source ID để tránh nhận một phím hai lần. Request broadcast của từng source được queue theo thứ tự để giảm nguy cơ reorder khi gõ nhanh.
+
+Khi Broadcast đang bật, paste nhiều dòng hoặc payload lớn sẽ yêu cầu xác nhận trước khi fan-out để giảm rủi ro chạy nhầm lệnh đồng thời trên nhiều terminal.
 
 Click phải một tab mở thêm phần **Broadcast group**:
 
@@ -457,6 +471,17 @@ Với **shared-server mode**, TaskDeck identity/permission vẫn là authoritati
 TaskDeck có panel **Connections** cho terminal local, SSH và database profiles. Database hỗ trợ MySQL, Redis, MongoDB và SQLite; MySQL/Redis/MongoDB có thể đi qua generic SSH tunnel, còn SQLite là local-file only.
 
 Database session có **Workbench UI** gồm navigator + context menu, Data grid phân trang/editable, Structure/Inspector và Query editor. MySQL/SQLite hỗ trợ sort/filter và row editing theo stable key; MongoDB dùng document/`_id`; Redis dùng type-aware key viewer/editor cho các type có semantics an toàn. Query editor của MySQL/SQLite dùng CodeMirror 6 vendored với SQL syntax highlighting + autocomplete cho keyword, table/view và column (kể cả alias/qualified name); metadata cột được lazy-load từ schema hiện tại và có thể gọi completion bằng `Ctrl+Space`. Workbench hỗ trợ nhiều Query tab độc lập (`Query 1`, `Query 2`, …). Một Query tab có thể chạy nhiều SQL statement phân cách bởi `;`; TaskDeck tách an toàn ngoài string/comment, thực thi tuần tự qua API single-statement hiện có và hiển thị từng kết quả trong các tab `Result 1`, `Result 2`, …; khi một statement lỗi thì dừng các statement phía sau. Query result hỗ trợ chọn dòng, copy/export TXT/CSV/JSON, refresh, client-side filter/order, click header để đổi ASC/DESC, và Add row khi SELECT được xác nhận editable. SQL script `.sql`/`.txt` có thể Open/Save trên host workspace hoặc client; file trên 2 MiB không được nạp vào editor mà chuyển sang streamed import wizard (tối đa 2 GiB), với host path luôn bị giới hạn trong workspace. Direct SQL/query editor vẫn là first-class workflow.
+
+Các capability mới trong Connections/Workbench:
+
+- MySQL và SQLite có explicit transaction **Begin / Commit / Rollback** trên một connection thật; trong transaction, grid/object actions bị gate để không chạy trên connection khác;
+- query đang chạy có thể **Cancel** mà không kill toàn adapter; MySQL transaction dùng `CONNECTION_ID()` + `KILL QUERY`;
+- SQLite có **EXPLAIN QUERY PLAN**; MySQL/MariaDB có **EXPLAIN** và **EXPLAIN ANALYZE** cho SELECT/WITH;
+- Query History + Saved Snippets được persist, và relational Structure có foreign-key metadata/navigation;
+- SSH profile expose keepalive/connect timeout, hỗ trợ Local/Remote/Dynamic forwarding (`-L/-R/-D`) chỉ cho interactive terminal;
+- SSH test có host-key recovery an toàn: inspect matching `known_hosts` entry và chỉ xóa old entry sau explicit confirmation; TaskDeck không tự trust key mới;
+- FTP profile hỗ trợ verified FTPS modes; file workspace có sync/mirror dry-run;
+- server-side FTP/SFTP queue được journal qua daemon restart và upload/download có resumable partial-transfer support khi transport cho phép.
 
 Hướng dẫn sử dụng, dependency, giới hạn bảo mật, policy host key, secret rotation/backup/recovery và offline/self-update build được tổng hợp tại:
 
