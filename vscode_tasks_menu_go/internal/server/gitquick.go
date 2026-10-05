@@ -801,6 +801,7 @@ type gitActionRequest struct {
 	LargePath         string `json:"large_path,omitempty"`
 	LFSPattern        string `json:"lfs_pattern,omitempty"`
 	ConflictSide      string `json:"conflict_side,omitempty"`
+	Mode              string `json:"mode,omitempty"`
 	HunkIndex         int    `json:"hunk_index,omitempty"`
 	ExpectedDiffSHA   string `json:"expected_diff_sha,omitempty"`
 	Async             bool   `json:"async,omitempty"`
@@ -1050,6 +1051,58 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		// Keep local changes attached to the new branch exactly as git switch -c
 		// normally does.
 		args = []string{"switch", "-c", branch}
+	case "checkout_commit", "create_branch_at", "reset_commit":
+		ref := strings.TrimSpace(req.Ref)
+		if !gitCompareCommitPattern.MatchString(ref) {
+			http.Error(w, "full commit SHA is required", http.StatusBadRequest)
+			return
+		}
+		resolved, _, _, resolveErr := s.runGit(r.Context(), 4*time.Second, "rev-parse", "--verify", ref+"^{commit}")
+		if resolveErr != nil {
+			http.Error(w, "commit ref not found", http.StatusNotFound)
+			return
+		}
+		sha := strings.TrimSpace(resolved)
+		if !gitCompareCommitPattern.MatchString(sha) {
+			http.Error(w, "resolved commit is invalid", http.StatusConflict)
+			return
+		}
+		if expected := strings.TrimSpace(req.ExpectedSHA); expected != "" && expected != sha {
+			http.Error(w, "commit changed after confirmation; refresh the graph and confirm again", http.StatusConflict)
+			return
+		}
+		switch action {
+		case "checkout_commit":
+			clean, cleanErr := s.gitWorktreeClean(r.Context())
+			if cleanErr != nil { http.Error(w, cleanErr.Error(), http.StatusConflict); return }
+			if !clean {
+				writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "working tree must be clean before checking out a detached commit", "failure_code": "dirty_worktree"})
+				return
+			}
+			args = []string{"switch", "--detach", sha}
+		case "create_branch_at":
+			branch := strings.TrimSpace(req.Branch)
+			if err := s.validBranchName(r.Context(), branch); err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
+			if s.localBranchExists(r.Context(), branch) { http.Error(w, "local branch already exists", http.StatusConflict); return }
+			clean, cleanErr := s.gitWorktreeClean(r.Context())
+			if cleanErr != nil { http.Error(w, cleanErr.Error(), http.StatusConflict); return }
+			if !clean {
+				writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "working tree must be clean before creating a branch at another commit", "failure_code": "dirty_worktree"})
+				return
+			}
+			args = []string{"switch", "-c", branch, sha}
+		case "reset_commit":
+			if !req.Confirmed {
+				writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "reset requires explicit confirmation", "failure_code": "confirmation_required"})
+				return
+			}
+			mode := strings.ToLower(strings.TrimSpace(req.Mode))
+			if mode != "soft" && mode != "mixed" && mode != "hard" {
+				http.Error(w, "reset mode must be soft, mixed, or hard", http.StatusBadRequest)
+				return
+			}
+			args = []string{"reset", "--" + mode, sha}
+		}
 	case "delete_branch", "force_delete_branch":
 		if !req.Confirmed {
 			message := "deleting a local branch requires explicit confirmation"
