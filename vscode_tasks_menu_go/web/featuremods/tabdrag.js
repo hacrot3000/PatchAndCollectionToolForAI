@@ -45,15 +45,20 @@ function readOrder(){
   }catch{return [];}
 }
 function applyOrder(ids){
-  if(!Array.isArray(ids)||!ids.length)return;
-  const byID=new Map(workspaceTabs().map(tab=>[tab.dataset.id,tab]));
+  if(!Array.isArray(ids)||!ids.length)return false;
+  const current=workspaceTabs();
+  const byID=new Map(current.map(tab=>[tab.dataset.id,tab]));
+  const ordered=[];
   for(const id of ids){
     const tab=byID.get(id);
-    if(tab){tabsHost.append(tab);byID.delete(id);}
+    if(tab){ordered.push(tab);byID.delete(id);}
   }
   // Tabs not present in the saved order are new sessions; keep their current
   // relative order after the restored entries.
-  for(const tab of byID.values())tabsHost.append(tab);
+  ordered.push(...byID.values());
+  if(ordered.length===current.length&&ordered.every((tab,index)=>tab===current[index]))return false;
+  for(const tab of ordered)tabsHost.append(tab);
+  return true;
 }
 function restoreSavedOrder(){applyOrder(readOrder());}
 function installTab(tab){
@@ -139,14 +144,18 @@ tabsHost.addEventListener('click',event=>{
 },true);
 
 const tabObserver=new MutationObserver(records=>{
-  let added=false;
+  let installedNewTab=false;
   for(const record of records){
     for(const node of record.addedNodes){
       if(!(node instanceof HTMLElement)||node.parentElement!==tabsHost||!node.dataset.id)continue;
-      installTab(node);added=true;
+      const alreadyInstalled=node.dataset.dragOrderInstalled==='1';
+      installTab(node);
+      if(!alreadyInstalled)installedNewTab=true;
     }
   }
-  if(added&&!dragged){
+  // Reordering uses append(), which also produces childList records. Only a
+  // genuinely new workspace tab should trigger saved-order restoration.
+  if(installedNewTab&&!dragged){
     queueMicrotask(()=>{if(!dragged)applyOrder(readOrder());});
   }
 });
