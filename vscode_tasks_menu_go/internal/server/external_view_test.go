@@ -159,10 +159,12 @@ func TestWorkspaceOpenPathsDoNotForcePatchOutOfForeground(t *testing.T) {
 		{
 			file: "featuremods/editor.js",
 			required: []string{
-				"const view=await promise;activateEditor(view.id);return view",
+				"const view=await promise",
+				"activateEditor(view.id)",
+				"announceOpenedFile(pathValue)",
 			},
 			forbidden: []string{
-				"const view=await promise;activateEditor(view.id,{force:true});return view",
+				"activateEditor(view.id,{force:true})",
 			},
 		},
 	}
