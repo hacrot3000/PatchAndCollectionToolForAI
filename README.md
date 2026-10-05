@@ -164,7 +164,7 @@ Launcher luôn dùng **working directory hiện tại làm workspace**, tự bui
 Các chức năng chính gồm:
 
 - mỗi task chạy trong PTY/session/tab riêng, hỗ trợ ANSI, prompt tương tác, Ctrl+C và reconnect/replay scrollback;
-- terminal tab, đổi tên tab, sắp xếp/khôi phục tab, split dọc/ngang và nhiều split group; trong layout split có thể kéo title của pane rồi thả vào vùng trái/phải/trên/dưới của pane khác để sắp xếp lại trực quan theo kiểu Terminator; active tab, CWD và split layout được lưu theo project;
+- terminal tab, đổi tên tab, sắp xếp/khôi phục tab, split dọc/ngang và nhiều split group; nút **Terminal** trên header mở terminal mới trực tiếp (không qua dropdown), hotkey **Ctrl+Shift+`** cũng mở terminal mới, còn CWD mặc định cho terminal được chọn tại **Settings → Terminal**; trong layout split có thể kéo title của pane rồi thả vào vùng trái/phải/trên/dưới của pane khác để sắp xếp lại trực quan theo kiểu Terminator; active tab, CWD và split layout được lưu theo project;
 - Broadcast Groups: click phải tab để gán/tạo/xóa khỏi group; menu `Broadcast` hỗ trợ `None / All / Group`, gửi raw key/Enter/Ctrl+C/arrow tới các session đích và tô màu tab theo preset group;
 - Preset command cho terminal tab: click phải `Preset command ▶` để chọn chuỗi lệnh project-local; lệnh chạy tuần tự trong chính shell terminal, dừng ngay khi command trả exit code khác 0; dialog riêng hỗ trợ Add/Edit/Delete/Close và lưu tại `vscode_tasks_menu.presets.json`;
 - reload browser vẫn khôi phục terminal layout; self-update giữ session broker sống qua daemon replacement nên process/PTY/session ID/scrollback tiếp tục tồn tại, đồng thời tabs, CWD, order và split layout được attach lại;
