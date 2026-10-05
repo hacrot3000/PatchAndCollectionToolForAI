@@ -175,8 +175,8 @@ async function loadPath(pathValue){
   result.value=data.result?.exists?String(data.result.content??''):'';
   result.disabled=!data.result?.exists;
   saveButton.disabled=!data.result?.exists;
-  useWholeCurrent.disabled=!data.current?.exists&&!data.result?.exists;
-  useWholeIncoming.disabled=!data.incoming?.exists&&!data.result?.exists;
+  useWholeCurrent.disabled=false;
+  useWholeIncoming.disabled=false;
   renderFileSelector();refreshBlocks(0);
   setFooter(data.result?.exists?'Loaded. Result is not staged until Mark resolved.':'Working Result is absent. Use a whole Current/Incoming side to resolve this delete/modify conflict.');
   return true;
@@ -228,7 +228,7 @@ async function navigateFile(delta){
 }
 async function abortOperation(){
   if(!window.confirm('Abort the active Git '+(session?.data?.operation||'operation')+'? Conflict-resolution work for this operation will be discarded by Git.'))return;
-  const response=await runRepair('abort_in_progress',{});
+  const response=await runRepair('abort_in_progress',{confirmed:true});
   session.dirty=false;setFooter(response?.output||'Git operation aborted.');close();
 }
 async function open(options={}){
