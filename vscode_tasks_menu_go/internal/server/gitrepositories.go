@@ -138,53 +138,99 @@ func (s *Server) discoverGitRepositories(force bool) ([]gitRepository, config.Gi
 	if err != nil {
 		return nil, config.GitSettings{}, err
 	}
-	workspaceRoot, err := canonicalExistingPath(s.Workspace)
+	rootViews, err := s.workspaceRootViews(!s.Config.SharedServerEnabled)
 	if err != nil {
 		return nil, settings, err
 	}
+	type discoveryBase struct {
+		View workspaceRootView
+		Root string
+	}
+	bases := make([]discoveryBase, 0, len(rootViews))
+	baseByID := map[string]discoveryBase{}
+	for _, view := range rootViews {
+		if !view.Available {
+			continue
+		}
+		root, resolveErr := canonicalExistingPath(view.Path)
+		if resolveErr != nil {
+			continue
+		}
+		base := discoveryBase{View: view, Root: root}
+		bases = append(bases, base)
+		baseByID[view.ID] = base
+	}
+	primary, ok := baseByID[workspacePrimaryRootID]
+	if !ok {
+		return nil, settings, fmt.Errorf("primary workspace root is unavailable")
+	}
+
+	virtualRepoID := func(base discoveryBase, root string) (string, error) {
+		rel, err := repositoryID(base.Root, root)
+		if err != nil {
+			return "", err
+		}
+		if base.View.Primary {
+			return rel, nil
+		}
+		if rel == "." {
+			return workspaceVirtualPath(base.View.ID, ""), nil
+		}
+		return workspaceVirtualPath(base.View.ID, rel), nil
+	}
 
 	byID := map[string]gitRepository{}
-	add := func(root, name string, explicit bool) {
-		root, err = verifyGitRepository(workspaceRoot, root)
-		if err != nil {
+	add := func(base discoveryBase, candidate, name string, explicit bool) {
+		root, verifyErr := verifyGitRepository(base.Root, candidate)
+		if verifyErr != nil {
 			return
 		}
-		id, err := repositoryID(workspaceRoot, root)
-		if err != nil {
+		id, idErr := virtualRepoID(base, root)
+		if idErr != nil {
 			return
 		}
 		displayName := strings.TrimSpace(name)
 		if displayName == "" {
-			if id == "." {
-				displayName = filepath.Base(workspaceRoot)
-			} else {
+			if root == base.Root {
+				displayName = base.View.Name
+			}
+			if displayName == "" {
 				displayName = filepath.Base(root)
 			}
 		}
-		existing, ok := byID[id]
-		if ok && existing.Explicit && !explicit {
+		existing, exists := byID[id]
+		if exists && existing.Explicit && !explicit {
 			return
 		}
 		byID[id] = gitRepository{ID: id, Name: displayName, Path: id, Root: root, Explicit: explicit}
 	}
 
 	for name, rel := range settings.Repositories {
-		candidate := workspaceRoot
+		candidate := primary.Root
 		if rel != "." {
-			candidate = filepath.Join(workspaceRoot, filepath.FromSlash(rel))
+			candidate = filepath.Join(primary.Root, filepath.FromSlash(rel))
 		}
-		add(candidate, name, true)
+		add(primary, candidate, name, true)
 	}
 
-	// Preserve the historical single-repository behavior even when recursive
-	// discovery is disabled. scan_enabled controls nested walking, not the
-	// workspace root itself.
-	if candidateHasGitMarker(workspaceRoot) {
-		add(workspaceRoot, "", false)
+	attachedInsidePrimary := map[string]bool{}
+	for _, base := range bases {
+		if base.View.Primary {
+			continue
+		}
+		if pathInside(primary.Root, base.Root) {
+			attachedInsidePrimary[base.Root] = true
+		}
 	}
 
-	if settings.ScanEnabled {
-		_ = filepath.WalkDir(workspaceRoot, func(current string, entry fs.DirEntry, walkErr error) error {
+	for _, base := range bases {
+		if candidateHasGitMarker(base.Root) {
+			add(base, base.Root, "", false)
+		}
+		if !settings.ScanEnabled {
+			continue
+		}
+		_ = filepath.WalkDir(base.Root, func(current string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				if entry != nil && entry.IsDir() {
 					return filepath.SkipDir
@@ -194,16 +240,23 @@ func (s *Server) discoverGitRepositories(force bool) ([]gitRepository, config.Gi
 			if !entry.IsDir() {
 				return nil
 			}
-			rel, err := filepath.Rel(workspaceRoot, current)
-			if err != nil {
+			resolvedCurrent := current
+			if canonical, canonicalErr := canonicalExistingPath(current); canonicalErr == nil {
+				resolvedCurrent = canonical
+			}
+			if base.View.Primary && current != base.Root && attachedInsidePrimary[resolvedCurrent] {
+				return filepath.SkipDir
+			}
+			rel, relErr := filepath.Rel(base.Root, current)
+			if relErr != nil {
 				return filepath.SkipDir
 			}
 			depth := gitPathDepth(rel)
-			if current != workspaceRoot && gitScanIgnoredDirectories[entry.Name()] {
+			if current != base.Root && gitScanIgnoredDirectories[entry.Name()] {
 				return filepath.SkipDir
 			}
 			if candidateHasGitMarker(current) {
-				add(current, "", false)
+				add(base, current, "", false)
 			}
 			if depth >= settings.ScanDepth {
 				return filepath.SkipDir
@@ -212,10 +265,19 @@ func (s *Server) discoverGitRepositories(force bool) ([]gitRepository, config.Gi
 		})
 	}
 
-	// Initialized submodules are first-class repositories even when bounded
-	// recursive discovery is disabled or the submodule path is deeper than the
-	// configured scan depth. Follow only paths declared by .gitmodules and
-	// verify each candidate stays inside the workspace before adding it.
+	baseForRepo := func(repo gitRepository) (discoveryBase, bool) {
+		if strings.HasPrefix(repo.ID, "@root/") {
+			rest := strings.TrimPrefix(repo.ID, "@root/")
+			id := rest
+			if index := strings.IndexByte(rest, '/'); index >= 0 {
+				id = rest[:index]
+			}
+			base, ok := baseByID[id]
+			return base, ok
+		}
+		return primary, true
+	}
+
 	for pass := 0; pass < 32; pass++ {
 		before := len(byID)
 		snapshot := make([]gitRepository, 0, len(byID))
@@ -223,6 +285,10 @@ func (s *Server) discoverGitRepositories(force bool) ([]gitRepository, config.Gi
 			snapshot = append(snapshot, item)
 		}
 		for _, parentRepo := range snapshot {
+			base, baseOK := baseForRepo(parentRepo)
+			if !baseOK {
+				continue
+			}
 			ctx := withGitRepository(context.Background(), parentRepo)
 			configs, configErr := s.gitSubmoduleConfigs(ctx)
 			if configErr != nil {
@@ -231,7 +297,7 @@ func (s *Server) discoverGitRepositories(force bool) ([]gitRepository, config.Gi
 			for _, submodule := range configs {
 				candidate := filepath.Join(parentRepo.Root, filepath.FromSlash(submodule.Path))
 				if candidateHasGitMarker(candidate) {
-					add(candidate, submodule.Name, false)
+					add(base, candidate, submodule.Name, false)
 				}
 			}
 		}

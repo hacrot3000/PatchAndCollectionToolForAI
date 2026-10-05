@@ -163,3 +163,66 @@ func TestInitializedSubmoduleIsDiscoveredWhenNestedScanDisabled(t *testing.T) {
 		t.Fatalf("submodule repository=%+v", child)
 	}
 }
+
+func TestDiscoverGitRepositoriesAcrossAttachedWorkspaceRoots(t *testing.T) {
+	base := t.TempDir()
+	primary := filepath.Join(base, "main")
+	attached := filepath.Join(base, "client")
+	if err := os.MkdirAll(primary, 0o755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(attached, 0o755); err != nil { t.Fatal(err) }
+	gitQuickRun(t, primary, "init")
+	gitQuickRun(t, primary, "config", "user.name", "Task Menu Test")
+	gitQuickRun(t, primary, "config", "user.email", "task-menu@example.invalid")
+	if err := os.WriteFile(filepath.Join(primary, "main.txt"), []byte("main\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, primary, "add", "main.txt"); gitQuickRun(t, primary, "commit", "-m", "main")
+	gitQuickRun(t, attached, "init")
+	gitQuickRun(t, attached, "config", "user.name", "Task Menu Test")
+	gitQuickRun(t, attached, "config", "user.email", "task-menu@example.invalid")
+	if err := os.WriteFile(filepath.Join(attached, "client.txt"), []byte("client\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, attached, "add", "client.txt"); gitQuickRun(t, attached, "commit", "-m", "client")
+
+	s := &Server{Workspace: primary}
+	create := callWorkspaceRoots(t, s, http.MethodPost, "/api/workspace-roots", `{"path":"../client","name":"Client App"}`)
+	if create.Code != http.StatusCreated { t.Fatalf("attach status=%d body=%s", create.Code, create.Body.String()) }
+	var root workspaceRootView
+	if err := json.Unmarshal(create.Body.Bytes(), &root); err != nil { t.Fatal(err) }
+
+	repos, _, err := s.discoverGitRepositories(true)
+	if err != nil { t.Fatal(err) }
+	seen := map[string]gitRepository{}
+	for _, item := range repos { seen[item.ID] = item }
+	if _, ok := seen["."]; !ok { t.Fatalf("primary repo missing: %+v", repos) }
+	attachedID := workspaceVirtualPath(root.ID, "")
+	got, ok := seen[attachedID]
+	if !ok || got.Root != attached || got.Name != "Client App" {
+		t.Fatalf("attached repo id=%q got=%+v repos=%+v", attachedID, got, repos)
+	}
+
+	rr := callGitStatusHandler(t, s, http.MethodGet, "/api/git/status?repo="+urlQueryEscape(attachedID), "")
+	if rr.Code != http.StatusOK { t.Fatalf("attached status=%d body=%s", rr.Code, rr.Body.String()) }
+	var status gitStatusResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &status); err != nil { t.Fatal(err) }
+	if status.RepoID != attachedID || status.Head == "" { t.Fatalf("status=%+v", status) }
+}
+
+func TestPrimaryGitScanDoesNotDuplicateAttachedNestedRoot(t *testing.T) {
+	primary := t.TempDir()
+	attached := filepath.Join(primary, "projects", "client")
+	if err := os.MkdirAll(attached, 0o755); err != nil { t.Fatal(err) }
+	gitQuickRun(t, attached, "init")
+	s := &Server{Workspace: primary}
+	create := callWorkspaceRoots(t, s, http.MethodPost, "/api/workspace-roots", `{"path":"projects/client","name":"Client"}`)
+	if create.Code != http.StatusCreated { t.Fatal(create.Body.String()) }
+	var root workspaceRootView
+	if err := json.Unmarshal(create.Body.Bytes(), &root); err != nil { t.Fatal(err) }
+
+	repos, _, err := s.discoverGitRepositories(true)
+	if err != nil { t.Fatal(err) }
+	count := 0
+	for _, item := range repos {
+		if item.Root == attached { count++ }
+		if item.ID == "projects/client" { t.Fatalf("attached root leaked through primary namespace: %+v", item) }
+	}
+	if count != 1 { t.Fatalf("physical attached repo discovered %d times: %+v", count, repos) }
+	if _, err := s.resolveGitRepository(workspaceVirtualPath(root.ID, "")); err != nil { t.Fatal(err) }
+}
