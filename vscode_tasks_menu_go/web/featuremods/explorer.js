@@ -256,7 +256,6 @@ async function toggleDirectory(pathValue){
   }
 }
 function openFile(pathValue){
-  rememberRecent(pathValue);
   window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path:pathValue,source:'explorer'}}));
 }
 async function restoreExpandedDirectories(){
@@ -288,5 +287,11 @@ refresh.onclick=reload;
 closeButton.onclick=close;
 document.addEventListener('keydown',event=>{if(event.key==='Escape'){closeContextMenu();if(panel.classList.contains('visible'))close();}});
 document.addEventListener('pointerdown',event=>{if(contextMenu.classList.contains('visible')&&!contextMenu.contains(event.target))closeContextMenu();},true);
+window.addEventListener('taskmenu:project-file-opened',event=>{
+  const pathValue=String(event.detail?.path||'').trim();
+  if(!pathValue)return;
+  rememberRecent(pathValue);
+  if(panel.classList.contains('visible'))revealPath(pathValue).catch(app.showError);
+});
 
 globalThis.TaskMenuExplorer={open,close,reload,reveal:revealPath,get selectedPaths(){return [...selected];},get favorites(){return [...favorites];},get recent(){return [...recent];}};
