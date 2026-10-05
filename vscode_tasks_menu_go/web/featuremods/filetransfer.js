@@ -2249,6 +2249,16 @@ function commonSelectionMenu(panel,remote,onRefresh){
 }
 function leftContext(view,entry,event){
   const panel=view.left,selected=selectedEntries(panel),items=[];
+  if(panel.source==='host'&&selected.length===1){
+    const projectPath=joinPath(panel.currentPath,selected[0].name,false);
+    const projectType=entryType(selected[0])==='directory'?'dir':'file';
+    const shared=globalThis.TaskMenuProjectFileActions?.standardActions?.(projectPath,projectType)||[];
+    for(const action of shared){
+      if(action.separator)items.push({separator:true});
+      else if(action.label!=='Copy path')items.push({label:action.label,action:action.run});
+    }
+    if(shared.length)items.push({separator:true});
+  }
   if(selected.length===1&&entryType(selected[0])==='directory'){
     items.push({label:'Open folder',action:()=>loadLeftDirectory(view,joinPath(panel.currentPath,selected[0].name,false))});
   }
