@@ -372,6 +372,11 @@ function gitDiffModeMeta(mode){
   if(mode==='head-worktree')return {title:'HEAD ↔ WORKING',left:'HEAD · committed',right:'WORKTREE · current',description:'All tracked changes: staged + not staged'};
   return {title:'STAGED ↔ WORKING',left:'INDEX · staged',right:'WORKTREE · not staged',description:'Only changes not staged yet'};
 }
+function openGenericGitStateCompare(path,mode){
+  const compare=globalThis.TaskMenuFileCompare;
+  if(!compare?.openGitStatePair)throw new Error('File Compare unavailable');
+  return compare.openGitStatePair(activeRepoID,path,workspacePathForActiveRepository(path),mode);
+}
 function gitVisualHunkRows(hunk){
   const raw=String(hunk?.text||'');
   const lines=raw.replace(/\n$/,'').split('\n');
@@ -436,6 +441,7 @@ function gitDiffModeBar(path,mode){
   for(const [value,label,title] of modes){
     const button=actionButton(label,()=>showDiff(path,value),title);button.classList.toggle('active',value===mode);bar.append(button);
   }
+  bar.append(actionButton('Open File Compare',()=>openGenericGitStateCompare(path,mode),'Open this Git state pair in the reusable generic compare view'));
   return bar;
 }
 async function runHunkAction(path,mode,data,hunk,kind){
@@ -736,10 +742,10 @@ async function loadFileHistory(){
     const row=el('div','git-row');const code=el('span','git-row-code',commit.short);const main=el('div','git-row-main');
     main.append(el('div','git-row-title',commit.subject),el('div','git-row-sub',commit.date+' · '+commit.author));
     const actions=el('div','git-row-actions');
-    actions.append(actionButton('Compare working',()=>{
+    actions.append(actionButton('Compare current',()=>{
       const compare=globalThis.TaskMenuFileCompare;if(!compare?.openGitCommitAgainstProject)throw new Error('File Compare unavailable');
       return compare.openGitCommitAgainstProject(activeRepoID,gitFilePath,workspacePathForActiveRepository(gitFilePath),commit.sha);
-    },'Compare this committed file version with the current project file'));
+    },'Compare this committed file version with the current editor buffer when open, otherwise the working project file'));
     actions.append(actionButton(gitFileCompareRef===commit.sha?'Compare A ✓':'Use as Compare A',()=>{gitFileCompareRef=commit.sha;return loadFileHistory();},'Select this commit as the left side for commit-to-commit compare'));
     if(gitFileCompareRef&&gitFileCompareRef!==commit.sha)actions.append(actionButton('Compare A ↔ this',()=>{
       const compare=globalThis.TaskMenuFileCompare;if(!compare?.openGitCommits)throw new Error('File Compare unavailable');
