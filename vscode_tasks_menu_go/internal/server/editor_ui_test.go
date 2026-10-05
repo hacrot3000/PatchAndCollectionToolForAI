@@ -448,3 +448,26 @@ func TestEditorCurrentLineAndWhitespaceDecorations(t *testing.T) {
 		}
 	}
 }
+
+func TestEditorReopensRecentlyClosedTabs(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const closedEditorPaths=[]",
+		"const maxClosedEditorPaths=30",
+		"function rememberClosedEditor(view)",
+		"async function reopenClosedEditor()",
+		"rememberClosedEditor(view)",
+		"key==='t'&&event.shiftKey",
+		"reopenClosedEditor().catch(app.showError)",
+		"reopenClosedEditor,",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor reopen closed tab support missing %q", want)
+		}
+	}
+	if strings.Contains(js, "localStorage.setItem") && strings.Contains(js, "closedEditorPaths") {
+		t.Fatal("closed editor stack must remain in-memory only")
+	}
+}

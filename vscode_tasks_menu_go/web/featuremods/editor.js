@@ -64,6 +64,8 @@ let renderedEditorSplitRoot=null;
 let editorSplitDragging=null;
 const editorSplitResizers=new Map();
 const editorSplitRects=new Map();
+const closedEditorPaths=[];
+const maxClosedEditorPaths=30;
 
 function editorSplitLeaf(id){return {type:'leaf',id};}
 function editorSplitNode(first,second,orientation,ratio=.5){return {type:'split',first,second,orientation:orientation==='horizontal'?'horizontal':'vertical',ratio};}
@@ -681,6 +683,23 @@ async function saveEditor(view){
     }
   }
 }
+function rememberClosedEditor(view){
+  const pathValue=String(view?.file?.path||'').trim();
+  if(!pathValue)return;
+  const index=closedEditorPaths.indexOf(pathValue);
+  if(index>=0)closedEditorPaths.splice(index,1);
+  closedEditorPaths.unshift(pathValue);
+  if(closedEditorPaths.length>maxClosedEditorPaths)closedEditorPaths.length=maxClosedEditorPaths;
+}
+async function reopenClosedEditor(){
+  while(closedEditorPaths.length){
+    const pathValue=closedEditorPaths.shift();
+    if(!pathValue||editors.has(editorID(pathValue)))continue;
+    try{return await openFile(pathValue);}
+    catch(error){console.warn('Reopen closed editor skipped '+pathValue,error);}
+  }
+  return null;
+}
 async function closeEditor(id){
   const view=editors.get(id);if(!view)return false;
   if(view.dirty){
@@ -691,6 +710,7 @@ async function closeEditor(id){
       if(view.dirty)return false;
     }
   }
+  rememberClosedEditor(view);
   destroyEditor(id);
   return true;
 }
@@ -872,9 +892,16 @@ function goToLine(view){
 }
 
 document.addEventListener('keydown',event=>{
-  if(!(event.ctrlKey||event.metaKey)||!activeEditorID)return;
-  const view=editors.get(activeEditorID);if(!view||view.closed)return;
+  if(!(event.ctrlKey||event.metaKey))return;
   const key=event.key.toLowerCase();
+  if(key==='t'&&event.shiftKey){
+    if(!closedEditorPaths.length)return;
+    event.preventDefault();
+    reopenClosedEditor().catch(app.showError);
+    return;
+  }
+  if(!activeEditorID)return;
+  const view=editors.get(activeEditorID);if(!view||view.closed)return;
   if(key==='s'){
     event.preventDefault();
     saveEditor(view).catch(app.showError);
@@ -930,6 +957,7 @@ globalThis.TaskMenuEditor={
   reloadEditor,
   saveEditor,
   closeEditor,
+  reopenClosedEditor,
   goToLine,
   activateEditor,
   destroyEditor,
