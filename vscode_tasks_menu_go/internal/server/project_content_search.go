@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -28,6 +29,16 @@ type projectContentSearchResult struct {
 	Line   int    `json:"line"`
 	Column int    `json:"column"`
 	Preview string `json:"preview"`
+}
+
+type projectContentSearchOptions struct {
+	Query         string
+	Regex         bool
+	CaseSensitive bool
+	WholeWord     bool
+	Include       []string
+	Exclude       []string
+	Scope         string
 }
 
 type rgJSONText struct {
@@ -51,7 +62,26 @@ func (s *Server) projectContentSearch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	options := projectContentSearchOptions{
+		Query:         strings.TrimSpace(r.URL.Query().Get("q")),
+		Regex:         r.URL.Query().Get("regex") == "1",
+		CaseSensitive: r.URL.Query().Get("case") == "1",
+		WholeWord:     r.URL.Query().Get("word") == "1",
+		Include:       splitProjectSearchGlobs(r.URL.Query().Get("include")),
+		Exclude:       splitProjectSearchGlobs(r.URL.Query().Get("exclude")),
+	}
+	if scope := strings.TrimSpace(r.URL.Query().Get("path")); scope != "" && scope != "." {
+		rel, cleanErr := cleanProjectRelativePath(scope, true)
+		if cleanErr != nil {
+			http.Error(w, cleanErr.Error(), http.StatusBadRequest)
+			return
+		}
+		if _, resolveErr := s.resolveProjectPath(rel, true, true); resolveErr != nil {
+			http.Error(w, "project search folder unavailable", http.StatusNotFound)
+			return
+		}
+		options.Scope = rel
+	}
 	limit := projectContentSearchDefaultLimit
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
 		if parsed, err := strconv.Atoi(raw); err == nil {
@@ -64,7 +94,7 @@ func (s *Server) projectContentSearch(w http.ResponseWriter, r *http.Request) {
 	if limit > projectContentSearchMaxLimit {
 		limit = projectContentSearchMaxLimit
 	}
-	if query == "" {
+	if options.Query == "" {
 		writeJSON(w, http.StatusOK, map[string]any{"results": []projectContentSearchResult{}})
 		return
 	}
@@ -73,7 +103,7 @@ func (s *Server) projectContentSearch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "project root unavailable", http.StatusInternalServerError)
 		return
 	}
-	results, err := searchProjectContent(r.Context(), root, query, limit)
+	results, err := searchProjectContentWithOptions(r.Context(), root, options, limit)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return
@@ -85,33 +115,53 @@ func (s *Server) projectContentSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func searchProjectContent(ctx context.Context, root, query string, limit int) ([]projectContentSearchResult, error) {
+	return searchProjectContentWithOptions(ctx, root, projectContentSearchOptions{Query: query, CaseSensitive: true}, limit)
+}
+
+func searchProjectContentWithOptions(ctx context.Context, root string, options projectContentSearchOptions, limit int) ([]projectContentSearchResult, error) {
 	if limit <= 0 {
 		return []projectContentSearchResult{}, nil
 	}
+	if _, err := projectSearchRegexp(options); err != nil {
+		return nil, err
+	}
 	if rg, err := exec.LookPath("rg"); err == nil {
-		if results, err := searchProjectContentRG(ctx, rg, root, query, limit); err == nil {
+		if results, err := searchProjectContentRG(ctx, rg, root, options, limit); err == nil {
 			return results, nil
 		} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, err
 		}
 	}
-	return searchProjectContentFallback(ctx, root, query, limit)
+	return searchProjectContentFallbackWithOptions(ctx, root, options, limit)
 }
 
-func searchProjectContentRG(parent context.Context, rg, root, query string, limit int) ([]projectContentSearchResult, error) {
+func searchProjectContentRG(parent context.Context, rg, root string, options projectContentSearchOptions, limit int) ([]projectContentSearchResult, error) {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, rg,
-		"--json",
-		"--color", "never",
-		"--line-number",
-		"--column",
-		"--fixed-strings",
-		"--glob", "!.git/**",
-		"--",
-		query,
-		".",
-	)
+	args := []string{"--json", "--color", "never", "--line-number", "--column", "--glob", "!.git/**"}
+	if !options.Regex {
+		args = append(args, "--fixed-strings")
+	}
+	if options.CaseSensitive {
+		args = append(args, "--case-sensitive")
+	} else {
+		args = append(args, "--ignore-case")
+	}
+	if options.WholeWord {
+		args = append(args, "--word-regexp")
+	}
+	for _, pattern := range options.Include {
+		args = append(args, "--glob", pattern)
+	}
+	for _, pattern := range options.Exclude {
+		args = append(args, "--glob", "!"+pattern)
+	}
+	target := "."
+	if options.Scope != "" {
+		target = options.Scope
+	}
+	args = append(args, "--", options.Query, target)
+	cmd := exec.CommandContext(ctx, rg, args...)
 	cmd.Dir = root
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -180,10 +230,21 @@ func searchProjectContentRG(parent context.Context, rg, root, query string, limi
 }
 
 func searchProjectContentFallback(ctx context.Context, root, query string, limit int) ([]projectContentSearchResult, error) {
-	needle := []byte(query)
+	return searchProjectContentFallbackWithOptions(ctx, root, projectContentSearchOptions{Query: query, CaseSensitive: true}, limit)
+}
+
+func searchProjectContentFallbackWithOptions(ctx context.Context, root string, options projectContentSearchOptions, limit int) ([]projectContentSearchResult, error) {
+	matcher, err := projectSearchRegexp(options)
+	if err != nil {
+		return nil, err
+	}
 	results := make([]projectContentSearchResult, 0, minInt(limit, 32))
 	ignore := loadProjectRootIgnore(root)
-	err := filepath.WalkDir(root, func(full string, entry os.DirEntry, walkErr error) error {
+	walkRoot := root
+	if options.Scope != "" {
+		walkRoot = filepath.Join(root, filepath.FromSlash(options.Scope))
+	}
+	err = filepath.WalkDir(walkRoot, func(full string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			if entry != nil && entry.IsDir() {
 				return filepath.SkipDir
@@ -210,7 +271,7 @@ func searchProjectContentFallback(ctx context.Context, root, query string, limit
 			}
 			return nil
 		}
-		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() || ignore.matches(rel, false) {
+		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() || ignore.matches(rel, false) || !projectSearchPathAllowed(rel, options) {
 			return nil
 		}
 		info, err := entry.Info()
@@ -234,14 +295,9 @@ func searchProjectContentFallback(ctx context.Context, root, query string, limit
 				next = start + end
 			}
 			line := bytes.TrimSuffix(data[start:next], []byte{'\r'})
-			searchFrom := 0
-			for searchFrom <= len(line) {
-				at := bytes.Index(line[searchFrom:], needle)
-				if at < 0 {
-					break
-				}
-				at += searchFrom
-				lineText := string(line)
+			lineText := string(line)
+			for _, match := range matcher.FindAllStringIndex(lineText, -1) {
+				at := match[0]
 				results = append(results, projectContentSearchResult{
 					Path: rel, Line: lineNumber,
 					Column: projectUTF16Column(lineText, at),
@@ -250,7 +306,6 @@ func searchProjectContentFallback(ctx context.Context, root, query string, limit
 				if len(results) >= limit {
 					return errProjectContentSearchLimit
 				}
-				searchFrom = at + maxInt(1, len(needle))
 			}
 			if end < 0 {
 				break
@@ -263,6 +318,74 @@ func searchProjectContentFallback(ctx context.Context, root, query string, limit
 		return results, nil
 	}
 	return results, err
+}
+
+func splitProjectSearchGlobs(raw string) []string {
+	fields := strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == '\n' || r == '\r' })
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = filepath.ToSlash(strings.TrimSpace(field))
+		if field != "" {
+			out = append(out, field)
+		}
+	}
+	return out
+}
+
+func projectSearchRegexp(options projectContentSearchOptions) (*regexp.Regexp, error) {
+	pattern := options.Query
+	if !options.Regex {
+		pattern = regexp.QuoteMeta(pattern)
+	}
+	if options.WholeWord {
+		pattern = `\b(?:` + pattern + `)\b`
+	}
+	if !options.CaseSensitive {
+		pattern = "(?i:" + pattern + ")"
+	}
+	return regexp.Compile(pattern)
+}
+
+func projectSearchGlobMatch(pattern, rel string) bool {
+	pattern = filepath.ToSlash(strings.TrimSpace(pattern))
+	rel = filepath.ToSlash(rel)
+	if pattern == "" {
+		return false
+	}
+	if ok, _ := path.Match(pattern, rel); ok {
+		return true
+	}
+	if !strings.Contains(pattern, "/") {
+		if ok, _ := path.Match(pattern, path.Base(rel)); ok {
+			return true
+		}
+	}
+	if strings.HasSuffix(pattern, "/**") {
+		prefix := strings.TrimSuffix(pattern, "/**")
+		return rel == prefix || strings.HasPrefix(rel, prefix+"/")
+	}
+	return false
+}
+
+func projectSearchPathAllowed(rel string, options projectContentSearchOptions) bool {
+	if len(options.Include) > 0 {
+		matched := false
+		for _, pattern := range options.Include {
+			if projectSearchGlobMatch(pattern, rel) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	for _, pattern := range options.Exclude {
+		if projectSearchGlobMatch(pattern, rel) {
+			return false
+		}
+	}
+	return true
 }
 
 var errProjectContentSearchLimit = errors.New("project content search result limit reached")
