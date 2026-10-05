@@ -33,8 +33,10 @@ func TestTabDragOrderingFeature(t *testing.T) {
 		"#tabs>[data-id][draggable=\"true\"] .close{cursor:pointer}",
 		"const tabObserver=new MutationObserver(records=>",
 		"node.parentElement!==tabsHost||!node.dataset.id",
-		"installTab(node);added=true",
-		"if(added&&!dragged)",
+		"const alreadyInstalled=node.dataset.dragOrderInstalled==='1'",
+		"installTab(node)",
+		"if(!alreadyInstalled)installedNewTab=true",
+		"if(installedNewTab&&!dragged)",
 		"tabObserver.observe(tabsHost,{childList:true})",
 	} {
 		if !strings.Contains(js, want) {
@@ -67,7 +69,7 @@ func TestTabDragSupportsPatchFileTransferAndDatabaseWorkspaceTabs(t *testing.T) 
 	dragJS := string(dragData)
 	for _, want := range []string{
 		"workspaceTabs().map(tab=>tab.dataset.id||'').filter(Boolean)",
-		"const byID=new Map(workspaceTabs().map(tab=>[tab.dataset.id,tab]))",
+		"const byID=new Map(current.map(tab=>[tab.dataset.id,tab]))",
 		"for(const tab of workspaceTabs())installTab(tab)",
 		"const direct=workspaceTabFromTarget(event.target)",
 		"const tab=workspaceTabByID(id)",
@@ -119,7 +121,7 @@ func TestTabDragObserverDoesNotLoopOnItsOwnReorder(t *testing.T) {
 		"const alreadyInstalled=node.dataset.dragOrderInstalled==='1'",
 		"if(!alreadyInstalled)installedNewTab=true",
 		"if(installedNewTab&&!dragged)",
-		"Only a genuinely new workspace tab should trigger saved-order restoration",
+		"genuinely new workspace tab should trigger saved-order restoration",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("tabdrag.js missing reorder-loop guard %q", want)
