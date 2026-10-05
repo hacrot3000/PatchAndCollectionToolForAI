@@ -52,3 +52,20 @@ func TestParseGitBranchHeader(t *testing.T) {
 		t.Fatalf("unexpected plain branch parse: %q %d %d", branch, ahead, behind)
 	}
 }
+
+func TestGitPanelNotifiesExplorerAfterRefresh(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/gitstatus.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"taskmenu:git-status-refreshed",
+		"repo_id:activeRepoID",
+		"changed:Number(data?.changed||0)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Git panel Explorer notification missing %q", want)
+		}
+	}
+}
