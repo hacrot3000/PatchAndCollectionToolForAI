@@ -506,7 +506,10 @@ window.addEventListener('taskmenu:project-file-open-request',event=>{
 });
 window.addEventListener('taskmenu:view-activated',event=>{
   if(event.detail?.kind==='terminal'){deactivateEditors();return;}
-  if(event.detail?.kind==='external'&&editors.has(event.detail.id))activateEditorDOM(event.detail.id);
+  if(event.detail?.kind==='external'){
+    if(editors.has(event.detail.id))activateEditorDOM(event.detail.id);
+    else deactivateEditors();
+  }
 });
 
 globalThis.TaskMenuEditor={
