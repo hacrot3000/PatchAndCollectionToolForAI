@@ -11,7 +11,7 @@ style.textContent=`
 .session-process-backdrop.visible{display:flex}
 .session-process-dialog{width:min(900px,96vw);max-height:82vh;display:flex;flex-direction:column;background:#11161d;border:1px solid #4a5362;border-radius:9px;box-shadow:0 20px 60px rgba(0,0,0,.55)}
 .session-process-head{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid #30343b}
-.session-process-title{flex:1;font-weight:700}
+.session-process-title{font-weight:700}.session-process-summary{flex:1;font:10px ui-monospace,monospace;opacity:.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .session-process-body{overflow:auto;padding:8px 10px}
 .session-process-table{width:100%;border-collapse:collapse;font:10px/1.4 ui-monospace,monospace}
 .session-process-table th,.session-process-table td{text-align:left;vertical-align:top;padding:4px 6px;border-bottom:1px solid #292f38}
@@ -26,26 +26,35 @@ const processBackdrop=document.createElement('div');processBackdrop.className='s
 const processDialog=document.createElement('div');processDialog.className='session-process-dialog';processDialog.setAttribute('role','dialog');processDialog.setAttribute('aria-modal','true');
 const processHead=document.createElement('div');processHead.className='session-process-head';
 const processTitle=document.createElement('div');processTitle.className='session-process-title';processTitle.textContent='Session process tree';
+const processSummary=document.createElement('div');processSummary.className='session-process-summary';
+const processAutoLabel=document.createElement('label');processAutoLabel.style.fontSize='10px';processAutoLabel.style.display='flex';processAutoLabel.style.alignItems='center';processAutoLabel.style.gap='4px';
+const processAuto=document.createElement('input');processAuto.type='checkbox';processAuto.checked=true;processAutoLabel.append(processAuto,document.createTextNode('Auto'));
 const processRefresh=document.createElement('button');processRefresh.textContent='Refresh';
 const processClose=document.createElement('button');processClose.textContent='Close';
 const processBody=document.createElement('div');processBody.className='session-process-body';
-processHead.append(processTitle,processRefresh,processClose);processDialog.append(processHead,processBody);processBackdrop.append(processDialog);document.body.append(processBackdrop);
-let processSessionID='';
-function closeProcessTree(){processBackdrop.classList.remove('visible');processSessionID='';}
+processHead.append(processTitle,processSummary,processAutoLabel,processRefresh,processClose);processDialog.append(processHead,processBody);processBackdrop.append(processDialog);document.body.append(processBackdrop);
+let processSessionID='',processRefreshTimer=0;
+function stopProcessAutoRefresh(){if(processRefreshTimer){clearInterval(processRefreshTimer);processRefreshTimer=0;}}
+function syncProcessAutoRefresh(){stopProcessAutoRefresh();if(processBackdrop.classList.contains('visible')&&processAuto.checked){processRefreshTimer=setInterval(()=>loadProcessTree().catch(()=>{}),2000);}}
+function closeProcessTree(){stopProcessAutoRefresh();processBackdrop.classList.remove('visible');processSessionID='';processSummary.textContent='';}
 processClose.onclick=closeProcessTree;processBackdrop.addEventListener('mousedown',event=>{if(event.target===processBackdrop)closeProcessTree();});
 
 function elapsedLabel(seconds){seconds=Number(seconds)||0;if(seconds<60)return seconds+'s';if(seconds<3600)return Math.floor(seconds/60)+'m '+(seconds%60)+'s';return Math.floor(seconds/3600)+'h '+Math.floor((seconds%3600)/60)+'m';}
+function bytesLabel(bytes){bytes=Number(bytes)||0;if(bytes<1024)return bytes+' B';if(bytes<1024*1024)return (bytes/1024).toFixed(1)+' KiB';if(bytes<1024*1024*1024)return (bytes/(1024*1024)).toFixed(1)+' MiB';return (bytes/(1024*1024*1024)).toFixed(2)+' GiB';}
 function renderProcessTree(rows){
   processBody.replaceChildren();
-  if(!rows.length){const empty=document.createElement('div');empty.textContent='No running process is attached to this session.';processBody.append(empty);return;}
+  if(!rows.length){processSummary.textContent='';const empty=document.createElement('div');empty.textContent='No running process is attached to this session.';processBody.append(empty);return;}
+  const cpu=rows.reduce((sum,row)=>sum+(Number(row.cpu_percent)||0),0);
+  const rss=rows.reduce((sum,row)=>sum+(Number(row.rss_bytes)||0),0);
+  processSummary.textContent=rows.length+' process'+(rows.length===1?'':'es')+' · CPU '+cpu.toFixed(1)+'% · RSS '+bytesLabel(rss);
   const table=document.createElement('table');table.className='session-process-table';
   const head=document.createElement('thead'),hr=document.createElement('tr');
-  for(const label of ['PID','PPID','State','Elapsed','Command']){const th=document.createElement('th');th.textContent=label;hr.append(th);}head.append(hr);table.append(head);
+  for(const label of ['PID','PPID','State','CPU','RSS','Elapsed','Command']){const th=document.createElement('th');th.textContent=label;hr.append(th);}head.append(hr);table.append(head);
   const body=document.createElement('tbody');
   for(const row of rows){
     const tr=document.createElement('tr');
-    const values=[row.pid,row.ppid,row.state||'',elapsedLabel(row.elapsed_seconds),row.args||row.command||''];
-    values.forEach((value,index)=>{const td=document.createElement('td');if(index===4){td.className='session-process-command';td.style.paddingLeft=(6+Math.max(0,Number(row.depth)||0)*18)+'px';}td.textContent=String(value??'');tr.append(td);});
+    const values=[row.pid,row.ppid,row.state||'',(Number(row.cpu_percent)||0).toFixed(1)+'%',bytesLabel(row.rss_bytes),elapsedLabel(row.elapsed_seconds),row.args||row.command||''];
+    values.forEach((value,index)=>{const td=document.createElement('td');if(index===6){td.className='session-process-command';td.style.paddingLeft=(6+Math.max(0,Number(row.depth)||0)*18)+'px';}td.textContent=String(value??'');tr.append(td);});
     body.append(tr);
   }
   table.append(body);processBody.append(table);
@@ -59,7 +68,8 @@ async function loadProcessTree(){
   }finally{processRefresh.disabled=false;}
 }
 processRefresh.onclick=()=>loadProcessTree().catch(app.showError);
-async function openProcessTree(view){processSessionID=view.meta.id;processTitle.textContent='Process tree · '+(view.meta.title||view.meta.label||view.meta.id);processBackdrop.classList.add('visible');await loadProcessTree();}
+processAuto.onchange=syncProcessAutoRefresh;
+async function openProcessTree(view){processSessionID=view.meta.id;processTitle.textContent='Process tree · '+(view.meta.title||view.meta.label||view.meta.id);processBackdrop.classList.add('visible');await loadProcessTree();syncProcessAutoRefresh();}
 async function terminateSession(view){
   if(!window.confirm('Send SIGTERM to this session process group? Applications may perform normal shutdown cleanup.'))return;
   await app.jsonFetch('/api/sessions/terminate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:view.meta.id})});

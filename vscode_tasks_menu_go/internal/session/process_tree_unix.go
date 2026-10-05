@@ -17,7 +17,7 @@ func collectProcessTree(rootPID int) ([]ProcessInfo, error) {
 	if rootPID <= 0 {
 		return nil, fmt.Errorf("invalid session process id")
 	}
-	cmd := exec.Command("ps", "-eo", "pid=,ppid=,pgid=,stat=,etimes=,comm=,args=")
+	cmd := exec.Command("ps", "-eo", "pid=,ppid=,pgid=,stat=,etimes=,pcpu=,rss=,comm=,args=")
 	var out bytes.Buffer
 	cmd.Stdout = &limitedProcessBuffer{limit: maxProcessTreeOutput}
 	buffer := cmd.Stdout.(*limitedProcessBuffer)
@@ -60,20 +60,22 @@ func parseProcessTable(raw string, rootPID int) []ProcessInfo {
 	children := map[int][]int{}
 	for _, line := range strings.Split(raw, "\n") {
 		fields := strings.Fields(strings.TrimSpace(line))
-		if len(fields) < 7 {
+		if len(fields) < 9 {
 			continue
 		}
 		pid, err1 := strconv.Atoi(fields[0])
 		ppid, err2 := strconv.Atoi(fields[1])
 		pgid, err3 := strconv.Atoi(fields[2])
 		elapsed, err4 := strconv.ParseInt(fields[4], 10, 64)
-		if err1 != nil || err2 != nil || err3 != nil || err4 != nil || pid <= 0 {
+		cpu, err5 := strconv.ParseFloat(fields[5], 64)
+		rssKB, err6 := strconv.ParseInt(fields[6], 10, 64)
+		if err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil || err6 != nil || pid <= 0 {
 			continue
 		}
 		item := ProcessInfo{
 			PID: pid, PPID: ppid, PGID: pgid, State: fields[3],
-			ElapsedSeconds: elapsed, Command: fields[5],
-			Args: strings.Join(fields[6:], " "),
+			ElapsedSeconds: elapsed, CPUPercent: cpu, RSSBytes: rssKB * 1024,
+			Command: fields[7], Args: strings.Join(fields[8:], " "),
 		}
 		all[pid] = item
 		children[ppid] = append(children[ppid], pid)

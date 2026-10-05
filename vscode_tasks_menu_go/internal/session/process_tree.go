@@ -9,8 +9,10 @@ type ProcessInfo struct {
 	PPID           int    `json:"ppid"`
 	PGID           int    `json:"pgid,omitempty"`
 	State          string `json:"state,omitempty"`
-	ElapsedSeconds int64  `json:"elapsed_seconds,omitempty"`
-	Command        string `json:"command,omitempty"`
+	ElapsedSeconds int64   `json:"elapsed_seconds,omitempty"`
+	CPUPercent     float64 `json:"cpu_percent,omitempty"`
+	RSSBytes       int64   `json:"rss_bytes,omitempty"`
+	Command        string  `json:"command,omitempty"`
 	Args           string `json:"args,omitempty"`
 	Depth          int    `json:"depth"`
 }
