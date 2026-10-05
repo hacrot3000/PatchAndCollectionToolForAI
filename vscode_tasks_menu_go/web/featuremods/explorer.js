@@ -40,12 +40,14 @@ document.head.append(style);
 const panel=document.createElement('div');panel.className='project-explorer';
 const head=document.createElement('div');head.className='project-explorer-head';
 const title=document.createElement('div');title.className='project-explorer-title';title.textContent='EXPLORER';
+const newFileButton=document.createElement('button');newFileButton.type='button';newFileButton.textContent='+F';newFileButton.title='New file in selected folder';
+const newFolderButton=document.createElement('button');newFolderButton.type='button';newFolderButton.textContent='+D';newFolderButton.title='New folder in selected folder';
 const refresh=document.createElement('button');refresh.type='button';refresh.textContent='↻';refresh.title='Refresh explorer';
 const closeButton=document.createElement('button');closeButton.type='button';closeButton.textContent='×';closeButton.title='Close explorer';
 const saved=document.createElement('div');saved.className='project-explorer-saved';
 const tree=document.createElement('div');tree.className='project-explorer-tree';
 const contextMenu=document.createElement('div');contextMenu.className='project-explorer-context';
-head.append(title,refresh,closeButton);panel.append(head,saved,tree);document.body.append(panel,contextMenu);
+head.append(title,newFileButton,newFolderButton,refresh,closeButton);panel.append(head,saved,tree);document.body.append(panel,contextMenu);
 
 const loaded=new Map();
 const expanded=new Set();
@@ -87,6 +89,15 @@ function persistExpanded(){
 function joinPath(parent,name){return parent?parent+'/'+name:name;}
 function parentPath(pathValue){const index=pathValue.lastIndexOf('/');return index<0?'':pathValue.slice(0,index);}
 function basename(pathValue){const index=pathValue.lastIndexOf('/');return index<0?pathValue:pathValue.slice(index+1);}
+function childName(value){
+  value=String(value||'').trim();
+  if(!value||value==='.'||value==='..'||value.includes('/')||value.includes('\\'))throw new Error('Enter a single file or folder name');
+  return value;
+}
+function topLevelSelectedPaths(paths){
+  const ordered=[...new Set(paths)].sort((a,b)=>a.split('/').length-b.split('/').length||a.localeCompare(b));
+  return ordered.filter((pathValue,index)=>!ordered.slice(0,index).some(parent=>pathValue.startsWith(parent+'/')));
+}
 function showMessage(message){tree.replaceChildren();const node=document.createElement('div');node.className='project-explorer-message';node.textContent=message;tree.append(node);}
 function rememberRecent(pathValue){
   recent=[pathValue,...recent.filter(value=>value!==pathValue)].slice(0,20);persistSaved();renderSaved();
@@ -98,6 +109,21 @@ function pinPaths(paths){
 function unpinPaths(paths){
   for(const pathValue of paths)favorites.delete(pathValue);
   persistSaved();renderSaved();
+}
+function remapPathValue(value,oldPath,newPath){
+  if(value===oldPath)return newPath;
+  return value.startsWith(oldPath+'/')?newPath+value.slice(oldPath.length):value;
+}
+function remapStoredPaths(oldPath,newPath){
+  const nextFavorites=[...favorites].map(value=>remapPathValue(value,oldPath,newPath));
+  favorites.clear();for(const value of nextFavorites)favorites.add(value);
+  recent=recent.map(value=>remapPathValue(value,oldPath,newPath));
+  const nextExpanded=[...expanded].map(value=>remapPathValue(value,oldPath,newPath));
+  expanded.clear();for(const value of nextExpanded)expanded.add(value);
+  const nextSelected=[...selected].map(value=>remapPathValue(value,oldPath,newPath));
+  selected.clear();for(const value of nextSelected)selected.add(value);
+  lastSelectedPath=remapPathValue(lastSelectedPath,oldPath,newPath);
+  persistSaved();persistExpanded();
 }
 function savedButton(pathValue,kind){
   const button=document.createElement('button');button.type='button';button.className='project-explorer-saved-item';button.textContent=basename(pathValue);button.title=pathValue;
@@ -224,6 +250,66 @@ async function openContainingFolder(pathValue){
   await revealPath(parent);
   if(!expanded.has(parent))await toggleDirectory(parent);
 }
+async function projectMutation(action,pathValue,newPath=''){
+  return app.jsonFetch('/api/project/mutate',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action,path:pathValue,new_path:newPath})
+  });
+}
+function selectedCreateDirectory(){
+  if(selected.size!==1)return '';
+  const pathValue=[...selected][0];
+  const item=findLoadedItem(pathValue);
+  return item?.type==='dir'?pathValue:parentPath(pathValue);
+}
+async function createProjectItem(type){
+  const parent=selectedCreateDirectory();
+  const raw=window.prompt(type==='file'?'New file name:':'New folder name:','');
+  if(raw===null)return;
+  const name=childName(raw);
+  const pathValue=joinPath(parent,name);
+  const result=await projectMutation(type==='file'?'create_file':'mkdir',pathValue);
+  await reload();
+  await revealPath(result.path||pathValue);
+  if(type==='file')openFile(result.path||pathValue);
+}
+async function renameProjectItem(pathValue){
+  const raw=window.prompt('Rename '+basename(pathValue)+':',basename(pathValue));
+  if(raw===null)return;
+  const name=childName(raw);
+  const nextPath=joinPath(parentPath(pathValue),name);
+  if(nextPath===pathValue)return;
+  const result=await projectMutation('rename',pathValue,nextPath);
+  const resolved=result.path||nextPath;
+  remapStoredPaths(pathValue,resolved);
+  window.dispatchEvent(new CustomEvent('taskmenu:project-path-renamed',{detail:{old_path:pathValue,new_path:resolved}}));
+  await reload();
+  await revealPath(resolved);
+}
+async function moveSelectedProjectItems(){
+  const sources=topLevelSelectedPaths([...selected]);
+  if(!sources.length)return;
+  const raw=window.prompt('Move selected item(s) to project-relative folder. Use . for workspace root:',sources.length===1?parentPath(sources[0])||'.':'.');
+  if(raw===null)return;
+  const destination=String(raw||'').trim();
+  const dir=destination===''||destination==='.'?'':destination.replace(/^\.\//,'').replace(/\/$/,'');
+  const moved=[];
+  for(const source of sources){
+    const nextPath=joinPath(dir,basename(source));
+    if(nextPath===source)continue;
+    const result=await projectMutation('rename',source,nextPath);
+    const resolved=result.path||nextPath;
+    moved.push([source,resolved]);
+    remapStoredPaths(source,resolved);
+    window.dispatchEvent(new CustomEvent('taskmenu:project-path-renamed',{detail:{old_path:source,new_path:resolved}}));
+  }
+  await reload();
+  selected.clear();
+  for(const [,nextPath] of moved)selected.add(nextPath);
+  lastSelectedPath=moved.at(-1)?.[1]||'';
+  render();
+}
 function closeContextMenu(){contextMenu.classList.remove('visible');contextMenu.replaceChildren();}
 function contextAction(label,run){
   const button=document.createElement('button');button.type='button';button.textContent=label;
@@ -236,6 +322,12 @@ function showContextMenu(event,pathValue,type){
   closeContextMenu();
   const paths=[...selected];
   if(type==='file'&&paths.length===1)contextAction('Open',()=>openFile(pathValue));
+  if(paths.length===1)contextAction('Rename…',()=>renameProjectItem(pathValue));
+  contextAction(paths.length>1?'Move selected…':'Move…',()=>moveSelectedProjectItems());
+  if(type==='dir'&&paths.length===1){
+    contextAction('New file here…',()=>createProjectItem('file'));
+    contextAction('New folder here…',()=>createProjectItem('dir'));
+  }
   contextAction('Reveal in Explorer',()=>revealPath(pathValue));
   contextAction('Open containing folder',()=>openContainingFolder(pathValue));
   if(paths.every(value=>favorites.has(value)))contextAction(paths.length>1?'Unpin selected':'Unpin',()=>unpinPaths(paths));
@@ -283,6 +375,8 @@ function open(){
 function close(){panel.classList.remove('visible');}
 async function reload(){try{await ensureRoot(true);}catch(error){app.showError(error);}}
 
+newFileButton.onclick=()=>createProjectItem('file').catch(app.showError);
+newFolderButton.onclick=()=>createProjectItem('dir').catch(app.showError);
 refresh.onclick=reload;
 closeButton.onclick=close;
 document.addEventListener('keydown',event=>{if(event.key==='Escape'){closeContextMenu();if(panel.classList.contains('visible'))close();}});
