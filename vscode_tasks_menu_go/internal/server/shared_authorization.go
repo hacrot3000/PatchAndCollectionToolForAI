@@ -144,7 +144,7 @@ func sharedRoutePermissions(r *http.Request) []string {
 		switch strings.TrimSpace(r.URL.Query().Get("view")) {
 		case "log", "graph", "reflog", "lost-commits", "rebase-plan":
 			return []string{identity.PermissionGitLog}
-		case "diff", "compare", "file-content", "commit-files", "graph-compare-head":
+		case "diff", "compare", "file-content", "commit-files", "graph-compare-head", "semantics-preview":
 			return []string{identity.PermissionGitDiff}
 		default:
 			return []string{identity.PermissionGitStatus}
