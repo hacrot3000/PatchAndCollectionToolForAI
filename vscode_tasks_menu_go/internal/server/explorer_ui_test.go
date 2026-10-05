@@ -288,3 +288,16 @@ func TestExplorerMultiRootUI(t *testing.T) {
 		if !strings.Contains(js, want) { t.Fatalf("explorer.js missing multi-root UI %q", want) }
 	}
 }
+
+func TestExplorerCanOpenTerminalAtSelectedPath(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"Open terminal here",
+		"const terminalDir=type==='dir'?pathValue:parentPath(pathValue)",
+		"app.startTerminal(terminalDir)",
+	} {
+		if !strings.Contains(js, want) { t.Fatalf("explorer.js missing terminal-here behavior %q", want) }
+	}
+}

@@ -675,7 +675,11 @@ function showContextMenu(event,pathValue,type){
     const destination=destinationDirectoryForPath(pathValue,type);
     contextAction('Paste '+(fileClipboard.mode==='cut'?'move':'copy')+' here',()=>pasteProjectClipboard(destination));
   }
-  if(paths.length===1)contextAction('Rename…',()=>renameProjectItem(pathValue));
+  if(paths.length===1){
+    const terminalDir=type==='dir'?pathValue:parentPath(pathValue);
+    contextAction('Open terminal here',()=>app.startTerminal(terminalDir));
+    contextAction('Rename…',()=>renameProjectItem(pathValue));
+  }
   contextAction(paths.length>1?'Move selected…':'Move…',()=>moveSelectedProjectItems());
   contextAction(paths.length>1?'Move selected to Trash':'Move to Trash',async()=>{
     await trashPaths(paths);

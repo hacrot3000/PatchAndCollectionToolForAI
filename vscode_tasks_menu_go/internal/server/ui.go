@@ -349,9 +349,12 @@ async function startTask(t){
   hidden.delete(meta.id);attach(meta,true);
 }
 
-async function startTerminal(){
+async function startTerminal(cwd=''){
   if(!hasPermission('terminal.create'))throw new Error('Terminal creation permission is required');
-  const meta=await jsonFetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'terminal'})});
+  const payload={kind:'terminal'};
+  cwd=String(cwd||'').trim();
+  if(cwd)payload.cwd=cwd;
+  const meta=await jsonFetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
   hidden.delete(meta.id);attach(meta,true);
 }
 

@@ -303,7 +303,7 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 				}
 				spec, err = s.sshTerminalExecution(req.SSHProfileID)
 			} else {
-				spec, err = workspaceTerminalExecutionAt(s.Workspace, req.Cwd)
+				spec, err = s.workspaceTerminalExecutionAtProjectPath(req.Cwd)
 			}
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)

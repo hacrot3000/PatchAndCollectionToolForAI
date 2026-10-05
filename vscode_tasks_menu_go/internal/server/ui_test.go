@@ -95,8 +95,10 @@ func TestStaticUIHasCopyConsoleAction(t *testing.T) {
 func TestStaticUIHasWorkspaceTerminalAction(t *testing.T) {
 	for _, want := range []string{
 		`id="open-terminal"`,
-		"async function startTerminal()",
-		"JSON.stringify({kind:'terminal'})",
+		"async function startTerminal(cwd='')",
+		"const payload={kind:'terminal'}",
+		"if(cwd)payload.cwd=cwd",
+		"body:JSON.stringify(payload)",
 		"document.querySelector('#open-terminal').onclick",
 		"meta.task_id===0?'Close terminal':'Stop'",
 	} {

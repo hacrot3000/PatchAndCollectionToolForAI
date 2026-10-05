@@ -9,6 +9,24 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/tasks"
 )
 
+func (s *Server) workspaceTerminalExecutionAtProjectPath(requested string) (tasks.Execution, error) {
+	root, rootRelative, err := s.projectRootForVirtualPath(requested)
+	if err != nil {
+		return tasks.Execution{}, err
+	}
+	if strings.TrimSpace(rootRelative) == "" {
+		rootRelative = "."
+	}
+	spec, err := workspaceTerminalExecutionAt(root.Path, rootRelative)
+	if err != nil {
+		return tasks.Execution{}, err
+	}
+	if root.ID != "" && root.ID != workspacePrimaryRootID {
+		spec.Detail = "Shell tương tác tại " + workspaceVirtualPath(root.ID, rootRelative)
+	}
+	return spec, nil
+}
+
 func workspaceTerminalExecutionAt(workspace, requested string) (tasks.Execution, error) {
 	spec, err := workspaceTerminalExecution(workspace)
 	if err != nil {
