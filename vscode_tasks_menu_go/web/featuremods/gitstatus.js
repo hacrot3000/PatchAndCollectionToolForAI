@@ -710,6 +710,8 @@ async function loadWorktrees(){
     const where=occupied.has(branch.name)?' · already checked out':'';
     option.textContent=branch.name+where;option.disabled=occupied.has(branch.name);branchSelect.append(option);
   }
+  const availableExisting=(branches.local||[]).find(branch=>!occupied.has(branch.name));
+  if(availableExisting)branchSelect.value=availableExisting.name;
   const existingDir=document.createElement('input');existingDir.placeholder='sibling directory name';existingDir.spellcheck=false;
   const syncExistingDir=()=>{if(branchSelect.value&&!existingDir.dataset.edited)existingDir.value=worktreeDirectorySuggestion(branchSelect.value);};
   branchSelect.onchange=syncExistingDir;existingDir.oninput=()=>existingDir.dataset.edited='1';syncExistingDir();
@@ -718,6 +720,8 @@ async function loadWorktrees(){
     if(!branch||!dir)throw new Error('Choose a local branch and sibling directory name');
     return action('worktree_add_branch',{branch,directory_name:dir});
   });
+  addExisting.disabled=!availableExisting;
+  if(!availableExisting)addExisting.title='Every local branch is already checked out in a worktree';
   existing.append(branchSelect,existingDir,addExisting);content.append(existing);
 
   const create=gitWorktreeCreateRow('New branch + worktree');
