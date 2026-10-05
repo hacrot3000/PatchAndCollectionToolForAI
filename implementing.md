@@ -116,7 +116,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
    - lost commit scan cho Recover branch / Compare HEAD / Copy SHA;
    - regression test chứng minh commit của branch đã force-delete không còn trong reflog vẫn được tìm và phục hồi an toàn.
 
-7. **P1 — Git Worktree Manager**
+7. **P1 — Git Worktree Manager** — ✅ **COMPLETE**
    Rất phù hợp với workflow developer:
    - List worktrees.
    - Create worktree from branch.
@@ -127,6 +127,16 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
    
    Ví dụ thay vì switch branch làm mất trạng thái hiện tại:
    `main` ở folder A và `fix/foo` ở folder B cùng lúc.
+
+   Hoàn tất Worktree Manager hiện tại:
+   - list bằng `git worktree list --porcelain -z`, hiển thị branch/HEAD/current/primary/detached/locked/prunable và worktree nào đang giữ branch;
+   - API không leak absolute host path: browser chỉ nhận display path + opaque worktree ID;
+   - tạo worktree từ local branch có sẵn, chặn branch đã được checkout ở worktree khác;
+   - tạo branch mới + worktree từ HEAD/local/remote/full SHA, có expected-SHA guard;
+   - target create chỉ là một sibling directory name đã validate, không nhận arbitrary filesystem path từ browser;
+   - remove dùng opaque ID resolve lại server-side, không dùng `--force`; prune stale bắt buộc confirmation;
+   - Open TaskDeck resolve opaque ID server-side rồi launcher chạy TaskDeck với workspace thật; response không trả absolute path;
+   - shared-server vẫn read-only theo policy Git mutation hiện tại; list worktree dùng quyền `git.status`.
 
 8. **P1 — Git interactive rebase**
    - Chọn range commit.
