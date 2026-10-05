@@ -130,3 +130,36 @@ func TestGitWorkspaceRootSurvivesDisabledNestedScan(t *testing.T) {
 		t.Fatalf("repos=%+v, want workspace root only", repos)
 	}
 }
+
+func TestInitializedSubmoduleIsDiscoveredWhenNestedScanDisabled(t *testing.T) {
+	workspace, s, _, _, _ := setupGitSubmoduleRepo(t)
+	configPath := filepath.Join(workspace, ".vscode", "vscode_tasks_menu.ini")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("[git]\nscan_enabled = false\nscan_depth = 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	repos, settings, err := s.discoverGitRepositories(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.ScanEnabled {
+		t.Fatalf("scan_enabled=%v want false", settings.ScanEnabled)
+	}
+	seen := map[string]gitRepository{}
+	for _, item := range repos {
+		seen[item.ID] = item
+	}
+	if _, ok := seen["."]; !ok {
+		t.Fatalf("root repository missing: %+v", repos)
+	}
+	child, ok := seen["modules/child"]
+	if !ok {
+		t.Fatalf("initialized submodule repository missing with scan disabled: %+v", repos)
+	}
+	if child.Name == "" || child.Root != filepath.Join(workspace, "modules", "child") {
+		t.Fatalf("submodule repository=%+v", child)
+	}
+}
