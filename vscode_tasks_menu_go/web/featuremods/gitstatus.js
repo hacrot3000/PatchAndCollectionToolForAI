@@ -512,12 +512,14 @@ async function loadChanges(){
     banner.append(el('span','git-row-code','!!'),main,actions);content.append(banner);
   }
   for(const change of rows){
-    const row=el('div','git-row'+(change.conflicted?' git-row-conflicted':''));const code=el('span','git-row-code',(change.index_status||' ')+(change.worktree_status||' '));const main=el('div','git-row-main');main.append(el('div','git-row-title',change.path),el('div','git-row-sub',[change.conflicted&&'conflict',change.staged&&!change.conflicted&&'staged',change.unstaged&&!change.conflicted&&'unstaged',change.untracked&&'untracked',change.original_path&&('from '+change.original_path)].filter(Boolean).join(' · ')));const actions=el('div','git-row-actions');
+    const row=el('div','git-row'+(change.conflicted?' git-row-conflicted':''));const code=el('span','git-row-code',(change.index_status||' ')+(change.worktree_status||' '));const main=el('div','git-row-main');main.append(el('div','git-row-title',change.path),el('div','git-row-sub',[change.conflicted&&'conflict',change.staged&&!change.conflicted&&'staged/index changed',change.unstaged&&!change.conflicted&&'working tree changed after index',change.staged&&change.unstaged&&!change.conflicted&&'3-state file: HEAD → staged → working',change.untracked&&'untracked',change.original_path&&('from '+change.original_path)].filter(Boolean).join(' · ')));const actions=el('div','git-row-actions');
     if(change.conflicted){
       actions.append(actionButton('Resolve',openConflictRecovery,'Open the Git conflict recovery wizard'));
       actions.append(actionButton('Open',()=>{const item=(conflictState?.files||[]).find(file=>file.path===change.path);const path=item?.project_path;if(!path)throw new Error('Project path unavailable for conflicted file');window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path,source:'git-conflict-changes'}}));},'Open conflicted working-tree file'));
     }else{
-      if(change.unstaged&&!change.untracked)actions.append(actionButton('Diff',()=>showDiff(change.path,'worktree')));if(change.staged)actions.append(actionButton('Staged diff',()=>showDiff(change.path,'staged')));
+      if(change.staged)actions.append(actionButton('HEAD ↔ Staged',()=>showDiff(change.path,'staged'),'Committed HEAD compared with the staged index version'));
+      if(change.unstaged&&!change.untracked)actions.append(actionButton('Staged ↔ Working',()=>showDiff(change.path,'worktree'),'Staged index compared with the current working-tree version; isolates not-staged edits'));
+      if(change.staged&&change.unstaged&&!change.untracked)actions.append(actionButton('HEAD ↔ Working',()=>showDiff(change.path,'head-worktree'),'Committed HEAD compared with the current working tree; shows staged + not-staged tracked edits together'));
       if(change.unstaged||change.untracked)actions.append(actionButton('Stage',()=>action('stage',{path:change.path})));if(change.staged)actions.append(actionButton('Unstage',()=>action('unstage',{path:change.path})));if(change.untracked&&change.path!=='.gitignore')actions.append(actionButton('Ignore',()=>openIgnoreWizard(change),'Ignore this untracked path or choose a smart pattern for similar files'));
     }
     if(!change.untracked){
