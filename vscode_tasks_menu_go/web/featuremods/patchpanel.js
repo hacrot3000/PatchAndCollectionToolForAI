@@ -571,7 +571,7 @@ function installPatchPanel(){
   panel.append(head,body);
   panesHost.append(panel);
 
-  const patchTab=document.createElement('button');patchTab.type='button';patchTab.className='tab task-patch-tab';patchTab.hidden=true;
+  const patchTab=document.createElement('button');patchTab.type='button';patchTab.className='tab task-patch-tab';patchTab.dataset.id='patch';patchTab.hidden=true;
   const patchTabLabel=document.createElement('span');patchTabLabel.textContent='Patch Tool';
   const patchTabClose=document.createElement('span');patchTabClose.className='close';patchTabClose.textContent='×';patchTabClose.title='Close Patch Tool';
   patchTab.append(patchTabLabel,patchTabClose);tabsHost.append(patchTab);
