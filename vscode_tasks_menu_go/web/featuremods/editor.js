@@ -21,6 +21,10 @@ html[data-taskmenu-theme="light"] .editor-head .editor-format{background:#fff;bo
 .editor-host .cm-editor{height:100%;font-size:13px}
 .editor-host .cm-scroller{overflow:auto;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
 .cm-legacy-keyword{color:#c792ea}.cm-legacy-comment{color:#6a9955;font-style:italic}.cm-legacy-string{color:#ce9178}.cm-legacy-number{color:#b5cea8}.cm-legacy-variable{color:#9cdcfe}.cm-legacy-command{color:#dcdcaa}
+.cm-taskdeck-active-line{background:rgba(110,160,220,.075)}
+.editor-pane.editor-show-whitespace .cm-taskdeck-space::before{content:'·';position:absolute;color:rgba(155,175,205,.42);pointer-events:none}
+.editor-pane.editor-show-whitespace .cm-taskdeck-tab::before{content:'→';position:absolute;color:rgba(155,175,205,.42);pointer-events:none}
+.editor-pane.editor-show-whitespace .cm-taskdeck-space,.editor-pane.editor-show-whitespace .cm-taskdeck-tab{position:relative}
 .editor-tab .editor-dirty{display:none;margin-left:5px;color:#f2c96d}
 .editor-tab.dirty .editor-dirty{display:inline}
 .editor-tab .close{margin-left:8px}
@@ -378,6 +382,40 @@ function legacySyntaxExtension(kind){
     update(update){if(update.docChanged||update.viewportChanged)this.decorations=buildLegacyDecorations(update.view,kind);}
   },{decorations:value=>value.decorations});
 }
+const taskDeckWhitespaceMark=globalThis.cm6.Decoration.mark({class:'cm-taskdeck-space'});
+const taskDeckTabMark=globalThis.cm6.Decoration.mark({class:'cm-taskdeck-tab'});
+const taskDeckActiveLineMark=globalThis.cm6.Decoration.line({class:'cm-taskdeck-active-line'});
+function buildWhitespaceDecorations(view){
+  const builder=new globalThis.cm6.RangeSetBuilder();
+  for(const range of view.visibleRanges){
+    const text=view.state.doc.sliceString(range.from,range.to);
+    for(let index=0;index<text.length;index++){
+      const code=text.charCodeAt(index);
+      if(code===32)builder.add(range.from+index,range.from+index+1,taskDeckWhitespaceMark);
+      else if(code===9)builder.add(range.from+index,range.from+index+1,taskDeckTabMark);
+    }
+  }
+  return builder.finish();
+}
+function whitespaceDecorationExtension(){
+  return globalThis.cm6.ViewPlugin.fromClass(class{
+    constructor(view){this.decorations=buildWhitespaceDecorations(view);}
+    update(update){if(update.docChanged||update.viewportChanged)this.decorations=buildWhitespaceDecorations(update.view);}
+  },{decorations:value=>value.decorations});
+}
+function activeLineDecorationExtension(){
+  return globalThis.cm6.ViewPlugin.fromClass(class{
+    constructor(view){this.decorations=this.build(view);}
+    build(view){
+      const builder=new globalThis.cm6.RangeSetBuilder();
+      const line=view.state.doc.lineAt(view.state.selection.main.head);
+      builder.add(line.from,line.from,taskDeckActiveLineMark);
+      return builder.finish();
+    }
+    update(update){if(update.docChanged||update.selectionSet||update.viewportChanged)this.decorations=this.build(update.view);}
+  },{decorations:value=>value.decorations});
+}
+
 function languageOptions(pathValue){
   const lower=String(pathValue||'').toLowerCase();
   const name=basename(lower);
@@ -403,7 +441,8 @@ function languageOptions(pathValue){
   else if(ext==='rs')options.rust=true;
   else if(ext==='vue')options.vue=true;
   const legacy=legacyHighlightKind(pathValue);
-  if(legacy)options.extraExtensions=[legacySyntaxExtension(legacy)];
+  options.extraExtensions=[activeLineDecorationExtension(),whitespaceDecorationExtension()];
+  if(legacy)options.extraExtensions.push(legacySyntaxExtension(legacy));
   return options;
 }
 function languageLabel(pathValue){
@@ -696,16 +735,17 @@ function createEditor(file){
   const warningBadge=document.createElement('span');warningBadge.className='editor-warning';warningBadge.textContent=file.warning?'WARNING':'';warningBadge.title=file.warning||'';warningBadge.hidden=!file.warning;
   const save=document.createElement('button');save.type='button';save.className='editor-save';save.textContent='Save';save.title='Save file (Ctrl/Cmd+S)';
   const reload=document.createElement('button');reload.type='button';reload.textContent='Reload';reload.title='Reload file from disk';
+  const whitespace=document.createElement('button');whitespace.type='button';whitespace.className='editor-whitespace-toggle';whitespace.textContent='WS';whitespace.title='Toggle visible spaces and tabs';whitespace.setAttribute('aria-pressed','false');
   const splitVertical=document.createElement('button');splitVertical.type='button';splitVertical.className='editor-split-action editor-split-vertical';splitVertical.textContent='Split ↔';splitVertical.title='Split editor vertically with another/open file';
   const splitHorizontal=document.createElement('button');splitHorizontal.type='button';splitHorizontal.className='editor-split-action editor-split-horizontal';splitHorizontal.textContent='Split ↕';splitHorizontal.title='Split editor horizontally with another/open file';
   const splitSwap=document.createElement('button');splitSwap.type='button';splitSwap.className='editor-split-action editor-split-swap';splitSwap.textContent='Swap';splitSwap.title='Swap this editor split';splitSwap.hidden=true;
   const splitUnsplit=document.createElement('button');splitUnsplit.type='button';splitUnsplit.className='editor-split-action editor-unsplit';splitUnsplit.textContent='Unsplit';splitUnsplit.title='Remove this editor from its split';splitUnsplit.hidden=true;
-  head.append(pathNode,meta,lineEndingSelect,encodingSelect,readonlyBadge,warningBadge,save,reload,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
+  head.append(pathNode,meta,lineEndingSelect,encodingSelect,readonlyBadge,warningBadge,save,reload,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
   const host=document.createElement('div');host.className='editor-host';
   pane.append(head,host);panesHost.append(pane);
 
   const cm=cmFactory.newEditor(host,file.content||'',languageOptions(file.path));
-  const view={id,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,meta,lineEndingSelect,encodingSelect,readonlyBadge,warningBadge,save,reload,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null};
+  const view={id,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,meta,lineEndingSelect,encodingSelect,readonlyBadge,warningBadge,save,reload,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null};
   editors.set(id,view);
   installEditorDispatchGuard(view);
   applyReadOnly(view);
@@ -732,6 +772,12 @@ function createEditor(file){
     setDirty(view,true);
   };
   reload.onclick=()=>reloadEditor(view).catch(app.showError);
+  whitespace.onclick=()=>{
+    const enabled=!pane.classList.contains('editor-show-whitespace');
+    pane.classList.toggle('editor-show-whitespace',enabled);
+    whitespace.setAttribute('aria-pressed',enabled?'true':'false');
+    whitespace.classList.toggle('active',enabled);
+  };
   splitVertical.onclick=()=>splitEditor(view,'vertical').catch(app.showError);
   splitHorizontal.onclick=()=>splitEditor(view,'horizontal').catch(app.showError);
   splitSwap.onclick=()=>swapEditorSplit(view);

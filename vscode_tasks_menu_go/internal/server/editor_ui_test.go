@@ -424,3 +424,27 @@ func TestEditorTextFormatControls(t *testing.T) {
 		}
 	}
 }
+
+func TestEditorCurrentLineAndWhitespaceDecorations(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"cm-taskdeck-active-line",
+		"cm-taskdeck-space",
+		"cm-taskdeck-tab",
+		"function buildWhitespaceDecorations(view)",
+		"function whitespaceDecorationExtension()",
+		"function activeLineDecorationExtension()",
+		"update.selectionSet",
+		"options.extraExtensions=[activeLineDecorationExtension(),whitespaceDecorationExtension()]",
+		"editor-whitespace-toggle",
+		"Toggle visible spaces and tabs",
+		"editor-show-whitespace",
+		"whitespace.setAttribute('aria-pressed',enabled?'true':'false')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor current-line/whitespace support missing %q", want)
+		}
+	}
+}
