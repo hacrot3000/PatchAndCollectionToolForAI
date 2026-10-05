@@ -1159,6 +1159,18 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertEqual(event["name"], "demo.zip")
         self.assertEqual(event["kind"], "PATCH")
 
+    def test_dispatcher_preexecution_failures_emit_copyable_protocol_evidence(self):
+        dispatcher = (self.base / "_patch_lib" / "python_patch_queue_dispatcher.py").read_text(encoding="utf-8")
+        helper = dispatcher.index("def _emit_preexecution_failure_details")
+        finish = dispatcher.index("_emit_preexecution_failure_details(list(_LAST_EXECUTION_DETAILS))")
+        planning = dispatcher.index('failure_line = f"BATCH PREFLIGHT FAIL — project unchanged | {kind}:')
+        self.assertGreater(finish, helper)
+        helper_block = dispatcher[helper:finish]
+        self.assertIn('"failure_reason": failure_reason', helper_block)
+        self.assertIn('payload["diagnosis_kind"] = diagnosis_kind', helper_block)
+        self.assertIn('payload["output_tail"] = output_tail', helper_block)
+        self.assertIn('"output_tail": failure_line if i == 0 else ""', dispatcher[planning:planning + 1800])
+
     def test_dispatcher_item_events_wrap_only_payload_execution(self):
         dispatcher = (self.base / "_patch_lib" / "python_patch_queue_dispatcher.py").read_text(encoding="utf-8")
         started = dispatcher.index('_emit_protocol_event(\n            "item_started"')
