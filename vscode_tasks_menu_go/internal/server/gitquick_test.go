@@ -555,6 +555,10 @@ func TestGitSafeLocalBranchDelete(t *testing.T) {
 	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "cannot delete the current branch") {
 		t.Fatalf("current branch delete status=%d body=%s", rr.Code, rr.Body.String())
 	}
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"force_delete_branch","branch":"`+mainBranch+`","confirmed":true}`)
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "cannot delete the current branch") {
+		t.Fatalf("current branch force-delete status=%d body=%s", rr.Code, rr.Body.String())
+	}
 }
 
 func TestGitBranchDeleteDistinguishesLocalTrackingAndRemote(t *testing.T) {
@@ -609,6 +613,40 @@ func TestGitBranchDeleteDistinguishesLocalTrackingAndRemote(t *testing.T) {
 	}
 	if got := gitQuickRun(t, workspace, "branch", "--list", "feature/local-survives"); !strings.Contains(got, "feature/local-survives") {
 		t.Fatalf("remote deletion unexpectedly removed same-history local branch: %q", got)
+	}
+}
+
+func TestGitRemoteDeleteWorksAfterTrackingRefWasForgotten(t *testing.T) {
+	workspace, s, current := setupGitQuickRepo(t)
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	gitQuickRun(t, filepath.Dir(remote), "init", "--bare", remote)
+	gitQuickRun(t, workspace, "remote", "add", "origin", remote)
+	gitQuickRun(t, workspace, "push", "-u", "origin", current)
+
+	gitQuickRun(t, workspace, "switch", "-c", "feature/stale-tracking")
+	if err := os.WriteFile(filepath.Join(workspace, "stale-tracking.txt"), []byte("keep local branch\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "stale-tracking.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "stale tracking")
+	gitQuickRun(t, workspace, "push", "-u", "origin", "feature/stale-tracking")
+	gitQuickRun(t, workspace, "switch", current)
+
+	gitQuickRun(t, workspace, "branch", "-dr", "origin/feature/stale-tracking")
+	if got := gitQuickRun(t, workspace, "branch", "-r", "--list", "origin/feature/stale-tracking"); got != "" {
+		t.Fatalf("remote-tracking ref still present before stale-ref delete test: %q", got)
+	}
+	if got := gitQuickRun(t, workspace, "branch", "--list", "feature/stale-tracking"); !strings.Contains(got, "feature/stale-tracking") {
+		t.Fatalf("same-named local branch missing before remote delete: %q", got)
+	}
+
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"delete_remote_branch","branch":"origin/feature/stale-tracking","confirmed":true}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("remote delete without tracking ref status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := gitQuickRun(t, workspace, "ls-remote", remote, "refs/heads/feature/stale-tracking"); got != "" {
+		t.Fatalf("remote branch still exists after stale-ref remote delete: %q", got)
+	}
+	if got := gitQuickRun(t, workspace, "branch", "--list", "feature/stale-tracking"); !strings.Contains(got, "feature/stale-tracking") {
+		t.Fatalf("remote delete unexpectedly removed same-named local branch: %q", got)
 	}
 }
 
