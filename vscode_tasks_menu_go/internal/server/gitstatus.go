@@ -67,6 +67,9 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	case "graph":
 		s.gitGraph(w, r)
 		return
+	case "reflog":
+		s.gitReflog(w, r)
+		return
 	case "commit-files":
 		s.gitCommitFiles(w, r)
 		return
