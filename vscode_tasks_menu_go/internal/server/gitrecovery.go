@@ -62,6 +62,8 @@ func classifyGitFailure(action, output, errorText string) string {
 		return "cherry_pick_in_progress"
 	case action == "merge_to" && (strings.Contains(text, "conflict") || strings.Contains(text, "automatic merge failed")):
 		return "merge_to_conflicts"
+	case (action == "cherry_pick" || action == "revert_commit") && (strings.Contains(text, "conflict (") || strings.Contains(text, "could not apply") || strings.Contains(text, "after resolving the conflicts")):
+		return "conflicts"
 	case strings.Contains(text, "you have unmerged files") || strings.Contains(text, "needs merge") || strings.Contains(text, "fix conflicts and then commit") || strings.Contains(text, "resolve all conflicts manually") || strings.Contains(text, "unresolved conflict") || strings.Contains(text, "automatic merge failed"):
 		return "conflicts"
 	case strings.Contains(text, "exceeds github's file size limit") || strings.Contains(text, "gh001") || strings.Contains(text, "large files detected") || strings.Contains(text, "oversized file") || strings.Contains(text, "oversized blob"):

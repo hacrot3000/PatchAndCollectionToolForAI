@@ -184,3 +184,12 @@ func TestGitRecoveryAddRemote(t *testing.T) {
 		t.Fatalf("origin url=%q want=%q", got, remote)
 	}
 }
+
+func TestClassifyCherryPickAndRevertConflictOutput(t *testing.T) {
+	output := "Auto-merging tracked.txt\nCONFLICT (content): Merge conflict in tracked.txt\nerror: could not apply abc1234... feature conflict\nhint: After resolving the conflicts, mark them with git add"
+	for _, action := range []string{"cherry_pick", "revert_commit"} {
+		if got := classifyGitFailure(action, output, "exit status 1"); got != "conflicts" {
+			t.Fatalf("%s classified as %q", action, got)
+		}
+	}
+}
