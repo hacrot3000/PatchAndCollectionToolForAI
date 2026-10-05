@@ -239,3 +239,28 @@ func TestExplorerRefreshesBadgesAfterGitPanelStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestExplorerSupportsDragAndDropMoves(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"let dragPaths=[]",
+		"row.draggable=true",
+		"row.ondragstart=event=>startExplorerDrag",
+		"row.ondragover=event=>dragOverExplorerRow",
+		"row.ondrop=event=>dropExplorerRow",
+		"function canMovePathsToDirectory(paths,dir)",
+		"async function movePathsToDirectory(paths,dir,label='Move selected')",
+		"Cannot move a folder into itself or one of its descendants",
+		"Drag and drop move",
+		"tree.ondragover=dragOverExplorerRoot",
+		"tree.ondrop=event=>dropExplorerRoot",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Explorer drag/drop support missing %q", want)
+		}
+	}
+}
