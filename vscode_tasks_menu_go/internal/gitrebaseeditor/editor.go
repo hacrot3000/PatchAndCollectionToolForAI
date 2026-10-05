@@ -9,10 +9,9 @@ import (
 )
 
 const (
-	SequenceModeEnv = "TASKDECK_GIT_SEQUENCE_EDITOR"
-	MessageModeEnv  = "TASKDECK_GIT_MESSAGE_EDITOR"
-	TodoPathEnv     = "TASKDECK_GIT_REBASE_TODO"
-	StatePathEnv    = "TASKDECK_GIT_REBASE_EDITOR_STATE"
+	EditorModeEnv = "TASKDECK_GIT_REBASE_EDITOR"
+	TodoPathEnv   = "TASKDECK_GIT_REBASE_TODO"
+	StatePathEnv  = "TASKDECK_GIT_REBASE_EDITOR_STATE"
 )
 
 type State struct {
@@ -21,27 +20,24 @@ type State struct {
 }
 
 func ActiveMode() string {
-	if os.Getenv(SequenceModeEnv) == "1" {
-		return "sequence"
-	}
-	if os.Getenv(MessageModeEnv) == "1" {
-		return "message"
+	if os.Getenv(EditorModeEnv) == "1" {
+		return "auto"
 	}
 	return ""
 }
 
 func Run(mode string, args []string) error {
+	if mode != "auto" {
+		return fmt.Errorf("unsupported internal Git editor mode %q", mode)
+	}
 	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
 		return fmt.Errorf("internal Git editor requires exactly one target file")
 	}
-	switch mode {
-	case "sequence":
-		return RunSequenceEditor(args[0], os.Getenv(TodoPathEnv))
-	case "message":
-		return RunMessageEditor(args[0], os.Getenv(StatePathEnv))
-	default:
-		return fmt.Errorf("unsupported internal Git editor mode %q", mode)
+	target := args[0]
+	if filepath.Base(target) == "git-rebase-todo" {
+		return RunSequenceEditor(target, os.Getenv(TodoPathEnv))
 	}
+	return RunMessageEditor(target, os.Getenv(StatePathEnv))
 }
 
 func RunSequenceEditor(target, source string) error {
