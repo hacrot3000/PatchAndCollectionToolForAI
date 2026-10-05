@@ -178,7 +178,7 @@ async function copyHunk(hunk,direction){
   const replacement=direction==='left-to-right'?hunk.leftLines:hunk.rightLines;
   const next=replaceLineRange(to.text,start,count,replacement);
   if(!window.confirm('Apply change '+(hunk.index+1)+' from '+(from.label||'source')+' to '+(to.label||'destination')+'?'))return;
-  await saveSource(to,next);await reload();window.dispatchEvent(new CustomEvent('taskmenu:file-compare-write',{detail:{label:to.label,path:to.path||''}}));
+  await saveSource(to,next);await reload();window.dispatchEvent(new CustomEvent('taskmenu:file-compare-write',{detail:{label:to.label,path:to.path||'',profile_id:to.profileID||'',source_kind:to.kind||''}}));
 }
 async function reload(){if(!current)return;await Promise.all([loadSource(current.left),loadSource(current.right)]);render();}
 async function open(options){
@@ -216,6 +216,39 @@ function clipboardSource({label='Clipboard'}={}){
     return {text:await navigator.clipboard.readText()};
   }};
 }
+function remoteSource(profileID,pathValue,{writable=true,label=''}={}){
+  profileID=String(profileID||'').trim();pathValue=String(pathValue||'').trim();
+  const source={kind:'remote',profileID,path:pathValue,label:label||('Remote · '+pathValue),meta:{},load:async()=>{
+    const params=new URLSearchParams({profile_id:profileID,path:pathValue});
+    const data=await app.jsonFetch('/api/file-transfer/text?'+params.toString());
+    return {text:data.content,sha256:data.sha256,profile_id:data.profile_id,path:data.path};
+  }};
+  if(writable)source.writeText=async text=>{
+    const sha=source.meta?.sha256;
+    if(!sha)throw new Error('Remote compare source SHA is unavailable');
+    return app.jsonFetch('/api/file-transfer/text',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:profileID,path:pathValue,content:text,expected_sha256:sha})});
+  };
+  return source;
+}
+function browserFileHandleSource(handle,{label='Local browser file',path=''}={}){
+  if(!handle||handle.kind!=='file')throw new Error('Local browser file handle is required');
+  const source={kind:'browser-local',path,label,meta:{},load:async()=>{
+    const file=await handle.getFile();
+    return {text:await file.text(),size:file.size,lastModified:file.lastModified};
+  },writeText:async text=>{
+    const before=await handle.getFile();
+    if(source.meta?.lastModified!==undefined&&(before.lastModified!==source.meta.lastModified||before.size!==source.meta.size))throw new Error('Local browser file changed after compare load');
+    if(typeof handle.createWritable!=='function')throw new Error('Local browser file is read-only');
+    const writer=await handle.createWritable();
+    try{await writer.write(text);await writer.close();}catch(error){try{await writer.abort?.();}catch{}throw error;}
+    const after=await handle.getFile();
+    return {text,size:after.size,lastModified:after.lastModified};
+  }};
+  return source;
+}
+async function openLeftRemote(leftSource,profileID,remotePath){
+  return open({title:'Left ↔ Remote',left:leftSource,right:remoteSource(profileID,remotePath)});
+}
 function gitCommitSource(repoID,pathValue,ref,{label=''}={}){
   repoID=String(repoID||'').trim();pathValue=String(pathValue||'').trim();ref=String(ref||'').trim();
   return {label:label||('Git '+ref.slice(0,8)+' · '+pathValue),repoID,path:pathValue,ref,load:async()=>{
@@ -244,4 +277,4 @@ reloadButton.onclick=()=>reload().catch(app.showError);closeButton.onclick=close
 backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)close();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&backdrop.classList.contains('visible'))close();});
 
-globalThis.TaskMenuFileCompare={open,close,reload,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,gitCommitSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,promptProjectCompare,get current(){return current;}};
+globalThis.TaskMenuFileCompare={open,close,reload,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,promptProjectCompare,get current(){return current;}};
