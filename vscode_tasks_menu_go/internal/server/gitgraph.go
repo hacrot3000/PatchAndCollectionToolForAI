@@ -219,15 +219,52 @@ func (s *Server) gitCommitFiles(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "resolved commit is invalid", http.StatusConflict)
 		return
 	}
-	out, stderr, truncated, err := s.runGit(r.Context(), 8*time.Second,
-		"diff-tree", "--root", "--no-commit-id", "--name-status", "-r", "-z", "--find-renames", commit)
+	parentLine, stderr, _, err := s.runGit(r.Context(), 4*time.Second, "rev-list", "--parents", "-n", "1", commit)
 	if err != nil {
 		http.Error(w, strings.TrimSpace(joinGitOutput(stderr, err.Error())), http.StatusConflict)
 		return
 	}
-	files := parseGitGraphFiles(out)
+	parts := strings.Fields(parentLine)
+	parents := []string{}
+	if len(parts) > 1 {
+		parents = append(parents, parts[1:]...)
+	}
+	parent := strings.TrimSpace(r.URL.Query().Get("parent"))
+	if parent != "" {
+		if !gitCompareCommitPattern.MatchString(parent) {
+			http.Error(w, "parent must be a full commit SHA", http.StatusBadRequest)
+			return
+		}
+		found := false
+		for _, candidate := range parents {
+			if candidate == parent {
+				found = true
+				break
+			}
+		}
+		if !found {
+			http.Error(w, "selected parent is not a parent of this commit", http.StatusBadRequest)
+			return
+		}
+	} else if len(parents) > 0 {
+		parent = parents[0]
+	}
+	var out string
+	var truncated bool
+	if parent == "" {
+		out, stderr, truncated, err = s.runGit(r.Context(), 8*time.Second,
+			"diff-tree", "--root", "--no-commit-id", "--name-status", "-r", "-z", "--find-renames", commit)
+	} else {
+		out, stderr, truncated, err = s.runGit(r.Context(), 8*time.Second,
+			"diff", "--name-status", "-z", "--find-renames", parent, commit)
+	}
+	if err != nil {
+		http.Error(w, strings.TrimSpace(joinGitOutput(stderr, err.Error())), http.StatusConflict)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"commit": commit, "files": files, "truncated": truncated,
+		"commit": commit, "parent": parent, "parents": parents,
+		"files": parseGitGraphFiles(out), "truncated": truncated,
 	})
 }
 
