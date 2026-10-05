@@ -1,6 +1,7 @@
 package server
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -23,6 +24,9 @@ func TestGitWorktreeManagerUI(t *testing.T) {
 		"worktree_add_branch",
 		"worktree_add_new_branch",
 		"worktree_remove",
+		"worktree_open",
+		"Open TaskDeck",
+		"taskdeck --workspace <selected worktree>",
 		"worktree_prune",
 		"Prune stale",
 		"already checked out",
@@ -40,6 +44,25 @@ func TestGitWorktreeManagerUI(t *testing.T) {
 	} {
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("Git Worktree Manager must not send arbitrary filesystem path: %q", forbidden)
+		}
+	}
+}
+
+func TestGitWorktreeLauncherIsWiredFromMain(t *testing.T) {
+	data, err := os.ReadFile("../../cmd/vscode_tasks_menu/main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"OpenWorkspace: launchTaskdeckWorkspace",
+		"func launchTaskdeckWorkspace(workspace string) error",
+		"preferredTaskdeckExecutable()",
+		`exec.Command(exe, "--workspace", abs)`,
+		"cmd.Process.Release()",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("TaskDeck worktree launcher missing %q", want)
 		}
 	}
 }
