@@ -251,6 +251,7 @@ function issueFor(ctx){
       const opts=[];
       if(choices.length){
         const selected=selectInput('path','Conflicted file',choices,choices[0].value);
+        if(ctx.openMergeEditor)opts.push(option('Open 3-way merge editor','Open Base / Current / Incoming / Result for the selected conflicted path.',values=>ctx.openMergeEditor(values.path),{inputs:[selected]}));
         if(ctx.openFile)opts.push(option('Open conflicted file','Open the selected working-tree file in TaskDeck editor so you can resolve conflict markers manually.',values=>openConflictFile(ctx,values.path),{inputs:[selected]}));
         opts.push(
           option('Use Current for selected file','Replace the selected conflicted path with Git stage 2/current side and stage the result.',values=>repair(ctx,'conflict_take_side',{path:values.path,conflict_side:'current'}),{inputs:[selected],risk:'This discards the Incoming side for the selected path. For delete/modify conflicts it may delete the working-tree file.'}),
