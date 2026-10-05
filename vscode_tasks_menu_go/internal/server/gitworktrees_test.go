@@ -218,3 +218,47 @@ func TestGitWorktreePruneRequiresConfirmation(t *testing.T) {
 		t.Fatalf("stale worktree not pruned: %s", out)
 	}
 }
+
+func TestGitWorktreeOpenResolvesOpaqueIDServerSide(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	linked := filepath.Join(filepath.Dir(workspace), "wt-open")
+	gitQuickRun(t, workspace, "worktree", "add", "-b", "feature/open", linked)
+
+	ctx := withGitRepository(context.Background(), gitRepository{ID: ".", Name: filepath.Base(workspace), Path: ".", Root: workspace})
+	rows, err := s.gitWorktreeRows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var target gitWorktreeRow
+	for _, row := range rows {
+		if row.Branch == "feature/open" {
+			target = row
+		}
+	}
+	if target.ID == "" {
+		t.Fatalf("target not found: %+v", rows)
+	}
+
+	opened := ""
+	s.OpenWorkspace = func(path string) error {
+		opened = path
+		return nil
+	}
+	body := `{"action":"worktree_open","worktree_id":"` + target.ID + `"}`
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("open status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if !sameGitWorktreePath(opened, linked) {
+		t.Fatalf("opened=%q want=%q", opened, linked)
+	}
+	if strings.Contains(rr.Body.String(), filepath.Clean(linked)) {
+		t.Fatalf("open response leaked absolute path: %s", rr.Body.String())
+	}
+
+	opened = ""
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"worktree_open","worktree_id":"../../wt-open"}`)
+	if rr.Code != http.StatusNotFound || opened != "" {
+		t.Fatalf("arbitrary ID status=%d opened=%q body=%s", rr.Code, opened, rr.Body.String())
+	}
+}
