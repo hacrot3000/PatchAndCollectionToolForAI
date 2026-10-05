@@ -804,6 +804,7 @@ type gitActionRequest struct {
 	ConflictSide      string `json:"conflict_side,omitempty"`
 	Mode              string `json:"mode,omitempty"`
 	WorktreeID        string `json:"worktree_id,omitempty"`
+	SubmoduleID       string `json:"submodule_id,omitempty"`
 	DirectoryName     string                `json:"directory_name,omitempty"`
 	RebasePlan        []gitRebaseActionItem `json:"rebase_plan,omitempty"`
 	HunkIndex         int    `json:"hunk_index,omitempty"`
@@ -1170,6 +1171,46 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		} else {
 			args = []string{"restore", "--source=" + sha, "--staged", "--", pathValue}
 		}
+	case "submodule_init", "submodule_update", "submodule_checkout_expected":
+		rows, rowsErr := s.gitSubmoduleRows(r.Context())
+		if rowsErr != nil { http.Error(w, rowsErr.Error(), http.StatusConflict); return }
+		item, found := gitSubmoduleByID(rows, req.SubmoduleID)
+		if !found { http.Error(w, "submodule identity is stale or unknown", http.StatusNotFound); return }
+		if expected := strings.TrimSpace(req.ExpectedSHA); expected != "" && expected != item.ExpectedSHA {
+			http.Error(w, "submodule expected commit changed after preview; refresh and confirm again", http.StatusConflict)
+			return
+		}
+		if action != "submodule_init" && item.Dirty {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "submodule has local changes; commit, stash, or discard them before updating the recorded commit", "failure_code": "dirty_worktree"})
+			return
+		}
+		if !req.Confirmed {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "submodule update requires explicit confirmation", "failure_code": "confirmation_required"})
+			return
+		}
+		timeout = gitNetworkReadTimeout
+		args = []string{"submodule", "update", "--init", "--checkout", "--", item.Path}
+	case "submodule_update_recursive":
+		rows, rowsErr := s.gitSubmoduleRows(r.Context())
+		if rowsErr != nil { http.Error(w, rowsErr.Error(), http.StatusConflict); return }
+		for _, item := range rows {
+			if item.Dirty {
+				writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "submodule "+item.Path+" has local changes; recursive update is blocked", "failure_code": "dirty_worktree"})
+				return
+			}
+		}
+		if !req.Confirmed {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "recursive submodule update requires explicit confirmation", "failure_code": "confirmation_required"})
+			return
+		}
+		timeout = gitNetworkReadTimeout
+		args = []string{"submodule", "update", "--init", "--recursive", "--checkout"}
+	case "submodule_sync":
+		if !req.Confirmed {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "submodule URL sync requires explicit confirmation", "failure_code": "confirmation_required"})
+			return
+		}
+		args = []string{"submodule", "sync", "--recursive"}
 	case "worktree_add_branch":
 		repo, ok := gitRepositoryFromContext(r.Context())
 		if !ok { http.Error(w, "Git repository context unavailable", http.StatusConflict); return }
