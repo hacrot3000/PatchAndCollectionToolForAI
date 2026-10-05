@@ -580,7 +580,13 @@ async function loadTags(){
   if(!(data.tags||[]).length)content.append(el('div','git-empty','No local tags'));
 }
 
-async function loadLog(){const data=await gitView('log',{limit:'50'});if(!data)return false;content.replaceChildren();for(const commit of data.commits||[]){const row=el('div','git-row');const code=el('span','git-row-code',commit.short);const main=el('div','git-row-main');main.append(el('div','git-row-title',commit.subject),el('div','git-row-sub',commit.date+' · '+commit.author));const actions=el('div','git-row-actions');actions.append(actionButton('Copy SHA',()=>copyText(commit.sha)));row.append(code,main,actions);content.append(row);}if(!content.childElementCount)empty('No commits');}
+async function loadLog(){const data=await gitView('log',{limit:'50'});if(!data)return false;content.replaceChildren();for(const commit of data.commits||[]){const row=el('div','git-row');const code=el('span','git-row-code',commit.short);const main=el('div','git-row-main');main.append(el('div','git-row-title',commit.subject),el('div','git-row-sub',commit.date+' · '+commit.author));const actions=el('div','git-row-actions');
+    actions.append(
+      actionButton('Cherry-pick',()=>action('cherry_pick',{ref:commit.sha,expected_sha:commit.sha},'Cherry-pick '+commit.short+' onto the current branch? The working tree must be clean.'),'Apply this commit onto the current branch'),
+      actionButton('Revert',()=>action('revert_commit',{ref:commit.sha,expected_sha:commit.sha},'Create a new commit that reverts '+commit.short+'? The working tree must be clean.'),'Create a revert commit'),
+      actionButton('Copy SHA',()=>copyText(commit.sha))
+    );
+    row.append(code,main,actions);content.append(row);}if(!content.childElementCount)empty('No commits');}
 function openGitFileView(path,mode='history'){
   gitFilePath=String(path||'').trim();
   gitFileMode=mode==='blame'?'blame':'history';

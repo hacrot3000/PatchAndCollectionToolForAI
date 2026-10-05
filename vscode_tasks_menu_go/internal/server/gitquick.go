@@ -1035,6 +1035,29 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		tagArgs, err := s.gitCreateTagArgs(r.Context(), req.Name, req.Message, req.Ref)
 		if err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
 		args = tagArgs
+	case "cherry_pick", "revert_commit":
+		clean, err := s.gitWorktreeClean(r.Context())
+		if err != nil { http.Error(w, err.Error(), http.StatusConflict); return }
+		if !clean {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "working tree must be clean before "+action, "failure_code": "dirty_worktree"})
+			return
+		}
+		if _, err := s.gitCurrentBranch(r.Context()); err != nil { http.Error(w, err.Error(), http.StatusConflict); return }
+		ref := strings.TrimSpace(req.Ref)
+		if ref == "" || strings.ContainsAny(ref, "\x00\r\n") { http.Error(w, "commit ref is required", http.StatusBadRequest); return }
+		resolved, _, _, err := s.runGit(r.Context(), 4*time.Second, "rev-parse", "--verify", ref+"^{commit}")
+		if err != nil || strings.TrimSpace(resolved) == "" { http.Error(w, "commit ref not found", http.StatusNotFound); return }
+		sha := strings.TrimSpace(resolved)
+		if expected := strings.TrimSpace(req.ExpectedSHA); expected != "" && expected != sha {
+			http.Error(w, "commit changed after confirmation; refresh the log and confirm again", http.StatusConflict)
+			return
+		}
+		timeout = gitMergeTimeout
+		if action == "cherry_pick" {
+			args = []string{"cherry-pick", sha}
+		} else {
+			args = []string{"revert", "--no-edit", sha}
+		}
 	case "delete_tag":
 		if !req.Confirmed {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "deleting a Git tag requires explicit confirmation", "failure_code": "confirmation_required"})

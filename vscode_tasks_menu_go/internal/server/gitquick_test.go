@@ -464,3 +464,73 @@ func TestGitCreateTagRejectsInvalidNameAndDuplicate(t *testing.T) {
 		t.Fatal("duplicate tag accepted")
 	}
 }
+
+func TestGitCherryPickAndRevertActions(t *testing.T) {
+	workspace, s, mainBranch := setupGitQuickRepo(t)
+	gitQuickRun(t, workspace, "switch", "-c", "feature/cherry")
+	if err := os.WriteFile(filepath.Join(workspace, "cherry.txt"), []byte("picked\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "cherry.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "add cherry file")
+	sourceSHA := gitQuickRun(t, workspace, "rev-parse", "HEAD")
+	gitQuickRun(t, workspace, "switch", mainBranch)
+
+	body := `{"action":"cherry_pick","ref":"`+sourceSHA+`","expected_sha":"`+sourceSHA+`"}`
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("cherry-pick status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if raw, err := os.ReadFile(filepath.Join(workspace, "cherry.txt")); err != nil || string(raw) != "picked\n" {
+		t.Fatalf("cherry-picked file raw=%q err=%v", raw, err)
+	}
+
+	body = `{"action":"revert_commit","ref":"`+sourceSHA+`","expected_sha":"`+sourceSHA+`"}`
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("revert status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "cherry.txt")); !os.IsNotExist(err) {
+		t.Fatalf("revert did not remove cherry.txt: err=%v", err)
+	}
+}
+
+func TestGitCherryPickConflictUsesRecoveryState(t *testing.T) {
+	workspace, s, mainBranch := setupGitQuickRepo(t)
+	gitQuickRun(t, workspace, "switch", "-c", "feature/conflicting-pick")
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("feature\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "commit", "-am", "feature conflict")
+	sourceSHA := gitQuickRun(t, workspace, "rev-parse", "HEAD")
+	gitQuickRun(t, workspace, "switch", mainBranch)
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("main\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "commit", "-am", "main conflict")
+
+	body := `{"action":"cherry_pick","ref":"`+sourceSHA+`","expected_sha":"`+sourceSHA+`"}`
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+	if rr.Code != http.StatusOK { t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String()) }
+	var response struct {
+		OK bool `json:"ok"`
+		FailureCode string `json:"failure_code"`
+		ConflictState gitConflictState `json:"conflict_state"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil { t.Fatal(err) }
+	if response.OK || response.FailureCode != "conflicts" || response.ConflictState.Operation != "cherry-pick" || len(response.ConflictState.Files) != 1 {
+		t.Fatalf("response=%+v body=%s", response, rr.Body.String())
+	}
+
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"repair","repair":"abort_in_progress"}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("abort status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := gitQuickRun(t, workspace, "status", "--porcelain"); got != "" {
+		t.Fatalf("worktree dirty after abort: %q", got)
+	}
+}
+
+func TestGitCherryPickRequiresCleanWorktree(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	sha := gitQuickRun(t, workspace, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("dirty\n"), 0o644); err != nil { t.Fatal(err) }
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"cherry_pick","ref":"`+sha+`","expected_sha":"`+sha+`"}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "dirty_worktree") {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
