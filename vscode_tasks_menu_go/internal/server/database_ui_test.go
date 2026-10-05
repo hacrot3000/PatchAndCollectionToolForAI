@@ -1534,3 +1534,47 @@ func TestDatabaseQueryHistoryAndSnippetPersistence(t *testing.T) {
 		}
 	}
 }
+
+func TestDatabaseQueryHistoryAndSnippetUI(t *testing.T) {
+	databaseData, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil { t.Fatal(err) }
+	databaseJS := string(databaseData)
+	for _, want := range []string{
+		"history.textContent='History'",
+		"saveSnippet.textContent='Save Snippet'",
+		"history.onclick=()=>openQueryLibrary(view)",
+		"saveSnippet.onclick=()=>",
+		"function openQueryLibrary(view)",
+		"Query History & Saved Snippets",
+		"Query History",
+		"Saved Snippets",
+		"Clear history",
+		"Save current query",
+		"No query history yet.",
+		"No saved snippets yet.",
+		"New Query",
+		"function loadArchivedQuery(view,text,{newTab=false,label=''}={})",
+		"TaskMenuDatabaseWorkbench?.openQueryText?.",
+		"TaskMenuDatabaseWorkbench?.queryTargetForOpen?.",
+		"function saveCurrentQuerySnippet(view)",
+		"Delete saved snippet",
+		"function copyDatabaseQueryText(text)",
+	} {
+		if !strings.Contains(databaseJS, want) {
+			t.Fatalf("database.js missing query history/snippet UI %q", want)
+		}
+	}
+
+	workbenchData, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil { t.Fatal(err) }
+	workbenchJS := string(workbenchData)
+	for _, want := range []string{
+		"openQueryText(view,text,{label='',tooltip=''}={})",
+		"createQueryPage(root,{initialText:String(text||''),label:label||'',tooltip:tooltip||'',activate:true})",
+		"return page.ctx",
+	} {
+		if !strings.Contains(workbenchJS, want) {
+			t.Fatalf("database_workbench.js missing archived query open behavior %q", want)
+		}
+	}
+}

@@ -100,6 +100,148 @@ function clearQueryHistory(view){
   writeQueryArchive(view,'query-history',[],QUERY_HISTORY_LIMIT);
 }
 
+
+function queryArchiveWhen(ts){
+  const date=new Date(Number(ts)||0);
+  if(Number.isNaN(date.getTime()))return '';
+  try{return new Intl.DateTimeFormat(undefined,{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(date);}
+  catch{return date.toLocaleString();}
+}
+
+async function copyDatabaseQueryText(text){
+  text=String(text??'');
+  if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(text);return;}
+  const area=document.createElement('textarea');area.value=text;area.style.position='fixed';area.style.left='-9999px';document.body.append(area);area.select();
+  try{if(!document.execCommand('copy'))throw new Error('Copy failed');}finally{area.remove();}
+}
+
+function loadArchivedQuery(view,text,{newTab=false,label=''}={}){
+  text=String(text||'');
+  if(newTab){
+    const ctx=globalThis.TaskMenuDatabaseWorkbench?.openQueryText?.(view,text,{label});
+    if(ctx)return ctx;
+  }
+  const target=globalThis.TaskMenuDatabaseWorkbench?.queryTargetForOpen?.(view)||view;
+  setQueryEditorText(target,text,{focus:true});
+  return target;
+}
+
+function queryArchiveItemButton(label,action){
+  const button=document.createElement('button');button.type='button';button.textContent=label;
+  button.onclick=event=>{event.preventDefault();Promise.resolve(action()).catch(app.showError);};
+  return button;
+}
+
+function renderQueryArchiveStatement(item){
+  const pre=document.createElement('div');pre.className='db-query-library-statement';
+  pre.textContent=String(item?.statement||'');return pre;
+}
+
+function openQueryLibrary(view){
+  const dialog=createDBDialog('Query History & Saved Snippets');
+  dialog.card.style.width='min(920px,96vw)';
+  const root=document.createElement('div');root.className='db-query-library';
+
+  const historySection=document.createElement('section');historySection.className='db-query-library-section';
+  const historyHead=document.createElement('div');historyHead.className='db-query-library-section-head';
+  const historyTitle=document.createElement('strong');historyTitle.textContent='Query History';
+  const clear=document.createElement('button');clear.type='button';clear.textContent='Clear history';
+  historyHead.append(historyTitle,clear);
+  const historyList=document.createElement('div');historyList.className='db-query-library-list';
+  historySection.append(historyHead,historyList);
+
+  const snippetsSection=document.createElement('section');snippetsSection.className='db-query-library-section';
+  const snippetsHead=document.createElement('div');snippetsHead.className='db-query-library-section-head';
+  const snippetsTitle=document.createElement('strong');snippetsTitle.textContent='Saved Snippets';
+  const saveCurrent=document.createElement('button');saveCurrent.type='button';saveCurrent.textContent='Save current query';
+  snippetsHead.append(snippetsTitle,saveCurrent);
+  const snippetsList=document.createElement('div');snippetsList.className='db-query-library-list';
+  snippetsSection.append(snippetsHead,snippetsList);
+  root.append(historySection,snippetsSection);dialog.body.append(root);
+
+  const renderHistory=()=>{
+    historyList.replaceChildren();
+    const items=queryHistory(view);
+    if(!items.length){
+      const empty=document.createElement('div');empty.className='db-query-library-empty';empty.textContent='No query history yet.';historyList.append(empty);return;
+    }
+    for(const item of items){
+      const card=document.createElement('div');card.className='db-query-library-item';
+      const meta=document.createElement('div');meta.className='db-query-library-meta';
+      const status=document.createElement('span');status.className='db-query-library-status';status.textContent=String(item.status||'');
+      const when=document.createElement('span');when.textContent=queryArchiveWhen(item.ts);
+      const duration=document.createElement('span');duration.textContent=Math.max(0,Number(item.duration_ms)||0)+' ms';
+      const catalog=document.createElement('span');catalog.textContent=item.catalog?('DB: '+item.catalog):'';
+      meta.append(status,when,duration);if(item.catalog)meta.append(catalog);
+      const statement=renderQueryArchiveStatement(item);
+      const actions=document.createElement('div');actions.className='db-query-library-actions';
+      actions.append(
+        queryArchiveItemButton('Open',()=>{loadArchivedQuery(view,item.statement);dialog.remove();}),
+        queryArchiveItemButton('New Query',()=>{loadArchivedQuery(view,item.statement,{newTab:true,label:'History'});dialog.remove();}),
+        queryArchiveItemButton('Copy',()=>copyDatabaseQueryText(item.statement))
+      );
+      if(item.error){
+        const error=document.createElement('div');error.className='db-query-result-error';error.textContent=String(item.error);
+        card.append(meta,statement,error,actions);
+      }else card.append(meta,statement,actions);
+      historyList.append(card);
+    }
+  };
+
+  const saveSnippetFromCurrent=()=>{
+    const statement=queryEditorExecutionText(view).trim();
+    if(!statement)throw new Error('Enter or select a query before saving a snippet');
+    const answer=prompt('Snippet name:','');
+    if(answer===null)return false;
+    saveQuerySnippet(view,answer,statement);renderSnippets();return true;
+  };
+
+  const renderSnippets=()=>{
+    snippetsList.replaceChildren();
+    const items=querySnippets(view);
+    if(!items.length){
+      const empty=document.createElement('div');empty.className='db-query-library-empty';empty.textContent='No saved snippets yet.';snippetsList.append(empty);return;
+    }
+    for(const item of items){
+      const card=document.createElement('div');card.className='db-query-library-item';
+      const meta=document.createElement('div');meta.className='db-query-library-meta';
+      const name=document.createElement('span');name.className='db-query-library-name';name.textContent=String(item.name||'Snippet');
+      const when=document.createElement('span');when.textContent='Updated '+queryArchiveWhen(item.updated_at||item.created_at);
+      meta.append(name,when);
+      const statement=renderQueryArchiveStatement(item);
+      const actions=document.createElement('div');actions.className='db-query-library-actions';
+      actions.append(
+        queryArchiveItemButton('Open',()=>{loadArchivedQuery(view,item.statement);dialog.remove();}),
+        queryArchiveItemButton('New Query',()=>{loadArchivedQuery(view,item.statement,{newTab:true,label:item.name||'Snippet'});dialog.remove();}),
+        queryArchiveItemButton('Copy',()=>copyDatabaseQueryText(item.statement)),
+        queryArchiveItemButton('Delete',()=>{
+          if(!confirm('Delete saved snippet "'+String(item.name||'Snippet')+'"?'))return;
+          deleteQuerySnippet(view,item.id);renderSnippets();
+        })
+      );
+      card.append(meta,statement,actions);snippetsList.append(card);
+    }
+  };
+
+  clear.onclick=()=>{
+    if(!queryHistory(view).length)return;
+    if(!confirm('Clear all query history for this database profile?'))return;
+    clearQueryHistory(view);renderHistory();
+  };
+  saveCurrent.onclick=()=>{try{saveSnippetFromCurrent();}catch(error){app.showError(error);}};
+  renderHistory();renderSnippets();
+  const close=document.createElement('button');close.type='button';close.textContent='Close';close.onclick=dialog.remove;dialog.actions.append(close);
+  return dialog;
+}
+
+function saveCurrentQuerySnippet(view){
+  const statement=queryEditorExecutionText(view).trim();
+  if(!statement)throw new Error('Enter or select a query before saving a snippet');
+  const answer=prompt('Snippet name:','');
+  if(answer===null)return null;
+  return saveQuerySnippet(view,answer,statement);
+}
+
 function databaseSupports(view,name){
   return Boolean(globalThis.TaskMenuDatabaseWorkbench?.supports?.(view,name));
 }
@@ -136,12 +278,27 @@ style.textContent=`
 .db-object-detail-muted{opacity:.62}
 .db-object-detail-sql{margin:3px 0 0;padding:6px;border:1px solid #30343b;border-radius:4px;white-space:pre-wrap;overflow-wrap:anywhere;font:10px ui-monospace,monospace}
 .db-query{min-width:0;display:flex;flex-direction:column;background:#090c10}
-.db-query-tools{display:flex;align-items:center;gap:6px;padding:7px;border-bottom:1px solid #30343b;background:#11151b}
+.db-query-tools{display:flex;align-items:center;gap:6px;padding:7px;border-bottom:1px solid #30343b;background:#11151b;flex-wrap:wrap}
 .db-query-tools .db-run{background:#244c70;border-color:#3f79a8}
 .db-transaction-state{font-size:9px;font-weight:800;letter-spacing:.04em;opacity:.55;border:1px solid #39414d;border-radius:999px;padding:3px 6px;white-space:nowrap}
 .db-transaction-state.active{opacity:1;color:#f1c46e;border-color:#8a692d;background:#2a2110}
 .db-query-tools label{font-size:10px;opacity:.65}
 .db-query-tools input{width:72px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:6px}
+.db-query-library{display:flex;flex-direction:column;gap:12px}
+.db-query-library-section{display:flex;flex-direction:column;gap:7px}
+.db-query-library-section-head{display:flex;align-items:center;gap:8px}
+.db-query-library-section-head strong{flex:1}
+.db-query-library-list{display:flex;flex-direction:column;gap:6px}
+.db-query-library-empty{padding:12px;border:1px dashed #39414d;border-radius:6px;font-size:11px;opacity:.6}
+.db-query-library-item{border:1px solid #303843;border-radius:7px;padding:8px;background:#10151c}
+.db-query-library-meta{display:flex;gap:8px;align-items:center;font-size:10px;opacity:.7;margin-bottom:5px}
+.db-query-library-name{font-weight:700;opacity:1}
+.db-query-library-status{font-weight:800;text-transform:uppercase}
+.db-query-library-statement{font:11px/1.4 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:120px;overflow:auto;background:#0b0f14;border-radius:5px;padding:6px}
+.db-query-library-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:7px}
+.db-query-library-actions button{font-size:10px}
+html[data-taskmenu-theme="light"] .db-query-library-item{background:#f8fafc;border-color:#cbd2da}
+html[data-taskmenu-theme="light"] .db-query-library-statement{background:#eef2f6}
 .db-script-dialog{position:fixed;inset:0;z-index:16000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.58);padding:18px}
 .db-script-card{width:min(760px,96vw);max-height:90vh;display:flex;flex-direction:column;background:#171a20;border:1px solid #48515f;border-radius:10px;box-shadow:0 18px 55px rgba(0,0,0,.5);overflow:hidden}
 .db-script-head{display:flex;align-items:center;gap:8px;padding:11px 13px;border-bottom:1px solid #30343b}.db-script-head strong{flex:1}
@@ -2024,15 +2181,17 @@ function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValu
   const explainAnalyze=document.createElement('button');explainAnalyze.type='button';explainAnalyze.textContent='Explain Analyze';explainAnalyze.hidden=view.meta.adapter_kind!=='mysql';
   const openSQL=document.createElement('button');openSQL.type='button';openSQL.textContent='Open SQL';openSQL.hidden=!relational;
   const saveSQL=document.createElement('button');saveSQL.type='button';saveSQL.textContent='Save SQL';saveSQL.hidden=openSQL.hidden;
+  const history=document.createElement('button');history.type='button';history.textContent='History';history.title='Query history and saved snippets';
+  const saveSnippet=document.createElement('button');saveSnippet.type='button';saveSnippet.textContent='Save Snippet';saveSnippet.title='Save current query or selection as a reusable snippet';
   const rowsLabel=document.createElement('label');rowsLabel.textContent='Max rows';
   const maxRows=document.createElement('input');maxRows.type='number';maxRows.min='1';maxRows.max='1000';maxRows.value=String(maxRowsValue||'100');
-  tools.append(run,explain,explainAnalyze,beginTransaction,commitTransaction,rollbackTransaction,transactionState,openSQL,saveSQL,rowsLabel,maxRows);
+  tools.append(run,explain,explainAnalyze,beginTransaction,commitTransaction,rollbackTransaction,transactionState,openSQL,saveSQL,history,saveSnippet,rowsLabel,maxRows);
   const editor=document.createElement('textarea');editor.className='db-query-editor';editor.spellcheck=false;editor.value=String(initialText||'');
   const result=document.createElement('div');result.className='db-result-wrap';
   query.append(tools,editor,result);
 
   Object.assign(view,{
-    queryPanel:query,editor,run,explain,explainAnalyze,beginTransaction,commitTransaction,rollbackTransaction,transactionState,openSQL,saveSQL,maxRows,result,
+    queryPanel:query,editor,run,explain,explainAnalyze,beginTransaction,commitTransaction,rollbackTransaction,transactionState,openSQL,saveSQL,history,saveSnippet,maxRows,result,
     scriptName:scriptName||'query.sql',scriptSource:null,
     queryFilter:null,queryOrder:null,lastExecutedStatement:'',queryNewRows:[],
     queryDirtyRows:new Map(),querySelectedRows:new Set(),querySelectionAnchor:null,
@@ -2055,6 +2214,8 @@ function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValu
   rollbackTransaction.onclick=()=>transactionAction(view,'rollback').catch(app.showError);
   openSQL.onclick=()=>openSQLScript(view).catch(app.showError);
   saveSQL.onclick=()=>saveSQLScript(view).catch(app.showError);
+  history.onclick=()=>openQueryLibrary(view);
+  saveSnippet.onclick=()=>{try{saveCurrentQuerySnippet(view);}catch(error){app.showError(error);}};
   if(!view.queryCM){
     editor.addEventListener('keydown',event=>{
       if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();executeQuery(view).catch(app.showError);}

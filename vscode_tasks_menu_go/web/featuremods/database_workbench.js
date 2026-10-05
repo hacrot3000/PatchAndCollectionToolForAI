@@ -1864,6 +1864,11 @@ globalThis.TaskMenuDatabaseWorkbench={
   gridContextMenuItems,
   queryStateChanged:view=>scheduleQueryTabsSave(view),
   queryTargetForOpen,
+  openQueryText(view,text,{label='',tooltip=''}={}){
+    const root=rootWorkbenchView(view);
+    const page=createQueryPage(root,{initialText:String(text||''),label:label||'',tooltip:tooltip||'',activate:true});
+    return page.ctx;
+  },
   setPageReadOnly:setWorkbenchPageReadOnly,
   persistQueryTabs:view=>saveQueryTabsNow(view),
   updateQueryTabIdentity(view,{label='',tooltip=''}={}){
