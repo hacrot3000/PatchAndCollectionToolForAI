@@ -31,8 +31,8 @@ if(app.layoutProfile==='mobile'){
   html[data-taskmenu-layout="mobile"] .mobile-actions-button{margin-left:auto}
   html[data-taskmenu-layout="mobile"] .header-action-menus{display:none;position:fixed;z-index:1550;top:calc(54px + env(safe-area-inset-top));right:8px;width:min(92vw,360px);max-height:calc(100dvh - 78px);overflow:auto;padding:8px;border:1px solid #3b414d;border-radius:10px;background:#171a20;box-shadow:0 12px 34px rgba(0,0,0,.5);flex-direction:column;align-items:stretch}
   html[data-taskmenu-layout="mobile"] body.mobile-actions-open .header-action-menus{display:flex}
-  html[data-taskmenu-layout="mobile"] .header-action-menus>.taskmenu-menu,html[data-taskmenu-layout="mobile"] .header-action-menus>.git-status-pill{width:100%}
-  html[data-taskmenu-layout="mobile"] .header-action-menus>.taskmenu-menu>.taskmenu-menu-trigger{width:100%;text-align:left;min-height:44px}
+  html[data-taskmenu-layout="mobile"] .header-action-menus>.taskmenu-menu,html[data-taskmenu-layout="mobile"] .header-action-menus>.taskmenu-direct-action,html[data-taskmenu-layout="mobile"] .header-action-menus>.git-status-pill{width:100%}
+  html[data-taskmenu-layout="mobile"] .header-action-menus>.taskmenu-menu>.taskmenu-menu-trigger,html[data-taskmenu-layout="mobile"] .header-action-menus>.taskmenu-direct-action{width:100%;text-align:left;min-height:44px}
   html[data-taskmenu-layout="mobile"] .header-action-menus .taskmenu-menu-popover{position:static!important;display:none;width:100%;max-height:none;box-shadow:none;margin-top:4px}
   html[data-taskmenu-layout="mobile"] .header-action-menus .taskmenu-menu.open>.taskmenu-menu-popover{display:flex}
   html[data-taskmenu-layout="mobile"] .mobile-backdrop{display:none;position:fixed;inset:0;z-index:1400;background:rgba(0,0,0,.5)}
@@ -88,6 +88,10 @@ if(app.layoutProfile==='mobile'){
   menu?.addEventListener('click',event=>{
     const target=event.target instanceof Element?event.target:null;
     if(target?.closest('.task,.quick-task-run,.task-search-result'))setTimeout(closePanels,0);
+  });
+  document.querySelector('.header-action-menus')?.addEventListener('click',event=>{
+    const target=event.target instanceof Element?event.target:null;
+    if(target?.closest('.taskmenu-direct-action'))setTimeout(closePanels,0);
   });
   document.addEventListener('keydown',event=>{if(event.key==='Escape')closePanels();});
 
