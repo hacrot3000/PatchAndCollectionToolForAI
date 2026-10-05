@@ -139,6 +139,11 @@ func (s *Server) authenticationModeStatus() (authModeStatus, error) {
 	}
 	configuredDB := strings.TrimSpace(s.Config.SharedIdentityDB)
 	resolvedDB, err := identity.ResolveDBPathForWorkspace(configuredDB, s.Workspace)
+	if err != nil && !s.Config.SharedServerEnabled {
+		// Single mode may carry a stale legacy shared_server.identity_db value.
+		// Keep the wizard usable so the operator can replace it during migration.
+		resolvedDB, err = identity.ResolveDBPathForWorkspace("", s.Workspace)
+	}
 	if err != nil {
 		return authModeStatus{}, err
 	}
@@ -190,6 +195,18 @@ func (s *Server) migrateSingleToShared(r *http.Request, request authModeMigratio
 	dbPath, err := identity.ResolveDBPathForWorkspace(configuredDB, s.Workspace)
 	if err != nil {
 		return authModeMigrationResponse{}, authModeClientError{err}
+	}
+	next := s.Config
+	next.Protocol = config.ProtocolHTTPS
+	next.Port = s.authMigrationStablePort()
+	next.AuthEnabled = false
+	next.Username = username
+	next.Password = "change-me"
+	next.SharedServerEnabled = true
+	next.SharedProjectID = projectKey
+	next.SharedIdentityDB = configuredDB
+	if err := next.Validate(); err != nil {
+		return authModeMigrationResponse{}, authModeClientError{fmt.Errorf("target shared-server config: %w", err)}
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
@@ -277,15 +294,6 @@ func (s *Server) migrateSingleToShared(r *http.Request, request authModeMigratio
 		}
 	}
 
-	next := s.Config
-	next.Protocol = config.ProtocolHTTPS
-	next.Port = s.authMigrationStablePort()
-	next.AuthEnabled = false
-	next.Username = username
-	next.Password = "change-me"
-	next.SharedServerEnabled = true
-	next.SharedProjectID = projectKey
-	next.SharedIdentityDB = configuredDB
 	if err := config.WriteAuthenticationMode(s.Workspace, next); err != nil {
 		return authModeMigrationResponse{}, fmt.Errorf("write shared-server authentication config: %w", err)
 	}
