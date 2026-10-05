@@ -309,6 +309,28 @@ Preset được lưu project-local tại:
 
 File được ghi atomic với quyền `0600`, nên preset vẫn còn sau browser reload, daemon restart, self-update và reboot miễn project/file còn tồn tại.
 
+### Project profiles
+
+TaskDeck hỗ trợ nhiều **Project profile** cho cùng một workspace, ví dụ `Development`, `Debug`, `Production` hoặc profile riêng theo khách hàng. Nút **Profile…** mở manager để tạo profile từ context đang dùng, Save/Apply/Delete profile và chuyển nhanh giữa các context.
+
+Mỗi profile có thể lưu:
+
+- snapshot biến môi trường đang chọn;
+- tập command preset và task dùng cho project;
+- các local terminal startup với CWD/title;
+- reference tới SSH, database và FTP/SFTP profile;
+- default Git repository đang chọn.
+
+Apply profile **không tự chạy task hoặc command preset**, không tự switch Git branch và không copy password/private-key passphrase/database/FTP secret vào file profile. Connection profile chỉ được lưu bằng ID; secret tiếp tục nằm trong secret store hiện có.
+
+Environment được snapshot vào project profile để profile vẫn dùng được nếu browser-local environment profile cũ bị xóa. Snapshot env chỉ được áp dụng cho **local task/terminal**; TaskDeck không inject local environment overrides vào SSH terminal remote.
+
+Project profiles được lưu atomic với quyền `0600` tại:
+
+```text
+<workspace>/vscode_tasks_menu.project_profiles.json
+```
+
 ### Download file xuất hiện trong output
 
 Khi output của task in ra đường dẫn file, có thể dùng chuột **bôi chọn vùng text chứa path**. Web UI sẽ kiểm tra các path thật nằm trong vùng chọn:

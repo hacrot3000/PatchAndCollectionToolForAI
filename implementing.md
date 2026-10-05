@@ -226,7 +226,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Git branch + HEAD được capture làm context/evidence, nhưng restore chỉ chọn đúng repository và **không tự switch branch**, tránh thay đổi worktree ngoài ý muốn;
     - shared-server audit không ghi snapshot name vào shared metadata.
 
-12. **P1 — Project profiles**
+12. **P1 — Project profiles** — ✅ **COMPLETE**
     Một project có thể có nhiều profile:
     - `Development`
     - `Debug`
@@ -244,6 +244,16 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - task set.
     
     Việc chuyển project context sẽ nhanh hơn rất nhiều.
+    
+    Hoàn tất:
+    - profile CRUD được lưu project-local, atomic, quyền `0600`;
+    - snapshot biến môi trường thực + nhãn environment profile, không phụ thuộc profile browser còn tồn tại;
+    - command-preset set và task set chỉ được chọn/lọc, **không tự chạy** khi apply profile;
+    - startup local terminals giữ CWD/title;
+    - DB / SSH / FTP-SFTP chỉ lưu reference tới profile hiện hữu, không sao chép secret;
+    - default Git repository được chọn lại nhưng không tự thay branch/worktree;
+    - shared-server dùng `settings.read/settings.write`; profile data không chứa connection secret;
+    - environment snapshot chỉ inject vào local task/terminal, không đẩy local env sang SSH remote.
 
 13. **P1 — Workspace multi-root thực sự**
     Hiện có multi-repository trong một workspace; bước tiếp theo là:
