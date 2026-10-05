@@ -245,3 +245,36 @@ func TestGitSubmoduleMutationsRequireConfirmation(t *testing.T) {
 		}
 	}
 }
+
+func TestGitSubmoduleInitCannotBypassDirtyGuard(t *testing.T) {
+	parent, s, first, _, _ := setupGitSubmoduleRepo(t)
+	row := getSingleSubmodule(t, s)
+	child := filepath.Join(parent, filepath.FromSlash(row.Path))
+	if err := os.WriteFile(filepath.Join(child, "child.txt"), []byte("dirty init bypass\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"action":"submodule_init","submodule_id":"` + row.ID + `","expected_sha":"` + first + `","confirmed":true}`
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "dirty_worktree") {
+		t.Fatalf("dirty init status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if data, err := os.ReadFile(filepath.Join(child, "child.txt")); err != nil || string(data) != "dirty init bypass\n" {
+		t.Fatalf("dirty child changed=%q err=%v", data, err)
+	}
+}
+
+func TestGitSubmoduleMutationRejectsEntryWithoutHeadGitlink(t *testing.T) {
+	parent, s, _, _, _ := setupGitSubmoduleRepo(t)
+	row := getSingleSubmodule(t, s)
+	gitQuickRun(t, parent, "rm", "--cached", "-f", "--", row.Path)
+	gitQuickRun(t, parent, "commit", "-m", "remove gitlink but keep gitmodules")
+	row = getSingleSubmodule(t, s)
+	if row.ExpectedSHA != "" {
+		t.Fatalf("expected missing gitlink, row=%+v", row)
+	}
+	body := `{"action":"submodule_update","submodule_id":"` + row.ID + `","confirmed":true}`
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "no gitlink commit recorded") {
+		t.Fatalf("missing gitlink status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
