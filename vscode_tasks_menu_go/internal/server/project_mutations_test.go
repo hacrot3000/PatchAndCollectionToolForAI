@@ -250,3 +250,61 @@ func TestProjectMutationRestoreRejectsExistingDestination(t *testing.T) {
 		t.Fatalf("existing destination changed data=%q err=%v", data, err)
 	}
 }
+
+func TestProjectMutationsSupportAttachedWorkspaceRoot(t *testing.T) {
+	base := t.TempDir()
+	primary := filepath.Join(base, "main")
+	attached := filepath.Join(base, "client")
+	if err := os.MkdirAll(primary, 0o755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(attached, 0o755); err != nil { t.Fatal(err) }
+	s := &Server{Workspace: primary}
+
+	createRoot := callWorkspaceRoots(t, s, http.MethodPost, "/api/workspace-roots", `{"path":"../client","name":"Client"}`)
+	if createRoot.Code != http.StatusCreated { t.Fatalf("attach status=%d body=%s", createRoot.Code, createRoot.Body.String()) }
+	var root workspaceRootView
+	if err := json.Unmarshal(createRoot.Body.Bytes(), &root); err != nil { t.Fatal(err) }
+
+	virtualFile := workspaceVirtualPath(root.ID, "notes.txt")
+	create := callProjectMutation(t, s, projectMutationRequest{Action: "create_file", Path: virtualFile})
+	if create.Code != http.StatusCreated { t.Fatalf("create status=%d body=%s", create.Code, create.Body.String()) }
+	if _, err := os.Stat(filepath.Join(attached, "notes.txt")); err != nil { t.Fatal(err) }
+	if !strings.Contains(create.Body.String(), virtualFile) { t.Fatalf("create body=%s", create.Body.String()) }
+
+	virtualDir := workspaceVirtualPath(root.ID, "docs")
+	mkdir := callProjectMutation(t, s, projectMutationRequest{Action: "mkdir", Path: virtualDir})
+	if mkdir.Code != http.StatusCreated { t.Fatalf("mkdir status=%d body=%s", mkdir.Code, mkdir.Body.String()) }
+
+	renamed := workspaceVirtualPath(root.ID, "docs/renamed.txt")
+	rename := callProjectMutation(t, s, projectMutationRequest{Action: "rename", Path: virtualFile, NewPath: renamed})
+	if rename.Code != http.StatusOK { t.Fatalf("rename status=%d body=%s", rename.Code, rename.Body.String()) }
+	if _, err := os.Stat(filepath.Join(attached, "docs", "renamed.txt")); err != nil { t.Fatal(err) }
+
+	trash := callProjectMutation(t, s, projectMutationRequest{Action: "trash", Path: renamed})
+	if trash.Code != http.StatusOK { t.Fatalf("trash status=%d body=%s", trash.Code, trash.Body.String()) }
+	var trashResult struct{ Token string `json:"token"` }
+	if err := json.Unmarshal(trash.Body.Bytes(), &trashResult); err != nil { t.Fatal(err) }
+	restore := callProjectMutation(t, s, projectMutationRequest{Action: "restore", Path: renamed, Token: trashResult.Token})
+	if restore.Code != http.StatusOK { t.Fatalf("restore status=%d body=%s", restore.Code, restore.Body.String()) }
+	if _, err := os.Stat(filepath.Join(attached, "docs", "renamed.txt")); err != nil { t.Fatal(err) }
+}
+
+func TestAttachedWorkspaceMutationRejectsSymlinkEscape(t *testing.T) {
+	if runtime.GOOS == "windows" { t.Skip("symlink test") }
+	base := t.TempDir()
+	primary := filepath.Join(base, "main")
+	attached := filepath.Join(base, "client")
+	outside := filepath.Join(base, "outside")
+	for _, dir := range []string{primary, attached, outside} {
+		if err := os.MkdirAll(dir, 0o755); err != nil { t.Fatal(err) }
+	}
+	if err := os.Symlink(outside, filepath.Join(attached, "escape")); err != nil { t.Skipf("symlink unavailable: %v", err) }
+	s := &Server{Workspace: primary}
+	createRoot := callWorkspaceRoots(t, s, http.MethodPost, "/api/workspace-roots", `{"path":"../client"}`)
+	if createRoot.Code != http.StatusCreated { t.Fatal(createRoot.Body.String()) }
+	var root workspaceRootView
+	if err := json.Unmarshal(createRoot.Body.Bytes(), &root); err != nil { t.Fatal(err) }
+	target := workspaceVirtualPath(root.ID, "escape/bad.txt")
+	create := callProjectMutation(t, s, projectMutationRequest{Action: "create_file", Path: target})
+	if create.Code != http.StatusConflict { t.Fatalf("escape create status=%d body=%s", create.Code, create.Body.String()) }
+	if _, err := os.Stat(filepath.Join(outside, "bad.txt")); !os.IsNotExist(err) { t.Fatalf("outside file unexpectedly created: %v", err) }
+}

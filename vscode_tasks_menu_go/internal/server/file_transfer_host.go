@@ -264,11 +264,12 @@ type fileTransferHostMutationRequest struct {
 }
 
 func (s *Server) resolveHostWorkspaceEntry(requested string) (string, string, os.FileInfo, error) {
-	root, err := s.projectRoot()
+	rootView, rootRelative, err := s.projectRootForVirtualPath(requested)
 	if err != nil {
 		return "", "", nil, err
 	}
-	rel, err := cleanProjectRelativePath(requested, false)
+	root := rootView.Path
+	rel, err := cleanProjectRelativePath(rootRelative, false)
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -291,15 +292,16 @@ func (s *Server) resolveHostWorkspaceEntry(requested string) (string, string, os
 	if !info.Mode().IsRegular() && !info.IsDir() {
 		return "", "", nil, fmt.Errorf("host item type is unsupported")
 	}
-	return filepath.ToSlash(rel), resolved, info, nil
+	return workspaceVirtualPath(rootView.ID, filepath.ToSlash(rel)), resolved, info, nil
 }
 
 func (s *Server) resolveHostWorkspaceDestination(requested string) (string, string, error) {
-	root, err := s.projectRoot()
+	rootView, rootRelative, err := s.projectRootForVirtualPath(requested)
 	if err != nil {
 		return "", "", err
 	}
-	rel, err := cleanProjectRelativePath(requested, false)
+	root := rootView.Path
+	rel, err := cleanProjectRelativePath(rootRelative, false)
 	if err != nil {
 		return "", "", err
 	}
@@ -330,7 +332,7 @@ func (s *Server) resolveHostWorkspaceDestination(requested string) (string, stri
 	} else if !os.IsNotExist(err) {
 		return "", "", fmt.Errorf("host destination unavailable")
 	}
-	return filepath.ToSlash(rel), target, nil
+	return workspaceVirtualPath(rootView.ID, filepath.ToSlash(rel)), target, nil
 }
 
 func (s *Server) fileTransferHostMutate(w http.ResponseWriter, r *http.Request) {
