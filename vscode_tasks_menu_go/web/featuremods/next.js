@@ -10,6 +10,7 @@ import '/featuremods/shellintegration.js';
 import '/featuremods/shellhistory.js';
 import '/featuremods/database.js';
 import '/featuremods/database_workbench.js';
+import '/featuremods/projectfileactions.js';
 import '/featuremods/filetransfer.js';
 import '/featuremods/connections.js';
 import '/featuremods/restartclear.js';
