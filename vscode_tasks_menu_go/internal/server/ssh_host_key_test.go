@@ -61,7 +61,7 @@ esac
 `
 	if err := os.WriteFile(keygenPath, []byte(keygenScript), 0o700); err != nil { t.Fatal(err) }
 	t.Setenv("TASKDECK_TEST_KNOWN_HOSTS", knownHosts)
-	t.Setenv("PATH", bin)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func TestSSHHostKeyRecoveryInspectAndRemove(t *testing.T) {
