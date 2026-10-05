@@ -19,7 +19,11 @@ func TestGroupedMenusFeature(t *testing.T) {
 		"Quick Open…  Ctrl+P",
 		"explorer.textContent='Explorer'",
 		"TaskMenuExplorer?.open()",
-		"makeMenu('Terminal'",
+		"const terminal=document.querySelector('#open-terminal')",
+		"terminal.classList.add('taskmenu-menu-trigger','taskmenu-direct-action')",
+		"terminal.textContent='Terminal'",
+		"terminal.title='Open a new terminal · Ctrl+Shift+\\`'",
+		"addSection(settings.pop,'TERMINAL',[document.querySelector('#terminal-cwd')])",
 		"makeMenu('Settings'",
 		"addSection(settings.pop,'PATCH TOOL',[patchUIControl])",
 		"patchUISelect.id='patch-ui-mode'",
@@ -56,6 +60,9 @@ func TestGroupedMenusFeature(t *testing.T) {
 	}
 	if strings.Contains(js, "makeMenu('Workspace'") {
 		t.Fatal("Workspace header menu must be removed")
+	}
+	if strings.Contains(js, "makeMenu('Terminal'") {
+		t.Fatal("Terminal header action must open a terminal directly instead of a dropdown")
 	}
 	if !strings.Contains(indexHTML, `/featuremods/next.js`) {
 		t.Fatal("index must load featuremods/next.js")
