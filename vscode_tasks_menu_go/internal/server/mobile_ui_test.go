@@ -26,6 +26,8 @@ func TestMobileUIProfileIsIsolatedFromDesktopPresentation(t *testing.T) {
 		"['↑','\\x1b[A']",
 		"['Enter','\\r']",
 		"app.browserLeaseLost",
+		".header-action-menus>.taskmenu-direct-action",
+		"if(target?.closest('.taskmenu-direct-action'))setTimeout(closePanels,0)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("mobile.js missing %q", want)
