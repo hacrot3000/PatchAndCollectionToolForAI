@@ -29,8 +29,8 @@ func TestInteractiveRebasePlannerUIIsReadOnlyAndStructured(t *testing.T) {
 		"This range contains merge commits.",
 		"Range is truncated.",
 		"Planner only: no Git history has been modified.",
-		"squash cannot be the first non-dropped commit",
-		"fixup cannot be the first non-dropped commit",
+		"action==='squash'||action==='fixup'",
+		"cannot be the first non-dropped commit",
 		"Plan drops every commit",
 	} {
 		if !strings.Contains(js, want) {
