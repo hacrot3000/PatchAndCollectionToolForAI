@@ -129,6 +129,14 @@ func sharedRoutePermissions(r *http.Request) []string {
 			return []string{identity.PermissionSettingsRead}
 		}
 		return []string{identity.PermissionSettingsWrite}
+	case "/api/git/conflict-file":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionGitDiff, identity.PermissionFilesRead}
+		}
+		if r.Method == http.MethodPut {
+			return []string{identity.PermissionFilesWrite}
+		}
+		return nil
 	case "/api/git/status":
 		if r.Method != http.MethodGet {
 			return nil // Shared mode has no Git mutation capability.
