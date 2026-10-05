@@ -123,8 +123,8 @@ func TestExplorerCanScopeProjectSearchToFolder(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		"Search / Replace in folder…",
-		"TaskMenuProjectSearch?.open?.({scope:pathValue})",
+		"appendSharedProjectActions(pathValue,type)",
+		"TaskMenuProjectFileActions?.standardActions?.(pathValue,type)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("Explorer scoped project search missing %q", want)
