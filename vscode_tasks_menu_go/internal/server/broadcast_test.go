@@ -283,8 +283,8 @@ func TestBroadcastStateMigratesLegacyRuntimeFile(t *testing.T) {
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("migrated broadcast state mode=%o want 600", info.Mode().Perm())
 	}
-	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
-		t.Fatalf("legacy runtime broadcast state should be removed after migration, stat err=%v", err)
+	if _, err := os.Stat(legacy); err != nil {
+		t.Fatalf("legacy runtime broadcast state should remain available for immediate rollback: %v", err)
 	}
 }
 
