@@ -255,17 +255,18 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - shared-server dùng `settings.read/settings.write`; profile data không chứa connection secret;
     - environment snapshot chỉ inject vào local task/terminal, không đẩy local env sang SSH remote.
 
-13. **P1 — Workspace multi-root thực sự**
-    Hiện có multi-repository trong một workspace; bước tiếp theo là:
-    - attach nhiều root folder;
-    - mỗi root có tasks/config riêng;
-    - explorer hiển thị nhiều roots;
-    - search across roots;
-    - Git repo mapping theo root;
-    - terminal `Open here`.
+13. **P1 — Workspace multi-root thực sự** — ✅ **COMPLETE**
+    - attach / rename / detach nhiều root folder với virtual root IDs đã validate;
+    - mỗi root có task/config riêng; Task Editor đọc/ghi theo đúng workspace root;
+    - Explorer hiển thị primary + attached roots, hỗ trợ mutation/file actions theo root;
+    - project search/replace chạy across roots hoặc scope theo root;
+    - Git repository discovery/map chạy trên toàn bộ workspace roots;
+    - terminal có thể mở trực tiếp tại root/folder được chọn;
+    - attached-root paths không leak arbitrary host path qua browser; backend resolve virtual path server-side;
+    - integration/regression tests bao phủ workspace-root CRUD, search, Git discovery, terminal và task routing.
     
     Ví dụ M3:
-    `m3-client`, `m3-server`, tools, deploy scripts có thể thành các root độc lập.
+    `m3-client`, `m3-server`, tools, deploy scripts có thể là các root độc lập trong cùng TaskDeck workspace.
 
 14. **P1 — File editor mạnh hơn**
     Nếu muốn TaskDeck thay VS Code cho các thao tác nhanh:
