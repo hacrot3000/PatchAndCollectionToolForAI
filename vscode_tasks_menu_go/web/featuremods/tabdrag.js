@@ -138,6 +138,20 @@ tabsHost.addEventListener('click',event=>{
   event.preventDefault();event.stopImmediatePropagation();
 },true);
 
+const tabObserver=new MutationObserver(records=>{
+  let added=false;
+  for(const record of records){
+    for(const node of record.addedNodes){
+      if(!(node instanceof HTMLElement)||node.parentElement!==tabsHost||!node.dataset.id)continue;
+      installTab(node);added=true;
+    }
+  }
+  if(added&&!dragged){
+    queueMicrotask(()=>{if(!dragged)applyOrder(readOrder());});
+  }
+});
+tabObserver.observe(tabsHost,{childList:true});
+
 window.addEventListener('taskmenu:session',event=>{
   const tab=event.detail?.view?.tab;
   if(tab)installTab(tab);
