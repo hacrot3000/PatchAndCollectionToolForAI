@@ -40,9 +40,13 @@ function installHeaderMenus(){
   addSection(files.pop,'FILES',[document.querySelector('#upload-workspace')]);
   host.append(files.menu);
 
-  const terminal=makeMenu('Terminal','Terminal actions');
-  addSection(terminal.pop,'NEW TERMINAL',[document.querySelector('#terminal-cwd'),document.querySelector('#open-terminal')]);
-  host.append(terminal.menu);
+  const terminal=document.querySelector('#open-terminal');
+  if(terminal){
+    terminal.classList.add('taskmenu-menu-trigger','taskmenu-direct-action');
+    terminal.textContent='Terminal';
+    terminal.title='Open a new terminal · Ctrl+Shift+`';
+    host.append(terminal);
+  }
 
   const settings=makeMenu('Settings','Tool settings');
   const patchUIKey='vscode-tasks-menu:patch-ui-mode:'+projectWorkspace;
@@ -65,6 +69,7 @@ function installHeaderMenus(){
   globalThis.TaskMenuPatchUISettings={get mode(){return patchUIMode;}};
 
   addSection(settings.pop,'PATCH TOOL',[patchUIControl]);
+  addSection(settings.pop,'TERMINAL',[document.querySelector('#terminal-cwd')]);
   const authModeSettings=document.querySelector('#auth-mode-settings');
   if(authModeSettings&&(!app.sharedMode||app.hasPermission('project.admin'))){
     authModeSettings.hidden=false;
