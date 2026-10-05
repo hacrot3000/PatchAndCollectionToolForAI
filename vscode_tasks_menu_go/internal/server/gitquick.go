@@ -1080,7 +1080,7 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		if !s.remoteBranchExists(r.Context(), remoteRef) { http.Error(w, "remote-tracking branch not found; fetch first to confirm the remote branch", http.StatusNotFound); return }
 		remote, branch, err := s.gitRemoteBranchParts(r.Context(), remoteRef)
 		if err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
-		timeout = gitPushTimeout
+		timeout = gitNetworkPushTimeout
 		args = []string{"push", remote, "--delete", branch}
 	case "create_tag":
 		tagArgs, err := s.gitCreateTagArgs(r.Context(), req.Name, req.Message, req.Ref)
