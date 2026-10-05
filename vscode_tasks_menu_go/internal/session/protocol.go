@@ -22,6 +22,7 @@ const (
 	maxProtocolPlanWarnings  = 256
 	maxProtocolHealthChecks   = 512
 	maxProtocolHealthMessages = 256
+	maxProtocolRunErrors      = 64
 )
 
 type protocolEnvelope struct {
@@ -43,6 +44,11 @@ type ProtocolItemState struct {
 	DiagnosisKind  string   `json:"diagnosis_kind,omitempty"`
 	FailureReason  string   `json:"failure_reason,omitempty"`
 	OutputTail     string   `json:"output_tail,omitempty"`
+}
+
+type ProtocolRunErrorState struct {
+	Phase   string `json:"phase,omitempty"`
+	Message string `json:"message"`
 }
 
 type ProtocolProgressState struct {
@@ -267,6 +273,7 @@ type ProtocolState struct {
 	Prompt          json.RawMessage     `json:"prompt,omitempty"`
 	Items           []ProtocolItemState     `json:"items,omitempty"`
 	Artifacts       []ProtocolArtifactState `json:"artifacts,omitempty"`
+	RunErrors       []ProtocolRunErrorState  `json:"run_errors,omitempty"`
 	Progress        *ProtocolProgressState     `json:"progress,omitempty"`
 	ActionResult    *ProtocolActionResultState       `json:"action_result,omitempty"`
 	QueueMutation     *ProtocolQueueMutationResultState     `json:"queue_mutation_result,omitempty"`
@@ -620,6 +627,35 @@ func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
 		FailureReason: event.FailureReason,
 		OutputTail: event.OutputTail,
 	}, event.Type, nil
+}
+
+func protocolRunErrorEvent(data []byte) (ProtocolRunErrorState, error) {
+	var event struct {
+		Type    string `json:"type"`
+		Phase   string `json:"phase"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return ProtocolRunErrorState{}, fmt.Errorf("invalid Patch error event JSON: %w", err)
+	}
+	if event.Type != "error" {
+		return ProtocolRunErrorState{}, fmt.Errorf("unsupported Patch error event")
+	}
+	event.Phase = strings.TrimSpace(event.Phase)
+	event.Message = strings.TrimSpace(event.Message)
+	if event.Message == "" || len([]byte(event.Message)) > 8192 || len([]byte(event.Phase)) > 128 ||
+		strings.ContainsRune(event.Message, '\x00') || strings.ContainsRune(event.Phase, '\x00') {
+		return ProtocolRunErrorState{}, fmt.Errorf("Patch error event payload is invalid")
+	}
+	return ProtocolRunErrorState{Phase: event.Phase, Message: event.Message}, nil
+}
+
+func appendProtocolRunError(items []ProtocolRunErrorState, item ProtocolRunErrorState) []ProtocolRunErrorState {
+	if len(items) >= maxProtocolRunErrors {
+		copy(items, items[len(items)-maxProtocolRunErrors+1:])
+		items = items[:maxProtocolRunErrors-1]
+	}
+	return append(items, item)
 }
 
 func upsertProtocolItem(items []ProtocolItemState, item ProtocolItemState) []ProtocolItemState {
@@ -1336,6 +1372,7 @@ func cloneProtocolState(in ProtocolState) ProtocolState {
 	out.Prompt = append(json.RawMessage(nil), in.Prompt...)
 	out.Items = append([]ProtocolItemState(nil), in.Items...)
 	out.Artifacts = append([]ProtocolArtifactState(nil), in.Artifacts...)
+	out.RunErrors = append([]ProtocolRunErrorState(nil), in.RunErrors...)
 	if in.Progress != nil {
 		progress := *in.Progress
 		out.Progress = &progress
