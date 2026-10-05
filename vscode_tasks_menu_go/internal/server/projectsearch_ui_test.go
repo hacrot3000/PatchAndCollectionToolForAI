@@ -14,8 +14,8 @@ func TestProjectSearchUIUsesBoundedCancelableBackendSearch(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		"/api/project/content/search?q=",
-		"&limit=100",
+		"/api/project/content/search?",
+		"limit:'200'",
 		"new AbortController()",
 		"controller.abort()",
 		"globalProjectSearchShortcut",
@@ -74,6 +74,60 @@ func TestProjectSearchShortcutIsGlobalCaptureAndExact(t *testing.T) {
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("Project Search global shortcut contract missing %q", want)
+		}
+	}
+}
+
+func TestProjectSearchReplaceUIFiltersPreviewAndUndo(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/projectsearch.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"Search and replace in project",
+		"Use regular expression",
+		"Match case",
+		"Match whole word",
+		"Include glob",
+		"Exclude glob",
+		"Folder scope:",
+		"function groupedItems()",
+		"Replace file",
+		"async function replaceOneMatch(item)",
+		"async function previewReplaceAll()",
+		"function showReplaceAllPreview(preview)",
+		"Apply Replace All",
+		"/api/project/content/replace",
+		"action:'preview'",
+		"action:'apply'",
+		"action:'undo'",
+		"taskdeck:project-replace-undo:",
+		"Save or close unsaved editor",
+		"await reloadOpenEditors",
+		"TaskMenuExplorer?.refreshGitStatus?.()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("project Search/Replace UI missing %q", want)
+		}
+	}
+	if strings.Index(js, "showReplaceAllPreview(preview)") > strings.Index(js, "async function applyReplaceAll()") {
+		t.Fatal("Replace All preview must be implemented before the apply action")
+	}
+}
+
+func TestExplorerCanScopeProjectSearchToFolder(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"Search / Replace in folder…",
+		"TaskMenuProjectSearch?.open?.({scope:pathValue})",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Explorer scoped project search missing %q", want)
 		}
 	}
 }
