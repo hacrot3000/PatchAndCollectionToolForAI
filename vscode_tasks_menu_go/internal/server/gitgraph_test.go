@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func setupGitGraphRepo(t *testing.T) (string, *Server, string, string, string) {
@@ -119,7 +120,8 @@ func TestGitGraphReturnsDAGRefsAndFilters(t *testing.T) {
 		}
 	}
 
-	future := callGitStatusHandler(t, s, http.MethodGet, "/api/git/status?view=graph&since=2999-01-01", "")
+	futureDate := time.Now().UTC().AddDate(1, 0, 0).Format("2006-01-02")
+	future := callGitStatusHandler(t, s, http.MethodGet, "/api/git/status?view=graph&since="+futureDate, "")
 	if future.Code != http.StatusOK {
 		t.Fatalf("future filter status=%d body=%s", future.Code, future.Body.String())
 	}
