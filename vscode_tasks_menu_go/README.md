@@ -103,6 +103,18 @@ Nếu daemon của cùng workspace đã chạy, launcher chỉ in URL và mở b
 
 Mỗi lần bấm một task sẽ tạo một **PTY session riêng** và một tab terminal riêng trên web. Task nhận TTY thật nên các workflow dùng `input()`, ANSI/curses, phím mũi tên, Ctrl+C và các prompt tương tác tiếp tục hoạt động như terminal.
 
+### Mở terminal nhanh
+
+Trên web UI, nút **Terminal** ở header là direct action: click một lần sẽ tạo terminal local mới ngay, không còn mở menu dropdown. CWD dùng cho terminal mới vẫn được cấu hình riêng tại **Settings → Terminal**.
+
+Hotkey global:
+
+```text
+Ctrl+Shift+`
+```
+
+Hotkey gọi cùng `startTerminal()` như nút header, vì vậy vẫn đi qua permission `terminal.create`, browser lease và cơ chế CWD injection hiện có. Giữ phím không tạo lặp terminal vì keyboard repeat được bỏ qua. Trên macOS, listener cũng chấp nhận `Cmd+Shift+`` theo primary-modifier convention của các shortcut web khác trong TaskDeck.
+
 ### Git Quick Actions / multi-repository workspace
 
 Git panel không còn giả định workspace root cũng là Git root. TaskDeck có thể quản lý nhiều repository độc lập nằm trong cùng workspace, kể cả trường hợp workspace root là một repo và các thư mục con lại là repo riêng.
