@@ -32,13 +32,14 @@ func TestAuthenticationModeWizardUI(t *testing.T) {
 		"identity_db=saved.identity_db||''",
 		"setTimeout(()=>window.location.assign(target),1800)",
 		"saved.password='';saved.confirm=''",
-		"delete globalThis.__taskdeckAuthModeSetup",
+		"let setup={}",
+		"setup.password='';setup.confirm=''",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("authmode.js missing %q", want)
 		}
 	}
-	if strings.Contains(js, "status.password") || strings.Contains(js, "current_password") {
+	if strings.Contains(js, "__taskdeckAuthModeSetup") || strings.Contains(js, "status.password") || strings.Contains(js, "current_password") {
 		t.Fatal("authentication mode status UI must never request or display the current plaintext password")
 	}
 }
