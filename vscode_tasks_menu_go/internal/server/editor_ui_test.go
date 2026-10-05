@@ -105,6 +105,44 @@ func TestEditorInitialLanguageCoverageMapping(t *testing.T) {
 }
 
 
+func TestEditorSupportsRecursiveSplitLayouts(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const editorSplitSupported=app.layoutProfile!=='mobile'",
+		"#panes.editor-split-mode",
+		"editor-split-resizer",
+		"function splitEditorLeaf(firstID,secondID,orientation,ratio=.5)",
+		"function layoutEditorSplitNode(node,rect,used)",
+		"layoutEditorSplitNode(node.first",
+		"layoutEditorSplitNode(node.second",
+		"function renderEditorSplit(root)",
+		"function syncEditorSplitForActive()",
+		"function splitEditor(view,orientation)",
+		"function swapEditorSplit(view)",
+		"function unsplitEditor(view)",
+		"view.cm.requestMeasure?.()",
+		"splitVertical.onclick=()=>splitEditor(view,'vertical').catch(app.showError)",
+		"splitHorizontal.onclick=()=>splitEditor(view,'horizontal').catch(app.showError)",
+		"pane.addEventListener('pointerdown',()=>{if(activeEditorID!==id)activateEditor(id,{force:true});},true)",
+		"window.addEventListener('resize',()=>{if(renderedEditorSplitRoot)layoutEditorSplit();})",
+		"splitEditor,",
+		"swapEditorSplit,",
+		"unsplitEditor,",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor split behavior missing %q", want)
+		}
+	}
+	if strings.Contains(js, "app.views.set(") {
+		t.Fatal("editor split must remain independent of terminal session registration")
+	}
+}
+
+
 func TestEditorDirtySaveShortcutsAndCloseFlow(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/editor.js")
 	if err != nil {
