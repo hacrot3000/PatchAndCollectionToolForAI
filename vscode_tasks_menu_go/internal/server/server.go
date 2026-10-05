@@ -49,6 +49,7 @@ type Server struct {
 	ConnectionSecrets    secretstore.Store
 	ConnectionAudit      ConnectionAuditFunc
 	SFTPExecutable       string
+	OpenWorkspace        func(string) error
 
 	projectIndexMu         sync.Mutex
 	projectIndex           *projectFileIndex
