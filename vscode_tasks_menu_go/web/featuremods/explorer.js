@@ -10,6 +10,9 @@ style.textContent=`
 .project-explorer-head button{padding:4px 7px;font-size:11px}
 .project-explorer-tree{flex:1;overflow:auto;padding:5px 4px 12px;font:12px ui-monospace,monospace}
 .project-explorer-row{display:flex;align-items:center;min-width:0;height:26px;border-radius:4px;padding-right:4px}
+.project-explorer-root{margin:5px 2px 2px;padding:4px 5px;border:1px solid #303844;border-radius:5px;background:#171d25;display:flex;align-items:center;gap:5px;font:11px ui-monospace,monospace;font-weight:700}
+.project-explorer-root-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.project-explorer-root button{padding:2px 5px;font-size:10px}
 .project-explorer-row:hover{background:#232a34}
 .project-explorer-row.selected{background:#20334a;outline:1px solid #31577d}
 .project-explorer-row.drag-over{background:#294565;outline:1px dashed #6f9bc7}
@@ -34,6 +37,7 @@ style.textContent=`
 .project-explorer-message{padding:10px 8px;opacity:.65}
 html[data-taskmenu-theme="light"] .project-explorer{background:#fff;border-color:#b9c0c8;box-shadow:10px 0 28px rgba(0,0,0,.12)}
 html[data-taskmenu-theme="light"] .project-explorer-row:hover{background:#edf1f5}
+html[data-taskmenu-theme="light"] .project-explorer-root{background:#f6f8fa;border-color:#d8dee4}
 html[data-taskmenu-theme="light"] .project-explorer-row.selected{background:#dcecff;outline-color:#9fc3e7}
 html[data-taskmenu-theme="light"] .project-explorer-saved{border-color:#dfe3e8}
 html[data-taskmenu-theme="light"] .project-explorer-context{background:#fff;border-color:#b9c0c8}
@@ -45,6 +49,7 @@ document.head.append(style);
 const panel=document.createElement('div');panel.className='project-explorer';
 const head=document.createElement('div');head.className='project-explorer-head';
 const title=document.createElement('div');title.className='project-explorer-title';title.textContent='EXPLORER';
+const rootButton=document.createElement('button');rootButton.type='button';rootButton.textContent='+R';rootButton.title='Attach workspace root';
 const newFileButton=document.createElement('button');newFileButton.type='button';newFileButton.textContent='+F';newFileButton.title='New file in selected folder';
 const newFolderButton=document.createElement('button');newFolderButton.type='button';newFolderButton.textContent='+D';newFolderButton.title='New folder in selected folder';
 const undoButton=document.createElement('button');undoButton.type='button';undoButton.textContent='↶';undoButton.title='Undo last Explorer file operation';undoButton.disabled=true;
@@ -53,7 +58,7 @@ const closeButton=document.createElement('button');closeButton.type='button';clo
 const saved=document.createElement('div');saved.className='project-explorer-saved';
 const tree=document.createElement('div');tree.className='project-explorer-tree';
 const contextMenu=document.createElement('div');contextMenu.className='project-explorer-context';
-head.append(title,newFileButton,newFolderButton,undoButton,refresh,closeButton);panel.append(head,saved,tree);document.body.append(panel,contextMenu);
+head.append(title,rootButton,newFileButton,newFolderButton,undoButton,refresh,closeButton);panel.append(head,saved,tree);document.body.append(panel,contextMenu);
 
 const loaded=new Map();
 const expanded=new Set();
@@ -67,6 +72,8 @@ let fileClipboard={mode:'',paths:[]};
 let lastUndo=null;
 let dragPaths=[];
 let rootLoaded=false;
+let workspaceRoots=[];
+let attachedRootsEnabled=false;
 let requestSeq=0;
 
 function storageKey(){return 'vscode-tasks-menu:explorer-expanded:'+(app.taskData?.workspace||'workspace');}
@@ -119,6 +126,43 @@ function restoreExpanded(){
 }
 function persistExpanded(){
   try{localStorage.setItem(storageKey(),JSON.stringify([...expanded].slice(0,500)));}catch{}
+}
+function rootBasePath(root){return root?.primary?'':'@root/'+String(root?.id||'');}
+function splitWorkspacePath(pathValue){
+  pathValue=String(pathValue||'').trim();
+  const match=pathValue.match(/^@root\/([^/]+)(?:\/(.*))?$/);
+  return match?{base:'@root/'+match[1],relative:match[2]||''}:{base:'',relative:pathValue};
+}
+async function loadWorkspaceRoots(){
+  const data=await app.jsonFetch('/api/workspace-roots');
+  workspaceRoots=Array.isArray(data?.roots)?data.roots:[];
+  attachedRootsEnabled=Boolean(data?.attached_enabled);
+  rootButton.hidden=!attachedRootsEnabled;
+  return workspaceRoots;
+}
+async function attachWorkspaceRoot(){
+  if(!attachedRootsEnabled)return;
+  const path=window.prompt('Workspace root folder path (absolute, or relative to the primary workspace):','');
+  if(path===null||!String(path).trim())return;
+  const name=window.prompt('Display name (optional):','');
+  const body={path:String(path).trim()};if(name!==null&&String(name).trim())body.name=String(name).trim();
+  await app.jsonFetch('/api/workspace-roots',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  await reload();
+}
+async function renameWorkspaceRoot(root){
+  const name=window.prompt('Rename workspace root:',root?.name||'');
+  if(name===null||!String(name).trim())return;
+  await app.jsonFetch('/api/workspace-roots',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:root.id,name:String(name).trim()})});
+  await reload();
+}
+async function detachWorkspaceRoot(root){
+  if(!window.confirm('Detach workspace root "'+String(root?.name||root?.id||'')+'" from TaskDeck?\n\nFiles on disk will NOT be deleted.'))return;
+  await app.jsonFetch('/api/workspace-roots?id='+encodeURIComponent(root.id),{method:'DELETE'});
+  const base=rootBasePath(root);
+  for(const key of [...loaded.keys()])if(key===base||key.startsWith(base+'/'))loaded.delete(key);
+  for(const key of [...expanded])if(key===base||key.startsWith(base+'/'))expanded.delete(key);
+  for(const key of [...selected])if(key===base||key.startsWith(base+'/'))selected.delete(key);
+  persistExpanded();await reload();
 }
 function joinPath(parent,name){return parent?parent+'/'+name:name;}
 function parentPath(pathValue){const index=pathValue.lastIndexOf('/');return index<0?'':pathValue.slice(0,index);}
@@ -233,10 +277,36 @@ async function loadDirectory(pathValue,force=false){
 function render(){
   renderSaved();
   tree.replaceChildren();
-  const rootItems=loaded.get('')||[];
   if(!rootLoaded){showMessage('Loading…');return;}
-  if(!rootItems.length){showMessage('Workspace has no files');return;}
-  for(const item of rootItems)tree.append(renderItem('',item));
+  if(!workspaceRoots.length){showMessage('Workspace has no roots');return;}
+  for(const root of workspaceRoots){
+    const base=rootBasePath(root);
+    const header=document.createElement('div');header.className='project-explorer-root';header.dataset.rootId=root.id;
+    const name=document.createElement('div');name.className='project-explorer-root-name';name.textContent=root.name+(root.primary?' · primary':'');name.title=root.available===false?'Root unavailable':(root.name||root.id);
+    header.append(name);
+    if(!root.primary&&root.attached){
+      const actions=document.createElement('button');actions.type='button';actions.textContent='⋯';actions.title='Workspace root actions';
+      actions.onclick=event=>{
+        event.stopPropagation();
+        const action=window.prompt('Root action: rename or detach','rename');
+        if(action===null)return;
+        if(String(action).trim().toLowerCase()==='detach')detachWorkspaceRoot(root).catch(app.showError);
+        else if(String(action).trim().toLowerCase()==='rename')renameWorkspaceRoot(root).catch(app.showError);
+      };
+      header.append(actions);
+    }
+    tree.append(header);
+    if(root.available===false){
+      const unavailable=document.createElement('div');unavailable.className='project-explorer-message';unavailable.textContent='Root unavailable';tree.append(unavailable);continue;
+    }
+    const rootItems=loaded.get(base)||[];
+    if(!rootItems.length){
+      const empty=document.createElement('div');empty.className='project-explorer-message';empty.textContent='Empty';tree.append(empty);continue;
+    }
+    const children=document.createElement('div');children.className='project-explorer-root-children';
+    for(const item of rootItems)children.append(renderItem(base,item));
+    tree.append(children);
+  }
 }
 function renderItem(parent,item){
   const fullPath=joinPath(parent,item.name);
@@ -305,8 +375,10 @@ function selectPath(event,pathValue){
 }
 async function ensurePathVisible(pathValue){
   await ensureRoot(false);
-  const parts=pathValue.split('/').filter(Boolean);
-  let current='';
+  const split=splitWorkspacePath(pathValue);
+  const parts=split.relative.split('/').filter(Boolean);
+  let current=split.base;
+  if(!loaded.has(current))await loadDirectory(current);
   for(let i=0;i<parts.length-1;i++){
     current=joinPath(current,parts[i]);
     expanded.add(current);
@@ -647,7 +719,12 @@ async function ensureRoot(force=false){
   if(force){loaded.clear();rootLoaded=false;showMessage('Loading…');}
   if(rootLoaded&&!force)return;
   try{
-    await loadDirectory('',force);rootLoaded=true;render();
+    await loadWorkspaceRoots();
+    for(const root of workspaceRoots){
+      if(root.available===false)continue;
+      await loadDirectory(rootBasePath(root),force);
+    }
+    rootLoaded=true;render();
     loadGitStatus().then(()=>render()).catch(()=>{});
     await restoreExpandedDirectories();
     render();
@@ -659,6 +736,7 @@ function open(){
 function close(){panel.classList.remove('visible');}
 async function reload(){try{await ensureRoot(true);}catch(error){app.showError(error);}}
 
+rootButton.onclick=()=>attachWorkspaceRoot().catch(app.showError);
 newFileButton.onclick=()=>createProjectItem('file').catch(app.showError);
 newFolderButton.onclick=()=>createProjectItem('dir').catch(app.showError);
 undoButton.onclick=()=>undoLastOperation().catch(app.showError);

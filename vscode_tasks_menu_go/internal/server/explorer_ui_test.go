@@ -265,3 +265,26 @@ func TestExplorerSupportsDragAndDropMoves(t *testing.T) {
 		}
 	}
 }
+
+func TestExplorerMultiRootUI(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"rootButton.textContent='+R'",
+		"async function loadWorkspaceRoots()",
+		"app.jsonFetch('/api/workspace-roots')",
+		"async function attachWorkspaceRoot()",
+		"async function renameWorkspaceRoot(root)",
+		"async function detachWorkspaceRoot(root)",
+		"function rootBasePath(root)",
+		"'@root/'+String(root?.id||'')",
+		"function splitWorkspacePath(pathValue)",
+		"for(const root of workspaceRoots)",
+		"await loadDirectory(rootBasePath(root),force)",
+		"Files on disk will NOT be deleted",
+		"Root unavailable",
+	} {
+		if !strings.Contains(js, want) { t.Fatalf("explorer.js missing multi-root UI %q", want) }
+	}
+}
