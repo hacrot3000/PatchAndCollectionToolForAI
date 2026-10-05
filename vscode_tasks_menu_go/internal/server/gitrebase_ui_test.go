@@ -7,7 +7,7 @@ import (
 	webassets "bletonfc/vscode_tasks_menu/web"
 )
 
-func TestInteractiveRebasePlannerUIIsReadOnlyAndStructured(t *testing.T) {
+func TestInteractiveRebasePlannerAndGuardedExecutionUI(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/gitstatus.js")
 	if err != nil {
 		t.Fatal(err)
@@ -37,13 +37,36 @@ func TestInteractiveRebasePlannerUIIsReadOnlyAndStructured(t *testing.T) {
 			t.Fatalf("interactive rebase planner UI missing %q", want)
 		}
 	}
+	for _, want := range []string{
+		"Start interactive rebase",
+		"function structuredRebasePlan()",
+		"async function startInteractiveRebase(meta)",
+		"action('interactive_rebase'",
+		"expected_sha:meta.head_sha",
+		"expected_current:meta.branch",
+		"rebase_plan:plan",
+		"Working tree and index must be clean before starting interactive rebase",
+		"Merge-containing ranges are not yet supported",
+		"The selected range is truncated",
+		"Structured plan is validated again server-side",
+		"function renderRebasePausedControls(meta,data)",
+		"Continue rebase",
+		"Abort rebase",
+		"continue_in_progress",
+		"abort_in_progress",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("interactive rebase execution UI missing %q", want)
+		}
+	}
 	for _, forbidden := range []string{
-		"rebase_execute",
 		"GIT_SEQUENCE_EDITOR",
-		"git rebase -i",
+		"GIT_EDITOR",
+		"sequence_editor",
+		"raw_command",
 	} {
 		if strings.Contains(js, forbidden) {
-			t.Fatalf("planner milestone must remain read-only; found %q", forbidden)
+			t.Fatalf("browser UI must not construct editor scripts or raw commands; found %q", forbidden)
 		}
 	}
 }
