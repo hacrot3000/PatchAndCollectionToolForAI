@@ -136,6 +136,9 @@ func setINIValue(lines []string, wantedSection, wantedKey, value string) []strin
 		lines[keyIndex] = setting
 	case sectionStart >= 0:
 		insertAt := sectionEnd
+		for insertAt > sectionStart+1 && strings.TrimSpace(lines[insertAt-1]) == "" {
+			insertAt--
+		}
 		lines = append(lines, "")
 		copy(lines[insertAt+1:], lines[insertAt:])
 		lines[insertAt] = setting
