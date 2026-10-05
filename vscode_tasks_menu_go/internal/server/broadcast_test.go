@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -219,6 +220,74 @@ func TestBroadcastStatePersistsAndGroupRemovalCleansAssignments(t *testing.T) {
 		t.Fatalf("delete group did not clean assignment: %#v", state)
 	}
 }
+
+func TestBroadcastStateSurvivesRuntimeDirectoryReplacement(t *testing.T) {
+	workspace := t.TempDir()
+	service := newBroadcastTestService()
+	srv := &Server{Workspace: workspace, Sessions: service}
+	groupID := createBroadcastGroupForTest(t, srv, "Persistent", "cyan")
+	assignBroadcastGroupForTest(t, srv, "1", groupID)
+	setBroadcastModeForTest(t, srv, broadcastModeGroup)
+
+	if _, err := os.Stat(broadcastStatePath(workspace)); err != nil {
+		t.Fatalf("project broadcast state missing: %v", err)
+	}
+	if err := os.RemoveAll(filepath.Dir(legacyBroadcastStatePath(workspace))); err != nil {
+		t.Fatal(err)
+	}
+
+	replacement := &Server{Workspace: workspace, Sessions: service}
+	get := httptest.NewRequest(http.MethodGet, "/api/broadcast", nil)
+	rr := httptest.NewRecorder()
+	replacement.broadcastStateAPI(rr, get)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("broadcast reload after runtime-dir replacement status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	state := decodeBroadcastState(t, rr)
+	if state.Mode != broadcastModeGroup || len(state.Groups) != 1 || state.Groups[0].ID != groupID || state.Assignments["1"] != groupID {
+		t.Fatalf("project broadcast state did not survive runtime-dir replacement: %#v", state)
+	}
+}
+
+func TestBroadcastStateMigratesLegacyRuntimeFile(t *testing.T) {
+	workspace := t.TempDir()
+	legacy := legacyBroadcastStatePath(workspace)
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacyState := broadcastState{
+		Version: broadcastStateVersion,
+		Mode: broadcastModeGroup,
+		Groups: []broadcastGroup{{ID: "legacy-group", Name: "Legacy", Preset: "ocean"}},
+		Assignments: map[string]string{"1": "legacy-group"},
+	}
+	data, err := json.Marshal(legacyState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := loadBroadcastState(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Mode != broadcastModeGroup || len(state.Groups) != 1 || state.Assignments["1"] != "legacy-group" {
+		t.Fatalf("legacy broadcast state not migrated: %#v", state)
+	}
+	info, err := os.Stat(broadcastStatePath(workspace))
+	if err != nil {
+		t.Fatalf("migrated project broadcast state missing: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("migrated broadcast state mode=%o want 600", info.Mode().Perm())
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatalf("legacy runtime broadcast state should be removed after migration, stat err=%v", err)
+	}
+}
+
 
 func TestBroadcastRejectsInvalidPreset(t *testing.T) {
 	srv := &Server{Workspace: t.TempDir(), Sessions: newBroadcastTestService()}
