@@ -429,9 +429,11 @@ func (h *Handler) describeObject(ctx context.Context, payload dbadapter.Describe
 			"name":      name,
 			"catalog":   catalog,
 			"sql":       createSQL,
-			"columns":   []map[string]interface{}{},
-			"indexes":   []map[string]interface{}{},
-			"truncated": result.Truncated,
+			"columns":       []map[string]interface{}{},
+			"indexes":       []map[string]interface{}{},
+			"foreign_keys":  []map[string]interface{}{},
+			"referenced_by": []map[string]interface{}{},
+			"truncated":     result.Truncated,
 		}, nil
 	}
 
@@ -462,14 +464,24 @@ func (h *Handler) describeObject(ctx context.Context, payload dbadapter.Describe
 	if err != nil {
 		return nil, mysqlProtocolError("DESCRIBE_FAILED", err)
 	}
+	foreignKeys, foreignKeyTruncated, err := h.describeForeignKeys(ctx, catalog, name, false)
+	if err != nil {
+		return nil, mysqlProtocolError("DESCRIBE_FAILED", err)
+	}
+	referencedBy, referencedByTruncated, err := h.describeForeignKeys(ctx, catalog, name, true)
+	if err != nil {
+		return nil, mysqlProtocolError("DESCRIBE_FAILED", err)
+	}
 	return map[string]interface{}{
-		"kind":      firstNonEmpty(strings.TrimSpace(payload.Kind), "table"),
-		"name":      name,
-		"catalog":   catalog,
-		"sql":       createSQL,
-		"columns":   columns,
-		"indexes":   indexDetails,
-		"truncated": result.Truncated || indexTruncated,
+		"kind":          firstNonEmpty(strings.TrimSpace(payload.Kind), "table"),
+		"name":          name,
+		"catalog":       catalog,
+		"sql":           createSQL,
+		"columns":       columns,
+		"indexes":       indexDetails,
+		"foreign_keys":  foreignKeys,
+		"referenced_by": referencedBy,
+		"truncated":     result.Truncated || indexTruncated || foreignKeyTruncated || referencedByTruncated,
 	}, nil
 }
 
@@ -533,6 +545,63 @@ func (h *Handler) describeIndexes(ctx context.Context, catalog, name string) ([]
 		})
 	}
 	return indexes, result.Truncated, nil
+}
+
+
+func (h *Handler) describeForeignKeys(ctx context.Context, catalog, name string, incoming bool) ([]map[string]interface{}, bool, error) {
+	marker := "/* taskdeck_describe_foreign_keys */ "
+	where := "k.TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
+		" AND k.TABLE_NAME = " + mysqlTextExpression(name) +
+		" AND k.REFERENCED_TABLE_NAME IS NOT NULL"
+	if incoming {
+		marker = "/* taskdeck_describe_referenced_by */ "
+		where = "k.REFERENCED_TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
+			" AND k.REFERENCED_TABLE_NAME = " + mysqlTextExpression(name)
+	}
+	query := marker +
+		"SELECT k.CONSTRAINT_NAME AS name, k.TABLE_SCHEMA AS catalog, k.TABLE_NAME AS table_name, " +
+		"k.COLUMN_NAME AS column_name, k.REFERENCED_TABLE_SCHEMA AS referenced_catalog, " +
+		"k.REFERENCED_TABLE_NAME AS referenced_table, k.REFERENCED_COLUMN_NAME AS referenced_column, " +
+		"k.ORDINAL_POSITION AS seq, r.UPDATE_RULE AS update_rule, r.DELETE_RULE AS delete_rule " +
+		"FROM information_schema.KEY_COLUMN_USAGE k " +
+		"LEFT JOIN information_schema.REFERENTIAL_CONSTRAINTS r ON " +
+		"r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME " +
+		"AND r.TABLE_NAME = k.TABLE_NAME WHERE " + where +
+		" ORDER BY k.CONSTRAINT_NAME, k.ORDINAL_POSITION"
+	result, err := h.query(ctx, query, dbadapter.MaxRows)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(result.Rows) == 0 {
+		return []map[string]interface{}{}, result.Truncated, nil
+	}
+	fields := map[string]int{}
+	for _, field := range []string{
+		"name", "catalog", "table_name", "column_name", "referenced_catalog",
+		"referenced_table", "referenced_column", "seq", "update_rule", "delete_rule",
+	} {
+		index, err := resultColumnIndex(result, field)
+		if err != nil {
+			return nil, false, err
+		}
+		fields[field] = index
+	}
+	rows := make([]map[string]interface{}, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		rows = append(rows, map[string]interface{}{
+			"name":              resultCellString(row[fields["name"]]),
+			"catalog":           resultCellString(row[fields["catalog"]]),
+			"table":             resultCellString(row[fields["table_name"]]),
+			"column":            resultCellString(row[fields["column_name"]]),
+			"referenced_catalog": resultCellString(row[fields["referenced_catalog"]]),
+			"referenced_table":  resultCellString(row[fields["referenced_table"]]),
+			"referenced_column": resultCellString(row[fields["referenced_column"]]),
+			"sequence":          resultCellString(row[fields["seq"]]),
+			"update_rule":       resultCellString(row[fields["update_rule"]]),
+			"delete_rule":       resultCellString(row[fields["delete_rule"]]),
+		})
+	}
+	return rows, result.Truncated, nil
 }
 
 type mysqlBrowseColumn struct {

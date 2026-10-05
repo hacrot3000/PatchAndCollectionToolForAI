@@ -107,6 +107,40 @@ def operation_describe_object(connection, payload):
         'SELECT seq, name, "unique", origin, partial FROM pragma_index_list(?) ORDER BY seq',
         (name,),
     ).fetchall()
+    foreign_keys = connection.execute(
+        'SELECT id, seq, "table", "from", "to", on_update, on_delete, "match" '
+        'FROM pragma_foreign_key_list(?) ORDER BY id, seq',
+        (name,),
+    ).fetchall()
+    referenced_by = []
+    tables = connection.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name LIMIT ?",
+        (MAX_OBJECTS,),
+    ).fetchall()
+    for table_row in tables:
+        source_table = str(table_row[0])
+        if source_table == name:
+            continue
+        for fk_row in connection.execute(
+            'SELECT id, seq, "table", "from", "to", on_update, on_delete, "match" '
+            'FROM pragma_foreign_key_list(?) ORDER BY id, seq',
+            (source_table,),
+        ).fetchall():
+            if str(fk_row[2]) != name:
+                continue
+            referenced_by.append({
+                "name": "fk_" + source_table + "_" + str(fk_row[0]),
+                "catalog": "main",
+                "table": source_table,
+                "column": fk_row[3],
+                "referenced_catalog": "main",
+                "referenced_table": fk_row[2],
+                "referenced_column": fk_row[4],
+                "sequence": fk_row[1],
+                "update_rule": fk_row[5],
+                "delete_rule": fk_row[6],
+                "match": fk_row[7],
+            })
     return {
         "kind": schema[0] if schema else "object",
         "name": name,
@@ -133,6 +167,23 @@ def operation_describe_object(connection, payload):
             }
             for row in indexes
         ],
+        "foreign_keys": [
+            {
+                "name": "fk_" + name + "_" + str(row[0]),
+                "catalog": "main",
+                "table": name,
+                "column": row[3],
+                "referenced_catalog": "main",
+                "referenced_table": row[2],
+                "referenced_column": row[4],
+                "sequence": row[1],
+                "update_rule": row[5],
+                "delete_rule": row[6],
+                "match": row[7],
+            }
+            for row in foreign_keys
+        ],
+        "referenced_by": referenced_by,
     }
 
 

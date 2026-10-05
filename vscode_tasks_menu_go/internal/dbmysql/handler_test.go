@@ -30,6 +30,8 @@ func writeHandlerFixture(t *testing.T) string {
 		"  *information_schema.TABLES*) printf '%s\\n' '<resultset><row><field name=\"catalog\">main</field><field name=\"name\">users</field><field name=\"kind\">table</field></row></resultset>' ;;\n" +
 		"  *taskdeck_describe_create*) printf '%s\\n' '<resultset><row><field name=\"Table\">users</field><field name=\"Create Table\">CREATE TABLE users (id bigint NOT NULL AUTO_INCREMENT, PRIMARY KEY (id))</field></row></resultset>' ;;\n" +
 		"  *taskdeck_describe_indexes*) printf '%s\\n' '<resultset><row><field name=\"name\">PRIMARY</field><field name=\"non_unique\">0</field><field name=\"column_name\">id</field><field name=\"seq\">1</field><field name=\"index_type\">BTREE</field></row></resultset>' ;;\n" +
+		"  *taskdeck_describe_foreign_keys*) printf '%s\\n' '<resultset><row><field name=\"name\">fk_users_team</field><field name=\"catalog\">main</field><field name=\"table_name\">users</field><field name=\"column_name\">team_id</field><field name=\"referenced_catalog\">main</field><field name=\"referenced_table\">teams</field><field name=\"referenced_column\">id</field><field name=\"seq\">1</field><field name=\"update_rule\">CASCADE</field><field name=\"delete_rule\">RESTRICT</field></row></resultset>' ;;\n" +
+		"  *taskdeck_describe_referenced_by*) printf '%s\\n' '<resultset><row><field name=\"name\">fk_orders_user</field><field name=\"catalog\">main</field><field name=\"table_name\">orders</field><field name=\"column_name\">user_id</field><field name=\"referenced_catalog\">main</field><field name=\"referenced_table\">users</field><field name=\"referenced_column\">id</field><field name=\"seq\">1</field><field name=\"update_rule\">CASCADE</field><field name=\"delete_rule\">CASCADE</field></row></resultset>' ;;\n" +
 		"  *information_schema.STATISTICS*) printf '%s\\n' '<resultset><row><field name=\"index_name\">PRIMARY</field><field name=\"column_name\">id</field><field name=\"seq\">1</field><field name=\"nullable\">NO</field></row></resultset>' ;;\n" +
 		"  *default_value*) printf '%s\\n' '<resultset><row><field name=\"name\">id</field><field name=\"type\">bigint</field><field name=\"nullable\">NO</field><field name=\"default_value\" xsi:nil=\"true\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"/><field name=\"extra\">auto_increment</field></row></resultset>' ;;\n" +
 		"  *information_schema.COLUMNS*) printf '%s\\n' '<resultset><row><field name=\"name\">id</field><field name=\"type\">bigint</field><field name=\"nullable\">NO</field><field name=\"character_set\"></field><field name=\"collation\"></field></row><row><field name=\"name\">name</field><field name=\"type\">varchar(255)</field><field name=\"nullable\">YES</field><field name=\"character_set\">utf8mb4</field><field name=\"collation\">utf8mb4_unicode_ci</field></row></resultset>' ;;\n" +
@@ -132,6 +134,14 @@ func TestHandlerConnectPingBrowseAndExecute(t *testing.T) {
 	createSQL, _ := describe["sql"].(string)
 	if !strings.Contains(createSQL, "CREATE TABLE") || !strings.Contains(createSQL, "PRIMARY KEY") {
 		t.Fatalf("describe create SQL=%q payload=%#v", createSQL, describePayload)
+	}
+	foreignKeys, ok := describe["foreign_keys"].([]map[string]interface{})
+	if !ok || len(foreignKeys) != 1 || foreignKeys[0]["column"] != "team_id" || foreignKeys[0]["referenced_table"] != "teams" || foreignKeys[0]["delete_rule"] != "RESTRICT" {
+		t.Fatalf("describe foreign_keys=%#v", describe["foreign_keys"])
+	}
+	referencedBy, ok := describe["referenced_by"].([]map[string]interface{})
+	if !ok || len(referencedBy) != 1 || referencedBy[0]["table"] != "orders" || referencedBy[0]["column"] != "user_id" || referencedBy[0]["referenced_column"] != "id" {
+		t.Fatalf("describe referenced_by=%#v", describe["referenced_by"])
 	}
 
 	executePayload, protocolErr := handler.Handle(context.Background(), adapterRequest(t, "execute-1", dbadapter.OpExecute, dbadapter.ExecutePayload{

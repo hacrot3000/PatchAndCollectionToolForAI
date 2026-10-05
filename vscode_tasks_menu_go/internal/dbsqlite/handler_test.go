@@ -138,6 +138,49 @@ func TestSQLiteHandlerBrowseDescribeReadOnlyAndWriteMode(t *testing.T) {
 }
 
 
+func TestSQLiteDescribeIncludesForeignKeysAndReferences(t *testing.T) {
+	python, err := FindPython()
+	if err != nil {
+		t.Skipf("Python 3 unavailable: %v", err)
+	}
+	path := createSQLiteFixture(t, python)
+	script := "import sqlite3,sys\n" +
+		"c=sqlite3.connect(sys.argv[1])\n" +
+		"c.execute('CREATE TABLE orders(id INTEGER PRIMARY KEY, user_id INTEGER, FOREIGN KEY(user_id) REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL)')\n" +
+		"c.commit()\n"
+	cmd := exec.Command(python.Path, "-I", "-c", script, path)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create SQLite FK fixture: %v output=%s", err, output)
+	}
+
+	handler := connectSQLiteHandler(t, path, true)
+	defer handler.disconnect()
+
+	ordersPayload, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "describe-orders", dbadapter.OpDescribeObject, dbadapter.DescribeObjectPayload{Catalog: "main", Name: "orders"}))
+	if protocolErr != nil { t.Fatalf("describe orders error=%+v", protocolErr) }
+	orders := ordersPayload.(map[string]interface{})
+	foreignKeys, ok := orders["foreign_keys"].([]interface{})
+	if !ok || len(foreignKeys) != 1 {
+		t.Fatalf("orders foreign_keys=%#v", orders["foreign_keys"])
+	}
+	fk, ok := foreignKeys[0].(map[string]interface{})
+	if !ok || fk["column"] != "user_id" || fk["referenced_table"] != "users" || fk["referenced_column"] != "id" || fk["delete_rule"] != "SET NULL" {
+		t.Fatalf("orders foreign key=%#v", foreignKeys[0])
+	}
+
+	usersPayload, protocolErr := handler.Handle(context.Background(), sqliteAdapterRequest(t, "describe-users-ref", dbadapter.OpDescribeObject, dbadapter.DescribeObjectPayload{Catalog: "main", Name: "users"}))
+	if protocolErr != nil { t.Fatalf("describe users error=%+v", protocolErr) }
+	users := usersPayload.(map[string]interface{})
+	referencedBy, ok := users["referenced_by"].([]interface{})
+	if !ok || len(referencedBy) != 1 {
+		t.Fatalf("users referenced_by=%#v", users["referenced_by"])
+	}
+	ref, ok := referencedBy[0].(map[string]interface{})
+	if !ok || ref["table"] != "orders" || ref["column"] != "user_id" || ref["referenced_column"] != "id" {
+		t.Fatalf("users reference=%#v", referencedBy[0])
+	}
+}
+
 func TestSQLiteHandlerImportsSQLFileWithTransactionAndTrigger(t *testing.T) {
 	python, err := FindPython()
 	if err != nil {
