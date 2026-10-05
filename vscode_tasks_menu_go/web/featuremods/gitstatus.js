@@ -527,7 +527,15 @@ async function loadChanges(){
       actions.append(actionButton('History',()=>openGitFileView(change.path,'history'),'Show commit history for this file'));
       actions.append(actionButton('Blame',()=>openGitFileView(change.path,'blame'),'Show line authorship for this file'));
     }
-    actions.append(actionButton('Copy path',()=>copyText(change.path)));row.append(code,main,actions);content.append(row);
+    actions.append(actionButton('Copy path',()=>copyText(change.path)));
+    const conflictedProjectPath=change.conflicted?(conflictState?.files||[]).find(file=>file.path===change.path)?.project_path:'';
+    const projectPath=String(conflictedProjectPath||workspacePathForActiveRepository(change.path)||'');
+    row.oncontextmenu=event=>{
+      if(!projectPath||!globalThis.TaskMenuProjectFileActions?.openMenu)return;
+      event.preventDefault();event.stopPropagation();
+      globalThis.TaskMenuProjectFileActions.openMenu({path:projectPath,type:'file',x:event.clientX,y:event.clientY,title:change.path});
+    };
+    row.append(code,main,actions);content.append(row);
   }
 }
 async function mergeBranch(branch){
@@ -733,6 +741,12 @@ async function loadCompare(base=''){
 function renderCompare(data,controls){content.replaceChildren(controls);content.append(el('strong','',`Compare ${data.base}...HEAD`),el('pre','git-compare-pre',(data.stat||'(no differences)')+'\n'+(data.files||'')));}
 async function loadCurrentView(){setGitPanelWide(false);updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'tags':return loadTags();case 'log':return loadLog();case 'file-history':return loadFileHistory();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
 
+function workspacePathForActiveRepository(pathValue){
+  pathValue=String(pathValue||'').replace(/\\/g,'/').replace(/^\.\//,'');
+  const repo=activeRepository();
+  const root=repo?.path==='.'?'':String(repo?.path||repo?.id||'').replace(/\\/g,'/').replace(/^\.\//,'').replace(/\/+$/,'');
+  return root?(root+'/'+pathValue):pathValue;
+}
 function repositoryForProjectPath(pathValue){
   const value=String(pathValue||'').replace(/\\/g,'/').replace(/^\.\//,'').replace(/^\/+|\/+$/g,'');
   let best=null,bestRoot='';
