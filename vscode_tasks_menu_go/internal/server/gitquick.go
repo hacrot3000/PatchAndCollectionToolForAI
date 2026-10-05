@@ -1176,11 +1176,15 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		if rowsErr != nil { http.Error(w, rowsErr.Error(), http.StatusConflict); return }
 		item, found := gitSubmoduleByID(rows, req.SubmoduleID)
 		if !found { http.Error(w, "submodule identity is stale or unknown", http.StatusNotFound); return }
+		if item.ExpectedSHA == "" {
+			http.Error(w, "submodule has no gitlink commit recorded at current HEAD", http.StatusConflict)
+			return
+		}
 		if expected := strings.TrimSpace(req.ExpectedSHA); expected != "" && expected != item.ExpectedSHA {
 			http.Error(w, "submodule expected commit changed after preview; refresh and confirm again", http.StatusConflict)
 			return
 		}
-		if action != "submodule_init" && item.Dirty {
+		if item.Dirty {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "submodule has local changes; commit, stash, or discard them before updating the recorded commit", "failure_code": "dirty_worktree"})
 			return
 		}
