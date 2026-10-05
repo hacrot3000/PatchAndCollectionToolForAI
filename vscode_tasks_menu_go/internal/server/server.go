@@ -148,6 +148,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/project/tree", s.projectTree)
 	mux.HandleFunc("/api/project/file", s.projectFile)
 	mux.HandleFunc("/api/project/mutate", s.projectMutate)
+	mux.HandleFunc("/api/project/git-status", s.projectGitStatus)
 	mux.HandleFunc("/api/project/files/search", s.projectFileSearch)
 	mux.HandleFunc("/api/project/content/search", s.projectContentSearch)
 	mux.HandleFunc("/api/admin/users", s.sharedAdminUsers)
