@@ -55,7 +55,7 @@ function actionCommand(action,payload={}){
   switch(action){
     case 'fetch':return 'git fetch --prune';case 'pull':return 'git pull --ff-only';case 'push':return 'git push';case 'stage_all':return 'git add -A';
     case 'stage':return 'git add -- '+q(payload.path);case 'unstage':return 'git restore --staged -- '+q(payload.path);case 'stage_hunk':return 'Stage hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'unstage_hunk':return 'Unstage hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'discard_hunk':return 'Discard hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'ignore':return 'Add .gitignore rule for '+q(payload.path);case 'commit':return 'git commit -m '+q(payload.message);
-    case 'switch':return 'git switch '+q(payload.branch);case 'create_branch':return 'git switch -c '+q(payload.branch);case 'checkout_commit':return 'git switch --detach '+q(payload.ref);case 'create_branch_at':return 'git switch -c '+q(payload.branch)+' '+q(payload.ref);case 'create_branch_ref':return 'git branch '+q(payload.branch)+' '+q(payload.ref);case 'reset_commit':return 'git reset --'+q(payload.mode)+' '+q(payload.ref);case 'delete_branch':return 'git branch -d '+q(payload.branch);case 'force_delete_branch':return 'git branch -D '+q(payload.branch);case 'delete_remote_tracking':return 'git branch -dr '+q(payload.branch);case 'delete_remote_branch':return 'git push '+q(String(payload.branch||'').split('/')[0])+' --delete '+q(String(payload.branch||'').split('/').slice(1).join('/'));case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'merge_to':return 'Merge To '+q(payload.expected_current)+' -> '+q(payload.branch)+' and push';case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
+    case 'switch':return 'git switch '+q(payload.branch);case 'create_branch':return 'git switch -c '+q(payload.branch);case 'checkout_commit':return 'git switch --detach '+q(payload.ref);case 'create_branch_at':return 'git switch -c '+q(payload.branch)+' '+q(payload.ref);case 'create_branch_ref':return 'git branch '+q(payload.branch)+' '+q(payload.ref);case 'reset_commit':return 'git reset --'+q(payload.mode)+' '+q(payload.ref);case 'worktree_add_branch':return 'git worktree add '+q(payload.directory_name)+' '+q(payload.branch);case 'worktree_add_new_branch':return 'git worktree add -b '+q(payload.branch)+' '+q(payload.directory_name)+' '+q(payload.ref||'HEAD');case 'worktree_remove':return 'git worktree remove <selected worktree>';case 'worktree_prune':return 'git worktree prune --verbose --expire now';case 'delete_branch':return 'git branch -d '+q(payload.branch);case 'force_delete_branch':return 'git branch -D '+q(payload.branch);case 'delete_remote_tracking':return 'git branch -dr '+q(payload.branch);case 'delete_remote_branch':return 'git push '+q(String(payload.branch||'').split('/')[0])+' --delete '+q(String(payload.branch||'').split('/').slice(1).join('/'));case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'merge_to':return 'Merge To '+q(payload.expected_current)+' -> '+q(payload.branch)+' and push';case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
   }
 }
 async function copyText(text){
@@ -354,7 +354,7 @@ quickGroup('WORKTREE',[
 async function commit(pushAfter){const message=window.prompt('Commit message:','');if(message===null||!message.trim())return false;await action('commit',{message:message.trim()});if(pushAfter)await action('push');return true;}
 async function stashPush(){const message=window.prompt('Stash message (leave blank to use the default):','');if(message===null)return false;await action('stash_push',{message:message.trim()});return true;}
 
-const views=[['repositories','Repositories'],['changes','Changes'],['branches','Branches'],['tags','Tags'],['log','Log'],['graph','Graph'],['reflog','Recovery'],['file-history','File History'],['ahead-behind','Ahead / Behind'],['stashes','Stash'],['compare','Compare']];
+const views=[['repositories','Repositories'],['changes','Changes'],['branches','Branches'],['worktrees','Worktrees'],['tags','Tags'],['log','Log'],['graph','Graph'],['reflog','Recovery'],['file-history','File History'],['ahead-behind','Ahead / Behind'],['stashes','Stash'],['compare','Compare']];
 for(const [id,label] of views){const b=el('button','',label);b.dataset.gitView=id;b.onclick=()=>{currentView=id;updateNav();loadCurrentView().catch(app.showError);};nav.append(b);}
 function updateNav(){for(const b of nav.querySelectorAll('button'))b.classList.toggle('active',b.dataset.gitView===currentView);}
 function empty(message){content.replaceChildren(el('div','git-empty',message));}
@@ -681,6 +681,81 @@ async function loadBranches(){
   remoteToggle.onclick=()=>{const expanded=remoteToggle.getAttribute('aria-expanded')==='true';remoteToggle.setAttribute('aria-expanded',expanded?'false':'true');remoteList.hidden=expanded;renderRemoteToggle();};
   renderRemoteToggle();content.append(remoteToggle,remoteList);
 }
+
+function worktreeDirectorySuggestion(branch){
+  const base=String(branch||'worktree').trim().replace(/^refs\/heads\//,'').replace(/[^A-Za-z0-9._-]+/g,'-').replace(/^-+|-+$/g,'');
+  return (base||'worktree').slice(0,96);
+}
+function gitWorktreeCreateRow(title){
+  const wrap=el('div','git-branch-create');wrap.append(el('span','git-row-sub',title));return wrap;
+}
+async function loadWorktrees(){
+  const data=await gitView('worktrees');if(!data)return false;
+  const branches=await gitView('branches');if(!branches)return false;
+  content.replaceChildren();
+  const rows=Array.isArray(data.worktrees)?data.worktrees:[];
+  const occupied=new Set(rows.map(item=>String(item.branch||'')).filter(Boolean));
+
+  const tools=el('div','git-row-actions');
+  tools.append(
+    actionButton('↻ Refresh',()=>loadWorktrees()),
+    actionButton('Prune stale',()=>action('worktree_prune',{confirmed:true},'Prune stale Git worktree administrative entries now?\n\nThis does not remove a healthy existing worktree directory.'))
+  );
+  content.append(tools);
+
+  const existing=gitWorktreeCreateRow('Existing local branch');
+  const branchSelect=document.createElement('select');branchSelect.className='git-repo-select';
+  for(const branch of branches.local||[]){
+    const option=document.createElement('option');option.value=branch.name;
+    const where=occupied.has(branch.name)?' · already checked out':'';
+    option.textContent=branch.name+where;option.disabled=occupied.has(branch.name);branchSelect.append(option);
+  }
+  const existingDir=document.createElement('input');existingDir.placeholder='sibling directory name';existingDir.spellcheck=false;
+  const syncExistingDir=()=>{if(branchSelect.value&&!existingDir.dataset.edited)existingDir.value=worktreeDirectorySuggestion(branchSelect.value);};
+  branchSelect.onchange=syncExistingDir;existingDir.oninput=()=>existingDir.dataset.edited='1';syncExistingDir();
+  const addExisting=actionButton('Add worktree',()=>{
+    const branch=branchSelect.value,dir=existingDir.value.trim();
+    if(!branch||!dir)throw new Error('Choose a local branch and sibling directory name');
+    return action('worktree_add_branch',{branch,directory_name:dir});
+  });
+  existing.append(branchSelect,existingDir,addExisting);content.append(existing);
+
+  const create=gitWorktreeCreateRow('New branch + worktree');
+  const newBranch=document.createElement('input');newBranch.placeholder='new branch name';newBranch.spellcheck=false;
+  const newDir=document.createElement('input');newDir.placeholder='sibling directory name';newDir.spellcheck=false;
+  newBranch.oninput=()=>{if(!newDir.dataset.edited)newDir.value=worktreeDirectorySuggestion(newBranch.value);};
+  newDir.oninput=()=>newDir.dataset.edited='1';
+  const source=document.createElement('select');source.className='git-repo-select';
+  const headOption=document.createElement('option');headOption.value='HEAD';headOption.textContent='HEAD · current revision';source.append(headOption);
+  for(const branch of [...(branches.local||[]),...(branches.remote||[])]){
+    const option=document.createElement('option');option.value=branch.name;option.textContent=(branch.remote?'remote · ':'local · ')+branch.name;source.append(option);
+  }
+  const addNew=actionButton('Create + add',()=>{
+    const branch=newBranch.value.trim(),dir=newDir.value.trim(),ref=source.value||'HEAD';
+    if(!branch||!dir)throw new Error('New branch name and sibling directory name are required');
+    return action('worktree_add_new_branch',{branch,directory_name:dir,ref});
+  });
+  create.append(newBranch,newDir,source,addNew);content.append(create);
+
+  if(!rows.length){content.append(el('div','git-empty','No Git worktrees found'));return true;}
+  for(const item of rows){
+    const row=el('div','git-row');
+    const badges=[item.current?'current':'',item.primary?'primary':'',item.detached?'detached':'',item.locked?'locked':'',item.prunable?'prunable':''].filter(Boolean);
+    const code=el('span','git-row-code',item.current?'*':'');
+    const main=el('div','git-row-main');
+    const title=item.branch||'(detached HEAD)';
+    const sub=[item.display_path,item.head&&String(item.head).slice(0,12),badges.join(', '),item.lock_reason,item.prune_reason].filter(Boolean).join(' · ');
+    main.append(el('div','git-row-title',title),el('div','git-row-sub',sub));
+    const actions=el('div','git-row-actions');
+    actions.append(actionButton('Copy branch',()=>copyText(item.branch||item.head||'')));
+    if(!item.current&&!item.primary){
+      actions.append(actionButton('Remove',()=>action('worktree_remove',{worktree_id:item.id,confirmed:true},'Remove worktree '+item.display_path+'?\n\nGit will refuse if the worktree contains uncommitted changes. No force removal is used.'),'Remove this linked worktree without --force'));
+    }
+    row.append(code,main,actions);content.append(row);
+  }
+  return true;
+}
+
 async function loadTags(){
   const data=await gitView('tags');if(!data)return false;content.replaceChildren();
   const create=el('div','git-branch-create');
@@ -1097,7 +1172,7 @@ async function loadCompare(base=''){
   currentView='compare';updateNav();const branches=await gitView('branches');if(!branches)return false;content.replaceChildren();const controls=el('div','git-compare-controls');const select=document.createElement('select');for(const branch of [...(branches.local||[]),...(branches.remote||[])]){if(branch.current)continue;const o=document.createElement('option');o.value=branch.name;o.textContent=branch.name;select.append(o);}if(base&&[...select.options].some(o=>o.value===base))select.value=base;const run=actionButton('Compare',async()=>{if(!select.value)return false;const data=await gitView('compare',{base:select.value});if(!data)return false;renderCompare(data,controls);return true;});controls.append(select,run);content.append(controls);if(base&&select.value)await run.onclick();
 }
 function renderCompare(data,controls){content.replaceChildren(controls);content.append(el('strong','',`Compare ${data.base}...HEAD`),el('pre','git-compare-pre',(data.stat||'(no differences)')+'\n'+(data.files||'')));}
-async function loadCurrentView(){setGitPanelWide(false);updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'tags':return loadTags();case 'log':return loadLog();case 'graph':return loadGraph();case 'reflog':return loadReflog();case 'file-history':return loadFileHistory();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
+async function loadCurrentView(){setGitPanelWide(false);updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'worktrees':return loadWorktrees();case 'tags':return loadTags();case 'log':return loadLog();case 'graph':return loadGraph();case 'reflog':return loadReflog();case 'file-history':return loadFileHistory();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
 
 function workspacePathForActiveRepository(pathValue){
   pathValue=String(pathValue||'').replace(/\\/g,'/').replace(/^\.\//,'');
