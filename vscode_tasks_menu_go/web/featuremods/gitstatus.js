@@ -45,6 +45,7 @@ let currentStatus=null,currentView='changes',refreshing=false,lastCommand='',ref
 let repositories=[],activeRepoID='',gitAutoSelectFromTerminalCWD=false;
 let gitFilePath='',gitFileMode='history',gitFileCompareRef='';
 let gitGraphFilters={search:'',author:'',message:'',since:'',until:'',path:''},gitGraphSelectedSHA='';
+let gitReflogFilters={search:'',ref:'',kind:''},gitReflogSelected='';
 let activeGitJob=null;
 const runningActions=new Map();
 function el(tag,className,text){const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node;}
@@ -53,7 +54,7 @@ function actionCommand(action,payload={}){
   switch(action){
     case 'fetch':return 'git fetch --prune';case 'pull':return 'git pull --ff-only';case 'push':return 'git push';case 'stage_all':return 'git add -A';
     case 'stage':return 'git add -- '+q(payload.path);case 'unstage':return 'git restore --staged -- '+q(payload.path);case 'stage_hunk':return 'Stage hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'unstage_hunk':return 'Unstage hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'discard_hunk':return 'Discard hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'ignore':return 'Add .gitignore rule for '+q(payload.path);case 'commit':return 'git commit -m '+q(payload.message);
-    case 'switch':return 'git switch '+q(payload.branch);case 'create_branch':return 'git switch -c '+q(payload.branch);case 'checkout_commit':return 'git switch --detach '+q(payload.ref);case 'create_branch_at':return 'git switch -c '+q(payload.branch)+' '+q(payload.ref);case 'reset_commit':return 'git reset --'+q(payload.mode)+' '+q(payload.ref);case 'delete_branch':return 'git branch -d '+q(payload.branch);case 'force_delete_branch':return 'git branch -D '+q(payload.branch);case 'delete_remote_tracking':return 'git branch -dr '+q(payload.branch);case 'delete_remote_branch':return 'git push '+q(String(payload.branch||'').split('/')[0])+' --delete '+q(String(payload.branch||'').split('/').slice(1).join('/'));case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'merge_to':return 'Merge To '+q(payload.expected_current)+' -> '+q(payload.branch)+' and push';case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
+    case 'switch':return 'git switch '+q(payload.branch);case 'create_branch':return 'git switch -c '+q(payload.branch);case 'checkout_commit':return 'git switch --detach '+q(payload.ref);case 'create_branch_at':return 'git switch -c '+q(payload.branch)+' '+q(payload.ref);case 'create_branch_ref':return 'git branch '+q(payload.branch)+' '+q(payload.ref);case 'reset_commit':return 'git reset --'+q(payload.mode)+' '+q(payload.ref);case 'delete_branch':return 'git branch -d '+q(payload.branch);case 'force_delete_branch':return 'git branch -D '+q(payload.branch);case 'delete_remote_tracking':return 'git branch -dr '+q(payload.branch);case 'delete_remote_branch':return 'git push '+q(String(payload.branch||'').split('/')[0])+' --delete '+q(String(payload.branch||'').split('/').slice(1).join('/'));case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'merge_to':return 'Merge To '+q(payload.expected_current)+' -> '+q(payload.branch)+' and push';case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
   }
 }
 async function copyText(text){
@@ -352,7 +353,7 @@ quickGroup('WORKTREE',[
 async function commit(pushAfter){const message=window.prompt('Commit message:','');if(message===null||!message.trim())return false;await action('commit',{message:message.trim()});if(pushAfter)await action('push');return true;}
 async function stashPush(){const message=window.prompt('Stash message (leave blank to use the default):','');if(message===null)return false;await action('stash_push',{message:message.trim()});return true;}
 
-const views=[['repositories','Repositories'],['changes','Changes'],['branches','Branches'],['tags','Tags'],['log','Log'],['graph','Graph'],['file-history','File History'],['ahead-behind','Ahead / Behind'],['stashes','Stash'],['compare','Compare']];
+const views=[['repositories','Repositories'],['changes','Changes'],['branches','Branches'],['tags','Tags'],['log','Log'],['graph','Graph'],['reflog','Recovery'],['file-history','File History'],['ahead-behind','Ahead / Behind'],['stashes','Stash'],['compare','Compare']];
 for(const [id,label] of views){const b=el('button','',label);b.dataset.gitView=id;b.onclick=()=>{currentView=id;updateNav();loadCurrentView().catch(app.showError);};nav.append(b);}
 function updateNav(){for(const b of nav.querySelectorAll('button'))b.classList.toggle('active',b.dataset.gitView===currentView);}
 function empty(message){content.replaceChildren(el('div','git-empty',message));}
@@ -910,6 +911,80 @@ async function loadGraph(){
   return true;
 }
 
+
+function gitReflogGuidance(entry){
+  switch(String(entry?.kind||'')){
+    case 'reset':return 'Reset entry. Inspect nearby entries to find the commit that was reachable before the reset, then create a recovery branch before changing history again.';
+    case 'checkout':return 'Checkout transition. Use this entry to recover a detached/previous HEAD or recreate a branch at the recorded commit.';
+    case 'commit':return 'Commit entry. Creating a recovery branch preserves this commit even if no current branch points to it.';
+    case 'branch':return 'Branch reflog entry. Recreate a deleted or moved branch by creating a new branch at the SHA you want to preserve.';
+    case 'rebase':return 'Rebase entry. Preserve the desired pre/post-rebase SHA on a recovery branch before attempting another rewrite.';
+    case 'cherry-pick':return 'Cherry-pick entry. Preserve this SHA if it contains work that disappeared from the current branch.';
+    default:return 'Reflog entry. Create a recovery branch first when you are unsure; this preserves the commit without changing HEAD, Index, or Working tree.';
+  }
+}
+async function gitReflogCreateBranch(entry){
+  const suggested='recovery/'+String(entry.short||'commit').replace(/[^A-Za-z0-9._-]+/g,'-');
+  const name=window.prompt('Recovery branch name at '+entry.short+':',suggested);
+  if(name===null||!name.trim())return false;
+  return action('create_branch_ref',{branch:name.trim(),ref:entry.sha,expected_sha:entry.sha},'Create recovery branch '+name.trim()+' at '+entry.short+'?\n\nThis only creates a branch ref. HEAD, Index and Working tree remain unchanged.');
+}
+function gitReflogControls(run){
+  const controls=el('div','git-graph-controls');
+  const search=document.createElement('input');search.placeholder='Search SHA / selector / actor / subject';search.value=gitReflogFilters.search;search.oninput=()=>gitReflogFilters.search=search.value;
+  const ref=document.createElement('input');ref.placeholder='Ref contains, e.g. HEAD or main';ref.value=gitReflogFilters.ref;ref.oninput=()=>gitReflogFilters.ref=ref.value;
+  const kind=document.createElement('select');kind.className='git-repo-select';
+  for(const value of ['','commit','reset','checkout','branch','merge','rebase','cherry-pick','revert','pull','other']){
+    const option=document.createElement('option');option.value=value;option.textContent=value||'All kinds';kind.append(option);
+  }
+  kind.value=gitReflogFilters.kind;kind.onchange=()=>gitReflogFilters.kind=kind.value;
+  const actions=el('div','git-graph-controls-actions');actions.append(actionButton('Apply filters',run),actionButton('Clear',async()=>{gitReflogFilters={search:'',ref:'',kind:''};gitReflogSelected='';return loadReflog();}));
+  controls.append(search,ref,kind,actions);
+  for(const input of [search,ref])input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();run().catch(app.showError);}});
+  return controls;
+}
+async function renderGitReflogDetail(entry,host){
+  host.replaceChildren();
+  const head=el('div','git-graph-detail-head'),main=el('div','git-graph-detail-title');
+  main.append(el('div','git-row-title',entry.subject||'(no reflog subject)'),el('div','git-row-sub',[entry.sha,entry.selector,entry.actor,entry.date].filter(Boolean).join(' · ')));
+  const actions=el('div','git-graph-detail-actions');
+  actions.append(
+    actionButton('Create recovery branch',()=>gitReflogCreateBranch(entry),'Safest recovery: preserve this commit with a new branch without switching'),
+    actionButton('Copy SHA',()=>copyText(entry.sha)),
+    actionButton('Copy selector',()=>copyText(entry.selector||''))
+  );
+  head.append(main,actions);host.append(head);
+  host.append(el('div','git-row-sub',gitReflogGuidance(entry)));
+  const more=el('div','git-row-actions');
+  more.append(
+    actionButton('Checkout detached',()=>gitGraphCheckout(entry),'Requires clean worktree'),
+    actionButton('Reset current here…',()=>gitGraphReset(entry),'Choose soft/mixed/hard with confirmation'),
+    actionButton('Tag this commit…',()=>gitGraphTag(entry)),
+    actionButton('Compare with HEAD',()=>renderGitGraphHeadCompare({sha:entry.sha,short:entry.short,subject:entry.subject,author:entry.actor,date:entry.date,parents:[],refs:[]},host))
+  );
+  host.append(more);
+}
+async function loadReflog(){
+  setGitPanelWide(true);
+  const params={limit:'300'};for(const [key,value] of Object.entries(gitReflogFilters))if(String(value||'').trim())params[key]=String(value).trim();
+  const data=await gitView('reflog',params);if(!data)return false;
+  content.replaceChildren();content.append(gitReflogControls(loadReflog));
+  const shell=el('div','git-graph-shell'),list=el('div','git-graph-list'),detail=el('div','git-graph-detail');shell.append(list,detail);content.append(shell);
+  const entries=Array.isArray(data.entries)?data.entries:[];
+  if(!entries.length){list.append(el('div','git-empty','No reflog entries match the current filters'));detail.append(el('div','git-empty','Select a reflog entry'));return true;}
+  if(!entries.some(item=>(item.selector+'\x00'+item.sha)===gitReflogSelected))gitReflogSelected=entries[0].selector+'\x00'+entries[0].sha;
+  for(const entry of entries){
+    const key=entry.selector+'\x00'+entry.sha,row=el('div','git-row');row.classList.toggle('selected',key===gitReflogSelected);
+    const code=el('span','git-row-code',entry.kind||'');const main=el('div','git-row-main');
+    main.append(el('div','git-row-title',entry.subject||'(no subject)'),el('div','git-row-sub',[entry.selector,entry.short,entry.actor,entry.date].filter(Boolean).join(' · ')));
+    const actions=el('div','git-row-actions');actions.append(actionButton('Recover branch',()=>gitReflogCreateBranch(entry)),actionButton('Copy SHA',()=>copyText(entry.sha)));
+    row.onclick=event=>{if(event.target.closest('button'))return;gitReflogSelected=key;list.querySelectorAll('.git-row').forEach(node=>node.classList.toggle('selected',node===row));renderGitReflogDetail(entry,detail).catch(app.showError);};
+    row.append(code,main,actions);list.append(row);
+  }
+  const selected=entries.find(item=>(item.selector+'\x00'+item.sha)===gitReflogSelected)||entries[0];
+  await renderGitReflogDetail(selected,detail);return true;
+}
+
 async function loadLog(){const data=await gitView('log',{limit:'50'});if(!data)return false;content.replaceChildren();for(const commit of data.commits||[]){const row=el('div','git-row');const code=el('span','git-row-code',commit.short);const main=el('div','git-row-main');main.append(el('div','git-row-title',commit.subject),el('div','git-row-sub',commit.date+' · '+commit.author));const actions=el('div','git-row-actions');
     actions.append(
       actionButton('Cherry-pick',()=>action('cherry_pick',{ref:commit.sha,expected_sha:commit.sha},'Cherry-pick '+commit.short+' onto the current branch? The working tree must be clean.'),'Apply this commit onto the current branch'),
@@ -981,7 +1056,7 @@ async function loadCompare(base=''){
   currentView='compare';updateNav();const branches=await gitView('branches');if(!branches)return false;content.replaceChildren();const controls=el('div','git-compare-controls');const select=document.createElement('select');for(const branch of [...(branches.local||[]),...(branches.remote||[])]){if(branch.current)continue;const o=document.createElement('option');o.value=branch.name;o.textContent=branch.name;select.append(o);}if(base&&[...select.options].some(o=>o.value===base))select.value=base;const run=actionButton('Compare',async()=>{if(!select.value)return false;const data=await gitView('compare',{base:select.value});if(!data)return false;renderCompare(data,controls);return true;});controls.append(select,run);content.append(controls);if(base&&select.value)await run.onclick();
 }
 function renderCompare(data,controls){content.replaceChildren(controls);content.append(el('strong','',`Compare ${data.base}...HEAD`),el('pre','git-compare-pre',(data.stat||'(no differences)')+'\n'+(data.files||'')));}
-async function loadCurrentView(){setGitPanelWide(false);updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'tags':return loadTags();case 'log':return loadLog();case 'graph':return loadGraph();case 'file-history':return loadFileHistory();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
+async function loadCurrentView(){setGitPanelWide(false);updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'tags':return loadTags();case 'log':return loadLog();case 'graph':return loadGraph();case 'reflog':return loadReflog();case 'file-history':return loadFileHistory();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
 
 function workspacePathForActiveRepository(pathValue){
   pathValue=String(pathValue||'').replace(/\\/g,'/').replace(/^\.\//,'');
