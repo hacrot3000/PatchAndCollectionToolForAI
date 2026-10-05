@@ -2547,4 +2547,34 @@ window.addEventListener('taskmenu:view-activated',event=>{
 window.addEventListener('taskmenu:tasks',scheduleFileTransferSessionRestore);
 setTimeout(scheduleFileTransferSessionRestore,0);
 
-globalThis.TaskMenuFileTransfer={openProfile,testProfile,testDraft,refreshProfiles,getProfile:id=>profilesByID.get(String(id||''))||null,restoreSession:restoreFileTransferSession};
+globalThis.TaskMenuFileTransfer={
+  snapshotState(){
+    return [...views.values()].map(view=>({
+      profile_id:String(view.profile?.id||''),
+      local_mode:String(view.left?.source||'host'),
+      local_path:String(view.left?.currentPath||'.'),
+      remote_path:String(view.remote?.currentPath||'.')
+    })).filter(item=>item.profile_id);
+  },
+  async restoreState(items){
+    await scheduleFileTransferSessionRestore();
+    await refreshProfiles();
+    for(const item of Array.isArray(items)?items:[]){
+      const profileID=String(item?.profile_id||'').trim();if(!profileID)continue;
+      const profile=profilesByID.get(profileID);if(!profile){console.warn('Snapshot file-transfer profile unavailable:',profileID);continue;}
+      const view=views.get(profileID)||attachView(profile,{activate:false,session:null});
+      const mode=String(item?.local_mode||'host');
+      const localPath=normalizeRelativePath(item?.local_path||'.');
+      try{
+        if(mode==='host')await switchLeftSource(view,'host',localPath);
+        else if(mode==='local'&&view.left?.localRoot)await switchLeftSource(view,'local',localPath);
+      }catch(error){console.warn('Snapshot left file-transfer restore failed for '+profileID,error);}
+      const remotePath=normalizeRemotePath(item?.remote_path||profile.initial_path||'.');
+      try{view.remote.currentPath=remotePath;view.remote.pathInput.value=remotePath;view.remote.refreshPathMemory?.();await loadRemoteDirectory(view,remotePath);}catch(error){console.warn('Snapshot remote file-transfer restore failed for '+profileID,error);}
+    }
+    persistFileTransferSession();
+    return true;
+  },
+  openProfile,testProfile,testDraft,refreshProfiles,getProfile:id=>profilesByID.get(String(id||''))||null,restoreSession:restoreFileTransferSession,
+  get views(){return views;}
+};

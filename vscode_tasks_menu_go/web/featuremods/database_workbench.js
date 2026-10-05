@@ -1947,6 +1947,56 @@ function enhanceView(view){
   }
 }
 
+function workspaceQuerySnapshot(view){
+  const root=rootWorkbenchView(view),wb=root?.workbench;
+  if(!wb)return {activeQueryKey:'',queries:[]};
+  const queries=workbenchPageKeys(root).map(key=>wb.pages.get(key)).filter(page=>page?.mode==='query'&&page.ctx).map(page=>{
+    const source=serializableQuerySource(page.ctx.scriptSource);
+    const label=String(page.tab?.querySelector?.('.db-workbench-tab-label')?.textContent||('Query '+(page.queryNumber||''))).trim();
+    return {
+      key:String(page.key||''),
+      title:label,
+      text:String(database.getQueryText?.(page.ctx)??page.ctx.editor?.value??''),
+      file_path:source?.kind==='host'?String(source.path||''):''
+    };
+  });
+  const active=wb.pages.get(wb.active);
+  return {activeQueryKey:active?.mode==='query'?String(active.key||''):String(wb.lastQueryKey||''),queries};
+}
+
+function restoreWorkspaceQuerySnapshot(view,snapshot){
+  const root=rootWorkbenchView(view),wb=root?.workbench;
+  if(!wb||!Array.isArray(snapshot?.queries)||snapshot.queries.length===0)return false;
+  wb.restoringQueries=true;
+  try{
+    const queryKeys=workbenchPageKeys(root).filter(key=>wb.pages.get(key)?.mode==='query');
+    for(const key of queryKeys)closeWorkbenchPage(root,key,{force:true,activateFallback:false});
+    let number=0;
+    for(const item of snapshot.queries.slice(0,50)){
+      number++;
+      const filePath=String(item?.file_path||'').trim();
+      createQueryPage(root,{
+        number,
+        key:String(item?.key||''),
+        initialText:String(item?.text??''),
+        scriptName:filePath?filePath.split('/').pop():('query-'+number+'.sql'),
+        scriptSource:filePath?{kind:'host',name:filePath.split('/').pop(),path:filePath}:null,
+        label:String(item?.title||('Query '+number)),
+        tooltip:filePath||String(item?.title||''),
+        activate:false
+      });
+    }
+    const preferred=String(snapshot.activeQueryKey||'');
+    const target=preferred&&wb.pages.has(preferred)?preferred:firstQueryPage(root)?.key;
+    if(target)activatePanel(root,target);
+    wb.lastQueryKey=target||'';
+  }finally{
+    wb.restoringQueries=false;
+  }
+  saveQueryTabsNow(root);
+  return true;
+}
+
 globalThis.TaskMenuDatabaseWorkbench={
   enhanceView,
   bindObject,
@@ -1964,6 +2014,8 @@ globalThis.TaskMenuDatabaseWorkbench={
   },
   setPageReadOnly:setWorkbenchPageReadOnly,
   persistQueryTabs:view=>saveQueryTabsNow(view),
+  snapshotQueries:workspaceQuerySnapshot,
+  restoreQueries:restoreWorkspaceQuerySnapshot,
   updateQueryTabIdentity(view,{label='',tooltip=''}={}){
     const root=rootWorkbenchView(view);
     for(const page of root.workbench?.pages?.values?.()||[]){

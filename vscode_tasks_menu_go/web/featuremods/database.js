@@ -2350,6 +2350,27 @@ window.addEventListener('taskmenu:view-activated',event=>{
 });
 
 globalThis.TaskMenuDatabase={
+  snapshotState(){
+    const rows=[];
+    for(const view of dbViews.values()){
+      const profileID=String(view.meta?.profile_id||view.profile?.id||'').trim();
+      if(!profileID)continue;
+      const state=globalThis.TaskMenuDatabaseWorkbench?.snapshotQueries?.(view)||{activeQueryKey:'',queries:[]};
+      rows.push({profile_id:profileID,active_query_key:String(state.activeQueryKey||''),queries:Array.isArray(state.queries)?state.queries:[]});
+    }
+    return rows;
+  },
+  async restoreState(items){
+    for(const item of Array.isArray(items)?items:[]){
+      const profileID=String(item?.profile_id||'').trim();if(!profileID)continue;
+      let view=[...dbViews.values()].find(candidate=>String(candidate.meta?.profile_id||candidate.profile?.id||'')===profileID);
+      if(!view){
+        try{view=await openProfile(profileID);}catch(error){console.warn('Snapshot database restore skipped '+profileID,error);continue;}
+      }
+      globalThis.TaskMenuDatabaseWorkbench?.restoreQueries?.(view,{activeQueryKey:item?.active_query_key,queries:item?.queries});
+    }
+    return true;
+  },
   openProfile,
   testProfile,
   testDraft,
