@@ -583,7 +583,7 @@ function openFileTransferProfileDialog(protocol,profile=null){
   const form=document.createElement('form');form.className='task-connection-form';
 
   const name=field(form,'Name','name',{value:profile?.name||''});
-  let sshProfile=null,host=null,port=null,username=null,secret=null,clearSecret=null,timeout=null;
+  let sshProfile=null,host=null,port=null,username=null,secret=null,clearSecret=null,timeout=null,ftpTLS=null,ftpWarning=null;
   if(protocol==='sftp'){
     const options=sshProfiles.map(item=>[item.id,item.name||((item.username?item.username+'@':'')+item.host)]);
     if(profile?.ssh_profile_id&&!options.some(option=>option[0]===profile.ssh_profile_id))options.unshift([profile.ssh_profile_id,profile.ssh_profile_id+' (unavailable)']);
@@ -591,15 +591,32 @@ function openFileTransferProfileDialog(protocol,profile=null){
     sshProfile=field(form,'SSH profile','ssh_profile_id',{wide:true,value:profile?.ssh_profile_id||options[0]?.[0]||'',options});
     sshProfile.input.value=profile?.ssh_profile_id||options[0]?.[0]||'';
   }else{
+    const initialTLS=profile?.ftp_tls_mode||'plain';
     host=field(form,'Host','host',{value:profile?.host||''});
-    port=field(form,'Port','port',{type:'number',value:String(profile?.port||21)});
+    port=field(form,'Port','port',{type:'number',value:String(profile?.port||(initialTLS==='implicit'?990:21))});
     username=field(form,'Username','username',{value:profile?.username||''});
+    ftpTLS=field(form,'FTP security','ftp_tls_mode',{
+      wide:true,value:initialTLS,
+      options:[['plain','Plain FTP'],['explicit','Explicit TLS / FTPES'],['implicit','Implicit FTPS']]
+    });
+    ftpTLS.input.value=initialTLS;
     secret=field(form,editing&&profile?.has_secret?'Password (leave blank to keep saved value)':'Password','secret',{type:'password',wide:true});
     timeout=field(form,'Connect timeout (seconds)','connect_timeout_seconds',{type:'number',value:String(profile?.connect_timeout_seconds||10)});
     clearSecret=editing&&profile?.has_secret?checkboxField(form,'Clear saved password','clear_secret',false,{wide:true}):null;
-    const warning=document.createElement('div');warning.className='task-connection-warning';
-    warning.textContent='FTP is not encrypted. Credentials and file contents can be observed on the network. Use SFTP when the server supports SSH.';
-    form.append(warning);
+    ftpWarning=document.createElement('div');ftpWarning.className='task-connection-warning';
+    const syncFTPSecurity=()=>{
+      const mode=ftpTLS.input.value;
+      const current=Number(port.input.value)||0;
+      if(mode==='implicit'&&(current===0||current===21))port.input.value='990';
+      if(mode!=='implicit'&&(current===0||current===990))port.input.value='21';
+      ftpWarning.textContent=mode==='plain'
+        ?'Plain FTP is not encrypted. Credentials and file contents can be observed on the network. Use Explicit TLS/FTPS or SFTP when available.'
+        :mode==='explicit'
+          ?'Explicit TLS / FTPES upgrades the control connection with AUTH TLS and protects file data with PROT P. Server certificate and hostname verification stay enabled.'
+          :'Implicit FTPS starts TLS immediately (usually port 990) and protects file data with PROT P. Server certificate and hostname verification stay enabled.';
+    };
+    ftpTLS.input.addEventListener('change',syncFTPSecurity);syncFTPSecurity();
+    form.append(ftpWarning);
   }
   const initial=field(form,'Initial remote path','initial_path',{wide:true,value:profile?.initial_path||'.',placeholder:'e.g. /srv/app or .'});
 
@@ -607,10 +624,13 @@ function openFileTransferProfileDialog(protocol,profile=null){
     if(protocol==='sftp'){
       return {name:name.input.value,protocol:'sftp',ssh_profile_id:sshProfile.input.value,initial_path:initial.input.value};
     }
+    const tlsMode=ftpTLS.input.value||'plain';
     const payload={
-      name:name.input.value,protocol:'ftp',host:host.input.value,port:Number(port.input.value)||21,
+      name:name.input.value,protocol:'ftp',host:host.input.value,
+      port:Number(port.input.value)||(tlsMode==='implicit'?990:21),
       username:username.input.value,initial_path:initial.input.value,
-      connect_timeout_seconds:Number(timeout.input.value)||10
+      connect_timeout_seconds:Number(timeout.input.value)||10,
+      ftp_tls_mode:tlsMode
     };
     if(secret.input.value)payload.secret=secret.input.value;
     if(clearSecret?.input.checked)payload.clear_secret=true;
