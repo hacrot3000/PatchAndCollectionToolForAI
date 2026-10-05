@@ -1117,6 +1117,17 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "reset requires explicit confirmation", "failure_code": "confirmation_required"})
 				return
 			}
+			if state, stateErr := s.gitOperationState(r.Context()); stateErr != nil {
+				http.Error(w, stateErr.Error(), http.StatusConflict)
+				return
+			} else if state != "" {
+				http.Error(w, "cannot reset while Git "+state+" is in progress", http.StatusConflict)
+				return
+			}
+			if _, headErr := s.gitCheckExpectedHead(r.Context(), req.ExpectedHeadSHA); headErr != nil {
+				http.Error(w, headErr.Error(), http.StatusConflict)
+				return
+			}
 			mode := strings.ToLower(strings.TrimSpace(req.Mode))
 			if mode != "soft" && mode != "mixed" && mode != "hard" {
 				http.Error(w, "reset mode must be soft, mixed, or hard", http.StatusBadRequest)
