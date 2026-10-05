@@ -5,6 +5,7 @@ import '/featuremods/rename.js';
 import '/featuremods/inputs.js';
 import '/featuremods/envprofiles.js';
 import '/featuremods/terminalcwd.js';
+import '/featuremods/terminalhotkey.js';
 import '/featuremods/shellintegration.js';
 import '/featuremods/shellhistory.js';
 import '/featuremods/database.js';
