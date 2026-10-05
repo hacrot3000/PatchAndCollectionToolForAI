@@ -251,17 +251,56 @@ async function openLeftRemote(leftSource,profileID,remotePath){
 }
 function gitCommitSource(repoID,pathValue,ref,{label=''}={}){
   repoID=String(repoID||'').trim();pathValue=String(pathValue||'').trim();ref=String(ref||'').trim();
-  return {label:label||('Git '+ref.slice(0,8)+' · '+pathValue),repoID,path:pathValue,ref,load:async()=>{
+  return {kind:'git-commit',label:label||('Git '+ref.slice(0,8)+' · '+pathValue),repoID,path:pathValue,ref,load:async()=>{
     const params=new URLSearchParams({view:'file-content',repo:repoID,path:pathValue,ref});
     const data=await app.jsonFetch('/api/git/status?'+params.toString());
     return {text:data.content,commit:data.commit,ref:data.ref,path:data.path,repo_id:data.repo_id};
   }};
 }
+function gitStateSource(repoID,pathValue,state,{label=''}={}){
+  repoID=String(repoID||'').trim();pathValue=String(pathValue||'').trim();state=String(state||'').trim().toLowerCase();
+  if(state!=='head'&&state!=='index')throw new Error('Git compare state must be head or index');
+  const defaultLabel=state==='head'?'HEAD · committed':'INDEX · staged';
+  return {kind:'git-'+state,label:label||(defaultLabel+' · '+pathValue),repoID,path:pathValue,state,load:async()=>{
+    const params=new URLSearchParams({view:'file-content',repo:repoID,path:pathValue,state});
+    const data=await app.jsonFetch('/api/git/status?'+params.toString());
+    return {text:data.content,commit:data.commit,state:data.state,path:data.path,repo_id:data.repo_id};
+  }};
+}
+function editorForProjectPath(pathValue){
+  pathValue=String(pathValue||'').replace(/\\/g,'/').replace(/^\.\//,'');
+  const editor=globalThis.TaskMenuEditor;
+  if(!editor?.editors)return null;
+  for(const view of editor.editors.values()){
+    if(view?.closed)continue;
+    const current=String(view?.file?.path||'').replace(/\\/g,'/').replace(/^\.\//,'');
+    if(current===pathValue)return view;
+  }
+  return null;
+}
+function workingProjectSource(pathValue,{label=''}={}){
+  const view=editorForProjectPath(pathValue);
+  if(view)return editorSource(view,{label:label||'WORKTREE editor'});
+  return projectSource(pathValue,{label:label||('WORKTREE · '+pathValue)});
+}
 async function openGitCommitAgainstProject(repoID,repoPath,workspacePath,ref){
-  return open({title:'Git commit ↔ Working',left:gitCommitSource(repoID,repoPath,ref),right:projectSource(workspacePath)});
+  return open({title:'Git commit ↔ Current',left:gitCommitSource(repoID,repoPath,ref),right:workingProjectSource(workspacePath,{label:'CURRENT · '+workspacePath})});
 }
 async function openGitCommits(repoID,pathValue,leftRef,rightRef){
   return open({title:'Git commit ↔ Git commit',left:gitCommitSource(repoID,pathValue,leftRef),right:gitCommitSource(repoID,pathValue,rightRef)});
+}
+async function openGitStatePair(repoID,repoPath,workspacePath,mode){
+  mode=String(mode||'').trim();
+  if(mode==='staged'){
+    return open({title:'HEAD ↔ Staged',left:gitStateSource(repoID,repoPath,'head'),right:gitStateSource(repoID,repoPath,'index')});
+  }
+  if(mode==='worktree'){
+    return open({title:'Staged ↔ Working',left:gitStateSource(repoID,repoPath,'index'),right:workingProjectSource(workspacePath,{label:'WORKTREE · '+workspacePath})});
+  }
+  if(mode==='head-worktree'){
+    return open({title:'HEAD ↔ Working',left:gitStateSource(repoID,repoPath,'head'),right:workingProjectSource(workspacePath,{label:'WORKTREE · '+workspacePath})});
+  }
+  throw new Error('Unsupported Git compare mode '+mode);
 }
 async function openProjectFiles(leftPath,rightPath){return open({title:'Project files',left:projectSource(leftPath),right:projectSource(rightPath)});}
 async function openEditorSaved(view){return open({title:'Current ↔ Saved',left:editorSource(view),right:savedEditorSource(view)});}
@@ -277,4 +316,4 @@ reloadButton.onclick=()=>reload().catch(app.showError);closeButton.onclick=close
 backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)close();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&backdrop.classList.contains('visible'))close();});
 
-globalThis.TaskMenuFileCompare={open,close,reload,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,promptProjectCompare,get current(){return current;}};
+globalThis.TaskMenuFileCompare={open,close,reload,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,gitStateSource,workingProjectSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,openGitStatePair,promptProjectCompare,get current(){return current;}};
