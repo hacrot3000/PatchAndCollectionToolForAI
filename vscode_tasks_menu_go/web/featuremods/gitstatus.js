@@ -365,6 +365,78 @@ async function loadRepositories(force=false){
   }
 }
 
+function setGitPanelWide(wide){panel.classList.toggle('git-panel-wide',Boolean(wide));}
+function gitDiffModeMeta(mode){
+  if(mode==='staged')return {title:'HEAD ↔ STAGED',left:'HEAD · committed',right:'INDEX · staged',description:'Changes selected for the next commit'};
+  if(mode==='head-worktree')return {title:'HEAD ↔ WORKING',left:'HEAD · committed',right:'WORKTREE · current',description:'All tracked changes: staged + not staged'};
+  return {title:'STAGED ↔ WORKING',left:'INDEX · staged',right:'WORKTREE · not staged',description:'Only changes not staged yet'};
+}
+function gitVisualHunkRows(hunk){
+  const raw=String(hunk?.text||'');
+  const lines=raw.replace(/\n$/,'').split('\n');
+  const header=String(hunk?.header||lines[0]||'');
+  const range=/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(header);
+  let oldLine=range?Number(range[1]):0,newLine=range?Number(range[2]):0;
+  if(lines[0]?.startsWith('@@ '))lines.shift();
+  const rows=[];
+  for(let i=0;i<lines.length;){
+    const line=lines[i];
+    if(line.startsWith(' ')){
+      const text=line.slice(1);rows.push({left:{no:oldLine++,text,kind:'context'},right:{no:newLine++,text,kind:'context'}});i++;continue;
+    }
+    if(line.startsWith('\\')){
+      rows.push({note:line});i++;continue;
+    }
+    if(line.startsWith('-')||line.startsWith('+')){
+      const removed=[],added=[];
+      while(i<lines.length&&(lines[i].startsWith('-')||lines[i].startsWith('+'))){
+        if(lines[i].startsWith('-'))removed.push(lines[i].slice(1));else added.push(lines[i].slice(1));
+        i++;
+      }
+      const count=Math.max(removed.length,added.length);
+      for(let n=0;n<count;n++){
+        rows.push({
+          left:n<removed.length?{no:oldLine++,text:removed[n],kind:'removed'}:null,
+          right:n<added.length?{no:newLine++,text:added[n],kind:'added'}:null
+        });
+      }
+      continue;
+    }
+    rows.push({left:{no:oldLine++,text:line,kind:'context'},right:{no:newLine++,text:line,kind:'context'}});i++;
+  }
+  return rows;
+}
+function gitVisualCell(spec){
+  const cell=el('div','git-diff-cell '+(spec?.kind||'blank'));
+  cell.append(el('span','git-diff-line-no',spec?.no?String(spec.no):''),el('span','git-diff-code',spec?spec.text:'\u00a0'));
+  return cell;
+}
+function renderGitVisualHunk(hunk,mode){
+  const meta=gitDiffModeMeta(mode);
+  const visual=el('div','git-visual-diff');const grid=el('div','git-visual-grid');
+  const columns=el('div','git-diff-columns-head');columns.append(el('div','git-diff-column-head',meta.left),el('div','git-diff-column-head',meta.right));grid.append(columns);
+  for(const row of gitVisualHunkRows(hunk)){
+    const line=el('div','git-diff-visual-row');
+    if(row.note){line.append(el('div','git-diff-note',row.note));}
+    else line.append(gitVisualCell(row.left),gitVisualCell(row.right));
+    grid.append(line);
+  }
+  visual.append(grid);
+  const raw=document.createElement('details');raw.className='git-diff-raw';const summary=document.createElement('summary');summary.textContent='Raw unified patch';raw.append(summary,el('pre','git-diff-pre',hunk.text||hunk.header||''));visual.append(raw);
+  return visual;
+}
+function gitDiffModeBar(path,mode){
+  const bar=el('div','git-diff-mode-bar');
+  const modes=[
+    ['staged','HEAD ↔ Staged','Committed HEAD compared with the Git index (staged changes only)'],
+    ['worktree','Staged ↔ Working','Git index compared with the working tree (not-staged changes only)'],
+    ['head-worktree','HEAD ↔ Working','Committed HEAD compared with current working tree (all tracked changes)']
+  ];
+  for(const [value,label,title] of modes){
+    const button=actionButton(label,()=>showDiff(path,value),title);button.classList.toggle('active',value===mode);bar.append(button);
+  }
+  return bar;
+}
 async function runHunkAction(path,mode,data,hunk,kind){
   const payload={path,hunk_index:hunk.index,expected_diff_sha:data.diff_sha256};
   if(kind==='discard')payload.confirmed=true;
@@ -375,14 +447,14 @@ async function runHunkAction(path,mode,data,hunk,kind){
   await refresh();
   return showDiff(path,mode);
 }
-async function showDiff(path,mode){
-  const data=await gitView('diff',{path,mode});if(!data)return false;content.replaceChildren();
+async function showDiff(path,mode='head-worktree'){
+  const data=await gitView('diff',{path,mode});if(!data)return false;content.replaceChildren();setGitPanelWide(true);
   const back=actionButton('← Changes',()=>{currentView='changes';updateNav();return loadChanges();});
-  const title=el('strong','',(mode==='staged'?'STAGED ':'DIFF ')+path);
-  content.append(back,title);
+  const meta=gitDiffModeMeta(mode);const heading=el('div','git-row-main');heading.append(el('div','git-row-title',meta.title+' · '+path),el('div','git-row-sub',meta.description));
+  content.append(back,heading,gitDiffModeBar(path,mode));
   const hunks=Array.isArray(data.hunks)?data.hunks:[];
   if(!hunks.length){
-    content.append(el('pre','git-diff-pre',data.diff||'(no tracked diff; untracked files can be staged directly)'));
+    content.append(el('pre','git-diff-pre',data.diff||'(no differences in this state pair)'));
     return true;
   }
   for(const hunk of hunks){
@@ -392,12 +464,12 @@ async function showDiff(path,mode){
     const actions=el('div','git-hunk-actions');
     if(mode==='staged'){
       actions.append(actionButton('Unstage hunk',()=>runHunkAction(path,mode,data,hunk,'unstage'),'Remove only this hunk from the index'));
-    }else{
+    }else if(mode==='worktree'){
       actions.append(actionButton('Stage hunk',()=>runHunkAction(path,mode,data,hunk,'stage'),'Stage only this hunk'));
       actions.append(actionButton('Discard hunk',()=>runHunkAction(path,mode,data,hunk,'discard'),'Restore only this hunk from the index version'));
     }
     head.append(label,actions);
-    card.append(head,el('pre','git-diff-pre',hunk.text||hunk.header||''));
+    card.append(head,renderGitVisualHunk(hunk,mode));
     content.append(card);
   }
   return true;
@@ -421,6 +493,7 @@ async function openIgnoreWizard(change){
 }
 
 async function loadChanges(){
+  setGitPanelWide(false);
   const data=await gitView('changes');if(!data)return false;const rows=data.changes||[];content.replaceChildren();if(!rows.length){empty('Working tree clean');return;}
   const conflictState=data.conflict_state&&typeof data.conflict_state==='object'?data.conflict_state:null;
   const openConflictRecovery=()=>openGitRecovery({
@@ -651,7 +724,7 @@ async function loadCompare(base=''){
   currentView='compare';updateNav();const branches=await gitView('branches');if(!branches)return false;content.replaceChildren();const controls=el('div','git-compare-controls');const select=document.createElement('select');for(const branch of [...(branches.local||[]),...(branches.remote||[])]){if(branch.current)continue;const o=document.createElement('option');o.value=branch.name;o.textContent=branch.name;select.append(o);}if(base&&[...select.options].some(o=>o.value===base))select.value=base;const run=actionButton('Compare',async()=>{if(!select.value)return false;const data=await gitView('compare',{base:select.value});if(!data)return false;renderCompare(data,controls);return true;});controls.append(select,run);content.append(controls);if(base&&select.value)await run.onclick();
 }
 function renderCompare(data,controls){content.replaceChildren(controls);content.append(el('strong','',`Compare ${data.base}...HEAD`),el('pre','git-compare-pre',(data.stat||'(no differences)')+'\n'+(data.files||'')));}
-async function loadCurrentView(){updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'tags':return loadTags();case 'log':return loadLog();case 'file-history':return loadFileHistory();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
+async function loadCurrentView(){setGitPanelWide(false);updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'tags':return loadTags();case 'log':return loadLog();case 'file-history':return loadFileHistory();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
 
 repoSelect.onchange=()=>selectRepository(repoSelect.value).catch(app.showError);
 repoRescan.onclick=async()=>{try{await refreshRepositories(true);await refresh();await loadCurrentView();}catch(error){app.showError(error);}};
