@@ -109,3 +109,45 @@ func TestGitFileContentRejectsUnsafeRefAndPath(t *testing.T) {
 		}
 	}
 }
+
+func TestGitFileContentReturnsHeadAndIndexStatesForCompare(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("staged\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitQuickRun(t, workspace, "add", "tracked.txt")
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("working\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		state string
+		want  string
+	}{
+		{state: "head", want: "one\n"},
+		{state: "index", want: "staged\n"},
+	} {
+		target := "/api/git/status?view=file-content&repo=.&path=tracked.txt&state=" + test.state
+		rr := callGitStatusHandler(t, s, http.MethodGet, target, "")
+		if rr.Code != http.StatusOK {
+			t.Fatalf("state=%s status=%d body=%s", test.state, rr.Code, rr.Body.String())
+		}
+		var got struct {
+			State   string `json:"state"`
+			Content string `json:"content"`
+			Commit  string `json:"commit"`
+		}
+		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.State != test.state || got.Content != test.want {
+			t.Fatalf("state=%s response=%+v", test.state, got)
+		}
+		if test.state == "head" && got.Commit == "" {
+			t.Fatal("HEAD state must return resolved commit")
+		}
+		if test.state == "index" && got.Commit != "" {
+			t.Fatalf("index state unexpectedly returned commit %q", got.Commit)
+		}
+	}
+}
