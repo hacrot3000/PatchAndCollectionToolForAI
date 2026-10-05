@@ -42,12 +42,13 @@ const head=document.createElement('div');head.className='project-explorer-head';
 const title=document.createElement('div');title.className='project-explorer-title';title.textContent='EXPLORER';
 const newFileButton=document.createElement('button');newFileButton.type='button';newFileButton.textContent='+F';newFileButton.title='New file in selected folder';
 const newFolderButton=document.createElement('button');newFolderButton.type='button';newFolderButton.textContent='+D';newFolderButton.title='New folder in selected folder';
+const undoButton=document.createElement('button');undoButton.type='button';undoButton.textContent='↶';undoButton.title='Undo last Explorer file operation';undoButton.disabled=true;
 const refresh=document.createElement('button');refresh.type='button';refresh.textContent='↻';refresh.title='Refresh explorer';
 const closeButton=document.createElement('button');closeButton.type='button';closeButton.textContent='×';closeButton.title='Close explorer';
 const saved=document.createElement('div');saved.className='project-explorer-saved';
 const tree=document.createElement('div');tree.className='project-explorer-tree';
 const contextMenu=document.createElement('div');contextMenu.className='project-explorer-context';
-head.append(title,newFileButton,newFolderButton,refresh,closeButton);panel.append(head,saved,tree);document.body.append(panel,contextMenu);
+head.append(title,newFileButton,newFolderButton,undoButton,refresh,closeButton);panel.append(head,saved,tree);document.body.append(panel,contextMenu);
 
 const loaded=new Map();
 const expanded=new Set();
@@ -56,11 +57,35 @@ const favorites=new Set();
 let recent=[];
 let lastSelectedPath='';
 let fileClipboard={mode:'',paths:[]};
+let lastUndo=null;
 let rootLoaded=false;
 let requestSeq=0;
 
 function storageKey(){return 'vscode-tasks-menu:explorer-expanded:'+(app.taskData?.workspace||'workspace');}
 function savedStorageKey(kind){return 'vscode-tasks-menu:explorer-'+kind+':' +(app.taskData?.workspace||'workspace');}
+function undoStorageKey(){return savedStorageKey('undo');}
+function updateUndoButton(){
+  undoButton.disabled=!lastUndo?.steps?.length;
+  undoButton.title=lastUndo?.label?'Undo: '+lastUndo.label:'Undo last Explorer file operation';
+}
+function restoreUndoRecord(){
+  lastUndo=null;
+  try{
+    const value=JSON.parse(localStorage.getItem(undoStorageKey())||'null');
+    if(value&&typeof value.label==='string'&&Array.isArray(value.steps)&&value.steps.length<=200)lastUndo=value;
+  }catch{}
+  updateUndoButton();
+}
+function recordUndo(label,steps){
+  lastUndo={label:String(label||'file operation'),steps:Array.isArray(steps)?steps:[]};
+  try{localStorage.setItem(undoStorageKey(),JSON.stringify(lastUndo));}catch{}
+  updateUndoButton();
+}
+function clearUndo(){
+  lastUndo=null;
+  try{localStorage.removeItem(undoStorageKey());}catch{}
+  updateUndoButton();
+}
 function restoreSaved(){
   favorites.clear();recent=[];
   try{
@@ -122,6 +147,15 @@ function unpinPaths(paths){
 function remapPathValue(value,oldPath,newPath){
   if(value===oldPath)return newPath;
   return value.startsWith(oldPath+'/')?newPath+value.slice(oldPath.length):value;
+}
+function removeStoredPath(pathValue){
+  const matches=value=>value===pathValue||value.startsWith(pathValue+'/');
+  for(const value of [...favorites])if(matches(value))favorites.delete(value);
+  recent=recent.filter(value=>!matches(value));
+  for(const value of [...expanded])if(matches(value))expanded.delete(value);
+  for(const value of [...selected])if(matches(value))selected.delete(value);
+  if(matches(lastSelectedPath))lastSelectedPath='';
+  persistSaved();persistExpanded();
 }
 function remapStoredPaths(oldPath,newPath){
   const nextFavorites=[...favorites].map(value=>remapPathValue(value,oldPath,newPath));
@@ -259,12 +293,65 @@ async function openContainingFolder(pathValue){
   await revealPath(parent);
   if(!expanded.has(parent))await toggleDirectory(parent);
 }
-async function projectMutation(action,pathValue,newPath=''){
+async function projectMutation(action,pathValue,newPath='',token=''){
   return app.jsonFetch('/api/project/mutate',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action,path:pathValue,new_path:newPath})
+    body:JSON.stringify({action,path:pathValue,new_path:newPath,token})
   });
+}
+function pathTouchesEditor(source,editorPath){
+  return editorPath===source||editorPath.startsWith(source+'/');
+}
+function assertNoDirtyEditors(paths){
+  const editor=globalThis.TaskMenuEditor;
+  if(!editor?.editors)return;
+  for(const view of editor.editors.values()){
+    if(!view?.dirty)continue;
+    if(paths.some(pathValue=>pathTouchesEditor(pathValue,view.file?.path||''))){
+      throw new Error('Save or close unsaved editor '+view.file.path+' before this file operation');
+    }
+  }
+}
+async function trashPaths(paths,{record=true,label='Move to Trash'}={}){
+  const sources=topLevelSelectedPaths(paths);
+  if(!sources.length)return [];
+  assertNoDirtyEditors(sources);
+  const restoreSteps=[];
+  for(const source of sources){
+    const result=await projectMutation('trash',source);
+    restoreSteps.push({action:'restore',path:source,token:result.token});
+    removeStoredPath(source);
+    window.dispatchEvent(new CustomEvent('taskmenu:project-path-trashed',{detail:{path:source}}));
+  }
+  if(record)recordUndo(label,restoreSteps);
+  return restoreSteps;
+}
+async function undoLastOperation(){
+  const undo=lastUndo;
+  if(!undo?.steps?.length)return;
+  const dirtyPaths=undo.steps.filter(step=>step.action==='trash').map(step=>step.path);
+  if(dirtyPaths.length)assertNoDirtyEditors(dirtyPaths);
+  const restored=[];
+  for(const step of [...undo.steps].reverse()){
+    if(step.action==='trash'){
+      await trashPaths([step.path],{record:false});
+    }else if(step.action==='restore'){
+      await projectMutation('restore',step.path,'',step.token||'');
+      restored.push(step.path);
+    }else if(step.action==='rename'){
+      const result=await projectMutation('rename',step.path,step.new_path);
+      const resolved=result.path||step.new_path;
+      remapStoredPaths(step.path,resolved);
+      window.dispatchEvent(new CustomEvent('taskmenu:project-path-renamed',{detail:{old_path:step.path,new_path:resolved}}));
+      restored.push(resolved);
+    }
+  }
+  clearUndo();
+  await reload();
+  selected.clear();for(const pathValue of restored)selected.add(pathValue);
+  lastSelectedPath=restored.at(-1)||'';
+  render();
 }
 function selectedCreateDirectory(){
   if(selected.size!==1)return '';
@@ -279,6 +366,7 @@ async function createProjectItem(type){
   const name=childName(raw);
   const pathValue=joinPath(parent,name);
   const result=await projectMutation(type==='file'?'create_file':'mkdir',pathValue);
+  recordUndo('Create '+(result.path||pathValue),[{action:'trash',path:result.path||pathValue}]);
   await reload();
   await revealPath(result.path||pathValue);
   if(type==='file')openFile(result.path||pathValue);
@@ -293,6 +381,7 @@ async function renameProjectItem(pathValue){
   const resolved=result.path||nextPath;
   remapStoredPaths(pathValue,resolved);
   window.dispatchEvent(new CustomEvent('taskmenu:project-path-renamed',{detail:{old_path:pathValue,new_path:resolved}}));
+  recordUndo('Rename '+pathValue,[{action:'rename',path:resolved,new_path:pathValue}]);
   await reload();
   await revealPath(resolved);
 }
@@ -320,6 +409,7 @@ async function duplicateSelectedProjectItems(){
     const result=await projectMutation('copy',source,target);
     created.push(result.path||target);
   }
+  if(created.length)recordUndo('Duplicate selected',created.map(pathValue=>({action:'trash',path:pathValue})));
   await reload();
   selected.clear();for(const pathValue of created)selected.add(pathValue);
   lastSelectedPath=created.at(-1)||'';
@@ -347,7 +437,12 @@ async function pasteProjectClipboard(destinationDir){
       created.push(result.path||target);
     }
   }
-  if(fileClipboard.mode==='cut')fileClipboard={mode:'',paths:[]};
+  if(fileClipboard.mode==='cut'){
+    if(moved.length)recordUndo('Cut / Paste',moved.map(([oldPath,newPath])=>({action:'rename',path:newPath,new_path:oldPath})));
+    fileClipboard={mode:'',paths:[]};
+  }else if(created.length){
+    recordUndo('Copy / Paste',created.map(pathValue=>({action:'trash',path:pathValue})));
+  }
   await reload();
   selected.clear();
   for(const [,pathValue] of moved)selected.add(pathValue);
@@ -372,6 +467,7 @@ async function moveSelectedProjectItems(){
     remapStoredPaths(source,resolved);
     window.dispatchEvent(new CustomEvent('taskmenu:project-path-renamed',{detail:{old_path:source,new_path:resolved}}));
   }
+  if(moved.length)recordUndo('Move selected',moved.map(([oldPath,newPath])=>({action:'rename',path:newPath,new_path:oldPath})));
   await reload();
   selected.clear();
   for(const [,nextPath] of moved)selected.add(nextPath);
@@ -399,6 +495,10 @@ function showContextMenu(event,pathValue,type){
   }
   if(paths.length===1)contextAction('Rename…',()=>renameProjectItem(pathValue));
   contextAction(paths.length>1?'Move selected…':'Move…',()=>moveSelectedProjectItems());
+  contextAction(paths.length>1?'Move selected to Trash':'Move to Trash',async()=>{
+    await trashPaths(paths);
+    await reload();
+  });
   if(type==='dir'&&paths.length===1){
     contextAction('New file here…',()=>createProjectItem('file'));
     contextAction('New folder here…',()=>createProjectItem('dir'));
@@ -445,13 +545,14 @@ async function ensureRoot(force=false){
   }catch(error){rootLoaded=false;showMessage('Explorer unavailable');throw error;}
 }
 function open(){
-  panel.classList.add('visible');restoreExpanded();restoreSaved();renderSaved();ensureRoot(false).catch(app.showError);
+  panel.classList.add('visible');restoreExpanded();restoreSaved();restoreUndoRecord();renderSaved();ensureRoot(false).catch(app.showError);
 }
 function close(){panel.classList.remove('visible');}
 async function reload(){try{await ensureRoot(true);}catch(error){app.showError(error);}}
 
 newFileButton.onclick=()=>createProjectItem('file').catch(app.showError);
 newFolderButton.onclick=()=>createProjectItem('dir').catch(app.showError);
+undoButton.onclick=()=>undoLastOperation().catch(app.showError);
 refresh.onclick=reload;
 closeButton.onclick=close;
 document.addEventListener('keydown',event=>{if(event.key==='Escape'){closeContextMenu();if(panel.classList.contains('visible'))close();}});
@@ -463,4 +564,4 @@ window.addEventListener('taskmenu:project-file-opened',event=>{
   if(panel.classList.contains('visible'))revealPath(pathValue).catch(app.showError);
 });
 
-globalThis.TaskMenuExplorer={open,close,reload,reveal:revealPath,get selectedPaths(){return [...selected];},get favorites(){return [...favorites];},get recent(){return [...recent];},get clipboard(){return {mode:fileClipboard.mode,paths:[...fileClipboard.paths]};}};
+globalThis.TaskMenuExplorer={open,close,reload,reveal:revealPath,undo:undoLastOperation,get selectedPaths(){return [...selected];},get favorites(){return [...favorites];},get recent(){return [...recent];},get clipboard(){return {mode:fileClipboard.mode,paths:[...fileClipboard.paths]};},get lastUndo(){return lastUndo?{label:lastUndo.label,steps:[...lastUndo.steps]}:null;}};
