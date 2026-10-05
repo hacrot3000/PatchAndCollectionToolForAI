@@ -197,3 +197,28 @@ func TestExplorerTrashAndUndoActions(t *testing.T) {
 		}
 	}
 }
+
+func TestExplorerShowsGitStatusBadges(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"/api/project/git-status",
+		"const gitStatusByPath=new Map()",
+		"function gitBadgeForPath(pathValue,type)",
+		"project-explorer-git",
+		"status-M",
+		"status-A",
+		"status-D",
+		"status-U",
+		"status-q",
+		"loadGitStatus().then(()=>render())",
+		"refreshGitStatus:async()=>",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Explorer Git status badge support missing %q", want)
+		}
+	}
+}
