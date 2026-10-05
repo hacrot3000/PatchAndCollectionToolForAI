@@ -249,13 +249,34 @@ function browserFileHandleSource(handle,{label='Local browser file',path=''}={})
 async function openLeftRemote(leftSource,profileID,remotePath){
   return open({title:'Left ↔ Remote',left:leftSource,right:remoteSource(profileID,remotePath)});
 }
-function gitCommitSource(repoID,pathValue,ref,{label=''}={}){
+function gitCommitSource(repoID,pathValue,ref,{label='',allowMissing=false}={}){
   repoID=String(repoID||'').trim();pathValue=String(pathValue||'').trim();ref=String(ref||'').trim();
   return {kind:'git-commit',label:label||('Git '+ref.slice(0,8)+' · '+pathValue),repoID,path:pathValue,ref,load:async()=>{
     const params=new URLSearchParams({view:'file-content',repo:repoID,path:pathValue,ref});
+    if(allowMissing)params.set('allow_missing','1');
     const data=await app.jsonFetch('/api/git/status?'+params.toString());
-    return {text:data.content,commit:data.commit,ref:data.ref,path:data.path,repo_id:data.repo_id};
+    return {text:data.content,exists:data.exists!==false,commit:data.commit,ref:data.ref,path:data.path,repo_id:data.repo_id};
   }};
+}
+function emptyCompareSource(label='(file absent)'){
+  return {kind:'empty',label,load:async()=>({text:'',exists:false})};
+}
+async function openGitCommitFileDiff(repoID,file,commit){
+  const pathValue=String(file?.path||'').trim(),oldPath=String(file?.old_path||pathValue).trim();
+  if(!pathValue||!commit?.sha)throw new Error('Commit file compare requires file path and commit');
+  const parents=Array.isArray(commit.parents)?commit.parents.filter(Boolean):[];
+  let parent=parents[0]||'';
+  if(parents.length>1){
+    const answer=window.prompt('Merge commit has '+parents.length+' parents. Choose parent number to compare against:', '1');
+    if(answer===null)return;
+    const index=Number(answer)-1;
+    if(!Number.isInteger(index)||index<0||index>=parents.length)throw new Error('Parent number must be between 1 and '+parents.length);
+    parent=parents[index];
+  }
+  const status=String(file.status||'');
+  const left=parent?gitCommitSource(repoID,oldPath,parent,{label:'Parent '+parent.slice(0,8)+' · '+oldPath,allowMissing:true}):emptyCompareSource('Parent · file absent');
+  const right=gitCommitSource(repoID,pathValue,commit.sha,{label:'Commit '+commit.short+' · '+pathValue,allowMissing:true});
+  return open({title:'Commit file diff · '+status,left,right});
 }
 function gitStateSource(repoID,pathValue,state,{label=''}={}){
   repoID=String(repoID||'').trim();pathValue=String(pathValue||'').trim();state=String(state||'').trim().toLowerCase();
@@ -316,4 +337,4 @@ reloadButton.onclick=()=>reload().catch(app.showError);closeButton.onclick=close
 backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)close();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&backdrop.classList.contains('visible'))close();});
 
-globalThis.TaskMenuFileCompare={open,close,reload,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,gitStateSource,workingProjectSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,openGitStatePair,promptProjectCompare,get current(){return current;}};
+globalThis.TaskMenuFileCompare={open,close,reload,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,emptyCompareSource,openGitCommitFileDiff,gitStateSource,workingProjectSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,openGitStatePair,promptProjectCompare,get current(){return current;}};
