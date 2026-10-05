@@ -149,3 +149,80 @@ func TestProjectContentSearchFallbackReportsUnicodeColumn(t *testing.T) {
 		t.Fatalf("column=%d want 5", results[0].Column)
 	}
 }
+
+func TestProjectContentSearchFallbackOptions(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src", "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fixtures := map[string]string{
+		"src/a.go":          "Alpha alpha alphabet\nID-123 id-456\n",
+		"src/nested/b.txt":  "alpha\nID-999\n",
+		"src/nested/skip.go":"alpha\n",
+		"outside.go":        "alpha\n",
+	}
+	for rel, body := range fixtures {
+		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(rel)), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	results, err := searchProjectContentFallbackWithOptions(context.Background(), root, projectContentSearchOptions{
+		Query: "alpha", CaseSensitive: false, WholeWord: true,
+		Include: []string{"*.go"}, Exclude: []string{"**/skip.go"}, Scope: "src",
+	}, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("filtered results=%#v, want 2 matches from src/a.go", results)
+	}
+	for _, result := range results {
+		if result.Path != "src/a.go" {
+			t.Fatalf("unexpected path outside filters: %#v", result)
+		}
+	}
+}
+
+func TestProjectContentSearchFallbackRegexAndCaseSensitivity(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("ID-123 id-456 ID-999\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	results, err := searchProjectContentFallbackWithOptions(context.Background(), root, projectContentSearchOptions{
+		Query: `ID-[0-9]{3}`, Regex: true, CaseSensitive: true,
+	}, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("case-sensitive regex results=%#v", results)
+	}
+	results, err = searchProjectContentFallbackWithOptions(context.Background(), root, projectContentSearchOptions{
+		Query: `ID-[0-9]{3}`, Regex: true, CaseSensitive: false,
+	}, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("case-insensitive regex results=%#v", results)
+	}
+}
+
+func TestProjectContentSearchAPIRejectsInvalidScopeAndRegex(t *testing.T) {
+	root := t.TempDir()
+	s := &Server{Workspace: root}
+
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/project/content/search?q=x&path=../outside", nil))
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("unsafe scope status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	_, err := searchProjectContentWithOptions(context.Background(), root, projectContentSearchOptions{
+		Query: "[", Regex: true,
+	}, 10)
+	if err == nil {
+		t.Fatal("invalid regex unexpectedly accepted")
+	}
+}
