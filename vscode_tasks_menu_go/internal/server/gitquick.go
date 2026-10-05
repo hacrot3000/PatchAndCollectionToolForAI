@@ -1142,6 +1142,16 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		}
 		timeout = gitMergeTimeout
 		args = []string{"worktree", "add", "-b", branch, "--", target, sha}
+	case "worktree_open":
+		if s.OpenWorkspace == nil { http.Error(w, "TaskDeck workspace launcher is unavailable", http.StatusConflict); return }
+		rows, rowsErr := s.gitWorktreeRows(r.Context())
+		if rowsErr != nil { http.Error(w, rowsErr.Error(), http.StatusConflict); return }
+		item, found := gitWorktreeByID(rows, req.WorktreeID)
+		if !found { http.Error(w, "worktree identity is stale or unknown", http.StatusNotFound); return }
+		if item.Bare { http.Error(w, "cannot open a bare worktree as a TaskDeck project", http.StatusConflict); return }
+		if err := s.OpenWorkspace(item.path); err != nil { http.Error(w, err.Error(), http.StatusConflict); return }
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "action": action, "output": "TaskDeck launch requested for "+item.DisplayPath})
+		return
 	case "worktree_remove":
 		rows, rowsErr := s.gitWorktreeRows(r.Context())
 		if rowsErr != nil { http.Error(w, rowsErr.Error(), http.StatusConflict); return }
