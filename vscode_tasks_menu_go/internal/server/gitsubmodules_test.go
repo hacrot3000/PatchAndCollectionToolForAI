@@ -28,6 +28,7 @@ func setupGitSubmoduleRepo(t *testing.T) (string, *Server, string, string, strin
 	second := gitQuickRun(t, child, "rev-parse", "HEAD")
 
 	parent, s, _ := setupGitQuickRepo(t)
+	gitQuickRun(t, parent, "config", "protocol.file.allow", "always")
 	gitQuickRun(t, parent, "-c", "protocol.file.allow=always", "submodule", "add", child, "modules/child")
 	gitQuickRun(t, filepath.Join(parent, "modules", "child"), "checkout", "--detach", first)
 	gitQuickRun(t, parent, "add", ".gitmodules", "modules/child")
@@ -133,4 +134,114 @@ func mustJSON(t *testing.T, value any) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+func TestGitSubmoduleInitAndCheckoutExpectedCommit(t *testing.T) {
+	parent, s, first, second, _ := setupGitSubmoduleRepo(t)
+	row := getSingleSubmodule(t, s)
+	gitQuickRun(t, parent, "submodule", "deinit", "-f", "--", row.Path)
+	row = getSingleSubmodule(t, s)
+	if row.Initialized {
+		t.Fatalf("fixture remained initialized: %+v", row)
+	}
+
+	body := `{"action":"submodule_init","submodule_id":"` + row.ID + `","expected_sha":"` + first + `","confirmed":true}`
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("init status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	row = getSingleSubmodule(t, s)
+	if !row.Initialized || row.ActualSHA != first || row.Mismatch || row.Dirty {
+		t.Fatalf("after init=%+v", row)
+	}
+
+	child := filepath.Join(parent, filepath.FromSlash(row.Path))
+	gitQuickRun(t, child, "checkout", "--detach", second)
+	row = getSingleSubmodule(t, s)
+	if !row.Mismatch || row.Dirty {
+		t.Fatalf("mismatch fixture=%+v", row)
+	}
+	body = `{"action":"submodule_checkout_expected","submodule_id":"` + row.ID + `","expected_sha":"` + first + `","confirmed":true}`
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("checkout expected status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	row = getSingleSubmodule(t, s)
+	if row.ActualSHA != first || row.Mismatch || row.Dirty {
+		t.Fatalf("after checkout expected=%+v", row)
+	}
+}
+
+func TestGitSubmoduleUpdateBlocksDirtyAndStaleExpectedSHA(t *testing.T) {
+	parent, s, first, _, _ := setupGitSubmoduleRepo(t)
+	row := getSingleSubmodule(t, s)
+	child := filepath.Join(parent, filepath.FromSlash(row.Path))
+	if err := os.WriteFile(filepath.Join(child, "child.txt"), []byte("dirty local\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"action":"submodule_update","submodule_id":"` + row.ID + `","expected_sha":"` + first + `","confirmed":true}`
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "dirty_worktree") {
+		t.Fatalf("dirty update status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"submodule_update_recursive","confirmed":true}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "dirty_worktree") {
+		t.Fatalf("dirty recursive status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	gitQuickRun(t, child, "restore", "child.txt")
+	stale := strings.Repeat("f", len(first))
+	body = `{"action":"submodule_update","submodule_id":"` + row.ID + `","expected_sha":"` + stale + `","confirmed":true}`
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "expected commit changed") {
+		t.Fatalf("stale update status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"submodule_update","submodule_id":"../../child","confirmed":true}`)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("unknown ID status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestGitSubmoduleRecursiveUpdateAndSync(t *testing.T) {
+	parent, s, first, second, _ := setupGitSubmoduleRepo(t)
+	row := getSingleSubmodule(t, s)
+	child := filepath.Join(parent, filepath.FromSlash(row.Path))
+	gitQuickRun(t, child, "checkout", "--detach", second)
+
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"submodule_update_recursive","confirmed":true}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("recursive update status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	row = getSingleSubmodule(t, s)
+	if row.ActualSHA != first || row.Mismatch {
+		t.Fatalf("recursive update row=%+v", row)
+	}
+
+	alt := t.TempDir()
+	gitQuickRun(t, alt, "init", "--bare")
+	gitQuickRun(t, parent, "config", "-f", ".gitmodules", "submodule."+row.Name+".url", alt)
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"submodule_sync","confirmed":true}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("sync status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	got := gitQuickRun(t, parent, "config", "--get", "submodule."+row.Name+".url")
+	if filepath.Clean(got) != filepath.Clean(alt) {
+		t.Fatalf("synced url=%q want=%q", got, alt)
+	}
+}
+
+func TestGitSubmoduleMutationsRequireConfirmation(t *testing.T) {
+	_, s, first, _, _ := setupGitSubmoduleRepo(t)
+	row := getSingleSubmodule(t, s)
+	for _, body := range []string{
+		`{"action":"submodule_update","submodule_id":"` + row.ID + `","expected_sha":"` + first + `"}`,
+		`{"action":"submodule_update_recursive"}`,
+		`{"action":"submodule_sync"}`,
+	} {
+		rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", body)
+		if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "confirmation_required") {
+			t.Fatalf("confirmation status=%d body=%s request=%s", rr.Code, rr.Body.String(), body)
+		}
+	}
 }
