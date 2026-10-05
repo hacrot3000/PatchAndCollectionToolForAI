@@ -119,6 +119,11 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionAuditView}
 	case "/api/tasks":
 		return []string{identity.PermissionTasksView}
+	case "/api/config/auth-mode":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		return []string{identity.PermissionProjectAdmin}
 	case "/api/config/page-title", "/api/config/terminal-cwds", "/api/config/running-indicator", "/api/config/self-update", "/api/command-presets":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionSettingsRead}
