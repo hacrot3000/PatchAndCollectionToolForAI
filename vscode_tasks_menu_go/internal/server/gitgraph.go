@@ -225,7 +225,14 @@ func (s *Server) gitCommitFiles(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, strings.TrimSpace(joinGitOutput(stderr, err.Error())), http.StatusConflict)
 		return
 	}
-	tokens := strings.Split(out, "\x00")
+	files := parseGitGraphFiles(out)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"commit": commit, "files": files, "truncated": truncated,
+	})
+}
+
+func parseGitGraphFiles(raw string) []gitGraphFile {
+	tokens := strings.Split(raw, "\x00")
 	files := []gitGraphFile{}
 	for i := 0; i < len(tokens); {
 		status := strings.TrimSpace(tokens[i])
@@ -253,7 +260,38 @@ func (s *Server) gitCommitFiles(w http.ResponseWriter, r *http.Request) {
 			files = append(files, gitGraphFile{Status: status, Path: pathValue})
 		}
 	}
+	return files
+}
+
+func (s *Server) gitGraphCompareHead(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
+	if !gitCompareCommitPattern.MatchString(ref) {
+		http.Error(w, "commit ref must be a full commit SHA", http.StatusBadRequest)
+		return
+	}
+	resolved, stderr, _, err := s.runGit(r.Context(), 4*time.Second, "rev-parse", "--verify", ref+"^{commit}")
+	if err != nil {
+		http.Error(w, strings.TrimSpace(joinGitOutput(stderr, err.Error())), http.StatusNotFound)
+		return
+	}
+	left := strings.TrimSpace(resolved)
+	headOut, stderr, _, err := s.runGit(r.Context(), 4*time.Second, "rev-parse", "--verify", "HEAD^{commit}")
+	if err != nil {
+		http.Error(w, strings.TrimSpace(joinGitOutput(stderr, err.Error())), http.StatusNotFound)
+		return
+	}
+	right := strings.TrimSpace(headOut)
+	out, stderr, truncated, err := s.runGit(r.Context(), 8*time.Second,
+		"diff", "--name-status", "-z", "--find-renames", left, right)
+	if err != nil {
+		http.Error(w, strings.TrimSpace(joinGitOutput(stderr, err.Error())), http.StatusConflict)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"commit": commit, "files": files, "truncated": truncated,
+		"left": left, "right": right, "files": parseGitGraphFiles(out), "truncated": truncated,
 	})
 }
