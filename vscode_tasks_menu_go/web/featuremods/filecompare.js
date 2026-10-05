@@ -216,6 +216,20 @@ function clipboardSource({label='Clipboard'}={}){
     return {text:await navigator.clipboard.readText()};
   }};
 }
+function gitCommitSource(repoID,pathValue,ref,{label=''}={}){
+  repoID=String(repoID||'').trim();pathValue=String(pathValue||'').trim();ref=String(ref||'').trim();
+  return {label:label||('Git '+ref.slice(0,8)+' · '+pathValue),repoID,path:pathValue,ref,load:async()=>{
+    const params=new URLSearchParams({view:'file-content',repo:repoID,path:pathValue,ref});
+    const data=await app.jsonFetch('/api/git/status?'+params.toString());
+    return {text:data.content,commit:data.commit,ref:data.ref,path:data.path,repo_id:data.repo_id};
+  }};
+}
+async function openGitCommitAgainstProject(repoID,repoPath,workspacePath,ref){
+  return open({title:'Git commit ↔ Working',left:gitCommitSource(repoID,repoPath,ref),right:projectSource(workspacePath)});
+}
+async function openGitCommits(repoID,pathValue,leftRef,rightRef){
+  return open({title:'Git commit ↔ Git commit',left:gitCommitSource(repoID,pathValue,leftRef),right:gitCommitSource(repoID,pathValue,rightRef)});
+}
 async function openProjectFiles(leftPath,rightPath){return open({title:'Project files',left:projectSource(leftPath),right:projectSource(rightPath)});}
 async function openEditorSaved(view){return open({title:'Current ↔ Saved',left:editorSource(view),right:savedEditorSource(view)});}
 async function openEditorClipboard(view){return open({title:'Current ↔ Clipboard',left:editorSource(view),right:clipboardSource()});}
@@ -230,4 +244,4 @@ reloadButton.onclick=()=>reload().catch(app.showError);closeButton.onclick=close
 backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)close();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&backdrop.classList.contains('visible'))close();});
 
-globalThis.TaskMenuFileCompare={open,close,reload,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,openProjectFiles,openEditorSaved,openEditorClipboard,promptProjectCompare,get current(){return current;}};
+globalThis.TaskMenuFileCompare={open,close,reload,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,gitCommitSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,promptProjectCompare,get current(){return current;}};
