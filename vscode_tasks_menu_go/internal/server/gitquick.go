@@ -1050,9 +1050,11 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		// Keep local changes attached to the new branch exactly as git switch -c
 		// normally does.
 		args = []string{"switch", "-c", branch}
-	case "delete_branch":
+	case "delete_branch", "force_delete_branch":
 		if !req.Confirmed {
-			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "deleting a local branch requires explicit confirmation", "failure_code": "confirmation_required"})
+			message := "deleting a local branch requires explicit confirmation"
+			if action == "force_delete_branch" { message = "force deleting a local branch requires explicit confirmation" }
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": message, "failure_code": "confirmation_required"})
 			return
 		}
 		branch := strings.TrimSpace(req.Branch)
@@ -1061,7 +1063,9 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		current, err := s.gitCurrentBranch(r.Context())
 		if err != nil { http.Error(w, err.Error(), http.StatusConflict); return }
 		if current == branch { http.Error(w, "cannot delete the current branch", http.StatusConflict); return }
-		args = []string{"branch", "-d", branch}
+		flag := "-d"
+		if action == "force_delete_branch" { flag = "-D" }
+		args = []string{"branch", flag, branch}
 	case "delete_remote_tracking":
 		if !req.Confirmed {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "deleting a local remote-tracking ref requires explicit confirmation", "failure_code": "confirmation_required"})
@@ -1077,7 +1081,6 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		remoteRef := strings.TrimSpace(req.Branch)
-		if !s.remoteBranchExists(r.Context(), remoteRef) { http.Error(w, "remote-tracking branch not found; fetch first to confirm the remote branch", http.StatusNotFound); return }
 		remote, branch, err := s.gitRemoteBranchParts(r.Context(), remoteRef)
 		if err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
 		timeout = gitNetworkPushTimeout
