@@ -191,7 +191,7 @@ func TestPatchForegroundLockCoversAllWorkspaceOpenPaths(t *testing.T) {
 	for _, want := range []string{
 		"async function startTask(t)",
 		"hidden.delete(meta.id);attach(meta,true)",
-		"async function startTerminal()",
+		"async function startTerminal(cwd='')",
 		"tab.onclick=()=>activateView(meta.id,{force:true})",
 		"function activationAllowed(target,force=false)",
 		"if(!force)return false",
