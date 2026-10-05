@@ -291,6 +291,25 @@ func (s *Server) validBranchName(ctx context.Context, branch string) error {
 	return nil
 }
 
+func (s *Server) gitRemoteBranchParts(ctx context.Context, remoteRef string) (string, string, error) {
+	remoteRef = strings.TrimSpace(remoteRef)
+	if remoteRef == "" || strings.ContainsAny(remoteRef, "\r\n\x00") {
+		return "", "", fmt.Errorf("invalid remote branch")
+	}
+	remote := s.gitRemoteNameForRef(ctx, remoteRef)
+	if remote == "" {
+		return "", "", fmt.Errorf("cannot determine remote for %s", remoteRef)
+	}
+	branch := strings.TrimPrefix(remoteRef, remote+"/")
+	if branch == "" || branch == remoteRef {
+		return "", "", fmt.Errorf("invalid remote branch")
+	}
+	if err := s.validBranchName(ctx, branch); err != nil {
+		return "", "", err
+	}
+	return remote, branch, nil
+}
+
 type gitMergePreflightResponse struct {
 	Branch         string `json:"branch"`
 	Current        string `json:"current"`
@@ -1043,6 +1062,26 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		if err != nil { http.Error(w, err.Error(), http.StatusConflict); return }
 		if current == branch { http.Error(w, "cannot delete the current branch", http.StatusConflict); return }
 		args = []string{"branch", "-d", branch}
+	case "delete_remote_tracking":
+		if !req.Confirmed {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "deleting a local remote-tracking ref requires explicit confirmation", "failure_code": "confirmation_required"})
+			return
+		}
+		remoteRef := strings.TrimSpace(req.Branch)
+		if !s.remoteBranchExists(r.Context(), remoteRef) { http.Error(w, "remote-tracking branch not found", http.StatusNotFound); return }
+		if _, _, err := s.gitRemoteBranchParts(r.Context(), remoteRef); err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
+		args = []string{"branch", "-dr", remoteRef}
+	case "delete_remote_branch":
+		if !req.Confirmed {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "deleting a branch on a Git remote requires explicit confirmation", "failure_code": "confirmation_required"})
+			return
+		}
+		remoteRef := strings.TrimSpace(req.Branch)
+		if !s.remoteBranchExists(r.Context(), remoteRef) { http.Error(w, "remote-tracking branch not found; fetch first to confirm the remote branch", http.StatusNotFound); return }
+		remote, branch, err := s.gitRemoteBranchParts(r.Context(), remoteRef)
+		if err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
+		timeout = gitPushTimeout
+		args = []string{"push", remote, "--delete", branch}
 	case "create_tag":
 		tagArgs, err := s.gitCreateTagArgs(r.Context(), req.Name, req.Message, req.Ref)
 		if err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
