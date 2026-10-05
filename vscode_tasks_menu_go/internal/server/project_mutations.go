@@ -2,8 +2,10 @@ package server
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -80,6 +82,38 @@ func (s *Server) projectMutate(w http.ResponseWriter, r *http.Request) {
 		s.auditSharedSuccess(r, "file.mkdir", "directory", rel, nil)
 		writeJSON(w, http.StatusCreated, map[string]any{"path": rel, "type": "dir"})
 
+	case "copy":
+		if req.Path == "" || req.NewPath == "" {
+			http.Error(w, "project path and new_path are required", http.StatusBadRequest)
+			return
+		}
+		oldRel, source, sourceInfo, err := s.resolveHostWorkspaceEntry(req.Path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		newRel, target, err := s.resolveHostWorkspaceDestination(req.NewPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		lease, ok := s.acquireSharedMutation(w, r, "file.copy", oldRel)
+		if !ok {
+			return
+		}
+		defer s.releaseSharedMutation(lease)
+		if err := copyProjectPath(source, target, sourceInfo); err != nil {
+			_ = os.RemoveAll(target)
+			http.Error(w, "cannot copy project item: "+err.Error(), http.StatusConflict)
+			return
+		}
+		kind := "file"
+		if sourceInfo.IsDir() {
+			kind = "directory"
+		}
+		s.auditSharedSuccess(r, "file.copy", kind, oldRel, map[string]any{"new_path": newRel})
+		writeJSON(w, http.StatusCreated, map[string]any{"path": newRel, "source_path": oldRel, "type": kind})
+
 	case "rename":
 		if req.Path == "" || req.NewPath == "" {
 			http.Error(w, "project path and new_path are required", http.StatusBadRequest)
@@ -113,4 +147,77 @@ func (s *Server) projectMutate(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "unsupported project mutation action", http.StatusBadRequest)
 	}
+}
+
+func copyProjectPath(source, target string, info os.FileInfo) error {
+	if info.Mode()&os.ModeSymlink != 0 {
+		return os.ErrInvalid
+	}
+	if info.Mode().IsRegular() {
+		return copyProjectRegularFile(source, target, info.Mode().Perm())
+	}
+	if !info.IsDir() {
+		return os.ErrInvalid
+	}
+	if err := os.Mkdir(target, info.Mode().Perm()); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(source)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		sourceChild := filepath.Join(source, entry.Name())
+		targetChild := filepath.Join(target, entry.Name())
+		childInfo, err := os.Lstat(sourceChild)
+		if err != nil {
+			return err
+		}
+		if childInfo.Mode()&os.ModeSymlink != 0 {
+			return os.ErrInvalid
+		}
+		if childInfo.IsDir() {
+			if err := copyProjectPath(sourceChild, targetChild, childInfo); err != nil {
+				return err
+			}
+			continue
+		}
+		if !childInfo.Mode().IsRegular() {
+			return os.ErrInvalid
+		}
+		if err := copyProjectRegularFile(sourceChild, targetChild, childInfo.Mode().Perm()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func copyProjectRegularFile(source, target string, mode os.FileMode) error {
+	input, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	output, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	ok := false
+	defer func() {
+		_ = output.Close()
+		if !ok {
+			_ = os.Remove(target)
+		}
+	}()
+	if _, err := io.Copy(output, input); err != nil {
+		return err
+	}
+	if err := output.Sync(); err != nil {
+		return err
+	}
+	if err := output.Close(); err != nil {
+		return err
+	}
+	ok = true
+	return nil
 }
