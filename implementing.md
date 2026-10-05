@@ -180,7 +180,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
    - reset/revert từ chối stale HEAD và reset từ chối active Git operation;
    - UI không phát raw Git command, chỉ gửi structured operation.
 
-10. **P1 — Git Submodule Manager**
+10. **P1 — Git Submodule Manager** — ✅ **COMPLETE**
     - Status.
     - Init/update.
     - Update recursive.
@@ -190,6 +190,16 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Open submodule như repository riêng trong Git Panel.
     
     Multi-repo hiện có rồi nên bước này tương đối tự nhiên.
+
+    Hoàn tất Submodule Manager hiện tại:
+    - status từ `.gitmodules` + gitlink HEAD, hiển thị expected SHA / actual SHA / initialized / dirty / mismatch;
+    - Init, Update, Update recursive, Sync và Checkout expected commit;
+    - mọi mutation dùng opaque `submodule_id`, resolve lại server-side; browser không gửi arbitrary filesystem path;
+    - expected-SHA guard, missing-gitlink guard, dirty-worktree guard và explicit confirmation;
+    - network/update operations chạy qua cancellable Git jobs;
+    - initialized submodule luôn được discovery như repository riêng kể cả nested repository scan đang tắt hoặc scan depth thấp;
+    - Open repo rescan multi-repo và chuyển Git Panel sang repository con;
+    - integration tests local-only bao phủ clean/dirty/mismatch/uninitialized, init/update/recursive/sync, stale SHA, unknown ID và dirty Init bypass.
 
 11. **P1 — Project snapshots/checkpoints**
     Không phải Git commit, mà là checkpoint TaskDeck:
