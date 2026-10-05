@@ -122,3 +122,28 @@ func TestExplorerRevealsFilesOpenedByEditor(t *testing.T) {
 		}
 	}
 }
+
+func TestExplorerCreatesRenamesAndMovesProjectItems(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"/api/project/mutate",
+		"async function createProjectItem(type)",
+		"async function renameProjectItem(pathValue)",
+		"async function moveSelectedProjectItems()",
+		"function topLevelSelectedPaths(paths)",
+		"action:pathValue",
+		"create_file",
+		"Rename…",
+		"Move selected…",
+		"New file here…",
+		"taskmenu:project-path-renamed",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Explorer project mutation UI missing %q", want)
+		}
+	}
+}
