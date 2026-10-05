@@ -108,6 +108,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/mutation-lock", s.sharedMutationStatus)
 	mux.HandleFunc("/api/tasks", s.tasks)
 	mux.HandleFunc("/api/state/tasks", s.taskState)
+	mux.HandleFunc("/api/workspace-snapshots", s.workspaceSnapshots)
 	mux.HandleFunc("/api/config/page-title", s.pageTitle)
 	mux.HandleFunc("/api/config/terminal-cwds", s.terminalCWDConfig)
 	mux.HandleFunc("/api/config/running-indicator", s.runningIndicatorConfig)
