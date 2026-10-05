@@ -61,6 +61,13 @@ type AdminStore interface {
 	DeleteMemberPermission(ctx context.Context, projectID, userID, permissionID ID) error
 }
 
+// ProjectSessionRevoker is used by authentication-mode migration to ensure
+// cookies from shared mode cannot become valid again if the workspace later
+// switches back to shared authentication.
+type ProjectSessionRevoker interface {
+	RevokeProjectSessions(ctx context.Context, projectID ID, revokedAt time.Time) error
+}
+
 type AdminReader interface {
 	ListProjectMembers(ctx context.Context, projectID ID) ([]ProjectMemberDetails, error)
 	ListRoles(ctx context.Context) ([]RoleDetails, error)
