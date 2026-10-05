@@ -138,7 +138,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
    - Open TaskDeck resolve opaque ID server-side rồi launcher chạy TaskDeck với workspace thật; response không trả absolute path;
    - shared-server vẫn read-only theo policy Git mutation hiện tại; list worktree dùng quyền `git.status`.
 
-8. **P1 — Git interactive rebase**
+8. **P1 — Git interactive rebase** — ✅ **COMPLETE**
    - Chọn range commit.
    - Pick / Reword / Edit / Squash / Fixup / Drop.
    - Drag reorder.
@@ -147,7 +147,16 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
    
    Nếu làm được phần này, Git Panel gần như thay thế được nhiều Git GUI desktop phổ biến.
 
-9. **P1 — Git reset/revert rõ semantics**
+   Hoàn tất interactive rebase hiện tại:
+   - chọn base branch/full SHA, verify base là ancestor của HEAD và lấy range theo thứ tự cũ→mới;
+   - Pick / Reword / Edit / Squash / Fixup / Drop, drag reorder và Projected history preview;
+   - structured plan chỉ chứa SHA/action/message, không có raw command/argv từ browser;
+   - backend re-read toàn bộ range, khóa expected branch/base/HEAD/full SHA, chặn dirty worktree, stale plan, duplicate/missing commit, merge-containing range và range quá lớn;
+   - TaskDeck binary làm sequence/message editor nội bộ cho Git; Reword map theo original SHA;
+   - integration tests chạy rebase thật cho reorder/reword/squash/fixup/drop, Edit pause→Continue, conflict→Abort và stale/dirty rejection;
+   - continue/skip/abort dùng lại Recovery Center hiện có và cleanup editor state đúng khi operation kết thúc.
+
+9. **P1 — Git reset/revert rõ semantics** — ✅ **COMPLETE**
    Nên có wizard thay vì raw buttons:
    - Reset soft.
    - Reset mixed.
@@ -160,6 +169,16 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
    `HEAD`, `Index`, `Working tree` sẽ thay đổi thế nào trước khi Confirm.
    
    Visual 3-state diff vừa làm có thể tái sử dụng để giải thích.
+
+   Hoàn tất semantics wizard hiện tại:
+   - wizard riêng cho Reset soft/mixed/hard, Revert commit, Restore file from commit và Restore staged only;
+   - preview snapshot hiển thị target/current HEAD, staged/unstaged/untracked/conflicted và changed files;
+   - giải thích rõ tác động tới HEAD / Index / Working tree trước khi confirm;
+   - Visual diff tái sử dụng generic File Compare;
+   - mutations dùng full target SHA + expected target SHA + expected current HEAD guard;
+   - restore worktree chỉ đổi Working tree; restore staged chỉ đổi Index; unsafe path và missing confirmation bị chặn;
+   - reset/revert từ chối stale HEAD và reset từ chối active Git operation;
+   - UI không phát raw Git command, chỉ gửi structured operation.
 
 10. **P1 — Git Submodule Manager**
     - Status.
