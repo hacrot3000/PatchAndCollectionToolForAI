@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -94,7 +95,7 @@ func TestGitConflictFileWriteUsesCASAndDoesNotStageAutomatically(t *testing.T) {
 	if data, err := os.ReadFile(filepath.Join(workspace, "tracked.txt")); err != nil || string(data) != "manual result\n" {
 		t.Fatalf("working result=%q err=%v", data, err)
 	}
-	state, err := s.gitConflictState(withGitRepository(t.Context(), gitRepository{ID: ".", Name: filepath.Base(workspace), Path: ".", Root: workspace}))
+	state, err := s.gitConflictState(withGitRepository(context.Background(), gitRepository{ID: ".", Name: filepath.Base(workspace), Path: ".", Root: workspace}))
 	if err != nil {
 		t.Fatal(err)
 	}
