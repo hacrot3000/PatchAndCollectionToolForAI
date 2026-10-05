@@ -278,7 +278,8 @@ style.textContent=`
 .db-object-detail-muted{opacity:.62}
 .db-object-detail-sql{margin:3px 0 0;padding:6px;border:1px solid #30343b;border-radius:4px;white-space:pre-wrap;overflow-wrap:anywhere;font:10px ui-monospace,monospace}
 .db-query{min-width:0;display:flex;flex-direction:column;background:#090c10}
-.db-query-tools{display:flex;align-items:center;gap:6px;padding:7px;border-bottom:1px solid #30343b;background:#11151b;flex-wrap:wrap}
+.db-query-tools{display:flex;align-items:center;gap:6px;padding:7px;border-bottom:1px solid #30343b;background:#11151b}
+.db-query-tools{flex-wrap:wrap}
 .db-query-tools .db-run{background:#244c70;border-color:#3f79a8}
 .db-transaction-state{font-size:9px;font-weight:800;letter-spacing:.04em;opacity:.55;border:1px solid #39414d;border-radius:999px;padding:3px 6px;white-space:nowrap}
 .db-transaction-state.active{opacity:1;color:#f1c46e;border-color:#8a692d;background:#2a2110}
