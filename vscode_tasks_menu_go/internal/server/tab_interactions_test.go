@@ -106,6 +106,31 @@ func TestTabDragSupportsPatchFileTransferAndDatabaseWorkspaceTabs(t *testing.T) 
 }
 
 
+func TestTabDragObserverDoesNotLoopOnItsOwnReorder(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/tabdrag.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const current=workspaceTabs()",
+		"ordered.every((tab,index)=>tab===current[index])",
+		"return false",
+		"const alreadyInstalled=node.dataset.dragOrderInstalled==='1'",
+		"if(!alreadyInstalled)installedNewTab=true",
+		"if(installedNewTab&&!dragged)",
+		"Only a genuinely new workspace tab should trigger saved-order restoration",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("tabdrag.js missing reorder-loop guard %q", want)
+		}
+	}
+	if strings.Contains(js, "installTab(node);added=true") {
+		t.Fatal("MutationObserver must not treat reorder append() operations as newly added tabs")
+	}
+}
+
+
 func TestTabContextMenuReusesSessionAndConsoleActions(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/tabcontext.js")
 	if err != nil {
