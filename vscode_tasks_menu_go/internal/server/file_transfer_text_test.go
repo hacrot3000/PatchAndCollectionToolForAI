@@ -45,7 +45,7 @@ func TestFileTransferSFTPTextCompareReadWriteCAS(t *testing.T) {
 		t.Fatal(err)
 	}
 	script := filepath.Join(dir, "fake-sftp")
-	safeRemote := strings.ReplaceAll(remote, """, "\\"")
+	safeRemote := strings.ReplaceAll(remote, "\"", "\\\"")
 	body := "#!/bin/sh\n" +
 		"input=$(cat)\n" +
 		"get_local=$(printf '%s\\n' \"$input\" | sed -n 's/^get \"[^\"]*\" \"\\([^\"]*\\)\"$/\\1/p')\n" +
