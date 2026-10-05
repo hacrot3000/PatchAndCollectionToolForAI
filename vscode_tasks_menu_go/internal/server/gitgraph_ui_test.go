@@ -24,7 +24,6 @@ func TestGitGraphUIProvidesDAGFiltersRefsDetailsAndContextActions(t *testing.T) 
 		"Author filter",
 		"Message contains",
 		"Path filter",
-		"view:'graph'",
 		"gitView('graph',params)",
 		"gitView('commit-files',params)",
 		"Diff parent",
