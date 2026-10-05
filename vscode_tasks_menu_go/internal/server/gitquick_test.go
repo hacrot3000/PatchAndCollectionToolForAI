@@ -557,6 +557,77 @@ func TestGitSafeLocalBranchDelete(t *testing.T) {
 	}
 }
 
+func TestGitBranchDeleteDistinguishesLocalTrackingAndRemote(t *testing.T) {
+	workspace, s, current := setupGitQuickRepo(t)
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	gitQuickRun(t, filepath.Dir(remote), "init", "--bare", remote)
+	gitQuickRun(t, workspace, "remote", "add", "origin", remote)
+	gitQuickRun(t, workspace, "push", "-u", "origin", current)
+
+	gitQuickRun(t, workspace, "switch", "-c", "feature/delete-scope")
+	if err := os.WriteFile(filepath.Join(workspace, "delete-scope.txt"), []byte("scope\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "delete-scope.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "delete scope")
+	gitQuickRun(t, workspace, "push", "-u", "origin", "feature/delete-scope")
+	gitQuickRun(t, workspace, "switch", current)
+	gitQuickRun(t, workspace, "merge", "--ff-only", "feature/delete-scope")
+
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"delete_branch","branch":"feature/delete-scope","confirmed":true}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("local delete status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := gitQuickRun(t, workspace, "ls-remote", remote, "refs/heads/feature/delete-scope"); got == "" {
+		t.Fatal("deleting local branch unexpectedly deleted the remote branch")
+	}
+	if got := gitQuickRun(t, workspace, "branch", "-r", "--list", "origin/feature/delete-scope"); !strings.Contains(got, "origin/feature/delete-scope") {
+		t.Fatalf("remote-tracking ref missing before explicit tracking delete: %q", got)
+	}
+
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"delete_remote_tracking","branch":"origin/feature/delete-scope","confirmed":true}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("remote-tracking delete status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := gitQuickRun(t, workspace, "branch", "-r", "--list", "origin/feature/delete-scope"); got != "" {
+		t.Fatalf("remote-tracking ref remains after local forget: %q", got)
+	}
+	if got := gitQuickRun(t, workspace, "ls-remote", remote, "refs/heads/feature/delete-scope"); got == "" {
+		t.Fatal("forgetting remote-tracking ref unexpectedly deleted remote branch")
+	}
+
+	gitQuickRun(t, workspace, "fetch", "origin")
+	if got := gitQuickRun(t, workspace, "branch", "-r", "--list", "origin/feature/delete-scope"); !strings.Contains(got, "origin/feature/delete-scope") {
+		t.Fatalf("fetch did not recreate remote-tracking ref: %q", got)
+	}
+
+	gitQuickRun(t, workspace, "branch", "feature/local-survives", "origin/feature/delete-scope")
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"delete_remote_branch","branch":"origin/feature/delete-scope","confirmed":true}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
+		t.Fatalf("remote delete status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := gitQuickRun(t, workspace, "ls-remote", remote, "refs/heads/feature/delete-scope"); got != "" {
+		t.Fatalf("remote branch still exists after remote delete: %q", got)
+	}
+	if got := gitQuickRun(t, workspace, "branch", "--list", "feature/local-survives"); !strings.Contains(got, "feature/local-survives") {
+		t.Fatalf("remote deletion unexpectedly removed same-history local branch: %q", got)
+	}
+}
+
+func TestGitRemoteBranchDeleteRequiresConfirmation(t *testing.T) {
+	workspace, s, current := setupGitQuickRepo(t)
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	gitQuickRun(t, filepath.Dir(remote), "init", "--bare", remote)
+	gitQuickRun(t, workspace, "remote", "add", "origin", remote)
+	gitQuickRun(t, workspace, "push", "-u", "origin", current)
+
+	rr := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"delete_remote_branch","branch":"origin/`+current+`"}`)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "confirmation_required") {
+		t.Fatalf("unconfirmed remote delete status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := gitQuickRun(t, workspace, "ls-remote", remote, "refs/heads/"+current); got == "" {
+		t.Fatal("unconfirmed remote delete changed the remote")
+	}
+}
+
 func TestGitSafeBranchDeleteRefusesUnmergedBranch(t *testing.T) {
 	workspace, s, mainBranch := setupGitQuickRepo(t)
 	gitQuickRun(t, workspace, "switch", "-c", "feature/unmerged")
