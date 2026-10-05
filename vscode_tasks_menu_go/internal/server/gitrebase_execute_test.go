@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -84,7 +85,7 @@ func TestInteractiveRebaseExecutesReorderRewordSquashFixupAndDrop(t *testing.T) 
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
 		t.Fatalf("interactive rebase status=%d body=%s", rr.Code, rr.Body.String())
 	}
-	if state, err := s.gitOperationState(withGitRepository(t.Context(), gitRepository{ID: ".", Root: workspace})); err != nil || state != "" {
+	if state, err := s.gitOperationState(withGitRepository(context.Background(), gitRepository{ID: ".", Root: workspace})); err != nil || state != "" {
 		t.Fatalf("rebase state=%q err=%v", state, err)
 	}
 	subjects := gitQuickRun(t, workspace, "log", "--reverse", "--format=%s", base+"..HEAD")
@@ -121,7 +122,7 @@ func TestInteractiveRebaseEditPausesThenRecoveryContinueCompletes(t *testing.T) 
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":true`) {
 		t.Fatalf("edit rebase status=%d body=%s", rr.Code, rr.Body.String())
 	}
-	ctx := withGitRepository(t.Context(), gitRepository{ID: ".", Root: workspace})
+	ctx := withGitRepository(context.Background(), gitRepository{ID: ".", Root: workspace})
 	if state, err := s.gitOperationState(ctx); err != nil || state != "rebase" {
 		t.Fatalf("expected paused rebase state=%q err=%v body=%s", state, err, rr.Body.String())
 	}
@@ -159,7 +160,7 @@ func TestInteractiveRebaseConflictCanAbortAndRestoresOriginalHEAD(t *testing.T) 
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"ok":false`) {
 		t.Fatalf("conflicting rebase status=%d body=%s", rr.Code, rr.Body.String())
 	}
-	ctx := withGitRepository(t.Context(), gitRepository{ID: ".", Root: workspace})
+	ctx := withGitRepository(context.Background(), gitRepository{ID: ".", Root: workspace})
 	if state, err := s.gitOperationState(ctx); err != nil || state != "rebase" {
 		t.Fatalf("expected conflict rebase state=%q err=%v body=%s", state, err, rr.Body.String())
 	}
