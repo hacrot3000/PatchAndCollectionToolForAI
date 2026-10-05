@@ -74,3 +74,33 @@ func TestWorkspaceSnapshotModuleLoadsAfterActivityBar(t *testing.T) {
 		t.Fatalf("load order activity=%d snapshot=%d",activity,snapshot)
 	}
 }
+
+func TestWorkspaceSnapshotTerminalRestoreContracts(t *testing.T) {
+	terminalData, err := webassets.Files.ReadFile("featuremods/terminalrestore.js")
+	if err != nil { t.Fatal(err) }
+	snapshotData, err := webassets.Files.ReadFile("featuremods/workspacesnapshots.js")
+	if err != nil { t.Fatal(err) }
+	terminalJS := string(terminalData)
+	for _, want := range []string{
+		"function snapshotWorkspaceRelativeCwd(value)",
+		"async function restoreWorkspaceSnapshotTerminals(saved)",
+		"body:JSON.stringify({kind:'terminal',cwd})",
+		"idsBySnapshot=Array(items.length).fill('')",
+		"restoredItems=items.map(item=>({...item,session_id:''}))",
+		"TaskMenuBroadcast.assign(view,groupID)",
+		"applySavedLayout(restored,ids,{clearMissing:true})",
+		"restoreSnapshotState:restoreWorkspaceSnapshotTerminals",
+	} {
+		if !strings.Contains(terminalJS,want) { t.Fatalf("terminalrestore.js missing snapshot restore contract %q",want) }
+	}
+	snapshotJS := string(snapshotData)
+	for _, want := range []string{
+		"TaskMenuTerminalRestore?.restoreSnapshotState?.(item?.terminal)",
+		"const terminalIDs=Array.isArray(terminalRestore?.session_ids)?terminalRestore.session_ids:[]",
+		"resolvedTabIDs(state,terminalIDs)",
+		"restoreActiveTab(state.active_tab,terminalIDs)",
+		"Saved local terminals are recreated with their CWD/title/split layout.",
+	} {
+		if !strings.Contains(snapshotJS,want) { t.Fatalf("workspacesnapshots.js missing terminal restore integration %q",want) }
+	}
+}

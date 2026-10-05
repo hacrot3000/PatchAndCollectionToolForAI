@@ -130,9 +130,9 @@ async function deleteSnapshot(item){
   await app.jsonFetch(endpoint+'?id='+encodeURIComponent(String(item.id||'')),{method:'DELETE'});await loadSnapshots();return true;
 }
 
-function resolvedTabIDs(state){
+function resolvedTabIDs(state,terminalOverride=null){
   const ids=[];const tokens=Array.isArray(state?.tab_order)?state.tab_order:[];
-  const terminalIDs=[...(globalThis.TaskMenuTerminalRestore?.snapshotPayload?.()?.session_ids||[])].map(String);
+  const terminalIDs=(Array.isArray(terminalOverride)?terminalOverride:[...(globalThis.TaskMenuTerminalRestore?.snapshotPayload?.()?.session_ids||[])]).map(String);
   const dbByProfile=new Map();
   for(const view of globalThis.TaskMenuDatabase?.views?.values?.()||[]){const profile=String(view.meta?.profile_id||view.profile?.id||'');if(!dbByProfile.has(profile))dbByProfile.set(profile,[]);dbByProfile.get(profile).push(String(view.tab?.dataset?.id||view.meta?.id||''));}
   const editorByPath=new Map();for(const [id,view] of globalThis.TaskMenuEditor?.editors||[])editorByPath.set(String(view.file?.path||''),String(id));
@@ -144,9 +144,9 @@ function resolvedTabIDs(state){
   }
   return ids;
 }
-async function restoreActiveTab(token){
+async function restoreActiveTab(token,terminalOverride=null){
   token=String(token||'');if(!token)return;
-  const state={tab_order:[token]};const ids=resolvedTabIDs(state);const id=ids[0];if(!id)return;
+  const state={tab_order:[token]};const ids=resolvedTabIDs(state,terminalOverride);const id=ids[0];if(!id)return;
   if(app.views.has(id)){app.activateView(id,{focus:false});return;}
   if(token.startsWith('editor:')){await globalThis.TaskMenuEditor?.openFile?.(token.slice(7));return;}
   if(token.startsWith('database:')){app.activateExternalView?.('database:'+id,{force:true});return;}
@@ -154,14 +154,17 @@ async function restoreActiveTab(token){
 }
 async function restoreSnapshot(item){
   const state=item?.state||{};
-  if(!confirm('Restore workspace snapshot "'+String(item?.name||'')+'"?\n\nThis opens the saved workspace context without closing currently open tabs. Terminal recreation will be handled separately when needed.'))return false;
+  if(!confirm('Restore workspace snapshot "'+String(item?.name||'')+'"?\n\nThis opens the saved workspace context without closing currently open tabs. Saved local terminals are recreated with their CWD/title/split layout.'))return false;
+  const terminalRestore=await globalThis.TaskMenuTerminalRestore?.restoreSnapshotState?.(item?.terminal);
+  const terminalIDs=Array.isArray(terminalRestore?.session_ids)?terminalRestore.session_ids:[];
+  if(Array.isArray(terminalRestore?.warnings)&&terminalRestore.warnings.length)console.warn('Workspace snapshot terminal restore:',...terminalRestore.warnings);
   await globalThis.TaskMenuEditor?.restoreState?.({files:state.editor_files,active:state.active_editor});
   await globalThis.TaskMenuExplorer?.restoreState?.({expanded:state.explorer_expanded});
   await globalThis.TaskMenuDatabase?.restoreState?.(state.databases);
   await globalThis.TaskMenuFileTransfer?.restoreState?.(state.transfers);
   await globalThis.TaskMenuGitFiles?.restoreState?.({repository_id:state.git_repository_id});
-  const order=resolvedTabIDs(state);if(order.length)globalThis.TaskMenuTabOrder?.applyOrder?.(order);
-  await restoreActiveTab(state.active_tab);
+  const order=resolvedTabIDs(state,terminalIDs);if(order.length)globalThis.TaskMenuTabOrder?.applyOrder?.(order);
+  await restoreActiveTab(state.active_tab,terminalIDs);
   return true;
 }
 

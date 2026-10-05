@@ -192,6 +192,63 @@ function layoutIDsFromSaved(saved,existing){
   return ordered;
 }
 
+function snapshotWorkspaceRelativeCwd(value){
+  const root=normalizedCwd(app.taskData?.workspace).replace(/\\/g,'/');
+  const cwd=normalizedCwd(value).replace(/\\/g,'/');
+  if(!root||!cwd||cwd===root)return '.';
+  const prefix=root.endsWith('/')?root:root+'/';
+  return cwd.startsWith(prefix)?cwd.slice(prefix.length):'.';
+}
+
+async function restoreWorkspaceSnapshotTerminals(saved){
+  const items=Array.isArray(saved?.terminals)?saved.terminals:[];
+  if(!items.length)return {session_ids:[],warnings:[]};
+  await restoreReady;
+  const previousRestoring=restoring;
+  restoring=true;
+  const ids=[],idsBySnapshot=Array(items.length).fill(''),restoredItems=items.map(item=>({...item,session_id:''})),warnings=[];
+  try{
+    for(let index=0;index<items.length;index++){
+      const item=items[index];
+      const cwd=snapshotWorkspaceRelativeCwd(item?.cwd);
+      try{
+        let meta=await app.jsonFetch('/api/sessions',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({kind:'terminal',cwd})
+        });
+        const view=app.materializeSession?.(meta,false)||app.attachSession?.(meta,false);
+        const id=String(meta?.id||'');if(!id)throw new Error('Terminal session did not return an id');
+        ids.push(id);idsBySnapshot[index]=id;restoredItems[index]={...item,session_id:id};
+        const title=String(item?.title||'').trim();
+        if(title){
+          try{
+            meta=await app.jsonFetch('/api/sessions/'+encodeURIComponent(id)+'/title',{
+              method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title})
+            });
+            if(view&&meta)Object.assign(view.meta,meta);
+          }catch(error){warnings.push('Could not restore terminal title: '+String(error?.message||error));}
+        }
+      }catch(error){
+        warnings.push('Could not restore terminal at '+cwd+': '+String(error?.message||error));
+      }
+    }
+    await app.syncSessions?.();
+    if(ids.length&&!await waitForViews(ids))warnings.push('Timed out waiting for one or more restored terminal tabs');
+    for(let index=0;index<restoredItems.length;index++){
+      const groupID=String(restoredItems[index]?.broadcast_group_id||'').trim();
+      const view=app.views.get(idsBySnapshot[index]);
+      if(!groupID||!view||!globalThis.TaskMenuBroadcast?.assign)continue;
+      try{await globalThis.TaskMenuBroadcast.assign(view,groupID);}catch(error){warnings.push('Could not restore terminal broadcast group: '+String(error?.message||error));}
+    }
+    const restored={...saved,terminals:restoredItems,live_splits:[]};
+    if(ids.length)applySavedLayout(restored,ids,{clearMissing:true});
+    return {session_ids:idsBySnapshot,warnings};
+  }finally{
+    restoring=previousRestoring;
+    if(!restoring&&!persistenceFrozen)scheduleSave(100);
+  }
+}
+
 async function restoreProjectTerminals(){
   try{
     const saved=await app.jsonFetch(endpoint);
@@ -273,5 +330,5 @@ window.addEventListener('pagehide',()=>{
   try{app.fetchWithLease(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),keepalive:true});}catch{}
 });
 
-globalThis.TaskMenuTerminalRestore={persistSnapshot,snapshotPayload,freezeForSelfUpdate,resumeAfterSelfUpdate,isPersistenceFrozen:()=>persistenceFrozen,ready:restoreReady};
+globalThis.TaskMenuTerminalRestore={persistSnapshot,snapshotPayload,restoreSnapshotState:restoreWorkspaceSnapshotTerminals,freezeForSelfUpdate,resumeAfterSelfUpdate,isPersistenceFrozen:()=>persistenceFrozen,ready:restoreReady};
 setTimeout(()=>restoreProjectTerminals(),0);
