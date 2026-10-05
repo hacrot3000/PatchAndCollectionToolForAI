@@ -77,3 +77,30 @@ func TestExplorerTracksSharedHeaderHeight(t *testing.T) {
 		t.Fatal("Explorer must track the shared compact TaskDeck header height")
 	}
 }
+
+func TestExplorerSupportsSelectionFavoritesAndRecentPaths(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const selected=new Set()",
+		"const favorites=new Set()",
+		"let recent=[]",
+		"function selectPath(event,pathValue)",
+		"event.shiftKey",
+		"event.ctrlKey||event.metaKey",
+		"function rememberRecent(pathValue)",
+		"function renderSaved()",
+		"Open containing folder",
+		"Pin selected",
+		"Unpin selected",
+		"reveal:revealPath",
+		"get selectedPaths()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Explorer selection/favorites/recent support missing %q", want)
+		}
+	}
+}
