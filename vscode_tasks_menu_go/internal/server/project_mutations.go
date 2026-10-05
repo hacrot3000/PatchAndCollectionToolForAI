@@ -1,18 +1,24 @@
 package server
 
 import (
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"bletonfc/vscode_tasks_menu/internal/state"
 )
 
 type projectMutationRequest struct {
 	Action  string `json:"action"`
 	Path    string `json:"path"`
 	NewPath string `json:"new_path,omitempty"`
+	Token   string `json:"token,omitempty"`
 }
 
 func (s *Server) projectMutate(w http.ResponseWriter, r *http.Request) {
@@ -30,6 +36,7 @@ func (s *Server) projectMutate(w http.ResponseWriter, r *http.Request) {
 	req.Action = strings.TrimSpace(req.Action)
 	req.Path = strings.TrimSpace(req.Path)
 	req.NewPath = strings.TrimSpace(req.NewPath)
+	req.Token = strings.TrimSpace(req.Token)
 
 	switch req.Action {
 	case "create_file":
@@ -113,6 +120,68 @@ func (s *Server) projectMutate(w http.ResponseWriter, r *http.Request) {
 		}
 		s.auditSharedSuccess(r, "file.copy", kind, oldRel, map[string]any{"new_path": newRel})
 		writeJSON(w, http.StatusCreated, map[string]any{"path": newRel, "source_path": oldRel, "type": kind})
+
+	case "trash":
+		if req.Path == "" {
+			http.Error(w, "project path is required", http.StatusBadRequest)
+			return
+		}
+		rel, source, sourceInfo, err := s.resolveHostWorkspaceEntry(req.Path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		token, trashPath, err := s.newProjectTrashPath()
+		if err != nil {
+			http.Error(w, "cannot prepare project trash", http.StatusInternalServerError)
+			return
+		}
+		lease, ok := s.acquireSharedMutation(w, r, "file.trash", rel)
+		if !ok {
+			return
+		}
+		defer s.releaseSharedMutation(lease)
+		if err := moveProjectPath(source, trashPath, sourceInfo); err != nil {
+			http.Error(w, "cannot move project item to trash", http.StatusConflict)
+			return
+		}
+		kind := "file"
+		if sourceInfo.IsDir() {
+			kind = "directory"
+		}
+		s.auditSharedSuccess(r, "file.trash", kind, rel, map[string]any{"token": token})
+		writeJSON(w, http.StatusOK, map[string]any{"path": rel, "token": token, "type": kind})
+
+	case "restore":
+		if req.Path == "" || req.Token == "" {
+			http.Error(w, "project path and trash token are required", http.StatusBadRequest)
+			return
+		}
+		rel, target, err := s.resolveHostWorkspaceDestination(req.Path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		trashPath, info, err := s.projectTrashItem(req.Token)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		lease, ok := s.acquireSharedMutation(w, r, "file.restore", rel)
+		if !ok {
+			return
+		}
+		defer s.releaseSharedMutation(lease)
+		if err := moveProjectPath(trashPath, target, info); err != nil {
+			http.Error(w, "cannot restore project item", http.StatusConflict)
+			return
+		}
+		kind := "file"
+		if info.IsDir() {
+			kind = "directory"
+		}
+		s.auditSharedSuccess(r, "file.restore", kind, rel, map[string]any{"token": req.Token})
+		writeJSON(w, http.StatusOK, map[string]any{"path": rel, "token": req.Token, "type": kind})
 
 	case "rename":
 		if req.Path == "" || req.NewPath == "" {
@@ -219,5 +288,80 @@ func copyProjectRegularFile(source, target string, mode os.FileMode) error {
 		return err
 	}
 	ok = true
+	return nil
+}
+
+func (s *Server) projectTrashDir() (string, error) {
+	dir := filepath.Join(state.Dir(s.Workspace), "project-trash")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+func (s *Server) newProjectTrashPath() (string, string, error) {
+	dir, err := s.projectTrashDir()
+	if err != nil {
+		return "", "", err
+	}
+	for attempt := 0; attempt < 8; attempt++ {
+		raw := make([]byte, 16)
+		if _, err := cryptorand.Read(raw); err != nil {
+			return "", "", err
+		}
+		token := hex.EncodeToString(raw)
+		path := filepath.Join(dir, token)
+		if _, err := os.Lstat(path); os.IsNotExist(err) {
+			return token, path, nil
+		}
+	}
+	return "", "", fmt.Errorf("cannot allocate trash token")
+}
+
+func (s *Server) projectTrashItem(token string) (string, os.FileInfo, error) {
+	token = strings.TrimSpace(token)
+	if len(token) != 32 {
+		return "", nil, fmt.Errorf("invalid trash token")
+	}
+	raw, err := hex.DecodeString(token)
+	if err != nil || len(raw) != 16 {
+		return "", nil, fmt.Errorf("invalid trash token")
+	}
+	dir, err := s.projectTrashDir()
+	if err != nil {
+		return "", nil, err
+	}
+	path := filepath.Join(dir, token)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", nil, fmt.Errorf("trash item not found")
+	}
+	if info.Mode()&os.ModeSymlink != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
+		return "", nil, fmt.Errorf("invalid trash item")
+	}
+	return path, info, nil
+}
+
+func moveProjectPath(source, target string, info os.FileInfo) error {
+	if err := os.Rename(source, target); err == nil {
+		return nil
+	}
+	if err := copyProjectPath(source, target, info); err != nil {
+		_ = os.RemoveAll(target)
+		return err
+	}
+	var err error
+	if info.IsDir() {
+		err = os.RemoveAll(source)
+	} else {
+		err = os.Remove(source)
+	}
+	if err != nil {
+		_ = os.RemoveAll(target)
+		return err
+	}
 	return nil
 }
