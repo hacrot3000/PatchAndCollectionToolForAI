@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -22,6 +23,8 @@ const (
 	projectProfileMaxRefs      = 32
 	projectProfileMaxTerminals = 16
 	projectProfileMaxTasks     = 128
+	projectProfileMaxEnv       = 128
+	projectProfileMaxEnvValue  = 16 << 10
 )
 
 type projectProfileTerminal struct {
@@ -33,6 +36,7 @@ type projectProfile struct {
 	ID                 string                   `json:"id"`
 	Name               string                   `json:"name"`
 	EnvironmentProfile string                   `json:"environment_profile,omitempty"`
+	Environment        map[string]string        `json:"environment,omitempty"`
 	CommandPresetIDs   []string                 `json:"command_preset_ids,omitempty"`
 	Terminals          []projectProfileTerminal `json:"terminals,omitempty"`
 	DatabaseProfileIDs []string                 `json:"database_profile_ids,omitempty"`
@@ -53,6 +57,7 @@ type projectProfileSaveRequest struct {
 	ID                 string                   `json:"id,omitempty"`
 	Name               string                   `json:"name"`
 	EnvironmentProfile string                   `json:"environment_profile,omitempty"`
+	Environment        map[string]string        `json:"environment,omitempty"`
 	CommandPresetIDs   []string                 `json:"command_preset_ids,omitempty"`
 	Terminals          []projectProfileTerminal `json:"terminals,omitempty"`
 	DatabaseProfileIDs []string                 `json:"database_profile_ids,omitempty"`
@@ -149,6 +154,213 @@ func newProjectProfileID() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
+var projectProfileEnvNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*package server
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+
+	"bletonfc/vscode_tasks_menu/internal/projectfiles"
+)
+
+const (
+	projectProfilesFile        = "vscode_tasks_menu.project_profiles.json"
+	projectProfilesMaxBytes    = 1 << 20
+	projectProfilesMaxCount    = 40
+	projectProfileMaxRefs      = 32
+	projectProfileMaxTerminals = 16
+	projectProfileMaxTasks     = 128
+	projectProfileMaxEnv       = 128
+	projectProfileMaxEnvValue  = 16 << 10
+)
+
+type projectProfileTerminal struct {
+	Cwd   string `json:"cwd,omitempty"`
+	Title string `json:"title,omitempty"`
+}
+
+type projectProfile struct {
+	ID                 string                   `json:"id"`
+	Name               string                   `json:"name"`
+	EnvironmentProfile string                   `json:"environment_profile,omitempty"`
+	Environment        map[string]string        `json:"environment,omitempty"`
+	CommandPresetIDs   []string                 `json:"command_preset_ids,omitempty"`
+	Terminals          []projectProfileTerminal `json:"terminals,omitempty"`
+	DatabaseProfileIDs []string                 `json:"database_profile_ids,omitempty"`
+	SSHProfileIDs      []string                 `json:"ssh_profile_ids,omitempty"`
+	TransferProfileIDs []string                 `json:"transfer_profile_ids,omitempty"`
+	DefaultGitRepo     string                   `json:"default_git_repository,omitempty"`
+	TaskIDs            []int                    `json:"task_ids,omitempty"`
+	CreatedAt          string                   `json:"created_at"`
+	UpdatedAt          string                   `json:"updated_at"`
+}
+
+type projectProfileStore struct {
+	Version  int              `json:"version"`
+	Profiles []projectProfile `json:"profiles"`
+}
+
+type projectProfileSaveRequest struct {
+	ID                 string                   `json:"id,omitempty"`
+	Name               string                   `json:"name"`
+	EnvironmentProfile string                   `json:"environment_profile,omitempty"`
+	Environment        map[string]string        `json:"environment,omitempty"`
+	CommandPresetIDs   []string                 `json:"command_preset_ids,omitempty"`
+	Terminals          []projectProfileTerminal `json:"terminals,omitempty"`
+	DatabaseProfileIDs []string                 `json:"database_profile_ids,omitempty"`
+	SSHProfileIDs      []string                 `json:"ssh_profile_ids,omitempty"`
+	TransferProfileIDs []string                 `json:"transfer_profile_ids,omitempty"`
+	DefaultGitRepo     string                   `json:"default_git_repository,omitempty"`
+	TaskIDs            []int                    `json:"task_ids,omitempty"`
+}
+
+func projectProfilesPath(workspace string) (string, error) {
+	return projectfiles.Resolve(workspace, projectProfilesFile)
+}
+
+func readProjectProfileStore(workspace string) (projectProfileStore, error) {
+	out := projectProfileStore{Version: 1, Profiles: []projectProfile{}}
+	path, err := projectProfilesPath(workspace)
+	if err != nil {
+		return out, err
+	}
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return out, nil
+	}
+	if err != nil {
+		return out, fmt.Errorf("read project profiles: %w", err)
+	}
+	if len(data) > projectProfilesMaxBytes {
+		return out, fmt.Errorf("project profile file is too large")
+	}
+	if strings.TrimSpace(string(data)) == "" {
+		return out, nil
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return projectProfileStore{Version: 1, Profiles: []projectProfile{}}, fmt.Errorf("parse project profiles: %w", err)
+	}
+	if out.Version != 1 {
+		return projectProfileStore{Version: 1, Profiles: []projectProfile{}}, fmt.Errorf("unsupported project profile version")
+	}
+	if out.Profiles == nil {
+		out.Profiles = []projectProfile{}
+	}
+	for i := range out.Profiles {
+		out.Profiles[i] = normalizeProjectProfile(out.Profiles[i])
+	}
+	return out, nil
+}
+
+func writeProjectProfileStore(workspace string, store projectProfileStore) error {
+	store.Version = 1
+	data, err := json.MarshalIndent(store, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode project profiles: %w", err)
+	}
+	data = append(data, '\n')
+	if len(data) > projectProfilesMaxBytes {
+		return fmt.Errorf("project profiles exceed size limit")
+	}
+	target, err := projectProfilesPath(workspace)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(target), ".vscode_tasks_menu.project_profiles.*.tmp")
+	if err != nil {
+		return fmt.Errorf("create project profile temp file: %w", err)
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write project profile temp file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("sync project profile temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close project profile temp file: %w", err)
+	}
+	if err := os.Rename(name, target); err != nil {
+		return fmt.Errorf("replace project profiles: %w", err)
+	}
+	return os.Chmod(target, 0o600)
+}
+
+func newProjectProfileID() (string, error) {
+	var raw [12]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw[:]), nil
+}
+
+)
+
+func validateProjectProfileEnvironment(values map[string]string) error {
+	if len(values) > projectProfileMaxEnv {
+		return fmt.Errorf("project profile environment exceeds %d variables", projectProfileMaxEnv)
+	}
+	for key, value := range values {
+		if !projectProfileEnvNamePattern.MatchString(key) {
+			return fmt.Errorf("invalid project profile environment variable name %q", key)
+		}
+		if strings.ContainsRune(value, '\x00') {
+			return fmt.Errorf("project profile environment variable %q contains NUL", key)
+		}
+		if len(value) > projectProfileMaxEnvValue {
+			return fmt.Errorf("project profile environment variable %q exceeds %d bytes", key, projectProfileMaxEnvValue)
+		}
+	}
+	return nil
+}
+
+func normalizeProjectProfileEnvironment(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		if projectProfileEnvNamePattern.MatchString(key) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	if len(keys) > projectProfileMaxEnv {
+		keys = keys[:projectProfileMaxEnv]
+	}
+	out := make(map[string]string, len(keys))
+	for _, key := range keys {
+		value := values[key]
+		if strings.ContainsRune(value, '\x00') {
+			continue
+		}
+		if len(value) > projectProfileMaxEnvValue {
+			value = value[:projectProfileMaxEnvValue]
+		}
+		out[key] = value
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 func normalizeProjectProfileText(value string, max int) string {
 	value = strings.TrimSpace(value)
 	if len(value) > max {
@@ -207,6 +419,7 @@ func normalizeProjectProfile(value projectProfile) projectProfile {
 		ID: normalizeProjectProfileText(value.ID, 80),
 		Name: normalizeProjectProfileText(value.Name, 120),
 		EnvironmentProfile: normalizeProjectProfileText(value.EnvironmentProfile, 120),
+		Environment: normalizeProjectProfileEnvironment(value.Environment),
 		CommandPresetIDs: normalizeProjectProfileRefs(value.CommandPresetIDs),
 		DatabaseProfileIDs: normalizeProjectProfileRefs(value.DatabaseProfileIDs),
 		SSHProfileIDs: normalizeProjectProfileRefs(value.SSHProfileIDs),
@@ -230,11 +443,15 @@ func normalizeProjectProfile(value projectProfile) projectProfile {
 	return out
 }
 
-func projectProfileFromRequest(req projectProfileSaveRequest) projectProfile {
+func projectProfileFromRequest(req projectProfileSaveRequest) (projectProfile, error) {
+	if err := validateProjectProfileEnvironment(req.Environment); err != nil {
+		return projectProfile{}, err
+	}
 	return normalizeProjectProfile(projectProfile{
 		ID: req.ID,
 		Name: req.Name,
 		EnvironmentProfile: req.EnvironmentProfile,
+		Environment: req.Environment,
 		CommandPresetIDs: req.CommandPresetIDs,
 		Terminals: req.Terminals,
 		DatabaseProfileIDs: req.DatabaseProfileIDs,
@@ -242,7 +459,7 @@ func projectProfileFromRequest(req projectProfileSaveRequest) projectProfile {
 		TransferProfileIDs: req.TransferProfileIDs,
 		DefaultGitRepo: req.DefaultGitRepo,
 		TaskIDs: req.TaskIDs,
-	})
+	}), nil
 }
 
 func (s *Server) projectProfiles(w http.ResponseWriter, r *http.Request) {
@@ -269,7 +486,11 @@ func (s *Server) projectProfiles(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		item := projectProfileFromRequest(req)
+		item, err := projectProfileFromRequest(req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if item.Name == "" {
 			http.Error(w, "project profile name is required", http.StatusBadRequest)
 			return
