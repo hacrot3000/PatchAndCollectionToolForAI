@@ -353,3 +353,24 @@ func TestEditorAnnouncesOpenedProjectFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestEditorRemapsOpenTabsAfterProjectRename(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function remapOpenedEditorPaths(oldPath,newPath)",
+		"view.file.path===oldPath||view.file.path.startsWith(prefix)",
+		"view.file.path=nextPath",
+		"view.tab.dataset.id=nextID",
+		"view.pane.dataset.id=nextID",
+		"remapEditorSplitID(root,oldID,nextID)",
+		"taskmenu:project-path-renamed",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor rename remap missing %q", want)
+		}
+	}
+}
