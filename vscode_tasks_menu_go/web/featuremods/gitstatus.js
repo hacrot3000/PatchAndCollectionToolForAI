@@ -42,7 +42,7 @@ panel.append(panelHead,repoBar,quickGroups,nav,content,operation);document.body.
 
 let currentStatus=null,currentView='changes',refreshing=false,lastCommand='',refreshSeq=0;
 let repositories=[],activeRepoID='',gitAutoSelectFromTerminalCWD=false;
-let gitFilePath='',gitFileMode='history';
+let gitFilePath='',gitFileMode='history',gitFileCompareRef='';
 let activeGitJob=null;
 const runningActions=new Map();
 function el(tag,className,text){const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node;}
@@ -693,8 +693,13 @@ async function loadLog(){const data=await gitView('log',{limit:'50'});if(!data)r
       actionButton('Copy SHA',()=>copyText(commit.sha))
     );
     row.append(code,main,actions);content.append(row);}if(!content.childElementCount)empty('No commits');}
+function setGitFilePath(path){
+  path=String(path||'').trim();
+  if(path!==gitFilePath)gitFileCompareRef='';
+  gitFilePath=path;
+}
 function openGitFileView(path,mode='history'){
-  gitFilePath=String(path||'').trim();
+  setGitFilePath(path);
   gitFileMode=mode==='blame'?'blame':'history';
   currentView='file-history';updateNav();
   return loadFileHistory();
@@ -702,10 +707,12 @@ function openGitFileView(path,mode='history'){
 function gitFileControls(){
   const controls=el('div','git-file-controls');
   const input=document.createElement('input');input.value=gitFilePath;input.placeholder='project-relative file path';input.spellcheck=false;
-  const history=actionButton('History',()=>{gitFilePath=input.value.trim();gitFileMode='history';return loadFileHistory();});
-  const blame=actionButton('Blame',()=>{gitFilePath=input.value.trim();gitFileMode='blame';return loadFileHistory();});
-  input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();gitFilePath=input.value.trim();loadFileHistory().catch(app.showError);}});
-  controls.append(input,history,blame);return controls;
+  const history=actionButton('History',()=>{setGitFilePath(input.value);gitFileMode='history';return loadFileHistory();});
+  const blame=actionButton('Blame',()=>{setGitFilePath(input.value);gitFileMode='blame';return loadFileHistory();});
+  input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();setGitFilePath(input.value);loadFileHistory().catch(app.showError);}});
+  controls.append(input,history,blame);
+  if(gitFileCompareRef)controls.append(el('span','git-row-sub','Compare A: '+gitFileCompareRef.slice(0,12)));
+  return controls;
 }
 async function loadFileHistory(){
   content.replaceChildren();content.append(gitFileControls());
@@ -728,7 +735,18 @@ async function loadFileHistory(){
   for(const commit of rows){
     const row=el('div','git-row');const code=el('span','git-row-code',commit.short);const main=el('div','git-row-main');
     main.append(el('div','git-row-title',commit.subject),el('div','git-row-sub',commit.date+' · '+commit.author));
-    const actions=el('div','git-row-actions');actions.append(actionButton('Copy SHA',()=>copyText(commit.sha)));row.append(code,main,actions);content.append(row);
+    const actions=el('div','git-row-actions');
+    actions.append(actionButton('Compare working',()=>{
+      const compare=globalThis.TaskMenuFileCompare;if(!compare?.openGitCommitAgainstProject)throw new Error('File Compare unavailable');
+      return compare.openGitCommitAgainstProject(activeRepoID,gitFilePath,workspacePathForActiveRepository(gitFilePath),commit.sha);
+    },'Compare this committed file version with the current project file'));
+    actions.append(actionButton(gitFileCompareRef===commit.sha?'Compare A ✓':'Use as Compare A',()=>{gitFileCompareRef=commit.sha;return loadFileHistory();},'Select this commit as the left side for commit-to-commit compare'));
+    if(gitFileCompareRef&&gitFileCompareRef!==commit.sha)actions.append(actionButton('Compare A ↔ this',()=>{
+      const compare=globalThis.TaskMenuFileCompare;if(!compare?.openGitCommits)throw new Error('File Compare unavailable');
+      return compare.openGitCommits(activeRepoID,gitFilePath,gitFileCompareRef,commit.sha);
+    },'Compare selected commit A with this commit'));
+    actions.append(actionButton('Copy SHA',()=>copyText(commit.sha)));
+    row.append(code,main,actions);content.append(row);
   }
   if(!rows.length)content.append(el('div','git-empty','No committed history found for '+gitFilePath));
   return true;
