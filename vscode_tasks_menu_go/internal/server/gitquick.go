@@ -1135,6 +1135,41 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 			}
 			args = []string{"reset", "--" + mode, sha}
 		}
+	case "restore_file_commit", "restore_staged_commit":
+		if !req.Confirmed {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": "restore requires explicit confirmation", "failure_code": "confirmation_required"})
+			return
+		}
+		if state, stateErr := s.gitOperationState(r.Context()); stateErr != nil {
+			http.Error(w, stateErr.Error(), http.StatusConflict)
+			return
+		} else if state != "" {
+			http.Error(w, "cannot restore file state while Git "+state+" is in progress", http.StatusConflict)
+			return
+		}
+		pathValue, pathErr := validGitRelativePath(req.Path)
+		if pathErr != nil {
+			http.Error(w, pathErr.Error(), http.StatusBadRequest)
+			return
+		}
+		sha, resolveErr := s.gitResolveExactCommit(r.Context(), req.Ref)
+		if resolveErr != nil {
+			http.Error(w, resolveErr.Error(), http.StatusBadRequest)
+			return
+		}
+		if expected := strings.TrimSpace(req.ExpectedSHA); expected != "" && expected != sha {
+			http.Error(w, "commit changed after preview; refresh the Git wizard and confirm again", http.StatusConflict)
+			return
+		}
+		if _, headErr := s.gitCheckExpectedHead(r.Context(), req.ExpectedHeadSHA); headErr != nil {
+			http.Error(w, headErr.Error(), http.StatusConflict)
+			return
+		}
+		if action == "restore_file_commit" {
+			args = []string{"restore", "--source=" + sha, "--worktree", "--", pathValue}
+		} else {
+			args = []string{"restore", "--source=" + sha, "--staged", "--", pathValue}
+		}
 	case "worktree_add_branch":
 		repo, ok := gitRepositoryFromContext(r.Context())
 		if !ok { http.Error(w, "Git repository context unavailable", http.StatusConflict); return }
