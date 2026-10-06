@@ -300,7 +300,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - History UI hỗ trợ Compare và Restore; Restore vẫn đi qua editor PUT + `expected_sha256` nên chặn external-change race và tự lưu bản disk hiện tại vào history trước khi thay;
     - shared-server chỉ cho đọc history với `files.read`; history không lưu vào browser localStorage.
 
-15. **P1 — Symbol navigation nhẹ**
+15. **P1 — Symbol navigation nhẹ** — ✅ **COMPLETE**
     Không cần LSP ngay.
     
     Có thể bắt đầu bằng:
@@ -310,6 +310,14 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - breadcrumb.
     
     Parser heuristic/ctags nếu có sẵn trên host, tránh kéo dependency nặng.
+
+    Hoàn tất:
+    - Outline trong file đang mở, parser heuristic nhẹ cho Go, JS/TS, Python, Java/C/C++/C#/Kotlin, PHP, Rust và shell;
+    - jump tới symbol + `Ctrl/Cmd+Shift+O`, breadcrumb cập nhật theo vị trí con trỏ và dùng chính buffer hiện tại nên thấy cả thay đổi chưa Save;
+    - Project Symbols… trong Files menu, debounce/cancel request, keyboard navigation, mở file + jump đúng line;
+    - backend project-wide symbol search bounded: tối đa 25.000 source files / 32 MiB mỗi request, source file tối đa 2 MiB, tối đa 100 kết quả;
+    - multi-root trả virtual path `@root/<id>/...`, tôn trọng ignore, không follow symlink và dùng pinned/no-follow reads để tránh symlink race;
+    - shared-server yêu cầu `files.read`; không cần LSP, ctags hay package bên thứ ba.
 
 16. **P1 — Terminal workspace nâng cao**
     Terminal hiện đã khá mạnh. Phần nên thêm:
