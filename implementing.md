@@ -602,7 +602,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Git/Task/Patch/Transfer controls vẫn đi qua permission/session ownership/shared-server backend hiện hữu;
     - regression test khóa source matrix, delegated controls, DB tracking, import order và Git job listing/retention.
 
-27. **P2 — Database schema diff**
+27. **P2 — Database schema diff** — ✅ **COMPLETE**
     Vì DB module đã khá mạnh:
     - Compare DB A/B.
     - Compare schema only.
@@ -611,6 +611,21 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Export structure.
     
     Có thể đặc biệt hữu ích staging ↔ production.
+
+    Hoàn tất:
+    - mỗi DB pane có nút **Schema Diff** và Unified Command Palette có `Database: Schema Diff…`;
+    - compare hai database session đang mở theo hướng **Source → Target**, chọn catalog/database riêng cho từng bên;
+    - snapshot chỉ dùng `list_objects` + `describe_object`, không browse/read table data; bounded tối đa 500 objects và concurrency 4;
+    - normalize columns, indexes, foreign keys, SQL definition và adapter-specific info trước khi diff;
+    - phân loại object thành changed / missing-target / extra-target / same và hiển thị chi tiết Source/Target side-by-side;
+    - export Source/Target structure JSON qua save-location workflow hiện hữu;
+    - migration generation yêu cầu hai bên cùng adapter; MySQL và SQLite được hỗ trợ;
+    - MySQL sinh CREATE/DROP object khi có definition và `ADD / DROP / MODIFY COLUMN`; index/FK khác biệt được cảnh báo để review thủ công;
+    - SQLite chỉ tự sinh DDL an toàn/tương thích rõ ràng; column remove/change cần table rebuild được ghi warning thay vì đoán migration nguy hiểm;
+    - migration luôn có preview + Copy SQL + Export SQL trước Apply;
+    - destructive migration yêu cầu nhập chính xác `APPLY <target catalog>`; target read-only bị chặn;
+    - Apply thực thi tuần tự qua DB session `execute`, dừng ngay khi statement lỗi và publish tiến độ vào Operation Center;
+    - regression test khóa schema-only boundary, module load order, launcher, migration safety và SQLite non-guessing behavior.
 
 28. **P2 — DB transaction workspace**
     Query tab có:
