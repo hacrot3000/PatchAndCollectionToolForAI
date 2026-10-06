@@ -960,7 +960,7 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch action {
-	case "push":
+	case "push", "merge_to":
 		if !s.requireSharedActionPermission(w, r, identity.PermissionGitPush, action, "git") { return }
 	case "delete_remote_branch":
 		if !s.requireSharedActionPermission(w, r, identity.PermissionGitRemoteDelete, action, "git") { return }
