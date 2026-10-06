@@ -93,3 +93,42 @@ func TestPermissionSeedV2AddsGranularPermissionsWithoutWideningNonAdminRoles(t *
 		}
 	}
 }
+
+
+func TestPermissionSeedV3AddsApprovalPermissionsToAdminOnly(t *testing.T) {
+	db := openRealSQLiteDatabase(t, filepath.Join(t.TempDir(), identityDBName))
+	ctx := context.Background()
+	p, err := db.BootstrapFirstAdmin(ctx, "test", "alice", testScryptHash, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SeedSystemRoles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	permissions, err := db.EffectivePermissions(ctx, p.ProjectID, p.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range PermissionUpgradeV3Keys() {
+		if !permissions[key] {
+			t.Fatalf("admin missing v3 permission %q: %v", key, permissions)
+		}
+		if !KnownPermission(key) {
+			t.Fatalf("v3 permission %q is not registered", key)
+		}
+	}
+	for _, role := range SystemRoles() {
+		if role.ID == "system:admin" {
+			continue
+		}
+		grants := map[string]bool{}
+		for _, key := range role.Permissions {
+			grants[key] = true
+		}
+		for _, key := range PermissionUpgradeV3Keys() {
+			if grants[key] {
+				t.Fatalf("role %s unexpectedly receives approval permission %q", role.ID, key)
+			}
+		}
+	}
+}
