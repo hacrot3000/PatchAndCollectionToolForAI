@@ -118,6 +118,58 @@ async function previewProjectArchive(pathValue){
   dialog.append(title,summary,pre,close);document.body.append(dialog);
   dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();
 }
+
+function archiveParentPath(pathValue){
+  const value=cleanPath(pathValue);const i=value.lastIndexOf('/');return i<0?'':value.slice(0,i);
+}
+function archiveBaseName(pathValue){
+  const value=cleanPath(pathValue);const name=value.slice(value.lastIndexOf('/')+1);
+  return name.replace(/\.tar\.gz$|\.tgz$|\.zip$/i,'')||'archive';
+}
+async function createProjectArchive(paths,defaultOutput=''){
+  paths=(Array.isArray(paths)?paths:[paths]).map(cleanPath).filter(Boolean);
+  if(!paths.length)throw new Error('Select at least one project file or folder.');
+  const first=paths[0],parent=archiveParentPath(first);
+  const suggested=defaultOutput||((parent?parent+'/':'')+archiveBaseName(first)+'.zip');
+  const output=prompt('Archive output path (.zip or .tar.gz):',suggested);
+  if(output===null)return null;
+  const format=String(output).toLowerCase().endsWith('.tar.gz')||String(output).toLowerCase().endsWith('.tgz')?'tar.gz':'zip';
+  const response=await app.fetchWithLease('/api/project/archive/create',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({paths,output:cleanPath(output),format})
+  });
+  if(!response.ok)throw new Error(await response.text()||('HTTP '+response.status));
+  const data=await response.json();
+  alert('Archive created: '+String(data?.path||output));
+  return data;
+}
+async function extractProjectArchive(pathValue){
+  pathValue=cleanPath(pathValue);
+  const parent=archiveParentPath(pathValue),suggested=(parent?parent+'/':'')+archiveBaseName(pathValue);
+  const destination=prompt('Extract into a NEW project folder:',suggested);
+  if(destination===null)return null;
+  if(!confirm('Extract archive into new folder?\n\n'+cleanPath(destination)+'\n\nExisting destinations are never overwritten.'))return null;
+  const response=await app.fetchWithLease('/api/project/archive/extract',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({path:pathValue,destination:cleanPath(destination)})
+  });
+  if(!response.ok)throw new Error(await response.text()||('HTTP '+response.status));
+  const data=await response.json();
+  alert('Archive extracted to '+String(data?.path||destination));
+  return data;
+}
+async function downloadProjectPathsAsZip(paths,name='taskdeck-selection.zip'){
+  paths=(Array.isArray(paths)?paths:[paths]).map(cleanPath).filter(Boolean);
+  if(!paths.length)throw new Error('Select at least one project file or folder.');
+  const response=await app.fetchWithLease('/api/project/archive/download',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({paths,name})
+  });
+  if(!response.ok)throw new Error(await response.text()||('HTTP '+response.status));
+  const blob=await response.blob(),url=URL.createObjectURL(blob),link=document.createElement('a');
+  link.href=url;link.download=name||'taskdeck-selection.zip';link.style.display='none';document.body.append(link);
+  try{link.click();}finally{setTimeout(()=>URL.revokeObjectURL(url),1000);link.remove();}
+}
 function standardActions(pathValue,type='file'){
   pathValue=cleanPath(pathValue);type=type==='dir'?'dir':'file';
   const actions=[];
@@ -126,7 +178,11 @@ function standardActions(pathValue,type='file'){
     {label:'Open as Hex',run:()=>openProjectHex(pathValue)}
   );
   if(type==='file'&&projectArchiveKind(pathValue))actions.push(
-    {label:'Preview archive…',run:()=>previewProjectArchive(pathValue)}
+    {label:'Preview archive…',run:()=>previewProjectArchive(pathValue)},
+    {label:'Extract archive…',run:()=>extractProjectArchive(pathValue)}
+  );
+  if(type==='dir')actions.push(
+    {label:'Create archive…',run:()=>createProjectArchive([pathValue])}
   );
   else actions.push({label:'Generate SHA-256 manifest…',run:()=>generateProjectManifest(pathValue)});
   actions.push(
@@ -175,4 +231,4 @@ document.addEventListener('pointerdown',event=>{if(menu.classList.contains('open
 document.addEventListener('keydown',event=>{if(event.key==='Escape')closeMenu();});
 window.addEventListener('blur',closeMenu);window.addEventListener('resize',closeMenu);
 
-globalThis.TaskMenuProjectFileActions={standardActions,openMenu,closeMenu,copyText,parentPath};
+globalThis.TaskMenuProjectFileActions={standardActions,openMenu,closeMenu,copyText,parentPath,createProjectArchive,extractProjectArchive,previewProjectArchive,downloadProjectPathsAsZip,projectArchiveKind};
