@@ -129,6 +129,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/lsp", s.lspAPI)
 	mux.HandleFunc("/api/remote-workspaces", s.remoteWorkspacesAPI)
 	mux.HandleFunc("/api/remote-workspaces/", s.remoteWorkspaceItemAPI)
+	mux.HandleFunc("/api/remote-workspace-git", s.remoteWorkspaceGitAPI)
 	mux.HandleFunc("/api/config/auth-mode", s.authModeConfig)
 	mux.HandleFunc("/api/secrets", s.secretsAPI)
 	mux.HandleFunc("/api/ssh/profiles", s.sshProfiles)
