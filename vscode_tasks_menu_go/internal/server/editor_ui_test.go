@@ -294,7 +294,7 @@ func TestEditorLanguageMappingCoversRequiredIDEFormats(t *testing.T) {
 		"if(ext==='lua')return 'lua'",
 		"function legacySyntaxExtension(kind)",
 		"buildLegacyDecorations(update.view,kind)",
-		"options.extraExtensions=[activeLineDecorationExtension(),whitespaceDecorationExtension()]",
+		"options.extraExtensions=[activeLineDecorationExtension(),whitespaceDecorationExtension(),bracketMatchingExtension()]",
 		"options.extraExtensions.push(legacySyntaxExtension(legacy))",
 		"return 'CMake'",
 		"return 'Shell'",
@@ -438,7 +438,7 @@ func TestEditorCurrentLineAndWhitespaceDecorations(t *testing.T) {
 		"function whitespaceDecorationExtension()",
 		"function activeLineDecorationExtension()",
 		"update.selectionSet",
-		"options.extraExtensions=[activeLineDecorationExtension(),whitespaceDecorationExtension()]",
+		"options.extraExtensions=[activeLineDecorationExtension(),whitespaceDecorationExtension(),bracketMatchingExtension()]",
 		"editor-whitespace-toggle",
 		"Toggle visible spaces and tabs",
 		"editor-show-whitespace",
@@ -515,5 +515,28 @@ func TestEditorConfigurableAutoSave(t *testing.T) {
 	}
 	if strings.Contains(js, "localStorage.setItem") && strings.Contains(js, "view.cm.state.doc.toString()") {
 		t.Fatal("auto-save must never persist dirty editor contents into localStorage")
+	}
+}
+
+func TestEditorBracketMatching(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"cm-taskdeck-bracket-match",
+		"cm-taskdeck-bracket-mismatch",
+		"const taskDeckBracketPairs={40:41,91:93,123:125}",
+		"const taskDeckBracketReverse={41:40,93:91,125:123}",
+		"const taskDeckBracketScanLimit=200000",
+		"function bracketCandidateAtCursor(state)",
+		"function findMatchingBracket(state,candidate)",
+		"function buildBracketDecorations(view)",
+		"function bracketMatchingExtension()",
+		"update.docChanged||update.selectionSet",
+		"bracketMatchingExtension()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor bracket matching missing %q", want)
+		}
 	}
 }
