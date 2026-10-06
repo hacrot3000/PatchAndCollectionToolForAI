@@ -129,3 +129,44 @@ func TestLoadWorkspaceTasksSkipsRootsWithoutTasksFile(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if len(items) != 0 { t.Fatalf("tasks=%+v", items) }
 }
+
+
+func TestLoadWorkspaceTasksExposesDependencyInputsOnWorkflowRoot(t *testing.T) {
+	root := t.TempDir()
+	writeWorkspaceTasksFixture(t, root, `{
+		"version":"2.0.0",
+		"inputs":[
+			{"id":"target","type":"pickString","options":["debug","release"]},
+			{"id":"host","type":"promptString"}
+		],
+		"tasks":[
+			{"label":"Build","type":"shell","command":"echo ${input:target}"},
+			{"label":"Deploy","type":"shell","command":"echo ${input:host}","dependsOn":"Build"}
+		]
+	}`)
+	s := &Server{Workspace: root}
+	items, err := s.loadWorkspaceTasks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var deploy tasks.Task
+	for _, item := range items {
+		if item.Label == "Deploy" {
+			deploy = item
+			break
+		}
+	}
+	if deploy.Label == "" {
+		t.Fatalf("workflow root missing: %+v", items)
+	}
+	if len(deploy.Inputs) != 2 || deploy.Inputs[0].ID != "target" || deploy.Inputs[1].ID != "host" {
+		t.Fatalf("workflow inputs=%+v", deploy.Inputs)
+	}
+	selected, workflowItems, selectedRoot, err := s.workspaceWorkflowByTaskID(deploy.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected.Label != "Deploy" || len(workflowItems) != 2 || selectedRoot.Path != root {
+		t.Fatalf("workflow selection selected=%+v items=%+v root=%+v", selected, workflowItems, selectedRoot)
+	}
+}
