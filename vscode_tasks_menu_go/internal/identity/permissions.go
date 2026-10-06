@@ -46,6 +46,7 @@ const (
 	PermissionApprovalsView       = "approvals.view"
 	PermissionApprovalsManage     = "approvals.manage"
 	PermissionSecretsView         = "secrets.view"
+	PermissionSecretsUse          = "secrets.use"
 	PermissionSecretsManage       = "secrets.manage"
 )
 
@@ -100,6 +101,7 @@ func PermissionRegistry() []PermissionDefinition {
 		{Key: PermissionApprovalsView, Module: "approvals"},
 		{Key: PermissionApprovalsManage, Module: "approvals"},
 		{Key: PermissionSecretsView, Module: "secrets"},
+		{Key: PermissionSecretsUse, Module: "secrets"},
 		{Key: PermissionSecretsManage, Module: "secrets"},
 		{Key: PermissionProjectAdmin, Module: "project"},
 	}
@@ -141,6 +143,7 @@ func PermissionUpgradeV3Keys() []string {
 func PermissionUpgradeV4Keys() []string {
 	return []string{
 		PermissionSecretsView,
+		PermissionSecretsUse,
 		PermissionSecretsManage,
 	}
 }
