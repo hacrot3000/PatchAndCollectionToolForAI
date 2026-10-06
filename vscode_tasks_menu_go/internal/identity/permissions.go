@@ -127,6 +127,13 @@ func PermissionUpgradeV2Keys() []string {
 	}
 }
 
+func PermissionUpgradeV3Keys() []string {
+	return []string{
+		PermissionApprovalsView,
+		PermissionApprovalsManage,
+	}
+}
+
 type SystemRoleDefinition struct {
 	ID          ID
 	Name        string
