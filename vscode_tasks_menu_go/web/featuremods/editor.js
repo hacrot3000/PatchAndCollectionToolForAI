@@ -18,7 +18,11 @@ style.textContent=`
 html[data-taskmenu-theme="light"] .editor-head .editor-format{background:#fff;border-color:#c8ced6}
 .editor-head .editor-readonly,.editor-head .editor-warning{font-size:10px;padding:2px 6px;border:1px solid #7d6733;border-radius:10px;color:#ffe29a;background:#493b1d;white-space:nowrap}.editor-head .editor-warning{max-width:260px;overflow:hidden;text-overflow:ellipsis}
 .editor-head .editor-large-file{font-size:10px;padding:2px 6px;border:1px solid #5b6f90;border-radius:10px;color:#cfe2ff;background:#24354b;white-space:nowrap}
-.editor-host{flex:1;min-height:0;overflow:hidden}
+.editor-body{flex:1;min-height:0;display:flex;overflow:hidden}
+.editor-host{flex:1;min-width:0;min-height:0;overflow:hidden}
+.editor-minimap{width:88px;min-width:88px;height:100%;border-left:1px solid #30363d;background:#0b0f14;cursor:pointer}
+.editor-minimap.hidden{display:none}
+html[data-taskmenu-theme="light"] .editor-minimap{background:#f4f6f8;border-color:#d0d7de}
 .editor-host .cm-editor{height:100%;font-size:13px}
 .editor-host .cm-scroller{overflow:auto;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
 .cm-legacy-keyword{color:#c792ea}.cm-legacy-comment{color:#6a9955;font-style:italic}.cm-legacy-string{color:#ce9178}.cm-legacy-number{color:#b5cea8}.cm-legacy-variable{color:#9cdcfe}.cm-legacy-command{color:#dcdcaa}
@@ -80,6 +84,8 @@ const maxClosedEditorPaths=30;
 const editorAutoSavePreferenceKey='vscode-tasks-menu:editor-auto-save';
 let editorAutoSaveEnabled=localStorage.getItem(editorAutoSavePreferenceKey)==='1';
 const editorAutoSaveDelayMS=1000;
+const editorMinimapPreferenceKey='vscode-tasks-menu:editor-minimap';
+let editorMinimapEnabled=localStorage.getItem(editorMinimapPreferenceKey)==='1';
 
 function editorSplitLeaf(id){return {type:'leaf',id};}
 function editorSplitNode(first,second,orientation,ratio=.5){return {type:'split',first,second,orientation:orientation==='horizontal'?'horizontal':'vertical',ratio};}
@@ -559,6 +565,7 @@ function updateAutoSaveButton(view){
 function scheduleEditorAutoSave(view){
   if(!view||view.closed)return;
   clearTimeout(view.autoSaveTimer);view.autoSaveTimer=null;
+  if(view.minimapRAF){cancelAnimationFrame(view.minimapRAF);view.minimapRAF=0;}
   if(!editorAutoSaveEnabled||!view.dirty||editorReadOnly(view)||view.saving)return;
   view.autoSaveTimer=setTimeout(()=>{
     view.autoSaveTimer=null;
@@ -576,6 +583,75 @@ function setEditorAutoSave(enabled){
   }
   return editorAutoSaveEnabled;
 }
+function updateMinimapButton(view){
+  if(!view?.minimapToggle)return;
+  view.minimapToggle.textContent=editorMinimapEnabled?'Map ✓':'Map';
+  view.minimapToggle.classList.toggle('active',editorMinimapEnabled);
+  view.minimapToggle.setAttribute('aria-pressed',editorMinimapEnabled?'true':'false');
+  if(view.minimap)view.minimap.classList.toggle('hidden',!editorMinimapEnabled);
+}
+function renderEditorMinimap(view){
+  if(!view||view.closed||!view.minimap||!editorMinimapEnabled)return;
+  const canvas=view.minimap,rect=canvas.getBoundingClientRect();
+  const cssWidth=Math.max(1,Math.floor(rect.width||88)),cssHeight=Math.max(1,Math.floor(rect.height));
+  if(cssHeight<8)return;
+  const ratio=Math.min(2,window.devicePixelRatio||1);
+  const width=Math.max(1,Math.floor(cssWidth*ratio)),height=Math.max(1,Math.floor(cssHeight*ratio));
+  if(canvas.width!==width)canvas.width=width;
+  if(canvas.height!==height)canvas.height=height;
+  const ctx=canvas.getContext('2d');if(!ctx)return;
+  ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,cssWidth,cssHeight);
+  const doc=view.cm.state.doc,total=Math.max(1,doc.lines);
+  const rowHeight=Math.max(.6,cssHeight/Math.min(total,cssHeight));
+  const step=Math.max(1,Math.ceil(total/cssHeight));
+  const computed=getComputedStyle(view.pane);
+  ctx.fillStyle=computed.color||'#c9d1d9';ctx.globalAlpha=.24;
+  let row=0;
+  for(let lineNo=1;lineNo<=total;lineNo+=step){
+    const line=doc.line(lineNo);
+    const visual=Math.min(cssWidth-8,Math.max(1,line.text.replace(/\t/g,'    ').length*.72));
+    const y=Math.min(cssHeight-1,row*rowHeight);
+    ctx.fillRect(4,y,visual,Math.max(.55,rowHeight*.55));
+    row++;
+    if(y>=cssHeight)break;
+  }
+  const scroller=view.scroller;
+  if(scroller&&scroller.scrollHeight>0){
+    const top=Math.max(0,Math.min(1,scroller.scrollTop/scroller.scrollHeight));
+    const span=Math.max(.025,Math.min(1,scroller.clientHeight/scroller.scrollHeight));
+    ctx.globalAlpha=.22;ctx.fillStyle='#6ea8ff';
+    ctx.fillRect(0,top*cssHeight,cssWidth,Math.max(3,span*cssHeight));
+  }
+  ctx.globalAlpha=1;
+}
+function scheduleEditorMinimap(view){
+  if(!view||view.closed||!editorMinimapEnabled)return;
+  if(view.minimapRAF)return;
+  view.minimapRAF=requestAnimationFrame(()=>{
+    view.minimapRAF=0;
+    renderEditorMinimap(view);
+  });
+}
+function setEditorMinimap(enabled){
+  editorMinimapEnabled=Boolean(enabled);
+  try{localStorage[editorMinimapPreferenceKey]=editorMinimapEnabled?'1':'0';}catch{}
+  for(const view of editors.values()){
+    updateMinimapButton(view);
+    if(editorMinimapEnabled)scheduleEditorMinimap(view);
+    else if(view.minimapRAF){cancelAnimationFrame(view.minimapRAF);view.minimapRAF=0;}
+  }
+  return editorMinimapEnabled;
+}
+function jumpFromEditorMinimap(view,event){
+  if(!view||view.closed||!editorMinimapEnabled)return;
+  const rect=view.minimap.getBoundingClientRect();if(rect.height<=0)return;
+  const ratio=Math.max(0,Math.min(1,(event.clientY-rect.top)/rect.height));
+  const lineNo=Math.max(1,Math.min(view.cm.state.doc.lines,Math.round(ratio*(view.cm.state.doc.lines-1))+1));
+  const line=view.cm.state.doc.line(lineNo);
+  view.cm.dispatch({selection:{anchor:line.from},scrollIntoView:true});
+  view.cm.focus();
+}
+
 function setDirty(view,dirty){
   if(!view||view.closed)return;
   view.dirty=Boolean(dirty);
@@ -619,7 +695,10 @@ function installEditorDispatchGuard(view){
       : view.cm.state.update(...input);
     if(transaction.docChanged&&editorReadOnly(view)&&!view.internalUpdate)return;
     originalDispatch(transaction);
-    if(transaction.docChanged&&!view.internalUpdate)setDirty(view,true);
+    if(transaction.docChanged){
+      if(!view.internalUpdate)setDirty(view,true);
+      scheduleEditorMinimap(view);
+    }
   };
 }
 function setEditorDocument(view,file){
@@ -645,6 +724,7 @@ function setEditorDocument(view,file){
   applyReadOnly(view);
   updateAutoSaveButton(view);
   setDirty(view,false);
+  scheduleEditorMinimap(view);
 }
 function activateEditorDOM(id){
   activeEditorID=id;
@@ -655,7 +735,8 @@ function activateEditorDOM(id){
     view.tab.classList.toggle('active',yes);
     view.pane.classList.toggle('hidden',root? !peer:!yes);
     updateEditorSplitButtons(view);
-    if(yes)setTimeout(()=>{try{view.cm.focus();}catch{}},0);
+    if(yes)setTimeout(()=>{try{view.cm.focus();scheduleEditorMinimap(view);}catch{}},0);
+    else if(peer)setTimeout(()=>scheduleEditorMinimap(view),0);
   }
   if(root)renderEditorSplit(root);else syncEditorSplitForActive();
 }
@@ -867,11 +948,12 @@ function createEditor(file){
   const reload=document.createElement('button');reload.type='button';reload.textContent='Reload';reload.title='Reload file from disk';
   const whitespace=document.createElement('button');whitespace.type='button';whitespace.className='editor-whitespace-toggle';whitespace.textContent='WS';whitespace.title='Toggle visible spaces and tabs';whitespace.setAttribute('aria-pressed','false');
   const find=document.createElement('button');find.type='button';find.className='editor-find-toggle';find.textContent='Find';find.title='Find / replace in this file (Ctrl/Cmd+F)';
+  const minimapToggle=document.createElement('button');minimapToggle.type='button';minimapToggle.className='editor-minimap-toggle';minimapToggle.title='Toggle editor minimap';minimapToggle.setAttribute('aria-pressed','false');
   const splitVertical=document.createElement('button');splitVertical.type='button';splitVertical.className='editor-split-action editor-split-vertical';splitVertical.textContent='Split ↔';splitVertical.title='Split editor vertically with another/open file';
   const splitHorizontal=document.createElement('button');splitHorizontal.type='button';splitHorizontal.className='editor-split-action editor-split-horizontal';splitHorizontal.textContent='Split ↕';splitHorizontal.title='Split editor horizontally with another/open file';
   const splitSwap=document.createElement('button');splitSwap.type='button';splitSwap.className='editor-split-action editor-split-swap';splitSwap.textContent='Swap';splitSwap.title='Swap this editor split';splitSwap.hidden=true;
   const splitUnsplit=document.createElement('button');splitUnsplit.type='button';splitUnsplit.className='editor-split-action editor-unsplit';splitUnsplit.textContent='Unsplit';splitUnsplit.title='Remove this editor from its split';splitUnsplit.hidden=true;
-  head.append(pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
+  head.append(pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,minimapToggle,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
   const findPanel=document.createElement('div');findPanel.className='editor-find-panel hidden';
   const findInput=document.createElement('input');findInput.type='text';findInput.placeholder='Find';findInput.setAttribute('aria-label','Find text');
   const findReplaceInput=document.createElement('input');findReplaceInput.type='text';findReplaceInput.placeholder='Replace';findReplaceInput.setAttribute('aria-label','Replace text');findReplaceInput.hidden=true;
@@ -883,16 +965,22 @@ function createEditor(file){
   const findStatus=document.createElement('span');findStatus.className='editor-find-status';
   const findClose=document.createElement('button');findClose.type='button';findClose.textContent='×';findClose.title='Close find';
   findPanel.append(findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCaseLabel,findStatus,findClose);
+  const body=document.createElement('div');body.className='editor-body';
   const host=document.createElement('div');host.className='editor-host';
-  pane.append(head,findPanel,host);panesHost.append(pane);
+  const minimap=document.createElement('canvas');minimap.className='editor-minimap';minimap.title='File minimap · click to jump';
+  body.append(host,minimap);pane.append(head,findPanel,body);panesHost.append(pane);
 
   const cm=cmFactory.newEditor(host,file.content||'',editorOptionsForFile(file));
-  const view={id,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,findPanel,findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCase,findStatus,findClose,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null};
+  const view={id,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,findPanel,findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCase,findStatus,findClose,minimapToggle,minimap,body,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null,minimapRAF:0,scroller:cm.dom.querySelector('.cm-scroller')};
   editors.set(id,view);
   pane.classList.toggle('editor-large-file-mode',Boolean(file.large_file));
   installEditorDispatchGuard(view);
   applyReadOnly(view);
   setDirty(view,false);
+  updateMinimapButton(view);
+  if(view.scroller)view.scroller.addEventListener('scroll',()=>scheduleEditorMinimap(view),{passive:true});
+  minimap.onclick=event=>jumpFromEditorMinimap(view,event);
+  minimapToggle.onclick=()=>setEditorMinimap(!editorMinimapEnabled);
 
   cm.contentDOM.addEventListener('beforeinput',event=>{if(editorReadOnly(view))event.preventDefault();},true);
   cm.contentDOM.addEventListener('keydown',event=>{
@@ -1180,7 +1268,7 @@ window.addEventListener('taskmenu:view-activated',event=>{
     else deactivateEditors();
   }
 });
-window.addEventListener('resize',()=>{if(renderedEditorSplitRoot)layoutEditorSplit();});
+window.addEventListener('resize',()=>{if(renderedEditorSplitRoot)layoutEditorSplit();for(const view of editors.values())scheduleEditorMinimap(view);});
 
 globalThis.TaskMenuEditor={
   editors,
@@ -1204,6 +1292,7 @@ globalThis.TaskMenuEditor={
   reloadEditor,
   saveEditor,
   setEditorAutoSave,
+  setEditorMinimap,
   closeEditor,
   reopenClosedEditor,
   goToLine,
@@ -1228,5 +1317,6 @@ globalThis.TaskMenuEditor={
     return Boolean(view?.tabReadOnly);
   },
   get autoSaveEnabled(){return editorAutoSaveEnabled;},
+  get minimapEnabled(){return editorMinimapEnabled;},
   get active(){return activeEditorID;}
 };
