@@ -696,13 +696,26 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - graph không render credential material (password/private key/secret ref);
     - regression test khóa graph UI/load order, DB reconnect safety, tunnel PID metadata và DB-session↔tunnel runtime linkage.
 
-31. **P2 — File watcher**
+31. **P2 — File watcher** — ✅ **COMPLETE**
     - Detect file changed externally.
     - Auto reload nếu tab chưa dirty.
     - Conflict dialog nếu tab đang sửa.
     - Detect generated files.
     
     Cực kỳ quan trọng nếu TaskDeck chạy cùng IDE khác hoặc compiler.
+
+    Hoàn tất:
+    - thêm metadata-only read `/api/project/file?meta=1` trả `mtime_ns/size`, không tải content;
+    - watcher chỉ theo dõi open editor và root + tối đa 30 Explorer directories đang expanded; không crawl/search toàn workspace;
+    - open-file poll 1.5s, directory poll 2.5s và tạm dừng khi browser tab hidden;
+    - chỉ khi metadata file đổi mới fetch full file/SHA;
+    - editor chưa dirty tự reload bằng `setEditorDocument`;
+    - editor dirty tái sử dụng conflict flow hiện hữu Compare / Reload / Overwrite / Cancel; overwrite vẫn optimistic-lock bằng latest SHA;
+    - file biến mất ngoài TaskDeck phát event `taskmenu:editor-external-missing` để UI/integration khác có thể phản ứng;
+    - Explorer diff directory listing để phát hiện added/removed/generated file và refresh đúng directory thay đổi;
+    - phát event `taskmenu:project-directory-changed` chứa `added / removed / generated`;
+    - watcher baseline được refresh khi browser quay lại foreground để tránh false conflict sau thời gian tab hidden;
+    - regression test khóa bounded polling, metadata-only payload, auto reload/conflict bridge, generated-file detection và module load order.
 
 32. **P2 — Project health/dashboard**
     Một trang overview:
