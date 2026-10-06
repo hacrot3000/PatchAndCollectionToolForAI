@@ -410,7 +410,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - shared-server map GET/POST integrity vào `files.read`, vì generate/verify đều read-only;
     - regression test bao phủ SHA-256/MD5, generate/verify PASS, mismatch detection, authorization và UI integration.
 
-20. **P1 — Archive support**
+20. **P1 — Archive support** — ✅ **COMPLETE**
     - Preview ZIP/tar.gz without extracting.
     - Extract.
     - Create archive.
@@ -419,6 +419,18 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Upload and extract remote.
     
     Đặc biệt hữu ích cho Patch Tool và artifact handoff.
+
+    Hoàn tất:
+    - preview ZIP / tar.gz / tgz chỉ đọc metadata, không extract; từ chối unsafe path, symlink/special entry và áp giới hạn entry/uncompressed size;
+    - create ZIP hoặc tar.gz từ một file/folder hoặc multi-select Project Explorer, output tạo atomic qua temp + rename và không overwrite archive đã tồn tại;
+    - extract ZIP/tar.gz chỉ vào **destination mới**, rollback toàn bộ destination nếu lỗi, không overwrite entry và chặn path traversal/symlink/special entry;
+    - Project Explorer hỗ trợ **Create archive from selected…** và **Download selected as ZIP**; download stream trực tiếp về browser, không tạo artifact tạm trong project;
+    - file/folder context action dùng chung có Preview archive, Extract archive và Create archive;
+    - Host pane của File Transfer có **Upload + extract archive on remote…** cho SFTP profile; archive được safe-preflight local trước khi upload rồi extract qua SSH profile liên kết;
+    - FTP không expose remote extract vì protocol không có portable remote shell semantics; fail-safe thay vì giả định server hỗ trợ command riêng;
+    - shared-server tách permission: preview=read, create/extract=write, download=read+download, remote upload/extract=read+upload+write;
+    - resource budget 20.000 entry / 16 GiB được áp trên toàn archive multi-selection, không reset theo từng source;
+    - regression test bao phủ ZIP, tar.gz, traversal rejection, no-overwrite, rollback, shared authorization, UI integration và remote command quoting.
 
 21. **P1 — Unified “Open With”**
     Right-click file:
