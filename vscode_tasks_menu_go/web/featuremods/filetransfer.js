@@ -2484,7 +2484,7 @@ function attachView(profile,{activate=true,session=null}={}){
   const grantLocal=document.createElement('button');grantLocal.type='button';grantLocal.textContent='Grant';grantLocal.hidden=true;grantLocal.title='Grant read/write access to the selected local folder';
   const chooseLocal=document.createElement('button');chooseLocal.type='button';chooseLocal.textContent='Choose…';chooseLocal.hidden=true;
   left.head.append(source,rootSelect,grantLocal,chooseLocal);
-  left.source=source.value;left.rootSelect=rootSelect;left.grantLocal=grantLocal;left.chooseLocal=chooseLocal;left.memoryScope=()=>currentLeftScope(view);
+  left.source=source.value;left.sourceSelect=source;left.rootSelect=rootSelect;left.grantLocal=grantLocal;left.chooseLocal=chooseLocal;left.memoryScope=()=>currentLeftScope(view);
   left.onSelection=()=>updateTransferButtons(view);
 
   const remoteIdentity=document.createElement('span');remoteIdentity.className='ft-local-note';remoteIdentity.textContent=profile.name||profile.id;
@@ -2521,7 +2521,7 @@ function attachView(profile,{activate=true,session=null}={}){
   const toLeft=document.createElement('button');toLeft.type='button';toLeft.textContent='←';toLeft.title='Download selected remote item(s) to left';toLeft.disabled=true;
   tools.append(toRemote,compare,toLeft);divider.append(tools);view.toRemote=toRemote;view.toLeft=toLeft;view.compare=compare;
   toRemote.onclick=()=>transferLeftToRemote(view).catch(app.showError);toLeft.onclick=()=>transferRemoteToLeft(view).catch(app.showError);
-  compare.onclick=()=>compareFoldersDryRun(view).catch(app.showError);
+  compare.onclick=()=>configureAndCompareFolders(view).catch(app.showError);
 
   sites.append(left.site,divider,remote.site);
   const transferQueue=createTransferQueue(view);
@@ -2667,6 +2667,86 @@ function syncPathExcluded(path,patterns){
     try{if(syncGlobRegex(pattern).test(path))return true;}catch{}
   }
   return false;
+}
+function currentSyncOptions(view){
+  return normalizeSyncProfile({
+    profile_id:view.profile.id,left_source:view.left.source,local_root_id:view.left.localRoot?.id||'',
+    left_path:view.left.currentPath||'.',remote_path:view.remote.currentPath||'.',
+    compare_mode:'metadata',direction:'right',exclude:[],allow_delete:false
+  },view);
+}
+async function applySyncContext(view,options){
+  options=normalizeSyncProfile(options,view);
+  if(options.left_source==='local'&&options.local_root_id){
+    safeStorageSet('taskdeck:file-transfer:last-local-root:'+workspaceKey(),options.local_root_id);
+  }
+  if(view.left.sourceSelect)view.left.sourceSelect.value=options.left_source;
+  await switchLeftSource(view,options.left_source,options.left_path);
+  if(options.left_source==='local'&&options.local_root_id&&view.left.localRoot?.id!==options.local_root_id){
+    await refreshLocalRoots(view,options.local_root_id);
+    if(view.left.localRoot?.id!==options.local_root_id)throw new Error('Saved Local folder is unavailable. Choose it again before using this Sync Profile.');
+    await loadLocalDirectory(view,options.left_path);
+  }
+  view.remote.currentPath=options.remote_path;
+  if(view.remote.pathInput)view.remote.pathInput.value=options.remote_path;
+  view.remote.refreshPathMemory?.();
+  persistFileTransferSession();
+}
+function openSyncSetupDialog(view){
+  return new Promise(resolve=>{
+    let profiles=readSyncProfiles(view),selectedID='',draft=currentSyncOptions(view);
+    const backdrop=document.createElement('div');backdrop.className='ft-sync-backdrop';
+    const dialog=document.createElement('div');dialog.className='ft-sync-dialog';
+    const title=document.createElement('h3');title.textContent='Folder Sync / Mirror — Setup';
+    const note=document.createElement('div');note.className='ft-sync-note';note.textContent='Dry run is always read-only. Saved profiles keep paths/options only; destination deletion remains disabled unless explicitly enabled.';
+    const form=document.createElement('div');form.className='ft-sync-config';
+    const addField=(labelText,control)=>{const label=document.createElement('label');label.textContent=labelText;form.append(label,control);return control;};
+    const profileSelect=addField('Saved profile',document.createElement('select'));
+    const renderProfiles=()=>{
+      profileSelect.replaceChildren();
+      const current=document.createElement('option');current.value='';current.textContent='Current paths / unsaved';profileSelect.append(current);
+      for(const profile of profiles){const option=document.createElement('option');option.value=profile.id;option.textContent=profile.name;profileSelect.append(option);}
+      profileSelect.value=profiles.some(item=>item.id===selectedID)?selectedID:'';
+    };
+    const direction=addField('Default action',document.createElement('select'));
+    for(const [value,label] of [['right','Sync Left → Remote'],['left','Sync Remote → Left'],['bidirectional','Bidirectional Sync'],['mirror_right','Mirror Left → Remote'],['mirror_left','Mirror Remote → Left']]){const option=document.createElement('option');option.value=value;option.textContent=label;direction.append(option);}
+    const compare=addField('Compare mode',document.createElement('select'));
+    for(const [value,label] of [['metadata','Size + Modified time (fast)'],['checksum','SHA-256 when file sizes match (slower)']]){const option=document.createElement('option');option.value=value;option.textContent=label;compare.append(option);}
+    const excludes=addField('Exclude patterns',document.createElement('textarea'));excludes.placeholder='One glob per line, e.g.\n.git/**\nnode_modules/**\nbuild/*.tmp';
+    const deleteWrap=document.createElement('label');deleteWrap.className='ft-sync-check';
+    const allowDelete=document.createElement('input');allowDelete.type='checkbox';
+    const deleteText=document.createElement('span');deleteText.textContent='Allow destination deletes when running a saved Mirror action';
+    deleteWrap.append(allowDelete,deleteText);form.append(document.createElement('span'),deleteWrap);
+    const loadDraft=value=>{
+      draft=normalizeSyncProfile(value,view);direction.value=draft.direction;compare.value=draft.compare_mode;excludes.value=draft.exclude.join('\n');allowDelete.checked=Boolean(draft.allow_delete);
+    };
+    const readDraft=()=>normalizeSyncProfile({...draft,direction:direction.value,compare_mode:compare.value,exclude:excludes.value,allow_delete:allowDelete.checked},view);
+    profileSelect.onchange=()=>{selectedID=profileSelect.value;const profile=profiles.find(item=>item.id===selectedID);loadDraft(profile||currentSyncOptions(view));};
+    const actions=document.createElement('div');actions.className='ft-sync-actions';
+    const remove=document.createElement('button');remove.type='button';remove.textContent='Delete profile';remove.onclick=()=>{
+      if(!selectedID)return;if(!confirm('Delete this Sync Profile?'))return;deleteSyncProfile(view,selectedID);profiles=readSyncProfiles(view);selectedID='';renderProfiles();loadDraft(currentSyncOptions(view));
+    };
+    const save=document.createElement('button');save.type='button';save.textContent='Save profile…';save.onclick=()=>{
+      try{
+        const existing=profiles.find(item=>item.id===selectedID);
+        const name=prompt(existing?'Sync Profile name:':'New Sync Profile name:',existing?.name||'');if(name===null)return;
+        const saved=saveSyncProfile(view,readDraft(),name,existing?.id||'');profiles=readSyncProfiles(view);selectedID=saved.id;renderProfiles();loadDraft(saved);
+      }catch(error){app.showError(error);}
+    };
+    const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>{backdrop.remove();resolve(null);};
+    const scan=document.createElement('button');scan.type='button';scan.textContent='Dry run';scan.onclick=()=>{
+      try{const value=readDraft();backdrop.remove();resolve(value);}catch(error){app.showError(error);}
+    };
+    actions.append(remove,save,cancel,scan);dialog.append(title,note,form,actions);backdrop.append(dialog);document.body.append(backdrop);
+    renderProfiles();loadDraft(draft);profileSelect.focus();
+    backdrop.addEventListener('pointerdown',event=>{if(event.target===backdrop){backdrop.remove();resolve(null);}});
+    backdrop.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();backdrop.remove();resolve(null);}});
+  });
+}
+async function configureAndCompareFolders(view){
+  const options=await openSyncSetupDialog(view);if(!options)return;
+  await applySyncContext(view,options);
+  return compareFoldersDryRun(view,options);
 }
 
 const conflictPolicies=new Set(['ask','overwrite','skip','size_diff','source_newer','checksum_diff']);
