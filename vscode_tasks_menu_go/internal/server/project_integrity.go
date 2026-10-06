@@ -4,6 +4,7 @@ import (
 	"crypto/md5" // MD5 is exposed only for legacy compatibility/integrity comparison, not for security decisions.
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -11,6 +12,8 @@ import (
 )
 
 const maxProjectIntegrityFileBytes int64 = 4 << 30
+
+var errProjectFileTooLarge = errors.New("project file exceeds integrity hashing limit")
 
 type projectIntegrityHashResponse struct {
 	Path   string `json:"path"`
