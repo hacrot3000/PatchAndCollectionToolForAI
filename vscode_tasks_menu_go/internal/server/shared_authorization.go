@@ -142,6 +142,11 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionDBRead, identity.PermissionSettingsWrite}
 	case strings.HasPrefix(path, "/api/db/sessions/"):
 		return []string{identity.PermissionDBRead}
+	case strings.HasPrefix(path, "/api/file-transfer/profiles/"):
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionTransferRead}
+		}
+		return []string{identity.PermissionTransferRead, identity.PermissionSettingsWrite}
 	}
 	switch path {
 	case "/api/admin/users", "/api/admin/users/access", "/api/admin/users/permission":
@@ -202,7 +207,7 @@ func sharedRoutePermissions(r *http.Request) []string {
 	case "/api/file-transfer/jobs/control":
 		return []string{identity.PermissionTransferRead}
 	case "/api/file-transfer/mutate":
-		return []string{identity.PermissionTransferRead, identity.PermissionTransferUpload}
+		return []string{identity.PermissionTransferRead}
 	case "/api/file-transfer/host-mutate":
 		return []string{identity.PermissionFilesWrite}
 	case "/api/config/auth-mode":
