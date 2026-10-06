@@ -96,3 +96,24 @@ func TestWorkflowInputsIncludeDependenciesInTopologicalOrder(t *testing.T) {
 		t.Fatalf("workflow inputs=%+v", inputs)
 	}
 }
+
+
+func TestBuildWorkflowGraphRejectsInvalidWorkflowConfiguration(t *testing.T) {
+	cases := []struct{
+		name string
+		task Task
+	}{
+		{"fractional retry", workflowTask("A", nil, map[string]any{"retry":1.5})},
+		{"retry too high", workflowTask("A", nil, map[string]any{"retry":11.0})},
+		{"timeout too high", workflowTask("A", nil, map[string]any{"timeoutSeconds":86401.0})},
+		{"invalid condition", workflowTask("A", nil, map[string]any{"condition":"sometimes"})},
+		{"invalid output", workflowTask("A", nil, map[string]any{"outputs":[]any{"bad output"}})},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := BuildWorkflowGraph([]Task{tc.task}, tc.task.Label); err == nil {
+				t.Fatalf("invalid workflow configuration was accepted: %+v", tc.task.Raw)
+			}
+		})
+	}
+}
