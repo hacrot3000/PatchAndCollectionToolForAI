@@ -289,6 +289,50 @@ func TestBroadcastStateMigratesLegacyRuntimeFile(t *testing.T) {
 }
 
 
+func TestBroadcastGroupEnvironmentCreateUpdateAndValidate(t *testing.T) {
+	workspace := t.TempDir()
+	srv := &Server{Workspace: workspace, Sessions: newBroadcastTestService()}
+
+	rr := postBroadcast(t, srv, `{"action":"create_group","name":"Build","preset":"amber","environment":{"TARGET":"gateway","FEATURE_FLAG":"1"}}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create group env status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	state := decodeBroadcastState(t, rr)
+	if len(state.Groups) != 1 {
+		t.Fatalf("group count=%d want 1", len(state.Groups))
+	}
+	group := state.Groups[0]
+	if group.Environment["TARGET"] != "gateway" || group.Environment["FEATURE_FLAG"] != "1" {
+		t.Fatalf("group environment=%#v", group.Environment)
+	}
+
+	// An older client that omits environment while renaming/recoloring must not
+	// accidentally erase the stored group environment.
+	rr = postBroadcast(t, srv, `{"action":"update_group","group_id":"`+group.ID+`","name":"Build 2","preset":"forest"}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update group without env status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	state = decodeBroadcastState(t, rr)
+	if state.Groups[0].Environment["TARGET"] != "gateway" {
+		t.Fatalf("environment erased by legacy update: %#v", state.Groups[0].Environment)
+	}
+
+	// An explicit empty object clears the environment.
+	rr = postBroadcast(t, srv, `{"action":"update_group","group_id":"`+group.ID+`","name":"Build 2","preset":"forest","environment":{}}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("clear group env status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	state = decodeBroadcastState(t, rr)
+	if len(state.Groups[0].Environment) != 0 {
+		t.Fatalf("environment not cleared: %#v", state.Groups[0].Environment)
+	}
+
+	rr = postBroadcast(t, srv, `{"action":"update_group","group_id":"`+group.ID+`","name":"Build 2","preset":"forest","environment":{"BAD-NAME":"x"}}`)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("invalid env key status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestBroadcastRejectsInvalidPreset(t *testing.T) {
 	srv := &Server{Workspace: t.TempDir(), Sessions: newBroadcastTestService()}
 	rr := postBroadcast(t, srv, `{"action":"create_group","name":"Unsafe","preset":"custom-css"}`)
