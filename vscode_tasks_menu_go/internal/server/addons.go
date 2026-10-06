@@ -389,7 +389,7 @@ func (s *Server) addonActionAPI(w http.ResponseWriter, r *http.Request) {
 		Version:1,AddonID:manifest.ID,ActionID:action.ID,Workspace:s.Workspace,Context:invoke.Context,
 	})
 	if err != nil {
-		s.auditSharedSuccess(r,"addon.action.error","addon",manifest.ID+":"+action.ID,map[string]any{"error":true})
+		s.auditSharedResult(r,"addon.action","addon",manifest.ID+":"+action.ID,"error",map[string]any{"background":action.Background})
 		http.Error(w,err.Error(),http.StatusBadGateway)
 		return
 	}
