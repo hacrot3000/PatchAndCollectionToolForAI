@@ -1,6 +1,8 @@
 package server
 
 import (
+	"encoding/json"
+	"fmt"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -194,5 +196,51 @@ func TestGitSubmoduleActionsAreAsyncWithoutForcedProgressFlag(t *testing.T) {
 		if strings.Join(got, " ") != strings.Join(args, " ") {
 			t.Fatalf("%s unexpectedly rewrote args: %v", action, got)
 		}
+	}
+}
+
+
+func TestGitJobsAPIListsBackgroundJobsAndBoundsRetention(t *testing.T) {
+	s := &Server{}
+	now := time.Now()
+	for i := 0; i < maxGitJobs+7; i++ {
+		job := &gitJob{
+			ID: fmt.Sprintf("job-%03d", i),
+			RepoID: "repo",
+			Action: "fetch",
+			Command: "git fetch --progress",
+			State: "success",
+			StartedAt: now.Add(time.Duration(i)*time.Second),
+			FinishedAt: now.Add(time.Duration(i)*time.Second + time.Millisecond),
+		}
+		s.registerGitJob(job)
+	}
+	running := &gitJob{
+		ID: "running-job", RepoID: "repo", Action: "pull", Command: "git pull --ff-only",
+		State: "running", StartedAt: now.Add(24*time.Hour),
+	}
+	s.registerGitJob(running)
+
+	rr := httptest.NewRecorder()
+	s.gitJobsAPI(rr, httptest.NewRequest(http.MethodGet, "/api/git/jobs", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var payload struct{ Jobs []map[string]any `json:"jobs"` }
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Jobs) > maxGitJobs {
+		t.Fatalf("listed jobs=%d max=%d", len(payload.Jobs), maxGitJobs)
+	}
+	foundRunning := false
+	for _, item := range payload.Jobs {
+		if item["id"] == "running-job" { foundRunning = true }
+	}
+	if !foundRunning {
+		t.Fatal("running Git job was evicted from bounded history")
+	}
+	if len(payload.Jobs) == 0 || payload.Jobs[0]["id"] != "running-job" {
+		t.Fatalf("Git jobs are not newest-first: %#v", payload.Jobs)
 	}
 }
