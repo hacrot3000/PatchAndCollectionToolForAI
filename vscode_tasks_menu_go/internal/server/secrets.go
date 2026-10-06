@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 
-	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/secretstore"
 )
 
@@ -289,4 +288,3 @@ func (s *Server) secretsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var _ = identity.PermissionSecretsView
