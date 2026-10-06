@@ -542,6 +542,7 @@ Các capability mới trong Connections/Workbench:
 - Archive tools hỗ trợ preview ZIP/tar.gz không extract, create/extract an toàn trong workspace, multi-select create/download ZIP; Host archive có thể upload + extract qua SFTP profile liên kết SSH, còn FTP cố ý không giả lập remote shell;
 - Project file context menu có **Open With…** thống nhất cho Text Editor, Hex, Image Preview, Markdown Preview, Diff, Download và terminal directory; local single-user mode còn có Open via host application, còn shared-server cố ý không expose host-app launch;
 - **Ctrl/Cmd+Shift+P** mở Unified Command Palette: tìm/mở file tools, Explorer/Search/Symbols/Project Profiles/Snapshots, chạy trực tiếp task theo label, mở/refresh Git, mở SSH/Database/SFTP/FTP Connections, Settings và toàn bộ terminal actions; palette cũ của terminal được giữ alias tương thích;
+- **Ctrl/Cmd+P** mở Global Quick Open: project files qua bounded backend search, recently opened, mọi workspace tab, terminal/task session, database tab, SSH/DB/SFTP/FTP saved profiles; prefix `>` command, `@` symbol, `#` text search, `git:` branch/commit graph search và `ssh:` profile; không fetch toàn project tree;
 - server-side FTP/SFTP queue được journal qua daemon restart và upload/download có resumable partial-transfer support khi transport cho phép.
 
 Hướng dẫn sử dụng, dependency, giới hạn bảo mật, policy host key, secret rotation/backup/recovery và offline/self-update build được tổng hợp tại:
