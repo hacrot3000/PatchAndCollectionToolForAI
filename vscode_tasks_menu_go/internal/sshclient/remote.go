@@ -1,6 +1,7 @@
 package sshclient
 
 import (
+	"errors"
 	"strings"
 
 	"bletonfc/vscode_tasks_menu/internal/sshprofile"
@@ -36,6 +37,25 @@ func remoteShellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
+func BuildInteractiveCommandAt(executable string, profile sshprofile.Profile, remoteCWD string) (Command, error) {
+	p, err := sshprofile.Normalize(profile)
+	if err != nil {
+		return Command{}, err
+	}
+	remoteCWD = strings.TrimSpace(remoteCWD)
+	if remoteCWD == "" {
+		return BuildInteractiveCommand(executable, p)
+	}
+	if len(remoteCWD) > 4096 || strings.ContainsAny(remoteCWD, "\\x00\\r\\n") || !strings.HasPrefix(remoteCWD, "/") {
+		return Command{}, errors.New("remote SSH cwd must be an absolute path without control characters")
+	}
+	command, err := BuildCommand(executable, p)
+	if err != nil {
+		return Command{}, err
+	}
+	command.Args = append(command.Args, "cd -- "+remoteShellQuote(remoteCWD)+" || exit 1; exec \\\"${SHELL:-/bin/sh}\\\" -l")
+	return command, nil
+}
 func BuildInteractiveCommand(executable string, profile sshprofile.Profile) (Command, error) {
 	command, err := BuildCommand(executable, profile)
 	if err != nil {
