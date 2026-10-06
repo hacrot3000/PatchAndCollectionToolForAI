@@ -41,6 +41,7 @@ type projectFileResponse struct {
 	LargeFile  bool   `json:"large_file,omitempty"`
 	BOM        bool   `json:"bom,omitempty"`
 	Warning    string `json:"warning,omitempty"`
+	HistoryWarning string `json:"history_warning,omitempty"`
 }
 
 type projectFileSaveRequest struct {
@@ -192,6 +193,11 @@ func (s *Server) projectFileSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot finalize editor save", http.StatusInternalServerError)
 		return
 	}
+	historyWarning := ""
+	if err := recordProjectFileHistory(s.Workspace, rel, latest); err != nil {
+		historyWarning = "Saved file, but local history could not be recorded: " + err.Error()
+		if s.Log != nil { s.Log.Printf("editor local history failed for %s: %v", rel, err) }
+	}
 	_, savedInfo, err := pinned.readCurrent(projectEditableLimit)
 	if err != nil || savedInfo == nil {
 		http.Error(w, "saved file metadata unavailable", http.StatusInternalServerError)
@@ -215,6 +221,7 @@ func (s *Server) projectFileSave(w http.ResponseWriter, r *http.Request) {
 		LineEnding: lineEnding,
 		ReadOnly:   false,
 		BOM:        nextBOM,
+		HistoryWarning: historyWarning,
 	})
 }
 
