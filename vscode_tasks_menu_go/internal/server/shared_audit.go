@@ -61,7 +61,7 @@ func (s *Server) appendSharedAudit(r *http.Request, principal *identity.Principa
 	}
 }
 
-func (s *Server) auditSharedSuccess(r *http.Request, action, resourceType, resourceID string, details map[string]any) {
+func (s *Server) auditSharedResult(r *http.Request, action, resourceType, resourceID, result string, details map[string]any) {
 	if !s.Config.SharedServerEnabled {
 		return
 	}
@@ -69,5 +69,9 @@ func (s *Server) auditSharedSuccess(r *http.Request, action, resourceType, resou
 	if !ok {
 		return
 	}
-	s.appendSharedAudit(r, &principal, nil, action, resourceType, resourceID, "success", details)
+	s.appendSharedAudit(r, &principal, nil, action, resourceType, resourceID, result, details)
+}
+
+func (s *Server) auditSharedSuccess(r *http.Request, action, resourceType, resourceID string, details map[string]any) {
+	s.auditSharedResult(r, action, resourceType, resourceID, "success", details)
 }
