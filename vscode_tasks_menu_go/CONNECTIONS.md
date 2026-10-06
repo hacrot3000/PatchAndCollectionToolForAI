@@ -191,13 +191,19 @@ Bên dưới hai file panes có **Transfer Queue** dùng chung cho upload/downlo
 
 ### Folder sync / mirror
 
-File workspace có compare/sync workflow cho Host ↔ Remote:
+File workspace có compare/sync workflow cho **Host hoặc Local browser ↔ Remote**:
 
-- scan hai phía và phân loại Only source / Only destination / Different / Same;
-- **dry-run plan** được tạo trước khi thay đổi;
-- copy/update/delete actions được biểu diễn rõ trong plan;
-- mirror/delete không chạy trực tiếp khi chưa qua preview/confirmation;
-- execution dùng cùng transfer queue/scanner/recovery model, không tạo pipeline song song riêng.
+- nút Folder Sync mở **Setup** trước khi scan; có thể dùng path hiện tại hoặc chọn một **Sync Profile** đã lưu theo workspace + FTP/SFTP profile;
+- profile lưu left source/root/path, remote path, compare mode, default action, exclude globs và cờ cho phép delete; profile không chứa credential;
+- exclude hỗ trợ glob kiểu `*`, `?`, `**` và được áp dụng ngay trong recursive scan, trước khi item đi vào dry-run plan;
+- scan hai phía và phân loại **Left only / Remote only / Different / Same / Type mismatch**;
+- compare mặc định dùng size + Modified time; chế độ **SHA-256** short-circuit khi size khác và hash cả hai file khi size bằng nhau;
+- **dry-run plan luôn read-only**; file chỉ thay đổi sau khi người dùng bấm action trong preview;
+- one-way Sync copy/update theo hướng đã chọn;
+- **Bidirectional Sync** chỉ tự copy các path chỉ tồn tại ở một phía; file tồn tại ở cả hai phía nhưng khác nội dung/metadata được đánh dấu **Conflict** và không tự chọn bên thắng;
+- Mirror chạy copy/update trước, rồi mới delete các item chỉ tồn tại ở destination; **delete mặc định OFF** và action Mirror bị khóa cho đến khi bật `Allow destination deletes`;
+- trước khi Mirror delete vẫn có confirmation riêng; type mismatch và bidirectional conflict không bị delete tự động;
+- execution tái sử dụng transfer queue/scanner/recovery hiện có cho upload/download/remote delete; Local browser vẫn giữ boundary của File System Access API và permission của browser.
 
 
 ### Duplicate file conflict policy
