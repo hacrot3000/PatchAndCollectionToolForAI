@@ -75,6 +75,9 @@ func startTunnelProcess(
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start SSH tunnel: %w", err)
 	}
+	if cmd.Process != nil {
+		tunnel.meta.PID = cmd.Process.Pid
+	}
 	go tunnel.wait()
 
 	if err := tunnel.waitReady(startupCtx); err != nil {
