@@ -42,6 +42,12 @@ func TestBroadcastFeatureModule(t *testing.T) {
 		"Tab color preset",
 		"delete_group",
 		"update_group",
+		"Environment for new terminals in this group",
+		"function parseEnvironmentText(value)",
+		"function startGroupTerminal(group)",
+		"NEW TERMINAL IN GROUP",
+		"env:normalizeGroupEnvironment(group.environment)",
+		"action:'assign',session_id:meta.id,group_id:group.id",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("broadcast.js missing %q", want)
