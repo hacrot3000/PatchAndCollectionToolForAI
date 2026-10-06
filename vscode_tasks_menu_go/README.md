@@ -531,6 +531,8 @@ Database session có **Workbench UI** gồm navigator + context menu, Data grid 
 
 **Database Schema Diff** so sánh hai database session đang mở theo hướng **Source → Target** chỉ bằng metadata (`list_objects` + `describe_object`), không đọc table data. Snapshot chuẩn hóa columns/indexes/foreign keys/SQL definition, có export structure JSON và preview migration SQL. MySQL hỗ trợ sinh `ADD/DROP/MODIFY COLUMN` cùng create/drop object khi metadata đủ; SQLite chỉ tự sinh DDL tương thích rõ ràng và để warning cho thay đổi cần table rebuild. Apply luôn chạy sau preview; destructive migration yêu cầu nhập `APPLY <catalog>`, target read-only bị chặn, và tiến độ được đưa vào Operation Center.
 
+**Transaction workspace** dùng chính DB session hiện hữu. MySQL/SQLite có Begin/Commit/Rollback, badge `TX ACTIVE` và toggle **Auto-commit** (mặc định bật). Tắt Auto-commit sẽ mở transaction thật; bật lại bị chặn cho đến khi Commit/Rollback để không commit ngầm. Data Grid và editable Query result có thể Apply nhiều nhóm thay đổi liên tiếp trong cùng transaction; Commit/Rollback bị chặn nếu còn edit local chưa Apply/Revert, và các grid/SELECT result được reload sau khi transaction kết thúc để phản ánh dữ liệu thật.
+
 Các capability mới trong Connections/Workbench:
 
 - MySQL và SQLite có explicit transaction **Begin / Commit / Rollback** trên một connection thật; trong transaction, grid/object actions bị gate để không chạy trên connection khác;
