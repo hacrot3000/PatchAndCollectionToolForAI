@@ -25,7 +25,10 @@ type ownershipTestService struct {
 	stopped   []string
 	killed    []string
 	cleared   []string
-	currentCwds map[string]string
+	currentCwds    map[string]string
+	cloneSupported bool
+	clonedFrom     []string
+	cloneOptions   []session.TerminalCloneOptions
 }
 
 type sharedWebSocketTestService struct {
@@ -77,6 +80,16 @@ func (s *ownershipTestService) CurrentCwd(id string) (string, error) {
 }
 
 func (s *ownershipTestService) SupportsSessionOwnership() bool { return s.supported }
+func (s *ownershipTestService) SupportsTerminalClone() bool { return s.cloneSupported }
+func (s *ownershipTestService) CloneTerminal(id string, options session.TerminalCloneOptions) (session.Metadata, error) {
+	s.clonedFrom = append(s.clonedFrom, id)
+	s.cloneOptions = append(s.cloneOptions, options)
+	return session.Metadata{
+		ID: "clone-" + id, Kind: tasks.SessionKindTerminal, OwnerUserID: options.OwnerUserID,
+		ProjectID: options.ProjectID, Label: "Terminal", Status: "running", Cwd: "/clone",
+		TargetType: "local",
+	}, nil
+}
 func (s *ownershipTestService) List() []session.Metadata {
 	return append([]session.Metadata(nil), s.items...)
 }
@@ -503,5 +516,60 @@ func TestSharedSessionWebSocketRejectsCrossOriginHandshake(t *testing.T) {
 			status = response.StatusCode
 		}
 		t.Fatalf("cross-origin WebSocket status=%d err=%v", status, err)
+	}
+}
+
+func TestSharedTerminalCloneRequiresControlAndCreatePermission(t *testing.T) {
+	service := &ownershipTestService{
+		supported: true,
+		cloneSupported: true,
+		items: []session.Metadata{{
+			ID: "terminal-1", Kind: tasks.SessionKindTerminal, TaskID: 0,
+			OwnerUserID: "alice", ProjectID: "project-1", Label: "Terminal",
+			Status: "running", Cwd: "/work", TargetType: "local",
+		}},
+	}
+	s := sharedSessionTestServer(t, service)
+
+	allowed := identity.Principal{
+		UserID: "alice", ProjectID: "project-1",
+		Permissions: map[string]bool{
+			identity.PermissionTerminalControlOwn: true,
+			identity.PermissionTerminalCreate: true,
+		},
+	}
+	rr := httptest.NewRecorder()
+	s.sessionItem(rr, sharedSessionRequest(http.MethodPost, "/api/sessions/terminal-1/clone", "", allowed))
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("clone status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if len(service.clonedFrom) != 1 || service.clonedFrom[0] != "terminal-1" {
+		t.Fatalf("clone sources=%v", service.clonedFrom)
+	}
+	if len(service.cloneOptions) != 1 || service.cloneOptions[0].OwnerUserID != "alice" || service.cloneOptions[0].ProjectID != "project-1" {
+		t.Fatalf("clone options=%+v", service.cloneOptions)
+	}
+	if !strings.Contains(rr.Body.String(), "\"owner_user_id\":\"alice\"") || !strings.Contains(rr.Body.String(), "\"project_id\":\"project-1\"") {
+		t.Fatalf("clone response=%s", rr.Body.String())
+	}
+
+	noCreate := identity.Principal{
+		UserID: "alice", ProjectID: "project-1",
+		Permissions: map[string]bool{identity.PermissionTerminalControlOwn: true},
+	}
+	rr = httptest.NewRecorder()
+	s.sessionItem(rr, sharedSessionRequest(http.MethodPost, "/api/sessions/terminal-1/clone", "", noCreate))
+	if rr.Code != http.StatusForbidden || len(service.clonedFrom) != 1 {
+		t.Fatalf("clone without create status=%d calls=%v", rr.Code, service.clonedFrom)
+	}
+
+	noControl := identity.Principal{
+		UserID: "alice", ProjectID: "project-1",
+		Permissions: map[string]bool{identity.PermissionTerminalCreate: true},
+	}
+	rr = httptest.NewRecorder()
+	s.sessionItem(rr, sharedSessionRequest(http.MethodPost, "/api/sessions/terminal-1/clone", "", noControl))
+	if rr.Code != http.StatusForbidden || len(service.clonedFrom) != 1 {
+		t.Fatalf("clone without control status=%d calls=%v", rr.Code, service.clonedFrom)
 	}
 }
