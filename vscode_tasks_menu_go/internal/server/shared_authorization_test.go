@@ -61,6 +61,7 @@ func TestSharedRoutePermissionsSeparateReadWriteAndGitViews(t *testing.T) {
 		{http.MethodGet, "/api/project/file", []string{identity.PermissionFilesRead}},
 		{http.MethodGet, "/api/project/file-history?path=sample.txt", []string{identity.PermissionFilesRead}},
 		{http.MethodGet, "/api/project/bytes", []string{identity.PermissionFilesRead}},
+		{http.MethodGet, "/api/project/symbols?q=main", []string{identity.PermissionFilesRead}},
 		{http.MethodPut, "/api/project/file", []string{identity.PermissionFilesWrite}},
 		{http.MethodPost, "/api/project/content/replace", []string{identity.PermissionFilesWrite}},
 		{http.MethodGet, "/api/project/git-status", []string{identity.PermissionFilesRead, identity.PermissionGitStatus}},
