@@ -637,3 +637,40 @@ func TestEditorLocalFileHistoryUI(t *testing.T) {
 		t.Fatal("local file history contents/warnings must not be persisted through browser localStorage")
 	}
 }
+
+func TestEditorLightweightSymbolOutlineAndBreadcrumb(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"editor-outline-toggle",
+		"editor-outline-dialog",
+		"editor-breadcrumb",
+		"const editorSymbolControlWords=new Set(",
+		"function editorSymbolLanguage(pathValue)",
+		"function editorSymbolFromLine(line,language)",
+		"function extractEditorSymbols(text,pathValue)",
+		"function jumpEditorToLine(view,lineNumber)",
+		"function currentEditorSymbol(view,symbols=null)",
+		"function updateEditorBreadcrumb(view)",
+		"function showEditorOutline(view)",
+		"out.length<1000",
+		"language==='go'",
+		"language==='javascript'",
+		"language==='python'",
+		"language==='c-family'",
+		"language==='php'",
+		"language==='rust'",
+		"language==='shell'",
+		"breadcrumb.textContent=basename(view.file.path)+(symbol?' › '+symbol.kind+' '+symbol.name:'')",
+		"outline.onclick=()=>showEditorOutline(view)",
+		"row.onclick=()=>{finish();jumpEditorToLine(view,item.line);}",
+		"cm.contentDOM.addEventListener('keyup',()=>updateEditorBreadcrumb(view))",
+		"extractEditorSymbols,",
+		"showEditorOutline,",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor symbol outline support missing %q", want)
+		}
+	}
+}
