@@ -235,6 +235,10 @@ func sharedRoutePermissions(r *http.Request) []string {
 			return []string{identity.PermissionSettingsRead}
 		}
 		return []string{identity.PermissionSettingsWrite}
+	case "/api/git/jobs":
+		return []string{identity.PermissionGitStatus}
+	case "/api/git/jobs/control":
+		return []string{identity.PermissionGitWrite}
 	case "/api/git/conflict-file":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionGitDiff, identity.PermissionFilesRead}
