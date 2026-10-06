@@ -648,7 +648,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - transaction controls đồng bộ trên mọi Query tab thuộc cùng DB session;
     - regression test khóa Auto-commit semantics, pending-edit guard, Data Grid bridge và transaction refresh.
 
-29. **P2 — DB query explain**
+29. **P2 — DB query explain** — ✅ **COMPLETE**
     MySQL:
     - EXPLAIN.
     - EXPLAIN ANALYZE nếu server hỗ trợ.
@@ -657,6 +657,17 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - EXPLAIN QUERY PLAN.
     
     Hiển thị plan dạng tree.
+
+    Hoàn tất:
+    - Query toolbar đã có Explain cho MySQL/SQLite và Explain Analyze riêng cho MySQL/MariaDB;
+    - sửa lỗi wiring cũ khiến nút Explain Analyze không truyền cờ `analyze` và thực tế chỉ chạy EXPLAIN thường;
+    - SQLite dùng `EXPLAIN QUERY PLAN`, normalize các row `id / parent / detail` thành cây;
+    - MySQL EXPLAIN thường nhóm plan theo SELECT id/select_type rồi table/access type;
+    - MySQL EXPLAIN ANALYZE parse output text `->`/indent thành cây execution plan;
+    - Analyze chỉ cho SELECT/WITH vì có thực thi query; nếu server trả syntax/not-supported, UI báo capability rõ ràng và ẩn nút Analyze cho session đó;
+    - plan tree giữ Raw plan result dạng JSON để debug adapter/server-specific output;
+    - Explain vẫn dùng query cancel capability hiện hữu và không thay đổi normal Run result flow;
+    - regression test khóa Analyze wiring thật, SQLite/MySQL tree builders, raw fallback và unsupported-server behavior.
 
 30. **P2 — Connection tunneling graph**
     Với SSH + DB + SFTP:
