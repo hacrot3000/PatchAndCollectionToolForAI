@@ -47,8 +47,13 @@ function buttonAction(view,selector,label,keywords='',shortcut=''){
 function permissionAllowed(permission){
   return !app.sharedMode||Boolean(app.hasPermission?.(permission)||app.hasPermission?.('project.admin'));
 }
+function activeEditorView(){
+  const editor=globalThis.TaskMenuEditor;return editor?.active?editor.editors?.get?.(editor.active)||null:null;
+}
 function staticProjectCommands(){
+  const activeEditor=activeEditorView();
   return [
+    {id:'lsp-open',label:'Editor: Language Server…',keywords:'lsp diagnostics hover definition references rename symbol gopls clangd pylsp typescript',disabled:!activeEditor,run:()=>globalThis.TaskMenuLSP?.open?.(activeEditor)},
     {id:'project-quick-open',label:'File: Quick Open…',keywords:'open file project ctrl p',shortcut:'Ctrl+P',disabled:!permissionAllowed('files.read'),run:()=>globalThis.TaskMenuQuickOpen?.open?.()},
     {id:'project-explorer',label:'Project: Open Explorer',keywords:'files folders tree',disabled:!permissionAllowed('files.read'),run:()=>globalThis.TaskMenuExplorer?.open?.()},
     {id:'project-search',label:'Project: Search in Files…',keywords:'find replace text workspace',shortcut:'Ctrl+Shift+F',disabled:!permissionAllowed('files.read'),run:()=>globalThis.TaskMenuProjectSearch?.open?.()},
