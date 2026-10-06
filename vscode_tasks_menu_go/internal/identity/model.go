@@ -119,11 +119,14 @@ type AuditEvent struct {
 }
 
 type AuditQuery struct {
-	ProjectID ID
-	UserID    ID
-	Action    string
-	Before    *time.Time
-	Limit     int
+	ProjectID    ID
+	UserID       ID
+	Action       string
+	ResourceType string
+	ResourceID   string
+	Result       string
+	Before       *time.Time
+	Limit        int
 }
 
 // Principal is the request-scoped identity/authorization projection consumed by
