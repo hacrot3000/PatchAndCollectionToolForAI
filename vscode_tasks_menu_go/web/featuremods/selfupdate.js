@@ -38,6 +38,20 @@ checkUpdate.textContent='Check update';
 checkUpdate.title='Check GitHub for a newer TaskDeck revision';
 document.querySelector('header')?.append(checkUpdate);
 
+function canCheckSelfUpdate(){
+  return !app.sharedMode||Boolean(app.hasPermission?.('selfupdate.check')||app.hasPermission?.('project.admin'));
+}
+function canRunSelfUpdate(){
+  return !app.sharedMode||Boolean(app.hasPermission?.('selfupdate.run')||app.hasPermission?.('project.admin'));
+}
+function syncSelfUpdatePermissionUI(){
+  const canCheck=canCheckSelfUpdate(),canRun=canRunSelfUpdate();
+  checkUpdate.hidden=!canCheck;
+  checkUpdate.dataset.canRun=canRun?'1':'0';
+  if(canCheck&&!canRun)checkUpdate.title='Check for TaskDeck updates (starting an update requires selfupdate.run)';
+}
+syncSelfUpdatePermissionUI();
+
 function resetCheckUpdateButton(){
   if(!checkUpdate.isConnected)return;
   checkUpdate.disabled=false;
@@ -130,6 +144,7 @@ function hide(){overlay.classList.remove('visible','nonblocking');dialog.classLi
 
 async function checkAndStartUpdate(){
   if(startingFromSettings)return;
+  if(!canCheckSelfUpdate())throw new Error('Self-update check permission is required');
   checkUpdate.disabled=true;
   checkUpdate.textContent='Checking…';
   try{
@@ -137,6 +152,12 @@ async function checkAndStartUpdate(){
     if(!result?.available){
       const short=String(result?.installed_revision||'').slice(0,12);
       showCheckUpdateFeedback(short?'Up to date · '+short:'Up to date');
+      return;
+    }
+    if(!canRunSelfUpdate()){
+      const revision=String(result?.revision||result?.remote_revision||'').slice(0,12);
+      showCheckUpdateFeedback(revision?'Update available · '+revision:'Update available',2600);
+      checkUpdate.title='Update available; selfupdate.run permission is required to install it';
       return;
     }
 
@@ -224,6 +245,7 @@ function redirectAfterUpdate(req){
 }
 
 async function poll(){
+  if(!canCheckSelfUpdate())return;
   try{
     const req=await app.jsonFetch(endpoint);
     if(!req||req.status==='idle'||!req.id){
@@ -281,10 +303,13 @@ function selfUpdateOperationSnapshot(){
   }];
 }
 async function selfUpdateOperationControl(_operation,action){
-  if(action==='open'){if(currentRequest?.status&&currentRequest.status!=='idle')show(currentRequest);return true;}
-  if(action==='retry')return checkAndStartUpdate();
+  if(action==='open'){if(currentRequest?.status&&currentRequest.status!=='idle'&&canCheckSelfUpdate())show(currentRequest);return true;}
+  if(action==='retry'){
+    if(!canRunSelfUpdate())throw new Error('Self-update run permission is required');
+    return checkAndStartUpdate();
+  }
   throw new Error('Unsupported self-update operation action');
 }
-globalThis.TaskMenuSelfUpdate={operationSnapshot:selfUpdateOperationSnapshot,operationControl:selfUpdateOperationControl,checkAndStartUpdate,get current(){return {...currentRequest};}};
+globalThis.TaskMenuSelfUpdate={operationSnapshot:selfUpdateOperationSnapshot,operationControl:selfUpdateOperationControl,checkAndStartUpdate,canCheck:canCheckSelfUpdate,canRun:canRunSelfUpdate,syncPermissionUI:syncSelfUpdatePermissionUI,get current(){return {...currentRequest};}};
 
 setInterval(poll,900);setTimeout(poll,150);
