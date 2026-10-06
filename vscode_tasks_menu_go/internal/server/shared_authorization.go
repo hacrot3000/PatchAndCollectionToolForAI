@@ -254,6 +254,8 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionProjectAdmin}
 	case "/api/addons":
 		return []string{identity.PermissionSettingsRead}
+	case "/api/lsp":
+		return []string{identity.PermissionFilesRead}
 	case "/api/config/page-title", "/api/config/terminal-cwds", "/api/config/running-indicator", "/api/config/self-update", "/api/command-presets", "/api/config-backup":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionSettingsRead}
