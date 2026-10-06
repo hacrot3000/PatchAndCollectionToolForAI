@@ -79,9 +79,15 @@ func (s *Server) collectProjectArchiveSources(paths []string, outputVirtual stri
 	return sources, nil
 }
 
-func walkProjectArchiveSource(source projectArchiveSource, fn func(string, string, os.FileInfo) error) error {
-	var entries int
-	var total int64
+type projectArchiveBudget struct {
+	entries int
+	total int64
+}
+
+func walkProjectArchiveSource(source projectArchiveSource, budget *projectArchiveBudget, fn func(string, string, os.FileInfo) error) error {
+	if budget == nil {
+		return errors.New("archive resource budget is required")
+	}
 	return filepath.Walk(source.Path, func(current string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -100,23 +106,24 @@ func walkProjectArchiveSource(source projectArchiveSource, fn func(string, strin
 		if rel != "." {
 			name = pathpkg.Join(source.Base, filepath.ToSlash(rel))
 		}
-		entries++
-		if entries > maxProjectArchiveEntries {
+		budget.entries++
+		if budget.entries > maxProjectArchiveEntries {
 			return errProjectArchiveLimit
 		}
 		if info.Mode().IsRegular() {
-			if info.Size() < 0 || total+info.Size() > maxProjectArchiveTotalBytes {
+			if info.Size() < 0 || budget.total+info.Size() > maxProjectArchiveTotalBytes {
 				return errProjectArchiveLimit
 			}
-			total += info.Size()
+			budget.total += info.Size()
 		}
 		return fn(current, name, info)
 	})
 }
 
 func writeProjectZip(writer *zip.Writer, sources []projectArchiveSource) error {
+	budget := &projectArchiveBudget{}
 	for _, source := range sources {
-		if err := walkProjectArchiveSource(source, func(current, name string, info os.FileInfo) error {
+		if err := walkProjectArchiveSource(source, budget, func(current, name string, info os.FileInfo) error {
 			header, err := zip.FileInfoHeader(info)
 			if err != nil {
 				return err
@@ -153,8 +160,9 @@ func writeProjectZip(writer *zip.Writer, sources []projectArchiveSource) error {
 func writeProjectTarGz(writer io.Writer, sources []projectArchiveSource) error {
 	gz := gzip.NewWriter(writer)
 	tw := tar.NewWriter(gz)
+	budget := &projectArchiveBudget{}
 	for _, source := range sources {
-		if err := walkProjectArchiveSource(source, func(current, name string, info os.FileInfo) error {
+		if err := walkProjectArchiveSource(source, budget, func(current, name string, info os.FileInfo) error {
 			header, err := tar.FileInfoHeader(info, "")
 			if err != nil {
 				return err
