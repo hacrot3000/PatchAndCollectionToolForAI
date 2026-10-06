@@ -208,7 +208,9 @@ func scanProjectSymbolsRoot(ctx context.Context, root workspaceRootView, query s
 		if entry.Type()&os.ModeSymlink!=0 || !entry.Type().IsRegular() || ignore.matches(rel,false) || projectSymbolLanguage(rel)=="" { return nil }
 		info,err:=entry.Info();if err!=nil||info.Size()<0||info.Size()>projectSymbolFileMaxBytes{return nil}
 		if response.ScannedBytes+info.Size()>projectSymbolSearchMaxBytes { response.Truncated=true;return errProjectSymbolScanDone }
-		data,err:=os.ReadFile(current);if err!=nil||strings.IndexByte(string(data),0)>=0{return nil}
+		pinned,err:=openProjectPinnedFile(root.Path,current);if err!=nil{return nil}
+		data,_,readErr:=pinned.readCurrent(projectSymbolFileMaxBytes);pinned.close()
+		if readErr!=nil||strings.IndexByte(string(data),0)>=0{return nil}
 		response.ScannedFiles++;response.ScannedBytes+=int64(len(data))
 		virtual:=workspaceVirtualPath(root.ID,rel)
 		for _,item:=range projectSymbolsFromText(virtual,string(data),query,projectSymbolMaxResults){
@@ -230,9 +232,13 @@ func (s *Server) projectSymbols(w http.ResponseWriter,r *http.Request){
 	if pathValue!="" {
 		rel,err:=cleanProjectRelativePath(pathValue,false);if err!=nil{http.Error(w,err.Error(),http.StatusBadRequest);return}
 		resolved,err:=s.resolveProjectPath(rel,false,false);if err!=nil{http.Error(w,"project file unavailable",http.StatusNotFound);return}
-		info,err:=os.Stat(resolved);if err!=nil||!info.Mode().IsRegular(){http.Error(w,"project file unavailable",http.StatusNotFound);return}
-		if info.Size()>projectSymbolFileMaxBytes{http.Error(w,"project file is too large for symbol outline",http.StatusRequestEntityTooLarge);return}
-		data,err:=os.ReadFile(resolved);if err!=nil{http.Error(w,"project file unavailable",http.StatusNotFound);return}
+		rootView,_,rootErr:=s.projectRootForVirtualPath(rel);if rootErr!=nil{http.Error(w,"project root unavailable",http.StatusNotFound);return}
+		pinned,err:=openProjectPinnedFile(rootView.Path,resolved);if err!=nil{http.Error(w,"project file unavailable",http.StatusNotFound);return}
+		data,info,readErr:=pinned.readCurrent(projectSymbolFileMaxBytes);pinned.close()
+		if readErr!=nil||info==nil||!info.Mode().IsRegular(){
+			if readErr==errPinnedProjectFileTooLarge{http.Error(w,"project file is too large for symbol outline",http.StatusRequestEntityTooLarge);return}
+			http.Error(w,"project file unavailable",http.StatusNotFound);return
+		}
 		results:=projectSymbolsFromText(rel,string(data),query,limit)
 		writeJSON(w,http.StatusOK,projectSymbolSearchResponse{Results:results,ScannedFiles:1,ScannedBytes:int64(len(data))});return
 	}
