@@ -260,7 +260,7 @@ func sharedRoutePermissions(r *http.Request) []string {
 	case "/api/remote-workspaces":
 		if r.Method == http.MethodGet { return []string{identity.PermissionSettingsRead} }
 		return []string{identity.PermissionSettingsWrite}
-	case "/api/remote-workspace-git":
+	case "/api/remote-workspace-files", "/api/remote-workspace-git":
 		return []string{identity.PermissionSSHUse}
 	case "/api/lsp":
 		return []string{identity.PermissionFilesRead}
