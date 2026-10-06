@@ -72,7 +72,7 @@ func (s *Server) dbSessions(w http.ResponseWriter, r *http.Request) {
 		openCtx, cancel := context.WithTimeout(r.Context(), databaseOpenTimeout)
 		defer cancel()
 
-		effectiveHost, effectivePort, cleanup, err := s.prepareDatabaseTransport(openCtx, profile)
+		effectiveHost, effectivePort, tunnelMeta, cleanup, err := s.prepareDatabaseTransport(openCtx, profile)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
@@ -124,6 +124,28 @@ func (s *Server) dbSessions(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
+		transport := string(profile.Transport)
+		if transport == "" {
+			transport = string(dbprofile.TransportDirect)
+		}
+		runtimeMeta := dbsession.TransportMetadata{Transport: transport}
+		if tunnelMeta.ID != "" {
+			runtimeMeta.TunnelID = tunnelMeta.ID
+			runtimeMeta.TunnelPID = tunnelMeta.PID
+			runtimeMeta.SSHProfileID = tunnelMeta.SSHProfileID
+			runtimeMeta.TunnelLocalHost = tunnelMeta.LocalHost
+			runtimeMeta.TunnelLocalPort = tunnelMeta.LocalPort
+			runtimeMeta.TunnelRemoteHost = tunnelMeta.RemoteHost
+			runtimeMeta.TunnelRemotePort = tunnelMeta.RemotePort
+			runtimeMeta.TunnelStartedAt = tunnelMeta.StartedAt
+		}
+		if err := manager.SetTransportMetadata(meta.ID, runtimeMeta); err != nil {
+			_ = manager.CloseSession(meta.ID)
+			s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: "open", ProfileID: profile.ID, SessionID: meta.ID, Success: false})
+			http.Error(w, "cannot attach database transport metadata", http.StatusInternalServerError)
+			return
+		}
+		meta, _ = manager.Get(meta.ID)
 		s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: "open", ProfileID: profile.ID, SessionID: meta.ID, Success: true})
 		writeJSON(w, http.StatusCreated, meta)
 	default:
