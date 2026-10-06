@@ -773,8 +773,17 @@ window.addEventListener('taskmenu:git-status-refreshed',()=>{
   loadGitStatus().then(()=>render()).catch(()=>{});
 });
 
+async function refreshWatchedDirectory(pathValue){
+  pathValue=String(pathValue||'').trim();
+  if(pathValue&&!expanded.has(pathValue))return false;
+  await loadDirectory(pathValue,true);
+  render();
+  return true;
+}
+
 globalThis.TaskMenuExplorer={
   open,close,reload,reveal:revealPath,openContainingFolder,undo:undoLastOperation,movePathsToDirectory,refreshGitStatus:async()=>{await loadGitStatus();render();},
+  refreshWatchedDirectory,
   snapshotState(){return {expanded:[...expanded]};},
   async restoreState(state){
     expanded.clear();
@@ -788,5 +797,5 @@ globalThis.TaskMenuExplorer={
     render();
     return true;
   },
-  get selectedPaths(){return [...selected];},get favorites(){return [...favorites];},get recent(){return [...recent];},get clipboard(){return {mode:fileClipboard.mode,paths:[...fileClipboard.paths]};},get gitStatusAvailable(){return gitStatusAvailable;},get lastUndo(){return lastUndo?{label:lastUndo.label,steps:[...lastUndo.steps]}:null;}
+  get selectedPaths(){return [...selected];},get expandedPaths(){return [...expanded];},get favorites(){return [...favorites];},get recent(){return [...recent];},get clipboard(){return {mode:fileClipboard.mode,paths:[...fileClipboard.paths]};},get gitStatusAvailable(){return gitStatusAvailable;},get lastUndo(){return lastUndo?{label:lastUndo.label,steps:[...lastUndo.steps]}:null;}
 };
