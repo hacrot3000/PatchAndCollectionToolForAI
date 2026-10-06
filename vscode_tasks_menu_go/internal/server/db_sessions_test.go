@@ -402,6 +402,15 @@ func TestDatabaseSessionAPIOpensAndCleansSSHTunnel(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &meta); err != nil {
 		t.Fatal(err)
 	}
+	if meta.Transport != string(dbprofile.TransportSSHTunnel) || meta.TunnelID == "" || meta.TunnelPID <= 0 {
+		t.Fatalf("database session missing linked tunnel runtime metadata: %+v", meta)
+	}
+	if meta.SSHProfileID != sshProfile.ID || meta.TunnelLocalHost != "127.0.0.1" || meta.TunnelLocalPort <= 0 {
+		t.Fatalf("database session tunnel endpoint metadata=%+v", meta)
+	}
+	if meta.TunnelRemoteHost != "db.internal" || meta.TunnelRemotePort != 3306 || meta.TunnelStartedAt == "" {
+		t.Fatalf("database session remote tunnel metadata=%+v", meta)
+	}
 	if len(tunnelManager.List()) != 1 {
 		t.Fatalf("tunnels after open=%+v", tunnelManager.List())
 	}
