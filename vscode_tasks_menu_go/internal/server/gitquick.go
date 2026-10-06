@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"bletonfc/vscode_tasks_menu/internal/identity"
 )
 
 const gitOutputLimit = 512 << 10
@@ -954,6 +956,17 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	action := strings.TrimSpace(req.Action)
+	if !s.requireSharedActionPermission(w, r, identity.PermissionGitWrite, action, "git") {
+		return
+	}
+	switch action {
+	case "push":
+		if !s.requireSharedActionPermission(w, r, identity.PermissionGitPush, action, "git") { return }
+	case "delete_remote_branch":
+		if !s.requireSharedActionPermission(w, r, identity.PermissionGitRemoteDelete, action, "git") { return }
+	case "force_delete_branch":
+		if !s.requireSharedActionPermission(w, r, identity.PermissionGitForceDelete, action, "git") { return }
+	}
 	args := []string{}
 	timeout := 20 * time.Second
 	switch action {
