@@ -30,6 +30,22 @@ func TestExplorerLoadsDirectoriesLazily(t *testing.T) {
 	}
 }
 
+func TestExplorerContextMenuKeepsAutoHideSidebarOpen(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"contextMenu.className='project-explorer-context'",
+		"contextMenu.dataset.taskSidebarKeepOpen='1'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("explorer context menu sidebar ownership missing %q", want)
+		}
+	}
+}
+
 func TestExplorerModuleLoadsBeforeMenus(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/next.js")
 	if err != nil {

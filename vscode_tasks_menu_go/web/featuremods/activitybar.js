@@ -335,6 +335,7 @@ function installActivityBar(){
     if(!enabled()||!activeView)return;
     const target=event.target;
     if(!(target instanceof Node))return;
+    if(target instanceof Element&&target.closest('[data-task-sidebar-keep-open="1"]'))return;
     if(rail.contains(target))return;
     const headerMenus=document.querySelector('.header-action-menus');
     if(headerMenus?.contains(target))return;

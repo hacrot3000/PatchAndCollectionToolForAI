@@ -32,6 +32,7 @@ func TestActivityBarIsAdditiveAndFailureIsolated(t *testing.T) {
 		"TaskMenuExplorer?.open()",
 		"TaskMenuExplorer?.close()",
 		"document.addEventListener('pointerdown'",
+		"target.closest('[data-task-sidebar-keep-open=\"1\"]')",
 		"rail.contains(target)",
 		"const headerMenus=document.querySelector('.header-action-menus')",
 		"if(headerMenus?.contains(target))return",

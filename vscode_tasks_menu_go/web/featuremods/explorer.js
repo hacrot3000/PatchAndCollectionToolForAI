@@ -57,7 +57,7 @@ const refresh=document.createElement('button');refresh.type='button';refresh.tex
 const closeButton=document.createElement('button');closeButton.type='button';closeButton.textContent='×';closeButton.title='Close explorer';
 const saved=document.createElement('div');saved.className='project-explorer-saved';
 const tree=document.createElement('div');tree.className='project-explorer-tree';
-const contextMenu=document.createElement('div');contextMenu.className='project-explorer-context';
+const contextMenu=document.createElement('div');contextMenu.className='project-explorer-context';contextMenu.dataset.taskSidebarKeepOpen='1';
 head.append(title,rootButton,newFileButton,newFolderButton,undoButton,refresh,closeButton);panel.append(head,saved,tree);document.body.append(panel,contextMenu);
 
 const loaded=new Map();
