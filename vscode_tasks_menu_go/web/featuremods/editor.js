@@ -876,7 +876,7 @@ async function showEditorLocalHistory(view){
     const compare=document.createElement('button');compare.type='button';compare.textContent='Compare';
     const restore=document.createElement('button');restore.type='button';restore.textContent='Restore';restore.disabled=editorReadOnly(view);restore.title=restore.disabled?'Restore is disabled in read-only mode':'Restore this version';
     compare.onclick=async()=>{try{const entry=await loadEditorLocalHistoryEntry(view,item.id);await showEditorHistoryCompare(view,entry);}catch(error){app.showError(error);}};
-    restore.onclick=async()=>{try{const entry=await loadEditorLocalHistoryEntry(view,item.id);if(await restoreEditorLocalHistory(view,entry)){backdrop.remove();}}catch(error){app.showError(error);}};
+    restore.onclick=async()=>{try{const entry=await loadEditorLocalHistoryEntry(view,item.id);if(await restoreEditorLocalHistory(view,entry))finish();}catch(error){app.showError(error);}};
     row.append(main,compare,restore);list.append(row);
   }
   const actions=document.createElement('div');actions.className='editor-dirty-actions';
