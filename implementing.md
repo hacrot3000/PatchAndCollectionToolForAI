@@ -802,7 +802,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - audit ghi policy update, request, resolve và consume;
     - regression test khóa policy defaults, one-time grant, production marker, dangerous action coverage, route permission, UI wizard/manager và conservative permission seed.
 
-35. **P2 — Audit timeline**
+35. **P2 — Audit timeline** — ✅ **COMPLETE**
     Shared server hiện đã có audit nền.
     
     Nên làm UI timeline:
@@ -816,6 +816,20 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - config changes.
     
     Filter theo user/action/resource.
+
+    Hoàn tất:
+    - nâng Audit Log trong shared admin thành **Audit Timeline** newest-first, giữ permission `audit.view` độc lập với `users.view`;
+    - backend enrich actor `username` từ `user_id` mà không yêu cầu UI gọi Users API;
+    - filter server-side theo username hoặc user ID, exact action, resource type, resource ID và result;
+    - `AuditQuery`/SQLite store thực thi filter trước LIMIT nên pagination/filter không bị sai do lọc ở browser;
+    - API trả bounded page tối đa 500 và `next_before` RFC3339Nano cursor; UI mặc định page 100 và **Load older**;
+    - timeline card hiển thị timestamp, actor, category, action, resource, result, client IP và raw structured details trong `<details>`;
+    - category UI gom Git / Files / Task-Terminal / Database / Transfer / Security / Config-Admin nhưng vẫn giữ action gốc để điều tra;
+    - file create/write/delete/upload/archive/search-replace, settings/config, task/terminal/session và approval/auth/admin events tiếp tục dùng audit hooks hiện hữu;
+    - `auditConnection` được bridge vào shared audit store, phủ DB session/mutation, SSH và FTP/SFTP operations với metadata profile/session בלבד, không ghi query/password/request payload;
+    - Git mutation handler ghi `git.<action>` success/error cho sync, async job start, hunk, ignore, rebase/repair, Merge To và các action chung; không ghi commit message/output vào details;
+    - timeline details tiếp tục tuân thủ nguyên tắc không chứa password/token/private key/raw credential;
+    - regression test khóa username/resource/result filter, cursor pagination và timeline UI contract.
 
 36. **P2 — Secrets/credentials manager**
     Thay vì credential phân tán:
