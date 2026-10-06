@@ -199,7 +199,8 @@ function clearCompleted(){
 function begin(spec={}){
   const id=String(spec.id||globalThis.crypto?.randomUUID?.()||('op-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,9)));
   const key='database:'+id;
-  const item={source:'database',id,title:String(spec.title||'Database operation'),detail:String(spec.detail||''),profile_id:String(spec.profile_id||''),status:'running',error:'',created_at:new Date().toISOString(),can_cancel:typeof spec.cancel==='function',can_retry:false,can_open:Boolean(spec.open||spec.profile_id),_cancel:spec.cancel||null,_retry:null,_open:spec.open||null};
+  const source=String(spec.source||'database').trim()||'database';
+  const item={source,id,title:String(spec.title||(source==='database'?'Database operation':'Operation')),detail:String(spec.detail||''),profile_id:String(spec.profile_id||''),status:'running',error:'',created_at:new Date().toISOString(),can_cancel:typeof spec.cancel==='function',can_retry:false,can_open:Boolean(spec.open||spec.profile_id),_cancel:spec.cancel||null,_retry:null,_open:spec.open||null};
   localOperations.set(key,item);if(backdrop.classList.contains('visible'))refresh();
   return {
     id,
