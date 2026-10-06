@@ -22,6 +22,7 @@ import '/featuremods/filecompare.js';
 import '/featuremods/gitmergeeditor.js';
 import '/featuremods/filetransfer.js';
 import '/featuremods/connections.js';
+import '/featuremods/remote_workspace.js';
 import '/featuremods/secrets.js';
 import '/featuremods/configbackup.js';
 import '/featuremods/connection_graph.js';
