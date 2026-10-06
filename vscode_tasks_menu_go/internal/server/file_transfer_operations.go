@@ -13,6 +13,7 @@ import (
 
 	"bletonfc/vscode_tasks_menu/internal/filetransferprofile"
 	"bletonfc/vscode_tasks_menu/internal/ftpclient"
+	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/sftpclient"
 	"bletonfc/vscode_tasks_menu/internal/sshaskpass"
 	"bletonfc/vscode_tasks_menu/internal/sshprofile"
@@ -350,6 +351,13 @@ func (s *Server) fileTransferMutate(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ProfileID == "" || req.Profile != nil {
 		http.Error(w, "saved file-transfer profile id is required", http.StatusBadRequest)
+		return
+	}
+	permission := identity.PermissionTransferUpload
+	if req.Action == "delete" {
+		permission = identity.PermissionTransferDelete
+	}
+	if !s.requireSharedActionPermission(w, r, permission, req.Action, "file_transfer:"+req.ProfileID) {
 		return
 	}
 	switch req.Action {
