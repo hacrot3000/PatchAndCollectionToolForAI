@@ -61,6 +61,11 @@ func (s *Server) sharedAuthorize(next http.Handler) http.Handler {
 			// Session list/create authorization depends on session metadata or
 			// the requested kind and is enforced inside sessionsRoot.
 			next.ServeHTTP(w, r)
+		case r.URL.Path == "/api/terminal-history":
+			// Terminal command history contains session output. Authorization
+			// therefore follows the target session ownership/view/control rules
+			// inside terminalHistory instead of project-wide settings permissions.
+			next.ServeHTTP(w, r)
 		case sharedSessionItemPath(r.URL.Path):
 			// Item authorization depends on persisted ownership and is enforced
 			// before sessionItem performs any operation.
