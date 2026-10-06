@@ -59,6 +59,8 @@ func TestShellIntegrationBrowserModuleContracts(t *testing.T) {
 		"view.shellCwd",
 		"TaskDeckShellIntegration",
 		"maxCommands=200",
+		"function replaceCommands(id,commands)",
+		"replaceCommands,cwd",
 	} {
 		if !strings.Contains(js, want) { t.Fatalf("shellintegration.js missing %q", want) }
 	}
