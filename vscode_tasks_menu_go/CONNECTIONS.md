@@ -41,6 +41,26 @@ TaskDeck không dùng `StrictHostKeyChecking=no`. Sau khi xóa old entry, ngư�
 
 Password/passphrase không được đưa vào argv. Stored secret được lấy từ encrypted secret store và cấp cho OpenSSH qua one-time Unix-socket askpass ticket.
 
+## Remote Workspace
+
+**Connections → Remote** ghép các primitive hiện có thành một remote project workspace:
+
+- một SSH profile;
+- một SFTP profile bắt buộc tham chiếu đúng SSH profile đó;
+- một `RemoteRoot` tuyệt đối trên remote host;
+- zero hoặc nhiều database profile liên quan; DB dùng SSH tunnel phải tham chiếu cùng SSH profile.
+
+Explorer chỉ gửi path **relative** so với `RemoteRoot`. Server normalize path và canonicalize `RemoteRoot` + target bằng `realpath` trên remote host trước list/read/write, nên `..` và symlink trỏ ra ngoài root bị từ chối. Text editor dùng cùng Editor của project local, nhưng IO đi qua SFTP và Save bắt `expected_sha256`; remote file đổi sau khi load sẽ vào conflict flow thay vì silently overwrite.
+
+Từ cùng panel có thể:
+
+- mở terminal SSH tại đúng folder đang duyệt bằng `remote_cwd`;
+- chạy Git status/branches/log/diff/fetch/pull/push tại `RemoteRoot`;
+- mở database profile/tunnel đã liên kết;
+- duyệt file/folder và mở text file trong Editor.
+
+Remote editor được tách khỏi local File Watcher, host LSP, Local History và workspace snapshot để `remote://...` không bị xử lý như project-local path. Shared-server runtime cần `settings.read + ssh.use`, sau đó từng operation vẫn cần permission riêng như `files.read/write`, `transfer.read/upload`, `terminal.create`, `git.*`. Profile create/edit/delete dùng `settings.write`.
+
 
 ## SFTP profiles
 
