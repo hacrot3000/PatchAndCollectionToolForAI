@@ -70,7 +70,7 @@ func remoteWorkspaceResolvePath(root, relative string) (string, error) {
 func (s *Server) canonicalRemoteWorkspacePath(ctx context.Context, workspace remoteWorkspaceProfile, profile filetransferprofile.Profile, remotePath string) (string, error) {
 	root := remoteArchiveShellQuote(workspace.RemoteRoot)
 	target := remoteArchiveShellQuote(remotePath)
-	command := "set -eu; command -v realpath >/dev/null 2>&1; root=$(realpath -- "+root+"); target=$(realpath -- "+target+"); case \"$target\" in \"$root\"|\"$root\"/*) printf '%s\\n' \"$target\" ;; *) echo 'remote workspace path escapes canonical root' >&2; exit 42 ;; esac"
+	command := "set -eu; command -v realpath >/dev/null 2>&1; root=$(realpath -- "+root+"); target=$(realpath -- "+target+"); if [ \"$root\" != / ]; then case \"$target\" in \"$root\"|\"$root\"/*) ;; *) echo 'remote workspace path escapes canonical root' >&2; exit 42 ;; esac; fi; printf '%s\\n' \"$target\""
 	output, err := s.runSFTPLinkedSSHCommand(ctx, profile, command)
 	if err != nil {
 		return "", fmt.Errorf("validate remote workspace canonical path: %w", err)
