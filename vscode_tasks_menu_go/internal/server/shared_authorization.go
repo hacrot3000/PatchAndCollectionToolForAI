@@ -239,8 +239,11 @@ func sharedRoutePermissions(r *http.Request) []string {
 		}
 		return nil
 	case "/api/git/status":
+		if r.Method == http.MethodPost {
+			return []string{identity.PermissionGitWrite}
+		}
 		if r.Method != http.MethodGet {
-			return nil // Shared mode has no Git mutation capability.
+			return nil
 		}
 		switch strings.TrimSpace(r.URL.Query().Get("view")) {
 		case "log", "graph", "reflog", "lost-commits", "rebase-plan":
