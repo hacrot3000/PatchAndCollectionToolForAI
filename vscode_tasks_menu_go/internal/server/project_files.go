@@ -119,17 +119,6 @@ func (s *Server) projectFileSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	if r.URL.Query().Get("meta") == "1" {
-		info, statErr := os.Stat(path)
-		if statErr != nil || !info.Mode().IsRegular() {
-			http.Error(w, "project file unavailable", http.StatusNotFound)
-			return
-		}
-		writeJSON(w, http.StatusOK, projectFileMetadata{
-			Path: rel, MtimeNS: info.ModTime().UnixNano(), Size: info.Size(),
-		})
-		return
-	}
 	rootView, _, err := s.projectRootForVirtualPath(rel)
 	if err != nil {
 		http.Error(w, "project root unavailable", http.StatusInternalServerError)
@@ -265,6 +254,19 @@ func (s *Server) projectFileRead(w http.ResponseWriter, r *http.Request) {
 	path, err := s.resolveProjectPath(rel, false, false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if r.URL.Query().Get("meta") == "1" {
+		info, statErr := os.Stat(path)
+		if statErr != nil || !info.Mode().IsRegular() {
+			http.Error(w, "project file unavailable", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, projectFileMetadata{
+			Path: rel,
+			MtimeNS: info.ModTime().UnixNano(),
+			Size: info.Size(),
+		})
 		return
 	}
 	rootView, _, err := s.projectRootForVirtualPath(rel)
