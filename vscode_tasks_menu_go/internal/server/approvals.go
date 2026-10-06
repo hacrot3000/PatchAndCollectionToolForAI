@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -219,10 +218,6 @@ func (s *Server) requireDangerousApproval(w http.ResponseWriter, r *http.Request
 	requesterID, _ := approvalRequester(r)
 	granted, err := store.Consume(approvalID, action, resource, requesterID)
 	if err != nil {
-		if errors.Is(err, approval.ErrApprovalNotFound) {
-			http.NotFound(w, r)
-			return false
-		}
 		writeJSON(w, http.StatusPreconditionFailed, map[string]any{
 			"approval_required": true, "action": action, "resource": resource, "mode": mode, "error": err.Error(),
 		})
