@@ -216,7 +216,7 @@ function syncPathExcluded(path,patterns){
 }
 const conflictPolicies=new Set(['ask','overwrite','skip','size_diff','source_newer','checksum_diff']);
 let conflictDialogChain=Promise.resolve();
-const activeServerConflictPrompts=new Set();
+const activeServerConflictViews=new Set();
 function normalizeConflictPolicy(value){value=String(value||'ask').trim().toLowerCase();return conflictPolicies.has(value)?value:'ask';}
 function conflictDirectionFromKind(kind){return String(kind||'').toLowerCase()==='download'?'download':'upload';}
 function conflictDefaultKey(view,direction){return 'taskdeck:file-transfer:conflict-default:'+workspaceKey()+':'+view.profile.id+':'+direction;}
@@ -266,6 +266,7 @@ function parseConflictTime(value){
 function conflictMetaText(value,kind){if(kind==='size')return formatSize(Number(value)||0);return value?formatModified(value):'Unavailable';}
 function requestTransferConflictDecision(conflict){
   const run=()=>new Promise(resolve=>{
+    if(typeof conflict?.stillCurrent==='function'&&!conflict.stillCurrent()){resolve(null);return;}
     const direction=conflictDirectionFromKind(conflict.kind),backdrop=document.createElement('div');backdrop.className='ft-conflict-backdrop';
     const dialog=document.createElement('div');dialog.className='ft-conflict-dialog';
     const title=document.createElement('h3');title.textContent=(direction==='upload'?'Upload':'Download')+' file conflict';
@@ -967,25 +968,47 @@ async function applyServerConflictDecision(view,items,decision){
   });
   await syncServerTransferQueue(view);
 }
+function serverConflictViewKey(view){
+  return String(view?.profile?.id||view?.id||'file-transfer');
+}
+function liveServerConflictItem(view,serverID){
+  serverID=String(serverID||'');
+  if(!serverID)return null;
+  return (view?.transferQueue?.items||[]).find(candidate=>
+    candidate.server&&candidate.serverID===serverID&&candidate.status==='conflict'&&candidate.conflict
+  )||null;
+}
 async function resolveServerConflictItems(view,items){
   const conflicts=(items||[]).filter(item=>item.server&&item.status==='conflict'&&item.conflict);
   if(!conflicts.length)return;
-  const first=conflicts[0],meta=first.conflict||{};
+  const first=conflicts[0],serverID=String(first.serverID||'');
+  const live=liveServerConflictItem(view,serverID);
+  if(!live)return;
+  const meta=live.conflict||{};
   const decision=await requestTransferConflictDecision({
-    kind:first.kind,source:first.source,target:first.target,
+    kind:live.kind,source:live.source,target:live.target,
     source_size:meta.source_size,target_size:meta.target_size,
-    source_modified:meta.source_modified,target_modified:meta.target_modified
+    source_modified:meta.source_modified,target_modified:meta.target_modified,
+    stillCurrent:()=>Boolean(liveServerConflictItem(view,serverID))
   });
-  await applyServerConflictDecision(view,conflicts,decision);
+  if(!decision)return;
+  const current=liveServerConflictItem(view,serverID);
+  if(!current)return;
+  await applyServerConflictDecision(view,[current],decision);
 }
 async function maybePromptServerConflict(view){
   const queue=view.transferQueue;if(!queue)return;
-  const item=queue.items.find(candidate=>candidate.server&&candidate.status==='conflict'&&candidate.conflict&&!activeServerConflictPrompts.has(candidate.serverID));
+  const viewKey=serverConflictViewKey(view);
+  if(activeServerConflictViews.has(viewKey))return;
+  const item=queue.items.find(candidate=>candidate.server&&candidate.status==='conflict'&&candidate.conflict);
   if(!item)return;
-  activeServerConflictPrompts.add(item.serverID);
+  activeServerConflictViews.add(viewKey);
   try{await resolveServerConflictItems(view,[item]);}
   catch(error){console.warn('Cannot resolve file-transfer conflict',error);}
-  finally{activeServerConflictPrompts.delete(item.serverID);}
+  finally{
+    activeServerConflictViews.delete(viewKey);
+    setTimeout(()=>maybePromptServerConflict(view),0);
+  }
 }
 async function afterTransferQueueIdle(view){
   const queue=view.transferQueue;if(!queue)return;

@@ -660,6 +660,31 @@ func TestFileTransferDaemonConflictsRemainQueueItemsUntilResolved(t *testing.T) 
 	}
 }
 
+func TestFileTransferServerConflictPromptDoesNotQueueStaleDialogs(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const activeServerConflictViews=new Set()",
+		"if(typeof conflict?.stillCurrent==='function'&&!conflict.stillCurrent()){resolve(null);return;}",
+		"function serverConflictViewKey(view)",
+		"function liveServerConflictItem(view,serverID)",
+		"if(activeServerConflictViews.has(viewKey))return",
+		"activeServerConflictViews.add(viewKey)",
+		"stillCurrent:()=>Boolean(liveServerConflictItem(view,serverID))",
+		"if(!decision)return",
+		"activeServerConflictViews.delete(viewKey)",
+		"setTimeout(()=>maybePromptServerConflict(view),0)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing serialized/stale-safe server conflict prompt contract %q", want)
+		}
+	}
+	if strings.Contains(js, "activeServerConflictPrompts") {
+		t.Fatal("server conflict auto-prompt must lock per view, not independently per file")
+	}
+}
+
 func TestFileTransferConflictDefaultsSupportJobSessionAndRememberedDirection(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil {
