@@ -443,6 +443,33 @@ func (s *Server) evaluateServerConflict(ctx context.Context, profileID string, i
 	}
 }
 
+type fileTransferHostHashRequest struct {
+	Path string `json:"path"`
+}
+
+func (s *Server) fileTransferHostHash(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req fileTransferHostHashRequest
+	if err := decodeFileTransferJSON(w, r, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	req.Path = strings.TrimSpace(req.Path)
+	if req.Path == "" {
+		http.Error(w, "path is required", http.StatusBadRequest)
+		return
+	}
+	hash, err := s.backgroundHostSHA256(req.Path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"sha256": hash})
+}
+
 type fileTransferRemoteHashRequest struct {
 	ProfileID string `json:"profile_id"`
 	Path      string `json:"path"`
