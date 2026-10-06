@@ -783,3 +783,23 @@ func TestFileTransferSyncProfilesAndBidirectionalConflictsAreFailSafe(t *testing
 		}
 	}
 }
+
+func TestFileTransferHostArchiveCanUploadAndExtractThroughSFTP(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function transferArchiveKind(name)",
+		"async function uploadAndExtractRemoteArchive(view,entry)",
+		"/api/file-transfer/archive-upload-extract",
+		"Remote archive extraction requires an SFTP profile linked to SSH.",
+		"Upload + extract archive on remote…",
+		"String(view.profile?.protocol||'').toLowerCase()==='sftp'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("file transfer remote archive workflow missing %q", want)
+		}
+	}
+}
