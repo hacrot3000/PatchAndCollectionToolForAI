@@ -887,7 +887,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Unified Command Palette có `Settings: Backup / Restore…`;
     - regression test khóa secret-reference stripping, missing credential behavior trên máy mới, preserve local credential theo profile ID, invalid-bundle no-mutation, UI/load-order và Environment Profile import validation.
 
-38. **P2 — Plugin/add-on API**
+38. **P2 — Plugin/add-on API** — ✅ **COMPLETE**
     Khi số module tăng thêm, thay vì tiếp tục hard-code:
     - register panel;
     - register action;
@@ -899,6 +899,20 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     Có thể dùng Go/process protocol đơn giản, không cần npm ecosystem.
     
     Đây là hướng kiến trúc dài hạn, chưa cần làm ngay.
+
+    Hoàn tất:
+    - thêm browser registry `TaskMenuAddons` với `registerAction / registerPanel / registerContextMenuCommand / registerFilePreviewHandler / registerBackgroundJob`;
+    - Unified Command Palette tự consume registered add-on actions/panels, không cần thêm hard-code cho từng add-on mới;
+    - Project file context menu và Open With/preview dùng hook registry động;
+    - background add-on job tích hợp Operation Center source generic và Abort/Cancel; Operation Center local callback không còn hard-code riêng source database;
+    - process add-on manifest version 1 được load từ **user-private config** `taskdeck/addons/*.json`; workspace/project không thể khai báo executable để tránh untrusted-project RCE;
+    - executable bắt buộc absolute regular executable; manifest symlink/oversized/unknown field bị reject;
+    - action declaration chỉ được dùng permission key đã tồn tại trong TaskDeck registry; shared-server backend kiểm tra toàn bộ permission trước khi spawn process;
+    - process protocol dùng một JSON request stdin / một JSON response stdout, timeout 5 phút, stdout/stderr bounded 2 MiB và request cancel giết process qua context;
+    - public `/api/addons` strip command + args; UI render response bằng text/JSON, không trusted HTML;
+    - action success/error được audit mà không ghi command/args/output payload;
+    - thêm `ADDONS.md` mô tả manifest, process protocol, browser registration API và security model;
+    - regression test khóa manifest validation, known-permission declaration, executable privacy, JSON protocol, extension point action refs, browser registry/hooks/load order và generic background operation control.
 
 39. **P3 — LSP integration**
     Chỉ nên làm sau các phần trên.
