@@ -52,7 +52,7 @@ window.fetch=async function(input,init={}){
   try{
     const method=String(init?.method||'GET').toUpperCase();const rawURL=typeof input==='string'?input:input?.url||'';const url=new URL(rawURL,location.href);
     if(method==='POST'&&url.origin===location.origin&&url.pathname==='/api/sessions'&&typeof init.body==='string'){
-      const env=currentEnv();if(Object.keys(env).length){const payload=JSON.parse(init.body);if(!payload?.ssh_profile_id)init={...init,body:JSON.stringify({...payload,env})};}
+      const env=currentEnv();if(Object.keys(env).length){const payload=JSON.parse(init.body);if(!payload?.ssh_profile_id){const explicit=payload?.env&&typeof payload.env==='object'&&!Array.isArray(payload.env)?payload.env:{};init={...init,body:JSON.stringify({...payload,env:{...env,...explicit}})};}}
     }
   }catch(e){console.warn('Environment profile injection skipped',e);}
   return nativeFetch(input,init);
