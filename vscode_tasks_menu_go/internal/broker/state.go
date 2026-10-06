@@ -40,7 +40,7 @@ func LockPath(workspace string) string {
 }
 
 func NewInfo(workspace string) Info {
-	capabilities := []string{CapabilitySessionTitle, CapabilitySessionOwnership}
+	capabilities := []string{CapabilitySessionTitle, CapabilitySessionOwnership, CapabilityTerminalClone}
 	if runtime.GOOS != "windows" {
 		capabilities = append(capabilities, CapabilityPatchProtocolEvents, CapabilityPatchProtocolCommands)
 	}
