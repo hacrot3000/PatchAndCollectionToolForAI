@@ -258,3 +258,39 @@ func TestSSHTunnelHelperProcess(t *testing.T) {
 		os.Exit(14)
 	}
 }
+
+
+func TestTunnelMetadataIncludesLivePID(t *testing.T) {
+	manager, err := NewManager(nil, Options{
+		RuntimeDir: t.TempDir(),
+		SSHExecutable: os.Args[0],
+		StartupTimeout: 3 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+
+	t.Setenv("TASKDECK_TUNNEL_HELPER", os.Args[0])
+	profile := sshprofile.Profile{
+		ID: "fixture",
+		Name: "fixture",
+		Host: "127.0.0.1",
+		Port: 22,
+		User: "tester",
+	}
+	meta, err := manager.Open(context.Background(), profile, "127.0.0.1", 3306)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.PID <= 0 {
+		t.Fatalf("live tunnel PID was not exposed: %#v", meta)
+	}
+	stored, err := manager.Get(meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.PID != meta.PID {
+		t.Fatalf("stored tunnel PID=%d want=%d", stored.PID, meta.PID)
+	}
+}
