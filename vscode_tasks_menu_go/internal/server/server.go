@@ -311,6 +311,7 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			Inputs    map[string]string `json:"inputs,omitempty"`
 			Env       map[string]string `json:"env,omitempty"`
 			Cwd          string            `json:"cwd,omitempty"`
+			RemoteCwd    string            `json:"remote_cwd,omitempty"`
 			SSHProfileID string            `json:"ssh_profile_id,omitempty"`
 			PatchMode    string            `json:"patch_mode,omitempty"`
 			PatchUI   string            `json:"patch_ui,omitempty"`
@@ -329,15 +330,23 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			}
 			if remoteSSH {
 				if strings.TrimSpace(req.Cwd) != "" {
-					http.Error(w, "cwd is only valid for local terminals", http.StatusBadRequest)
+					http.Error(w, "cwd is only valid for local terminals; use remote_cwd for SSH", http.StatusBadRequest)
 					return
 				}
 				if len(req.Env) != 0 {
 					http.Error(w, "environment overrides are not accepted for remote SSH terminals", http.StatusBadRequest)
 					return
 				}
-				spec, err = s.sshTerminalExecution(req.SSHProfileID)
+				if strings.TrimSpace(req.RemoteCwd) != "" {
+					spec, err = s.sshTerminalExecutionAt(req.SSHProfileID, req.RemoteCwd)
+				} else {
+					spec, err = s.sshTerminalExecution(req.SSHProfileID)
+				}
 			} else {
+				if strings.TrimSpace(req.RemoteCwd) != "" {
+					http.Error(w, "remote_cwd is only valid for SSH terminals", http.StatusBadRequest)
+					return
+				}
 				spec, err = s.workspaceTerminalExecutionAtProjectPath(req.Cwd)
 			}
 			if err != nil {
@@ -366,7 +375,7 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			s.auditSharedSessionStart(r, meta, map[string]any{"cwd": strings.TrimSpace(req.Cwd)})
+			s.auditSharedSessionStart(r, meta, map[string]any{"cwd": strings.TrimSpace(req.Cwd), "remote_cwd": strings.TrimSpace(req.RemoteCwd)})
 			if remoteSSH {
 				s.auditConnection(r, ConnectionAuditEvent{Kind: "ssh_connection", Action: "open_terminal", ProfileID: strings.TrimSpace(req.SSHProfileID), SessionID: meta.ID, Success: true})
 			}
