@@ -25,6 +25,7 @@ type Spec struct {
 type Metadata struct {
 	ID           string `json:"id"`
 	SSHProfileID string `json:"ssh_profile_id"`
+	PID          int    `json:"pid,omitempty"`
 	LocalHost    string `json:"local_host"`
 	LocalPort    int    `json:"local_port"`
 	RemoteHost   string `json:"remote_host"`
