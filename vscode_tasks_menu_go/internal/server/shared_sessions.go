@@ -168,11 +168,11 @@ func sharedSessionActionAllowed(principal identity.Principal, meta session.Metad
 	view := (action == "" && method == http.MethodGet) || action == "protocol" || action == "ws" || (action == "cwd" && method == http.MethodGet) || (action == "process-tree" && method == http.MethodGet)
 	switch meta.Kind {
 	case tasks.SessionKindTerminal:
-		if view {
+		if view || action == "history" {
 			return sharedSessionViewAllowed(principal, meta)
 		}
 		switch action {
-		case "", "stop", "terminate", "kill", "clear", "title", "resize", "clone":
+		case "", "stop", "terminate", "kill", "clear", "title", "resize", "clone", "history-write":
 			return sharedTerminalControlAllowed(principal, meta)
 		default:
 			return false
