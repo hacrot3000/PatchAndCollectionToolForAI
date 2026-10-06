@@ -153,6 +153,8 @@ func sharedRoutePermissions(r *http.Request) []string {
 			return []string{identity.PermissionTransferRead}
 		}
 		return []string{identity.PermissionTransferRead, identity.PermissionSettingsWrite}
+	case strings.HasPrefix(path, "/api/addons/"):
+		return []string{identity.PermissionSettingsRead}
 	}
 	switch path {
 	case "/api/admin/users", "/api/admin/users/access", "/api/admin/users/permission":
@@ -250,6 +252,8 @@ func sharedRoutePermissions(r *http.Request) []string {
 			return []string{identity.PermissionSettingsRead}
 		}
 		return []string{identity.PermissionProjectAdmin}
+	case "/api/addons":
+		return []string{identity.PermissionSettingsRead}
 	case "/api/config/page-title", "/api/config/terminal-cwds", "/api/config/running-indicator", "/api/config/self-update", "/api/command-presets", "/api/config-backup":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionSettingsRead}
