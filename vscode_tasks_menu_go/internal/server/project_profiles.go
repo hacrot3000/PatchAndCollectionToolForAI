@@ -32,6 +32,13 @@ type projectProfileTerminal struct {
 	Title string `json:"title,omitempty"`
 }
 
+type projectProfileTerminalSplit struct {
+	First       int     `json:"first"`
+	Second      int     `json:"second"`
+	Ratio       float64 `json:"ratio,omitempty"`
+	Orientation string  `json:"orientation,omitempty"`
+}
+
 type projectProfile struct {
 	ID                 string                   `json:"id"`
 	Name               string                   `json:"name"`
@@ -39,6 +46,7 @@ type projectProfile struct {
 	Environment        map[string]string        `json:"environment,omitempty"`
 	CommandPresetIDs   []string                 `json:"command_preset_ids,omitempty"`
 	Terminals          []projectProfileTerminal `json:"terminals,omitempty"`
+	TerminalSplits     []projectProfileTerminalSplit `json:"terminal_splits,omitempty"`
 	DatabaseProfileIDs []string                 `json:"database_profile_ids,omitempty"`
 	SSHProfileIDs      []string                 `json:"ssh_profile_ids,omitempty"`
 	TransferProfileIDs []string                 `json:"transfer_profile_ids,omitempty"`
@@ -60,6 +68,7 @@ type projectProfileSaveRequest struct {
 	Environment        map[string]string        `json:"environment,omitempty"`
 	CommandPresetIDs   []string                 `json:"command_preset_ids,omitempty"`
 	Terminals          []projectProfileTerminal `json:"terminals,omitempty"`
+	TerminalSplits     []projectProfileTerminalSplit `json:"terminal_splits,omitempty"`
 	DatabaseProfileIDs []string                 `json:"database_profile_ids,omitempty"`
 	SSHProfileIDs      []string                 `json:"ssh_profile_ids,omitempty"`
 	TransferProfileIDs []string                 `json:"transfer_profile_ids,omitempty"`
@@ -257,6 +266,45 @@ func normalizeProjectProfileTasks(values []int) []int {
 	return out
 }
 
+func normalizeProjectProfileTerminalSplits(values []projectProfileTerminalSplit, terminalCount int) []projectProfileTerminalSplit {
+	if terminalCount < 2 || len(values) == 0 {
+		return nil
+	}
+	limit := terminalCount - 1
+	if limit > projectProfileMaxTerminals-1 {
+		limit = projectProfileMaxTerminals - 1
+	}
+	out := make([]projectProfileTerminalSplit, 0, limit)
+	seenSecond := map[int]bool{}
+	for _, value := range values {
+		if value.First < 0 || value.Second < 0 || value.First >= terminalCount || value.Second >= terminalCount || value.First == value.Second || seenSecond[value.Second] {
+			continue
+		}
+		orientation := "vertical"
+		if strings.EqualFold(strings.TrimSpace(value.Orientation), "horizontal") {
+			orientation = "horizontal"
+		}
+		ratio := value.Ratio
+		if ratio <= 0 {
+			ratio = 0.5
+		}
+		if ratio < 0.2 {
+			ratio = 0.2
+		}
+		if ratio > 0.8 {
+			ratio = 0.8
+		}
+		seenSecond[value.Second] = true
+		out = append(out, projectProfileTerminalSplit{
+			First: value.First, Second: value.Second, Ratio: ratio, Orientation: orientation,
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
 func normalizeProjectProfile(value projectProfile) projectProfile {
 	out := projectProfile{
 		ID: normalizeProjectProfileText(value.ID, 80),
@@ -283,6 +331,7 @@ func normalizeProjectProfile(value projectProfile) projectProfile {
 			break
 		}
 	}
+	out.TerminalSplits = normalizeProjectProfileTerminalSplits(value.TerminalSplits, len(out.Terminals))
 	return out
 }
 
@@ -297,6 +346,7 @@ func projectProfileFromRequest(req projectProfileSaveRequest) (projectProfile, e
 		Environment: req.Environment,
 		CommandPresetIDs: req.CommandPresetIDs,
 		Terminals: req.Terminals,
+		TerminalSplits: req.TerminalSplits,
 		DatabaseProfileIDs: req.DatabaseProfileIDs,
 		SSHProfileIDs: req.SSHProfileIDs,
 		TransferProfileIDs: req.TransferProfileIDs,
