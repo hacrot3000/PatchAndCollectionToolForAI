@@ -646,6 +646,9 @@ async function dropExplorerRoot(event){
   await movePathsToDirectory(sources,'','Drag and drop move');
 }
 function closeContextMenu(){contextMenu.classList.remove('visible');contextMenu.replaceChildren();}
+function explorerPermissionAllowed(permission){
+  return !app.sharedMode||Boolean(app.hasPermission?.(permission)||app.hasPermission?.('project.admin'));
+}
 function contextAction(label,run,options={}){
   const button=document.createElement('button');button.type='button';button.textContent=label;button.disabled=Boolean(options.disabled);if(options.danger)button.style.color='#ff9a9a';
   button.onclick=()=>{closeContextMenu();Promise.resolve(run()).catch(app.showError);};
@@ -695,7 +698,7 @@ function showContextMenu(event,pathValue,type){
   contextAction(paths.length>1?'Move selected to Trash':'Move to Trash',async()=>{
     await trashPaths(paths);
     await reload();
-  });
+  },{danger:true,disabled:!explorerPermissionAllowed('filesystem.delete')});
   if(type==='dir'&&paths.length===1){
     contextAction('New file here…',()=>createProjectItem('file'));
     contextAction('New folder here…',()=>createProjectItem('dir'));
