@@ -540,3 +540,38 @@ func TestEditorBracketMatching(t *testing.T) {
 		}
 	}
 }
+
+func TestEditorFindReplacePanel(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"editor-find-panel",
+		"editor-find-toggle",
+		"function editorFindMatch(view",
+		"function editorSelectionMatchesFind(view)",
+		"function openEditorFind(view,{replace=false}={})",
+		"function replaceEditorMatch(view)",
+		"function replaceAllEditorMatches(view)",
+		"findInput.placeholder='Find'",
+		"findReplaceInput.placeholder='Replace'",
+		"Match case",
+		"findNext.onclick=()=>editorFindMatch(view,{direction:1})",
+		"findPrevious.onclick=()=>editorFindMatch(view,{direction:-1})",
+		"findReplace.onclick=()=>replaceEditorMatch(view)",
+		"findReplaceAll.onclick=()=>replaceAllEditorMatches(view)",
+		"view.findReplace.disabled=readonly",
+		"view.findReplaceAll.disabled=readonly",
+		"shortcutKey==='f'||shortcutKey==='h'",
+		"openEditorFind(view,{replace:shortcutKey==='h'})",
+		"event.stopPropagation()",
+		"else if(key==='f')",
+		"else if(key==='h')",
+		"Replaced '+changes.length",
+		"changes.length<10000",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor find/replace support missing %q", want)
+		}
+	}
+}
