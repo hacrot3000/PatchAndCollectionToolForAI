@@ -862,7 +862,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Secrets Manager UI có Create/Rotate/Delete, usage metadata và Command Palette action;
     - regression test khóa write-only API, encrypted identifier listing, referenced-delete guard, private task projection, reachable workflow resolution, environment override precedence và exact permission gate.
 
-37. **P2 — Backup/restore TaskDeck configuration**
+37. **P2 — Backup/restore TaskDeck configuration** — ✅ **COMPLETE**
     Export:
     - project settings;
     - command presets;
@@ -872,6 +872,20 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - connections không bao gồm secret hoặc optionally encrypted secrets.
     
     Import trên máy khác.
+
+    Hoàn tất:
+    - thêm portable config bundle versioned gồm project settings, command presets, task favorites/recent/history, desktop/mobile terminal layouts, Project Profiles và SSH/DB/FTP/SFTP connection profiles;
+    - session ID/live split runtime không được export; terminal state được chuẩn hóa thành layout portable;
+    - SecretStore plaintext và original secret reference **không bao giờ** nằm trong backup; chỉ giữ metadata `credential_required`;
+    - khi restore trên máy cũ, credential local có cùng profile ID được giữ nguyên; trên máy mới profile cần credential được gắn missing managed reference để UI buộc người dùng nhập lại;
+    - environment values mặc định không export vì có thể chứa token/password; chỉ include khi user opt-in rõ ràng;
+    - Project Profile environment và client Environment Profiles cùng tuân theo cờ opt-in này;
+    - UI có Export / Import JSON, preview count, cảnh báo credential/environment, Merge hoặc Replace;
+    - restore validate toàn bundle/version/schema trước khi mutation và giới hạn file/request 8 MiB;
+    - server restore có rollback về exact local snapshot nếu một bước ghi cấu hình thất bại;
+    - shared-server route giữ permission settings read/write hiện hữu; restore có audit event;
+    - Unified Command Palette có `Settings: Backup / Restore…`;
+    - regression test khóa secret-reference stripping, missing credential behavior trên máy mới, preserve local credential theo profile ID, invalid-bundle no-mutation, UI/load-order và Environment Profile import validation.
 
 38. **P2 — Plugin/add-on API**
     Khi số module tăng thêm, thay vì tiếp tục hard-code:
