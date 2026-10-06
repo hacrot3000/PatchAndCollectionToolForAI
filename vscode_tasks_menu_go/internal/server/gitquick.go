@@ -815,6 +815,34 @@ type gitActionRequest struct {
 	Confirmed         bool   `json:"confirmed,omitempty"`
 }
 
+func gitAuditResource(req gitActionRequest) string {
+	for _, value := range []string{req.Path, req.Branch, req.Ref, req.WorktreeID, req.SubmoduleID, req.Remote, req.LargePath} {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return "repository"
+}
+
+func (s *Server) auditGitAction(r *http.Request, action string, req gitActionRequest, result string, details map[string]any) {
+	if details == nil {
+		details = map[string]any{}
+	}
+	if mode := strings.TrimSpace(req.Mode); mode != "" {
+		details["mode"] = mode
+	}
+	if repair := strings.TrimSpace(req.Repair); repair != "" {
+		details["repair"] = repair
+	}
+	if target := strings.TrimSpace(req.TargetSource); target != "" {
+		details["target_source"] = target
+	}
+	if req.Async {
+		details["async"] = true
+	}
+	s.auditSharedResult(r, "git."+strings.TrimSpace(action), "git", gitAuditResource(req), result, details)
+}
+
 func joinGitOutput(parts ...string) string {
 	nonEmpty := make([]string, 0, len(parts))
 	for _, part := range parts {
@@ -973,6 +1001,7 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 	case "repair":
 		output, truncated, err := s.gitRepairAction(r.Context(), req)
 		if err != nil {
+			s.auditGitAction(r, action, req, "error", nil)
 			payload := s.gitFailurePayload(r.Context(), action, output, err.Error(), truncated)
 			payload["repair"] = req.Repair
 			writeJSON(w, http.StatusOK, payload)
@@ -982,11 +1011,13 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(strings.TrimSpace(req.Repair), "conflict_") || strings.TrimSpace(req.Repair) == "continue_in_progress" || strings.TrimSpace(req.Repair) == "merge_to_prepare_resolution" {
 			s.gitAttachConflictState(r.Context(), payload)
 		}
+		s.auditGitAction(r, action, req, "success", nil)
 		writeJSON(w, http.StatusOK, payload)
 		return
 	case "interactive_rebase":
 		output, truncated, err := s.gitInteractiveRebaseExecute(r.Context(), req)
 		if err != nil {
+			s.auditGitAction(r, action, req, "error", nil)
 			payload := s.gitFailurePayload(r.Context(), action, output, err.Error(), truncated)
 			s.gitAttachConflictState(r.Context(), payload)
 			writeJSON(w, http.StatusOK, payload)
@@ -994,6 +1025,7 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		}
 		payload := map[string]any{"ok": true, "action": action, "output": output, "truncated": truncated}
 		s.gitAttachConflictState(r.Context(), payload)
+		s.auditGitAction(r, action, req, "success", nil)
 		writeJSON(w, http.StatusOK, payload)
 		return
 	case "fetch":
@@ -1040,14 +1072,17 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		}
 		output, truncated, err := s.gitApplyHunk(r.Context(), req.Path, mode, req.HunkIndex, req.ExpectedDiffSHA, operation)
 		if err != nil {
+			s.auditGitAction(r, action, req, "error", nil)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "output": output, "error": err.Error(), "truncated": truncated})
 			return
 		}
+		s.auditGitAction(r, action, req, "success", map[string]any{"hunk_index": req.HunkIndex})
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "action": action, "output": output, "truncated": truncated})
 		return
 	case "ignore":
 		item, added, err := s.gitIgnoreApply(r.Context(), req.Path, req.IgnoreID)
 		if err != nil {
+			s.auditGitAction(r, action, req, "error", nil)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": err.Error()})
 			return
 		}
@@ -1055,6 +1090,7 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		if added {
 			message = "Added ignore rule to .gitignore."
 		}
+		s.auditGitAction(r, action, req, "success", map[string]any{"added": added})
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "action": action, "output": message, "suggestion": item, "added": added})
 		return
 	case "stage_all":
@@ -1268,7 +1304,8 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		item, found := gitWorktreeByID(rows, req.WorktreeID)
 		if !found { http.Error(w, "worktree identity is stale or unknown", http.StatusNotFound); return }
 		if item.Bare { http.Error(w, "cannot open a bare worktree as a TaskDeck project", http.StatusConflict); return }
-		if err := s.OpenWorkspace(item.path); err != nil { http.Error(w, err.Error(), http.StatusConflict); return }
+		if err := s.OpenWorkspace(item.path); err != nil { s.auditGitAction(r, action, req, "error", nil); http.Error(w, err.Error(), http.StatusConflict); return }
+		s.auditGitAction(r, action, req, "success", nil)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "action": action, "output": "TaskDeck launch requested for "+item.DisplayPath})
 		return
 	case "worktree_remove":
@@ -1413,9 +1450,11 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 	case "merge_to":
 		output, truncated, err := s.gitMergeToAction(r.Context(), req)
 		if err != nil {
+			s.auditGitAction(r, action, req, "error", nil)
 			writeJSON(w, http.StatusOK, s.gitFailurePayload(r.Context(), action, output, err.Error(), truncated))
 			return
 		}
+		s.auditGitAction(r, action, req, "success", nil)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "action": action, "output": output, "truncated": truncated})
 		return
 	case "stash_push":
@@ -1439,9 +1478,11 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		}
 		job, err := s.startGitCommandJob(repo, action, args, timeout)
 		if err != nil {
+			s.auditGitAction(r, action, req, "error", nil)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": err.Error()})
 			return
 		}
+		s.auditGitAction(r, action, req, "success", map[string]any{"job_id": job.ID, "state": "running"})
 		writeJSON(w, http.StatusAccepted, map[string]any{
 			"ok": true, "action": action, "async": true,
 			"job_id": job.ID, "state": "running", "command": job.Command,
@@ -1451,8 +1492,10 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 	stdout, stderr, truncated, err := s.runGit(r.Context(), timeout, args...)
 	output := strings.TrimSpace(strings.TrimSpace(stdout) + "\n" + strings.TrimSpace(stderr))
 	if err != nil {
+		s.auditGitAction(r, action, req, "error", nil)
 		writeJSON(w, http.StatusOK, s.gitFailurePayload(r.Context(), action, output, err.Error(), truncated))
 		return
 	}
+	s.auditGitAction(r, action, req, "success", nil)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "action": action, "output": output, "truncated": truncated})
 }
