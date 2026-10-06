@@ -91,3 +91,26 @@ func (s *Server) workspaceTaskByID(id int) (tasks.Task, workspaceRootView, error
 	}
 	return tasks.Task{}, workspaceRootView{}, fmt.Errorf("task not found")
 }
+
+
+func (s *Server) workspaceWorkflowByTaskID(id int) (tasks.Task, []tasks.Task, workspaceRootView, error) {
+	selected, root, err := s.workspaceTaskByID(id)
+	if err != nil {
+		return tasks.Task{}, nil, workspaceRootView{}, err
+	}
+	items, err := tasks.Load(root.Path)
+	if err != nil {
+		return tasks.Task{}, nil, workspaceRootView{}, err
+	}
+	var rootTask tasks.Task
+	for _, item := range items {
+		if item.Label == selected.Label {
+			rootTask = item
+			break
+		}
+	}
+	if rootTask.Label == "" {
+		return tasks.Task{}, nil, workspaceRootView{}, fmt.Errorf("workflow root task disappeared")
+	}
+	return rootTask, items, root, nil
+}
