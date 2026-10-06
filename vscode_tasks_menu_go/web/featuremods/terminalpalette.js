@@ -130,6 +130,7 @@ function commandList(){
     ...staticGitCommands(),
     ...staticConnectionCommands(),
     ...staticSettingsCommands(),
+    ...(globalThis.TaskMenuAddons?.commands?.()||[]),
     ...terminalCommands()
   ];
 }
