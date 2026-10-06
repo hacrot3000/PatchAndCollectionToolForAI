@@ -149,7 +149,7 @@ function create(pathValue){
 }
 async function open(pathValue){
   pathValue=cleanPath(pathValue);if(!pathValue)return null;
-  const view=create(pathValue);activate(view.id);await load(view,view.currentOffset);return view;
+  const view=create(pathValue);activate(view.id,{force:true});await load(view,view.currentOffset);return view;
 }
 
 window.addEventListener('taskmenu:project-hex-open-request',event=>{const pathValue=event.detail?.path;if(pathValue)open(pathValue).catch(app.showError);});

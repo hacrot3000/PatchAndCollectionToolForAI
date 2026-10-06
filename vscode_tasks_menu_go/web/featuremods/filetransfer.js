@@ -2580,7 +2580,7 @@ function createSiteShell(title){
 }
 
 function attachView(profile,{activate=true,session=null}={}){
-  const id=String(profile.id||'');if(views.has(id)){if(activate)activateView(id);return views.get(id);}
+  const id=String(profile.id||'');if(views.has(id)){if(activate)activateView(id,{force:true});return views.get(id);}
   const tabs=document.querySelector('#tabs'),panes=document.querySelector('#panes');if(!tabs||!panes)throw new Error('Workspace tabs are unavailable');
 
   const tab=document.createElement('button');tab.type='button';tab.className='ft-tab';tab.dataset.id='file-transfer:'+id;
@@ -2676,7 +2676,7 @@ function attachView(profile,{activate=true,session=null}={}){
   remote.currentPath=remoteStart;remote.pathInput.value=remoteStart;remote.refreshPathMemory();
   switchLeftSource(view,source.value,leftStart).catch(app.showError);
   loadRemoteDirectory(view,remoteStart).catch(app.showError);
-  if(activate)activateView(id);
+  if(activate)activateView(id,{force:true});
   else persistFileTransferSession();
   return view;
 }

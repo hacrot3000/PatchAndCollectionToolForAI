@@ -1406,11 +1406,11 @@ async function openDocument(file){
   if(editors.has(id)){
     const view=editors.get(id);
     if(!view.dirty)setEditorDocument(view,file);
-    activateEditor(id);
+    activateEditor(id,{force:true});
     return view;
   }
   const view=createEditor(file);
-  activateEditor(view.id);
+  activateEditor(view.id,{force:true});
   return view;
 }
 
@@ -1419,13 +1419,13 @@ async function openFile(pathValue){
   if(!pathValue)return;
   const id=editorID(pathValue);
   if(editors.has(id)){
-    activateEditor(id);
+    activateEditor(id,{force:true});
     announceOpenedFile(pathValue);
     return editors.get(id);
   }
   if(opening.has(pathValue)){
     const pending=await opening.get(pathValue);
-    activateEditor(pending.id);
+    activateEditor(pending.id,{force:true});
     announceOpenedFile(pathValue);
     return pending;
   }
@@ -1436,7 +1436,7 @@ async function openFile(pathValue){
   opening.set(pathValue,promise);
   try{
     const view=await promise;
-    activateEditor(view.id);
+    activateEditor(view.id,{force:true});
     announceOpenedFile(pathValue);
     return view;
   }finally{opening.delete(pathValue);}

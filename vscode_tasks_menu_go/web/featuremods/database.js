@@ -2423,7 +2423,7 @@ function queryViewHasPendingChanges(view){
 
 function attachDatabaseView(meta,activate){
   if(dbViews.has(meta.id)){
-    if(activate)activateDatabaseView(meta.id);
+    if(activate)activateDatabaseView(meta.id,{force:true});
     return dbViews.get(meta.id);
   }
   const tabs=document.querySelector('#tabs');const panes=document.querySelector('#panes');
@@ -2472,7 +2472,7 @@ function attachDatabaseView(meta,activate){
   refresh.onclick=()=>{resetQuerySchema();loadObjects(view).catch(app.showError);};
   catalog.onchange=()=>{resetQuerySchema();loadObjects(view).catch(app.showError);};
   loadCatalogs(view).catch(error=>{view.detail.textContent=String(error?.message||error);});
-  if(activate)activateDatabaseView(meta.id);
+  if(activate)activateDatabaseView(meta.id,{force:true});
   return view;
 }
 

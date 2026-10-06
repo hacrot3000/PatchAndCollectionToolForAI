@@ -45,7 +45,7 @@ func TestEditorAutoOpenRespectsForegroundLockButTabClickForcesSwitch(t *testing.
 		"return app.activateExternalView(id,{force})",
 		"tab.onclick=()=>activateEditor(id,{force:true})",
 		"const view=await promise",
-		"activateEditor(view.id)",
+		"activateEditor(view.id,{force:true})",
 		"announceOpenedFile(pathValue)",
 	} {
 		if !strings.Contains(js, want) {

@@ -479,7 +479,7 @@ func TestFileTransferSessionRestoreDoesNotStealFocusFromOtherViews(t *testing.T)
 	js := string(data)
 	for _, want := range []string{
 		"function attachView(profile,{activate=true,session=null}={})",
-		"if(activate)activateView(id)",
+		"if(activate)activateView(id,{force:true})",
 		"activeViewID=activeID&&views.has(activeID)?activeID:''",
 		"if(saved?.active_profile_id&&views.has(saved.active_profile_id))activateView(saved.active_profile_id)",
 	} {

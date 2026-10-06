@@ -387,7 +387,7 @@ function canControlSession(meta){
 
 function attach(meta,activate){
   let view=views.get(meta.id);
-  if(view){updateMeta(meta);if(activate)activateView(meta.id);return view;}
+  if(view){updateMeta(meta);if(activate)activateView(meta.id,{force:true});return view;}
   const canControl=canControlSession(meta);
   const tab=document.createElement('button');tab.className='tab';tab.dataset.id=meta.id;
   const label=document.createElement('span');label.textContent=meta.label;
@@ -444,7 +444,7 @@ function attach(meta,activate){
   });
   term.onData(data=>{if(view.canControl&&!view.tabReadOnly&&!browserLeaseLost&&view.ws&&view.ws.readyState===WebSocket.OPEN)view.ws.send(data);});
   view.ro=new ResizeObserver(resize);view.ro.observe(terminalHost);
-  connect(view,false);updateMeta(meta);if(activate)activateView(meta.id);return view;
+  connect(view,false);updateMeta(meta);if(activate)activateView(meta.id,{force:true});return view;
 }
 
 function selectedDownloadFile(view){
@@ -786,7 +786,7 @@ function materializeSession(meta,activate=true){
   if(!meta?.id)throw new Error('Session metadata is required');
   hidden.delete(meta.id);
   const view=attach(meta,false);
-  if(activate)activateView(meta.id);
+  if(activate)activateView(meta.id,{force:true});
   return view;
 }
 
