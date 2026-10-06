@@ -288,6 +288,7 @@ style.textContent=`
 .db-auto-commit input{width:auto!important;margin:0;padding:0}
 .db-query-tools label{font-size:10px;opacity:.65}
 .db-query-tools input{width:72px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:6px}
+.db-explain-wrap{padding:8px;overflow:auto}.db-explain-head{display:flex;gap:8px;align-items:center;margin-bottom:7px;font-size:10px;opacity:.7}.db-explain-tree,.db-explain-tree ul{list-style:none;margin:0;padding-left:16px}.db-explain-tree{padding-left:0}.db-explain-node{position:relative;margin:3px 0;padding:5px 7px;border:1px solid #303843;border-radius:6px;background:#10151c}.db-explain-node::before{content:'';position:absolute;left:-10px;top:13px;width:8px;border-top:1px solid #46505d}.db-explain-tree>li>.db-explain-node::before{display:none}.db-explain-label{font:11px ui-monospace,monospace;font-weight:700}.db-explain-meta{font:9px/1.35 ui-monospace,monospace;opacity:.65;margin-top:2px;white-space:pre-wrap;overflow-wrap:anywhere}.db-explain-raw{margin-top:8px}.db-explain-raw pre{max-height:220px;overflow:auto;white-space:pre-wrap;font:10px/1.4 ui-monospace,monospace;background:#0b0f14;border:1px solid #303843;border-radius:6px;padding:7px}html[data-taskmenu-theme="light"] .db-explain-node{background:#f8fafc;border-color:#d0d7de}html[data-taskmenu-theme="light"] .db-explain-raw pre{background:#f6f8fa;border-color:#d0d7de}
 .db-query-library{display:flex;flex-direction:column;gap:12px}
 .db-query-library-section{display:flex;flex-direction:column;gap:7px}
 .db-query-library-section-head{display:flex;align-items:center;gap:8px}
@@ -1838,10 +1839,104 @@ function explainStatementFor(view,statement,analyze){
   throw new Error('Explain is available for MySQL/MariaDB and SQLite only');
 }
 
+function resultColumnNames(result){
+  return (Array.isArray(result?.columns)?result.columns:[]).map(column=>String(column?.name||''));
+}
+function resultRowsAsObjects(result){
+  const names=resultColumnNames(result);
+  return (Array.isArray(result?.rows)?result.rows:[]).map(row=>{
+    if(row&&typeof row==='object'&&!Array.isArray(row))return row;
+    const values=Array.isArray(row)?row:[];
+    return Object.fromEntries(names.map((name,index)=>[name,values[index]]));
+  });
+}
+function explainNode(label,meta='',children=[]){
+  return {label:String(label||'Plan step'),meta:String(meta||''),children:Array.isArray(children)?children:[]};
+}
+function sqliteExplainTree(result){
+  const rows=resultRowsAsObjects(result);
+  const nodes=new Map(),roots=[];
+  for(const row of rows){
+    const id=Number(row.id??row.selectid??row.select_id);
+    const parent=Number(row.parent??row.order??-1);
+    const label=String(row.detail??row['QUERY PLAN']??JSON.stringify(row));
+    const node={id:Number.isFinite(id)?id:nodes.size+1,parent:Number.isFinite(parent)?parent:-1,...explainNode(label,'id '+(Number.isFinite(id)?id:'?'))};
+    nodes.set(node.id,node);
+  }
+  for(const node of nodes.values()){
+    if(node.parent>=0&&node.parent!==node.id&&nodes.has(node.parent))nodes.get(node.parent).children.push(node);
+    else roots.push(node);
+  }
+  return roots.length?roots:[explainNode('SQLite query plan','No plan rows')];
+}
+function mysqlExplainTree(result){
+  const rows=resultRowsAsObjects(result);
+  if(resultColumnNames(result).length===1&&rows.length){
+    const key=resultColumnNames(result)[0];
+    const lines=rows.map(row=>String(row[key]??'')).filter(Boolean);
+    const roots=[],stack=[];
+    for(const raw of lines){
+      const indent=(raw.match(/^\s*/)?.[0].length||0)+((raw.match(/^\s*->/)?.[0].length||0)>0?2:0);
+      const label=raw.replace(/^\s*->\s*/,'').trim()||raw.trim();
+      const node=explainNode(label,'');
+      while(stack.length&&stack[stack.length-1].indent>=indent)stack.pop();
+      if(stack.length)stack[stack.length-1].node.children.push(node);else roots.push(node);
+      stack.push({indent,node});
+    }
+    return roots.length?roots:[explainNode('MySQL EXPLAIN ANALYZE','No plan rows')];
+  }
+  const groups=new Map(),order=[];
+  for(const row of rows){
+    const id=String(row.id??'?'),selectType=String(row.select_type??'SELECT');
+    const groupKey=id+'\u0000'+selectType;
+    if(!groups.has(groupKey)){
+      const group=explainNode('SELECT '+id+' · '+selectType,'');
+      groups.set(groupKey,group);order.push(group);
+    }
+    const table=String(row.table??'(no table)');
+    const access=String(row.type??'');
+    const label=table+(access?' · '+access:'');
+    const meta=[
+      row.key&&('key='+row.key),row.possible_keys&&('possible='+row.possible_keys),
+      row.rows!=null&&('rows='+row.rows),row.filtered!=null&&('filtered='+row.filtered),
+      row.Extra&&('extra='+row.Extra)
+    ].filter(Boolean).join(' · ');
+    groups.get(groupKey).children.push(explainNode(label,meta));
+  }
+  return order.length?order:[explainNode('MySQL query plan','No plan rows')];
+}
+function renderExplainTreeList(nodes){
+  const ul=document.createElement('ul');ul.className='db-explain-tree';
+  for(const node of nodes){
+    const li=document.createElement('li');
+    const card=document.createElement('div');card.className='db-explain-node';
+    const label=document.createElement('div');label.className='db-explain-label';label.textContent=node.label;
+    card.append(label);
+    if(node.meta){const meta=document.createElement('div');meta.className='db-explain-meta';meta.textContent=node.meta;card.append(meta);}
+    li.append(card);
+    if(node.children?.length)li.append(renderExplainTreeList(node.children));
+    ul.append(li);
+  }
+  return ul;
+}
+function renderExplainResult(view,result,elapsed,{analyze=false}={}){
+  view.result.replaceChildren();view.result.classList.remove('has-result-tabs','has-edit-tools');
+  const wrap=document.createElement('div');wrap.className='db-explain-wrap';
+  const head=document.createElement('div');head.className='db-explain-head';
+  const adapter=String(view.meta?.adapter_kind||'').toLowerCase();
+  head.textContent=(analyze?'EXPLAIN ANALYZE':'EXPLAIN')+' · '+adapter+(Number.isFinite(elapsed)?' · '+elapsed+' ms':'');
+  const tree=adapter==='sqlite'?sqliteExplainTree(result):mysqlExplainTree(result);
+  wrap.append(head,renderExplainTreeList(tree));
+  const raw=document.createElement('details');raw.className='db-explain-raw';
+  const summary=document.createElement('summary');summary.textContent='Raw plan result';
+  const pre=document.createElement('pre');pre.textContent=JSON.stringify({columns:result?.columns||[],rows:result?.rows||[]},null,2);
+  raw.append(summary,pre);wrap.append(raw);view.result.append(wrap);
+}
+
 async function explainQuery(view,analyze=false){
   const owner=view.resultOwner||view;
   if(owner.queryAbortController)throw new Error('A database query is already running');
-  const statement=explainStatementFor(owner,queryEditorExecutionText(owner));
+  const statement=explainStatementFor(owner,queryEditorExecutionText(owner),analyze);
   const maxRows=Math.max(1,Math.min(1000,Number(owner.maxRows.value)||100));
   const payload={statement,max_rows:maxRows};if(owner.catalog.value)payload.catalog=owner.catalog.value;
   const controller=new AbortController();owner.queryAbortController=controller;
@@ -1852,8 +1947,13 @@ async function explainQuery(view,analyze=false){
   try{
     const result=await sessionRequest(owner.meta.id,'execute',payload,{signal:controller.signal});
     owner.resultStatement=statement;
-    renderResult(owner,result,Math.round(performance.now()-started));
+    renderExplainResult(owner,result,Math.round(performance.now()-started),{analyze});
   }catch(error){
+    if(analyze&&owner.meta.adapter_kind==='mysql'&&/syntax|not supported|unsupported|1064/i.test(String(error?.message||error))){
+      owner.explainAnalyze.hidden=true;
+      owner.explainAnalyze.title='EXPLAIN ANALYZE is not supported by this MySQL/MariaDB server';
+      throw new Error('EXPLAIN ANALYZE is not supported by this MySQL/MariaDB server');
+    }
     if(controller.signal.aborted){renderQueryCanceled(owner,Math.round(performance.now()-started));return;}
     throw error;
   }finally{
