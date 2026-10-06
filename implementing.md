@@ -948,7 +948,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Definition/References mở đúng project file và jump tới line/character; Hover/Diagnostics dùng text-only UI, không render trusted Markdown/HTML từ server;
     - regression test khóa server mapping, framing, workspace escape rejection, Location/WorkspaceEdit normalization, diagnostics document scope, editor integration, optimistic rename safety, module load order và permission guard.
 
-40. **P3 — Remote workspace**
+40. **P3 — Remote workspace** — ✅ **COMPLETE**
     Cho TaskDeck daemon quản lý project nằm trên SSH host:
     - explorer remote;
     - terminal remote;
@@ -957,6 +957,23 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - database/tunnel integration.
     
     Đây là bước lớn nhưng khi hoàn thiện sẽ đưa TaskDeck từ “web task manager” thành một dạng lightweight remote development environment.
+
+    Hoàn tất:
+    - thêm Remote Workspace profile private theo user config, ghép **SSH profile + SFTP profile cùng SSH + RemoteRoot + linked DB profiles**; validate reference, SFTP-only transport, absolute POSIX root và DB tunnel phải dùng cùng SSH profile;
+    - profile CRUD có API + shared-server `settings.read/settings.write`, không chứa/copy credential;
+    - Remote Workspace panel mở từ **Connections → Remote** hoặc Unified Command Palette, có profile selector/New/Edit/Delete;
+    - remote Explorer duyệt folder theo relative path, folders-first, Up/Go/Refresh và double-click/click mở file;
+    - thêm sandboxed `/api/remote-workspace-files` cho list/read/write: browser không gửi absolute remote path, lexical normalize chặn `..`/absolute escape và server canonicalize target bằng remote `realpath` để chặn symlink escape khỏi `RemoteRoot`;
+    - read/write text tái sử dụng SFTP/file-transfer primitive hiện hữu, giới hạn editable-file hiện hữu, binary/oversize reject và SHA-256 optimistic locking;
+    - remote Save verify SHA sau ghi; external change trả 409 và đi vào conflict flow của Editor thay vì silently overwrite;
+    - Editor local hiện hữu được tái sử dụng qua virtual `remote://<workspace>/<path>`, giữ dirty/Save/Ctrl+S/reload/conflict/line-ending/BOM UX; không tạo editor thứ hai;
+    - remote editor bị loại khỏi local File Watcher, host LSP, Local History, reopen-local history và project workspace snapshot để path ảo không bị xử lý như file local;
+    - Quick Open nhận biết remote editor tab và chỉ activate tab hiện hữu, không gọi local `/api/project/file` với `remote://`;
+    - SSH terminal hỗ trợ `remote_cwd`; Remote Workspace có **Terminal here** tại đúng folder Explorer đang duyệt, kể cả root `/`;
+    - Git remote-host side có whitelist `status / branches / log / diff / fetch / pull / push` chạy tại `RemoteRoot`, dùng permission `git.*` + `ssh.use`, không nhận raw command từ browser;
+    - linked database profiles hiển thị ngay trong workspace panel; DB tunnel profile được validate phải dùng cùng SSH profile và mở qua Database/session+tunnel workflow hiện hữu;
+    - shared-server runtime yêu cầu `settings.read + ssh.use`, rồi list/read/write/terminal/Git tiếp tục bắt `files.* / transfer.* / terminal.create / git.*`; remote editor tự read-only khi user thiếu quyền write;
+    - regression test khóa path sandbox/root normalization/canonical symlink guard, post-write SHA verification, browser integration, editor optimistic transport, local-only exclusions, launcher/load order và permission preflight.
 
 Nếu chỉ chọn **10 mục nên làm tiếp ngay**, tôi sẽ ưu tiên theo thứ tự:
 
