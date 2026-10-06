@@ -18,9 +18,21 @@ const (
 	PermissionFilesDownload      = "files.download"
 	PermissionFilesUpload        = "files.upload"
 	PermissionFilesWrite         = "files.write"
+	PermissionFilesystemDelete   = "filesystem.delete"
 	PermissionGitStatus          = "git.status"
 	PermissionGitLog             = "git.log"
 	PermissionGitDiff            = "git.diff"
+	PermissionGitWrite           = "git.write"
+	PermissionGitPush            = "git.push"
+	PermissionGitRemoteDelete    = "git.remote.delete"
+	PermissionGitForceDelete     = "git.force_delete"
+	PermissionDBRead             = "db.read"
+	PermissionDBWrite            = "db.write"
+	PermissionDBSchema           = "db.schema"
+	PermissionSSHUse             = "ssh.use"
+	PermissionTransferRead       = "transfer.read"
+	PermissionTransferUpload     = "transfer.upload"
+	PermissionTransferDelete     = "transfer.delete"
 	PermissionSettingsRead       = "settings.read"
 	PermissionSettingsWrite      = "settings.write"
 	PermissionSelfupdateCheck    = "selfupdate.check"
@@ -56,9 +68,21 @@ func PermissionRegistry() []PermissionDefinition {
 		{Key: PermissionFilesDownload, Module: "files"},
 		{Key: PermissionFilesUpload, Module: "files"},
 		{Key: PermissionFilesWrite, Module: "files"},
+		{Key: PermissionFilesystemDelete, Module: "filesystem"},
 		{Key: PermissionGitStatus, Module: "git"},
 		{Key: PermissionGitLog, Module: "git"},
 		{Key: PermissionGitDiff, Module: "git"},
+		{Key: PermissionGitWrite, Module: "git"},
+		{Key: PermissionGitPush, Module: "git"},
+		{Key: PermissionGitRemoteDelete, Module: "git"},
+		{Key: PermissionGitForceDelete, Module: "git"},
+		{Key: PermissionDBRead, Module: "db"},
+		{Key: PermissionDBWrite, Module: "db"},
+		{Key: PermissionDBSchema, Module: "db"},
+		{Key: PermissionSSHUse, Module: "ssh"},
+		{Key: PermissionTransferRead, Module: "transfer"},
+		{Key: PermissionTransferUpload, Module: "transfer"},
+		{Key: PermissionTransferDelete, Module: "transfer"},
 		{Key: PermissionSettingsRead, Module: "settings"},
 		{Key: PermissionSettingsWrite, Module: "settings"},
 		{Key: PermissionSelfupdateCheck, Module: "selfupdate"},
@@ -80,6 +104,23 @@ func KnownPermission(key string) bool {
 		}
 	}
 	return false
+}
+
+func PermissionUpgradeV2Keys() []string {
+	return []string{
+		PermissionFilesystemDelete,
+		PermissionGitWrite,
+		PermissionGitPush,
+		PermissionGitRemoteDelete,
+		PermissionGitForceDelete,
+		PermissionDBRead,
+		PermissionDBWrite,
+		PermissionDBSchema,
+		PermissionSSHUse,
+		PermissionTransferRead,
+		PermissionTransferUpload,
+		PermissionTransferDelete,
+	}
 }
 
 type SystemRoleDefinition struct {
