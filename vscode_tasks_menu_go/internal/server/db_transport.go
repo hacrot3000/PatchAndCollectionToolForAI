@@ -30,7 +30,7 @@ func (s *Server) prepareDatabaseTransport(
 			return "", 0, sshtunnel.Metadata{}, nil, fmt.Errorf("SSH profile %q is not available", profile.SSHProfileID)
 		}
 		if err != nil {
-			return "", 0, nil, err
+			return "", 0, sshtunnel.Metadata{}, nil, err
 		}
 		tunnel, err := s.SSHTunnels.Open(ctx, sshProfile, profile.Host, profile.Port)
 		if err != nil {
