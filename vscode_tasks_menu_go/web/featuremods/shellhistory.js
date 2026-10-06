@@ -42,9 +42,11 @@ const close=document.createElement('button');close.textContent='×';close.title=
 head.append(title,cwd,close);
 const list=document.createElement('div');list.className='shell-history-list';
 const foot=document.createElement('div');foot.className='shell-history-foot';
+const exportMarkdown=document.createElement('button');exportMarkdown.textContent='Export Markdown';
+const exportText=document.createElement('button');exportText.textContent='Export text';
 const clear=document.createElement('button');clear.textContent='Clear view';
 const done=document.createElement('button');done.textContent='Close';
-foot.append(clear,done);dialog.append(head,list,foot);backdrop.append(dialog);document.body.append(backdrop);
+foot.append(exportMarkdown,exportText,clear,done);dialog.append(head,list,foot);backdrop.append(dialog);document.body.append(backdrop);
 
 function copyText(value){
   value=String(value??'');
@@ -118,6 +120,42 @@ close.onclick=closeDialog;done.onclick=closeDialog;backdrop.addEventListener('mo
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&backdrop.classList.contains('visible'))closeDialog();});
 
 function durationText(item){const ms=Math.max(0,Number(item.finishedAt||0)-Number(item.startedAt||0));return ms<1000?ms+' ms':(ms/1000).toFixed(ms<10000?1:0)+' s';}
+function exportFilename(view,extension){
+  const raw=String(view?.meta?.title||view?.meta?.label||'terminal-session').trim()||'terminal-session';
+  return raw.replace(/[^A-Za-z0-9._-]+/g,'_').replace(/^_+|_+$/g,'').slice(0,80)+'-'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+extension;
+}
+function downloadTextFile(name,text,type){
+  const blob=new Blob([text],{type:type+';charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),0);
+}
+function markdownFence(value){
+  const runs=String(value||'').match(/`+/g)||[];let size=3;
+  for(const run of runs)size=Math.max(size,run.length+1);
+  return '`'.repeat(size);
+}
+function sessionExport(view,markdown){
+  const id=historyID(view),commands=integration.getCommands(id),note=notes.get(id)||'',titleText=String(view?.meta?.title||view?.meta?.label||'Terminal session');
+  const sessionCwd=integration.getState(id)?.cwd||view?.meta?.cwd||'';
+  if(markdown){
+    const out=['# '+titleText,'','- Session ID: `'+id.replace(/`/g,'')+'`','- CWD: `'+String(sessionCwd).replace(/`/g,'')+'`','- Exported: '+new Date().toISOString()];
+    if(note)out.push('','## Session note','',note);
+    commands.forEach((item,index)=>{
+      out.push('','## '+(index+1)+'. Command','', '- Exit: '+(item.exitCode==null?'?':item.exitCode),'- Duration: '+durationText(item),'- CWD: `'+String(item.cwd||'').replace(/`/g,'')+'`');
+      const commandFence=markdownFence(item.command);out.push('',commandFence+'sh',String(item.command||''),commandFence);
+      if(item.output){const outputFence=markdownFence(item.output);out.push('','### Output','',outputFence+'text',String(item.output),outputFence);}
+      if(item.bookmarkLine>0)out.push('','> Bookmark: output line '+item.bookmarkLine+(item.bookmarkText?' — '+item.bookmarkText:''));
+    });
+    return out.join('\n')+'\n';
+  }
+  const out=['Terminal session: '+titleText,'Session ID: '+id,'CWD: '+sessionCwd,'Exported: '+new Date().toISOString()];
+  if(note)out.push('','SESSION NOTE',note);
+  commands.forEach((item,index)=>{
+    out.push('','='.repeat(72),'COMMAND '+(index+1),'Exit: '+(item.exitCode==null?'?':item.exitCode),'Duration: '+durationText(item),'CWD: '+String(item.cwd||''),'',String(item.command||''));
+    if(item.output)out.push('','OUTPUT',String(item.output));
+    if(item.bookmarkLine>0)out.push('','BOOKMARK: output line '+item.bookmarkLine+(item.bookmarkText?' — '+item.bookmarkText:''));
+  });
+  return out.join('\n')+'\n';
+}
 function rerun(view,item){
   const command=String(item?.command||'').trim();if(!command)throw new Error('Command is empty');
   if(!view?.canControl||view?.tabReadOnly)throw new Error('Terminal is read-only');
@@ -158,6 +196,8 @@ function installAll(){for(const view of app.views.values())install(view);}
 installAll();
 window.addEventListener('taskmenu:session',event=>install(event.detail?.view));
 window.addEventListener('taskmenu:shell-integration',event=>{const view=event.detail?.view;if(view){install(view);updateButton(view);if(event.detail?.type==='command-finished')loadHistory(view).then(()=>scheduleSave(view));if(activeView===view&&backdrop.classList.contains('visible'))render();}});
+exportMarkdown.onclick=()=>{if(!activeView)return;downloadTextFile(exportFilename(activeView,'md'),sessionExport(activeView,true),'text/markdown');};
+exportText.onclick=()=>{if(!activeView)return;downloadTextFile(exportFilename(activeView,'txt'),sessionExport(activeView,false),'text/plain');};
 clear.onclick=()=>{if(!activeView)return;const state=integration.getState(activeView.meta.id);if(state)state.commands.splice(0);updateButton(activeView);render();loadHistory(activeView).then(()=>scheduleSave(activeView,0));};
 
 globalThis.TaskDeckShellHistory={open,rerun};
