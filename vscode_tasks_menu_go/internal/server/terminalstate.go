@@ -516,6 +516,9 @@ func (s *Server) restoreTerminalStateProfile(profile string) (terminalRestoreRes
 	}
 	resp.LiveSplits = append([]terminalSnapshotSplitRequest(nil), value.LiveSplits...)
 	resp.Warnings = append(resp.Warnings, restoreTerminalBroadcastAssignments(s.Workspace, savedItems, sessionIDRemap)...)
+	if err := remapTerminalHistorySessions(s.Workspace, sessionIDRemap); err != nil {
+		resp.Warnings = append(resp.Warnings, "không thể remap terminal command history: "+err.Error())
+	}
 	if err := writeProjectTerminalStateProfile(s.Workspace, profile, value); err != nil {
 		for _, id := range started {
 			_ = s.Sessions.Stop(id)
