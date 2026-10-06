@@ -48,7 +48,7 @@ const foot=document.createElement('div');foot.className='shell-history-foot';
 const sessionNote=document.createElement('button');sessionNote.textContent='Session note…';
 const exportMarkdown=document.createElement('button');exportMarkdown.textContent='Export Markdown';
 const exportText=document.createElement('button');exportText.textContent='Export text';
-const clear=document.createElement('button');clear.textContent='Clear view';
+const clear=document.createElement('button');clear.textContent='Clear history';
 const done=document.createElement('button');done.textContent='Close';
 foot.append(sessionNote,exportMarkdown,exportText,clear,done);dialog.append(head,list,foot);backdrop.append(dialog);document.body.append(backdrop);
 
@@ -220,6 +220,6 @@ window.addEventListener('taskmenu:shell-integration',event=>{const view=event.de
 sessionNote.onclick=()=>{const view=activeView;if(!view)return;loadHistory(view).then(()=>{if(activeView===view)editSessionNote(view);});};
 exportMarkdown.onclick=()=>{const view=activeView;if(!view)return;loadHistory(view).then(()=>downloadTextFile(exportFilename(view,'md'),sessionExport(view,true),'text/markdown'));};
 exportText.onclick=()=>{const view=activeView;if(!view)return;loadHistory(view).then(()=>downloadTextFile(exportFilename(view,'txt'),sessionExport(view,false),'text/plain'));};
-clear.onclick=()=>{const view=activeView;if(!view)return;loadHistory(view).then(()=>{const state=integration.getState(view.meta.id);if(state)state.commands.splice(0);updateButton(view);if(activeView===view)render();scheduleSave(view,0);});};
+clear.onclick=()=>{const view=activeView;if(!view)return;if(!window.confirm('Clear recorded command history for this terminal? The session note is kept.'))return;loadHistory(view).then(()=>{const state=integration.getState(view.meta.id);if(state)state.commands.splice(0);updateButton(view);if(activeView===view)render();scheduleSave(view,0);});};
 
 globalThis.TaskDeckShellHistory={open,rerun};
