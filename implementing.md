@@ -669,7 +669,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Explain vẫn dùng query cancel capability hiện hữu và không thay đổi normal Run result flow;
     - regression test khóa Analyze wiring thật, SQLite/MySQL tree builders, raw fallback và unsupported-server behavior.
 
-30. **P2 — Connection tunneling graph**
+30. **P2 — Connection tunneling graph** — ✅ **COMPLETE**
     Với SSH + DB + SFTP:
     
     Hiển thị:
@@ -682,6 +682,19 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - reconnect.
     
     Khi lỗi `1045`, timeout, SSH drop sẽ dễ chẩn đoán hơn.
+
+    Hoàn tất:
+    - SSH tunnel runtime metadata expose PID thật sau process start; Manager trả live metadata thay vì snapshot trước khi process có PID;
+    - DB session metadata liên kết chính xác transport + tunnel ID/PID + SSH profile + local endpoint + remote endpoint + started_at;
+    - direct DB session ghi rõ transport `direct`; tunneled session lấy metadata từ chính tunnel được mở cho session, không suy đoán theo port;
+    - Connections panel có nút **Graph** và Unified Command Palette có `Connections: Tunnel Graph…`;
+    - graph tổng hợp DB sessions, SSH profiles và SFTP/FTP profiles; trạng thái active dựa trên session/tab runtime hiện hữu;
+    - DB tunnel route hiển thị **Browser → TaskDeck → SSH host → Tunnel → Database**, kèm tunnel port/PID/remote endpoint/session ID;
+    - SSH/SFTP/FTP hiển thị route tương ứng và có Check/Open bằng API/module hiện hữu;
+    - DB có Reconnect an toàn: đóng session/tunnel cũ rồi mở lại từ profile; cảnh báo nếu còn local pending edits hoặc transaction active;
+    - graph poll nhẹ khi visible để phản ánh connection/tunnel thay đổi;
+    - graph không render credential material (password/private key/secret ref);
+    - regression test khóa graph UI/load order, DB reconnect safety, tunnel PID metadata và DB-session↔tunnel runtime linkage.
 
 31. **P2 — File watcher**
     - Detect file changed externally.
