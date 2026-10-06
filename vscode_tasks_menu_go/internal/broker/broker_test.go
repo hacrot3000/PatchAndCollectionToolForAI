@@ -188,6 +188,15 @@ func TestBrokerTitleCapabilityBackwardCompatibility(t *testing.T) {
 	if !modern.SupportsSessionOwnership() {
 		t.Fatal("new broker must advertise session ownership support")
 	}
+	if legacy.SupportsTerminalClone() {
+		t.Fatal("legacy broker must not advertise terminal clone support")
+	}
+	if !modern.SupportsTerminalClone() {
+		t.Fatal("new broker must advertise terminal clone support")
+	}
+	if _, err := legacy.CloneTerminal("missing", session.TerminalCloneOptions{}); err == nil || !strings.Contains(err.Error(), CapabilityTerminalClone) {
+		t.Fatalf("legacy terminal clone error=%v", err)
+	}
 }
 
 func TestBrokerFallbackSocketDirectoryIsPrivate(t *testing.T) {
