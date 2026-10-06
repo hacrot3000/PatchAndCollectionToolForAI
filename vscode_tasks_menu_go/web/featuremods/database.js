@@ -2276,8 +2276,10 @@ function attachDatabaseView(meta,activate){
   const title=document.createElement('div');title.className='db-pane-title';title.textContent=profile?.name||'Database';
   const metaText=document.createElement('div');metaText.className='db-pane-meta';metaText.textContent=(meta.adapter_kind||'database')+' · '+(profile?.read_only?'read-only':'read/write');
   const reload=document.createElement('button');reload.type='button';reload.textContent='Refresh schema';
+  const schemaDiff=document.createElement('button');schemaDiff.type='button';schemaDiff.textContent='Schema Diff';schemaDiff.title='Compare this database schema with another open database session';
+  schemaDiff.onclick=()=>Promise.resolve(globalThis.TaskMenuDatabaseSchemaDiff?.open?.(view)).catch(app.showError);
   const disconnect=document.createElement('button');disconnect.type='button';disconnect.textContent='Disconnect';disconnect.onclick=()=>closeDatabaseView(meta.id).catch(app.showError);
-  head.append(title,metaText,reload,disconnect);
+  head.append(title,metaText,reload,schemaDiff,disconnect);
 
   const body=document.createElement('div');body.className='db-pane-body';
   const browser=document.createElement('div');browser.className='db-browser';
