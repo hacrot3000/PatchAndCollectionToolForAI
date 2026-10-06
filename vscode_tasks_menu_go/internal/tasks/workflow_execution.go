@@ -215,7 +215,7 @@ func ResolveWorkflowExecution(items []Task, rootLabel, workspace string, inputs 
 
 	var script strings.Builder
 	script.WriteString("set -u\n")
-	script.WriteString("TD_DIR=$(mktemp -d)\n")
+	script.WriteString("TD_DIR=$(mktemp -d); export TD_DIR\n")
 	script.WriteString("trap 'rm -rf \"$TD_DIR\"' EXIT INT TERM\n")
 	script.WriteString("td_read_status(){ if [ -f \"$1\" ]; then cat \"$1\"; else echo 125; fi; }\n")
 	script.WriteString("td_wait_status(){ while [ ! -f \"$1\" ]; do sleep 0.05; done; cat \"$1\"; }\n")
@@ -320,11 +320,4 @@ func ResolveWorkflowExecution(items []Task, rootLabel, workspace string, inputs 
 		Env: os.Environ(),
 		Preview: "Task workflow · " + strings.Join(graph.Order, " → "),
 	}, nil
-}
-
-func bool01(value bool) string {
-	if value {
-		return "1"
-	}
-	return "0"
 }
