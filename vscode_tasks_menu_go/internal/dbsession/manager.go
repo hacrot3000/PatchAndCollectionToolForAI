@@ -22,12 +22,33 @@ const (
 )
 
 type Metadata struct {
-	ID          string `json:"id"`
-	ProfileID   string `json:"profile_id"`
-	AdapterID   string `json:"adapter_id"`
-	AdapterKind       string `json:"adapter_kind"`
-	StartedAt         string `json:"started_at"`
-	TransactionActive bool   `json:"transaction_active,omitempty"`
+	ID                 string `json:"id"`
+	ProfileID          string `json:"profile_id"`
+	AdapterID          string `json:"adapter_id"`
+	AdapterKind        string `json:"adapter_kind"`
+	StartedAt          string `json:"started_at"`
+	TransactionActive  bool   `json:"transaction_active,omitempty"`
+	Transport          string `json:"transport,omitempty"`
+	TunnelID           string `json:"tunnel_id,omitempty"`
+	TunnelPID          int    `json:"tunnel_pid,omitempty"`
+	SSHProfileID       string `json:"ssh_profile_id,omitempty"`
+	TunnelLocalHost    string `json:"tunnel_local_host,omitempty"`
+	TunnelLocalPort    int    `json:"tunnel_local_port,omitempty"`
+	TunnelRemoteHost   string `json:"tunnel_remote_host,omitempty"`
+	TunnelRemotePort   int    `json:"tunnel_remote_port,omitempty"`
+	TunnelStartedAt    string `json:"tunnel_started_at,omitempty"`
+}
+
+type TransportMetadata struct {
+	Transport        string
+	TunnelID         string
+	TunnelPID        int
+	SSHProfileID     string
+	TunnelLocalHost  string
+	TunnelLocalPort  int
+	TunnelRemoteHost string
+	TunnelRemotePort int
+	TunnelStartedAt  string
 }
 
 type session struct {
@@ -186,6 +207,29 @@ func (m *Manager) Get(id string) (Metadata, error) {
 		return Metadata{}, err
 	}
 	return item.meta, nil
+}
+
+func (m *Manager) SetTransportMetadata(id string, transport TransportMetadata) error {
+	if m == nil {
+		return errors.New("database session manager is nil")
+	}
+	id = strings.TrimSpace(id)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	item, ok := m.sessions[id]
+	if !ok {
+		return ErrSessionNotFound
+	}
+	item.meta.Transport = strings.TrimSpace(transport.Transport)
+	item.meta.TunnelID = strings.TrimSpace(transport.TunnelID)
+	item.meta.TunnelPID = transport.TunnelPID
+	item.meta.SSHProfileID = strings.TrimSpace(transport.SSHProfileID)
+	item.meta.TunnelLocalHost = strings.TrimSpace(transport.TunnelLocalHost)
+	item.meta.TunnelLocalPort = transport.TunnelLocalPort
+	item.meta.TunnelRemoteHost = strings.TrimSpace(transport.TunnelRemoteHost)
+	item.meta.TunnelRemotePort = transport.TunnelRemotePort
+	item.meta.TunnelStartedAt = strings.TrimSpace(transport.TunnelStartedAt)
+	return nil
 }
 
 func (m *Manager) Request(ctx context.Context, id string, operation dbadapter.Operation, payload interface{}) (dbadapter.Envelope, error) {
