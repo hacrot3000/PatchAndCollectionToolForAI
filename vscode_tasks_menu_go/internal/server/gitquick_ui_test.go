@@ -17,7 +17,7 @@ func TestGitQuickPanelIsLeftAlignedAndCommandLogIsTaller(t *testing.T) {
 	for _, want := range []string{
 		"z-index:2100",
 		"left:12px;right:auto",
-		"body.task-sidebar-auto-hide .git-panel{left:60px;width:min(780px,calc(100vw - 72px))}",
+		"body.task-sidebar-auto-hide .git-panel{left:60px;width:min(1080px,calc(100vw - 72px))}",
 		"max-height:min(46vh,460px)",
 		"max-height:min(38vh,360px)",
 	} {
