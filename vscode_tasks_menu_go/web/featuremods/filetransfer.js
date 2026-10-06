@@ -1628,12 +1628,13 @@ function syncPlanAdd(map,path,entry){
   map.set(path,{path,type:entryType(entry),size:Number(entry?.size)||0,modified:String(entry?.modified||'')});
 }
 
-async function collectHostSyncTree(base){
-  const result=new Map();
+async function collectHostSyncTree(base,options={}){
+  const result=new Map(),exclude=normalizeSyncExclude(options.exclude||[]);
   const walk=async(path,relative)=>{
     const entries=await fetchHostDirectoryEntries(path);
     for(const entry of entries){
       const rel=relative==='.'?entry.name:joinPath(relative,entry.name,false);
+      if(syncPathExcluded(rel,exclude))continue;
       syncPlanAdd(result,rel,entry);
       if(entryType(entry)==='directory')await walk(joinPath(path,entry.name,false),rel);
     }
@@ -1642,16 +1643,17 @@ async function collectHostSyncTree(base){
   return result;
 }
 
-async function collectLocalSyncTree(view,base){
+async function collectLocalSyncTree(view,base,options={}){
   const panel=view.left;
   if(!panel.localRoot)throw new Error('Choose a local folder first');
   const granted=await ensureHandlePermission(panel.localRoot.handle);
   if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
   const root=await directoryHandleForPath(panel.localRoot.handle,normalizeRelativePath(base||'.'));
-  const result=new Map();
+  const result=new Map(),exclude=normalizeSyncExclude(options.exclude||[]);
   const walk=async(handle,relative)=>{
     for await(const [name,child] of handle.entries()){
       const rel=relative==='.'?name:joinPath(relative,name,false);
+      if(syncPathExcluded(rel,exclude))continue;
       if(child.kind==='directory'){
         syncPlanAdd(result,rel,{type:'directory',size:0,modified:''});
         await walk(child,rel);
@@ -1665,12 +1667,13 @@ async function collectLocalSyncTree(view,base){
   return result;
 }
 
-async function collectRemoteSyncTree(view,base){
-  const result=new Map();
+async function collectRemoteSyncTree(view,base,options={}){
+  const result=new Map(),exclude=normalizeSyncExclude(options.exclude||[]);
   const walk=async(path,relative)=>{
     const listing=await fetchRemoteDirectory(view,path,{force:true});
     for(const entry of listing.entries){
       const rel=relative==='.'?entry.name:joinPath(relative,entry.name,false);
+      if(syncPathExcluded(rel,exclude))continue;
       syncPlanAdd(result,rel,entry);
       if(entryType(entry)==='directory')await walk(joinPath(path,entry.name,true),rel);
     }
