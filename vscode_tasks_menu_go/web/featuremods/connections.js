@@ -969,6 +969,11 @@ globalThis.TaskMenuConnections={
     await loadData();const profile=sshProfiles.find(item=>item.id===id);if(!profile)throw new Error('SSH profile not found: '+id);
     return openSSH(profile);
   },
+  async testSSHProfile(id){
+    id=String(id||'').trim();if(!id)throw new Error('SSH profile id is required');
+    await loadData();const profile=sshProfiles.find(item=>item.id===id);if(!profile)throw new Error('SSH profile not found: '+id);
+    return testSSH(profile,null);
+  },
   get sshProfiles(){return [...sshProfiles];},
   get panel(){return panel;},get visible(){return visible();}
 };
