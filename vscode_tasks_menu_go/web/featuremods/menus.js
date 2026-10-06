@@ -35,8 +35,9 @@ function installHeaderMenus(){
   const files=makeMenu('Files','Project files');
   const quickOpen=document.createElement('button');quickOpen.type='button';quickOpen.textContent='Quick Open…  Ctrl+P';quickOpen.onclick=()=>{closeAll();globalThis.TaskMenuQuickOpen?.open();};
   const searchFiles=document.createElement('button');searchFiles.type='button';searchFiles.textContent='Search in Files…  Ctrl+Shift+F';searchFiles.onclick=()=>{closeAll();globalThis.TaskMenuProjectSearch?.open();};
+  const symbols=document.createElement('button');symbols.type='button';symbols.textContent='Project Symbols…';symbols.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('files.read')&&!app.hasPermission?.('project.admin'));symbols.onclick=()=>{closeAll();globalThis.TaskMenuProjectSymbols?.open();};
   const explorer=document.createElement('button');explorer.type='button';explorer.textContent='Explorer';explorer.onclick=()=>{closeAll();globalThis.TaskMenuExplorer?.open();};
-  addSection(files.pop,'OPEN',[quickOpen,searchFiles,explorer]);
+  addSection(files.pop,'OPEN',[quickOpen,searchFiles,symbols,explorer]);
   addSection(files.pop,'FILES',[document.querySelector('#upload-workspace')]);
   host.append(files.menu);
 
