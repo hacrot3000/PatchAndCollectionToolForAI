@@ -268,7 +268,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     Ví dụ M3:
     `m3-client`, `m3-server`, tools, deploy scripts có thể là các root độc lập trong cùng TaskDeck workspace.
 
-14. **P1 — File editor mạnh hơn**
+14. **P1 — File editor mạnh hơn** — ✅ **COMPLETE**
     Nếu muốn TaskDeck thay VS Code cho các thao tác nhanh:
     - Go to line.
     - Find/replace trong file.
@@ -288,6 +288,17 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - File history local.
     
     Không nhất thiết phải biến thành IDE đầy đủ.
+
+    Hoàn tất:
+    - Go to line, Find/Replace trong file với Next/Previous/wrap, Match case, Replace/Replace All và shortcut Ctrl/Cmd+F/H;
+    - bracket matching nhẹ cho `() [] {}`, highlight current line và whitespace toggle;
+    - minimap canvas optional, click-to-jump, viewport indicator, preference persist và redraw bằng requestAnimationFrame;
+    - detect EOL/encoding/BOM, đổi UTF-8 ↔ UTF-8 BOM và LF ↔ CRLF khi Save;
+    - large-file mode read-only, bounded byte reader + hex viewer, file/tab read-only guard;
+    - auto-save configurable, dirty indicator trên tab và reopen closed tab;
+    - local file history giữ tối đa 12 bản trước TaskDeck editor Save cho mỗi virtual project path, dữ liệu/index private `0600`, directory `0700`, checksum verify + retention;
+    - History UI hỗ trợ Compare và Restore; Restore vẫn đi qua editor PUT + `expected_sha256` nên chặn external-change race và tự lưu bản disk hiện tại vào history trước khi thay;
+    - shared-server chỉ cho đọc history với `files.read`; history không lưu vào browser localStorage.
 
 15. **P1 — Symbol navigation nhẹ**
     Không cần LSP ngay.
