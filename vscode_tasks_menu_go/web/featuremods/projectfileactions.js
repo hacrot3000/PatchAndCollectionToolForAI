@@ -48,6 +48,17 @@ async function gitFileView(pathValue,mode){
   const git=globalThis.TaskMenuGitFiles;if(!git?.openWorkspaceFileView)throw new Error('Git file view unavailable');
   return git.openWorkspaceFileView(pathValue,mode);
 }
+async function projectIntegrity(pathValue){
+  return app.jsonFetch('/api/project/integrity?path='+encodeURIComponent(cleanPath(pathValue)),{cache:'no-store'});
+}
+async function copyProjectChecksum(pathValue,algorithm){
+  const data=await projectIntegrity(pathValue);
+  const value=String(algorithm==='md5'?data?.md5:data?.sha256||'');
+  if(!value)throw new Error('Checksum is unavailable');
+  await copyText(value);
+  alert((algorithm==='md5'?'MD5':'SHA-256')+' copied to clipboard for '+cleanPath(pathValue)+'\n\n'+value);
+  return value;
+}
 function standardActions(pathValue,type='file'){
   pathValue=cleanPath(pathValue);type=type==='dir'?'dir':'file';
   const actions=[];
