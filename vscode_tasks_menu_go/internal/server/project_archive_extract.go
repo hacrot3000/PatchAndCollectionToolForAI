@@ -18,6 +18,14 @@ type projectArchiveExtractRequest struct {
 	Destination string `json:"destination"`
 }
 
+func extractedArchiveFileMode(mode os.FileMode) os.FileMode {
+	perm := mode.Perm() & 0o777
+	if perm == 0 {
+		return 0o644
+	}
+	return perm
+}
+
 func ensureProjectArchiveDestination(root, member string, directory bool) (string, error) {
 	clean, err := safeArchiveMemberPath(strings.TrimSuffix(member, "/"))
 	if err != nil {
@@ -78,7 +86,7 @@ func extractProjectZip(source, destination string) error {
 		if err != nil {
 			return err
 		}
-		output, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, file.Mode().Perm()&0o777)
+		output, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, extractedArchiveFileMode(file.Mode()))
 		if err != nil {
 			_ = input.Close()
 			return err
@@ -144,7 +152,7 @@ func extractProjectTarGz(source, destination string) error {
 		if directory {
 			continue
 		}
-		output, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, os.FileMode(header.Mode)&0o777)
+		output, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, extractedArchiveFileMode(os.FileMode(header.Mode)))
 		if err != nil {
 			return err
 		}
