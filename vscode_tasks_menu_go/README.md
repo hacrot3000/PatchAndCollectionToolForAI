@@ -537,7 +537,7 @@ Các capability mới trong Connections/Workbench:
 
 - MySQL và SQLite có explicit transaction **Begin / Commit / Rollback** trên một connection thật; trong transaction, grid/object actions bị gate để không chạy trên connection khác;
 - query đang chạy có thể **Cancel** mà không kill toàn adapter; MySQL transaction dùng `CONNECTION_ID()` + `KILL QUERY`;
-- SQLite có **EXPLAIN QUERY PLAN**; MySQL/MariaDB có **EXPLAIN** và **EXPLAIN ANALYZE** cho SELECT/WITH;
+- SQLite có **EXPLAIN QUERY PLAN**; MySQL/MariaDB có **EXPLAIN** và **EXPLAIN ANALYZE** cho SELECT/WITH; kết quả được chuẩn hóa thành plan tree (SQLite theo id/parent, MySQL theo SELECT/table, Analyze theo cây output `->`) và vẫn có Raw plan result để debug; nếu server MySQL/MariaDB không hỗ trợ Analyze, nút Analyze tự bị ẩn sau lỗi capability/runtime rõ ràng;
 - Query History + Saved Snippets được persist, và relational Structure có foreign-key metadata/navigation;
 - SSH profile expose keepalive/connect timeout, hỗ trợ Local/Remote/Dynamic forwarding (`-L/-R/-D`) chỉ cho interactive terminal;
 - SSH test có host-key recovery an toàn: inspect matching `known_hosts` entry và chỉ xóa old entry sau explicit confirmation; TaskDeck không tự trust key mới;
