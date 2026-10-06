@@ -170,6 +170,45 @@ func missingImportedSecretRef(kind, id string) string {
 	return "managed/import/" + kind + "/" + id
 }
 
+func mergeCommandPresets(current, incoming projectCommandPresetState) (projectCommandPresetState, error) {
+	byID := map[string]commandPreset{}
+	order := []string{}
+	for _, preset := range current.Presets {
+		if _, exists := byID[preset.ID]; !exists { order=append(order,preset.ID) }
+		byID[preset.ID]=preset
+	}
+	for _, preset := range incoming.Presets {
+		if _, exists := byID[preset.ID]; !exists { order=append(order,preset.ID) }
+		byID[preset.ID]=preset
+	}
+	out:=projectCommandPresetState{Version:projectCommandPresetVersion}
+	for _, id:=range order { out.Presets=append(out.Presets,byID[id]) }
+	return normalizeProjectCommandPresetState(out)
+}
+
+func mergeProjectProfiles(current, incoming projectProfileStore) projectProfileStore {
+	byID:=map[string]projectProfile{};order:=[]string{}
+	for _, profile:=range current.Profiles {
+		if _,exists:=byID[profile.ID];!exists{order=append(order,profile.ID)}
+		byID[profile.ID]=profile
+	}
+	for _, profile:=range incoming.Profiles {
+		if _,exists:=byID[profile.ID];!exists{order=append(order,profile.ID)}
+		byID[profile.ID]=profile
+	}
+	out:=projectProfileStore{Version:1}
+	for _,id:=range order{out.Profiles=append(out.Profiles,byID[id])}
+	return out
+}
+
+func mergeTaskState(current, incoming projectTaskState) projectTaskState {
+	out:=incoming
+	out.Favorites=append(append([]int{},incoming.Favorites...),current.Favorites...)
+	out.Recent=append(append([]int{},incoming.Recent...),current.Recent...)
+	out.History=append(append([]taskHistoryItem{},incoming.History...),current.History...)
+	return normalizeProjectTaskState(out)
+}
+
 func mergeSSHProfiles(current []sshprofile.Profile, incoming []configBackupSSHProfile, replace bool) ([]sshprofile.Profile, error) {
 	byID := map[string]sshprofile.Profile{}
 	if !replace { for _, p := range current { byID[p.ID] = p } }
@@ -283,15 +322,23 @@ func (s *Server) applyConfigBackup(bundle configBackupBundle, mode string, actua
 	dbStore, err := s.databaseProfileStore(); if err != nil { return err }
 	transferStore, err := s.fileTransferProfileStore(); if err != nil { return err }
 
+	presets:=bundle.CommandPresets
+	taskState:=bundle.TaskState
+	projectProfiles:=bundle.ProjectProfiles
+	if !replace {
+		if presets,err=mergeCommandPresets(actual.Bundle.CommandPresets,bundle.CommandPresets);err!=nil{return err}
+		taskState=mergeTaskState(actual.Bundle.TaskState,bundle.TaskState)
+		projectProfiles=mergeProjectProfiles(actual.Bundle.ProjectProfiles,bundle.ProjectProfiles)
+	}
 	if err := config.SetPageTitle(s.Workspace, bundle.Settings.PageTitle); err != nil { return err }
 	if err := config.SetTerminalCWDSettings(s.Workspace, bundle.Settings.TerminalCWD); err != nil { return err }
 	if err := config.SetRunningIndicatorSettings(s.Workspace, bundle.Settings.RunningIndicator); err != nil { return err }
 	if err := config.SetSelfUpdateSettings(s.Workspace, bundle.Settings.SelfUpdate); err != nil { return err }
-	if err := writeProjectCommandPresetState(s.Workspace, bundle.CommandPresets); err != nil { return err }
-	if err := writeProjectTaskState(s.Workspace, bundle.TaskState); err != nil { return err }
+	if err := writeProjectCommandPresetState(s.Workspace, presets); err != nil { return err }
+	if err := writeProjectTaskState(s.Workspace, taskState); err != nil { return err }
 	if err := writeProjectTerminalStateProfile(s.Workspace, "desktop", bundle.TerminalDesktop); err != nil { return err }
 	if err := writeProjectTerminalStateProfile(s.Workspace, "mobile", bundle.TerminalMobile); err != nil { return err }
-	if err := writeProjectProfileStore(s.Workspace, bundle.ProjectProfiles); err != nil { return err }
+	if err := writeProjectProfileStore(s.Workspace, projectProfiles); err != nil { return err }
 	if err := sshStore.Save(sshProfiles); err != nil { return err }
 	if err := dbStore.Save(dbProfiles); err != nil { return err }
 	if err := transferStore.Save(transferProfiles); err != nil { return err }
