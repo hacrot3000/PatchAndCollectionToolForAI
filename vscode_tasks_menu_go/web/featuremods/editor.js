@@ -60,6 +60,11 @@ html[data-taskmenu-theme="light"] .editor-find-panel input[type="text"]{backgrou
 .editor-conflict-dialog{width:min(560px,96vw)}
 .editor-conflict-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}.editor-conflict-actions .compare{margin-right:auto}
 .editor-compare-dialog{width:min(1100px,96vw);max-height:90vh;display:flex;flex-direction:column}
+.editor-history-dialog{width:min(760px,96vw);max-height:88vh;display:flex;flex-direction:column}
+.editor-history-list{display:flex;flex-direction:column;gap:6px;overflow:auto;min-height:80px;max-height:60vh;margin:8px 0 14px}
+.editor-history-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:7px;align-items:center;padding:7px 8px;border:1px solid #343a45;border-radius:6px;background:#10151c}
+.editor-history-main{min-width:0}.editor-history-time{font-size:11px;font-weight:600}.editor-history-meta{font:10px ui-monospace,monospace;opacity:.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+html[data-taskmenu-theme="light"] .editor-history-row{background:#f8f9fb;border-color:#c8ced6}
 .editor-compare-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:0}.editor-compare-side{min-width:0;display:flex;flex-direction:column;gap:5px}
 .editor-compare-label{font-size:11px;font-weight:600;opacity:.75}.editor-compare-text{margin:0;min-height:180px;max-height:62vh;overflow:auto;white-space:pre;tab-size:4;background:#0d1117;border:1px solid #343a45;border-radius:6px;padding:9px;font:12px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
 @media(max-width:760px){.editor-compare-grid{grid-template-columns:1fr}.editor-compare-text{max-height:28vh}}
@@ -793,6 +798,96 @@ async function putEditorFile(view,expectedSHA256){
 async function readLatestEditorFile(view){
   return app.jsonFetch('/api/project/file?path='+encodeURIComponent(view.file.path));
 }
+async function loadEditorLocalHistory(view){
+  if(!view||view.closed)return [];
+  const data=await app.jsonFetch('/api/project/file-history?path='+encodeURIComponent(view.file.path));
+  return Array.isArray(data?.entries)?data.entries:[];
+}
+async function loadEditorLocalHistoryEntry(view,id){
+  if(!view||view.closed)throw new Error('Editor is closed');
+  return app.jsonFetch('/api/project/file-history?path='+encodeURIComponent(view.file.path)+'&id='+encodeURIComponent(id));
+}
+function editorHistoryTimestamp(value){
+  const date=new Date(String(value||''));
+  return Number.isFinite(date.getTime())?date.toLocaleString():String(value||'');
+}
+function showEditorHistoryCompare(view,entry){
+  return new Promise(resolve=>{
+    const backdrop=document.createElement('div');backdrop.className='editor-dirty-backdrop';
+    const dialog=document.createElement('div');dialog.className='editor-dirty-dialog editor-compare-dialog';dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');
+    const title=document.createElement('h3');title.textContent='Local history compare';
+    const message=document.createElement('p');message.textContent=view.file.path+' — current editor versus '+editorHistoryTimestamp(entry.saved_at)+'.';
+    const grid=document.createElement('div');grid.className='editor-compare-grid';
+    const makeSide=(label,text)=>{
+      const side=document.createElement('div');side.className='editor-compare-side';
+      const head=document.createElement('div');head.className='editor-compare-label';head.textContent=label;
+      const pre=document.createElement('pre');pre.className='editor-compare-text';pre.textContent=text;
+      side.append(head,pre);return side;
+    };
+    grid.append(makeSide('Current editor',view.cm.state.doc.toString()),makeSide('Local history',entry.content||''));
+    const actions=document.createElement('div');actions.className='editor-dirty-actions';
+    const close=document.createElement('button');close.type='button';close.textContent='Close';actions.append(close);
+    dialog.append(title,message,grid,actions);backdrop.append(dialog);document.body.append(backdrop);
+    let done=false;
+    const finish=()=>{if(done)return;done=true;document.removeEventListener('keydown',onKey,true);backdrop.remove();resolve();};
+    const onKey=event=>{if(event.key==='Escape'){event.preventDefault();finish();}};
+    document.addEventListener('keydown',onKey,true);backdrop.onmousedown=event=>{if(event.target===backdrop)finish();};close.onclick=finish;close.focus();
+  });
+}
+async function restoreEditorLocalHistory(view,entry){
+  if(!view||view.closed||editorReadOnly(view))return false;
+  if(view.dirty&&!window.confirm('Restore local history and discard current unsaved editor changes for '+view.file.path+'?'))return false;
+  const latest=await readLatestEditorFile(view);
+  if(!window.confirm('Restore '+editorHistoryTimestamp(entry.saved_at)+' for '+view.file.path+'?\n\nThe current disk version will be saved into local history first.'))return false;
+  const response=await app.fetchWithLease('/api/project/file',{
+    method:'PUT',cache:'no-store',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      path:view.file.path,
+      content:String(entry.content||''),
+      expected_sha256:latest.sha256,
+      line_ending:entry.line_ending||'preserve',
+      encoding:entry.bom?'utf-8-bom':'utf-8'
+    })
+  });
+  if(response.status===409)throw new Error('File changed again while restoring local history. Refresh and retry.');
+  if(!response.ok)throw new Error((await response.text())||response.statusText);
+  const restored=await response.json();
+  setEditorDocument(view,restored);
+  if(restored.history_warning)app.showError(new Error(restored.history_warning));
+  return true;
+}
+async function showEditorLocalHistory(view){
+  if(!view||view.closed)return;
+  const entries=await loadEditorLocalHistory(view);
+  const backdrop=document.createElement('div');backdrop.className='editor-dirty-backdrop';
+  const dialog=document.createElement('div');dialog.className='editor-dirty-dialog editor-history-dialog';dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');
+  const title=document.createElement('h3');title.textContent='Local file history';
+  const message=document.createElement('p');message.textContent=view.file.path+' · versions captured before TaskDeck editor saves';
+  const list=document.createElement('div');list.className='editor-history-list';
+  if(!entries.length){
+    const empty=document.createElement('div');empty.className='editor-history-meta';empty.textContent='No local history yet. A version is captured before each successful editor save.';list.append(empty);
+  }
+  for(const item of entries){
+    const row=document.createElement('div');row.className='editor-history-row';
+    const main=document.createElement('div');main.className='editor-history-main';
+    const when=document.createElement('div');when.className='editor-history-time';when.textContent=editorHistoryTimestamp(item.saved_at);
+    const meta=document.createElement('div');meta.className='editor-history-meta';meta.textContent=String(item.sha256||'').slice(0,12)+' · '+formatBytes(item.size||0);
+    main.append(when,meta);
+    const compare=document.createElement('button');compare.type='button';compare.textContent='Compare';
+    const restore=document.createElement('button');restore.type='button';restore.textContent='Restore';restore.disabled=editorReadOnly(view);restore.title=restore.disabled?'Restore is disabled in read-only mode':'Restore this version';
+    compare.onclick=async()=>{try{const entry=await loadEditorLocalHistoryEntry(view,item.id);await showEditorHistoryCompare(view,entry);}catch(error){app.showError(error);}};
+    restore.onclick=async()=>{try{const entry=await loadEditorLocalHistoryEntry(view,item.id);if(await restoreEditorLocalHistory(view,entry)){backdrop.remove();}}catch(error){app.showError(error);}};
+    row.append(main,compare,restore);list.append(row);
+  }
+  const actions=document.createElement('div');actions.className='editor-dirty-actions';
+  const close=document.createElement('button');close.type='button';close.textContent='Close';actions.append(close);
+  dialog.append(title,message,list,actions);backdrop.append(dialog);document.body.append(backdrop);
+  let done=false;
+  const finish=()=>{if(done)return;done=true;document.removeEventListener('keydown',onKey,true);backdrop.remove();};
+  const onKey=event=>{if(event.key==='Escape'){event.preventDefault();finish();}};
+  document.addEventListener('keydown',onKey,true);backdrop.onmousedown=event=>{if(event.target===backdrop)finish();};close.onclick=finish;close.focus();
+}
+
 function conflictChoice(view){
   return new Promise(resolve=>{
     const backdrop=document.createElement('div');backdrop.className='editor-dirty-backdrop';
@@ -862,6 +957,7 @@ async function saveEditor(view){
     const result=await putEditorFile(view,view.file.sha256);
     if(result.conflict)return resolveSaveConflict(view);
     setEditorDocument(view,result.file);
+    if(result.file.history_warning)app.showError(new Error(result.file.history_warning));
     return result.file;
   }finally{
     view.saving=false;
@@ -949,12 +1045,13 @@ function createEditor(file){
   const reload=document.createElement('button');reload.type='button';reload.textContent='Reload';reload.title='Reload file from disk';
   const whitespace=document.createElement('button');whitespace.type='button';whitespace.className='editor-whitespace-toggle';whitespace.textContent='WS';whitespace.title='Toggle visible spaces and tabs';whitespace.setAttribute('aria-pressed','false');
   const find=document.createElement('button');find.type='button';find.className='editor-find-toggle';find.textContent='Find';find.title='Find / replace in this file (Ctrl/Cmd+F)';
+  const history=document.createElement('button');history.type='button';history.className='editor-history-toggle';history.textContent='History';history.title='Local file history captured before editor saves';
   const minimapToggle=document.createElement('button');minimapToggle.type='button';minimapToggle.className='editor-minimap-toggle';minimapToggle.title='Toggle editor minimap';minimapToggle.setAttribute('aria-pressed','false');
   const splitVertical=document.createElement('button');splitVertical.type='button';splitVertical.className='editor-split-action editor-split-vertical';splitVertical.textContent='Split ↔';splitVertical.title='Split editor vertically with another/open file';
   const splitHorizontal=document.createElement('button');splitHorizontal.type='button';splitHorizontal.className='editor-split-action editor-split-horizontal';splitHorizontal.textContent='Split ↕';splitHorizontal.title='Split editor horizontally with another/open file';
   const splitSwap=document.createElement('button');splitSwap.type='button';splitSwap.className='editor-split-action editor-split-swap';splitSwap.textContent='Swap';splitSwap.title='Swap this editor split';splitSwap.hidden=true;
   const splitUnsplit=document.createElement('button');splitUnsplit.type='button';splitUnsplit.className='editor-split-action editor-unsplit';splitUnsplit.textContent='Unsplit';splitUnsplit.title='Remove this editor from its split';splitUnsplit.hidden=true;
-  head.append(pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,minimapToggle,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
+  head.append(pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,history,minimapToggle,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
   const findPanel=document.createElement('div');findPanel.className='editor-find-panel hidden';
   const findInput=document.createElement('input');findInput.type='text';findInput.placeholder='Find';findInput.setAttribute('aria-label','Find text');
   const findReplaceInput=document.createElement('input');findReplaceInput.type='text';findReplaceInput.placeholder='Replace';findReplaceInput.setAttribute('aria-label','Replace text');findReplaceInput.hidden=true;
@@ -972,7 +1069,7 @@ function createEditor(file){
   body.append(host,minimap);pane.append(head,findPanel,body);panesHost.append(pane);
 
   const cm=cmFactory.newEditor(host,file.content||'',editorOptionsForFile(file));
-  const view={id,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,findPanel,findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCase,findStatus,findClose,minimapToggle,minimap,body,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null,minimapRAF:0,scroller:cm.dom.querySelector('.cm-scroller')};
+  const view={id,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,history,findPanel,findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCase,findStatus,findClose,minimapToggle,minimap,body,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null,minimapRAF:0,scroller:cm.dom.querySelector('.cm-scroller')};
   editors.set(id,view);
   pane.classList.toggle('editor-large-file-mode',Boolean(file.large_file));
   installEditorDispatchGuard(view);
@@ -1013,6 +1110,7 @@ function createEditor(file){
   };
   reload.onclick=()=>reloadEditor(view).catch(app.showError);
   find.onclick=()=>openEditorFind(view,{replace:false});
+  history.onclick=()=>showEditorLocalHistory(view).catch(app.showError);
   findNext.onclick=()=>editorFindMatch(view,{direction:1});
   findPrevious.onclick=()=>editorFindMatch(view,{direction:-1});
   findReplace.onclick=()=>replaceEditorMatch(view);
@@ -1301,6 +1399,8 @@ globalThis.TaskMenuEditor={
   editorFindMatch,
   replaceEditorMatch,
   replaceAllEditorMatches,
+  showEditorLocalHistory,
+  restoreEditorLocalHistory,
   activateEditor,
   destroyEditor,
   splitEditor,
