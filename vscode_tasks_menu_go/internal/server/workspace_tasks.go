@@ -43,6 +43,13 @@ func (s *Server) loadWorkspaceTasks() ([]tasks.Task, error) {
 			return nil, fmt.Errorf("workspace root %q: %w", root.Name, loadErr)
 		}
 		for _, item := range items {
+			if len(tasks.WorkflowNodeForTask(item).DependsOn) > 0 {
+				workflowInputs, inputErr := tasks.WorkflowInputs(items, item.Label)
+				if inputErr != nil {
+					return nil, fmt.Errorf("workspace root %q task %q workflow: %w", root.Name, item.Label, inputErr)
+				}
+				item.Inputs = workflowInputs
+			}
 			originalID := item.ID
 			if !root.Primary {
 				item.ID = attachedWorkspaceTaskID(root.ID, originalID)
