@@ -57,7 +57,13 @@ function localQuickOpenItems(){
   for(const pathValue of globalThis.TaskMenuExplorer?.recent||[])add(fileItem(pathValue,{kind:'recent',detail:'Recently opened',recent:true}));
   for(const view of globalThis.TaskMenuEditor?.editors?.values?.()||[]){
     if(view?.closed)continue;const pathValue=String(view.file?.path||'').trim();if(!pathValue)continue;
-    add({id:'editor:'+pathValue,kind:'tab',name:'Editor · '+(pathValue.split('/').pop()||pathValue),path:pathValue,detail:'Open editor tab',run:()=>globalThis.TaskMenuEditor?.openFile?.(pathValue)});
+    const remote=Boolean(view.file?.remote_workspace_id);
+    add({
+      id:'editor:'+pathValue,kind:remote?'remote':'tab',
+      name:(remote?'Remote Editor · ':'Editor · ')+(pathValue.split('/').pop()||pathValue),
+      path:pathValue,detail:remote?'Open Remote Workspace editor tab':'Open editor tab',
+      run:()=>remote?globalThis.TaskMenuEditor?.activateEditor?.(view.id):globalThis.TaskMenuEditor?.openFile?.(pathValue)
+    });
   }
   for(const [id,view] of app.views||[]){
     if(!view||view.closed||!view.tab)continue;
