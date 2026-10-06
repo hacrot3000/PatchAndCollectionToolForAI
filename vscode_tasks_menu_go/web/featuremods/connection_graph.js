@@ -197,7 +197,7 @@ async function checkConnection(item,button){
       if(!item.active)throw new Error('Database session is not active');
       await database.request(item.meta.id,'ping');
     }else if(item.kind==='ssh'){
-      await connections.openSSHProfile?.(String(item.profile.id));
+      await connections.testSSHProfile?.(String(item.profile.id));
     }else{
       await transfers?.testProfile?.(String(item.profile.id));
     }
