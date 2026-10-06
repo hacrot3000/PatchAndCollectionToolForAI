@@ -121,8 +121,7 @@ func normalizeAddonExtensions(values []string) ([]string, error) {
 		if !strings.HasPrefix(value, ".") {
 			value = "." + value
 		}
-		if strings.ContainsAny(value, "/\\ 	
-") || len(value) > 32 {
+		if strings.ContainsAny(value, "/\\ \t\r\n") || len(value) > 32 {
 			return nil, fmt.Errorf("invalid add-on file extension %q", value)
 		}
 		if !seen[value] {
@@ -300,8 +299,7 @@ func runAddonProcess(ctx context.Context, manifest addonManifest, request addonP
 	cmd := exec.CommandContext(ctx, manifest.Command, manifest.Args...)
 	payload, err := json.Marshal(request)
 	if err != nil { return addonProcessResponse{}, err }
-	cmd.Stdin = bytes.NewReader(append(payload, '
-'))
+	cmd.Stdin = bytes.NewReader(append(payload, '\n'))
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &limitedWriter{Writer:&stdout, Remaining:addonMaxOutputBytes}
 	cmd.Stderr = &limitedWriter{Writer:&stderr, Remaining:addonMaxOutputBytes}
