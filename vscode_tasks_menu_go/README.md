@@ -329,6 +329,35 @@ Apply profile **không tự chạy task hoặc command preset**, không tự swi
 
 Environment được snapshot vào project profile để profile vẫn dùng được nếu browser-local environment profile cũ bị xóa. Snapshot env chỉ được áp dụng cho **local task/terminal**; TaskDeck không inject local environment overrides vào SSH terminal remote.
 
+### Secrets / credentials manager
+
+TaskDeck có **Secrets Manager** dùng chung cho SSH, database, FTP, Git token, deploy secret và secret generic. Secret được mã hóa at-rest trong user config private store; browser chỉ thấy secret ID/kind/trạng thái/reference usage, **không có API đọc plaintext**.
+
+Task có thể nhận secret dưới dạng environment variable mà không ghi plaintext vào `.vscode/tasks.json`:
+
+```json
+{
+  "label": "Deploy production",
+  "type": "shell",
+  "command": "./deploy.sh",
+  "taskdeckSecrets": {
+    "DEPLOY_TOKEN": "managed/deploy/0123456789abcdef"
+  }
+}
+```
+
+`taskdeckSecrets` chỉ là mapping `ENV_NAME -> secret_id`. Server giữ mapping này private khỏi `/api/tasks`, resolve secret ngay trước khi spawn process và inject sau environment override thông thường, nên browser không thể thay giá trị managed secret bằng request `env`. Với dependency workflow, chỉ các node reachable từ task root được resolve; nếu hai node map cùng ENV name sang hai secret ID khác nhau thì task fail-closed.
+
+Trong shared-server:
+- xem manager cần `secrets.view`;
+- create/rotate/delete cần `secrets.manage`;
+- task dùng `taskdeckSecrets` cần thêm `secrets.use`;
+- các permission secrets mới chỉ auto-seed cho admin, không tự cấp cho role khác;
+- audit `secret.use` chỉ ghi số lượng secret đã dùng, không ghi ID/value;
+- secret đang được SSH/DB/FTP profile **hoặc task** tham chiếu không thể bị Delete.
+
+Task history tiếp tục không persist raw environment variables; secret value cũng không đi vào task preview, browser JSON hay project profile.
+
 Project profiles được lưu atomic với quyền `0600` tại:
 
 ```text
