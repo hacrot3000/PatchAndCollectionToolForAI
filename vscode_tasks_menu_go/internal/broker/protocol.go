@@ -6,6 +6,7 @@ const CapabilitySessionTitle = "session_title"
 const CapabilityPatchProtocolEvents = "patch_protocol_events"
 const CapabilityPatchProtocolCommands = "patch_protocol_commands"
 const CapabilitySessionOwnership = "session_ownership"
+const CapabilityTerminalClone = "terminal_clone"
 
 // Info is the durable identity advertised by the session broker. The daemon
 // validates both ProtocolVersion and Workspace before trusting a discovered
@@ -41,4 +42,9 @@ type ExecutionSpec struct {
 type ResizeRequest struct {
 	Rows uint16 `json:"rows"`
 	Cols uint16 `json:"cols"`
+}
+
+type TerminalCloneRequest struct {
+	OwnerUserID string `json:"owner_user_id,omitempty"`
+	ProjectID   string `json:"project_id,omitempty"`
 }
