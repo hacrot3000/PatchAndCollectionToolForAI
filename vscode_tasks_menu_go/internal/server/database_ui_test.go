@@ -1494,6 +1494,11 @@ func TestDatabaseTransactionControls(t *testing.T) {
 		"async function setAutoCommit(view,enabled)",
 		"autoCommitToggle.checked=!active",
 		"Commit or Rollback the active transaction before enabling Auto-commit",
+		"function transactionWorkspaceHasPendingChanges(root)",
+		"TaskMenuDatabaseWorkbench?.hasPendingGridChanges?.(root)",
+		"async function refreshTransactionWorkspace(root)",
+		"TaskMenuDatabaseWorkbench?.refreshAfterTransaction?.(root)",
+		"Apply or Revert pending Data Grid / query-result edits before ",
 		"transactionState.className='db-transaction-state'",
 		"transactionState.textContent=active?'TX ACTIVE · pending commit/rollback':'AUTO COMMIT'",
 		"sessionRequest(root.meta.id,operation)",
@@ -1506,8 +1511,17 @@ func TestDatabaseTransactionControls(t *testing.T) {
 			t.Fatalf("database.js missing transaction control %q", want)
 		}
 	}
-	if !strings.Contains(string(workbenchData), "database.refreshQueryControls?.(view)") {
-		t.Fatal("database_workbench.js does not refresh transaction controls after adapter metadata loads")
+	workbenchJS := string(workbenchData)
+	for _, want := range []string{
+		"database.refreshQueryControls?.(view)",
+		"function hasPendingGridChanges(view)",
+		"function refreshAfterTransaction(view)",
+		"hasPendingGridChanges,",
+		"refreshAfterTransaction,",
+	} {
+		if !strings.Contains(workbenchJS, want) {
+			t.Fatalf("database_workbench.js missing transaction workspace bridge %q", want)
+		}
 	}
 }
 
