@@ -185,7 +185,7 @@ func (m *Manager) Open(
 	m.tunnels[tunnelID] = tunnel
 	m.mu.Unlock()
 	go m.watch(tunnelID, tunnel)
-	return meta, nil
+	return tunnel.Metadata(), nil
 }
 
 func (m *Manager) Get(id string) (Metadata, error) {
