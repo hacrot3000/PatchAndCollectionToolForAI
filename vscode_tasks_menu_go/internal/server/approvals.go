@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 	"net/http"
-	"path/filepath"
 	"strings"
 
 	"bletonfc/vscode_tasks_menu/internal/approval"
@@ -16,7 +15,11 @@ func (s *Server) dangerousApprovalStore() (*approval.Store, error) {
 	if s.approvalStore != nil {
 		return s.approvalStore, nil
 	}
-	store, err := approval.NewStore(filepath.Join(s.Workspace, ".vscode", "vscode_tasks_menu.approvals.json"))
+	path, err := approval.DefaultStorePath(s.Workspace)
+	if err != nil {
+		return nil, err
+	}
+	store, err := approval.NewStore(path)
 	if err != nil {
 		return nil, err
 	}
