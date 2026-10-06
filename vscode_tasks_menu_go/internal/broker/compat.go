@@ -18,6 +18,7 @@ type CompatibilityService struct {
 var _ session.Service = (*CompatibilityService)(nil)
 var _ session.ProtocolStateProvider = (*CompatibilityService)(nil)
 var _ session.ProtocolCommandWriter = (*CompatibilityService)(nil)
+var _ session.TerminalCloner = (*CompatibilityService)(nil)
 
 func NewCompatibilityService(primary *Client) *CompatibilityService {
 	return &CompatibilityService{
@@ -36,6 +37,17 @@ func (s *CompatibilityService) NeedsPatchProtocolFallback() bool {
 func (s *CompatibilityService) SupportsSessionOwnership() bool {
 	return s != nil && s.primary != nil && s.primary.SupportsSessionOwnership()
 }
+
+func (s *CompatibilityService) SupportsTerminalClone() bool {
+	if s == nil {
+		return false
+	}
+	if s.fallback != nil {
+		return true
+	}
+	return s.primary != nil && s.primary.SupportsTerminalClone()
+}
+
 
 func (s *CompatibilityService) useFallback(spec tasks.Execution) bool {
 	if s == nil || s.primary == nil || !spec.ProtocolEvents {
@@ -155,6 +167,16 @@ func (s *CompatibilityService) CurrentCwd(id string) (string, error) {
 		return s.fallback.CurrentCwd(id)
 	}
 	return s.primary.CurrentCwd(id)
+}
+
+func (s *CompatibilityService) CloneTerminal(id string, options session.TerminalCloneOptions) (session.Metadata, error) {
+	if s.local(id) {
+		return s.fallback.CloneTerminal(id, options)
+	}
+	if s == nil || s.primary == nil || !s.primary.SupportsTerminalClone() {
+		return session.Metadata{}, fmt.Errorf("session broker does not support %s capability; restart TaskDeck to enable terminal cloning", CapabilityTerminalClone)
+	}
+	return s.primary.CloneTerminal(id, options)
 }
 
 func (s *CompatibilityService) ProtocolState(id string) (session.ProtocolState, error) {
