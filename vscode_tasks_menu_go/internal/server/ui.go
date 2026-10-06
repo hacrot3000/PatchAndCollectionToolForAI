@@ -241,6 +241,18 @@ async function jsonFetch(url,opts={}){
   const r=await fetchWithLease(url,{cache:'no-store',...opts});
   if(!r.ok){
     const message=(await r.text())||r.statusText;
+    if(r.status===428&&!opts?.taskdeckApprovalRetried){
+      let challenge=null;
+      try{challenge=JSON.parse(message);}catch{}
+      if(challenge?.approval_required&&challenge?.action){
+        const approvalID=await globalThis.TaskMenuApprovals?.authorize?.(challenge);
+        if(approvalID){
+          const headers=new Headers(opts?.headers||{});
+          headers.set('X-TaskDeck-Approval-ID',approvalID);
+          return jsonFetch(url,{...opts,headers,taskdeckApprovalRetried:true});
+        }
+      }
+    }
     if(r.status===409&&r.headers.get('X-TaskMenu-Lease-Revoked')==='1'){
       showLeaseLost(message.trim()||undefined);
       const error=new Error('Browser control lease revoked');
