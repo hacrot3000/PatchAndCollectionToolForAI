@@ -1054,6 +1054,26 @@ function hasPendingChanges(view){
   return pendingChangeCount(view)>0||dataState(view).newRows.length>0;
 }
 
+function hasPendingGridChanges(view){
+  const root=rootWorkbenchView(view);
+  for(const page of root.workbench?.pages?.values?.()||[]){
+    if(page?.mode==='data'&&page.ctx&&hasPendingChanges(page.ctx))return true;
+  }
+  return false;
+}
+
+async function refreshAfterTransaction(view){
+  const root=rootWorkbenchView(view);
+  const pages=[...(root.workbench?.pages?.values?.()||[])].filter(page=>page?.mode==='data'&&page.ctx);
+  for(const page of pages){
+    const state=dataState(page.ctx);
+    if(!state.object||!state.result||state.busy)continue;
+    clearPendingChanges(page.ctx);
+    try{await loadData(page.ctx);}catch(error){console.warn('Transaction data-grid refresh failed',error);}
+  }
+  return true;
+}
+
 function clearPendingChanges(view){
   const state=dataState(view);
   state.dirtyRows.clear();
@@ -2039,6 +2059,8 @@ globalThis.TaskMenuDatabaseWorkbench={
     return false;
   },
   supports,
+  hasPendingGridChanges,
+  refreshAfterTransaction,
   copyText,
   serializeClipboardData
 };
