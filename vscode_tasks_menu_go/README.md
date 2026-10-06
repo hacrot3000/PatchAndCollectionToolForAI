@@ -580,6 +580,42 @@ Visual mode hỗ trợ add/clone/delete/reorder task, label/menu group/detail, s
 
 Command, file argument và danh sách execution file có thể chọn bằng workspace file browser. Multi-file/script execution được materialize thành một shell command tuần tự dùng `&&` (dừng ở lỗi đầu tiên) hoặc `;` (tiếp tục độc lập), nên task đã lưu vẫn đi qua runner hiện hữu. Metadata `taskdeck.template`, `taskdeck.runner`, `taskdeck.executionFiles` và `taskdeck.executionMode` chỉ giúp visual editor dựng lại cấu hình.
 
+### Task workflow / dependency DAG
+
+TaskDeck hiểu `dependsOn` và `dependsOrder` của VS Code và bổ sung policy runtime trong `taskdeck.workflow`:
+
+```jsonc
+{
+  "label": "Deploy",
+  "type": "shell",
+  "command": "./deploy.sh",
+  "args": ["--version", "${output:Package.version}"],
+  "dependsOn": ["Test", "Package"],
+  "dependsOrder": "parallel",
+  "taskdeck": {
+    "workflow": {
+      "retry": 2,
+      "timeoutSeconds": 300,
+      "continueOnError": false,
+      "condition": "success",
+      "outputs": ["deployment"]
+    }
+  }
+}
+```
+
+- dependency mặc định chạy **parallel**; đặt `dependsOrder: "sequence"` để chạy tuần tự theo thứ tự `dependsOn`;
+- shared dependency được lock/idempotent trong một workflow nên chỉ chạy một lần dù nhiều nhánh cùng cần;
+- `retry` từ 0–10; `timeoutSeconds` từ 0–86400 và dùng GNU/coreutils `timeout` khi timeout được bật;
+- `continueOnError` biến failure của node thành effective success để downstream tiếp tục;
+- `condition`: `success` (mặc định), `failure`, hoặc `always`;
+- task khai báo output bằng `outputs`, rồi emit dòng `::taskdeck-output name=value`; downstream dùng `${output:Task label.name}`;
+- output name phải là identifier an toàn, workflow tối đa 256 task và config sai/cycle/missing dependency bị từ chối trước khi launch;
+- input `${input:...}` của toàn dependency chain được gom lên root task để dialog input hỏi đủ trước khi chạy;
+- **Graph** trong visual tasks editor hiển thị roots, dependency edges và cảnh báo missing/cycle trước khi lưu.
+
+Workflow được compile thành **một task execution** rồi chạy qua session/broker hiện hữu, vì vậy ownership, stop/restart, terminal tab và shared-server `tasks.run` không có pipeline thứ hai.
+
 ## Browser assets chạy offline và được vendor thủ công
 
 Web UI dùng các bản đã pin:
