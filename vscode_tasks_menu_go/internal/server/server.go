@@ -1586,6 +1586,30 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			cwd = filepath.Clean(cwd)
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"local": true, "cwd": cwd})
+	case "clone":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		cloner, ok := s.Sessions.(session.TerminalCloner)
+		if !ok || !cloner.SupportsTerminalClone() {
+			http.Error(w, "terminal cloning is unavailable; restart TaskDeck/session broker", http.StatusServiceUnavailable)
+			return
+		}
+		options, ok := s.terminalCloneOptions(w, r)
+		if !ok {
+			return
+		}
+		meta, err := cloner.CloneTerminal(id, options)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		s.auditSharedSessionStart(r, meta, map[string]any{
+			"cloned_from": id,
+			"cwd": meta.Cwd,
+		})
+		writeJSON(w, http.StatusCreated, s.withStoredTitle(meta))
 	case "stop":
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
