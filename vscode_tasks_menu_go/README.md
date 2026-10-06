@@ -241,7 +241,9 @@ Click phải một tab mở thêm phần **Broadcast group**:
 
 Mỗi group chọn một trong các preset màu nền/chữ có độ tương phản cao: Slate, Ocean, Forest, Amber, Violet, Rose, Cyan và Lime. Tab thuộc group được tô theo preset đó để dễ nhận biết. Có thể edit/delete group từ menu Broadcast; xóa group sẽ tự bỏ assignment của các tab thuộc group.
 
-Mode, group definitions, preset màu và mapping `session_id -> group_id` được lưu atomic tại `.vscode/vscode_tasks_menu.broadcast.json`; runtime state legacy được tự migrate nhưng vẫn giữ bản cũ để rollback tức thời. Vì vậy cấu hình Broadcast sống qua browser reload, daemon restart, self-update và reboot, đồng thời assignment được remap khi terminal session ID cần recreate.
+Mỗi Broadcast group còn có thể lưu một environment dạng `NAME=VALUE`. Menu **NEW TERMINAL IN GROUP** tạo local terminal mới với environment của group rồi assign terminal đó vào group ngay sau khi session được tạo. Environment explicit của group được merge sau environment profile đang chọn nên giá trị group có precedence; terminal đang chạy không bị mutate environment giữa chừng.
+
+Mode, group definitions, preset màu, environment và mapping `session_id -> group_id` được lưu atomic tại `.vscode/vscode_tasks_menu.broadcast.json`; runtime state legacy được tự migrate nhưng vẫn giữ bản cũ để rollback tức thời. Vì vậy cấu hình Broadcast sống qua browser reload, daemon restart, self-update và reboot, đồng thời assignment được remap khi terminal session ID cần recreate.
 
 ### Authentication mode migration wizard
 
