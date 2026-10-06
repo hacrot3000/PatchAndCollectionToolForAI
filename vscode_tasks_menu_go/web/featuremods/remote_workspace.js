@@ -157,7 +157,8 @@ async function openRemoteFile(relative){
 }
 async function openTerminalHere(){
   const workspace=selectedWorkspace();if(!workspace)throw new Error('Choose a Remote Workspace');
-  const remoteCwd=workspace.remote_root+(currentPath==='.'?'':'/'+currentPath);
+  const root=String(workspace.remote_root||'/').replace(/\/+$/,'')||'/';
+  const remoteCwd=currentPath==='.'?root:(root==='/'?'/'+currentPath:root+'/'+currentPath);
   const meta=await app.jsonFetch('/api/sessions',{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({kind:'terminal',ssh_profile_id:workspace.ssh_profile_id,remote_cwd:remoteCwd})
