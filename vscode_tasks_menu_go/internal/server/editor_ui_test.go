@@ -603,3 +603,37 @@ func TestEditorOptionalMinimap(t *testing.T) {
 		}
 	}
 }
+
+func TestEditorLocalFileHistoryUI(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"editor-history-toggle",
+		"editor-history-dialog",
+		"function loadEditorLocalHistory(view)",
+		"function loadEditorLocalHistoryEntry(view,id)",
+		"'/api/project/file-history?path='",
+		"function showEditorHistoryCompare(view,entry)",
+		"function restoreEditorLocalHistory(view,entry)",
+		"function showEditorLocalHistory(view)",
+		"expected_sha256:latest.sha256",
+		"line_ending:entry.line_ending||'preserve'",
+		"encoding:entry.bom?'utf-8-bom':'utf-8'",
+		"File changed again while restoring local history",
+		"The current disk version will be saved into local history first.",
+		"restore.disabled=editorReadOnly(view)",
+		"history.onclick=()=>showEditorLocalHistory(view).catch(app.showError)",
+		"if(result.file.history_warning)app.showError(new Error(result.file.history_warning))",
+		"if(await restoreEditorLocalHistory(view,entry))finish()",
+		"showEditorLocalHistory,",
+		"restoreEditorLocalHistory,",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor local file history UI missing %q", want)
+		}
+	}
+	if strings.Contains(js, "localStorage.setItem") && strings.Contains(js, "history_warning") {
+		t.Fatal("local file history contents/warnings must not be persisted through browser localStorage")
+	}
+}
