@@ -535,6 +535,8 @@ Database session có **Workbench UI** gồm navigator + context menu, Data grid 
 
 **Transaction workspace** dùng chính DB session hiện hữu. MySQL/SQLite có Begin/Commit/Rollback, badge `TX ACTIVE` và toggle **Auto-commit** (mặc định bật). Tắt Auto-commit sẽ mở transaction thật; bật lại bị chặn cho đến khi Commit/Rollback để không commit ngầm. Data Grid và editable Query result có thể Apply nhiều nhóm thay đổi liên tiếp trong cùng transaction; Commit/Rollback bị chặn nếu còn edit local chưa Apply/Revert, và các grid/SELECT result được reload sau khi transaction kết thúc để phản ánh dữ liệu thật.
 
+**File Watcher** theo dõi thay đổi ngoài TaskDeck mà không crawl toàn workspace: open editor dùng metadata-only `/api/project/file?meta=1` (mtime/size) và chỉ tải full file khi metadata đổi; tab chưa dirty tự reload, tab dirty dùng conflict flow Compare/Reload/Overwrite/Cancel hiện hữu. Explorer chỉ poll root + tối đa 30 thư mục đang expanded để phát hiện file generated/new/deleted và refresh đúng nhánh; watcher tạm dừng khi browser tab hidden.
+
 Các capability mới trong Connections/Workbench:
 
 - MySQL và SQLite có explicit transaction **Begin / Commit / Rollback** trên một connection thật; trong transaction, grid/object actions bị gate để không chạy trên connection khác;
