@@ -1147,6 +1147,7 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "reset mode must be soft, mixed, or hard", http.StatusBadRequest)
 				return
 			}
+			if mode == "hard" && !s.requireDangerousApproval(w, r, "git.reset_hard", sha) { return }
 			args = []string{"reset", "--" + mode, sha}
 		}
 	case "restore_file_commit", "restore_staged_commit":
@@ -1302,7 +1303,10 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		if err != nil { http.Error(w, err.Error(), http.StatusConflict); return }
 		if current == branch { http.Error(w, "cannot delete the current branch", http.StatusConflict); return }
 		flag := "-d"
-		if action == "force_delete_branch" { flag = "-D" }
+		if action == "force_delete_branch" {
+			if !s.requireDangerousApproval(w, r, "git.force_delete", branch) { return }
+			flag = "-D"
+		}
 		args = []string{"branch", flag, branch}
 	case "delete_remote_tracking":
 		if !req.Confirmed {
@@ -1321,6 +1325,7 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		remoteRef := strings.TrimSpace(req.Branch)
 		remote, branch, err := s.gitRemoteBranchParts(r.Context(), remoteRef)
 		if err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
+		if !s.requireDangerousApproval(w, r, "git.remote.delete", remote+"/"+branch) { return }
 		timeout = gitNetworkPushTimeout
 		args = []string{"push", remote, "--delete", branch}
 	case "create_tag":
