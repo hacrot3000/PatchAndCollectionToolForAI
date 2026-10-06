@@ -3491,7 +3491,51 @@ function installPatchPanel(){
   summarySearchInput.oninput=()=>setQueueSearchQuery(summarySearchInput.value);
   summarySearchClear.onclick=()=>{setQueueSearchQuery('');summarySearchInput.focus();};
   closeButton.onclick=close;
-  globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,prepareAIPack,renderAIPack,copyAIPackPrompt,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,setReadOnly,isReadOnly:()=>tabReadOnly,get tab(){return patchTab;},get panel(){return panel;},get visible(){return panel.classList.contains('visible');},get lifecycleSuspended(){return lifecycleSuspended;}};
+  function patchOperationStateLabel(value){
+    value=String(value||'').toUpperCase();
+    if(['FAIL','FAILED','INCOMPLETE','LAUNCH FAILED'].includes(value))return 'failed';
+    if(['PASS','SUCCESS','DONE','COMPLETED'].includes(value))return 'completed';
+    if(['STOPPED','CANCELED','CANCELLED'].includes(value))return 'canceled';
+    return 'running';
+  }
+  function patchOperationSnapshot(){
+    const operations=[],seen=new Set();
+    if(activeSessionId&&runningMode){
+      const id=String(activeSessionId),state=foregroundProtocolState||{};
+      const items=Array.isArray(state?.items)?state.items:[];
+      const last=items[items.length-1]||{};
+      const rawStatus=runningFinished?(last.status||state?.progress?.status||'completed'):(last.status||state?.progress?.status||'running');
+      const names=Array.isArray(foregroundRunDescriptor?.names)?foregroundRunDescriptor.names.filter(Boolean):[];
+      operations.push({
+        source:'patch',id,title:names.length?names.join(', '):'Patch Tool run',
+        detail:String(state?.progress?.phase||'Patch Tool'),status:patchOperationStateLabel(rawStatus),
+        error:String(state?.error||last?.error||''),created_at:runningStartedAtMs?new Date(runningStartedAtMs).toISOString():'',
+        can_cancel:!runningFinished,can_retry:false,can_open:true,session_id:id
+      });seen.add(id);
+    }
+    for(const [key,run] of parallelCollectRuns.entries()){
+      const id=String(run?.sessionId||key);if(!id||seen.has(id))continue;
+      const raw=run?.error?'LAUNCH FAILED':parallelRunStatus(run);
+      operations.push({
+        source:'patch',id,title:String(run?.name||'Patch Tool run'),detail:'Patch Tool background run',
+        status:patchOperationStateLabel(raw),error:String(run?.error||run?.protocolError||''),
+        created_at:run?.startedAt?new Date(Number(run.startedAt)).toISOString():'',
+        can_cancel:Boolean(run?.sessionId)&&patchOperationStateLabel(raw)==='running',can_retry:false,can_open:true,session_id:String(run?.sessionId||'')
+      });
+    }
+    return operations;
+  }
+  async function patchOperationControl(operation,action){
+    if(action==='open'){open();return true;}
+    if(action==='cancel'){
+      const sessionID=String(operation?.session_id||operation?.id||'').trim();
+      if(!sessionID)throw new Error('Patch session is unavailable');
+      return app.jsonFetch('/api/sessions/'+encodeURIComponent(sessionID)+'/stop',{method:'POST'});
+    }
+    throw new Error('Unsupported Patch operation action');
+  }
+
+    globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,prepareAIPack,renderAIPack,copyAIPackPrompt,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,operationSnapshot:patchOperationSnapshot,operationControl:patchOperationControl,setReadOnly,isReadOnly:()=>tabReadOnly,get tab(){return patchTab;},get panel(){return panel;},get visible(){return panel.classList.contains('visible');},get lifecycleSuspended(){return lifecycleSuspended;}};
   globalThis.TaskMenuTabContext?.registerTab?.(patchTab);
   return true;
 }
