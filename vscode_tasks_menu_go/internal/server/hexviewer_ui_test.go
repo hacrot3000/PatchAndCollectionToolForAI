@@ -44,7 +44,8 @@ func TestProjectFileActionsExposeHexViewer(t *testing.T) {
 	for _, want := range []string{
 		"function openProjectHex(pathValue)",
 		"taskmenu:project-hex-open-request",
-		"label:'Open as Hex'",
+		"openWithButton(dialog,'Hex',()=>openProjectHex(pathValue))",
+		"label:'Open With…'",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("project file actions missing hex viewer integration %q", want)
