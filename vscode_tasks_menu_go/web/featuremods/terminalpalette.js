@@ -73,6 +73,7 @@ function staticGitCommands(){
 }
 function staticSettingsCommands(){
   return [
+    {id:'operations-open',label:'Operation Center: Open',keywords:'activity jobs queue running completed failed git transfer patch task update database',run:()=>globalThis.TaskMenuOperationCenter?.open?.()},
     {id:'settings-open',label:'Settings: Open menu',keywords:'settings configuration preferences appearance terminal update workspace',run:()=>globalThis.TaskMenuMenus?.open?.('settings')},
     {id:'tasks-editor',label:'Settings: Edit tasks.json…',keywords:'task tasks json editor workflow dependency',disabled:!permissionAllowed('files.write'),run:()=>document.querySelector('#tasks-json-editor')?.click()}
   ];
