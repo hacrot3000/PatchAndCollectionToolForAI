@@ -2,6 +2,7 @@ package server
 
 import (
 	"container/heap"
+	"errors"
 	"context"
 	"fmt"
 	"net/http"
@@ -54,6 +55,8 @@ var (
 	symbolRustImpl = regexp.MustCompile(`^\s*impl(?:<[^>]+>)?\s+([^\s{]+(?:\s+for\s+[^\s{]+)?)\s*\{`)
 	symbolShellFunc = regexp.MustCompile(`^\s*(?:function\s+)?([A-Za-z_][\w.-]*)\s*(?:\(\s*\))?\s*\{`)
 )
+
+var errProjectSymbolScanDone = errors.New("project symbol scan done")
 
 var projectSymbolControlWords = map[string]bool{
 	"if": true, "for": true, "while": true, "switch": true, "catch": true,
@@ -185,7 +188,7 @@ func addProjectSymbolTop(top *projectSymbolHeap, item projectSymbolResult, limit
 
 func scanProjectSymbolsRoot(ctx context.Context, root workspaceRootView, query string, limit int, top *projectSymbolHeap, response *projectSymbolSearchResponse) error {
 	ignore := loadProjectRootIgnore(root.Path)
-	return filepath.WalkDir(root.Path, func(current string, entry os.DirEntry, walkErr error) error {
+	err := filepath.WalkDir(root.Path, func(current string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			if entry != nil && entry.IsDir() { return filepath.SkipDir }
 			return nil
@@ -193,7 +196,7 @@ func scanProjectSymbolsRoot(ctx context.Context, root workspaceRootView, query s
 		if err := ctx.Err(); err != nil { return err }
 		if response.ScannedFiles >= projectSymbolSearchMaxFiles || response.ScannedBytes >= projectSymbolSearchMaxBytes {
 			response.Truncated = true
-			return filepath.SkipAll
+			return errProjectSymbolScanDone
 		}
 		if current == root.Path { return nil }
 		rel, err := filepath.Rel(root.Path,current);if err != nil{return nil}
@@ -204,7 +207,7 @@ func scanProjectSymbolsRoot(ctx context.Context, root workspaceRootView, query s
 		}
 		if entry.Type()&os.ModeSymlink!=0 || !entry.Type().IsRegular() || ignore.matches(rel,false) || projectSymbolLanguage(rel)=="" { return nil }
 		info,err:=entry.Info();if err!=nil||info.Size()<0||info.Size()>projectSymbolFileMaxBytes{return nil}
-		if response.ScannedBytes+info.Size()>projectSymbolSearchMaxBytes { response.Truncated=true;return filepath.SkipAll }
+		if response.ScannedBytes+info.Size()>projectSymbolSearchMaxBytes { response.Truncated=true;return errProjectSymbolScanDone }
 		data,err:=os.ReadFile(current);if err!=nil||strings.IndexByte(string(data),0)>=0{return nil}
 		response.ScannedFiles++;response.ScannedBytes+=int64(len(data))
 		virtual:=workspaceVirtualPath(root.ID,rel)
@@ -213,6 +216,8 @@ func scanProjectSymbolsRoot(ctx context.Context, root workspaceRootView, query s
 		}
 		return nil
 	})
+	if errors.Is(err, errProjectSymbolScanDone) { return nil }
+	return err
 }
 
 func (s *Server) projectSymbols(w http.ResponseWriter,r *http.Request){
