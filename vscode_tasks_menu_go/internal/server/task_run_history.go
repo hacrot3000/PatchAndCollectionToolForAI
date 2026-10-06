@@ -175,6 +175,9 @@ func (s *Server) recordTaskRun(r *http.Request,req taskRunRecordRequest)(taskRun
 	if meta.Status=="running"||strings.TrimSpace(meta.EndedAt)==""{return taskRunRecord{},errors.New("task run is still active")}
 	if principal,has:=PrincipalFromContext(r.Context());has&&!sharedSessionVisible(principal,meta){return taskRunRecord{},errors.New("task run is not visible")}
 
+	s.taskRunHistoryMu.Lock()
+	defer s.taskRunHistoryMu.Unlock()
+
 	log:=req.Log;truncated:=false
 	if len(log)>maxTaskRunLogBytes{log=log[:maxTaskRunLogBytes];truncated=true}
 	id:=taskRunID(meta.ID)
@@ -207,4 +210,119 @@ func (s *Server) recordTaskRun(r *http.Request,req taskRunRecordRequest)(taskRun
 		}}
 	}
 	return item,nil
+}
+
+
+func (s *Server) taskRuns(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.taskRunHistoryMu.Lock()
+		history, err := readTaskRunHistory(s.Workspace)
+		s.taskRunHistoryMu.Unlock()
+		if err != nil {
+			http.Error(w, "cannot read task-run history", http.StatusInternalServerError)
+			return
+		}
+		id := strings.TrimSpace(r.URL.Query().Get("id"))
+		if id != "" {
+			for _, item := range history.Runs {
+				if item.ID == id && taskRunVisible(r, item) {
+					writeJSON(w, http.StatusOK, item)
+					return
+				}
+			}
+			http.Error(w, "task run not found", http.StatusNotFound)
+			return
+		}
+		out := make([]taskRunRecord, 0, len(history.Runs))
+		for _, item := range history.Runs {
+			if taskRunVisible(r, item) {
+				out = append(out, item)
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"version": 1, "runs": out})
+	case http.MethodPost:
+		var req taskRunRecordRequest
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxTaskRunLogBytes+(128<<10)))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			http.Error(w, "invalid task-run record payload", http.StatusBadRequest)
+			return
+		}
+		item, err := s.recordTaskRun(r, req)
+		if err != nil {
+			status := http.StatusBadRequest
+			if strings.Contains(err.Error(), "not visible") {
+				status = http.StatusForbidden
+			} else if strings.Contains(err.Error(), "not found") {
+				status = http.StatusNotFound
+			}
+			http.Error(w, err.Error(), status)
+			return
+		}
+		s.auditSharedSuccess(r, "task.history.record", "task_run", item.ID, map[string]any{
+			"task_id": item.TaskID,
+			"session_id": item.SessionID,
+			"log_bytes": item.LogBytes,
+			"log_truncated": item.LogTruncated,
+		})
+		writeJSON(w, http.StatusCreated, item)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) taskRunLog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if id == "" {
+		http.Error(w, "task-run id is required", http.StatusBadRequest)
+		return
+	}
+	s.taskRunHistoryMu.Lock()
+	history, err := readTaskRunHistory(s.Workspace)
+	if err != nil {
+		s.taskRunHistoryMu.Unlock()
+		http.Error(w, "cannot read task-run history", http.StatusInternalServerError)
+		return
+	}
+	var selected *taskRunRecord
+	for i := range history.Runs {
+		if history.Runs[i].ID == id && taskRunVisible(r, history.Runs[i]) {
+			item := history.Runs[i]
+			selected = &item
+			break
+		}
+	}
+	if selected == nil {
+		s.taskRunHistoryMu.Unlock()
+		http.Error(w, "task run not found", http.StatusNotFound)
+		return
+	}
+	path, err := taskRunLogPath(s.Workspace, id)
+	if err != nil {
+		s.taskRunHistoryMu.Unlock()
+		http.Error(w, "task-run log unavailable", http.StatusBadRequest)
+		return
+	}
+	data, err := os.ReadFile(path)
+	s.taskRunHistoryMu.Unlock()
+	if err != nil {
+		http.Error(w, "task-run log unavailable", http.StatusNotFound)
+		return
+	}
+	if len(data) > maxTaskRunLogBytes {
+		data = data[:maxTaskRunLogBytes]
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-store")
+	if r.URL.Query().Get("download") == "1" {
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", selected.ID+".log"))
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
 }
