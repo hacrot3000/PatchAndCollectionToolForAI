@@ -1738,7 +1738,7 @@ async function compareSyncTrees(view,left,remote,options={}){
 }
 
 function syncPlanCounts(rows){
-  const counts={left_only:0,remote_only:0,different:0,same:0,type_mismatch:0};
+  const counts={left_only:0,remote_only:0,different:0,conflict:0,same:0,type_mismatch:0};
   for(const row of rows)counts[row.status]=(counts[row.status]||0)+1;
   return counts;
 }
@@ -1848,22 +1848,64 @@ async function mirrorDeleteLeftOnly(view,rows){
   return selected.length;
 }
 
+function syncDirectionLabel(direction){
+  return ({
+    right:'Sync Left → Remote',
+    left:'Sync Remote → Left',
+    bidirectional:'Bidirectional Sync',
+    mirror_right:'Mirror Left → Remote',
+    mirror_left:'Mirror Remote → Left'
+  })[String(direction||'')]||'Sync Left → Remote';
+}
+
+async function runFolderSyncDirection(view,rows,options={}){
+  const direction=syncDirections.has(String(options.direction||''))?String(options.direction):'right';
+  if(direction==='right')return syncPlanToRemote(view,rows);
+  if(direction==='left')return syncPlanToLeft(view,rows);
+  if(direction==='bidirectional'){
+    const safeRows=rows.map(row=>row.status==='different'?{...row,status:'conflict'}:row);
+    const right=await syncPlanToRemote(view,safeRows);
+    const left=await syncPlanToLeft(view,safeRows);
+    return right+left;
+  }
+  if(!options.allow_delete)throw new Error('Mirror delete is disabled. Enable "Allow destination deletes" in the Sync setup first.');
+  if(direction==='mirror_right'){
+    if(!confirm('Mirror Left → Remote?\n\nRemote-only files/folders will be deleted after copy/update. Type mismatches and bidirectional conflicts are never deleted automatically.'))return 0;
+    const copied=await syncPlanToRemote(view,rows);
+    const removed=await mirrorDeleteRemoteOnly(view,rows);
+    return copied+removed;
+  }
+  if(direction==='mirror_left'){
+    if(!confirm('Mirror Remote → Left?\n\nLeft-only files/folders will be deleted after copy/update. Type mismatches and bidirectional conflicts are never deleted automatically.'))return 0;
+    const copied=await syncPlanToLeft(view,rows);
+    const removed=await mirrorDeleteLeftOnly(view,rows);
+    return copied+removed;
+  }
+  return 0;
+}
+
 function openFolderSyncDryRun(view,rows,options={}){
+  options=normalizeSyncProfile({...currentSyncOptions(view),...options},view);
+  if(options.direction==='bidirectional')rows=rows.map(row=>row.status==='different'?{...row,status:'conflict'}:row);
   const counts=syncPlanCounts(rows);
   const actionable=counts.left_only+counts.remote_only+counts.different;
   const backdrop=document.createElement('div');backdrop.className='ft-sync-backdrop';
   const dialog=document.createElement('div');dialog.className='ft-sync-dialog';
   const title=document.createElement('h3');title.textContent='Folder Sync / Mirror — Dry run';
   const note=document.createElement('div');note.className='ft-sync-note';
-  note.textContent='Recursive metadata comparison only (type, size, modified time when both sides provide it). No file is changed until you choose a Sync or Mirror action.';
+  note.textContent=(options.compare_mode==='checksum'
+    ?'Recursive SHA-256 comparison for matching-size files; size differences short-circuit hashing.'
+    :'Recursive metadata comparison (type, size, modified time when both sides provide it).')
+    +' Dry run never changes files. Selected action: '+syncDirectionLabel(options.direction)+'.'
+    +(options.direction==='bidirectional'?' Files changed on both sides are marked Conflict and are not copied automatically.':'');
   const summary=document.createElement('div');summary.className='ft-sync-summary';
-  summary.textContent='Left only '+counts.left_only+' · Remote only '+counts.remote_only+' · Different '+counts.different+' · Same '+counts.same+' · Type mismatch '+counts.type_mismatch;
+  summary.textContent='Left only '+counts.left_only+' · Remote only '+counts.remote_only+' · Different '+counts.different+' · Conflict '+counts.conflict+' · Same '+counts.same+' · Type mismatch '+counts.type_mismatch;
   const wrap=document.createElement('div');wrap.className='ft-sync-table-wrap';
   const table=document.createElement('table');table.className='ft-sync-table';
   const thead=document.createElement('thead'),hr=document.createElement('tr');
   for(const label of ['Status','Path','Left','Remote']){const th=document.createElement('th');th.textContent=label;hr.append(th);}
   thead.append(hr);const tbody=document.createElement('tbody');
-  const labels={left_only:'Left only',remote_only:'Remote only',different:'Different',same:'Same',type_mismatch:'Type mismatch'};
+  const labels={left_only:'Left only',remote_only:'Remote only',different:'Different',conflict:'Conflict',same:'Same',type_mismatch:'Type mismatch'};
   for(const row of rows.slice(0,maxSyncPlanEntries)){
     const tr=document.createElement('tr');
     const status=document.createElement('td');status.className='ft-sync-status';status.textContent=labels[row.status]||row.status;
@@ -1885,17 +1927,14 @@ function openFolderSyncDryRun(view,rows,options={}){
     };
     return button;
   };
-  const syncRight=runButton('Sync →',()=>syncPlanToRemote(view,rows));
-  const syncLeft=runButton('← Sync',()=>syncPlanToLeft(view,rows));
-  const mirrorRight=runButton('Mirror →',async()=>{
-    if(!confirm('Mirror Left → Remote?\\n\\nRemote-only files/folders will be deleted. Type-mismatch paths are NOT changed automatically.'))return;
-    await syncPlanToRemote(view,rows);await mirrorDeleteRemoteOnly(view,rows);
-  },{danger:true});
-  const mirrorLeft=runButton('← Mirror',async()=>{
-    if(!confirm('Mirror Remote → Left?\\n\\nLeft-only files/folders will be deleted. Type-mismatch paths are NOT changed automatically.'))return;
-    await syncPlanToLeft(view,rows);await mirrorDeleteLeftOnly(view,rows);
-  },{danger:true});
-  actions.append(close,syncRight,syncLeft,mirrorRight,mirrorLeft);
+  const selectedAction=runButton('Run: '+syncDirectionLabel(options.direction),()=>runFolderSyncDirection(view,rows,options),{
+    danger:options.direction==='mirror_right'||options.direction==='mirror_left'
+  });
+  if((options.direction==='mirror_right'||options.direction==='mirror_left')&&!options.allow_delete){
+    selectedAction.disabled=true;
+    selectedAction.title='Enable "Allow destination deletes" in Sync setup to run Mirror';
+  }
+  actions.append(close,selectedAction);
   dialog.append(title,note,summary,wrap,actions);backdrop.append(dialog);document.body.append(backdrop);close.focus();
   backdrop.addEventListener('pointerdown',event=>{if(event.target===backdrop)backdrop.remove();});
   backdrop.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();backdrop.remove();}});
