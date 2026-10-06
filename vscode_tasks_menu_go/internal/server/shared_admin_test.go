@@ -671,3 +671,60 @@ func TestSharedAdminCrossProjectResourcesStayIsolated(t *testing.T) {
 		t.Fatalf("project B-only user unexpectedly gained project A membership: %v", err)
 	}
 }
+
+
+func TestSharedAuditTimelineFiltersUsernameResourceResultAndCursor(t *testing.T) {
+	s := sharedLoginTestServer(t)
+	cookie := sharedAPILogin(t, s, "alice")
+	ctx := context.Background()
+	alice, err := s.Identity.UserByUsername(ctx, "alice")
+	if err != nil { t.Fatal(err) }
+	project, err := s.Identity.ProjectByKey(ctx, s.Config.SharedProjectID)
+	if err != nil { t.Fatal(err) }
+	projectID, userID := project.ID, alice.ID
+	now := time.Now().UTC()
+	for _, stamp := range []time.Time{now.Add(-time.Minute), now.Add(-2*time.Minute)} {
+		id, err := identity.NewID()
+		if err != nil { t.Fatal(err) }
+		if err := s.Identity.AppendAudit(ctx, identity.AuditEvent{
+			ID:id, Timestamp:stamp, UserID:&userID, ProjectID:&projectID,
+			Action:"git.push", ResourceType:"git", ResourceID:"origin/main",
+			Result:"success", ClientIP:"127.0.0.1", Details:"{}",
+		}); err != nil { t.Fatal(err) }
+	}
+	otherID, err := identity.NewID()
+	if err != nil { t.Fatal(err) }
+	if err := s.Identity.AppendAudit(ctx, identity.AuditEvent{
+		ID:otherID, Timestamp:now.Add(-30*time.Second), UserID:&userID, ProjectID:&projectID,
+		Action:"file.write", ResourceType:"file", ResourceID:"README.md", Result:"success", Details:"{}",
+	}); err != nil { t.Fatal(err) }
+
+	path := "/api/admin/audit?user=alice&action=git.push&resource_type=git&resource_id=origin%2Fmain&result=success&limit=1"
+	first := sharedRequest(t, s, path, cookie)
+	if first.Code != http.StatusOK { t.Fatalf("first page status=%d body=%s", first.Code, first.Body.String()) }
+	var firstPayload map[string]json.RawMessage
+	if err := json.Unmarshal(first.Body.Bytes(), &firstPayload); err != nil { t.Fatal(err) }
+	var firstEvents []sharedAdminAuditView
+	if err := json.Unmarshal(firstPayload["events"], &firstEvents); err != nil { t.Fatal(err) }
+	var nextBefore string
+	if err := json.Unmarshal(firstPayload["next_before"], &nextBefore); err != nil { t.Fatal(err) }
+	if len(firstEvents)!=1 || firstEvents[0].Username!="alice" || firstEvents[0].Action!="git.push" || firstEvents[0].ResourceID!="origin/main" {
+		t.Fatalf("unexpected first page: %+v", firstEvents)
+	}
+	if nextBefore=="" { t.Fatal("bounded audit page did not expose next_before cursor") }
+
+	second := sharedRequest(t, s, path+"&before="+nextBefore, cookie)
+	if second.Code != http.StatusOK { t.Fatalf("second page status=%d body=%s", second.Code, second.Body.String()) }
+	var secondPayload map[string]json.RawMessage
+	if err := json.Unmarshal(second.Body.Bytes(), &secondPayload); err != nil { t.Fatal(err) }
+	var secondEvents []sharedAdminAuditView
+	if err := json.Unmarshal(secondPayload["events"], &secondEvents); err != nil { t.Fatal(err) }
+	if len(secondEvents)!=1 || !secondEvents[0].Timestamp.Before(firstEvents[0].Timestamp) {
+		t.Fatalf("cursor did not return older event: first=%+v second=%+v", firstEvents, secondEvents)
+	}
+
+	byID := sharedRequest(t, s, "/api/admin/audit?user="+string(alice.ID)+"&action=git.push&limit=10", cookie)
+	if byID.Code != http.StatusOK || !strings.Contains(byID.Body.String(), "git.push") {
+		t.Fatalf("user-id filter failed status=%d body=%s", byID.Code, byID.Body.String())
+	}
+}
