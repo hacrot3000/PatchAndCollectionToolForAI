@@ -1,12 +1,15 @@
 package server
 
 import (
+	"errors"
 	"io/fs"
 	"net/http"
 	"path/filepath"
 )
 
 const projectHealthMaxEntries = 200000
+
+var errProjectHealthScanLimit = errors.New("project health scan limit reached")
 
 func (s *Server) projectHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -34,7 +37,7 @@ func (s *Server) projectHealth(w http.ResponseWriter, r *http.Request) {
 		entries++
 		if entries > projectHealthMaxEntries {
 			truncated = true
-			return fs.SkipAll
+			return errProjectHealthScanLimit
 		}
 		if entry.IsDir() {
 			dirs++
@@ -48,7 +51,7 @@ func (s *Server) projectHealth(w http.ResponseWriter, r *http.Request) {
 		bytes += info.Size()
 		return nil
 	})
-	if err != nil && err != fs.SkipAll {
+	if err != nil && !errors.Is(err, errProjectHealthScanLimit) {
 		http.Error(w, "project health scan failed", http.StatusInternalServerError)
 		return
 	}
