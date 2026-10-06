@@ -1119,6 +1119,25 @@ func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 		if !s.requireSharedActionPermission(w, r, permission, req.Kind, "file_transfer:"+req.ProfileID) {
 			return
 		}
+		if strings.TrimSpace(req.Kind) == fileTransferJobRemoteDelete {
+			directoryPaths := make([]string, 0, len(req.RemoteTargets))
+			for _, target := range req.RemoteTargets {
+				if target.Directory {
+					if path := strings.TrimSpace(target.Path); path != "" {
+						directoryPaths = append(directoryPaths, path)
+					}
+				}
+			}
+			if len(directoryPaths) > 0 {
+				resource := req.ProfileID + ":" + directoryPaths[0]
+				if len(directoryPaths) > 1 {
+					resource = fmt.Sprintf("%s (+%d directories)", resource, len(directoryPaths)-1)
+				}
+				if !s.requireDangerousApproval(w, r, "transfer.recursive_delete", resource) {
+					return
+				}
+			}
+		}
 		job, err := s.createFileTransferServerJob(req)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
