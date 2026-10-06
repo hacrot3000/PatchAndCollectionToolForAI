@@ -38,7 +38,7 @@ body.split-pane-dragging{user-select:none}
 .split-drop-overlay::after{content:attr(data-label);font:600 11px system-ui,sans-serif;letter-spacing:.08em;color:#d8ecff;background:rgba(16,18,22,.78);border:1px solid rgba(110,168,223,.65);border-radius:999px;padding:3px 7px}
 html[data-taskmenu-theme="light"] .split-drop-overlay{background:rgba(73,139,199,.18)}
 html[data-taskmenu-theme="light"] .split-drop-overlay::after{color:#174c78;background:rgba(255,255,255,.9)}
-.session-split-vertical,.session-split-horizontal,.session-merge-vertical,.session-merge-horizontal,.session-unsplit{white-space:nowrap}
+.session-split-vertical,.session-split-horizontal,.session-merge-vertical,.session-merge-horizontal,.session-move-split-group,.session-unsplit{white-space:nowrap}
 .tab.split-peer{box-shadow:inset 0 -2px #5a88b4}
 .pane.split-input-focused>.pane-head,.pane.split-input-focused .pane-head:first-child{background:#26384a!important;box-shadow:inset 0 -2px #6ea8df}
 .tab.split-input-focused{box-shadow:inset 0 -3px #6ea8df!important;opacity:1!important}
@@ -454,7 +454,7 @@ function moveToSplitGroup(view){
   if(!Number.isInteger(index)||index<0||index>=candidates.length)throw new Error('Invalid split group');
   const side=String(prompt('Place terminal relative to the selected group anchor: left, right, top, or bottom','right')||'').trim().toLowerCase();
   if(!['left','right','top','bottom'].includes(side)){
-    if(side)return Promise.reject(new Error('Split position must be left, right, top, or bottom'));
+    if(side)throw new Error('Split position must be left, right, top, or bottom');
     return;
   }
   if(!moveTerminalToSide(view.meta.id,candidates[index].id,side))throw new Error('Could not move terminal to the selected split group');
