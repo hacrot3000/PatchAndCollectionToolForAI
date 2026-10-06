@@ -1292,6 +1292,34 @@ async function reloadEditor(view){
   const file=await app.jsonFetch('/api/project/file?path='+encodeURIComponent(view.file.path));
   setEditorDocument(view,file);
 }
+
+async function handleExternalFileChange(view,latest=null){
+  if(!view||view.closed||view.saving)return false;
+  latest=latest||await readLatestEditorFile(view);
+  if(!latest||latest.sha256===view.file?.sha256)return false;
+  if(!view.dirty){
+    setEditorDocument(view,latest);
+    window.dispatchEvent(new CustomEvent('taskmenu:editor-external-reload',{detail:{path:view.file.path}}));
+    return true;
+  }
+  if(view.externalConflictPending)return false;
+  view.externalConflictPending=true;
+  try{
+    while(!view.closed){
+      const choice=await conflictChoice(view);
+      if(choice==='cancel')return false;
+      if(choice==='compare'){await showConflictCompare(view,latest);continue;}
+      if(choice==='reload'){setEditorDocument(view,latest);return true;}
+      if(choice==='overwrite'){
+        const result=await putEditorFile(view,latest.sha256);
+        if(result.conflict){latest=await readLatestEditorFile(view);continue;}
+        setEditorDocument(view,result.file);
+        return true;
+      }
+    }
+  }finally{view.externalConflictPending=false;}
+  return false;
+}
 function announceOpenedFile(pathValue){
   window.dispatchEvent(new CustomEvent('taskmenu:project-file-opened',{detail:{path:pathValue}}));
 }
@@ -1537,6 +1565,7 @@ globalThis.TaskMenuEditor={
   },
   openFile,
   reloadEditor,
+  handleExternalFileChange,
   saveEditor,
   setEditorAutoSave,
   setEditorMinimap,
