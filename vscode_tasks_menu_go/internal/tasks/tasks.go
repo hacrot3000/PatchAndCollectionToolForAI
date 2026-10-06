@@ -29,10 +29,11 @@ type Task struct {
 	Type              string         `json:"type"`
 	Command           any            `json:"command"`
 	Args              any            `json:"args,omitempty"`
-	Options           map[string]any `json:"options,omitempty"`
-	Inputs            []Input        `json:"inputs,omitempty"`
-	Raw               map[string]any `json:"raw"`
-	WorkspaceRootID   string         `json:"workspace_root_id,omitempty"`
+	Options           map[string]any    `json:"options,omitempty"`
+	Inputs            []Input           `json:"inputs,omitempty"`
+	SecretEnv         map[string]string `json:"-"`
+	Raw               map[string]any    `json:"raw"`
+	WorkspaceRootID   string            `json:"workspace_root_id,omitempty"`
 	WorkspaceRootName string         `json:"workspace_root_name,omitempty"`
 }
 
@@ -77,12 +78,48 @@ func Load(workspace string) ([]Task, error) {
 		if menuLabel == "" {
 			menuLabel = label
 		}
+		secretEnv, err := parseTaskSecretEnv(raw["taskdeckSecrets"])
+		if err != nil {
+			return nil, fmt.Errorf("task %q: %w", label, err)
+		}
+		publicRaw := make(map[string]any, len(raw))
+		for key, value := range raw {
+			if key == "taskdeckSecrets" {
+				continue
+			}
+			publicRaw[key] = value
+		}
 		out = append(out, Task{
 			ID: id, Label: label, MenuLabel: menuLabel,
 			Group: menuGroup(raw), Detail: stringValue(raw["detail"]),
 			Type: stringValue(raw["type"]), Command: raw["command"], Args: raw["args"],
-			Options: mapValue(raw["options"]), Inputs: referencedInputs(raw, inputDefs, inputOrder), Raw: raw,
+			Options: mapValue(raw["options"]), Inputs: referencedInputs(raw, inputDefs, inputOrder),
+			SecretEnv: secretEnv, Raw: publicRaw,
 		})
+	}
+	return out, nil
+}
+
+func parseTaskSecretEnv(raw any) (map[string]string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	values, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("taskdeckSecrets phải là object ENV_NAME -> secret_id")
+	}
+	out := make(map[string]string, len(values))
+	for envName, value := range values {
+		envName = strings.TrimSpace(envName)
+		if !environmentNamePattern.MatchString(envName) {
+			return nil, fmt.Errorf("taskdeckSecrets có tên biến môi trường không hợp lệ %q", envName)
+		}
+		secretID, ok := value.(string)
+		secretID = strings.TrimSpace(secretID)
+		if !ok || secretID == "" || len(secretID) > 256 {
+			return nil, fmt.Errorf("taskdeckSecrets[%q] phải là secret id không rỗng", envName)
+		}
+		out[envName] = secretID
 	}
 	return out, nil
 }
