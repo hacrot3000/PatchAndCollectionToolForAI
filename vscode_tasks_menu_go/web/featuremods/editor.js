@@ -32,6 +32,14 @@ html[data-taskmenu-theme="light"] .editor-head .editor-format{background:#fff;bo
 .editor-tab.dirty .editor-dirty{display:inline}
 .editor-tab .close{margin-left:8px}
 .editor-save{background:#203f31;border-color:#3a7058;color:#dcf6e7}
+.editor-find-panel{display:flex;align-items:center;gap:6px;padding:5px 9px;border-bottom:1px solid #30363d;background:#11161e;flex-wrap:wrap}
+.editor-find-panel.hidden{display:none}
+.editor-find-panel input[type="text"]{min-width:160px;max-width:260px;flex:0 1 220px;background:#0d1117;color:inherit;border:1px solid #39414d;border-radius:5px;padding:4px 6px;font:12px ui-monospace,monospace}
+.editor-find-panel .editor-find-status{min-width:80px;font-size:10px;opacity:.7}
+.editor-find-panel label{display:flex;align-items:center;gap:4px;font-size:10px;white-space:nowrap}
+.editor-find-panel button{font-size:11px;padding:3px 7px}
+html[data-taskmenu-theme="light"] .editor-find-panel{background:#f5f7fa;border-color:#d0d7de}
+html[data-taskmenu-theme="light"] .editor-find-panel input[type="text"]{background:#fff;border-color:#c8ced6}
 #panes.editor-split-mode{position:relative;display:block;overflow:hidden}
 #panes.editor-split-mode>.editor-pane.editor-split-leaf{position:absolute!important;right:auto!important;bottom:auto!important;display:flex!important;min-width:0;min-height:0;overflow:hidden}
 .editor-split-resizer{position:absolute;background:transparent;touch-action:none;z-index:9}
@@ -590,6 +598,7 @@ function applyReadOnly(view){
   if(view.lineEndingSelect)view.lineEndingSelect.disabled=readonly;
   if(view.encodingSelect)view.encodingSelect.disabled=readonly;
   if(view.whitespace)view.whitespace.disabled=Boolean(view.file?.large_file);
+  syncEditorFindReadOnly(view);
   view.tab.classList.toggle('taskdeck-tab-readonly',Boolean(view.tabReadOnly));
   if(view.tabReadOnly)view.pane.dataset.taskdeckReadonly='1';else delete view.pane.dataset.taskdeckReadonly;
   view.pane.setAttribute('aria-readonly',readonly?'true':'false');
@@ -857,16 +866,28 @@ function createEditor(file){
   const autoSave=document.createElement('button');autoSave.type='button';autoSave.className='editor-auto-save';autoSave.title='Toggle editor auto-save (1 second debounce)';autoSave.setAttribute('aria-pressed','false');
   const reload=document.createElement('button');reload.type='button';reload.textContent='Reload';reload.title='Reload file from disk';
   const whitespace=document.createElement('button');whitespace.type='button';whitespace.className='editor-whitespace-toggle';whitespace.textContent='WS';whitespace.title='Toggle visible spaces and tabs';whitespace.setAttribute('aria-pressed','false');
+  const find=document.createElement('button');find.type='button';find.className='editor-find-toggle';find.textContent='Find';find.title='Find / replace in this file (Ctrl/Cmd+F)';
   const splitVertical=document.createElement('button');splitVertical.type='button';splitVertical.className='editor-split-action editor-split-vertical';splitVertical.textContent='Split ↔';splitVertical.title='Split editor vertically with another/open file';
   const splitHorizontal=document.createElement('button');splitHorizontal.type='button';splitHorizontal.className='editor-split-action editor-split-horizontal';splitHorizontal.textContent='Split ↕';splitHorizontal.title='Split editor horizontally with another/open file';
   const splitSwap=document.createElement('button');splitSwap.type='button';splitSwap.className='editor-split-action editor-split-swap';splitSwap.textContent='Swap';splitSwap.title='Swap this editor split';splitSwap.hidden=true;
   const splitUnsplit=document.createElement('button');splitUnsplit.type='button';splitUnsplit.className='editor-split-action editor-unsplit';splitUnsplit.textContent='Unsplit';splitUnsplit.title='Remove this editor from its split';splitUnsplit.hidden=true;
-  head.append(pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
+  head.append(pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
+  const findPanel=document.createElement('div');findPanel.className='editor-find-panel hidden';
+  const findInput=document.createElement('input');findInput.type='text';findInput.placeholder='Find';findInput.setAttribute('aria-label','Find text');
+  const findReplaceInput=document.createElement('input');findReplaceInput.type='text';findReplaceInput.placeholder='Replace';findReplaceInput.setAttribute('aria-label','Replace text');findReplaceInput.hidden=true;
+  const findPrevious=document.createElement('button');findPrevious.type='button';findPrevious.textContent='↑';findPrevious.title='Previous match (Shift+Enter)';
+  const findNext=document.createElement('button');findNext.type='button';findNext.textContent='↓';findNext.title='Next match (Enter)';
+  const findReplace=document.createElement('button');findReplace.type='button';findReplace.textContent='Replace';findReplace.hidden=true;
+  const findReplaceAll=document.createElement('button');findReplaceAll.type='button';findReplaceAll.textContent='All';findReplaceAll.hidden=true;
+  const findCaseLabel=document.createElement('label');const findCase=document.createElement('input');findCase.type='checkbox';findCaseLabel.append(findCase,document.createTextNode('Match case'));
+  const findStatus=document.createElement('span');findStatus.className='editor-find-status';
+  const findClose=document.createElement('button');findClose.type='button';findClose.textContent='×';findClose.title='Close find';
+  findPanel.append(findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCaseLabel,findStatus,findClose);
   const host=document.createElement('div');host.className='editor-host';
-  pane.append(head,host);panesHost.append(pane);
+  pane.append(head,findPanel,host);panesHost.append(pane);
 
   const cm=cmFactory.newEditor(host,file.content||'',editorOptionsForFile(file));
-  const view={id,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null};
+  const view={id,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,findPanel,findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCase,findStatus,findClose,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null};
   editors.set(id,view);
   pane.classList.toggle('editor-large-file-mode',Boolean(file.large_file));
   installEditorDispatchGuard(view);
@@ -895,6 +916,21 @@ function createEditor(file){
     setDirty(view,true);
   };
   reload.onclick=()=>reloadEditor(view).catch(app.showError);
+  find.onclick=()=>openEditorFind(view,{replace:false});
+  findNext.onclick=()=>editorFindMatch(view,{direction:1});
+  findPrevious.onclick=()=>editorFindMatch(view,{direction:-1});
+  findReplace.onclick=()=>replaceEditorMatch(view);
+  findReplaceAll.onclick=()=>replaceAllEditorMatches(view);
+  findCase.onchange=()=>{view.findStatus.textContent='';};
+  findClose.onclick=()=>closeEditorFind(view);
+  findInput.onkeydown=event=>{
+    if(event.key==='Enter'){event.preventDefault();editorFindMatch(view,{direction:event.shiftKey?-1:1});}
+    else if(event.key==='Escape'){event.preventDefault();closeEditorFind(view);}
+  };
+  findReplaceInput.onkeydown=event=>{
+    if(event.key==='Enter'){event.preventDefault();replaceEditorMatch(view);}
+    else if(event.key==='Escape'){event.preventDefault();closeEditorFind(view);}
+  };
   whitespace.onclick=()=>{
     const enabled=!pane.classList.contains('editor-show-whitespace');
     pane.classList.toggle('editor-show-whitespace',enabled);
@@ -994,6 +1030,101 @@ function goToLine(view){
   view.cm.focus();
 }
 
+function editorFindComparable(value,matchCase){
+  value=String(value??'');
+  return matchCase?value:value.toLowerCase();
+}
+function editorFindMatch(view,{direction=1,from=null,wrap=true}={}){
+  if(!view||view.closed||!view.findInput)return null;
+  const query=String(view.findInput.value||'');
+  if(!query){view.findStatus.textContent='Enter text';return null;}
+  const matchCase=Boolean(view.findCase?.checked);
+  const text=view.cm.state.doc.toString();
+  const source=editorFindComparable(text,matchCase),needle=editorFindComparable(query,matchCase);
+  const selection=view.cm.state.selection.main;
+  let start=Number.isInteger(from)?from:(direction<0?selection.from-1:selection.to);
+  let index=direction<0?source.lastIndexOf(needle,Math.max(-1,start)):source.indexOf(needle,Math.max(0,start));
+  if(index<0&&wrap){
+    index=direction<0?source.lastIndexOf(needle):source.indexOf(needle);
+  }
+  if(index<0){view.findStatus.textContent='No matches';return null;}
+  const to=index+query.length;
+  view.cm.dispatch({selection:{anchor:index,head:to},scrollIntoView:true});
+  const line=view.cm.state.doc.lineAt(index).number;
+  view.findStatus.textContent='Line '+line;
+  view.cm.focus();
+  return {from:index,to,query};
+}
+function editorSelectionMatchesFind(view){
+  const query=String(view?.findInput?.value||'');
+  if(!query)return false;
+  const selection=view.cm.state.selection.main;
+  if(selection.from===selection.to)return false;
+  const selected=view.cm.state.doc.sliceString(selection.from,selection.to);
+  return editorFindComparable(selected,Boolean(view.findCase?.checked))===editorFindComparable(query,Boolean(view.findCase?.checked));
+}
+function syncEditorFindReadOnly(view){
+  if(!view?.findPanel)return;
+  const readonly=editorReadOnly(view);
+  view.findReplace.disabled=readonly;
+  view.findReplaceAll.disabled=readonly;
+  view.findReplaceInput.disabled=readonly;
+  view.findReplace.title=readonly?'Replace is disabled in read-only mode':'Replace current match';
+  view.findReplaceAll.title=readonly?'Replace is disabled in read-only mode':'Replace all matches';
+}
+function openEditorFind(view,{replace=false}={}){
+  if(!view||view.closed||!view.findPanel)return;
+  view.findPanel.classList.remove('hidden');
+  view.findPanel.dataset.replace=replace?'1':'0';
+  view.findReplaceInput.hidden=!replace;
+  view.findReplace.hidden=!replace;
+  view.findReplaceAll.hidden=!replace;
+  const selection=view.cm.state.selection.main;
+  if(!view.findInput.value&&selection.to>selection.from&&selection.to-selection.from<=240){
+    view.findInput.value=view.cm.state.doc.sliceString(selection.from,selection.to);
+  }
+  syncEditorFindReadOnly(view);
+  view.findStatus.textContent='';
+  view.findInput.focus();
+  view.findInput.select();
+}
+function closeEditorFind(view){
+  if(!view?.findPanel)return;
+  view.findPanel.classList.add('hidden');
+  view.findStatus.textContent='';
+  try{view.cm.focus();}catch{}
+}
+function replaceEditorMatch(view){
+  if(!view||view.closed||editorReadOnly(view))return false;
+  if(!editorSelectionMatchesFind(view)){
+    if(!editorFindMatch(view,{direction:1}))return false;
+  }
+  if(!editorSelectionMatchesFind(view))return false;
+  const selection=view.cm.state.selection.main;
+  const replacement=String(view.findReplaceInput.value||'');
+  view.cm.dispatch({changes:{from:selection.from,to:selection.to,insert:replacement},selection:{anchor:selection.from+replacement.length}});
+  editorFindMatch(view,{direction:1,from:selection.from+replacement.length,wrap:true});
+  return true;
+}
+function replaceAllEditorMatches(view){
+  if(!view||view.closed||editorReadOnly(view))return 0;
+  const query=String(view.findInput.value||'');
+  if(!query){view.findStatus.textContent='Enter text';return 0;}
+  const replacement=String(view.findReplaceInput.value||'');
+  const matchCase=Boolean(view.findCase?.checked);
+  const text=view.cm.state.doc.toString(),source=editorFindComparable(text,matchCase),needle=editorFindComparable(query,matchCase);
+  const changes=[];let at=0;
+  while(at<=source.length-needle.length&&changes.length<10000){
+    const found=source.indexOf(needle,at);if(found<0)break;
+    changes.push({from:found,to:found+query.length,insert:replacement});
+    at=found+Math.max(1,query.length);
+  }
+  if(!changes.length){view.findStatus.textContent='No matches';return 0;}
+  view.cm.dispatch({changes});
+  view.findStatus.textContent='Replaced '+changes.length;
+  return changes.length;
+}
+
 document.addEventListener('keydown',event=>{
   if(!(event.ctrlKey||event.metaKey))return;
   const key=event.key.toLowerCase();
@@ -1008,6 +1139,12 @@ document.addEventListener('keydown',event=>{
   if(key==='s'){
     event.preventDefault();
     saveEditor(view).catch(app.showError);
+  }else if(key==='f'){
+    event.preventDefault();
+    openEditorFind(view,{replace:false});
+  }else if(key==='h'){
+    event.preventDefault();
+    openEditorFind(view,{replace:true});
   }else if(key==='g'){
     event.preventDefault();
     goToLine(view);
@@ -1063,6 +1200,10 @@ globalThis.TaskMenuEditor={
   closeEditor,
   reopenClosedEditor,
   goToLine,
+  openEditorFind,
+  editorFindMatch,
+  replaceEditorMatch,
+  replaceAllEditorMatches,
   activateEditor,
   destroyEditor,
   splitEditor,
