@@ -1687,23 +1687,52 @@ function syncModifiedTime(value){
   return Number.isFinite(time)?time:NaN;
 }
 
-function compareSyncTrees(left,remote){
+async function syncLeftFileSHA256(view,relativePath,options={}){
+  const leftBase=normalizeRelativePath(options.left_path||view.left.currentPath||'.');
+  const fullPath=joinPath(leftBase,relativePath,false);
+  if(view.left.source==='host')return hostFileSHA256(fullPath);
+  const root=view.left.localRoot;
+  if(!root)throw new Error('Choose a local folder first');
+  const granted=await ensureHandlePermission(root.handle);
+  if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
+  const dir=await directoryHandleForPath(root.handle,parentPath(fullPath,false));
+  const handle=await dir.getFileHandle(pathLeaf(fullPath,false));
+  return browserFileSHA256(await handle.getFile());
+}
+
+async function syncRemoteFileSHA256(view,relativePath,options={}){
+  const remoteBase=normalizeRemotePath(options.remote_path||view.remote.currentPath||'.');
+  return remoteFileSHA256(view,joinPath(remoteBase,relativePath,true));
+}
+
+async function compareSyncTrees(view,left,remote,options={}){
+  const compareMode=syncCompareModes.has(String(options.compare_mode||''))?String(options.compare_mode):'metadata';
   const paths=new Set([...left.keys(),...remote.keys()]);
   const rows=[];
   for(const path of [...paths].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}))){
     const l=left.get(path)||null,r=remote.get(path)||null;
-    let status='same';
+    let status='same',detail='';
     if(l&&!r)status='left_only';
     else if(!l&&r)status='remote_only';
     else if(l&&r&&l.type!==r.type)status='type_mismatch';
     else if(l?.type==='file'&&r?.type==='file'){
-      if(Number(l.size)!==Number(r.size))status='different';
-      else{
+      if(Number(l.size)!==Number(r.size)){
+        status='different';detail='size';
+      }else if(compareMode==='checksum'){
+        const [leftHash,remoteHash]=await Promise.all([
+          syncLeftFileSHA256(view,path,options),
+          syncRemoteFileSHA256(view,path,options)
+        ]);
+        if(leftHash!==remoteHash){status='different';detail='checksum';}
+        else detail='checksum_same';
+      }else{
         const lm=syncModifiedTime(l.modified),rm=syncModifiedTime(r.modified);
-        if(Number.isFinite(lm)&&Number.isFinite(rm)&&Math.abs(lm-rm)>2000)status='different';
+        if(Number.isFinite(lm)&&Number.isFinite(rm)&&Math.abs(lm-rm)>2000){
+          status='different';detail='modified';
+        }
       }
     }
-    rows.push({path,status,left:l,remote:r});
+    rows.push({path,status,left:l,remote:r,detail});
   }
   return rows;
 }
@@ -1819,7 +1848,7 @@ async function mirrorDeleteLeftOnly(view,rows){
   return selected.length;
 }
 
-function openFolderSyncDryRun(view,rows){
+function openFolderSyncDryRun(view,rows,options={}){
   const counts=syncPlanCounts(rows);
   const actionable=counts.left_only+counts.remote_only+counts.different;
   const backdrop=document.createElement('div');backdrop.className='ft-sync-backdrop';
@@ -1872,17 +1901,23 @@ function openFolderSyncDryRun(view,rows){
   backdrop.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();backdrop.remove();}});
 }
 
-async function compareFoldersDryRun(view){
+async function compareFoldersDryRun(view,options={}){
+  options=normalizeSyncProfile({...currentSyncOptions(view),...options},view);
   view.left.status.textContent='Scanning left folder for dry-run compare…';
+  const scanOptions={exclude:options.exclude};
   const left=view.left.source==='host'
-    ?await collectHostSyncTree(view.left.currentPath||'.')
-    :await collectLocalSyncTree(view,view.left.currentPath||'.');
+    ?await collectHostSyncTree(options.left_path,scanOptions)
+    :await collectLocalSyncTree(view,options.left_path,scanOptions);
   view.remote.status.textContent='Scanning remote folder for dry-run compare…';
-  const remote=await collectRemoteSyncTree(view,view.remote.currentPath||'.');
-  const rows=compareSyncTrees(left,remote);
+  const remote=await collectRemoteSyncTree(view,options.remote_path,scanOptions);
+  if(options.compare_mode==='checksum'){
+    view.left.status.textContent='Comparing matching-size files by SHA-256…';
+    view.remote.status.textContent='Comparing matching-size files by SHA-256…';
+  }
+  const rows=await compareSyncTrees(view,left,remote,options);
   view.left.status.textContent='Dry-run compare complete · '+left.size+' left item(s)';
   view.remote.status.textContent='Dry-run compare complete · '+remote.size+' remote item(s)';
-  openFolderSyncDryRun(view,rows);
+  openFolderSyncDryRun(view,rows,options);
 }
 
 function newRemoteScanState(basePath){
