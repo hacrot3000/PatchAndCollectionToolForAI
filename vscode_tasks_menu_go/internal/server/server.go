@@ -413,6 +413,11 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "task not found; reload tasks.json", http.StatusNotFound)
 			return
 		}
+		if marker, _ := selected.Raw["taskdeckApproval"].(string); strings.EqualFold(strings.TrimSpace(marker), "deploy") {
+			if !s.requireDangerousApproval(w, r, "task.deploy", selected.Label) {
+				return
+			}
+		}
 		spec, err := tasks.ResolveWorkflowExecution(workflowTasks, selected.Label, taskRoot.Path, req.Inputs)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
