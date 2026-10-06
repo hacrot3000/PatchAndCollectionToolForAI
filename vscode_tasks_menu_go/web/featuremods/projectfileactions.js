@@ -71,6 +71,34 @@ async function compareProjectChecksum(pathValue){
   if(actual!==expected)throw new Error('Checksum mismatch. Expected '+expected+' but calculated '+actual+'.');
   alert('Checksum matches for '+cleanPath(pathValue));
 }
+async function generateProjectManifest(pathValue){
+  const data=await app.jsonFetch('/api/project/integrity',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'manifest',path:cleanPath(pathValue)})
+  });
+  const content=String(data?.content||'');
+  const blob=new Blob([content],{type:'text/plain;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement('a');
+  link.href=url;link.download='SHA256SUMS';link.style.display='none';document.body.append(link);
+  try{link.click();}finally{setTimeout(()=>URL.revokeObjectURL(url),1000);link.remove();}
+  alert('Generated SHA-256 manifest for '+String(data?.files||0)+' file(s).\nDownloaded as SHA256SUMS.');
+}
+async function verifyProjectManifest(pathValue){
+  const data=await app.jsonFetch('/api/project/integrity',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'verify_manifest',path:cleanPath(pathValue)})
+  });
+  const summary='Verified '+String(data?.total||0)+' entr'+(Number(data?.total)===1?'y':'ies')
+    +' · matched '+String(data?.matched||0)
+    +' · missing '+String(data?.missing||0)
+    +' · mismatched '+String(data?.mismatched||0)
+    +' · invalid '+String(data?.invalid||0);
+  if(data?.ok){alert('Manifest verification passed.\n\n'+summary);return;}
+  const failures=Array.isArray(data?.failures)?data.failures:[];
+  const detail=failures.slice(0,20).map(item=>String(item.status||'error')+' · '+String(item.path||'')).join('\n');
+  throw new Error('Manifest verification failed. '+summary+(detail?'\n\n'+detail:'')+(data?.truncated?'\n… additional failures omitted':''));
+}
 function standardActions(pathValue,type='file'){
   pathValue=cleanPath(pathValue);type=type==='dir'?'dir':'file';
   const actions=[];
@@ -78,6 +106,7 @@ function standardActions(pathValue,type='file'){
     {label:'Open',run:()=>openProjectFile(pathValue)},
     {label:'Open as Hex',run:()=>openProjectHex(pathValue)}
   );
+  else actions.push({label:'Generate SHA-256 manifest…',run:()=>generateProjectManifest(pathValue)});
   actions.push(
     {label:'Reveal in Explorer',run:()=>revealProjectPath(pathValue)},
     {label:'Open containing folder',run:()=>openContainingFolder(pathValue)},
@@ -92,6 +121,7 @@ function standardActions(pathValue,type='file'){
     {label:'SHA-256 checksum',run:()=>copyProjectChecksum(pathValue,'sha256')},
     {label:'MD5 checksum (compatibility)',run:()=>copyProjectChecksum(pathValue,'md5')},
     {label:'Compare checksum…',run:()=>compareProjectChecksum(pathValue)},
+    {label:'Verify SHA-256 manifest…',run:()=>verifyProjectManifest(pathValue)},
     {separator:true},
     {label:'Git History',run:()=>gitFileView(pathValue,'history')},
     {label:'Git Blame',run:()=>gitFileView(pathValue,'blame')}
