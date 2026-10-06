@@ -1490,12 +1490,17 @@ func TestDatabaseTransactionControls(t *testing.T) {
 		"beginTransaction.textContent='Begin'",
 		"commitTransaction.textContent='Commit'",
 		"rollbackTransaction.textContent='Rollback'",
+		"autoCommitText.textContent='Auto-commit'",
+		"async function setAutoCommit(view,enabled)",
+		"autoCommitToggle.checked=!active",
+		"Commit or Rollback the active transaction before enabling Auto-commit",
 		"transactionState.className='db-transaction-state'",
-		"transactionState.textContent=active?'TX ACTIVE':'AUTO COMMIT'",
+		"transactionState.textContent=active?'TX ACTIVE · pending commit/rollback':'AUTO COMMIT'",
 		"sessionRequest(root.meta.id,operation)",
 		"transactionActive:Boolean(meta.transaction_active)",
 		"refreshQueryControls:syncAllQueryTransactionControls",
 		".db-transaction-state.active",
+		".db-auto-commit",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("database.js missing transaction control %q", want)
