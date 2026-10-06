@@ -11,6 +11,27 @@ func requirePermission(permission string, next http.Handler) http.Handler {
 	return requireAllPermissions([]string{permission}, next)
 }
 
+func (s *Server) requireSharedActionPermission(w http.ResponseWriter, r *http.Request, permission, action, resource string) bool {
+	if !identity.KnownPermission(permission) {
+		panic("unknown TaskDeck permission: " + permission)
+	}
+	principal, ok := PrincipalFromContext(r.Context())
+	if !ok {
+		// Local single-user mode does not install a shared principal and keeps
+		// the historical unrestricted local behavior.
+		return true
+	}
+	if principal.Allowed(permission) {
+		return true
+	}
+	s.appendSharedAudit(r, &principal, nil, "authorization.denied", "action", resource, "denied", map[string]any{
+		"action":              action,
+		"required_permission": permission,
+	})
+	writePermissionDenied(w)
+	return false
+}
+
 func requireAllPermissions(permissions []string, next http.Handler) http.Handler {
 	if len(permissions) == 0 {
 		panic("TaskDeck permission policy cannot be empty")
