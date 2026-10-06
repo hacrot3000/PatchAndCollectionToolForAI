@@ -180,20 +180,24 @@ function extractLeaf(node,id){
 function moveTerminalToSide(sourceID,targetID,side){
   if(!sourceID||!targetID||sourceID===targetID||!['left','right','top','bottom'].includes(side))return false;
   const sourceRoot=findRoot(sourceID),targetRoot=findRoot(targetID);
-  if(!sourceRoot||!targetRoot)return false;
-  const sourceIndex=roots.indexOf(sourceRoot);
-  const extracted=extractLeaf(sourceRoot,sourceID);
-  if(!extracted.removed)return false;
-  if(isSplit(extracted.node))roots[sourceIndex]=extracted.node;
-  else roots.splice(sourceIndex,1);
+  if(!targetRoot)return false;
+  let removed=leaf(sourceID),extractedNode=null;
+  if(sourceRoot){
+    const sourceIndex=roots.indexOf(sourceRoot);
+    const extracted=extractLeaf(sourceRoot,sourceID);
+    if(!extracted.removed)return false;
+    removed=extracted.removed;extractedNode=extracted.node;
+    if(isSplit(extracted.node))roots[sourceIndex]=extracted.node;
+    else roots.splice(sourceIndex,1);
+  }
   let target=findLeafNode(targetID);
-  if(!target&&extracted.node?.type==='leaf'&&extracted.node.id===targetID)target=extracted.node;
+  if(!target&&extractedNode?.type==='leaf'&&extractedNode.id===targetID)target=extractedNode;
   if(!target)return false;
   const orientation=(side==='left'||side==='right')?'vertical':'horizontal';
   const before=side==='left'||side==='top';
   const replacement=before
-    ?splitNode(extracted.removed,target,orientation,0.5)
-    :splitNode(target,extracted.removed,orientation,0.5);
+    ?splitNode(removed,target,orientation,0.5)
+    :splitNode(target,removed,orientation,0.5);
   if(!findRoot(targetID))roots.push(replacement);
   else if(!replaceNode(target,replacement))return false;
   pruneRootList();
@@ -410,6 +414,7 @@ function updateButtons(){
     const mergeH=view.pane.querySelector('.session-merge-horizontal');
     const swap=view.pane.querySelector('.session-swap-split');
     const unsplit=view.pane.querySelector('.session-unsplit');
+    const moveGroup=view.pane.querySelector('.session-move-split-group');
     if(vertical){vertical.textContent='Split vertical';vertical.title='Split this terminal into a new pane on the right';}
     if(horizontal){horizontal.textContent='Split horizontal';horizontal.title='Split this terminal into a new pane below';}
     if(mergeV)mergeV.disabled=!canMerge;
@@ -420,6 +425,7 @@ function updateButtons(){
       swap.title=parent?.orientation==='horizontal'?'Swap the two panes in this horizontal split':'Swap the two panes in this vertical split';
     }
     if(unsplit)unsplit.hidden=!parent;
+    if(moveGroup)moveGroup.disabled=splitGroupTargetsFor(view.meta.id).length===0;
   }
 }
 
@@ -427,6 +433,33 @@ function swapSplitView(view){
   const parent=parentSplitFor(view.meta.id);if(!parent)return;
   const first=parent.first;parent.first=parent.second;parent.second=first;
   saveState();syncForActive();fitRoot(findRoot(view.meta.id));
+}
+
+function splitGroupTargetsFor(sourceID){
+  const sourceRoot=findRoot(sourceID);
+  return roots.filter(root=>root!==sourceRoot).map(root=>{
+    const targetID=representativeID(root),view=app.views.get(targetID);
+    const count=leafIDs(root,[]).length;
+    return targetID?{id:targetID,label:view?.meta?.title||view?.meta?.label||targetID,count}:null;
+  }).filter(Boolean);
+}
+function moveToSplitGroup(view){
+  if(!splitSupported||!view?.meta?.id)return;
+  const candidates=splitGroupTargetsFor(view.meta.id);
+  if(!candidates.length)throw new Error('No other split group is available');
+  const lines=candidates.map((item,index)=>`${index+1}. ${item.label} · ${item.count} pane(s)`).join('\n');
+  const answer=prompt(`Move “${view.meta.title||view.meta.label}” to which split group?\n\n${lines}\n\nEnter a group number:`,'1');
+  if(answer===null)return;
+  const index=Number.parseInt(answer.trim(),10)-1;
+  if(!Number.isInteger(index)||index<0||index>=candidates.length)throw new Error('Invalid split group');
+  const side=String(prompt('Place terminal relative to the selected group anchor: left, right, top, or bottom','right')||'').trim().toLowerCase();
+  if(!['left','right','top','bottom'].includes(side)){
+    if(side)return Promise.reject(new Error('Split position must be left, right, top, or bottom'));
+    return;
+  }
+  if(!moveTerminalToSide(view.meta.id,candidates[index].id,side))throw new Error('Could not move terminal to the selected split group');
+  saveState();app.activateView(view.meta.id);
+  setTimeout(()=>{syncForActive();view.term?.focus();},0);
 }
 function unsplitView(view){
   const id=view.meta.id,root=findRoot(id),target=findLeafNode(id,root);if(!root||!target)return;
@@ -493,7 +526,8 @@ function install(view){
   const mergeH=document.createElement('button');mergeH.className='session-merge-horizontal';mergeH.textContent='Merge horizontal…';mergeH.title='Merge this tab with an existing tab in a horizontal split';mergeH.onclick=()=>{try{mergeWith(view,'horizontal');}catch(e){app.showError(e);}};
   const swap=document.createElement('button');swap.className='session-swap-split';swap.textContent='Swap panes';swap.hidden=true;swap.onclick=()=>swapSplitView(view);
   const unsplit=document.createElement('button');unsplit.className='session-unsplit';unsplit.textContent='Unsplit';unsplit.onclick=()=>unsplitView(view);
-  const stop=view.pane.querySelector('.stop');if(stop)stop.before(vertical,horizontal,mergeV,mergeH,swap,unsplit);else view.pane.querySelector('.pane-head')?.append(vertical,horizontal,mergeV,mergeH,swap,unsplit);
+  const moveGroup=document.createElement('button');moveGroup.className='session-move-split-group';moveGroup.textContent='Move to split group…';moveGroup.title='Move this terminal into another existing split group';moveGroup.onclick=()=>{try{moveToSplitGroup(view);}catch(e){app.showError(e);}};
+  const stop=view.pane.querySelector('.stop');if(stop)stop.before(vertical,horizontal,mergeV,mergeH,moveGroup,swap,unsplit);else view.pane.querySelector('.pane-head')?.append(vertical,horizontal,mergeV,mergeH,moveGroup,swap,unsplit);
   updateButtons();
 }
 
@@ -573,4 +607,4 @@ window.addEventListener('resize',()=>{if(renderedRoot)layoutCurrentRoot();});
 const observer=new MutationObserver(()=>setTimeout(()=>{pruneMissingViews();tryRestoreSaved();syncForActive();updateButtons();},0));
 observer.observe(panes,{childList:true});
 
-globalThis.TaskMenuSplit={getState,getGroups,restoreProjectSplit,restoreProjectGroups,swapSplitView,moveTerminalToSide,clearSplit,clearAll,clearPresentation,syncForActive,suspendFocusTracking,resumeFocusTracking,isSupported:()=>splitSupported};
+globalThis.TaskMenuSplit={getState,getGroups,restoreProjectSplit,restoreProjectGroups,swapSplitView,moveTerminalToSide,moveToSplitGroup,splitGroupTargetsFor,clearSplit,clearAll,clearPresentation,syncForActive,suspendFocusTracking,resumeFocusTracking,isSupported:()=>splitSupported};
