@@ -29,6 +29,12 @@ type projectTreeEntry struct {
 	Modified string `json:"modified,omitempty"`
 }
 
+type projectFileMetadata struct {
+	Path    string `json:"path"`
+	MtimeNS int64  `json:"mtime_ns"`
+	Size    int64  `json:"size"`
+}
+
 type projectFileResponse struct {
 	Path       string `json:"path"`
 	Content    string `json:"content"`
@@ -111,6 +117,17 @@ func (s *Server) projectFileSave(w http.ResponseWriter, r *http.Request) {
 	path, err := s.resolveProjectPath(rel, false, false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if r.URL.Query().Get("meta") == "1" {
+		info, statErr := os.Stat(path)
+		if statErr != nil || !info.Mode().IsRegular() {
+			http.Error(w, "project file unavailable", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, projectFileMetadata{
+			Path: rel, MtimeNS: info.ModTime().UnixNano(), Size: info.Size(),
+		})
 		return
 	}
 	rootView, _, err := s.projectRootForVirtualPath(rel)
