@@ -81,6 +81,18 @@ func (d *sqliteDatabase) ListAudit(ctx context.Context, query AuditQuery) ([]Aud
 		where = append(where, "action = ?")
 		args = append(args, action)
 	}
+	if resourceType := strings.TrimSpace(query.ResourceType); resourceType != "" {
+		where = append(where, "resource_type = ?")
+		args = append(args, resourceType)
+	}
+	if resourceID := strings.TrimSpace(query.ResourceID); resourceID != "" {
+		where = append(where, "resource_id = ?")
+		args = append(args, resourceID)
+	}
+	if result := strings.TrimSpace(query.Result); result != "" {
+		where = append(where, "result = ?")
+		args = append(args, result)
+	}
 	if query.Before != nil && !query.Before.IsZero() {
 		where = append(where, "timestamp < ?")
 		args = append(args, query.Before.UTC().Format(time.RFC3339Nano))
