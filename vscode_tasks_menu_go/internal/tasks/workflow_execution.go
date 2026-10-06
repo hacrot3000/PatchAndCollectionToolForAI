@@ -296,11 +296,10 @@ func ResolveWorkflowExecution(items []Task, rootLabel, workspace string, inputs 
 				script.WriteString(" value=$(grep -F " + shellQuote(prefix) + " \"" + logPath + "\" | tail -n 1 | sed " + shellQuote("s/^"+regexp.QuoteMeta(prefix)+"//") + " || true); printf '%s' \"$value\" > \"" + outFile + "\"\n")
 			}
 		}
-		script.WriteString(" echo \"$rc\" > \"$status\"; rmdir \"$lock\"\n")
 		if node.Policy.ContinueOnError {
-			script.WriteString(" return 0\n")
+			script.WriteString(" if [ \"$rc\" -ne 0 ]; then echo \"[TaskDeck workflow] continuing after exit $rc\"; fi; echo 0 > \"$status\"; rmdir \"$lock\"; return 0\n")
 		} else {
-			script.WriteString(" return \"$rc\"\n")
+			script.WriteString(" echo \"$rc\" > \"$status\"; rmdir \"$lock\"; return \"$rc\"\n")
 		}
 		script.WriteString("}\n")
 	}
