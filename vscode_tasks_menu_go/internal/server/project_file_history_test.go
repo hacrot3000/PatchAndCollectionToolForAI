@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -87,8 +88,10 @@ func TestLocalFileHistoryCapturesPreviousVersionWithExactFormat(t *testing.T) {
 			t.Fatalf("%s mode=%o want 600", path, info.Mode().Perm())
 		}
 	}
-	if info, err := os.Stat(dir); err != nil || info.Mode().Perm() != 0o700 {
-		t.Fatalf("history dir mode=%v err=%v", info.Mode().Perm(), err)
+	info, err := os.Stat(dir)
+	if err != nil { t.Fatal(err) }
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("history dir mode=%o want 700", info.Mode().Perm())
 	}
 }
 
