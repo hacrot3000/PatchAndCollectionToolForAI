@@ -483,7 +483,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - workflow vẫn compile thành một `tasks.Execution` và chạy qua session/broker hiện hữu; không tạo scheduler/session pipeline thứ hai;
     - regression test bao phủ graph validation, strict config, input aggregation, parallel execution thật, sequential contract, retry, continue-on-error, failure condition và output propagation.
 
-23. **P1 — Task run history**
+23. **P1 — Task run history** — ✅ **COMPLETE**
     - Lần chạy gần nhất.
     - Duration.
     - Exit code.
@@ -493,6 +493,16 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Compare two task runs.
     
     Rất hữu ích cho build/OTA/deployment.
+
+    Hoàn tất:
+    - durable server-side history giữ tối đa 50 run gần nhất, serialize update bằng mutex và cleanup log artifact khi record bị evict;
+    - record PASS/FAIL/STOPPED, exit code, started/ended/duration, CWD, command preview, Git HEAD tại task CWD, target type/profile và Project Profile active;
+    - không persist raw environment variables để tránh lưu credential/secret ngoài ý muốn; environment context được biểu diễn bằng target/profile + Project Profile;
+    - mỗi run có log artifact private, bounded 1 MiB, truncate có cờ rõ ràng và hỗ trợ view/download;
+    - UI HISTORY ưu tiên durable history, có Details, Run again, Download log và chọn đúng hai run để Compare metadata + log side-by-side;
+    - chỉ task session đã kết thúc mới được record; active session bị reject;
+    - shared-server list/detail/log áp cùng visibility/ownership với task session và route dùng task-history permission mapping hiện có;
+    - regression test bao phủ record từ PTY task thật, Git commit, bounded/truncated log, active-session rejection và UI compare/detail contract.
 
 24. **P1 — Unified command palette**
     Tôi đánh giá đây là một trong những cải tiến UX đáng làm nhất:
