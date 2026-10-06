@@ -209,6 +209,27 @@ func (a *sessionAPI) sessionItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeBrokerJSON(w, http.StatusOK, map[string]string{"cwd": cwd})
+	case "clone":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req TerminalCloneRequest
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		meta, err := a.manager.CloneTerminal(id, session.TerminalCloneOptions{
+			OwnerUserID: strings.TrimSpace(req.OwnerUserID),
+			ProjectID: strings.TrimSpace(req.ProjectID),
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeBrokerJSON(w, http.StatusCreated, meta)
 	case "stream":
 		a.stream(w, r, id)
 	default:
