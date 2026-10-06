@@ -63,6 +63,12 @@ func (s *Server) collectProjectArchiveSources(paths []string, outputVirtual stri
 		seen[virtual] = struct{}{}
 		resolved, err := s.resolveProjectPath(virtual, true, true)
 		if err != nil {
+			// Archive inputs may be either directories or regular files.
+			// Re-resolve as a file instead of weakening resolveProjectPath's
+			// type/containment guarantees.
+			resolved, err = s.resolveProjectPath(virtual, false, false)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("archive input unavailable: %s", virtual)
 		}
 		info, err := os.Lstat(resolved)
