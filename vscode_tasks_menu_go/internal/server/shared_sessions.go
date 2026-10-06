@@ -30,6 +30,29 @@ func sharedSessionCreatePermission(kind string) string {
 	}
 }
 
+func (s *Server) terminalCloneOptions(w http.ResponseWriter, r *http.Request) (session.TerminalCloneOptions, bool) {
+	if !s.Config.SharedServerEnabled {
+		return session.TerminalCloneOptions{}, true
+	}
+	principal, ok := PrincipalFromContext(r.Context())
+	if !ok {
+		sharedAuthError(w, identity.ErrUnauthenticated)
+		return session.TerminalCloneOptions{}, false
+	}
+	if !principal.Allowed(identity.PermissionTerminalCreate) {
+		s.appendSharedAudit(r, &principal, nil, "authorization.denied", "session_create", tasks.SessionKindTerminal, "denied", map[string]any{
+			"required_permission": identity.PermissionTerminalCreate,
+			"source": "terminal_clone",
+		})
+		writePermissionDenied(w)
+		return session.TerminalCloneOptions{}, false
+	}
+	return session.TerminalCloneOptions{
+		OwnerUserID: string(principal.UserID),
+		ProjectID: string(principal.ProjectID),
+	}, true
+}
+
 func (s *Server) prepareSharedSession(w http.ResponseWriter, r *http.Request, spec *tasks.Execution, kind string) bool {
 	if !s.Config.SharedServerEnabled {
 		return true
@@ -149,7 +172,7 @@ func sharedSessionActionAllowed(principal identity.Principal, meta session.Metad
 			return sharedSessionViewAllowed(principal, meta)
 		}
 		switch action {
-		case "", "stop", "terminate", "kill", "clear", "title", "resize":
+		case "", "stop", "terminate", "kill", "clear", "title", "resize", "clone":
 			return sharedTerminalControlAllowed(principal, meta)
 		default:
 			return false
