@@ -1475,7 +1475,10 @@ document.addEventListener('keydown',event=>{
   }
   if(!activeEditorID)return;
   const view=editors.get(activeEditorID);if(!view||view.closed)return;
-  if(key==='s'){
+  if(key==='o'&&event.shiftKey){
+    event.preventDefault();
+    showEditorOutline(view);
+  }else if(key==='s'){
     event.preventDefault();
     saveEditor(view).catch(app.showError);
   }else if(key==='f'){
