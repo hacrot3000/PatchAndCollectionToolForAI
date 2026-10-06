@@ -124,6 +124,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/config/running-indicator", s.runningIndicatorConfig)
 	mux.HandleFunc("/api/config/self-update", s.selfUpdateConfig)
 	mux.HandleFunc("/api/config-backup", s.configBackup)
+	mux.HandleFunc("/api/addons", s.addonsAPI)
+	mux.HandleFunc("/api/addons/", s.addonActionAPI)
 	mux.HandleFunc("/api/config/auth-mode", s.authModeConfig)
 	mux.HandleFunc("/api/secrets", s.secretsAPI)
 	mux.HandleFunc("/api/ssh/profiles", s.sshProfiles)
