@@ -962,6 +962,12 @@ async function exportTableData(view){
   const save=document.createElement('button');save.type='button';save.className='task-connection-primary';save.textContent='Choose save location…';
   save.onclick=async()=>{
     save.disabled=true;cancel.disabled=true;
+    const operation=globalThis.TaskMenuOperationCenter?.begin?.({
+      title:'Database export · '+String(object.name||'table'),
+      detail:String(view.meta?.profile_id||''),
+      profile_id:String(view.meta?.profile_id||''),
+      open:()=>globalThis.TaskMenuDatabase?.openProfile?.(String(view.meta?.profile_id||''))
+    });
     try{
       const data=await collectClipboardData(view,scope.value);
       if(!data)return;
@@ -975,6 +981,10 @@ async function exportTableData(view){
         extensions:[ext],
         hostFileLabel:'Export file name:'
       });
+      operation?.complete?.({detail:base+ext});
+    }catch(error){
+      operation?.fail?.(error,{retry:()=>exportTableData(view)});
+      throw error;
     }finally{
       if(save.isConnected){save.disabled=false;cancel.disabled=false;}
     }
