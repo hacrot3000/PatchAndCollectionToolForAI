@@ -627,7 +627,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Apply thực thi tuần tự qua DB session `execute`, dừng ngay khi statement lỗi và publish tiến độ vào Operation Center;
     - regression test khóa schema-only boundary, module load order, launcher, migration safety và SQLite non-guessing behavior.
 
-28. **P2 — DB transaction workspace**
+28. **P2 — DB transaction workspace** — ✅ **COMPLETE**
     Query tab có:
     - Begin transaction.
     - Commit.
@@ -636,6 +636,17 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Show transaction active indicator.
     
     Khi edit dữ liệu trực tiếp, có thể gom nhiều edit rồi commit cùng lúc.
+
+    Hoàn tất:
+    - tái sử dụng transaction capability/backend hiện hữu của MySQL/SQLite; không tạo transaction state ở browser riêng;
+    - Query toolbar có Begin / Commit / Rollback, badge `TX ACTIVE · pending commit/rollback` và **Auto-commit** toggle;
+    - Auto-commit mặc định bật; tắt toggle gọi `BEGIN` thật trên DB session; không cho bật lại khi transaction còn active để tránh commit ngầm;
+    - Begin thủ công đồng bộ toggle về manual mode; Commit/Rollback trả UI về Auto-commit;
+    - editable Query result và Data Grid đều gửi `mutate_rows` qua cùng session id, vì vậy có thể Apply nhiều nhóm edit rồi Commit một lần;
+    - Commit/Rollback bị chặn nếu còn local Data Grid/query-result edit chưa Apply/Revert, tránh hiểu nhầm edit chưa gửi đã nằm trong transaction;
+    - Workbench expose pending-grid bridge và refresh toàn bộ Data Grid sau Commit/Rollback; SELECT result đang mở cũng được reload để phản ánh committed/rolled-back state;
+    - transaction controls đồng bộ trên mọi Query tab thuộc cùng DB session;
+    - regression test khóa Auto-commit semantics, pending-edit guard, Data Grid bridge và transaction refresh.
 
 29. **P2 — DB query explain**
     MySQL:
