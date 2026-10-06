@@ -43,6 +43,7 @@ func TestSharedProjectFileActionRegistryProvidesCommonWorkflow(t *testing.T) {
 		"Compare checksum…",
 		"Generate SHA-256 manifest…",
 		"Verify SHA-256 manifest…",
+		"Open With…",
 		"Preview archive…",
 		"Extract archive…",
 		"Create archive…",
@@ -165,5 +166,34 @@ func TestProjectArchiveActionsExposeSafeProjectWorkflow(t *testing.T) {
 		if !strings.Contains(js, want) {
 			t.Fatalf("project archive UI workflow missing %q", want)
 		}
+	}
+}
+
+func TestProjectOpenWithUnifiesViewerAndHostActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/projectfileactions.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"async function openProjectWith(pathValue)",
+		"/api/project/preview?path=",
+		"openWithButton(dialog,'Text Editor'",
+		"openWithButton(dialog,'Hex'",
+		"openWithButton(dialog,'Image Preview'",
+		"openWithButton(dialog,'Markdown Preview'",
+		"openWithButton(dialog,'Diff…'",
+		"openWithButton(dialog,'Download'",
+		"openWithButton(dialog,'Open terminal directory'",
+		"if(!app.sharedMode)openWithButton(dialog,'Open via host application'",
+		"/api/project/download?path=",
+		"/api/project/open-host?path=",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("project Open With workflow missing %q", want)
+		}
+	}
+	if strings.Contains(js, "if(app.sharedMode)openWithButton(dialog,'Open via host application'") {
+		t.Fatal("host application action must not be exposed in shared mode")
 	}
 }
