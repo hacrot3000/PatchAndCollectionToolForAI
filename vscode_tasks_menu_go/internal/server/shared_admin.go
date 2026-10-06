@@ -669,9 +669,24 @@ func (s *Server) sharedAdminAudit(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
+	userID := identity.ID(strings.TrimSpace(r.URL.Query().Get("user_id")))
+	if userID == "" {
+		if username := strings.TrimSpace(r.URL.Query().Get("user")); username != "" {
+			user, lookupErr := s.Identity.UserByUsername(ctx, username)
+			if errors.Is(lookupErr, identity.ErrNotFound) {
+				writeJSON(w, http.StatusOK, map[string]any{"events": []sharedAdminAuditView{}, "next_before": ""})
+				return
+			}
+			if lookupErr != nil {
+				sharedAuthError(w, lookupErr)
+				return
+			}
+			userID = user.ID
+		}
+	}
 	query := identity.AuditQuery{
 		ProjectID: principal.ProjectID,
-		UserID: identity.ID(strings.TrimSpace(r.URL.Query().Get("user_id"))),
+		UserID: userID,
 		Action: strings.TrimSpace(r.URL.Query().Get("action")),
 		ResourceType: strings.TrimSpace(r.URL.Query().Get("resource_type")),
 		ResourceID: strings.TrimSpace(r.URL.Query().Get("resource_id")),
