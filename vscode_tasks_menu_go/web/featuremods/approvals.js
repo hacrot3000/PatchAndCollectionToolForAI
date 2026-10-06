@@ -10,6 +10,7 @@ style.textContent=`
 .approval-input{width:100%;box-sizing:border-box;margin-top:7px;padding:7px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:6px}
 .approval-status{font-size:10px;margin-top:8px;opacity:.75}.approval-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:12px}
 html[data-taskmenu-theme="light"] .approval-card{background:#fff;border-color:#b9c0c8}html[data-taskmenu-theme="light"] .approval-resource,html[data-taskmenu-theme="light"] .approval-input{background:#f6f8fa;color:#202124;border-color:#d0d7de}
+.approval-manager{width:min(880px,96vw);max-height:88vh;display:flex;flex-direction:column}.approval-manager-body{overflow:auto}.approval-policy-grid{display:grid;grid-template-columns:minmax(210px,1fr) 170px;gap:6px 10px;align-items:center;margin:8px 0 14px}.approval-policy-grid label{font-size:11px}.approval-policy-grid select{width:100%;padding:6px}.approval-request-list{display:flex;flex-direction:column;gap:6px}.approval-request-row{display:grid;grid-template-columns:minmax(170px,1fr) minmax(180px,1.4fr) 90px auto;gap:7px;align-items:center;padding:7px;border:1px solid #303843;border-radius:6px}.approval-request-row span{font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.approval-request-actions{display:flex;gap:4px}.approval-manager-footer{display:flex;gap:7px;justify-content:flex-end;margin-top:12px}.approval-empty{padding:12px;opacity:.6;text-align:center}
 `;
 document.head.append(style);
 
@@ -115,4 +116,125 @@ function authorize(challenge={}){
   });
 }
 
-globalThis.TaskMenuApprovals={authorize,get active(){return Boolean(active);}};
+
+const managedActions=[
+  ['git.remote.delete','Delete remote Git branch'],
+  ['git.force_delete','Force delete local Git branch'],
+  ['git.reset_hard','Git reset --hard'],
+  ['transfer.recursive_delete','Recursive remote directory delete'],
+  ['db.production.write','Production database write/schema'],
+  ['task.deploy','Deploy-marked task']
+];
+const approvalModes=[
+  ['off','Off'],
+  ['confirm','Confirm'],
+  ['type','Type exact resource'],
+  ['admin','Admin approval']
+];
+
+function canViewApprovals(){
+  return Boolean(app.sharedMode&&(app.hasPermission?.('approvals.view')||app.hasPermission?.('approvals.manage')||app.hasPermission?.('project.admin')));
+}
+function canManageApprovals(){
+  return Boolean(app.sharedMode&&(app.hasPermission?.('approvals.manage')||app.hasPermission?.('project.admin')));
+}
+async function loadManagerData(){
+  const [policy,requests]=await Promise.all([
+    app.jsonFetch('/api/approvals/policy',{cache:'no-store'}),
+    app.jsonFetch('/api/approvals',{cache:'no-store'})
+  ]);
+  return {policy,requests:Array.isArray(requests?.requests)?requests.requests:[]};
+}
+async function resolveRequest(id,status){
+  return app.jsonFetch('/api/approvals/resolve',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id,status})
+  });
+}
+async function savePolicy(rules){
+  return app.jsonFetch('/api/approvals/policy',{
+    method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({version:1,rules})
+  });
+}
+async function openManager(){
+  if(!canViewApprovals())throw new Error('Approval workflow view permission is required');
+  const overlay=document.createElement('div');overlay.className='approval-backdrop visible';
+  const card=document.createElement('div');card.className='approval-card approval-manager';
+  const title=document.createElement('h3');title.textContent='Dangerous Action Approvals';
+  const intro=document.createElement('p');intro.textContent='Project policy is OFF by default. Approval adds a second gate; normal RBAC permissions are still required.';
+  const body=document.createElement('div');body.className='approval-manager-body';
+  const footer=document.createElement('div');footer.className='approval-manager-footer';
+  const refresh=document.createElement('button');refresh.type='button';refresh.textContent='Refresh';
+  const save=document.createElement('button');save.type='button';save.textContent='Save policy';save.hidden=!canManageApprovals();
+  const close=document.createElement('button');close.type='button';close.textContent='Close';
+  footer.append(refresh,save,close);card.append(title,intro,body,footer);overlay.append(card);document.body.append(overlay);
+  const policySelects=new Map();
+
+  async function render(){
+    refresh.disabled=true;save.disabled=true;
+    try{
+      const data=await loadManagerData();body.replaceChildren();policySelects.clear();
+      const policyTitle=document.createElement('strong');policyTitle.textContent='Policy';
+      const grid=document.createElement('div');grid.className='approval-policy-grid';
+      const current=new Map((Array.isArray(data.policy?.rules)?data.policy.rules:[]).map(rule=>[String(rule.action),String(rule.mode)]));
+      for(const [action,labelText] of managedActions){
+        const label=document.createElement('label');label.textContent=labelText;label.title=action;
+        const select=document.createElement('select');select.disabled=!canManageApprovals();
+        for(const [value,text] of approvalModes){
+          const option=document.createElement('option');option.value=value;option.textContent=text;select.append(option);
+        }
+        select.value=current.get(action)||'off';policySelects.set(action,select);grid.append(label,select);
+      }
+      body.append(policyTitle,grid);
+      const requestTitle=document.createElement('strong');requestTitle.textContent='Recent requests';
+      const list=document.createElement('div');list.className='approval-request-list';
+      const rows=data.requests.slice().reverse().slice(0,100);
+      if(!rows.length){const empty=document.createElement('div');empty.className='approval-empty';empty.textContent='No approval requests yet';list.append(empty);}
+      for(const item of rows){
+        const row=document.createElement('div');row.className='approval-request-row';
+        const action=document.createElement('span');action.textContent=String(item.action||'');action.title=action.textContent;
+        const resource=document.createElement('span');resource.textContent=String(item.resource||'');resource.title=resource.textContent;
+        const status=document.createElement('span');status.textContent=String(item.status||'').toUpperCase();
+        const actions=document.createElement('div');actions.className='approval-request-actions';
+        if(canManageApprovals()&&item.status==='pending'){
+          const approve=document.createElement('button');approve.type='button';approve.textContent='Approve';
+          const reject=document.createElement('button');reject.type='button';reject.textContent='Reject';
+          approve.onclick=()=>resolveRequest(item.id,'approved').then(render).catch(app.showError);
+          reject.onclick=()=>resolveRequest(item.id,'rejected').then(render).catch(app.showError);
+          actions.append(approve,reject);
+        }
+        row.append(action,resource,status,actions);list.append(row);
+      }
+      body.append(requestTitle,list);
+    }finally{refresh.disabled=false;save.disabled=false;}
+  }
+  refresh.onclick=()=>render().catch(app.showError);
+  save.onclick=async()=>{
+    save.disabled=true;
+    try{
+      const rules=[];
+      for(const [action,select] of policySelects){
+        if(select.value!=='off')rules.push({action,mode:select.value});
+      }
+      await savePolicy(rules);await render();
+    }catch(error){app.showError(error);}finally{save.disabled=false;}
+  };
+  const remove=()=>overlay.remove();close.onclick=remove;overlay.onmousedown=event=>{if(event.target===overlay)remove();};
+  await render();
+}
+function installManagerLauncher(){
+  let button=document.querySelector('#approval-manager');
+  if(!canViewApprovals()){button?.remove();return false;}
+  if(button)return true;
+  button=document.createElement('button');button.id='approval-manager';button.type='button';button.textContent='Approvals';button.title='Dangerous action approval policy and requests';
+  button.onclick=()=>openManager().catch(app.showError);
+  const sharedAdmin=document.querySelector('#shared-admin');
+  if(sharedAdmin?.parentElement)sharedAdmin.insertAdjacentElement('afterend',button);
+  else document.querySelector('header')?.append(button);
+  return true;
+}
+installManagerLauncher();
+window.addEventListener('taskmenu:permissions-changed',installManagerLauncher);
+
+globalThis.TaskMenuApprovals={authorize,openManager,canView:canViewApprovals,canManage:canManageApprovals,get active(){return Boolean(active);}};
