@@ -57,7 +57,7 @@ func (s *Server) runDatabaseConnectionTest(ctx context.Context, profile dbprofil
 		return err
 	}
 
-	effectiveHost, effectivePort, cleanup, err := s.prepareDatabaseTransport(ctx, profile)
+	effectiveHost, effectivePort, _, cleanup, err := s.prepareDatabaseTransport(ctx, profile)
 	if err != nil {
 		return err
 	}
