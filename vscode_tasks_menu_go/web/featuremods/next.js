@@ -58,3 +58,4 @@ import '/featuremods/activitybar.js';
 import '/featuremods/operationcenter.js';
 import '/featuremods/workspacesnapshots.js';
 import '/featuremods/projectprofiles.js';
+import '/featuremods/projecthealth.js';
