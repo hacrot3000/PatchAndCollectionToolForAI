@@ -145,3 +145,57 @@ func TestProjectArchiveCreateDoesNotOverwriteOutput(t *testing.T) {
 		t.Fatalf("existing output changed: %q err=%v", got, err)
 	}
 }
+
+func TestProjectArchiveTarGzCreatePreviewAndExtract(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "bundle"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "bundle", "firmware.bin"), []byte("fw"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: root}
+	create := archiveJSONRequest(t, s, "/api/project/archive/create", `{"paths":["bundle"],"output":"bundle.tar.gz","format":"tar.gz"}`)
+	if create.Code != http.StatusCreated {
+		t.Fatalf("tar create status=%d body=%s", create.Code, create.Body.String())
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/project/archive/preview?path=bundle.tar.gz", nil)
+	preview := httptest.NewRecorder()
+	s.Handler().ServeHTTP(preview, req)
+	if preview.Code != http.StatusOK {
+		t.Fatalf("tar preview status=%d body=%s", preview.Code, preview.Body.String())
+	}
+	var result projectArchivePreviewResponse
+	if err := json.Unmarshal(preview.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Format != "tar.gz" || result.Files != 1 {
+		t.Fatalf("unexpected tar preview: %+v", result)
+	}
+	extract := archiveJSONRequest(t, s, "/api/project/archive/extract", `{"path":"bundle.tar.gz","destination":"tar-out"}`)
+	if extract.Code != http.StatusCreated {
+		t.Fatalf("tar extract status=%d body=%s", extract.Code, extract.Body.String())
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "tar-out", "bundle", "firmware.bin")); err != nil || string(got) != "fw" {
+		t.Fatalf("tar extracted payload=%q err=%v", got, err)
+	}
+}
+
+func TestRemoteArchiveExtractCommandQuotesPathsAndRequiresKnownFormat(t *testing.T) {
+	command, err := remoteArchiveExtractCommand("zip", "/srv/releases/a b's.zip", "/srv/app/new release")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"test ! -e '/srv/app/new release'",
+		"unzip -q -- '/srv/releases/a b'\"'\"'s.zip'",
+		"-d '/srv/app/new release'",
+	} {
+		if !strings.Contains(command, want) {
+			t.Fatalf("remote zip command missing %q: %s", want, command)
+		}
+	}
+	if _, err := remoteArchiveExtractCommand("rar", "x.rar", "out"); err == nil {
+		t.Fatal("unsupported remote archive format unexpectedly accepted")
+	}
+}
