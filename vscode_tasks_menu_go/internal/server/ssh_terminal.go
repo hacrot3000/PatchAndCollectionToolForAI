@@ -14,6 +14,10 @@ import (
 )
 
 func (s *Server) sshTerminalExecution(profileID string) (tasks.Execution, error) {
+	return s.sshTerminalExecutionAt(profileID, "")
+}
+
+func (s *Server) sshTerminalExecutionAt(profileID, remoteCWD string) (tasks.Execution, error) {
 	profileID = strings.TrimSpace(profileID)
 	if profileID == "" {
 		return tasks.Execution{}, errors.New("ssh profile id is required")
@@ -34,7 +38,13 @@ func (s *Server) sshTerminalExecution(profileID string) (tasks.Execution, error)
 	if err != nil {
 		return tasks.Execution{}, err
 	}
-	command, err := sshclient.BuildInteractiveCommand(executable, profile)
+	remoteCWD = strings.TrimSpace(remoteCWD)
+	var command sshclient.Command
+	if remoteCWD != "" {
+		command, err = sshclient.BuildInteractiveCommandAt(executable, profile, remoteCWD)
+	} else {
+		command, err = sshclient.BuildInteractiveCommand(executable, profile)
+	}
 	if err != nil {
 		return tasks.Execution{}, err
 	}
@@ -47,7 +57,7 @@ func (s *Server) sshTerminalExecution(profileID string) (tasks.Execution, error)
 		ID:        -1,
 		Label:     "SSH · " + profile.Name,
 		MenuLabel: "SSH · " + profile.Name,
-		Detail:    "Remote terminal " + command.Destination,
+		Detail:    "Remote terminal " + command.Destination + func() string { if remoteCWD != "" { return " · " + remoteCWD }; return "" }(),
 		Type:      "process",
 		Command:   command.Executable,
 		Args:      rawArgs,
