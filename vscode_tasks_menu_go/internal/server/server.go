@@ -431,6 +431,18 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		secretRefs, err := taskWorkflowSecretRefs(workflowTasks, selected.Label)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if !s.authorizeTaskSecretUse(w, r, secretRefs, selected.Label) {
+			return
+		}
+		if err := s.injectTaskSecrets(&spec, secretRefs); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		if !s.prepareSharedSession(w, r, &spec, tasks.SessionKindTask) {
 			return
 		}
@@ -440,6 +452,9 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.auditSharedSessionStart(r, meta, map[string]any{"task_id": req.TaskID})
+		if len(secretRefs) > 0 {
+			s.auditSharedSuccess(r, "secret.use", "task", selected.Label, map[string]any{"secret_count": len(secretRefs)})
+		}
 		writeJSON(w, http.StatusCreated, meta)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
