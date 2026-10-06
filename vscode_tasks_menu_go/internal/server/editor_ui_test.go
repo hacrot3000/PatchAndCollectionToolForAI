@@ -575,3 +575,31 @@ func TestEditorFindReplacePanel(t *testing.T) {
 		}
 	}
 }
+
+func TestEditorOptionalMinimap(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const editorMinimapPreferenceKey='vscode-tasks-menu:editor-minimap'",
+		"let editorMinimapEnabled=localStorage.getItem(editorMinimapPreferenceKey)==='1'",
+		"editor-minimap",
+		"editor-minimap-toggle",
+		"function renderEditorMinimap(view)",
+		"function scheduleEditorMinimap(view)",
+		"function setEditorMinimap(enabled)",
+		"function jumpFromEditorMinimap(view,event)",
+		"requestAnimationFrame",
+		"cancelAnimationFrame(view.minimapRAF)",
+		"view.scroller.scrollTop",
+		"view.scroller.clientHeight",
+		"minimap.onclick=event=>jumpFromEditorMinimap(view,event)",
+		"minimapToggle.onclick=()=>setEditorMinimap(!editorMinimapEnabled)",
+		"localStorage[editorMinimapPreferenceKey]=editorMinimapEnabled?'1':'0'",
+		"get minimapEnabled(){return editorMinimapEnabled;}",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor minimap support missing %q", want)
+		}
+	}
+}
