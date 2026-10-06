@@ -2776,6 +2776,7 @@ globalThis.TaskMenuFileTransfer={
     return true;
   },
   openProfile,testProfile,testDraft,refreshProfiles,getProfile:id=>profilesByID.get(String(id||''))||null,restoreSession:restoreFileTransferSession,
+  get profiles(){return [...profilesByID.values()];},
   get views(){return views;}
 };
 function currentSyncOptions(view){
