@@ -101,6 +101,8 @@ func TestSharedRoutePermissionsSeparateReadWriteAndGitViews(t *testing.T) {
 		{http.MethodGet, "/api/config/auth-mode", []string{identity.PermissionSettingsRead}},
 		{http.MethodPost, "/api/config/auth-mode", []string{identity.PermissionProjectAdmin}},
 		{http.MethodGet, "/api/sessions", nil},
+		{http.MethodGet, "/api/terminal-history?session_id=terminal-1", nil},
+		{http.MethodPut, "/api/terminal-history?session_id=terminal-1", nil},
 		{http.MethodGet, "/api/admin/users", []string{identity.PermissionUsersView}},
 		{http.MethodPost, "/api/admin/users", []string{identity.PermissionUsersManage}},
 		{http.MethodPatch, "/api/admin/users/access", []string{identity.PermissionUsersManage}},
@@ -145,6 +147,7 @@ func TestSharedAuthorizationChecksBeforeHandlerAndRequiresAll(t *testing.T) {
 		{"/api/files/upload", http.StatusNoContent},
 		{"/api/files/upload?overwrite=1", http.StatusForbidden},
 		{"/api/sessions", http.StatusNoContent},
+		{"/api/terminal-history?session_id=example", http.StatusNoContent},
 		{"/api/sessions/example/stop", http.StatusNoContent},
 		{"/api/sessions/force-kill", http.StatusNoContent},
 	} {
@@ -156,7 +159,7 @@ func TestSharedAuthorizationChecksBeforeHandlerAndRequiresAll(t *testing.T) {
 			t.Fatalf("%s status=%d want=%d", test.path, rr.Code, test.want)
 		}
 	}
-	if called != 4 {
+	if called != 5 {
 		t.Fatalf("handler called %d times", called)
 	}
 }
