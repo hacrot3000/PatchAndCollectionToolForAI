@@ -283,6 +283,9 @@ style.textContent=`
 .db-query-tools .db-run{background:#244c70;border-color:#3f79a8}
 .db-transaction-state{font-size:9px;font-weight:800;letter-spacing:.04em;opacity:.55;border:1px solid #39414d;border-radius:999px;padding:3px 6px;white-space:nowrap}
 .db-transaction-state.active{opacity:1;color:#f1c46e;border-color:#8a692d;background:#2a2110}
+.db-auto-commit{display:inline-flex!important;align-items:center;gap:4px;white-space:nowrap}
+.db-auto-commit[hidden]{display:none!important}
+.db-auto-commit input{width:auto!important;margin:0;padding:0}
 .db-query-tools label{font-size:10px;opacity:.65}
 .db-query-tools input{width:72px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:6px}
 .db-query-library{display:flex;flex-direction:column;gap:12px}
