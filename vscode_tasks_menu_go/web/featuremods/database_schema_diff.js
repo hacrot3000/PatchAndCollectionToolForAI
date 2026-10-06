@@ -275,6 +275,174 @@ async function exportSnapshot(snapshot,label){
     description:'Database schema structure',mime:'application/json;charset=utf-8',extensions:['.json'],hostFileLabel:'Structure file name:'
   });
 }
+
+function quoteIdentifier(adapter,value){
+  value=String(value||'');
+  if(adapter==='mysql')return '`'+value.replace(/`/g,'``')+'`';
+  return '"'+value.replace(/"/g,'""')+'"';
+}
+function sqlDefault(value){
+  if(value===null||value===undefined||value==='')return '';
+  const raw=String(value).trim();
+  if(!raw)return '';
+  if(/^null$/i.test(raw))return ' DEFAULT NULL';
+  if(/^-?\d+(?:\.\d+)?$/.test(raw))return ' DEFAULT '+raw;
+  if(/^['"].*['"]$/.test(raw))return ' DEFAULT '+raw;
+  if(/^(current_(?:timestamp|date|time)|now\(\)|current_timestamp\(\))$/i.test(raw))return ' DEFAULT '+raw;
+  return " DEFAULT '"+raw.replace(/'/g,"''")+"'";
+}
+function columnSQL(adapter,column){
+  const name=quoteIdentifier(adapter,column?.name||'column');
+  const type=String(column?.type||'TEXT').trim()||'TEXT';
+  const nullable=column?.nullable===false?' NOT NULL':'';
+  const primary=column?.primary_key?' PRIMARY KEY':'';
+  const extra=String(column?.extra||'').trim();
+  return name+' '+type+nullable+sqlDefault(column?.default)+primary+(extra?' '+extra:'');
+}
+function migrationText(migration){
+  const lines=[
+    '-- TaskDeck database schema migration',
+    '-- Source: '+migration.source.profile_name+' / '+migration.source.catalog,
+    '-- Target: '+migration.target.profile_name+' / '+migration.target.catalog,
+    '-- Adapter: '+migration.adapter,
+    '-- Generated: '+new Date().toISOString(),
+    ''
+  ];
+  for(const note of migration.notes||[])lines.push('-- WARNING: '+note);
+  if((migration.notes||[]).length)lines.push('');
+  for(const statement of migration.statements||[]){
+    if(statement.reason)lines.push('-- '+statement.reason);
+    lines.push(statement.sql.replace(/;?\s*$/,';'),'');
+  }
+  if(!(migration.statements||[]).length)lines.push('-- No executable migration statements were generated.');
+  return lines.join('\n');
+}
+function buildMigration(diff){
+  if(!diff?.source||!diff?.target)throw new Error('Run schema comparison first');
+  const adapter=String(diff.source.adapter||'');
+  if(adapter!==String(diff.target.adapter||''))throw new Error('Migration generation requires Source and Target to use the same database adapter');
+  if(!['mysql','sqlite'].includes(adapter))throw new Error('ALTER migration generation is available for MySQL and SQLite only');
+  const statements=[],notes=[];
+  const push=(sql,{destructive=false,reason=''}={})=>{if(String(sql||'').trim())statements.push({sql:String(sql).trim(),destructive:Boolean(destructive),reason});};
+
+  for(const row of diff.rows||[]){
+    if(row.status==='same')continue;
+    const qname=quoteIdentifier(adapter,row.name);
+    if(row.status==='missing-target'){
+      const definition=String(row.source?.detail?.sql||'').trim();
+      if(definition){
+        push(definition,{reason:'Create missing '+row.kind+' '+row.name});
+      }else{
+        notes.push('Cannot create missing '+row.kind+' '+row.name+' automatically because the adapter did not provide a SQL definition.');
+      }
+      continue;
+    }
+    if(row.status==='extra-target'){
+      if(row.kind==='table')push('DROP TABLE '+qname,{destructive:true,reason:'Remove extra target table '+row.name});
+      else if(row.kind==='view')push('DROP VIEW '+qname,{destructive:true,reason:'Remove extra target view '+row.name});
+      else notes.push('Extra target '+row.kind+' '+row.name+' requires manual removal.');
+      continue;
+    }
+    if(row.status!=='changed')continue;
+    if(row.kind!=='table'){
+      notes.push('Changed '+row.kind+' '+row.name+' requires manual migration; TaskDeck only auto-generates ALTER statements for tables.');
+      continue;
+    }
+    const columns=row.column_diff||{added:[],removed:[],changed:[]};
+    for(const column of columns.added||[]){
+      push('ALTER TABLE '+qname+' ADD COLUMN '+columnSQL(adapter,column),{reason:'Add missing column '+row.name+'.'+column.name});
+    }
+    for(const column of columns.removed||[]){
+      if(adapter==='mysql')push('ALTER TABLE '+qname+' DROP COLUMN '+quoteIdentifier(adapter,column.name),{destructive:true,reason:'Remove extra target column '+row.name+'.'+column.name});
+      else notes.push('SQLite column removal '+row.name+'.'+column.name+' is not auto-generated because compatibility may require table rebuild.');
+    }
+    for(const change of columns.changed||[]){
+      if(adapter==='mysql')push('ALTER TABLE '+qname+' MODIFY COLUMN '+columnSQL(adapter,change.source),{destructive:true,reason:'Align changed column '+row.name+'.'+change.name});
+      else notes.push('SQLite column change '+row.name+'.'+change.name+' requires table rebuild and is not auto-generated.');
+    }
+    if(JSON.stringify(row.source?.detail?.indexes||[])!==JSON.stringify(row.target?.detail?.indexes||[])){
+      notes.push('Indexes differ for '+row.name+'; review/create/drop indexes manually after column migration.');
+    }
+    if(JSON.stringify(row.source?.detail?.foreign_keys||[])!==JSON.stringify(row.target?.detail?.foreign_keys||[])){
+      notes.push('Foreign keys differ for '+row.name+'; review constraints manually before apply.');
+    }
+  }
+  return {
+    adapter,source:diff.source,target:diff.target,statements,notes,
+    destructive:statements.some(item=>item.destructive)
+  };
+}
+function migrationPreviewDialog(migration){
+  const overlay=document.createElement('div');overlay.className='db-schema-diff-backdrop visible';overlay.style.zIndex='17720';
+  const card=document.createElement('div');card.className='db-schema-diff-dialog';card.style.width='min(980px,96vw)';
+  const h=document.createElement('div');h.className='db-schema-diff-head';
+  const heading=document.createElement('strong');heading.textContent='MIGRATION PREVIEW · '+migration.source.catalog+' → '+migration.target.catalog;
+  const close=document.createElement('button');close.type='button';close.textContent='×';h.append(heading,close);
+  const wrap=document.createElement('div');wrap.style.padding='10px';wrap.style.overflow='auto';
+  const warning=document.createElement('div');warning.className=migration.destructive?'db-schema-diff-warning':'';
+  warning.textContent=migration.destructive
+    ?'This migration contains destructive statements. Review every statement before applying.'
+    :'Preview generated from schema metadata. Review before applying.';
+  const pre=document.createElement('pre');pre.className='db-schema-diff-code';pre.style.maxHeight='58vh';pre.textContent=migrationText(migration);
+  wrap.append(warning,pre);
+  const footer=document.createElement('div');footer.className='db-schema-diff-actions';
+  const copy=document.createElement('button');copy.type='button';copy.textContent='Copy SQL';
+  const exportSQL=document.createElement('button');exportSQL.type='button';exportSQL.textContent='Export SQL';
+  const spacerNode=document.createElement('span');spacerNode.className='spacer';
+  const apply=document.createElement('button');apply.type='button';apply.textContent='Apply to Target';
+  const targetView=findView(migration.target.session_id);
+  apply.disabled=!migration.statements.length||Boolean(targetView?.profile?.read_only);
+  if(targetView?.profile?.read_only)apply.title='Target database profile is read-only';
+  footer.append(copy,exportSQL,spacerNode,apply);
+  card.append(h,wrap,footer);overlay.append(card);document.body.append(overlay);
+  const remove=()=>overlay.remove();close.onclick=remove;overlay.onmousedown=event=>{if(event.target===overlay)remove();};
+  copy.onclick=async()=>{
+    const text=migrationText(migration);
+    if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(text);
+    else{
+      const area=document.createElement('textarea');area.value=text;area.style.position='fixed';area.style.left='-9999px';document.body.append(area);area.select();try{document.execCommand('copy');}finally{area.remove();}
+    }
+  };
+  exportSQL.onclick=()=>database.saveTextWithLocation('Export schema migration',(migration.source.catalog+'-to-'+migration.target.catalog+'-migration.sql').replace(/[^A-Za-z0-9._-]+/g,'_'),migrationText(migration)+'\n',{
+    description:'Database schema migration',mime:'text/sql;charset=utf-8',extensions:['.sql'],hostFileLabel:'Migration file name:'
+  }).catch(app.showError);
+  apply.onclick=()=>applyMigration(migration,apply,warning).then(()=>{remove();compare().catch(app.showError);}).catch(app.showError);
+}
+async function applyMigration(migration,button,warning){
+  const targetView=findView(migration.target.session_id);
+  if(!targetView)throw new Error('Target database session is no longer open');
+  if(targetView.profile?.read_only)throw new Error('Target database profile is read-only');
+  if(String(targetView.meta.adapter_kind||'')!==migration.adapter)throw new Error('Target database adapter changed; compare again');
+  if(migration.destructive){
+    const expected='APPLY '+migration.target.catalog;
+    const answer=window.prompt('Destructive schema migration. Type '+expected+' to continue:','');
+    if(answer!==expected)throw new Error('Schema migration cancelled');
+  }else if(!window.confirm('Apply '+migration.statements.length+' schema migration statement(s) to '+migration.target.catalog+'?')){
+    throw new Error('Schema migration cancelled');
+  }
+  const operation=globalThis.TaskMenuOperationCenter?.begin?.({
+    title:'Database schema migration · '+migration.target.catalog,
+    detail:migration.source.catalog+' → '+migration.target.catalog,
+    profile_id:String(targetView.meta.profile_id||''),
+    open:()=>database.openProfile?.(String(targetView.meta.profile_id||''))
+  });
+  button.disabled=true;warning.textContent='Applying migration…';
+  try{
+    let index=0;
+    for(const statement of migration.statements){
+      index++;
+      warning.textContent='Applying '+index+' / '+migration.statements.length+'…';
+      await database.request(targetView.meta.id,'execute',{statement:statement.sql,catalog:migration.target.catalog,max_rows:10});
+    }
+    operation?.complete?.({detail:migration.statements.length+' statement(s) applied'});
+    warning.textContent='Migration applied successfully.';
+    return true;
+  }catch(error){
+    operation?.fail?.(error,{retry:()=>applyMigration(migration,button,warning)});
+    throw error;
+  }finally{button.disabled=false;}
+}
+
 async function refreshCatalogs(which){
   const select=which==='source'?sourceSession:targetSession;
   const catalog=which==='source'?sourceCatalog:targetCatalog;
@@ -295,11 +463,14 @@ targetSession.onchange=()=>refreshCatalogs('target').catch(app.showError);
 compareButton.onclick=()=>compare().catch(error=>{status.textContent=String(error?.message||error);app.showError(error);setBusy(false,status.textContent);});
 exportSource.onclick=()=>exportSnapshot(sourceSnapshot,'Source').catch(app.showError);
 exportTarget.onclick=()=>exportSnapshot(targetSnapshot,'Target').catch(app.showError);
+migrationButton.onclick=()=>{
+  try{migrationPreviewDialog(buildMigration(currentDiff));}catch(error){app.showError(error);}
+};
 closeButton.onclick=close;closeBottom.onclick=close;
 backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)close();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&backdrop.classList.contains('visible'))close();});
 
 globalThis.TaskMenuDatabaseSchemaDiff={
-  open,close,captureSchema,compareSchemas,normalizeDetail,
+  open,close,captureSchema,compareSchemas,normalizeDetail,buildMigration,migrationText,applyMigration,
   get sourceSnapshot(){return sourceSnapshot;},get targetSnapshot(){return targetSnapshot;},get diff(){return currentDiff;}
 };
