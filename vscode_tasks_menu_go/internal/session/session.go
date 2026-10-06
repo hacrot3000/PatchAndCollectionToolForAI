@@ -40,6 +40,7 @@ type Metadata struct {
 type managedSession struct {
 	mu              sync.Mutex
 	meta            Metadata
+	launch          tasks.Execution
 	cmd             *exec.Cmd
 	ptyFile         *os.File
 	scrollback      []byte
@@ -129,6 +130,7 @@ func (m *Manager) Start(spec tasks.Execution) (Metadata, error) {
 		header = header[len(header)-m.maxScrollback:]
 	}
 	s := &managedSession{
+		launch: cloneSessionExecution(spec),
 		meta: Metadata{
 			ID: id, TaskID: spec.TaskID, Kind: spec.SessionKind,
 			OwnerUserID: spec.OwnerUserID, ProjectID: spec.ProjectID,
@@ -148,6 +150,52 @@ func (m *Manager) Start(spec tasks.Execution) (Metadata, error) {
 	}
 	go s.readLoop()
 	return s.metadata(), nil
+}
+
+func cloneSessionExecution(spec tasks.Execution) tasks.Execution {
+	out := spec
+	out.Args = append([]string(nil), spec.Args...)
+	out.Env = append([]string(nil), spec.Env...)
+	return out
+}
+
+func (m *Manager) SupportsTerminalClone() bool { return true }
+
+func (m *Manager) CloneTerminal(id string, options TerminalCloneOptions) (Metadata, error) {
+	source, ok := m.Get(id)
+	if !ok {
+		return Metadata{}, fmt.Errorf("session not found")
+	}
+	source.mu.Lock()
+	meta := source.meta
+	spec := cloneSessionExecution(source.launch)
+	source.mu.Unlock()
+
+	localTerminal := meta.TaskID == 0 &&
+		!strings.EqualFold(strings.TrimSpace(meta.TargetType), "ssh") &&
+		strings.TrimSpace(meta.TargetProfileID) == ""
+	if !localTerminal {
+		return Metadata{}, fmt.Errorf("only local terminals can be cloned")
+	}
+	if strings.TrimSpace(options.OwnerUserID) == "" && strings.TrimSpace(options.ProjectID) == "" {
+		spec.SessionKind = ""
+		spec.OwnerUserID = ""
+		spec.ProjectID = ""
+	} else {
+		if strings.TrimSpace(options.OwnerUserID) == "" || strings.TrimSpace(options.ProjectID) == "" {
+			return Metadata{}, fmt.Errorf("terminal clone ownership requires owner user and project")
+		}
+		spec.SessionKind = tasks.SessionKindTerminal
+		spec.OwnerUserID = strings.TrimSpace(options.OwnerUserID)
+		spec.ProjectID = strings.TrimSpace(options.ProjectID)
+	}
+	spec.TaskID = 0
+	if cwd, err := m.CurrentCwd(id); err == nil && strings.TrimSpace(cwd) != "" {
+		spec.Cwd = filepath.Clean(cwd)
+	} else if strings.TrimSpace(meta.Cwd) != "" {
+		spec.Cwd = filepath.Clean(meta.Cwd)
+	}
+	return m.Start(spec)
 }
 
 func validateOwnership(spec tasks.Execution) error {
