@@ -36,7 +36,31 @@ async function loadProfiles(){if(!canRead()){profiles=[];return profiles;}const 
 function byID(id){return profiles.find(item=>item.id===id)||null;}
 function uniqueStrings(values){return [...new Set((Array.isArray(values)?values:[]).map(value=>String(value||'').trim()).filter(Boolean))];}
 function uniqueInts(values){return [...new Set((Array.isArray(values)?values:[]).map(Number).filter(value=>Number.isInteger(value)&&value>0))];}
-function localTerminalViews(){return [...app.views.values()].filter(view=>view?.meta?.task_id===0&&String(view.meta?.target_type||'local').toLowerCase()!=='ssh'&&!view.meta?.target_profile_id);}
+function isLocalProfileTerminal(view){return Boolean(view?.meta?.task_id===0&&String(view.meta?.target_type||'local').toLowerCase()!=='ssh'&&!view.meta?.target_profile_id);}
+function localTerminalViews(){
+  const out=[],seen=new Set();
+  for(const tab of document.querySelectorAll('#tabs .tab[data-id]')){
+    const id=String(tab.dataset.id||''),view=app.views.get(id);
+    if(view&&isLocalProfileTerminal(view)&&!seen.has(id)){seen.add(id);out.push(view);}
+  }
+  for(const view of app.views.values()){
+    const id=String(view?.meta?.id||'');
+    if(isLocalProfileTerminal(view)&&id&&!seen.has(id)){seen.add(id);out.push(view);}
+  }
+  return out;
+}
+function currentTerminalSplits(views){
+  const indexByID=new Map(views.map((view,index)=>[String(view.meta.id),index]));
+  const out=[];
+  for(const group of globalThis.TaskMenuSplit?.getGroups?.()||[]){
+    const first=indexByID.get(String(group?.first??group?.left??''));
+    const second=indexByID.get(String(group?.second??group?.right??''));
+    if(!Number.isInteger(first)||!Number.isInteger(second)||first===second)continue;
+    out.push({first,second,ratio:Number(group?.ratio)||0.5,orientation:group?.orientation==='horizontal'?'horizontal':'vertical'});
+    if(out.length>=Math.max(0,views.length-1))break;
+  }
+  return out;
+}
 function projectRelativeCwd(value){
   const root=String(app.taskData?.workspace||'').trim().replace(/\\/g,'/').replace(/\/+$/,'');
   const cwd=String(value||'').trim().replace(/\\/g,'/').replace(/\/+$/,'');
@@ -48,13 +72,15 @@ function sshProfileIDsFromViews(){return uniqueStrings([...app.views.values()].f
 function openDatabaseProfileIDs(){return uniqueStrings([...(globalThis.TaskMenuDatabase?.views?.values?.()||[])].map(view=>view.meta?.profile_id||view.profile?.id));}
 function openTransferProfileIDs(){return uniqueStrings([...(globalThis.TaskMenuFileTransfer?.views?.values?.()||[])].map(view=>view.profile?.id));}
 function currentDraft(name=''){
-  const terminals=localTerminalViews().slice(0,16).map(view=>({cwd:projectRelativeCwd(view.meta?.cwd),title:String(view.meta?.title||'')}));
+  const terminalViews=localTerminalViews().slice(0,16);
+  const terminals=terminalViews.map(view=>({cwd:projectRelativeCwd(view.meta?.cwd),title:String(view.meta?.title||'')}));
   return {
     name:String(name||''),
     environment_profile:String(globalThis.TaskMenuEnvProfiles?.currentName?.()||''),
     environment:{...(globalThis.TaskMenuEnvProfiles?.currentEnv?.()||{})},
     command_preset_ids:uniqueStrings(globalThis.TaskMenuCommandPresets?.projectPresetIDs||[]),
     terminals,
+    terminal_splits:currentTerminalSplits(terminalViews),
     database_profile_ids:openDatabaseProfileIDs(),
     ssh_profile_ids:sshProfileIDsFromViews(),
     transfer_profile_ids:openTransferProfileIDs(),
@@ -93,7 +119,20 @@ async function applyProfile(profile,{confirmOpen=true}={}){
   globalThis.TaskMenuCommandPresets?.setProjectPresetIDs?.(profile.command_preset_ids||[]);
   globalThis.TaskMenuTaskSet?.apply?.(profile.task_ids||[]);
   if(profile.default_git_repository){try{await globalThis.TaskMenuGitFiles?.restoreState?.({repository_id:profile.default_git_repository});}catch(error){warnings.push('Git: '+String(error?.message||error));}}
-  for(const terminal of profile.terminals||[]){try{await createLocalTerminal(terminal);}catch(error){warnings.push('Terminal: '+String(error?.message||error));}}
+  const createdTerminalIDs=[];
+  for(const terminal of profile.terminals||[]){
+    try{const meta=await createLocalTerminal(terminal);createdTerminalIDs.push(String(meta?.id||''));}
+    catch(error){createdTerminalIDs.push('');warnings.push('Terminal: '+String(error?.message||error));}
+  }
+  if(createdTerminalIDs.filter(Boolean).length>=2&&Array.isArray(profile.terminal_splits)&&profile.terminal_splits.length&&app.layoutProfile!=='mobile'){
+    const groups=[];
+    for(const split of profile.terminal_splits){
+      const first=createdTerminalIDs[Number(split?.first)],second=createdTerminalIDs[Number(split?.second)];
+      if(!first||!second||first===second)continue;
+      groups.push({first,second,ratio:Number(split?.ratio)||0.5,orientation:split?.orientation==='horizontal'?'horizontal':'vertical'});
+    }
+    if(groups.length){try{globalThis.TaskMenuSplit?.restoreProjectGroups?.(groups);}catch(error){warnings.push('Terminal layout: '+String(error?.message||error));}}
+  }
   for(const id of profile.ssh_profile_ids||[]){try{await globalThis.TaskMenuConnections?.openSSHProfile?.(id);}catch(error){warnings.push('SSH '+id+': '+String(error?.message||error));}}
   for(const id of profile.database_profile_ids||[]){
     try{const existing=existingDatabaseProfile(id);if(existing){continue;}await globalThis.TaskMenuDatabase?.openProfile?.(id);}catch(error){warnings.push('DB '+id+': '+String(error?.message||error));}
@@ -135,6 +174,21 @@ function field(label,value=''){const wrap=document.createElement('div');wrap.cla
 function textarea(label,value=''){const f=field(label,value);const area=document.createElement('textarea');area.rows=5;area.value=f.input.value;f.input.replaceWith(area);f.input=area;return f;}
 function terminalsText(items){return (items||[]).map(item=>String(item.cwd||'.')+(item.title?' | '+item.title:'')).join('\n');}
 function parseTerminals(text){return String(text||'').split(/\r?\n/).map(line=>line.trim()).filter(Boolean).slice(0,16).map(line=>{const parts=line.split('|');return {cwd:String(parts.shift()||'.').trim()||'.',title:parts.join('|').trim()};});}
+function terminalSplitsText(items){return (items||[]).map(item=>(Number(item.first)+1)+','+(Number(item.second)+1)+','+(Number(item.ratio)||0.5)+','+(item.orientation==='horizontal'?'horizontal':'vertical')).join('\n');}
+function parseTerminalSplits(text,terminalCount){
+  const out=[],seenSecond=new Set(),limit=Math.max(0,Math.min(15,Number(terminalCount)||0)-1);
+  for(const raw of String(text||'').split(/\r?\n/)){
+    if(out.length>=limit)break;
+    const line=raw.trim();if(!line)continue;
+    const parts=line.split(',').map(value=>value.trim());
+    const first=Number.parseInt(parts[0],10)-1,second=Number.parseInt(parts[1],10)-1;
+    let ratio=Number.parseFloat(parts[2]);if(!Number.isFinite(ratio))ratio=0.5;ratio=Math.max(0.2,Math.min(0.8,ratio));
+    const orientation=String(parts[3]||'vertical').toLowerCase()==='horizontal'?'horizontal':'vertical';
+    if(!Number.isInteger(first)||!Number.isInteger(second)||first<0||second<0||first>=terminalCount||second>=terminalCount||first===second||seenSecond.has(second))continue;
+    seenSecond.add(second);out.push({first,second,ratio,orientation});
+  }
+  return out;
+}
 
 async function saveDraft(draft){
   if(!canWrite())throw new Error('Project profile write permission is required');
@@ -171,19 +225,20 @@ async function openManager(selectedID=''){
     const envWrap=document.createElement('div');envWrap.className='project-profile-field';const envLabel=document.createElement('label');envLabel.textContent='Environment profile';const env=document.createElement('select');const def=document.createElement('option');def.value='';def.textContent='Default';env.append(def);for(const item of options.env){const option=document.createElement('option');option.value=item;option.textContent=item;env.append(option);}if(draft.environment_profile&&!options.env.includes(draft.environment_profile)){const snapshot=document.createElement('option');snapshot.value=draft.environment_profile;snapshot.textContent=draft.environment_profile+' (saved snapshot)';env.append(snapshot);}env.value=draft.environment_profile||'';envWrap.append(envLabel,env);
     const git=field('Default Git repository',draft.default_git_repository||'.');
     const terminals=textarea('Startup terminals — one cwd | title per line',terminalsText(draft.terminals));
+    const terminalSplits=textarea('Terminal split layout — first#, second#, ratio, vertical|horizontal',terminalSplitsText(draft.terminal_splits));terminalSplits.input.rows=3;
     const presets=checkboxGroup('Command preset set (selected only; never auto-run)',options.presets,draft.command_preset_ids,item=>item.id,item=>item.name);
     const tasks=checkboxGroup('Task set (quick access; never auto-run)',options.tasks,draft.task_ids,item=>item.id,item=>String(item.menu_label||item.label||item.id));
     const ssh=checkboxGroup('SSH terminals to open',options.ssh,draft.ssh_profile_ids,item=>item.id,item=>item.name||item.id);
     const db=checkboxGroup('Database profiles to open',options.db,draft.database_profile_ids,item=>item.id,item=>item.name||item.id);
     const transfer=checkboxGroup('FTP/SFTP profiles to open',options.transfer,draft.transfer_profile_ids,item=>item.id,item=>(item.name||item.id)+' · '+String(item.protocol||'').toUpperCase());
-    const grid=document.createElement('div');grid.className='project-profile-grid';grid.append(name.wrap,envWrap,git.wrap,terminals.wrap);editor.append(grid,presets.wrap,tasks.wrap,ssh.wrap,db.wrap,transfer.wrap);
+    const grid=document.createElement('div');grid.className='project-profile-grid';grid.append(name.wrap,envWrap,git.wrap,terminals.wrap,terminalSplits.wrap);editor.append(grid,presets.wrap,tasks.wrap,ssh.wrap,db.wrap,transfer.wrap);
     const note=document.createElement('div');note.className='project-profile-note';note.textContent='Project profiles store only references to existing connection profiles. Environment values are snapshotted so the profile remains usable if the browser env profile disappears; do not put passwords/tokens in environment values. Connection secrets remain in their encrypted secret stores.';editor.append(note);
     const actions=document.createElement('div');actions.className='project-profile-actions';
     const close=document.createElement('button');close.type='button';close.textContent='Close';close.onclick=closeManager;
     const apply=document.createElement('button');apply.type='button';apply.textContent='Apply';apply.disabled=!draft.id;apply.onclick=()=>applyProfile(draft).catch(app.showError);
     const spacer=document.createElement('span');spacer.className='spacer';actions.append(close,apply,spacer);
     if(draft.id&&canWrite()){const del=document.createElement('button');del.type='button';del.className='project-profile-danger';del.textContent='Delete';del.onclick=async()=>{if(await deleteProfile(draft)){selectDraft(profiles[0]||null);}};actions.append(del);}
-    if(canWrite()){const save=document.createElement('button');save.type='button';save.textContent='Save';save.onclick=async()=>{const localEnv=globalThis.TaskMenuEnvProfiles?.get?.(env.value);const savedEnv=env.value===String(draft.environment_profile||'')?(draft.environment||{}):{};const payload={id:draft.id||'',name:name.input.value,environment_profile:env.value,environment:{...(localEnv||savedEnv)},command_preset_ids:presets.values(),terminals:parseTerminals(terminals.input.value),database_profile_ids:db.values(),ssh_profile_ids:ssh.values(),transfer_profile_ids:transfer.values(),default_git_repository:git.input.value,task_ids:tasks.values().map(Number)};const saved=await saveDraft(payload);selectDraft(saved);};actions.append(save);}
+    if(canWrite()){const save=document.createElement('button');save.type='button';save.textContent='Save';save.onclick=async()=>{const localEnv=globalThis.TaskMenuEnvProfiles?.get?.(env.value);const savedEnv=env.value===String(draft.environment_profile||'')?(draft.environment||{}):{};const payload={id:draft.id||'',name:name.input.value,environment_profile:env.value,environment:{...(localEnv||savedEnv)},command_preset_ids:presets.values(),terminals:parseTerminals(terminals.input.value),terminal_splits:parseTerminalSplits(terminalSplits.input.value,parseTerminals(terminals.input.value).length),database_profile_ids:db.values(),ssh_profile_ids:ssh.values(),transfer_profile_ids:transfer.values(),default_git_repository:git.input.value,task_ids:tasks.values().map(Number)};const saved=await saveDraft(payload);selectDraft(saved);};actions.append(save);}
     editor.append(actions);
   };
   add.onclick=()=>selectDraft(currentDraft(''));
