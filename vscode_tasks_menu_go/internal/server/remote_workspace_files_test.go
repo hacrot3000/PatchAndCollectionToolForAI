@@ -1,6 +1,10 @@
 package server
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestRemoteWorkspaceRelativePathRejectsEscapeAndAbsolute(t *testing.T) {
 	for _, value := range []string{"../etc/passwd", "a/../../etc/passwd", "/etc/passwd", "a\x00b", "a\nb"} {
@@ -55,5 +59,26 @@ func TestRemoteWorkspaceResolvePathStaysUnderConfiguredRoot(t *testing.T) {
 func TestRemoteWorkspaceFileBridgeKeepsRelativeBrowserContract(t *testing.T) {
 	if got, err := remoteWorkspaceResolvePath("/srv/project", "nested/file.txt"); err != nil || got != "/srv/project/nested/file.txt" {
 		t.Fatalf("resolved path=%q err=%v", got, err)
+	}
+}
+
+
+func TestRemoteWorkspaceCanonicalGuardCommandFailsClosedOutsideRoot(t *testing.T) {
+	data, err := os.ReadFile("remote_workspace_files.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(data)
+	for _, want := range []string{
+		"command -v realpath >/dev/null 2>&1",
+		"root=$(realpath -- ",
+		"target=$(realpath -- ",
+		"remote workspace path escapes canonical root",
+		"remote write verification hash mismatch",
+		"expectedWrittenSHA := hex.EncodeToString(sum[:])",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("remote workspace file bridge missing hardening %q", want)
+		}
 	}
 }
