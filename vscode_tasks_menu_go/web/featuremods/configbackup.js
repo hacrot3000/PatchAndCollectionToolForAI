@@ -22,10 +22,13 @@ head.append(title,closeButton);
 const body=document.createElement('div');body.className='config-backup-body';
 const note=document.createElement('div');note.className='config-backup-note';note.textContent='Portable backup includes project settings, command presets, task/terminal layout, Project Profiles, Environment Profiles and connection profiles. Secret values and original secret references are never exported.';
 const actions=document.createElement('div');actions.className='config-backup-actions';
+const includeEnvLabel=document.createElement('label');includeEnvLabel.title='Environment variables can contain tokens/passwords. Off is the safe portable default.';
+const includeEnv=document.createElement('input');includeEnv.type='checkbox';includeEnv.checked=false;
+includeEnvLabel.append(includeEnv,document.createTextNode(' Include environment variables (may contain secrets)'));
 const exportButton=document.createElement('button');exportButton.type='button';exportButton.textContent='Export backup';
 const importButton=document.createElement('button');importButton.type='button';importButton.textContent='Import backup…';
 const fileInput=document.createElement('input');fileInput.type='file';fileInput.accept='application/json,.json';fileInput.className='config-backup-file';
-actions.append(exportButton,importButton,fileInput);
+actions.append(includeEnvLabel,exportButton,importButton,fileInput);
 const preview=document.createElement('div');preview.className='config-backup-preview';preview.textContent='No backup loaded.';
 const importPane=document.createElement('div');importPane.className='config-backup-import';
 const mode=document.createElement('div');mode.className='config-backup-mode';
@@ -76,8 +79,9 @@ function renderPreview(bundle){
 async function exportBackup(){
   exportButton.disabled=true;
   try{
-    const bundle=await app.jsonFetch('/api/config-backup',{cache:'no-store'});
-    bundle.client=envClientSnapshot();
+    const includeEnvironment=includeEnv.checked;
+    const bundle=await app.jsonFetch('/api/config-backup'+(includeEnvironment?'?include_environment=1':''),{cache:'no-store'});
+    if(includeEnvironment)bundle.client=envClientSnapshot();
     renderPreview(bundle);
     const stamp=new Date().toISOString().replace(/[:.]/g,'-');
     downloadJSON('taskdeck-config-backup-'+stamp+'.json',bundle);
@@ -95,7 +99,9 @@ async function loadFile(file){
   if(text.length>8*1024*1024)throw new Error('Backup file exceeds 8 MiB');
   loadedBundle=validateClientBundle(JSON.parse(text));renderPreview(loadedBundle);importPane.classList.add('visible');
   const credentials=credentialCount(loadedBundle);
-  warning.textContent=(credentials?credentials+' connection credential(s) will remain local if matching profile IDs exist; otherwise they will be marked missing.\n':'')+'Restore never imports plaintext secrets.';
+  warning.textContent=(credentials?credentials+' connection credential(s) will remain local if matching profile IDs exist; otherwise they will be marked missing.\n':'')
+    +(loadedBundle?.includes_environment?'This backup explicitly includes environment variable values; review its origin before restore.\n':'Environment variable values are not included in this backup.\n')
+    +'Restore never imports SecretStore plaintext.';
 }
 async function restore(){
   if(!loadedBundle)throw new Error('Choose a TaskDeck backup first');
@@ -107,10 +113,12 @@ async function restore(){
   restoreButton.disabled=true;
   try{
     await app.jsonFetch('/api/config-backup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:restoreMode,bundle:loadedBundle})});
-    const profiles=loadedBundle?.client?.environment_profiles||{};
-    const selected=String(loadedBundle?.client?.active_environment||'');
-    if(restoreMode==='replace')globalThis.TaskMenuEnvProfiles?.replaceAll?.(profiles,{selected});
-    else globalThis.TaskMenuEnvProfiles?.mergeAll?.(profiles,{selected});
+    if(loadedBundle?.includes_environment){
+      const profiles=loadedBundle?.client?.environment_profiles||{};
+      const selected=String(loadedBundle?.client?.active_environment||'');
+      if(restoreMode==='replace')globalThis.TaskMenuEnvProfiles?.replaceAll?.(profiles,{selected});
+      else globalThis.TaskMenuEnvProfiles?.mergeAll?.(profiles,{selected});
+    }
     alert('TaskDeck configuration restored. Reloading the page to apply the restored UI state.');
     location.reload();
   }finally{restoreButton.disabled=false;}
