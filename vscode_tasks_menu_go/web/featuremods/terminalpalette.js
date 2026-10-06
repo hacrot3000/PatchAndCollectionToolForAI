@@ -62,6 +62,7 @@ function staticConnectionCommands(){
     {id:'connections-open',label:'Connections: Open panel',keywords:'ssh database db sftp ftp local terminal remote',run:()=>globalThis.TaskMenuConnections?.open?.()},
     {id:'connections-ssh',label:'SSH: Open saved connections',keywords:'ssh remote host profile terminal connection',run:()=>globalThis.TaskMenuConnections?.open?.()},
     {id:'connections-db',label:'Database: Open saved connections',keywords:'database db mysql sqlite mongodb redis connection',run:()=>globalThis.TaskMenuConnections?.open?.()},
+    {id:'database-schema-diff',label:'Database: Schema Diff…',keywords:'database db compare schema structure migration alter staging production',run:()=>globalThis.TaskMenuDatabaseSchemaDiff?.open?.()},
     {id:'connections-transfer',label:'SFTP/FTP: Open saved connections',keywords:'sftp ftp transfer remote files connection',run:()=>globalThis.TaskMenuConnections?.open?.()}
   ];
 }
