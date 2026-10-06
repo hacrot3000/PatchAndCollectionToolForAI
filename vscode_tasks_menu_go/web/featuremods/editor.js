@@ -1148,6 +1148,7 @@ async function saveEditor(view){
   }
 }
 function rememberClosedEditor(view){
+  if(view?.file?.remote_workspace_id)return;
   const pathValue=String(view?.file?.path||'').trim();
   if(!pathValue)return;
   const index=closedEditorPaths.indexOf(pathValue);
@@ -1226,7 +1227,7 @@ function createEditor(file){
   const reload=document.createElement('button');reload.type='button';reload.textContent='Reload';reload.title='Reload file from disk';
   const whitespace=document.createElement('button');whitespace.type='button';whitespace.className='editor-whitespace-toggle';whitespace.textContent='WS';whitespace.title='Toggle visible spaces and tabs';whitespace.setAttribute('aria-pressed','false');
   const find=document.createElement('button');find.type='button';find.className='editor-find-toggle';find.textContent='Find';find.title='Find / replace in this file (Ctrl/Cmd+F)';
-  const history=document.createElement('button');history.type='button';history.className='editor-history-toggle';history.textContent='History';history.title='Local file history captured before editor saves';
+  const history=document.createElement('button');history.type='button';history.className='editor-history-toggle';history.textContent='History';history.title='Local file history captured before editor saves';history.hidden=Boolean(file.remote_workspace_id);
   const outline=document.createElement('button');outline.type='button';outline.className='editor-outline-toggle';outline.textContent='Outline';outline.title='File symbol outline';
   const minimapToggle=document.createElement('button');minimapToggle.type='button';minimapToggle.className='editor-minimap-toggle';minimapToggle.title='Toggle editor minimap';minimapToggle.setAttribute('aria-pressed','false');
   const splitVertical=document.createElement('button');splitVertical.type='button';splitVertical.className='editor-split-action editor-split-vertical';splitVertical.textContent='Split ↔';splitVertical.title='Split editor vertically with another/open file';
@@ -1601,9 +1602,10 @@ window.addEventListener('resize',()=>{if(renderedEditorSplitRoot)layoutEditorSpl
 globalThis.TaskMenuEditor={
   editors,
   snapshotState(){
-    const files=[...editors.values()].filter(view=>!view.closed).map(view=>String(view.file?.path||'')).filter(Boolean);
+    const localViews=[...editors.values()].filter(view=>!view.closed&&!view.file?.remote_workspace_id);
+    const files=localViews.map(view=>String(view.file?.path||'')).filter(Boolean);
     const activeView=activeEditorID?editors.get(activeEditorID):null;
-    return {files,active:String(activeView?.file?.path||'')};
+    return {files,active:activeView?.file?.remote_workspace_id?'':String(activeView?.file?.path||'')};
   },
   async restoreState(state){
     const files=Array.isArray(state?.files)?state.files.map(String).filter(Boolean):[];
