@@ -310,6 +310,9 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			var spec tasks.Execution
 			var err error
 			remoteSSH := strings.TrimSpace(req.SSHProfileID) != ""
+			if remoteSSH && !s.requireSharedActionPermission(w, r, identity.PermissionSSHUse, "open_terminal", "ssh_profile:"+strings.TrimSpace(req.SSHProfileID)) {
+				return
+			}
 			if remoteSSH {
 				if strings.TrimSpace(req.Cwd) != "" {
 					http.Error(w, "cwd is only valid for local terminals", http.StatusBadRequest)
