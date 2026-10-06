@@ -43,6 +43,8 @@ const (
 	PermissionRolesManage        = "roles.manage"
 	PermissionAuditView          = "audit.view"
 	PermissionSessionsManage     = "sessions.manage"
+	PermissionApprovalsView       = "approvals.view"
+	PermissionApprovalsManage     = "approvals.manage"
 )
 
 type PermissionDefinition struct {
@@ -93,6 +95,8 @@ func PermissionRegistry() []PermissionDefinition {
 		{Key: PermissionRolesManage, Module: "roles"},
 		{Key: PermissionAuditView, Module: "audit"},
 		{Key: PermissionSessionsManage, Module: "sessions"},
+		{Key: PermissionApprovalsView, Module: "approvals"},
+		{Key: PermissionApprovalsManage, Module: "approvals"},
 		{Key: PermissionProjectAdmin, Module: "project"},
 	}
 }
