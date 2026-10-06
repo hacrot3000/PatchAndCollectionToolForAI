@@ -84,7 +84,7 @@ function installHeaderMenus(){
   const selfUpdateBranch=document.querySelector('#self-update-branch-settings');
   if(selfUpdateBranch)selfUpdateBranch.hidden=false;
   addSection(settings.pop,'UPDATE',[selfUpdateBranch,document.querySelector('#self-update-check')]);
-  addSection(settings.pop,'WORKSPACE',[document.querySelector('#tasks-json-editor'),document.querySelector('#reload'),document.querySelector('#edit-title')]);
+  addSection(settings.pop,'WORKSPACE',[document.querySelector('#config-backup-settings'),document.querySelector('#tasks-json-editor'),document.querySelector('#reload'),document.querySelector('#edit-title')]);
   host.append(settings.menu);
   headerMenusByName.set('settings',settings.menu);
 
