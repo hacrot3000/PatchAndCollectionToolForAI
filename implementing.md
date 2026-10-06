@@ -504,7 +504,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - shared-server list/detail/log áp cùng visibility/ownership với task session và route dùng task-history permission mapping hiện có;
     - regression test bao phủ record từ PTY task thật, Git commit, bounded/truncated log, active-session rejection và UI compare/detail contract.
 
-24. **P1 — Unified command palette**
+24. **P1 — Unified command palette** — ✅ **COMPLETE**
     Tôi đánh giá đây là một trong những cải tiến UX đáng làm nhất:
     
     `Ctrl+Shift+P`
@@ -521,6 +521,18 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Project.
     
     Với số lượng tính năng TaskDeck hiện tại, menu bằng chuột sẽ bắt đầu khó mở rộng.
+
+    Hoàn tất:
+    - nâng `terminalpalette.js` thành **TaskDeck Unified Command Palette** thay vì tạo overlay thứ hai; `Ctrl/Cmd+Shift+P` chỉ có một owner;
+    - giữ `TaskMenuTerminalPalette` làm alias tương thích và bổ sung `TaskMenuCommandPalette`;
+    - palette có File Quick Open, Explorer, Search in Files, Symbols, Project Profiles, Workspace Snapshots;
+    - mỗi task hiện tại được materialize thành command `Task: <label>` và chạy qua `app.startTask`, nên vẫn dùng input/workflow/session/broker hiện hữu;
+    - Git có Open panel + Refresh status; Git module expose open/close action dùng chung;
+    - SSH / Database / SFTP/FTP đều có command rõ ràng mở Connections; Settings có command mở menu + Edit tasks.json;
+    - toàn bộ terminal actions cũ vẫn có: new/duplicate/search/save/split/move/process tree/rename/clear;
+    - command filtering token-based, keyboard Up/Down/Enter/Escape và disabled state tôn trọng shared-server permission;
+    - header menu module expose API open/close thay vì palette tự click DOM bằng selector brittle;
+    - regression test khóa command matrix, hotkey ownership và alias compatibility.
 
 25. **P1 — Global Quick Open**
     `Ctrl+P`
