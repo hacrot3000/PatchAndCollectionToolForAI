@@ -26,6 +26,9 @@ async function copyText(value){
 function openProjectFile(pathValue){
   window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path:pathValue,source:'project-file-context'}}));
 }
+function openProjectHex(pathValue){
+  window.dispatchEvent(new CustomEvent('taskmenu:project-hex-open-request',{detail:{path:pathValue,source:'project-file-context'}}));
+}
 async function revealProjectPath(pathValue){
   const explorer=globalThis.TaskMenuExplorer;if(!explorer?.reveal)throw new Error('Project Explorer unavailable');
   explorer.open?.();await explorer.reveal(pathValue);
@@ -48,7 +51,10 @@ async function gitFileView(pathValue,mode){
 function standardActions(pathValue,type='file'){
   pathValue=cleanPath(pathValue);type=type==='dir'?'dir':'file';
   const actions=[];
-  if(type==='file')actions.push({label:'Open',run:()=>openProjectFile(pathValue)});
+  if(type==='file')actions.push(
+    {label:'Open',run:()=>openProjectFile(pathValue)},
+    {label:'Open as Hex',run:()=>openProjectHex(pathValue)}
+  );
   actions.push(
     {label:'Reveal in Explorer',run:()=>revealProjectPath(pathValue)},
     {label:'Open containing folder',run:()=>openContainingFolder(pathValue)},

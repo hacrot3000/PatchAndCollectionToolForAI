@@ -11,6 +11,7 @@ import '/featuremods/shellhistory.js';
 import '/featuremods/database.js';
 import '/featuremods/database_workbench.js';
 import '/featuremods/projectfileactions.js';
+import '/featuremods/hexviewer.js';
 import '/featuremods/filecompare.js';
 import '/featuremods/gitmergeeditor.js';
 import '/featuremods/filetransfer.js';
