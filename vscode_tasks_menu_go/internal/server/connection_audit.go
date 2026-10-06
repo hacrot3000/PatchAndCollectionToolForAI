@@ -25,7 +25,22 @@ func (s *Server) auditConnection(r *http.Request, event ConnectionAuditEvent) {
 	}
 	if s.ConnectionAudit != nil {
 		s.ConnectionAudit(r, event)
-		return
+	}
+	if s.Config.SharedServerEnabled {
+		if principal, ok := PrincipalFromContext(r.Context()); ok {
+			resourceID := event.SessionID
+			if resourceID == "" {
+				resourceID = event.ProfileID
+			}
+			result := "error"
+			if event.Success {
+				result = "success"
+			}
+			s.appendSharedAudit(r, &principal, nil, event.Kind+"."+event.Action, event.Kind, resourceID, result, map[string]any{
+				"profile_id": event.ProfileID,
+				"session_id": event.SessionID,
+			})
+		}
 	}
 	if s.Log != nil {
 		s.Log.Printf(
