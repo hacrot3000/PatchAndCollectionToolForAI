@@ -1299,6 +1299,44 @@ func TestPatchAddModeAllowsCollectButLocksPatchAndRunningItems(t *testing.T) {
 	}
 }
 
+func TestPatchQueueBackgroundRefreshPreservesInteractiveSelectionWithoutBlanking(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"let queueSilentRefreshPending=false",
+		"await refreshQueueSilently()",
+		"async function refreshQueueSilently()",
+		"async function refreshQueueSessionSilently(sessionId)",
+		"queueSilentRefreshPending=true",
+		"function queuePromptItemIdentity(item)",
+		"function captureQueueInteractionState()",
+		"function restoreQueueInteractionState(state,prompt)",
+		"choices.set(queuePromptItemIdentity(item),{checked:Boolean(input.checked),priority:String(priority?.value||'')})",
+		"const preservedInteraction=queueSilentRefreshPending?captureQueueInteractionState():null",
+		"if(preservedInteraction)restoreQueueInteractionState(preservedInteraction,prompt)",
+		"const preserveQueueUI=queueSilentRefreshPending&&activePatchMode==='queue'",
+		"if(!preserveQueueUI){",
+		"const promptActionBusy=busy||queueSilentRefreshPending",
+		"for(const input of promptItems.querySelectorAll('input[type=\"checkbox\"]'))input.disabled=busy||input.dataset.patchLocked==='1'",
+		"for(const select of promptItems.querySelectorAll('select[data-patch-priority-index]'))select.disabled=busy||select.dataset.patchLocked==='1'",
+		"promptItems.scrollTop=Number(state.promptScrollTop)||0",
+		"summaryList.scrollTop=Number(state.summaryScrollTop)||0",
+		"focusTarget.focus({preventScroll:true})",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Patch Queue silent refresh state preservation missing %q", want)
+		}
+	}
+	refreshStart := strings.Index(js, "async function refreshQueueSessionSilently(sessionId)")
+	refreshEndRel := strings.Index(js[refreshStart:], "summaryRefresh.onclick")
+	if refreshStart < 0 || refreshEndRel < 0 { t.Fatal("silent Queue refresh bounds unavailable") }
+	refreshBlock := js[refreshStart:refreshStart+refreshEndRel]
+	if strings.Contains(refreshBlock, "clearPrompt()") || strings.Contains(refreshBlock, "resetSummary(") {
+		t.Fatal("background Queue refresh must not blank the current UI while waiting for the refreshed session")
+	}
+}
+
 func TestPatchQueueAutoRefreshTracksWorkspaceAndBrowserActivity(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
 	if err != nil { t.Fatal(err) }

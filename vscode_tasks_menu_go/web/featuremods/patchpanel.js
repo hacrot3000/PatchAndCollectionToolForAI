@@ -597,6 +597,7 @@ function installPatchPanel(){
   let activePatchMode='queue';
   let queueAutoRefreshTimer=0;
   let queueAutoRefreshBusy=false;
+  let queueSilentRefreshPending=false;
   let lastQueueSnapshotSessionId='';
   let latestQueueSnapshot=null;
   let queueSummaryView='queue';
@@ -715,7 +716,7 @@ function installPatchPanel(){
     if(!queueSessionSnapshotSettled()){scheduleQueueAutoRefresh(queueAutoRefreshRetryMS);return false;}
     queueAutoRefreshBusy=true;
     try{
-      await refreshQueueFromSummary();
+      await refreshQueueSilently();
       return true;
     }catch(error){
       console.warn('Patch Queue auto-refresh failed ('+reason+'):',error);
@@ -2105,10 +2106,11 @@ function installPatchPanel(){
 
   function refreshActionDisabledState(){
     const busy=actionBusy||queueMutationBusy||parallelCollectBusy;
-    summaryRefresh.disabled=busy;
-    for(const button of summaryList.querySelectorAll('.task-patch-item-action,.task-patch-queue-delete'))button.disabled=busy;
-    for(const button of promptItems.querySelectorAll('.task-patch-prompt-delete'))button.disabled=busy||button.dataset.patchLocked==='1';
-    for(const button of promptButtons.querySelectorAll('button'))button.disabled=busy;
+    const promptActionBusy=busy||queueSilentRefreshPending;
+    summaryRefresh.disabled=promptActionBusy;
+    for(const button of summaryList.querySelectorAll('.task-patch-item-action,.task-patch-queue-delete'))button.disabled=promptActionBusy;
+    for(const button of promptItems.querySelectorAll('.task-patch-prompt-delete'))button.disabled=promptActionBusy||button.dataset.patchLocked==='1';
+    for(const button of promptButtons.querySelectorAll('button'))button.disabled=promptActionBusy;
     for(const button of promptTools.querySelectorAll('button'))button.disabled=busy||button.dataset.patchLocked==='1';
     for(const input of promptItems.querySelectorAll('input[type="checkbox"]'))input.disabled=busy||input.dataset.patchLocked==='1';
     for(const select of promptItems.querySelectorAll('select[data-patch-priority-index]'))select.disabled=busy||select.dataset.patchLocked==='1';
@@ -2792,6 +2794,63 @@ function installPatchPanel(){
     artifactBox.hidden=appendProtocolArtifactGroups(artifactList,artifacts)===0;
   }
 
+  function queuePromptItemIdentity(item){
+    return String(item?.kind||'').toUpperCase()+'\u0000'+String(item?.name||'');
+  }
+
+  function captureQueueInteractionState(){
+    if(!activeQueuePrompt)return null;
+    const promptRows=new Map((Array.isArray(activeQueuePrompt.items)?activeQueuePrompt.items:[]).map(item=>[Number(item?.index),item]));
+    const choices=new Map();
+    for(const row of promptItems.querySelectorAll('.task-patch-prompt-item[data-patch-prompt-index]')){
+      const input=row.querySelector('input[type="checkbox"][data-patch-index]');
+      if(!input)continue;
+      const item=promptRows.get(Number(input.dataset.patchIndex));
+      if(!item)continue;
+      const priority=row.querySelector('select[data-patch-priority-index]');
+      choices.set(queuePromptItemIdentity(item),{checked:Boolean(input.checked),priority:String(priority?.value||'')});
+    }
+    let focus=null;
+    const active=document.activeElement;
+    const focusRow=active?.closest?.('.task-patch-prompt-item[data-patch-prompt-index]');
+    if(focusRow){
+      const item=promptRows.get(Number(focusRow.dataset.patchPromptIndex));
+      if(item){
+        focus={
+          key:queuePromptItemIdentity(item),
+          control:active?.matches?.('select[data-patch-priority-index]')?'priority':(active?.matches?.('input[type="checkbox"][data-patch-index]')?'checkbox':'row')
+        };
+      }
+    }
+    return {choices,promptScrollTop:promptItems.scrollTop,summaryScrollTop:summaryList.scrollTop,focus};
+  }
+
+  function restoreQueueInteractionState(state,prompt){
+    if(!state||!(state.choices instanceof Map))return;
+    const promptRows=new Map((Array.isArray(prompt?.items)?prompt.items:[]).map(item=>[Number(item?.index),item]));
+    let focusTarget=null;
+    for(const row of promptItems.querySelectorAll('.task-patch-prompt-item[data-patch-prompt-index]')){
+      const index=Number(row.dataset.patchPromptIndex);
+      const item=promptRows.get(index);
+      if(!item)continue;
+      const key=queuePromptItemIdentity(item);
+      const saved=state.choices.get(key);
+      const input=row.querySelector('input[type="checkbox"][data-patch-index]');
+      const priority=row.querySelector('select[data-patch-priority-index]');
+      if(saved&&input&&!input.disabled){
+        input.checked=Boolean(saved.checked);
+        if(priority&&!priority.disabled)priority.value=input.checked?String(saved.priority||''):'';
+      }
+      if(state.focus?.key===key){
+        focusTarget=state.focus.control==='priority'?priority:(state.focus.control==='checkbox'?input:row);
+      }
+    }
+    applyQueuePromptSearch();
+    promptItems.scrollTop=Number(state.promptScrollTop)||0;
+    summaryList.scrollTop=Number(state.summaryScrollTop)||0;
+    if(focusTarget?.focus)focusTarget.focus({preventScroll:true});
+  }
+
   function clearPrompt(){
     activeQueuePrompt=null;
     summary.classList.remove('prompt-active');
@@ -3046,6 +3105,39 @@ function installPatchPanel(){
     if(parallelCollectRuns.size)void pollParallelCollectRuns();
   }
 
+  async function refreshQueueSilently(){
+    if(actionBusy||queueMutationBusy||parallelCollectBusy)return;
+    if(activeSessionId)return refreshQueueSessionSilently(activeSessionId);
+    queueSilentRefreshPending=Boolean(activeQueuePrompt);
+    refreshActionDisabledState();
+    try{return await start('queue');}
+    catch(error){
+      queueSilentRefreshPending=false;
+      refreshActionDisabledState();
+      throw error;
+    }
+  }
+
+  async function refreshQueueSessionSilently(sessionId){
+    sessionId=String(sessionId||'');
+    queueSilentRefreshPending=true;
+    refreshActionDisabledState();
+    try{
+      if(sessionId&&sessionId===activeSessionId){
+        protocolPollGeneration+=1;
+        try{await app.jsonFetch('/api/sessions/'+encodeURIComponent(sessionId)+'/stop',{method:'POST'});}catch{}
+        activeSessionId='';
+      }
+      await start('queue');
+      renderParallelCollectRuns();
+      if(parallelCollectRuns.size)void pollParallelCollectRuns();
+    }catch(error){
+      queueSilentRefreshPending=false;
+      refreshActionDisabledState();
+      throw error;
+    }
+  }
+
   summaryRefresh.onclick=()=>refreshQueueFromSummary().catch(app.showError);
 
   async function removeRunFromActive(key,run,sourceButton){
@@ -3215,6 +3307,7 @@ function installPatchPanel(){
 
   function renderQueuePrompt(sessionId,prompt){
     if(prompt?.type!=='prompt'||prompt?.prompt_kind!=='queue_selection'||!prompt?.prompt_id)return false;
+    const preservedInteraction=queueSilentRefreshPending?captureQueueInteractionState():null;
     const items=Array.isArray(prompt.items)?prompt.items:[];
     const runnableItems=items.filter(item=>String(item?.kind||'').toUpperCase()!=='SKIPPED'&&item?.selectable!==false);
     const initial=new Set(Array.isArray(prompt.initial_selected)?prompt.initial_selected.map(Number):[]);
@@ -3229,6 +3322,7 @@ function installPatchPanel(){
       summary.classList.remove('prompt-active');
       promptBox.hidden=true;
       if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);else renderQueueRows();
+      queueSilentRefreshPending=false;
       refreshActionDisabledState();
       return 'empty';
     }
@@ -3322,14 +3416,19 @@ function installPatchPanel(){
       promptButtons.append(cancel);
     }
     if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);else renderQueueRows();
+    if(preservedInteraction)restoreQueueInteractionState(preservedInteraction,prompt);
+    queueSilentRefreshPending=false;
     refreshActionDisabledState();
     return 'selection';
   }
 
   async function pollProtocol(sessionId,expectPrompt=false,followLifecycle=false){
     const generation=++protocolPollGeneration;
-    resetSummary('Loading…');
-    clearPrompt();
+    const preserveQueueUI=queueSilentRefreshPending&&activePatchMode==='queue';
+    if(!preserveQueueUI){
+      resetSummary('Loading…');
+      clearPrompt();
+    }
     let haveSnapshot=false;
     let haveResumeSnapshot=false;
     let haveHistorySnapshot=false;
@@ -3593,7 +3692,7 @@ function installPatchPanel(){
     throw new Error('Unsupported Patch operation action');
   }
 
-    globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,prepareAIPack,renderAIPack,copyAIPackPrompt,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,refreshQueueForActivity,scheduleQueueAutoRefresh,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,operationSnapshot:patchOperationSnapshot,operationControl:patchOperationControl,setReadOnly,isReadOnly:()=>tabReadOnly,get tab(){return patchTab;},get panel(){return panel;},get visible(){return panel.classList.contains('visible');},get lifecycleSuspended(){return lifecycleSuspended;}};
+    globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,prepareAIPack,renderAIPack,copyAIPackPrompt,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,refreshQueueSilently,refreshQueueSessionSilently,refreshQueueForActivity,scheduleQueueAutoRefresh,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,operationSnapshot:patchOperationSnapshot,operationControl:patchOperationControl,setReadOnly,isReadOnly:()=>tabReadOnly,get tab(){return patchTab;},get panel(){return panel;},get visible(){return panel.classList.contains('visible');},get lifecycleSuspended(){return lifecycleSuspended;}};
   globalThis.TaskMenuTabContext?.registerTab?.(patchTab);
   return true;
 }
