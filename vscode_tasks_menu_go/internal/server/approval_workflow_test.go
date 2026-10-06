@@ -76,7 +76,7 @@ func TestProductionDatabaseApprovalOnlyForWriteAndSchema(t *testing.T) {
 	profileStore, err := dbprofile.NewStore(filepath.Join(workspace, "profiles.json"))
 	if err != nil { t.Fatal(err) }
 	profile, err := profileStore.Create(dbprofile.Profile{
-		Name:"Prod", AdapterID:"mysql-cli", AdapterKind:"mysql", Host:"127.0.0.1", Port:3306,
+		ID:"prod-db", Name:"Prod", AdapterID:"mysql-cli", Host:"127.0.0.1", Port:3306,
 		Options:map[string]string{"environment":"production"},
 	})
 	if err != nil { t.Fatal(err) }
