@@ -3,6 +3,8 @@ package tasks
 import (
 	"errors"
 	"fmt"
+	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +15,115 @@ const (
 	maxWorkflowRetries = 10
 	maxWorkflowTimeoutSeconds = 24 * 60 * 60
 )
+
+const maxWorkflowOutputs = 32
+
+var workflowOutputNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]{0,63}package tasks
+
+import (
+	"errors"
+	"fmt"
+	"math"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+)
+
+func workflowInteger(value any) (int, bool) {
+	switch v := value.(type) {
+	case int:
+		return v, true
+	case float64:
+		if math.Trunc(v) != v {
+			return 0, false
+		}
+		return int(v), true
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(v))
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func validateWorkflowTaskConfig(task Task) error {
+	depends := task.Raw["dependsOn"]
+	switch depends.(type) {
+	case nil, string, []any, []string:
+	default:
+		return fmt.Errorf("task %q dependsOn must be a string or array of labels", task.Label)
+	}
+	if raw, exists := task.Raw["dependsOrder"]; exists && raw != nil {
+		order, ok := raw.(string)
+		if !ok {
+			return fmt.Errorf("task %q dependsOrder must be a string", task.Label)
+		}
+		switch strings.ToLower(strings.TrimSpace(order)) {
+		case "", "parallel", "sequence":
+		default:
+			return fmt.Errorf("task %q dependsOrder must be parallel or sequence", task.Label)
+		}
+	}
+
+	meta, _ := task.Raw["taskdeck"].(map[string]any)
+	rawWorkflow, exists := meta["workflow"]
+	if !exists || rawWorkflow == nil {
+		return nil
+	}
+	workflow, ok := rawWorkflow.(map[string]any)
+	if !ok {
+		return fmt.Errorf("task %q taskdeck.workflow must be an object", task.Label)
+	}
+	if value, exists := workflow["retry"]; exists {
+		parsed, ok := workflowInteger(value)
+		if !ok || parsed < 0 || parsed > maxWorkflowRetries {
+			return fmt.Errorf("task %q workflow retry must be an integer between 0 and %d", task.Label, maxWorkflowRetries)
+		}
+	}
+	if value, exists := workflow["timeoutSeconds"]; exists {
+		parsed, ok := workflowInteger(value)
+		if !ok || parsed < 0 || parsed > maxWorkflowTimeoutSeconds {
+			return fmt.Errorf("task %q workflow timeoutSeconds must be an integer between 0 and %d", task.Label, maxWorkflowTimeoutSeconds)
+		}
+	}
+	if value, exists := workflow["continueOnError"]; exists {
+		switch v := value.(type) {
+		case bool:
+		case string:
+			if _, err := strconv.ParseBool(strings.TrimSpace(v)); err != nil {
+				return fmt.Errorf("task %q workflow continueOnError must be boolean", task.Label)
+			}
+		default:
+			return fmt.Errorf("task %q workflow continueOnError must be boolean", task.Label)
+		}
+	}
+	if value, exists := workflow["condition"]; exists && value != nil {
+		condition, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("task %q workflow condition must be a string", task.Label)
+		}
+		switch strings.ToLower(strings.TrimSpace(condition)) {
+		case "", "success", "failure", "always":
+		default:
+			return fmt.Errorf("task %q workflow condition must be success, failure, or always", task.Label)
+		}
+	}
+	if value, exists := workflow["outputs"]; exists {
+		outputs := workflowStringList(value)
+		if len(outputs) > maxWorkflowOutputs {
+			return fmt.Errorf("task %q workflow outputs exceed %d entries", task.Label, maxWorkflowOutputs)
+		}
+		for _, output := range outputs {
+			if !workflowOutputNamePattern.MatchString(output) {
+				return fmt.Errorf("task %q workflow output %q has an invalid name", task.Label, output)
+			}
+		}
+	}
+	return nil
+}
 
 type WorkflowPolicy struct {
 	Retry int `json:"retry"`
@@ -147,6 +258,9 @@ func BuildWorkflowGraph(items []Task, rootLabel string) (WorkflowGraph, error) {
 	}
 	byLabel := make(map[string]Task, len(items))
 	for _, task := range items {
+		if err := validateWorkflowTaskConfig(task); err != nil {
+			return WorkflowGraph{}, err
+		}
 		if _, exists := byLabel[task.Label]; exists {
 			return WorkflowGraph{}, fmt.Errorf("duplicate task label %q", task.Label)
 		}
