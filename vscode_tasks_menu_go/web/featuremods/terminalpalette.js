@@ -78,6 +78,7 @@ function staticSettingsCommands(){
     {id:'operations-open',label:'Operation Center: Open',keywords:'activity jobs queue running completed failed git transfer patch task update database',run:()=>globalThis.TaskMenuOperationCenter?.open?.()},
     {id:'project-health-open',label:'Project: Health Dashboard…',keywords:'project health dashboard git status tasks terminals transfers database ssh disk build overview',run:()=>globalThis.TaskMenuProjectHealth?.open?.()},
     {id:'approvals-open',label:'Approvals: Open manager',keywords:'dangerous action approval policy admin request pending approve reject',disabled:!globalThis.TaskMenuApprovals?.canView?.(),run:()=>globalThis.TaskMenuApprovals?.openManager?.()},
+    {id:'secrets-open',label:'Secrets: Open manager',keywords:'credentials password token deploy ssh database ftp encrypted',disabled:!permissionAllowed('secrets.view'),run:()=>globalThis.TaskMenuSecrets?.open?.()},
     {id:'settings-open',label:'Settings: Open menu',keywords:'settings configuration preferences appearance terminal update workspace',run:()=>globalThis.TaskMenuMenus?.open?.('settings')},
     {id:'tasks-editor',label:'Settings: Edit tasks.json…',keywords:'task tasks json editor workflow dependency',disabled:!permissionAllowed('files.write'),run:()=>document.querySelector('#tasks-json-editor')?.click()}
   ];
