@@ -3,6 +3,7 @@ if(!app)throw new Error('TaskMenuApp unavailable for self update');
 
 const endpoint='/api/state/tasks?scope=self-update';
 let currentID='';
+let currentRequest={status:'idle'};
 let applyingRedirect=false;
 let startingFromSettings=false;
 let settingsStartDeadline=0;
@@ -94,6 +95,7 @@ function statusText(req){
 }
 
 function show(req,{reconnecting=false,starting=false}={}){
+  currentRequest={...(req&&typeof req==='object'?req:{}),status:String(req?.status||'idle')};
   const failed=req?.status==='failed';
   const completed=req?.status==='completed';
   currentID=req?.id||currentID||'';
@@ -124,7 +126,7 @@ function showStartingProgress(){
 function showReconnectProgress(){
   show({id:currentID,status:'restarting',message:'Waiting for the TaskDeck daemon to reconnect…'},{reconnecting:true});
 }
-function hide(){overlay.classList.remove('visible','nonblocking');dialog.classList.remove('self-update-running');currentID='';copyError.dataset.details='';}
+function hide(){overlay.classList.remove('visible','nonblocking');dialog.classList.remove('self-update-running');currentID='';currentRequest={status:'idle'};copyError.dataset.details='';}
 
 async function checkAndStartUpdate(){
   if(startingFromSettings)return;
@@ -265,5 +267,24 @@ async function poll(){
     }
   }
 }
+
+function selfUpdateOperationSnapshot(){
+  const req=currentRequest&&typeof currentRequest==='object'?currentRequest:{status:'idle'};
+  const status=String(req.status||'idle').toLowerCase();
+  if(status==='idle'||status==='cancelled')return [];
+  const mapped=status==='failed'?'failed':(status==='completed'?'completed':'running');
+  return [{
+    source:'self-update',id:String(req.id||currentID||'self-update'),title:'TaskDeck self-update',
+    detail:String(req.message||statusText(req)||status),status:mapped,error:String(req.error||''),
+    created_at:String(req.created_at||''),updated_at:String(req.updated_at||''),
+    can_cancel:false,can_retry:status==='failed',can_open:true
+  }];
+}
+async function selfUpdateOperationControl(_operation,action){
+  if(action==='open'){if(currentRequest?.status&&currentRequest.status!=='idle')show(currentRequest);return true;}
+  if(action==='retry')return checkAndStartUpdate();
+  throw new Error('Unsupported self-update operation action');
+}
+globalThis.TaskMenuSelfUpdate={operationSnapshot:selfUpdateOperationSnapshot,operationControl:selfUpdateOperationControl,checkAndStartUpdate,get current(){return {...currentRequest};}};
 
 setInterval(poll,900);setTimeout(poll,150);
