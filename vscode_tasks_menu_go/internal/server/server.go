@@ -166,6 +166,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/project/archive/create", s.projectArchiveCreate)
 	mux.HandleFunc("/api/project/archive/extract", s.projectArchiveExtract)
 	mux.HandleFunc("/api/project/archive/download", s.projectArchiveDownload)
+	mux.HandleFunc("/api/file-transfer/archive-upload-extract", s.projectArchiveRemoteExtract)
 	mux.HandleFunc("/api/project/mutate", s.projectMutate)
 	mux.HandleFunc("/api/project/git-status", s.projectGitStatus)
 	mux.HandleFunc("/api/project/files/search", s.projectFileSearch)
