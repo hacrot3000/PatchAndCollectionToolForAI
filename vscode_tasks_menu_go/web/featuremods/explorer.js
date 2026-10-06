@@ -671,6 +671,17 @@ function showContextMenu(event,pathValue,type){
   contextAction(paths.length>1?'Copy selected':'Copy',()=>setProjectClipboard('copy',paths));
   contextAction(paths.length>1?'Cut selected':'Cut',()=>setProjectClipboard('cut',paths));
   contextAction(paths.length>1?'Duplicate selected':'Duplicate',()=>duplicateSelectedProjectItems());
+  if(paths.length>1){
+    const archive=globalThis.TaskMenuProjectFileActions;
+    contextAction('Create archive from selected…',()=>{
+      if(!archive?.createProjectArchive)throw new Error('Archive tools unavailable');
+      return archive.createProjectArchive(paths);
+    });
+    contextAction('Download selected as ZIP',()=>{
+      if(!archive?.downloadProjectPathsAsZip)throw new Error('Archive tools unavailable');
+      return archive.downloadProjectPathsAsZip(paths,'taskdeck-selection.zip');
+    });
+  }
   if(fileClipboard.paths.length){
     const destination=destinationDirectoryForPath(pathValue,type);
     contextAction('Paste '+(fileClipboard.mode==='cut'?'move':'copy')+' here',()=>pasteProjectClipboard(destination));
