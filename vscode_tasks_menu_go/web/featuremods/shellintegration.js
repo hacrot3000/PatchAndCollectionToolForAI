@@ -59,9 +59,14 @@ function install(view){
   try{view.term.parser.registerOscHandler(7,data=>handleOSC7(view,data));}catch(error){console.warn('TaskDeck OSC 7 handler unavailable',error);}
   try{view.term.parser.registerOscHandler(133,data=>handleOSC133(view,data));}catch(error){console.warn('TaskDeck OSC 133 handler unavailable',error);}
 }
+function replaceCommands(id,commands){
+  id=String(id||'');const state=states.get(id);if(!state)return [];
+  state.commands=Array.isArray(commands)?commands.slice(-maxCommands):[];
+  return [...state.commands];
+}
 function installAll(){for(const view of app.views.values())install(view);}
 installAll();
 window.addEventListener('taskmenu:session',event=>install(event.detail?.view));
 window.addEventListener('taskmenu:view-activated',installAll);
 
-globalThis.TaskDeckShellIntegration={install,getState(id){return states.get(String(id||''))||null;},getCommands(id){return [...(states.get(String(id||''))?.commands||[])];},cwd(id){return states.get(String(id||''))?.cwd||'';}};
+globalThis.TaskDeckShellIntegration={install,getState(id){return states.get(String(id||''))||null;},getCommands(id){return [...(states.get(String(id||''))?.commands||[])];},replaceCommands,cwd(id){return states.get(String(id||''))?.cwd||'';},maxCommands};
