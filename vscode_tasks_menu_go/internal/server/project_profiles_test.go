@@ -31,6 +31,12 @@ func TestNormalizeProjectProfileBoundsAndPaths(t *testing.T) {
 		ID:"  p1 ", Name:" Development ", EnvironmentProfile:" Debug ", Environment:map[string]string{"API_URL":"http://127.0.0.1","FEATURE_FLAG":"1"},
 		CommandPresetIDs:append(refs,"ref-x"), DatabaseProfileIDs:refs, SSHProfileIDs:refs, TransferProfileIDs:refs,
 		DefaultGitRepo:" projects/client ", TaskIDs:append(tasks,1,2), Terminals:terminals,
+		TerminalSplits:[]projectProfileTerminalSplit{
+			{First:0,Second:1,Ratio:0.05,Orientation:"horizontal"},
+			{First:0,Second:1,Ratio:0.7,Orientation:"vertical"},
+			{First:1,Second:2,Ratio:2,Orientation:"weird"},
+			{First:99,Second:3,Ratio:0.5,Orientation:"vertical"},
+		},
 	})
 	if got.ID!="p1" || got.Name!="Development" || got.EnvironmentProfile!="Debug" || got.DefaultGitRepo!="projects/client" { t.Fatalf("normalized=%+v",got) }
 	if got.Environment["API_URL"]!="http://127.0.0.1" || got.Environment["FEATURE_FLAG"]!="1" { t.Fatalf("environment=%v",got.Environment) }
@@ -38,18 +44,22 @@ func TestNormalizeProjectProfileBoundsAndPaths(t *testing.T) {
 	if len(got.TaskIDs)!=projectProfileMaxTasks { t.Fatalf("task count=%d",len(got.TaskIDs)) }
 	if len(got.Terminals)!=projectProfileMaxTerminals { t.Fatalf("terminal count=%d",len(got.Terminals)) }
 	if got.Terminals[0].Cwd!="." || got.Terminals[1].Cwd!="." || got.Terminals[2].Cwd!="tools" { t.Fatalf("terminal cwd=%+v",got.Terminals[:3]) }
+	if len(got.TerminalSplits)!=2 { t.Fatalf("terminal splits=%+v",got.TerminalSplits) }
+	if got.TerminalSplits[0].First!=0 || got.TerminalSplits[0].Second!=1 || got.TerminalSplits[0].Ratio!=0.2 || got.TerminalSplits[0].Orientation!="horizontal" { t.Fatalf("first terminal split=%+v",got.TerminalSplits[0]) }
+	if got.TerminalSplits[1].First!=1 || got.TerminalSplits[1].Second!=2 || got.TerminalSplits[1].Ratio!=0.8 || got.TerminalSplits[1].Orientation!="vertical" { t.Fatalf("second terminal split=%+v",got.TerminalSplits[1]) }
 }
 
 func TestProjectProfilesCRUDAndPrivateStorage(t *testing.T) {
 	workspace := t.TempDir()
 	s := &Server{Workspace:workspace}
-	body := `{"name":"Development","environment_profile":"Debug","environment":{"API_URL":"http://127.0.0.1:8080","FEATURE_FLAG":"1"},"command_preset_ids":["preset-build","preset-test"],"terminals":[{"cwd":"projects/client","title":"Client"},{"cwd":"projects/server","title":"Server"}],"database_profile_ids":["db-main"],"ssh_profile_ids":["ssh-prod"],"transfer_profile_ids":["sftp-prod"],"default_git_repository":"projects/client","task_ids":[3,1,3,2]}`
+	body := `{"name":"Development","environment_profile":"Debug","environment":{"API_URL":"http://127.0.0.1:8080","FEATURE_FLAG":"1"},"command_preset_ids":["preset-build","preset-test"],"terminals":[{"cwd":"projects/client","title":"Client"},{"cwd":"projects/server","title":"Server"}],"terminal_splits":[{"first":0,"second":1,"ratio":0.6,"orientation":"horizontal"}],"database_profile_ids":["db-main"],"ssh_profile_ids":["ssh-prod"],"transfer_profile_ids":["sftp-prod"],"default_git_repository":"projects/client","task_ids":[3,1,3,2]}`
 	create := callProjectProfiles(t,s,http.MethodPost,"/api/project-profiles",body)
 	if create.Code!=http.StatusOK { t.Fatalf("create status=%d body=%s",create.Code,create.Body.String()) }
 	var created projectProfile
 	if err:=json.Unmarshal(create.Body.Bytes(),&created); err!=nil { t.Fatal(err) }
 	if created.ID=="" || created.Name!="Development" || created.EnvironmentProfile!="Debug" { t.Fatalf("created=%+v",created) }
 	if created.Environment["API_URL"]!="http://127.0.0.1:8080" || created.Environment["FEATURE_FLAG"]!="1" { t.Fatalf("environment=%v",created.Environment) }
+	if len(created.TerminalSplits)!=1 || created.TerminalSplits[0].First!=0 || created.TerminalSplits[0].Second!=1 || created.TerminalSplits[0].Ratio!=0.6 || created.TerminalSplits[0].Orientation!="horizontal" { t.Fatalf("terminal splits=%+v",created.TerminalSplits) }
 	if got:=created.TaskIDs; len(got)!=3 || got[0]!=1 || got[1]!=2 || got[2]!=3 { t.Fatalf("task ids=%v",got) }
 	list:=callProjectProfiles(t,s,http.MethodGet,"/api/project-profiles","")
 	if list.Code!=http.StatusOK || !strings.Contains(list.Body.String(),"Development") { t.Fatalf("list status=%d body=%s",list.Code,list.Body.String()) }
