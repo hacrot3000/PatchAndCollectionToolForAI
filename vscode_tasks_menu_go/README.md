@@ -537,7 +537,8 @@ Các capability mới trong Connections/Workbench:
 - Query History + Saved Snippets được persist, và relational Structure có foreign-key metadata/navigation;
 - SSH profile expose keepalive/connect timeout, hỗ trợ Local/Remote/Dynamic forwarding (`-L/-R/-D`) chỉ cho interactive terminal;
 - SSH test có host-key recovery an toàn: inspect matching `known_hosts` entry và chỉ xóa old entry sau explicit confirmation; TaskDeck không tự trust key mới;
-- FTP profile hỗ trợ verified FTPS modes; file workspace có sync/mirror dry-run;
+- FTP profile hỗ trợ verified FTPS modes; file workspace có sync/mirror dry-run, Sync Profile, exclude glob, SHA-256 compare, bidirectional conflict detection và mirror delete mặc định tắt;
+- Project/File context menu có integrity tools dùng chung: SHA-256, MD5 compatibility, compare checksum, tạo SHA256SUMS cho folder và verify SHA-256 manifest; manifest generation không tự ghi file vào project;
 - server-side FTP/SFTP queue được journal qua daemon restart và upload/download có resumable partial-transfer support khi transport cho phép.
 
 Hướng dẫn sử dụng, dependency, giới hạn bảo mật, policy host key, secret rotation/backup/recovery và offline/self-update build được tổng hợp tại:
