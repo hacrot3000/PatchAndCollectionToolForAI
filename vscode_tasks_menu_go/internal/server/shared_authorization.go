@@ -197,7 +197,7 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionFilesDownload}
 	case "/api/file-transfer/hash-upload":
 		return []string{identity.PermissionFilesUpload}
-	case "/api/project/tree", "/api/project/files/search", "/api/project/content/search", "/api/project/bytes", "/api/project/symbols":
+	case "/api/project/tree", "/api/project/files/search", "/api/project/content/search", "/api/project/bytes", "/api/project/integrity", "/api/project/symbols":
 		return []string{identity.PermissionFilesRead}
 	case "/api/project/content/replace":
 		return []string{identity.PermissionFilesWrite}
