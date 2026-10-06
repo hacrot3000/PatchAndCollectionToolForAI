@@ -171,8 +171,10 @@ Git workflow nâng cao hiện có:
 - **Stop**: gửi `SIGINT` cho process group của task.
 - menu process control còn có **Terminate** (`SIGTERM`) và **Kill** (`SIGKILL`) cho cả process group, cùng **Process tree** và resource monitor để xem PID/CPU/RSS của process con.
 - local Bash terminal dùng TaskDeck-generated rc wrapper để phát **OSC 7 / OSC 133** mà không sửa `~/.bashrc`; browser nhờ đó biết semantic CWD, command boundary và exit status.
-- terminal header có **Commands** history với command/output/exit code/duration/CWD, hỗ trợ Copy command, Copy output và Rerun.
-- Close tab đã `exited/stopped`: session đã hoàn tất được xóa khỏi daemon.
+- terminal header có **Commands** history với command/output/exit code/duration/CWD, hỗ trợ Copy command, Copy output và Rerun; có thể thêm **Session note**, bookmark một dòng trong output và export toàn session thành Markdown hoặc text.
+- command history được lưu bounded/atomic tại `.vscode/vscode_tasks_menu.terminal_history.json` với quyền file `0600`; tối đa 64 session, 200 command/session, command/output/note đều có size cap. Khi terminal được recreate sau daemon/broker restart, history được remap từ session ID cũ sang ID mới. Trong shared-server, GET history dùng quyền view của đúng terminal và PUT dùng quyền control của đúng terminal, không dùng quyền settings project-wide.
+- Close tab đã `exited/stopped`: session đã hoàn tất được xóa khỏi daemon; history của session đó cũng được cleanup.
+
 - Daemon giữ tối đa khoảng 4 MiB scrollback cho mỗi session để reconnect/replay.
 
 ### Một browser điều khiển tại một thời điểm
