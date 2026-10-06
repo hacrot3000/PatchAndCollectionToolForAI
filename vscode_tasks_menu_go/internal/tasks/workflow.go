@@ -227,3 +227,34 @@ func TaskByLabel(items []Task, label string) (Task, bool) {
 	}
 	return Task{}, false
 }
+
+
+func WorkflowInputs(items []Task, rootLabel string) ([]Input, error) {
+	graph, err := BuildWorkflowGraph(items, rootLabel)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]Input{}
+	order := []string{}
+	for _, label := range graph.Order {
+		task, ok := TaskByLabel(items, label)
+		if !ok {
+			return nil, fmt.Errorf("task %q disappeared while collecting workflow inputs", label)
+		}
+		for _, input := range task.Inputs {
+			if previous, exists := seen[input.ID]; exists {
+				if previous.Type != input.Type || previous.Description != input.Description || previous.Default != input.Default {
+					return nil, fmt.Errorf("workflow input %q has conflicting definitions", input.ID)
+				}
+				continue
+			}
+			seen[input.ID] = input
+			order = append(order, input.ID)
+		}
+	}
+	out := make([]Input, 0, len(order))
+	for _, id := range order {
+		out = append(out, seen[id])
+	}
+	return out, nil
+}
