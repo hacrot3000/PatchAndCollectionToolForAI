@@ -61,6 +61,17 @@ html[data-taskmenu-theme="light"] .editor-find-panel input[type="text"]{backgrou
 .editor-conflict-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}.editor-conflict-actions .compare{margin-right:auto}
 .editor-compare-dialog{width:min(1100px,96vw);max-height:90vh;display:flex;flex-direction:column}
 .editor-history-dialog{width:min(760px,96vw);max-height:88vh;display:flex;flex-direction:column}
+.editor-outline-dialog{width:min(720px,96vw);max-height:88vh;display:flex;flex-direction:column}
+.editor-outline-filter{width:100%;box-sizing:border-box;background:#0d1117;color:inherit;border:1px solid #39414d;border-radius:6px;padding:6px 8px;margin:7px 0}
+.editor-outline-list{display:flex;flex-direction:column;gap:3px;overflow:auto;max-height:62vh}
+.editor-outline-row{display:grid;grid-template-columns:72px minmax(0,1fr) 64px;gap:8px;align-items:center;text-align:left;padding:6px 8px;border:0;border-radius:5px;background:transparent}
+.editor-outline-row:hover,.editor-outline-row:focus{background:#222a35}
+.editor-outline-kind{font-size:9px;text-transform:uppercase;letter-spacing:.04em;opacity:.58}
+.editor-outline-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:12px ui-monospace,monospace}
+.editor-outline-line{text-align:right;font:10px ui-monospace,monospace;opacity:.55}
+.editor-breadcrumb{min-width:0;max-width:min(38vw,520px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;opacity:.68}
+html[data-taskmenu-theme="light"] .editor-outline-filter{background:#fff;border-color:#c8ced6}
+html[data-taskmenu-theme="light"] .editor-outline-row:hover,html[data-taskmenu-theme="light"] .editor-outline-row:focus{background:#e8edf3}
 .editor-history-list{display:flex;flex-direction:column;gap:6px;overflow:auto;min-height:80px;max-height:60vh;margin:8px 0 14px}
 .editor-history-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:7px;align-items:center;padding:7px 8px;border:1px solid #343a45;border-radius:6px;background:#10151c}
 .editor-history-main{min-width:0}.editor-history-time{font-size:11px;font-weight:600}.editor-history-meta{font:10px ui-monospace,monospace;opacity:.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -720,6 +731,7 @@ function setEditorDocument(view,file){
   syncEditorFormatControls(view);
   view.path.textContent=file.path;
   view.path.title=file.path;
+  updateEditorBreadcrumb(view);
   view.meta.textContent=editorMetaText(file);
   view.warningBadge.hidden=!file.warning;
   view.warningBadge.textContent=file.warning?'WARNING':'';
@@ -798,6 +810,135 @@ async function putEditorFile(view,expectedSHA256){
 async function readLatestEditorFile(view){
   return app.jsonFetch('/api/project/file?path='+encodeURIComponent(view.file.path));
 }
+const editorSymbolControlWords=new Set(['if','for','while','switch','catch','else','do','return','new','sizeof','typeof','delete','case','with','when']);
+function editorSymbolLanguage(pathValue){
+  const lower=String(pathValue||'').toLowerCase();
+  const dot=lower.lastIndexOf('.'),ext=dot>=0?lower.slice(dot):'';
+  if(ext==='.go')return 'go';
+  if(['.js','.jsx','.mjs','.cjs','.ts','.tsx'].includes(ext))return 'javascript';
+  if(ext==='.py'||ext==='.pyw')return 'python';
+  if(['.java','.kt','.kts','.cs','.c','.h','.cc','.cpp','.cxx','.hpp','.hh','.hxx'].includes(ext))return 'c-family';
+  if(ext==='.php'||ext==='.phtml')return 'php';
+  if(ext==='.rs')return 'rust';
+  if(['.sh','.bash','.zsh','.fish'].includes(ext))return 'shell';
+  return 'generic';
+}
+function editorSymbolIndent(line){
+  const match=String(line||'').match(/^[ \t]*/);let n=0;
+  for(const ch of match?.[0]||'')n+=ch==='\t'?4:1;
+  return n;
+}
+function editorSymbolFromLine(line,language){
+  const text=String(line||''),trimmed=text.trim();
+  if(!trimmed||trimmed.startsWith('//')||trimmed.startsWith('#')||trimmed.startsWith('*'))return null;
+  let match;
+  if(language==='python'){
+    match=trimmed.match(/^(?:async\s+)?(def|class)\s+([A-Za-z_]\w*)\b/);
+    if(match)return {kind:match[1]==='def'?'function':'class',name:match[2]};
+  }
+  if(language==='go'){
+    match=trimmed.match(/^func\s*(?:\([^)]*\)\s*)?([A-Za-z_]\w*)\s*\(/);
+    if(match)return {kind:'function',name:match[1]};
+    match=trimmed.match(/^type\s+([A-Za-z_]\w*)\s+(struct|interface)\b/);
+    if(match)return {kind:match[2],name:match[1]};
+  }
+  if(language==='javascript'){
+    match=trimmed.match(/^(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\b/);
+    if(match)return {kind:'function',name:match[1]};
+    match=trimmed.match(/^(?:export\s+(?:default\s+)?)?(class|interface|enum|type)\s+([A-Za-z_$][\w$]*)\b/);
+    if(match)return {kind:match[1],name:match[2]};
+    match=trimmed.match(/^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/);
+    if(match)return {kind:'function',name:match[1]};
+    match=trimmed.match(/^(?:(?:public|private|protected|static|async|get|set|override|readonly)\s+)*([A-Za-z_$][\w$]*)\s*\([^;]*\)\s*(?::[^={]+)?\s*\{/);
+    if(match&&!editorSymbolControlWords.has(match[1]))return {kind:'method',name:match[1]};
+  }
+  if(language==='c-family'){
+    match=trimmed.match(/^(?:(?:public|private|protected|internal|static|final|abstract|sealed|open|data|record)\s+)*(class|struct|interface|enum|namespace)\s+([A-Za-z_]\w*)\b/);
+    if(match)return {kind:match[1],name:match[2]};
+    match=trimmed.match(/^(?:(?:public|private|protected|internal|static|virtual|override|inline|constexpr|extern|synchronized|native|final|abstract|async)\s+)*(?:[A-Za-z_][\w:<>,.?*&\[\]\s]+\s+)?([A-Za-z_]\w*)\s*\([^;{}]*\)\s*(?:const\s*)?(?:->[^\{]+)?\s*\{/);
+    if(match&&!editorSymbolControlWords.has(match[1]))return {kind:'method',name:match[1]};
+  }
+  if(language==='php'){
+    match=trimmed.match(/^(?:(?:final|abstract|readonly)\s+)?(class|interface|trait|enum)\s+([A-Za-z_]\w*)\b/i);
+    if(match)return {kind:match[1].toLowerCase(),name:match[2]};
+    match=trimmed.match(/^(?:(?:public|private|protected|static|final|abstract)\s+)*(?:async\s+)?function\s+&?\s*([A-Za-z_]\w*)\s*\(/i);
+    if(match)return {kind:'function',name:match[1]};
+  }
+  if(language==='rust'){
+    match=trimmed.match(/^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)\b/);
+    if(match)return {kind:'function',name:match[1]};
+    match=trimmed.match(/^(?:pub(?:\([^)]*\))?\s+)?(struct|enum|trait|type|mod)\s+([A-Za-z_]\w*)\b/);
+    if(match)return {kind:match[1],name:match[2]};
+    match=trimmed.match(/^impl(?:<[^>]+>)?\s+([^\s{]+(?:\s+for\s+[^\s{]+)?)\s*\{/);
+    if(match)return {kind:'impl',name:match[1]};
+  }
+  if(language==='shell'){
+    match=trimmed.match(/^(?:function\s+)?([A-Za-z_][\w.-]*)\s*(?:\(\s*\))?\s*\{/);
+    if(match&&!editorSymbolControlWords.has(match[1]))return {kind:'function',name:match[1]};
+  }
+  if(language==='generic'){
+    match=trimmed.match(/^(?:class|struct|interface)\s+([A-Za-z_]\w*)\b/);
+    if(match)return {kind:'type',name:match[1]};
+  }
+  return null;
+}
+function extractEditorSymbols(text,pathValue){
+  const language=editorSymbolLanguage(pathValue),lines=String(text||'').split(/\r?\n/),out=[];
+  for(let i=0;i<lines.length&&out.length<1000;i++){
+    const found=editorSymbolFromLine(lines[i],language);if(!found)continue;
+    out.push({name:found.name,kind:found.kind,line:i+1,indent:editorSymbolIndent(lines[i]),signature:lines[i].trim().slice(0,300)});
+  }
+  return out;
+}
+function jumpEditorToLine(view,lineNumber){
+  if(!view||view.closed)return false;
+  lineNumber=Math.max(1,Math.min(view.cm.state.doc.lines,Number(lineNumber)||1));
+  const line=view.cm.state.doc.line(lineNumber);
+  view.cm.dispatch({selection:{anchor:line.from},scrollIntoView:true});
+  view.cm.focus();updateEditorBreadcrumb(view);return true;
+}
+function currentEditorSymbol(view,symbols=null){
+  if(!view||view.closed)return null;
+  const line=view.cm.state.doc.lineAt(view.cm.state.selection.main.head).number;
+  symbols=symbols||extractEditorSymbols(view.cm.state.doc.toString(),view.file.path);
+  let current=null;
+  for(const symbol of symbols){if(symbol.line>line)break;current=symbol;}
+  return current;
+}
+function updateEditorBreadcrumb(view){
+  if(!view?.breadcrumb)return;
+  const symbol=currentEditorSymbol(view);
+  view.breadcrumb.textContent=basename(view.file.path)+(symbol?' › '+symbol.kind+' '+symbol.name:'');
+  view.breadcrumb.title=view.file.path+(symbol?' › '+symbol.signature:'');
+}
+function showEditorOutline(view){
+  if(!view||view.closed)return;
+  const symbols=extractEditorSymbols(view.cm.state.doc.toString(),view.file.path);
+  const backdrop=document.createElement('div');backdrop.className='editor-dirty-backdrop';
+  const dialog=document.createElement('div');dialog.className='editor-dirty-dialog editor-outline-dialog';dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');
+  const title=document.createElement('h3');title.textContent='Outline';
+  const message=document.createElement('p');message.textContent=view.file.path+' · '+symbols.length+' symbol(s) · heuristic parser';
+  const filter=document.createElement('input');filter.type='search';filter.className='editor-outline-filter';filter.placeholder='Filter symbols…';
+  const list=document.createElement('div');list.className='editor-outline-list';
+  const render=()=>{
+    list.replaceChildren();const query=String(filter.value||'').trim().toLowerCase();
+    const rows=symbols.filter(item=>!query||item.name.toLowerCase().includes(query)||item.kind.toLowerCase().includes(query));
+    if(!rows.length){const empty=document.createElement('div');empty.className='editor-history-meta';empty.textContent=symbols.length?'No matching symbols':'No symbols detected in this file';list.append(empty);return;}
+    for(const item of rows){
+      const row=document.createElement('button');row.type='button';row.className='editor-outline-row';row.title=item.signature;
+      const kind=document.createElement('span');kind.className='editor-outline-kind';kind.textContent=item.kind;
+      const name=document.createElement('span');name.className='editor-outline-name';name.textContent=item.name;
+      const line=document.createElement('span');line.className='editor-outline-line';line.textContent='L'+item.line;
+      row.append(kind,name,line);row.onclick=()=>{finish();jumpEditorToLine(view,item.line);};list.append(row);
+    }
+  };
+  const actions=document.createElement('div');actions.className='editor-dirty-actions';const close=document.createElement('button');close.type='button';close.textContent='Close';actions.append(close);
+  dialog.append(title,message,filter,list,actions);backdrop.append(dialog);document.body.append(backdrop);
+  let done=false;const finish=()=>{if(done)return;done=true;document.removeEventListener('keydown',onKey,true);backdrop.remove();};
+  const onKey=event=>{if(event.key==='Escape'){event.preventDefault();finish();}};
+  document.addEventListener('keydown',onKey,true);backdrop.onmousedown=event=>{if(event.target===backdrop)finish();};close.onclick=finish;filter.oninput=render;render();filter.focus();
+}
+
 async function loadEditorLocalHistory(view){
   if(!view||view.closed)return [];
   const data=await app.jsonFetch('/api/project/file-history?path='+encodeURIComponent(view.file.path));
@@ -1030,6 +1171,7 @@ function createEditor(file){
   const pane=document.createElement('div');pane.className='pane editor-pane hidden';pane.dataset.id=id;pane.dataset.viewKind='editor';
   const head=document.createElement('div');head.className='pane-head editor-head';
   const pathNode=document.createElement('div');pathNode.className='editor-path';pathNode.textContent=file.path;pathNode.title=file.path;
+  const breadcrumb=document.createElement('div');breadcrumb.className='editor-breadcrumb';breadcrumb.textContent=basename(file.path);breadcrumb.title=file.path;
   const meta=document.createElement('div');meta.className='editor-meta';meta.textContent=editorMetaText(file);
   const lineEndingSelect=document.createElement('select');lineEndingSelect.className='editor-format editor-line-ending';lineEndingSelect.title='Line ending used when saving';
   for(const [value,labelText] of [['lf','LF'],['crlf','CRLF']]){const option=document.createElement('option');option.value=value;option.textContent=labelText;lineEndingSelect.append(option);}
@@ -1046,12 +1188,13 @@ function createEditor(file){
   const whitespace=document.createElement('button');whitespace.type='button';whitespace.className='editor-whitespace-toggle';whitespace.textContent='WS';whitespace.title='Toggle visible spaces and tabs';whitespace.setAttribute('aria-pressed','false');
   const find=document.createElement('button');find.type='button';find.className='editor-find-toggle';find.textContent='Find';find.title='Find / replace in this file (Ctrl/Cmd+F)';
   const history=document.createElement('button');history.type='button';history.className='editor-history-toggle';history.textContent='History';history.title='Local file history captured before editor saves';
+  const outline=document.createElement('button');outline.type='button';outline.className='editor-outline-toggle';outline.textContent='Outline';outline.title='File symbol outline';
   const minimapToggle=document.createElement('button');minimapToggle.type='button';minimapToggle.className='editor-minimap-toggle';minimapToggle.title='Toggle editor minimap';minimapToggle.setAttribute('aria-pressed','false');
   const splitVertical=document.createElement('button');splitVertical.type='button';splitVertical.className='editor-split-action editor-split-vertical';splitVertical.textContent='Split ↔';splitVertical.title='Split editor vertically with another/open file';
   const splitHorizontal=document.createElement('button');splitHorizontal.type='button';splitHorizontal.className='editor-split-action editor-split-horizontal';splitHorizontal.textContent='Split ↕';splitHorizontal.title='Split editor horizontally with another/open file';
   const splitSwap=document.createElement('button');splitSwap.type='button';splitSwap.className='editor-split-action editor-split-swap';splitSwap.textContent='Swap';splitSwap.title='Swap this editor split';splitSwap.hidden=true;
   const splitUnsplit=document.createElement('button');splitUnsplit.type='button';splitUnsplit.className='editor-split-action editor-unsplit';splitUnsplit.textContent='Unsplit';splitUnsplit.title='Remove this editor from its split';splitUnsplit.hidden=true;
-  head.append(pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,history,minimapToggle,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
+  head.append(pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,outline,history,minimapToggle,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
   const findPanel=document.createElement('div');findPanel.className='editor-find-panel hidden';
   const findInput=document.createElement('input');findInput.type='text';findInput.placeholder='Find';findInput.setAttribute('aria-label','Find text');
   const findReplaceInput=document.createElement('input');findReplaceInput.type='text';findReplaceInput.placeholder='Replace';findReplaceInput.setAttribute('aria-label','Replace text');findReplaceInput.hidden=true;
@@ -1069,18 +1212,21 @@ function createEditor(file){
   body.append(host,minimap);pane.append(head,findPanel,body);panesHost.append(pane);
 
   const cm=cmFactory.newEditor(host,file.content||'',editorOptionsForFile(file));
-  const view={id,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,history,findPanel,findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCase,findStatus,findClose,minimapToggle,minimap,body,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null,minimapRAF:0,scroller:cm.dom.querySelector('.cm-scroller')};
+  const view={id,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,outline,history,findPanel,findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCase,findStatus,findClose,minimapToggle,minimap,body,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null,minimapRAF:0,scroller:cm.dom.querySelector('.cm-scroller')};
   editors.set(id,view);
   pane.classList.toggle('editor-large-file-mode',Boolean(file.large_file));
   installEditorDispatchGuard(view);
   applyReadOnly(view);
   setDirty(view,false);
+  updateEditorBreadcrumb(view);
   updateMinimapButton(view);
   if(view.scroller)view.scroller.addEventListener('scroll',()=>scheduleEditorMinimap(view),{passive:true});
   minimap.onclick=event=>jumpFromEditorMinimap(view,event);
   minimapToggle.onclick=()=>setEditorMinimap(!editorMinimapEnabled);
 
   cm.contentDOM.addEventListener('beforeinput',event=>{if(editorReadOnly(view))event.preventDefault();},true);
+  cm.contentDOM.addEventListener('keyup',()=>updateEditorBreadcrumb(view));
+  cm.contentDOM.addEventListener('click',()=>updateEditorBreadcrumb(view));
   cm.contentDOM.addEventListener('keydown',event=>{
     const shortcut=(event.ctrlKey||event.metaKey)&&!event.altKey;
     const shortcutKey=String(event.key||'').toLowerCase();
@@ -1110,6 +1256,7 @@ function createEditor(file){
   };
   reload.onclick=()=>reloadEditor(view).catch(app.showError);
   find.onclick=()=>openEditorFind(view,{replace:false});
+  outline.onclick=()=>showEditorOutline(view);
   history.onclick=()=>showEditorLocalHistory(view).catch(app.showError);
   findNext.onclick=()=>editorFindMatch(view,{direction:1});
   findPrevious.onclick=()=>editorFindMatch(view,{direction:-1});
@@ -1219,9 +1366,7 @@ function goToLine(view){
   const raw=window.prompt('Go to line (1-'+view.cm.state.doc.lines+'):','1');
   if(raw===null)return;
   const lineNumber=Math.max(1,Math.min(view.cm.state.doc.lines,Number.parseInt(raw,10)||1));
-  const line=view.cm.state.doc.line(lineNumber);
-  view.cm.dispatch({selection:{anchor:line.from},scrollIntoView:true});
-  view.cm.focus();
+  jumpEditorToLine(view,lineNumber);
 }
 
 function editorFindComparable(value,matchCase){
@@ -1395,6 +1540,10 @@ globalThis.TaskMenuEditor={
   closeEditor,
   reopenClosedEditor,
   goToLine,
+  jumpEditorToLine,
+  extractEditorSymbols,
+  showEditorOutline,
+  updateEditorBreadcrumb,
   openEditorFind,
   editorFindMatch,
   replaceEditorMatch,
