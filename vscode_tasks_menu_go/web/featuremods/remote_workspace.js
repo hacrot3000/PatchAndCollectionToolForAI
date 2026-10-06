@@ -51,6 +51,25 @@ let currentPath='.';
 let currentEntries=[];
 let busy=false;
 
+function allowed(permission){
+  return !app.sharedMode||Boolean(app.hasPermission?.(permission)||app.hasPermission?.('project.admin'));
+}
+function remoteCanRead(){return allowed('ssh.use')&&allowed('transfer.read')&&allowed('files.read');}
+function remoteCanWrite(){return remoteCanRead()&&allowed('transfer.upload')&&allowed('files.write');}
+function gitAllowed(action){
+  const permission=action==='status'?'git.status':((action==='branches'||action==='log')?'git.log':(action==='diff'?'git.diff':(action==='push'?'git.push':'git.write')));
+  return allowed('ssh.use')&&allowed(permission);
+}
+function syncPermissionControls(){
+  newButton.disabled=busy||!allowed('settings.write');
+  editButton.disabled=busy||!allowed('settings.write')||!selectedWorkspace();
+  deleteButton.disabled=busy||!allowed('settings.write')||!selectedWorkspace();
+  terminalButton.disabled=busy||!selectedWorkspace()||!allowed('ssh.use')||!allowed('terminal.create');
+  refreshButton.disabled=busy||!selectedWorkspace()||!remoteCanRead();
+  upButton.disabled=busy||!selectedWorkspace()||!remoteCanRead();
+  pathInput.disabled=busy||!selectedWorkspace()||!remoteCanRead();
+  goButton.disabled=busy||!selectedWorkspace()||!remoteCanRead();
+}
 function selectedWorkspace(){return workspaces.find(item=>String(item.id)===String(workspaceSelect.value))||null;}
 function basename(value){const parts=String(value||'').split('/');return parts[parts.length-1]||value;}
 function joinRelative(base,name){
@@ -68,7 +87,8 @@ function formatBytes(value){
 }
 function setBusy(value,message=''){
   busy=Boolean(value);status.textContent=message;
-  for(const node of [workspaceSelect,newButton,editButton,deleteButton,refreshButton,terminalButton,upButton,pathInput,goButton])node.disabled=busy;
+  workspaceSelect.disabled=busy;
+  syncPermissionControls();
 }
 async function refreshRegistries(){
   await Promise.allSettled([
@@ -86,7 +106,7 @@ async function loadWorkspaces({keepSelection=true}={}){
     const option=document.createElement('option');option.value=String(item.id);option.textContent=String(item.name||item.id);workspaceSelect.append(option);
   }
   if(previous&&workspaces.some(item=>String(item.id)===previous))workspaceSelect.value=previous;
-  currentPath='.';pathInput.value=currentPath;
+  currentPath='.';pathInput.value=currentPath;syncPermissionControls();
   if(workspaces.length)await loadDirectory('.');
   else{renderFiles();renderSide();}
 }
@@ -144,7 +164,7 @@ function remoteEditorFile(workspace,relative,data){
   return {
     path:remoteVirtualPath(workspace,relative),remote_workspace_id:String(workspace.id),remote_path:String(relative),
     content,sha256:String(data?.sha256||''),size,line_ending:/\r\n/.test(content)?'crlf':'lf',bom,
-    encoding:'utf-8',read_only:false,large_file:false,warning:'Remote Workspace · '+String(workspace.name||workspace.id)
+    encoding:'utf-8',read_only:!remoteCanWrite(),large_file:false,warning:'Remote Workspace · '+String(workspace.name||workspace.id)
   };
 }
 async function openRemoteFile(relative){
@@ -190,7 +210,7 @@ function renderSide(){
   const gitTitle=document.createElement('strong');gitTitle.textContent='Git on remote host';
   const gitActions=document.createElement('div');gitActions.className='remote-workspace-actions';
   for(const [action,label] of [['status','Status'],['branches','Branches'],['log','Log'],['diff','Diff'],['fetch','Fetch'],['pull','Pull'],['push','Push']]){
-    const button=document.createElement('button');button.type='button';button.textContent=label;button.onclick=()=>runGit(action).catch(app.showError);gitActions.append(button);
+    const button=document.createElement('button');button.type='button';button.textContent=label;button.disabled=!gitAllowed(action);button.onclick=()=>runGit(action).catch(app.showError);gitActions.append(button);
   }
   const output=document.createElement('pre');output.className='remote-workspace-output';output.textContent='Run a Git action to see output.';
   git.append(gitTitle,gitActions,output);side.append(git);
@@ -255,7 +275,7 @@ async function open(){
 }
 function close(){backdrop.classList.remove('visible');}
 
-workspaceSelect.onchange=()=>{currentPath='.';pathInput.value='.';loadDirectory('.').catch(app.showError);};
+workspaceSelect.onchange=()=>{currentPath='.';pathInput.value='.';syncPermissionControls();loadDirectory('.').catch(app.showError);};
 refreshButton.onclick=()=>loadDirectory(currentPath).catch(app.showError);
 terminalButton.onclick=()=>openTerminalHere().catch(app.showError);
 upButton.onclick=()=>loadDirectory(parentRelative(currentPath)).catch(app.showError);
