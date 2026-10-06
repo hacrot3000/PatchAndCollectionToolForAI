@@ -229,6 +229,18 @@ func (s *Server) dbSessionItem(w http.ResponseWriter, r *http.Request) {
 	if !s.requireSharedActionPermission(w, r, permission, string(req.Operation), "db_session:"+id) {
 		return
 	}
+	catalog := ""
+	switch value := payload.(type) {
+	case dbadapter.ExecutePayload:
+		catalog = value.Catalog
+	case dbadapter.MutateRowsPayload:
+		catalog = value.Catalog
+	case dbadapter.ObjectActionPayload:
+		catalog = value.Catalog
+	}
+	if !s.requireProductionDatabaseApproval(w, r, sessionMeta, permission, catalog) {
+		return
+	}
 	requestCtx, cancel := context.WithTimeout(r.Context(), databaseOpenTimeout)
 	response, err := manager.Request(requestCtx, id, req.Operation, payload)
 	cancel()
@@ -342,6 +354,9 @@ func (s *Server) dbSessionImportSQL(w http.ResponseWriter, r *http.Request, mana
 		path = resolved
 		catalog = strings.TrimSpace(req.Catalog)
 	}
+	if !s.requireProductionDatabaseApproval(w, r, meta, identity.PermissionDBSchema, catalog) {
+		return
+	}
 	requestCtx, cancel := context.WithTimeout(r.Context(), databaseImportTimeout)
 	response, err := manager.Request(requestCtx, id, dbadapter.OpImportSQL, dbadapter.ImportSQLPayload{Path: path, Catalog: catalog})
 	cancel()
@@ -382,6 +397,51 @@ func databaseSQLLeadingKeyword(statement string) string {
 	fields := strings.Fields(text)
 	if len(fields) == 0 { return "" }
 	return strings.ToLower(strings.Trim(fields[0], "();"))
+}
+
+func databaseProfileProduction(profile dbprofile.Profile) bool {
+	for key, value := range profile.Options {
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "environment", "env":
+			if strings.EqualFold(strings.TrimSpace(value), "production") || strings.EqualFold(strings.TrimSpace(value), "prod") {
+				return true
+			}
+		case "production":
+			switch strings.ToLower(strings.TrimSpace(value)) {
+			case "1", "true", "yes", "on":
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (s *Server) requireProductionDatabaseApproval(w http.ResponseWriter, r *http.Request, meta dbsession.Metadata, permission string, catalog string) bool {
+	if permission != identity.PermissionDBWrite && permission != identity.PermissionDBSchema {
+		return true
+	}
+	store, err := s.databaseProfileStore()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return false
+	}
+	profile, err := store.Get(meta.ProfileID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return false
+	}
+	if !databaseProfileProduction(profile) {
+		return true
+	}
+	resourceCatalog := strings.TrimSpace(catalog)
+	if resourceCatalog == "" {
+		resourceCatalog = strings.TrimSpace(profile.Database)
+	}
+	resource := profile.ID
+	if resourceCatalog != "" {
+		resource += ":" + resourceCatalog
+	}
+	return s.requireDangerousApproval(w, r, "db.production.write", resource)
 }
 
 func databaseOperationPermission(meta dbsession.Metadata, operation dbadapter.Operation, payload interface{}) string {
