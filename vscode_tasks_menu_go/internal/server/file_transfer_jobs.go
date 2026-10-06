@@ -17,6 +17,7 @@ import (
 
 	"bletonfc/vscode_tasks_menu/internal/filetransferprofile"
 	"bletonfc/vscode_tasks_menu/internal/ftpclient"
+	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/sftpclient"
 )
 
@@ -1104,6 +1105,18 @@ func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 		var req fileTransferJobCreateRequest
 		if err := decodeFileTransferJSON(w, r, &req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		permission := identity.PermissionTransferRead
+		switch strings.TrimSpace(req.Kind) {
+		case fileTransferJobHostUpload:
+			permission = identity.PermissionTransferUpload
+		case fileTransferJobRemoteDelete:
+			permission = identity.PermissionTransferDelete
+		case fileTransferJobHostDownload:
+			permission = identity.PermissionTransferRead
+		}
+		if !s.requireSharedActionPermission(w, r, permission, req.Kind, "file_transfer:"+req.ProfileID) {
 			return
 		}
 		job, err := s.createFileTransferServerJob(req)
