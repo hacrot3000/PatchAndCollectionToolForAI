@@ -408,7 +408,7 @@ func runLSPAction(ctx context.Context,s *Server,spec lspServerSpec,req lspAction
 	response.Diagnostics=diagnostics
 	if err!=nil{return response,err}
 	shutdownID,shutdownErr:=client.request("shutdown",nil)
-	if shutdownErr==nil {_,_ = client.waitResponse(context.Background(),shutdownID,uri,nil,errs)}
+	if shutdownErr==nil {_,_ = client.waitResponse(ctx,shutdownID,uri,nil,errs)}
 	_ = client.notify("exit",nil)
 	return response,nil
 }
