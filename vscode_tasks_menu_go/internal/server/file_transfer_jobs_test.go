@@ -211,6 +211,63 @@ func TestFileTransferConflictScopeCanApplyToWholeJobAndDirection(t *testing.T) {
 	}
 }
 
+func TestFileTransferConflictScopesApplyToFutureConflicts(t *testing.T) {
+	s := &Server{}
+	q := &fileTransferServerQueue{
+		ProfileID: "p",
+		Jobs: map[string]*fileTransferServerJob{
+			"job1": {ID: "job1", ProfileID: "p", Kind: fileTransferJobHostUpload, ScanDone: false},
+			"job2": {ID: "job2", ProfileID: "p", Kind: fileTransferJobHostUpload, ScanDone: false},
+			"job3": {ID: "job3", ProfileID: "p", Kind: fileTransferJobHostUpload, ScanDone: false},
+		},
+		wake: make(chan struct{}, 8),
+		Items: []*fileTransferServerItem{
+			{ID: "a", JobID: "job1", Kind: "Upload", Status: "conflict", Conflict: &fileTransferConflictMeta{SourceSize: 1, TargetSize: 1}},
+			{ID: "b", JobID: "job2", Kind: "Upload", Status: "conflict", Conflict: &fileTransferConflictMeta{SourceSize: 2, TargetSize: 2}},
+		},
+	}
+
+	if err := s.resolveServerConflicts(q, fileTransferJobControlRequest{
+		ProfileID: "p", Action: "resolve_conflict", ItemIDs: []string{"a"},
+		ConflictPolicy: fileTransferConflictSkip, ConflictScope: fileTransferConflictScopeJob, JobID: "job1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.effectiveConflictPolicy("job1", "Upload"); got != fileTransferConflictSkip {
+		t.Fatalf("future job conflict policy=%q want %q", got, fileTransferConflictSkip)
+	}
+	if err := s.enqueueServerTransferConflictAware(
+		q, "job1", "Upload", "→", "later-job.txt", "/later-job.txt", "host_upload", 3,
+		&fileTransferConflictMeta{SourceSize: 3, TargetSize: 3},
+	); err != nil {
+		t.Fatal(err)
+	}
+	jobFuture := q.Items[len(q.Items)-1]
+	if jobFuture.Status != "skipped" || jobFuture.Decision != fileTransferConflictSkip {
+		t.Fatalf("future conflict in same transfer asked again instead of applying job policy: %#v", jobFuture)
+	}
+
+	if err := s.resolveServerConflicts(q, fileTransferJobControlRequest{
+		ProfileID: "p", Action: "resolve_conflict", ItemIDs: []string{"b"},
+		ConflictPolicy: fileTransferConflictOverwrite, ConflictScope: fileTransferConflictScopeDirectionSession,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.effectiveConflictPolicy("job3", "Upload"); got != fileTransferConflictOverwrite {
+		t.Fatalf("future direction conflict policy=%q want %q", got, fileTransferConflictOverwrite)
+	}
+	if err := s.enqueueServerTransferConflictAware(
+		q, "job3", "Upload", "→", "later-session.txt", "/later-session.txt", "host_upload", 4,
+		&fileTransferConflictMeta{SourceSize: 4, TargetSize: 4},
+	); err != nil {
+		t.Fatal(err)
+	}
+	directionFuture := q.Items[len(q.Items)-1]
+	if directionFuture.Status != "queued" || directionFuture.Decision != fileTransferConflictOverwrite {
+		t.Fatalf("future upload conflict asked again instead of applying session policy: %#v", directionFuture)
+	}
+}
+
 func TestParseFileTransferModifiedSupportsRFC3339AndSFTPDisplayTime(t *testing.T) {
 	now := time.Date(2026, time.October, 2, 12, 0, 0, 0, time.UTC)
 	if got, ok := parseFileTransferModified("2026-10-02T10:00:00Z", now); !ok || got.Hour() != 10 {
