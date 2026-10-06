@@ -125,6 +125,21 @@ func (s *Server) secretUsage() (map[string][]secretUsageView, error) {
 			Kind: "file-transfer", ProfileID: profile.ID, Name: profile.Name,
 		})
 	}
+	taskItems, err := s.loadWorkspaceTasks()
+	if err != nil {
+		return nil, err
+	}
+	for _, task := range taskItems {
+		for _, secretID := range task.SecretEnv {
+			secretID = strings.TrimSpace(secretID)
+			if secretID == "" {
+				continue
+			}
+			usage[secretID] = append(usage[secretID], secretUsageView{
+				Kind: "task", ProfileID: fmt.Sprint(task.ID), Name: task.MenuLabel,
+			})
+		}
+	}
 	return usage, nil
 }
 
@@ -272,7 +287,7 @@ func (s *Server) secretsAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		if refs := usage[id]; len(refs) > 0 {
 			writeJSON(w, http.StatusConflict, map[string]any{
-				"error": "secret is still referenced by connection profiles",
+				"error": "secret is still referenced by profiles or tasks",
 				"referenced_by": refs,
 			})
 			return
