@@ -790,7 +790,39 @@ function dirtyCloseChoice(view){
     save.focus();
   });
 }
+function remoteEditorFileFromResponse(base,data){
+  const content=String(data?.content??'');
+  const bom=content.charCodeAt(0)===0xfeff;
+  const normalized=bom?content.slice(1):content;
+  const lineEnding=/\r\n/.test(normalized)?'crlf':'lf';
+  const size=new TextEncoder().encode(content).length;
+  return {...base,content:normalized,sha256:String(data?.sha256||''),size,line_ending:lineEnding,bom,encoding:'utf-8',read_only:false,large_file:false};
+}
+function remoteEditorSerializedText(view){
+  let text=view.cm.state.doc.toString();
+  text=(view.desiredLineEnding||view.file.line_ending)==='crlf'?text.replace(/\r?\n/g,'\r\n'):text.replace(/\r\n/g,'\n');
+  if((view.desiredEncoding||editorEncodingChoice(view.file))==='utf-8-bom')text='\ufeff'+text.replace(/^\ufeff/,'');
+  else text=text.replace(/^\ufeff/,'');
+  return text;
+}
 async function putEditorFile(view,expectedSHA256){
+  if(view.file?.remote_workspace_id){
+    const response=await app.fetchWithLease('/api/remote-workspace-files',{
+      method:'POST',
+      cache:'no-store',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        workspace_id:view.file.remote_workspace_id,
+        operation:'write',
+        path:view.file.remote_path,
+        content:remoteEditorSerializedText(view),
+        expected_sha256:expectedSHA256
+      })
+    });
+    if(response.status===409)return {conflict:true};
+    if(!response.ok)throw new Error((await response.text())||response.statusText);
+    return {file:remoteEditorFileFromResponse(view.file,await response.json())};
+  }
   const response=await app.fetchWithLease('/api/project/file',{
     method:'PUT',
     cache:'no-store',
@@ -808,6 +840,13 @@ async function putEditorFile(view,expectedSHA256){
   return {file:await response.json()};
 }
 async function readLatestEditorFile(view){
+  if(view.file?.remote_workspace_id){
+    const data=await app.jsonFetch('/api/remote-workspace-files',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({workspace_id:view.file.remote_workspace_id,operation:'read',path:view.file.remote_path})
+    });
+    return remoteEditorFileFromResponse(view.file,data);
+  }
   return app.jsonFetch('/api/project/file?path='+encodeURIComponent(view.file.path));
 }
 const editorSymbolControlWords=new Set(['if','for','while','switch','catch','else','do','return','new','sizeof','typeof','delete','case','with','when']);
@@ -1289,7 +1328,7 @@ function createEditor(file){
 async function reloadEditor(view){
   if(!view||view.closed)return;
   if(view.dirty&&!window.confirm('Discard unsaved changes and reload '+view.file.path+'?'))return;
-  const file=await app.jsonFetch('/api/project/file?path='+encodeURIComponent(view.file.path));
+  const file=await readLatestEditorFile(view);
   setEditorDocument(view,file);
 }
 
@@ -1360,6 +1399,20 @@ function remapOpenedEditorPaths(oldPath,newPath){
   pruneEditorSplitRoots();
   syncEditorSplitForActive();
 }
+async function openDocument(file){
+  if(!file?.path)throw new Error('Editor document path is required');
+  const id=editorID(file.path);
+  if(editors.has(id)){
+    const view=editors.get(id);
+    if(!view.dirty)setEditorDocument(view,file);
+    activateEditor(id);
+    return view;
+  }
+  const view=createEditor(file);
+  activateEditor(view.id);
+  return view;
+}
+
 async function openFile(pathValue){
   pathValue=String(pathValue||'').trim();
   if(!pathValue)return;
@@ -1564,6 +1617,7 @@ globalThis.TaskMenuEditor={
     return true;
   },
   openFile,
+  openDocument,
   reloadEditor,
   handleExternalFileChange,
   saveEditor,
