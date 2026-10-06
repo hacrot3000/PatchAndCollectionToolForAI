@@ -75,3 +75,38 @@ func TestSharedAdminUIIncludesRoleAdministrationView(t *testing.T) {
 		}
 	}
 }
+
+
+func TestSharedAdminAuditTimelineUIContract(t *testing.T) {
+	for _, want := range []string{
+		"Audit timeline",
+		"Username or user ID",
+		"Action (exact, e.g. git.push)",
+		"Resource type",
+		"Resource ID",
+		"Any result",
+		"Load older",
+		"next_before",
+		"function auditCategory(action)",
+		"function auditEventNode(event)",
+		"function auditDetailsText(details)",
+		"query.set('before',before)",
+		"query.set(key,value)",
+		"event.username||event.user_id||'system'",
+	} {
+		if !strings.Contains(sharedAdminJS, want) {
+			t.Fatalf("admin audit timeline JS missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		".audit-timeline",
+		".audit-event",
+		".audit-event-category",
+		".audit-event-resource",
+		".audit-load-more",
+	} {
+		if !strings.Contains(sharedAdminCSS, want) {
+			t.Fatalf("admin audit timeline CSS missing %q", want)
+		}
+	}
+}
