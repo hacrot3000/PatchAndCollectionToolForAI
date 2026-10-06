@@ -26,6 +26,19 @@ type OwnershipCapability interface {
 	SupportsSessionOwnership() bool
 }
 
+type TerminalCloneOptions struct {
+	OwnerUserID string
+	ProjectID   string
+}
+
+// TerminalCloner is optional so a daemon can keep using an older long-lived
+// broker after self-update. Callers must fail clearly when the active service
+// cannot clone terminals instead of breaking the base Service contract.
+type TerminalCloner interface {
+	SupportsTerminalClone() bool
+	CloneTerminal(string, TerminalCloneOptions) (Metadata, error)
+}
+
 var _ Service = (*Manager)(nil)
 
 func (m *Manager) SupportsSessionOwnership() bool { return true }
