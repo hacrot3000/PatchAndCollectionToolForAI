@@ -592,6 +592,12 @@ function installPatchPanel(){
   let tabReadOnly=false;
   let protocolPollGeneration=0;
   let lifecycleSuspended=false;
+  const queueAutoRefreshIntervalMS=5000;
+  const queueAutoRefreshRetryMS=1000;
+  let activePatchMode='queue';
+  let queueAutoRefreshTimer=0;
+  let queueAutoRefreshBusy=false;
+  let lastQueueSnapshotSessionId='';
   let latestQueueSnapshot=null;
   let queueSummaryView='queue';
   let queueSearchQuery='';
@@ -678,11 +684,53 @@ function installPatchPanel(){
     lifecycleSuspended=false;
     resumePatchPanelPolling();
   }
+  function patchQueueListActive(){
+    return patchUIMode()==='native'
+      &&String(app.active||'')==='external:patch'
+      &&panel.classList.contains('visible')
+      &&document.visibilityState!=='hidden'
+      &&activePatchMode==='queue'
+      &&!runningMode&&!historyMode&&!planMode&&!healthMode;
+  }
+  function patchQueueBrowserActive(){
+    return patchQueueListActive()&&(typeof document.hasFocus!=='function'||document.hasFocus());
+  }
+  function cancelQueueAutoRefreshTimer(){
+    if(queueAutoRefreshTimer){clearTimeout(queueAutoRefreshTimer);queueAutoRefreshTimer=0;}
+  }
+  function scheduleQueueAutoRefresh(delay=queueAutoRefreshIntervalMS){
+    cancelQueueAutoRefreshTimer();
+    if(!patchQueueBrowserActive())return;
+    queueAutoRefreshTimer=setTimeout(()=>{
+      queueAutoRefreshTimer=0;
+      void refreshQueueForActivity('interval');
+    },Math.max(0,Number(delay)||0));
+  }
+  function queueSessionSnapshotSettled(){
+    return !activeSessionId||lastQueueSnapshotSessionId===activeSessionId;
+  }
+  async function refreshQueueForActivity(reason='activity'){
+    if(!patchQueueBrowserActive()){cancelQueueAutoRefreshTimer();return false;}
+    if(queueAutoRefreshBusy){scheduleQueueAutoRefresh(queueAutoRefreshRetryMS);return false;}
+    if(!queueSessionSnapshotSettled()){scheduleQueueAutoRefresh(queueAutoRefreshRetryMS);return false;}
+    queueAutoRefreshBusy=true;
+    try{
+      await refreshQueueFromSummary();
+      return true;
+    }catch(error){
+      console.warn('Patch Queue auto-refresh failed ('+reason+'):',error);
+      return false;
+    }finally{
+      queueAutoRefreshBusy=false;
+      scheduleQueueAutoRefresh();
+    }
+  }
   function setVisible(value){
     const visible=Boolean(value);
     const changed=panel.classList.contains('visible')!==visible;
     panel.classList.toggle('visible',visible);
     patchTab.classList.toggle('active',visible);
+    if(!visible)cancelQueueAutoRefreshTimer();
     if(changed)window.dispatchEvent(new CustomEvent('taskmenu:patch-panel-visible',{detail:{visible}}));
   }
   function rememberReturnView(){
@@ -707,9 +755,7 @@ function installPatchPanel(){
     app.claimForegroundView?.('external:patch');
     app.activateExternalView('patch',{force:true});
     setVisible(true);
-    if(!activeSessionId&&!latestQueueSnapshot&&!runningMode&&!historyMode&&!planMode&&!healthMode){
-      void start('queue').catch(app.showError);
-    }
+    void refreshQueueForActivity('patch-tab');
   }
   function deactivate(){
     if(panel.classList.contains('visible'))setVisible(false);
@@ -740,6 +786,7 @@ function installPatchPanel(){
     if(patchActive){
       patchTab.hidden=false;
       setVisible(true);
+      void refreshQueueForActivity('view-activated');
       return;
     }
     // Core foreground locking is authoritative. If another view really became
@@ -747,6 +794,11 @@ function installPatchPanel(){
     // simply deactivates. Do not recursively re-activate Patch here because
     // nested view-activated events race with other feature listeners.
     deactivate();
+  });
+  window.addEventListener('focus',()=>{void refreshQueueForActivity('window-focus');});
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='visible')void refreshQueueForActivity('visibility');
+    else cancelQueueAutoRefreshTimer();
   });
 
   function resetSummary(status='Not loaded'){
@@ -1655,6 +1707,8 @@ function installPatchPanel(){
     activeSessionId='';
     leaveHistoryView();
     resetSummary();
+    activePatchMode='queue';
+    await start('queue');
   }
 
   function enterPlanView(){
@@ -2318,6 +2372,7 @@ function installPatchPanel(){
 
   function renderQueueSnapshot(snapshot){
     latestQueueSnapshot=snapshot&&typeof snapshot==='object'?snapshot:{items:[],counts:{},group_counts:{},warnings:[],total:0,status:'empty'};
+    lastQueueSnapshotSessionId=String(activeSessionId||'');
     const counts=latestQueueSnapshot?.counts&&typeof latestQueueSnapshot.counts==='object'?latestQueueSnapshot.counts:{};
     summaryCounts.replaceChildren();
     for(const [kind,count] of Object.entries(counts).sort(([a],[b])=>a.localeCompare(b))){
@@ -2357,6 +2412,7 @@ function installPatchPanel(){
     }
     renderQueueRows();
     applyQueuePromptSearch();
+    scheduleQueueAutoRefresh();
   }
 
   function foregroundRunName(state=foregroundProtocolState){
@@ -3432,6 +3488,8 @@ function installPatchPanel(){
         return meta;
       }
       await assertHeadlessNativeSession(meta);
+      activePatchMode=mode;
+      if(mode!=='queue')cancelQueueAutoRefreshTimer();
       activeSessionId=meta.id;
       actionPollGeneration+=1;
       queueMutationPollGeneration+=1;
@@ -3477,9 +3535,9 @@ function installPatchPanel(){
   historyCleanupDelete.onclick=()=>submitHistoryCleanupDelete(activeSessionId,activeHistoryPrompt).catch(app.showError);
   historyBack.onclick=()=>stopHistoryAndBack().catch(app.showError);
   planTerminal.onclick=()=>openTerminalEvidence().catch(app.showError);
-  planBack.onclick=leavePlanView;
+  planBack.onclick=()=>refreshQueueFromSummary().catch(app.showError);
   healthTerminal.onclick=()=>openTerminalEvidence().catch(app.showError);
-  healthBack.onclick=leaveHealthView;
+  healthBack.onclick=()=>refreshQueueFromSummary().catch(app.showError);
   aiPackRefresh.onclick=()=>prepareAIPack(aiPackRefresh).catch(app.showError);
   aiPackCopyPrompt.onclick=()=>copyAIPackPrompt(aiPackCopyPrompt).catch(app.showError);
   aiPackCopyPath.onclick=()=>latestAIPack&&copyFullPath(latestAIPack.path,aiPackCopyPath).catch(app.showError);
@@ -3535,7 +3593,7 @@ function installPatchPanel(){
     throw new Error('Unsupported Patch operation action');
   }
 
-    globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,prepareAIPack,renderAIPack,copyAIPackPrompt,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,operationSnapshot:patchOperationSnapshot,operationControl:patchOperationControl,setReadOnly,isReadOnly:()=>tabReadOnly,get tab(){return patchTab;},get panel(){return panel;},get visible(){return panel.classList.contains('visible');},get lifecycleSuspended(){return lifecycleSuspended;}};
+    globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,prepareAIPack,renderAIPack,copyAIPackPrompt,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,refreshQueueForActivity,scheduleQueueAutoRefresh,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,operationSnapshot:patchOperationSnapshot,operationControl:patchOperationControl,setReadOnly,isReadOnly:()=>tabReadOnly,get tab(){return patchTab;},get panel(){return panel;},get visible(){return panel.classList.contains('visible');},get lifecycleSuspended(){return lifecycleSuspended;}};
   globalThis.TaskMenuTabContext?.registerTab?.(patchTab);
   return true;
 }

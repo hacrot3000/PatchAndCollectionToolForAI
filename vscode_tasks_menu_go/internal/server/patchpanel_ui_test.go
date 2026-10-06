@@ -1299,6 +1299,45 @@ func TestPatchAddModeAllowsCollectButLocksPatchAndRunningItems(t *testing.T) {
 	}
 }
 
+func TestPatchQueueAutoRefreshTracksWorkspaceAndBrowserActivity(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const queueAutoRefreshIntervalMS=5000",
+		"const queueAutoRefreshRetryMS=1000",
+		"let activePatchMode='queue'",
+		"function patchQueueListActive()",
+		"function patchQueueBrowserActive()",
+		"function scheduleQueueAutoRefresh(delay=queueAutoRefreshIntervalMS)",
+		"function queueSessionSnapshotSettled()",
+		"async function refreshQueueForActivity(reason='activity')",
+		"void refreshQueueForActivity('patch-tab')",
+		"void refreshQueueForActivity('view-activated')",
+		"window.addEventListener('focus',()=>{void refreshQueueForActivity('window-focus');})",
+		"document.addEventListener('visibilitychange',()=>",
+		"if(document.visibilityState==='visible')void refreshQueueForActivity('visibility')",
+		"lastQueueSnapshotSessionId=String(activeSessionId||'')",
+		"scheduleQueueAutoRefresh();",
+		"activePatchMode=mode",
+		"if(mode!=='queue')cancelQueueAutoRefreshTimer()",
+		"activePatchMode==='queue'",
+		"!runningMode&&!historyMode&&!planMode&&!healthMode",
+		"document.hasFocus()",
+		"planBack.onclick=()=>refreshQueueFromSummary().catch(app.showError)",
+		"healthBack.onclick=()=>refreshQueueFromSummary().catch(app.showError)",
+		"activePatchMode='queue';",
+		"await start('queue');",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Patch Queue automatic refresh missing %q", want)
+		}
+	}
+	if strings.Contains(js, "setInterval(") {
+		t.Fatal("Patch Queue refresh must use completion-aware scheduling instead of overlapping setInterval polling")
+	}
+}
+
 func TestPatchQueueCanRefreshWhileBackgroundRunsContinue(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
 	if err != nil { t.Fatal(err) }
