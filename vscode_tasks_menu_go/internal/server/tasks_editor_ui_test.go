@@ -148,3 +148,31 @@ func TestTasksEditorSupportsWorkspaceRoots(t *testing.T) {
 		}
 	}
 }
+
+func TestTasksEditorSupportsWorkflowDAGFieldsAndPreview(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/taskseditor.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function ensureWorkflowMeta(task)",
+		"function renderWorkflowFields(form,task)",
+		"WORKFLOW / DAG",
+		"addField(form,'Depends on'",
+		"Parallel dependencies",
+		"Sequential dependencies",
+		"addField(form,'Retry count'",
+		"addField(form,'Timeout seconds'",
+		"addField(form,'Condition'",
+		"Continue workflow when this task exits non-zero",
+		"Declared outputs",
+		"::taskdeck-output name=value",
+		"function workflowGraphModel()",
+		"Cycle detected at ",
+		"function openWorkflowGraphPreview()",
+		"graph.textContent='Graph'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("taskseditor.js missing workflow DAG behavior %q", want)
+		}
+	}
+}
