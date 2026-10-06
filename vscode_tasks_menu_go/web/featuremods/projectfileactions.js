@@ -76,6 +76,10 @@ function standardActions(pathValue,type='file'){
       const compare=globalThis.TaskMenuFileCompare;if(!compare?.promptProjectCompare)throw new Error('File Compare unavailable');
       return compare.promptProjectCompare(pathValue);
     }},
+    {separator:true},
+    {label:'SHA-256 checksum',run:()=>copyProjectChecksum(pathValue,'sha256')},
+    {label:'MD5 checksum (compatibility)',run:()=>copyProjectChecksum(pathValue,'md5')},
+    {separator:true},
     {label:'Git History',run:()=>gitFileView(pathValue,'history')},
     {label:'Git Blame',run:()=>gitFileView(pathValue,'blame')}
   );
