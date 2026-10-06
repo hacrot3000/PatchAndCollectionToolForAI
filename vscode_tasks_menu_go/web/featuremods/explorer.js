@@ -80,6 +80,7 @@ let rootLoaded=false;
 let workspaceRoots=[];
 let attachedRootsEnabled=false;
 let requestSeq=0;
+let lastActiveEditorPath='';
 
 function storageKey(){return 'vscode-tasks-menu:explorer-expanded:'+(app.taskData?.workspace||'workspace');}
 function savedStorageKey(kind){return 'vscode-tasks-menu:explorer-'+kind+':' +(app.taskData?.workspace||'workspace');}
@@ -446,6 +447,25 @@ async function revealPath(pathValue,{select=true}={}){
     (target?.closest?.('.project-explorer-row')||target)?.scrollIntoView({block:'nearest'});
   });
 }
+function editorPathForViewID(id){
+  id=String(id||'').trim();
+  if(!id)return '';
+  const view=globalThis.TaskMenuEditor?.editors?.get?.(id);
+  return String(view?.file?.path||'').trim();
+}
+function currentActiveEditorPath(){
+  const editor=globalThis.TaskMenuEditor;
+  const activeID=String(editor?.active||'').trim();
+  return editorPathForViewID(activeID)||lastActiveEditorPath;
+}
+async function syncActiveEditorToExplorer(pathValue=''){
+  pathValue=String(pathValue||currentActiveEditorPath()).trim();
+  if(!pathValue)return false;
+  lastActiveEditorPath=pathValue;
+  if(!panel.classList.contains('visible'))return false;
+  await revealPath(pathValue);
+  return true;
+}
 function findLoadedItem(pathValue){
   const parent=parentPath(pathValue);
   return (loaded.get(parent)||[]).find(item=>joinPath(parent,item.name)===pathValue)||null;
@@ -807,7 +827,8 @@ async function ensureRoot(force=false){
   }catch(error){rootLoaded=false;showMessage('Explorer unavailable');throw error;}
 }
 function open(){
-  panel.classList.add('visible');restoreExpanded();restoreSaved();restoreUndoRecord();renderSaved();ensureRoot(false).catch(app.showError);
+  panel.classList.add('visible');restoreExpanded();restoreSaved();restoreUndoRecord();renderSaved();
+  ensureRoot(false).then(()=>syncActiveEditorToExplorer()).catch(app.showError);
 }
 function close(){panel.classList.remove('visible');}
 async function reload(){try{await ensureRoot(true);}catch(error){app.showError(error);}}
@@ -827,6 +848,14 @@ window.addEventListener('taskmenu:project-file-opened',event=>{
   const pathValue=String(event.detail?.path||'').trim();
   if(!pathValue)return;
   rememberRecent(pathValue);
+  lastActiveEditorPath=pathValue;
+  if(panel.classList.contains('visible'))revealPath(pathValue).catch(app.showError);
+});
+window.addEventListener('taskmenu:view-activated',event=>{
+  if(event.detail?.kind!=='external')return;
+  const pathValue=editorPathForViewID(event.detail?.id);
+  if(!pathValue)return;
+  lastActiveEditorPath=pathValue;
   if(panel.classList.contains('visible'))revealPath(pathValue).catch(app.showError);
 });
 window.addEventListener('taskmenu:git-status-refreshed',()=>{
@@ -859,5 +888,5 @@ globalThis.TaskMenuExplorer={
     render();
     return true;
   },
-  get selectedPaths(){return [...selected];},get expandedPaths(){return [...expanded];},get favorites(){return [...favorites];},get recent(){return [...recent];},get clipboard(){return {mode:fileClipboard.mode,paths:[...fileClipboard.paths]};},get gitStatusAvailable(){return gitStatusAvailable;},get lastUndo(){return lastUndo?{label:lastUndo.label,steps:[...lastUndo.steps]}:null;}
+  get selectedPaths(){return [...selected];},get expandedPaths(){return [...expanded];},get favorites(){return [...favorites];},get recent(){return [...recent];},get clipboard(){return {mode:fileClipboard.mode,paths:[...fileClipboard.paths]};},get gitStatusAvailable(){return gitStatusAvailable;},get lastUndo(){return lastUndo?{label:lastUndo.label,steps:[...lastUndo.steps]}:null;},get activeEditorPath(){return currentActiveEditorPath();}
 };

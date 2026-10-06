@@ -165,6 +165,32 @@ func TestExplorerRevealsFilesOpenedByEditor(t *testing.T) {
 	}
 }
 
+func TestExplorerTracksActiveEditorAcrossVisibleAndHiddenPanelStates(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"let lastActiveEditorPath=''",
+		"function editorPathForViewID(id)",
+		"function currentActiveEditorPath()",
+		"async function syncActiveEditorToExplorer(pathValue='')",
+		"globalThis.TaskMenuEditor?.editors?.get?.(id)",
+		"ensureRoot(false).then(()=>syncActiveEditorToExplorer()).catch(app.showError)",
+		"window.addEventListener('taskmenu:view-activated',event=>",
+		"if(event.detail?.kind!=='external')return",
+		"const pathValue=editorPathForViewID(event.detail?.id)",
+		"lastActiveEditorPath=pathValue",
+		"if(panel.classList.contains('visible'))revealPath(pathValue).catch(app.showError)",
+		"get activeEditorPath(){return currentActiveEditorPath();}",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Explorer active-editor tracking missing %q", want)
+		}
+	}
+}
+
 func TestExplorerCreatesRenamesAndMovesProjectItems(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
 	if err != nil {
