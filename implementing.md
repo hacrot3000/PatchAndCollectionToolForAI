@@ -390,7 +390,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - type mismatch/conflict không bị xóa tự động; Local browser vẫn tôn trọng File System Access permission boundary;
     - regression test khóa contract checksum/exclude/profile/bidirectional/delete safety.
 
-19. **P1 — Checksum / file integrity tools**
+19. **P1 — Checksum / file integrity tools** — ✅ **COMPLETE**
     Context menu file:
     - SHA-256.
     - MD5 nếu cần compatibility.
@@ -399,6 +399,16 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Verify manifest.
     
     Rất phù hợp với workflow firmware/deploy của bạn.
+
+    Hoàn tất:
+    - Project/File context action dùng chung giữa Explorer, editor tab, Git workspace file và Host file pane;
+    - SHA-256 và MD5 được tính server-side trên file regular trong workspace; MD5 chỉ dành cho compatibility, không dùng làm security decision;
+    - Compare checksum nhận SHA-256 64-hex hoặc MD5 32-hex và báo mismatch rõ ràng;
+    - folder action tạo manifest chuẩn kiểu `SHA256SUMS`, sort deterministic, tải xuống browser và không tự ghi file vào project;
+    - Verify SHA-256 manifest resolve path tương đối theo thư mục chứa manifest, từ chối absolute/traversal/duplicate/invalid entry và trả danh sách lỗi bounded;
+    - generate manifest bỏ qua symlink, chỉ hash regular file, giới hạn 20.000 file / 16 GiB tổng / 4 MiB manifest; single-file hash giới hạn 4 GiB;
+    - shared-server map GET/POST integrity vào `files.read`, vì generate/verify đều read-only;
+    - regression test bao phủ SHA-256/MD5, generate/verify PASS, mismatch detection, authorization và UI integration.
 
 20. **P1 — Archive support**
     - Preview ZIP/tar.gz without extracting.
