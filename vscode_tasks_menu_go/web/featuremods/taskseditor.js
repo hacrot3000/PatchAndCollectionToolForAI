@@ -165,6 +165,114 @@ function ensureTaskdeckMeta(task){
   return task.taskdeck;
 }
 
+function ensureWorkflowMeta(task){
+  const meta=ensureTaskdeckMeta(task);
+  if(!meta.workflow||typeof meta.workflow!=='object'||Array.isArray(meta.workflow))meta.workflow={};
+  return meta.workflow;
+}
+function commaList(value){
+  if(Array.isArray(value))return value.map(item=>String(item||'').trim()).filter(Boolean);
+  if(typeof value==='string')return value.split(',').map(item=>item.trim()).filter(Boolean);
+  return [];
+}
+function setDependsOn(task,value){
+  const items=commaList(value);
+  if(items.length===0)delete task.dependsOn;
+  else if(items.length===1)task.dependsOn=items[0];
+  else task.dependsOn=items;
+}
+function workflowTaskLabels(except=''){
+  return (doc?.tasks||[]).map(task=>String(task?.label||'').trim()).filter(label=>label&&label!==except);
+}
+function taskDependsOn(task){return commaList(task?.dependsOn);}
+function setWorkflowNumber(workflow,key,value,max){
+  const parsed=Math.max(0,Math.min(max,Number.parseInt(String(value||'0'),10)||0));
+  if(parsed>0)workflow[key]=parsed;else delete workflow[key];
+}
+function cleanupWorkflow(task){
+  const meta=task?.taskdeck;if(!meta?.workflow)return;
+  if(Object.keys(meta.workflow).length===0)delete meta.workflow;
+  if(meta&&Object.keys(meta).length===0)delete task.taskdeck;
+}
+function renderWorkflowFields(form,task){
+  const section=document.createElement('div');section.className='tasks-editor-section';section.textContent='WORKFLOW / DAG';form.append(section);
+  const help=document.createElement('div');help.className='tasks-editor-help';
+  help.textContent='dependsOn uses task labels. TaskDeck validates missing dependencies/cycles before launch. Workflow options are stored under taskdeck.workflow.';
+  form.append(help);
+
+  const deps=makeInput(taskDependsOn(task).join(', '),value=>setDependsOn(task,value));
+  const dataList=document.createElement('datalist');dataList.id='tasks-editor-deps-'+Math.random().toString(36).slice(2);
+  for(const label of workflowTaskLabels(task.label)){const option=document.createElement('option');option.value=label;dataList.append(option);}
+  deps.setAttribute('list',dataList.id);deps.placeholder='Build, Test';
+  const depsWrap=document.createElement('div');depsWrap.append(deps,dataList);addField(form,'Depends on',depsWrap);
+
+  const order=document.createElement('select');
+  for(const [value,label] of [['parallel','Parallel dependencies'],['sequence','Sequential dependencies']]){const option=document.createElement('option');option.value=value;option.textContent=label;order.append(option);}
+  order.value=String(task.dependsOrder||'').toLowerCase()==='sequence'?'sequence':'parallel';
+  order.onchange=()=>{if(order.value==='sequence')task.dependsOrder='sequence';else delete task.dependsOrder;markDirty();};
+  addField(form,'Dependency order',order);
+
+  const workflow=ensureWorkflowMeta(task);
+  const retry=makeInput(String(workflow.retry||''),value=>{setWorkflowNumber(workflow,'retry',value,10);cleanupWorkflow(task);});
+  retry.type='number';retry.min='0';retry.max='10';retry.placeholder='0';addField(form,'Retry count',retry);
+
+  const timeout=makeInput(String(workflow.timeoutSeconds||''),value=>{setWorkflowNumber(workflow,'timeoutSeconds',value,86400);cleanupWorkflow(task);});
+  timeout.type='number';timeout.min='0';timeout.max='86400';timeout.placeholder='0';addField(form,'Timeout seconds',timeout);
+
+  const condition=document.createElement('select');
+  for(const [value,label] of [['','Success (default)'],['success','Success'],['failure','Failure'],['always','Always']]){const option=document.createElement('option');option.value=value;option.textContent=label;condition.append(option);}
+  condition.value=String(workflow.condition||'').toLowerCase();
+  condition.onchange=()=>{if(condition.value)workflow.condition=condition.value;else delete workflow.condition;cleanupWorkflow(task);markDirty();};
+  addField(form,'Condition',condition);
+
+  const continueWrap=document.createElement('label');continueWrap.className='tasks-editor-inline';
+  const continueBox=document.createElement('input');continueBox.type='checkbox';continueBox.checked=Boolean(workflow.continueOnError);
+  const continueText=document.createElement('span');continueText.textContent='Continue workflow when this task exits non-zero';
+  continueBox.onchange=()=>{if(continueBox.checked)workflow.continueOnError=true;else delete workflow.continueOnError;cleanupWorkflow(task);markDirty();};
+  continueWrap.append(continueBox,continueText);addField(form,'Failure policy',continueWrap);
+
+  const outputs=makeInput(commaList(workflow.outputs).join(', '),value=>{
+    const values=commaList(value);if(values.length)workflow.outputs=values;else delete workflow.outputs;cleanupWorkflow(task);
+  });
+  outputs.placeholder='version, artifact';addField(form,'Declared outputs',outputs);
+
+  const outputHelp=document.createElement('div');outputHelp.className='tasks-editor-help';
+  outputHelp.textContent='Emit ::taskdeck-output name=value from a task, then reference it downstream as ${output:Task label.name}.';
+  form.append(outputHelp);
+}
+function workflowGraphModel(){
+  const tasks=doc?.tasks||[],byLabel=new Map(tasks.map(task=>[String(task?.label||'').trim(),task]));
+  const nodes=[],edges=[];const problems=[];
+  for(const task of tasks){
+    const label=String(task?.label||'').trim();if(!label)continue;
+    const deps=taskDependsOn(task);nodes.push({label,deps});
+    for(const dep of deps){edges.push({from:dep,to:label});if(!byLabel.has(dep))problems.push(label+' → missing '+dep);}
+  }
+  const visiting=new Set(),visited=new Set();
+  function visit(label){
+    if(visited.has(label))return;
+    if(visiting.has(label)){problems.push('Cycle detected at '+label);return;}
+    visiting.add(label);for(const dep of taskDependsOn(byLabel.get(label)||{})){if(byLabel.has(dep))visit(dep);}
+    visiting.delete(label);visited.add(label);
+  }
+  for(const node of nodes)visit(node.label);
+  return {nodes,edges,problems};
+}
+function openWorkflowGraphPreview(){
+  const model=workflowGraphModel();
+  const dialog=document.createElement('dialog');dialog.style.cssText='width:min(860px,92vw);max-height:84vh;background:#171b22;color:inherit;border:1px solid #48515f;border-radius:8px;padding:12px';
+  const title=document.createElement('h3');title.textContent='Task dependency graph';title.style.margin='0 0 8px';
+  const summary=document.createElement('div');summary.style.cssText='font-size:11px;opacity:.7;margin-bottom:8px';summary.textContent=model.nodes.length+' task(s) · '+model.edges.length+' dependency edge(s)';
+  const pre=document.createElement('pre');pre.style.cssText='max-height:58vh;overflow:auto;white-space:pre-wrap';
+  const roots=model.nodes.filter(node=>node.deps.length===0).map(node=>node.label);
+  const lines=['Roots: '+(roots.join(', ')||'(none)'),''];
+  for(const node of model.nodes){lines.push((node.deps.length?node.deps.join(' + ')+' → ':'')+node.label);}
+  if(model.problems.length){lines.push('','PROBLEMS:');for(const problem of model.problems)lines.push('! '+problem);}
+  pre.textContent=lines.join('\n');
+  const close=document.createElement('button');close.type='button';close.textContent='Close';close.onclick=()=>dialog.close();
+  dialog.append(title,summary,pre,close);document.body.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();
+}
+
 function shellQuote(value){
   const text=String(value||'');
   if(/^[A-Za-z0-9_./:@+-]+$/.test(text))return text;
@@ -501,10 +609,11 @@ function renderVisual(){
   addField(form,'Working dir',makeInput(task?.options?.cwd||'',value=>setCWD(task,value)));
   addField(form,'Environment',makeTextarea(envToText(task),value=>setEnvFromText(task,value)));
 
+  renderWorkflowFields(form,task);
   renderExecutionFiles(form,task);
 
   const advanced=document.createElement('div');advanced.className='tasks-editor-help';
-  advanced.textContent='Advanced VS Code fields such as problemMatcher, presentation, dependsOn, inputs and custom extension fields remain in the document. Switch to Raw JSON to edit them directly.';
+  advanced.textContent='Advanced VS Code fields such as problemMatcher, presentation, inputs and custom extension fields remain in the document. Switch to Raw JSON to edit them directly.';
   form.append(advanced);
   main.append(form);
 }
@@ -640,7 +749,8 @@ function install(){
   const up=document.createElement('button');up.type='button';up.textContent='↑';up.title='Move task up';up.onclick=()=>moveTask(-1);
   const down=document.createElement('button');down.type='button';down.textContent='↓';down.title='Move task down';down.onclick=()=>moveTask(1);
   const remove=document.createElement('button');remove.type='button';remove.textContent='Delete';remove.onclick=deleteTask;
-  listTools.append(add,clone,up,down,remove);
+  const graph=document.createElement('button');graph.type='button';graph.textContent='Graph';graph.title='Preview task dependency graph';graph.onclick=openWorkflowGraphPreview;
+  listTools.append(add,clone,up,down,remove,graph);
   list=document.createElement('div');list.className='tasks-editor-items';sidebar.append(listTools,list);
   main=document.createElement('div');main.className='tasks-editor-main';body.append(sidebar,main);
 
@@ -663,4 +773,4 @@ document.addEventListener('keydown',event=>{
 });
 
 install();
-globalThis.TaskMenuTasksEditor={open,close:closeEditor,reload:load};
+globalThis.TaskMenuTasksEditor={open,close:closeEditor,reload:load,workflowGraphModel,openWorkflowGraphPreview};
