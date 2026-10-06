@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -128,5 +129,46 @@ func TestSecretsAPINeverProvidesPlaintextReadOperation(t *testing.T) {
 	s.Handler().ServeHTTP(rr, req)
 	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "unsupported secret action") {
 		t.Fatalf("plaintext get action unexpectedly accepted status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+
+func TestSecretsAPIDeleteRefusesTaskReferencedSecret(t *testing.T) {
+	s, secrets, _ := newSecretsAPITestServer(t)
+	s.Workspace = t.TempDir()
+	taskDir := filepath.Join(s.Workspace, ".vscode")
+	if err := os.MkdirAll(taskDir, 0o755); err != nil { t.Fatal(err) }
+	const ref = "managed/deploy/task-secret"
+	if err := secrets.Put(ref, []byte("deploy-value")); err != nil { t.Fatal(err) }
+	body := `{
+		"version":"2.0.0",
+		"tasks":[{
+			"label":"Deploy production",
+			"type":"shell",
+			"command":"./deploy.sh",
+			"taskdeckSecrets":{"DEPLOY_TOKEN":"managed/deploy/task-secret"}
+		}]
+	}`
+	if err := os.WriteFile(filepath.Join(taskDir, "tasks.json"), []byte(body), 0o600); err != nil { t.Fatal(err) }
+
+	listRR := httptest.NewRecorder()
+	s.Handler().ServeHTTP(listRR, httptest.NewRequest(http.MethodGet, "/api/secrets", nil))
+	if listRR.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", listRR.Code, listRR.Body.String())
+	}
+	if strings.Contains(listRR.Body.String(), "deploy-value") {
+		t.Fatalf("list leaked task secret plaintext: %s", listRR.Body.String())
+	}
+	if !strings.Contains(listRR.Body.String(), `"kind":"task"`) || !strings.Contains(listRR.Body.String(), "Deploy production") {
+		t.Fatalf("task secret usage missing from manager projection: %s", listRR.Body.String())
+	}
+
+	deleteRR := httptest.NewRecorder()
+	s.Handler().ServeHTTP(deleteRR, httptest.NewRequest(http.MethodDelete, "/api/secrets?id="+ref, nil))
+	if deleteRR.Code != http.StatusConflict {
+		t.Fatalf("task-referenced delete status=%d body=%s", deleteRR.Code, deleteRR.Body.String())
+	}
+	if _, err := secrets.Get(ref); err != nil {
+		t.Fatalf("task-referenced secret was deleted: %v", err)
 	}
 }
