@@ -30,7 +30,26 @@ func TestQuickOpenUsesBackendBoundedSearchAndKeyboardNavigation(t *testing.T) {
 		"hasExactFilename(query)",
 		"&refresh=1",
 		"setTimeout(()=>{",
-		"input.value.trim()===query",
+		"prefixSpec(input.value).query===spec.query",
+		"function localQuickOpenItems()",
+		"TaskMenuExplorer?.recent",
+		"TaskMenuEditor?.editors",
+		"TaskMenuDatabase?.views",
+		"TaskMenuFileTransfer?.views",
+		"TaskMenuConnections?.sshProfiles",
+		"TaskMenuDatabase?.profiles",
+		"TaskMenuFileTransfer?.profiles",
+		"function prefixSpec(raw)",
+		"if(value.startsWith('>'))",
+		"if(value.startsWith('@'))",
+		"if(value.startsWith('#'))",
+		"if(lower.startsWith('git:'))",
+		"if(lower.startsWith('ssh:'))",
+		"TaskMenuCommandPalette?.commandList?.()",
+		"TaskMenuProjectSymbols?.open?.({query:spec.query})",
+		"TaskMenuProjectSearch?.open?.({query:spec.query})",
+		"TaskMenuGitFiles?.openGraphSearch?.(spec.query)",
+		"document.querySelectorAll('#tabs .tab,[role=\"tab\"]')",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("quickopen.js missing %q", want)
@@ -72,5 +91,33 @@ func TestQuickOpenShortcutIsGlobalCaptureAndExact(t *testing.T) {
 		if !strings.Contains(js, want) {
 			t.Fatalf("Quick Open global shortcut contract missing %q", want)
 		}
+	}
+}
+
+func TestGlobalQuickOpenKeepsOneCtrlPOverlayAndPrefixRouting(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/quickopen.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"Global Quick Open — files, recent, tabs, terminals, DB, connections",
+		"kind:'recent'",
+		"kind:'terminal'",
+		"kind:'database'",
+		"kind:'ssh'",
+		"kind:'transfer'",
+		"kind:'command'",
+		"kind:'symbol'",
+		"kind:'text'",
+		"kind:'git'",
+		"globalThis.TaskMenuQuickOpen={open,close,localQuickOpenItems,prefixSpec}",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("global Quick Open contract missing %q", want)
+		}
+	}
+	if strings.Count(js, "window.addEventListener('keydown',globalQuickOpenShortcut,true)") != 1 {
+		t.Fatal("Global Quick Open must have exactly one Ctrl/Cmd+P shortcut owner")
 	}
 }
