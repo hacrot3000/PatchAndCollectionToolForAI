@@ -15,6 +15,7 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/dbadapter"
 	"bletonfc/vscode_tasks_menu/internal/dbprofile"
 	"bletonfc/vscode_tasks_menu/internal/dbsession"
+	"bletonfc/vscode_tasks_menu/internal/identity"
 )
 
 const (
@@ -224,6 +225,10 @@ func (s *Server) dbSessionItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessionMeta, _ := manager.Get(id)
+	permission := databaseOperationPermission(sessionMeta, req.Operation, payload)
+	if !s.requireSharedActionPermission(w, r, permission, string(req.Operation), "db_session:"+id) {
+		return
+	}
 	requestCtx, cancel := context.WithTimeout(r.Context(), databaseOpenTimeout)
 	response, err := manager.Request(requestCtx, id, req.Operation, payload)
 	cancel()
@@ -244,6 +249,12 @@ func (s *Server) dbSessionItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) dbSessionImportSQL(w http.ResponseWriter, r *http.Request, manager *dbsession.Manager, id string) {
+	if !s.requireSharedActionPermission(w, r, identity.PermissionDBWrite, "import_sql", "db_session:"+id) {
+		return
+	}
+	if !s.requireSharedActionPermission(w, r, identity.PermissionDBSchema, "import_sql", "db_session:"+id) {
+		return
+	}
 	meta, err := manager.Get(id)
 	if errors.Is(err, dbsession.ErrSessionNotFound) {
 		http.NotFound(w, r)
@@ -349,6 +360,65 @@ func sqlScriptExtensionAllowed(name string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func databaseSQLLeadingKeyword(statement string) string {
+	text := strings.TrimSpace(statement)
+	for text != "" {
+		switch {
+		case strings.HasPrefix(text, "--"):
+			if index := strings.IndexByte(text, '\n'); index >= 0 { text = strings.TrimSpace(text[index+1:]); continue }
+			return ""
+		case strings.HasPrefix(text, "#"):
+			if index := strings.IndexByte(text, '\n'); index >= 0 { text = strings.TrimSpace(text[index+1:]); continue }
+			return ""
+		case strings.HasPrefix(text, "/*"):
+			if index := strings.Index(text[2:], "*/"); index >= 0 { text = strings.TrimSpace(text[index+4:]); continue }
+			return ""
+		}
+		break
+	}
+	fields := strings.Fields(text)
+	if len(fields) == 0 { return "" }
+	return strings.ToLower(strings.Trim(fields[0], "();"))
+}
+
+func databaseOperationPermission(meta dbsession.Metadata, operation dbadapter.Operation, payload interface{}) string {
+	switch operation {
+	case dbadapter.OpPing, dbadapter.OpListCatalogs, dbadapter.OpListObjects, dbadapter.OpDescribeObject, dbadapter.OpBrowseRows:
+		return identity.PermissionDBRead
+	case dbadapter.OpBegin, dbadapter.OpCommit, dbadapter.OpRollback, dbadapter.OpMutateRows:
+		return identity.PermissionDBWrite
+	case dbadapter.OpObjectAction:
+		if action, ok := payload.(dbadapter.ObjectActionPayload); ok {
+			switch strings.ToLower(strings.TrimSpace(action.Action)) {
+			case "count_rows":
+				return identity.PermissionDBRead
+			case "drop":
+				return identity.PermissionDBSchema
+			default:
+				return identity.PermissionDBWrite
+			}
+		}
+		return identity.PermissionDBWrite
+	case dbadapter.OpExecute:
+		execute, ok := payload.(dbadapter.ExecutePayload)
+		if !ok { return identity.PermissionDBWrite }
+		kind := strings.ToLower(strings.TrimSpace(meta.AdapterKind))
+		if kind != "mysql" && kind != "sqlite" {
+			return identity.PermissionDBRead
+		}
+		switch databaseSQLLeadingKeyword(execute.Statement) {
+		case "select", "with", "explain", "show", "describe", "desc":
+			return identity.PermissionDBRead
+		case "create", "alter", "drop", "truncate", "rename":
+			return identity.PermissionDBSchema
+		default:
+			return identity.PermissionDBWrite
+		}
+	default:
+		return identity.PermissionDBWrite
 	}
 }
 
