@@ -2146,9 +2146,11 @@ function syncQueryTransactionControls(view){
   if(view.beginTransaction){view.beginTransaction.hidden=!supported||active;view.beginTransaction.disabled=!supported||active;}
   if(view.commitTransaction){view.commitTransaction.hidden=!supported||!active;view.commitTransaction.disabled=!supported||!active;}
   if(view.rollbackTransaction){view.rollbackTransaction.hidden=!supported||!active;view.rollbackTransaction.disabled=!supported||!active;}
+  if(view.autoCommitWrap)view.autoCommitWrap.hidden=!supported;
+  if(view.autoCommitToggle){view.autoCommitToggle.disabled=!supported||active;view.autoCommitToggle.checked=!active;}
   if(view.transactionState){
     view.transactionState.hidden=!supported;
-    view.transactionState.textContent=active?'TX ACTIVE':'AUTO COMMIT';
+    view.transactionState.textContent=active?'TX ACTIVE · pending commit/rollback':'AUTO COMMIT';
     view.transactionState.classList.toggle('active',active);
   }
 }
@@ -2178,6 +2180,22 @@ async function transactionAction(view,operation){
   return result;
 }
 
+async function setAutoCommit(view,enabled){
+  const root=databaseTransactionRoot(view);
+  if(!databaseSupports(view,'transactions'))throw new Error('This database adapter does not support explicit transactions');
+  const active=Boolean(root.transactionActive||root.meta?.transaction_active);
+  if(!enabled){
+    if(!active)await transactionAction(view,'begin');
+    return false;
+  }
+  if(active){
+    syncAllQueryTransactionControls(root);
+    throw new Error('Commit or Rollback the active transaction before enabling Auto-commit');
+  }
+  syncAllQueryTransactionControls(root);
+  return true;
+}
+
 function defaultDatabaseQueryText(adapterKind){
   return adapterKind==='redis'
     ?'PING'
@@ -2193,6 +2211,10 @@ function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValu
   const beginTransaction=document.createElement('button');beginTransaction.type='button';beginTransaction.textContent='Begin';beginTransaction.hidden=true;
   const commitTransaction=document.createElement('button');commitTransaction.type='button';commitTransaction.textContent='Commit';commitTransaction.hidden=true;
   const rollbackTransaction=document.createElement('button');rollbackTransaction.type='button';rollbackTransaction.textContent='Rollback';rollbackTransaction.hidden=true;
+  const autoCommitWrap=document.createElement('label');autoCommitWrap.className='db-auto-commit';autoCommitWrap.hidden=true;
+  const autoCommitToggle=document.createElement('input');autoCommitToggle.type='checkbox';autoCommitToggle.checked=true;
+  const autoCommitText=document.createElement('span');autoCommitText.textContent='Auto-commit';
+  autoCommitWrap.append(autoCommitToggle,autoCommitText);
   const transactionState=document.createElement('span');transactionState.className='db-transaction-state';transactionState.hidden=true;
   const relational=view.meta.adapter_kind==='mysql'||view.meta.adapter_kind==='sqlite';
   const explain=document.createElement('button');explain.type='button';explain.textContent=view.meta.adapter_kind==='sqlite'?'Explain Plan':'Explain';explain.hidden=!relational;
@@ -2203,13 +2225,13 @@ function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValu
   const saveSnippet=document.createElement('button');saveSnippet.type='button';saveSnippet.textContent='Save Snippet';saveSnippet.title='Save current query or selection as a reusable snippet';
   const rowsLabel=document.createElement('label');rowsLabel.textContent='Max rows';
   const maxRows=document.createElement('input');maxRows.type='number';maxRows.min='1';maxRows.max='1000';maxRows.value=String(maxRowsValue||'100');
-  tools.append(run,explain,explainAnalyze,beginTransaction,commitTransaction,rollbackTransaction,transactionState,openSQL,saveSQL,history,saveSnippet,rowsLabel,maxRows);
+  tools.append(run,explain,explainAnalyze,beginTransaction,commitTransaction,rollbackTransaction,autoCommitWrap,transactionState,openSQL,saveSQL,history,saveSnippet,rowsLabel,maxRows);
   const editor=document.createElement('textarea');editor.className='db-query-editor';editor.spellcheck=false;editor.value=String(initialText||'');
   const result=document.createElement('div');result.className='db-result-wrap';
   query.append(tools,editor,result);
 
   Object.assign(view,{
-    queryPanel:query,editor,run,explain,explainAnalyze,beginTransaction,commitTransaction,rollbackTransaction,transactionState,openSQL,saveSQL,history,saveSnippet,maxRows,result,
+    queryPanel:query,editor,run,explain,explainAnalyze,beginTransaction,commitTransaction,rollbackTransaction,autoCommitWrap,autoCommitToggle,transactionState,openSQL,saveSQL,history,saveSnippet,maxRows,result,
     scriptName:scriptName||'query.sql',scriptSource:null,
     queryFilter:null,queryOrder:null,lastExecutedStatement:'',queryNewRows:[],
     queryDirtyRows:new Map(),querySelectedRows:new Set(),querySelectionAnchor:null,
@@ -2230,6 +2252,10 @@ function setupQueryPanel(view,{initialText='',scriptName='query.sql',maxRowsValu
   beginTransaction.onclick=()=>transactionAction(view,'begin').catch(app.showError);
   commitTransaction.onclick=()=>transactionAction(view,'commit').catch(app.showError);
   rollbackTransaction.onclick=()=>transactionAction(view,'rollback').catch(app.showError);
+  autoCommitToggle.onchange=()=>{
+    const enabled=autoCommitToggle.checked;
+    setAutoCommit(view,enabled).catch(error=>{syncAllQueryTransactionControls(databaseTransactionRoot(view));app.showError(error);});
+  };
   openSQL.onclick=()=>openSQLScript(view).catch(app.showError);
   saveSQL.onclick=()=>saveSQLScript(view).catch(app.showError);
   history.onclick=()=>openQueryLibrary(view);
