@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/state"
 )
 
@@ -37,6 +38,9 @@ func (s *Server) projectMutate(w http.ResponseWriter, r *http.Request) {
 	req.Path = strings.TrimSpace(req.Path)
 	req.NewPath = strings.TrimSpace(req.NewPath)
 	req.Token = strings.TrimSpace(req.Token)
+	if req.Action == "trash" && !s.requireSharedActionPermission(w, r, identity.PermissionFilesystemDelete, req.Action, req.Path) {
+		return
+	}
 
 	switch req.Action {
 	case "create_file":
