@@ -454,7 +454,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - host-app endpoint cố ý không map shared-server permission nên shared mode fail-closed ngay cả khi client cố gọi thủ công;
     - regression test bao phủ text/Markdown/image preview, download, traversal rejection, Hex integration, shared authorization và UI action matrix.
 
-22. **P1 — Project Tasks dependency graph**
+22. **P1 — Project Tasks dependency graph** — ✅ **COMPLETE**
     Tasks hiện chủ yếu là launcher.
     
     Nên hỗ trợ:
@@ -469,6 +469,19 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     
     Ví dụ:
     `Build → Test → Package → Deploy`.
+
+    Hoàn tất:
+    - `dependsOn` theo label và `dependsOrder` = parallel/sequence được parse + validate fail-fast; cycle, self-dependency, missing dependency và duplicate label bị chặn trước launch;
+    - DAG tối đa 256 task; shared dependency dùng per-run lock/status file nên chỉ execute một lần dù nhiều nhánh cùng tham chiếu;
+    - dependency parallel chạy bằng child jobs + wait; sequence giữ đúng thứ tự khai báo;
+    - `taskdeck.workflow.retry` (0–10), `timeoutSeconds` (0–86400), `continueOnError`, `condition=success|failure|always` được compile vào workflow execution;
+    - timeout fail rõ nếu host không có command `timeout`, không silently bỏ qua giới hạn;
+    - declared outputs tối đa 32 tên an toàn; task emit `::taskdeck-output name=value`, downstream dùng `${output:Task.name}`; undeclared output dependency bị reject;
+    - output propagation dùng sentinel-before-quoting để vẫn hoạt động qua shell/process command materialization; runtime files nằm trong temp dir riêng và cleanup bằng trap;
+    - dependency inputs `${input:...}` được gom theo topological order lên root task để UI hỏi đủ input trước khi launch;
+    - visual tasks editor hỗ trợ Depends on, parallel/sequence, retry, timeout, condition, continue-on-error, outputs và **Graph** preview có roots/edges/missing/cycle warning;
+    - workflow vẫn compile thành một `tasks.Execution` và chạy qua session/broker hiện hữu; không tạo scheduler/session pipeline thứ hai;
+    - regression test bao phủ graph validation, strict config, input aggregation, parallel execution thật, sequential contract, retry, continue-on-error, failure condition và output propagation.
 
 23. **P1 — Task run history**
     - Lần chạy gần nhất.
