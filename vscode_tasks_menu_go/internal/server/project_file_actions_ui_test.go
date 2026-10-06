@@ -43,6 +43,12 @@ func TestSharedProjectFileActionRegistryProvidesCommonWorkflow(t *testing.T) {
 		"Compare checksum…",
 		"Generate SHA-256 manifest…",
 		"Verify SHA-256 manifest…",
+		"Preview archive…",
+		"Extract archive…",
+		"Create archive…",
+		"/api/project/archive/preview?path=",
+		"/api/project/archive/create",
+		"/api/project/archive/extract",
 		"/api/project/integrity?path=",
 		"action:'manifest'",
 		"action:'verify_manifest'",
@@ -138,5 +144,26 @@ func TestSharedProjectFileIntegrityActionsRemainReadOnlyUIWorkflows(t *testing.T
 	}
 	if strings.Contains(js, "action:'manifest_write'") {
 		t.Fatal("integrity manifest UI must not silently write into the project")
+	}
+}
+
+func TestProjectArchiveActionsExposeSafeProjectWorkflow(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/projectfileactions.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function projectArchiveKind(pathValue)",
+		"async function previewProjectArchive(pathValue)",
+		"async function createProjectArchive(paths,defaultOutput='')",
+		"async function extractProjectArchive(pathValue)",
+		"async function downloadProjectPathsAsZip(paths,name='taskdeck-selection.zip')",
+		"Existing destinations are never overwritten.",
+		"link.download=name||'taskdeck-selection.zip'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("project archive UI workflow missing %q", want)
+		}
 	}
 }
