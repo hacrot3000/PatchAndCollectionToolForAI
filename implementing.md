@@ -319,7 +319,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - multi-root trả virtual path `@root/<id>/...`, tôn trọng ignore, không follow symlink và dùng pinned/no-follow reads để tránh symlink race;
     - shared-server yêu cầu `files.read`; không cần LSP, ctags hay package bên thứ ba.
 
-16. **P1 — Terminal workspace nâng cao**
+16. **P1 — Terminal workspace nâng cao** — ✅ **COMPLETE**
     Terminal hiện đã khá mạnh. Phần nên thêm:
     - duplicate terminal;
     - clone terminal CWD + env;
@@ -335,6 +335,17 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     `Duplicate terminal here`
     và
     `Open terminal in selected file folder`.
+    
+    Hoàn tất:
+    - Duplicate terminal here clone local shell với CWD hiện tại + launch environment, đi xuyên session broker và giữ ownership/permission trong shared-server;
+    - terminal có thể move giữa các split group hiện có; validation chặn target/group không hợp lệ;
+    - Project Profile đóng vai trò terminal layout/startup preset: capture danh sách local terminal, CWD/title và split layout rồi recreate đúng mapping khi apply profile;
+    - Terminal Command Palette có shortcut Ctrl/Cmd+Shift+P và gom các action terminal/split/search/process phổ biến;
+    - Search all terminal scrollback tìm trên nhiều terminal và mở đúng session/kết quả;
+    - Broadcast preview yêu cầu confirm cho paste/input nhiều dòng, bracketed paste hoặc payload lớn trước khi fan-out;
+    - Broadcast Group có environment riêng dạng `NAME=VALUE`; action **NEW TERMINAL IN GROUP** tạo terminal với group env rồi assign vào group, explicit group env override env profile hiện tại;
+    - Explorer đã có **Open terminal here** cho folder hoặc thư mục chứa file đang chọn;
+    - terminal đang chạy không bị mutate environment; group environment chỉ áp dụng khi tạo terminal mới, tránh thay đổi process state ngoài ý muốn.
 
 17. **P1 — Terminal session recording**
     - Record command + output + exit code + duration.
