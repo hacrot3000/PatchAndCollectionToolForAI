@@ -200,7 +200,7 @@ function render(){
     const actions=document.createElement('div');actions.className='shell-history-actions';
     const copyCommand=document.createElement('button');copyCommand.textContent='Copy command';copyCommand.onclick=()=>copyText(item.command).catch(app.showError);
     const copyOutput=document.createElement('button');copyOutput.textContent='Copy output';copyOutput.disabled=!item.output;copyOutput.onclick=()=>copyText(item.output).catch(app.showError);
-    const bookmark=document.createElement('button');bookmark.textContent=item.bookmarkLine>0?'Change bookmark…':'Bookmark output line…';bookmark.disabled=!item.output;bookmark.onclick=()=>{try{bookmarkOutputLine(activeView,item);}catch(error){app.showError(error);}};
+    const bookmark=document.createElement('button');bookmark.textContent=item.bookmarkLine>0?'Change bookmark…':'Bookmark output line…';bookmark.disabled=!item.output||!loaded.has(historyID(activeView));bookmark.onclick=()=>{try{bookmarkOutputLine(activeView,item);}catch(error){app.showError(error);}};
     const run=document.createElement('button');run.textContent='Rerun';run.disabled=!activeView.canControl||activeView.tabReadOnly;run.onclick=()=>{try{if(rerun(activeView,item))closeDialog();}catch(error){app.showError(error);}};
     actions.append(copyCommand,copyOutput,bookmark,run);row.append(actions);list.append(row);
   }
@@ -217,9 +217,9 @@ function installAll(){for(const view of app.views.values())install(view);}
 installAll();
 window.addEventListener('taskmenu:session',event=>install(event.detail?.view));
 window.addEventListener('taskmenu:shell-integration',event=>{const view=event.detail?.view;if(view){install(view);updateButton(view);if(event.detail?.type==='command-finished')loadHistory(view).then(()=>scheduleSave(view));if(activeView===view&&backdrop.classList.contains('visible'))render();}});
-sessionNote.onclick=()=>{if(activeView)editSessionNote(activeView);};
-exportMarkdown.onclick=()=>{if(!activeView)return;downloadTextFile(exportFilename(activeView,'md'),sessionExport(activeView,true),'text/markdown');};
-exportText.onclick=()=>{if(!activeView)return;downloadTextFile(exportFilename(activeView,'txt'),sessionExport(activeView,false),'text/plain');};
-clear.onclick=()=>{if(!activeView)return;const state=integration.getState(activeView.meta.id);if(state)state.commands.splice(0);updateButton(activeView);render();loadHistory(activeView).then(()=>scheduleSave(activeView,0));};
+sessionNote.onclick=()=>{const view=activeView;if(!view)return;loadHistory(view).then(()=>{if(activeView===view)editSessionNote(view);});};
+exportMarkdown.onclick=()=>{const view=activeView;if(!view)return;loadHistory(view).then(()=>downloadTextFile(exportFilename(view,'md'),sessionExport(view,true),'text/markdown'));};
+exportText.onclick=()=>{const view=activeView;if(!view)return;loadHistory(view).then(()=>downloadTextFile(exportFilename(view,'txt'),sessionExport(view,false),'text/plain'));};
+clear.onclick=()=>{const view=activeView;if(!view)return;loadHistory(view).then(()=>{const state=integration.getState(view.meta.id);if(state)state.commands.splice(0);updateButton(view);if(activeView===view)render();scheduleSave(view,0);});};
 
 globalThis.TaskDeckShellHistory={open,rerun};
