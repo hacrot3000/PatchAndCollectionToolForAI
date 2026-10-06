@@ -19,6 +19,29 @@ function setSelected(value){projectOverride=null;try{if(value)localStorage.setIt
 function currentEnv(){if(projectOverride)return {...projectOverride.env};const name=selectedName();if(!name)return {};return readProfiles()[name]||{};}
 function applySnapshot(name,env){projectOverride={name:String(name||'Project profile environment').trim()||'Project profile environment',env:normalizeEnvObject(env)};refreshSelect();return {...projectOverride.env};}
 function clearOverride(){projectOverride=null;refreshSelect();}
+function normalizeProfileSet(value){
+  const source=value&&typeof value==='object'&&!Array.isArray(value)?value:{};
+  const out={};
+  for(const [name,env] of Object.entries(source)){
+    const clean=String(name||'').trim();
+    if(!clean||clean.length>120||/[\r\n\0]/.test(clean))throw new Error('Invalid environment profile name: '+name);
+    out[clean]=normalizeEnvObject(env);
+  }
+  return out;
+}
+function replaceAllProfiles(value,{selected=''}={}){
+  const normalized=normalizeProfileSet(value);writeProfiles(normalized);
+  selected=String(selected||'').trim();
+  setSelected(selected&&normalized[selected]?selected:'');
+  return {...normalized};
+}
+function mergeAllProfiles(value,{selected=''}={}){
+  const normalized=normalizeProfileSet(value);
+  const merged={...readProfiles(),...normalized};writeProfiles(merged);
+  selected=String(selected||'').trim();
+  if(selected&&merged[selected])setSelected(selected);else refreshSelect();
+  return {...merged};
+}
 function parseEnvLines(text){
   const out={};for(const raw of String(text||'').split(/\r?\n/)){const line=raw.trim();if(!line||line.startsWith('#'))continue;const i=line.indexOf('=');if(i<1)throw new Error(`Invalid environment line: ${raw}`);const key=line.slice(0,i).trim();if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))throw new Error(`Invalid environment variable name: ${key}`);out[key]=line.slice(i+1);}
   return out;
@@ -64,6 +87,8 @@ globalThis.TaskMenuEnvProfiles={
   currentEnv,
   applySnapshot,
   clearOverride,
+  replaceAll:replaceAllProfiles,
+  mergeAll:mergeAllProfiles,
   has(name){name=String(name||'').trim();return !name||Object.prototype.hasOwnProperty.call(readProfiles(),name);},
   select(name){
     name=String(name||'').trim();
