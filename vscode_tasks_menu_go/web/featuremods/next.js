@@ -13,6 +13,7 @@ import '/featuremods/shellintegration.js';
 import '/featuremods/shellhistory.js';
 import '/featuremods/database.js';
 import '/featuremods/database_workbench.js';
+import '/featuremods/database_schema_diff.js';
 import '/featuremods/projectfileactions.js';
 import '/featuremods/hexviewer.js';
 import '/featuremods/filecompare.js';
