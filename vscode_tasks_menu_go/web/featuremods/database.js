@@ -2163,6 +2163,24 @@ function syncAllQueryTransactionControls(root){
   for(const queryView of databaseQueryViews(root))syncQueryTransactionControls(queryView);
 }
 
+function transactionWorkspaceHasPendingChanges(root){
+  root=databaseTransactionRoot(root);
+  for(const queryView of databaseQueryViews(root)){
+    if(queryResultHasPendingChanges(queryView))return true;
+  }
+  return Boolean(globalThis.TaskMenuDatabaseWorkbench?.hasPendingGridChanges?.(root));
+}
+
+async function refreshTransactionWorkspace(root){
+  root=databaseTransactionRoot(root);
+  await globalThis.TaskMenuDatabaseWorkbench?.refreshAfterTransaction?.(root);
+  for(const queryView of databaseQueryViews(root)){
+    const statement=String(queryView.resultStatement||queryView.lastExecutedStatement||'').trim();
+    if(!statement||!/^(?:select|with)\b/i.test(statement))continue;
+    try{await refreshQueryResult(queryView);}catch(error){console.warn('Transaction query-result refresh failed',error);}
+  }
+}
+
 async function transactionAction(view,operation){
   const root=databaseTransactionRoot(view);
   if(!databaseSupports(view,'transactions'))throw new Error('This database adapter does not support explicit transactions');
@@ -2170,7 +2188,9 @@ async function transactionAction(view,operation){
   const active=Boolean(root.transactionActive||root.meta?.transaction_active);
   if(operation==='begin'&&active)return;
   if((operation==='commit'||operation==='rollback')&&!active)return;
-  if((operation==='commit'||operation==='rollback')&&queryResultHasPendingChanges(view)&&!confirm('Discard unsaved result-grid edits before '+operation+'?'))return;
+  if((operation==='commit'||operation==='rollback')&&transactionWorkspaceHasPendingChanges(root)){
+    throw new Error('Apply or Revert pending Data Grid / query-result edits before '+operation);
+  }
   const result=await sessionRequest(root.meta.id,operation);
   root.transactionActive=Boolean(result?.active);
   if(root.meta)root.meta.transaction_active=root.transactionActive;
@@ -2178,6 +2198,7 @@ async function transactionAction(view,operation){
     for(const queryView of databaseQueryViews(root)){
       queryView.queryDirtyRows=new Map();queryView.queryNewRows=[];queryView.querySelectedRows?.clear?.();
     }
+    await refreshTransactionWorkspace(root);
   }
   syncAllQueryTransactionControls(root);
   return result;
