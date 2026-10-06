@@ -905,6 +905,7 @@ async function closeEditor(id){
 function destroyEditor(id){
   const view=editors.get(id);if(!view)return;
   clearTimeout(view.autoSaveTimer);view.autoSaveTimer=null;
+  if(view.minimapRAF){cancelAnimationFrame(view.minimapRAF);view.minimapRAF=0;}
   view.closed=true;
   detachEditorFromSplit(id);
   try{view.cm.destroy();}catch{}
