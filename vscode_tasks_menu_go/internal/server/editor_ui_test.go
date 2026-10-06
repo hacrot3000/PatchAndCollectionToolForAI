@@ -493,6 +493,26 @@ func TestEditorLargeFileMode(t *testing.T) {
 	}
 }
 
+func TestEditorSavePreservesCursorSelectionAndViewport(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function applySavedEditorFile(view,file)",
+		"const editorContent=view.cm.state.doc.toString()",
+		"view.file={...file,content:editorContent}",
+		"applySavedEditorFile(view,result.file)",
+		"save.onmousedown=event=>event.preventDefault()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor save state preservation missing %q", want)
+		}
+	}
+	if strings.Contains(js, "setEditorDocument(view,result.file)") {
+		t.Fatal("successful save must not replace the CodeMirror document and reset cursor/selection/scroll")
+	}
+}
+
 func TestEditorConfigurableAutoSave(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/editor.js")
 	if err != nil { t.Fatal(err) }

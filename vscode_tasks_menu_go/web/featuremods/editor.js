@@ -743,6 +743,27 @@ function setEditorDocument(view,file){
   setDirty(view,false);
   scheduleEditorMinimap(view);
 }
+function applySavedEditorFile(view,file){
+  if(!view||view.closed||!file)return;
+  const editorContent=view.cm.state.doc.toString();
+  view.file={...file,content:editorContent};
+  view.desiredLineEnding=file.line_ending||view.desiredLineEnding||'lf';
+  view.desiredEncoding=editorEncodingChoice(file);
+  syncEditorFormatControls(view);
+  view.path.textContent=file.path;
+  view.path.title=file.path;
+  updateEditorBreadcrumb(view);
+  view.meta.textContent=editorMetaText(file);
+  view.warningBadge.hidden=!file.warning;
+  view.warningBadge.textContent=file.warning?'WARNING':'';
+  view.warningBadge.title=file.warning||'';
+  if(view.largeFileBadge)view.largeFileBadge.hidden=!file.large_file;
+  view.pane.classList.toggle('editor-large-file-mode',Boolean(file.large_file));
+  applyReadOnly(view);
+  updateAutoSaveButton(view);
+  setDirty(view,false);
+  scheduleEditorMinimap(view);
+}
 function activateEditorDOM(id){
   activeEditorID=id;
   const root=editorFindSplitRoot(id);
@@ -1123,7 +1144,7 @@ async function resolveSaveConflict(view){
     if(choice==='overwrite'){
       const result=await putEditorFile(view,latest.sha256);
       if(result.conflict)continue;
-      setEditorDocument(view,result.file);
+      applySavedEditorFile(view,result.file);
       return result.file;
     }
   }
@@ -1136,7 +1157,7 @@ async function saveEditor(view){
   try{
     const result=await putEditorFile(view,view.file.sha256);
     if(result.conflict)return resolveSaveConflict(view);
-    setEditorDocument(view,result.file);
+    applySavedEditorFile(view,result.file);
     if(result.file.history_warning)app.showError(new Error(result.file.history_warning));
     return result.file;
   }finally{
@@ -1282,6 +1303,7 @@ function createEditor(file){
   },true);
   tab.onclick=()=>activateEditor(id,{force:true});
   close.onclick=event=>{event.stopPropagation();closeEditor(id).catch(app.showError);};
+  save.onmousedown=event=>event.preventDefault();
   save.onclick=()=>saveEditor(view).catch(app.showError);
   autoSave.onclick=()=>setEditorAutoSave(!editorAutoSaveEnabled);
   lineEndingSelect.onchange=()=>{
@@ -1353,7 +1375,7 @@ async function handleExternalFileChange(view,latest=null){
       if(choice==='overwrite'){
         const result=await putEditorFile(view,latest.sha256);
         if(result.conflict){latest=await readLatestEditorFile(view);continue;}
-        setEditorDocument(view,result.file);
+        applySavedEditorFile(view,result.file);
         return true;
       }
     }
