@@ -26,10 +26,22 @@ type configBackupSettings struct {
 	SelfUpdate       config.SelfUpdateSettings       `json:"self_update"`
 }
 
+type configBackupSSHProfile struct {
+	sshprofile.Profile
+	CredentialRequired bool `json:"credential_required,omitempty"`
+}
+type configBackupDBProfile struct {
+	dbprofile.Profile
+	CredentialRequired bool `json:"credential_required,omitempty"`
+}
+type configBackupTransferProfile struct {
+	filetransferprofile.Profile
+	CredentialRequired bool `json:"credential_required,omitempty"`
+}
 type configBackupConnections struct {
-	SSH          []sshprofile.Profile          `json:"ssh,omitempty"`
-	Database     []dbprofile.Profile           `json:"database,omitempty"`
-	FileTransfer []filetransferprofile.Profile `json:"file_transfer,omitempty"`
+	SSH          []configBackupSSHProfile      `json:"ssh,omitempty"`
+	Database     []configBackupDBProfile       `json:"database,omitempty"`
+	FileTransfer []configBackupTransferProfile `json:"file_transfer,omitempty"`
 }
 
 type configBackupClient struct {
@@ -62,15 +74,23 @@ type localConfigRestoreState struct {
 	FileTransfer []filetransferprofile.Profile
 }
 
-func stripConnectionSecrets(connections configBackupConnections) configBackupConnections {
-	out := configBackupConnections{
-		SSH: append([]sshprofile.Profile(nil), connections.SSH...),
-		Database: append([]dbprofile.Profile(nil), connections.Database...),
-		FileTransfer: append([]filetransferprofile.Profile(nil), connections.FileTransfer...),
+func stripConnectionSecrets(sshProfiles []sshprofile.Profile, dbProfiles []dbprofile.Profile, transferProfiles []filetransferprofile.Profile) configBackupConnections {
+	out := configBackupConnections{}
+	for _, profile := range sshProfiles {
+		required := strings.TrimSpace(profile.SecretRef) != ""
+		profile.SecretRef = ""
+		out.SSH = append(out.SSH, configBackupSSHProfile{Profile: profile, CredentialRequired: required})
 	}
-	for i := range out.SSH { out.SSH[i].SecretRef = "" }
-	for i := range out.Database { out.Database[i].SecretRef = "" }
-	for i := range out.FileTransfer { out.FileTransfer[i].SecretRef = "" }
+	for _, profile := range dbProfiles {
+		required := strings.TrimSpace(profile.SecretRef) != ""
+		profile.SecretRef = ""
+		out.Database = append(out.Database, configBackupDBProfile{Profile: profile, CredentialRequired: required})
+	}
+	for _, profile := range transferProfiles {
+		required := strings.TrimSpace(profile.SecretRef) != ""
+		profile.SecretRef = ""
+		out.FileTransfer = append(out.FileTransfer, configBackupTransferProfile{Profile: profile, CredentialRequired: required})
+	}
 	return out
 }
 
@@ -129,14 +149,7 @@ func (s *Server) captureConfigBackup() (configBackupBundle, localConfigRestoreSt
 		Database: append([]dbprofile.Profile(nil), dbProfiles...),
 		FileTransfer: append([]filetransferprofile.Profile(nil), transferProfiles...),
 	}
-	out.Connections = stripConnectionSecrets(configBackupConnections{
-		SSH: sshProfiles, Database: dbProfiles, FileTransfer: transferProfiles,
-	})
-	actual.Bundle.Connections = configBackupConnections{
-		SSH: append([]sshprofile.Profile(nil), sshProfiles...),
-		Database: append([]dbprofile.Profile(nil), dbProfiles...),
-		FileTransfer: append([]filetransferprofile.Profile(nil), transferProfiles...),
-	}
+	out.Connections = stripConnectionSecrets(sshProfiles, dbProfiles, transferProfiles)
 	return out, actual, nil
 }
 
@@ -151,13 +164,23 @@ func normalizeRestoreMode(value string) (string, error) {
 	}
 }
 
-func mergeSSHProfiles(current, incoming []sshprofile.Profile, replace bool) ([]sshprofile.Profile, error) {
+func missingImportedSecretRef(kind, id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" { id = "unknown" }
+	return "managed/import/" + kind + "/" + id
+}
+
+func mergeSSHProfiles(current []sshprofile.Profile, incoming []configBackupSSHProfile, replace bool) ([]sshprofile.Profile, error) {
 	byID := map[string]sshprofile.Profile{}
 	if !replace { for _, p := range current { byID[p.ID] = p } }
 	currentSecrets := map[string]string{}
 	for _, p := range current { currentSecrets[p.ID] = p.SecretRef }
-	for _, p := range incoming {
+	for _, item := range incoming {
+		p := item.Profile
 		p.SecretRef = currentSecrets[p.ID]
+		if p.SecretRef == "" && item.CredentialRequired {
+			p.SecretRef = missingImportedSecretRef("ssh", p.ID)
+		}
 		normalized, err := sshprofile.Normalize(p)
 		if err != nil { return nil, err }
 		byID[normalized.ID] = normalized
@@ -167,13 +190,17 @@ func mergeSSHProfiles(current, incoming []sshprofile.Profile, replace bool) ([]s
 	return out,nil
 }
 
-func mergeDBProfiles(current, incoming []dbprofile.Profile, replace bool) ([]dbprofile.Profile, error) {
+func mergeDBProfiles(current []dbprofile.Profile, incoming []configBackupDBProfile, replace bool) ([]dbprofile.Profile, error) {
 	byID := map[string]dbprofile.Profile{}
 	if !replace { for _, p := range current { byID[p.ID] = p } }
 	currentSecrets := map[string]string{}
 	for _, p := range current { currentSecrets[p.ID] = p.SecretRef }
-	for _, p := range incoming {
+	for _, item := range incoming {
+		p := item.Profile
 		p.SecretRef = currentSecrets[p.ID]
+		if p.SecretRef == "" && item.CredentialRequired {
+			p.SecretRef = missingImportedSecretRef("database", p.ID)
+		}
 		normalized, err := dbprofile.Normalize(p)
 		if err != nil { return nil, err }
 		byID[normalized.ID] = normalized
@@ -183,13 +210,17 @@ func mergeDBProfiles(current, incoming []dbprofile.Profile, replace bool) ([]dbp
 	return out,nil
 }
 
-func mergeTransferProfiles(current, incoming []filetransferprofile.Profile, replace bool) ([]filetransferprofile.Profile, error) {
+func mergeTransferProfiles(current []filetransferprofile.Profile, incoming []configBackupTransferProfile, replace bool) ([]filetransferprofile.Profile, error) {
 	byID := map[string]filetransferprofile.Profile{}
 	if !replace { for _, p := range current { byID[p.ID] = p } }
 	currentSecrets := map[string]string{}
 	for _, p := range current { currentSecrets[p.ID] = p.SecretRef }
-	for _, p := range incoming {
+	for _, item := range incoming {
+		p := item.Profile
 		p.SecretRef = currentSecrets[p.ID]
+		if p.SecretRef == "" && item.CredentialRequired {
+			p.SecretRef = missingImportedSecretRef("file-transfer", p.ID)
+		}
 		normalized, err := filetransferprofile.Normalize(p)
 		if err != nil { return nil, err }
 		byID[normalized.ID] = normalized
@@ -218,10 +249,24 @@ func validateConfigBackupBundle(bundle configBackupBundle) (configBackupBundle, 
 			return bundle, fmt.Errorf("project profile %d is invalid", i+1)
 		}
 	}
-	bundle.Connections = stripConnectionSecrets(bundle.Connections)
-	for _, p := range bundle.Connections.SSH { if _, err := sshprofile.Normalize(p); err != nil { return bundle, err } }
-	for _, p := range bundle.Connections.Database { if _, err := dbprofile.Normalize(p); err != nil { return bundle, err } }
-	for _, p := range bundle.Connections.FileTransfer { if _, err := filetransferprofile.Normalize(p); err != nil { return bundle, err } }
+	for i := range bundle.Connections.SSH {
+		bundle.Connections.SSH[i].Profile.SecretRef = ""
+		p := bundle.Connections.SSH[i].Profile
+		if bundle.Connections.SSH[i].CredentialRequired { p.SecretRef = missingImportedSecretRef("ssh",p.ID) }
+		if _, err := sshprofile.Normalize(p); err != nil { return bundle, err }
+	}
+	for i := range bundle.Connections.Database {
+		bundle.Connections.Database[i].Profile.SecretRef = ""
+		p := bundle.Connections.Database[i].Profile
+		if bundle.Connections.Database[i].CredentialRequired { p.SecretRef = missingImportedSecretRef("database",p.ID) }
+		if _, err := dbprofile.Normalize(p); err != nil { return bundle, err }
+	}
+	for i := range bundle.Connections.FileTransfer {
+		bundle.Connections.FileTransfer[i].Profile.SecretRef = ""
+		p := bundle.Connections.FileTransfer[i].Profile
+		if bundle.Connections.FileTransfer[i].CredentialRequired { p.SecretRef = missingImportedSecretRef("file-transfer",p.ID) }
+		if _, err := filetransferprofile.Normalize(p); err != nil { return bundle, err }
+	}
 	return bundle,nil
 }
 
