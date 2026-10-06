@@ -47,7 +47,25 @@ function registerAction(addonID,spec){
   const item={addon_id:addonID,id,label:String(spec.label||id),keywords:String(spec.keywords||''),permissions:Array.isArray(spec.permissions)?spec.permissions.map(String):[],background:Boolean(spec.background),run:spec.run};
   actions.set(actionKey(addonID,id),item);return item;
 }
-function registerBackgroundJob(addonID,spec){return registerAction(addonID,{...spec,background:true});}
+function registerBackgroundJob(addonID,spec){
+  if(typeof spec?.run!=='function')throw new Error('Background add-on job requires run callback');
+  const original=spec.run;
+  return registerAction(addonID,{...spec,background:true,run:async context=>{
+    const controller=new AbortController();
+    const operation=globalThis.TaskMenuOperationCenter?.begin?.({
+      source:'addon',title:'Add-on · '+String(spec.label||spec.id||'Background job'),detail:String(addonID),
+      cancel:()=>controller.abort()
+    });
+    try{
+      const result=await original({...context,signal:controller.signal});
+      operation?.complete?.({detail:String(result?.message||'Completed')});
+      return result;
+    }catch(error){
+      operation?.fail?.(error);
+      throw error;
+    }
+  }});
+}
 function registerPanel(addonID,spec){
   addonID=normalizeID(addonID);const id=normalizeID(spec?.id);
   if(!addonID||!id)throw new Error('Add-on panel requires addon id and panel id');
