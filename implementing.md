@@ -565,7 +565,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Database/File Transfer expose read-only profile getters thay vì Quick Open đọc private module state;
     - regression test giữ contract file-search cũ và khóa recent/tab/session/database/connection sources, prefix routing và single-hotkey ownership.
 
-26. **P1 — Unified Activity/Operation Center**
+26. **P1 — Unified Activity/Operation Center** — ✅ **COMPLETE**
     Hiện nhiều subsystem đều có background work riêng.
     
     Nên gom:
@@ -588,6 +588,19 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - clear completed.
     
     Đây sẽ giúp kiến trúc UI thống nhất hơn đáng kể.
+
+    Hoàn tất:
+    - Operation Center là panel tổng hợp, **không tạo scheduler/job engine thứ hai**; mỗi source expose snapshot/control adapter hoặc được đọc từ API hiện hữu;
+    - Git background job API hỗ trợ list toàn bộ jobs, newest-first và bounded 100 record; running jobs không bị retention eviction;
+    - file-transfer adapter gom Host↔Remote copy/delete/SFTP/FTP queue theo profile, dùng chính `remove_selected / retry_failed / clear_done` semantics;
+    - Patch adapter expose foreground + background Patch/COLLECT sessions và Cancel qua session stop API;
+    - Task source gom task session đang chạy với durable task-run history; Retry chạy lại task definition hiện tại, Open đưa về active tab hoặc History;
+    - self-update expose running/completed/failed state và retry qua workflow self-update hiện hữu;
+    - DB streamed import, query export và table export publish operation browser-local quanh chính request/save workflow, không thay đổi DB adapter execution;
+    - panel chuẩn hóa đúng 4 nhóm **Queued / Running / Completed / Failed**, poll khi panel visible và có activity-bar launcher + command-palette action;
+    - action **Cancel / Retry / Open / Copy error** chỉ hiện khi source thực sự hỗ trợ; Clear completed ẩn completed history mà không chạm operation đang chạy;
+    - Git/Task/Patch/Transfer controls vẫn đi qua permission/session ownership/shared-server backend hiện hữu;
+    - regression test khóa source matrix, delegated controls, DB tracking, import order và Git job listing/retention.
 
 27. **P2 — Database schema diff**
     Vì DB module đã khá mạnh:
