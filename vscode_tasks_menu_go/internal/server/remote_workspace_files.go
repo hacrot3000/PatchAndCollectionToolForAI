@@ -1,8 +1,12 @@
 package server
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	pathpkg "path"
 	"strings"
@@ -63,6 +67,21 @@ func remoteWorkspaceResolvePath(root, relative string) (string, error) {
 	return resolved, nil
 }
 
+func (s *Server) canonicalRemoteWorkspacePath(ctx context.Context, workspace remoteWorkspaceProfile, profile filetransferprofile.Profile, remotePath string) (string, error) {
+	root := remoteArchiveShellQuote(workspace.RemoteRoot)
+	target := remoteArchiveShellQuote(remotePath)
+	command := "set -eu; command -v realpath >/dev/null 2>&1; root=$(realpath -- "+root+"); target=$(realpath -- "+target+"); case \"$target\" in \"$root\"|\"$root\"/*) printf '%s\\n' \"$target\" ;; *) echo 'remote workspace path escapes canonical root' >&2; exit 42 ;; esac"
+	output, err := s.runSFTPLinkedSSHCommand(ctx, profile, command)
+	if err != nil {
+		return "", fmt.Errorf("validate remote workspace canonical path: %w", err)
+	}
+	canonical := strings.TrimSpace(output)
+	if canonical == "" || !strings.HasPrefix(canonical, "/") || strings.ContainsAny(canonical, "\x00\r\n") {
+		return "", errors.New("remote workspace canonical path is invalid")
+	}
+	return canonical, nil
+}
+
 func (s *Server) resolveRemoteWorkspace(id string) (remoteWorkspaceProfile, filetransferprofile.Profile, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -96,6 +115,9 @@ func (s *Server) resolveRemoteWorkspace(id string) (remoteWorkspaceProfile, file
 func (s *Server) listRemoteWorkspacePath(r *http.Request, workspace remoteWorkspaceProfile, profile filetransferprofile.Profile, relative string) (string, []fileTransferEntry, error) {
 	remotePath, err := remoteWorkspaceResolvePath(workspace.RemoteRoot, relative)
 	if err != nil {
+		return "", nil, err
+	}
+	if _, err := s.canonicalRemoteWorkspacePath(r.Context(), workspace, profile, remotePath); err != nil {
 		return "", nil, err
 	}
 	command, err := sftpclient.ListCommand(remotePath)
@@ -169,6 +191,12 @@ func (s *Server) remoteWorkspaceFilesAPI(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if req.Operation == "read" || req.Operation == "write" {
+		if _, err := s.canonicalRemoteWorkspacePath(r.Context(), workspace, profile, remotePath); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
 	}
 
 	switch req.Operation {
@@ -246,6 +274,13 @@ func (s *Server) remoteWorkspaceFilesAPI(w http.ResponseWriter, r *http.Request)
 		writtenSHA, err := s.backgroundRemoteSHA256(r.Context(), profile.ID, remotePath)
 		if err != nil {
 			http.Error(w, "remote write verification failed", http.StatusBadGateway)
+			return
+		}
+		sum := sha256.Sum256(content)
+		expectedWrittenSHA := hex.EncodeToString(sum[:])
+		if !strings.EqualFold(writtenSHA, expectedWrittenSHA) {
+			s.auditSharedResult(r, "remote_workspace.write", "remote_workspace", workspace.ID, "error", nil)
+			http.Error(w, "remote write verification hash mismatch", http.StatusBadGateway)
 			return
 		}
 		s.auditSharedSuccess(r, "remote_workspace.write", "remote_workspace", workspace.ID, nil)
