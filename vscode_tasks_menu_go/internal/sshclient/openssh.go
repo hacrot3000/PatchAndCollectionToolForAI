@@ -70,6 +70,22 @@ func BuildProbeCommand(executable string, profile sshprofile.Profile) (Command, 
 	return buildCommand(executable, profile, "-T", true, false)
 }
 
+func BuildRemoteCommand(executable string, profile sshprofile.Profile, remoteCommand string) (Command, error) {
+	remoteCommand = strings.TrimSpace(remoteCommand)
+	if remoteCommand == "" {
+		return Command{}, errors.New("remote SSH command is required")
+	}
+	if len(remoteCommand) > 32768 || strings.ContainsRune(remoteCommand, '\x00') {
+		return Command{}, errors.New("remote SSH command is invalid")
+	}
+	command, err := buildCommand(executable, profile, "-T", false, false)
+	if err != nil {
+		return Command{}, err
+	}
+	command.Args = append(command.Args, remoteCommand)
+	return command, nil
+}
+
 func buildCommand(executable string, profile sshprofile.Profile, ttyFlag string, probe bool, includeProfileForwardings bool) (Command, error) {
 	executable = strings.TrimSpace(executable)
 	if executable == "" {
