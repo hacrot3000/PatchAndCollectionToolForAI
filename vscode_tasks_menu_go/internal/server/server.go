@@ -162,6 +162,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/project/file-history", s.projectFileHistory)
 	mux.HandleFunc("/api/project/bytes", s.projectBytes)
 	mux.HandleFunc("/api/project/integrity", s.projectIntegrity)
+	mux.HandleFunc("/api/project/archive/preview", s.projectArchivePreview)
 	mux.HandleFunc("/api/project/mutate", s.projectMutate)
 	mux.HandleFunc("/api/project/git-status", s.projectGitStatus)
 	mux.HandleFunc("/api/project/files/search", s.projectFileSearch)
