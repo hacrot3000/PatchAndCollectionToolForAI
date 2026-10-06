@@ -49,7 +49,7 @@ func TestProjectSearchFeatureIsLoadedAndExposedInFilesMenu(t *testing.T) {
 	for _, want := range []string{
 		"Search in Files…  Ctrl+Shift+F",
 		"globalThis.TaskMenuProjectSearch?.open()",
-		"addSection(files.pop,'OPEN',[quickOpen,searchFiles,explorer])",
+		"addSection(files.pop,'OPEN',[quickOpen,searchFiles,symbols,explorer])",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("Files menu missing project search contract %q", want)
