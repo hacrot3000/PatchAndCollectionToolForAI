@@ -23,6 +23,8 @@ html[data-taskmenu-theme="light"] .editor-head .editor-format{background:#fff;bo
 .editor-host .cm-scroller{overflow:auto;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
 .cm-legacy-keyword{color:#c792ea}.cm-legacy-comment{color:#6a9955;font-style:italic}.cm-legacy-string{color:#ce9178}.cm-legacy-number{color:#b5cea8}.cm-legacy-variable{color:#9cdcfe}.cm-legacy-command{color:#dcdcaa}
 .cm-taskdeck-active-line{background:rgba(110,160,220,.075)}
+.cm-taskdeck-bracket-match{background:rgba(90,170,255,.20);outline:1px solid rgba(120,190,255,.65);border-radius:2px}
+.cm-taskdeck-bracket-mismatch{background:rgba(255,90,105,.18);outline:1px solid rgba(255,105,120,.75);border-radius:2px}
 .editor-pane.editor-show-whitespace .cm-taskdeck-space::before{content:'·';position:absolute;color:rgba(155,175,205,.42);pointer-events:none}
 .editor-pane.editor-show-whitespace .cm-taskdeck-tab::before{content:'→';position:absolute;color:rgba(155,175,205,.42);pointer-events:none}
 .editor-pane.editor-show-whitespace .cm-taskdeck-space,.editor-pane.editor-show-whitespace .cm-taskdeck-tab{position:relative}
@@ -422,6 +424,62 @@ function activeLineDecorationExtension(){
   },{decorations:value=>value.decorations});
 }
 
+const taskDeckBracketMatchMark=globalThis.cm6.Decoration.mark({class:'cm-taskdeck-bracket-match'});
+const taskDeckBracketMismatchMark=globalThis.cm6.Decoration.mark({class:'cm-taskdeck-bracket-mismatch'});
+const taskDeckBracketPairs={40:41,91:93,123:125};
+const taskDeckBracketReverse={41:40,93:91,125:123};
+const taskDeckBracketScanLimit=200000;
+function bracketCandidateAtCursor(state){
+  const head=state.selection.main.head,doc=state.doc;
+  for(const pos of [head,head-1]){
+    if(pos<0||pos>=doc.length)continue;
+    const code=doc.sliceString(pos,pos+1).charCodeAt(0);
+    if(taskDeckBracketPairs[code]||taskDeckBracketReverse[code])return {pos,code};
+  }
+  return null;
+}
+function findMatchingBracket(state,candidate){
+  const doc=state.doc,{pos,code}=candidate;
+  const forward=Boolean(taskDeckBracketPairs[code]);
+  const open=forward?code:taskDeckBracketReverse[code];
+  const close=forward?taskDeckBracketPairs[code]:code;
+  let depth=0,steps=0;
+  if(forward){
+    for(let at=pos;at<doc.length&&steps<taskDeckBracketScanLimit;at++,steps++){
+      const current=doc.sliceString(at,at+1).charCodeAt(0);
+      if(current===open)depth++;
+      else if(current===close&&--depth===0)return at;
+    }
+  }else{
+    for(let at=pos;at>=0&&steps<taskDeckBracketScanLimit;at--,steps++){
+      const current=doc.sliceString(at,at+1).charCodeAt(0);
+      if(current===close)depth++;
+      else if(current===open&&--depth===0)return at;
+    }
+  }
+  return -1;
+}
+function buildBracketDecorations(view){
+  const builder=new globalThis.cm6.RangeSetBuilder();
+  const candidate=bracketCandidateAtCursor(view.state);
+  if(!candidate)return builder.finish();
+  const match=findMatchingBracket(view.state,candidate);
+  if(match<0){
+    builder.add(candidate.pos,candidate.pos+1,taskDeckBracketMismatchMark);
+    return builder.finish();
+  }
+  const first=Math.min(candidate.pos,match),second=Math.max(candidate.pos,match);
+  builder.add(first,first+1,taskDeckBracketMatchMark);
+  if(second!==first)builder.add(second,second+1,taskDeckBracketMatchMark);
+  return builder.finish();
+}
+function bracketMatchingExtension(){
+  return globalThis.cm6.ViewPlugin.fromClass(class{
+    constructor(view){this.decorations=buildBracketDecorations(view);}
+    update(update){if(update.docChanged||update.selectionSet)this.decorations=buildBracketDecorations(update.view);}
+  },{decorations:value=>value.decorations});
+}
+
 function languageOptions(pathValue){
   const lower=String(pathValue||'').toLowerCase();
   const name=basename(lower);
@@ -447,7 +505,7 @@ function languageOptions(pathValue){
   else if(ext==='rs')options.rust=true;
   else if(ext==='vue')options.vue=true;
   const legacy=legacyHighlightKind(pathValue);
-  options.extraExtensions=[activeLineDecorationExtension(),whitespaceDecorationExtension()];
+  options.extraExtensions=[activeLineDecorationExtension(),whitespaceDecorationExtension(),bracketMatchingExtension()];
   if(legacy)options.extraExtensions.push(legacySyntaxExtension(legacy));
   return options;
 }
