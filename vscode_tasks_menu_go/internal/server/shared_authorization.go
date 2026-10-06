@@ -178,6 +178,11 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionApprovalsManage}
 	case "/api/approvals/resolve":
 		return []string{identity.PermissionApprovalsManage}
+	case "/api/secrets":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSecretsView}
+		}
+		return []string{identity.PermissionSecretsManage}
 	case "/api/tasks":
 		return []string{identity.PermissionTasksView}
 	case "/api/task-runs":
