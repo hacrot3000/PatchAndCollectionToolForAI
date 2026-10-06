@@ -113,7 +113,7 @@ function decoratePane(view){
     ['LIFECYCLE',['.stop','.session-terminate','.session-force-kill']]
   ]);
   const consoleMenu=paneMenu(view,'Console',[
-    ['CONSOLE',['.copy-console','.console-search-btn','.console-save-btn','.session-clear-console']]
+    ['CONSOLE',['.copy-console','.console-search-btn','.console-search-all-btn','.console-save-btn','.session-clear-console']]
   ]);
   if(session)host.append(session);if(consoleMenu)host.append(consoleMenu);
   if(host.childElementCount)head.append(host);
