@@ -110,6 +110,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/browser/lease", s.browserLeaseAPI)
 	mux.HandleFunc("/api/mutation-lock", s.sharedMutationStatus)
 	mux.HandleFunc("/api/tasks", s.tasks)
+	mux.HandleFunc("/api/task-runs", s.taskRuns)
+	mux.HandleFunc("/api/task-runs/log", s.taskRunLog)
 	mux.HandleFunc("/api/state/tasks", s.taskState)
 	mux.HandleFunc("/api/workspace-snapshots", s.workspaceSnapshots)
 	mux.HandleFunc("/api/project-profiles", s.projectProfiles)
