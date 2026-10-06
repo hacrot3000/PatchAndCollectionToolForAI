@@ -727,3 +727,28 @@ func TestApplyProjectLineEndingMode(t *testing.T) {
 		t.Fatalf("crlf label=%q got=%q", label, got)
 	}
 }
+
+
+func TestProjectFileMetadataReadAvoidsContentPayload(t *testing.T) {
+	root := t.TempDir()
+	content := []byte("generated content\n")
+	if err := os.WriteFile(filepath.Join(root, "generated.txt"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Workspace: root}
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/project/file?meta=1&path=generated.txt", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("metadata status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var meta projectFileMetadata
+	if err := json.Unmarshal(rr.Body.Bytes(), &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.Path != "generated.txt" || meta.Size != int64(len(content)) || meta.MtimeNS <= 0 {
+		t.Fatalf("metadata=%+v", meta)
+	}
+	if strings.Contains(rr.Body.String(), "generated content") || strings.Contains(rr.Body.String(), "\"content\"") {
+		t.Fatalf("metadata-only response unexpectedly included file content: %s", rr.Body.String())
+	}
+}
