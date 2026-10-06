@@ -347,7 +347,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Explorer đã có **Open terminal here** cho folder hoặc thư mục chứa file đang chọn;
     - terminal đang chạy không bị mutate environment; group environment chỉ áp dụng khi tạo terminal mới, tránh thay đổi process state ngoài ý muốn.
 
-17. **P1 — Terminal session recording**
+17. **P1 — Terminal session recording** — ✅ **COMPLETE**
     - Record command + output + exit code + duration.
     - Export session Markdown/text.
     - Bookmark output line.
@@ -355,6 +355,16 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Restore command history after daemon restart.
     
     Có thể dùng rất tốt khi debug firmware/server.
+    
+    Hoàn tất:
+    - local Bash shell integration dùng OSC 7/133 để lấy semantic CWD, command boundary và exit status; Commands history lưu command/output/exit code/duration/CWD và hỗ trợ Rerun;
+    - history được persist server-side trong file project-local bounded/atomic `.vscode/vscode_tasks_menu.terminal_history.json` với mode `0600`, tối đa 64 session và 200 command/session; command/output/note đều có size cap;
+    - browser hydrate persisted history vào đúng state OSC hiện có và auto-save khi command hoàn tất; Clear history có confirmation và cập nhật persistent store;
+    - Export Markdown/text dùng dữ liệu recording đã hydrate, escape Markdown fence theo content và kèm exit/duration/CWD/session note/bookmark;
+    - mỗi session có persistent **Session note**; mỗi command có thể bookmark một dòng output cụ thể, lưu cả line number + text snapshot;
+    - khi terminal được recreate sau daemon/broker restart, backend remap history từ old session ID sang new session ID cùng terminal state restore;
+    - shared-server authorize GET theo quyền view của đúng terminal và PUT theo quyền control của đúng terminal; route không rơi vào settings permission project-wide;
+    - khi session bị xóa thật khỏi daemon, history tương ứng được cleanup để không tích tụ record stale.
 
 18. **P1 — Unified transfer/sync engine**
     Hiện FTP/SFTP đã có queue rất mạnh. Nên nâng thành:
