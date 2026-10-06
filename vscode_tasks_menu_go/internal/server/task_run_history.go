@@ -140,6 +140,19 @@ func taskRunLogPath(workspace,id string)(string,error){
 	return filepath.Join(dir,id+".log"),nil
 }
 
+func taskRunStatus(meta session.Metadata) string {
+	if meta.Status == "stopped" {
+		return "STOPPED"
+	}
+	if meta.ExitCode != nil {
+		if *meta.ExitCode == 0 {
+			return "PASS"
+		}
+		return "FAIL"
+	}
+	return strings.ToUpper(strings.TrimSpace(meta.Status))
+}
+
 func taskRunDuration(meta session.Metadata) int64 {
 	start,err:=time.Parse(time.RFC3339,meta.StartedAt);if err!=nil{return 0}
 	end,err:=time.Parse(time.RFC3339,meta.EndedAt);if err!=nil{return 0}
@@ -190,7 +203,7 @@ func (s *Server) recordTaskRun(r *http.Request,req taskRunRecordRequest)(taskRun
 	if err:=os.Rename(tmpName,logPath);err!=nil{return taskRunRecord{},err}
 
 	item:=normalizeTaskRunRecord(taskRunRecord{
-		ID:id,SessionID:meta.ID,TaskID:meta.TaskID,Label:meta.Label,Status:meta.Status,ExitCode:meta.ExitCode,
+		ID:id,SessionID:meta.ID,TaskID:meta.TaskID,Label:meta.Label,Status:taskRunStatus(meta),ExitCode:meta.ExitCode,
 		StartedAt:meta.StartedAt,EndedAt:meta.EndedAt,Duration:taskRunDuration(meta),
 		GitCommit:taskRunGitCommit(r.Context(),s,meta.Cwd),Cwd:meta.Cwd,CommandPreview:meta.CommandPreview,
 		TargetType:meta.TargetType,TargetProfileID:meta.TargetProfileID,ProjectProfileID:req.ProjectProfileID,
@@ -242,7 +255,7 @@ func (s *Server) taskRuns(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"version": 1, "runs": out})
 	case http.MethodPost:
 		var req taskRunRecordRequest
-		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxTaskRunLogBytes+(128<<10)))
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, (4<<20)+(128<<10)))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&req); err != nil {
 			http.Error(w, "invalid task-run record payload", http.StatusBadRequest)
