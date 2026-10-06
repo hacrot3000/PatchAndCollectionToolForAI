@@ -238,10 +238,11 @@ async function refreshMutationLock(){
 }
 
 async function jsonFetch(url,opts={}){
-  const r=await fetchWithLease(url,{cache:'no-store',...opts});
+  const {taskdeckApprovalRetried=false,...fetchOptions}=opts||{};
+  const r=await fetchWithLease(url,{cache:'no-store',...fetchOptions});
   if(!r.ok){
     const message=(await r.text())||r.statusText;
-    if(r.status===428&&!opts?.taskdeckApprovalRetried){
+    if(r.status===428&&!taskdeckApprovalRetried){
       let challenge=null;
       try{challenge=JSON.parse(message);}catch{}
       if(challenge?.approval_required&&challenge?.action){
