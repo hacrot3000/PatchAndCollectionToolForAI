@@ -1514,6 +1514,18 @@ async function openWorkspaceFileView(pathValue,mode='history'){
 globalThis.TaskMenuGitFiles={
   open(){if(!panel.classList.contains('visible'))pill.click();return true;},
   close(){panel.classList.remove('visible');return true;},
+  async openGraphSearch(query=''){
+    panel.classList.add('visible');
+    await refreshRepositories(false);
+    if(app.views.has(String(app.active||'')))await autoSelectRepositoryForTerminal(app.active,{reload:false});
+    await refresh();
+    currentView='graph';
+    gitGraphFilters={...gitGraphFilters,search:String(query||'').trim()};
+    gitGraphSelectedSHA='';
+    updateNav();
+    await loadGraph();
+    return true;
+  },
   snapshotState(){
     const repo=activeRepository();
     return {repository_id:String(activeRepoID||''),branch:String(repo?.branch||currentStatus?.branch||''),head:String(currentStatus?.head||'')};
