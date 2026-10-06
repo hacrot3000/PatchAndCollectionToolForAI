@@ -200,7 +200,20 @@ function syncGlobRegex(pattern){
     }else if(ch==='?')out+='[^/]';
     else out+=/[\\^$+?.()|{}\[\]]/.test(ch)?'\\'+ch:ch;
   }
-  return new RegExp(out+'
+  return new RegExp(out+'$');
+}
+function syncPathExcluded(path,patterns){
+  path=normalizeRelativePath(path||'.');
+  for(const raw of normalizeSyncExclude(patterns)){
+    const pattern=raw.replace(/\/$/,'');
+    if(pattern.endsWith('/**')){
+      const base=pattern.slice(0,-3).replace(/\/$/,'');
+      if(path===base||path.startsWith(base+'/'))return true;
+    }
+    try{if(syncGlobRegex(pattern).test(path))return true;}catch{}
+  }
+  return false;
+}
 let conflictDialogChain=Promise.resolve();
 const activeServerConflictPrompts=new Set();
 function normalizeConflictPolicy(value){value=String(value||'ask').trim().toLowerCase();return conflictPolicies.has(value)?value:'ask';}
@@ -2764,20 +2777,6 @@ globalThis.TaskMenuFileTransfer={
   openProfile,testProfile,testDraft,refreshProfiles,getProfile:id=>profilesByID.get(String(id||''))||null,restoreSession:restoreFileTransferSession,
   get views(){return views;}
 };
-);
-}
-function syncPathExcluded(path,patterns){
-  path=normalizeRelativePath(path||'.');
-  for(const raw of normalizeSyncExclude(patterns)){
-    const pattern=raw.replace(/\/$/,'');
-    if(pattern.endsWith('/**')){
-      const base=pattern.slice(0,-3).replace(/\/$/,'');
-      if(path===base||path.startsWith(base+'/'))return true;
-    }
-    try{if(syncGlobRegex(pattern).test(path))return true;}catch{}
-  }
-  return false;
-}
 function currentSyncOptions(view){
   return normalizeSyncProfile({
     profile_id:view.profile.id,left_source:view.left.source,local_root_id:view.left.localRoot?.id||'',
