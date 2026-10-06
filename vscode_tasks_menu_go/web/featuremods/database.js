@@ -1007,6 +1007,20 @@ async function closeDatabaseView(id){
   teardownDatabaseView(id);
 }
 
+async function reconnectDatabaseView(viewOrID){
+  const view=typeof viewOrID==='string'?dbViews.get(viewOrID):viewOrID;
+  if(!view)throw new Error('Database session is unavailable');
+  const profileID=String(view.meta?.profile_id||view.profile?.id||'').trim();
+  if(!profileID)throw new Error('Database profile is unavailable');
+  const pending=Boolean(globalThis.TaskMenuDatabaseWorkbench?.hasPendingGridChanges?.(view))
+    ||databaseQueryViews(view).some(queryView=>queryResultHasPendingChanges(queryView));
+  if(pending&&!window.confirm('Reconnect will discard local Data Grid / query-result edits that have not been applied. Continue?'))return null;
+  if(Boolean(view.transactionActive||view.meta?.transaction_active)
+    &&!window.confirm('Reconnect will close the active database transaction (uncommitted changes will roll back). Continue?'))return null;
+  await closeDatabaseView(String(view.meta.id));
+  return openProfile(profileID);
+}
+
 const LONG_TEXT_PREVIEW_LIMIT=160;
 
 function isLongTextValue(value){
@@ -2541,6 +2555,7 @@ globalThis.TaskMenuDatabase={
     return true;
   },
   openProfile,
+  reconnect:reconnectDatabaseView,
   testProfile,
   testDraft,
   refreshProfiles,
