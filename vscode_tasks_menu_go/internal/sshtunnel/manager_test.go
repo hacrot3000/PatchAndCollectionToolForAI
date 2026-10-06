@@ -261,9 +261,10 @@ func TestSSHTunnelHelperProcess(t *testing.T) {
 
 
 func TestTunnelMetadataIncludesLivePID(t *testing.T) {
+	executable := tunnelFixtureExecutable(t, "listen")
 	manager, err := NewManager(nil, Options{
 		RuntimeDir: t.TempDir(),
-		SSHExecutable: os.Args[0],
+		SSHExecutable: executable,
 		StartupTimeout: 3 * time.Second,
 	})
 	if err != nil {
@@ -271,15 +272,9 @@ func TestTunnelMetadataIncludesLivePID(t *testing.T) {
 	}
 	defer manager.Close()
 
-	t.Setenv("TASKDECK_TUNNEL_HELPER", os.Args[0])
-	profile := sshprofile.Profile{
-		ID: "fixture",
-		Name: "fixture",
-		Host: "127.0.0.1",
-		Port: 22,
-		User: "tester",
-	}
-	meta, err := manager.Open(context.Background(), profile, "127.0.0.1", 3306)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	meta, err := manager.Open(ctx, tunnelTestProfile(), "db.internal", 3306)
 	if err != nil {
 		t.Fatal(err)
 	}
