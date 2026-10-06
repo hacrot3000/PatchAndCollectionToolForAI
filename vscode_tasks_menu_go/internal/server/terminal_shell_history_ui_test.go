@@ -21,6 +21,16 @@ func TestShellHistoryUIContracts(t *testing.T) {
 		"taskmenu:shell-integration",
 		"TaskDeckShellHistory",
 		"view.ws.send(command+'\\r')",
+		"/api/terminal-history?session_id=",
+		"method:'PUT'",
+		"integration.replaceCommands",
+		"Export Markdown",
+		"Export text",
+		"Session note…",
+		"Bookmark output line…",
+		"bookmark_line",
+		"sessionExport(view,true)",
+		"loadHistory(view).then",
 	} {
 		if !strings.Contains(js, want) { t.Fatalf("shellhistory.js missing %q", want) }
 	}
