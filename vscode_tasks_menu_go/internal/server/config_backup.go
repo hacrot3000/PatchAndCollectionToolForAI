@@ -60,6 +60,7 @@ type configBackupBundle struct {
 	ProjectProfiles projectProfileStore        `json:"project_profiles"`
 	Connections     configBackupConnections    `json:"connections"`
 	Client          configBackupClient         `json:"client,omitempty"`
+	IncludesEnvironment bool                    `json:"includes_environment,omitempty"`
 }
 
 type configRestoreRequest struct {
@@ -186,19 +187,45 @@ func mergeCommandPresets(current, incoming projectCommandPresetState) (projectCo
 	return normalizeProjectCommandPresetState(out)
 }
 
-func mergeProjectProfiles(current, incoming projectProfileStore) projectProfileStore {
+func mergeProjectProfiles(current, incoming projectProfileStore, replace, includesEnvironment bool) projectProfileStore {
 	byID:=map[string]projectProfile{};order:=[]string{}
+	currentByID:=map[string]projectProfile{}
 	for _, profile:=range current.Profiles {
-		if _,exists:=byID[profile.ID];!exists{order=append(order,profile.ID)}
-		byID[profile.ID]=profile
+		currentByID[profile.ID]=profile
+		if !replace {
+			if _,exists:=byID[profile.ID];!exists{order=append(order,profile.ID)}
+			byID[profile.ID]=profile
+		}
 	}
 	for _, profile:=range incoming.Profiles {
+		if !includesEnvironment {
+			if existing,ok:=currentByID[profile.ID];ok {
+				profile.Environment=existing.Environment
+				profile.EnvironmentProfile=existing.EnvironmentProfile
+			} else {
+				profile.Environment=nil
+			}
+		}
 		if _,exists:=byID[profile.ID];!exists{order=append(order,profile.ID)}
 		byID[profile.ID]=profile
 	}
 	out:=projectProfileStore{Version:1}
 	for _,id:=range order{out.Profiles=append(out.Profiles,byID[id])}
 	return out
+}
+
+func validateBackupProjectProfiles(store projectProfileStore) (projectProfileStore,error) {
+	if len(store.Profiles)>projectProfilesMaxCount{return store,fmt.Errorf("project profiles exceed %d entries",projectProfilesMaxCount)}
+	seen:=map[string]bool{}
+	store.Version=1
+	for i:=range store.Profiles{
+		store.Profiles[i]=normalizeProjectProfile(store.Profiles[i])
+		p:=store.Profiles[i]
+		if p.ID==""||p.Name==""||seen[p.ID]{return store,fmt.Errorf("project profile %d has invalid or duplicate identity",i+1)}
+		if err:=validateProjectProfileEnvironment(p.Environment);err!=nil{return store,err}
+		seen[p.ID]=true
+	}
+	return store,nil
 }
 
 func mergeTaskState(current, incoming projectTaskState) projectTaskState {
@@ -281,12 +308,10 @@ func validateConfigBackupBundle(bundle configBackupBundle) (configBackupBundle, 
 	bundle.TaskState = normalizeProjectTaskState(bundle.TaskState)
 	bundle.TerminalDesktop = portableTerminalState(bundle.TerminalDesktop)
 	bundle.TerminalMobile = portableTerminalState(bundle.TerminalMobile)
-	bundle.ProjectProfiles.Version = 1
-	for i := range bundle.ProjectProfiles.Profiles {
-		bundle.ProjectProfiles.Profiles[i] = normalizeProjectProfile(bundle.ProjectProfiles.Profiles[i])
-		if bundle.ProjectProfiles.Profiles[i].ID == "" || bundle.ProjectProfiles.Profiles[i].Name == "" {
-			return bundle, fmt.Errorf("project profile %d is invalid", i+1)
-		}
+	if bundle.ProjectProfiles,err=validateBackupProjectProfiles(bundle.ProjectProfiles);err!=nil{return bundle,err}
+	if !bundle.IncludesEnvironment {
+		for i:=range bundle.ProjectProfiles.Profiles{bundle.ProjectProfiles.Profiles[i].Environment=nil}
+		bundle.Client=configBackupClient{}
 	}
 	for i := range bundle.Connections.SSH {
 		bundle.Connections.SSH[i].Profile.SecretRef = ""
@@ -325,10 +350,13 @@ func (s *Server) applyConfigBackup(bundle configBackupBundle, mode string, actua
 	presets:=bundle.CommandPresets
 	taskState:=bundle.TaskState
 	projectProfiles:=bundle.ProjectProfiles
+	if replace {
+		projectProfiles=mergeProjectProfiles(actual.Bundle.ProjectProfiles,bundle.ProjectProfiles,true,bundle.IncludesEnvironment)
+	}
 	if !replace {
 		if presets,err=mergeCommandPresets(actual.Bundle.CommandPresets,bundle.CommandPresets);err!=nil{return err}
 		taskState=mergeTaskState(actual.Bundle.TaskState,bundle.TaskState)
-		projectProfiles=mergeProjectProfiles(actual.Bundle.ProjectProfiles,bundle.ProjectProfiles)
+		projectProfiles=mergeProjectProfiles(actual.Bundle.ProjectProfiles,bundle.ProjectProfiles,false,bundle.IncludesEnvironment)
 	}
 	if err := config.SetPageTitle(s.Workspace, bundle.Settings.PageTitle); err != nil { return err }
 	if err := config.SetTerminalCWDSettings(s.Workspace, bundle.Settings.TerminalCWD); err != nil { return err }
@@ -371,6 +399,10 @@ func (s *Server) configBackup(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		bundle, _, err := s.captureConfigBackup()
 		if err != nil { http.Error(w,err.Error(),http.StatusInternalServerError); return }
+		bundle.IncludesEnvironment = r.URL.Query().Get("include_environment") == "1"
+		if !bundle.IncludesEnvironment {
+			for i:=range bundle.ProjectProfiles.Profiles{bundle.ProjectProfiles.Profiles[i].Environment=nil}
+		}
 		writeJSON(w,http.StatusOK,bundle)
 	case http.MethodPost:
 		var req configRestoreRequest
