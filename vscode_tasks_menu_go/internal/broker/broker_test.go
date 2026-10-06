@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"bletonfc/vscode_tasks_menu/internal/session"
 )
 
 const brokerTestShutdownTimeout = 5 * time.Second
