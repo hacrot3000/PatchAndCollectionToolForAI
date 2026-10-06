@@ -2,6 +2,7 @@ package approval
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -58,6 +59,26 @@ type fileState struct {
 type Store struct {
 	path string
 	mu   sync.Mutex
+}
+
+func DefaultStorePath(workspace string) (string, error) {
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" {
+		return "", errors.New("approval workspace is required")
+	}
+	abs, err := filepath.Abs(workspace)
+	if err != nil {
+		return "", fmt.Errorf("resolve approval workspace: %w", err)
+	}
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user config dir: %w", err)
+	}
+	if strings.TrimSpace(base) == "" {
+		return "", errors.New("user config dir is empty")
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(abs)))
+	return filepath.Join(base, "vscode_tasks_menu", "approvals", hex.EncodeToString(sum[:8]), "approvals.json"), nil
 }
 
 func NewStore(path string) (*Store, error) {
