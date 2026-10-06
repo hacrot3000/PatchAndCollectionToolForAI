@@ -29,6 +29,67 @@ function openProjectFile(pathValue){
 function openProjectHex(pathValue){
   window.dispatchEvent(new CustomEvent('taskmenu:project-hex-open-request',{detail:{path:pathValue,source:'project-file-context'}}));
 }
+async function projectPreviewInfo(pathValue){
+  return app.jsonFetch('/api/project/preview?path='+encodeURIComponent(cleanPath(pathValue)),{cache:'no-store'});
+}
+async function openProjectImagePreview(pathValue,info=null){
+  info=info||await projectPreviewInfo(pathValue);
+  if(info?.kind!=='image')throw new Error('Selected file is not a supported image preview.');
+  const preview=globalThis.TaskMenuFilePreview;if(!preview?.open)throw new Error('Image Preview unavailable');
+  preview.open(info);
+}
+async function openProjectMarkdownPreview(pathValue,info=null){
+  info=info||await projectPreviewInfo(pathValue);
+  if(info?.kind!=='markdown')throw new Error('Selected file is not a Markdown file.');
+  const preview=globalThis.TaskMenuMarkdownPreview;if(!preview?.open)throw new Error('Markdown Preview unavailable');
+  preview.open(info);
+}
+function downloadProjectFile(pathValue){
+  const link=document.createElement('a');link.href='/api/project/download?path='+encodeURIComponent(cleanPath(pathValue));link.download='';link.style.display='none';document.body.append(link);
+  try{link.click();}finally{link.remove();}
+}
+function openProjectTerminalDirectory(pathValue){
+  return app.startTerminal(parentPath(pathValue)||'.');
+}
+async function openProjectHostApplication(pathValue){
+  if(app.sharedMode)throw new Error('Host application open is disabled in shared-server mode.');
+  const response=await app.fetchWithLease('/api/project/open-host?path='+encodeURIComponent(cleanPath(pathValue)),{method:'POST'});
+  if(!response.ok)throw new Error((await response.text()).trim()||('HTTP '+response.status));
+  return response.json();
+}
+async function openProjectDiff(pathValue){
+  const compare=globalThis.TaskMenuFileCompare;if(!compare?.promptProjectCompare)throw new Error('File Compare unavailable');
+  return compare.promptProjectCompare(pathValue);
+}
+function openWithButton(host,label,run,options={}){
+  const button=document.createElement('button');button.type='button';button.textContent=label;button.disabled=Boolean(options.disabled);
+  button.style.cssText='display:block;width:100%;text-align:left;margin:2px 0;padding:7px 9px';
+  if(options.title)button.title=options.title;
+  button.onclick=()=>Promise.resolve(run()).then(()=>host.close()).catch(app.showError);
+  host.body.append(button);return button;
+}
+async function openProjectWith(pathValue){
+  pathValue=cleanPath(pathValue);
+  const info=await projectPreviewInfo(pathValue);
+  const dialog=document.createElement('dialog');
+  dialog.style.cssText='width:min(460px,92vw);background:#171b22;color:inherit;border:1px solid #48515f;border-radius:8px;padding:12px';
+  const title=document.createElement('h3');title.textContent='Open With · '+pathValue;title.style.margin='0 0 8px';
+  const meta=document.createElement('div');meta.style.cssText='font-size:11px;opacity:.68;margin-bottom:8px';meta.textContent=String(info?.kind||'file')+' · '+String(info?.size||0)+' B';
+  const body=document.createElement('div');
+  const close=document.createElement('button');close.type='button';close.textContent='Close';close.style.marginTop='8px';close.onclick=()=>dialog.close();
+  dialog.body=body;
+  const textCapable=info?.kind==='text'||info?.kind==='markdown';
+  openWithButton(dialog,'Text Editor',()=>openProjectFile(pathValue),{disabled:!textCapable,title:textCapable?'Open in TaskDeck editor':'File is not detected as UTF-8 text'});
+  openWithButton(dialog,'Hex',()=>openProjectHex(pathValue));
+  openWithButton(dialog,'Image Preview',()=>openProjectImagePreview(pathValue,info),{disabled:info?.kind!=='image'});
+  openWithButton(dialog,'Markdown Preview',()=>openProjectMarkdownPreview(pathValue,info),{disabled:info?.kind!=='markdown'});
+  openWithButton(dialog,'Diff…',()=>openProjectDiff(pathValue),{disabled:!textCapable,title:textCapable?'Compare with another project file':'Diff requires a supported text file'});
+  openWithButton(dialog,'Download',()=>downloadProjectFile(pathValue));
+  openWithButton(dialog,'Open terminal directory',()=>openProjectTerminalDirectory(pathValue));
+  if(!app.sharedMode)openWithButton(dialog,'Open via host application',()=>openProjectHostApplication(pathValue));
+  dialog.append(title,meta,body,close);document.body.append(dialog);
+  dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();
+}
 async function revealProjectPath(pathValue){
   const explorer=globalThis.TaskMenuExplorer;if(!explorer?.reveal)throw new Error('Project Explorer unavailable');
   explorer.open?.();await explorer.reveal(pathValue);
@@ -175,7 +236,7 @@ function standardActions(pathValue,type='file'){
   const actions=[];
   if(type==='file')actions.push(
     {label:'Open',run:()=>openProjectFile(pathValue)},
-    {label:'Open as Hex',run:()=>openProjectHex(pathValue)}
+    {label:'Open With…',run:()=>openProjectWith(pathValue)}
   );
   if(type==='file'&&projectArchiveKind(pathValue))actions.push(
     {label:'Preview archive…',run:()=>previewProjectArchive(pathValue)},
@@ -191,10 +252,7 @@ function standardActions(pathValue,type='file'){
     {label:type==='dir'?'Search / Replace in folder…':'Search / Replace in containing folder…',run:()=>searchScope(pathValue,type)}
   );
   if(type==='file')actions.push(
-    {label:'Compare with another file…',run:()=>{
-      const compare=globalThis.TaskMenuFileCompare;if(!compare?.promptProjectCompare)throw new Error('File Compare unavailable');
-      return compare.promptProjectCompare(pathValue);
-    }},
+    {label:'Compare with another file…',run:()=>openProjectDiff(pathValue)},
     {separator:true},
     {label:'SHA-256 checksum',run:()=>copyProjectChecksum(pathValue,'sha256')},
     {label:'MD5 checksum (compatibility)',run:()=>copyProjectChecksum(pathValue,'md5')},
@@ -231,4 +289,4 @@ document.addEventListener('pointerdown',event=>{if(menu.classList.contains('open
 document.addEventListener('keydown',event=>{if(event.key==='Escape')closeMenu();});
 window.addEventListener('blur',closeMenu);window.addEventListener('resize',closeMenu);
 
-globalThis.TaskMenuProjectFileActions={standardActions,openMenu,closeMenu,copyText,parentPath,createProjectArchive,extractProjectArchive,previewProjectArchive,downloadProjectPathsAsZip,projectArchiveKind};
+globalThis.TaskMenuProjectFileActions={standardActions,openMenu,closeMenu,copyText,parentPath,createProjectArchive,extractProjectArchive,previewProjectArchive,downloadProjectPathsAsZip,projectArchiveKind,openProjectWith,projectPreviewInfo,downloadProjectFile,openProjectHostApplication};
