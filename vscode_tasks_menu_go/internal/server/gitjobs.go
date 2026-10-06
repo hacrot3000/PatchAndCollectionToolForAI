@@ -10,12 +10,16 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
-const gitJobOutputLimit = 2 << 20
+const (
+	gitJobOutputLimit = 2 << 20
+	maxGitJobs = 100
+)
 
 type gitJob struct {
 	mu sync.Mutex
@@ -99,7 +103,38 @@ func (s *Server) registerGitJob(job *gitJob) {
 		s.gitJobs = map[string]*gitJob{}
 	}
 	s.gitJobs[job.ID] = job
+	if len(s.gitJobs) > maxGitJobs {
+		type candidate struct{ id string; started time.Time }
+		removable := make([]candidate, 0, len(s.gitJobs))
+		for id, existing := range s.gitJobs {
+			if existing == nil || id == job.ID { continue }
+			existing.mu.Lock()
+			state, started := existing.State, existing.StartedAt
+			existing.mu.Unlock()
+			if state != "running" { removable = append(removable, candidate{id:id,started:started}) }
+		}
+		sort.Slice(removable, func(i,j int) bool { return removable[i].started.Before(removable[j].started) })
+		for len(s.gitJobs) > maxGitJobs && len(removable) > 0 {
+			delete(s.gitJobs, removable[0].id)
+			removable = removable[1:]
+		}
+	}
 	s.gitJobsMu.Unlock()
+}
+
+func (s *Server) listGitJobs() []map[string]any {
+	s.gitJobsMu.Lock()
+	jobs := make([]*gitJob, 0, len(s.gitJobs))
+	for _, job := range s.gitJobs { if job != nil { jobs = append(jobs, job) } }
+	s.gitJobsMu.Unlock()
+	sort.Slice(jobs, func(i,j int) bool {
+		jobs[i].mu.Lock(); left := jobs[i].StartedAt; jobs[i].mu.Unlock()
+		jobs[j].mu.Lock(); right := jobs[j].StartedAt; jobs[j].mu.Unlock()
+		return left.After(right)
+	})
+	out := make([]map[string]any, 0, len(jobs))
+	for _, job := range jobs { out = append(out, job.snapshot()) }
+	return out
 }
 
 func (s *Server) findGitJob(id string) (*gitJob, bool) {
@@ -245,7 +280,7 @@ func (s *Server) gitJobsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
 	if id == "" {
-		http.Error(w, "Git job id is required", http.StatusBadRequest)
+		writeJSON(w, http.StatusOK, map[string]any{"jobs": s.listGitJobs()})
 		return
 	}
 	job, ok := s.findGitJob(id)
