@@ -21,7 +21,7 @@ document.head.append(style);
 
 const backdrop=document.createElement('div');backdrop.className='quick-open-backdrop';
 const dialog=document.createElement('div');dialog.className='quick-open-dialog';dialog.setAttribute('role','dialog');dialog.setAttribute('aria-label','Quick Open');
-const input=document.createElement('input');input.className='quick-open-input';input.type='search';input.autocomplete='off';input.spellcheck=false;input.placeholder='Quick Open — type a file name or path';
+const input=document.createElement('input');input.className='quick-open-input';input.type='search';input.autocomplete='off';input.spellcheck=false;input.placeholder='Global Quick Open — files, recent, tabs, terminals, DB, connections · > @ # git: ssh:';
 const results=document.createElement('div');results.className='quick-open-results';
 dialog.append(input,results);backdrop.append(dialog);document.body.append(backdrop);
 
@@ -35,6 +35,82 @@ let seq=0;
 function setEmpty(message){
   results.replaceChildren();
   const empty=document.createElement('div');empty.className='quick-open-empty';empty.textContent=message;results.append(empty);
+}
+
+function itemText(item){return [item.name,item.path,item.detail,item.kind].filter(Boolean).join(' ');}
+function localMatches(item,query){
+  const tokens=String(query||'').toLowerCase().split(/\s+/).filter(Boolean);
+  if(!tokens.length)return true;
+  const hay=itemText(item).toLowerCase();
+  return tokens.every(token=>hay.includes(token)||fuzzyNameIndexes(item.name||item.path||'',token).length);
+}
+function fileItem(pathValue,{kind='file',detail='Project file',recent=false}={}){
+  pathValue=String(pathValue||'').trim();if(!pathValue)return null;
+  return {
+    id:'file:'+pathValue,kind,name:pathValue.split('/').pop()||pathValue,path:pathValue,detail,recent,
+    run:()=>window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path:pathValue,source:'quick-open'}}))
+  };
+}
+function localQuickOpenItems(){
+  const out=[],seen=new Set();
+  const add=item=>{if(!item||!item.id||seen.has(item.id))return;seen.add(item.id);out.push(item);};
+  for(const pathValue of globalThis.TaskMenuExplorer?.recent||[])add(fileItem(pathValue,{kind:'recent',detail:'Recently opened',recent:true}));
+  for(const view of globalThis.TaskMenuEditor?.editors?.values?.()||[]){
+    if(view?.closed)continue;const pathValue=String(view.file?.path||'').trim();if(!pathValue)continue;
+    add({id:'editor:'+pathValue,kind:'tab',name:'Editor · '+(pathValue.split('/').pop()||pathValue),path:pathValue,detail:'Open editor tab',run:()=>globalThis.TaskMenuEditor?.openFile?.(pathValue)});
+  }
+  for(const [id,view] of app.views||[]){
+    if(!view||view.closed||!view.tab)continue;
+    const meta=view.meta||{};
+    const title=String(meta.title||meta.label||view.tab.textContent||id).trim()||String(id);
+    const terminal=Boolean(view.term);
+    add({id:'session:'+id,kind:terminal?'terminal':'tab',name:(terminal?'Terminal · ':'Tab · ')+title,path:String(meta.cwd||''),detail:String(meta.status||''),run:()=>view.tab.click()});
+  }
+  for(const [id,view] of globalThis.TaskMenuDatabase?.views?.entries?.()||[]){
+    const profileID=String(view?.meta?.profile_id||view?.profile?.id||'').trim();
+    const label=String(view?.profile?.name||view?.meta?.label||profileID||id).trim();
+    add({id:'db-tab:'+id,kind:'database',name:'Database · '+label,path:profileID,detail:'Open database tab',run:()=>view?.tab?.click?.()});
+  }
+  for(const profile of globalThis.TaskMenuConnections?.sshProfiles||[]){
+    const id=String(profile?.id||'').trim();if(!id)continue;
+    const label=String(profile?.name||profile?.label||profile?.host||id).trim();
+    add({id:'ssh:'+id,kind:'ssh',name:'SSH · '+label,path:id,detail:[profile?.host,profile?.user].filter(Boolean).join(' · '),run:()=>globalThis.TaskMenuConnections?.openSSHProfile?.(id)});
+  }
+  for(const profile of globalThis.TaskMenuDatabase?.profiles||[]){
+    const id=String(profile?.id||'').trim();if(!id)continue;
+    const label=String(profile?.name||profile?.label||id).trim();
+    add({id:'db-profile:'+id,kind:'database',name:'Database profile · '+label,path:id,detail:String(profile?.adapter||profile?.kind||''),run:()=>globalThis.TaskMenuDatabase?.openProfile?.(id)});
+  }
+  for(const profile of globalThis.TaskMenuFileTransfer?.profiles||[]){
+    const id=String(profile?.id||'').trim();if(!id)continue;
+    const label=String(profile?.name||profile?.label||profile?.host||id).trim();
+    add({id:'transfer:'+id,kind:'transfer',name:String(profile?.protocol||'SFTP').toUpperCase()+' · '+label,path:id,detail:String(profile?.host||''),run:()=>globalThis.TaskMenuFileTransfer?.openProfile?.(id)});
+  }
+  return out;
+}
+function prefixSpec(raw){
+  const value=String(raw||'');
+  if(value.startsWith('>'))return {kind:'command',query:value.slice(1).trim()};
+  if(value.startsWith('@'))return {kind:'symbol',query:value.slice(1).trim()};
+  if(value.startsWith('#'))return {kind:'text',query:value.slice(1).trim()};
+  const lower=value.toLowerCase();
+  if(lower.startsWith('git:'))return {kind:'git',query:value.slice(4).trim()};
+  if(lower.startsWith('ssh:'))return {kind:'ssh',query:value.slice(4).trim()};
+  return {kind:'global',query:value.trim()};
+}
+function commandPrefixItems(query){
+  const commands=globalThis.TaskMenuCommandPalette?.commandList?.()||[];
+  return commands.filter(item=>localMatches({name:item.label||'',path:item.keywords||'',detail:item.shortcut||'',kind:'command'},query)).slice(0,50).map(item=>({
+    id:'command:'+String(item.id||item.label),kind:'command',name:String(item.label||'Command'),path:String(item.shortcut||''),detail:String(item.keywords||''),disabled:Boolean(item.disabled),run:item.run
+  }));
+}
+function prefixItems(spec){
+  if(spec.kind==='command')return commandPrefixItems(spec.query);
+  if(spec.kind==='symbol')return [{id:'symbols',kind:'symbol',name:'Symbols · '+(spec.query||'all project symbols'),path:'@'+spec.query,detail:'Open Project Symbols search',run:()=>globalThis.TaskMenuProjectSymbols?.open?.({query:spec.query})}];
+  if(spec.kind==='text')return [{id:'text-search',kind:'text',name:'Search in Files · '+(spec.query||'project'),path:'#'+spec.query,detail:'Open project text search',run:()=>globalThis.TaskMenuProjectSearch?.open?.({query:spec.query})}];
+  if(spec.kind==='git')return [{id:'git-search',kind:'git',name:'Git branch/commit search · '+(spec.query||'all'),path:'git:'+spec.query,detail:'Open Git Graph with search filter',run:()=>globalThis.TaskMenuGitFiles?.openGraphSearch?.(spec.query)}];
+  if(spec.kind==='ssh')return localQuickOpenItems().filter(item=>item.kind==='ssh'&&localMatches(item,spec.query)).slice(0,50);
+  return null;
 }
 function fuzzyNameIndexes(name,query){
   const hay=String(name||'').toLowerCase();
@@ -62,14 +138,14 @@ function renderHighlightedName(node,name,query){
 }
 function render(){
   results.replaceChildren();
-  if(!items.length){setEmpty(input.value.trim()?'No files found':'Type to search project files');return;}
-  const query=input.value.trim();
+  if(!items.length){setEmpty(input.value.trim()?'No matching files, tabs, terminals, databases or connections':'Recent files, open tabs, terminals, databases and saved connections');return;}
+  const query=prefixSpec(input.value).query;
   items.forEach((item,index)=>{
-    const button=document.createElement('button');button.className='quick-open-result'+(index===selected?' selected':'');button.type='button';button.dataset.path=item.path;
+    const button=document.createElement('button');button.className='quick-open-result'+(index===selected?' selected':'');button.type='button';button.dataset.path=item.path||'';button.disabled=Boolean(item.disabled);
     const name=document.createElement('span');name.className='quick-open-result-name';
-    renderHighlightedName(name,item.name||item.path.split('/').pop()||item.path,query);
-    const full=document.createElement('span');full.className='quick-open-result-path';full.textContent=item.path;full.title=item.path;
-    button.append(name,full);button.onclick=()=>choose(index);button.onmousemove=()=>select(index);results.append(button);
+    renderHighlightedName(name,item.name||String(item.path||''),query);
+    const full=document.createElement('span');full.className='quick-open-result-path';full.textContent=[item.kind&&('['+item.kind+']'),item.path,item.detail].filter(Boolean).join(' · ');full.title=full.textContent;
+    button.append(name,full);button.onclick=()=>choose(index);button.onmousemove=()=>{if(!item.disabled)select(index);};results.append(button);
   });
 }
 function select(index){
@@ -79,9 +155,9 @@ function select(index){
   results.querySelector('.quick-open-result.selected')?.scrollIntoView({block:'nearest'});
 }
 function choose(index=selected){
-  const item=items[index];if(!item)return;
+  const item=items[index];if(!item||item.disabled)return;
   close();
-  window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path:item.path,source:'quick-open'}}));
+  Promise.resolve(item.run?.()).catch(app.showError);
 }
 function cancelPending(){
   clearTimeout(timer);timer=null;
@@ -91,11 +167,11 @@ function cancelPending(){
 function close(){
   cancelPending();seq++;backdrop.classList.remove('visible');items=[];selected=0;results.replaceChildren();
 }
-function open(){
+function open(options={}){
   backdrop.classList.add('visible');
-  input.value='';
-  items=[];selected=0;setEmpty('Type to search project files');
-  requestAnimationFrame(()=>input.focus());
+  input.value=String(options.query||'');
+  items=localQuickOpenItems().slice(0,60);selected=0;render();
+  requestAnimationFrame(()=>{input.focus();if(input.value)schedule();});
 }
 function hasExactFilename(query){
   const wanted=String(query||'').trim().toLowerCase();
@@ -103,17 +179,23 @@ function hasExactFilename(query){
   return items.some(item=>String(item.name||'').toLowerCase()===wanted);
 }
 async function search(query,currentSeq,refresh=false){
+  const spec=prefixSpec(query),prefixed=prefixItems(spec);
+  if(prefixed){
+    items=prefixed;selected=0;render();return;
+  }
+  const local=localQuickOpenItems().filter(item=>localMatches(item,spec.query)).slice(0,30);
   if(controller)controller.abort();
   controller=new AbortController();
   try{
     const suffix=refresh?'&refresh=1':'';
-    const data=await app.jsonFetch('/api/project/files/search?q='+encodeURIComponent(query)+'&limit=50'+suffix,{signal:controller.signal});
+    const data=await app.jsonFetch('/api/project/files/search?q='+encodeURIComponent(spec.query)+'&limit=50'+suffix,{signal:controller.signal});
     if(currentSeq!==seq||!backdrop.classList.contains('visible'))return;
-    items=Array.isArray(data.results)?data.results.slice(0,50):[];selected=0;render();
-    const shouldRefresh=!refresh&&!/[?*%]/.test(query)&&!hasExactFilename(query)&&(items.length===0||query.includes('.')||query.includes('/'));
+    const files=(Array.isArray(data.results)?data.results.slice(0,50):[]).map(row=>fileItem(row.path,{kind:'file',detail:'Project file'})).filter(Boolean);
+    const seen=new Set(local.map(item=>item.id));items=[...local,...files.filter(item=>!seen.has(item.id))].slice(0,60);selected=0;render();
+    const shouldRefresh=!refresh&&!/[?*%]/.test(spec.query)&&!hasExactFilename(spec.query)&&(files.length===0||spec.query.includes('.')||spec.query.includes('/'));
     if(shouldRefresh){
       refreshTimer=setTimeout(()=>{
-        if(currentSeq===seq&&input.value.trim()===query&&backdrop.classList.contains('visible'))search(query,currentSeq,true);
+        if(currentSeq===seq&&prefixSpec(input.value).query===spec.query&&backdrop.classList.contains('visible'))search(input.value.trim(),currentSeq,true);
       },450);
     }
   }catch(error){
@@ -125,7 +207,7 @@ async function search(query,currentSeq,refresh=false){
 }
 function schedule(){
   const query=input.value.trim();cancelPending();const currentSeq=++seq;
-  if(!query){items=[];selected=0;setEmpty('Type to search project files');return;}
+  if(!query){items=localQuickOpenItems().slice(0,60);selected=0;render();return;}
   timer=setTimeout(()=>search(query,currentSeq),80);
 }
 
@@ -149,4 +231,4 @@ document.addEventListener('keydown',event=>{
   if(event.key==='Escape'&&backdrop.classList.contains('visible'))close();
 });
 
-globalThis.TaskMenuQuickOpen={open,close};
+globalThis.TaskMenuQuickOpen={open,close,localQuickOpenItems,prefixSpec};
