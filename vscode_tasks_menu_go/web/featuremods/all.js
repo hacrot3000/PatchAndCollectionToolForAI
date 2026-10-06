@@ -36,6 +36,9 @@ style.textContent=`
 .history-section{margin:6px 0 10px;border:1px solid #30343b;border-radius:6px;background:#12161d;overflow:hidden}
 .history-head{display:flex;align-items:center;gap:6px;padding:5px 7px;border-bottom:1px solid #30343b}.history-head strong{font-size:11px;opacity:.75;flex:1}.history-clear{padding:2px 6px;font-size:10px}
 .history-list{max-height:180px;overflow:auto;padding:3px}.history-row{display:grid;grid-template-columns:1fr auto;gap:2px 6px;padding:5px 6px;border-bottom:1px solid #222831;font-size:11px}.history-row:last-child{border-bottom:0}.history-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-meta{opacity:.55;grid-column:1/3}.history-state.pass{color:#78d68b}.history-state.fail{color:#ff7b86}.history-state.stopped{color:#e4be63}
+.history-row-actions{grid-column:1/3;display:flex;gap:5px;align-items:center;flex-wrap:wrap}.history-row-actions button{font-size:10px;padding:2px 6px}.history-compare-select{display:flex;align-items:center;gap:4px;font-size:10px;opacity:.8}
+.task-run-dialog{width:min(1100px,94vw);max-height:88vh;background:#11161d;color:inherit;border:1px solid #48515f;border-radius:9px;padding:12px}.task-run-grid{display:grid;grid-template-columns:150px minmax(0,1fr);gap:5px 9px;font-size:11px}.task-run-grid strong{opacity:.65}.task-run-log{max-height:48vh;overflow:auto;white-space:pre-wrap;background:#080b0f;border:1px solid #303843;border-radius:6px;padding:9px;font:11px/1.45 ui-monospace,monospace}.task-run-compare{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-height:0}.task-run-compare>div{min-width:0}.task-run-actions{display:flex;gap:6px;flex-wrap:wrap;margin:9px 0}
+html[data-taskmenu-theme='light'] .task-run-dialog{background:#fff;border-color:#b9c0c8}html[data-taskmenu-theme='light'] .task-run-log{background:#f6f8fa;border-color:#d0d7de}
 .console-find{display:none;align-items:center;gap:6px;padding:5px 10px;background:#101820;border-bottom:1px solid #30343b}.console-find.visible{display:flex}.console-find input{flex:1;min-width:120px;background:#090d12;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:5px 7px}.console-find .match{font-size:11px;opacity:.65;min-width:72px;text-align:right}.console-tool{white-space:nowrap;padding:5px 8px}
 `;
 document.head.append(style);
@@ -44,6 +47,87 @@ function emptyProjectState(){return {version:1,favorites:[],recent:[],history:[]
 let projectState=emptyProjectState();
 let projectStateLoaded=false;
 let projectStateSaveChain=Promise.resolve();
+
+let serverTaskRuns=[];
+let serverTaskRunsLoaded=false;
+const taskRunCompareSelection=new Set();
+async function loadServerTaskRuns(){
+  const payload=await app.jsonFetch('/api/task-runs');
+  serverTaskRuns=Array.isArray(payload?.runs)?payload.runs:[];
+  serverTaskRunsLoaded=true;
+  renderHistory();
+  return serverTaskRuns;
+}
+function taskRunProjectProfileID(){
+  return String(globalThis.TaskMenuProjectProfiles?.activeProfileID||'').trim();
+}
+async function persistServerTaskRun(view,meta){
+  if(!view||!meta||meta.task_id<=0||meta.status==='running')return null;
+  const log=String(app.consoleText?.(view)||'');
+  const item=await app.jsonFetch('/api/task-runs',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({session_id:meta.id,log,project_profile_id:taskRunProjectProfileID()})
+  });
+  await loadServerTaskRuns();
+  return item;
+}
+async function taskRunLog(item){
+  const response=await fetch('/api/task-runs/log?id='+encodeURIComponent(item.id),{cache:'no-store'});
+  if(!response.ok)throw new Error((await response.text()).trim()||('HTTP '+response.status));
+  return response.text();
+}
+function taskRunMetaRows(item){
+  return [
+    ['Task',item.label||String(item.task_id||'')],
+    ['Status',item.status||''],
+    ['Exit code',item.exit_code==null?'':String(item.exit_code)],
+    ['Started',item.started_at||''],
+    ['Ended',item.ended_at||''],
+    ['Duration',formatDuration(Number(item.duration)||0)],
+    ['Git commit',item.git_commit||'(not in Git / unavailable)'],
+    ['CWD',item.cwd||''],
+    ['Target', [item.target_type,item.target_profile_id].filter(Boolean).join(' · ')||'local'],
+    ['Project profile',item.project_profile_id||'(none)'],
+    ['Command',item.command_preview||''],
+    ['Log',String(item.log_bytes||0)+' B'+(item.log_truncated?' · truncated':'')]
+  ];
+}
+function appendTaskRunMeta(host,item){
+  const grid=document.createElement('div');grid.className='task-run-grid';
+  for(const [key,value] of taskRunMetaRows(item)){const k=document.createElement('strong');k.textContent=key;const v=document.createElement('span');v.textContent=value;grid.append(k,v);}
+  host.append(grid);
+}
+function taskRunDialog(titleText){
+  const dialog=document.createElement('dialog');dialog.className='task-run-dialog';
+  const title=document.createElement('h3');title.textContent=titleText;title.style.margin='0 0 8px';
+  const close=document.createElement('button');close.type='button';close.textContent='Close';close.onclick=()=>dialog.close();
+  dialog.append(title);document.body.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});
+  return {dialog,close};
+}
+async function openTaskRunDetail(item){
+  const {dialog,close}=taskRunDialog('Task run · '+(item.label||item.id));
+  appendTaskRunMeta(dialog,item);
+  const actions=document.createElement('div');actions.className='task-run-actions';
+  const rerun=document.createElement('button');rerun.type='button';rerun.textContent='Run task again';rerun.onclick=()=>{const task=taskByID(item.task_id);if(!task)throw new Error('Task no longer exists');return app.startTask(task).catch(app.showError);};
+  const download=document.createElement('a');download.href='/api/task-runs/log?id='+encodeURIComponent(item.id)+'&download=1';download.textContent='Download log';download.setAttribute('download','');
+  actions.append(rerun,download);dialog.append(actions);
+  const pre=document.createElement('pre');pre.className='task-run-log';pre.textContent='Loading log…';dialog.append(pre,close);dialog.showModal();
+  try{pre.textContent=await taskRunLog(item)||'(empty log)';}catch(error){pre.textContent='Log unavailable: '+error.message;}
+}
+async function compareSelectedTaskRuns(){
+  const ids=[...taskRunCompareSelection];if(ids.length!==2)throw new Error('Select exactly two task runs to compare.');
+  const left=serverTaskRuns.find(item=>item.id===ids[0]),right=serverTaskRuns.find(item=>item.id===ids[1]);
+  if(!left||!right)throw new Error('Selected task run is no longer available.');
+  const {dialog,close}=taskRunDialog('Compare task runs');
+  const cols=document.createElement('div');cols.className='task-run-compare';
+  const leftCol=document.createElement('div'),rightCol=document.createElement('div');
+  const lh=document.createElement('h4');lh.textContent=left.label+' · '+(left.started_at||left.id);const rh=document.createElement('h4');rh.textContent=right.label+' · '+(right.started_at||right.id);
+  leftCol.append(lh);appendTaskRunMeta(leftCol,left);rightCol.append(rh);appendTaskRunMeta(rightCol,right);
+  const lpre=document.createElement('pre');lpre.className='task-run-log';lpre.textContent='Loading log…';const rpre=document.createElement('pre');rpre.className='task-run-log';rpre.textContent='Loading log…';leftCol.append(lpre);rightCol.append(rpre);cols.append(leftCol,rightCol);dialog.append(cols,close);dialog.showModal();
+  const [ll,rr]=await Promise.allSettled([taskRunLog(left),taskRunLog(right)]);
+  lpre.textContent=ll.status==='fulfilled'?(ll.value||'(empty log)'):'Log unavailable: '+ll.reason;
+  rpre.textContent=rr.status==='fulfilled'?(rr.value||'(empty log)'):'Log unavailable: '+rr.reason;
+}
 
 function legacyStorageKey(name){const workspace=String(app.taskData?.workspace||'').trim();return workspace?'vscode-tasks-menu:'+name+':'+workspace:'';}
 function legacyRead(name,fallback){
@@ -93,6 +177,7 @@ async function loadProjectState(){
   projectStateLoaded=true;refresh();
 }
 const taskDataReady=app.taskData?.workspace?Promise.resolve():new Promise(resolve=>window.addEventListener('taskmenu:tasks',resolve,{once:true}));
+taskDataReady.then(()=>loadServerTaskRuns()).catch(e=>console.warn('Cannot load task-run history',e));
 const projectStateReady=taskDataReady.then(()=>loadProjectState()).catch(e=>{
   console.warn('Cannot load project task state; using legacy browser state for this page',e);
   projectState=normalizeProjectState({favorites:legacyRead('favorites',[]),recent:legacyRead('recent',[]),history:legacyRead('history',[])});
@@ -320,30 +405,46 @@ function updateSessionPresentation(view,meta){
   view.tab.classList.remove('state-running','state-success','state-fail','state-stopped');view.tab.classList.add('state-'+state.cls);
   ensureRerunButton(view);
   ensureConsoleTools(view);
-  if(meta.task_id>0&&meta.status!=='running'&&!finalizedSessions.has(meta.id))recordHistory(meta);
+  if(meta.task_id>0&&meta.status!=='running'&&!finalizedSessions.has(meta.id))recordHistory(meta,view);
 }
 
-function recordHistory(meta){
-  if(!projectStateLoaded){projectStateReady.then(()=>recordHistory(meta));return;}
+function recordHistory(meta,view){
+  if(!projectStateLoaded){projectStateReady.then(()=>recordHistory(meta,view));return;}
   finalizedSessions.add(meta.id);
-  const existing=readHistory();if(existing.some(item=>item.session_id===meta.id))return;
-  const task=taskByID(meta.task_id);
-  const item={session_id:meta.id,task_id:meta.task_id,label:task?.menu_label||meta.label,status:displayState(meta).text,exit_code:meta.exit_code??null,started_at:meta.started_at,ended_at:meta.ended_at,duration:secondsBetween(meta.started_at,meta.ended_at)};
-  writeHistory([item,...existing]);renderHistory();
+  const existing=readHistory();
+  if(!existing.some(item=>item.session_id===meta.id)){
+    const task=taskByID(meta.task_id);
+    const item={session_id:meta.id,task_id:meta.task_id,label:task?.menu_label||meta.label,status:displayState(meta).text,exit_code:meta.exit_code??null,started_at:meta.started_at,ended_at:meta.ended_at,duration:secondsBetween(meta.started_at,meta.ended_at)};
+    writeHistory([item,...existing]);
+  }
+  persistServerTaskRun(view,meta).catch(error=>console.warn('Cannot persist task-run artifact',error));
+  renderHistory();
 }
 
 function renderHistory(){
   const menu=document.querySelector('#menu');if(!menu||!app.taskData)return;
   menu.querySelector('.history-section')?.remove();
-  const items=readHistory().slice(0,10);if(!items.length)return;
+  const items=(serverTaskRunsLoaded?serverTaskRuns:readHistory()).slice(0,10);if(!items.length)return;
   const section=document.createElement('div');section.className='history-section';
-  const head=document.createElement('div');head.className='history-head';const title=document.createElement('strong');title.textContent='HISTORY';const clear=document.createElement('button');clear.className='history-clear';clear.textContent='Clear';clear.onclick=()=>{writeHistory([]);renderHistory();};head.append(title,clear);
+  const head=document.createElement('div');head.className='history-head';const title=document.createElement('strong');title.textContent='HISTORY';
+  const compare=document.createElement('button');compare.className='history-clear';compare.textContent='Compare';compare.disabled=taskRunCompareSelection.size!==2;compare.onclick=()=>compareSelectedTaskRuns().catch(app.showError);
+  const clear=document.createElement('button');clear.className='history-clear';clear.textContent='Clear legacy';clear.title='Clear legacy quick-history only; durable task-run artifacts are retained';clear.onclick=()=>{writeHistory([]);renderHistory();};head.append(title,compare,clear);
   const list=document.createElement('div');list.className='history-list';section.append(head,list);
   for(const item of items){
     const row=document.createElement('div');row.className='history-row';const label=document.createElement('span');label.className='history-label';label.textContent=item.label||String(item.task_id);const state=document.createElement('span');state.className='history-state '+String(item.status||'').toLowerCase();state.textContent=item.status||'';
-    const meta=document.createElement('span');meta.className='history-meta';const when=item.started_at?new Date(item.started_at).toLocaleString():'';meta.textContent=when+' · '+formatDuration(item.duration);
-    const task=taskByID(item.task_id);if(task){row.style.cursor='pointer';row.title='Click to run again';row.onclick=()=>app.startTask(task).catch(app.showError);}
-    row.append(label,state,meta);list.append(row);
+    const meta=document.createElement('span');meta.className='history-meta';const when=item.started_at?new Date(item.started_at).toLocaleString():'';meta.textContent=when+' · '+formatDuration(item.duration)+(item.git_commit?' · '+item.git_commit.slice(0,8):'');
+    if(item.id){
+      const actions=document.createElement('div');actions.className='history-row-actions';
+      const selectLabel=document.createElement('label');selectLabel.className='history-compare-select';const box=document.createElement('input');box.type='checkbox';box.checked=taskRunCompareSelection.has(item.id);
+      box.onchange=()=>{if(box.checked){if(taskRunCompareSelection.size>=2){box.checked=false;return;}taskRunCompareSelection.add(item.id);}else taskRunCompareSelection.delete(item.id);renderHistory();};
+      const selText=document.createElement('span');selText.textContent='Compare';selectLabel.append(box,selText);
+      const details=document.createElement('button');details.type='button';details.textContent='Details';details.onclick=()=>openTaskRunDetail(item).catch(app.showError);
+      const task=taskByID(item.task_id);const rerun=document.createElement('button');rerun.type='button';rerun.textContent='Run again';rerun.disabled=!task;rerun.onclick=()=>task&&app.startTask(task).catch(app.showError);
+      actions.append(selectLabel,details,rerun);row.append(label,state,meta,actions);
+    }else{
+      const task=taskByID(item.task_id);if(task){row.style.cursor='pointer';row.title='Click to run again';row.onclick=()=>app.startTask(task).catch(app.showError);}row.append(label,state,meta);
+    }
+    list.append(row);
   }
   const quick=[...menu.querySelectorAll('.quick-task-section')];const anchor=quick.length?quick[quick.length-1].nextSibling:menu.querySelector('.task-search-panel')?.nextSibling;
   if(anchor)menu.insertBefore(section,anchor);else menu.append(section);
