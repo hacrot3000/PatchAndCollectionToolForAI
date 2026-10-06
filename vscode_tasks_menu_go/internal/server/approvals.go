@@ -84,6 +84,27 @@ func (s *Server) approvalsAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) approvalRequestAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		store, err := s.dangerousApprovalStore()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		item, err := store.Get(strings.TrimSpace(r.URL.Query().Get("id")))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		requesterID, _ := approvalRequester(r)
+		principal, shared := PrincipalFromContext(r.Context())
+		canManage := shared && (principal.Allowed(identity.PermissionApprovalsManage) || principal.Allowed(identity.PermissionProjectAdmin))
+		if item.RequesterID != requesterID && !canManage {
+			writePermissionDenied(w)
+			return
+		}
+		writeJSON(w, http.StatusOK, item)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
