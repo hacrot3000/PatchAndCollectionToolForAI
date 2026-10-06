@@ -43,6 +43,7 @@ import '/featuremods/filepreview.js';
 import '/featuremods/markdownpreview.js';
 import '/featuremods/explorer.js';
 import '/featuremods/editor.js';
+import '/featuremods/filewatcher.js';
 import '/featuremods/projectsearch.js';
 import '/featuremods/projectsymbols.js';
 import '/featuremods/authmode.js';
