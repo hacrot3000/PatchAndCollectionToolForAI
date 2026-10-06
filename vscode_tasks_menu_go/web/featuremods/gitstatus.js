@@ -1512,6 +1512,8 @@ async function openWorkspaceFileView(pathValue,mode='history'){
   return openGitFileView(repoPath,mode);
 }
 globalThis.TaskMenuGitFiles={
+  open(){if(!panel.classList.contains('visible'))pill.click();return true;},
+  close(){panel.classList.remove('visible');return true;},
   snapshotState(){
     const repo=activeRepository();
     return {repository_id:String(activeRepoID||''),branch:String(repo?.branch||currentStatus?.branch||''),head:String(currentStatus?.head||'')};
