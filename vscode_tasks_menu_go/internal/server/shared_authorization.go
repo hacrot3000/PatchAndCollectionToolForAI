@@ -78,6 +78,12 @@ func (s *Server) sharedAuthorize(next http.Handler) http.Handler {
 				return
 			}
 			next.ServeHTTP(w, r)
+		case r.URL.Path == "/api/approvals/request":
+			if _, ok := PrincipalFromContext(r.Context()); !ok {
+				sharedAuthError(w, identity.ErrUnauthenticated)
+				return
+			}
+			next.ServeHTTP(w, r)
 		case r.URL.Path == "/api/sessions":
 			// Session list/create authorization depends on session metadata or
 			// the requested kind and is enforced inside sessionsRoot.
@@ -163,6 +169,15 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionSessionsManage}
 	case "/api/admin/audit":
 		return []string{identity.PermissionAuditView}
+	case "/api/approvals":
+		return []string{identity.PermissionApprovalsView}
+	case "/api/approvals/policy":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionApprovalsView}
+		}
+		return []string{identity.PermissionApprovalsManage}
+	case "/api/approvals/resolve":
+		return []string{identity.PermissionApprovalsManage}
 	case "/api/tasks":
 		return []string{identity.PermissionTasksView}
 	case "/api/task-runs":
