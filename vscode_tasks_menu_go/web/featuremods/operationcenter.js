@@ -85,7 +85,7 @@ async function collectTaskOperations(){
     const data=await app.jsonFetch('/api/task-runs',{cache:'no-store'});
     for(const run of (Array.isArray(data?.runs)?data.runs:[]).slice(0,30)){
       if(activeSessionIDs.has(String(run?.session_id||'')))continue;
-      out.push({source:'task',id:String(run?.id||''),session_id:String(run?.session_id||''),task_id:Number(run?.task_id||0),title:'Task · '+String(run?.label||taskTitle(run?.task_id,'Task')),detail:[run?.duration_ms!=null?String(run.duration_ms)+' ms':'',run?.git_commit?String(run.git_commit).slice(0,12):''].filter(Boolean).join(' · '),status:String(run?.status||'completed'),error:String(run?.error||''),created_at:run?.started_at||'',updated_at:run?.ended_at||'',can_cancel:false,can_retry:Number(run?.task_id)>0,can_open:true});
+      out.push({source:'task',id:String(run?.id||''),session_id:String(run?.session_id||''),task_id:Number(run?.task_id||0),title:'Task · '+String(run?.label||taskTitle(run?.task_id,'Task')),detail:[run?.duration!=null?String(run.duration)+' ms':'',run?.git_commit?String(run.git_commit).slice(0,12):''].filter(Boolean).join(' · '),status:String(run?.status||'completed'),error:String(run?.error||''),created_at:run?.started_at||'',updated_at:run?.ended_at||'',can_cancel:false,can_retry:Number(run?.task_id)>0,can_open:true});
     }
   }catch{}
   return out;
