@@ -937,6 +937,8 @@ function install(){
   panel=document.createElement('div');panel.className='task-connections-panel';
   const head=document.createElement('div');head.className='task-connections-head';
   const title=document.createElement('div');title.className='task-connections-title';title.textContent='CONNECTIONS';
+  const remoteWorkspace=document.createElement('button');remoteWorkspace.type='button';remoteWorkspace.className='task-connections-remote-workspace';remoteWorkspace.textContent='Remote';remoteWorkspace.title='Open Remote Workspace';
+  remoteWorkspace.onclick=()=>Promise.resolve(globalThis.TaskMenuRemoteWorkspace?.open?.()).catch(app.showError);
   const graph=document.createElement('button');graph.type='button';graph.className='task-connections-graph';graph.textContent='Graph';graph.title='Open connection/tunnel graph';
   graph.onclick=()=>Promise.resolve(globalThis.TaskMenuConnectionGraph?.open?.()).catch(app.showError);
   const refresh=document.createElement('button');refresh.type='button';refresh.className='task-connections-refresh';refresh.textContent='↻';refresh.title='Refresh connections';
@@ -944,7 +946,7 @@ function install(){
   content=document.createElement('div');content.className='task-connections-content';
   refresh.onclick=()=>loadData().catch(app.showError);
   close.onclick=()=>{panel.classList.remove('visible');window.dispatchEvent(new CustomEvent('taskmenu:connections-visible',{detail:{visible:false}}));};
-  head.append(title,graph,refresh,close);panel.append(head,content);document.body.append(panel);
+  head.append(title,remoteWorkspace,graph,refresh,close);panel.append(head,content);document.body.append(panel);
   loadData().catch(app.showError);
   return true;
 }
