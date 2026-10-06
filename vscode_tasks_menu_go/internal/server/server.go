@@ -145,6 +145,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/db/sessions", s.dbSessions)
 	mux.HandleFunc("/api/db/sessions/", s.dbSessionItem)
 	mux.HandleFunc("/api/broadcast", s.broadcastStateAPI)
+	mux.HandleFunc("/api/terminal-history", s.terminalHistory)
 	mux.HandleFunc("/api/command-presets", s.commandPresets)
 	mux.HandleFunc("/api/git/status", s.gitStatus)
 	mux.HandleFunc("/api/git/conflict-file", s.gitConflictFile)
@@ -1553,6 +1554,9 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			}
 			if err := removeBroadcastSession(s.Workspace, id); err != nil && s.Log != nil {
 				s.Log.Printf("broadcast assignment cleanup warning: %v", err)
+			}
+			if err := removeTerminalHistorySession(s.Workspace, id); err != nil && s.Log != nil {
+				s.Log.Printf("terminal history cleanup warning: %v", err)
 			}
 			w.WriteHeader(http.StatusNoContent)
 		default:
