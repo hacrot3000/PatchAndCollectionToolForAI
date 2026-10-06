@@ -1,6 +1,8 @@
-Dựa trên những gì TaskDeck hiện đã có, phần nền tảng đã khá rộng: file editor/split, terminal/session broker, SSH, FTP/SFTP, database, Patch Tool, Git Quick Actions, multi-repo, shared-server, self-update… Phần còn thiếu để tiến gần một công cụ quản trị project “trọn bộ” chủ yếu nằm ở **workflow liên kết giữa các module**, không phải chỉ thêm từng nút riêng lẻ.
+# TaskDeck implementation roadmap
 
-Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
+> **Trạng thái hiện tại: COMPLETE.** Toàn bộ các mục trong roadmap dưới đây đã được triển khai trên branch `main`, kèm regression/integration tests phù hợp. Phần mô tả bên dưới được giữ lại như hồ sơ thiết kế và phạm vi đã hoàn tất, không còn là danh sách việc đang chờ triển khai.
+
+Roadmap đã được thực hiện theo thứ tự ưu tiên sau:
 
 1. **P0 — Project/File Explorer thực sự hoàn chỉnh** — ✅ **COMPLETE**
    - Tree file/folder riêng bên trái, không phụ thuộc Patch/File Transfer.
@@ -975,8 +977,8 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - shared-server runtime yêu cầu `settings.read + ssh.use`, rồi list/read/write/terminal/Git tiếp tục bắt `files.* / transfer.* / terminal.create / git.*`; remote editor tự read-only khi user thiếu quyền write;
     - regression test khóa path sandbox/root normalization/canonical symlink guard, post-write SHA verification, browser integration, editor optimistic transport, local-only exclusions, launcher/load order và permission preflight.
 
-Nếu chỉ chọn **10 mục nên làm tiếp ngay**, tôi sẽ ưu tiên theo thứ tự:
+## Completion note
 
-**Project Explorer → Project Search/Replace → Generic Visual Diff/3-way Merge → Git Commit Graph → Git Reflog Recovery → Command Palette → Unified Operation Center → Git Worktree → Project Snapshots → File Watcher.**
+Toàn bộ roadmap trên đã hoàn tất. Các ưu tiên ban đầu như Project Explorer, Project Search/Replace, Generic Visual Diff/3-way Merge, Git Commit Graph, Git Reflog Recovery, Command Palette, Unified Operation Center, Git Worktree, Project Snapshots và File Watcher hiện đều đã có implementation thực tế trên `main`.
 
-Bộ 10 này có lợi hơn việc tiếp tục thêm các action Git nhỏ lẻ, vì nó bắt đầu kết nối toàn bộ **file + editor + terminal + Git + task + remote connections** thành một workflow thống nhất.
+Các thay đổi tiếp theo nên được mở thành roadmap/ticket mới dựa trên nhu cầu sử dụng thực tế hoặc bug report, thay vì tiếp tục coi tài liệu này là backlog đang mở.
