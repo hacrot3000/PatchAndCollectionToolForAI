@@ -9,14 +9,15 @@ import (
 )
 
 type broadcastRequest struct {
-	Action    string `json:"action"`
-	Mode      string `json:"mode,omitempty"`
-	GroupID   string `json:"group_id,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Preset    string `json:"preset,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
-	SourceID  string `json:"source_id,omitempty"`
-	Data      string `json:"data,omitempty"`
+	Action      string            `json:"action"`
+	Mode        string            `json:"mode,omitempty"`
+	GroupID     string            `json:"group_id,omitempty"`
+	Name        string            `json:"name,omitempty"`
+	Preset      string            `json:"preset,omitempty"`
+	Environment map[string]string `json:"environment,omitempty"`
+	SessionID   string            `json:"session_id,omitempty"`
+	SourceID    string            `json:"source_id,omitempty"`
+	Data        string            `json:"data,omitempty"`
 }
 
 func (s *Server) broadcastStateAPI(w http.ResponseWriter, r *http.Request) {
@@ -85,13 +86,18 @@ func (s *Server) broadcastCreateGroup(w http.ResponseWriter, req broadcastReques
 		http.Error(w, "invalid group color preset", http.StatusBadRequest)
 		return
 	}
+	if err := validateProjectProfileEnvironment(req.Environment); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	environment := normalizeProjectProfileEnvironment(req.Environment)
 	id, err := newBroadcastGroupID()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	state, err := mutateBroadcastState(s.Workspace, func(state *broadcastState) error {
-		state.Groups = append(state.Groups, broadcastGroup{ID: id, Name: name, Preset: preset})
+		state.Groups = append(state.Groups, broadcastGroup{ID: id, Name: name, Preset: preset, Environment: environment})
 		return nil
 	})
 	if err != nil {
@@ -113,12 +119,21 @@ func (s *Server) broadcastUpdateGroup(w http.ResponseWriter, req broadcastReques
 		http.Error(w, "invalid group color preset", http.StatusBadRequest)
 		return
 	}
+	if req.Environment != nil {
+		if err := validateProjectProfileEnvironment(req.Environment); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	state, err := mutateBroadcastState(s.Workspace, func(state *broadcastState) error {
 		group, ok := findBroadcastGroup(state, id)
 		if !ok {
 			return errBroadcastGroupNotFound
 		}
 		group.Name, group.Preset = name, preset
+		if req.Environment != nil {
+			group.Environment = normalizeProjectProfileEnvironment(req.Environment)
+		}
 		return nil
 	})
 	if err != nil {
