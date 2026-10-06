@@ -744,7 +744,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - mỗi card có shortcut về subsystem tương ứng: Git, Operation Center, Connections, Tunnel Graph, Task History;
     - regression test khóa source matrix, load order, shared permission và bounded disk scan.
 
-33. **P2 — Permission granularity cho Shared Server**
+33. **P2 — Permission granularity cho Shared Server** — ✅ **COMPLETE**
     Hiện shared server đã có users/roles/permissions; nên mở rộng permission đến:
     - filesystem read/write/delete;
     - terminal create/control;
@@ -758,6 +758,19 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     
     Các action nguy hiểm nên có permission riêng:
     `git.remote.delete`, `git.force_delete`, `filesystem.delete`, `db.write`.
+
+    Hoàn tất:
+    - mở rộng permission registry với `filesystem.delete`, `git.write`, `git.push`, `git.remote.delete`, `git.force_delete`, `db.read/write/schema`, `ssh.use`, `transfer.read/upload/delete`; self-update tiếp tục tách `selfupdate.check/run`;
+    - seed/upgrade permission theo hướng conservative: admin có toàn bộ; các role mặc định khác không tự nhận quyền destructive/privileged mới;
+    - terminal giữ ownership-aware `terminal.view/control_own/all` + `terminal.create`; remote SSH terminal yêu cầu thêm `ssh.use`;
+    - Git route/action gate riêng push/merge-to, remote branch delete và force local branch delete; Git background job status/cancel cũng dùng permission tương ứng;
+    - DB session/read operations yêu cầu `db.read`; mutate/transaction/write và import/schema operation được phân tách `db.write` / `db.schema`;
+    - SFTP/FTP read/list/download tách khỏi upload/delete; background queue job cũng gate theo chính job kind;
+    - project/host trash/delete yêu cầu `filesystem.delete` ngoài write permission; read/write/upload/download vẫn tách riêng;
+    - self-update browser preflight tách check/run: user có `selfupdate.check` vẫn kiểm tra được update nhưng không thể install/retry nếu thiếu `selfupdate.run`;
+    - UI preflight cho Git/Explorer/Quick Open/Tasks và các action trọng yếu để tránh nút rõ ràng dẫn đến 403; backend vẫn là authority cuối cùng;
+    - shared authorization route matrix deny-by-default cho API chưa map và audit authorization-denied với required permission;
+    - regression test khóa permission registry/seed, route matrix, action-level Git/DB/transfer/filesystem guards, terminal ownership, self-update UI preflight và conservative defaults.
 
 34. **P2 — Approval workflow cho action nguy hiểm**
     Khi shared-server:
