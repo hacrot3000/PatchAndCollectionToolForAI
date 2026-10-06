@@ -51,6 +51,7 @@ type sharedAdminAuditView struct {
 	ID           identity.ID  `json:"id"`
 	Timestamp    time.Time    `json:"timestamp"`
 	UserID       *identity.ID `json:"user_id,omitempty"`
+	Username     string       `json:"username,omitempty"`
 	ProjectID    *identity.ID `json:"project_id,omitempty"`
 	Action       string       `json:"action"`
 	ResourceType string       `json:"resource_type,omitempty"`
@@ -668,7 +669,15 @@ func (s *Server) sharedAdminAudit(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
-	query := identity.AuditQuery{ProjectID: principal.ProjectID, UserID: identity.ID(strings.TrimSpace(r.URL.Query().Get("user_id"))), Action: strings.TrimSpace(r.URL.Query().Get("action")), Limit: limit}
+	query := identity.AuditQuery{
+		ProjectID: principal.ProjectID,
+		UserID: identity.ID(strings.TrimSpace(r.URL.Query().Get("user_id"))),
+		Action: strings.TrimSpace(r.URL.Query().Get("action")),
+		ResourceType: strings.TrimSpace(r.URL.Query().Get("resource_type")),
+		ResourceID: strings.TrimSpace(r.URL.Query().Get("resource_id")),
+		Result: strings.TrimSpace(r.URL.Query().Get("result")),
+		Limit: limit,
+	}
 	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
 		before, err := time.Parse(time.RFC3339Nano, raw)
 		if err != nil {
@@ -683,12 +692,26 @@ func (s *Server) sharedAdminAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	views := make([]sharedAdminAuditView, 0, len(events))
+	usernames := map[identity.ID]string{}
 	for _, event := range events {
+		username := ""
+		if event.UserID != nil && *event.UserID != "" {
+			if cached, ok := usernames[*event.UserID]; ok {
+				username = cached
+			} else if user, lookupErr := s.Identity.UserByID(ctx, *event.UserID); lookupErr == nil {
+				username = user.Username
+				usernames[*event.UserID] = username
+			}
+		}
 		views = append(views, sharedAdminAuditView{
-			ID: event.ID, Timestamp: event.Timestamp, UserID: event.UserID, ProjectID: event.ProjectID,
+			ID: event.ID, Timestamp: event.Timestamp, UserID: event.UserID, Username: username, ProjectID: event.ProjectID,
 			Action: event.Action, ResourceType: event.ResourceType, ResourceID: event.ResourceID,
 			Result: event.Result, ClientIP: event.ClientIP, Details: event.Details,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"events": views})
+	nextBefore := ""
+	if len(events) == limit && len(events) > 0 {
+		nextBefore = events[len(events)-1].Timestamp.UTC().Format(time.RFC3339Nano)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": views, "next_before": nextBefore})
 }
