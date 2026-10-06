@@ -103,7 +103,7 @@ func TestGlobalQuickOpenKeepsOneCtrlPOverlayAndPrefixRouting(t *testing.T) {
 	for _, want := range []string{
 		"Global Quick Open — files, recent, tabs, terminals, DB, connections",
 		"kind:'recent'",
-		"kind:'terminal'",
+		"kind:terminal?'terminal':'tab'",
 		"kind:'database'",
 		"kind:'ssh'",
 		"kind:'transfer'",
