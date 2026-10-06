@@ -94,6 +94,31 @@ func TestExplorerTracksSharedHeaderHeight(t *testing.T) {
 	}
 }
 
+func TestExplorerCompactsSingleChildDirectoryChainsWithPerLevelContext(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const COMPACT_DIRECTORY_LIMIT=48",
+		"async function preloadCompactDirectoryChain(pathValue)",
+		"function compactDirectoryChain(parent,item)",
+		"list.length!==1||list[0]?.type!=='dir'",
+		"project-explorer-compact-segment",
+		"segmentButton.dataset.explorerPath=segment.path",
+		"segmentButton.oncontextmenu=event=>showContextMenu(event,segment.path,'dir')",
+		"const list=loaded.get(leafPath)",
+		"for(const child of list)children.append(renderItem(leafPath,child))",
+		"await preloadCompactDirectoryChain(pathValue)",
+		"tree.querySelectorAll('[data-explorer-path]')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Explorer compact-folder behavior missing %q", want)
+		}
+	}
+}
+
 func TestExplorerSupportsSelectionFavoritesAndRecentPaths(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/explorer.js")
 	if err != nil {

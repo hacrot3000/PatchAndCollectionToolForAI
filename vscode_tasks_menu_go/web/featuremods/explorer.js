@@ -31,6 +31,11 @@ style.textContent=`
 .project-explorer-toggle{border:0;background:transparent;padding:2px 4px;min-width:22px}
 .project-explorer-name{border:0;background:transparent;text-align:left;flex:1;min-width:0;padding:3px 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .project-explorer-name.file{opacity:.9}
+.project-explorer-name.dir.compact{display:flex;align-items:center;padding:0;overflow:hidden}
+.project-explorer-compact-segment{flex:0 1 auto;min-width:16px;max-width:180px;border:0;background:transparent;color:inherit;padding:3px 1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:inherit;text-align:left}
+.project-explorer-compact-segment:hover{background:#2a3340}
+.project-explorer-compact-segment.selected{background:#27425f;outline:1px solid #3a628c}
+.project-explorer-compact-separator{flex:0 0 auto;opacity:.45;padding:0 1px;user-select:none}
 .project-explorer-git{min-width:20px;padding:1px 4px;border-radius:4px;text-align:center;font:10px ui-monospace,monospace;font-weight:700;opacity:.9}
 .project-explorer-git.status-M{color:#e5b85c}.project-explorer-git.status-A{color:#72cf8a}.project-explorer-git.status-D{color:#ef7d88}.project-explorer-git.status-U{color:#ff8c8c;background:#4a2228}.project-explorer-git.status-q{color:#7eb6f0}.project-explorer-git.status-R,.project-explorer-git.status-C{color:#c596e8}.project-explorer-git.status-T{color:#e5b85c}.project-explorer-git.dir{opacity:.52;font-weight:500}
 .project-explorer-children{margin-left:13px;border-left:1px solid #252c35;padding-left:4px}
@@ -274,6 +279,38 @@ async function loadDirectory(pathValue,force=false){
   return safe;
 }
 
+const COMPACT_DIRECTORY_LIMIT=48;
+async function preloadCompactDirectoryChain(pathValue){
+  let current=String(pathValue||'').trim();
+  const seen=new Set();
+  for(let depth=0;current&&depth<COMPACT_DIRECTORY_LIMIT;depth++){
+    if(seen.has(current))break;
+    seen.add(current);
+    const list=loaded.has(current)?loaded.get(current):await loadDirectory(current);
+    if(!Array.isArray(list)||list.length!==1||list[0]?.type!=='dir')break;
+    current=joinPath(current,list[0].name);
+  }
+  return current;
+}
+function compactDirectoryChain(parent,item){
+  const firstPath=joinPath(parent,item.name);
+  const chain=[{path:firstPath,item}];
+  if(item.type!=='dir')return chain;
+  let current=firstPath;
+  const seen=new Set([current]);
+  for(let depth=0;depth<COMPACT_DIRECTORY_LIMIT;depth++){
+    const list=loaded.get(current);
+    if(!Array.isArray(list)||list.length!==1||list[0]?.type!=='dir')break;
+    const child=list[0];
+    const nextPath=joinPath(current,child.name);
+    if(seen.has(nextPath))break;
+    seen.add(nextPath);
+    chain.push({path:nextPath,item:child});
+    current=nextPath;
+  }
+  return chain;
+}
+
 function render(){
   renderSaved();
   tree.replaceChildren();
@@ -309,31 +346,46 @@ function render(){
   }
 }
 function renderItem(parent,item){
-  const fullPath=joinPath(parent,item.name);
+  const chain=compactDirectoryChain(parent,item);
+  const fullPath=chain[0].path;
+  const leafPath=chain[chain.length-1].path;
   const wrap=document.createElement('div');
-  const row=document.createElement('div');row.className='project-explorer-row';row.dataset.path=fullPath;row.dataset.type=item.type;row.classList.toggle('selected',selected.has(fullPath));
+  const row=document.createElement('div');row.className='project-explorer-row';row.dataset.path=fullPath;row.dataset.type=item.type;row.classList.toggle('selected',chain.some(segment=>selected.has(segment.path)));
   const toggle=document.createElement('button');toggle.type='button';toggle.className='project-explorer-toggle';
-  const name=document.createElement('button');name.type='button';name.className='project-explorer-name '+item.type;name.textContent=item.name;name.title=fullPath;
+  const name=document.createElement(item.type==='dir'?'div':'button');name.className='project-explorer-name '+item.type+(item.type==='dir'&&chain.length>1?' compact':'');
   const gitBadge=document.createElement('span');gitBadge.className='project-explorer-git';
   const badge=gitBadgeForPath(fullPath,item.type);
   if(badge){gitBadge.textContent=badge.text;gitBadge.title=badge.title;gitBadge.classList.add(badge.className);}else gitBadge.hidden=true;
   row.style.paddingLeft='0px';
   if(item.type==='dir'){
-    toggle.textContent=expanded.has(fullPath)?'▾':'▸';toggle.title='Expand '+fullPath;
+    toggle.textContent=expanded.has(fullPath)?'▾':'▸';toggle.title='Expand '+leafPath;
     toggle.onclick=event=>{event.stopPropagation();toggleDirectory(fullPath);};
-    name.onclick=event=>{
-      if(event.ctrlKey||event.metaKey||event.shiftKey){selectPath(event,fullPath);return;}
-      selectOnly(fullPath);toggleDirectory(fullPath);
-    };
+    chain.forEach((segment,index)=>{
+      if(index){
+        const separator=document.createElement('span');separator.className='project-explorer-compact-separator';separator.textContent='/';name.append(separator);
+      }
+      const segmentButton=document.createElement('button');
+      segmentButton.type='button';segmentButton.className='project-explorer-compact-segment';segmentButton.dataset.explorerPath=segment.path;
+      segmentButton.textContent=segment.item.name;segmentButton.title=segment.path;segmentButton.classList.toggle('selected',selected.has(segment.path));
+      segmentButton.onclick=event=>{
+        event.stopPropagation();
+        if(event.ctrlKey||event.metaKey||event.shiftKey){selectPath(event,segment.path);return;}
+        selectOnly(segment.path);
+        if(index===chain.length-1)toggleDirectory(fullPath);
+      };
+      segmentButton.oncontextmenu=event=>showContextMenu(event,segment.path,'dir');
+      name.append(segmentButton);
+    });
   }else{
     toggle.textContent='';toggle.disabled=true;
+    name.type='button';name.textContent=item.name;name.title=fullPath;name.dataset.explorerPath=fullPath;
     name.onclick=event=>{
       if(event.ctrlKey||event.metaKey||event.shiftKey){selectPath(event,fullPath);return;}
       selectOnly(fullPath);openFile(fullPath);
     };
     name.ondblclick=()=>openFile(fullPath);
   }
-  row.oncontextmenu=event=>showContextMenu(event,fullPath,item.type);
+  row.oncontextmenu=event=>showContextMenu(event,item.type==='dir'?leafPath:fullPath,item.type);
   row.draggable=true;
   row.ondragstart=event=>startExplorerDrag(event,fullPath,row);
   row.ondragend=clearExplorerDrag;
@@ -343,19 +395,19 @@ function renderItem(parent,item){
   row.append(toggle,name,gitBadge);wrap.append(row);
   if(item.type==='dir'&&expanded.has(fullPath)){
     const children=document.createElement('div');children.className='project-explorer-children';
-    const list=loaded.get(fullPath);
+    const list=loaded.get(leafPath);
     if(!list){
       const loading=document.createElement('div');loading.className='project-explorer-message';loading.textContent='Loading…';children.append(loading);
     }else if(!list.length){
       const empty=document.createElement('div');empty.className='project-explorer-message';empty.textContent='Empty';children.append(empty);
     }else{
-      for(const child of list)children.append(renderItem(fullPath,child));
+      for(const child of list)children.append(renderItem(leafPath,child));
     }
     wrap.append(children);
   }
   return wrap;
 }
-function visiblePaths(){return [...tree.querySelectorAll('.project-explorer-row[data-path]')].map(row=>row.dataset.path).filter(Boolean);}
+function visiblePaths(){return [...tree.querySelectorAll('[data-explorer-path]')].map(node=>node.dataset.explorerPath).filter(Boolean);}
 function selectOnly(pathValue){
   selected.clear();selected.add(pathValue);lastSelectedPath=pathValue;render();
 }
@@ -389,7 +441,10 @@ async function ensurePathVisible(pathValue){
 async function revealPath(pathValue,{select=true}={}){
   await ensurePathVisible(pathValue);
   if(select){selected.clear();selected.add(pathValue);lastSelectedPath=pathValue;render();}
-  requestAnimationFrame(()=>tree.querySelector('.project-explorer-row[data-path="'+CSS.escape(pathValue)+'"]')?.scrollIntoView({block:'nearest'}));
+  requestAnimationFrame(()=>{
+    const target=tree.querySelector('[data-explorer-path="'+CSS.escape(pathValue)+'"]')||tree.querySelector('.project-explorer-row[data-path="'+CSS.escape(pathValue)+'"]');
+    (target?.closest?.('.project-explorer-row')||target)?.scrollIntoView({block:'nearest'});
+  });
 }
 function findLoadedItem(pathValue){
   const parent=parentPath(pathValue);
@@ -715,9 +770,12 @@ async function toggleDirectory(pathValue){
     expanded.delete(pathValue);persistExpanded();render();return;
   }
   expanded.add(pathValue);persistExpanded();render();
-  if(!loaded.has(pathValue)){
-    try{await loadDirectory(pathValue);if(expanded.has(pathValue))render();}
-    catch(error){expanded.delete(pathValue);persistExpanded();render();app.showError(error);}
+  try{
+    if(!loaded.has(pathValue))await loadDirectory(pathValue);
+    await preloadCompactDirectoryChain(pathValue);
+    if(expanded.has(pathValue))render();
+  }catch(error){
+    expanded.delete(pathValue);persistExpanded();render();app.showError(error);
   }
 }
 function openFile(pathValue){
@@ -728,7 +786,7 @@ async function restoreExpandedDirectories(){
   const paths=[...expanded].sort((a,b)=>a.split('/').length-b.split('/').length||a.localeCompare(b));
   for(const pathValue of paths){
     if(loaded.has(pathValue))continue;
-    try{await loadDirectory(pathValue);}
+    try{await loadDirectory(pathValue);await preloadCompactDirectoryChain(pathValue);}
     catch{expanded.delete(pathValue);changed=true;}
   }
   if(changed)persistExpanded();
@@ -780,6 +838,7 @@ async function refreshWatchedDirectory(pathValue){
   pathValue=String(pathValue||'').trim();
   if(pathValue&&!expanded.has(pathValue))return false;
   await loadDirectory(pathValue,true);
+  await preloadCompactDirectoryChain(pathValue);
   render();
   return true;
 }
