@@ -45,6 +45,8 @@ const (
 	PermissionSessionsManage     = "sessions.manage"
 	PermissionApprovalsView       = "approvals.view"
 	PermissionApprovalsManage     = "approvals.manage"
+	PermissionSecretsView         = "secrets.view"
+	PermissionSecretsManage       = "secrets.manage"
 )
 
 type PermissionDefinition struct {
@@ -97,6 +99,8 @@ func PermissionRegistry() []PermissionDefinition {
 		{Key: PermissionSessionsManage, Module: "sessions"},
 		{Key: PermissionApprovalsView, Module: "approvals"},
 		{Key: PermissionApprovalsManage, Module: "approvals"},
+		{Key: PermissionSecretsView, Module: "secrets"},
+		{Key: PermissionSecretsManage, Module: "secrets"},
 		{Key: PermissionProjectAdmin, Module: "project"},
 	}
 }
@@ -131,6 +135,13 @@ func PermissionUpgradeV3Keys() []string {
 	return []string{
 		PermissionApprovalsView,
 		PermissionApprovalsManage,
+	}
+}
+
+func PermissionUpgradeV4Keys() []string {
+	return []string{
+		PermissionSecretsView,
+		PermissionSecretsManage,
 	}
 }
 
