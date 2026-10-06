@@ -83,6 +83,9 @@ async function openProjectWith(pathValue){
   openWithButton(dialog,'Hex',()=>openProjectHex(pathValue));
   openWithButton(dialog,'Image Preview',()=>openProjectImagePreview(pathValue,info),{disabled:info?.kind!=='image'});
   openWithButton(dialog,'Markdown Preview',()=>openProjectMarkdownPreview(pathValue,info),{disabled:info?.kind!=='markdown'});
+  for(const addonPreview of globalThis.TaskMenuAddons?.previewActions?.(pathValue)||[]){
+    openWithButton(dialog,'Add-on Preview · '+String(addonPreview.label||'Preview'),addonPreview.run);
+  }
   openWithButton(dialog,'Diff…',()=>openProjectDiff(pathValue),{disabled:!textCapable,title:textCapable?'Compare with another project file':'Diff requires a supported text file'});
   openWithButton(dialog,'Download',()=>downloadProjectFile(pathValue));
   openWithButton(dialog,'Open terminal directory',()=>openProjectTerminalDirectory(pathValue));
@@ -262,6 +265,8 @@ function standardActions(pathValue,type='file'){
     {label:'Git History',run:()=>gitFileView(pathValue,'history')},
     {label:'Git Blame',run:()=>gitFileView(pathValue,'blame')}
   );
+  const addonActions=globalThis.TaskMenuAddons?.contextMenuActions?.(pathValue,type)||[];
+  if(addonActions.length)actions.push({separator:true},...addonActions);
   actions.push({separator:true},{label:'Copy path',run:()=>copyText(pathValue)});
   return actions;
 }
