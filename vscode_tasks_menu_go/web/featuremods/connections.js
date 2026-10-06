@@ -938,6 +938,7 @@ function install(){
   const head=document.createElement('div');head.className='task-connections-head';
   const title=document.createElement('div');title.className='task-connections-title';title.textContent='CONNECTIONS';
   const remoteWorkspace=document.createElement('button');remoteWorkspace.type='button';remoteWorkspace.className='task-connections-remote-workspace';remoteWorkspace.textContent='Remote';remoteWorkspace.title='Open Remote Workspace';
+  remoteWorkspace.disabled=Boolean(app.sharedMode)&&!(app.hasPermission?.('ssh.use')&&app.hasPermission?.('settings.read')||app.hasPermission?.('project.admin'));
   remoteWorkspace.onclick=()=>Promise.resolve(globalThis.TaskMenuRemoteWorkspace?.open?.()).catch(app.showError);
   const graph=document.createElement('button');graph.type='button';graph.className='task-connections-graph';graph.textContent='Graph';graph.title='Open connection/tunnel graph';
   graph.onclick=()=>Promise.resolve(globalThis.TaskMenuConnectionGraph?.open?.()).catch(app.showError);
