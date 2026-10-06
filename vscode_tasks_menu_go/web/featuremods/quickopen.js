@@ -71,6 +71,17 @@ function localQuickOpenItems(){
     const label=String(view?.profile?.name||view?.meta?.label||profileID||id).trim();
     add({id:'db-tab:'+id,kind:'database',name:'Database · '+label,path:profileID,detail:'Open database tab',run:()=>view?.tab?.click?.()});
   }
+  for(const tab of document.querySelectorAll('#tabs .tab,[role="tab"]')){
+    if(tab.hidden||tab.offsetParent===null)continue;
+    const id=String(tab.dataset?.id||tab.id||tab.textContent||'').trim();if(!id)continue;
+    const label=String(tab.dataset?.title||tab.title||tab.textContent||id).replace(/\s+/g,' ').trim();
+    add({id:'generic-tab:'+id,kind:'tab',name:'Tab · '+label,path:id,detail:'Open workspace tab',run:()=>tab.click()});
+  }
+  for(const [id,view] of globalThis.TaskMenuFileTransfer?.views?.entries?.()||[]){
+    const profileID=String(view?.profile?.id||id).trim();if(!profileID)continue;
+    const label=String(view?.profile?.name||view?.profile?.host||profileID).trim();
+    add({id:'transfer-tab:'+profileID,kind:'transfer',name:'Transfer tab · '+label,path:profileID,detail:String(view?.profile?.protocol||'').toUpperCase(),run:()=>globalThis.TaskMenuFileTransfer?.openProfile?.(profileID)});
+  }
   for(const profile of globalThis.TaskMenuConnections?.sshProfiles||[]){
     const id=String(profile?.id||'').trim();if(!id)continue;
     const label=String(profile?.name||profile?.label||profile?.host||id).trim();
@@ -150,7 +161,11 @@ function render(){
 }
 function select(index){
   if(!items.length)return;
-  selected=(index+items.length)%items.length;
+  const direction=index>=selected?1:-1;let next=(index+items.length)%items.length;
+  for(let step=0;step<items.length;step++){
+    if(!items[next]?.disabled){selected=next;break;}
+    next=(next+direction+items.length)%items.length;
+  }
   [...results.querySelectorAll('.quick-open-result')].forEach((node,i)=>node.classList.toggle('selected',i===selected));
   results.querySelector('.quick-open-result.selected')?.scrollIntoView({block:'nearest'});
 }
