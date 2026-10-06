@@ -150,12 +150,12 @@ async function controlOperation(item,action){
       return globalThis.TaskMenuActivityBar?.activate?.('history');
     }
   }
-  if(item.source==='database'){
-    const local=localOperations.get(operationKey(item));
+  const local=localOperations.get(operationKey(item));
+  if(local){
     const fn=action==='cancel'?local?._cancel:(action==='retry'?local?._retry:local?._open);
     if(typeof fn==='function')return fn();
-    if(action==='open'&&item.profile_id)return globalThis.TaskMenuDatabase?.openProfile?.(item.profile_id);
   }
+  if(item.source==='database'&&action==='open'&&item.profile_id)return globalThis.TaskMenuDatabase?.openProfile?.(item.profile_id);
   throw new Error('Operation action is unavailable');
 }
 function actionButton(label,run,{disabled=false}={}){
