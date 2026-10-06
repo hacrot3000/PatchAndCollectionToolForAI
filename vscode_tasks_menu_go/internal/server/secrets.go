@@ -125,19 +125,21 @@ func (s *Server) secretUsage() (map[string][]secretUsageView, error) {
 			Kind: "file-transfer", ProfileID: profile.ID, Name: profile.Name,
 		})
 	}
-	taskItems, err := s.loadWorkspaceTasks()
-	if err != nil {
-		return nil, err
-	}
-	for _, task := range taskItems {
-		for _, secretID := range task.SecretEnv {
-			secretID = strings.TrimSpace(secretID)
-			if secretID == "" {
-				continue
+	if strings.TrimSpace(s.Workspace) != "" {
+		taskItems, err := s.loadWorkspaceTasks()
+		if err != nil {
+			return nil, err
+		}
+		for _, task := range taskItems {
+			for _, secretID := range task.SecretEnv {
+				secretID = strings.TrimSpace(secretID)
+				if secretID == "" {
+					continue
+				}
+				usage[secretID] = append(usage[secretID], secretUsageView{
+					Kind: "task", ProfileID: fmt.Sprint(task.ID), Name: task.MenuLabel,
+				})
 			}
-			usage[secretID] = append(usage[secretID], secretUsageView{
-				Kind: "task", ProfileID: fmt.Sprint(task.ID), Name: task.MenuLabel,
-			})
 		}
 	}
 	return usage, nil
