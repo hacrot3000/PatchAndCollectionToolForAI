@@ -83,6 +83,12 @@ func (s *Store) Load() ([]Profile, error) {
 	return out, err
 }
 
+func (s *Store) Save(profiles []Profile) error {
+	return s.withExclusiveLock(func() error {
+		return s.saveLocked(profiles)
+	})
+}
+
 func (s *Store) Create(profile Profile) (Profile, error) {
 	var created Profile
 	err := s.withExclusiveLock(func() error {
