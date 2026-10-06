@@ -25,6 +25,10 @@ func TestRemoteWorkspaceBrowserIntegration(t *testing.T) {
 		"ssh_profile_id:workspace.ssh_profile_id",
 		"TaskMenuDatabase?.openProfile?.(id)",
 		"database_profile_ids",
+		"function remoteCanRead()",
+		"function remoteCanWrite()",
+		"read_only:!remoteCanWrite()",
+		"function gitAllowed(action)",
 		"Git on remote host",
 		"Terminal here",
 		"globalThis.TaskMenuRemoteWorkspace={",
@@ -109,6 +113,7 @@ func TestRemoteWorkspaceModuleIsReachableFromMainUI(t *testing.T) {
 	connections := string(connectionsData)
 	for _, want := range []string{
 		"remoteWorkspace.textContent='Remote'",
+		"app.hasPermission?.('ssh.use')&&app.hasPermission?.('settings.read')",
 		"TaskMenuRemoteWorkspace?.open?.()",
 	} {
 		if !strings.Contains(connections, want) {
@@ -123,6 +128,7 @@ func TestRemoteWorkspaceModuleIsReachableFromMainUI(t *testing.T) {
 		"Remote Workspace: Open…",
 		"TaskMenuRemoteWorkspace?.open?.()",
 		"permissionAllowed('ssh.use')",
+		"permissionAllowed('settings.read')",
 	} {
 		if !strings.Contains(palette, want) {
 			t.Fatalf("Command Palette missing Remote Workspace action %q", want)
