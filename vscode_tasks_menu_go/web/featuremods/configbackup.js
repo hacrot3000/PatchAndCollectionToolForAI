@@ -20,7 +20,7 @@ const title=document.createElement('strong');title.textContent='BACKUP / RESTORE
 const closeButton=document.createElement('button');closeButton.type='button';closeButton.textContent='×';
 head.append(title,closeButton);
 const body=document.createElement('div');body.className='config-backup-body';
-const note=document.createElement('div');note.className='config-backup-note';note.textContent='Portable backup includes project settings, command presets, task/terminal layout, Project Profiles, Environment Profiles and connection profiles. Secret values and original secret references are never exported.';
+const note=document.createElement('div');note.className='config-backup-note';note.textContent='Portable backup includes project settings, command presets, task/terminal layout, Project Profiles and connection profiles. Environment values are opt-in. SecretStore values and original secret references are never exported.';
 const actions=document.createElement('div');actions.className='config-backup-actions';
 const includeEnvLabel=document.createElement('label');includeEnvLabel.title='Environment variables can contain tokens/passwords. Off is the safe portable default.';
 const includeEnv=document.createElement('input');includeEnv.type='checkbox';includeEnv.checked=false;
