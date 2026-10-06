@@ -176,7 +176,7 @@ function terminalsText(items){return (items||[]).map(item=>String(item.cwd||'.')
 function parseTerminals(text){return String(text||'').split(/\r?\n/).map(line=>line.trim()).filter(Boolean).slice(0,16).map(line=>{const parts=line.split('|');return {cwd:String(parts.shift()||'.').trim()||'.',title:parts.join('|').trim()};});}
 function terminalSplitsText(items){return (items||[]).map(item=>(Number(item.first)+1)+','+(Number(item.second)+1)+','+(Number(item.ratio)||0.5)+','+(item.orientation==='horizontal'?'horizontal':'vertical')).join('\n');}
 function parseTerminalSplits(text,terminalCount){
-  const out=[],seenSecond=new Set(),limit=Math.max(0,Math.min(15,Number(terminalCount)||0)-1);
+  const out=[],seenSecond=new Set(),limit=Math.max(0,Math.min(15,(Number(terminalCount)||0)-1));
   for(const raw of String(text||'').split(/\r?\n/)){
     if(out.length>=limit)break;
     const line=raw.trim();if(!line)continue;
