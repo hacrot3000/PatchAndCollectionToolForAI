@@ -136,10 +136,10 @@ func TestSplitTerminalSupportsTerminatorStyleTitleDragRearrangement(t *testing.T
 		"['left','right','top','bottom'].includes(side)",
 		"function moveTerminalToSide(sourceID,targetID,side)",
 		"extractLeaf(sourceRoot,sourceID)",
-		"?splitNode(extracted.removed,target,orientation,0.5)",
-		":splitNode(target,extracted.removed,orientation,0.5)",
+		"?splitNode(removed,target,orientation,0.5)",
+		":splitNode(target,removed,orientation,0.5)",
 		"saveState();app.activateView(sourceID)",
-		"moveTerminalToSide,clearSplit",
+		"moveTerminalToSide,moveToSplitGroup,splitGroupTargetsFor,clearSplit",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("split title drag/drop behavior missing %q", want)
@@ -170,5 +170,36 @@ func TestSplitTerminalLeavesTopLeftForComputedPaneCoordinates(t *testing.T) {
 	}
 	if strings.Contains(js, "inset:auto!important") {
 		t.Fatal("split leaf must not force top/left to auto because JavaScript computes pane coordinates")
+	}
+}
+
+func TestSplitTerminalCanMoveBetweenSplitGroups(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/split.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"session-move-split-group",
+		"Move to split group…",
+		"function splitGroupTargetsFor(sourceID)",
+		"function moveToSplitGroup(view)",
+		"roots.filter(root=>root!==sourceRoot)",
+		"No other split group is available",
+		"Place terminal relative to the selected group anchor: left, right, top, or bottom",
+		"moveTerminalToSide(view.meta.id,candidates[index].id,side)",
+		"saveState();app.activateView(view.meta.id)",
+		"const sourceRoot=findRoot(sourceID),targetRoot=findRoot(targetID)",
+		"if(!targetRoot)return false",
+		"let removed=leaf(sourceID),extractedNode=null",
+		"if(sourceRoot){",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("move terminal split group support missing %q", want)
+		}
+	}
+
+	menus, err := webassets.Files.ReadFile("featuremods/menus.js")
+	if err != nil { t.Fatal(err) }
+	if !strings.Contains(string(menus), "'.session-move-split-group'") {
+		t.Fatal("Session Split menu must expose Move to split group")
 	}
 }
