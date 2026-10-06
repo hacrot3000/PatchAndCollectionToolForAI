@@ -4,6 +4,10 @@ if(!app||!integration)throw new Error('Shell integration unavailable for command
 
 const installed=new WeakSet();
 const buttons=new WeakMap();
+const loaded=new Set();
+const loading=new Map();
+const notes=new Map();
+const saveTimers=new Map();
 let activeView=null;
 
 const style=document.createElement('style');
@@ -49,6 +53,66 @@ function copyText(value){
   try{if(!document.execCommand('copy'))throw new Error('Copy failed');}finally{area.remove();}
   return Promise.resolve();
 }
+function historyID(view){return String(view?.meta?.id||'');}
+function commandKey(item){return [Number(item?.startedAt||0),Number(item?.finishedAt||0),String(item?.command||''),String(item?.cwd||'')].join('\u001f');}
+function decodeCommand(raw){
+  raw=raw&&typeof raw==='object'?raw:{};
+  const exitRaw=raw.exit_code??raw.exitCode;
+  return {
+    command:String(raw.command||''),output:String(raw.output||''),
+    exitCode:exitRaw===null||exitRaw===undefined?null:Number(exitRaw),
+    cwd:String(raw.cwd||''),remote:Boolean(raw.remote),
+    startedAt:Number(raw.started_at??raw.startedAt??0),finishedAt:Number(raw.finished_at??raw.finishedAt??0),
+    bookmarkLine:Number(raw.bookmark_line??raw.bookmarkLine??0),
+    bookmarkText:String(raw.bookmark_text??raw.bookmarkText??'')
+  };
+}
+function encodeCommand(item){
+  return {
+    command:String(item?.command||''),output:String(item?.output||''),
+    exit_code:item?.exitCode===null||item?.exitCode===undefined?null:Number(item.exitCode),
+    cwd:String(item?.cwd||''),remote:Boolean(item?.remote),
+    started_at:Number(item?.startedAt||0),finished_at:Number(item?.finishedAt||0),
+    bookmark_line:Number(item?.bookmarkLine||0),bookmark_text:String(item?.bookmarkText||'')
+  };
+}
+function mergeCommands(persisted,live){
+  const out=[],seen=new Set();
+  for(const item of [...persisted,...live]){
+    const value=decodeCommand(item),key=commandKey(value);
+    if(seen.has(key))continue;seen.add(key);out.push(value);
+  }
+  return out.slice(-Number(integration.maxCommands||200));
+}
+async function loadHistory(view){
+  const id=historyID(view);if(!id)return;
+  if(loaded.has(id))return;
+  if(loading.has(id))return loading.get(id);
+  const promise=(async()=>{
+    const data=await app.jsonFetch('/api/terminal-history?session_id='+encodeURIComponent(id));
+    const persisted=Array.isArray(data?.commands)?data.commands.map(decodeCommand):[];
+    const merged=mergeCommands(persisted,integration.getCommands(id));
+    integration.replaceCommands(id,merged);
+    notes.set(id,String(data?.note||''));
+    loaded.add(id);updateButton(view);
+    if(activeView===view&&backdrop.classList.contains('visible'))render();
+    if(merged.length!==persisted.length)scheduleSave(view,100);
+  })().catch(error=>console.warn('Cannot load terminal command history',error)).finally(()=>loading.delete(id));
+  loading.set(id,promise);return promise;
+}
+async function persistHistory(view){
+  const id=historyID(view);if(!id||!loaded.has(id))return;
+  const commands=integration.getCommands(id).map(encodeCommand);
+  await app.jsonFetch('/api/terminal-history?session_id='+encodeURIComponent(id),{
+    method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({commands,note:notes.get(id)||''})
+  });
+}
+function scheduleSave(view,delay=350){
+  const id=historyID(view);if(!id)return;
+  const old=saveTimers.get(id);if(old)clearTimeout(old);
+  saveTimers.set(id,setTimeout(()=>{saveTimers.delete(id);persistHistory(view).catch(error=>console.warn('Cannot save terminal command history',error));},delay));
+}
 function closeDialog(){backdrop.classList.remove('visible');activeView=null;}
 close.onclick=closeDialog;done.onclick=closeDialog;backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)closeDialog();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&backdrop.classList.contains('visible'))closeDialog();});
@@ -82,18 +146,18 @@ function render(){
     actions.append(copyCommand,copyOutput,run);row.append(actions);list.append(row);
   }
 }
-function open(view){activeView=view;render();backdrop.classList.add('visible');close.focus();}
+function open(view){activeView=view;loadHistory(view).finally(()=>{if(activeView===view)render();});render();backdrop.classList.add('visible');close.focus();}
 function updateButton(view){const button=buttons.get(view);if(!button)return;const count=integration.getCommands(view.meta.id).length;button.textContent=count?'Commands ('+count+')':'Commands';button.title='Show OSC 133 command history';}
 function install(view){
   if(!view?.pane||installed.has(view))return;installed.add(view);
   const head=view.pane.querySelector('.pane-head');if(!head)return;
   const button=document.createElement('button');button.className='shell-history-button';button.textContent='Commands';button.title='Show OSC 133 command history';button.onclick=()=>open(view);
-  const copy=view.copy||head.querySelector('.copy-console');if(copy)head.insertBefore(button,copy);else head.append(button);buttons.set(view,button);updateButton(view);
+  const copy=view.copy||head.querySelector('.copy-console');if(copy)head.insertBefore(button,copy);else head.append(button);buttons.set(view,button);updateButton(view);loadHistory(view);
 }
 function installAll(){for(const view of app.views.values())install(view);}
 installAll();
 window.addEventListener('taskmenu:session',event=>install(event.detail?.view));
-window.addEventListener('taskmenu:shell-integration',event=>{const view=event.detail?.view;if(view){install(view);updateButton(view);if(activeView===view&&backdrop.classList.contains('visible'))render();}});
-clear.onclick=()=>{if(!activeView)return;const state=integration.getState(activeView.meta.id);if(state)state.commands.splice(0);updateButton(activeView);render();};
+window.addEventListener('taskmenu:shell-integration',event=>{const view=event.detail?.view;if(view){install(view);updateButton(view);if(event.detail?.type==='command-finished')loadHistory(view).then(()=>scheduleSave(view));if(activeView===view&&backdrop.classList.contains('visible'))render();}});
+clear.onclick=()=>{if(!activeView)return;const state=integration.getState(activeView.meta.id);if(state)state.commands.splice(0);updateButton(activeView);render();loadHistory(activeView).then(()=>scheduleSave(activeView,0));};
 
 globalThis.TaskDeckShellHistory={open,rerun};
