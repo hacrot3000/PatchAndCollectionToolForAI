@@ -616,6 +616,18 @@ TaskDeck hiểu `dependsOn` và `dependsOrder` của VS Code và bổ sung polic
 
 Workflow được compile thành **một task execution** rồi chạy qua session/broker hiện hữu, vì vậy ownership, stop/restart, terminal tab và shared-server `tasks.run` không có pipeline thứ hai.
 
+### Task run history
+
+Task hoàn tất được ghi vào durable history server-side (tối đa 50 run gần nhất):
+
+- trạng thái PASS/FAIL/STOPPED, exit code, thời gian bắt đầu/kết thúc và duration;
+- Git commit tại task CWD khi CWD nằm trong Git repository;
+- CWD, command preview, target type/profile và Project Profile đang active;
+- console log artifact riêng, bounded 1 MiB/run và có nút **Details / Download log / Run again**;
+- chọn đúng hai run rồi **Compare** để đối chiếu metadata + log side-by-side.
+
+TaskDeck **không persist toàn bộ environment variables** vào history để tránh lưu credential/secret ngoài ý muốn; phần “environment/profile” được biểu diễn bằng target/profile context và Project Profile đã chọn. History metadata/log dùng project-local state directory, file permission private và shared-server vẫn áp ownership/visibility của task session.
+
 ## Browser assets chạy offline và được vendor thủ công
 
 Web UI dùng các bản đã pin:
