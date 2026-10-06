@@ -204,6 +204,7 @@ func mergeProjectProfiles(current, incoming projectProfileStore, replace, includ
 				profile.EnvironmentProfile=existing.EnvironmentProfile
 			} else {
 				profile.Environment=nil
+				profile.EnvironmentProfile=""
 			}
 		}
 		if _,exists:=byID[profile.ID];!exists{order=append(order,profile.ID)}
@@ -310,7 +311,10 @@ func validateConfigBackupBundle(bundle configBackupBundle) (configBackupBundle, 
 	bundle.TerminalMobile = portableTerminalState(bundle.TerminalMobile)
 	if bundle.ProjectProfiles,err=validateBackupProjectProfiles(bundle.ProjectProfiles);err!=nil{return bundle,err}
 	if !bundle.IncludesEnvironment {
-		for i:=range bundle.ProjectProfiles.Profiles{bundle.ProjectProfiles.Profiles[i].Environment=nil}
+		for i:=range bundle.ProjectProfiles.Profiles{
+			bundle.ProjectProfiles.Profiles[i].Environment=nil
+			bundle.ProjectProfiles.Profiles[i].EnvironmentProfile=""
+		}
 		bundle.Client=configBackupClient{}
 	}
 	for i := range bundle.Connections.SSH {
@@ -401,7 +405,10 @@ func (s *Server) configBackup(w http.ResponseWriter, r *http.Request) {
 		if err != nil { http.Error(w,err.Error(),http.StatusInternalServerError); return }
 		bundle.IncludesEnvironment = r.URL.Query().Get("include_environment") == "1"
 		if !bundle.IncludesEnvironment {
-			for i:=range bundle.ProjectProfiles.Profiles{bundle.ProjectProfiles.Profiles[i].Environment=nil}
+			for i:=range bundle.ProjectProfiles.Profiles{
+				bundle.ProjectProfiles.Profiles[i].Environment=nil
+				bundle.ProjectProfiles.Profiles[i].EnvironmentProfile=""
+			}
 		}
 		writeJSON(w,http.StatusOK,bundle)
 	case http.MethodPost:
