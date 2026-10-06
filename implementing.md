@@ -432,7 +432,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - resource budget 20.000 entry / 16 GiB được áp trên toàn archive multi-selection, không reset theo từng source;
     - regression test bao phủ ZIP, tar.gz, traversal rejection, no-overwrite, rollback, shared authorization, UI integration và remote command quoting.
 
-21. **P1 — Unified “Open With”**
+21. **P1 — Unified “Open With”** — ✅ **COMPLETE**
     Right-click file:
     - Text Editor.
     - Hex.
@@ -444,6 +444,15 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Open via host application nếu local mode cho phép.
     
     Đây sẽ giúp giảm logic detect-file rời rạc hiện nay.
+
+    Hoàn tất:
+    - shared Project/File context action giữ **Open** mặc định và bổ sung **Open With…** chooser dùng chung cho Explorer, editor tab, Git workspace file và Host pane;
+    - project preview endpoint riêng detect text / Markdown / image / binary trong workspace; image content dùng same-origin project endpoint, không tái sử dụng host-path preview semantics;
+    - chooser tự enable/disable Text Editor, Image Preview, Markdown Preview và Diff theo loại file; Hex, Download và terminal directory luôn sẵn sàng;
+    - raw project download có endpoint riêng với `files.download` permission và safe workspace path resolution;
+    - Open via host application chỉ xuất hiện khi `!app.sharedMode`; backend dùng argv trực tiếp với `xdg-open` / `open` / `rundll32.exe`, không qua shell;
+    - host-app endpoint cố ý không map shared-server permission nên shared mode fail-closed ngay cả khi client cố gọi thủ công;
+    - regression test bao phủ text/Markdown/image preview, download, traversal rejection, Hex integration, shared authorization và UI action matrix.
 
 22. **P1 — Project Tasks dependency graph**
     Tasks hiện chủ yếu là launcher.
