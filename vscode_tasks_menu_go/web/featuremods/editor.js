@@ -896,6 +896,13 @@ function createEditor(file){
 
   cm.contentDOM.addEventListener('beforeinput',event=>{if(editorReadOnly(view))event.preventDefault();},true);
   cm.contentDOM.addEventListener('keydown',event=>{
+    const shortcut=(event.ctrlKey||event.metaKey)&&!event.altKey;
+    const shortcutKey=String(event.key||'').toLowerCase();
+    if(shortcut&&(shortcutKey==='f'||shortcutKey==='h')){
+      event.preventDefault();event.stopPropagation();
+      openEditorFind(view,{replace:shortcutKey==='h'});
+      return;
+    }
     if(event.key==='Tab'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey&&!editorReadOnly(view)){
       event.preventDefault();
       view.cm.dispatch(view.cm.state.replaceSelection('\t'));
