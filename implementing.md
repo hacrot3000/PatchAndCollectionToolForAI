@@ -717,7 +717,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - watcher baseline được refresh khi browser quay lại foreground để tránh false conflict sau thời gian tab hidden;
     - regression test khóa bounded polling, metadata-only payload, auto reload/conflict bridge, generated-file detection và module load order.
 
-32. **P2 — Project health/dashboard**
+32. **P2 — Project health/dashboard** — ✅ **COMPLETE**
     Một trang overview:
     - Git branch/status.
     - modified files.
@@ -730,6 +730,19 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - last build.
     
     Khi mở project có thể thấy tình trạng ngay.
+
+    Hoàn tất:
+    - thêm **Project Health Dashboard** với Activity Bar launcher + Unified Command Palette action;
+    - Git branch/head/changed/ahead/behind lấy từ `/api/git/status`;
+    - running tasks/open terminals lấy trực tiếp runtime `app.views`;
+    - failing transfers lấy từ Operation Center; DB sessions lấy từ Database registry; SSH active/saved lấy từ Connection Graph;
+    - durable task history được dùng để tìm **last build** theo label/command build/assemble/compile/package; nếu không có build match thì hiển thị rõ **Last task** thay vì gắn nhãn sai;
+    - thêm `/api/project/health` cho project disk usage/file/dir count, bounded tối đa 200k entries và bỏ qua `.git`;
+    - endpoint health trong shared-server chỉ cần `files.read`;
+    - browser dashboard không crawl `/api/project/tree` hay project search để tính disk usage;
+    - dashboard auto-refresh 5s chỉ khi panel visible và browser tab foreground;
+    - mỗi card có shortcut về subsystem tương ứng: Git, Operation Center, Connections, Tunnel Graph, Task History;
+    - regression test khóa source matrix, load order, shared permission và bounded disk scan.
 
 33. **P2 — Permission granularity cho Shared Server**
     Hiện shared server đã có users/roles/permissions; nên mở rộng permission đến:
