@@ -131,3 +131,86 @@ func TestWorkflowExecutionSequenceDoesNotPretendParallel(t *testing.T) {
 		t.Fatalf("sequential dependency calls missing:\n%s", script)
 	}
 }
+
+func TestWorkflowContinueOnErrorAllowsDownstreamSuccessCondition(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("workflow compiler currently targets the existing Bash task runner")
+	}
+	fail := workflowTask("Optional", nil, map[string]any{"continueOnError": true})
+	fail.Command = "bash"
+	fail.Args = []any{"-c", "echo optional-failed; exit 7"}
+	next := workflowTask("Next", "Optional", nil)
+	next.Command = "echo"
+	next.Args = []any{"continued"}
+
+	spec, err := ResolveWorkflowExecution([]Task{fail, next}, "Next", t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(spec.Command, spec.Args...)
+	cmd.Dir = spec.Cwd
+	cmd.Env = spec.Env
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("continue-on-error workflow failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "continuing after exit 7") || !strings.Contains(string(output), "continued") {
+		t.Fatalf("continue-on-error output=%s", output)
+	}
+}
+
+func TestWorkflowFailureConditionRunsOnlyAfterFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("workflow compiler currently targets the existing Bash task runner")
+	}
+	fail := workflowTask("Build", nil, map[string]any{"continueOnError": false})
+	fail.Command = "bash"
+	fail.Args = []any{"-c", "exit 3"}
+	cleanup := workflowTask("Cleanup", "Build", map[string]any{"condition": "failure"})
+	cleanup.Command = "echo"
+	cleanup.Args = []any{"cleanup-ran"}
+
+	spec, err := ResolveWorkflowExecution([]Task{fail, cleanup}, "Cleanup", t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(spec.Command, spec.Args...)
+	cmd.Dir = spec.Cwd
+	cmd.Env = spec.Env
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("failure-condition workflow should finish through cleanup: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "cleanup-ran") {
+		t.Fatalf("cleanup did not run after dependency failure:\n%s", output)
+	}
+}
+
+func TestWorkflowRetryEventuallySucceeds(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("workflow compiler currently targets the existing Bash task runner")
+	}
+	workspace := t.TempDir()
+	counter := filepath.Join(workspace, "retry.count")
+	retry := workflowTask("Retry", nil, map[string]any{"retry": 2.0})
+	retry.Command = "bash"
+	retry.Args = []any{"-c", "n=0; [ -f "+shellQuote(counter)+" ] && n=$(cat "+shellQuote(counter)+"); n=$((n+1)); echo $n > "+shellQuote(counter)+"; [ $n -ge 2 ]"}
+	root := workflowTask("Root", "Retry", nil)
+	root.Command = "echo"
+	root.Args = []any{"retry-done"}
+
+	spec, err := ResolveWorkflowExecution([]Task{retry, root}, "Root", workspace, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(spec.Command, spec.Args...)
+	cmd.Dir = spec.Cwd
+	cmd.Env = spec.Env
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("retry workflow failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "retry 1/3") || !strings.Contains(string(output), "retry-done") {
+		t.Fatalf("retry behavior missing:\n%s", output)
+	}
+}
