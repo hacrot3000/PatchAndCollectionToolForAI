@@ -2377,6 +2377,7 @@ globalThis.TaskMenuDatabase={
   refreshProfiles,
   request:sessionRequest,
   getProfile:profileFor,
+  get profiles(){return [...profilesByID.values()];},
   getQueryText:queryEditorText,
   getQueryExecutionText:queryEditorExecutionText,
   queryCanReplace:queryEditorCanReplace,
