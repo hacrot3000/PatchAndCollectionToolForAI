@@ -38,6 +38,14 @@ func TestSharedProjectFileActionRegistryProvidesCommonWorkflow(t *testing.T) {
 		"Open containing folder",
 		"Search / Replace in folder…",
 		"Search / Replace in containing folder…",
+		"SHA-256 checksum",
+		"MD5 checksum (compatibility)",
+		"Compare checksum…",
+		"Generate SHA-256 manifest…",
+		"Verify SHA-256 manifest…",
+		"/api/project/integrity?path=",
+		"action:'manifest'",
+		"action:'verify_manifest'",
 		"Git History",
 		"Git Blame",
 		"Copy path",
@@ -105,5 +113,30 @@ func TestGitWorkspaceFileActionSelectsContainingRepository(t *testing.T) {
 		if !strings.Contains(js, want) {
 			t.Fatalf("multi-repo Git project action missing %q", want)
 		}
+	}
+}
+
+func TestSharedProjectFileIntegrityActionsRemainReadOnlyUIWorkflows(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/projectfileactions.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"async function projectIntegrity(pathValue)",
+		"async function copyProjectChecksum(pathValue,algorithm)",
+		"async function compareProjectChecksum(pathValue)",
+		"async function generateProjectManifest(pathValue)",
+		"async function verifyProjectManifest(pathValue)",
+		"method:'POST'",
+		"link.download='SHA256SUMS'",
+		"Expected checksum must contain 32 hex characters for MD5 or 64 for SHA-256.",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("shared project integrity workflow missing %q", want)
+		}
+	}
+	if strings.Contains(js, "action:'manifest_write'") {
+		t.Fatal("integrity manifest UI must not silently write into the project")
 	}
 }
