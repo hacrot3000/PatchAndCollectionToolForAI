@@ -1,8 +1,10 @@
 package tasks
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -106,5 +108,39 @@ func TestLoadJSONCCommentsURLsAndTrailingCommas(t *testing.T) {
 	}
 	if items[0].Command != "printf https://example.test/a//b" {
 		t.Fatalf("URL/string content was damaged: %#v", items[0].Command)
+	}
+}
+
+
+func TestLoadTaskSecretsRemainServerOnly(t *testing.T) {
+	workspace := t.TempDir()
+	writeTasksFile(t, workspace, `{
+		"tasks": [{
+			"label":"Deploy",
+			"type":"shell",
+			"command":"./deploy.sh",
+			"taskdeckSecrets":{"DEPLOY_TOKEN":"deploy/production/token"}
+		}]
+	}`)
+	items, err := Load(workspace)
+	if err != nil { t.Fatal(err) }
+	if len(items) != 1 || items[0].SecretEnv["DEPLOY_TOKEN"] != "deploy/production/token" {
+		t.Fatalf("secret env=%v", items)
+	}
+	if _, leaked := items[0].Raw["taskdeckSecrets"]; leaked {
+		t.Fatal("taskdeckSecrets leaked through Task.Raw")
+	}
+	publicJSON, err := json.Marshal(items[0])
+	if err != nil { t.Fatal(err) }
+	if strings.Contains(string(publicJSON), "deploy/production/token") || strings.Contains(string(publicJSON), "taskdeckSecrets") {
+		t.Fatalf("task JSON leaked secret reference: %s", publicJSON)
+	}
+}
+
+func TestLoadTaskSecretsRejectsInvalidEnvironmentName(t *testing.T) {
+	workspace := t.TempDir()
+	writeTasksFile(t, workspace, `{"tasks":[{"label":"Bad","type":"shell","command":"true","taskdeckSecrets":{"BAD-NAME":"generic/x"}}]}`)
+	if _, err := Load(workspace); err == nil || !strings.Contains(err.Error(), "tên biến môi trường không hợp lệ") {
+		t.Fatalf("err=%v", err)
 	}
 }
