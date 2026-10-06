@@ -59,6 +59,18 @@ async function copyProjectChecksum(pathValue,algorithm){
   alert((algorithm==='md5'?'MD5':'SHA-256')+' copied to clipboard for '+cleanPath(pathValue)+'\n\n'+value);
   return value;
 }
+async function compareProjectChecksum(pathValue){
+  const entered=prompt('Paste expected SHA-256 or MD5 checksum:','');
+  if(entered===null)return;
+  const expected=String(entered||'').trim().toLowerCase();
+  if(!/^[0-9a-f]{32}$/.test(expected)&&!/^[0-9a-f]{64}$/.test(expected)){
+    throw new Error('Expected checksum must contain 32 hex characters for MD5 or 64 for SHA-256.');
+  }
+  const data=await projectIntegrity(pathValue);
+  const actual=expected.length===32?String(data?.md5||'').toLowerCase():String(data?.sha256||'').toLowerCase();
+  if(actual!==expected)throw new Error('Checksum mismatch. Expected '+expected+' but calculated '+actual+'.');
+  alert('Checksum matches for '+cleanPath(pathValue));
+}
 function standardActions(pathValue,type='file'){
   pathValue=cleanPath(pathValue);type=type==='dir'?'dir':'file';
   const actions=[];
@@ -79,6 +91,7 @@ function standardActions(pathValue,type='file'){
     {separator:true},
     {label:'SHA-256 checksum',run:()=>copyProjectChecksum(pathValue,'sha256')},
     {label:'MD5 checksum (compatibility)',run:()=>copyProjectChecksum(pathValue,'md5')},
+    {label:'Compare checksum…',run:()=>compareProjectChecksum(pathValue)},
     {separator:true},
     {label:'Git History',run:()=>gitFileView(pathValue,'history')},
     {label:'Git Blame',run:()=>gitFileView(pathValue,'blame')}
