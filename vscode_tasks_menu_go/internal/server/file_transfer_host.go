@@ -11,6 +11,7 @@ import (
 
 	"bletonfc/vscode_tasks_menu/internal/filetransferprofile"
 	"bletonfc/vscode_tasks_menu/internal/ftpclient"
+	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/sftpclient"
 )
 
@@ -348,6 +349,9 @@ func (s *Server) fileTransferHostMutate(w http.ResponseWriter, r *http.Request) 
 	req.Action = strings.TrimSpace(req.Action)
 	req.Path = strings.TrimSpace(req.Path)
 	req.NewPath = strings.TrimSpace(req.NewPath)
+	if req.Action == "delete" && !s.requireSharedActionPermission(w, r, identity.PermissionFilesystemDelete, req.Action, req.Path) {
+		return
+	}
 
 	switch req.Action {
 	case "mkdir":
