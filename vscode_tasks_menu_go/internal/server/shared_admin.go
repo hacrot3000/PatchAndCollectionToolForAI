@@ -671,8 +671,11 @@ func (s *Server) sharedAdminAudit(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := identity.ID(strings.TrimSpace(r.URL.Query().Get("user_id")))
 	if userID == "" {
-		if username := strings.TrimSpace(r.URL.Query().Get("user")); username != "" {
-			user, lookupErr := s.Identity.UserByUsername(ctx, username)
+		if userFilter := strings.TrimSpace(r.URL.Query().Get("user")); userFilter != "" {
+			user, lookupErr := s.Identity.UserByUsername(ctx, userFilter)
+			if errors.Is(lookupErr, identity.ErrNotFound) {
+				user, lookupErr = s.Identity.UserByID(ctx, identity.ID(userFilter))
+			}
 			if errors.Is(lookupErr, identity.ErrNotFound) {
 				writeJSON(w, http.StatusOK, map[string]any{"events": []sharedAdminAuditView{}, "next_before": ""})
 				return
