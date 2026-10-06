@@ -40,7 +40,7 @@ func TestTerminalCloneUIUsesServerSideClone(t *testing.T) {
 
 	menus, err := webassets.Files.ReadFile("featuremods/menus.js")
 	if err != nil { t.Fatal(err) }
-	if !strings.Contains(string(menus), "['PROCESS',['.session-clone','.session-force-restart','.terminal-rename','.session-process-tree']]") {
+	if !strings.Contains(string(menus), "['PROCESS',['.terminal-command-palette','.session-clone','.session-force-restart','.terminal-rename','.session-process-tree']]") {
 		t.Fatal("Session menu does not expose terminal clone action")
 	}
 }
