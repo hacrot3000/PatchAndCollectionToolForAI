@@ -82,3 +82,17 @@ func TestWorkflowPolicyBoundsInvalidValues(t *testing.T) {
 		t.Fatalf("unsafe workflow values were accepted: %+v", policy)
 	}
 }
+
+func TestWorkflowInputsIncludeDependenciesInTopologicalOrder(t *testing.T) {
+	build := workflowTask("Build", nil, nil)
+	build.Inputs = []Input{{ID:"target", Type:"pickString", Description:"Target", Default:"debug"}}
+	deploy := workflowTask("Deploy", "Build", nil)
+	deploy.Inputs = []Input{{ID:"host", Type:"promptString", Description:"Host"}}
+	inputs, err := WorkflowInputs([]Task{build, deploy}, "Deploy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inputs) != 2 || inputs[0].ID != "target" || inputs[1].ID != "host" {
+		t.Fatalf("workflow inputs=%+v", inputs)
+	}
+}
