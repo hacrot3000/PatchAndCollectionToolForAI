@@ -491,3 +491,28 @@ func TestEditorLargeFileMode(t *testing.T) {
 		}
 	}
 }
+
+func TestEditorConfigurableAutoSave(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const editorAutoSavePreferenceKey='vscode-tasks-menu:editor-auto-save'",
+		"const editorAutoSaveDelayMS=1000",
+		"function scheduleEditorAutoSave(view)",
+		"function setEditorAutoSave(enabled)",
+		"Toggle editor auto-save (1 second debounce)",
+		"autoSave.onclick=()=>setEditorAutoSave(!editorAutoSaveEnabled)",
+		"saveEditor(view).catch(app.showError)",
+		"clearTimeout(view.autoSaveTimer)",
+		"localStorage[editorAutoSavePreferenceKey]=editorAutoSaveEnabled?'1':'0'",
+		"get autoSaveEnabled(){return editorAutoSaveEnabled;}",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor auto-save support missing %q", want)
+		}
+	}
+	if strings.Contains(js, "localStorage.setItem") && strings.Contains(js, "view.cm.state.doc.toString()") {
+		t.Fatal("auto-save must never persist dirty editor contents into localStorage")
+	}
+}

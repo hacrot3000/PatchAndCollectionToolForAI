@@ -67,6 +67,9 @@ const editorSplitResizers=new Map();
 const editorSplitRects=new Map();
 const closedEditorPaths=[];
 const maxClosedEditorPaths=30;
+const editorAutoSavePreferenceKey='vscode-tasks-menu:editor-auto-save';
+let editorAutoSaveEnabled=localStorage.getItem(editorAutoSavePreferenceKey)==='1';
+const editorAutoSaveDelayMS=1000;
 
 function editorSplitLeaf(id){return {type:'leaf',id};}
 function editorSplitNode(first,second,orientation,ratio=.5){return {type:'split',first,second,orientation:orientation==='horizontal'?'horizontal':'vertical',ratio};}
@@ -481,12 +484,40 @@ function syncEditorFormatControls(view){
   if(view.lineEndingSelect)view.lineEndingSelect.disabled=readonly;
   if(view.encodingSelect)view.encodingSelect.disabled=readonly;
 }
+function updateAutoSaveButton(view){
+  if(!view?.autoSave)return;
+  view.autoSave.textContent=editorAutoSaveEnabled?'Auto ✓':'Auto';
+  view.autoSave.classList.toggle('active',editorAutoSaveEnabled);
+  view.autoSave.setAttribute('aria-pressed',editorAutoSaveEnabled?'true':'false');
+}
+function scheduleEditorAutoSave(view){
+  if(!view||view.closed)return;
+  clearTimeout(view.autoSaveTimer);view.autoSaveTimer=null;
+  if(!editorAutoSaveEnabled||!view.dirty||editorReadOnly(view)||view.saving)return;
+  view.autoSaveTimer=setTimeout(()=>{
+    view.autoSaveTimer=null;
+    if(!editorAutoSaveEnabled||view.closed||!view.dirty||editorReadOnly(view)||view.saving)return;
+    saveEditor(view).catch(app.showError);
+  },editorAutoSaveDelayMS);
+}
+function setEditorAutoSave(enabled){
+  editorAutoSaveEnabled=Boolean(enabled);
+  try{localStorage[editorAutoSavePreferenceKey]=editorAutoSaveEnabled?'1':'0';}catch{}
+  for(const view of editors.values()){
+    updateAutoSaveButton(view);
+    if(editorAutoSaveEnabled)scheduleEditorAutoSave(view);
+    else{clearTimeout(view.autoSaveTimer);view.autoSaveTimer=null;}
+  }
+  return editorAutoSaveEnabled;
+}
 function setDirty(view,dirty){
   if(!view||view.closed)return;
   view.dirty=Boolean(dirty);
   view.tab.classList.toggle('dirty',view.dirty);
   view.tab.title=(view.dirty?'● ':'')+view.file.path;
   view.save.disabled=Boolean(view.file.read_only)||!view.dirty||view.saving;
+  if(view.dirty)scheduleEditorAutoSave(view);
+  else{clearTimeout(view.autoSaveTimer);view.autoSaveTimer=null;}
 }
 function editorReadOnly(view){
   return Boolean(view?.file?.read_only||view?.tabReadOnly);
@@ -545,6 +576,7 @@ function setEditorDocument(view,file){
   if(view.largeFileBadge)view.largeFileBadge.hidden=!file.large_file;
   view.pane.classList.toggle('editor-large-file-mode',Boolean(file.large_file));
   applyReadOnly(view);
+  updateAutoSaveButton(view);
   setDirty(view,false);
 }
 function activateEditorDOM(id){
@@ -676,6 +708,7 @@ async function resolveSaveConflict(view){
 }
 async function saveEditor(view){
   if(!view||view.closed||editorReadOnly(view)||!view.dirty||view.saving)return view?.file||null;
+  clearTimeout(view.autoSaveTimer);view.autoSaveTimer=null;
   view.saving=true;view.save.disabled=true;view.save.textContent='Saving…';
   try{
     const result=await putEditorFile(view,view.file.sha256);
@@ -723,6 +756,7 @@ async function closeEditor(id){
 }
 function destroyEditor(id){
   const view=editors.get(id);if(!view)return;
+  clearTimeout(view.autoSaveTimer);view.autoSaveTimer=null;
   view.closed=true;
   detachEditorFromSplit(id);
   try{view.cm.destroy();}catch{}
@@ -762,18 +796,19 @@ function createEditor(file){
   const readonlyBadge=document.createElement('span');readonlyBadge.className='editor-readonly';readonlyBadge.textContent='READ-ONLY';readonlyBadge.hidden=!file.read_only;
   const warningBadge=document.createElement('span');warningBadge.className='editor-warning';warningBadge.textContent=file.warning?'WARNING':'';warningBadge.title=file.warning||'';warningBadge.hidden=!file.warning;
   const save=document.createElement('button');save.type='button';save.className='editor-save';save.textContent='Save';save.title='Save file (Ctrl/Cmd+S)';
+  const autoSave=document.createElement('button');autoSave.type='button';autoSave.className='editor-auto-save';autoSave.title='Toggle editor auto-save (1 second debounce)';autoSave.setAttribute('aria-pressed','false');
   const reload=document.createElement('button');reload.type='button';reload.textContent='Reload';reload.title='Reload file from disk';
   const whitespace=document.createElement('button');whitespace.type='button';whitespace.className='editor-whitespace-toggle';whitespace.textContent='WS';whitespace.title='Toggle visible spaces and tabs';whitespace.setAttribute('aria-pressed','false');
   const splitVertical=document.createElement('button');splitVertical.type='button';splitVertical.className='editor-split-action editor-split-vertical';splitVertical.textContent='Split ↔';splitVertical.title='Split editor vertically with another/open file';
   const splitHorizontal=document.createElement('button');splitHorizontal.type='button';splitHorizontal.className='editor-split-action editor-split-horizontal';splitHorizontal.textContent='Split ↕';splitHorizontal.title='Split editor horizontally with another/open file';
   const splitSwap=document.createElement('button');splitSwap.type='button';splitSwap.className='editor-split-action editor-split-swap';splitSwap.textContent='Swap';splitSwap.title='Swap this editor split';splitSwap.hidden=true;
   const splitUnsplit=document.createElement('button');splitUnsplit.type='button';splitUnsplit.className='editor-split-action editor-unsplit';splitUnsplit.textContent='Unsplit';splitUnsplit.title='Remove this editor from its split';splitUnsplit.hidden=true;
-  head.append(pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,reload,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
+  head.append(pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
   const host=document.createElement('div');host.className='editor-host';
   pane.append(head,host);panesHost.append(pane);
 
   const cm=cmFactory.newEditor(host,file.content||'',editorOptionsForFile(file));
-  const view={id,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,reload,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null};
+  const view={id,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null};
   editors.set(id,view);
   pane.classList.toggle('editor-large-file-mode',Boolean(file.large_file));
   installEditorDispatchGuard(view);
@@ -790,6 +825,7 @@ function createEditor(file){
   tab.onclick=()=>activateEditor(id,{force:true});
   close.onclick=event=>{event.stopPropagation();closeEditor(id).catch(app.showError);};
   save.onclick=()=>saveEditor(view).catch(app.showError);
+  autoSave.onclick=()=>setEditorAutoSave(!editorAutoSaveEnabled);
   lineEndingSelect.onchange=()=>{
     if(editorReadOnly(view)){syncEditorFormatControls(view);return;}
     view.desiredLineEnding=lineEndingSelect.value;
@@ -965,6 +1001,7 @@ globalThis.TaskMenuEditor={
   openFile,
   reloadEditor,
   saveEditor,
+  setEditorAutoSave,
   closeEditor,
   reopenClosedEditor,
   goToLine,
@@ -984,5 +1021,6 @@ globalThis.TaskMenuEditor={
     const view=typeof viewOrID==='string'?editors.get(viewOrID):viewOrID;
     return Boolean(view?.tabReadOnly);
   },
+  get autoSaveEnabled(){return editorAutoSaveEnabled;},
   get active(){return activeEditorID;}
 };
