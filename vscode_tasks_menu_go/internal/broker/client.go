@@ -93,6 +93,10 @@ func (c *Client) SupportsSessionOwnership() bool {
 	return c.supportsCapability(CapabilitySessionOwnership)
 }
 
+func (c *Client) SupportsTerminalClone() bool {
+	return c.supportsCapability(CapabilityTerminalClone)
+}
+
 func (c *Client) endpoint(path string) string {
 	return "http://session-broker" + path
 }
@@ -158,6 +162,18 @@ func (c *Client) ListWithError() ([]session.Metadata, error) {
 func (c *Client) List() []session.Metadata {
 	items, _ := c.ListWithError()
 	return items
+}
+
+func (c *Client) CloneTerminal(id string, options session.TerminalCloneOptions) (session.Metadata, error) {
+	if !c.SupportsTerminalClone() {
+		return session.Metadata{}, fmt.Errorf("session broker does not support %s capability", CapabilityTerminalClone)
+	}
+	var meta session.Metadata
+	err := c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(id)+"/clone", TerminalCloneRequest{
+		OwnerUserID: options.OwnerUserID,
+		ProjectID: options.ProjectID,
+	}, &meta)
+	return meta, err
 }
 
 func (c *Client) Start(spec tasks.Execution) (session.Metadata, error) {
