@@ -21,6 +21,7 @@ import '/featuremods/filecompare.js';
 import '/featuremods/gitmergeeditor.js';
 import '/featuremods/filetransfer.js';
 import '/featuremods/connections.js';
+import '/featuremods/secrets.js';
 import '/featuremods/connection_graph.js';
 import '/featuremods/restartclear.js';
 import '/featuremods/gitrecovery.js';
