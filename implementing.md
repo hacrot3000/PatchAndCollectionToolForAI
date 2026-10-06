@@ -772,7 +772,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - shared authorization route matrix deny-by-default cho API chưa map và audit authorization-denied với required permission;
     - regression test khóa permission registry/seed, route matrix, action-level Git/DB/transfer/filesystem guards, terminal ownership, self-update UI preflight và conservative defaults.
 
-34. **P2 — Approval workflow cho action nguy hiểm**
+34. **P2 — Approval workflow cho action nguy hiểm** — ✅ **COMPLETE**
     Khi shared-server:
     - Delete remote branch.
     - Force delete branch.
@@ -787,6 +787,20 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - hoặc admin approval.
     
     Không cần bật mặc định, nhưng có thể cấu hình theo project.
+
+    Hoàn tất:
+    - thêm approval policy store với mặc định **OFF** và 4 mode `off / confirm / type / admin`;
+    - one-time approval grant gắn chặt `action + resource + requester`, consume một lần rồi không reuse được;
+    - browser `jsonFetch` nhận challenge 428, mở approval wizard và retry đúng request với `X-TaskDeck-Approval-ID`;
+    - `confirm` yêu cầu nhập `CONFIRM`; `type` yêu cầu nhập chính xác resource; `admin` tạo pending request và poll trạng thái approve/reject/expire;
+    - gate remote branch delete, force local branch delete, `git reset --hard`, recursive remote directory delete, production DB write/schema và task được đánh dấu deploy;
+    - production DB chỉ được xác định bằng profile option rõ ràng (`environment=production/prod` hoặc `production=true`), không suy từ tên profile;
+    - approval là **gate thứ hai**; RBAC permission hiện hữu vẫn phải pass trước/sau approval;
+    - thêm permission `approvals.view/manage`, conservative upgrade seed và route authorization riêng;
+    - thêm manager UI để xem pending/history, approve/reject và cấu hình policy từng action; có Command Palette action;
+    - approval store chuyển sang private user config path, không nằm trong project/workspace và không chứa credential;
+    - audit ghi policy update, request, resolve và consume;
+    - regression test khóa policy defaults, one-time grant, production marker, dangerous action coverage, route permission, UI wizard/manager và conservative permission seed.
 
 35. **P2 — Audit timeline**
     Shared server hiện đã có audit nền.
