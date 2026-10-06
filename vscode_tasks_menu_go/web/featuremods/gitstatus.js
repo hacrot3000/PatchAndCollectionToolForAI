@@ -282,7 +282,24 @@ async function repairAction(repair,payload={},repoID=activeRepoID){
     throw error;
   }
 }
+function gitPermissionAllowed(permission){
+  return !app.sharedMode||Boolean(app.hasPermission?.(permission)||app.hasPermission?.('project.admin'));
+}
+function requiredGitPermissions(actionName){
+  const permissions=['git.write'];
+  if(actionName==='push'||actionName==='merge_to')permissions.push('git.push');
+  if(actionName==='delete_remote_branch')permissions.push('git.remote.delete');
+  if(actionName==='force_delete_branch')permissions.push('git.force_delete');
+  return permissions;
+}
+function assertGitActionAllowed(actionName){
+  if(!app.sharedMode)return;
+  const missing=requiredGitPermissions(actionName).filter(permission=>!gitPermissionAllowed(permission));
+  if(missing.length)throw new Error('Permission required: '+missing.join(', '));
+}
+
 async function action(actionName,payload={},confirmText='',options={}){
+  assertGitActionAllowed(actionName);
   const repoID=options.repoID??activeRepoID;
   const recoveryEnabled=options.recovery!==false;
   const key=actionKey(actionName,payload,repoID);
