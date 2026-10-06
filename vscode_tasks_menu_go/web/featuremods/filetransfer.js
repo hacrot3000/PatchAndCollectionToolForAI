@@ -2394,6 +2394,39 @@ async function compareLeftRemoteFiles(view,leftEntry,remoteEntry){
   const remotePath=joinPath(view.remote.currentPath,remoteEntry.name,true);
   return compare.openLeftRemote(compareLeftFileSource(view,leftEntry),view.profile.id,remotePath);
 }
+function transferArchiveKind(name){
+  const lower=String(name||'').toLowerCase();
+  return lower.endsWith('.zip')||lower.endsWith('.tar.gz')||lower.endsWith('.tgz');
+}
+function transferArchiveStem(name){
+  return String(name||'archive').replace(/\.tar\.gz$|\.tgz$|\.zip$/i,'')||'archive';
+}
+async function uploadAndExtractRemoteArchive(view,entry){
+  if(view.left.source!=='host')throw new Error('Remote archive extraction requires a Host project archive.');
+  if(String(view.profile?.protocol||'').toLowerCase()!=='sftp')throw new Error('Remote archive extraction requires an SFTP profile linked to SSH.');
+  const hostPath=joinPath(view.left.currentPath,entry.name,false);
+  const remoteBase=normalizeRemotePath(view.remote.currentPath||'.');
+  const defaultArchive=joinPath(remoteBase,entry.name,true);
+  const remoteArchive=prompt('Upload archive to remote path:',defaultArchive);
+  if(remoteArchive===null)return;
+  const defaultDestination=joinPath(remoteBase,transferArchiveStem(entry.name),true);
+  const remoteDestination=prompt('Extract into NEW remote directory:',defaultDestination);
+  if(remoteDestination===null)return;
+  if(!confirm('Upload and extract archive on remote host?\n\nArchive: '+remoteArchive+'\nDestination: '+remoteDestination+'\n\nThe destination must not already exist.'))return;
+  const response=await app.fetchWithLease('/api/file-transfer/archive-upload-extract',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      profile_id:view.profile.id,
+      host_path:hostPath,
+      remote_archive:String(remoteArchive).trim(),
+      remote_destination:String(remoteDestination).trim()
+    })
+  });
+  if(!response.ok)throw new Error(await response.text()||('HTTP '+response.status));
+  const data=await response.json();
+  view.remote.status.textContent='Archive extracted to '+String(data?.remote_destination||remoteDestination);
+  await loadRemoteDirectory(view,view.remote.currentPath,{force:true});
+}
 function contextTitle(panel,entry){
   const selected=selectedEntries(panel);
   return selected.length>1?selected.length+' items selected':String(entry?.name||'File actions');
@@ -2434,6 +2467,9 @@ function leftContext(view,entry,event){
   }
   if(panel.source==='host'&&selected.length===1&&entryType(selected[0])==='file'){
     items.push({label:'Download host file to browser',action:()=>{downloadFrame().src='/api/files/download?path='+encodeURIComponent(joinPath(panel.currentPath,selected[0].name,false));}});
+    if(String(view.profile?.protocol||'').toLowerCase()==='sftp'&&transferArchiveKind(selected[0].name)){
+      items.push({label:'Upload + extract archive on remote…',action:()=>uploadAndExtractRemoteArchive(view,selected[0])});
+    }
   }
   if(items.length)items.push({separator:true});
   if(selected.length===1)items.push({label:'Rename',action:()=>renameLeftEntry(view,selected[0])});
