@@ -91,7 +91,7 @@ func TestStoreSaveReplacesAllProfilesAtomically(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.Create(Profile{
-		ID: "old-profile", Name: "Old", Protocol: ProtocolFTP, Host: "old.example.com",
+		ID: "old-profile", Name: "Old", Protocol: ProtocolFTP, Host: "old.example.com", Username: "old-user",
 	}); err != nil {
 		t.Fatal(err)
 	}
