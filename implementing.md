@@ -831,7 +831,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - timeline details tiếp tục tuân thủ nguyên tắc không chứa password/token/private key/raw credential;
     - regression test khóa username/resource/result filter, cursor pagination và timeline UI contract.
 
-36. **P2 — Secrets/credentials manager**
+36. **P2 — Secrets/credentials manager** — ✅ **COMPLETE**
     Thay vì credential phân tán:
     - SSH key.
     - DB password.
@@ -846,6 +846,21 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - permission/audit.
     
     TaskDeck hiện đã có `secretstore`, nên đây là mở rộng hợp lý.
+
+    Hoàn tất:
+    - unified **Secrets Manager** quản lý secret generic / Git token / deploy / SSH / database / FTP trên encrypted user-private store hiện hữu;
+    - API chỉ expose ID/kind/present/reference usage; secret value là write-only, không có plaintext read operation;
+    - create / rotate / delete có audit metadata an toàn; secret đang được profile hoặc task tham chiếu không thể bị delete;
+    - SSH/DB/FTP tiếp tục chỉ lưu private secret reference trong profile store; public/browser projection chỉ có `has_secret`;
+    - thêm `taskdeckSecrets` trong task definition để map `ENV_NAME -> secret_id` cho deploy/Git/custom task mà không ghi plaintext vào project config;
+    - `taskdeckSecrets` được parse thành field server-only và bị loại khỏi `Task.Raw`/`/api/tasks`, nên user chỉ có `tasks.view` không thấy secret identifiers;
+    - dependency workflow chỉ resolve secrets từ node reachable; cùng ENV name map nhiều secret ID khác nhau fail-closed;
+    - server resolve secret ngay trước spawn và inject **sau** browser/profile env overrides; managed secret không thể bị override bởi request env;
+    - execution preview/browser JSON/task history/project profile không persist raw secret environment;
+    - shared-server tách `secrets.view / secrets.use / secrets.manage`; các permission này conservative, chỉ admin được auto-seed;
+    - task có managed secret bắt buộc thêm `secrets.use`; audit `secret.use` chỉ ghi `secret_count`, không ghi secret ID/value;
+    - Secrets Manager UI có Create/Rotate/Delete, usage metadata và Command Palette action;
+    - regression test khóa write-only API, encrypted identifier listing, referenced-delete guard, private task projection, reachable workflow resolution, environment override precedence và exact permission gate.
 
 37. **P2 — Backup/restore TaskDeck configuration**
     Export:
