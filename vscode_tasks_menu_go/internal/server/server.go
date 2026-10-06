@@ -86,6 +86,7 @@ type Server struct {
 	workspaceSnapshotsMu sync.Mutex
 	projectProfilesMu     sync.Mutex
 	workspaceRootsMu      sync.Mutex
+	taskRunHistoryMu      sync.Mutex
 
 	sharedMutation sharedMutationLock
 }
