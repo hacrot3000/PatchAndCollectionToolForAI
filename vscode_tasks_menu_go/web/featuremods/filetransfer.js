@@ -2747,6 +2747,50 @@ window.addEventListener('taskmenu:view-activated',event=>{
 window.addEventListener('taskmenu:tasks',scheduleFileTransferSessionRestore);
 setTimeout(scheduleFileTransferSessionRestore,0);
 
+async function fileTransferOperationSnapshot(){
+  await refreshProfiles();
+  const operations=[];
+  for(const profile of profilesByID.values()){
+    const profileID=String(profile?.id||'').trim();if(!profileID)continue;
+    let snapshot;
+    try{snapshot=await app.jsonFetch('/api/file-transfer/jobs?profile_id='+encodeURIComponent(profileID),{cache:'no-store'});}
+    catch(error){continue;}
+    const items=Array.isArray(snapshot?.items)?snapshot.items:[];
+    for(const job of Array.isArray(snapshot?.jobs)?snapshot.jobs:[]){
+      const jobItems=items.filter(item=>String(item?.job_id||'')===String(job?.id||''));
+      const failed=jobItems.find(item=>String(item?.status||'')==='failed');
+      const status=String(job?.status||'queued').toLowerCase();
+      operations.push({
+        source:'transfer',id:String(job?.id||''),profile_id:profileID,
+        title:(String(profile?.protocol||'SFTP').toUpperCase()+' · '+String(profile?.name||profile?.host||profileID)),
+        detail:String(job?.kind||'File transfer'),status,
+        error:String(job?.error||failed?.error||''),
+        created_at:job?.created_at||'',updated_at:job?.updated_at||'',
+        item_ids:jobItems.map(item=>String(item?.id||'')).filter(Boolean),
+        can_cancel:['scanning','queued','running','conflict'].includes(status),
+        can_retry:status==='failed',
+        can_open:true
+      });
+    }
+  }
+  return operations;
+}
+async function fileTransferOperationControl(operation,action){
+  const profileID=String(operation?.profile_id||'').trim();
+  if(!profileID)throw new Error('File-transfer profile is unavailable');
+  if(action==='open')return openProfile(profileID);
+  const body={profile_id:profileID,action};
+  if(action==='cancel'){
+    body.action='remove_selected';
+    body.item_ids=Array.isArray(operation?.item_ids)?operation.item_ids:[];
+  }else if(action==='retry'){
+    body.action='retry_failed';
+  }else if(action==='clear'){
+    body.action='clear_done';
+  }else throw new Error('Unsupported file-transfer operation action');
+  return app.jsonFetch('/api/file-transfer/jobs/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+}
+
 globalThis.TaskMenuFileTransfer={
   snapshotState(){
     return [...views.values()].map(view=>({
@@ -2777,6 +2821,8 @@ globalThis.TaskMenuFileTransfer={
   },
   openProfile,testProfile,testDraft,refreshProfiles,getProfile:id=>profilesByID.get(String(id||''))||null,restoreSession:restoreFileTransferSession,
   get profiles(){return [...profilesByID.values()];},
+  operationSnapshot:fileTransferOperationSnapshot,
+  operationControl:fileTransferOperationControl,
   get views(){return views;}
 };
 function currentSyncOptions(view){
