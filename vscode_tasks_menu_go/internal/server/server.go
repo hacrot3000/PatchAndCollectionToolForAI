@@ -394,16 +394,19 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		selected, taskRoot, err := s.workspaceTaskByID(req.TaskID)
+		selected, workflowTasks, taskRoot, err := s.workspaceWorkflowByTaskID(req.TaskID)
 		if err != nil {
 			http.Error(w, "task not found; reload tasks.json", http.StatusNotFound)
 			return
 		}
-		spec, err := tasks.ResolveExecutionWithInputs(selected, taskRoot.Path, req.Inputs)
+		spec, err := tasks.ResolveWorkflowExecution(workflowTasks, selected.Label, taskRoot.Path, req.Inputs)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		// Preserve the browser-visible task ID for attached workspace roots. The
+		// workflow compiler works from that root's original tasks.json IDs.
+		spec.TaskID = req.TaskID
 		if err := tasks.ApplyEnvironmentOverrides(&spec, req.Env); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
