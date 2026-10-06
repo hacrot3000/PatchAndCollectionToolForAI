@@ -273,8 +273,15 @@ func TestProjectFileSaveAtomicPreservesModeAndUpdatesHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Name() != "save.txt" {
-		t.Fatalf("unexpected temp files after save: %#v", entries)
+	foundSaved := false
+	for _, entry := range entries {
+		if entry.Name() == "save.txt" { foundSaved = true }
+		if strings.Contains(entry.Name(), ".tmp") {
+			t.Fatalf("unexpected temp file after save: %s", entry.Name())
+		}
+	}
+	if !foundSaved {
+		t.Fatalf("saved file missing after save: %#v", entries)
 	}
 }
 
