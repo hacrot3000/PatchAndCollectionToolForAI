@@ -32,9 +32,10 @@ var broadcastPresetIDs = map[string]struct{}{
 }
 
 type broadcastGroup struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Preset string `json:"preset"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Preset      string            `json:"preset"`
+	Environment map[string]string `json:"environment,omitempty"`
 }
 
 type broadcastState struct {
@@ -113,6 +114,9 @@ func decodeBroadcastStateFile(data []byte) (broadcastState, error) {
 	if state.Groups == nil {
 		state.Groups = []broadcastGroup{}
 	}
+	for i := range state.Groups {
+		state.Groups[i].Environment = normalizeProjectProfileEnvironment(state.Groups[i].Environment)
+	}
 	if state.Assignments == nil {
 		state.Assignments = map[string]string{}
 	}
@@ -156,6 +160,9 @@ func writeBroadcastState(workspace string, state broadcastState) error {
 	state.Version = broadcastStateVersion
 	if state.Groups == nil {
 		state.Groups = []broadcastGroup{}
+	}
+	for i := range state.Groups {
+		state.Groups[i].Environment = normalizeProjectProfileEnvironment(state.Groups[i].Environment)
 	}
 	if state.Assignments == nil {
 		state.Assignments = map[string]string{}
