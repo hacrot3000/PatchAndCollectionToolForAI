@@ -132,3 +132,32 @@ func (s *FileStore) loadFileForTest() (secretFile, error) {
 	})
 	return out, err
 }
+
+
+func TestFileStoreListIDsNeverReturnsPlaintext(t *testing.T) {
+	store, err := NewFileStore(filepath.Join(t.TempDir(), "taskdeck"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, value := range map[string]string{
+		"ssh/prod/password": "ssh-top-secret",
+		"managed/deploy/example": "deploy-top-secret",
+	} {
+		if err := store.Put(id, []byte(value)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids, err := store.ListIDs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 2 || ids[0] != "managed/deploy/example" || ids[1] != "ssh/prod/password" {
+		t.Fatalf("ids=%v", ids)
+	}
+	joined := strings.Join(ids, "\n")
+	for _, forbidden := range []string{"ssh-top-secret", "deploy-top-secret"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("ListIDs leaked plaintext %q: %s", forbidden, joined)
+		}
+	}
+}
