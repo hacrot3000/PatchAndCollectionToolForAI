@@ -99,12 +99,34 @@ async function verifyProjectManifest(pathValue){
   const detail=failures.slice(0,20).map(item=>String(item.status||'error')+' · '+String(item.path||'')).join('\n');
   throw new Error('Manifest verification failed. '+summary+(detail?'\n\n'+detail:'')+(data?.truncated?'\n… additional failures omitted':''));
 }
+
+function projectArchiveKind(pathValue){
+  const lower=cleanPath(pathValue).toLowerCase();
+  return lower.endsWith('.zip')||lower.endsWith('.tar.gz')||lower.endsWith('.tgz');
+}
+async function previewProjectArchive(pathValue){
+  const data=await app.jsonFetch('/api/project/archive/preview?path='+encodeURIComponent(cleanPath(pathValue)),{cache:'no-store'});
+  const entries=Array.isArray(data?.entries)?data.entries:[];
+  const dialog=document.createElement('dialog');
+  dialog.style.cssText='width:min(900px,92vw);max-height:82vh;background:#171b22;color:inherit;border:1px solid #48515f;border-radius:8px;padding:12px';
+  const title=document.createElement('h3');title.textContent='Archive preview · '+cleanPath(pathValue);
+  const summary=document.createElement('div');summary.textContent=String(data?.format||'archive')+' · '+String(data?.files||0)+' file(s) · '+String(data?.dirs||0)+' folder(s) · '+String(data?.bytes||0)+' bytes'+(data?.truncated?' · preview truncated':'');
+  summary.style.marginBottom='8px';
+  const pre=document.createElement('pre');pre.style.cssText='max-height:58vh;overflow:auto;white-space:pre-wrap';
+  pre.textContent=entries.map(item=>(item.type==='directory'?'[DIR] ':'      ')+String(item.path||'')+(item.type==='file'?' · '+String(item.size||0)+' B':'')).join('\n')||'(empty archive)';
+  const close=document.createElement('button');close.type='button';close.textContent='Close';close.onclick=()=>dialog.close();
+  dialog.append(title,summary,pre,close);document.body.append(dialog);
+  dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();
+}
 function standardActions(pathValue,type='file'){
   pathValue=cleanPath(pathValue);type=type==='dir'?'dir':'file';
   const actions=[];
   if(type==='file')actions.push(
     {label:'Open',run:()=>openProjectFile(pathValue)},
     {label:'Open as Hex',run:()=>openProjectHex(pathValue)}
+  );
+  if(type==='file'&&projectArchiveKind(pathValue))actions.push(
+    {label:'Preview archive…',run:()=>previewProjectArchive(pathValue)}
   );
   else actions.push({label:'Generate SHA-256 manifest…',run:()=>generateProjectManifest(pathValue)});
   actions.push(
