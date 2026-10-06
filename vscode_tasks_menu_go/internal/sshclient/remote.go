@@ -46,14 +46,14 @@ func BuildInteractiveCommandAt(executable string, profile sshprofile.Profile, re
 	if remoteCWD == "" {
 		return BuildInteractiveCommand(executable, p)
 	}
-	if len(remoteCWD) > 4096 || strings.ContainsAny(remoteCWD, "\\x00\\r\\n") || !strings.HasPrefix(remoteCWD, "/") {
+	if len(remoteCWD) > 4096 || strings.ContainsAny(remoteCWD, "\x00\r\n") || !strings.HasPrefix(remoteCWD, "/") {
 		return Command{}, errors.New("remote SSH cwd must be an absolute path without control characters")
 	}
 	command, err := BuildCommand(executable, p)
 	if err != nil {
 		return Command{}, err
 	}
-	command.Args = append(command.Args, "cd -- "+remoteShellQuote(remoteCWD)+" || exit 1; exec \\\"${SHELL:-/bin/sh}\\\" -l")
+	command.Args = append(command.Args, "cd -- "+remoteShellQuote(remoteCWD)+" || exit 1; exec \"${SHELL:-/bin/sh}\" -l")
 	return command, nil
 }
 func BuildInteractiveCommand(executable string, profile sshprofile.Profile) (Command, error) {
