@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -31,6 +32,10 @@ type Store interface {
 	Put(id string, secret []byte) error
 	Get(id string) ([]byte, error)
 	Delete(id string) error
+}
+
+type Lister interface {
+	ListIDs() ([]string, error)
 }
 
 type FileStore struct {
@@ -161,6 +166,23 @@ func (s *FileStore) Delete(id string) error {
 		delete(data.Records, id)
 		return s.writeFileLocked(data)
 	})
+}
+
+func (s *FileStore) ListIDs() ([]string, error) {
+	var out []string
+	err := s.withExclusiveLock(func() error {
+		data, err := s.loadFileLocked()
+		if err != nil {
+			return err
+		}
+		out = make([]string, 0, len(data.Records))
+		for id := range data.Records {
+			out = append(out, id)
+		}
+		sort.Strings(out)
+		return nil
+	})
+	return out, err
 }
 
 func (s *FileStore) withExclusiveLock(fn func() error) error {
