@@ -220,6 +220,33 @@ func (s *Store) Create(action, resource, requesterID, requester, phrase string) 
 	return req, nil
 }
 
+func (s *Store) Get(id string) (Request, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return Request{}, errors.New("approval request id is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, err := s.loadLocked()
+	if err != nil {
+		return Request{}, err
+	}
+	now := time.Now().UTC()
+	for i := range state.Requests {
+		if state.Requests[i].ID != id {
+			continue
+		}
+		if expired(state.Requests[i], now) && (state.Requests[i].Status == "pending" || state.Requests[i].Status == "approved") {
+			state.Requests[i].Status = "expired"
+			if err := s.saveLocked(state); err != nil {
+				return Request{}, err
+			}
+		}
+		return state.Requests[i], nil
+	}
+	return Request{}, errors.New("approval request not found")
+}
+
 func (s *Store) List() ([]Request, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
