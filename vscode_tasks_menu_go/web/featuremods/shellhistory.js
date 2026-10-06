@@ -20,6 +20,8 @@ style.textContent=`
 .shell-history-head strong{flex:1}
 .shell-history-list{overflow:auto;padding:10px;display:grid;gap:8px}
 .shell-history-empty{opacity:.65;padding:20px;text-align:center}
+.shell-history-note,.shell-history-bookmark{border-left:3px solid #d2a84a;background:#211d13;padding:7px 9px;border-radius:4px;white-space:pre-wrap;word-break:break-word;font-size:10px}
+.shell-history-bookmark{margin-top:6px}
 .shell-history-row{border:1px solid #30343b;border-radius:8px;background:#151b23;padding:9px}
 .shell-history-meta{display:flex;gap:8px;align-items:center;font-size:10px;opacity:.72;flex-wrap:wrap}
 .shell-history-status{font-weight:800}.shell-history-status.ok{color:#89d185}.shell-history-status.fail{color:#ff8b8b}
@@ -30,6 +32,7 @@ style.textContent=`
 html[data-taskmenu-theme='light'] .shell-history-dialog{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme='light'] .shell-history-row{background:#f8fafc;border-color:#d0d7de}
 html[data-taskmenu-theme='light'] .shell-history-output{background:#f3f4f6}
+html[data-taskmenu-theme='light'] .shell-history-note,html[data-taskmenu-theme='light'] .shell-history-bookmark{background:#fff8df}
 `;
 document.head.append(style);
 
@@ -42,11 +45,12 @@ const close=document.createElement('button');close.textContent='×';close.title=
 head.append(title,cwd,close);
 const list=document.createElement('div');list.className='shell-history-list';
 const foot=document.createElement('div');foot.className='shell-history-foot';
+const sessionNote=document.createElement('button');sessionNote.textContent='Session note…';
 const exportMarkdown=document.createElement('button');exportMarkdown.textContent='Export Markdown';
 const exportText=document.createElement('button');exportText.textContent='Export text';
 const clear=document.createElement('button');clear.textContent='Clear view';
 const done=document.createElement('button');done.textContent='Close';
-foot.append(exportMarkdown,exportText,clear,done);dialog.append(head,list,foot);backdrop.append(dialog);document.body.append(backdrop);
+foot.append(sessionNote,exportMarkdown,exportText,clear,done);dialog.append(head,list,foot);backdrop.append(dialog);document.body.append(backdrop);
 
 function copyText(value){
   value=String(value??'');
@@ -156,6 +160,19 @@ function sessionExport(view,markdown){
   });
   return out.join('\n')+'\n';
 }
+function editSessionNote(view){
+  const id=historyID(view),current=notes.get(id)||'';
+  const value=window.prompt('Session note. Leave empty to clear:',current);if(value===null)return;
+  notes.set(id,String(value));scheduleSave(view,0);render();
+}
+function bookmarkOutputLine(view,item){
+  const lines=String(item?.output||'').split('\n');if(!item?.output||!lines.length)throw new Error('This command has no recorded output');
+  const raw=window.prompt('Bookmark output line (1-'+lines.length+'). Enter 0 to clear:',String(item.bookmarkLine||1));if(raw===null)return;
+  const line=Number.parseInt(String(raw).trim(),10);
+  if(line===0){item.bookmarkLine=0;item.bookmarkText='';scheduleSave(view,0);render();return;}
+  if(!Number.isInteger(line)||line<1||line>lines.length)throw new Error('Bookmark line must be between 1 and '+lines.length);
+  item.bookmarkLine=line;item.bookmarkText=lines[line-1].slice(0,4096);scheduleSave(view,0);render();
+}
 function rerun(view,item){
   const command=String(item?.command||'').trim();if(!command)throw new Error('Command is empty');
   if(!view?.canControl||view?.tabReadOnly)throw new Error('Terminal is read-only');
@@ -166,6 +183,8 @@ function rerun(view,item){
 function render(){
   list.replaceChildren();if(!activeView)return;
   const state=integration.getState(activeView.meta.id);cwd.textContent=state?.cwd||activeView.meta?.cwd||'';
+  const note=notes.get(historyID(activeView))||'';
+  if(note){const noteEl=document.createElement('div');noteEl.className='shell-history-note';noteEl.textContent='Session note: '+note;list.append(noteEl);}
   const commands=integration.getCommands(activeView.meta.id).slice().reverse();
   if(!commands.length){const empty=document.createElement('div');empty.className='shell-history-empty';empty.textContent='No OSC 133 command records yet for this terminal.';list.append(empty);return;}
   for(const item of commands.slice(0,100)){
@@ -177,11 +196,13 @@ function render(){
     const command=document.createElement('div');command.className='shell-history-command';command.textContent=item.command||'(blank command)';
     row.append(meta,command);
     if(item.output){const output=document.createElement('div');output.className='shell-history-output';output.textContent=item.output;row.append(output);}
+    if(item.bookmarkLine>0){const bookmark=document.createElement('div');bookmark.className='shell-history-bookmark';bookmark.textContent='🔖 Output line '+item.bookmarkLine+(item.bookmarkText?' — '+item.bookmarkText:'');row.append(bookmark);}
     const actions=document.createElement('div');actions.className='shell-history-actions';
     const copyCommand=document.createElement('button');copyCommand.textContent='Copy command';copyCommand.onclick=()=>copyText(item.command).catch(app.showError);
     const copyOutput=document.createElement('button');copyOutput.textContent='Copy output';copyOutput.disabled=!item.output;copyOutput.onclick=()=>copyText(item.output).catch(app.showError);
+    const bookmark=document.createElement('button');bookmark.textContent=item.bookmarkLine>0?'Change bookmark…':'Bookmark output line…';bookmark.disabled=!item.output;bookmark.onclick=()=>{try{bookmarkOutputLine(activeView,item);}catch(error){app.showError(error);}};
     const run=document.createElement('button');run.textContent='Rerun';run.disabled=!activeView.canControl||activeView.tabReadOnly;run.onclick=()=>{try{if(rerun(activeView,item))closeDialog();}catch(error){app.showError(error);}};
-    actions.append(copyCommand,copyOutput,run);row.append(actions);list.append(row);
+    actions.append(copyCommand,copyOutput,bookmark,run);row.append(actions);list.append(row);
   }
 }
 function open(view){activeView=view;loadHistory(view).finally(()=>{if(activeView===view)render();});render();backdrop.classList.add('visible');close.focus();}
@@ -196,6 +217,7 @@ function installAll(){for(const view of app.views.values())install(view);}
 installAll();
 window.addEventListener('taskmenu:session',event=>install(event.detail?.view));
 window.addEventListener('taskmenu:shell-integration',event=>{const view=event.detail?.view;if(view){install(view);updateButton(view);if(event.detail?.type==='command-finished')loadHistory(view).then(()=>scheduleSave(view));if(activeView===view&&backdrop.classList.contains('visible'))render();}});
+sessionNote.onclick=()=>{if(activeView)editSessionNote(activeView);};
 exportMarkdown.onclick=()=>{if(!activeView)return;downloadTextFile(exportFilename(activeView,'md'),sessionExport(activeView,true),'text/markdown');};
 exportText.onclick=()=>{if(!activeView)return;downloadTextFile(exportFilename(activeView,'txt'),sessionExport(activeView,false),'text/plain');};
 clear.onclick=()=>{if(!activeView)return;const state=integration.getState(activeView.meta.id);if(state)state.commands.splice(0);updateButton(activeView);render();loadHistory(activeView).then(()=>scheduleSave(activeView,0));};
