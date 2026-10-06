@@ -366,7 +366,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - shared-server authorize GET theo quyền view của đúng terminal và PUT theo quyền control của đúng terminal; route không rơi vào settings permission project-wide;
     - khi session bị xóa thật khỏi daemon, history tương ứng được cleanup để không tích tụ record stale.
 
-18. **P1 — Unified transfer/sync engine**
+18. **P1 — Unified transfer/sync engine** — ✅ **COMPLETE**
     Hiện FTP/SFTP đã có queue rất mạnh. Nên nâng thành:
     - Local ↔ Remote sync.
     - Compare by size/mtime/checksum.
@@ -378,6 +378,17 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - Save Sync Profile.
     
     Quan trọng: mặc định không delete destination nếu chưa explicit enable.
+
+    Hoàn tất:
+    - Folder Sync hỗ trợ Host hoặc Local browser ↔ FTP/SFTP Remote, luôn đi qua Setup + read-only dry-run trước khi mutate;
+    - recursive compare dùng size + Modified time hoặc SHA-256; checksum mode short-circuit khi size khác và hash hai phía khi size bằng nhau;
+    - exclude glob `*` / `?` / `**` được áp dụng ngay khi scan và có giới hạn số lượng/độ dài;
+    - Sync Profile lưu source/root/path, remote path, compare mode, default direction, exclude và allow-delete theo workspace/profile; không lưu credential;
+    - one-way Sync và Mirror tái sử dụng transfer queue/scanner/recovery hiện có;
+    - Bidirectional Sync tự copy chỉ các path chỉ có ở một phía; file khác nhau ở cả hai phía được đánh dấu Conflict và không tự chọn bên thắng;
+    - Mirror delete mặc định OFF, action bị khóa nếu chưa explicit enable và vẫn cần confirmation riêng trước khi xóa;
+    - type mismatch/conflict không bị xóa tự động; Local browser vẫn tôn trọng File System Access permission boundary;
+    - regression test khóa contract checksum/exclude/profile/bidirectional/delete safety.
 
 19. **P1 — Checksum / file integrity tools**
     Context menu file:
