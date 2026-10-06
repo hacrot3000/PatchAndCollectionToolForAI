@@ -383,48 +383,107 @@ async function renderSessions(){
   }
   table.append(body);wrap.append(table);content.append(wrap);
 }
+function auditCategory(action){
+  action=String(action||'').toLowerCase();
+  if(action.startsWith('git.'))return 'Git';
+  if(action.startsWith('db.'))return 'Database';
+  if(action.startsWith('transfer.')||action.includes('file-transfer'))return 'Transfer';
+  if(action.startsWith('task.')||action.includes('session_create')||action.startsWith('terminal.'))return 'Task / Terminal';
+  if(action.startsWith('file.')||action.startsWith('project.file')||action.includes('filesystem'))return 'Files';
+  if(action.startsWith('approval.')||action.startsWith('auth.')||action.startsWith('authorization.'))return 'Security';
+  if(action.startsWith('admin.')||action.startsWith('config.')||action.startsWith('settings.'))return 'Config / Admin';
+  return 'Other';
+}
+function auditDetailsText(details){
+  const raw=String(details||'').trim();
+  if(!raw)return '{}';
+  try{return JSON.stringify(JSON.parse(raw),null,2);}catch{return raw;}
+}
+function auditEventNode(event){
+  const result=String(event.result||'').toLowerCase();
+  const item=node('article',null,'audit-event '+result);
+  const head=node('div',null,'audit-event-head');
+  const time=node('span',formatTime(event.timestamp),'audit-event-time');
+  const actor=node('span',event.username||event.user_id||'system','audit-event-actor');
+  if(event.username&&event.user_id)actor.title=event.user_id;
+  const category=node('span',auditCategory(event.action),'audit-event-category');
+  const action=node('span',event.action||'unknown','audit-event-action');
+  const resultNode=node('span',event.result||'—','audit-event-result');
+  head.append(time,actor,category,action,resultNode);
+  const resource=node('div',null,'audit-event-resource');
+  const resourceParts=[];
+  if(event.resource_type)resourceParts.push(event.resource_type);
+  if(event.resource_id)resourceParts.push(event.resource_id);
+  resource.textContent=resourceParts.length?resourceParts.join(' · '):'—';
+  const meta=node('div','Client '+(event.client_ip||'—')+' · Event '+(event.id||'—'),'audit-event-meta');
+  const details=document.createElement('details');
+  const detailsSummary=node('summary','Details');
+  const pre=document.createElement('pre');pre.textContent=auditDetailsText(event.details);
+  details.append(detailsSummary,pre);
+  item.append(head,resource,meta,details);
+  return item;
+}
 async function renderAudit(filters={}){
   currentView='audit';
   content.replaceChildren();
-  const title=node('h2','Audit log');
-  const toolbar=node('form',null,'toolbar');
-  const action=document.createElement('input');action.placeholder='Action filter';action.maxLength=128;action.value=filters.action||'';
-  const user=document.createElement('input');user.placeholder='User ID filter';user.maxLength=128;user.value=filters.user_id||'';
-  const submit=node('button','Apply');submit.type='submit';
+  const title=node('h2','Audit timeline');
+  const intro=node('p','Security and operational activity for this project. Results are newest-first and loaded in bounded pages.','muted');
+  const form=node('form',null,'audit-filters');
+  const user=document.createElement('input');user.placeholder='Username or user ID';user.maxLength=128;user.value=filters.user||'';
+  const action=document.createElement('input');action.placeholder='Action (exact, e.g. git.push)';action.maxLength=128;action.value=filters.action||'';
+  const resourceType=document.createElement('input');resourceType.placeholder='Resource type';resourceType.maxLength=128;resourceType.value=filters.resource_type||'';
+  const resourceID=document.createElement('input');resourceID.placeholder='Resource ID';resourceID.maxLength=512;resourceID.value=filters.resource_id||'';
+  const result=document.createElement('select');
+  for(const [value,label] of [['','Any result'],['success','Success'],['denied','Denied'],['error','Error'],['failed','Failed']]){
+    const option=document.createElement('option');option.value=value;option.textContent=label;option.selected=value===String(filters.result||'');result.append(option);
+  }
+  const placeholder=document.createElement('span');
+  const controls=node('div',null,'audit-filter-actions');
+  const apply=node('button','Apply filters');apply.type='submit';
+  const reset=node('button','Reset');reset.type='button';
   const refresh=node('button','Refresh');refresh.type='button';
   const status=node('span','Loading…','muted');
-  toolbar.append(action,user,submit,refresh,status);content.append(title,toolbar);
-  toolbar.onsubmit=event=>{event.preventDefault();renderAudit({action:action.value.trim(),user_id:user.value.trim()});};
-  refresh.onclick=()=>renderAudit({action:action.value.trim(),user_id:user.value.trim()});
-  const query=new URLSearchParams({limit:'100'});
-  if(action.value.trim())query.set('action',action.value.trim());
-  if(user.value.trim())query.set('user_id',user.value.trim());
-  let events=[];
-  try{events=(await api('/api/admin/audit?'+query.toString())).events||[];}
-  catch(error){setStatus(status,'ERROR: '+error.message,'error');return;}
-  setStatus(status,events.length?events.length+' event(s)':'No audit events');
-  if(!events.length)return;
-  const wrap=node('div',null,'table-wrap');
-  const table=document.createElement('table');
-  const head=document.createElement('thead'),hr=document.createElement('tr');
-  for(const label of ['Time','Actor','Action','Resource','Result','Client IP','Details'])hr.append(node('th',label));
-  head.append(hr);table.append(head);
-  const body=document.createElement('tbody');
-  for(const event of events){
-    const resource=(event.resource_type||'')+(event.resource_id?' · '+event.resource_id:'');
-    const row=document.createElement('tr');
-    row.append(
-      node('td',formatTime(event.timestamp)),
-      node('td',event.user_id||'system'),
-      node('td',event.action),
-      node('td',resource||'—'),
-      node('td',event.result||'—'),
-      node('td',event.client_ip||'—'),
-      node('td',event.details||'{}','permissions')
-    );
-    body.append(row);
+  controls.append(apply,reset,refresh,status);
+  form.append(user,action,resourceType,resourceID,result,placeholder,controls);
+  content.append(title,intro,form);
+
+  const timeline=node('div',null,'audit-timeline');
+  content.append(timeline);
+  const loadOlder=node('button','Load older','audit-load-more');loadOlder.type='button';loadOlder.hidden=true;content.append(loadOlder);
+
+  const currentFilters=()=>({
+    user:user.value.trim(),action:action.value.trim(),resource_type:resourceType.value.trim(),
+    resource_id:resourceID.value.trim(),result:result.value
+  });
+  let nextBefore='',loading=false,total=0;
+  function buildQuery(before=''){
+    const values=currentFilters();const query=new URLSearchParams({limit:'100'});
+    for(const [key,value] of Object.entries(values))if(value)query.set(key,value);
+    if(before)query.set('before',before);
+    return query;
   }
-  table.append(body);wrap.append(table);content.append(wrap);
+  async function loadPage({append=false}={}){
+    if(loading)return;loading=true;apply.disabled=true;refresh.disabled=true;loadOlder.disabled=true;
+    setStatus(status,append?'Loading older events…':'Loading…');
+    try{
+      const data=await api('/api/admin/audit?'+buildQuery(append?nextBefore:'').toString());
+      const events=Array.isArray(data?.events)?data.events:[];
+      if(!append){timeline.replaceChildren();total=0;}
+      for(const event of events)timeline.append(auditEventNode(event));
+      total+=events.length;nextBefore=String(data?.next_before||'');
+      setStatus(status,total?total+' event(s) loaded':'No audit events');
+      loadOlder.hidden=!nextBefore;
+      if(!total){
+        const empty=node('div','No events match these filters.','muted');timeline.append(empty);
+      }
+    }catch(error){setStatus(status,'ERROR: '+error.message,'error');}
+    finally{loading=false;apply.disabled=false;refresh.disabled=false;loadOlder.disabled=false;}
+  }
+  form.onsubmit=event=>{event.preventDefault();renderAudit(currentFilters());};
+  reset.onclick=()=>renderAudit({});
+  refresh.onclick=()=>loadPage({append:false});
+  loadOlder.onclick=()=>loadPage({append:true});
+  await loadPage({append:false});
 }
 function renderPlaceholder(view){
   currentView=view;
