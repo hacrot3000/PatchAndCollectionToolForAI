@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"bletonfc/vscode_tasks_menu/internal/approval"
 	"bletonfc/vscode_tasks_menu/internal/config"
 	"bletonfc/vscode_tasks_menu/internal/dbadapter"
 	"bletonfc/vscode_tasks_menu/internal/dbprofile"
@@ -87,6 +88,8 @@ type Server struct {
 	projectProfilesMu     sync.Mutex
 	workspaceRootsMu      sync.Mutex
 	taskRunHistoryMu      sync.Mutex
+	approvalStoreMu       sync.Mutex
+	approvalStore         *approval.Store
 
 	sharedMutation sharedMutationLock
 }
@@ -187,6 +190,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/admin/permissions", s.sharedAdminPermissions)
 	mux.HandleFunc("/api/admin/sessions", s.sharedAdminSessions)
 	mux.HandleFunc("/api/admin/audit", s.sharedAdminAudit)
+	mux.HandleFunc("/api/approvals", s.approvalsAPI)
+	mux.HandleFunc("/api/approvals/policy", s.approvalPolicyAPI)
+	mux.HandleFunc("/api/approvals/request", s.approvalRequestAPI)
+	mux.HandleFunc("/api/approvals/resolve", s.approvalResolveAPI)
 	mux.HandleFunc("/admin/access", s.sharedAdminUI)
 	mux.HandleFunc("/admin/access.css", s.sharedAdminUI)
 	mux.HandleFunc("/admin/access.js", s.sharedAdminUI)
