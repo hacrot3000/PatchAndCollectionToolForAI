@@ -534,7 +534,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - header menu module expose API open/close thay vì palette tự click DOM bằng selector brittle;
     - regression test khóa command matrix, hotkey ownership và alias compatibility.
 
-25. **P1 — Global Quick Open**
+25. **P1 — Global Quick Open** — ✅ **COMPLETE**
     `Ctrl+P`
     
     Search:
@@ -551,6 +551,19 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - `#` text search
     - `git:` branch/commit
     - `ssh:` profile
+
+    Hoàn tất:
+    - nâng chính `quickopen.js` thành **Global Quick Open**, giữ một owner duy nhất cho Ctrl/Cmd+P;
+    - project file vẫn dùng `/api/project/files/search` bounded + AbortController/debounce/refresh fallback; không fetch toàn project tree;
+    - empty/query view trộn recently opened từ Explorer, editor tabs, generic workspace tabs, terminal/task sessions, database tabs và File Transfer tabs;
+    - saved SSH, Database và SFTP/FTP profiles được expose qua registry hiện hữu và mở bằng API module tương ứng;
+    - prefix `>` tái sử dụng command registry của Unified Command Palette ngay trong Quick Open;
+    - prefix `@` mở Project Symbols với query, `#` mở Project Search với query;
+    - prefix `git:` mở Git Graph với search filter cho SHA/ref/commit text; Git module expose `openGraphSearch`;
+    - prefix `ssh:` lọc trực tiếp saved SSH profiles và mở profile được chọn;
+    - local/global result có keyboard Up/Down/Enter/Escape, disabled command được bỏ qua khi navigation;
+    - Database/File Transfer expose read-only profile getters thay vì Quick Open đọc private module state;
+    - regression test giữ contract file-search cũ và khóa recent/tab/session/database/connection sources, prefix routing và single-hotkey ownership.
 
 26. **P1 — Unified Activity/Operation Center**
     Hiện nhiều subsystem đều có background work riêng.
