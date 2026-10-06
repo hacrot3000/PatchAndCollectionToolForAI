@@ -512,6 +512,12 @@ async function importSQLSource(view,source){
   run.onclick=async()=>{
     if(!confirm('Import this SQL script into '+(catalog.value||'the selected database')+'?'))return;
     run.disabled=true;cancel.disabled=true;status.textContent='Importing…';
+    const operation=globalThis.TaskMenuOperationCenter?.begin?.({
+      title:'Database import · '+String(source.name||source.path||'SQL script'),
+      detail:String(catalog.value||view.meta?.profile_id||''),
+      profile_id:String(view.meta?.profile_id||''),
+      open:()=>globalThis.TaskMenuDatabase?.openProfile?.(String(view.meta?.profile_id||''))
+    });
     try{
       const url='/api/db/sessions/'+encodeURIComponent(view.meta.id)+'/import';
       let response;
@@ -523,10 +529,11 @@ async function importSQLSource(view,source){
       }
       if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
       const payload=await response.json();const result=payload?.result||{};
-      status.textContent=(result.message||'SQL import completed')+(Number.isFinite(result.imported_bytes)?' · '+formatDBFileSize(result.imported_bytes):'');
+      const message=(result.message||'SQL import completed')+(Number.isFinite(result.imported_bytes)?' · '+formatDBFileSize(result.imported_bytes):'');
+      status.textContent=message;operation?.complete?.({detail:message});
       run.textContent='Done';cancel.textContent='Close';cancel.disabled=false;run.disabled=true;
       view.querySchemaCache?.clear?.();loadObjects(view).catch(app.showError);
-    }catch(error){status.textContent='Import failed';run.disabled=false;cancel.disabled=false;app.showError(error);}
+    }catch(error){operation?.fail?.(error,{retry:()=>run.click()});status.textContent='Import failed';run.disabled=false;cancel.disabled=false;app.showError(error);}
   };
   dialog.actions.append(cancel,run);
 }
@@ -1398,6 +1405,12 @@ async function exportQueryData(view,result){
     const suggestedName='query-result'+ext;
     const mime=queryExportMime(format.value);
     save.disabled=true;cancel.disabled=true;
+    const operation=globalThis.TaskMenuOperationCenter?.begin?.({
+      title:'Database export · query result',
+      detail:String(view.meta?.profile_id||view.catalog?.value||''),
+      profile_id:String(view.meta?.profile_id||''),
+      open:()=>globalThis.TaskMenuDatabase?.openProfile?.(String(view.meta?.profile_id||''))
+    });
     try{
       dialog.remove();
       await saveTextWithLocation('Export query result',suggestedName,text,{
@@ -1406,6 +1419,10 @@ async function exportQueryData(view,result){
         extensions:[ext],
         hostFileLabel:'Export file name:'
       });
+      operation?.complete?.({detail:suggestedName});
+    }catch(error){
+      operation?.fail?.(error,{retry:()=>exportQueryData(view,result)});
+      throw error;
     }finally{
       if(save.isConnected){save.disabled=false;cancel.disabled=false;}
     }
