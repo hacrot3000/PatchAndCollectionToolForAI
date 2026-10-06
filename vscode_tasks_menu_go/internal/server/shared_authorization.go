@@ -128,7 +128,22 @@ func sharedSessionItemPath(path string) bool {
 }
 
 func sharedRoutePermissions(r *http.Request) []string {
-	switch r.URL.Path {
+	path := r.URL.Path
+	switch {
+	case strings.HasPrefix(path, "/api/ssh/profiles/"):
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSSHUse}
+		}
+		return []string{identity.PermissionSSHUse, identity.PermissionSettingsWrite}
+	case strings.HasPrefix(path, "/api/db/profiles/"):
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionDBRead}
+		}
+		return []string{identity.PermissionDBRead, identity.PermissionSettingsWrite}
+	case strings.HasPrefix(path, "/api/db/sessions/"):
+		return []string{identity.PermissionDBRead}
+	}
+	switch path {
 	case "/api/admin/users", "/api/admin/users/access", "/api/admin/users/permission":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionUsersView}
@@ -155,6 +170,41 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return nil
 	case "/api/task-runs/log":
 		return []string{identity.PermissionTasksView}
+	case "/api/ssh/profiles":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSSHUse}
+		}
+		return []string{identity.PermissionSSHUse, identity.PermissionSettingsWrite}
+	case "/api/ssh/test", "/api/ssh/host-key":
+		return []string{identity.PermissionSSHUse}
+	case "/api/db/adapters":
+		return []string{identity.PermissionDBRead}
+	case "/api/db/profiles":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionDBRead}
+		}
+		return []string{identity.PermissionDBRead, identity.PermissionSettingsWrite}
+	case "/api/db/test", "/api/db/sessions":
+		return []string{identity.PermissionDBRead}
+	case "/api/file-transfer/profiles":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionTransferRead}
+		}
+		return []string{identity.PermissionTransferRead, identity.PermissionSettingsWrite}
+	case "/api/file-transfer/test", "/api/file-transfer/list", "/api/file-transfer/download-ticket", "/api/file-transfer/download", "/api/file-transfer/hash":
+		return []string{identity.PermissionTransferRead}
+	case "/api/file-transfer/upload", "/api/file-transfer/hash-upload", "/api/file-transfer/host-to-remote":
+		return []string{identity.PermissionTransferRead, identity.PermissionTransferUpload}
+	case "/api/file-transfer/remote-to-host":
+		return []string{identity.PermissionTransferRead, identity.PermissionFilesWrite}
+	case "/api/file-transfer/jobs":
+		return []string{identity.PermissionTransferRead}
+	case "/api/file-transfer/jobs/control":
+		return []string{identity.PermissionTransferRead}
+	case "/api/file-transfer/mutate":
+		return []string{identity.PermissionTransferRead, identity.PermissionTransferUpload}
+	case "/api/file-transfer/host-mutate":
+		return []string{identity.PermissionFilesWrite}
 	case "/api/config/auth-mode":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionSettingsRead}
@@ -216,10 +266,10 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return permissions
 	case "/api/file-transfer/text":
 		if r.Method == http.MethodGet {
-			return []string{identity.PermissionFilesDownload}
+			return []string{identity.PermissionTransferRead, identity.PermissionFilesDownload}
 		}
 		if r.Method == http.MethodPut {
-			return []string{identity.PermissionFilesUpload, identity.PermissionFilesWrite}
+			return []string{identity.PermissionTransferUpload, identity.PermissionFilesUpload, identity.PermissionFilesWrite}
 		}
 		return nil
 	case "/api/file-transfer/host-hash":
@@ -229,7 +279,7 @@ func sharedRoutePermissions(r *http.Request) []string {
 	case "/api/file-transfer/hash-upload":
 		return []string{identity.PermissionFilesUpload}
 	case "/api/file-transfer/archive-upload-extract":
-		return []string{identity.PermissionFilesRead, identity.PermissionFilesUpload, identity.PermissionFilesWrite}
+		return []string{identity.PermissionTransferRead, identity.PermissionTransferUpload, identity.PermissionFilesRead, identity.PermissionFilesUpload, identity.PermissionFilesWrite}
 	case "/api/project/tree", "/api/project/health", "/api/project/files/search", "/api/project/content/search", "/api/project/bytes", "/api/project/integrity", "/api/project/preview", "/api/project/archive/preview", "/api/project/symbols":
 		return []string{identity.PermissionFilesRead}
 	case "/api/project/download":
