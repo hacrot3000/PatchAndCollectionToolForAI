@@ -56,6 +56,40 @@ func (p *projectPinnedFile) readCurrent(maxBytes int64) ([]byte, os.FileInfo, er
 	return data, info, nil
 }
 
+func (p *projectPinnedFile) readChunk(offset int64, limit int) ([]byte, os.FileInfo, error) {
+	if p == nil || p.path == "" {
+		return nil, nil, fmt.Errorf("project file handle is closed")
+	}
+	if offset < 0 || limit < 1 {
+		return nil, nil, fmt.Errorf("invalid project file chunk range")
+	}
+	file, err := os.Open(p.path)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, info, fmt.Errorf("project path is not a regular file")
+	}
+	if offset >= info.Size() {
+		return []byte{}, info, nil
+	}
+	remaining := info.Size() - offset
+	if int64(limit) > remaining {
+		limit = int(remaining)
+	}
+	buf := make([]byte, limit)
+	n, err := file.ReadAt(buf, offset)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, info, err
+	}
+	return buf[:n], info, nil
+}
+
 func (p *projectPinnedFile) writeTemp(data []byte, original os.FileInfo) error {
 	tmp, err := os.CreateTemp(filepath.Dir(p.path), ".task-menu-editor-*")
 	if err != nil {
