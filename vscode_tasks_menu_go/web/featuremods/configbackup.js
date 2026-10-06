@@ -132,4 +132,12 @@ restoreButton.onclick=()=>restore().catch(app.showError);
 closeButton.onclick=close;backdrop.onmousedown=event=>{if(event.target===backdrop)close();};
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&backdrop.classList.contains('visible'))close();});
 
+function installSettingsLauncher(){
+  if(document.querySelector('#config-backup-settings'))return true;
+  const header=document.querySelector('header');if(!header)return false;
+  const button=document.createElement('button');button.type='button';button.id='config-backup-settings';button.textContent='Backup / Restore…';button.title='Export or restore portable TaskDeck configuration';button.onclick=open;
+  header.append(button);return true;
+}
+if(!installSettingsLauncher())window.addEventListener('taskmenu:tasks',installSettingsLauncher,{once:true});
+
 globalThis.TaskMenuConfigBackup={open,close,exportBackup,get bundle(){return loadedBundle;},get visible(){return backdrop.classList.contains('visible');}};
