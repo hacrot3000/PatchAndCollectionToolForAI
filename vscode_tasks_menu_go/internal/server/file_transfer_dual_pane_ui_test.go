@@ -706,47 +706,80 @@ func TestFileTransferWorkspaceUsesStructuredTransferAndMutationAPIs(t *testing.T
 
 func TestFileTransferFolderSyncUsesDryRunBeforeSyncOrMirror(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	js := string(data)
 	for _, want := range []string{
 		"Folder Sync / Mirror dry run",
-		"async function compareFoldersDryRun(view)",
-		"async function collectHostSyncTree(base)",
-		"async function collectLocalSyncTree(view,base)",
-		"async function collectRemoteSyncTree(view,base)",
-		"function compareSyncTrees(left,remote)",
+		"async function configureAndCompareFolders(view)",
+		"function openSyncSetupDialog(view)",
+		"async function compareFoldersDryRun(view,options={})",
+		"async function collectHostSyncTree(base,options={})",
+		"async function collectLocalSyncTree(view,base,options={})",
+		"async function collectRemoteSyncTree(view,base,options={})",
+		"async function compareSyncTrees(view,left,remote,options={})",
+		"async function syncLeftFileSHA256(view,relativePath,options={})",
+		"async function syncRemoteFileSHA256(view,relativePath,options={})",
 		"Folder Sync / Mirror — Dry run",
-		"Recursive metadata comparison only",
+		"Recursive SHA-256 comparison for matching-size files",
 		"Left only ",
 		"Remote only ",
 		"Different ",
+		"Conflict ",
 		"Type mismatch ",
-		"Sync →",
-		"← Sync",
-		"Mirror →",
-		"← Mirror",
-		"Remote-only files/folders will be deleted",
-		"Left-only files/folders will be deleted",
-		"Type-mismatch paths are NOT changed automatically",
+		"Run: '+syncDirectionLabel(options.direction)",
+		"Bidirectional Sync",
+		"Mirror delete is disabled.",
+		"Allow destination deletes",
 		"maxSyncPlanEntries=10000",
 		"maxSyncPlanDepth=64",
 		"kind:'host_upload'",
 		"kind:'host_download'",
 		"kind:'remote_delete'",
 		"dir.removeEntry(name,{recursive:false})",
+		"exclude:options.exclude",
+		"options.compare_mode==='checksum'",
+		"hostFileSHA256(fullPath)",
+		"remoteFileSHA256(view,joinPath(remoteBase,relativePath,true))",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("filetransfer.js missing folder sync dry-run contract %q", want)
 		}
 	}
-	compare := strings.Index(js, "async function compareFoldersDryRun(view)")
-	dialog := strings.Index(js, "function openFolderSyncDryRun(view,rows)")
+	compare := strings.Index(js, "async function compareFoldersDryRun(view,options={})")
+	dialog := strings.Index(js, "function openFolderSyncDryRun(view,rows,options={})")
 	if compare < 0 || dialog < 0 {
 		t.Fatal("folder sync compare/dialog missing")
 	}
-	end := compare + 2500
-	if end > len(js) { end = len(js) }
+	end := compare + 3200
+	if end > len(js) {
+		end = len(js)
+	}
 	if strings.Contains(js[compare:end], "syncPlanToRemote(view,rows)") {
 		t.Fatal("dry-run compare must not start transfers before explicit dialog action")
+	}
+}
+
+func TestFileTransferSyncProfilesAndBidirectionalConflictsAreFailSafe(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"taskdeck:file-transfer:sync-profiles:",
+		"function normalizeSyncExclude(value)",
+		"function syncPathExcluded(path,patterns)",
+		"compare_mode:compareMode,direction,exclude:normalizeSyncExclude(raw.exclude||[])",
+		"allow_delete:Boolean(raw.allow_delete)",
+		"if(options.direction==='bidirectional')rows=rows.map(row=>row.status==='different'?{...row,status:'conflict'}:row);",
+		"const safeRows=rows.map(row=>row.status==='different'?{...row,status:'conflict'}:row);",
+		"if(!options.allow_delete)throw new Error('Mirror delete is disabled.",
+		"destination deletion remains disabled unless explicitly enabled",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing fail-safe sync contract %q", want)
+		}
 	}
 }
