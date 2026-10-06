@@ -60,6 +60,7 @@ function staticProjectCommands(){
 function staticConnectionCommands(){
   return [
     {id:'connections-open',label:'Connections: Open panel',keywords:'ssh database db sftp ftp local terminal remote',run:()=>globalThis.TaskMenuConnections?.open?.()},
+    {id:'connections-graph',label:'Connections: Tunnel Graph…',keywords:'ssh database sftp ftp tunnel port pid route reconnect connection graph',run:()=>globalThis.TaskMenuConnectionGraph?.open?.()},
     {id:'connections-ssh',label:'SSH: Open saved connections',keywords:'ssh remote host profile terminal connection',run:()=>globalThis.TaskMenuConnections?.open?.()},
     {id:'connections-db',label:'Database: Open saved connections',keywords:'database db mysql sqlite mongodb redis connection',run:()=>globalThis.TaskMenuConnections?.open?.()},
     {id:'database-schema-diff',label:'Database: Schema Diff…',keywords:'database db compare schema structure migration alter staging production',run:()=>globalThis.TaskMenuDatabaseSchemaDiff?.open?.()},
