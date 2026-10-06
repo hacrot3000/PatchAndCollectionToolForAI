@@ -219,8 +219,7 @@ func ResolveWorkflowExecution(items []Task, rootLabel, workspace string, inputs 
 	script.WriteString("trap 'rm -rf \"$TD_DIR\"' EXIT INT TERM\n")
 	script.WriteString("td_read_status(){ if [ -f \"$1\" ]; then cat \"$1\"; else echo 125; fi; }\n")
 	script.WriteString("td_wait_status(){ while [ ! -f \"$1\" ]; do sleep 0.05; done; cat \"$1\"; }\n")
-	script.WriteString("td_exec(){ local retries=\"$1\" timeout_s=\"$2\"; shift 2; local attempt=0 rc=0; while :; do attempt=$((attempt+1)); set +e; if [ \"$timeout_s\" -gt 0 ]; then if ! command -v timeout >/dev/null 2>&1; then echo '[TaskDeck workflow] timeout command is unavailable' >&2; return 127; fi; timeout --foreground \"${timeout_s}s\" \"$@\"; rc=$?; else \"$@\"; rc=$?; fi; set -e; if [ $rc -eq 0 ] || [ $attempt -gt $retries ]; then return $rc; fi; echo \"[TaskDeck workflow] retry $attempt/$((retries+1))\"; done; }\n")
-	script.WriteString("set -e\n")
+	script.WriteString("td_exec(){ local retries=\"$1\" timeout_s=\"$2\"; shift 2; local attempt=0 rc=0; while :; do attempt=$((attempt+1)); if [ \"$timeout_s\" -gt 0 ]; then if ! command -v timeout >/dev/null 2>&1; then echo '[TaskDeck workflow] timeout command is unavailable' >&2; return 127; fi; timeout --foreground \"${timeout_s}s\" \"$@\"; rc=$?; else \"$@\"; rc=$?; fi; if [ $rc -eq 0 ] || [ $attempt -gt $retries ]; then return $rc; fi; echo \"[TaskDeck workflow] retry $attempt/$((retries+1))\"; done; }\n")
 
 	for _, label := range graph.Order {
 		entry := compiled[label]
@@ -230,16 +229,20 @@ func ResolveWorkflowExecution(items []Task, rootLabel, workspace string, inputs 
 		lockPath := workflowLockDir(label)
 		script.WriteString(fn + "(){\n")
 		script.WriteString(" local status=\"" + statusPath + "\" lock=\"" + lockPath + "\" existing rc=0 dep_rc=0 failed=0\n")
-		script.WriteString(" if [ -f \"$status\" ]; then existing=$(cat \"$status\"); [ \"$existing\" -eq 0 ]")
+		script.WriteString(" if [ -f \"$status\" ]; then existing=$(cat \"$status\"); ")
 		if node.Policy.ContinueOnError {
-			script.WriteString(" || true")
+			script.WriteString("return 0")
+		} else {
+			script.WriteString("return \"$existing\"")
 		}
-		script.WriteString("; return; fi\n")
-		script.WriteString(" if ! mkdir \"$lock\" 2>/dev/null; then existing=$(td_wait_status \"$status\"); [ \"$existing\" -eq 0 ]")
+		script.WriteString("; fi\n")
+		script.WriteString(" if ! mkdir \"$lock\" 2>/dev/null; then existing=$(td_wait_status \"$status\"); ")
 		if node.Policy.ContinueOnError {
-			script.WriteString(" || true")
+			script.WriteString("return 0")
+		} else {
+			script.WriteString("return \"$existing\"")
 		}
-		script.WriteString("; return; fi\n")
+		script.WriteString("; fi\n")
 		script.WriteString(" echo " + shellQuote("[TaskDeck workflow] "+label) + "\n")
 
 		if len(node.DependsOn) > 0 {
@@ -281,7 +284,7 @@ func ResolveWorkflowExecution(items []Task, rootLabel, workspace string, inputs 
 		if len(node.Policy.Outputs) > 0 {
 			command = "{ " + command + "; } 2>&1 | tee \"" + logPath + "\"; exit ${PIPESTATUS[0]}"
 		}
-		script.WriteString(" set +e; td_exec " + fmt.Sprint(node.Policy.Retry) + " " + fmt.Sprint(node.Policy.TimeoutSeconds) + " /bin/bash -c " + shellQuote(command) + "; rc=$?; set -e\n")
+		script.WriteString(" td_exec " + fmt.Sprint(node.Policy.Retry) + " " + fmt.Sprint(node.Policy.TimeoutSeconds) + " /bin/bash -c " + shellQuote(command) + "; rc=$?\n")
 		if len(node.Policy.Outputs) > 0 {
 			for _, key := range node.Policy.Outputs {
 				key = strings.TrimSpace(key)
@@ -303,7 +306,7 @@ func ResolveWorkflowExecution(items []Task, rootLabel, workspace string, inputs 
 	}
 
 	rootFn := "td_node_" + workflowNodeID(rootLabel)
-	script.WriteString("set +e; " + rootFn + "; TD_ROOT_RC=$?; set -e\n")
+	script.WriteString(rootFn + "; TD_ROOT_RC=$?\n")
 	script.WriteString("exit \"$TD_ROOT_RC\"\n")
 
 	rootTask, _ := TaskByLabel(items, rootLabel)
