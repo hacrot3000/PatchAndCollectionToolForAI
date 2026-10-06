@@ -86,6 +86,27 @@ CREATE TABLE IF NOT EXISTS project_roles(
 		}
 	}
 
+	var version3 int
+	err = conn.QueryRowContext(ctx, "SELECT version FROM identity_role_seeds WHERE version=3").Scan(&version3)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		for _, permission := range PermissionRegistry() {
+			if _, err := conn.ExecContext(ctx, `INSERT INTO permissions(id,permission_key,description) VALUES(?,?,?) ON CONFLICT(permission_key) DO NOTHING`, permission.Key, permission.Key, permission.Module); err != nil {
+				return err
+			}
+		}
+		for _, key := range PermissionUpgradeV3Keys() {
+			if _, err := conn.ExecContext(ctx, `INSERT INTO role_permissions(role_id,permission_id) SELECT 'system:admin',id FROM permissions WHERE permission_key=? ON CONFLICT DO NOTHING`, key); err != nil {
+				return err
+			}
+		}
+		if _, err := conn.ExecContext(ctx, "INSERT INTO identity_role_seeds(version) VALUES(3)"); err != nil {
+			return err
+		}
+	}
+
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return err
 	}
