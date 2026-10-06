@@ -9,6 +9,7 @@ html[data-taskmenu-theme="light"] .taskmenu-menu-trigger:hover,html[data-taskmen
 document.head.append(style);
 
 const openMenus=new Set();
+const headerMenusByName=new Map();
 function closeMenu(menu){menu.classList.remove('open');openMenus.delete(menu);}
 function closeAll(except=null){for(const menu of [...openMenus])if(menu!==except)closeMenu(menu);}
 function makeMenu(label,title){
@@ -40,6 +41,7 @@ function installHeaderMenus(){
   addSection(files.pop,'OPEN',[quickOpen,searchFiles,symbols,explorer]);
   addSection(files.pop,'FILES',[document.querySelector('#upload-workspace')]);
   host.append(files.menu);
+  headerMenusByName.set('files',files.menu);
 
   const terminal=document.querySelector('#open-terminal');
   if(terminal){
@@ -84,6 +86,7 @@ function installHeaderMenus(){
   addSection(settings.pop,'UPDATE',[selfUpdateBranch,document.querySelector('#self-update-check')]);
   addSection(settings.pop,'WORKSPACE',[document.querySelector('#tasks-json-editor'),document.querySelector('#reload'),document.querySelector('#edit-title')]);
   host.append(settings.menu);
+  headerMenusByName.set('settings',settings.menu);
 
   const git=document.querySelector('.git-status-pill');
   if(git){
@@ -124,3 +127,12 @@ for(const view of app.views.values())decoratePane(view);
 if(!installHeaderMenus()){
   window.addEventListener('taskmenu:tasks',()=>installHeaderMenus(),{once:true});
 }
+
+function openHeaderMenu(name){
+  const menu=headerMenusByName.get(String(name||'').toLowerCase());
+  if(!menu)throw new Error('Header menu unavailable: '+name);
+  closeAll(menu);menu.classList.add('open');openMenus.add(menu);
+  menu.querySelector('.taskmenu-menu-trigger')?.focus();
+  return true;
+}
+globalThis.TaskMenuMenus={open:openHeaderMenu,closeAll};
