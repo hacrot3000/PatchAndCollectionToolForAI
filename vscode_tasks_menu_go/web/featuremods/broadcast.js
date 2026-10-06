@@ -38,17 +38,25 @@ style.textContent=`
 .broadcast-dialog{width:min(430px,94vw);background:#171a20;border:1px solid #3b414d;border-radius:10px;box-shadow:0 18px 48px rgba(0,0,0,.5);padding:16px}
 .broadcast-dialog h3{margin:0 0 12px;font-size:16px}
 .broadcast-dialog label{display:block;font-size:11px;font-weight:700;opacity:.7;margin:10px 0 5px}
-.broadcast-dialog input{width:100%;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:8px 10px}
+.broadcast-dialog input,.broadcast-dialog textarea{width:100%;box-sizing:border-box;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:8px 10px}
+.broadcast-dialog textarea{min-height:116px;resize:vertical;font:11px ui-monospace,monospace;line-height:1.45}
 .broadcast-palette{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
 .broadcast-preset{display:flex;align-items:center;gap:8px;text-align:left}
 .broadcast-preset.selected{outline:2px solid #8cc8ff;outline-offset:1px}
 .broadcast-dialog-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:15px}
 .broadcast-dialog-actions .danger{margin-right:auto;background:#4a252a;border-color:#7a4048;color:#ffe2e4}
 html[data-taskmenu-theme="light"] .broadcast-dialog{background:#fff;border-color:#b9c0c8}
-html[data-taskmenu-theme="light"] .broadcast-dialog input{background:#fff;color:#20242b;border-color:#b9c0c8}
+html[data-taskmenu-theme="light"] .broadcast-dialog input,html[data-taskmenu-theme="light"] .broadcast-dialog textarea{background:#fff;color:#20242b;border-color:#b9c0c8}
 `;
 document.head.append(style);
 
+function normalizeGroupEnvironment(value){
+  const out={};for(const [key,raw] of Object.entries(value&&typeof value==='object'&&!Array.isArray(value)?value:{})){if(/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)){const text=String(raw??'');if(!text.includes('\0'))out[key]=text;}}return out;
+}
+function environmentText(value){return Object.entries(normalizeGroupEnvironment(value)).map(([key,item])=>key+'='+item).join('\n');}
+function parseEnvironmentText(value){
+  const out={};for(const raw of String(value||'').split(/\r?\n/)){if(!raw.trim()||raw.trimStart().startsWith('#'))continue;const index=raw.indexOf('=');if(index<1)throw new Error('Environment lines must use NAME=VALUE');const key=raw.slice(0,index).trim();if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))throw new Error('Invalid environment variable name: '+key);const item=raw.slice(index+1);if(item.includes('\0'))throw new Error('Environment value contains NUL: '+key);out[key]=item;}return out;
+}
 function groupByID(id){return (state.groups||[]).find(group=>group.id===id)||null;}
 function groupForSession(id){return groupByID(state.assignments?.[id]||'');}
 function presetFor(group){return PRESETS[group?.preset]||PRESETS.slate;}
@@ -118,12 +126,21 @@ function renderHeaderMenu(){
     const button=makeHeaderButton('',()=>editGroup(group));
     button.classList.add('broadcast-group-row');
     const swatch=document.createElement('span');swatch.className='broadcast-swatch';swatch.style.background=preset.bg;swatch.style.borderColor=preset.fg;
-    const name=document.createElement('span');name.textContent=group.name+' · '+preset.label;
+    const envCount=Object.keys(normalizeGroupEnvironment(group.environment)).length;
+    const name=document.createElement('span');name.textContent=group.name+' · '+preset.label+(envCount?' · '+envCount+' env':'');
     const count=document.createElement('span');count.className='broadcast-group-count';count.textContent=String(assignedCount(group.id));
     button.append(swatch,name,count);
     button.title='Edit broadcast group '+group.name;
   }
   makeHeaderButton('＋ New group…',()=>createGroup());
+  if((state.groups||[]).length){
+    addHeaderLabel('NEW TERMINAL IN GROUP');
+    for(const group of state.groups||[]){
+      const envCount=Object.keys(normalizeGroupEnvironment(group.environment)).length;
+      const button=makeHeaderButton('＋ '+group.name,()=>startGroupTerminal(group));
+      button.title='Open a local terminal assigned to '+group.name+(envCount?' with '+envCount+' group environment variable(s)':'');
+    }
+  }
 }
 
 function closeHeaderMenu(){if(headerMenu)headerMenu.classList.remove('open');}
@@ -166,7 +183,7 @@ function applyState(next){
   const normalized={
     version:Number(next?.version||1),
     mode:['none','all','group'].includes(next?.mode)?next.mode:'none',
-    groups:Array.isArray(next?.groups)?next.groups:[],
+    groups:Array.isArray(next?.groups)?next.groups.map(group=>({...group,environment:normalizeGroupEnvironment(group?.environment)})):[],
     assignments:next?.assignments&&typeof next.assignments==='object'?next.assignments:{}
   };
   const fingerprint=JSON.stringify(normalized);
@@ -219,6 +236,8 @@ function groupDialog(existing=null){
       button.append(swatch,text);button.onclick=()=>selectPreset(id);buttons.set(id,button);palette.append(button);
     }
     selectPreset(selected);
+    const envLabel=document.createElement('label');envLabel.textContent='Environment for new terminals in this group';
+    const environment=document.createElement('textarea');environment.spellcheck=false;environment.placeholder='NAME=value\n# one variable per line';environment.value=environmentText(existing?.environment);
     const actions=document.createElement('div');actions.className='broadcast-dialog-actions';
     if(existing){
       const del=document.createElement('button');del.type='button';del.className='danger';del.textContent='Delete group';
@@ -232,11 +251,12 @@ function groupDialog(existing=null){
     const submit=()=>{
       const value=name.value.replace(/[\r\n]+/g,' ').trim();
       if(!value){name.focus();return;}
-      closeDialog({action:'save',name:value,preset:selected},resolve);
+      let env;try{env=parseEnvironmentText(environment.value);}catch(error){window.alert(String(error?.message||error));environment.focus();return;}
+      closeDialog({action:'save',name:value,preset:selected,environment:env},resolve);
     };
     save.onclick=submit;name.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();submit();}};
     actions.append(cancel,save);
-    card.append(title,nameLabel,name,colorLabel,palette,actions);backdrop.append(card);document.body.append(backdrop);
+    card.append(title,nameLabel,name,colorLabel,palette,envLabel,environment,actions);backdrop.append(card);document.body.append(backdrop);
     backdrop.addEventListener('pointerdown',event=>{if(event.target===backdrop)closeDialog(null,resolve);});
     dialogKeydown=event=>{if(event.key==='Escape')closeDialog(null,resolve);};
     document.addEventListener('keydown',dialogKeydown,true);
@@ -249,7 +269,7 @@ async function createGroup(assignView=null){
   const result=await groupDialog();
   if(!result)return null;
   const before=new Set((state.groups||[]).map(group=>group.id));
-  await mutate({action:'create_group',name:result.name,preset:result.preset});
+  await mutate({action:'create_group',name:result.name,preset:result.preset,environment:result.environment});
   const created=(state.groups||[]).find(group=>!before.has(group.id))||null;
   if(created&&assignView)await assign(assignView,created.id);
   return created;
@@ -258,13 +278,25 @@ async function editGroup(group){
   closeHeaderMenu();
   const result=await groupDialog(group);if(!result)return;
   if(result.action==='delete')await mutate({action:'delete_group',group_id:group.id});
-  else await mutate({action:'update_group',group_id:group.id,name:result.name,preset:result.preset});
+  else await mutate({action:'update_group',group_id:group.id,name:result.name,preset:result.preset,environment:result.environment});
 }
 async function assign(view,groupID){
   if(!view||view.closed)return;
   await mutate({action:'assign',session_id:view.meta.id,group_id:groupID||''});
 }
 async function removeFromGroup(view){return assign(view,'');}
+async function startGroupTerminal(group){
+  if(!group?.id)throw new Error('Broadcast group is unavailable');
+  if(app.sharedMode)throw new Error('Broadcast groups are unavailable in shared-server mode');
+  if(app.hasPermission&&!app.hasPermission('terminal.create'))throw new Error('Terminal creation permission is required');
+  const meta=await app.jsonFetch('/api/sessions',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({kind:'terminal',env:normalizeGroupEnvironment(group.environment)})
+  });
+  app.materializeSession(meta,true);
+  await mutate({action:'assign',session_id:meta.id,group_id:group.id});
+  return meta;
+}
 
 function contextActions(view){
   const current=state.assignments?.[view.meta.id]||'';
@@ -355,6 +387,7 @@ globalThis.TaskMenuBroadcast={
   removeFromGroup,
   createGroup,
   editGroup,
+  startGroupTerminal,
   contextActions,
   groupForSession
 };
