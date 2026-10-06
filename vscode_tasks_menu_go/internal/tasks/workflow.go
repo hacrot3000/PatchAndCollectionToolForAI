@@ -18,19 +18,7 @@ const (
 
 const maxWorkflowOutputs = 32
 
-var workflowOutputNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]{0,63}package tasks
-
-import (
-	"errors"
-	"fmt"
-	"math"
-	"regexp"
-	"sort"
-	"strconv"
-	"strings"
-)
-
-)
+var workflowOutputNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]{0,63}$`)
 
 func workflowInteger(value any) (int, bool) {
 	switch v := value.(type) {
