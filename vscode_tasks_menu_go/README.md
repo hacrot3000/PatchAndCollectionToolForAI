@@ -541,6 +541,7 @@ Các capability mới trong Connections/Workbench:
 - Project/File context menu có integrity tools dùng chung: SHA-256, MD5 compatibility, compare checksum, tạo SHA256SUMS cho folder và verify SHA-256 manifest; manifest generation không tự ghi file vào project;
 - Archive tools hỗ trợ preview ZIP/tar.gz không extract, create/extract an toàn trong workspace, multi-select create/download ZIP; Host archive có thể upload + extract qua SFTP profile liên kết SSH, còn FTP cố ý không giả lập remote shell;
 - Project file context menu có **Open With…** thống nhất cho Text Editor, Hex, Image Preview, Markdown Preview, Diff, Download và terminal directory; local single-user mode còn có Open via host application, còn shared-server cố ý không expose host-app launch;
+- **Ctrl/Cmd+Shift+P** mở Unified Command Palette: tìm/mở file tools, Explorer/Search/Symbols/Project Profiles/Snapshots, chạy trực tiếp task theo label, mở/refresh Git, mở SSH/Database/SFTP/FTP Connections, Settings và toàn bộ terminal actions; palette cũ của terminal được giữ alias tương thích;
 - server-side FTP/SFTP queue được journal qua daemon restart và upload/download có resumable partial-transfer support khi transport cho phép.
 
 Hướng dẫn sử dụng, dependency, giới hạn bảo mật, policy host key, secret rotation/backup/recovery và offline/self-update build được tổng hợp tại:
