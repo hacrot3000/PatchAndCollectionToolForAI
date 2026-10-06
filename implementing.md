@@ -914,7 +914,7 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - thêm `ADDONS.md` mô tả manifest, process protocol, browser registration API và security model;
     - regression test khóa manifest validation, known-permission declaration, executable privacy, JSON protocol, extension point action refs, browser registry/hooks/load order và generic background operation control.
 
-39. **P3 — LSP integration**
+39. **P3 — LSP integration** — ✅ **COMPLETE**
     Chỉ nên làm sau các phần trên.
     
     Có thể dùng LSP server đã cài trên host:
@@ -933,6 +933,20 @@ Tôi đề xuất roadmap sau, theo thứ tự ưu tiên:
     - rename symbol.
     
     Không cần bundle compiler/npm.
+
+    Hoàn tất:
+    - TaskDeck chỉ làm LSP client, không bundle compiler/npm/language server;
+    - extension mapping dùng `gopls` (Go), `clangd` (C/C++), `pylsp` (Python), `typescript-language-server --stdio` (JS/TS), tất cả resolve từ host PATH;
+    - thêm bounded JSON-RPC/LSP stdio bridge với Content-Length framing, message cap 8 MiB và request lifecycle 15 giây;
+    - mỗi request chạy ephemeral LSP lifecycle `initialize → initialized → didOpen → action → shutdown/exit`, tránh daemon/session leak và giữ API browser đơn giản;
+    - hỗ trợ diagnostics, hover, definition, references và rename;
+    - diagnostics lấy `textDocument/publishDiagnostics`; definition/references hỗ trợ Location và LocationLink;
+    - mọi URI/location/workspace edit từ language server được normalize về project-relative path và target thoát workspace bị reject/skip;
+    - Rename chỉ trả normalized text edits; browser bắt active/affected editors clean, preflight toàn bộ target, preview trước Apply rồi ghi qua `/api/project/file` với `expected_sha256`;
+    - shared-server route cần `files.read`; rename còn bắt `files.write` server-side trước khi spawn language server;
+    - Editor tự thêm nút **LSP** cho extension được hỗ trợ, hiển thị availability/server name; Unified Command Palette có `Editor: Language Server…`;
+    - Definition/References mở đúng project file và jump tới line/character; Hover/Diagnostics dùng text-only UI, không render trusted Markdown/HTML từ server;
+    - regression test khóa server mapping, framing, workspace escape rejection, Location/WorkspaceEdit normalization, diagnostics document scope, editor integration, optimistic rename safety, module load order và permission guard.
 
 40. **P3 — Remote workspace**
     Cho TaskDeck daemon quản lý project nằm trên SSH host:
