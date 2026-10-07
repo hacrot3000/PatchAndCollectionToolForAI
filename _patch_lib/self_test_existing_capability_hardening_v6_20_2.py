@@ -35,25 +35,25 @@ with tempfile.TemporaryDirectory(prefix='ptv6202_git_filter_') as td:
     git(repo, 'config', 'user.email', 'ptv@example.invalid')
     (repo/'tracked.txt').write_text('main\n', encoding='utf-8')
     git(repo, 'add', 'tracked.txt'); git(repo, 'commit', '-qm', 'main')
-    main_branch = git(repo, 'branch', '--show-current')
-    git(repo, 'switch', '-qc', 'feature')
+    main_branch = git(repo, 'symbolic-ref', '--quiet', '--short', 'HEAD')
+    git(repo, 'checkout', '-q', '-b', 'feature')
     (repo/'.gitattributes').write_text('tracked.txt filter=ptv_external\n', encoding='utf-8')
     (repo/'tracked.txt').write_text('feature\n', encoding='utf-8')
     git(repo, 'add', '.gitattributes', 'tracked.txt'); git(repo, 'commit', '-qm', 'feature')
-    git(repo, 'switch', '-q', main_branch)
+    git(repo, 'checkout', '-q', main_branch)
     marker = repo/'FILTER_SHOULD_NOT_RUN'
     # This command is harmless evidence: an unsafe switch implementation would
     # create the marker when Git invokes the smudge filter.
     git(repo, 'config', 'filter.ptv_external.smudge', f"sh -c 'touch {marker}; cat'")
     git(repo, 'config', 'filter.ptv_external.clean', 'cat')
-    before = git(repo, 'branch', '--show-current')
+    before = git(repo, 'symbolic-ref', '--quiet', '--short', 'HEAD')
     try:
         gs.execute_git_operation(repo, {'op':'switch', 'branch':'feature'})
         raise AssertionError('switch with external filter unexpectedly allowed')
     except gs.GitSafeError as exc:
         assert 'filter' in str(exc).lower(), exc
     assert not marker.exists(), marker
-    assert git(repo, 'branch', '--show-current') == before
+    assert git(repo, 'symbolic-ref', '--quiet', '--short', 'HEAD') == before
 
     # Git failures preserve earlier evidence but make the COLLECT action incomplete.
     result = gs.run_git_operations_result(repo, {
