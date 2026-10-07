@@ -519,7 +519,7 @@ async function trashPaths(paths,{record=true,label='Move to Trash'}={}){
 async function undoLastOperation(){
   const undo=lastUndo;
   if(!undo?.steps?.length)return;
-  const dirtyPaths=undo.steps.filter(step=>step.action==='trash').map(step=>step.path);
+  const dirtyPaths=undo.steps.filter(step=>step.action==='trash'||step.action==='rename').map(step=>step.path);
   if(dirtyPaths.length)assertNoDirtyEditors(dirtyPaths);
   const restored=[];
   for(const step of [...undo.steps].reverse()){
@@ -561,6 +561,7 @@ async function createProjectItem(type){
   if(type==='file')openFile(result.path||pathValue);
 }
 async function renameProjectItem(pathValue){
+  assertNoDirtyEditors([pathValue]);
   const raw=window.prompt('Rename '+basename(pathValue)+':',basename(pathValue));
   if(raw===null)return;
   const name=childName(raw);
