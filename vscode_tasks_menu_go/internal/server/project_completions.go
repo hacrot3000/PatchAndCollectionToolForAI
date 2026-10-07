@@ -337,10 +337,22 @@ func projectImportCompletionItems(ctx context.Context, s *Server, req projectCom
 		searchPrefix = strings.ReplaceAll(prefix, ".", "/")
 	}
 	searchPrefix = strings.TrimLeft(searchPrefix, "./")
-	if searchPrefix == "" {
-		searchPrefix = path.Base(req.Path)
+	candidates := make([]projectFileSearchResult, 0, req.Limit*4)
+	if searchPrefix != "" {
+		candidates = searchProjectFileIndex(idx, searchPrefix, req.Limit*4)
+	} else {
+		for i := range idx.offsets {
+			candidate := idx.pathAt(i)
+			candidates = append(candidates, projectFileSearchResult{
+				Path: candidate,
+				Name: path.Base(candidate),
+				Score: 1,
+			})
+			if len(candidates) >= req.Limit*4 {
+				break
+			}
+		}
 	}
-	candidates := searchProjectFileIndex(idx, searchPrefix, req.Limit*4)
 	goModule := ""
 	if kind == "go" {
 		goModule = projectGoModuleName(s.Workspace)
