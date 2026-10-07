@@ -59,6 +59,7 @@ style.textContent=`
 .ft-queue-head{display:flex;align-items:center;gap:7px;padding:5px 8px;border-bottom:1px solid #30343b;background:#141920}
 .ft-queue-title{font-size:11px;font-weight:700}.ft-queue-summary{font-size:10px;opacity:.68}.ft-queue-spacer{flex:1}
 .ft-queue-head button{height:25px;padding:2px 7px;font-size:10px}
+.ft-queue-connections{display:flex;align-items:center;gap:4px;font-size:10px;white-space:nowrap}.ft-queue-connections input{width:48px;height:25px;box-sizing:border-box;padding:2px 4px;background:#0d1117;color:inherit;border:1px solid #39414d;border-radius:4px;font-size:10px}
 .ft-queue-wrap{flex:1;min-height:0;overflow:auto}
 .ft-queue-table{width:100%;border-collapse:collapse;font-size:10px}
 .ft-queue-table th,.ft-queue-table td{padding:5px 7px;border-bottom:1px solid #272d36;text-align:left;white-space:nowrap}
@@ -794,6 +795,24 @@ async function refreshProfiles(){
   return profilesByID;
 }
 function profileFor(view){return profilesByID.get(view.profile.id)||view.profile;}
+async function updateViewMaxConnections(view,value){
+  const profile=profileFor(view),protocol=String(profile?.protocol||'').toLowerCase();
+  const max=Math.max(1,Math.min(16,Math.trunc(Number(value)||3)));
+  const payload=protocol==='sftp'
+    ?{name:profile.name,protocol:'sftp',ssh_profile_id:profile.ssh_profile_id,initial_path:profile.initial_path||'.',max_connections:max}
+    :{name:profile.name,protocol:'ftp',host:profile.host,port:Number(profile.port)||21,username:profile.username||'',initial_path:profile.initial_path||'.',connect_timeout_seconds:Number(profile.connect_timeout_seconds)||10,ftp_tls_mode:profile.ftp_tls_mode||'plain',max_connections:max};
+  const updated=await app.jsonFetch('/api/file-transfer/profiles/'+encodeURIComponent(profile.id),{
+    method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
+  });
+  profilesByID.set(String(updated.id||profile.id),updated);
+  view.profile={...view.profile,...updated,max_connections:max};
+  if(view.transferQueue){
+    view.transferQueue.serverMaxConnections=max;
+    if(view.transferQueue.connectionLimit)view.transferQueue.connectionLimit.value=String(max);
+    scheduleTransferQueueRender(view);syncRemoteNavigationAvailability(view);processTransferQueue(view);
+  }
+  return max;
+}
 
 function activateView(id,{force=false}={}){
   const view=views.get(id);if(!view)return false;
@@ -944,6 +963,7 @@ async function syncServerTransferQueue(view){
   queue.serverActiveScans=Number(snapshot?.active_scans)||0;
   queue.serverQueuedScans=Number(snapshot?.queued_scans)||0;
   queue.serverMaxConnections=Math.max(1,Number(snapshot?.max_connections||view.profile?.max_connections||3)||3);
+  if(queue.connectionLimit&&document.activeElement!==queue.connectionLimit)queue.connectionLimit.value=String(queue.serverMaxConnections);
   queue.serverActiveConnections=Math.max(0,Number(snapshot?.active_connections)||0);
   queue.serverActiveTransfers=Math.max(0,Number(snapshot?.active_transfers)||0);
   queue.serverActiveBrowses=Math.max(0,Number(snapshot?.active_browses)||0);
@@ -1205,21 +1225,32 @@ function createTransferQueue(view){
   const title=document.createElement('span');title.className='ft-queue-title';title.textContent='Transfer Queue';
   const summary=document.createElement('span');summary.className='ft-queue-summary';
   const spacer=document.createElement('span');spacer.className='ft-queue-spacer';
+  const connectionWrap=document.createElement('label');connectionWrap.className='ft-queue-connections';connectionWrap.title='Shared FTP/SFTP connection budget for scans, browsing and transfers';
+  const connectionText=document.createElement('span');connectionText.textContent='Max connections';
+  const connectionLimit=document.createElement('input');connectionLimit.type='number';connectionLimit.min='1';connectionLimit.max='16';connectionLimit.step='1';connectionLimit.value=String(view.profile?.max_connections||3);
+  connectionWrap.append(connectionText,connectionLimit);
   const retry=document.createElement('button');retry.type='button';retry.textContent='Retry failed';
   const clear=document.createElement('button');clear.type='button';clear.textContent='Clear done';
-  head.append(title,summary,spacer,retry,clear);
+  head.append(title,summary,spacer,connectionWrap,retry,clear);
   const wrap=document.createElement('div');wrap.className='ft-queue-wrap';
   const table=document.createElement('table');table.className='ft-queue-table';
   const thead=document.createElement('thead'),hr=document.createElement('tr');
   for(const label of ['','', 'Kind','Source','Target','Size','Status','Error']){const th=document.createElement('th');th.textContent=label;hr.append(th);}
   thead.append(hr);const body=document.createElement('tbody');table.append(thead,body);wrap.append(table);root.append(resizer,head,wrap);
   const queue={
-    root,resizer,body,summary,retry,clear,items:[],pending:[],pendingHead:0,priorityPending:[],priorityHead:0,
+    root,resizer,body,summary,retry,clear,connectionLimit,items:[],pending:[],pendingHead:0,priorityPending:[],priorityHead:0,
     sequence:0,running:false,runningCount:0,poolRetryTimer:0,paused:false,selectedIDs:new Set(),selectionAnchor:null,
     activeScans:0,serverActiveScans:0,serverQueuedScans:0,serverMaxConnections:Math.max(1,Number(view.profile?.max_connections||3)||3),
     serverActiveConnections:0,serverActiveTransfers:0,serverActiveBrowses:0,serverBusy:false,serverRevision:0,scanLabel:'',scanChain:Promise.resolve(),remoteDirty:new Set(),leftDirty:false
   };
   view.transferQueue=queue;
+  connectionLimit.onchange=async()=>{
+    const previous=Math.max(1,Number(queue.serverMaxConnections||view.profile?.max_connections||3)||3);
+    connectionLimit.disabled=true;
+    try{connectionLimit.value=String(await updateViewMaxConnections(view,connectionLimit.value));}
+    catch(error){connectionLimit.value=String(previous);app.showError(error);}
+    finally{connectionLimit.disabled=false;}
+  };
   root.oncontextmenu=event=>{if(event.target.closest('tbody tr'))return;queueContextMenu(view,event);};
   retry.onclick=async()=>{
     for(const item of queue.items)if(!item.server&&item.status==='failed'&&typeof item.run==='function'){item.status='queued';item.error='';queue.pending.push(item);}
