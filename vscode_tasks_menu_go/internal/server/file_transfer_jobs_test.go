@@ -1,12 +1,40 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestFileTransferJobJSONAcceptsBulkSelectionBeyondLegacy128KiB(t *testing.T) {
+	ids := make([]string, 6000)
+	for i := range ids {
+		ids[i] = "server-item-0123456789abcdef0123456789abcdef"
+	}
+	body, err := json.Marshal(fileTransferJobControlRequest{
+		ProfileID: "p1", Action: "remove_selected", ItemIDs: ids,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body) <= 128<<10 {
+		t.Fatalf("test payload=%d bytes; must exceed legacy 128 KiB limit", len(body))
+	}
+	req := httptest.NewRequest("POST", "/api/file-transfer/jobs/control", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	var decoded fileTransferJobControlRequest
+	if err := decodeFileTransferJobJSON(rr, req, &decoded); err != nil {
+		t.Fatalf("bulk file-transfer control payload rejected: %v", err)
+	}
+	if len(decoded.ItemIDs) != len(ids) {
+		t.Fatalf("decoded IDs=%d want=%d", len(decoded.ItemIDs), len(ids))
+	}
+}
 
 func TestStopFileTransferScansCancelsActiveAndDropsPending(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
