@@ -294,11 +294,98 @@ function tier1Source(file){
     };
   };
 }
+function completionPosition(context){
+  const line=context.state.doc.lineAt(context.pos);
+  return {line:line.number-1,character:context.pos-line.from,linePrefix:line.text.slice(0,context.pos-line.from)};
+}
+function likelyImportContext(language,linePrefix){
+  const id=language?.completion||language?.id||'';
+  if(id==='cpp')return /#\s*include\s*[<"][^>"]*$/.test(linePrefix);
+  if(id==='javascript'||id==='typescript')return /(?:\bfrom\s+|\bimport\s*|\brequire\s*\()\s*["'][^"']*$/.test(linePrefix);
+  if(id==='python')return /(?:^|\s)(?:from|import)\s+[A-Za-z0-9_.]*$/.test(linePrefix);
+  if(id==='lua')return /\brequire\s*\(?\s*["'][^"']*$/.test(linePrefix);
+  if(id==='nim')return /(?:^|\s)(?:import|include|from)\s+[A-Za-z0-9_./-]*$/.test(linePrefix);
+  if(id==='actionscript')return /(?:^|\s)import\s+[A-Za-z0-9_.]*$/.test(linePrefix);
+  if(id==='go')return /(?:^|\s)import\s+(?:\(\s*)?["'][^"']*$/.test(linePrefix);
+  if(id==='php')return /\b(?:require|include)(?:_once)?\s*\(?\s*["'][^"']*$/.test(linePrefix);
+  if(id==='dart')return /\bimport\s+["'][^"']*$/.test(linePrefix);
+  return false;
+}
+function completionOptionType(kind){
+  kind=String(kind||'').toLowerCase();
+  if(['class','interface','struct','object','message'].includes(kind))return 'class';
+  if(['function','func','proc','macro','template','iterator'].includes(kind))return 'function';
+  if(['method','rpc'].includes(kind))return 'method';
+  if(['constant','const','enum'].includes(kind))return 'constant';
+  if(['variable','var','field','property'].includes(kind))return 'variable';
+  if(['namespace','module','package','service'].includes(kind))return 'namespace';
+  if(['type','trait','scalar','union','input'].includes(kind))return 'type';
+  return kind||'text';
+}
+function tier2Source(file){
+  const p=completionProfile(file),language=languageForFile(file);
+  if(!p||!language||file?.remote_workspace_id)return ()=>null;
+  let controller=null;
+  return async context=>{
+    const mode=currentLexicalMode(context,p.syntax);
+    if(mode==='comment')return null;
+    const position=completionPosition(context);
+    const importContext=likelyImportContext(language,position.linePrefix);
+    if(mode!=='code'&&!importContext)return null;
+    const token=completionToken(context);
+    const prefix=token?.text||'';
+    if(!importContext&&!context.explicit&&prefix.length<2)return null;
+    controller?.abort();
+    controller=new AbortController();
+    context.addEventListener('abort',()=>controller?.abort(),{onDocChange:true});
+    let data;
+    try{
+      data=await app.jsonFetch('/api/project/completions',{
+        method:'POST',cache:'no-store',signal:controller.signal,
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          path:String(file.path||''),
+          language:String(language.completion||language.id||''),
+          prefix,
+          text:context.state.doc.toString(),
+          line_prefix:position.linePrefix,
+          lexical_mode:mode,
+          position:{line:position.line,character:position.character},
+          limit:60
+        })
+      });
+    }catch(error){
+      if(error?.name==='AbortError')return null;
+      console.warn('Project completion unavailable',error);
+      return null;
+    }
+    const items=Array.isArray(data?.items)?data.items:[];
+    if(!items.length)return null;
+    const pathMode=items.some(item=>item?.source==='project-path');
+    let from=token?token.from:context.pos;
+    if(pathMode){
+      const replace=String(items.find(item=>item?.replace_prefix)?.replace_prefix||'');
+      if(replace)from=Math.max(context.state.doc.lineAt(context.pos).from,context.pos-replace.length);
+    }
+    return {
+      from,
+      options:items.map(item=>({
+        label:String(item.label||item.insert_text||''),
+        displayLabel:String(item.label||item.insert_text||''),
+        apply:String(item.insert_text||item.label||''),
+        type:completionOptionType(item.kind),
+        detail:[item.detail,item.path&&item.path!==item.detail?item.path:'',item.source].filter(Boolean).join(' · '),
+        boost:Math.max(-99,Math.min(99,Math.round(Number(item.score||0)/100)))
+      })).filter(item=>item.label),
+      validFor:pathMode?/[A-Za-z0-9_.$@#\/\\-]*/:/[A-Za-z_#$@][A-Za-z0-9_$@#.-]*/
+    };
+  };
+}
 function extensionsForFile(file){
   const p=completionProfile(file);
   if(!p)return [];
   return [globalThis.cm6.autocompletion({
-    override:[tier1Source(file)],
+    override:[tier1Source(file),tier2Source(file)],
     activateOnTyping:true,
     activateOnTypingDelay:120,
     maxRenderedOptions:80,
@@ -314,6 +401,8 @@ globalThis.TaskMenuEditorCompletion={
   profiles,
   completionProfile,
   tier1Source,
+  tier2Source,
+  likelyImportContext,
   extensionsForFile,
   trigger
 };
