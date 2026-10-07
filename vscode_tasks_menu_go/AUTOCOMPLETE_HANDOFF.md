@@ -86,3 +86,5 @@ Final completion notes:
 This Tier 1 + Tier 2 batch is complete on `main`.
 
 Tier 3 semantic completion (persistent LSP sessions + `textDocument/completion` for type-aware member suggestions such as `object.member`) remains intentionally deferred. The current LSP lifecycle is ephemeral per action and should not be reused for keystroke-driven completion without a persistent-session redesign.
+
+- `650070f`: hotfix after TaskDeck self-update validation at revision `5a4075e`: removed stale unused `sort` import from `internal/server/project_symbols.go` and normalized the import order. This directly fixes the reported Go build failure.
