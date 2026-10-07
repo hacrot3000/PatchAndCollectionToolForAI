@@ -2442,14 +2442,14 @@ function requestCompressedUploadDecision(view,entries,scan,{archiveAllowed=true,
     setTimeout(()=>normal.focus(),0);
   });
 }
-function showManualExtractCommands(remoteArchive,remoteDir,roots,commands=null){
+function showManualExtractCommands(view,remoteArchive,remoteDir,roots,commands=null){
   commands=commands||compressedUploadManualCommands(remoteArchive,remoteDir,roots);
   return new Promise(resolve=>{
     const backdrop=document.createElement('div');backdrop.className='ft-upload-choice-backdrop';
     const box=document.createElement('div');box.className='ft-upload-choice';box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');
     const title=document.createElement('h3');title.textContent='Archive uploaded — manual extraction required';
     const note=document.createElement('p');
-    const ftpPathWarning=String(views.get(activeViewID)?.profile?.protocol||'').toLowerCase()==='ftp'?' FTP paths may be chroot/virtual paths; adjust the shell paths if your FTP root is mapped differently on the server.':'';
+    const ftpPathWarning=String(view?.profile?.protocol||'').toLowerCase()==='ftp'?' FTP paths may be chroot/virtual paths; adjust the shell paths if your FTP root is mapped differently on the server.':'';
     note.textContent='TaskDeck cannot run a remote shell for this FTP/SFTP session. Archive: '+remoteArchive+' · Destination: '+remoteDir+'. Run one of these commands on the remote server. Both commands check that selected top-level destinations do not already exist and remove the archive only after successful extraction.'+ftpPathWarning;
     const posixLabel=document.createElement('p');posixLabel.textContent='POSIX shell:';
     const posix=document.createElement('textarea');posix.className='ft-upload-command';posix.readOnly=true;posix.value=commands.posix||'';
@@ -2564,12 +2564,12 @@ async function uploadCompressedSelection(view,entries){
       await loadRemoteDirectory(view,remoteDir,{force:true});return;
     }catch(error){
       view.remote.status.textContent='Archive uploaded but automatic extraction failed; manual command required';
-      await showManualExtractCommands(remoteArchive,remoteDestination,uploadedRoots,uploaded?.manual_commands);
+      await showManualExtractCommands(view,remoteArchive,remoteDestination,uploadedRoots,uploaded?.manual_commands);
       await loadRemoteDirectory(view,remoteDir,{force:true});return;
     }
   }
   view.remote.status.textContent='Archive uploaded; manual extraction required';
-  await showManualExtractCommands(remoteArchive,remoteDestination,uploadedRoots,uploaded?.manual_commands);
+  await showManualExtractCommands(view,remoteArchive,remoteDestination,uploadedRoots,uploaded?.manual_commands);
   await loadRemoteDirectory(view,remoteDir,{force:true});
 }
 async function compressedUploadDecision(view,entries){
