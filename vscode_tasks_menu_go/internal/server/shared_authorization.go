@@ -322,7 +322,7 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionFilesRead}
 	case "/api/file-transfer/archive-upload-extract":
 		return []string{identity.PermissionTransferRead, identity.PermissionTransferUpload, identity.PermissionFilesRead, identity.PermissionFilesUpload, identity.PermissionFilesWrite}
-	case "/api/project/tree", "/api/project/health", "/api/project/files/search", "/api/project/content/search", "/api/project/bytes", "/api/project/integrity", "/api/project/preview", "/api/project/archive/preview", "/api/project/symbols":
+	case "/api/project/tree", "/api/project/health", "/api/project/files/search", "/api/project/content/search", "/api/project/bytes", "/api/project/integrity", "/api/project/preview", "/api/project/archive/preview", "/api/project/symbols", "/api/project/completions":
 		return []string{identity.PermissionFilesRead}
 	case "/api/project/download":
 		return []string{identity.PermissionFilesDownload}
