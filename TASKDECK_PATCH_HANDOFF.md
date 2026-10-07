@@ -551,3 +551,10 @@ Do not accumulate multiple recovery-critical changes before committing. Update t
 Phase 2E.1b runtime invariant hardening is committed. Continue Phase 2E.2 installed-runtime browser smoke. If smoke exposes a UI/runtime defect, fix it in
 a small commit, update this handoff, rerun CI, and repeat the smoke. Only after the real browser
 behavior passes all Phase 2E.2 checks should Phase 2F closeout begin.
+
+## 2026-10-07 — distinguish PATCH vs COLLECT success colors
+
+- `b287c340`: successful foreground COLLECT runs now use `collect-success` instead of the green `finished` class; PATCH success remains green.
+- Successful COLLECT lifecycle rows also use `collect-success`, with pale yellow styling in both dark and light themes.
+- Failed PATCH/COLLECT runs still use the existing `failed` class and preserve `Copy failure + handoff`, `View handoff / artifacts`, FAIL handoff and AI sync behavior unchanged.
+- `bb52dcc0`: regression coverage locks COLLECT-success coloring and verifies failure/handoff flow remains intact.
