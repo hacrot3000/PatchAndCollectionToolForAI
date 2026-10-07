@@ -241,6 +241,11 @@ func TestConnectionsUIIncludesFTPAndSFTPProfiles(t *testing.T) {
 		"FTP is not encrypted",
 		"TaskMenuFileTransfer",
 		"testFileTransferDraft",
+		"Max concurrent connections",
+		"profile?.max_connections||3",
+		"max_connections:Number(maxConnections.input.value)||3",
+		"maxConnections.input.min='1'",
+		"maxConnections.input.max='16'",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("connections.js missing file-transfer UI contract %q", want)
