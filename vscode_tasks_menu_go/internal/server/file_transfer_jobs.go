@@ -109,6 +109,7 @@ type fileTransferServerQueue struct {
 	ActiveTransfers        int
 	ActiveBrowses          int
 	PendingScans           []fileTransferPendingScan
+	ScanCancels            map[string]context.CancelFunc
 	Revision               uint64
 	wake                   chan struct{}
 	workerOnce             sync.Once
@@ -157,6 +158,7 @@ func (s *Server) fileTransferServerQueue(profileID string) *fileTransferServerQu
 		ProfileID:      profileID,
 		MaxConnections: limit,
 		Jobs:           make(map[string]*fileTransferServerJob),
+		ScanCancels:    make(map[string]context.CancelFunc),
 		wake:           make(chan struct{}, 1),
 		persist:        s.scheduleFileTransferQueuePersist,
 	}
@@ -455,10 +457,17 @@ func (q *fileTransferServerQueue) effectiveConflictPolicy(jobID, kind string) st
 
 func (q *fileTransferServerQueue) setScanState(jobID string, done bool, scanErr error) {
 	q.mu.Lock()
+	if cancel := q.ScanCancels[jobID]; cancel != nil {
+		delete(q.ScanCancels, jobID)
+		cancel()
+	}
 	if job := q.Jobs[jobID]; job != nil {
 		job.ScanDone = done
 		job.UpdatedAt = time.Now().UTC()
-		if scanErr != nil {
+		if errors.Is(scanErr, context.Canceled) {
+			job.Error = ""
+			job.Status = "stopped"
+		} else if scanErr != nil {
 			job.Error = scanErr.Error()
 			job.Status = "failed"
 		} else if done {
@@ -553,6 +562,11 @@ func (s *Server) runFileTransferServerQueue(queue *fileTransferServerQueue) {
 			}
 			if scan := queue.nextPendingScanLocked(); scan != nil {
 				queue.ActiveScans++
+				ctx, cancel := context.WithCancel(context.Background())
+				if queue.ScanCancels == nil {
+					queue.ScanCancels = make(map[string]context.CancelFunc)
+				}
+				queue.ScanCancels[scan.JobID] = cancel
 				if job := queue.Jobs[scan.JobID]; job != nil {
 					job.Status = "scanning"
 					job.Error = ""
@@ -560,7 +574,7 @@ func (s *Server) runFileTransferServerQueue(queue *fileTransferServerQueue) {
 				}
 				queue.touchLocked()
 				queue.mu.Unlock()
-				go s.runFileTransferServerScan(queue, *scan)
+				go s.runFileTransferServerScan(ctx, queue, *scan)
 				continue
 			}
 			item := queue.nextRunnableLocked()
@@ -580,15 +594,15 @@ func (s *Server) runFileTransferServerQueue(queue *fileTransferServerQueue) {
 	}
 }
 
-func (s *Server) runFileTransferServerScan(queue *fileTransferServerQueue, scan fileTransferPendingScan) {
+func (s *Server) runFileTransferServerScan(ctx context.Context, queue *fileTransferServerQueue, scan fileTransferPendingScan) {
 	var scanErr error
 	switch scan.Req.Kind {
 	case fileTransferJobHostUpload:
-		scanErr = s.scanHostUploadJob(queue, scan.JobID, scan.Req)
+		scanErr = s.scanHostUploadJob(ctx, queue, scan.JobID, scan.Req)
 	case fileTransferJobHostDownload:
-		scanErr = s.scanHostDownloadJob(queue, scan.JobID, scan.Req)
+		scanErr = s.scanHostDownloadJob(ctx, queue, scan.JobID, scan.Req)
 	case fileTransferJobRemoteDelete:
-		scanErr = s.scanRemoteDeleteJob(queue, scan.JobID, scan.Req)
+		scanErr = s.scanRemoteDeleteJob(ctx, queue, scan.JobID, scan.Req)
 	default:
 		scanErr = fmt.Errorf("unsupported file-transfer job kind %q", scan.Req.Kind)
 	}
@@ -988,7 +1002,7 @@ func (s *Server) ensureBackgroundHostDirectory(rel string) (string, error) {
 	return current, nil
 }
 
-func (s *Server) scanHostUploadJob(queue *fileTransferServerQueue, jobID string, req fileTransferJobCreateRequest) error {
+func (s *Server) scanHostUploadJob(ctx context.Context, queue *fileTransferServerQueue, jobID string, req fileTransferJobCreateRequest) error {
 	knownRemote := map[string]bool{normalizeBackgroundRemotePath(req.RemoteDir): true, ".": true, "/": true}
 	listings := make(map[string][]fileTransferEntry)
 	remoteExisting := func(remotePath string) (*fileTransferEntry, error) {
@@ -997,7 +1011,7 @@ func (s *Server) scanHostUploadJob(queue *fileTransferServerQueue, jobID string,
 		entries, ok := listings[parent]
 		if !ok {
 			var err error
-			entries, err = s.backgroundListRemote(context.Background(), req.ProfileID, parent)
+			entries, err = s.backgroundListRemote(ctx, req.ProfileID, parent)
 			if err != nil {
 				return nil, err
 			}
@@ -1013,12 +1027,13 @@ func (s *Server) scanHostUploadJob(queue *fileTransferServerQueue, jobID string,
 	}
 	var walk func(string, string) error
 	walk = func(hostRel, remotePath string) error {
+		if err := ctx.Err(); err != nil { return err }
 		rel, absolute, info, err := s.resolveHostWorkspaceEntry(hostRel)
 		if err != nil {
 			return err
 		}
 		if info.IsDir() {
-			if err := s.ensureBackgroundRemoteDirectory(context.Background(), req.ProfileID, remotePath, knownRemote); err != nil {
+			if err := s.ensureBackgroundRemoteDirectory(ctx, req.ProfileID, remotePath, knownRemote); err != nil {
 				return err
 			}
 			delete(listings, normalizeBackgroundRemotePath(pathpkg.Dir(remotePath)))
@@ -1058,6 +1073,7 @@ func (s *Server) scanHostUploadJob(queue *fileTransferServerQueue, jobID string,
 		return s.enqueueServerTransferConflictAware(queue, jobID, "Upload", "→", rel, remotePath, "host_upload", info.Size(), conflict)
 	}
 	for _, requested := range req.HostPaths {
+		if err := ctx.Err(); err != nil { return err }
 		rel, _, info, err := s.resolveHostWorkspaceEntry(requested)
 		if err != nil {
 			return err
@@ -1077,18 +1093,19 @@ func (s *Server) scanHostUploadJob(queue *fileTransferServerQueue, jobID string,
 	return nil
 }
 
-func (s *Server) scanHostDownloadJob(queue *fileTransferServerQueue, jobID string, req fileTransferJobCreateRequest) error {
+func (s *Server) scanHostDownloadJob(ctx context.Context, queue *fileTransferServerQueue, jobID string, req fileTransferJobCreateRequest) error {
 	if _, err := s.ensureBackgroundHostDirectory(req.HostDir); err != nil {
 		return err
 	}
 	var walk func(fileTransferJobTarget, string) error
 	walk = func(target fileTransferJobTarget, hostParent string) error {
+		if err := ctx.Err(); err != nil { return err }
 		target.Path = normalizeBackgroundRemotePath(target.Path)
 		name := pathpkg.Base(target.Path)
 		hostRel := filepath.ToSlash(filepath.Join(filepath.FromSlash(hostParent), name))
 		if !target.Directory {
 			if target.Size == 0 && target.Modified == "" {
-				entry, err := s.backgroundRemoteEntry(context.Background(), req.ProfileID, target.Path)
+				entry, err := s.backgroundRemoteEntry(ctx, req.ProfileID, target.Path)
 				if err != nil {
 					return err
 				}
@@ -1119,9 +1136,9 @@ func (s *Server) scanHostDownloadJob(queue *fileTransferServerQueue, jobID strin
 		if _, err := s.ensureBackgroundHostDirectory(hostRel); err != nil {
 			return err
 		}
-		entries, err := s.backgroundListRemote(context.Background(), req.ProfileID, target.Path)
+		entries, err := s.backgroundListRemote(ctx, req.ProfileID, target.Path)
 		if err != nil {
-			exists, checkErr := s.backgroundRemoteEntryExists(context.Background(), req.ProfileID, target.Path)
+			exists, checkErr := s.backgroundRemoteEntryExists(ctx, req.ProfileID, target.Path)
 			if checkErr == nil && !exists {
 				return nil
 			}
@@ -1141,6 +1158,7 @@ func (s *Server) scanHostDownloadJob(queue *fileTransferServerQueue, jobID strin
 		return nil
 	}
 	for _, target := range req.RemoteTargets {
+		if err := ctx.Err(); err != nil { return err }
 		if err := walk(target, req.HostDir); err != nil {
 			return err
 		}
@@ -1148,15 +1166,16 @@ func (s *Server) scanHostDownloadJob(queue *fileTransferServerQueue, jobID strin
 	return nil
 }
 
-func (s *Server) scanRemoteDeleteJob(queue *fileTransferServerQueue, jobID string, req fileTransferJobCreateRequest) error {
+func (s *Server) scanRemoteDeleteJob(ctx context.Context, queue *fileTransferServerQueue, jobID string, req fileTransferJobCreateRequest) error {
 	var walk func(fileTransferJobTarget) error
 	walk = func(target fileTransferJobTarget) error {
+		if err := ctx.Err(); err != nil { return err }
 		target.Path = normalizeBackgroundRemotePath(target.Path)
 		if !target.Directory {
 			queue.addItem(jobID, "Delete", "×", target.Path, "", "remote_delete", 0, false)
 			return nil
 		}
-		entries, err := s.backgroundListRemote(context.Background(), req.ProfileID, target.Path)
+		entries, err := s.backgroundListRemote(ctx, req.ProfileID, target.Path)
 		if err != nil {
 			return err
 		}
@@ -1173,6 +1192,7 @@ func (s *Server) scanRemoteDeleteJob(queue *fileTransferServerQueue, jobID strin
 		return nil
 	}
 	for _, target := range req.RemoteTargets {
+		if err := ctx.Err(); err != nil { return err }
 		if err := walk(target); err != nil {
 			return err
 		}
@@ -1292,6 +1312,48 @@ func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func stopFileTransferScansLocked(queue *fileTransferServerQueue) {
+	for _, cancel := range queue.ScanCancels {
+		if cancel != nil {
+			cancel()
+		}
+	}
+	queue.PendingScans = nil
+	queue.QueuedScans = 0
+	for _, job := range queue.Jobs {
+		if job == nil || job.ScanDone {
+			continue
+		}
+		job.ScanDone = true
+		job.NeedsRescan = false
+		job.Error = ""
+		job.Status = "stopped"
+		job.UpdatedAt = time.Now().UTC()
+	}
+}
+
+func clearFileTransferQueueLocked(queue *fileTransferServerQueue) {
+	stopFileTransferScansLocked(queue)
+	kept := queue.Items[:0]
+	activeJobs := make(map[string]bool)
+	for _, item := range queue.Items {
+		if item == nil {
+			continue
+		}
+		if item.Status == "running" {
+			item.RemoveAfterRun = true
+			kept = append(kept, item)
+			activeJobs[item.JobID] = true
+		}
+	}
+	queue.Items = kept
+	for jobID := range queue.Jobs {
+		if !activeJobs[jobID] {
+			delete(queue.Jobs, jobID)
+		}
+	}
+}
+
 func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1325,6 +1387,10 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
 	switch req.Action {
 	case "pause":
 		queue.Paused = true
+	case "stop_scans":
+		stopFileTransferScansLocked(queue)
+	case "clear_queue":
+		clearFileTransferQueueLocked(queue)
 	case "resume":
 		queue.Paused = false
 	case "resume_selected":
