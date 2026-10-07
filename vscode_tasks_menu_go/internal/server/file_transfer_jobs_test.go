@@ -145,6 +145,73 @@ func TestClearFileTransferQueueDropsLargePendingStateButKeepsRunningItem(t *test
 	}
 }
 
+func TestCreateHostArchiveUploadJobQueuesSingleWorkerItem(t *testing.T) {
+	s, store, _ := newFileTransferProfileAPITestServer(t)
+	s.Workspace = t.TempDir()
+	profile, err := store.Create(filetransferprofile.Profile{
+		ID: "sftp-archive", Name: "SFTP Archive", Protocol: filetransferprofile.ProtocolSFTP,
+		SSHProfileID: "ssh-prod",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.createFileTransferServerJob(fileTransferJobCreateRequest{
+		ProfileID: profile.ID,
+		Kind: fileTransferJobHostArchiveUpload,
+		HostPaths: []string{"release", "assets"},
+		RemoteDir: "/srv/app",
+		MergePolicy: "overwrite",
+		AutoExtract: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !job.ScanDone || job.Status != "queued" || job.Phase != "queued" {
+		t.Fatalf("compressed upload job=%#v", job)
+	}
+	queue := s.fileTransferServerQueue(profile.ID)
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	if len(queue.PendingScans) != 0 || queue.QueuedScans != 0 {
+		t.Fatalf("compressed upload must not create recursive transfer scan: pending=%d queued=%d", len(queue.PendingScans), queue.QueuedScans)
+	}
+	if len(queue.Items) != 1 {
+		t.Fatalf("compressed upload items=%d want=1", len(queue.Items))
+	}
+	item := queue.Items[0]
+	if item.Operation != "host_archive_upload" || item.Kind != "Compressed upload" || item.Status != "queued" {
+		t.Fatalf("unexpected compressed upload item: %#v", item)
+	}
+	if job.Request == nil || job.Request.MergePolicy != "overwrite" || !job.Request.AutoExtract {
+		t.Fatalf("compressed upload request not retained: %#v", job.Request)
+	}
+}
+
+func TestClearFileTransferQueueCancelsRunningTransferContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	q := &fileTransferServerQueue{
+		ProfileID: "p1",
+		Jobs: map[string]*fileTransferServerJob{
+			"running": {ID: "running", Status: "running", ScanDone: true},
+		},
+		Items: []*fileTransferServerItem{
+			{ID: "run-item", JobID: "running", Status: "running"},
+		},
+		TransferCancels: map[string]context.CancelFunc{"run-item": cancel},
+	}
+	q.mu.Lock()
+	clearFileTransferQueueLocked(q)
+	q.mu.Unlock()
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatal("clear queue did not cancel running transfer context")
+	}
+	if len(q.Items) != 1 || !q.Items[0].RemoveAfterRun {
+		t.Fatalf("running item should remain only until cancellation finishes: %#v", q.Items)
+	}
+}
+
 func TestRemoteDeleteSSHCommandQuotesPathAndRefusesRoot(t *testing.T) {
 	command, err := remoteDeleteSSHCommand("/srv/app/user's old data")
 	if err != nil {
