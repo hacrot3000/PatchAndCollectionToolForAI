@@ -987,12 +987,12 @@ Các thay đổi tiếp theo nên được mở thành roadmap/ticket mới dự
 
 Requested improvement for Git/File Compare. Keep this section updated after every small commit so work can resume safely after interruption.
 
-- [ ] Reuse the editor language registry for diff syntax highlighting on both sides.
+- [x] Reuse the editor language registry for diff syntax highlighting on both sides.
 - [ ] Add conservative important/unimportant classification. Default is important; only confirmed comment-only, whitespace/formatting-only, or comment-tail-only changes may be marked unimportant.
-- [ ] Add intra-line changed-span highlighting for paired removed/added lines.
+- [x] Add intra-line changed-span highlighting for paired removed/added lines.
 - [ ] Add display controls: View all, View diff, View diff context, and View unimportant.
 - [ ] Add structural diff-context expansion (brace/indent-aware with bounded fallback) and preserve hunk copy/apply behavior.
 - [ ] Add regression coverage and update user-facing documentation.
 - [ ] Run/verify CI on the resulting main branch commits.
 
-Checkpoint: implementation not started yet. Existing generic File Compare is the shared path used by Git visual diff, so improvements should live there rather than forking a Git-only renderer.
+Checkpoint: `ca89d572` adds syntax-aware rendering on both compare sides and token/word-level intra-line changed-span highlighting while keeping source text DOM-safe (`textContent`, no `innerHTML`). Existing generic File Compare remains the shared path used by Git visual diff.
