@@ -9,6 +9,8 @@ style.textContent=`
 .file-compare-head{display:flex;align-items:center;gap:7px;padding:7px 9px;border-bottom:1px solid #303843}
 .file-compare-title{font-weight:700;font-size:12px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-compare-head button{padding:4px 7px;font-size:11px}.file-compare-head button.active{background:#34445a;border-color:#6f91bb}
 .file-compare-summary{font:10px ui-monospace,monospace;opacity:.66;white-space:nowrap}
+.file-compare-filters{display:flex;align-items:center;gap:6px;padding:5px 9px;border-bottom:1px solid #303843;background:#111820;flex-wrap:wrap}.file-compare-filters button{padding:3px 7px;font-size:10px}.file-compare-filters button.active{background:#34445a;border-color:#6f91bb}.file-compare-filter-note{font:10px ui-monospace,monospace;opacity:.52;margin-left:auto}
+.file-compare-gap{grid-column:1/-1;padding:2px 8px;text-align:center;font:10px/1.4 ui-monospace,monospace;opacity:.52;background:rgba(120,140,165,.07);border-bottom:1px solid rgba(255,255,255,.035)}
 .file-compare-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border-bottom:1px solid #303843;background:#151b23}
 .file-compare-column{padding:6px 9px;font:11px ui-monospace,monospace;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-compare-column+.file-compare-column{border-left:1px solid #303843}
 .file-compare-body{flex:1;min-height:0;overflow:auto;background:#0b0f14}
@@ -21,7 +23,7 @@ style.textContent=`
 .file-compare-hunk{border-top:1px solid #3a4350;border-bottom:1px solid #3a4350;margin:5px 0}.file-compare-hunk-head{position:sticky;left:0;display:flex;align-items:center;gap:6px;padding:4px 8px;background:#171e27;font:10px ui-monospace,monospace;z-index:1}.file-compare-hunk-label{flex:1;opacity:.72}.file-compare-hunk-head button{padding:2px 6px;font-size:10px}
 .file-compare-inline{min-width:640px}.file-compare-inline-line{display:grid;grid-template-columns:52px 20px minmax(0,1fr);border-bottom:1px solid rgba(255,255,255,.035);font:11px/1.45 ui-monospace,monospace}.file-compare-inline-line span{padding:1px 7px}.file-compare-inline-no{text-align:right;opacity:.45}.file-compare-inline-line.removed.important{background:rgba(229,72,86,.28)}.file-compare-inline-line.added.important{background:rgba(232,174,55,.28)}.file-compare-inline-line.removed.unimportant,.file-compare-inline-line.added.unimportant{background:rgba(58,149,214,.23)}
 .file-compare-empty{padding:24px;text-align:center;opacity:.62}
-html[data-taskmenu-theme="light"] .file-compare-dialog{background:#fff;border-color:#b9c0c8}.file-compare-body{color:inherit}html[data-taskmenu-theme="light"] .file-compare-columns,html[data-taskmenu-theme="light"] .file-compare-hunk-head{background:#f6f8fa;border-color:#d0d7de}html[data-taskmenu-theme="light"] .file-compare-cell.removed.important,html[data-taskmenu-theme="light"] .file-compare-inline-line.removed.important{background:#ffe2e5}html[data-taskmenu-theme="light"] .file-compare-cell.added.important,html[data-taskmenu-theme="light"] .file-compare-inline-line.added.important{background:#fff1c9}html[data-taskmenu-theme="light"] .file-compare-cell.removed.unimportant,html[data-taskmenu-theme="light"] .file-compare-cell.added.unimportant,html[data-taskmenu-theme="light"] .file-compare-inline-line.removed.unimportant,html[data-taskmenu-theme="light"] .file-compare-inline-line.added.unimportant{background:#e3f3ff}
+html[data-taskmenu-theme="light"] .file-compare-dialog{background:#fff;border-color:#b9c0c8}.file-compare-body{color:inherit}html[data-taskmenu-theme="light"] .file-compare-filters{background:#f8fafc;border-color:#d0d7de}html[data-taskmenu-theme="light"] .file-compare-columns,html[data-taskmenu-theme="light"] .file-compare-hunk-head{background:#f6f8fa;border-color:#d0d7de}html[data-taskmenu-theme="light"] .file-compare-cell.removed.important,html[data-taskmenu-theme="light"] .file-compare-inline-line.removed.important{background:#ffe2e5}html[data-taskmenu-theme="light"] .file-compare-cell.added.important,html[data-taskmenu-theme="light"] .file-compare-inline-line.added.important{background:#fff1c9}html[data-taskmenu-theme="light"] .file-compare-cell.removed.unimportant,html[data-taskmenu-theme="light"] .file-compare-cell.added.unimportant,html[data-taskmenu-theme="light"] .file-compare-inline-line.removed.unimportant,html[data-taskmenu-theme="light"] .file-compare-inline-line.added.unimportant{background:#e3f3ff}
 `;
 document.head.append(style);
 
@@ -35,14 +37,23 @@ const inlineButton=document.createElement('button');inlineButton.type='button';i
 const reloadButton=document.createElement('button');reloadButton.type='button';reloadButton.textContent='↻';reloadButton.title='Reload both compare sources';
 const closeButton=document.createElement('button');closeButton.type='button';closeButton.textContent='×';closeButton.title='Close compare';
 head.append(title,summary,sideButton,inlineButton,reloadButton,closeButton);
+const filters=document.createElement('div');filters.className='file-compare-filters';
+const viewAllButton=document.createElement('button');viewAllButton.type='button';viewAllButton.textContent='View all';viewAllButton.title='Show the complete file comparison';
+const viewDiffButton=document.createElement('button');viewDiffButton.type='button';viewDiffButton.textContent='View diff';viewDiffButton.title='Show changed lines only';
+const viewContextButton=document.createElement('button');viewContextButton.type='button';viewContextButton.textContent='View diff context';viewContextButton.title='Show changed lines plus the enclosing brace/indentation block when it can be identified';
+const viewUnimportantButton=document.createElement('button');viewUnimportantButton.type='button';viewUnimportantButton.textContent='View unimportant';viewUnimportantButton.title='Toggle confirmed comment/cosmetic changes (blue)';
+const filterNote=document.createElement('span');filterNote.className='file-compare-filter-note';filterNote.textContent='blue = unimportant · red/amber = logic-sensitive';
+filters.append(viewAllButton,viewDiffButton,viewContextButton,viewUnimportantButton,filterNote);
 const columns=document.createElement('div');columns.className='file-compare-columns';
 const leftLabel=document.createElement('div');leftLabel.className='file-compare-column';
 const rightLabel=document.createElement('div');rightLabel.className='file-compare-column';columns.append(leftLabel,rightLabel);
 const body=document.createElement('div');body.className='file-compare-body';
-dialog.append(head,columns,body);backdrop.append(dialog);document.body.append(backdrop);
+dialog.append(head,filters,columns,body);backdrop.append(dialog);document.body.append(backdrop);
 
 let current=null;
 let viewMode='side';
+let contentMode='all';
+let showUnimportant=true;
 
 const compareKeywordText={
   cpp:'alignas alignof and and_eq asm atomic_cancel atomic_commit atomic_noexcept auto bitand bitor bool break case catch char char8_t char16_t char32_t class compl concept const consteval constexpr constinit const_cast continue co_await co_return co_yield decltype default delete do double dynamic_cast else enum explicit export extern false float for friend goto if inline int long mutable namespace new noexcept not not_eq nullptr operator or or_eq private protected public reflexpr register reinterpret_cast requires return short signed sizeof static static_assert static_cast struct switch synchronized template this thread_local throw true try typedef typeid typename union unsigned using virtual void volatile wchar_t while xor xor_eq',
@@ -206,6 +217,95 @@ function enrichCompareModel(model){
   }
   model.stats={important,unimportant};return model;
 }
+function compareRowText(row){return String(row?.right?.text??row?.left?.text??'');}
+function compareIndent(text){
+  const match=String(text||'').match(/^[ \t]*/)?.[0]||'';
+  return [...match].reduce((count,ch)=>count+(ch==='\t'?4:1),0);
+}
+function compareStructuralCode(row){
+  const spec=row?.right||row?.left;if(!spec)return '';
+  const syntax=ensureCompareSyntax(),tokens=(row?.right?syntax.right:syntax.left)[spec.no-1]||[];
+  return compareTextWithoutRanges(spec.text,tokens.filter(token=>token.type==='comment'||token.type==='string'));
+}
+function compareFallbackContext(model,index){
+  return [Math.max(0,index-3),Math.min(model.rows.length-1,index+3)];
+}
+function compareStructuralContextRange(model,index){
+  const row=model.rows[index],language=compareRowLanguageID(row),text=compareRowText(row),indent=compareIndent(text);
+  const indentLanguages=new Set(['python','yaml','nim']);
+  if(indentLanguages.has(language)){
+    let start=-1,parentIndent=-1;
+    for(let i=index;i>=Math.max(0,index-80);i--){
+      const candidate=compareRowText(model.rows[i]);if(!candidate.trim())continue;
+      const candidateIndent=compareIndent(candidate);
+      if(i===index&&candidate.trimEnd().endsWith(':')){start=i;parentIndent=candidateIndent;break;}
+      if(candidateIndent<indent&&candidate.trimEnd().endsWith(':')){start=i;parentIndent=candidateIndent;break;}
+    }
+    if(start>=0){
+      let end=index;
+      for(let i=Math.max(index+1,start+1);i<Math.min(model.rows.length,start+160);i++){
+        const candidate=compareRowText(model.rows[i]);if(!candidate.trim()){end=i;continue;}
+        if(compareIndent(candidate)<=parentIndent){break;}
+        end=i;
+      }
+      if(end-start<160)return [start,end];
+    }
+  }
+  const braceLanguages=new Set(['cpp','go','javascript','typescript','java','php','rust','csharp','kotlin','dart','protobuf','actionscript','css','scss','less']);
+  if(braceLanguages.has(language)){
+    let start=-1;
+    for(let i=index;i>=Math.max(0,index-80);i--){
+      const code=compareStructuralCode(model.rows[i]);
+      if(code.includes('{')&&compareIndent(compareRowText(model.rows[i]))<=indent){start=i;break;}
+    }
+    if(start>=0){
+      let depth=0,opened=false,end=index;
+      for(let i=start;i<Math.min(model.rows.length,start+160);i++){
+        const code=compareStructuralCode(model.rows[i]);
+        for(const ch of code){if(ch==='{'){depth++;opened=true;}else if(ch==='}')depth--;}
+        end=i;
+        if(opened&&i>=index&&depth<=0)break;
+      }
+      if(opened&&end-start<160)return [start,end];
+    }
+  }
+  return compareFallbackContext(model,index);
+}
+function compareVisibleIndexes(model){
+  const visibleChange=index=>{
+    const row=model.rows[index];
+    return row.hunk>=0&&(showUnimportant||row.importance!=='unimportant');
+  };
+  if(contentMode==='all'){
+    return model.rows.map((_,index)=>index).filter(index=>{
+      const row=model.rows[index];
+      return row.hunk<0||showUnimportant||row.importance!=='unimportant';
+    });
+  }
+  const changed=model.rows.map((_,index)=>index).filter(visibleChange);
+  if(contentMode==='diff')return changed;
+  const indexes=new Set(changed);
+  for(const index of changed){
+    const [start,end]=compareStructuralContextRange(model,index);
+    for(let i=start;i<=end;i++)indexes.add(i);
+  }
+  return [...indexes].sort((a,b)=>a-b).filter(index=>{
+    const row=model.rows[index];
+    return row.hunk<0||showUnimportant||row.importance!=='unimportant';
+  });
+}
+function appendCompareGap(parent,count){
+  if(count<=0)return;
+  const gap=document.createElement('div');gap.className='file-compare-gap';gap.textContent='⋯ '+count+' line'+(count===1?'':'s')+' hidden ⋯';parent.append(gap);
+}
+function syncCompareFilterButtons(){
+  viewAllButton.classList.toggle('active',contentMode==='all');
+  viewDiffButton.classList.toggle('active',contentMode==='diff');
+  viewContextButton.classList.toggle('active',contentMode==='context');
+  viewUnimportantButton.classList.toggle('active',showUnimportant);
+  viewUnimportantButton.setAttribute('aria-pressed',showUnimportant?'true':'false');
+  viewUnimportantButton.textContent=showUnimportant?'View unimportant ✓':'View unimportant';
+}
 function renderCompareCode(node,text,tokens=[],changed=[],changeKind=''){
   text=String(text??'');
   if(!text){node.textContent='\u00a0';return;}
@@ -304,17 +404,19 @@ function cell(spec,side,changed=[],importance='context'){
   renderCompareCode(code,spec?spec.text:'',tokens,changed,spec?.kind==='removed'?'removed':spec?.kind==='added'?'added':'');
   node.append(no,code);return node;
 }
-function renderSide(model){
-  const frag=document.createDocumentFragment();let activeHunk=-1;
-  for(const row of model.rows){
-    if(row.hunk>=0&&row.hunk!==activeHunk){
-      activeHunk=row.hunk;const h=model.hunks[activeHunk];
+function renderSide(model,indexes){
+  const frag=document.createDocumentFragment(),shownHunks=new Set();let previous=-1;
+  for(const index of indexes){
+    const row=model.rows[index];if(previous>=0&&index>previous+1)appendCompareGap(frag,index-previous-1);previous=index;
+    if(row.hunk>=0&&!shownHunks.has(row.hunk)){
+      shownHunks.add(row.hunk);const h=model.hunks[row.hunk];
       const card=document.createElement('div');card.className='file-compare-hunk';
       const hh=document.createElement('div');hh.className='file-compare-hunk-head';
-      const label=document.createElement('span');label.className='file-compare-hunk-label';label.textContent='Change '+(h.index+1)+' · left '+(h.leftStart+1)+'+'+h.leftCount+' ↔ right '+(h.rightStart+1)+'+'+h.rightCount;
+      const hRows=model.rows.slice(h.rowStart,h.rowEnd),important=hRows.filter(item=>item.importance==='important').length,unimportant=hRows.filter(item=>item.importance==='unimportant').length;
+      const label=document.createElement('span');label.className='file-compare-hunk-label';label.textContent='Change '+(h.index+1)+' · left '+(h.leftStart+1)+'+'+h.leftCount+' ↔ right '+(h.rightStart+1)+'+'+h.rightCount+' · '+important+' important / '+unimportant+' unimportant';
       hh.append(label);
-      if(typeof current?.right?.writeText==='function'){const b=document.createElement('button');b.type='button';b.textContent='Left → Right';b.onclick=()=>copyHunk(h,'left-to-right').catch(app.showError);hh.append(b);}
-      if(typeof current?.left?.writeText==='function'){const b=document.createElement('button');b.type='button';b.textContent='Right → Left';b.onclick=()=>copyHunk(h,'right-to-left').catch(app.showError);hh.append(b);}
+      if(typeof current?.right?.writeText==='function'){const b=document.createElement('button');b.type='button';b.textContent='Left → Right';b.title='Apply the entire change block, including rows hidden by filters';b.onclick=()=>copyHunk(h,'left-to-right').catch(app.showError);hh.append(b);}
+      if(typeof current?.left?.writeText==='function'){const b=document.createElement('button');b.type='button';b.textContent='Right → Left';b.title='Apply the entire change block, including rows hidden by filters';b.onclick=()=>copyHunk(h,'right-to-left').catch(app.showError);hh.append(b);}
       card.append(hh);frag.append(card);
     }
     const ranges=compareInlineRanges(row.left?.text||'',row.right?.text||'');
@@ -322,9 +424,11 @@ function renderSide(model){
   }
   body.append(frag);
 }
-function renderInline(model){
-  const host=document.createElement('div');host.className='file-compare-inline';
-  for(const row of model.rows){
+function renderInline(model,indexes){
+  const host=document.createElement('div');host.className='file-compare-inline';let previous=-1;
+  for(const index of indexes){
+    if(previous>=0&&index>previous+1)appendCompareGap(host,index-previous-1);previous=index;
+    const row=model.rows[index];
     if(row.left&&row.right&&row.left.kind==='context'){
       const line=document.createElement('div');line.className='file-compare-inline-line';
       const no=document.createElement('span');no.className='file-compare-inline-no';no.textContent=String(row.left.no);
@@ -350,9 +454,11 @@ function render(){
   leftLabel.textContent=current.left.label||'Left';rightLabel.textContent=current.right.label||'Right';
   title.textContent=(current.title||'File Compare')+' · '+leftLabel.textContent+' ↔ '+rightLabel.textContent;
   summary.textContent=model.identical?'identical':model.hunks.length+' change block'+(model.hunks.length===1?'':'s')+' · '+model.stats.important+' important · '+model.stats.unimportant+' unimportant';
-  sideButton.classList.toggle('active',viewMode==='side');inlineButton.classList.toggle('active',viewMode==='inline');columns.style.display=viewMode==='side'?'grid':'none';
+  sideButton.classList.toggle('active',viewMode==='side');inlineButton.classList.toggle('active',viewMode==='inline');columns.style.display=viewMode==='side'?'grid':'none';syncCompareFilterButtons();
   if(model.identical){const empty=document.createElement('div');empty.className='file-compare-empty';empty.textContent='No differences';body.append(empty);return;}
-  if(viewMode==='inline')renderInline(model);else renderSide(model);
+  const indexes=compareVisibleIndexes(model);
+  if(!indexes.length){const empty=document.createElement('div');empty.className='file-compare-empty';empty.textContent='No differences match the current filters';body.append(empty);return;}
+  if(viewMode==='inline')renderInline(model,indexes);else renderSide(model,indexes);
 }
 async function copyHunk(hunk,direction){
   if(!current)return;
@@ -525,6 +631,10 @@ async function promptProjectCompare(pathValue){
 }
 
 sideButton.onclick=()=>{viewMode='side';render();};inlineButton.onclick=()=>{viewMode='inline';render();};
+viewAllButton.onclick=()=>{contentMode='all';render();};
+viewDiffButton.onclick=()=>{contentMode='diff';render();};
+viewContextButton.onclick=()=>{contentMode='context';render();};
+viewUnimportantButton.onclick=()=>{showUnimportant=!showUnimportant;render();};
 reloadButton.onclick=()=>reload().catch(app.showError);closeButton.onclick=close;
 backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)close();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&backdrop.classList.contains('visible'))close();});
