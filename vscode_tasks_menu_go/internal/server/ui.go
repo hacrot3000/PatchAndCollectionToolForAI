@@ -70,7 +70,7 @@ const indexHTML = `<!doctype html>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <header><strong>TaskDeck</strong><span id="workspace"></span><span id="mutation-lock" hidden></span><span id="identity" hidden></span><a id="account" href="/login" hidden>Account</a><a id="shared-admin" href="/admin/access" hidden>Users & Access</a><button id="logout" hidden>Sign out</button><button id="open-terminal" title="Open an interactive shell at the project root">Open Terminal</button><button id="edit-title" title="Edit the browser page title">Edit title</button><button id="reload">Reload tasks.json</button></header>
+  <header><strong>TaskDeck</strong><span id="workspace"></span><span id="mutation-lock" hidden></span><button id="mutation-unlock" hidden title="Stop the Patch session that owns the workspace lock, then release the lock">Unlock</button><span id="identity" hidden></span><a id="account" href="/login" hidden>Account</a><a id="shared-admin" href="/admin/access" hidden>Users & Access</a><button id="logout" hidden>Sign out</button><button id="open-terminal" title="Open an interactive shell at the project root">Open Terminal</button><button id="edit-title" title="Edit the browser page title">Edit title</button><button id="reload">Reload tasks.json</button></header>
   <main><aside id="menu"></aside><section><div id="tabs"></div><div id="panes"></div></section></main>
   <script src="/vendor/xterm.js"></script>
   <script src="/vendor/addon-fit.js"></script>
@@ -82,7 +82,7 @@ const indexHTML = `<!doctype html>
 </body>
 </html>`
 
-const appCSS = `:root{--taskmenu-header-height:30px;font-family:system-ui,sans-serif;color-scheme:dark;background:#101216;color:#e8eaed}*{box-sizing:border-box}body{margin:0}header{height:var(--taskmenu-header-height);display:flex;align-items:center;gap:7px;padding:0 8px;border-bottom:1px solid #30343b}header>strong{font-size:13px;white-space:nowrap}header #workspace{opacity:.65;flex:0 1 auto;min-width:0;max-width:min(48vw,720px);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#identity{font-size:11px;opacity:.8;white-space:nowrap}#mutation-lock{font-size:11px;white-space:nowrap;padding:2px 6px;border:1px solid #7a6233;border-radius:999px;background:#3b2f18;color:#f5d98a;max-width:360px;overflow:hidden;text-overflow:ellipsis}#account,#shared-admin{color:#d8e9ff;text-decoration:none;border:0;border-radius:4px;padding:2px 4px;white-space:nowrap;font-size:11px}#account:hover,#shared-admin:hover{background:#242a34}#logout{white-space:nowrap}button,select{background:#252a33;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:7px 10px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}body>header>button{background:transparent;border:0;border-radius:4px;padding:2px 4px;font-size:11px}body>header>button:hover:not(:disabled){background:#242a34}#open-terminal{background:transparent;border:0;white-space:nowrap}#edit-title{white-space:nowrap}main{display:grid;grid-template-columns:310px 1fr;height:calc(100vh - var(--taskmenu-header-height))}aside{overflow:auto;border-right:1px solid #30343b;padding:10px}.group{margin:5px 0}.group>button,.task{width:100%;text-align:left}.children{padding-left:14px}.task{margin:2px 0;background:#171a20}.task:hover{background:#242a34}section{min-width:0;display:flex;flex-direction:column}#tabs{height:42px;border-bottom:1px solid #30343b;display:flex;align-items:end;overflow:auto;white-space:nowrap}.tab{border-radius:6px 6px 0 0;border-bottom:0;margin-left:4px}.tab.active{background:#343b48}.tab .status{opacity:.65;margin-left:6px}.tab .close{margin-left:8px}#panes{flex:1;min-height:0;position:relative}.pane{position:absolute;inset:0;display:flex;flex-direction:column}.pane.hidden{display:none}.pane-head{display:flex;gap:4px;align-items:center;min-height:24px;padding:1px 5px;border-bottom:1px solid #30343b}.pane-head .command{font-family:ui-monospace,monospace;font-size:11px;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.pane-head>button{background:transparent;border:0;border-radius:4px;padding:2px 4px;font-size:10px}.pane-head>button:hover:not(:disabled){background:#242a34}.pane-head>select{height:20px;min-height:20px;padding:1px 5px;font-size:10px;line-height:16px}.download-select{max-width:280px;min-width:140px}.download{white-space:nowrap;background:#24472f;border-color:#3b7850}.preview{white-space:nowrap;background:#243b57;border-color:#3e6790}.copy-console{margin-left:6px;white-space:nowrap}.terminal{flex:1;min-height:0;padding:4px;background:#050607}.browser-lease-lost>header,.browser-lease-lost>main{filter:blur(1px);opacity:.45;pointer-events:none}.browser-lease-overlay{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px;background:rgba(4,6,9,.72)}.browser-lease-card{width:min(520px,100%);padding:22px;border:1px solid #48515f;border-radius:12px;background:#171a20;box-shadow:0 18px 55px rgba(0,0,0,.45);text-align:center}.browser-lease-card strong{display:block;font-size:18px;margin-bottom:10px}.browser-lease-card p{margin:8px 0;line-height:1.45}.browser-lease-card .browser-lease-hint{font-size:12px;opacity:.7}.browser-lease-card button{margin-top:10px;background:#244c70;border-color:#3f79a8;padding:10px 14px}`
+const appCSS = `:root{--taskmenu-header-height:30px;font-family:system-ui,sans-serif;color-scheme:dark;background:#101216;color:#e8eaed}*{box-sizing:border-box}body{margin:0}header{height:var(--taskmenu-header-height);display:flex;align-items:center;gap:7px;padding:0 8px;border-bottom:1px solid #30343b}header>strong{font-size:13px;white-space:nowrap}header #workspace{opacity:.65;flex:0 1 auto;min-width:0;max-width:min(48vw,720px);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#identity{font-size:11px;opacity:.8;white-space:nowrap}#mutation-lock{font-size:11px;white-space:nowrap;padding:2px 6px;border:1px solid #7a6233;border-radius:999px;background:#3b2f18;color:#f5d98a;max-width:360px;overflow:hidden;text-overflow:ellipsis}#mutation-unlock{font-size:11px;white-space:nowrap;padding:2px 6px;border-color:#8a6438;background:#3b2f18;color:#f5d98a}#account,#shared-admin{color:#d8e9ff;text-decoration:none;border:0;border-radius:4px;padding:2px 4px;white-space:nowrap;font-size:11px}#account:hover,#shared-admin:hover{background:#242a34}#logout{white-space:nowrap}button,select{background:#252a33;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:7px 10px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}body>header>button{background:transparent;border:0;border-radius:4px;padding:2px 4px;font-size:11px}body>header>button:hover:not(:disabled){background:#242a34}#open-terminal{background:transparent;border:0;white-space:nowrap}#edit-title{white-space:nowrap}main{display:grid;grid-template-columns:310px 1fr;height:calc(100vh - var(--taskmenu-header-height))}aside{overflow:auto;border-right:1px solid #30343b;padding:10px}.group{margin:5px 0}.group>button,.task{width:100%;text-align:left}.children{padding-left:14px}.task{margin:2px 0;background:#171a20}.task:hover{background:#242a34}section{min-width:0;display:flex;flex-direction:column}#tabs{height:42px;border-bottom:1px solid #30343b;display:flex;align-items:end;overflow:auto;white-space:nowrap}.tab{border-radius:6px 6px 0 0;border-bottom:0;margin-left:4px}.tab.active{background:#343b48}.tab .status{opacity:.65;margin-left:6px}.tab .close{margin-left:8px}#panes{flex:1;min-height:0;position:relative}.pane{position:absolute;inset:0;display:flex;flex-direction:column}.pane.hidden{display:none}.pane-head{display:flex;gap:4px;align-items:center;min-height:24px;padding:1px 5px;border-bottom:1px solid #30343b}.pane-head .command{font-family:ui-monospace,monospace;font-size:11px;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.pane-head>button{background:transparent;border:0;border-radius:4px;padding:2px 4px;font-size:10px}.pane-head>button:hover:not(:disabled){background:#242a34}.pane-head>select{height:20px;min-height:20px;padding:1px 5px;font-size:10px;line-height:16px}.download-select{max-width:280px;min-width:140px}.download{white-space:nowrap;background:#24472f;border-color:#3b7850}.preview{white-space:nowrap;background:#243b57;border-color:#3e6790}.copy-console{margin-left:6px;white-space:nowrap}.terminal{flex:1;min-height:0;padding:4px;background:#050607}.browser-lease-lost>header,.browser-lease-lost>main{filter:blur(1px);opacity:.45;pointer-events:none}.browser-lease-overlay{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px;background:rgba(4,6,9,.72)}.browser-lease-card{width:min(520px,100%);padding:22px;border:1px solid #48515f;border-radius:12px;background:#171a20;box-shadow:0 18px 55px rgba(0,0,0,.45);text-align:center}.browser-lease-card strong{display:block;font-size:18px;margin-bottom:10px}.browser-lease-card p{margin:8px 0;line-height:1.45}.browser-lease-card .browser-lease-hint{font-size:12px;opacity:.7}.browser-lease-card button{margin-top:10px;background:#244c70;border-color:#3f79a8;padding:10px 14px}`
 
 const appJS = `const TerminalCtor=globalThis.Terminal;
 const FitAddonCtor=globalThis.FitAddon?.FitAddon;
@@ -224,11 +224,39 @@ function mutationOwnerText(holder){
 
 function renderMutationLock(status){
   const badge=document.querySelector('#mutation-lock');
+  const unlock=document.querySelector('#mutation-unlock');
   if(!badge)return;
-  if(!sharedMode||!status?.locked||!status.holder){badge.hidden=true;badge.textContent='';badge.title='';return;}
+  if(!sharedMode||!status?.locked||!status.holder){
+    badge.hidden=true;badge.textContent='';badge.title='';
+    if(unlock){unlock.hidden=true;unlock.onclick=null;unlock.disabled=false;}
+    return;
+  }
   badge.textContent='Workspace locked · '+mutationOwnerText(status.holder);
   badge.title=status.holder.acquired_at?'Locked since '+status.holder.acquired_at:badge.textContent;
   badge.hidden=false;
+  if(unlock){
+    const canUnlock=Boolean(hasPermission('project.admin')&&status.holder.operation==='patch.run'&&status.holder.resource_id);
+    unlock.hidden=!canUnlock;
+    unlock.disabled=false;
+    unlock.onclick=canUnlock?()=>forceReleaseMutationLock(status.holder).catch(showError):null;
+  }
+}
+
+async function forceReleaseMutationLock(holder){
+  if(!holder?.resource_id||holder.operation!=='patch.run')throw new Error('Only a Patch session lock can be released from the UI');
+  if(!hasPermission('project.admin'))throw new Error('Project admin permission is required');
+  if(!window.confirm('Stop Patch session '+holder.resource_id+' and release its workspace lock?'))return false;
+  const unlock=document.querySelector('#mutation-unlock');
+  if(unlock)unlock.disabled=true;
+  try{
+    const query=new URLSearchParams({operation:String(holder.operation),resource_id:String(holder.resource_id),confirm:'1'});
+    await jsonFetch('/api/mutation-lock?'+query.toString(),{method:'DELETE'});
+    renderMutationLock({locked:false});
+    await syncSessions();
+    return true;
+  }finally{
+    if(unlock?.isConnected)unlock.disabled=false;
+  }
 }
 
 async function refreshMutationLock(){
