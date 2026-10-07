@@ -584,9 +584,61 @@ func (q *fileTransferServerQueue) recomputeJobLocked(jobID string) {
 	job.UpdatedAt = time.Now().UTC()
 }
 
+func remoteDeletePathIsDescendant(parent, child string) bool {
+	parent = normalizeBackgroundRemotePath(parent)
+	child = normalizeBackgroundRemotePath(child)
+	if parent == child {
+		return false
+	}
+	if parent == "/" {
+		return strings.HasPrefix(child, "/") && child != "/"
+	}
+	if parent == "." {
+		return child != "." && !strings.HasPrefix(child, "/")
+	}
+	return strings.HasPrefix(child, strings.TrimSuffix(parent, "/")+"/")
+}
+
+func (q *fileTransferServerQueue) remoteDeleteDirectoryReadyLocked(item *fileTransferServerItem) bool {
+	if item == nil || item.Operation != "remote_delete" || !item.Directory {
+		return true
+	}
+	var failedChild string
+	waiting := false
+	for _, child := range q.Items {
+		if child == nil || child == item || child.Removed || child.JobID != item.JobID || child.Operation != "remote_delete" {
+			continue
+		}
+		if !remoteDeletePathIsDescendant(item.Source, child.Source) {
+			continue
+		}
+		switch child.Status {
+		case "success", "skipped":
+			continue
+		case "failed", "stopped":
+			if failedChild == "" {
+				failedChild = child.Source
+			}
+		default:
+			waiting = true
+		}
+	}
+	if failedChild != "" {
+		item.Status = "failed"
+		item.Error = "directory delete blocked because a child did not complete: " + failedChild
+		q.recomputeJobLocked(item.JobID)
+		q.touchLocked()
+		return false
+	}
+	return !waiting
+}
+
 func (q *fileTransferServerQueue) nextRunnableLocked() *fileTransferServerItem {
 	for _, item := range q.Items {
 		if item.Removed || item.Status != "queued" || !item.Priority {
+			continue
+		}
+		if !q.remoteDeleteDirectoryReadyLocked(item) {
 			continue
 		}
 		item.Priority = false
@@ -597,6 +649,9 @@ func (q *fileTransferServerQueue) nextRunnableLocked() *fileTransferServerItem {
 	}
 	for _, item := range q.Items {
 		if item.Removed || item.Status != "queued" {
+			continue
+		}
+		if !q.remoteDeleteDirectoryReadyLocked(item) {
 			continue
 		}
 		return item
