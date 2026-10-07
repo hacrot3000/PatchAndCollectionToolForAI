@@ -884,6 +884,8 @@ async function restorePersistedEditorSession(){
         restoreEditorSelection(view,item?.selection);
       }catch(error){console.warn('Editor session restore skipped '+pathValue,error);}
     }
+    const restoredOrder=tabs.map(item=>editorID(String(item?.path||''))).filter(id=>editors.has(id));
+    if(restoredOrder.length)globalThis.TaskMenuTabOrder?.applyOrder?.(restoredOrder);
     const active=String(state?.active||'').trim();
     if(active&&editors.has(editorID(active)))activateEditor(editorID(active),{force:true});
     else{
