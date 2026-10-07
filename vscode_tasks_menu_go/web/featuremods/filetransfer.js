@@ -1228,6 +1228,9 @@ function createTransferQueue(view){
   const connectionWrap=document.createElement('label');connectionWrap.className='ft-queue-connections';connectionWrap.title='Shared FTP/SFTP connection budget for scans, browsing and transfers';
   const connectionText=document.createElement('span');connectionText.textContent='Max connections';
   const connectionLimit=document.createElement('input');connectionLimit.type='number';connectionLimit.min='1';connectionLimit.max='16';connectionLimit.step='1';connectionLimit.value=String(view.profile?.max_connections||3);
+  const canEditConnectionLimit=!app.sharedMode||Boolean(app.hasPermission?.('settings.write'));
+  connectionLimit.disabled=!canEditConnectionLimit;
+  if(!canEditConnectionLimit)connectionWrap.title='Changing Max connections requires settings.write permission';
   connectionWrap.append(connectionText,connectionLimit);
   const retry=document.createElement('button');retry.type='button';retry.textContent='Retry failed';
   const clear=document.createElement('button');clear.type='button';clear.textContent='Clear done';
@@ -1245,11 +1248,12 @@ function createTransferQueue(view){
   };
   view.transferQueue=queue;
   connectionLimit.onchange=async()=>{
+    if(!canEditConnectionLimit)return;
     const previous=Math.max(1,Number(queue.serverMaxConnections||view.profile?.max_connections||3)||3);
     connectionLimit.disabled=true;
     try{connectionLimit.value=String(await updateViewMaxConnections(view,connectionLimit.value));}
     catch(error){connectionLimit.value=String(previous);app.showError(error);}
-    finally{connectionLimit.disabled=false;}
+    finally{connectionLimit.disabled=!canEditConnectionLimit;}
   };
   root.oncontextmenu=event=>{if(event.target.closest('tbody tr'))return;queueContextMenu(view,event);};
   retry.onclick=async()=>{
