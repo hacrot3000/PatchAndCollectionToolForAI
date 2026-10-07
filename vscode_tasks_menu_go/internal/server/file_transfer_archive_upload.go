@@ -283,12 +283,12 @@ func (s *Server) fileTransferArchiveUpload(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "cannot protect temporary archive", http.StatusInternalServerError)
 		return
 	}
-	if err := writeProjectTarGz(tmp, sources); err != nil {
+	if err := writeLargeFileTransferTarGz(r.Context(), tmp, sources, nil); err != nil {
 		status := http.StatusInternalServerError
-		if errors.Is(err, errProjectArchiveLimit) {
-			status = http.StatusRequestEntityTooLarge
+		if errors.Is(err, context.Canceled) {
+			status = http.StatusRequestTimeout
 		}
-		http.Error(w, "cannot create temporary archive: "+err.Error(), status)
+		http.Error(w, "cannot create temporary compressed-upload archive: "+err.Error(), status)
 		return
 	}
 	if err := tmp.Sync(); err != nil {
