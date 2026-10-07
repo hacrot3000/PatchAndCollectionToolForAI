@@ -277,6 +277,10 @@ func (s *Server) backgroundHostArchiveUpload(ctx context.Context, queue *fileTra
 		return err
 	}
 	if _, err := s.runSFTPLinkedSSHCommand(ctx, profile, command); err != nil {
+		if errors.Is(err, context.Canceled) {
+			bestEffortRemoveCompressedRemoteArchive(s, req.ProfileID, remoteArchive)
+			return context.Canceled
+		}
 		queue.mu.Lock()
 		if live := queue.Jobs[item.JobID]; live != nil {
 			live.Phase = "manual_extract"
