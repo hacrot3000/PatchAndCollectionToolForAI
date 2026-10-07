@@ -14,11 +14,19 @@ import (
 
 func gitQuickRun(t *testing.T, dir string, args ...string) string {
 	t.Helper()
+	showCurrent := len(args) == 2 && args[0] == "branch" && args[1] == "--show-current"
 	args = gitCompatibleArgs(args)
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		// "git branch --show-current" intentionally succeeds with empty output
+		// on detached HEAD. symbolic-ref is the legacy-compatible equivalent
+		// but reports that detached state with exit 1, so preserve the helper's
+		// original observable behavior for tests.
+		if showCurrent {
+			return ""
+		}
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, out)
 	}
 	return strings.TrimSpace(string(out))
