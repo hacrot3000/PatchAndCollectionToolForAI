@@ -112,6 +112,20 @@ func TestCompressedUploadMergePolicyValidation(t *testing.T) {
 	}
 }
 
+func TestLegacyCompressedUploadRouteDoesNotUseProjectArchiveLimits(t *testing.T) {
+	source, err := os.ReadFile("file_transfer_archive_upload.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	if strings.Contains(text, "writeProjectTarGz(tmp, sources)") {
+		t.Fatal("compressed upload must not reuse Project Archive entry/resource limits")
+	}
+	if !strings.Contains(text, "writeLargeFileTransferTarGz(r.Context(), tmp, sources, nil)") {
+		t.Fatal("legacy compressed upload route must use the large streaming writer")
+	}
+}
+
 func TestLargeCompressedUploadWriterCanBeCancelled(t *testing.T) {
 	root := t.TempDir()
 	for i := 0; i < 32; i++ {
