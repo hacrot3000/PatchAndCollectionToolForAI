@@ -54,8 +54,8 @@ func TestRemoteWorkspaceEditorUsesOptimisticRemoteTransport(t *testing.T) {
 		"function remoteEditorFileFromResponse(base,data)",
 		"async function openDocument(file)",
 		"openDocument,",
-		"if(view?.file?.remote_workspace_id)return;",
-		"filter(view=>!view.closed&&!view.file?.remote_workspace_id)",
+		"function remoteEditorDocument(file){return Boolean(file?.remote_workspace_id||file?.remote_transfer_profile_id);}",
+		"filter(view=>!view.closed&&!remoteEditorDocument(view.file))",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("editor.js missing Remote Workspace editor contract %q", want)
@@ -69,7 +69,7 @@ func TestRemoteWorkspaceDoesNotLeakIntoLocalOnlyServices(t *testing.T) {
 	watcher := string(watcherData)
 	for _, want := range []string{
 		"view.file?.remote_workspace_id",
-		"!view.file?.remote_workspace_id",
+		"view.file?.remote_transfer_profile_id",
 	} {
 		if !strings.Contains(watcher, want) {
 			t.Fatalf("filewatcher.js missing remote exclusion %q", want)
@@ -81,7 +81,7 @@ func TestRemoteWorkspaceDoesNotLeakIntoLocalOnlyServices(t *testing.T) {
 	lsp := string(lspData)
 	for _, want := range []string{
 		"Language Server actions are not available for Remote Workspace files",
-		"if(view.file?.remote_workspace_id)return;",
+		"view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id",
 	} {
 		if !strings.Contains(lsp, want) {
 			t.Fatalf("lsp.js missing remote exclusion %q", want)
@@ -92,7 +92,7 @@ func TestRemoteWorkspaceDoesNotLeakIntoLocalOnlyServices(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	quick := string(quickData)
 	for _, want := range []string{
-		"const remote=Boolean(view.file?.remote_workspace_id)",
+		"const remote=Boolean(view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id)",
 		"Remote Editor · ",
 		"TaskMenuEditor?.activateEditor?.(view.id)",
 	} {
