@@ -43,9 +43,95 @@ func (w *cappedGitBuffer) Write(p []byte) (int, error) {
 
 func (w *cappedGitBuffer) String() string { return w.buf.String() }
 
+func gitCompatibleArgs(args []string) []string {
+	out := append([]string(nil), args...)
+	if len(out) == 0 {
+		return out
+	}
+
+	// Git 1.8.x (still common on RHEL/CentOS 7) predates switch/restore and
+	// branch --show-current. Normalize TaskDeck's newer command vocabulary to
+	// equivalent older commands before execution.
+	if len(out) == 2 && out[0] == "branch" && out[1] == "--show-current" {
+		return []string{"symbolic-ref", "--quiet", "--short", "HEAD"}
+	}
+	if out[0] == "switch" {
+		switch {
+		case len(out) == 2:
+			return []string{"checkout", out[1]}
+		case len(out) >= 3 && out[1] == "-c":
+			return append([]string{"checkout", "-b"}, out[2:]...)
+		case len(out) >= 3 && out[1] == "--detach":
+			return append([]string{"checkout", "--detach"}, out[2:]...)
+		}
+	}
+	if out[0] == "restore" {
+		source := "HEAD"
+		staged := false
+		worktree := false
+		paths := []string{}
+		for i := 1; i < len(out); i++ {
+			arg := out[i]
+			switch {
+			case strings.HasPrefix(arg, "--source="):
+				source = strings.TrimPrefix(arg, "--source=")
+			case arg == "--source" && i+1 < len(out):
+				i++
+				source = out[i]
+			case arg == "--staged":
+				staged = true
+			case arg == "--worktree":
+				worktree = true
+			case arg == "--":
+				paths = append(paths, out[i+1:]...)
+				i = len(out)
+			default:
+				if !strings.HasPrefix(arg, "-") {
+					paths = append(paths, arg)
+				}
+			}
+		}
+		if len(paths) > 0 {
+			if staged && !worktree {
+				return append([]string{"reset", "-q", source, "--"}, paths...)
+			}
+			if source == "HEAD" && !staged {
+				return append([]string{"checkout", "--"}, paths...)
+			}
+			return append([]string{"checkout", source, "--"}, paths...)
+		}
+	}
+	if len(out) >= 2 && out[0] == "stash" && out[1] == "push" {
+		legacy := []string{"stash", "save"}
+		message := ""
+		for i := 2; i < len(out); i++ {
+			switch out[i] {
+			case "-u", "--include-untracked":
+				legacy = append(legacy, "-u")
+			case "-m":
+				if i+1 < len(out) {
+					i++
+					message = out[i]
+				}
+			}
+		}
+		if message != "" {
+			legacy = append(legacy, message)
+		}
+		return legacy
+	}
+	for i := range out {
+		if strings.Contains(out[i], "iso-strict") {
+			out[i] = strings.ReplaceAll(out[i], "iso-strict", "iso")
+		}
+	}
+	return out
+}
+
 func runGitInDirectory(parent context.Context, timeout time.Duration, dir string, args ...string) (string, string, bool, error) {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
+	args = gitCompatibleArgs(args)
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "LC_ALL=C")
