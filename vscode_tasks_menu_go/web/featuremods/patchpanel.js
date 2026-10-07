@@ -688,7 +688,7 @@ function installPatchPanel(){
   }
 
   function patchUploadAllowed(){
-    return !tabReadOnly&&(!app.sharedMode||Boolean(app.hasPermission?.('patch.run')||app.hasPermission?.('project.admin')));
+    return !tabReadOnly&&(!app.sharedMode||Boolean(app.hasPermission?.('patch.run')));
   }
 
   async function choosePatchUpload(){
