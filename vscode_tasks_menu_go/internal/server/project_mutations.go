@@ -68,6 +68,7 @@ func (s *Server) projectMutate(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "cannot finalize project file", http.StatusInternalServerError)
 			return
 		}
+		s.invalidateProjectCompletionIndexes()
 		s.auditSharedSuccess(r, "file.create", "file", rel, nil)
 		writeJSON(w, http.StatusCreated, map[string]any{"path": rel, "type": "file"})
 
@@ -90,6 +91,7 @@ func (s *Server) projectMutate(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "cannot create project folder", http.StatusConflict)
 			return
 		}
+		s.invalidateProjectCompletionIndexes()
 		s.auditSharedSuccess(r, "file.mkdir", "directory", rel, nil)
 		writeJSON(w, http.StatusCreated, map[string]any{"path": rel, "type": "dir"})
 
@@ -122,6 +124,7 @@ func (s *Server) projectMutate(w http.ResponseWriter, r *http.Request) {
 		if sourceInfo.IsDir() {
 			kind = "directory"
 		}
+		s.invalidateProjectCompletionIndexes()
 		s.auditSharedSuccess(r, "file.copy", kind, oldRel, map[string]any{"new_path": newRel})
 		writeJSON(w, http.StatusCreated, map[string]any{"path": newRel, "source_path": oldRel, "type": kind})
 
@@ -153,6 +156,7 @@ func (s *Server) projectMutate(w http.ResponseWriter, r *http.Request) {
 		if sourceInfo.IsDir() {
 			kind = "directory"
 		}
+		s.invalidateProjectCompletionIndexes()
 		s.auditSharedSuccess(r, "file.trash", kind, rel, map[string]any{"token": token})
 		writeJSON(w, http.StatusOK, map[string]any{"path": rel, "token": token, "type": kind})
 
@@ -184,6 +188,7 @@ func (s *Server) projectMutate(w http.ResponseWriter, r *http.Request) {
 		if info.IsDir() {
 			kind = "directory"
 		}
+		s.invalidateProjectCompletionIndexes()
 		s.auditSharedSuccess(r, "file.restore", kind, rel, map[string]any{"token": req.Token})
 		writeJSON(w, http.StatusOK, map[string]any{"path": rel, "token": req.Token, "type": kind})
 
@@ -215,6 +220,7 @@ func (s *Server) projectMutate(w http.ResponseWriter, r *http.Request) {
 		if sourceInfo.IsDir() {
 			kind = "directory"
 		}
+		s.invalidateProjectCompletionIndexes()
 		s.auditSharedSuccess(r, "file.rename", kind, oldRel, map[string]any{"new_path": newRel})
 		writeJSON(w, http.StatusOK, map[string]any{"path": newRel, "old_path": oldRel, "type": kind})
 	default:
