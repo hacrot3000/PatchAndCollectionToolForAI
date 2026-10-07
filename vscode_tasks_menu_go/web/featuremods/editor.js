@@ -794,6 +794,57 @@ function setDirty(view,dirty){
 function editorReadOnly(view){
   return Boolean(view?.file?.read_only||view?.tabReadOnly);
 }
+function editorLeadingIndent(text){
+  return String(text||'').match(/^[ \t]*/)?.[0]||'';
+}
+function editorIndentUnit(state,line){
+  const start=Math.max(1,line.number-80),end=Math.min(state.doc.lines,line.number+80);
+  let tabLines=0;const spaceWidths=[];
+  for(let number=start;number<=end;number++){
+    const text=state.doc.line(number).text;
+    if(!text.trim())continue;
+    const indent=editorLeadingIndent(text);
+    if(!indent)continue;
+    if(indent.includes('\t'))tabLines++;
+    else if(/^ +$/.test(indent))spaceWidths.push(indent.length);
+  }
+  if(tabLines>0)return '\t';
+  if(spaceWidths.length){
+    const candidates=[4,2,3,8];
+    let best=4,bestScore=-1;
+    for(const size of candidates){
+      const score=spaceWidths.reduce((total,width)=>total+(width%size===0?1:0),0);
+      if(score>bestScore){best=size;bestScore=score;}
+    }
+    return ' '.repeat(best);
+  }
+  return '\t';
+}
+function editorCompletionMenuOpen(view){
+  return Boolean(view?.cm?.dom?.querySelector?.('.cm-tooltip-autocomplete'));
+}
+const editorSmartEnterPairs=new Map([['{','}'],['(',')'],['[',']']]);
+function smartEditorEnter(view){
+  if(!view||view.closed||editorReadOnly(view)||editorCompletionMenuOpen(view))return false;
+  const state=view.cm.state,selection=state.selection.main;
+  if(selection.from!==selection.to)return false;
+  const pos=selection.head,line=state.doc.lineAt(pos),indent=editorLeadingIndent(line.text);
+  const left=pos>0?state.doc.sliceString(pos-1,pos):'';
+  const right=pos<state.doc.length?state.doc.sliceString(pos,pos+1):'';
+  const unit=editorIndentUnit(state,line);
+  let insert='\n'+indent,anchor=pos+insert.length;
+  if(editorSmartEnterPairs.get(left)===right){
+    const childIndent=indent+unit;
+    insert='\n'+childIndent+'\n'+indent;
+    anchor=pos+1+childIndent.length;
+  }else if(editorSmartEnterPairs.has(left)&&!String(state.doc.sliceString(pos,line.to)).trim()){
+    const childIndent=indent+unit;
+    insert='\n'+childIndent;
+    anchor=pos+1+childIndent.length;
+  }
+  view.cm.dispatch({changes:{from:pos,to:pos,insert},selection:{anchor},scrollIntoView:true});
+  return true;
+}
 function applyReadOnly(view){
   const readonly=editorReadOnly(view);
   view.readonlyBadge.hidden=!readonly;
@@ -1409,6 +1460,12 @@ function createEditor(file){
       event.preventDefault();event.stopPropagation();
       openEditorFind(view,{replace:shortcutKey==='h'});
       return;
+    }
+    if(event.key==='Enter'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey){
+      if(smartEditorEnter(view)){
+        event.preventDefault();event.stopPropagation();
+        return;
+      }
     }
     if(event.key==='Tab'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey&&!editorReadOnly(view)){
       event.preventDefault();
