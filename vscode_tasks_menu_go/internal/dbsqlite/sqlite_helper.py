@@ -99,19 +99,9 @@ def operation_describe_object(connection, payload):
         "SELECT type, sql FROM sqlite_master WHERE name = ? AND type IN ('table','view') LIMIT 1",
         (name,),
     ).fetchone()
-    columns = connection.execute(
-        'SELECT cid, name, type, "notnull", dflt_value, pk FROM pragma_table_info(?) ORDER BY cid',
-        (name,),
-    ).fetchall()
-    indexes = connection.execute(
-        'SELECT seq, name, "unique", origin, partial FROM pragma_index_list(?) ORDER BY seq',
-        (name,),
-    ).fetchall()
-    foreign_keys = connection.execute(
-        'SELECT id, seq, "table", "from", "to", on_update, on_delete, "match" '
-        'FROM pragma_foreign_key_list(?) ORDER BY id, seq',
-        (name,),
-    ).fetchall()
+    columns = pragma_rows(connection, "table_info", name)
+    indexes = [normalize_index_row(row) for row in pragma_rows(connection, "index_list", name)]
+    foreign_keys = pragma_rows(connection, "foreign_key_list", name)
     referenced_by = []
     tables = connection.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name LIMIT ?",
@@ -121,11 +111,7 @@ def operation_describe_object(connection, payload):
         source_table = str(table_row[0])
         if source_table == name:
             continue
-        for fk_row in connection.execute(
-            'SELECT id, seq, "table", "from", "to", on_update, on_delete, "match" '
-            'FROM pragma_foreign_key_list(?) ORDER BY id, seq',
-            (source_table,),
-        ).fetchall():
+        for fk_row in pragma_rows(connection, "foreign_key_list", source_table):
             if str(fk_row[2]) != name:
                 continue
             referenced_by.append({
@@ -196,6 +182,29 @@ def quote_identifier(value):
     return '"' + text.replace('"', '""') + '"'
 
 
+def pragma_rows(connection, pragma_name, object_name):
+    if pragma_name not in ("table_info", "index_list", "foreign_key_list"):
+        raise ValueError("unsupported SQLite PRAGMA")
+    # Table-valued PRAGMA functions (FROM pragma_table_info(...)) were added
+    # much later than SQLite 3.7. Use the classic PRAGMA form so TaskDeck can
+    # inspect databases on legacy enterprise hosts as well.
+    return connection.execute(
+        "PRAGMA " + pragma_name + "(" + quote_identifier(object_name) + ")"
+    ).fetchall()
+
+
+def normalize_index_row(row):
+    # SQLite 3.7.x returns seq/name/unique. Newer releases append
+    # origin/partial. Keep the public result shape stable on both.
+    return (
+        row[0] if len(row) > 0 else 0,
+        row[1] if len(row) > 1 else "",
+        row[2] if len(row) > 2 else 0,
+        row[3] if len(row) > 3 else "c",
+        row[4] if len(row) > 4 else 0,
+    )
+
+
 def decode_input_cell(value):
     if isinstance(value, dict) and set(value.keys()) == {"$bytes_base64"}:
         raw = value.get("$bytes_base64")
@@ -217,10 +226,7 @@ def object_metadata(connection, name):
     ).fetchone()
     if schema is None:
         raise ValueError("SQLite table/view does not exist")
-    columns = connection.execute(
-        'SELECT cid, name, type, "notnull", dflt_value, pk FROM pragma_table_info(?) ORDER BY cid',
-        (name,),
-    ).fetchall()
+    columns = pragma_rows(connection, "table_info", name)
     primary = [
         (int(row[5]), row[1])
         for row in columns
