@@ -44,16 +44,17 @@ func TestEditorSessionPersistenceFrontendContract(t *testing.T) {
 	}
 }
 
-func TestEditorSessionPersistenceExcludesRemoteWorkspaceEditors(t *testing.T) {
+func TestEditorSessionPersistenceExcludesRemoteEditors(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/editor.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	js := string(data)
 	for _, want := range []string{
-		"!view.file?.remote_workspace_id",
-		"view.file?.remote_workspace_id||seen.has(id)",
-		"if(!view.file?.remote_workspace_id)scheduleEditorSessionPersist()",
+		"function remoteEditorDocument(file){return Boolean(file?.remote_workspace_id||file?.remote_transfer_profile_id);}",
+		"remoteEditorDocument(view.file)||seen.has(id)",
+		"if(!remoteEditorDocument(view.file))scheduleEditorSessionPersist()",
+		"active:activeView&&!remoteEditorDocument(activeView.file)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("local editor session scope missing %q", want)
