@@ -194,7 +194,7 @@ func sharedSessionActionAllowed(principal identity.Principal, meta session.Metad
 				return principal.Allowed(identity.PermissionPatchRun)
 			}
 			return principal.Allowed(identity.PermissionPatchView) || principal.Allowed(identity.PermissionPatchHistory)
-		case "stop", "terminate", "kill", "clear", "title", "resize", "prompt-response", "item-action", "queue-delete", "resume-action":
+		case "stop", "terminate", "kill", "clear", "title", "resize", "mutation-lock", "prompt-response", "item-action", "queue-delete", "resume-action":
 			return principal.Allowed(identity.PermissionPatchRun)
 		case "parallel-collect":
 			return principal.Allowed(identity.PermissionPatchCollect)
