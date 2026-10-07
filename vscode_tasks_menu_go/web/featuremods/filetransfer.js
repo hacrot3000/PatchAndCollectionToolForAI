@@ -852,7 +852,12 @@ function renderTransferQueue(view){
   pruneQueueSelection(queue);
   const counts=queueCounts(view);
   const totalScans=(queue.activeScans||0)+(queue.serverActiveScans||0);
+  const queuedScans=Number(queue.serverQueuedScans)||0;
   const scanText=totalScans>0?'Scanning '+totalScans+' · ':'';
+  const scanQueueText=queuedScans>0?'Scan queued '+queuedScans+' · ':'';
+  const maxConnections=Math.max(1,Number(queue.serverMaxConnections||view.profile?.max_connections||3)||3);
+  const activeConnections=Number(queue.serverActiveConnections)||0;
+  const connectionText='Connections '+activeConnections+'/'+maxConnections+' · ';
   const pauseText=queue.paused?'Paused · ':'';
   let visible=queue.items;
   if(visible.length>maxRenderedTransferRows){
@@ -862,7 +867,7 @@ function renderTransferQueue(view){
       :active.concat(queue.items.filter(item=>item.status==='success').slice(-(maxRenderedTransferRows-active.length)));
   }
   const shown=visible.length<queue.items.length?' · Showing '+visible.length+'/'+queue.items.length:'';
-  queue.summary.textContent=pauseText+scanText+'Queued '+counts.queued+' · Running '+counts.running+' · Conflict '+counts.conflict+' · Done '+counts.success+' · Skipped '+counts.skipped+' · Failed '+counts.failed+shown;
+  queue.summary.textContent=pauseText+connectionText+scanText+scanQueueText+'Queued '+counts.queued+' · Running '+counts.running+' · Conflict '+counts.conflict+' · Done '+counts.success+' · Skipped '+counts.skipped+' · Failed '+counts.failed+shown;
   queue.retry.disabled=counts.failed===0;queue.clear.disabled=counts.success===0&&counts.skipped===0;
   queue.body.replaceChildren();
   if(!queue.items.length){
@@ -937,9 +942,15 @@ async function syncServerTransferQueue(view){
   const wasBusy=Boolean(queue.serverBusy);
   const busy=Number(snapshot?.active_scans||0)>0||serverItems.some(item=>item.status==='queued'||item.status==='running'||item.status==='conflict');
   queue.serverActiveScans=Number(snapshot?.active_scans)||0;
+  queue.serverQueuedScans=Number(snapshot?.queued_scans)||0;
+  queue.serverMaxConnections=Math.max(1,Number(snapshot?.max_connections||view.profile?.max_connections||3)||3);
+  queue.serverActiveConnections=Math.max(0,Number(snapshot?.active_connections)||0);
+  queue.serverActiveTransfers=Math.max(0,Number(snapshot?.active_transfers)||0);
+  queue.serverActiveBrowses=Math.max(0,Number(snapshot?.active_browses)||0);
   queue.serverBusy=busy;queue.serverRevision=Number(snapshot?.revision)||0;
   queue.paused=Boolean(snapshot?.paused);
   queue.items=localItems.concat(serverItems);
+  syncRemoteNavigationAvailability(view);
   scheduleTransferQueueRender(view);
   setTimeout(()=>maybePromptServerConflict(view),0);
   if(wasBusy&&!busy){
@@ -1192,7 +1203,8 @@ function createTransferQueue(view){
   const queue={
     root,resizer,body,summary,retry,clear,items:[],pending:[],pendingHead:0,priorityPending:[],priorityHead:0,
     sequence:0,running:false,paused:false,selectedIDs:new Set(),selectionAnchor:null,
-    activeScans:0,serverActiveScans:0,serverBusy:false,serverRevision:0,scanLabel:'',scanChain:Promise.resolve(),remoteDirty:new Set(),leftDirty:false
+    activeScans:0,serverActiveScans:0,serverQueuedScans:0,serverMaxConnections:Math.max(1,Number(view.profile?.max_connections||3)||3),
+    serverActiveConnections:0,serverActiveTransfers:0,serverActiveBrowses:0,serverBusy:false,serverRevision:0,scanLabel:'',scanChain:Promise.resolve(),remoteDirty:new Set(),leftDirty:false
   };
   view.transferQueue=queue;
   root.oncontextmenu=event=>{if(event.target.closest('tbody tr'))return;queueContextMenu(view,event);};
@@ -1406,7 +1418,7 @@ function pathBar(panel,{remote=false,onLoad,onRefresh,onUp}){
   const go=document.createElement('button');go.type='button';go.textContent='Go';
   const refresh=document.createElement('button');refresh.type='button';refresh.textContent='↻';refresh.title='Refresh';
   bar.append(up,input,history,star,go,refresh);
-  panel.pathInput=input;panel.pathHistorySelect=history;panel.favoriteToggle=star;panel.refresh=refresh;
+  panel.pathInput=input;panel.pathHistorySelect=history;panel.favoriteToggle=star;panel.pathGo=go;panel.pathUp=up;panel.refresh=refresh;
   const reloadMemory=()=>populatePathMemory(history,star,panel.memoryScope?.()||'',input.value||'.');
   history.onchange=()=>{if(history.value){input.value=history.value;onLoad(history.value).catch(app.showError);}history.value='';};
   star.onclick=()=>{const scope=panel.memoryScope?.();if(!scope)return;toggleFavorite(scope,input.value||'.');reloadMemory();};
@@ -1421,6 +1433,21 @@ function markPathLoaded(panel,path){
   const scope=panel.memoryScope?.();if(scope){rememberPath(scope,path);panel.refreshPathMemory?.();}
 }
 
+function remoteConnectionPoolFull(view){
+  const queue=view?.transferQueue;
+  const max=Math.max(1,Number(queue?.serverMaxConnections||view?.profile?.max_connections||3)||3);
+  return Number(queue?.serverActiveConnections||0)>=max;
+}
+function syncRemoteNavigationAvailability(view){
+  const panel=view?.remote;if(!panel)return;
+  const full=remoteConnectionPoolFull(view),message='Connection pool full; wait for a scan/transfer to finish before changing remote directory.';
+  if(panel.pathInput){panel.pathInput.disabled=full;panel.pathInput.title=full?message:'';}
+  if(panel.pathHistorySelect){panel.pathHistorySelect.disabled=full;panel.pathHistorySelect.title=full?message:'Visited paths';}
+  if(panel.pathGo){panel.pathGo.disabled=full;panel.pathGo.title=full?message:'Go';}
+  if(panel.pathUp){panel.pathUp.disabled=full;panel.pathUp.title=full?message:'Parent directory';}
+  if(panel.refresh){panel.refresh.disabled=full;panel.refresh.title=full?message:'Refresh';}
+  panel.site?.classList.toggle('ft-remote-pool-full',full);
+}
 function remoteCacheKey(path){return normalizeRemotePath(path||'.');}
 function remoteCacheGet(view,path){return view.remoteCache?.get(remoteCacheKey(path))||null;}
 function remoteCacheSet(view,path,data){
@@ -1468,13 +1495,17 @@ function renderRemoteDirectory(view,data){
 
 async function loadRemoteDirectory(view,path,options={}){
   const panel=view.remote;path=normalizeRemotePath(path||profileFor(view)?.initial_path||'.');
+  if(remoteConnectionPoolFull(view)){
+    const error=new Error('FTP/SFTP connection pool is full; remote directory navigation is temporarily disabled.');
+    panel.status.textContent=error.message;syncRemoteNavigationAvailability(view);throw error;
+  }
   const cached=!options.force&&remoteCacheGet(view,path);
   panel.status.textContent=cached?'Opening cached '+path+'…':'Loading '+path+'…';panel.refresh.disabled=true;
   try{
     const data=await fetchRemoteDirectory(view,path,{force:Boolean(options.force)});
     renderRemoteDirectory(view,data);
   }catch(error){panel.status.textContent=String(error?.message||error);throw error;}
-  finally{panel.refresh.disabled=false;updateTransferButtons(view);}
+  finally{syncRemoteNavigationAvailability(view);updateTransferButtons(view);}
 }
 
 async function loadHostDirectory(view,path){
@@ -2408,6 +2439,7 @@ async function copyText(value){
 function updateTransferButtons(view){
   view.toRemote.disabled=selectedEntries(view.left).length===0;
   view.toLeft.disabled=selectedEntries(view.remote).length===0;
+  syncRemoteNavigationAvailability(view);
 }
 
 function leftDoubleClick(view,entry){
@@ -2415,6 +2447,7 @@ function leftDoubleClick(view,entry){
   else transferLeftEntriesToRemote(view,[entry]).catch(app.showError);
 }
 function remoteDoubleClick(view,entry){
+  if(entryType(entry)==='directory'&&remoteConnectionPoolFull(view)){syncRemoteNavigationAvailability(view);return;}
   if(entryType(entry)==='directory')loadRemoteDirectory(view,joinPath(view.remote.currentPath,entry.name,true)).catch(app.showError);
   else transferRemoteEntriesToLeft(view,[entry]).catch(app.showError);
 }
