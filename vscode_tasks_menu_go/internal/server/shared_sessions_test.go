@@ -288,6 +288,7 @@ func TestSharedPatchActionPermissionsAreSpecific(t *testing.T) {
 		action     string
 		permission string
 	}{
+		{action: "mutation-lock", permission: identity.PermissionPatchRun},
 		{action: "item-action", permission: identity.PermissionPatchRun},
 		{action: "parallel-collect", permission: identity.PermissionPatchCollect},
 		{action: "history-support", permission: identity.PermissionPatchHistory},
