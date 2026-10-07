@@ -357,11 +357,12 @@ func (s *Server) fileTransferArchiveExtract(w http.ResponseWriter, r *http.Reque
 	if req.Format == "" {
 		req.Format = "tar.gz"
 	}
-	req.MergePolicy, err = normalizeFileTransferArchiveMergePolicy(req.MergePolicy)
+	mergePolicy, err := normalizeFileTransferArchiveMergePolicy(req.MergePolicy)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	req.MergePolicy = mergePolicy
 	if req.ProfileID == "" || req.RemoteArchive == "" || req.RemoteDestination == "" {
 		http.Error(w, "profile_id, remote_archive and remote_destination are required", http.StatusBadRequest)
 		return
