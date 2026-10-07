@@ -921,7 +921,7 @@ function renderTransferQueue(view){
     const source=document.createElement('td');source.className='ft-queue-path';source.textContent=item.source||'';source.title=item.source||'';
     const target=document.createElement('td');target.className='ft-queue-path';target.textContent=item.target||'';target.title=item.target||'';
     const size=document.createElement('td');size.className='ft-size';size.textContent=item.size?formatSize(item.size):'';
-    const status=document.createElement('td');status.className='ft-queue-status '+item.status;status.textContent=queueStatusLabel(item.status)+(item.removeAfterRun?' · remove pending':'');
+    const status=document.createElement('td');status.className='ft-queue-status '+item.status;status.textContent=queueStatusLabel(item.status)+(item.detail?' · '+item.detail:'')+(item.removeAfterRun?' · cancel/remove pending':'');
     const error=document.createElement('td');error.className='ft-queue-error';error.textContent=item.error||'';error.title=item.error||'';
     tr.append(select,direction,kind,source,target,size,status,error);
     tr.onclick=event=>{selectQueueItem(queue,item,event,visible);scheduleTransferQueueRender(view);};
@@ -975,6 +975,18 @@ async function migrateLegacyRemoteDeleteJobs(){
     }
   }
 }
+function handleCompressedUploadJobResults(view,jobs){
+  if(!view.handledCompressedUploadJobs)view.handledCompressedUploadJobs=new Set();
+  for(const job of Array.isArray(jobs)?jobs:[]){
+    if(String(job?.kind||'')!=='host_archive_upload')continue;
+    const id=String(job?.id||'');if(!id||view.handledCompressedUploadJobs.has(id))continue;
+    const status=String(job?.status||'');
+    if(!job?.needs_manual_extract||!job?.remote_archive||!(status==='done'||status==='failed'))continue;
+    view.handledCompressedUploadJobs.add(id);
+    const commands=job.manual_commands||null;
+    setTimeout(()=>showManualExtractCommands(view,String(job.remote_archive),String(job.remote_destination||'.'),[],commands).catch(app.showError),0);
+  }
+}
 async function syncServerTransferQueue(view){
   const queue=view.transferQueue;if(!queue)return;
   const snapshot=await app.jsonFetch('/api/file-transfer/jobs?profile_id='+encodeURIComponent(view.profile.id),{cache:'no-store'});
@@ -983,7 +995,9 @@ async function syncServerTransferQueue(view){
     id:'server:'+item.id,serverID:String(item.id||''),server:true,jobID:String(item.job_id||''),
     status:String(item.status||'queued'),error:String(item.error||''),direction:String(item.direction||''),
     kind:String(item.kind||'Transfer'),source:String(item.source||''),target:String(item.target||''),
-    size:Number(item.size)||0,decision:String(item.decision||''),conflict:item.conflict||null,run:null,removeAfterRun:false
+    size:Number(item.size)||0,detail:String(item.detail||''),files:Number(item.files)||0,
+    bytesDone:Number(item.bytes_done)||0,bytesTotal:Number(item.bytes_total)||0,
+    decision:String(item.decision||''),conflict:item.conflict||null,run:null,removeAfterRun:false
   }));
   const wasBusy=Boolean(queue.serverBusy);
   const busy=Number(snapshot?.active_scans||0)>0||Number(snapshot?.queued_scans||0)>0||serverItems.some(item=>item.status==='queued'||item.status==='running'||item.status==='conflict');
@@ -997,6 +1011,7 @@ async function syncServerTransferQueue(view){
   queue.serverBusy=busy;queue.serverRevision=Number(snapshot?.revision)||0;
   queue.paused=Boolean(snapshot?.paused);
   queue.items=localItems.concat(serverItems);
+  handleCompressedUploadJobResults(view,snapshot?.jobs);
   syncRemoteNavigationAvailability(view);
   scheduleTransferQueueRender(view);
   if(hasRunnableTransfer(queue))processTransferQueue(view);
@@ -1279,7 +1294,8 @@ function queueContextMenu(view,event,item=null,visible=[]){
     menu.push({separator:true});
     if(conflicts.length)menu.push({label:'Resolve conflict…',action:()=>resolveServerConflictItems(view,conflicts)});
     menu.push({label:'Resume selected',disabled:!resumable,action:()=>resumeSelectedTransfers(view)});
-    menu.push({label:'Remove selected',danger:true,action:()=>removeSelectedTransfers(view)});
+    const hasRunningServer=selected.some(candidate=>candidate.server&&candidate.status==='running');
+    menu.push({label:hasRunningServer?'Cancel / remove selected':'Remove selected',danger:true,action:()=>removeSelectedTransfers(view)});
   }
   showContextMenu(menu,event.clientX,event.clientY,selected.length?selected.length+' queue item(s) selected':'Transfer Queue');
 }
@@ -1331,7 +1347,7 @@ function createTransferQueue(view){
   stopScan.onclick=()=>stopTransferScans(view).catch(app.showError);
   clearQueue.onclick=()=>{
     const total=queue.items.length+(queue.pendingLocalScans||0)+(queue.serverQueuedScans||0);
-    if(total>0&&!confirm('Clear the entire transfer queue and stop all scans for this FTP/SFTP profile?\n\nRunning transfers cannot be interrupted safely; they will finish and then disappear from the queue.'))return;
+    if(total>0&&!confirm('Clear the entire transfer queue and stop all scans for this FTP/SFTP profile?\n\nRunning daemon transfers are cancelled when possible; local-browser operations stop at their next safe boundary.'))return;
     clearTransferQueue(view).catch(app.showError);
   };
   retry.onclick=async()=>{
@@ -2375,12 +2391,13 @@ function canAutoExtractCompressedUpload(view){
 }
 function shellSingleQuote(value){return "'"+String(value||'').replaceAll("'","'\\''")+"'";}
 function powerShellSingleQuote(value){return "'"+String(value||'').replaceAll("'","''")+"'";}
-function compressedUploadManualCommands(remoteArchive,remoteDir,roots){
+function compressedUploadManualCommands(remoteArchive,remoteDir,roots,mergePolicy='fail'){
+  const overwrite=mergePolicy==='overwrite';
   const archive=shellSingleQuote(remoteArchive),dest=shellSingleQuote(remoteDir);
-  const checks=roots.map(root=>'test ! -e '+shellSingleQuote(joinPath(remoteDir,root,true))+'; ').join('');
+  const checks=overwrite?'':roots.map(root=>'test ! -e '+shellSingleQuote(joinPath(remoteDir,root,true))+'; ').join('');
   const posix='set -eu; test -d '+dest+'; '+checks+'tar -xzf '+archive+' -C '+dest+' && rm -f -- '+archive;
   const psArchive=powerShellSingleQuote(remoteArchive),psDest=powerShellSingleQuote(remoteDir);
-  const psChecks=roots.map(root=>"if (Test-Path -LiteralPath (Join-Path $dest "+powerShellSingleQuote(root)+")) { throw "+powerShellSingleQuote('Destination entry already exists: '+root)+" }; ").join('');
+  const psChecks=overwrite?'':roots.map(root=>"if (Test-Path -LiteralPath (Join-Path $dest "+powerShellSingleQuote(root)+")) { throw "+powerShellSingleQuote('Destination entry already exists: '+root)+" }; ").join('');
   const powershell='$archive='+psArchive+'; $dest='+psDest+"; if (-not (Test-Path -LiteralPath $dest -PathType Container)) { throw 'Destination directory not found' }; "+psChecks+"tar -xzf $archive -C $dest; if ($LASTEXITCODE -ne 0) { throw 'tar extraction failed' }; Remove-Item -LiteralPath $archive";
   return {posix,powershell};
 }
@@ -2418,7 +2435,7 @@ async function quickScanLocalUploadSelection(view,entries){
   result.elapsed_ms=Math.round(performance.now()-started);
   return result;
 }
-function requestCompressedUploadDecision(view,entries,scan,{archiveAllowed=true,reason=''}={}){
+function requestCompressedUploadDecision(view,entries,scan,{archiveAllowed=true,rootsExist=false,reason=''}={}){
   return new Promise(resolve=>{
     const backdrop=document.createElement('div');backdrop.className='ft-upload-choice-backdrop';
     const box=document.createElement('div');box.className='ft-upload-choice';box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');
@@ -2428,15 +2445,22 @@ function requestCompressedUploadDecision(view,entries,scan,{archiveAllowed=true,
     const method=document.createElement('div');method.className='ft-upload-choice-note';
     const protocol=String(view.profile?.protocol||'').toUpperCase();
     const auto=canAutoExtractCompressedUpload(view);
-    method.textContent=archiveAllowed
-      ?('Compressed mode: create one tar.gz → upload via '+protocol+' → '+(auto?'extract automatically through the linked SSH profile.':'show extraction commands for you to run manually.')+'\nNormal upload remains available and keeps the existing per-file conflict/retry behavior.')
-      :('Compressed mode is not offered for this selection: '+reason+'\nUse normal upload to preserve safe per-file handling.');
+    if(!archiveAllowed){
+      method.textContent='Compressed mode is not available: '+reason+'\nUse normal upload instead.';
+    }else if(rootsExist){
+      method.textContent='Some selected top-level names already exist in Remote. Compressed mode remains available, but extraction will MERGE directories and OVERWRITE same-named files.\nChoose Upload normally if you need per-file conflict decisions.';
+    }else{
+      method.textContent='Compressed mode: create one tar.gz → upload via '+protocol+' → '+(auto?'extract automatically through the linked SSH profile.':'show extraction commands for you to run manually.')+'\nNormal upload remains available and keeps the existing per-file conflict/retry behavior.';
+    }
     const actions=document.createElement('div');actions.className='ft-upload-choice-actions';
     const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';
     const normal=document.createElement('button');normal.type='button';normal.textContent='Upload normally';
-    const archive=document.createElement('button');archive.type='button';archive.textContent=auto?'Compress + upload + extract':'Compress + upload';archive.disabled=!archiveAllowed;
+    const archive=document.createElement('button');archive.type='button';
+    archive.textContent=rootsExist?(auto?'Compress + merge/overwrite':'Compress + upload for merge'):(auto?'Compress + upload + extract':'Compress + upload');
+    archive.disabled=!archiveAllowed;
     const finish=value=>{backdrop.remove();resolve(value);};
-    cancel.onclick=()=>finish('cancel');normal.onclick=()=>finish('normal');archive.onclick=()=>finish('archive');
+    cancel.onclick=()=>finish('cancel');normal.onclick=()=>finish('normal');
+    archive.onclick=()=>finish(rootsExist?'archive-overwrite':'archive');
     actions.append(cancel,normal,archive);box.append(title,intro,method,actions);backdrop.append(box);document.body.append(backdrop);
     backdrop.onpointerdown=event=>{if(event.target===backdrop)finish('cancel');};
     setTimeout(()=>normal.focus(),0);
@@ -2526,50 +2550,50 @@ async function buildLocalSelectionTarGz(view,entries){
   const random=Array.from(crypto.getRandomValues(new Uint8Array(4)),byte=>byte.toString(16).padStart(2,'0')).join('');
   return new File([blob],'.taskdeck-folder-'+stamp+'-'+random+'.tar.gz',{type:'application/gzip',lastModified:Date.now()});
 }
-async function autoExtractCompressedUpload(view,remoteArchive,remoteDir,roots){
+async function autoExtractCompressedUpload(view,remoteArchive,remoteDir,roots,mergePolicy='fail'){
   const response=await app.fetchWithLease('/api/file-transfer/archive-extract',{
     method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({profile_id:view.profile.id,remote_archive:remoteArchive,remote_destination:remoteDir,roots,format:'tar.gz'})
+    body:JSON.stringify({profile_id:view.profile.id,remote_archive:remoteArchive,remote_destination:remoteDir,roots,format:'tar.gz',merge_policy:mergePolicy})
   });
   if(!response.ok)throw new Error((await response.text()).trim()||('HTTP '+response.status));
   return response.json();
 }
-async function uploadCompressedSelection(view,entries){
+async function uploadCompressedSelection(view,entries,mergePolicy='fail'){
   const source=view.left.source,remoteDir=normalizeRemotePath(view.remote.currentPath||'.'),roots=selectedArchiveRoots(entries);
-  let uploaded;
-  view.remote.status.textContent='Compressing selected items…';
   if(source==='host'){
     const base=normalizeRelativePath(view.left.currentPath||'.');
-    const response=await app.fetchWithLease('/api/file-transfer/archive-upload',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({profile_id:view.profile.id,host_paths:entries.map(entry=>joinPath(base,entry.name,false)),remote_dir:remoteDir})
+    view.remote.status.textContent='Compressed upload queued on TaskDeck daemon…';
+    await createServerTransferJob(view,{
+      kind:'host_archive_upload',
+      host_paths:entries.map(entry=>joinPath(base,entry.name,false)),
+      remote_dir:remoteDir,
+      merge_policy:mergePolicy,
+      auto_extract:canAutoExtractCompressedUpload(view)
     });
-    if(!response.ok)throw new Error((await response.text()).trim()||('HTTP '+response.status));
-    uploaded=await response.json();
-  }else{
-    const archive=await buildLocalSelectionTarGz(view,entries);
-    const remoteArchive=joinPath(remoteDir,archive.name,true);
-    view.remote.status.textContent='Uploading compressed archive '+formatSize(archive.size)+'…';
-    await uploadBrowserFileToPath(view,archive,remoteArchive);
-    uploaded={remote_archive:remoteArchive,remote_destination:remoteDir,roots,format:'tar.gz',archive_size:archive.size,manual_commands:compressedUploadManualCommands(remoteArchive,remoteDir,roots)};
+    return;
   }
-  const remoteArchive=String(uploaded?.remote_archive||''),remoteDestination=String(uploaded?.remote_destination||remoteDir);
-  const uploadedRoots=Array.isArray(uploaded?.roots)?uploaded.roots:roots;
+
+  view.remote.status.textContent='Compressing selected items…';
+  const archive=await buildLocalSelectionTarGz(view,entries);
+  const remoteArchive=joinPath(remoteDir,archive.name,true);
+  view.remote.status.textContent='Uploading compressed archive '+formatSize(archive.size)+'…';
+  await uploadBrowserFileToPath(view,archive,remoteArchive);
+  const commands=compressedUploadManualCommands(remoteArchive,remoteDir,roots,mergePolicy);
   invalidateRemoteCache(view,remoteDir);
   if(canAutoExtractCompressedUpload(view)){
     view.remote.status.textContent='Archive uploaded; extracting through SSH…';
     try{
-      await autoExtractCompressedUpload(view,remoteArchive,remoteDestination,uploadedRoots);
+      await autoExtractCompressedUpload(view,remoteArchive,remoteDir,roots,mergePolicy);
       view.remote.status.textContent='Compressed folder upload complete';
       await loadRemoteDirectory(view,remoteDir,{force:true});return;
     }catch(error){
       view.remote.status.textContent='Archive uploaded but automatic extraction failed; manual command required';
-      await showManualExtractCommands(view,remoteArchive,remoteDestination,uploadedRoots,uploaded?.manual_commands);
+      await showManualExtractCommands(view,remoteArchive,remoteDir,roots,commands);
       await loadRemoteDirectory(view,remoteDir,{force:true});return;
     }
   }
   view.remote.status.textContent='Archive uploaded; manual extraction required';
-  await showManualExtractCommands(view,remoteArchive,remoteDestination,uploadedRoots,uploaded?.manual_commands);
+  await showManualExtractCommands(view,remoteArchive,remoteDir,roots,commands);
   await loadRemoteDirectory(view,remoteDir,{force:true});
 }
 async function compressedUploadDecision(view,entries){
@@ -2579,13 +2603,10 @@ async function compressedUploadDecision(view,entries){
   try{scan=view.left.source==='host'?await quickScanHostUploadSelection(view,entries):await quickScanLocalUploadSelection(view,entries);}
   catch(error){console.warn('Compressed upload quick scan failed; continuing with normal upload',error);return 'normal';}
   if(!scan?.many_files)return 'normal';
-  const rootsClear=compressedUploadRootsClear(view,entries);
+  const rootsExist=!compressedUploadRootsClear(view,entries);
   const compressionSupported=view.left.source==='host'||typeof CompressionStream==='function';
-  const archiveAllowed=rootsClear&&compressionSupported;
-  let reason='';
-  if(!rootsClear)reason='one or more selected top-level names already exist in the current remote directory; archive extraction would bypass per-file conflict handling.';
-  else if(!compressionSupported)reason='this browser does not provide native gzip CompressionStream support.';
-  return requestCompressedUploadDecision(view,entries,scan,{archiveAllowed,reason});
+  const reason=compressionSupported?'':'this browser does not provide native gzip CompressionStream support.';
+  return requestCompressedUploadDecision(view,entries,scan,{archiveAllowed:compressionSupported,rootsExist,reason});
 }
 
 async function streamLeftEntriesToRemote(view,entries){
@@ -2599,8 +2620,9 @@ async function streamLeftEntriesToRemote(view,entries){
 
   const decision=await compressedUploadDecision(view,selected);
   if(decision==='cancel'){view.remote.status.textContent='Upload cancelled';return;}
-  if(decision==='archive'){
-    try{await uploadCompressedSelection(view,selected);return;}
+  if(decision==='archive'||decision==='archive-overwrite'){
+    const mergePolicy=decision==='archive-overwrite'?'overwrite':'fail';
+    try{await uploadCompressedSelection(view,selected,mergePolicy);return;}
     catch(error){
       const message=String(error?.message||error||'Compressed upload failed');
       const fallback=confirm('Compressed upload could not be completed:\n\n'+message+'\n\nUpload the selection normally instead?');
