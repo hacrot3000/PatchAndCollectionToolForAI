@@ -72,7 +72,7 @@ func normalizeProjectCompletionRequest(req projectCompletionRequest) (projectCom
 		req.LinePrefix = req.LinePrefix[len(req.LinePrefix)-4096:]
 	}
 	if len(req.Text) > projectCompletionMaxText {
-		return req, errProjectFileTooLarge
+		return req, errProjectCompletionDocumentTooLarge
 	}
 	if req.Limit <= 0 {
 		req.Limit = 60
@@ -81,14 +81,14 @@ func normalizeProjectCompletionRequest(req projectCompletionRequest) (projectCom
 		req.Limit = projectCompletionMaxItems
 	}
 	if req.Position.Line < 0 || req.Position.Character < 0 {
-		return req, errInvalidProjectCompletionPosition
+		return req, errProjectCompletionPosition
 	}
 	return req, nil
 }
 
 var (
-	errProjectFileTooLarge = &projectCompletionError{"completion document exceeds 4 MiB"}
-	errInvalidProjectCompletionPosition = &projectCompletionError{"completion position must be non-negative"}
+	errProjectCompletionDocumentTooLarge = &projectCompletionError{"completion document exceeds 4 MiB"}
+	errProjectCompletionPosition = &projectCompletionError{"completion position must be non-negative"}
 )
 
 type projectCompletionError struct{ message string }
@@ -315,12 +315,12 @@ func projectGoModuleName(workspace string) string {
 	return ""
 }
 
-func projectImportCompletionItems(s *Server, req projectCompletionRequest) []projectCompletionItem {
+func projectImportCompletionItems(ctx context.Context, s *Server, req projectCompletionRequest) []projectCompletionItem {
 	kind, prefix, ok := completionImportContext(req.Language, req.LinePrefix)
 	if !ok {
 		return nil
 	}
-	idx, err := s.currentProjectFileIndex(contextOrBackground(req))
+	idx, err := s.currentProjectFileIndex(ctx)
 	if err != nil || idx == nil {
 		return nil
 	}
@@ -361,10 +361,6 @@ func projectImportCompletionItems(s *Server, req projectCompletionRequest) []pro
 		}
 	}
 	return out
-}
-
-func contextOrBackground(req projectCompletionRequest) context.Context {
-	return context.Background()
 }
 
 func mergeProjectCompletionItems(limit int, groups ...[]projectCompletionItem) []projectCompletionItem {
@@ -416,7 +412,7 @@ func (s *Server) projectCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	symbols := projectSymbolCompletionItems(idx, req)
-	paths := projectImportCompletionItems(s, req)
+	paths := projectImportCompletionItems(r.Context(), s, req)
 	writeJSON(w, http.StatusOK, projectCompletionResponse{
 		Items: mergeProjectCompletionItems(req.Limit, paths, symbols),
 		IndexedFiles: idx.ScannedFiles,
