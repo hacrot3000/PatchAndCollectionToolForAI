@@ -84,7 +84,7 @@ function projectCompareActions(pathValue){
     disabled:!compare.canCompareWithSelected?.(source),
     run:()=>compareProjectWithSelected(pathValue)
   });
-  actions.push({label:'Compare with another project file…',run:()=>openProjectDiff(pathValue)});
+  actions.push({label:'Compare with another file…',run:()=>openProjectDiff(pathValue)});
   return actions;
 }
 function openWithButton(host,label,run,options={}){
