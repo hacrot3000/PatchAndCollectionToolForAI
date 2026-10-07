@@ -491,6 +491,19 @@ func (s *Server) fileTransferRemoteHash(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "profile_id and path are required", http.StatusBadRequest)
 		return
 	}
+	profile, err := s.resolveFileTransferProfile(req.ProfileID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	release, ok := s.tryAcquireFileTransferBrowse(profile.ID)
+	if !ok {
+		w.Header().Set("Retry-After", "1")
+		w.Header().Set("X-TaskDeck-Transfer-Pool-Full", "1")
+		http.Error(w, "FTP/SFTP connection pool is full", http.StatusTooManyRequests)
+		return
+	}
+	defer release()
 	hash, err := s.backgroundRemoteSHA256(r.Context(), req.ProfileID, req.Path)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
