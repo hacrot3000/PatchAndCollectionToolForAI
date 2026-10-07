@@ -21,9 +21,10 @@ type projectCompletionRequest struct {
 	Language   string      `json:"language,omitempty"`
 	Prefix     string      `json:"prefix,omitempty"`
 	Text       string      `json:"text,omitempty"`
-	LinePrefix string      `json:"line_prefix,omitempty"`
-	Position   lspPosition `json:"position,omitempty"`
-	Limit      int         `json:"limit,omitempty"`
+	LinePrefix  string      `json:"line_prefix,omitempty"`
+	LexicalMode string      `json:"lexical_mode,omitempty"`
+	Position    lspPosition `json:"position,omitempty"`
+	Limit       int         `json:"limit,omitempty"`
 }
 
 type projectCompletionItem struct {
@@ -66,6 +67,10 @@ func normalizeProjectCompletionRequest(req projectCompletionRequest) (projectCom
 	req.Language = strings.ToLower(strings.TrimSpace(req.Language))
 	req.Prefix = strings.TrimSpace(req.Prefix)
 	req.LinePrefix = strings.TrimSpace(req.LinePrefix)
+	req.LexicalMode = strings.ToLower(strings.TrimSpace(req.LexicalMode))
+	if req.LexicalMode != "string" && req.LexicalMode != "comment" {
+		req.LexicalMode = "code"
+	}
 	if len(req.Prefix) > 256 {
 		req.Prefix = req.Prefix[:256]
 	}
@@ -144,7 +149,7 @@ func addProjectCompletion(items map[string]projectCompletionItem, item projectCo
 }
 
 func projectSymbolCompletionItems(idx *projectSymbolIndex, req projectCompletionRequest) []projectCompletionItem {
-	if strings.TrimSpace(req.Prefix) == "" {
+	if req.LexicalMode != "code" || strings.TrimSpace(req.Prefix) == "" {
 		return nil
 	}
 	items := make(map[string]projectCompletionItem)
