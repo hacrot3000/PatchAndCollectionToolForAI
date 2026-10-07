@@ -226,6 +226,7 @@ func (s *Server) projectArchiveExtract(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	success = true
+	s.invalidateProjectCompletionIndexes()
 	s.auditSharedSuccess(r, "file.archive.extract", "directory", destRel, map[string]any{"source": req.Path, "format": format})
 	writeJSON(w, http.StatusCreated, map[string]any{"path": destRel, "format": format})
 }
