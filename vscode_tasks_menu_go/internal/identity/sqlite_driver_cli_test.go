@@ -9,6 +9,24 @@ import (
 	"time"
 )
 
+func TestSQLiteVersionAtLeastSupportsRHEL7SQLite(t *testing.T) {
+	for _, tc := range []struct {
+		version string
+		want    bool
+	}{
+		{version: "3.7.17", want: true},
+		{version: "3.7.0", want: true},
+		{version: "3.8.11.1", want: true},
+		{version: "3.24.0", want: true},
+		{version: "3.6.20", want: false},
+		{version: "2.8.17", want: false},
+	} {
+		if got := sqliteVersionAtLeast(tc.version, 3, 7, 0); got != tc.want {
+			t.Fatalf("sqliteVersionAtLeast(%q)=%v want=%v", tc.version, got, tc.want)
+		}
+	}
+}
+
 func requireSQLiteCLI(t *testing.T) {
 	t.Helper()
 	if _, err := resolveSQLiteCLICommand(); err != nil {
