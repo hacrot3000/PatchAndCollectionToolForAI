@@ -824,6 +824,20 @@ function editorCompletionMenuOpen(view){
   return Boolean(view?.cm?.dom?.querySelector?.('.cm-tooltip-autocomplete'));
 }
 const editorSmartEnterPairs=new Map([['{','}'],['(',')'],['[',']']]);
+function smartEditorOpenBrace(view){
+  if(!view||view.closed||editorReadOnly(view))return false;
+  const state=view.cm.state,selection=state.selection.main;
+  if(selection.from!==selection.to)return false;
+  const pos=selection.head;
+  const right=pos<state.doc.length?state.doc.sliceString(pos,pos+1):'';
+  const insert=right==='}'?'{':'{}';
+  view.cm.dispatch({
+    changes:{from:pos,to:pos,insert},
+    selection:{anchor:pos+1},
+    scrollIntoView:true
+  });
+  return true;
+}
 function smartEditorEnter(view){
   if(!view||view.closed||editorReadOnly(view)||editorCompletionMenuOpen(view))return false;
   const state=view.cm.state,selection=state.selection.main;
@@ -1460,6 +1474,12 @@ function createEditor(file){
       event.preventDefault();event.stopPropagation();
       openEditorFind(view,{replace:shortcutKey==='h'});
       return;
+    }
+    if(event.key==='{'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey){
+      if(smartEditorOpenBrace(view)){
+        event.preventDefault();event.stopPropagation();
+        return;
+      }
     }
     if(event.key==='Enter'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey){
       if(smartEditorEnter(view)){
