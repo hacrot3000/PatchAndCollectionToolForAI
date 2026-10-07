@@ -62,10 +62,10 @@ func TestSQLiteAdminStoreRoleAndMembership(t *testing.T) {
 	}
 
 	_, execs, _ := state.snapshot()
-	assertSQLLogContains(t, execs, "INSERT INTO roles")
+	assertSQLLogContains(t, execs, "INSERT OR IGNORE INTO roles")
 	assertSQLLogContains(t, execs, "DELETE FROM role_permissions")
-	assertSQLLogContains(t, execs, "INSERT INTO project_members")
-	assertSQLLogContains(t, execs, "INSERT INTO member_permissions")
+	assertSQLLogContains(t, execs, "UPDATE project_members")
+	assertSQLLogContains(t, execs, "UPDATE member_permissions")
 	assertSQLLogContains(t, execs, "DELETE FROM member_permissions")
 
 	rolePermissionInserts := 0
