@@ -14,7 +14,7 @@ TARGET="$BIN_DIR/taskdeck"
 MAX_ARCHIVE_BYTES=$((128 * 1024 * 1024))
 TMP_ROOT=""
 STAGED_RELEASE=""
-PATCH_PYTHON_AVAILABLE=0
+PYTHON_310_AVAILABLE=0
 
 cleanup() {
     [[ -n "${STAGED_RELEASE:-}" && -d "$STAGED_RELEASE" ]] && rm -rf -- "$STAGED_RELEASE"
@@ -71,17 +71,18 @@ stage_with_git() {
 }
 
 python_gate() {
-    if ! command -v python3 >/dev/null 2>&1; then
-        echo "WARNING: Không tìm thấy Python 3.10+ trong PATH. TaskDeck vẫn sẽ được cài, nhưng Patch add-on sẽ không chạy cho đến khi cài Python 3.10+." >&2
-        return 0
-    fi
-    if ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 3)' >/dev/null 2>&1; then
-        local version
+    local version=""
+    if command -v python3 >/dev/null 2>&1; then
         version="$(python3 --version 2>&1 || true)"
-        echo "WARNING: ${version:-python3 hiện tại} không đáp ứng yêu cầu Python 3.10+. TaskDeck vẫn sẽ được cài, nhưng Patch add-on sẽ không chạy." >&2
-        return 0
+        if python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 3)' >/dev/null 2>&1; then
+            PYTHON_310_AVAILABLE=1
+            return 0
+        fi
     fi
-    PATCH_PYTHON_AVAILABLE=1
+
+    echo "WARNING: ${version:-Không tìm thấy Python 3} không đáp ứng yêu cầu Python 3.10+ của một số module." >&2
+    echo "WARNING: TaskDeck core vẫn sẽ được cài và có thể chạy bình thường." >&2
+    echo "WARNING: Các module phụ thuộc Python 3.10+ có thể không chạy hoặc báo lỗi: Patch add-on; shared-server identity/auth (SQLite, backup, password hashing); self-update Python validation." >&2
 }
 
 validate_release() {
@@ -155,12 +156,87 @@ for required in \
     [[ -f "$required" ]] || die "Source thiếu runtime bắt buộc: $required"
 done
 
-echo "TaskDeck: chạy test trước khi cài..."
+echo "TaskDeck: kiểm tra source trước khi cài..."
 (
     cd "$SOURCE"
-    GOPROXY=off GOSUMDB=off go test ./...
+    if (( PYTHON_310_AVAILABLE )); then
+        GOPROXY=off GOSUMDB=off go test ./...
+    else
+        echo "TaskDeck: Python < 3.10, chỉ compile Go tests; bỏ qua runtime tests có thể phụ thuộc Python 3.10+." >&2
+        GOPROXY=off GOSUMDB=off go test -run '^    (
+        cd "$SOURCE_ROOT"
+        python3 test_python_patch_entry.py
+        python3 -m py_compile python_patch_entry.py
+    )
+else
+    echo "TaskDeck: bỏ qua validation runtime của Patch add-on vì thiếu Python 3.10+." >&2
+fi
+
+RELEASE_ID="$REVISION"
+if [[ "$REVISION" == "dev" ]]; then
+    RELEASE_ID="dev-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+fi
+FINAL_RELEASE="$RELEASES_DIR/$RELEASE_ID"
+
+if validate_release "$FINAL_RELEASE" "$REVISION"; then
+    echo "TaskDeck release đã tồn tại và hợp lệ: $FINAL_RELEASE"
+else
+    if [[ -e "$FINAL_RELEASE" || -L "$FINAL_RELEASE" ]]; then
+        die "Release đích đã tồn tại nhưng không hợp lệ: $FINAL_RELEASE"
+    fi
+    STAGED_RELEASE="$RELEASES_DIR/.$RELEASE_ID.new.$$"
+    rm -rf -- "$STAGED_RELEASE"
+    mkdir -p "$STAGED_RELEASE/patchtool"
+
+    build_args=(build -buildvcs=false -trimpath)
+    if [[ "$REVISION" != "dev" ]]; then
+        build_args+=(-ldflags "-X main.buildRevision=$REVISION")
+    fi
+    build_args+=(-o "$STAGED_RELEASE/taskdeck" ./cmd/vscode_tasks_menu)
+    (
+        cd "$SOURCE"
+        GOPROXY=off GOSUMDB=off go "${build_args[@]}"
+    )
+    chmod 755 "$STAGED_RELEASE/taskdeck"
+
+    cp "$SOURCE_ROOT/python_patch_entry.py" "$STAGED_RELEASE/patchtool/python_patch_entry.py"
+    cp "$SOURCE_ROOT/run_python_patches.sh" "$STAGED_RELEASE/patchtool/run_python_patches.sh"
+    [[ ! -f "$SOURCE_ROOT/run_python_patches.ps1" ]] || cp "$SOURCE_ROOT/run_python_patches.ps1" "$STAGED_RELEASE/patchtool/run_python_patches.ps1"
+    [[ ! -f "$SOURCE_ROOT/run_python_patches.bat" ]] || cp "$SOURCE_ROOT/run_python_patches.bat" "$STAGED_RELEASE/patchtool/run_python_patches.bat"
+    cp -a "$SOURCE_ROOT/_patch_lib" "$STAGED_RELEASE/patchtool/_patch_lib"
+    chmod 755 "$STAGED_RELEASE/patchtool/python_patch_entry.py" "$STAGED_RELEASE/patchtool/run_python_patches.sh"
+
+    validate_release "$STAGED_RELEASE" "$REVISION" || die "Release staging validation thất bại."
+    mv -- "$STAGED_RELEASE" "$FINAL_RELEASE"
+    STAGED_RELEASE=""
+fi
+
+atomic_symlink "$FINAL_RELEASE" "$CURRENT_LINK"
+atomic_symlink "$CURRENT_LINK/taskdeck" "$TARGET"
+
+if [[ "$REVISION" != "dev" ]]; then
+    printf '%s\n' "$REVISION" > "$TARGET.revision.tmp"
+    chmod 600 "$TARGET.revision.tmp"
+    mv -f "$TARGET.revision.tmp" "$TARGET.revision"
+else
+    rm -f "$TARGET.revision"
+fi
+
+echo "Đã cài TaskDeck release: $FINAL_RELEASE"
+echo "TaskDeck current: $CURRENT_LINK"
+echo "TaskDeck command: $TARGET"
+echo "Patch add-on: $CURRENT_LINK/patchtool"
+if (( ! PYTHON_310_AVAILABLE )); then
+    echo "WARNING: Đã cài TaskDeck core. Một số module yêu cầu Python 3.10+ vẫn được đóng gói nhưng có thể không chạy trên Python hiện tại." >&2
+fi
+case ":${PATH:-}:" in
+    *":$BIN_DIR:"*) ;;
+    *) echo "LƯU Ý: $BIN_DIR chưa có trong PATH. Hãy thêm nó để chạy lệnh: taskdeck" ;;
+esac
+ ./...
+    fi
 )
-if (( PATCH_PYTHON_AVAILABLE )); then
+if (( PYTHON_310_AVAILABLE )); then
     (
         cd "$SOURCE_ROOT"
         python3 test_python_patch_entry.py
@@ -224,7 +300,7 @@ echo "Đã cài TaskDeck release: $FINAL_RELEASE"
 echo "TaskDeck current: $CURRENT_LINK"
 echo "TaskDeck command: $TARGET"
 echo "Patch add-on: $CURRENT_LINK/patchtool"
-if (( ! PATCH_PYTHON_AVAILABLE )); then
+if (( ! PYTHON_310_AVAILABLE )); then
     echo "WARNING: Patch add-on đã được cài kèm nhưng hiện không thể chạy do thiếu Python 3.10+." >&2
 fi
 case ":${PATH:-}:" in
