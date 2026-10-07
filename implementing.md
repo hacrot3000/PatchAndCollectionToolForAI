@@ -990,9 +990,9 @@ Requested improvement for Git/File Compare. Keep this section updated after ever
 - [x] Reuse the editor language registry for diff syntax highlighting on both sides.
 - [x] Add conservative important/unimportant classification. Default is important; only confirmed comment-only, blank-only, comment-tail-only, or indentation-only changes in non-indentation-sensitive languages may be marked unimportant.
 - [x] Add intra-line changed-span highlighting for paired removed/added lines.
-- [ ] Add display controls: View all, View diff, View diff context, and View unimportant.
-- [ ] Add structural diff-context expansion (brace/indent-aware with bounded fallback) and preserve hunk copy/apply behavior.
-- [ ] Add regression coverage and update user-facing documentation.
+- [x] Add display controls: View all, View diff, View diff context, and View unimportant.
+- [x] Add structural diff-context expansion (brace/indent-aware with bounded fallback) and preserve hunk copy/apply behavior.
+- [x] Add regression coverage and update user-facing documentation.
 - [ ] Run/verify CI on the resulting main branch commits.
 
-Checkpoint: `3854fa51` adds conservative important/unimportant classification and distinct backgrounds: important removals are vivid red, important additions/modifications use amber, and confirmed cosmetic/comment changes use blue. Classification fails safe to important. Earlier `ca89d572` added syntax-aware rendering and intra-line spans.
+Checkpoint: `bfa7af5c` adds View all / View diff / View diff context / View unimportant, bounded brace/indent-aware context expansion, hidden-line separators, and filter-safe hunk apply behavior. `4b1277f8` adds regression coverage; `811bb301` and `36a06abb` update user-facing docs. `3854fa51` added fail-safe important/unimportant classification; `ca89d572` added syntax/intra-line highlighting.
