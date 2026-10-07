@@ -82,34 +82,38 @@ func TestEditorInitialLanguageCoverageMapping(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		"options.cpp=true",
-		"options.go=true",
-		"options.python=true",
-		"options.javascript=true",
-		"options.json=true",
-		"options.yaml=true",
-		"options.markdown=true",
-		"options.html=true",
-		"options.css=true",
-		"options.xml=true",
-		"options.java=true",
-		"options.typescript=true",
-		"options.jsx=true",
-		"options.tsx=true",
-		"return 'CMake'",
-		"return 'Shell'",
-		"['nim','nims','nimble'].includes(ext)",
-		"nim:new Set(",
-		"return 'Nim'",
-		"return 'Lua'",
+		"const editorLanguageRegistry=[",
+		"{id:'cpp',label:'C/C++'",
+		"{id:'go',label:'Go',extensions:['go'],codeMirror:'go'}",
+		"{id:'python',label:'Python'",
+		"{id:'javascript',label:'JavaScript'",
+		"{id:'typescript',label:'TypeScript'",
+		"{id:'tsx',label:'TSX'",
+		"{id:'json',label:'JSON'",
+		"{id:'yaml',label:'YAML'",
+		"{id:'markdown',label:'Markdown'",
+		"{id:'html',label:'HTML'",
+		"{id:'css',label:'CSS'",
+		"{id:'xml',label:'XML'",
+		"{id:'java',label:'Java'",
+		"{id:'php',label:'PHP'",
+		"{id:'sql',label:'SQL'",
+		"{id:'rust',label:'Rust'",
+		"{id:'vue',label:'Vue'",
+		"{id:'cmake',label:'CMake'",
+		"{id:'shell',label:'Shell'",
+		"{id:'nim',label:'Nim',extensions:['nim','nims','nimble'],legacy:'nim'}",
+		"{id:'lua',label:'Lua',extensions:['lua'],legacy:'lua'}",
+		"function editorLanguageDefinition(pathValue)",
+		"if(language?.codeMirror)options[language.codeMirror]=true",
+		"if(language?.legacy)options.extraExtensions.push(legacySyntaxExtension(language.legacy))",
+		"return editorLanguageDefinition(pathValue)?.label||'Plain text'",
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("editor language mapping missing %q", want)
+			t.Fatalf("editor language registry missing %q", want)
 		}
 	}
 }
-
-
 func TestEditorSupportsRecursiveSplitLayouts(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/editor.js")
 	if err != nil {
@@ -289,24 +293,20 @@ func TestEditorLanguageMappingCoversRequiredIDEFormats(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		"else if(ext==='go')options.go=true",
-		"else if(ext==='jsx')options.jsx=true",
-		"else if(ext==='ts')options.typescript=true",
-		"else if(ext==='tsx')options.tsx=true",
-		"if(name==='cmakelists.txt'||ext==='cmake')return 'cmake'",
-		"if(['sh','bash','zsh','fish','ksh'].includes(ext)",
-		"if(['nim','nims','nimble'].includes(ext))return 'nim'",
-		"if(ext==='lua')return 'lua'",
+		"codeMirror:'go'",
+		"codeMirror:'jsx'",
+		"codeMirror:'typescript'",
+		"codeMirror:'tsx'",
+		"filenames:['cmakelists.txt']",
+		"filenames:['.bashrc','.zshrc']",
+		"extensions:['nim','nims','nimble']",
+		"extensions:['lua']",
 		"if(kind==='lua'&&ch==='[')",
 		"match(/^\\[(=*)\\[/)",
 		"function legacySyntaxExtension(kind)",
 		"buildLegacyDecorations(update.view,kind)",
 		"options.extraExtensions=[activeLineDecorationExtension(),whitespaceDecorationExtension(),bracketMatchingExtension()]",
-		"options.extraExtensions.push(legacySyntaxExtension(legacy))",
-		"return 'CMake'",
-		"return 'Shell'",
-		"return 'Nim'",
-		"return 'Lua'",
+		"options.extraExtensions.push(legacySyntaxExtension(language.legacy))",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("editor language coverage missing %q", want)
@@ -318,7 +318,6 @@ func TestEditorLanguageMappingCoversRequiredIDEFormats(t *testing.T) {
 		}
 	}
 }
-
 func TestVendoredCodeMirrorExposesIDEHooksAndTypeScriptModes(t *testing.T) {
 	data, err := webassets.Files.ReadFile("vendor/codemirror6-all.min.js")
 	if err != nil {
