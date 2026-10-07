@@ -350,6 +350,14 @@ func TestFileTransferSuggestsCompressedFolderUploadWithoutRemovingNormalPath(t *
 		"kind:'local_upload_scan'",
 		"compressedUploadRootsClear(view,entries)",
 		"canAutoExtractCompressedUpload(view)",
+		"rootsExist=!compressedUploadRootsClear(view,entries)",
+		"archive-overwrite",
+		"Compress + merge/overwrite",
+		"kind:'host_archive_upload'",
+		"merge_policy:mergePolicy",
+		"auto_extract:canAutoExtractCompressedUpload(view)",
+		"handleCompressedUploadJobResults(view,snapshot?.jobs)",
+		"Cancel / remove selected",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("compressed folder upload UI missing %q", want)
