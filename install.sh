@@ -15,6 +15,7 @@ MAX_ARCHIVE_BYTES=$((128 * 1024 * 1024))
 TMP_ROOT=""
 STAGED_RELEASE=""
 PYTHON_310_AVAILABLE=0
+PYTHON_CMD=""
 
 cleanup() {
     [[ -n "${STAGED_RELEASE:-}" && -d "$STAGED_RELEASE" ]] && rm -rf -- "$STAGED_RELEASE"
@@ -71,16 +72,39 @@ stage_with_git() {
 }
 
 python_gate() {
-    local version=""
-    if command -v python3 >/dev/null 2>&1; then
-        version="$(python3 --version 2>&1 || true)"
-        if python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 3)' >/dev/null 2>&1; then
-            PYTHON_310_AVAILABLE=1
-            return 0
-        fi
+    local candidate="" path="" version="" checked=""
+    local candidates=()
+
+    if [[ -n "${TASKDECK_PYTHON:-}" ]]; then
+        candidates=("$TASKDECK_PYTHON")
+    else
+        candidates=(python3.13 python3.12 python3.11 python3.10 python3 python)
     fi
 
-    echo "WARNING: ${version:-Không tìm thấy Python 3} không đáp ứng yêu cầu Python 3.10+ của một số module." >&2
+    for candidate in "${candidates[@]}"; do
+        if [[ "$candidate" == */* ]]; then
+            [[ -x "$candidate" ]] || continue
+            path="$candidate"
+        else
+            path="$(command -v "$candidate" 2>/dev/null || true)"
+            [[ -n "$path" ]] || continue
+        fi
+
+        version="$("$path" --version 2>&1 || true)"
+        checked+="${checked:+; }$candidate=${version:-unknown}"
+        if "$path" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 3)' >/dev/null 2>&1; then
+            PYTHON_CMD="$path"
+            PYTHON_310_AVAILABLE=1
+            echo "TaskDeck: dùng Python runtime: $PYTHON_CMD ($version)"
+            return 0
+        fi
+    done
+
+    if [[ -n "${TASKDECK_PYTHON:-}" ]]; then
+        echo "WARNING: TASKDECK_PYTHON=$TASKDECK_PYTHON không phải Python 3.10+ khả dụng." >&2
+    else
+        echo "WARNING: Không tìm thấy Python 3.10+ phù hợp. Đã kiểm tra: ${checked:-không có interpreter nào trong PATH}." >&2
+    fi
     echo "WARNING: TaskDeck core vẫn sẽ được cài và có thể chạy bình thường." >&2
     echo "WARNING: Patch add-on và self-update Python validation vẫn cần Python 3.10+." >&2
     echo "WARNING: Shared identity SQLite sẽ tự fallback sang sqlite3 CLI tương thích (SQLite 3.7+) nếu Python 3.10+ không khả dụng." >&2
@@ -176,8 +200,8 @@ echo "TaskDeck: kiểm tra source trước khi cài..."
 if (( PYTHON_310_AVAILABLE )); then
     (
         cd "$SOURCE_ROOT"
-        python3 test_python_patch_entry.py
-        python3 -m py_compile python_patch_entry.py
+        "$PYTHON_CMD" test_python_patch_entry.py
+        "$PYTHON_CMD" -m py_compile python_patch_entry.py
     )
 else
     echo "TaskDeck: bỏ qua validation runtime của Patch add-on vì thiếu Python 3.10+." >&2
