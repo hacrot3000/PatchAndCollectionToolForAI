@@ -331,7 +331,7 @@ func TestEditorSupportsSCSSSassAndLess(t *testing.T) {
 		"sass:new Set(",
 		"sass:['//']",
 		"sass:[['/*','*/']]",
-		"(kind==='shell'||kind==='sass')",
+		"legacyDollarVariableKinds=new Set(['shell','sass','powershell','makefile'])",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("editor Sass/Less coverage missing %q", want)
