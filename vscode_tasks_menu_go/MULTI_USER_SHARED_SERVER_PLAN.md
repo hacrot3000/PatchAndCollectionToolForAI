@@ -962,11 +962,17 @@ affect the same identity in another project.
 ### Phase 9 — Shared-workspace mutation coordination
 
 - [x] Process-local project mutation lock service for the daemon-owned workspace.
-- [x] Mutating Patch queue/resume sessions hold the lock for their lifetime;
-      history/plan/health remain read-only and do not acquire it.
+- [x] Native Patch Queue/Resume use deferred locking: merely browsing/selecting does not hold
+      the workspace lock; a structured selection acquires `patch.run` only when it will execute
+      PATCH work. COLLECT-only selection remains lock-free.
+- [x] Terminal Patch Queue/Resume remain conservative and hold the lock for their lifetime because
+      raw PTY input bypasses structured selection endpoints. Opening the native terminal fallback
+      first acquires the same Patch-session lock.
 - [x] Relevant file upload/overwrite/editor-save mutations acquire request-scoped locks.
 - [x] Self-update holds the workspace lock across its lifecycle and restart handoff.
-- [x] Authenticated lock status API and header badge expose safe holder metadata.
+- [x] Authenticated lock status API and header badge expose safe holder metadata. Project admins
+      also get an explicit stop-and-unlock action for a Patch session; it stops the owning session
+      before releasing the lock instead of bypassing an active mutation.
 - [x] Lock conflicts are audited; completed/stopped Patch runs and terminal/stale
       self-update states recover/release stale locks.
 
