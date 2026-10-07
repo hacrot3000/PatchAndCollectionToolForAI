@@ -161,6 +161,7 @@ async function checkAndStartUpdate(){
       return;
     }
 
+    await globalThis.TaskMenuEditor?.persistSession?.();
     await terminalRestore()?.persistSnapshot?.();
 
     startingFromSettings=true;
