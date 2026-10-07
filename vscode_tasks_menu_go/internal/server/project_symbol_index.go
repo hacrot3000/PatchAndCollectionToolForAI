@@ -343,10 +343,25 @@ func (s *Server) updateProjectSymbolIndexFile(pathValue, text string) {
 
 func (s *Server) invalidateProjectSymbolIndex() {
 	s.projectSymbolIndexMu.Lock()
-	if s.projectSymbolIndex != nil {
-		s.projectSymbolIndex.BuiltAtNS = 0
-	}
+	s.projectSymbolIndex = nil
+	s.projectSymbolIndexRefreshing = false
 	s.projectSymbolIndexMu.Unlock()
+	if cacheFile, err := projectSymbolIndexCacheFile(s.Workspace); err == nil {
+		_ = os.Remove(cacheFile)
+	}
+}
+
+func (s *Server) invalidateProjectCompletionIndexes() {
+	s.invalidateProjectSymbolIndex()
+	s.projectIndexMu.Lock()
+	s.projectIndex = nil
+	s.projectIndexRefreshing = false
+	s.projectIndexMu.Unlock()
+	if root, err := s.projectRoot(); err == nil {
+		if cacheFile, cacheErr := projectIndexCacheFile(root); cacheErr == nil {
+			_ = os.Remove(cacheFile)
+		}
+	}
 }
 
 func searchProjectSymbolIndex(idx *projectSymbolIndex, query string, limit int) []projectSymbolResult {
