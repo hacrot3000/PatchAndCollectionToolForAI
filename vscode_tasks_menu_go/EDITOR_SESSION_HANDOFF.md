@@ -32,19 +32,43 @@ Persist:
 
 ## Implementation plan
 
-- [ ] Add editor session/swap backend types and API.
-- [ ] Implement atomic swap create/update/read/delete.
-- [ ] Ensure `.git/info/exclude` contains `*.taskdeck-swap` when a swap is created in a Git repo.
-- [ ] Hide swap files from Project Explorer/file search/indexes.
-- [ ] Persist editor tab order, active tab, dirty state, cursor/selection.
-- [ ] Debounce dirty-buffer swap writes.
-- [ ] Restore tabs + dirty contents + cursor after reload/restart/update.
-- [ ] Remove swap after Save/discard and keep conflict-safe behavior.
-- [ ] Add tests.
-- [ ] Document behavior.
+- [x] Add editor session/swap backend types and API.
+- [x] Implement atomic swap create/update/read/delete.
+- [x] Ensure `.git/info/exclude` contains `*.taskdeck-swap*` when a swap is created in a Git repo.
+- [x] Hide swap files from Project Explorer/file search/indexes and block direct project API access.
+- [x] Persist editor tab order, active tab, dirty state, cursor/selection.
+- [x] Throttle dirty-buffer swap writes to continuous ~250 ms checkpoints.
+- [x] Restore tabs + dirty contents + cursor after reload/restart/update.
+- [x] Remove swap after Save/discard/reload and keep conflict-safe behavior.
+- [x] Add backend/frontend/shared-auth regression tests.
+- [ ] Document behavior in README and perform final build-oriented import/route review.
 
 ## Progress
 
 ### 2026-10-07 — start
 - User requested crash/update-safe editor restoration with adjacent swap files and preserved cursor positions.
 - Handoff committed before code changes.
+
+
+### 2026-10-07 — implementation checkpoint
+
+- `1cfedbc`: added crash-safe editor-session backend with adjacent dirty swap files, per-user ownership in shared mode, server-cache metadata, atomic writes and external-source SHA detection.
+- `db6d28d`, `881bb3a`: registered `/api/project/editor-session` and protected GET with `files.read`, PUT/POST with `files.write`.
+- `a1bd345`, `fc419db`, `5cd38d5`, `0821df6`: hid swap files from Explorer/exact search/project file indexes and blocked direct project API access to internal swap paths.
+- `65063f7`: editor now checkpoints tab order, active editor, dirty buffers and cursor/selection to the server and restores them automatically after reload/restart.
+- `f701755`: persisted editor tab order is reapplied after recovery.
+- `d1ba099`: self-update explicitly flushes the editor session before starting the updater.
+- `bae8daa`: tab drag/reorder flushes editor order to the server.
+- `06786f2`, `660f653`: hardened swap naming/temp files, POST/beacon support, total request bounds and external-change hashing bounds.
+- `5b0b674`: Save, discard/close, Reload and conflict-resolution paths flush immediately; pagehide adds a small best-effort keepalive checkpoint.
+- `c6c9f04`: backend regression tests cover dirty swap recovery, cursor restore, external source changes, Git exclude, hidden swap files, direct-access blocking and cache location.
+- `b828e84`: shared-server route authorization regression coverage.
+- `9904114`: frontend tests cover automatic recovery, remote-editor exclusion, self-update flush and drag-order persistence.
+
+## Resume checkpoint
+
+Remaining before declaring complete:
+1. document the feature and recovery semantics in README;
+2. inspect all touched Go imports/routes for build-time issues;
+3. review any stale-swap edge cases around project rename/delete and either fix them safely or document the behavior;
+4. update this handoff to complete with final HEAD.
