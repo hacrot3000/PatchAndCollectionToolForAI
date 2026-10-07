@@ -443,6 +443,9 @@ func (s *Server) projectTree(w http.ResponseWriter, r *http.Request) {
 		if entry.IsDir() && entry.Name() == ".git" {
 			continue
 		}
+		if isTaskDeckSwapName(entry.Name()) {
+			continue
+		}
 		item, ok := s.projectTreeItem(rootView.Path, dir, entry)
 		if !ok {
 			continue
