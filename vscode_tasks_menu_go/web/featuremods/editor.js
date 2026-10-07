@@ -338,44 +338,44 @@ function formatBytes(size){
   return (value/(1024*1024)).toFixed(1)+' MiB';
 }
 const editorLanguageRegistry=[
-  {id:'cpp',label:'C/C++',extensions:['c','h','cc','cpp','cxx','hh','hpp','hxx','ino'],codeMirror:'cpp'},
-  {id:'go',label:'Go',extensions:['go'],codeMirror:'go'},
-  {id:'python',label:'Python',extensions:['py','pyw'],codeMirror:'python'},
-  {id:'javascript',label:'JavaScript',extensions:['js','mjs','cjs'],codeMirror:'javascript'},
-  {id:'jsx',label:'JSX',extensions:['jsx'],codeMirror:'jsx'},
-  {id:'typescript',label:'TypeScript',extensions:['ts','mts','cts'],codeMirror:'typescript'},
-  {id:'tsx',label:'TSX',extensions:['tsx'],codeMirror:'tsx'},
-  {id:'json',label:'JSON',extensions:['json','json5'],codeMirror:'json'},
-  {id:'yaml',label:'YAML',extensions:['yaml','yml'],codeMirror:'yaml'},
-  {id:'markdown',label:'Markdown',extensions:['md','markdown','mkd'],codeMirror:'markdown'},
-  {id:'html',label:'HTML',extensions:['html','htm','hbs','handlebars'],codeMirror:'html'},
-  {id:'css',label:'CSS',extensions:['css'],codeMirror:'css'},
-  {id:'scss',label:'SCSS',extensions:['scss'],codeMirror:'sass'},
-  {id:'sass',label:'Sass',extensions:['sass'],legacy:'sass'},
-  {id:'less',label:'Less',extensions:['less'],codeMirror:'less'},
-  {id:'dockerfile',label:'Dockerfile',extensions:['dockerfile'],filenames:['dockerfile'],filenamePrefixes:['dockerfile.'],legacy:'dockerfile'},
-  {id:'makefile',label:'Makefile',extensions:['mk','mak'],filenames:['makefile','gnumakefile','bsdmakefile'],filenamePrefixes:['makefile.','gnumakefile.'],legacy:'makefile'},
-  {id:'toml',label:'TOML',extensions:['toml'],legacy:'toml'},
-  {id:'powershell',label:'PowerShell',extensions:['ps1','psm1','psd1'],legacy:'powershell'},
-  {id:'kotlin',label:'Kotlin',extensions:['kt','kts'],legacy:'kotlin'},
-  {id:'csharp',label:'C#',extensions:['cs','csx'],legacy:'csharp'},
-  {id:'dart',label:'Dart',extensions:['dart'],legacy:'dart'},
-  {id:'protobuf',label:'Protocol Buffers',extensions:['proto'],legacy:'protobuf'},
-  {id:'graphql',label:'GraphQL',extensions:['graphql','gql'],legacy:'graphql'},
-  {id:'actionscript',label:'ActionScript',extensions:['as'],legacy:'actionscript'},
-  {id:'nginx',label:'Nginx',extensions:['nginx'],filenames:['nginx.conf'],legacy:'nginx',match:info=>info.ext==='conf'&&info.lower.includes('/nginx/')},
-  {id:'apache',label:'Apache',extensions:['htaccess'],filenames:['.htaccess','httpd.conf','apache2.conf'],legacy:'apache',match:info=>info.ext==='conf'&&(info.lower.includes('/apache/')||info.lower.includes('/apache2/'))},
-  {id:'config',label:'Config',extensions:['ini','properties'],filenames:['.env'],filenamePrefixes:['.env.'],legacy:'config'},
-  {id:'xml',label:'XML',extensions:['xml','svg'],codeMirror:'xml'},
-  {id:'java',label:'Java',extensions:['java'],codeMirror:'java'},
-  {id:'php',label:'PHP',extensions:['php'],codeMirror:'php'},
-  {id:'sql',label:'SQL',extensions:['sql'],codeMirror:'sql'},
-  {id:'rust',label:'Rust',extensions:['rs'],codeMirror:'rust'},
-  {id:'vue',label:'Vue',extensions:['vue'],codeMirror:'vue'},
-  {id:'cmake',label:'CMake',extensions:['cmake'],filenames:['cmakelists.txt'],legacy:'cmake'},
-  {id:'shell',label:'Shell',extensions:['sh','bash','zsh','fish','ksh'],filenames:['.bashrc','.zshrc'],legacy:'shell'},
-  {id:'nim',label:'Nim',extensions:['nim','nims','nimble'],legacy:'nim'},
-  {id:'lua',label:'Lua',extensions:['lua'],legacy:'lua'}
+  {id:'cpp',label:'C/C++',extensions:['c','h','cc','cpp','cxx','hh','hpp','hxx','ino'],codeMirror:'cpp',completion:'cpp'},
+  {id:'go',label:'Go',extensions:['go'],codeMirror:'go',completion:'go'},
+  {id:'python',label:'Python',extensions:['py','pyw'],codeMirror:'python',completion:'python'},
+  {id:'javascript',label:'JavaScript',extensions:['js','mjs','cjs'],codeMirror:'javascript',completion:'javascript'},
+  {id:'jsx',label:'JSX',extensions:['jsx'],codeMirror:'jsx',completion:'javascript'},
+  {id:'typescript',label:'TypeScript',extensions:['ts','mts','cts'],codeMirror:'typescript',completion:'typescript'},
+  {id:'tsx',label:'TSX',extensions:['tsx'],codeMirror:'tsx',completion:'typescript'},
+  {id:'json',label:'JSON',extensions:['json','json5'],codeMirror:'json',completion:'json'},
+  {id:'yaml',label:'YAML',extensions:['yaml','yml'],codeMirror:'yaml',completion:'yaml'},
+  {id:'markdown',label:'Markdown',extensions:['md','markdown','mkd'],codeMirror:'markdown',completion:'markdown'},
+  {id:'html',label:'HTML',extensions:['html','htm','hbs','handlebars'],codeMirror:'html',completion:'html'},
+  {id:'css',label:'CSS',extensions:['css'],codeMirror:'css',completion:'css'},
+  {id:'scss',label:'SCSS',extensions:['scss'],codeMirror:'sass',completion:'css'},
+  {id:'sass',label:'Sass',extensions:['sass'],legacy:'sass',completion:'css'},
+  {id:'less',label:'Less',extensions:['less'],codeMirror:'less',completion:'css'},
+  {id:'dockerfile',label:'Dockerfile',extensions:['dockerfile'],filenames:['dockerfile'],filenamePrefixes:['dockerfile.'],legacy:'dockerfile',completion:'dockerfile'},
+  {id:'makefile',label:'Makefile',extensions:['mk','mak'],filenames:['makefile','gnumakefile','bsdmakefile'],filenamePrefixes:['makefile.','gnumakefile.'],legacy:'makefile',completion:'makefile'},
+  {id:'toml',label:'TOML',extensions:['toml'],legacy:'toml',completion:'toml'},
+  {id:'powershell',label:'PowerShell',extensions:['ps1','psm1','psd1'],legacy:'powershell',completion:'powershell'},
+  {id:'kotlin',label:'Kotlin',extensions:['kt','kts'],legacy:'kotlin',completion:'kotlin'},
+  {id:'csharp',label:'C#',extensions:['cs','csx'],legacy:'csharp',completion:'csharp'},
+  {id:'dart',label:'Dart',extensions:['dart'],legacy:'dart',completion:'dart'},
+  {id:'protobuf',label:'Protocol Buffers',extensions:['proto'],legacy:'protobuf',completion:'protobuf'},
+  {id:'graphql',label:'GraphQL',extensions:['graphql','gql'],legacy:'graphql',completion:'graphql'},
+  {id:'actionscript',label:'ActionScript',extensions:['as'],legacy:'actionscript',completion:'actionscript'},
+  {id:'nginx',label:'Nginx',extensions:['nginx'],filenames:['nginx.conf'],legacy:'nginx',completion:'nginx',match:info=>info.ext==='conf'&&info.lower.includes('/nginx/')},
+  {id:'apache',label:'Apache',extensions:['htaccess'],filenames:['.htaccess','httpd.conf','apache2.conf'],legacy:'apache',completion:'apache',match:info=>info.ext==='conf'&&(info.lower.includes('/apache/')||info.lower.includes('/apache2/'))},
+  {id:'config',label:'Config',extensions:['ini','properties'],filenames:['.env'],filenamePrefixes:['.env.'],legacy:'config',completion:'config'},
+  {id:'xml',label:'XML',extensions:['xml','svg'],codeMirror:'xml',completion:'xml'},
+  {id:'java',label:'Java',extensions:['java'],codeMirror:'java',completion:'java'},
+  {id:'php',label:'PHP',extensions:['php'],codeMirror:'php',completion:'php'},
+  {id:'sql',label:'SQL',extensions:['sql'],codeMirror:'sql',completion:'sql'},
+  {id:'rust',label:'Rust',extensions:['rs'],codeMirror:'rust',completion:'rust'},
+  {id:'vue',label:'Vue',extensions:['vue'],codeMirror:'vue',completion:'javascript'},
+  {id:'cmake',label:'CMake',extensions:['cmake'],filenames:['cmakelists.txt'],legacy:'cmake',completion:'cmake'},
+  {id:'shell',label:'Shell',extensions:['sh','bash','zsh','fish','ksh'],filenames:['.bashrc','.zshrc'],legacy:'shell',completion:'shell'},
+  {id:'nim',label:'Nim',extensions:['nim','nims','nimble'],legacy:'nim',completion:'nim'},
+  {id:'lua',label:'Lua',extensions:['lua'],legacy:'lua',completion:'lua'}
 ];
 function editorLanguagePathInfo(pathValue){
   const lower=String(pathValue||'').toLowerCase();
@@ -666,7 +666,14 @@ function editorMetaText(file){
   return [languageLabel(file.path),'UTF-8'+bom,ending,formatBytes(file.size)].join(' • ');
 }
 function editorOptionsForFile(file){
-  return file?.large_file?{}:languageOptions(file.path);
+  if(file?.large_file)return {};
+  const options=languageOptions(file.path);
+  const completion=globalThis.TaskMenuEditorCompletion?.extensionsForFile?.(file);
+  if(completion){
+    const extra=Array.isArray(completion)?completion:[completion];
+    options.extraExtensions=[...(options.extraExtensions||[]),...extra];
+  }
+  return options;
 }
 function editorEncodingChoice(file){
   return file?.bom?'utf-8-bom':'utf-8';
@@ -1785,5 +1792,7 @@ globalThis.TaskMenuEditor={
   },
   get autoSaveEnabled(){return editorAutoSaveEnabled;},
   get minimapEnabled(){return editorMinimapEnabled;},
+  languageForPath:editorLanguageDefinition,
+  get languageRegistry(){return editorLanguageRegistry.map(item=>({...item}));},
   get active(){return activeEditorID;}
 };
