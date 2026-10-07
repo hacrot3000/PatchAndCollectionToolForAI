@@ -100,3 +100,16 @@ Implemented:
 - `36526dd`: added editor-wide smart Enter handling. Plain Enter preserves the current line's leading whitespace; Enter between `{}`, `()`, or `[]` inserts an indented middle line and moves the closing delimiter to its own aligned line. A lone opening delimiter at end-of-line also increases indentation for the new line. Indent unit is inferred from nearby lines, preferring tabs when the surrounding file uses tabs.
 - Smart Enter deliberately does not intercept Enter while CodeMirror autocomplete UI is open, so Enter continues to accept completion suggestions.
 - `0a07d8b`: added regression assertions for indentation preservation, delimiter-pair expansion, selection handling, and autocomplete coexistence.
+
+
+## Opening-brace indentation follow-up — 2026-10-07
+
+Reported behavior:
+- after Enter from an indented declaration, typing `{` caused CodeMirror language indentation to pull the brace left;
+- Enter inside the resulting `{}` then used the wrong parent indent.
+
+Implemented:
+- `35e7f1c`: TaskDeck now intercepts an unmodified `{` key in writable file editors and inserts the brace pair directly at the current cursor position, preventing language-mode indent-on-input from moving the opening brace left. If a closing `}` is already immediately to the right, only the opening brace is inserted to avoid duplication.
+- Existing smart Enter then expands `{|}` as parent-indent + one inferred indent unit for the child line + parent-indent for the closing brace.
+- Indent inference prefers tab whenever nearby indented lines contain tabs; when there is not enough evidence, fallback remains one literal tab.
+- `edc8049`: added regression assertions for opening-brace pairing, caret placement, key interception, tab preference, and tab fallback.
