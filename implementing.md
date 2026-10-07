@@ -993,6 +993,6 @@ Requested improvement for Git/File Compare. Keep this section updated after ever
 - [x] Add display controls: View all, View diff, View diff context, and View unimportant.
 - [x] Add structural diff-context expansion (brace/indent-aware with bounded fallback) and preserve hunk copy/apply behavior.
 - [x] Add regression coverage and update user-facing documentation.
-- [ ] Run/verify CI on the resulting main branch commits.
+- [x] Run/verify CI on the resulting main branch commits. Targeted diff validation PASS; full workflow remains red only because the same 11 pre-existing baseline tests were already failing before this work.
 
-Checkpoint: `bfa7af5c` adds View all / View diff / View diff context / View unimportant, bounded brace/indent-aware context expansion, hidden-line separators, and filter-safe hunk apply behavior. `4b1277f8` adds regression coverage; `811bb301` and `36a06abb` update user-facing docs. `3854fa51` added fail-safe important/unimportant classification; `ca89d572` added syntax/intra-line highlighting.
+Checkpoint: `bfa7af5c` adds View all / View diff / View diff context / View unimportant, bounded brace/indent-aware context expansion, hidden-line separators, and filter-safe hunk apply behavior. `4b1277f8` adds regression coverage; `811bb301` and `36a06abb` update user-facing docs. `3854fa51` added fail-safe important/unimportant classification; `ca89d572` added syntax/intra-line highlighting. CI run `37631679049`: JavaScript syntax PASS on Go 1.19/1.23 jobs and the new File Compare regression tests PASS; the workflow overall is still red due to the exact same 11 unrelated baseline failures present in pre-work run `37618156702` at `3e5a9a40`.
