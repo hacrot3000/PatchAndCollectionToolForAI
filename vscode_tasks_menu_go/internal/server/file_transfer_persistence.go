@@ -235,11 +235,16 @@ func (s *Server) ensureFileTransferQueuesLoadedLocked() {
 		if profileID == "" || len(disk.Items) > 200000 || len(disk.Jobs) > 10000 {
 			continue
 		}
+		limit := filetransferprofile.DefaultMaxConnections
+		if profile, profileErr := s.resolveFileTransferProfile(profileID); profileErr == nil && profile.MaxConnections > 0 {
+			limit = profile.MaxConnections
+		}
 		queue := &fileTransferServerQueue{
 			ProfileID: profileID, Paused: disk.Paused,
 			UploadConflictPolicy: disk.UploadConflictPolicy,
 			DownloadConflictPolicy: disk.DownloadConflictPolicy,
 			Sequence: disk.Sequence, Revision: disk.Revision,
+			MaxConnections: limit,
 			Items: make([]*fileTransferServerItem, 0, len(disk.Items)),
 			Jobs: make(map[string]*fileTransferServerJob),
 			wake: make(chan struct{}, 1),
@@ -290,12 +295,8 @@ func (s *Server) restartRecoveredFileTransferScans(queue *fileTransferServerQueu
 	if queue == nil {
 		return
 	}
-	type pendingScan struct {
-		jobID string
-		req   fileTransferJobCreateRequest
-	}
-	var scans []pendingScan
 	queue.mu.Lock()
+	queued := 0
 	for id, job := range queue.Jobs {
 		if job == nil || job.ScanDone || !job.NeedsRescan || job.Request == nil {
 			continue
@@ -303,29 +304,16 @@ func (s *Server) restartRecoveredFileTransferScans(queue *fileTransferServerQueu
 		req := *cloneFileTransferJobRequest(job.Request)
 		job.NeedsRescan = false
 		job.Recovered = false
-		job.Status = "scanning"
 		job.Error = ""
-		job.UpdatedAt = time.Now().UTC()
-		queue.ActiveScans++
-		scans = append(scans, pendingScan{jobID: id, req: req})
+		queue.enqueueScanLocked(id, req)
+		queued++
 	}
-	if len(scans) > 0 {
+	if queued > 0 {
 		queue.touchLocked()
 	}
 	queue.mu.Unlock()
-	for _, scan := range scans {
-		scan := scan
-		go func() {
-			var scanErr error
-			switch scan.req.Kind {
-			case fileTransferJobHostUpload:
-				scanErr = s.scanHostUploadJob(queue, scan.jobID, scan.req)
-			case fileTransferJobHostDownload:
-				scanErr = s.scanHostDownloadJob(queue, scan.jobID, scan.req)
-			case fileTransferJobRemoteDelete:
-				scanErr = s.scanRemoteDeleteJob(queue, scan.jobID, scan.req)
-			}
-			queue.setScanState(scan.jobID, true, scanErr)
-		}()
+	if queued > 0 {
+		signalFileTransferQueue(queue)
 	}
 }
+
