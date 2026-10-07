@@ -16,6 +16,7 @@ import (
 const (
 	editorSessionVersion   = 1
 	editorSessionMaxTabs   = 100
+	editorSessionMaxPayload = int64(64 << 20)
 	editorSwapMarker       = ".taskdeck-swap"
 	editorSwapExcludeRule  = "*.taskdeck-swap*"
 )
@@ -259,9 +260,13 @@ func (s *Server) loadEditorSession(r *http.Request) editorSessionState {
 				tab.Selection = swap.Selection
 				tab.LineEnding = swap.LineEnding
 				tab.Encoding = swap.Encoding
-				if data, readErr := os.ReadFile(source); readErr == nil {
-					sum := sha256.Sum256(data)
-					tab.ExternalChanged = !strings.EqualFold(hex.EncodeToString(sum[:]), swap.SourceSHA256)
+				if info, statErr := os.Stat(source); statErr == nil && info.Size() <= projectReadableLimit {
+					if data, readErr := os.ReadFile(source); readErr == nil {
+						sum := sha256.Sum256(data)
+						tab.ExternalChanged = !strings.EqualFold(hex.EncodeToString(sum[:]), swap.SourceSHA256)
+					}
+				} else if statErr == nil {
+					tab.ExternalChanged = true
 				}
 			} else {
 				tab.Dirty = false
@@ -360,7 +365,7 @@ func (s *Server) projectEditorSession(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, s.loadEditorSession(r))
 	case http.MethodPut, http.MethodPost:
 		var state editorSessionState
-		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, projectEditableLimit*editorSessionMaxTabs+(1<<20)))
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, editorSessionMaxPayload))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&state); err != nil {
 			http.Error(w, "invalid editor session payload", http.StatusBadRequest)
