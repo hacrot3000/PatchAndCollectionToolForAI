@@ -556,6 +556,9 @@ func cleanProjectRelativePath(requested string, allowRoot bool) (string, error) 
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("project path must stay inside workspace")
 	}
+	if isTaskDeckSwapName(filepath.Base(clean)) {
+		return "", fmt.Errorf("TaskDeck editor swap paths are internal")
+	}
 	return filepath.ToSlash(clean), nil
 }
 
