@@ -29,11 +29,10 @@ func (d *sqliteDatabase) CreateUser(ctx context.Context, user User) error {
 	}
 
 	result, err := d.db.ExecContext(ctx, `
-INSERT INTO users(
+INSERT OR IGNORE INTO users(
     id, username, display_name, password_hash, enabled,
     created_at, updated_at, last_login_at, password_changed_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(username) DO NOTHING
 `,
 		string(user.ID),
 		strings.TrimSpace(user.Username),
@@ -92,9 +91,8 @@ func (d *sqliteDatabase) CreateProjectUser(ctx context.Context, user User, membe
 	createdAt := user.CreatedAt.UTC().Format(time.RFC3339Nano)
 	updatedAt := user.UpdatedAt.UTC().Format(time.RFC3339Nano)
 	result, err := conn.ExecContext(ctx, `
-INSERT INTO users(id, username, display_name, password_hash, enabled, created_at, updated_at, password_changed_at)
+INSERT OR IGNORE INTO users(id, username, display_name, password_hash, enabled, created_at, updated_at, password_changed_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(username) DO NOTHING
 `, string(user.ID), user.Username, user.DisplayName, user.PasswordHash, encodeDBBool(user.Enabled), createdAt, updatedAt, updatedAt)
 	if err != nil {
 		return fmt.Errorf("create project user: %w", err)
@@ -249,9 +247,8 @@ func (d *sqliteDatabase) EnsureProject(ctx context.Context, project Project) (Pr
 	}
 
 	_, err := d.db.ExecContext(ctx, `
-INSERT INTO projects(id, project_key, display_name, enabled, created_at, updated_at)
+INSERT OR IGNORE INTO projects(id, project_key, display_name, enabled, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT(project_key) DO NOTHING
 `,
 		string(project.ID),
 		project.Key,
