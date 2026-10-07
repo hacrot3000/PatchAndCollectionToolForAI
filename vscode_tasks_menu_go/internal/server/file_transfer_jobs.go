@@ -89,6 +89,11 @@ type fileTransferServerItem struct {
 	RemoveAfterRun bool                      `json:"-"`
 }
 
+type fileTransferPendingScan struct {
+	JobID string
+	Req   fileTransferJobCreateRequest
+}
+
 type fileTransferServerQueue struct {
 	mu                     sync.Mutex
 	ProfileID              string
@@ -98,7 +103,12 @@ type fileTransferServerQueue struct {
 	Items                  []*fileTransferServerItem
 	Jobs                   map[string]*fileTransferServerJob
 	Sequence               uint64
+	MaxConnections         int
 	ActiveScans            int
+	QueuedScans            int
+	ActiveTransfers        int
+	ActiveBrowses          int
+	PendingScans           []fileTransferPendingScan
 	Revision               uint64
 	wake                   chan struct{}
 	workerOnce             sync.Once
@@ -107,12 +117,17 @@ type fileTransferServerQueue struct {
 }
 
 type fileTransferJobsSnapshot struct {
-	ProfileID   string                   `json:"profile_id"`
-	Paused      bool                     `json:"paused"`
-	ActiveScans int                      `json:"active_scans"`
-	Revision    uint64                   `json:"revision"`
-	Jobs        []*fileTransferServerJob `json:"jobs"`
-	Items       []*fileTransferServerItem `json:"items"`
+	ProfileID        string                    `json:"profile_id"`
+	Paused           bool                      `json:"paused"`
+	MaxConnections   int                       `json:"max_connections"`
+	ActiveConnections int                      `json:"active_connections"`
+	ActiveScans      int                       `json:"active_scans"`
+	QueuedScans      int                       `json:"queued_scans"`
+	ActiveTransfers  int                       `json:"active_transfers"`
+	ActiveBrowses    int                       `json:"active_browses"`
+	Revision         uint64                    `json:"revision"`
+	Jobs             []*fileTransferServerJob  `json:"jobs"`
+	Items            []*fileTransferServerItem `json:"items"`
 }
 
 func newFileTransferBackgroundID(prefix string) (string, error) {
@@ -134,11 +149,16 @@ func (s *Server) fileTransferServerQueue(profileID string) *fileTransferServerQu
 	if queue := s.fileTransferJobQueues[profileID]; queue != nil {
 		return queue
 	}
+	limit := filetransferprofile.DefaultMaxConnections
+	if profile, err := s.resolveFileTransferProfile(profileID); err == nil && profile.MaxConnections > 0 {
+		limit = profile.MaxConnections
+	}
 	queue := &fileTransferServerQueue{
-		ProfileID: profileID,
-		Jobs:      make(map[string]*fileTransferServerJob),
-		wake:      make(chan struct{}, 1),
-		persist:   s.scheduleFileTransferQueuePersist,
+		ProfileID:      profileID,
+		MaxConnections: limit,
+		Jobs:           make(map[string]*fileTransferServerJob),
+		wake:           make(chan struct{}, 1),
+		persist:        s.scheduleFileTransferQueuePersist,
 	}
 	s.fileTransferJobQueues[profileID] = queue
 	queue.workerOnce.Do(func() { go s.runFileTransferServerQueue(queue) })
@@ -175,13 +195,19 @@ func cloneFileTransferItem(item *fileTransferServerItem) *fileTransferServerItem
 func (q *fileTransferServerQueue) snapshot() fileTransferJobsSnapshot {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	limit := q.connectionLimitLocked()
 	out := fileTransferJobsSnapshot{
-		ProfileID:   q.ProfileID,
-		Paused:      q.Paused,
-		ActiveScans: q.ActiveScans,
-		Revision:    q.Revision,
-		Jobs:        make([]*fileTransferServerJob, 0, len(q.Jobs)),
-		Items:       make([]*fileTransferServerItem, 0, len(q.Items)),
+		ProfileID:         q.ProfileID,
+		Paused:            q.Paused,
+		MaxConnections:    limit,
+		ActiveConnections: q.activeConnectionsLocked(),
+		ActiveScans:       q.ActiveScans,
+		QueuedScans:       q.QueuedScans,
+		ActiveTransfers:   q.ActiveTransfers,
+		ActiveBrowses:     q.ActiveBrowses,
+		Revision:          q.Revision,
+		Jobs:              make([]*fileTransferServerJob, 0, len(q.Jobs)),
+		Items:             make([]*fileTransferServerItem, 0, len(q.Items)),
 	}
 	for _, job := range q.Jobs {
 		out.Jobs = append(out.Jobs, cloneFileTransferJob(job))
@@ -199,6 +225,95 @@ func (q *fileTransferServerQueue) touchLocked() {
 	if q.persist != nil {
 		q.persist()
 	}
+}
+
+func (q *fileTransferServerQueue) connectionLimitLocked() int {
+	if q.MaxConnections < 1 {
+		return filetransferprofile.DefaultMaxConnections
+	}
+	return q.MaxConnections
+}
+
+func (q *fileTransferServerQueue) activeConnectionsLocked() int {
+	return q.ActiveScans + q.ActiveTransfers + q.ActiveBrowses
+}
+
+func (q *fileTransferServerQueue) hasConnectionCapacityLocked() bool {
+	return q.activeConnectionsLocked() < q.connectionLimitLocked()
+}
+
+func (q *fileTransferServerQueue) enqueueScanLocked(jobID string, req fileTransferJobCreateRequest) {
+	q.PendingScans = append(q.PendingScans, fileTransferPendingScan{JobID: jobID, Req: *cloneFileTransferJobRequest(&req)})
+	q.QueuedScans++
+	if job := q.Jobs[jobID]; job != nil {
+		job.Status = "scan_queued"
+		job.UpdatedAt = time.Now().UTC()
+	}
+}
+
+func (q *fileTransferServerQueue) nextPendingScanLocked() *fileTransferPendingScan {
+	for len(q.PendingScans) > 0 {
+		scan := q.PendingScans[0]
+		q.PendingScans = q.PendingScans[1:]
+		if q.QueuedScans > 0 {
+			q.QueuedScans--
+		}
+		job := q.Jobs[scan.JobID]
+		if job == nil || job.ScanDone {
+			continue
+		}
+		return &scan
+	}
+	return nil
+}
+
+func (q *fileTransferServerQueue) setMaxConnections(limit int) {
+	if limit < 1 {
+		limit = filetransferprofile.DefaultMaxConnections
+	}
+	q.mu.Lock()
+	q.MaxConnections = limit
+	q.touchLocked()
+	q.mu.Unlock()
+	signalFileTransferQueue(q)
+}
+
+func (s *Server) updateFileTransferQueueLimit(profileID string, limit int) {
+	profileID = strings.TrimSpace(profileID)
+	if profileID == "" {
+		return
+	}
+	s.fileTransferJobsMu.Lock()
+	queue := s.fileTransferJobQueues[profileID]
+	s.fileTransferJobsMu.Unlock()
+	if queue != nil {
+		queue.setMaxConnections(limit)
+	}
+}
+
+func (s *Server) tryAcquireFileTransferBrowse(profileID string) (func(), bool) {
+	queue := s.fileTransferServerQueue(profileID)
+	queue.mu.Lock()
+	if !queue.hasConnectionCapacityLocked() {
+		queue.mu.Unlock()
+		return nil, false
+	}
+	queue.ActiveBrowses++
+	queue.touchLocked()
+	queue.mu.Unlock()
+	released := false
+	return func() {
+		queue.mu.Lock()
+		if !released {
+			released = true
+			if queue.ActiveBrowses > 0 {
+				queue.ActiveBrowses--
+			}
+			queue.touchLocked()
+		}
+		queue.mu.Unlock()
+		signalFileTransferQueue(queue)
+	}, true
 }
 
 func (q *fileTransferServerQueue) existingItemLocked(jobID, operation, source, target string, directory bool) *fileTransferServerItem {
