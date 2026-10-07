@@ -201,6 +201,8 @@ func TestExplorerCreatesRenamesAndMovesProjectItems(t *testing.T) {
 		"/api/project/mutate",
 		"async function createProjectItem(type)",
 		"async function renameProjectItem(pathValue)",
+		"assertNoDirtyEditors([pathValue])",
+		"undo.steps.filter(step=>step.action==='trash'||step.action==='rename')",
 		"async function moveSelectedProjectItems()",
 		"function topLevelSelectedPaths(paths)",
 		"body:JSON.stringify({action,path:pathValue,new_path:newPath,token})",
