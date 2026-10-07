@@ -139,6 +139,11 @@ func TestPatchPanelUploadsPatchCollectPackagesFromBrowser(t *testing.T) {
 		"refreshPatchQueueAfterUpload()",
 		"refreshQueueSessionSilently(activeSessionId)",
 		"await openQueueWhileRunning()",
+		"async function preparePatchQueueForUpload()",
+		"activePatchMode!=='queue'",
+		"Cannot release the current Patch Queue before upload",
+		"A PATCH/COLLECT run is active. Upload after it finishes, or return to Queue first.",
+		"await preparePatchQueueForUpload()",
 		"app.hasPermission?.('patch.run')",
 	} {
 		if !strings.Contains(js, want) {
