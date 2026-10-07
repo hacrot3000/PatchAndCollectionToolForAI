@@ -14,6 +14,7 @@ TARGET="$BIN_DIR/taskdeck"
 MAX_ARCHIVE_BYTES=$((128 * 1024 * 1024))
 TMP_ROOT=""
 STAGED_RELEASE=""
+PATCH_PYTHON_AVAILABLE=0
 
 cleanup() {
     [[ -n "${STAGED_RELEASE:-}" && -d "$STAGED_RELEASE" ]] && rm -rf -- "$STAGED_RELEASE"
@@ -70,9 +71,17 @@ stage_with_git() {
 }
 
 python_gate() {
-    command -v python3 >/dev/null 2>&1 || die "Cần Python 3.10+ trong PATH để dùng Patch add-on."
-    python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 3)' >/dev/null 2>&1 ||
-        die "Cần Python 3.10+ để dùng Patch add-on."
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "WARNING: Không tìm thấy Python 3.10+ trong PATH. TaskDeck vẫn sẽ được cài, nhưng Patch add-on sẽ không chạy cho đến khi cài Python 3.10+." >&2
+        return 0
+    fi
+    if ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 3)' >/dev/null 2>&1; then
+        local version
+        version="$(python3 --version 2>&1 || true)"
+        echo "WARNING: ${version:-python3 hiện tại} không đáp ứng yêu cầu Python 3.10+. TaskDeck vẫn sẽ được cài, nhưng Patch add-on sẽ không chạy." >&2
+        return 0
+    fi
+    PATCH_PYTHON_AVAILABLE=1
 }
 
 validate_release() {
@@ -151,11 +160,15 @@ echo "TaskDeck: chạy test trước khi cài..."
     cd "$SOURCE"
     GOPROXY=off GOSUMDB=off go test ./...
 )
-(
-    cd "$SOURCE_ROOT"
-    python3 test_python_patch_entry.py
-    python3 -m py_compile python_patch_entry.py
-)
+if (( PATCH_PYTHON_AVAILABLE )); then
+    (
+        cd "$SOURCE_ROOT"
+        python3 test_python_patch_entry.py
+        python3 -m py_compile python_patch_entry.py
+    )
+else
+    echo "TaskDeck: bỏ qua validation của Patch add-on vì thiếu Python 3.10+." >&2
+fi
 
 RELEASE_ID="$REVISION"
 if [[ "$REVISION" == "dev" ]]; then
@@ -211,6 +224,9 @@ echo "Đã cài TaskDeck release: $FINAL_RELEASE"
 echo "TaskDeck current: $CURRENT_LINK"
 echo "TaskDeck command: $TARGET"
 echo "Patch add-on: $CURRENT_LINK/patchtool"
+if (( ! PATCH_PYTHON_AVAILABLE )); then
+    echo "WARNING: Patch add-on đã được cài kèm nhưng hiện không thể chạy do thiếu Python 3.10+." >&2
+fi
 case ":${PATH:-}:" in
     *":$BIN_DIR:"*) ;;
     *) echo "LƯU Ý: $BIN_DIR chưa có trong PATH. Hãy thêm nó để chạy lệnh: taskdeck" ;;
