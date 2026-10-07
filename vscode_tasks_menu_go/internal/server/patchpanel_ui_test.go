@@ -1559,7 +1559,9 @@ func TestPatchLatestCompletedForegroundIsProminent(t *testing.T) {
 		"Latest failed · ",
 		"Latest completed · ",
 		"runningTitle.textContent=name?'Current run · '+name:'Current run'",
-		"runningHead.classList.toggle('finished',!failed)",
+		"const collectSuccess=!failed&&foregroundIsCollectOnly(state)",
+		"runningHead.classList.toggle('finished',!failed&&!collectSuccess)",
+		"runningHead.classList.toggle('collect-success',collectSuccess)",
 		"runningHead.classList.toggle('failed',failed)",
 		"Failure reason, recent console output, and handoff/artifacts are available below.",
 		"completed successfully. Result and artifacts below are the latest foreground run.",
@@ -1711,9 +1713,17 @@ func TestPatchRunLifecycleUsesDistinctStatusColors(t *testing.T) {
 	for _, want := range []string{
 		".task-patch-run-item.running",
 		".task-patch-run-item.passed",
+		".task-patch-run-item.passed.collect-success",
 		".task-patch-run-item.failed",
 		".task-patch-run-item.warning",
+		".task-patch-running-head.collect-success",
+		"html[data-taskmenu-theme=\"light\"] .task-patch-running-head.collect-success",
+		"html[data-taskmenu-theme=\"light\"] .task-patch-run-item.passed.collect-success",
 		"function lifecycleState(value)",
+		"function isCollectKind(value)",
+		"function foregroundRunKinds(state=foregroundProtocolState)",
+		"function foregroundIsCollectOnly(state=foregroundProtocolState)",
+		"if(lifecycle==='passed'&&isCollectKind(item?.kind))row.classList.add('collect-success')",
 		"['RUNNING','STARTING'].includes(status)",
 		"['PASS','PASSED','SUCCESS'].includes(status)",
 		"['FAIL','FAILED','PREFLIGHT_FAIL','INCOMPLETE'].includes(status)",
@@ -1725,6 +1735,27 @@ func TestPatchRunLifecycleUsesDistinctStatusColors(t *testing.T) {
 	}
 }
 
+
+func TestPatchCollectSuccessColorDoesNotChangeFailureHandoffFlow(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const collectSuccess=!failed&&foregroundIsCollectOnly(state)",
+		"runningHead.classList.toggle('failed',failed)",
+		"copyFailureLog.hidden=!failed",
+		"Copy failure + handoff",
+		"View handoff / artifacts",
+		"family==='fail_handoff'||family==='ai_sync'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("COLLECT success styling must preserve failure/handoff behavior: missing %q", want)
+		}
+	}
+	if strings.Contains(js, "failed&&foregroundIsCollectOnly") {
+		t.Fatal("failed COLLECT runs must never use collect-success styling")
+	}
+}
 
 func TestPatchPanelAutoLoadsQueueOnFirstNativeOpen(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
