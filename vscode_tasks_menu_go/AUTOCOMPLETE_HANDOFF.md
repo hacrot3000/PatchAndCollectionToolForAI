@@ -88,3 +88,15 @@ This Tier 1 + Tier 2 batch is complete on `main`.
 Tier 3 semantic completion (persistent LSP sessions + `textDocument/completion` for type-aware member suggestions such as `object.member`) remains intentionally deferred. The current LSP lifecycle is ephemeral per action and should not be reused for keystroke-driven completion without a persistent-session redesign.
 
 - `650070f`: hotfix after TaskDeck self-update validation at revision `5a4075e`: removed stale unused `sort` import from `internal/server/project_symbols.go` and normalized the import order. This directly fixes the reported Go build failure.
+
+
+## Smart Enter follow-up — 2026-10-07
+
+Reported after autocomplete rollout:
+- Enter at end of an indented Java line did not preserve the line indentation.
+- Enter between adjacent delimiter pairs such as `{|}` moved the caret outside instead of expanding the block.
+
+Implemented:
+- `36526dd`: added editor-wide smart Enter handling. Plain Enter preserves the current line's leading whitespace; Enter between `{}`, `()`, or `[]` inserts an indented middle line and moves the closing delimiter to its own aligned line. A lone opening delimiter at end-of-line also increases indentation for the new line. Indent unit is inferred from nearby lines, preferring tabs when the surrounding file uses tabs.
+- Smart Enter deliberately does not intercept Enter while CodeMirror autocomplete UI is open, so Enter continues to accept completion suggestions.
+- `0a07d8b`: added regression assertions for indentation preservation, delimiter-pair expansion, selection handling, and autocomplete coexistence.
