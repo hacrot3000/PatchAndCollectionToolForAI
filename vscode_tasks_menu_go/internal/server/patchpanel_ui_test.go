@@ -139,12 +139,10 @@ func TestPatchPanelUploadsPatchCollectPackagesFromBrowser(t *testing.T) {
 		"refreshPatchQueueAfterUpload()",
 		"refreshQueueSessionSilently(activeSessionId)",
 		"await openQueueWhileRunning()",
-		"async function preparePatchQueueForUpload()",
-		"activePatchMode!=='queue'",
-		"Cannot release the current Patch Queue before upload",
 		"A PATCH/COLLECT run is active. Upload after it finishes, or return to Queue first.",
-		"await preparePatchQueueForUpload()",
 		"app.hasPermission?.('patch.run')",
+		"activeSessionId&&!runningMode&&(activePatchMode==='queue'||activePatchMode==='resume')",
+		"'/mutation-lock',{method:'POST'}",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("Patch browser upload UI missing %q", want)
