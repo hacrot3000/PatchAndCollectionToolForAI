@@ -191,7 +191,18 @@ FTP/SFTP workspace state được lưu theo workspace để browser reload khôn
 
 ### Transfer Queue
 
-Bên dưới hai file panes có **Transfer Queue** dùng chung cho upload/download/delete:
+Bên dưới hai file panes có **Transfer Queue** dùng chung cho upload/download/delete.
+
+Mỗi FTP/SFTP profile có **Max concurrent connections** riêng, mặc định **3** và có thể chỉnh từ **Connections → FTP/SFTP profile** hoặc trực tiếp ở header Transfer Queue. Đây là một budget chung của profile cho scanner, transfer và các remote operation của file workspace:
+
+- mỗi scanner đang chạy giữ 1 slot;
+- mỗi upload/download/delete worker đang chạy giữ 1 slot;
+- browse/list/change directory, remote mutation, remote SHA-256/text compare và SFTP archive upload/extract cũng phải lấy slot trước khi mở remote connection;
+- ví dụ `max=3`: 1 scan đang chạy chỉ còn tối đa 2 transfer; 2 scan chỉ còn 1 transfer; 3 scan thì transfer mới chờ;
+- scan vượt budget giữ trạng thái **Scan queued** và chỉ được scheduler cấp slot khi có connection trống;
+- khi usage đạt `max`, pane **Remote · FTP/SFTP** khóa path input, history, Go, Up, Refresh, double-click/Open folder; backend vẫn kiểm tra lại và trả `429` nếu có race;
+- queue Local-browser có nhiều worker song song thay vì chạy tuần tự; nếu backend báo pool đầy, item quay lại **Queued · Waiting for an FTP/SFTP connection slot** thay vì bị đánh Failed;
+- đổi limit có hiệu lực ngay và được lưu vào profile. Nếu giảm limit xuống thấp hơn số connection đang chạy, TaskDeck không cắt request đang chạy; scheduler chỉ ngừng cấp slot mới cho tới khi usage trở lại dưới limit.
 
 - mỗi upload/download file và mỗi remote delete target là một queue item độc lập;
 - trạng thái: **Queued / Running / Conflict / Done / Skipped / Failed**;
@@ -205,7 +216,7 @@ Bên dưới hai file panes có **Transfer Queue** dùng chung cho upload/downlo
 - operation đang Running không bị abort giữa request; nếu Remove selected trúng item đang chạy thì item được đánh dấu remove-after-run;
 - Host upload/download/delete dùng hai pipeline bất đồng bộ trong daemon: **scanner producer** duyệt cây thư mục và **queue worker** thực thi item đã tìm thấy; browser chỉ hiển thị và điều khiển;
 - scanner phát hiện item đến đâu thì enqueue đến đó, không cần giữ toàn bộ cây hoặc chờ quét xong mới xử lý; remote delete dùng post-order để parent `rmdir` luôn nằm sau child delete;
-- mỗi FTP/SFTP profile có server queue worker riêng; scanner có thể tiếp tục listing/mkdir trong khi worker đang transfer/delete một item. Local-browser pipeline giữ cùng semantics nhưng phần đọc/ghi FileSystemHandle phải chạy ở browser;
+- mỗi FTP/SFTP profile có scheduler riêng dùng chung connection budget; scanner có thể chạy song song với nhiều transfer worker trong phần slot còn lại. Local-browser pipeline giữ cùng budget/parallel-worker semantics nhưng phần đọc/ghi FileSystemHandle phải chạy ở browser;
 - queue lớn dùng pending cursor O(1), throttle render và giới hạn tối đa 2000 row trong DOM; logical queue vẫn giữ đầy đủ trạng thái của toàn bộ item;
 - empty folder vẫn được tạo dù không có file queue item.
 
