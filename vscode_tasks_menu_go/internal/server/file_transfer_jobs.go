@@ -79,7 +79,8 @@ type fileTransferServerJob struct {
 	Files             int64             `json:"files,omitempty"`
 	Bytes             int64             `json:"bytes,omitempty"`
 	ArchiveBytes      int64             `json:"archive_bytes,omitempty"`
-	RemoteArchive     string            `json:"remote_archive,omitempty"`
+	RemoteArchive      string            `json:"remote_archive,omitempty"`
+	RemoteDestination string            `json:"remote_destination,omitempty"`
 	NeedsManualExtract bool             `json:"needs_manual_extract,omitempty"`
 	ManualCommands    map[string]string `json:"manual_commands,omitempty"`
 }
