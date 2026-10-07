@@ -23,9 +23,10 @@ import (
 )
 
 const (
-	fileTransferJobHostUpload   = "host_upload"
-	fileTransferJobHostDownload = "host_download"
-	fileTransferJobRemoteDelete = "remote_delete"
+	fileTransferJobHostUpload        = "host_upload"
+	fileTransferJobHostDownload      = "host_download"
+	fileTransferJobRemoteDelete      = "remote_delete"
+	fileTransferJobHostArchiveUpload = "host_archive_upload"
 
 	// Large multi-selection actions can legitimately carry tens of thousands
 	// of remote paths/item IDs. Keep the general file-transfer JSON limit small,
@@ -48,6 +49,8 @@ type fileTransferJobCreateRequest struct {
 	RemoteDir       string                  `json:"remote_dir,omitempty"`
 	HostDir         string                  `json:"host_dir,omitempty"`
 	ConflictPolicy  string                  `json:"conflict_policy,omitempty"`
+	MergePolicy     string                  `json:"merge_policy,omitempty"`
+	AutoExtract     bool                    `json:"auto_extract,omitempty"`
 }
 
 type fileTransferJobControlRequest struct {
@@ -71,7 +74,14 @@ type fileTransferServerJob struct {
 	ConflictPolicy string    `json:"conflict_policy,omitempty"`
 	Recovered      bool      `json:"recovered,omitempty"`
 	Request        *fileTransferJobCreateRequest `json:"-"`
-	NeedsRescan    bool      `json:"-"`
+	NeedsRescan       bool              `json:"-"`
+	Phase             string            `json:"phase,omitempty"`
+	Files             int64             `json:"files,omitempty"`
+	Bytes             int64             `json:"bytes,omitempty"`
+	ArchiveBytes      int64             `json:"archive_bytes,omitempty"`
+	RemoteArchive     string            `json:"remote_archive,omitempty"`
+	NeedsManualExtract bool             `json:"needs_manual_extract,omitempty"`
+	ManualCommands    map[string]string `json:"manual_commands,omitempty"`
 }
 
 type fileTransferServerItem struct {
@@ -93,6 +103,10 @@ type fileTransferServerItem struct {
 	Priority       bool                      `json:"-"`
 	Removed        bool                      `json:"-"`
 	RemoveAfterRun bool                      `json:"-"`
+	Detail         string                    `json:"detail,omitempty"`
+	Files          int64                     `json:"files,omitempty"`
+	BytesDone      int64                     `json:"bytes_done,omitempty"`
+	BytesTotal     int64                     `json:"bytes_total,omitempty"`
 }
 
 type fileTransferPendingScan struct {
@@ -116,6 +130,7 @@ type fileTransferServerQueue struct {
 	ActiveBrowses          int
 	PendingScans           []fileTransferPendingScan
 	ScanCancels            map[string]context.CancelFunc
+	TransferCancels        map[string]context.CancelFunc
 	StoppedScanJobs        map[string]bool
 	Revision               uint64
 	wake                   chan struct{}
@@ -165,7 +180,8 @@ func (s *Server) fileTransferServerQueue(profileID string) *fileTransferServerQu
 		ProfileID:      profileID,
 		MaxConnections: limit,
 		Jobs:           make(map[string]*fileTransferServerJob),
-		ScanCancels:    make(map[string]context.CancelFunc),
+		ScanCancels:     make(map[string]context.CancelFunc),
+		TransferCancels: make(map[string]context.CancelFunc),
 		StoppedScanJobs: make(map[string]bool),
 		wake:           make(chan struct{}, 1),
 		persist:        s.scheduleFileTransferQueuePersist,
@@ -187,6 +203,12 @@ func cloneFileTransferJob(job *fileTransferServerJob) *fileTransferServerJob {
 		return nil
 	}
 	copy := *job
+	if job.ManualCommands != nil {
+		copy.ManualCommands = make(map[string]string, len(job.ManualCommands))
+		for key, value := range job.ManualCommands {
+			copy.ManualCommands[key] = value
+		}
+	}
 	return &copy
 }
 
@@ -533,6 +555,8 @@ func (q *fileTransferServerQueue) recomputeJobLocked(jobID string) {
 			hasRunning = true
 		case "failed":
 			hasFailed = true
+		case "stopped":
+			hasFailed = true
 		case "conflict":
 			hasConflict = true
 		}
@@ -614,10 +638,15 @@ func (s *Server) runFileTransferServerQueue(queue *fileTransferServerQueue) {
 			item.Error = ""
 			item.Attempts++
 			queue.ActiveTransfers++
+			ctx, cancel := context.WithCancel(context.Background())
+			if queue.TransferCancels == nil {
+				queue.TransferCancels = make(map[string]context.CancelFunc)
+			}
+			queue.TransferCancels[item.ID] = cancel
 			queue.recomputeJobLocked(item.JobID)
 			queue.touchLocked()
 			queue.mu.Unlock()
-			go s.runFileTransferServerItem(queue, item)
+			go s.runFileTransferServerItem(ctx, queue, item)
 		}
 	}
 }
@@ -637,15 +666,26 @@ func (s *Server) runFileTransferServerScan(ctx context.Context, queue *fileTrans
 	queue.setScanState(scan.JobID, true, scanErr)
 }
 
-func (s *Server) runFileTransferServerItem(queue *fileTransferServerQueue, item *fileTransferServerItem) {
-	err := s.executeFileTransferServerItem(context.Background(), queue.ProfileID, item)
+func (s *Server) runFileTransferServerItem(ctx context.Context, queue *fileTransferServerQueue, item *fileTransferServerItem) {
+	err := s.executeFileTransferServerItem(ctx, queue, queue.ProfileID, item)
 	queue.mu.Lock()
-	if err != nil {
+	if cancel := queue.TransferCancels[item.ID]; cancel != nil {
+		delete(queue.TransferCancels, item.ID)
+		cancel()
+	}
+	if errors.Is(err, context.Canceled) {
+		item.Status = "stopped"
+		item.Error = ""
+		item.Detail = "Cancelled"
+	} else if err != nil {
 		item.Status = "failed"
 		item.Error = err.Error()
 	} else {
 		item.Status = "success"
 		item.Error = ""
+		if item.Detail == "" {
+			item.Detail = "Completed"
+		}
 	}
 	if item.RemoveAfterRun {
 		item.Removed = true
@@ -659,8 +699,10 @@ func (s *Server) runFileTransferServerItem(queue *fileTransferServerQueue, item 
 	signalFileTransferQueue(queue)
 }
 
-func (s *Server) executeFileTransferServerItem(ctx context.Context, profileID string, item *fileTransferServerItem) error {
+func (s *Server) executeFileTransferServerItem(ctx context.Context, queue *fileTransferServerQueue, profileID string, item *fileTransferServerItem) error {
 	switch item.Operation {
+	case "host_archive_upload":
+		return s.backgroundHostArchiveUpload(ctx, queue, item)
 	case "host_upload":
 		return s.backgroundHostToRemote(ctx, profileID, item.Source, item.Target, item.Attempts)
 	case "host_download":
@@ -1248,9 +1290,15 @@ func (s *Server) createFileTransferServerJob(req fileTransferJobCreateRequest) (
 		return nil, err
 	}
 	switch req.Kind {
-	case fileTransferJobHostUpload:
+	case fileTransferJobHostUpload, fileTransferJobHostArchiveUpload:
 		if len(req.HostPaths) == 0 {
 			return nil, errors.New("host_paths are required")
+		}
+		if req.Kind == fileTransferJobHostArchiveUpload {
+			req.MergePolicy, err = normalizeFileTransferArchiveMergePolicy(req.MergePolicy)
+			if err != nil {
+				return nil, err
+			}
 		}
 	case fileTransferJobHostDownload, fileTransferJobRemoteDelete:
 		if len(req.RemoteTargets) == 0 {
@@ -1272,7 +1320,23 @@ func (s *Server) createFileTransferServerJob(req fileTransferJobCreateRequest) (
 	queue := s.fileTransferServerQueue(req.ProfileID)
 	queue.mu.Lock()
 	queue.Jobs[jobID] = job
-	queue.enqueueScanLocked(jobID, req)
+	if req.Kind == fileTransferJobHostArchiveUpload {
+		job.Status = "queued"
+		job.ScanDone = true
+		job.Phase = "queued"
+		queue.Sequence++
+		source := req.HostPaths[0]
+		if len(req.HostPaths) > 1 {
+			source = fmt.Sprintf("%s (+%d selected)", source, len(req.HostPaths)-1)
+		}
+		queue.Items = append(queue.Items, &fileTransferServerItem{
+			ID: fmt.Sprintf("srv-%s-%d", jobID, queue.Sequence), JobID: jobID,
+			Kind: "Compressed upload", Direction: "→", Source: source, Target: req.RemoteDir,
+			Status: "queued", Operation: "host_archive_upload", Detail: "Waiting to compress",
+		})
+	} else {
+		queue.enqueueScanLocked(jobID, req)
+	}
 	queue.touchLocked()
 	queue.mu.Unlock()
 	signalFileTransferQueue(queue)
@@ -1309,7 +1373,7 @@ func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 		}
 		permission := identity.PermissionTransferRead
 		switch strings.TrimSpace(req.Kind) {
-		case fileTransferJobHostUpload:
+		case fileTransferJobHostUpload, fileTransferJobHostArchiveUpload:
 			permission = identity.PermissionTransferUpload
 		case fileTransferJobRemoteDelete:
 			permission = identity.PermissionTransferDelete
@@ -1318,6 +1382,11 @@ func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 		}
 		if !s.requireSharedActionPermission(w, r, permission, req.Kind, "file_transfer:"+req.ProfileID) {
 			return
+		}
+		if strings.TrimSpace(req.Kind) == fileTransferJobHostArchiveUpload && req.AutoExtract {
+			if !s.requireSharedActionPermission(w, r, identity.PermissionSSHUse, req.Kind, "file_transfer:"+req.ProfileID) {
+				return
+			}
 		}
 		if strings.TrimSpace(req.Kind) == fileTransferJobRemoteDelete {
 			directoryPaths := make([]string, 0, len(req.RemoteTargets))
@@ -1392,6 +1461,9 @@ func clearFileTransferQueueLocked(queue *fileTransferServerQueue) {
 		}
 		if item.Status == "running" {
 			item.RemoveAfterRun = true
+			if cancel := queue.TransferCancels[item.ID]; cancel != nil {
+				cancel()
+			}
 			kept = append(kept, item)
 			activeJobs[item.JobID] = true
 		}
@@ -1463,6 +1535,9 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
 			}
 			if item.Status == "running" {
 				item.RemoveAfterRun = true
+				if cancel := queue.TransferCancels[item.ID]; cancel != nil {
+					cancel()
+				}
 			} else {
 				item.Removed = true
 			}
