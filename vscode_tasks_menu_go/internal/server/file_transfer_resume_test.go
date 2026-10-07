@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,7 +69,7 @@ func TestUploadConflictOverwriteMarksQueueItemForReplacementAndRetry(t *testing.
 	}
 	s := &Server{}
 	conflict := &fileTransferConflictMeta{SourceSize: 20, TargetSize: 10}
-	if err := s.enqueueServerTransferConflictAware(q, "job", "Upload", "→", "local.bin", "/remote.bin", "host_upload", 20, conflict); err != nil {
+	if err := s.enqueueServerTransferConflictAware(context.Background(), q, "job", "Upload", "→", "local.bin", "/remote.bin", "host_upload", 20, conflict); err != nil {
 		t.Fatal(err)
 	}
 	q.mu.Lock()
