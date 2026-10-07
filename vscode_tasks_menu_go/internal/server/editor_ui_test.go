@@ -152,6 +152,34 @@ func TestEditorSupportsRecursiveSplitLayouts(t *testing.T) {
 }
 
 
+func TestEditorSmartEnterPreservesIndentAndSplitsPairs(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function editorLeadingIndent(text)",
+		"function editorIndentUnit(state,line)",
+		"function editorCompletionMenuOpen(view)",
+		"const editorSmartEnterPairs=new Map([['{','}'],['(',')'],['[',']']])",
+		"function smartEditorEnter(view)",
+		"if(selection.from!==selection.to)return false",
+		"insert='\\n'+childIndent+'\\n'+indent",
+		"insert='\\n'+indent",
+		"selection:{anchor}",
+		"event.key==='Enter'",
+		"if(smartEditorEnter(view))",
+		"event.preventDefault();event.stopPropagation()",
+		".cm-tooltip-autocomplete",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor smart Enter behavior missing %q", want)
+		}
+	}
+}
+
+
 func TestEditorDirtySaveShortcutsAndCloseFlow(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/editor.js")
 	if err != nil {
