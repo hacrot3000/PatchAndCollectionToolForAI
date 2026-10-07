@@ -170,7 +170,9 @@ echo "TaskDeck: kiểm tra source trước khi cài..."
         else
             echo "TaskDeck: installer dùng compile-only validation; đặt TASKDECK_INSTALL_FULL_VALIDATION=1 để chạy toàn bộ Go tests." >&2
         fi
-        GOPROXY=off GOSUMDB=off go test -vet=off -run '^
+        GOPROXY=off GOSUMDB=off go test -vet=off -run '^$' ./...
+    fi
+)
 if (( PYTHON_310_AVAILABLE )); then
     (
         cd "$SOURCE_ROOT"
