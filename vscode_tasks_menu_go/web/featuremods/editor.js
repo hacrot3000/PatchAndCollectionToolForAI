@@ -1040,14 +1040,6 @@ function setEditorDocument(view,file){
   updateAutoSaveButton(view);
   setDirty(view,false);
   scheduleEditorMinimap(view);
-  if(view.file?.remote_transfer_profile_id){
-    window.dispatchEvent(new CustomEvent('taskmenu:file-transfer-remote-edited',{detail:{
-      profile_id:String(view.file.remote_transfer_profile_id),
-      path:String(view.file.remote_path||''),
-      sha256:String(view.file.sha256||''),
-      size:Number(view.file.size)||0
-    }}));
-  }
 }
 function applySavedEditorFile(view,file){
   if(!view||view.closed||!file)return;
@@ -1069,6 +1061,14 @@ function applySavedEditorFile(view,file){
   updateAutoSaveButton(view);
   setDirty(view,false);
   scheduleEditorMinimap(view);
+  if(view.file?.remote_transfer_profile_id){
+    window.dispatchEvent(new CustomEvent('taskmenu:file-transfer-remote-edited',{detail:{
+      profile_id:String(view.file.remote_transfer_profile_id),
+      path:String(view.file.remote_path||''),
+      sha256:String(view.file.sha256||''),
+      size:Number(view.file.size)||0
+    }}));
+  }
 }
 function activateEditorDOM(id){
   activeEditorID=id;
