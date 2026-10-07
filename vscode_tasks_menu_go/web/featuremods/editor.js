@@ -337,6 +337,45 @@ function formatBytes(size){
   if(value<1024*1024)return (value/1024).toFixed(value<10*1024?1:0)+' KiB';
   return (value/(1024*1024)).toFixed(1)+' MiB';
 }
+const editorLanguageRegistry=[
+  {id:'cpp',label:'C/C++',extensions:['c','h','cc','cpp','cxx','hh','hpp','hxx','ino'],codeMirror:'cpp'},
+  {id:'go',label:'Go',extensions:['go'],codeMirror:'go'},
+  {id:'python',label:'Python',extensions:['py','pyw'],codeMirror:'python'},
+  {id:'javascript',label:'JavaScript',extensions:['js','mjs','cjs'],codeMirror:'javascript'},
+  {id:'jsx',label:'JSX',extensions:['jsx'],codeMirror:'jsx'},
+  {id:'typescript',label:'TypeScript',extensions:['ts'],codeMirror:'typescript'},
+  {id:'tsx',label:'TSX',extensions:['tsx'],codeMirror:'tsx'},
+  {id:'json',label:'JSON',extensions:['json','json5'],codeMirror:'json'},
+  {id:'yaml',label:'YAML',extensions:['yaml','yml'],codeMirror:'yaml'},
+  {id:'markdown',label:'Markdown',extensions:['md','markdown','mkd'],codeMirror:'markdown'},
+  {id:'html',label:'HTML',extensions:['html','htm','hbs','handlebars'],codeMirror:'html'},
+  {id:'css',label:'CSS',extensions:['css'],codeMirror:'css'},
+  {id:'xml',label:'XML',extensions:['xml','svg'],codeMirror:'xml'},
+  {id:'java',label:'Java',extensions:['java'],codeMirror:'java'},
+  {id:'php',label:'PHP',extensions:['php'],codeMirror:'php'},
+  {id:'sql',label:'SQL',extensions:['sql'],codeMirror:'sql'},
+  {id:'rust',label:'Rust',extensions:['rs'],codeMirror:'rust'},
+  {id:'vue',label:'Vue',extensions:['vue'],codeMirror:'vue'},
+  {id:'cmake',label:'CMake',extensions:['cmake'],filenames:['cmakelists.txt'],legacy:'cmake'},
+  {id:'shell',label:'Shell',extensions:['sh','bash','zsh','fish','ksh'],filenames:['.bashrc','.zshrc'],legacy:'shell'},
+  {id:'nim',label:'Nim',extensions:['nim','nims','nimble'],legacy:'nim'},
+  {id:'lua',label:'Lua',extensions:['lua'],legacy:'lua'}
+];
+function editorLanguagePathInfo(pathValue){
+  const lower=String(pathValue||'').toLowerCase();
+  const name=basename(lower);
+  const ext=name.includes('.')?name.slice(name.lastIndexOf('.')+1):'';
+  return {lower,name,ext};
+}
+function editorLanguageDefinition(pathValue){
+  const info=editorLanguagePathInfo(pathValue);
+  return editorLanguageRegistry.find(language=>
+    (language.extensions||[]).includes(info.ext)||
+    (language.filenames||[]).includes(info.name)||
+    (language.filenamePrefixes||[]).some(prefix=>info.name.startsWith(prefix))||
+    (typeof language.match==='function'&&language.match(info))
+  )||null;
+}
 const legacyKeywordSets={
   shell:new Set('if then else elif fi for while until do done case esac in function select time coproc readonly local export declare typeset unset shift break continue return'.split(' ')),
   cmake:new Set('if elseif else endif foreach endforeach while endwhile function endfunction macro endmacro return break continue'.split(' ')),
@@ -345,14 +384,7 @@ const legacyKeywordSets={
 };
 const legacyMarks=new Map();
 function legacyHighlightKind(pathValue){
-  const lower=String(pathValue||'').toLowerCase();
-  const name=basename(lower);
-  const ext=(name.includes('.')?name.slice(name.lastIndexOf('.')+1):'');
-  if(name==='cmakelists.txt'||ext==='cmake')return 'cmake';
-  if(['sh','bash','zsh','fish','ksh'].includes(ext)||name==='.bashrc'||name==='.zshrc')return 'shell';
-  if(['nim','nims','nimble'].includes(ext))return 'nim';
-  if(ext==='lua')return 'lua';
-  return '';
+  return editorLanguageDefinition(pathValue)?.legacy||'';
 }
 function legacyMark(type){
   if(!legacyMarks.has(type))legacyMarks.set(type,globalThis.cm6.Decoration.mark({class:'cm-legacy-'+type}));
@@ -529,48 +561,16 @@ function bracketMatchingExtension(){
 }
 
 function languageOptions(pathValue){
-  const lower=String(pathValue||'').toLowerCase();
-  const name=basename(lower);
-  const ext=(name.includes('.')?name.slice(name.lastIndexOf('.')+1):'');
   const options={lineWrapping:false};
   if(document.documentElement.dataset.taskmenuTheme!=='light')options.dark=true;
-  if(['c','h','cc','cpp','cxx','hh','hpp','hxx','ino'].includes(ext))options.cpp=true;
-  else if(ext==='go')options.go=true;
-  else if(['py','pyw'].includes(ext))options.python=true;
-  else if(['js','mjs','cjs'].includes(ext))options.javascript=true;
-  else if(ext==='jsx')options.jsx=true;
-  else if(ext==='ts')options.typescript=true;
-  else if(ext==='tsx')options.tsx=true;
-  else if(['json','json5'].includes(ext))options.json=true;
-  else if(['yaml','yml'].includes(ext))options.yaml=true;
-  else if(['md','markdown','mkd'].includes(ext))options.markdown=true;
-  else if(['html','htm','hbs','handlebars'].includes(ext))options.html=true;
-  else if(ext==='css')options.css=true;
-  else if(ext==='xml'||ext==='svg')options.xml=true;
-  else if(ext==='java')options.java=true;
-  else if(ext==='php')options.php=true;
-  else if(ext==='sql')options.sql=true;
-  else if(ext==='rs')options.rust=true;
-  else if(ext==='vue')options.vue=true;
-  const legacy=legacyHighlightKind(pathValue);
+  const language=editorLanguageDefinition(pathValue);
+  if(language?.codeMirror)options[language.codeMirror]=true;
   options.extraExtensions=[activeLineDecorationExtension(),whitespaceDecorationExtension(),bracketMatchingExtension()];
-  if(legacy)options.extraExtensions.push(legacySyntaxExtension(legacy));
+  if(language?.legacy)options.extraExtensions.push(legacySyntaxExtension(language.legacy));
   return options;
 }
 function languageLabel(pathValue){
-  const options=languageOptions(pathValue);
-  if(options.tsx)return 'TSX';
-  if(options.typescript)return 'TypeScript';
-  if(options.jsx)return 'JSX';
-  for(const key of ['cpp','go','python','javascript','json','yaml','markdown','html','css','xml','java','php','sql','rust','vue']){
-    if(options[key])return key==='cpp'?'C/C++':key==='javascript'?'JavaScript':key.toUpperCase();
-  }
-  const legacy=legacyHighlightKind(pathValue);
-  if(legacy==='cmake')return 'CMake';
-  if(legacy==='shell')return 'Shell';
-  if(legacy==='nim')return 'Nim';
-  if(legacy==='lua')return 'Lua';
-  return 'Plain text';
+  return editorLanguageDefinition(pathValue)?.label||'Plain text';
 }
 function editorMetaText(file){
   const ending=(file.line_ending||'lf').toUpperCase();
