@@ -52,7 +52,25 @@ Required behavior:
 - Regression coverage added for profile defaults/validation/persistence, 3-slot scan/transfer examples, queued fourth scan, connection snapshot and UI contracts.
 - Static review found no unused imports in modified Go files; all 326 existing dual-pane UI string contracts currently match `filetransfer.js`.
 
-Remaining before final completion:
-1. final regression/static review of touched files and recent commit list;
-2. confirm repository workflow/check status for current HEAD;
-3. mark this handoff complete with final HEAD.
+## Final validation
+
+- Static import review: no unused Go imports detected in all modified profile/server/test files.
+- Existing dual-pane UI contract review: all 326 required strings in `file_transfer_dual_pane_ui_test.go` are present in the current `filetransfer.js`.
+- JavaScript syntax was re-parsed after each major `filetransfer.js` edit before commit.
+- GitHub combined status for the checkpoint HEAD contains no status checks and no workflow runs; therefore this batch does **not** claim a GitHub CI `go test`/build result.
+- Documentation updated in `CONNECTIONS.md` and `README.md`.
+
+## Key commits
+
+- `f6e9ff8` / `7313917` / `16418b0`: profile schema/API/UI for persisted `max_connections`, default 3.
+- `0bfff7b` / `5df490e` / `6204171`: shared daemon budget, concurrent scheduler, queued/recovered scans.
+- `4959eae` / `a52d8a3` / `2ebc613` / `5e8cef9`: gate browse/navigation and direct browser/host transfers.
+- `08b0528` / `6f73f8f` / `4124d63`: parallel browser workers, pool-full requeue and immediate navigation lock.
+- `35c3495` / `dd0e42c`: live Transfer Queue Max connections control with shared-server permission enforcement.
+- `d360675` / `0c5dd4a` / `c5fe34c`: include remote hash/text/archive operations in the same pool.
+- `0fd915f` / `9fdc647` / `3bd90a9` / `022e706` / `fa230b4` / `0459f2d`: profile, scheduler, persistence and UI regression coverage.
+- `83b91e5` / `83dd5f1`: user-facing connection-pool documentation.
+
+## Status
+
+This FTP/SFTP connection-pool batch is complete on `main`.
