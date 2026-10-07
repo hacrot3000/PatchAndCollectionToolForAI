@@ -734,13 +734,29 @@ function installPatchPanel(){
     await start('queue');
   }
 
+  async function preparePatchQueueForUpload(){
+    if(!activeSessionId||runningMode||activePatchMode!=='queue')return;
+    const sessionId=String(activeSessionId);
+    protocolPollGeneration+=1;
+    actionPollGeneration+=1;
+    queueMutationPollGeneration+=1;
+    try{await app.jsonFetch('/api/sessions/'+encodeURIComponent(sessionId)+'/stop',{method:'POST'});}catch(error){
+      throw new Error('Cannot release the current Patch Queue before upload: '+String(error?.message||error));
+    }
+    if(activeSessionId===sessionId)activeSessionId='';
+    clearPrompt();
+    lastQueueSnapshotSessionId='';
+  }
+
   async function uploadPatchPackages(files){
     if(uploadBusy||!files?.length)return [];
     if(!patchUploadAllowed())throw new Error('Patch upload requires patch.run permission');
+    if(runningMode)throw new Error('A PATCH/COLLECT run is active. Upload after it finishes, or return to Queue first.');
     uploadBusy=true;
     if(uploadButton)uploadButton.disabled=true;
     const uploaded=[],skipped=[];
     try{
+      await preparePatchQueueForUpload();
       for(let i=0;i<files.length;i+=1){
         const file=files[i];
         renderPatchUploadStatus('Upload PATCH/COLLECT',`Uploading ${i+1}/${files.length} · ${file.name}`,'Packages are published directly to patchs/ and then classified by the Patch runtime.');
@@ -3808,7 +3824,7 @@ function installPatchPanel(){
     throw new Error('Unsupported Patch operation action');
   }
 
-    globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,choosePatchUpload,uploadPatchPackage,uploadPatchPackages,prepareAIPack,renderAIPack,copyAIPackPrompt,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,refreshQueueSilently,refreshQueueSessionSilently,refreshQueueForActivity,scheduleQueueAutoRefresh,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,operationSnapshot:patchOperationSnapshot,operationControl:patchOperationControl,setReadOnly,isReadOnly:()=>tabReadOnly,get tab(){return patchTab;},get panel(){return panel;},get visible(){return panel.classList.contains('visible');},get lifecycleSuspended(){return lifecycleSuspended;}};
+    globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,choosePatchUpload,uploadPatchPackage,preparePatchQueueForUpload,uploadPatchPackages,prepareAIPack,renderAIPack,copyAIPackPrompt,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,refreshQueueSilently,refreshQueueSessionSilently,refreshQueueForActivity,scheduleQueueAutoRefresh,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,operationSnapshot:patchOperationSnapshot,operationControl:patchOperationControl,setReadOnly,isReadOnly:()=>tabReadOnly,get tab(){return patchTab;},get panel(){return panel;},get visible(){return panel.classList.contains('visible');},get lifecycleSuspended(){return lifecycleSuspended;}};
   globalThis.TaskMenuTabContext?.registerTab?.(patchTab);
   return true;
 }
