@@ -83,7 +83,7 @@ func buildProjectFileIndex(ctx context.Context, root string) (*projectFileIndex,
 }
 
 func projectIndexPathsRG(ctx context.Context, rg, root string) ([]string, error) {
-	cmd := exec.CommandContext(ctx, rg, "--files", "-0", "--hidden", "--glob", "!.git/**")
+	cmd := exec.CommandContext(ctx, rg, "--files", "-0", "--hidden", "--glob", "!.git/**", "--glob", "!*.taskdeck-swap*")
 	cmd.Dir = root
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -169,7 +169,7 @@ func projectIndexPathsFallback(ctx context.Context, root string) ([]string, erro
 			}
 			return nil
 		}
-		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() || ignore.matches(rel, false) {
+		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() || ignore.matches(rel, false) || isTaskDeckSwapName(entry.Name()) {
 			return nil
 		}
 		paths = append(paths, rel)
