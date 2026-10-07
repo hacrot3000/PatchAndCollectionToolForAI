@@ -80,6 +80,13 @@ style.textContent=`
 .ft-transfer-tools button{width:34px;height:34px;padding:0;border-radius:50%;font-size:17px;background:#202a36;box-shadow:0 2px 7px rgba(0,0,0,.35)}
 .ft-transfer-tools button:disabled{opacity:.28}
 .ft-sync-backdrop{position:fixed;inset:0;z-index:16500;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(0,0,0,.58)}
+.ft-upload-choice-backdrop{position:fixed;inset:0;z-index:16600;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(0,0,0,.58)}
+.ft-upload-choice{width:min(680px,calc(100vw - 36px));max-height:calc(100vh - 36px);overflow:auto;background:#11161d;border:1px solid #46505d;border-radius:10px;box-shadow:0 18px 52px rgba(0,0,0,.58);padding:16px}
+.ft-upload-choice h3{margin:0 0 7px;font-size:15px}.ft-upload-choice p{margin:7px 0;font-size:11px;line-height:1.45}.ft-upload-choice-note{padding:9px;border:1px solid #343d49;border-radius:6px;background:#0d1218;font:10px/1.45 ui-monospace,monospace;white-space:pre-wrap}
+.ft-upload-choice-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;flex-wrap:wrap}.ft-upload-choice-actions button{padding:7px 10px}
+.ft-upload-command{width:100%;min-height:76px;box-sizing:border-box;resize:vertical;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:8px;font:10px/1.45 ui-monospace,monospace}
+html[data-taskmenu-theme="light"] .ft-upload-choice{background:#fff;border-color:#b9c0c8}html[data-taskmenu-theme="light"] .ft-upload-choice-note,html[data-taskmenu-theme="light"] .ft-upload-command{background:#fff;color:#202124;border-color:#b9c0c8}
+
 .ft-sync-dialog{width:min(980px,calc(100vw - 36px));max-height:calc(100vh - 36px);display:flex;flex-direction:column;background:#11161d;border:1px solid #46505d;border-radius:10px;box-shadow:0 18px 52px rgba(0,0,0,.58);padding:14px}
 .ft-sync-dialog h3{margin:0 0 5px;font-size:14px}.ft-sync-note{font-size:10px;opacity:.72;margin-bottom:9px}
 .ft-sync-summary{font-size:11px;margin-bottom:8px}.ft-sync-table-wrap{overflow:auto;min-height:160px;max-height:56vh;border:1px solid #303843;border-radius:6px}
@@ -2271,6 +2278,232 @@ async function resumePersistentLocalScans(){
       scan.kind==='local_download_scan'?runPersistentLocalDownloadScan:null;
     if(runner)runner(view,scan).catch(error=>console.warn('Cannot resume Local browser transfer scan',error));
   }
+}
+
+const compressedUploadScanFileThreshold=200;
+const compressedUploadScanSoftThreshold=100;
+const compressedUploadScanDurationMS=2500;
+
+function selectionContainsFolder(entries){return (entries||[]).some(entry=>entryType(entry)==='directory');}
+function selectedArchiveRoots(entries){return [...new Set((entries||[]).map(entry=>String(entry?.name||'').trim()).filter(Boolean))];}
+function compressedUploadRootsClear(view,entries){
+  const names=new Set((view.remote?.entries||[]).map(entry=>String(entry?.name||'')));
+  return selectedArchiveRoots(entries).every(name=>!names.has(name));
+}
+function canAutoExtractCompressedUpload(view){
+  return String(view.profile?.protocol||'').toLowerCase()==='sftp'&&(!app.sharedMode||Boolean(app.hasPermission?.('ssh.use')));
+}
+function shellSingleQuote(value){return "'"+String(value||'').replaceAll("'","'\\''")+"'";}
+function powerShellSingleQuote(value){return "'"+String(value||'').replaceAll("'","''")+"'";}
+function compressedUploadManualCommands(remoteArchive,remoteDir,roots){
+  const archive=shellSingleQuote(remoteArchive),dest=shellSingleQuote(remoteDir);
+  const checks=roots.map(root=>'test ! -e '+shellSingleQuote(joinPath(remoteDir,root,true))+'; ').join('');
+  const posix='set -eu; test -d '+dest+'; '+checks+'tar -xzf '+archive+' -C '+dest+' && rm -f -- '+archive;
+  const psArchive=powerShellSingleQuote(remoteArchive),psDest=powerShellSingleQuote(remoteDir);
+  const psChecks=roots.map(root=>"if (Test-Path -LiteralPath (Join-Path $dest "+powerShellSingleQuote(root)+")) { throw "+powerShellSingleQuote('Destination entry already exists: '+root)+" }; ").join('');
+  const powershell='$archive='+psArchive+'; $dest='+psDest+"; if (-not (Test-Path -LiteralPath $dest -PathType Container)) { throw 'Destination directory not found' }; "+psChecks+"tar -xzf $archive -C $dest; if ($LASTEXITCODE -ne 0) { throw 'tar extraction failed' }; Remove-Item -LiteralPath $archive";
+  return {posix,powershell};
+}
+async function quickScanHostUploadSelection(view,entries){
+  const base=normalizeRelativePath(view.left.currentPath||'.');
+  return app.jsonFetch('/api/file-transfer/upload-scan',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({paths:entries.map(entry=>joinPath(base,entry.name,false))})
+  });
+}
+async function localUploadEntryHandle(view,entry){
+  if(entry?.handle)return entry.handle;
+  const root=view.left.localRoot;if(!root?.handle)throw new Error('Choose a local folder first');
+  const dir=await directoryHandleForPath(root.handle,normalizeRelativePath(view.left.currentPath||'.'));
+  return entryType(entry)==='directory'?dir.getDirectoryHandle(entry.name):dir.getFileHandle(entry.name);
+}
+async function quickScanLocalUploadSelection(view,entries){
+  const started=performance.now(),deadline=started+compressedUploadScanDurationMS;
+  const result={files:0,dirs:0,bytes:0,complete:true,timed_out:false,many_files:false,elapsed_ms:0};
+  let stop=false;
+  const visit=async handle=>{
+    if(stop)return;
+    if(performance.now()>deadline){result.complete=false;result.timed_out=true;stop=true;return;}
+    if(handle.kind==='file'){
+      result.files++;
+      try{const file=await handle.getFile();result.bytes+=Number(file.size)||0;}catch{}
+      if(result.files>=compressedUploadScanFileThreshold){result.complete=false;stop=true;}
+      return;
+    }
+    result.dirs++;
+    for await(const child of handle.values()){await visit(child);if(stop)break;}
+  };
+  for(const entry of entries){await visit(await localUploadEntryHandle(view,entry));if(stop)break;}
+  result.many_files=result.files>=compressedUploadScanFileThreshold||(result.timed_out&&result.files>=compressedUploadScanSoftThreshold);
+  result.elapsed_ms=Math.round(performance.now()-started);
+  return result;
+}
+function requestCompressedUploadDecision(view,entries,scan,{archiveAllowed=true,reason=''}={}){
+  return new Promise(resolve=>{
+    const backdrop=document.createElement('div');backdrop.className='ft-upload-choice-backdrop';
+    const box=document.createElement('div');box.className='ft-upload-choice';box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');
+    const title=document.createElement('h3');title.textContent='Many files detected — optimize folder upload?';
+    const count=Number(scan?.files)||0,partial=!scan?.complete;
+    const intro=document.createElement('p');intro.textContent='Quick scan found '+(partial?'at least ':'')+count+' file(s) in '+Math.max(0,Number(scan?.elapsed_ms)||0)+' ms. Uploading one archive can be much faster than opening a remote transfer for every small file.';
+    const method=document.createElement('div');method.className='ft-upload-choice-note';
+    const protocol=String(view.profile?.protocol||'').toUpperCase();
+    const auto=canAutoExtractCompressedUpload(view);
+    method.textContent=archiveAllowed
+      ?('Compressed mode: create one tar.gz → upload via '+protocol+' → '+(auto?'extract automatically through the linked SSH profile.':'show extraction commands for you to run manually.')+'\nNormal upload remains available and keeps the existing per-file conflict/retry behavior.')
+      :('Compressed mode is not offered for this selection: '+reason+'\nUse normal upload to preserve safe per-file handling.');
+    const actions=document.createElement('div');actions.className='ft-upload-choice-actions';
+    const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';
+    const normal=document.createElement('button');normal.type='button';normal.textContent='Upload normally';
+    const archive=document.createElement('button');archive.type='button';archive.textContent=auto?'Compress + upload + extract':'Compress + upload';archive.disabled=!archiveAllowed;
+    const finish=value=>{backdrop.remove();resolve(value);};
+    cancel.onclick=()=>finish('cancel');normal.onclick=()=>finish('normal');archive.onclick=()=>finish('archive');
+    actions.append(cancel,normal,archive);box.append(title,intro,method,actions);backdrop.append(box);document.body.append(backdrop);
+    backdrop.onpointerdown=event=>{if(event.target===backdrop)finish('cancel');};
+    setTimeout(()=>normal.focus(),0);
+  });
+}
+function showManualExtractCommands(remoteArchive,remoteDir,roots,commands=null){
+  commands=commands||compressedUploadManualCommands(remoteArchive,remoteDir,roots);
+  return new Promise(resolve=>{
+    const backdrop=document.createElement('div');backdrop.className='ft-upload-choice-backdrop';
+    const box=document.createElement('div');box.className='ft-upload-choice';box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');
+    const title=document.createElement('h3');title.textContent='Archive uploaded — manual extraction required';
+    const note=document.createElement('p');note.textContent='TaskDeck cannot run a remote shell for this FTP/SFTP session. Run one of these commands on the remote server. Both commands check that selected top-level destinations do not already exist and remove the archive only after successful extraction.';
+    const posixLabel=document.createElement('p');posixLabel.textContent='POSIX shell:';
+    const posix=document.createElement('textarea');posix.className='ft-upload-command';posix.readOnly=true;posix.value=commands.posix||'';
+    const copyPosix=document.createElement('button');copyPosix.type='button';copyPosix.textContent='Copy POSIX command';copyPosix.onclick=()=>copyText(posix.value);
+    const psLabel=document.createElement('p');psLabel.textContent='PowerShell:';
+    const powershell=document.createElement('textarea');powershell.className='ft-upload-command';powershell.readOnly=true;powershell.value=commands.powershell||'';
+    const copyPS=document.createElement('button');copyPS.type='button';copyPS.textContent='Copy PowerShell command';copyPS.onclick=()=>copyText(powershell.value);
+    const actions=document.createElement('div');actions.className='ft-upload-choice-actions';
+    const done=document.createElement('button');done.type='button';done.textContent='Done';done.onclick=()=>{backdrop.remove();resolve();};
+    actions.append(copyPosix,copyPS,done);box.append(title,note,posixLabel,posix,psLabel,powershell,actions);backdrop.append(box);document.body.append(backdrop);
+    setTimeout(()=>done.focus(),0);
+  });
+}
+function tarTextBytes(value){return new TextEncoder().encode(String(value||''));}
+function tarWriteText(buffer,offset,length,value){
+  const bytes=tarTextBytes(value);if(bytes.length>length)throw new Error('Archive path metadata is too long');
+  buffer.set(bytes,offset);
+}
+function tarWriteOctal(buffer,offset,length,value){
+  const text=Math.max(0,Number(value)||0).toString(8).padStart(length-1,'0').slice(-(length-1));
+  tarWriteText(buffer,offset,length-1,text);buffer[offset+length-1]=0;
+}
+function tarPathParts(path){
+  path=String(path||'').replace(/^\.\//,'').replace(/\\/g,'/');
+  if(!path||path.startsWith('/')||path.split('/').some(part=>!part||part==='.'||part==='..'))throw new Error('Unsafe archive path: '+path);
+  if(tarTextBytes(path).length<=100)return {name:path,prefix:''};
+  for(let i=path.lastIndexOf('/');i>0;i=path.lastIndexOf('/',i-1)){
+    const prefix=path.slice(0,i),name=path.slice(i+1);
+    if(tarTextBytes(name).length<=100&&tarTextBytes(prefix).length<=155)return {name,prefix};
+  }
+  throw new Error('Archive path is too long for built-in tar: '+path);
+}
+function tarHeader(path,size,mtime,directory=false){
+  const header=new Uint8Array(512),parts=tarPathParts(path);
+  tarWriteText(header,0,100,parts.name);tarWriteOctal(header,100,8,directory?0o755:0o644);
+  tarWriteOctal(header,108,8,0);tarWriteOctal(header,116,8,0);tarWriteOctal(header,124,12,directory?0:size);
+  tarWriteOctal(header,136,12,Math.floor((Number(mtime)||Date.now())/1000));
+  header.fill(32,148,156);header[156]=directory?'5'.charCodeAt(0):'0'.charCodeAt(0);
+  tarWriteText(header,257,6,'ustar');header[262]=0;tarWriteText(header,263,2,'00');
+  if(parts.prefix)tarWriteText(header,345,155,parts.prefix);
+  let sum=0;for(const byte of header)sum+=byte;
+  const checksum=sum.toString(8).padStart(6,'0').slice(-6);tarWriteText(header,148,6,checksum);header[154]=0;header[155]=32;
+  return header;
+}
+function tarPadding(size){const remaining=Number(size)%512;return remaining?new Uint8Array(512-remaining):null;}
+async function* localTarEntryChunks(handle,path){
+  if(handle.kind==='directory'){
+    yield tarHeader(path,0,Date.now(),true);
+    for await(const [name,child] of handle.entries())yield* localTarEntryChunks(child,path+'/'+name);
+    return;
+  }
+  const file=await handle.getFile();yield tarHeader(path,file.size,file.lastModified,false);
+  const reader=file.stream().getReader();
+  try{while(true){const part=await reader.read();if(part.done)break;if(part.value?.byteLength)yield part.value;}}
+  finally{reader.releaseLock();}
+  const padding=tarPadding(file.size);if(padding)yield padding;
+}
+function readableStreamFromAsyncGenerator(generator){
+  const iterator=generator[Symbol.asyncIterator]();
+  return new ReadableStream({
+    async pull(controller){try{const next=await iterator.next();if(next.done)controller.close();else controller.enqueue(next.value);}catch(error){controller.error(error);}},
+    async cancel(){if(iterator.return)await iterator.return();}
+  });
+}
+async function buildLocalSelectionTarGz(view,entries){
+  if(typeof CompressionStream!=='function')throw new Error('This browser does not provide native gzip compression.');
+  async function* chunks(){
+    for(const entry of entries)yield* localTarEntryChunks(await localUploadEntryHandle(view,entry),entry.name);
+    yield new Uint8Array(1024);
+  }
+  const stream=readableStreamFromAsyncGenerator(chunks()).pipeThrough(new CompressionStream('gzip'));
+  const blob=await new Response(stream).blob();
+  const stamp=new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14);
+  const random=Array.from(crypto.getRandomValues(new Uint8Array(4)),byte=>byte.toString(16).padStart(2,'0')).join('');
+  return new File([blob],'.taskdeck-folder-'+stamp+'-'+random+'.tar.gz',{type:'application/gzip',lastModified:Date.now()});
+}
+async function autoExtractCompressedUpload(view,remoteArchive,remoteDir,roots){
+  const response=await app.fetchWithLease('/api/file-transfer/archive-extract',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({profile_id:view.profile.id,remote_archive:remoteArchive,remote_destination:remoteDir,roots,format:'tar.gz'})
+  });
+  if(!response.ok)throw new Error((await response.text()).trim()||('HTTP '+response.status));
+  return response.json();
+}
+async function uploadCompressedSelection(view,entries){
+  const source=view.left.source,remoteDir=normalizeRemotePath(view.remote.currentPath||'.'),roots=selectedArchiveRoots(entries);
+  let uploaded;
+  view.remote.status.textContent='Compressing selected items…';
+  if(source==='host'){
+    const base=normalizeRelativePath(view.left.currentPath||'.');
+    const response=await app.fetchWithLease('/api/file-transfer/archive-upload',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({profile_id:view.profile.id,host_paths:entries.map(entry=>joinPath(base,entry.name,false)),remote_dir:remoteDir})
+    });
+    if(!response.ok)throw new Error((await response.text()).trim()||('HTTP '+response.status));
+    uploaded=await response.json();
+  }else{
+    const archive=await buildLocalSelectionTarGz(view,entries);
+    const remoteArchive=joinPath(remoteDir,archive.name,true);
+    view.remote.status.textContent='Uploading compressed archive '+formatSize(archive.size)+'…';
+    await uploadBrowserFileToPath(view,archive,remoteArchive);
+    uploaded={remote_archive:remoteArchive,remote_destination:remoteDir,roots,format:'tar.gz',archive_size:archive.size,manual_commands:compressedUploadManualCommands(remoteArchive,remoteDir,roots)};
+  }
+  const remoteArchive=String(uploaded?.remote_archive||''),remoteDestination=String(uploaded?.remote_destination||remoteDir);
+  const uploadedRoots=Array.isArray(uploaded?.roots)?uploaded.roots:roots;
+  invalidateRemoteCache(view,remoteDir);
+  if(canAutoExtractCompressedUpload(view)){
+    view.remote.status.textContent='Archive uploaded; extracting through SSH…';
+    try{
+      await autoExtractCompressedUpload(view,remoteArchive,remoteDestination,uploadedRoots);
+      view.remote.status.textContent='Compressed folder upload complete';
+      await loadRemoteDirectory(view,remoteDir,{force:true});return;
+    }catch(error){
+      view.remote.status.textContent='Archive uploaded but automatic extraction failed; manual command required';
+      await showManualExtractCommands(remoteArchive,remoteDestination,uploadedRoots,uploaded?.manual_commands);
+      await loadRemoteDirectory(view,remoteDir,{force:true});return;
+    }
+  }
+  view.remote.status.textContent='Archive uploaded; manual extraction required';
+  await showManualExtractCommands(remoteArchive,remoteDestination,uploadedRoots,uploaded?.manual_commands);
+  await loadRemoteDirectory(view,remoteDir,{force:true});
+}
+async function compressedUploadDecision(view,entries){
+  if(!selectionContainsFolder(entries))return 'normal';
+  view.remote.status.textContent='Quick-scanning folder selection for upload optimization…';
+  let scan;
+  try{scan=view.left.source==='host'?await quickScanHostUploadSelection(view,entries):await quickScanLocalUploadSelection(view,entries);}
+  catch(error){console.warn('Compressed upload quick scan failed; continuing with normal upload',error);return 'normal';}
+  if(!scan?.many_files)return 'normal';
+  const rootsClear=compressedUploadRootsClear(view,entries);
+  const compressionSupported=view.left.source==='host'||typeof CompressionStream==='function';
+  const archiveAllowed=rootsClear&&compressionSupported;
+  let reason='';
+  if(!rootsClear)reason='one or more selected top-level names already exist in the current remote directory; archive extraction would bypass per-file conflict handling.';
+  else if(!compressionSupported)reason='this browser does not provide native gzip CompressionStream support.';
+  return requestCompressedUploadDecision(view,entries,scan,{archiveAllowed,reason});
 }
 
 async function streamLeftEntriesToRemote(view,entries){
