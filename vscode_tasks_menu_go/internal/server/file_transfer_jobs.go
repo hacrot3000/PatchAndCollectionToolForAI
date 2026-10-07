@@ -116,6 +116,7 @@ type fileTransferServerQueue struct {
 	ActiveBrowses          int
 	PendingScans           []fileTransferPendingScan
 	ScanCancels            map[string]context.CancelFunc
+	StoppedScanJobs        map[string]bool
 	Revision               uint64
 	wake                   chan struct{}
 	workerOnce             sync.Once
@@ -165,6 +166,7 @@ func (s *Server) fileTransferServerQueue(profileID string) *fileTransferServerQu
 		MaxConnections: limit,
 		Jobs:           make(map[string]*fileTransferServerJob),
 		ScanCancels:    make(map[string]context.CancelFunc),
+		StoppedScanJobs: make(map[string]bool),
 		wake:           make(chan struct{}, 1),
 		persist:        s.scheduleFileTransferQueuePersist,
 	}
@@ -324,6 +326,10 @@ func (s *Server) tryAcquireFileTransferBrowse(profileID string) (func(), bool) {
 	}, true
 }
 
+func (q *fileTransferServerQueue) scanJobStoppedLocked(jobID string) bool {
+	return q.StoppedScanJobs != nil && q.StoppedScanJobs[jobID]
+}
+
 func (q *fileTransferServerQueue) existingItemLocked(jobID, operation, source, target string, directory bool) *fileTransferServerItem {
 	for _, item := range q.Items {
 		if item == nil {
@@ -338,6 +344,10 @@ func (q *fileTransferServerQueue) existingItemLocked(jobID, operation, source, t
 
 func (q *fileTransferServerQueue) addItem(jobID, kind, direction, source, target, operation string, size int64, directory bool) *fileTransferServerItem {
 	q.mu.Lock()
+	if q.scanJobStoppedLocked(jobID) {
+		q.mu.Unlock()
+		return nil
+	}
 	if existing := q.existingItemLocked(jobID, operation, source, target, directory); existing != nil {
 		q.mu.Unlock()
 		return existing
@@ -364,6 +374,10 @@ func (q *fileTransferServerQueue) addItem(jobID, kind, direction, source, target
 
 func (q *fileTransferServerQueue) addResolvedItem(jobID, kind, direction, source, target, operation string, size int64, conflict *fileTransferConflictMeta, decision string, overwrite bool) *fileTransferServerItem {
 	q.mu.Lock()
+	if q.scanJobStoppedLocked(jobID) {
+		q.mu.Unlock()
+		return nil
+	}
 	if existing := q.existingItemLocked(jobID, operation, source, target, false); existing != nil {
 		q.mu.Unlock()
 		return existing
@@ -392,6 +406,10 @@ func (q *fileTransferServerQueue) addResolvedItem(jobID, kind, direction, source
 
 func (q *fileTransferServerQueue) addConflictItem(jobID, kind, direction, source, target, operation string, size int64, conflict fileTransferConflictMeta) *fileTransferServerItem {
 	q.mu.Lock()
+	if q.scanJobStoppedLocked(jobID) {
+		q.mu.Unlock()
+		return nil
+	}
 	if existing := q.existingItemLocked(jobID, operation, source, target, false); existing != nil {
 		q.mu.Unlock()
 		return existing
@@ -418,6 +436,10 @@ func (q *fileTransferServerQueue) addConflictItem(jobID, kind, direction, source
 
 func (q *fileTransferServerQueue) addSkippedItem(jobID, kind, direction, source, target, operation string, size int64, conflict fileTransferConflictMeta, decision string) {
 	q.mu.Lock()
+	if q.scanJobStoppedLocked(jobID) {
+		q.mu.Unlock()
+		return
+	}
 	if q.existingItemLocked(jobID, operation, source, target, false) != nil {
 		q.mu.Unlock()
 		return
@@ -1328,10 +1350,17 @@ func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 func stopFileTransferScansLocked(queue *fileTransferServerQueue) {
-	for _, cancel := range queue.ScanCancels {
+	if queue.StoppedScanJobs == nil {
+		queue.StoppedScanJobs = make(map[string]bool)
+	}
+	for jobID, cancel := range queue.ScanCancels {
+		queue.StoppedScanJobs[jobID] = true
 		if cancel != nil {
 			cancel()
 		}
+	}
+	for _, scan := range queue.PendingScans {
+		queue.StoppedScanJobs[scan.JobID] = true
 	}
 	queue.PendingScans = nil
 	queue.QueuedScans = 0
@@ -1349,6 +1378,12 @@ func stopFileTransferScansLocked(queue *fileTransferServerQueue) {
 
 func clearFileTransferQueueLocked(queue *fileTransferServerQueue) {
 	stopFileTransferScansLocked(queue)
+	if queue.StoppedScanJobs == nil {
+		queue.StoppedScanJobs = make(map[string]bool)
+	}
+	for jobID := range queue.Jobs {
+		queue.StoppedScanJobs[jobID] = true
+	}
 	kept := queue.Items[:0]
 	activeJobs := make(map[string]bool)
 	for _, item := range queue.Items {
