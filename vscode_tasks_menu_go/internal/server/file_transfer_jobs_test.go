@@ -369,7 +369,7 @@ func TestFileTransferConflictScopesApplyToFutureConflicts(t *testing.T) {
 	if got := q.effectiveConflictPolicy("job1", "Upload"); got != fileTransferConflictSkip {
 		t.Fatalf("future job conflict policy=%q want %q", got, fileTransferConflictSkip)
 	}
-	if err := s.enqueueServerTransferConflictAware(
+	if err := s.enqueueServerTransferConflictAware(context.Background(),
 		q, "job1", "Upload", "→", "later-job.txt", "/later-job.txt", "host_upload", 3,
 		&fileTransferConflictMeta{SourceSize: 3, TargetSize: 3},
 	); err != nil {
@@ -389,7 +389,7 @@ func TestFileTransferConflictScopesApplyToFutureConflicts(t *testing.T) {
 	if got := q.effectiveConflictPolicy("job3", "Upload"); got != fileTransferConflictOverwrite {
 		t.Fatalf("future direction conflict policy=%q want %q", got, fileTransferConflictOverwrite)
 	}
-	if err := s.enqueueServerTransferConflictAware(
+	if err := s.enqueueServerTransferConflictAware(context.Background(),
 		q, "job3", "Upload", "→", "later-session.txt", "/later-session.txt", "host_upload", 4,
 		&fileTransferConflictMeta{SourceSize: 4, TargetSize: 4},
 	); err != nil {
