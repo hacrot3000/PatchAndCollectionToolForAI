@@ -308,9 +308,9 @@ func (s *Server) updateProjectSymbolIndexFile(pathValue, text string) {
 		return
 	}
 	s.projectSymbolIndexMu.Lock()
-	defer s.projectSymbolIndexMu.Unlock()
 	idx := s.projectSymbolIndex
 	if idx == nil {
+		s.projectSymbolIndexMu.Unlock()
 		return
 	}
 	next := idx.Symbols[:0]
@@ -335,6 +335,10 @@ func (s *Server) updateProjectSymbolIndexFile(pathValue, text string) {
 		}
 		return a.Line < b.Line
 	})
+	snapshot := *idx
+	snapshot.Symbols = append([]projectSymbolResult(nil), idx.Symbols...)
+	s.projectSymbolIndexMu.Unlock()
+	_ = saveProjectSymbolIndexCache(s.Workspace, &snapshot)
 }
 
 func (s *Server) invalidateProjectSymbolIndex() {
