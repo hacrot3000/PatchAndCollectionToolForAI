@@ -46,3 +46,4 @@ Ruby, Perl, and R remain out of scope for this batch.
 
 - Handoff initialized before implementation.
 - `e5d9de6`: vendored CodeMirror now exposes `autocompletion`, `completeFromList`, `snippetCompletion`, and `startCompletion` from the already committed bundle. No new dependency added.
+- `6265cb1`, `139fa9a`, `f9e37f1`: refreshed immutable cache key, tests, and vendor provenance metadata for the completion hooks.
