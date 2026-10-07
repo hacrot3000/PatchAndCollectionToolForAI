@@ -47,11 +47,31 @@ func TestInstallScriptBuildsVersionedTaskdeckRelease(t *testing.T) {
 		`RELEASES_DIR="$APP_ROOT/releases"`,
 		`CURRENT_LINK="$APP_ROOT/current"`,
 		`FINAL_RELEASE="$RELEASES_DIR/$RELEASE_ID"`,
-		"PATCH_PYTHON_AVAILABLE=0",
-		"TaskDeck vẫn sẽ được cài, nhưng Patch add-on sẽ không chạy",
-		"if (( PATCH_PYTHON_AVAILABLE )); then",
+		"PYTHON_310_AVAILABLE=0",
+		"TaskDeck core vẫn sẽ được cài và có thể chạy bình thường",
+		"if (( PYTHON_310_AVAILABLE )); then",
 		"python3 test_python_patch_entry.py",
 		"GOPROXY=off GOSUMDB=off go test ./...",
+		"GOPROXY=off GOSUMDB=off go test -run '^
+		"GOPROXY=off GOSUMDB=off go",
+		"$SOURCE/internal/dbsqlite/sqlite_helper.py",
+		"-buildvcs=false",
+		"./cmd/vscode_tasks_menu",
+		`$STAGED_RELEASE/patchtool/python_patch_entry.py`,
+		`cp -a "$SOURCE_ROOT/_patch_lib" "$STAGED_RELEASE/patchtool/_patch_lib"`,
+		`atomic_symlink "$FINAL_RELEASE" "$CURRENT_LINK"`,
+		`atomic_symlink "$CURRENT_LINK/taskdeck" "$TARGET"`,
+		"$TARGET.revision",
+	} {
+		if !strings.Contains(src, want) { t.Fatalf("install.sh missing %q", want) }
+	}
+	if strings.Contains(src, `die "Cần Python 3.10+`) {
+		t.Fatal("install.sh must not abort installation when Python 3.10+ is unavailable")
+	}
+}
+ ./...",
+		"shared-server identity/auth",
+		"self-update Python validation",
 		"GOPROXY=off GOSUMDB=off go",
 		"$SOURCE/internal/dbsqlite/sqlite_helper.py",
 		"-buildvcs=false",
