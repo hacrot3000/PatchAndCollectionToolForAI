@@ -343,7 +343,7 @@ const editorLanguageRegistry=[
   {id:'python',label:'Python',extensions:['py','pyw'],codeMirror:'python'},
   {id:'javascript',label:'JavaScript',extensions:['js','mjs','cjs'],codeMirror:'javascript'},
   {id:'jsx',label:'JSX',extensions:['jsx'],codeMirror:'jsx'},
-  {id:'typescript',label:'TypeScript',extensions:['ts'],codeMirror:'typescript'},
+  {id:'typescript',label:'TypeScript',extensions:['ts','mts','cts'],codeMirror:'typescript'},
   {id:'tsx',label:'TSX',extensions:['tsx'],codeMirror:'tsx'},
   {id:'json',label:'JSON',extensions:['json','json5'],codeMirror:'json'},
   {id:'yaml',label:'YAML',extensions:['yaml','yml'],codeMirror:'yaml'},
@@ -354,7 +354,7 @@ const editorLanguageRegistry=[
   {id:'sass',label:'Sass',extensions:['sass'],legacy:'sass'},
   {id:'less',label:'Less',extensions:['less'],codeMirror:'less'},
   {id:'dockerfile',label:'Dockerfile',extensions:['dockerfile'],filenames:['dockerfile'],filenamePrefixes:['dockerfile.'],legacy:'dockerfile'},
-  {id:'makefile',label:'Makefile',extensions:['mk','mak'],filenames:['makefile','gnumakefile','bsdmakefile'],legacy:'makefile'},
+  {id:'makefile',label:'Makefile',extensions:['mk','mak'],filenames:['makefile','gnumakefile','bsdmakefile'],filenamePrefixes:['makefile.','gnumakefile.'],legacy:'makefile'},
   {id:'toml',label:'TOML',extensions:['toml'],legacy:'toml'},
   {id:'powershell',label:'PowerShell',extensions:['ps1','psm1','psd1'],legacy:'powershell'},
   {id:'kotlin',label:'Kotlin',extensions:['kt','kts'],legacy:'kotlin'},
@@ -465,10 +465,20 @@ const legacyHyphenIdentifierKinds=new Set(['sass','powershell','dockerfile','mak
 const legacyCommandFirstKinds=new Set(['shell','dockerfile','nginx','apache']);
 function legacyLineTokens(kind,text){
   const tokens=[];const keywords=legacyKeywordSets[kind]||new Set();let i=0;let firstWord=true;
+  const firstNonWhitespace=text.search(/\S/);
   const identStart=ch=>/[A-Za-z_]/.test(ch);
   const identPart=ch=>/[A-Za-z0-9_]/.test(ch)||(legacyHyphenIdentifierKinds.has(kind)&&ch==='-');
   while(i<text.length){
     const ch=text[i],next=text[i+1]||'';
+    if((kind==='toml'||kind==='config')&&i===firstNonWhitespace&&ch==='['){
+      const arrayTable=kind==='toml'&&text.startsWith('[[',i),close=arrayTable?']]':']';
+      const end=text.indexOf(close,i+(arrayTable?2:1)),j=end<0?text.length:end+close.length;
+      tokens.push({from:i,to:j,type:'command'});i=j;firstWord=false;continue;
+    }
+    if((kind==='toml'||kind==='config')&&i===firstNonWhitespace){
+      const match=text.slice(i).match(/^([A-Za-z_][A-Za-z0-9_.-]*)(?=\s*=)/);
+      if(match){const j=i+match[1].length;tokens.push({from:i,to:j,type:'variable'});i=j;firstWord=false;continue;}
+    }
     const comment=legacyCommentToken(kind,text,i);if(comment){tokens.push({from:i,to:comment.to,type:'comment'});if(comment.to>=text.length)break;i=comment.to;continue;}
     if(kind==='nim'&&ch.charCodeAt(0)===96){
       let j=i+1;while(j<text.length&&text.charCodeAt(j)!==96)j++;if(j<text.length)j++;
@@ -493,7 +503,11 @@ function legacyLineTokens(kind,text){
     if(legacyDollarVariableKinds.has(kind)&&ch.charCodeAt(0)===36){
       let j=i+1;
       if(text[j]==='{'){j++;while(j<text.length&&text[j]!=='}')j++;if(j<text.length)j++;}
-      else while(j<text.length&&/[A-Za-z0-9_@*#?$!\-]/.test(text[j]))j++;
+      else if(kind==='makefile'&&text[j]==='('){j++;while(j<text.length&&text[j]!==')')j++;if(j<text.length)j++;}
+      else{
+        const variablePart=kind==='powershell'?/[A-Za-z0-9_:?\-]/:kind==='makefile'?/[A-Za-z0-9_@*#?$!<^+%\-]/:/[A-Za-z0-9_@*#?$!\-]/;
+        while(j<text.length&&variablePart.test(text[j]))j++;
+      }
       if(j>i+1){tokens.push({from:i,to:j,type:'variable'});i=j;continue;}
     }
     if(kind==='cmake'&&ch.charCodeAt(0)===36&&next==='{'){
