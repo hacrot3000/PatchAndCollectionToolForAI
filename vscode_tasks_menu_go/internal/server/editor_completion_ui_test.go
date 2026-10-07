@@ -100,3 +100,47 @@ func TestEditorCompletionDoesNotRequireRuntimePackageDownloads(t *testing.T) {
 		}
 	}
 }
+
+func TestEditorCompletionTierTwoUsesProjectCompletionAPI(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editorcompletion.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function tier2Source(file)",
+		"'/api/project/completions'",
+		"text:context.state.doc.toString()",
+		"line_prefix:position.linePrefix",
+		"lexical_mode:mode",
+		"position:{line:position.line,character:position.character}",
+		"source==='project-path'",
+		"replace_prefix",
+		"override:[tier1Source(file),tier2Source(file)]",
+		"new AbortController()",
+		"{onDocChange:true}",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Tier 2 completion behavior missing %q", want)
+		}
+	}
+}
+
+func TestEditorCompletionRecognizesImportContexts(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editorcompletion.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"id==='cpp'",
+		"id==='javascript'||id==='typescript'",
+		"id==='python'",
+		"id==='lua'",
+		"id==='nim'",
+		"id==='actionscript'",
+		"id==='go'",
+		"id==='php'",
+		"id==='dart'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("import completion context missing %q", want)
+		}
+	}
+}
