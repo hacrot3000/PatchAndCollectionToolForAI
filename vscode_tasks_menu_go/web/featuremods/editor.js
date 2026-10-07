@@ -382,6 +382,24 @@ const legacyKeywordSets={
   lua:new Set('and break do else elseif end false for function goto if in local nil not or repeat return then true until while'.split(' ')),
   nim:new Set('addr and as asm bind block break case cast concept const continue converter defer discard distinct div do elif else end enum except export finally for from func if import in include interface is isnot iterator let macro method mixin mod nil not notin object of or out proc ptr raise ref return shl shr static template try tuple type using var when while xor yield'.split(' '))
 };
+const legacyLineCommentMarkers={
+  shell:['#'],
+  cmake:['#'],
+  lua:['--'],
+  nim:['#']
+};
+const legacyBlockCommentMarkers={};
+function legacyCommentToken(kind,text,index){
+  for(const marker of legacyLineCommentMarkers[kind]||[]){
+    if(text.startsWith(marker,index))return {to:text.length};
+  }
+  for(const [open,close] of legacyBlockCommentMarkers[kind]||[]){
+    if(!text.startsWith(open,index))continue;
+    const end=text.indexOf(close,index+open.length);
+    return {to:end<0?text.length:end+close.length};
+  }
+  return null;
+}
 const legacyMarks=new Map();
 function legacyHighlightKind(pathValue){
   return editorLanguageDefinition(pathValue)?.legacy||'';
@@ -396,7 +414,7 @@ function legacyLineTokens(kind,text){
   const identPart=ch=>/[A-Za-z0-9_]/.test(ch);
   while(i<text.length){
     const ch=text[i],next=text[i+1]||'';
-    if((kind==='lua'&&ch==='-'&&next==='-')||(kind!=='lua'&&ch==='#')){tokens.push({from:i,to:text.length,type:'comment'});break;}
+    const comment=legacyCommentToken(kind,text,i);if(comment){tokens.push({from:i,to:comment.to,type:'comment'});if(comment.to>=text.length)break;i=comment.to;continue;}
     if(kind==='nim'&&ch.charCodeAt(0)===96){
       let j=i+1;while(j<text.length&&text.charCodeAt(j)!==96)j++;if(j<text.length)j++;
       i=j;firstWord=false;continue;
