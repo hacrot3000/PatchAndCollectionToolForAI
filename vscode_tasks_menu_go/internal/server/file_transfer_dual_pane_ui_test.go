@@ -462,6 +462,25 @@ func TestFileTransferQueueSupportsPauseSelectionAndKind(t *testing.T) {
 	}
 }
 
+func TestFileTransferRemoteFileDeleteBatchesVeryLargeSelections(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"if(dirs===0&&targets.length>1000)",
+		"for(let offset=0;offset<targets.length;offset+=1000)",
+		"remote_targets:targets.slice(offset,offset+1000)",
+		"Queueing delete '+Math.min(offset+1000,targets.length)+'/'+targets.length",
+		"Background delete queued · '+targets.length+' file(s)'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing large remote delete batch contract %q", want)
+		}
+	}
+}
+
 func TestFileTransferQueueCanStopScansClearAllAndBatchLargeSelections(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil {
