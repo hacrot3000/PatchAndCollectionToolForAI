@@ -41,9 +41,11 @@ const summary=document.createElement('div');summary.className='file-compare-summ
 const sideButton=document.createElement('button');sideButton.type='button';sideButton.textContent='Side by side';
 const inlineButton=document.createElement('button');inlineButton.type='button';inlineButton.textContent='Inline';
 const editButton=document.createElement('button');editButton.type='button';editButton.className='file-compare-edit-toggle';editButton.textContent='Edit';editButton.title='Edit both writable files with syntax highlighting';
+const leftTopSave=document.createElement('button');leftTopSave.type='button';leftTopSave.className='file-compare-save';leftTopSave.textContent='Save Left';leftTopSave.title='Save the left compare file';
+const rightTopSave=document.createElement('button');rightTopSave.type='button';rightTopSave.className='file-compare-save';rightTopSave.textContent='Save Right';rightTopSave.title='Save the right compare file';
 const reloadButton=document.createElement('button');reloadButton.type='button';reloadButton.textContent='↻';reloadButton.title='Reload both compare sources';
 const closeButton=document.createElement('button');closeButton.type='button';closeButton.textContent='×';closeButton.title='Close compare';
-head.append(title,summary,sideButton,inlineButton,editButton,reloadButton,closeButton);
+head.append(title,summary,sideButton,inlineButton,editButton,leftTopSave,rightTopSave,reloadButton,closeButton);
 const filters=document.createElement('div');filters.className='file-compare-filters';
 const viewAllButton=document.createElement('button');viewAllButton.type='button';viewAllButton.textContent='View all';viewAllButton.title='Show the complete file comparison';
 const viewDiffButton=document.createElement('button');viewDiffButton.type='button';viewDiffButton.textContent='View diff';viewDiffButton.title='Show changed lines only';
@@ -122,12 +124,16 @@ function compareSideSource(side){return current?.[side]||null;}
 function compareHasDirty(){return Boolean(current&&(current.left?.dirty||current.right?.dirty));}
 function syncCompareSaveState(side){
   const source=compareSideSource(side),ui=compareSideUI(side);if(!ui)return;
+  const topSave=side==='left'?leftTopSave:rightTopSave;
   ui.label.textContent=source?.label||side;
   ui.label.title=ui.label.textContent;
   ui.dirty.classList.toggle('hidden',!source?.dirty);
-  ui.save.disabled=!sourceWritable(source)||!source?.dirty||Boolean(source?.saving);
+  const disabled=!sourceWritable(source)||!source?.dirty||Boolean(source?.saving);
+  ui.save.disabled=disabled;topSave.disabled=disabled;
   ui.save.classList.toggle('dirty',Boolean(source?.dirty&&!source?.saving));
+  topSave.classList.toggle('dirty',Boolean(source?.dirty&&!source?.saving));
   ui.save.textContent=source?.saving?'Saving…':'Save';
+  topSave.textContent=source?.saving?'Saving…':(side==='left'?'Save Left':'Save Right');
 }
 function scheduleCompareRender(){
   clearTimeout(renderTimer);
@@ -799,6 +805,8 @@ sideButton.onclick=()=>{viewMode='side';render();};inlineButton.onclick=()=>{vie
 editButton.onclick=()=>{try{setEditMode(!editMode);}catch(error){app.showError(error);}};
 leftEditorUI.save.onclick=()=>saveCompareSide('left').catch(app.showError);
 rightEditorUI.save.onclick=()=>saveCompareSide('right').catch(app.showError);
+leftTopSave.onclick=()=>saveCompareSide('left').catch(app.showError);
+rightTopSave.onclick=()=>saveCompareSide('right').catch(app.showError);
 viewAllButton.onclick=()=>{contentMode='all';render();};
 viewDiffButton.onclick=()=>{contentMode='diff';render();};
 viewContextButton.onclick=()=>{contentMode='context';render();};
