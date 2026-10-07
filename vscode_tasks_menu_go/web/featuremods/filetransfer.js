@@ -1092,7 +1092,7 @@ async function runTransferQueueItem(view,item){
     if(queue.runningCount===0&&queue.activeScans===0&&!hasAnyPendingTransfer(queue))await afterTransferQueueIdle(view);
   }
 }
-function processTransferQueue(view){
+async function processTransferQueue(view){
   const queue=view.transferQueue;if(!queue)return;
   const limit=transferWorkerLimit(view);
   while((queue.runningCount||0)<limit){
@@ -1391,7 +1391,7 @@ function renderTable(panel,onDoubleClick,onContextMenu){
     const modified=document.createElement('td');modified.className='ft-modified';
     tr.append(selectCell,name,type,size,modified);
     tr.onclick=event=>event.preventDefault();
-    tr.ondblclick=event=>{event.preventDefault();panel.goUp?.().catch(app.showError);};
+    tr.ondblclick=event=>{event.preventDefault();if(panel.navigationDisabled)return;panel.goUp?.().catch(app.showError);};
     tr.oncontextmenu=event=>event.preventDefault();
     panel.tbody.append(tr);
   }
@@ -1477,6 +1477,7 @@ function scheduleTransferPoolRetry(view,delay=220){
 function syncRemoteNavigationAvailability(view){
   const panel=view?.remote;if(!panel)return;
   const full=remoteConnectionPoolFull(view),message='Connection pool full; wait for a scan/transfer to finish before changing remote directory.';
+  panel.navigationDisabled=full;
   if(panel.pathInput){panel.pathInput.disabled=full;panel.pathInput.title=full?message:'';}
   if(panel.pathHistorySelect){panel.pathHistorySelect.disabled=full;panel.pathHistorySelect.title=full?message:'Visited paths';}
   if(panel.pathGo){panel.pathGo.disabled=full;panel.pathGo.title=full?message:'Go';}
@@ -2294,7 +2295,13 @@ async function writeRemotePathToLocalRoot(view,root,remotePath,leftPath,overwrit
   try{
     const ticket=await issueDownloadTicket(view,remotePath);
     const response=await fetch('/api/file-transfer/download?ticket='+encodeURIComponent(ticket),{cache:'no-store'});
-    if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
+    if(!response.ok){
+      const message=(await response.text()).trim()||response.statusText;
+      if(response.status===429&&response.headers.get('X-TaskDeck-Transfer-Pool-Full')==='1'){
+        const error=new Error(message||'FTP/SFTP connection pool is full');error.transferPoolBusy=true;throw error;
+      }
+      throw new Error(message);
+    }
     if(response.body&&typeof response.body.pipeTo==='function')await response.body.pipeTo(writable);
     else{await writable.write(await response.arrayBuffer());await writable.close();}
   }catch(error){try{await writable.abort();}catch{}throw error;}
