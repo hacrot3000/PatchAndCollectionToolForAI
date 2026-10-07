@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"bletonfc/vscode_tasks_menu/internal/filetransferprofile"
+
 )
 
 func TestFileTransferJobJSONAcceptsBulkSelectionBeyondLegacy128KiB(t *testing.T) {
