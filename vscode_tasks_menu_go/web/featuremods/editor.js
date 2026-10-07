@@ -353,6 +353,19 @@ const editorLanguageRegistry=[
   {id:'scss',label:'SCSS',extensions:['scss'],codeMirror:'sass'},
   {id:'sass',label:'Sass',extensions:['sass'],legacy:'sass'},
   {id:'less',label:'Less',extensions:['less'],codeMirror:'less'},
+  {id:'dockerfile',label:'Dockerfile',extensions:['dockerfile'],filenames:['dockerfile'],filenamePrefixes:['dockerfile.'],legacy:'dockerfile'},
+  {id:'makefile',label:'Makefile',extensions:['mk','mak'],filenames:['makefile','gnumakefile','bsdmakefile'],legacy:'makefile'},
+  {id:'toml',label:'TOML',extensions:['toml'],legacy:'toml'},
+  {id:'powershell',label:'PowerShell',extensions:['ps1','psm1','psd1'],legacy:'powershell'},
+  {id:'kotlin',label:'Kotlin',extensions:['kt','kts'],legacy:'kotlin'},
+  {id:'csharp',label:'C#',extensions:['cs','csx'],legacy:'csharp'},
+  {id:'dart',label:'Dart',extensions:['dart'],legacy:'dart'},
+  {id:'protobuf',label:'Protocol Buffers',extensions:['proto'],legacy:'protobuf'},
+  {id:'graphql',label:'GraphQL',extensions:['graphql','gql'],legacy:'graphql'},
+  {id:'actionscript',label:'ActionScript',extensions:['as'],legacy:'actionscript'},
+  {id:'nginx',label:'Nginx',extensions:['nginx'],filenames:['nginx.conf'],legacy:'nginx',match:info=>info.ext==='conf'&&info.lower.includes('/nginx/')},
+  {id:'apache',label:'Apache',extensions:['htaccess'],filenames:['.htaccess','httpd.conf','apache2.conf'],legacy:'apache',match:info=>info.ext==='conf'&&(info.lower.includes('/apache/')||info.lower.includes('/apache2/'))},
+  {id:'config',label:'Config',extensions:['ini','properties'],filenames:['.env'],filenamePrefixes:['.env.'],legacy:'config'},
   {id:'xml',label:'XML',extensions:['xml','svg'],codeMirror:'xml'},
   {id:'java',label:'Java',extensions:['java'],codeMirror:'java'},
   {id:'php',label:'PHP',extensions:['php'],codeMirror:'php'},
@@ -384,17 +397,49 @@ const legacyKeywordSets={
   cmake:new Set('if elseif else endif foreach endforeach while endwhile function endfunction macro endmacro return break continue'.split(' ')),
   lua:new Set('and break do else elseif end false for function goto if in local nil not or repeat return then true until while'.split(' ')),
   nim:new Set('addr and as asm bind block break case cast concept const continue converter defer discard distinct div do elif else end enum except export finally for from func if import in include interface is isnot iterator let macro method mixin mod nil not notin object of or out proc ptr raise ref return shl shr static template try tuple type using var when while xor yield'.split(' ')),
-  sass:new Set('mixin include function return if else each for while extend at-root content import use forward debug warn error'.split(' '))
+  sass:new Set('mixin include function return if else each for while extend at-root content import use forward debug warn error'.split(' ')),
+  dockerfile:new Set('from run cmd label maintainer expose env add copy entrypoint volume user workdir arg onbuild stopsignal healthcheck shell'.split(' ')),
+  makefile:new Set('ifdef ifndef ifeq ifneq else endif include sinclude define endef override export unexport private vpath undefine'.split(' ')),
+  toml:new Set('true false inf nan'.split(' ')),
+  powershell:new Set('begin break catch class continue data define do dynamicparam else elseif end enum exit filter finally for foreach from function hidden if in inlinescript parallel param process return sequence static switch throw trap try until using var while workflow'.split(' ')),
+  kotlin:new Set('as break class continue do else false for fun if in interface is null object package return super this throw true try typealias typeof val var when while by catch constructor delegate dynamic field file finally get import init param property receiver set setparam where actual abstract annotation companion const crossinline data enum expect external final infix inline inner internal lateinit noinline open operator out override private protected public reified sealed suspend tailrec vararg'.split(' ')),
+  csharp:new Set('abstract as base bool break byte case catch char checked class const continue decimal default delegate do double else enum event explicit extern false finally fixed float for foreach goto if implicit in int interface internal is lock long namespace new null object operator out override params private protected public readonly record ref return sbyte sealed short sizeof stackalloc static string struct switch this throw true try typeof uint ulong unchecked unsafe ushort using virtual void volatile while async await dynamic get init partial remove set value var when where yield'.split(' ')),
+  dart:new Set('abstract as assert async await break case catch class const continue covariant default deferred do dynamic else enum export extends extension external factory false final finally for Function get hide if implements import in interface is late library mixin new null on operator part required rethrow return set show static super switch sync this throw true try typedef var void while with yield'.split(' ')),
+  protobuf:new Set('syntax import weak public package option repeated optional required oneof map reserved to max enum message service rpc returns stream extend extensions group'.split(' ')),
+  graphql:new Set('query mutation subscription fragment on schema scalar type interface union enum input directive extend implements repeatable true false null'.split(' ')),
+  actionscript:new Set('as break case catch class const continue default delete do dynamic each else extends false final finally for function get if implements import in include instanceof interface internal is namespace native new null override package private protected public return set static super switch this throw true try typeof use var void while with'.split(' ')),
+  nginx:new Set('http server location upstream events stream map geo limit_except if include listen server_name root alias index proxy_pass fastcgi_pass uwsgi_pass scgi_pass return rewrite set try_files error_page access_log error_log gzip ssl'.split(' ')),
+  apache:new Set('virtualhost directory location files ifmodule listen servername serveralias documentroot directoryindex allow deny require rewriteengine rewritecond rewriterule proxypass proxypassreverse errorlog customlog options allowoverride'.split(' ')),
+  config:new Set('true false yes no on off null none'.split(' '))
 };
 const legacyLineCommentMarkers={
   shell:['#'],
   cmake:['#'],
   lua:['--'],
   nim:['#'],
-  sass:['//']
+  sass:['//'],
+  dockerfile:['#'],
+  makefile:['#'],
+  toml:['#'],
+  powershell:['#'],
+  kotlin:['//'],
+  csharp:['//'],
+  dart:['//'],
+  protobuf:['//'],
+  graphql:['#'],
+  actionscript:['//'],
+  nginx:['#'],
+  apache:['#'],
+  config:['#',';','!']
 };
 const legacyBlockCommentMarkers={
-  sass:[['/*','*/']]
+  sass:[['/*','*/']],
+  powershell:[['<#','#>']],
+  kotlin:[['/*','*/']],
+  csharp:[['/*','*/']],
+  dart:[['/*','*/']],
+  protobuf:[['/*','*/']],
+  actionscript:[['/*','*/']]
 };
 function legacyCommentToken(kind,text,index){
   for(const marker of legacyLineCommentMarkers[kind]||[]){
@@ -415,10 +460,13 @@ function legacyMark(type){
   if(!legacyMarks.has(type))legacyMarks.set(type,globalThis.cm6.Decoration.mark({class:'cm-legacy-'+type}));
   return legacyMarks.get(type);
 }
+const legacyDollarVariableKinds=new Set(['shell','sass','powershell','makefile']);
+const legacyHyphenIdentifierKinds=new Set(['sass','powershell','dockerfile','makefile','nginx','apache']);
+const legacyCommandFirstKinds=new Set(['shell','dockerfile','nginx','apache']);
 function legacyLineTokens(kind,text){
   const tokens=[];const keywords=legacyKeywordSets[kind]||new Set();let i=0;let firstWord=true;
   const identStart=ch=>/[A-Za-z_]/.test(ch);
-  const identPart=ch=>/[A-Za-z0-9_]/.test(ch);
+  const identPart=ch=>/[A-Za-z0-9_]/.test(ch)||(legacyHyphenIdentifierKinds.has(kind)&&ch==='-');
   while(i<text.length){
     const ch=text[i],next=text[i+1]||'';
     const comment=legacyCommentToken(kind,text,i);if(comment){tokens.push({from:i,to:comment.to,type:'comment'});if(comment.to>=text.length)break;i=comment.to;continue;}
@@ -442,7 +490,7 @@ function legacyLineTokens(kind,text){
       while(j<text.length){if(text[j]==='\\'){j+=2;continue;}if(text[j]===quote){j++;break;}j++;}
       tokens.push({from:i,to:j,type:'string'});i=j;firstWord=false;continue;
     }
-    if((kind==='shell'||kind==='sass')&&ch.charCodeAt(0)===36){
+    if(legacyDollarVariableKinds.has(kind)&&ch.charCodeAt(0)===36){
       let j=i+1;
       if(text[j]==='{'){j++;while(j<text.length&&text[j]!=='}')j++;if(j<text.length)j++;}
       else while(j<text.length&&/[A-Za-z0-9_@*#?$!\-]/.test(text[j]))j++;
@@ -463,7 +511,8 @@ function legacyLineTokens(kind,text){
       let type='';
       if(keywords.has(keywordWord))type='keyword';
       else if(kind==='cmake'&&/^\s*\(/.test(text.slice(j)))type='command';
-      else if(kind==='shell'&&firstWord)type='command';
+      else if(kind==='makefile'&&firstWord&&/^\s*:/.test(text.slice(j)))type='command';
+      else if(legacyCommandFirstKinds.has(kind)&&firstWord)type='command';
       if(type)tokens.push({from:i,to:j,type});
       i=j;firstWord=false;continue;
     }
