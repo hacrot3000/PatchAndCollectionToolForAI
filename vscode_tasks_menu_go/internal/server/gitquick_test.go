@@ -24,6 +24,38 @@ func gitQuickRun(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+func TestGitCompatibleArgsLegacyMappings(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{"current branch", []string{"branch", "--show-current"}, []string{"symbolic-ref", "--quiet", "--short", "HEAD"}},
+		{"switch", []string{"switch", "main"}, []string{"checkout", "main"}},
+		{"create branch", []string{"switch", "-c", "feature"}, []string{"checkout", "-b", "feature"}},
+		{"detach", []string{"switch", "--detach", "abc123"}, []string{"checkout", "--detach", "abc123"}},
+		{"unstage", []string{"restore", "--staged", "--", "a.txt"}, []string{"reset", "-q", "HEAD", "--", "a.txt"}},
+		{"worktree from index", []string{"restore", "--", "a.txt"}, []string{"checkout", "--", "a.txt"}},
+		{"stash push", []string{"stash", "push", "-u", "-m", "TaskDeck"}, []string{"stash", "save", "-u", "TaskDeck"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := gitCompatibleArgs(tc.in)
+			if strings.Join(got, "\x00") != strings.Join(tc.want, "\x00") {
+				t.Fatalf("gitCompatibleArgs(%q)=%q want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+
+	// Worktree-only restore from a historical tree has no semantics-preserving
+	// equivalent in old Git: checkout <tree> -- <path> would also rewrite the
+	// index. Keep the modern argv so legacy Git rejects it explicitly.
+	modernOnly := []string{"restore", "--source=abc123", "--worktree", "--", "a.txt"}
+	if got := gitCompatibleArgs(modernOnly); strings.Join(got, "\x00") != strings.Join(modernOnly, "\x00") {
+		t.Fatalf("historical worktree-only restore was unsafely rewritten: %q", got)
+	}
+}
+
 func setupGitQuickRepo(t *testing.T) (string, *Server, string) {
 	t.Helper()
 	workspace := t.TempDir()
