@@ -357,11 +357,15 @@ function openEditorContextMenu(view,x,y){
     const projectEnd=document.createElement('div');projectEnd.className='tab-context-separator';menu.append(projectEnd);
   }
   const splitParent=editor?.getSplitParent?.(view);
+  const compare=globalThis.TaskMenuFileCompare;
+  const currentCompareSource=compare?.editorSource?.(view,{label:'Editor buffer'});
   const actions=[
     {label:'Save',title:'Save file',disabled:Boolean(view.file?.read_only)||Boolean(view.tabReadOnly)||!view.dirty,run:()=>editor?.saveEditor?.(view)},
     {label:'Reload',title:'Reload file from disk',run:()=>editor?.reloadEditor?.(view)},
-    {label:'Compare current ↔ saved',title:'Compare the current editor buffer with the saved project file',run:()=>globalThis.TaskMenuFileCompare?.openEditorSaved?.(view)},
-    {label:'Compare current ↔ clipboard',title:'Compare the current editor buffer with clipboard text',run:()=>globalThis.TaskMenuFileCompare?.openEditorClipboard?.(view)},
+    {label:'Select current editor for compare',title:'Use the current editor buffer as Compare A',disabled:!currentCompareSource,run:()=>compare?.selectForCompare?.(currentCompareSource)},
+    {label:'Compare selected file ↔ current editor',title:'Open File Compare with the previously selected Compare A source and this editor buffer',disabled:!currentCompareSource||!compare?.selection||!compare?.canCompareWithSelected?.(currentCompareSource),run:()=>compare?.compareWithSelected?.(currentCompareSource,{title:'Selected file ↔ Editor'})},
+    {label:'Compare current ↔ saved',title:'Compare the current editor buffer with the saved project file',run:()=>compare?.openEditorSaved?.(view)},
+    {label:'Compare current ↔ clipboard',title:'Compare the current editor buffer with clipboard text',run:()=>compare?.openEditorClipboard?.(view)},
     {label:'Go to line…',title:'Go to a line in this file',run:()=>editor?.goToLine?.(view)},
     {label:'Split vertical…',title:'Show another file beside this editor',disabled:editor?.splitSupported===false,run:()=>editor?.splitEditor?.(view,'vertical')},
     {label:'Split horizontal…',title:'Show another file below this editor',disabled:editor?.splitSupported===false,run:()=>editor?.splitEditor?.(view,'horizontal')},
