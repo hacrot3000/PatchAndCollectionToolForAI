@@ -48,11 +48,11 @@ if shutil.which('git'):
         subprocess.run(['git','config','user.name','PTV'],cwd=repo,check=True)
         (repo/'a.txt').write_text('base\n')
         subprocess.run(['git','add','a.txt'],cwd=repo,check=True); subprocess.run(['git','commit','-qm','base'],cwd=repo,check=True)
-        base_branch=subprocess.run(['git','branch','--show-current'],cwd=repo,text=True,capture_output=True,check=True).stdout.strip()
-        subprocess.run(['git','switch','-c','feature'],cwd=repo,check=True,stdout=subprocess.DEVNULL)
+        base_branch=subprocess.run(['git','symbolic-ref','--quiet','--short','HEAD'],cwd=repo,text=True,capture_output=True,check=True).stdout.strip()
+        subprocess.run(['git','checkout','-q','-b','feature'],cwd=repo,check=True,stdout=subprocess.DEVNULL)
         (repo/'a.txt').write_text('feature\n'); subprocess.run(['git','commit','-am','feature','-q'],cwd=repo,check=True)
         feature_sha=subprocess.run(['git','rev-parse','HEAD'],cwd=repo,text=True,capture_output=True,check=True).stdout.strip()
-        subprocess.run(['git','switch',base_branch],cwd=repo,check=True,stdout=subprocess.DEVNULL)
+        subprocess.run(['git','checkout','-q',base_branch],cwd=repo,check=True,stdout=subprocess.DEVNULL)
         # Worktree and staged diff operations are data-only.
         (repo/'a.txt').write_text('worktree\n')
         (repo/'staged.txt').write_text('staged\n'); subprocess.run(['git','add','staged.txt'],cwd=repo,check=True)
@@ -79,7 +79,7 @@ if shutil.which('git'):
             hook.write_text(f'#!/bin/sh\nprintf bad > {marker.name}\n'); hook.chmod(0o755)
         from python_patch_git_safe import execute_git_operation
         kind,text=execute_git_operation(repo,{'op':'switch','branch':'feature'})
-        assert kind=='switch' and subprocess.run(['git','branch','--show-current'],cwd=repo,text=True,capture_output=True).stdout.strip()=='feature'
+        assert kind=='switch' and subprocess.run(['git','symbolic-ref','--quiet','--short','HEAD'],cwd=repo,text=True,capture_output=True).stdout.strip()=='feature'
         if os.name!='nt': assert not marker.exists(),'checkout hook executed despite core.hooksPath=/dev/null'
         try: execute_git_operation(repo,{'op':'switch','branch':'does-not-exist'})
         except GitSafeError as exc: assert 'existing local branch' in str(exc)
