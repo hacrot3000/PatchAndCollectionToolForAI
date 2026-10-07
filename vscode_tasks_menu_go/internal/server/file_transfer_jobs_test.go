@@ -36,6 +36,53 @@ func TestFileTransferJobJSONAcceptsBulkSelectionBeyondLegacy128KiB(t *testing.T)
 	}
 }
 
+func TestFileTransferJobJSONAcceptsLargeRemoteTargetSelection(t *testing.T) {
+	targets := make([]fileTransferJobTarget, 5000)
+	for i := range targets {
+		targets[i] = fileTransferJobTarget{
+			Path: "/bulk/path/0123456789abcdef0123456789abcdef/file.dat",
+		}
+	}
+	body, err := json.Marshal(fileTransferJobCreateRequest{
+		ProfileID: "p1", Kind: fileTransferJobRemoteDelete, RemoteTargets: targets,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body) <= 128<<10 {
+		t.Fatalf("test payload=%d bytes; must exceed legacy 128 KiB limit", len(body))
+	}
+	req := httptest.NewRequest("POST", "/api/file-transfer/jobs", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	var decoded fileTransferJobCreateRequest
+	if err := decodeFileTransferJobJSON(rr, req, &decoded); err != nil {
+		t.Fatalf("bulk remote target selection rejected: %v", err)
+	}
+	if len(decoded.RemoteTargets) != len(targets) {
+		t.Fatalf("decoded targets=%d want=%d", len(decoded.RemoteTargets), len(targets))
+	}
+}
+
+func TestClearFileTransferQueueBlocksLateScannerItems(t *testing.T) {
+	q := &fileTransferServerQueue{
+		ProfileID: "p1",
+		Jobs: map[string]*fileTransferServerJob{
+			"scan": {ID: "scan", Status: "scanning"},
+		},
+		ScanCancels:     map[string]context.CancelFunc{},
+		StoppedScanJobs: map[string]bool{},
+	}
+	q.mu.Lock()
+	clearFileTransferQueueLocked(q)
+	q.mu.Unlock()
+	if item := q.addItem("scan", "Download", "←", "/late", "late", "host_download", 1, false); item != nil {
+		t.Fatalf("late scanner item repopulated cleared queue: %#v", item)
+	}
+	if len(q.Items) != 0 {
+		t.Fatalf("cleared queue was repopulated: %#v", q.Items)
+	}
+}
+
 func TestStopFileTransferScansCancelsActiveAndDropsPending(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	q := &fileTransferServerQueue{
