@@ -280,7 +280,7 @@ func TestEditorWarnsBeforePageUnloadWhenDirty(t *testing.T) {
 
 
 func TestCodeMirrorImmutableAssetUsesVersionedURL(t *testing.T) {
-	if !strings.Contains(indexHTML, "/vendor/codemirror6-all.min.js?v=52af430d") {
+	if !strings.Contains(indexHTML, "/vendor/codemirror6-all.min.js?v=1c870b80") {
 		t.Fatal("CodeMirror immutable asset must use a versioned URL")
 	}
 }
@@ -392,7 +392,11 @@ func TestVendoredCodeMirrorExposesIDEHooksAndTypeScriptModes(t *testing.T) {
 		"EditorView: () => EditorView",
 		"RangeSetBuilder: () => RangeSetBuilder",
 		"ViewPlugin: () => ViewPlugin",
+		"autocompletion: () => autocompletion",
+		"completeFromList: () => completeFromList",
+		"snippetCompletion: () => snippetCompletion",
 		"sqlCompletion: () => sqlCompletion",
+		"startCompletion: () => startCompletion",
 		"function sqlCompletion(config2 = {})",
 		"dialectName === \"mysql\" ? MySQL : dialectName === \"sqlite\" ? SQLite : StandardSQL",
 		"schema: config2.schema",
