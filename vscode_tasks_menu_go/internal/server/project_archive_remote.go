@@ -163,6 +163,14 @@ func (s *Server) projectArchiveRemoteExtract(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "remote extract requires an SFTP profile linked to SSH; FTP has no portable remote shell extraction capability", http.StatusBadRequest)
 		return
 	}
+	release, ok := s.tryAcquireFileTransferBrowse(profile.ID)
+	if !ok {
+		w.Header().Set("Retry-After", "1")
+		w.Header().Set("X-TaskDeck-Transfer-Pool-Full", "1")
+		http.Error(w, "FTP/SFTP connection pool is full", http.StatusTooManyRequests)
+		return
+	}
+	defer release()
 
 	put, err := sftpclient.PutCommand(hostPath, req.RemoteArchive)
 	if err != nil {
