@@ -181,16 +181,28 @@ func TestPythonSQLiteDriverMultiProcessWALBusyTimeout(t *testing.T) {
 	}
 }
 
-func TestOpenSQLiteStoreFailsClosedWithInvalidConfiguredPython(t *testing.T) {
+func TestOpenSQLiteStoreFallsBackToCLIWithInvalidConfiguredPython(t *testing.T) {
+	if _, err := resolveSQLiteCLICommand(); err != nil {
+		t.Skipf("sqlite3 CLI runtime unavailable: %v", err)
+	}
 	t.Setenv("TASKDECK_PYTHON", filepath.Join(t.TempDir(), "missing-python"))
 
 	store, err := OpenSQLiteStore(context.Background(), filepath.Join(t.TempDir(), identityDBName))
-	if store != nil {
-		_ = store.Close()
-		t.Fatal("invalid Python runtime unexpectedly opened identity store")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err == nil || !strings.Contains(err.Error(), "TASKDECK_PYTHON is not executable") {
-		t.Fatalf("err=%v want configured Python failure", err)
+	defer store.Close()
+
+	sqliteStore, ok := store.(*sqliteDatabase)
+	if !ok {
+		t.Fatalf("unexpected store type %T", store)
+	}
+	var version int
+	if err := sqliteStore.db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != schemaVersion {
+		t.Fatalf("schema version=%d want=%d", version, schemaVersion)
 	}
 }
 

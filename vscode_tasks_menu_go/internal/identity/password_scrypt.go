@@ -8,9 +8,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -140,7 +143,7 @@ type passwordScryptResponse struct {
 }
 
 func derivePasswordScrypt(ctx context.Context, password, salt []byte) ([]byte, error) {
-	executable, prefix, err := resolvePythonSQLiteCommand()
+	executable, prefix, err := resolvePythonScryptCommand()
 	if err != nil {
 		return nil, err
 	}
@@ -193,14 +196,72 @@ func derivePasswordScrypt(ctx context.Context, password, salt []byte) ([]byte, e
 	return key, nil
 }
 
+func resolvePythonScryptCommand() (string, []string, error) {
+	type candidate struct {
+		name   string
+		prefix []string
+	}
+	if configured := strings.TrimSpace(os.Getenv("TASKDECK_PYTHON")); configured != "" {
+		path, err := exec.LookPath(configured)
+		if err != nil {
+			return "", nil, fmt.Errorf("TASKDECK_PYTHON is not executable: %w", err)
+		}
+		if err := probePythonScryptRuntime(path, nil); err != nil {
+			return "", nil, fmt.Errorf("TASKDECK_PYTHON cannot provide password scrypt: %w", err)
+		}
+		return path, nil, nil
+	}
+
+	candidates := []candidate{{name: "python3"}, {name: "python"}}
+	if runtime.GOOS == "windows" {
+		candidates = append([]candidate{{name: "py", prefix: []string{"-3"}}}, candidates...)
+	}
+	var failures []string
+	for _, candidate := range candidates {
+		path, err := exec.LookPath(candidate.name)
+		if err != nil {
+			continue
+		}
+		if err := probePythonScryptRuntime(path, candidate.prefix); err != nil {
+			failures = append(failures, candidate.name+": "+err.Error())
+			continue
+		}
+		return path, candidate.prefix, nil
+	}
+	if len(failures) > 0 {
+		return "", nil, fmt.Errorf("Python hashlib.scrypt is unavailable: %s", strings.Join(failures, "; "))
+	}
+	return "", nil, fmt.Errorf("Python with hashlib.scrypt was not found in PATH")
+}
+
+func probePythonScryptRuntime(path string, prefix []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	args := append(append([]string(nil), prefix...),
+		"-c",
+		"import hashlib,sys; raise SystemExit(0 if hasattr(hashlib,'scrypt') else 3)",
+	)
+	cmd := exec.CommandContext(ctx, path, args...)
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		return fmt.Errorf("runtime probe timed out")
+	}
+	if err != nil {
+		detail := strings.TrimSpace(string(output))
+		if detail == "" {
+			detail = err.Error()
+		}
+		return fmt.Errorf("hashlib.scrypt unavailable (%s)", detail)
+	}
+	return nil
+}
+
 const pythonScryptHelper = `
 import base64
 import hashlib
 import json
 import sys
 
-if sys.version_info < (3, 10):
-    raise RuntimeError("TaskDeck shared-server password hashing requires Python 3.10+")
 if not hasattr(hashlib, "scrypt"):
     raise RuntimeError("Python hashlib.scrypt is unavailable")
 
