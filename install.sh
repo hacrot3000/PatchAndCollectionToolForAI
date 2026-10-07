@@ -165,7 +165,9 @@ echo "TaskDeck: kiểm tra source trước khi cài..."
         GOPROXY=off GOSUMDB=off go test ./...
     else
         echo "TaskDeck: Python < 3.10, chỉ compile Go tests; bỏ qua runtime tests có thể phụ thuộc Python 3.10+." >&2
-        GOPROXY=off GOSUMDB=off go test -vet=off -run '^\
+        GOPROXY=off GOSUMDB=off go test -vet=off -run '^$' ./...
+    fi
+)
 if (( PYTHON_310_AVAILABLE )); then
     (
         cd "$SOURCE_ROOT"
