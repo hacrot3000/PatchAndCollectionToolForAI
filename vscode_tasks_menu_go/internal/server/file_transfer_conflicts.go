@@ -237,7 +237,7 @@ func (s *Server) backgroundRemoteSHA256(ctx context.Context, profileID, remotePa
 }
 
 
-func (s *Server) enqueueServerTransferConflictAware(queue *fileTransferServerQueue, jobID, kind, direction, source, target, operation string, size int64, conflict *fileTransferConflictMeta) error {
+func (s *Server) enqueueServerTransferConflictAware(ctx context.Context, queue *fileTransferServerQueue, jobID, kind, direction, source, target, operation string, size int64, conflict *fileTransferConflictMeta) error {
 	if conflict == nil {
 		queue.addItem(jobID, kind, direction, source, target, operation, size, false)
 		return nil
@@ -251,9 +251,15 @@ func (s *Server) enqueueServerTransferConflictAware(queue *fileTransferServerQue
 		JobID: jobID, Kind: kind, Direction: direction, Source: source, Target: target,
 		Size: size, Operation: operation, Conflict: conflict,
 	}
-	overwrite, err := s.evaluateServerConflict(context.Background(), queue.ProfileID, item, policy)
+	overwrite, err := s.evaluateServerConflict(ctx, queue.ProfileID, item, policy)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return err
+		}
 		conflictItem := queue.addConflictItem(jobID, kind, direction, source, target, operation, size, *conflict)
+		if conflictItem == nil {
+			return nil
+		}
 		queue.mu.Lock()
 		conflictItem.Error = err.Error()
 		queue.touchLocked()
