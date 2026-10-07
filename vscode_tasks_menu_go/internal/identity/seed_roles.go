@@ -39,12 +39,12 @@ CREATE TABLE IF NOT EXISTS project_roles(
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		for _, permission := range PermissionRegistry() {
-			if _, err := conn.ExecContext(ctx, `INSERT INTO permissions(id,permission_key,description) VALUES(?,?,?) ON CONFLICT(permission_key) DO NOTHING`, permission.Key, permission.Key, permission.Module); err != nil {
+			if _, err := conn.ExecContext(ctx, `INSERT OR IGNORE INTO permissions(id,permission_key,description) VALUES(?,?,?)`, permission.Key, permission.Key, permission.Module); err != nil {
 				return err
 			}
 		}
 		for _, role := range SystemRoles() {
-			if _, err := conn.ExecContext(ctx, `INSERT INTO roles(id,name,description,system_role) VALUES(?,?,?,1) ON CONFLICT(id) DO NOTHING`, string(role.ID), role.Name, "System "+role.Name); err != nil {
+			if _, err := conn.ExecContext(ctx, `INSERT OR IGNORE INTO roles(id,name,description,system_role) VALUES(?,?,?,1)`, string(role.ID), role.Name, "System "+role.Name); err != nil {
 				return err
 			}
 			var name string
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS project_roles(
 				return fmt.Errorf("%w: incompatible system role %s", ErrConflict, role.Name)
 			}
 			for _, key := range role.Permissions {
-				if _, err := conn.ExecContext(ctx, `INSERT INTO role_permissions(role_id,permission_id) SELECT ?,id FROM permissions WHERE permission_key=? ON CONFLICT DO NOTHING`, string(role.ID), key); err != nil {
+				if _, err := conn.ExecContext(ctx, `INSERT OR IGNORE INTO role_permissions(role_id,permission_id) SELECT ?,id FROM permissions WHERE permission_key=?`, string(role.ID), key); err != nil {
 					return err
 				}
 			}
@@ -72,12 +72,12 @@ CREATE TABLE IF NOT EXISTS project_roles(
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		for _, permission := range PermissionRegistry() {
-			if _, err := conn.ExecContext(ctx, `INSERT INTO permissions(id,permission_key,description) VALUES(?,?,?) ON CONFLICT(permission_key) DO NOTHING`, permission.Key, permission.Key, permission.Module); err != nil {
+			if _, err := conn.ExecContext(ctx, `INSERT OR IGNORE INTO permissions(id,permission_key,description) VALUES(?,?,?)`, permission.Key, permission.Key, permission.Module); err != nil {
 				return err
 			}
 		}
 		for _, key := range PermissionUpgradeV2Keys() {
-			if _, err := conn.ExecContext(ctx, `INSERT INTO role_permissions(role_id,permission_id) SELECT 'system:admin',id FROM permissions WHERE permission_key=? ON CONFLICT DO NOTHING`, key); err != nil {
+			if _, err := conn.ExecContext(ctx, `INSERT OR IGNORE INTO role_permissions(role_id,permission_id) SELECT 'system:admin',id FROM permissions WHERE permission_key=?`, key); err != nil {
 				return err
 			}
 		}
@@ -93,12 +93,12 @@ CREATE TABLE IF NOT EXISTS project_roles(
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		for _, permission := range PermissionRegistry() {
-			if _, err := conn.ExecContext(ctx, `INSERT INTO permissions(id,permission_key,description) VALUES(?,?,?) ON CONFLICT(permission_key) DO NOTHING`, permission.Key, permission.Key, permission.Module); err != nil {
+			if _, err := conn.ExecContext(ctx, `INSERT OR IGNORE INTO permissions(id,permission_key,description) VALUES(?,?,?)`, permission.Key, permission.Key, permission.Module); err != nil {
 				return err
 			}
 		}
 		for _, key := range PermissionUpgradeV3Keys() {
-			if _, err := conn.ExecContext(ctx, `INSERT INTO role_permissions(role_id,permission_id) SELECT 'system:admin',id FROM permissions WHERE permission_key=? ON CONFLICT DO NOTHING`, key); err != nil {
+			if _, err := conn.ExecContext(ctx, `INSERT OR IGNORE INTO role_permissions(role_id,permission_id) SELECT 'system:admin',id FROM permissions WHERE permission_key=?`, key); err != nil {
 				return err
 			}
 		}
@@ -114,12 +114,12 @@ CREATE TABLE IF NOT EXISTS project_roles(
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		for _, permission := range PermissionRegistry() {
-			if _, err := conn.ExecContext(ctx, `INSERT INTO permissions(id,permission_key,description) VALUES(?,?,?) ON CONFLICT(permission_key) DO NOTHING`, permission.Key, permission.Key, permission.Module); err != nil {
+			if _, err := conn.ExecContext(ctx, `INSERT OR IGNORE INTO permissions(id,permission_key,description) VALUES(?,?,?)`, permission.Key, permission.Key, permission.Module); err != nil {
 				return err
 			}
 		}
 		for _, key := range PermissionUpgradeV4Keys() {
-			if _, err := conn.ExecContext(ctx, `INSERT INTO role_permissions(role_id,permission_id) SELECT 'system:admin',id FROM permissions WHERE permission_key=? ON CONFLICT DO NOTHING`, key); err != nil {
+			if _, err := conn.ExecContext(ctx, `INSERT OR IGNORE INTO role_permissions(role_id,permission_id) SELECT 'system:admin',id FROM permissions WHERE permission_key=?`, key); err != nil {
 				return err
 			}
 		}
