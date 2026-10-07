@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,9 +11,7 @@ import (
 func TestFileTransferUploadQuickScanStopsAtManyFileThreshold(t *testing.T) {
 	root := t.TempDir()
 	for i := 0; i < fileTransferUploadQuickScanFiles+15; i++ {
-		name := filepath.Join(root, "file-"+strings.Repeat("0", 4-len(strings.TrimSpace(""))))
-		_ = name
-		path := filepath.Join(root, "f-"+formatTestIndex(i)+".txt")
+		path := filepath.Join(root, fmt.Sprintf("f-%04d.txt", i))
 		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -28,19 +27,6 @@ func TestFileTransferUploadQuickScanStopsAtManyFileThreshold(t *testing.T) {
 	if !result.ManyFiles || result.Files != fileTransferUploadQuickScanFiles || result.Complete {
 		t.Fatalf("quick scan result=%+v", result)
 	}
-}
-
-func formatTestIndex(value int) string {
-	const digits = "0123456789"
-	if value == 0 {
-		return "0000"
-	}
-	buf := []byte{'0', '0', '0', '0'}
-	for i := len(buf)-1; i >= 0 && value > 0; i-- {
-		buf[i] = digits[value%10]
-		value /= 10
-	}
-	return string(buf)
 }
 
 func TestFileTransferArchiveRootsRejectUnsafeNames(t *testing.T) {
@@ -86,6 +72,12 @@ func TestFileTransferManualExtractCommandsPreflightAndCleanup(t *testing.T) {
 		if !strings.Contains(powershell, want) {
 			t.Fatalf("PowerShell command missing %q: %s", want, powershell)
 		}
+	}
+}
+
+func TestRemoteArchiveExtractIntoExistingCommandRejectsUnknownFormat(t *testing.T) {
+	if _, err := remoteArchiveExtractIntoExistingCommand("rar", "/tmp/archive.rar", "/srv/app", []string{"assets"}); err == nil {
+		t.Fatal("unsupported archive format was accepted")
 	}
 }
 
