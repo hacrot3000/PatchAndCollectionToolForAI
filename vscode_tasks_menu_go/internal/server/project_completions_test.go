@@ -142,3 +142,57 @@ func TestProjectSymbolIndexUpdatesSingleSavedFile(t *testing.T) {
 		t.Fatalf("updated symbol missing: %+v", after)
 	}
 }
+
+
+func TestProjectCompletionSuggestsImportsWithoutTypedPrefix(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
+	root := t.TempDir()
+	writeCompletionFixture(t, root, "pkg/alpha.go", "package pkg\n")
+	writeCompletionFixture(t, root, "pkg/beta.go", "package pkg\n")
+	writeCompletionFixture(t, root, "src/main.go", "package main\n")
+	s := &Server{Workspace: root}
+
+	got := postProjectCompletion(t, s, projectCompletionRequest{
+		Path: "src/main.go", Language: "go", Prefix: "", LexicalMode: "string",
+		Text: "package main\nimport \"", LinePrefix: "import \"",
+		Position: lspPosition{Line: 1, Character: 8}, Limit: 20,
+	})
+	if len(got.Items) == 0 {
+		t.Fatalf("expected bounded import suggestions for empty prefix")
+	}
+	for _, item := range got.Items {
+		if item.Source != "project-path" {
+			t.Fatalf("unexpected non-path completion in import context: %+v", item)
+		}
+		if item.InsertText == "" {
+			t.Fatalf("empty import insert text: %+v", item)
+		}
+	}
+}
+
+func TestProjectCompletionRequestBoundsLimitAndDocumentSize(t *testing.T) {
+	req, err := normalizeProjectCompletionRequest(projectCompletionRequest{
+		Path: "main.go", Language: "go", Prefix: strings.Repeat("x", 300),
+		Text: "package main", Limit: 1000,
+		Position: lspPosition{Line: 0, Character: 0},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(req.Prefix) != 256 {
+		t.Fatalf("prefix length=%d want=256", len(req.Prefix))
+	}
+	if req.Limit != projectCompletionMaxItems {
+		t.Fatalf("limit=%d want=%d", req.Limit, projectCompletionMaxItems)
+	}
+
+	_, err = normalizeProjectCompletionRequest(projectCompletionRequest{
+		Path: "main.go", Language: "go",
+		Text: strings.Repeat("x", projectCompletionMaxText+1),
+		Position: lspPosition{Line: 0, Character: 0},
+	})
+	if err != errProjectCompletionDocumentTooLarge {
+		t.Fatalf("oversized document err=%v", err)
+	}
+}
