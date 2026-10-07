@@ -11,7 +11,7 @@ Required behavior:
 - Scan for only a few seconds / until a high-file-count threshold is reached; never require a full pre-scan before the user can continue.
 - If many files are detected, offer: Compress + upload, Upload normally, or Cancel.
 - Upload normally must preserve the existing scanner/queue/conflict/recovery path unchanged.
-- Archive mode must preserve top-level selected names and refuse automatic extraction when those destination roots already exist.
+- Archive mode must preserve top-level selected names. Existing top-level destinations are handled by an explicit merge/overwrite choice instead of disabling compressed mode.
 - SFTP + authorized SSH shell: TaskDeck may automatically extract the uploaded archive and remove it after successful extraction.
 - FTP, or SFTP without authorized SSH shell: upload the archive and present copyable extraction commands for the user to run manually.
 - Host and Local-browser folder uploads should both receive the suggestion where technically supported.
@@ -38,7 +38,7 @@ Required behavior:
 - The recommendation dialog always keeps **Upload normally** available; normal Host/Local upload paths continue through the existing scanner/queue/conflict/recovery implementations.
 - Host archive mode creates a temporary tar.gz with Go stdlib, uploads it once, then removes the local temp file.
 - Local-browser archive mode streams the selected FileSystemHandle tree through a built-in TAR writer and browser-native `CompressionStream('gzip')`; no npm/CDN/runtime dependency was added.
-- Archive mode preserves selected top-level names and is disabled by the UI when a top-level destination already exists.
+- Archive mode preserves selected top-level names. If a top-level destination already exists, compressed mode remains available as **Compress + merge/overwrite** with an explicit warning; **Upload normally** remains available for per-file conflict decisions.
 - Automatic SFTP extraction performs the same top-level collision preflight again immediately before extraction, so stale browser cache/races cannot silently overwrite those roots.
 - Automatic extraction requires SFTP plus authorized `ssh.use`; existing manual Host archive extraction was also tightened to require `ssh.use` in shared mode.
 - FTP or SFTP without authorized SSH uploads the archive and shows copyable POSIX and PowerShell commands. FTP UI warns that FTP-visible paths may be chroot/virtual paths and may need shell-path adjustment.
@@ -68,9 +68,30 @@ This compressed-folder upload batch is complete on `main`. GitHub CI/status avai
 Observed bug: the recommendation dialog disabled `Compress + upload + extract` whenever a selected top-level name already existed in the current remote directory, even with a valid SFTP+SSH connection.
 
 Resolution plan:
-- [ ] Keep compressed mode enabled when top-level destinations already exist.
-- [ ] Ask for an explicit merge policy before archive upload: overwrite existing files, keep existing files, upload normally, or cancel.
-- [ ] Pass the selected merge policy to automatic SSH extraction.
-- [ ] Generate manual POSIX/PowerShell commands that implement the same policy.
-- [ ] Preserve fail-if-exists behavior when the remote roots are clear/race appears unexpectedly.
-- [ ] Add regression coverage and update docs.
+- [x] Keep compressed mode enabled when top-level destinations already exist.
+- [x] Ask for an explicit policy before archive upload when roots exist: **Compress + merge/overwrite**, **Upload normally**, or **Cancel**. A separate keep-existing archive mode is intentionally not exposed because portable tar behavior differs across remote systems.
+- [x] Pass the selected merge policy to automatic SSH extraction.
+- [x] Generate manual POSIX/PowerShell commands that implement the same policy.
+- [x] Preserve fail-if-exists behavior when the remote roots are clear/race appears unexpectedly.
+- [x] Add regression coverage and update docs.
+
+## 2026-10-07 follow-up — huge folder resource limit + queue visibility
+
+Observed:
+- Old synchronous `/api/file-transfer/archive-upload` still reused `writeProjectTarGz()` and could fail with `project archive exceeds resource limit` on very large trees.
+- User needs compressed upload to be visible/cancellable in Transfer Queue for folders containing hundreds of thousands of files.
+
+Implemented:
+- `6a18a41`: legacy compressed-upload API now uses `writeLargeFileTransferTarGz()` instead of the Project Archive writer, so it no longer inherits Project Archive entry/resource limits.
+- Current Host compressed upload UI no longer uses the synchronous archive-upload path. It creates a daemon queue job with `kind=host_archive_upload`.
+- Daemon job phases are persisted in queue snapshots: `compressing`, `uploading`, `extracting`, `manual_extract`, `done`.
+- Progress records file count, uncompressed source bytes and compressed archive bytes; queue detail updates roughly every 500 ms.
+- The large-folder writer uses streaming `filepath.Walk` + tar/gzip `BestSpeed` and a fixed 256 KiB copy buffer; it does not accumulate a list of hundreds of thousands of entries in RAM.
+- Running compressed jobs use the same `TransferCancels` context-cancel mechanism as other daemon transfer items. Right-click the queue row and choose **Cancel / remove selected** to stop compression/upload/extraction; temp local archive is removed by deferred cleanup.
+- Compressed archive safety cap is currently 64 GiB **compressed size**; this is independent of file count and of Project Archive limits.
+- Local-browser compressed uploads are also represented as Transfer Queue items and have an `AbortController`, so they can be cancelled from the same queue UI.
+- Existing remote roots no longer disable compressed upload; the current UI offers **Compress + merge/overwrite** and sends `merge_policy=overwrite` when selected.
+
+Validation:
+- Existing tests cover cancellable large-writer behavior, queued `host_archive_upload` job creation, running-item cancellation/removal, merge-policy behavior, and Local compressed queue cancellation.
+- Static UI contract includes `kind:'host_archive_upload'`, `merge_policy:mergePolicy`, `handleCompressedUploadJobResults(...)` and `Cancel / remove selected`.
