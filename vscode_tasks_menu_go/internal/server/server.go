@@ -179,6 +179,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/project/tree", s.projectTree)
 	mux.HandleFunc("/api/project/health", s.projectHealth)
 	mux.HandleFunc("/api/project/file", s.projectFile)
+	mux.HandleFunc("/api/project/editor-session", s.projectEditorSession)
 	mux.HandleFunc("/api/project/file-history", s.projectFileHistory)
 	mux.HandleFunc("/api/project/bytes", s.projectBytes)
 	mux.HandleFunc("/api/project/integrity", s.projectIntegrity)
