@@ -584,6 +584,9 @@ function openFileTransferProfileDialog(protocol,profile=null){
 
   const name=field(form,'Name','name',{value:profile?.name||''});
   let sshProfile=null,host=null,port=null,username=null,secret=null,clearSecret=null,timeout=null,ftpTLS=null,ftpWarning=null;
+  const maxConnections=field(form,'Max concurrent connections','max_connections',{type:'number',value:String(profile?.max_connections||3)});
+  maxConnections.input.min='1';maxConnections.input.max='16';maxConnections.input.step='1';
+  maxConnections.input.title='Shared budget for scans, remote browsing and upload/download operations';
   if(protocol==='sftp'){
     const options=sshProfiles.map(item=>[item.id,item.name||((item.username?item.username+'@':'')+item.host)]);
     if(profile?.ssh_profile_id&&!options.some(option=>option[0]===profile.ssh_profile_id))options.unshift([profile.ssh_profile_id,profile.ssh_profile_id+' (unavailable)']);
@@ -622,7 +625,7 @@ function openFileTransferProfileDialog(protocol,profile=null){
 
   function currentPayload(){
     if(protocol==='sftp'){
-      return {name:name.input.value,protocol:'sftp',ssh_profile_id:sshProfile.input.value,initial_path:initial.input.value};
+      return {name:name.input.value,protocol:'sftp',ssh_profile_id:sshProfile.input.value,initial_path:initial.input.value,max_connections:Number(maxConnections.input.value)||3};
     }
     const tlsMode=ftpTLS.input.value||'plain';
     const payload={
@@ -630,6 +633,7 @@ function openFileTransferProfileDialog(protocol,profile=null){
       port:Number(port.input.value)||(tlsMode==='implicit'?990:21),
       username:username.input.value,initial_path:initial.input.value,
       connect_timeout_seconds:Number(timeout.input.value)||10,
+      max_connections:Number(maxConnections.input.value)||3,
       ftp_tls_mode:tlsMode
     };
     if(secret.input.value)payload.secret=secret.input.value;
