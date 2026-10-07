@@ -237,6 +237,18 @@ func readEditorSwap(path string) (editorSwapRecord, error) {
 	if record.Version != editorSessionVersion || !utf8.ValidString(record.Content) || strings.ContainsRune(record.Content, '\x00') || int64(len(record.Content)) > projectEditableLimit {
 		return editorSwapRecord{}, fmt.Errorf("invalid editor swap")
 	}
+	if _, err := cleanProjectRelativePath(record.Path, false); err != nil {
+		return editorSwapRecord{}, fmt.Errorf("invalid editor swap path")
+	}
+	if len(record.SourceSHA256) != sha256.Size*2 {
+		return editorSwapRecord{}, fmt.Errorf("invalid editor swap source hash")
+	}
+	if _, err := hex.DecodeString(record.SourceSHA256); err != nil {
+		return editorSwapRecord{}, fmt.Errorf("invalid editor swap source hash")
+	}
+	if record.Selection.Anchor < 0 || record.Selection.Head < 0 {
+		return editorSwapRecord{}, fmt.Errorf("invalid editor swap selection")
+	}
 	return record, nil
 }
 
