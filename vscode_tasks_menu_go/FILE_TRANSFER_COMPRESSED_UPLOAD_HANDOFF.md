@@ -62,3 +62,15 @@ Required behavior:
 ## Status
 
 This compressed-folder upload batch is complete on `main`. GitHub CI/status availability is checked separately at the final HEAD; do not infer a CI pass from static review alone.
+
+## 2026-10-07 follow-up — existing destination roots
+
+Observed bug: the recommendation dialog disabled `Compress + upload + extract` whenever a selected top-level name already existed in the current remote directory, even with a valid SFTP+SSH connection.
+
+Resolution plan:
+- [ ] Keep compressed mode enabled when top-level destinations already exist.
+- [ ] Ask for an explicit merge policy before archive upload: overwrite existing files, keep existing files, upload normally, or cancel.
+- [ ] Pass the selected merge policy to automatic SSH extraction.
+- [ ] Generate manual POSIX/PowerShell commands that implement the same policy.
+- [ ] Preserve fail-if-exists behavior when the remote roots are clear/race appears unexpectedly.
+- [ ] Add regression coverage and update docs.
