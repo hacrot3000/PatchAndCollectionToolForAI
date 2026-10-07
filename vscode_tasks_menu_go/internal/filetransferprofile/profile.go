@@ -11,6 +11,7 @@ import (
 const (
 	DefaultFTPPort             = 21
 	DefaultConnectTimeoutSecond = 10
+	DefaultMaxConnections        = 3
 
 	maxIDBytes             = 128
 	maxNameBytes           = 128
@@ -19,6 +20,7 @@ const (
 	maxPathBytes           = 4096
 	maxSecretRefBytes      = 256
 	maxConnectTimeoutSecond = 300
+	maxConnections          = 16
 )
 
 type Protocol string
@@ -49,6 +51,7 @@ type Profile struct {
 	InitialPath  string `json:"initial_path,omitempty"`
 
 	ConnectTimeoutSeconds int        `json:"connect_timeout_seconds,omitempty"`
+	MaxConnections        int        `json:"max_connections,omitempty"`
 	FTPTLSMode            FTPTLSMode `json:"ftp_tls_mode,omitempty"`
 
 	// SecretRef points at the private encrypted secret store. It must never be
@@ -84,6 +87,12 @@ func Normalize(profile Profile) (Profile, error) {
 	}
 	if err := validateRemotePath(profile.InitialPath); err != nil {
 		return Profile{}, err
+	}
+	if profile.MaxConnections == 0 {
+		profile.MaxConnections = DefaultMaxConnections
+	}
+	if profile.MaxConnections < 1 || profile.MaxConnections > maxConnections {
+		return Profile{}, fmt.Errorf("file-transfer max connections must be between 1 and %d", maxConnections)
 	}
 
 	switch profile.Protocol {
