@@ -586,6 +586,7 @@ function installPatchPanel(){
 
   const actionDefs=[
     ['queue','Queue','Open the normal PATCH/COLLECT queue'],
+    ['upload','Upload','Upload PATCH/COLLECT package(s) from this browser'],
     ['resume','Resume','Continue an interrupted or failed run'],
     ['history','History','Open Patch Tool reports/history'],
     ['plan','Plan','Inspect the execution plan without replacing the Python engine'],
@@ -593,6 +594,14 @@ function installPatchPanel(){
     ['ai-pack','AI Pack','Package current docs + standard prompt for a new AI chat'],
   ];
   const buttons=[];
+  const patchUploadInput=document.createElement('input');
+  patchUploadInput.type='file';
+  patchUploadInput.accept='.zip,.tar,.tgz,.tar.gz,application/zip,application/x-tar,application/gzip';
+  patchUploadInput.multiple=true;
+  patchUploadInput.hidden=true;
+  actions.append(patchUploadInput);
+  let uploadButton=null;
+  let uploadBusy=false;
   let activeSessionId='';
   let returnViewId='';
   let tabReadOnly=false;
@@ -655,16 +664,103 @@ function installPatchPanel(){
     const strong=document.createElement('strong');strong.textContent=label;
     const span=document.createElement('span');span.textContent=detail;
     button.append(strong,span);
-    button.onclick=()=>mode==='ai-pack'?prepareAIPack(button).catch(app.showError):start(mode,button).catch(app.showError);
+    if(mode==='upload')uploadButton=button;
+    button.onclick=()=>{
+      if(mode==='upload'){choosePatchUpload().catch(app.showError);return;}
+      if(mode==='ai-pack'){prepareAIPack(button).catch(app.showError);return;}
+      start(mode,button).catch(app.showError);
+    };
     actions.append(button);buttons.push(button);
   }
+  patchUploadInput.onchange=()=>{
+    const files=[...(patchUploadInput.files||[])];
+    patchUploadInput.value='';
+    if(files.length)uploadPatchPackages(files).catch(app.showError);
+  };
 
   function setReadOnly(enabled){
     tabReadOnly=Boolean(enabled);
     patchTab.classList.toggle('taskdeck-tab-readonly',tabReadOnly);
     if(tabReadOnly)panel.dataset.taskdeckReadonly='1';else delete panel.dataset.taskdeckReadonly;
     panel.setAttribute('aria-readonly',tabReadOnly?'true':'false');
+    if(uploadButton)uploadButton.disabled=tabReadOnly||uploadBusy||(app.sharedMode&&!app.hasPermission?.('patch.run'));
     return tabReadOnly;
+  }
+
+  function patchUploadAllowed(){
+    return !tabReadOnly&&(!app.sharedMode||Boolean(app.hasPermission?.('patch.run')||app.hasPermission?.('project.admin')));
+  }
+
+  async function choosePatchUpload(){
+    if(uploadBusy)return;
+    if(!patchUploadAllowed())throw new Error('Patch upload requires patch.run permission');
+    patchUploadInput.click();
+  }
+
+  async function uploadPatchPackage(file,overwrite=false){
+    const form=new FormData();
+    form.append('file',file,file.name||'patch-package.zip');
+    const response=await app.fetchWithLease('/api/patch/upload'+(overwrite?'?overwrite=1':''),{
+      method:'POST',body:form,cache:'no-store'
+    });
+    if(response.status===409&&!overwrite){
+      const message=(await response.text()).trim();
+      if(message.includes('already exists')&&window.confirm((file.name||'Package')+' already exists in Patch queue. Overwrite it?')){
+        return uploadPatchPackage(file,true);
+      }
+      if(message.includes('already exists'))return {skipped:true,name:file.name||'package'};
+      throw new Error(message||response.statusText);
+    }
+    if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
+    return response.json();
+  }
+
+  function renderPatchUploadStatus(title,meta,output=''){
+    actionResultTitle.textContent=title;
+    actionResultMeta.textContent=meta;
+    actionResultOutput.textContent=output;
+    actionResultBox.hidden=false;
+  }
+
+  async function refreshPatchQueueAfterUpload(){
+    if(runningMode){
+      await openQueueWhileRunning();
+      return;
+    }
+    if(activeSessionId){
+      await refreshQueueSessionSilently(activeSessionId);
+      return;
+    }
+    await start('queue');
+  }
+
+  async function uploadPatchPackages(files){
+    if(uploadBusy||!files?.length)return [];
+    if(!patchUploadAllowed())throw new Error('Patch upload requires patch.run permission');
+    uploadBusy=true;
+    if(uploadButton)uploadButton.disabled=true;
+    const uploaded=[],skipped=[];
+    try{
+      for(let i=0;i<files.length;i+=1){
+        const file=files[i];
+        renderPatchUploadStatus('Upload PATCH/COLLECT',`Uploading ${i+1}/${files.length} · ${file.name}`,'Packages are published directly to patchs/ and then classified by the Patch runtime.');
+        const result=await uploadPatchPackage(file,false);
+        if(result?.skipped){skipped.push(result.name||file.name);continue;}
+        uploaded.push(result);
+      }
+      const names=uploaded.map(item=>String(item?.name||'')).filter(Boolean);
+      const parts=[uploaded.length+' uploaded'];
+      if(skipped.length)parts.push(skipped.length+' skipped');
+      renderPatchUploadStatus('Upload PATCH/COLLECT',parts.join(' · '),names.length?'Queued in patchs/:\n'+names.join('\n'):'No package was uploaded.');
+      if(uploaded.length){
+        summaryStatus.textContent='Uploaded '+uploaded.length+' package(s) · refreshing Queue…';
+        await refreshPatchQueueAfterUpload();
+      }
+      return uploaded;
+    }finally{
+      uploadBusy=false;
+      if(uploadButton)uploadButton.disabled=tabReadOnly||(app.sharedMode&&!app.hasPermission?.('patch.run'));
+    }
   }
 
   function cancelPatchPanelPolling(){
@@ -3712,7 +3808,7 @@ function installPatchPanel(){
     throw new Error('Unsupported Patch operation action');
   }
 
-    globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,prepareAIPack,renderAIPack,copyAIPackPrompt,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,refreshQueueSilently,refreshQueueSessionSilently,refreshQueueForActivity,scheduleQueueAutoRefresh,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,operationSnapshot:patchOperationSnapshot,operationControl:patchOperationControl,setReadOnly,isReadOnly:()=>tabReadOnly,get tab(){return patchTab;},get panel(){return panel;},get visible(){return panel.classList.contains('visible');},get lifecycleSuspended(){return lifecycleSuspended;}};
+    globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,choosePatchUpload,uploadPatchPackage,uploadPatchPackages,prepareAIPack,renderAIPack,copyAIPackPrompt,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,refreshQueueSilently,refreshQueueSessionSilently,refreshQueueForActivity,scheduleQueueAutoRefresh,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,operationSnapshot:patchOperationSnapshot,operationControl:patchOperationControl,setReadOnly,isReadOnly:()=>tabReadOnly,get tab(){return patchTab;},get panel(){return panel;},get visible(){return panel.classList.contains('visible');},get lifecycleSuspended(){return lifecycleSuspended;}};
   globalThis.TaskMenuTabContext?.registerTab?.(patchTab);
   return true;
 }
