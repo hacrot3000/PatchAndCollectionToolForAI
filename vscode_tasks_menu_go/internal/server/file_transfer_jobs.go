@@ -503,6 +503,8 @@ func (q *fileTransferServerQueue) recomputeJobLocked(jobID string) {
 	switch {
 	case hasRunning:
 		job.Status = "running"
+	case !job.ScanDone && job.Status == "scan_queued":
+		job.Status = "scan_queued"
 	case !job.ScanDone:
 		job.Status = "scanning"
 	case hasQueued:
@@ -545,6 +547,22 @@ func (s *Server) runFileTransferServerQueue(queue *fileTransferServerQueue) {
 	for range queue.wake {
 		for {
 			queue.mu.Lock()
+			if !queue.hasConnectionCapacityLocked() {
+				queue.mu.Unlock()
+				break
+			}
+			if scan := queue.nextPendingScanLocked(); scan != nil {
+				queue.ActiveScans++
+				if job := queue.Jobs[scan.JobID]; job != nil {
+					job.Status = "scanning"
+					job.Error = ""
+					job.UpdatedAt = time.Now().UTC()
+				}
+				queue.touchLocked()
+				queue.mu.Unlock()
+				go s.runFileTransferServerScan(queue, *scan)
+				continue
+			}
 			item := queue.nextRunnableLocked()
 			if item == nil {
 				queue.mu.Unlock()
@@ -553,28 +571,50 @@ func (s *Server) runFileTransferServerQueue(queue *fileTransferServerQueue) {
 			item.Status = "running"
 			item.Error = ""
 			item.Attempts++
+			queue.ActiveTransfers++
 			queue.recomputeJobLocked(item.JobID)
 			queue.touchLocked()
 			queue.mu.Unlock()
-
-			err := s.executeFileTransferServerItem(context.Background(), queue.ProfileID, item)
-
-			queue.mu.Lock()
-			if err != nil {
-				item.Status = "failed"
-				item.Error = err.Error()
-			} else {
-				item.Status = "success"
-				item.Error = ""
-			}
-			if item.RemoveAfterRun {
-				item.Removed = true
-			}
-			queue.recomputeJobLocked(item.JobID)
-			queue.touchLocked()
-			queue.mu.Unlock()
+			go s.runFileTransferServerItem(queue, item)
 		}
 	}
+}
+
+func (s *Server) runFileTransferServerScan(queue *fileTransferServerQueue, scan fileTransferPendingScan) {
+	var scanErr error
+	switch scan.Req.Kind {
+	case fileTransferJobHostUpload:
+		scanErr = s.scanHostUploadJob(queue, scan.JobID, scan.Req)
+	case fileTransferJobHostDownload:
+		scanErr = s.scanHostDownloadJob(queue, scan.JobID, scan.Req)
+	case fileTransferJobRemoteDelete:
+		scanErr = s.scanRemoteDeleteJob(queue, scan.JobID, scan.Req)
+	default:
+		scanErr = fmt.Errorf("unsupported file-transfer job kind %q", scan.Req.Kind)
+	}
+	queue.setScanState(scan.JobID, true, scanErr)
+}
+
+func (s *Server) runFileTransferServerItem(queue *fileTransferServerQueue, item *fileTransferServerItem) {
+	err := s.executeFileTransferServerItem(context.Background(), queue.ProfileID, item)
+	queue.mu.Lock()
+	if err != nil {
+		item.Status = "failed"
+		item.Error = err.Error()
+	} else {
+		item.Status = "success"
+		item.Error = ""
+	}
+	if item.RemoveAfterRun {
+		item.Removed = true
+	}
+	if queue.ActiveTransfers > 0 {
+		queue.ActiveTransfers--
+	}
+	queue.recomputeJobLocked(item.JobID)
+	queue.touchLocked()
+	queue.mu.Unlock()
+	signalFileTransferQueue(queue)
 }
 
 func (s *Server) executeFileTransferServerItem(ctx context.Context, profileID string, item *fileTransferServerItem) error {
@@ -1178,28 +1218,16 @@ func (s *Server) createFileTransferServerJob(req fileTransferJobCreateRequest) (
 	now := time.Now().UTC()
 	job := &fileTransferServerJob{
 		ID: jobID, ProfileID: req.ProfileID, Kind: req.Kind,
-		Status: "scanning", CreatedAt: now, UpdatedAt: now, ConflictPolicy: req.ConflictPolicy,
+		Status: "scan_queued", CreatedAt: now, UpdatedAt: now, ConflictPolicy: req.ConflictPolicy,
 		Request: cloneFileTransferJobRequest(&req),
 	}
 	queue := s.fileTransferServerQueue(req.ProfileID)
 	queue.mu.Lock()
 	queue.Jobs[jobID] = job
-	queue.ActiveScans++
+	queue.enqueueScanLocked(jobID, req)
 	queue.touchLocked()
 	queue.mu.Unlock()
-
-	go func() {
-		var scanErr error
-		switch req.Kind {
-		case fileTransferJobHostUpload:
-			scanErr = s.scanHostUploadJob(queue, jobID, req)
-		case fileTransferJobHostDownload:
-			scanErr = s.scanHostDownloadJob(queue, jobID, req)
-		case fileTransferJobRemoteDelete:
-			scanErr = s.scanRemoteDeleteJob(queue, jobID, req)
-		}
-		queue.setScanState(jobID, true, scanErr)
-	}()
+	signalFileTransferQueue(queue)
 	return cloneFileTransferJob(job), nil
 }
 
