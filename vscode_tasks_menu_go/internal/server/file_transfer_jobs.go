@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	cryptorand "crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -25,6 +26,11 @@ const (
 	fileTransferJobHostUpload   = "host_upload"
 	fileTransferJobHostDownload = "host_download"
 	fileTransferJobRemoteDelete = "remote_delete"
+
+	// Large multi-selection actions can legitimately carry tens of thousands
+	// of remote paths/item IDs. Keep the general file-transfer JSON limit small,
+	// but give the background job/queue endpoints a bounded bulk-action budget.
+	maxFileTransferJobJSONBytes = 16 << 20
 )
 
 type fileTransferJobTarget struct {
@@ -1251,6 +1257,15 @@ func (s *Server) createFileTransferServerJob(req fileTransferJobCreateRequest) (
 	return cloneFileTransferJob(job), nil
 }
 
+func decodeFileTransferJobJSON(w http.ResponseWriter, r *http.Request, value any) error {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxFileTransferJobJSONBytes))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(value); err != nil {
+		return fmt.Errorf("invalid file-transfer job request: %w", err)
+	}
+	return nil
+}
+
 func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -1266,7 +1281,7 @@ func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, s.fileTransferServerQueue(profileID).snapshot())
 	case http.MethodPost:
 		var req fileTransferJobCreateRequest
-		if err := decodeFileTransferJSON(w, r, &req); err != nil {
+		if err := decodeFileTransferJobJSON(w, r, &req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -1360,7 +1375,7 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var req fileTransferJobControlRequest
-	if err := decodeFileTransferJSON(w, r, &req); err != nil {
+	if err := decodeFileTransferJobJSON(w, r, &req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
