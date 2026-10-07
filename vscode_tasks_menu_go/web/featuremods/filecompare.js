@@ -16,6 +16,8 @@ style.textContent=`
 .file-compare-cell{display:grid;grid-template-columns:48px minmax(0,1fr);min-width:0;border-bottom:1px solid rgba(255,255,255,.035)}
 .file-compare-cell+.file-compare-cell{border-left:1px solid #303843}.file-compare-no{padding:1px 7px;text-align:right;user-select:none;opacity:.45;font:10px/1.45 ui-monospace,monospace;border-right:1px solid rgba(255,255,255,.06)}
 .file-compare-code{padding:1px 7px;white-space:pre;overflow-x:auto;font:11px/1.45 ui-monospace,monospace}.file-compare-cell.removed{background:rgba(185,67,67,.18)}.file-compare-cell.added{background:rgba(54,145,78,.18)}.file-compare-cell.blank{opacity:.3}
+.file-compare-syntax-keyword{color:#c792ea}.file-compare-syntax-comment{color:#6a9955;font-style:italic}.file-compare-syntax-string{color:#ce9178}.file-compare-syntax-number{color:#b5cea8}.file-compare-syntax-command{color:#dcdcaa}.file-compare-syntax-variable{color:#9cdcfe}
+.file-compare-inline-change{border-radius:2px;box-shadow:inset 0 -1px 0 rgba(255,255,255,.28)}.file-compare-inline-change.removed{background:rgba(255,84,98,.38)}.file-compare-inline-change.added{background:rgba(255,196,74,.40)}
 .file-compare-hunk{border-top:1px solid #3a4350;border-bottom:1px solid #3a4350;margin:5px 0}.file-compare-hunk-head{position:sticky;left:0;display:flex;align-items:center;gap:6px;padding:4px 8px;background:#171e27;font:10px ui-monospace,monospace;z-index:1}.file-compare-hunk-label{flex:1;opacity:.72}.file-compare-hunk-head button{padding:2px 6px;font-size:10px}
 .file-compare-inline{min-width:640px}.file-compare-inline-line{display:grid;grid-template-columns:52px 20px minmax(0,1fr);border-bottom:1px solid rgba(255,255,255,.035);font:11px/1.45 ui-monospace,monospace}.file-compare-inline-line span{padding:1px 7px}.file-compare-inline-no{text-align:right;opacity:.45}.file-compare-inline-line.removed{background:rgba(185,67,67,.18)}.file-compare-inline-line.added{background:rgba(54,145,78,.18)}
 .file-compare-empty{padding:24px;text-align:center;opacity:.62}
@@ -41,6 +43,141 @@ dialog.append(head,columns,body);backdrop.append(dialog);document.body.append(ba
 
 let current=null;
 let viewMode='side';
+
+const compareKeywordText={
+  cpp:'alignas alignof and and_eq asm atomic_cancel atomic_commit atomic_noexcept auto bitand bitor bool break case catch char char8_t char16_t char32_t class compl concept const consteval constexpr constinit const_cast continue co_await co_return co_yield decltype default delete do double dynamic_cast else enum explicit export extern false float for friend goto if inline int long mutable namespace new noexcept not not_eq nullptr operator or or_eq private protected public reflexpr register reinterpret_cast requires return short signed sizeof static static_assert static_cast struct switch synchronized template this thread_local throw true try typedef typeid typename union unsigned using virtual void volatile wchar_t while xor xor_eq',
+  go:'break default func interface select case defer go map struct chan else goto package switch const fallthrough if range type continue for import return var',
+  python:'and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield match case',
+  javascript:'as async await break case catch class const continue debugger default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while with yield',
+  typescript:'abstract any as asserts async await bigint boolean break case catch class const constructor continue debugger declare default delete do else enum export extends false finally for from function get if implements import in infer instanceof interface is keyof let module namespace never new null number object of override private protected public readonly require return set static string super switch symbol this throw true try type typeof undefined unique unknown var void while with yield',
+  java:'abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for goto if implements import instanceof int interface long native new null package private protected public return short static strictfp super switch synchronized this throw throws transient true try void volatile while false',
+  php:'abstract and array as break callable case catch class clone const continue declare default die do echo else elseif empty enddeclare endfor endforeach endif endswitch endwhile eval exit extends final finally fn for foreach function global goto if implements include include_once instanceof insteadof interface isset list match namespace new or print private protected public readonly require require_once return static switch throw trait try unset use var while xor yield',
+  rust:'as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while',
+  sql:'add all alter and any as asc backup between by case check column constraint create database default delete desc distinct drop exec exists foreign from full group having in index inner insert into is join key left like limit not null or order outer primary procedure right rownum select set table top truncate union unique update values view where with',
+  json:'true false null'
+};
+const compareKeywordSets=Object.fromEntries(Object.entries(compareKeywordText).map(([key,value])=>[key,new Set(value.split(/\s+/))]));
+function compareLanguageID(pathValue){
+  const language=globalThis.TaskMenuEditor?.languageForPath?.(String(pathValue||''));
+  if(!language)return '';
+  if(language.id==='jsx')return 'javascript';
+  if(language.id==='tsx')return 'typescript';
+  return String(language.id||'');
+}
+function compareSyntaxProfile(pathValue){
+  const id=compareLanguageID(pathValue);
+  const cLike=new Set(['cpp','go','javascript','typescript','java','php','rust','csharp','kotlin','dart','protobuf','actionscript']);
+  const hashLike=new Set(['python','yaml','shell','dockerfile','makefile','cmake','toml','nim']);
+  const profile={id,keywords:compareKeywordSets[id]||new Set(),line:[],block:[],quotes:['"',"'"]};
+  if(cLike.has(id)){profile.line=['//'];profile.block=[['/*','*/']];}
+  if(hashLike.has(id))profile.line=['#'];
+  if(id==='javascript'||id==='typescript')profile.quotes.push('`');
+  if(id==='css'||id==='scss'||id==='less')profile.block=[['/*','*/']];
+  if(id==='sql'){profile.line=['--'];profile.block=[['/*','*/']];}
+  if(id==='lua'){profile.line=['--'];profile.block=[['--[[',']]']];}
+  if(id==='config')profile.line=['#',';'];
+  if(id==='html'||id==='xml'||id==='vue'||id==='markdown')profile.block=[['<!--','-->']];
+  return profile;
+}
+function compareSyntaxSource(pathValue,text){
+  const profile=compareSyntaxProfile(pathValue),lines=splitLines(text),result=[];let blockClose='';
+  for(const line of lines){
+    const tokens=[];let i=0;
+    while(i<line.length){
+      if(blockClose){
+        const end=line.indexOf(blockClose,i),to=end<0?line.length:end+blockClose.length;
+        tokens.push({from:i,to,type:'comment'});i=to;
+        if(end<0)break;
+        blockClose='';continue;
+      }
+      let block=null;
+      for(const pair of profile.block){if(line.startsWith(pair[0],i)){block=pair;break;}}
+      if(block){
+        const end=line.indexOf(block[1],i+block[0].length),to=end<0?line.length:end+block[1].length;
+        tokens.push({from:i,to,type:'comment'});i=to;
+        if(end<0){blockClose=block[1];break;}
+        continue;
+      }
+      const lineMarker=profile.line.find(marker=>line.startsWith(marker,i));
+      if(lineMarker){tokens.push({from:i,to:line.length,type:'comment'});break;}
+      const ch=line[i];
+      if(profile.quotes.includes(ch)){
+        let j=i+1;
+        while(j<line.length){if(line[j]==='\\'){j+=2;continue;}if(line[j]===ch){j++;break;}j++;}
+        tokens.push({from:i,to:j,type:'string'});i=j;continue;
+      }
+      if((profile.id==='html'||profile.id==='xml'||profile.id==='vue')&&ch==='<'){
+        const end=line.indexOf('>',i+1),to=end<0?line.length:end+1;
+        tokens.push({from:i,to,type:'command'});i=to;continue;
+      }
+      if(/[0-9]/.test(ch)){
+        let j=i+1;while(j<line.length&&/[0-9A-Fa-fxX._]/.test(line[j]))j++;
+        tokens.push({from:i,to:j,type:'number'});i=j;continue;
+      }
+      if(/[A-Za-z_$]/.test(ch)){
+        let j=i+1;while(j<line.length&&/[A-Za-z0-9_$]/.test(line[j]))j++;
+        const word=line.slice(i,j);
+        if(profile.keywords.has(word)||profile.keywords.has(word.toLowerCase()))tokens.push({from:i,to:j,type:'keyword'});
+        i=j;continue;
+      }
+      i++;
+    }
+    result.push(tokens);
+  }
+  return result;
+}
+function compareSyntaxPath(source,other){return String(source?.path||other?.path||'');}
+function ensureCompareSyntax(){
+  if(!current)return {left:[],right:[]};
+  const leftPath=compareSyntaxPath(current.left,current.right),rightPath=compareSyntaxPath(current.right,current.left);
+  const key=[leftPath,rightPath,current.left.text,current.right.text];
+  if(current.syntax&&current.syntax.key.every((value,index)=>value===key[index]))return current.syntax;
+  current.syntax={key,left:compareSyntaxSource(leftPath,current.left.text),right:compareSyntaxSource(rightPath,current.right.text)};
+  return current.syntax;
+}
+function compareWordParts(text){
+  const parts=[];const re=/[\p{L}\p{N}_$]+|\s+|./gu;let match;
+  while((match=re.exec(String(text||''))))parts.push({text:match[0],from:match.index,to:match.index+match[0].length});
+  return parts;
+}
+function compareFallbackRanges(left,right){
+  let prefix=0;while(prefix<left.length&&prefix<right.length&&left[prefix]===right[prefix])prefix++;
+  let suffix=0;while(left.length-1-suffix>=prefix&&right.length-1-suffix>=prefix&&left[left.length-1-suffix]===right[right.length-1-suffix])suffix++;
+  return {left:left.length-suffix>prefix?[{from:prefix,to:left.length-suffix}]:[],right:right.length-suffix>prefix?[{from:prefix,to:right.length-suffix}]:[]};
+}
+function compareInlineRanges(left,right){
+  left=String(left||'');right=String(right||'');
+  if(left===right)return {left:[],right:[]};
+  const a=compareWordParts(left),b=compareWordParts(right);
+  if(!a.length||!b.length||a.length*b.length>24000)return compareFallbackRanges(left,right);
+  const dp=Array.from({length:a.length+1},()=>new Uint16Array(b.length+1));
+  for(let i=a.length-1;i>=0;i--)for(let j=b.length-1;j>=0;j--)dp[i][j]=a[i].text===b[j].text?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
+  const leftRanges=[],rightRanges=[];let i=0,j=0;
+  while(i<a.length&&j<b.length){
+    if(a[i].text===b[j].text){i++;j++;continue;}
+    if(dp[i+1][j]>=dp[i][j+1]){leftRanges.push({from:a[i].from,to:a[i].to});i++;}
+    else{rightRanges.push({from:b[j].from,to:b[j].to});j++;}
+  }
+  while(i<a.length){leftRanges.push({from:a[i].from,to:a[i].to});i++;}
+  while(j<b.length){rightRanges.push({from:b[j].from,to:b[j].to});j++;}
+  return {left:leftRanges,right:rightRanges};
+}
+function compareRangeContains(ranges,offset){return ranges.some(range=>offset>=range.from&&offset<range.to);}
+function renderCompareCode(node,text,tokens=[],changed=[],changeKind=''){
+  text=String(text??'');
+  if(!text){node.textContent='\u00a0';return;}
+  const points=new Set([0,text.length]);
+  for(const token of tokens){points.add(token.from);points.add(token.to);}
+  for(const range of changed){points.add(range.from);points.add(range.to);}
+  const sorted=[...points].filter(value=>value>=0&&value<=text.length).sort((a,b)=>a-b);
+  for(let index=0;index<sorted.length-1;index++){
+    const from=sorted[index],to=sorted[index+1];if(to<=from)continue;
+    const span=document.createElement('span'),syntax=tokens.find(token=>from>=token.from&&from<token.to);
+    if(syntax)span.classList.add('file-compare-syntax-'+syntax.type);
+    if(compareRangeContains(changed,from))span.classList.add('file-compare-inline-change',changeKind);
+    span.textContent=text.slice(from,to);node.append(span);
+  }
+}
 
 function splitLines(text){return String(text??'').replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');}
 function commonPrefix(a,b){let i=0;while(i<a.length&&i<b.length&&a[i]===b[i])i++;return i;}
@@ -115,10 +252,14 @@ async function saveSource(source,text){
   source.text=text;
   if(result&&typeof result==='object')Object.assign(source.meta||(source.meta={}),result);
 }
-function cell(spec){
+function cell(spec,side,changed=[]){
   const node=document.createElement('div');node.className='file-compare-cell '+(spec?.kind||'blank');
   const no=document.createElement('span');no.className='file-compare-no';no.textContent=spec?.no?String(spec.no):'';
-  const code=document.createElement('span');code.className='file-compare-code';code.textContent=spec?spec.text:'\u00a0';node.append(no,code);return node;
+  const code=document.createElement('span');code.className='file-compare-code';
+  const syntax=ensureCompareSyntax();
+  const tokens=spec?.no?(side==='left'?syntax.left:syntax.right)[spec.no-1]||[]:[];
+  renderCompareCode(code,spec?spec.text:'',tokens,changed,spec?.kind==='removed'?'removed':spec?.kind==='added'?'added':'');
+  node.append(no,code);return node;
 }
 function renderSide(model){
   const frag=document.createDocumentFragment();let activeHunk=-1;
@@ -133,7 +274,8 @@ function renderSide(model){
       if(typeof current?.left?.writeText==='function'){const b=document.createElement('button');b.type='button';b.textContent='Right → Left';b.onclick=()=>copyHunk(h,'right-to-left').catch(app.showError);hh.append(b);}
       card.append(hh);frag.append(card);
     }
-    const line=document.createElement('div');line.className='file-compare-row';line.append(cell(row.left),cell(row.right));frag.append(line);
+    const ranges=compareInlineRanges(row.left?.text||'',row.right?.text||'');
+    const line=document.createElement('div');line.className='file-compare-row';line.append(cell(row.left,'left',ranges.left),cell(row.right,'right',ranges.right));frag.append(line);
   }
   body.append(frag);
 }
@@ -144,17 +286,17 @@ function renderInline(model){
       const line=document.createElement('div');line.className='file-compare-inline-line';
       const no=document.createElement('span');no.className='file-compare-inline-no';no.textContent=String(row.left.no);
       const mark=document.createElement('span');mark.textContent=' ';
-      const code=document.createElement('span');code.textContent=row.left.text;line.append(no,mark,code);host.append(line);continue;
+      const code=document.createElement('span');const syntax=ensureCompareSyntax();renderCompareCode(code,row.left.text,syntax.left[row.left.no-1]||[]);line.append(no,mark,code);host.append(line);continue;
     }
     if(row.left){
       const line=document.createElement('div');line.className='file-compare-inline-line removed';
       const no=document.createElement('span');no.className='file-compare-inline-no';no.textContent=String(row.left.no);
-      const mark=document.createElement('span');mark.textContent='−';const code=document.createElement('span');code.textContent=row.left.text;line.append(no,mark,code);host.append(line);
+      const mark=document.createElement('span');mark.textContent='−';const code=document.createElement('span');const syntax=ensureCompareSyntax();const ranges=compareInlineRanges(row.left.text,row.right?.text||'');renderCompareCode(code,row.left.text,syntax.left[row.left.no-1]||[],ranges.left,'removed');line.append(no,mark,code);host.append(line);
     }
     if(row.right){
       const line=document.createElement('div');line.className='file-compare-inline-line added';
       const no=document.createElement('span');no.className='file-compare-inline-no';no.textContent=String(row.right.no);
-      const mark=document.createElement('span');mark.textContent='+';const code=document.createElement('span');code.textContent=row.right.text;line.append(no,mark,code);host.append(line);
+      const mark=document.createElement('span');mark.textContent='+';const code=document.createElement('span');const syntax=ensureCompareSyntax();const ranges=compareInlineRanges(row.left?.text||'',row.right.text);renderCompareCode(code,row.right.text,syntax.right[row.right.no-1]||[],ranges.right,'added');line.append(no,mark,code);host.append(line);
     }
   }
   body.append(host);
