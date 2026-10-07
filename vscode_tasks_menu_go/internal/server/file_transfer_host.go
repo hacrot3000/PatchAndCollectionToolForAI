@@ -74,6 +74,15 @@ func (s *Server) fileTransferHostToRemote(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	release, ok := s.tryAcquireFileTransferBrowse(profile.ID)
+	if !ok {
+		w.Header().Set("Retry-After", "1")
+		w.Header().Set("X-TaskDeck-Transfer-Pool-Full", "1")
+		http.Error(w, "FTP/SFTP connection pool is full", http.StatusTooManyRequests)
+		return
+	}
+	defer release()
+
 
 	switch profile.Protocol {
 	case filetransferprofile.ProtocolFTP:
@@ -144,6 +153,15 @@ func (s *Server) fileTransferRemoteToHost(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	release, ok := s.tryAcquireFileTransferBrowse(profile.ID)
+	if !ok {
+		w.Header().Set("Retry-After", "1")
+		w.Header().Set("X-TaskDeck-Transfer-Pool-Full", "1")
+		http.Error(w, "FTP/SFTP connection pool is full", http.StatusTooManyRequests)
+		return
+	}
+	defer release()
+
 
 	tmp, err := os.CreateTemp(hostDir, ".taskdeck-file-transfer-*")
 	if err != nil {
