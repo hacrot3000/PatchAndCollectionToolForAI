@@ -34,6 +34,32 @@ func TestFindPythonPrefersPython3(t *testing.T) {
 	}
 }
 
+
+func TestFindPythonPrefersVersionedRuntimeOverLegacyPython3(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	bin := t.TempDir()
+	python310 := filepath.Join(bin, "python3.10")
+	legacyPython3 := filepath.Join(bin, "python3")
+	if err := os.WriteFile(python310, []byte("#!/bin/sh\necho 'Python 3.10.19'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyPython3, []byte("#!/bin/sh\necho 'Python 3.6.8'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("TASKDECK_PYTHON", "")
+
+	found, err := FindPython()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found.Path != python310 || found.Version != "Python 3.10.19" {
+		t.Fatalf("python=%+v want python3.10", found)
+	}
+}
+
 func TestFindPythonRejectsPython2Only(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is POSIX-only")
