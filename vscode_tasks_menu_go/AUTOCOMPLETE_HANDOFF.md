@@ -30,9 +30,9 @@ Ruby, Perl, and R remain out of scope for this batch.
 ## Implementation plan
 
 - [x] Add a generic CodeMirror completion hook usable by the file editor.
-- [ ] Add `editorcompletion.js` with Tier 1 keyword/snippet completion.
-- [ ] Extend centralized language registry with completion metadata.
-- [ ] Enable Tier 1 for all currently supported programming/config languages where useful.
+- [x] Add `editorcompletion.js` with Tier 1 keyword/snippet completion.
+- [x] Extend centralized language registry with completion metadata.
+- [x] Enable Tier 1 for all currently supported programming/config languages where useful.
 - [ ] Refactor Project Symbols extraction into reusable project index primitives.
 - [ ] Add in-memory project symbol index with invalidation/incremental refresh.
 - [ ] Add persisted versioned project index cache without dirtying the workspace.
@@ -47,3 +47,6 @@ Ruby, Perl, and R remain out of scope for this batch.
 - Handoff initialized before implementation.
 - `e5d9de6`: vendored CodeMirror now exposes `autocompletion`, `completeFromList`, `snippetCompletion`, and `startCompletion` from the already committed bundle. No new dependency added.
 - `6265cb1`, `139fa9a`, `f9e37f1`: refreshed immutable cache key, tests, and vendor provenance metadata for the completion hooks.
+- `cc101e0`: centralized language registry now carries completion profile IDs and `editorOptionsForFile` accepts completion extensions.
+- `58ad9db`, `08bdb1d`: added and loaded `editorcompletion.js` with automatic keyword/snippet completion, CodeMirror snippet placeholders, comment/string suppression, and Ctrl+Space through the vendored completion keymap.
+- `20b97f6`: added Tier 1 regression tests and offline/no-runtime-download assertions.
