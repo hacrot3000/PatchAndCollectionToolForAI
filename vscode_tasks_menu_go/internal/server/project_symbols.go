@@ -41,6 +41,7 @@ type projectSymbolSearchResponse struct {
 var (
 	symbolGoFunc = regexp.MustCompile(`^\s*func\s*(?:\([^)]*\)\s*)?([A-Za-z_]\w*)\s*\(`)
 	symbolGoType = regexp.MustCompile(`^\s*type\s+([A-Za-z_]\w*)\s+(struct|interface)\b`)
+	symbolGoValue = regexp.MustCompile(`^\s*(const|var)\s+([A-Za-z_]\w*)\b`)
 	symbolPython = regexp.MustCompile(`^\s*(?:async\s+)?(def|class)\s+([A-Za-z_]\w*)\b`)
 	symbolJSFunc = regexp.MustCompile(`^\s*(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\b`)
 	symbolJSType = regexp.MustCompile(`^\s*(?:export\s+(?:default\s+)?)?(class|interface|enum|type)\s+([A-Za-z_$][\w$]*)\b`)
@@ -54,6 +55,15 @@ var (
 	symbolRustType = regexp.MustCompile(`^\s*(?:pub(?:\([^)]*\))?\s+)?(struct|enum|trait|type|mod)\s+([A-Za-z_]\w*)\b`)
 	symbolRustImpl = regexp.MustCompile(`^\s*impl(?:<[^>]+>)?\s+([^\s{]+(?:\s+for\s+[^\s{]+)?)\s*\{`)
 	symbolShellFunc = regexp.MustCompile(`^\s*(?:function\s+)?([A-Za-z_][\w.-]*)\s*(?:\(\s*\))?\s*\{`)
+	symbolPowerShellFunc = regexp.MustCompile(`(?i)^\s*function\s+([A-Za-z_][\w.-]*)\b`)
+	symbolNimCallable = regexp.MustCompile(`^\s*(proc|func|method|iterator|template|macro)\s+([A-Za-z_]\w*)\*?\s*\(`)
+	symbolNimType = regexp.MustCompile(`^\s*([A-Za-z_]\w*)\*?\s*=\s*(object|enum|distinct|tuple|ref\s+object)\b`)
+	symbolLuaFunc = regexp.MustCompile(`^\s*(?:local\s+)?function\s+([A-Za-z_][\w.:]*)\s*\(`)
+	symbolLuaAssignedFunc = regexp.MustCompile(`^\s*local\s+([A-Za-z_]\w*)\s*=\s*function\s*\(`)
+	symbolActionScriptFunc = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|static|final|override|native)\s+)*function\s+(?:(?:get|set)\s+)?([A-Za-z_]\w*)\s*\(`)
+	symbolProtoType = regexp.MustCompile(`^\s*(message|enum|service)\s+([A-Za-z_]\w*)\b`)
+	symbolProtoRPC = regexp.MustCompile(`^\s*rpc\s+([A-Za-z_]\w*)\s*\(`)
+	symbolGraphQLType = regexp.MustCompile(`^\s*(type|interface|enum|input|scalar|union|directive)\s+([A-Za-z_]\w*)\b`)
 )
 
 var errProjectSymbolScanDone = errors.New("project symbol scan done")
@@ -68,11 +78,11 @@ func projectSymbolLanguage(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".go":
 		return "go"
-	case ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx":
+	case ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts":
 		return "javascript"
 	case ".py", ".pyw":
 		return "python"
-	case ".java", ".kt", ".kts", ".cs", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx":
+	case ".java", ".kt", ".kts", ".cs", ".csx", ".dart", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx":
 		return "c-family"
 	case ".php", ".phtml":
 		return "php"
@@ -80,6 +90,18 @@ func projectSymbolLanguage(path string) string {
 		return "rust"
 	case ".sh", ".bash", ".zsh", ".fish":
 		return "shell"
+	case ".ps1", ".psm1", ".psd1":
+		return "powershell"
+	case ".nim", ".nims", ".nimble":
+		return "nim"
+	case ".lua":
+		return "lua"
+	case ".as":
+		return "actionscript"
+	case ".proto":
+		return "protobuf"
+	case ".graphql", ".gql":
+		return "graphql"
 	default:
 		return ""
 	}
@@ -95,6 +117,7 @@ func projectSymbolFromLine(line, language string) (name, kind string, ok bool) {
 	case "go":
 		if m := match(symbolGoFunc); len(m) > 1 { return m[1], "function", true }
 		if m := match(symbolGoType); len(m) > 2 { return m[1], m[2], true }
+		if m := match(symbolGoValue); len(m) > 2 { return m[2], m[1], true }
 	case "python":
 		if m := match(symbolPython); len(m) > 2 {
 			kind := "class"; if m[1] == "def" { kind = "function" }
@@ -117,6 +140,22 @@ func projectSymbolFromLine(line, language string) (name, kind string, ok bool) {
 		if m := match(symbolRustImpl); len(m) > 1 { return m[1], "impl", true }
 	case "shell":
 		if m := match(symbolShellFunc); len(m) > 1 && !projectSymbolControlWords[m[1]] { return m[1], "function", true }
+	case "powershell":
+		if m := match(symbolPowerShellFunc); len(m) > 1 { return m[1], "function", true }
+	case "nim":
+		if m := match(symbolNimCallable); len(m) > 2 { return m[2], m[1], true }
+		if m := match(symbolNimType); len(m) > 2 { return m[1], strings.ReplaceAll(m[2], " ", "-"), true }
+	case "lua":
+		if m := match(symbolLuaFunc); len(m) > 1 { return m[1], "function", true }
+		if m := match(symbolLuaAssignedFunc); len(m) > 1 { return m[1], "function", true }
+	case "actionscript":
+		if m := match(symbolCFamilyType); len(m) > 2 { return m[2], m[1], true }
+		if m := match(symbolActionScriptFunc); len(m) > 1 { return m[1], "function", true }
+	case "protobuf":
+		if m := match(symbolProtoType); len(m) > 2 { return m[2], m[1], true }
+		if m := match(symbolProtoRPC); len(m) > 1 { return m[1], "method", true }
+	case "graphql":
+		if m := match(symbolGraphQLType); len(m) > 2 { return m[2], m[1], true }
 	}
 	return "", "", false
 }
