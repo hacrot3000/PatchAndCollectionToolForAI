@@ -23,9 +23,8 @@ func (d *sqliteDatabase) CreateRole(ctx context.Context, role Role) error {
 	}
 
 	result, err := d.db.ExecContext(ctx, `
-INSERT INTO roles(id, name, description, system_role)
+INSERT OR IGNORE INTO roles(id, name, description, system_role)
 VALUES (?, ?, ?, ?)
-ON CONFLICT(name) DO NOTHING
 `, string(role.ID), role.Name, role.Description, encodeDBBool(role.SystemRole))
 	if err != nil {
 		return fmt.Errorf("create identity role: %w", err)
@@ -137,9 +136,8 @@ func (d *sqliteDatabase) CreateProjectRole(ctx context.Context, projectID ID, ro
 		return fmt.Errorf("read project for role: %w", err)
 	}
 	result, err := conn.ExecContext(ctx, `
-INSERT INTO roles(id, name, description, system_role)
+INSERT OR IGNORE INTO roles(id, name, description, system_role)
 VALUES (?, ?, ?, 0)
-ON CONFLICT(name) DO NOTHING
 `, string(role.ID), role.Name, role.Description)
 	if err != nil {
 		return fmt.Errorf("create project role: %w", err)
@@ -239,25 +237,59 @@ func (d *sqliteDatabase) UpsertProjectMember(ctx context.Context, member Project
 		return fmt.Errorf("project member requires created_at and updated_at")
 	}
 
-	_, err := d.db.ExecContext(ctx, `
+	conn, err := d.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("reserve project member connection: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return fmt.Errorf("begin project member upsert: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+
+	result, err := conn.ExecContext(ctx, `
+UPDATE project_members
+SET role_id = ?, enabled = ?, updated_at = ?
+WHERE project_id = ? AND user_id = ?
+`,
+		string(member.RoleID),
+		encodeDBBool(member.Enabled),
+		member.UpdatedAt.UTC().Format(timeFormat),
+		string(member.ProjectID),
+		string(member.UserID),
+	)
+	if err != nil {
+		return fmt.Errorf("update identity project member: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read updated identity project member count: %w", err)
+	}
+	if affected == 0 {
+		if _, err := conn.ExecContext(ctx, `
 INSERT INTO project_members(
     project_id, user_id, role_id, enabled, created_at, updated_at
 ) VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT(project_id, user_id) DO UPDATE SET
-    role_id = excluded.role_id,
-    enabled = excluded.enabled,
-    updated_at = excluded.updated_at
 `,
-		string(member.ProjectID),
-		string(member.UserID),
-		string(member.RoleID),
-		encodeDBBool(member.Enabled),
-		member.CreatedAt.UTC().Format(timeFormat),
-		member.UpdatedAt.UTC().Format(timeFormat),
-	)
-	if err != nil {
-		return fmt.Errorf("upsert identity project member: %w", err)
+			string(member.ProjectID),
+			string(member.UserID),
+			string(member.RoleID),
+			encodeDBBool(member.Enabled),
+			member.CreatedAt.UTC().Format(timeFormat),
+			member.UpdatedAt.UTC().Format(timeFormat),
+		); err != nil {
+			return fmt.Errorf("insert identity project member: %w", err)
+		}
 	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return fmt.Errorf("commit project member upsert: %w", err)
+	}
+	committed = true
 	return nil
 }
 
@@ -274,20 +306,55 @@ func (d *sqliteDatabase) SetMemberPermission(ctx context.Context, override Membe
 		return fmt.Errorf("invalid member permission effect %q", override.Effect)
 	}
 
-	_, err := d.db.ExecContext(ctx, `
-INSERT INTO member_permissions(project_id, user_id, permission_id, effect)
-VALUES (?, ?, ?, ?)
-ON CONFLICT(project_id, user_id, permission_id) DO UPDATE SET
-    effect = excluded.effect
+	conn, err := d.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("reserve member permission connection: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return fmt.Errorf("begin member permission upsert: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+
+	result, err := conn.ExecContext(ctx, `
+UPDATE member_permissions
+SET effect = ?
+WHERE project_id = ? AND user_id = ? AND permission_id = ?
 `,
+		string(override.Effect),
 		string(override.ProjectID),
 		string(override.UserID),
 		string(override.PermissionID),
-		string(override.Effect),
 	)
 	if err != nil {
-		return fmt.Errorf("set identity member permission: %w", err)
+		return fmt.Errorf("update identity member permission: %w", err)
 	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read updated member permission count: %w", err)
+	}
+	if affected == 0 {
+		if _, err := conn.ExecContext(ctx, `
+INSERT INTO member_permissions(project_id, user_id, permission_id, effect)
+VALUES (?, ?, ?, ?)
+`,
+			string(override.ProjectID),
+			string(override.UserID),
+			string(override.PermissionID),
+			string(override.Effect),
+		); err != nil {
+			return fmt.Errorf("insert identity member permission: %w", err)
+		}
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return fmt.Errorf("commit member permission upsert: %w", err)
+	}
+	committed = true
 	return nil
 }
 
