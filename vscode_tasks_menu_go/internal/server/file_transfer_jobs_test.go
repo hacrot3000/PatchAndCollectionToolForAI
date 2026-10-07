@@ -1,11 +1,71 @@
 package server
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestStopFileTransferScansCancelsActiveAndDropsPending(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	q := &fileTransferServerQueue{
+		ProfileID: "p1",
+		Jobs: map[string]*fileTransferServerJob{
+			"active": {ID: "active", Status: "scanning"},
+			"queued": {ID: "queued", Status: "scan_queued"},
+		},
+		PendingScans: []fileTransferPendingScan{{JobID: "queued"}},
+		QueuedScans:  1,
+		ScanCancels:  map[string]context.CancelFunc{"active": cancel},
+	}
+	q.mu.Lock()
+	stopFileTransferScansLocked(q)
+	q.mu.Unlock()
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatal("active scan context was not canceled")
+	}
+	if len(q.PendingScans) != 0 || q.QueuedScans != 0 {
+		t.Fatalf("pending scans not cleared: pending=%d queued=%d", len(q.PendingScans), q.QueuedScans)
+	}
+	for id, job := range q.Jobs {
+		if !job.ScanDone || job.Status != "stopped" {
+			t.Fatalf("job %s not marked stopped: %#v", id, job)
+		}
+	}
+}
+
+func TestClearFileTransferQueueDropsLargePendingStateButKeepsRunningItem(t *testing.T) {
+	q := &fileTransferServerQueue{
+		ProfileID: "p1",
+		Jobs: map[string]*fileTransferServerJob{
+			"queued":  {ID: "queued", Status: "queued", ScanDone: true},
+			"running": {ID: "running", Status: "running", ScanDone: true},
+		},
+		Items: []*fileTransferServerItem{
+			{ID: "q", JobID: "queued", Status: "queued"},
+			{ID: "f", JobID: "queued", Status: "failed"},
+			{ID: "r", JobID: "running", Status: "running"},
+		},
+		PendingScans: []fileTransferPendingScan{{JobID: "queued"}},
+		QueuedScans:  1,
+	}
+	q.mu.Lock()
+	clearFileTransferQueueLocked(q)
+	q.mu.Unlock()
+	if len(q.Items) != 1 || q.Items[0].ID != "r" || !q.Items[0].RemoveAfterRun {
+		t.Fatalf("clear queue must retain only running item with remove-after-run: %#v", q.Items)
+	}
+	if len(q.Jobs) != 1 || q.Jobs["running"] == nil {
+		t.Fatalf("clear queue retained stale jobs: %#v", q.Jobs)
+	}
+	if len(q.PendingScans) != 0 || q.QueuedScans != 0 {
+		t.Fatalf("clear queue retained scan backlog: pending=%d queued=%d", len(q.PendingScans), q.QueuedScans)
+	}
+}
 
 func TestFileTransferServerQueuePauseAndPriority(t *testing.T) {
 	q := &fileTransferServerQueue{
