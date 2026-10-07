@@ -249,6 +249,7 @@ function installPatchPanel(){
   .task-patch-running-head{display:none;margin:0 0 8px;padding:10px;border:1px solid #647996;border-radius:6px;background:#121923;font-size:11px;box-shadow:0 0 0 1px rgba(120,151,191,.08) inset}
   .task-patch-panel.running .task-patch-running-head{display:block}
   .task-patch-running-head.finished{border-color:#5e8668;background:#132219}
+  .task-patch-running-head.collect-success{border-color:#8b7338;background:#292313}
   .task-patch-running-head.failed{border-color:#9a4652;background:#2b171c}
   .task-patch-running-title{font-weight:700;font-size:12px;overflow-wrap:anywhere}
   .task-patch-running-meta{margin-top:3px;opacity:.72}
@@ -281,12 +282,14 @@ function installPatchPanel(){
   .task-patch-run-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;padding:5px 6px;border-radius:4px;background:#171c23;border:1px solid transparent}
   .task-patch-run-item.running{border-color:#546f95;background:#182536}
   .task-patch-run-item.passed{border-color:#4f7d5c;background:#17281c}
+  .task-patch-run-item.passed.collect-success{border-color:#8b7338;background:#292313}
   .task-patch-run-item.failed{border-color:#8a414b;background:#2d171c}
   .task-patch-run-item.warning{border-color:#8b7338;background:#292313}
   .task-patch-run-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-run-status{font-weight:700}
   .task-patch-run-item.running .task-patch-run-status{color:#9fc8ff}
   .task-patch-run-item.passed .task-patch-run-status{color:#9fe2ae}
+  .task-patch-run-item.passed.collect-success .task-patch-run-status{color:#f0cc76}
   .task-patch-run-item.failed .task-patch-run-status{color:#ff9da8}
   .task-patch-run-item.warning .task-patch-run-status{color:#f0cc76}
   .task-patch-run-failure{grid-column:1/-1;display:grid;gap:5px;padding-top:5px;border-top:1px solid #613139}
@@ -338,6 +341,7 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-action-result-output{background:#fff;border-color:#d0d7de}
   html[data-taskmenu-theme="light"] .task-patch-running-head{background:#f6f8fa;border-color:#9aa9bc}
   html[data-taskmenu-theme="light"] .task-patch-running-head.finished{border-color:#6f9a78;background:#edf8f0}
+  html[data-taskmenu-theme="light"] .task-patch-running-head.collect-success{border-color:#c8aa58;background:#fff9e8}
   html[data-taskmenu-theme="light"] .task-patch-running-head.failed{border-color:#c47780;background:#fff1f2}
   html[data-taskmenu-theme="light"] .task-patch-prompt{background:#f6f8fa;border-color:#b9c0c8}
   html[data-taskmenu-theme="light"] .task-patch-prompt-item{background:#fff}
@@ -372,6 +376,8 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-run-item{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-run-item.running{background:#eef5ff;border-color:#8caed8}
   html[data-taskmenu-theme="light"] .task-patch-run-item.passed{background:#eef9f0;border-color:#83ad8c}
+  html[data-taskmenu-theme="light"] .task-patch-run-item.passed.collect-success{background:#fff9e8;border-color:#c8aa58}
+  html[data-taskmenu-theme="light"] .task-patch-run-item.passed.collect-success .task-patch-run-status{color:#8b6d13}
   html[data-taskmenu-theme="light"] .task-patch-run-item.failed{background:#fff1f2;border-color:#c47780}
   html[data-taskmenu-theme="light"] .task-patch-run-item.warning{background:#fff9e8;border-color:#c8aa58}
   html[data-taskmenu-theme="light"] .task-patch-run-item.failed .task-patch-run-status{color:#9d2632}
@@ -1914,7 +1920,7 @@ function installPatchPanel(){
     runningLastEventAtMs=runningStartedAtMs;
     panel.classList.add('running');
     runningTitle.textContent='Current run';
-    runningHead.classList.remove('finished','failed');
+    runningHead.classList.remove('finished','collect-success','failed');
     runningMeta.classList.remove('stale');
     runningMeta.textContent='Starting Python execution…';
     copyFailureLog.hidden=true;
@@ -1945,7 +1951,7 @@ function installPatchPanel(){
     runningLastEventAtMs=0;
     panel.classList.remove('running');
     runningTitle.textContent='Current run';
-    runningHead.classList.remove('finished','failed');
+    runningHead.classList.remove('finished','collect-success','failed');
     runningMeta.classList.remove('stale');
     runningMeta.textContent='Waiting for Python execution state…';
     runningBack.hidden=true;
@@ -2435,6 +2441,17 @@ function installPatchPanel(){
     if(['BLOCKED','NOT_EXECUTED','CANCELLED'].includes(status))return 'warning';
     return '';
   }
+  function patchItemKind(value){return String(value||'').trim().toUpperCase();}
+  function isCollectKind(value){return patchItemKind(value)==='COLLECT';}
+  function foregroundRunKinds(state=foregroundProtocolState){
+    const descriptorKinds=Array.isArray(foregroundRunDescriptor?.kinds)?foregroundRunDescriptor.kinds.map(patchItemKind).filter(Boolean):[];
+    if(descriptorKinds.length)return descriptorKinds;
+    return (Array.isArray(state?.items)?state.items:[]).map(item=>patchItemKind(item?.kind)).filter(Boolean);
+  }
+  function foregroundIsCollectOnly(state=foregroundProtocolState){
+    const kinds=foregroundRunKinds(state);
+    return kinds.length>0&&kinds.every(kind=>kind==='COLLECT');
+  }
   function foregroundRunOutcome(state){
     const event=state?.last_event&&typeof state.last_event==='object'?state.last_event:null;
     if(String(event?.type||'')!=='run_finished')return null;
@@ -2543,15 +2560,17 @@ function installPatchPanel(){
   function updateForegroundHeading(state=foregroundProtocolState){
     const name=foregroundRunName(state);
     const failed=stateHasFailure(state);
+    const collectSuccess=!failed&&foregroundIsCollectOnly(state);
     copyFailureLog.hidden=!failed;
     if(runningFinished){
       runningTitle.textContent=failed?(name?'Latest failed · '+name:'Latest failed'):(name?'Latest completed · '+name:'Latest completed');
-      runningHead.classList.toggle('finished',!failed);
+      runningHead.classList.toggle('finished',!failed&&!collectSuccess);
+      runningHead.classList.toggle('collect-success',collectSuccess);
       runningHead.classList.toggle('failed',failed);
       return;
     }
     runningTitle.textContent=name?'Current run · '+name:'Current run';
-    runningHead.classList.remove('finished','failed');
+    runningHead.classList.remove('finished','collect-success','failed');
   }
 
   function renderRunningHeartbeat(state){
@@ -2667,6 +2686,7 @@ function installPatchPanel(){
       const failed=lifecycle==='failed';
       const row=document.createElement('div');row.className='task-patch-run-item';
       if(lifecycle)row.classList.add(lifecycle);
+      if(lifecycle==='passed'&&isCollectKind(item?.kind))row.classList.add('collect-success');
       const name=document.createElement('span');name.className='task-patch-run-name';
       name.textContent=`${Number(item?.index||0)}. ${String(item?.name||'')} · ${String(item?.kind||'')}`;
       const status=document.createElement('span');status.className='task-patch-run-status';
