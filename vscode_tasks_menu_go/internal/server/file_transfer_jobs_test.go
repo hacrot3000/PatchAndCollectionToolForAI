@@ -142,6 +142,64 @@ func TestClearFileTransferQueueDropsLargePendingStateButKeepsRunningItem(t *test
 	}
 }
 
+func TestRemoteDeleteDirectoryWaitsForRunningDescendants(t *testing.T) {
+	q := &fileTransferServerQueue{
+		ProfileID: "p1",
+		Jobs: map[string]*fileTransferServerJob{
+			"j": {ID: "j", Status: "running", ScanDone: true},
+		},
+		Items: []*fileTransferServerItem{
+			{ID: "file-a", JobID: "j", Operation: "remote_delete", Source: "/root/a.txt", Status: "running"},
+			{ID: "file-b", JobID: "j", Operation: "remote_delete", Source: "/root/sub/b.txt", Status: "success"},
+			{ID: "subdir", JobID: "j", Operation: "remote_delete", Source: "/root/sub", Directory: true, Status: "queued"},
+			{ID: "rootdir", JobID: "j", Operation: "remote_delete", Source: "/root", Directory: true, Status: "queued"},
+		},
+	}
+	q.mu.Lock()
+	if got := q.nextRunnableLocked(); got != nil {
+		q.mu.Unlock()
+		t.Fatalf("directory became runnable while descendant is still running: %#v", got)
+	}
+	q.Items[0].Status = "success"
+	got := q.nextRunnableLocked()
+	if got == nil || got.ID != "subdir" {
+		q.mu.Unlock()
+		t.Fatalf("deepest directory should run after its descendants finish, got %#v", got)
+	}
+	got.Status = "success"
+	got = q.nextRunnableLocked()
+	q.mu.Unlock()
+	if got == nil || got.ID != "rootdir" {
+		t.Fatalf("parent directory should run only after child directory completes, got %#v", got)
+	}
+}
+
+func TestRemoteDeleteDirectoryFailsWhenDescendantDeleteFailed(t *testing.T) {
+	q := &fileTransferServerQueue{
+		ProfileID: "p1",
+		Jobs: map[string]*fileTransferServerJob{
+			"j": {ID: "j", Status: "queued", ScanDone: true},
+		},
+		Items: []*fileTransferServerItem{
+			{ID: "file", JobID: "j", Operation: "remote_delete", Source: "/root/file.txt", Status: "failed", Error: "permission denied"},
+			{ID: "dir", JobID: "j", Operation: "remote_delete", Source: "/root", Directory: true, Status: "queued", Priority: true},
+		},
+	}
+	q.mu.Lock()
+	got := q.nextRunnableLocked()
+	status, errText, priority := q.Items[1].Status, q.Items[1].Error, q.Items[1].Priority
+	q.mu.Unlock()
+	if got != nil {
+		t.Fatalf("directory must not run after a child delete failed: %#v", got)
+	}
+	if status != "failed" || errText == "" {
+		t.Fatalf("blocked directory status=%q error=%q", status, errText)
+	}
+	if !priority {
+		t.Fatal("blocked priority directory should not consume its priority flag")
+	}
+}
+
 func TestFileTransferServerQueuePauseAndPriority(t *testing.T) {
 	q := &fileTransferServerQueue{
 		ProfileID: "p1",
