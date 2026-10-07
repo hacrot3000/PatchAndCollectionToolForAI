@@ -1919,13 +1919,8 @@ function persistEditorSessionKeepalive(){
   let body='';
   try{body=JSON.stringify(editorSessionPayload());}catch{return false;}
   if(body.length>60000)return false;
-  if(navigator.sendBeacon){
-    try{
-      return navigator.sendBeacon('/api/project/editor-session',new Blob([body],{type:'application/json'}));
-    }catch{}
-  }
   try{
-    fetch('/api/project/editor-session',{
+    app.fetchWithLease('/api/project/editor-session',{
       method:'POST',credentials:'same-origin',keepalive:true,
       headers:{'Content-Type':'application/json'},body
     }).catch(()=>{});
