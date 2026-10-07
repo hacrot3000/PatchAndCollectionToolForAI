@@ -242,7 +242,12 @@ func (s *Server) fileTransferArchiveUpload(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	req.ProfileID = strings.TrimSpace(req.ProfileID)
-	req.RemoteDir = normalizeBackgroundRemotePath(req.RemoteDir)
+	rawRemoteDir := strings.TrimSpace(req.RemoteDir)
+	if strings.ContainsAny(rawRemoteDir, "\x00\r\n") {
+		http.Error(w, "remote directory must not contain NUL or line breaks", http.StatusBadRequest)
+		return
+	}
+	req.RemoteDir = normalizeBackgroundRemotePath(rawRemoteDir)
 	if req.ProfileID == "" || len(req.HostPaths) == 0 {
 		http.Error(w, "profile_id and host_paths are required", http.StatusBadRequest)
 		return
