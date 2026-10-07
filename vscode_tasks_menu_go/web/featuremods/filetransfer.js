@@ -1099,7 +1099,7 @@ async function runTransferQueueItem(view,item){
   }catch(error){
     if(isTransferPoolBusy(error)){
       poolBusy=true;item.status='queued';item.error='Waiting for an FTP/SFTP connection slot';
-      queue.pending.push(item);
+      noteTransferPoolFull(view);queue.pending.push(item);
     }else{
       item.status='failed';item.error=String(error?.message||error||'Transfer failed');
     }
@@ -1492,8 +1492,18 @@ function remoteConnectionPoolFull(view){
 function transferWorkerLimit(view){
   const queue=view?.transferQueue;
   const max=Math.max(1,Number(queue?.serverMaxConnections||view?.profile?.max_connections||3)||3);
-  const reserved=Math.max(0,Number(queue?.serverActiveScans||0))+Math.max(0,Number(queue?.serverActiveTransfers||0))+Math.max(0,Number(queue?.activeScans||0));
-  return Math.max(0,max-reserved);
+  const ownRunning=Math.max(0,Number(queue?.runningCount||0));
+  const serverActive=Math.max(0,Number(queue?.serverActiveConnections||0));
+  const serverBackground=Math.max(0,Number(queue?.serverActiveScans||0))+Math.max(0,Number(queue?.serverActiveTransfers||0));
+  const observedExternal=Math.max(0,serverActive-ownRunning);
+  const logicalReserved=serverBackground+Math.max(0,Number(queue?.activeScans||0));
+  return Math.max(0,max-Math.max(observedExternal,logicalReserved));
+}
+function noteTransferPoolFull(view){
+  const queue=view?.transferQueue;if(!queue)return;
+  const max=Math.max(1,Number(queue.serverMaxConnections||view?.profile?.max_connections||3)||3);
+  queue.serverActiveConnections=Math.max(max,Number(queue.serverActiveConnections)||0);
+  syncRemoteNavigationAvailability(view);scheduleTransferQueueRender(view);
 }
 function isTransferPoolBusy(error){
   return Boolean(error?.transferPoolBusy)||/connection pool is full/i.test(String(error?.message||error||''));
@@ -1546,10 +1556,19 @@ async function fetchRemoteDirectory(view,path,{force=false}={}){
     const cached=remoteCacheGet(view,key);
     if(cached)return {...cached,fromCache:true};
   }
-  const data=await app.jsonFetch('/api/file-transfer/list',{
-    method:'POST',headers:{'Content-Type':'application/json'},
+  const response=await app.fetchWithLease('/api/file-transfer/list',{
+    method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({profile_id:view.profile.id,path:key})
   });
+  if(!response.ok){
+    const message=(await response.text()).trim()||response.statusText;
+    if(response.status===429&&response.headers.get('X-TaskDeck-Transfer-Pool-Full')==='1'){
+      noteTransferPoolFull(view);
+      const error=new Error(message||'FTP/SFTP connection pool is full');error.transferPoolBusy=true;throw error;
+    }
+    throw new Error(message);
+  }
+  const data=await response.json();
   return {...remoteCacheSet(view,key,data),fromCache:false};
 }
 function renderRemoteDirectory(view,data){
