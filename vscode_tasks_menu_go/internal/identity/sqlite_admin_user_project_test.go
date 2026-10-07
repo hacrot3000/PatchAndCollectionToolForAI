@@ -35,7 +35,7 @@ func TestSQLiteAdminStoreUserLifecycle(t *testing.T) {
 	}
 
 	_, execs, _ := state.snapshot()
-	assertSQLLogContains(t, execs, "INSERT INTO users")
+	assertSQLLogContains(t, execs, "INSERT OR IGNORE INTO users")
 	assertSQLLogContains(t, execs, "SET enabled = ?, updated_at = ?")
 	assertSQLLogContains(t, execs, "SET password_hash = ?, password_changed_at = ?, updated_at = ?")
 }
@@ -44,7 +44,7 @@ func TestSQLiteAdminStoreCreateUserConflict(t *testing.T) {
 	state := &fakeSQLiteState{
 		currentVersion: int64(schemaVersion),
 		execResponses: []fakeSQLiteExecResponse{
-			{contains: "INSERT INTO USERS", affected: 0},
+			{contains: "INSERT OR IGNORE INTO USERS", affected: 0},
 		},
 	}
 	db := openFakeIdentitySessionStore(t, state)
@@ -120,7 +120,7 @@ func TestSQLiteAdminStoreEnsureProjectReturnsStoredProject(t *testing.T) {
 	}
 
 	_, execs, _ := state.snapshot()
-	assertSQLLogContains(t, execs, "INSERT INTO projects")
+	assertSQLLogContains(t, execs, "INSERT OR IGNORE INTO projects")
 	assertSQLLogContains(t, execs, "UPDATE projects")
 }
 
