@@ -34,6 +34,79 @@ func TestFileTransferServerQueuePauseAndPriority(t *testing.T) {
 	}
 }
 
+func TestFileTransferConnectionBudgetCountsScansTransfersAndBrowse(t *testing.T) {
+	q := &fileTransferServerQueue{MaxConnections: 3}
+	cases := []struct {
+		scans, transfers, browses int
+		wantActive                int
+		wantCapacity              bool
+	}{
+		{scans: 1, transfers: 1, wantActive: 2, wantCapacity: true},
+		{scans: 1, transfers: 2, wantActive: 3, wantCapacity: false},
+		{scans: 2, transfers: 1, wantActive: 3, wantCapacity: false},
+		{scans: 2, browses: 1, wantActive: 3, wantCapacity: false},
+	}
+	for _, tc := range cases {
+		q.ActiveScans, q.ActiveTransfers, q.ActiveBrowses = tc.scans, tc.transfers, tc.browses
+		if got := q.activeConnectionsLocked(); got != tc.wantActive {
+			t.Fatalf("scans=%d transfers=%d browses=%d active=%d want=%d", tc.scans, tc.transfers, tc.browses, got, tc.wantActive)
+		}
+		if got := q.hasConnectionCapacityLocked(); got != tc.wantCapacity {
+			t.Fatalf("scans=%d transfers=%d browses=%d capacity=%v want=%v", tc.scans, tc.transfers, tc.browses, got, tc.wantCapacity)
+		}
+	}
+}
+
+func TestFileTransferScanQueueWaitsWhenConnectionBudgetIsFull(t *testing.T) {
+	q := &fileTransferServerQueue{
+		ProfileID: "p1", MaxConnections: 3,
+		Jobs: map[string]*fileTransferServerJob{}, wake: make(chan struct{}, 1),
+	}
+	for i := 1; i <= 4; i++ {
+		id := string(rune('a' + i - 1))
+		req := fileTransferJobCreateRequest{ProfileID: "p1", Kind: fileTransferJobHostUpload, HostPaths: []string{"file-" + id}}
+		q.Jobs[id] = &fileTransferServerJob{ID: id, ProfileID: "p1", Kind: fileTransferJobHostUpload, Status: "scan_queued", Request: cloneFileTransferJobRequest(&req)}
+		q.enqueueScanLocked(id, req)
+	}
+	if q.QueuedScans != 4 {
+		t.Fatalf("queued scans=%d want=4", q.QueuedScans)
+	}
+	for i := 0; i < 3; i++ {
+		if !q.hasConnectionCapacityLocked() {
+			t.Fatalf("budget filled too early at scan %d", i+1)
+		}
+		scan := q.nextPendingScanLocked()
+		if scan == nil {
+			t.Fatalf("missing queued scan %d", i+1)
+		}
+		q.ActiveScans++
+	}
+	if q.hasConnectionCapacityLocked() {
+		t.Fatal("three active scans must consume max_connections=3")
+	}
+	if q.QueuedScans != 1 || len(q.PendingScans) != 1 {
+		t.Fatalf("fourth scan should stay queued: queued=%d pending=%d", q.QueuedScans, len(q.PendingScans))
+	}
+	if got := q.PendingScans[0].JobID; got != "d" {
+		t.Fatalf("queued scan=%q want d", got)
+	}
+}
+
+func TestFileTransferQueueSnapshotReportsConnectionUsage(t *testing.T) {
+	q := &fileTransferServerQueue{
+		ProfileID: "profile", MaxConnections: 3,
+		ActiveScans: 1, ActiveTransfers: 1, ActiveBrowses: 1, QueuedScans: 2,
+		Jobs: map[string]*fileTransferServerJob{}, wake: make(chan struct{}, 1),
+	}
+	snapshot := q.snapshot()
+	if snapshot.MaxConnections != 3 || snapshot.ActiveConnections != 3 {
+		t.Fatalf("connection snapshot=%#v", snapshot)
+	}
+	if snapshot.ActiveScans != 1 || snapshot.ActiveTransfers != 1 || snapshot.ActiveBrowses != 1 || snapshot.QueuedScans != 2 {
+		t.Fatalf("connection detail snapshot=%#v", snapshot)
+	}
+}
+
 func TestFileTransferServerQueueSnapshotPersistsState(t *testing.T) {
 	q := &fileTransferServerQueue{
 		ProfileID:   "profile",
