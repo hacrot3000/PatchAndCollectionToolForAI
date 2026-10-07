@@ -2973,7 +2973,7 @@ function leftContext(view,entry,event){
   }
   if(panel.source==='host'&&selected.length===1&&entryType(selected[0])==='file'){
     items.push({label:'Download host file to browser',action:()=>{downloadFrame().src='/api/files/download?path='+encodeURIComponent(joinPath(panel.currentPath,selected[0].name,false));}});
-    if(String(view.profile?.protocol||'').toLowerCase()==='sftp'&&transferArchiveKind(selected[0].name)){
+    if(canAutoExtractCompressedUpload(view)&&transferArchiveKind(selected[0].name)){
       items.push({label:'Upload + extract archive on remote…',action:()=>uploadAndExtractRemoteArchive(view,selected[0])});
     }
   }
