@@ -80,6 +80,46 @@ func TestFileCompareHighlightsSyntaxAndChangedSpans(t *testing.T) {
 	}
 }
 
+func TestFileCompareClassifiesAndFiltersChanges(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function classifyCompareRow(row)",
+		"compareCommentOnly(text,tokens)",
+		"compareIndentInsensitiveLanguages",
+		"return 'important'",
+		"return 'unimportant'",
+		"View all",
+		"View diff",
+		"View diff context",
+		"View unimportant",
+		"function compareStructuralContextRange(model,index)",
+		"const indentLanguages=new Set(['python','yaml','nim'])",
+		"const braceLanguages=new Set(",
+		"function compareVisibleIndexes(model)",
+		"showUnimportant||row.importance!=='unimportant'",
+		"No differences match the current filters",
+		"including rows hidden by filters",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("file compare classification/filter/context missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		".file-compare-cell.removed.important",
+		".file-compare-cell.added.important",
+		".file-compare-cell.removed.unimportant",
+		".file-compare-inline-line.added.unimportant",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("file compare semantic color role missing %q", want)
+		}
+	}
+}
+
 func TestProjectAndEditorMenusExposeGenericCompare(t *testing.T) {
 	shared, err := webassets.Files.ReadFile("featuremods/projectfileactions.js")
 	if err != nil {
