@@ -21,6 +21,7 @@ type fileTransferProfileRequest struct {
 	SSHProfileID          string                        `json:"ssh_profile_id,omitempty"`
 	InitialPath           string                        `json:"initial_path,omitempty"`
 	ConnectTimeoutSeconds int                           `json:"connect_timeout_seconds,omitempty"`
+	MaxConnections        int                           `json:"max_connections,omitempty"`
 	FTPTLSMode            filetransferprofile.FTPTLSMode `json:"ftp_tls_mode,omitempty"`
 	Secret                *string                       `json:"secret,omitempty"`
 	ClearSecret           bool                          `json:"clear_secret,omitempty"`
@@ -46,6 +47,7 @@ func (req fileTransferProfileRequest) profile(id, secretRef string) filetransfer
 		SSHProfileID:          req.SSHProfileID,
 		InitialPath:           req.InitialPath,
 		ConnectTimeoutSeconds: req.ConnectTimeoutSeconds,
+		MaxConnections:        req.MaxConnections,
 		FTPTLSMode:            req.FTPTLSMode,
 		SecretRef:             secretRef,
 	}
