@@ -36,10 +36,10 @@ Ruby, Perl, and R remain out of scope for this batch.
 - [x] Refactor Project Symbols extraction into reusable project index primitives.
 - [x] Add in-memory project symbol index with invalidation/incremental refresh.
 - [x] Add persisted versioned project index cache without dirtying the workspace.
-- [ ] Add `/api/project/completions` with bounded prefix/fuzzy ranking.
-- [ ] Merge current unsaved editor text into completion context.
-- [ ] Add import/include/module path suggestions.
-- [ ] Merge/dedupe Tier 1 + Tier 2 suggestions in the editor.
+- [x] Add `/api/project/completions` with bounded prefix/fuzzy ranking.
+- [x] Merge current unsaved editor text into completion context.
+- [x] Add import/include/module path suggestions.
+- [x] Merge/dedupe Tier 1 + Tier 2 suggestions in the editor.
 - [ ] Add tests and update documentation.
 
 ## Progress
@@ -53,3 +53,8 @@ Ruby, Perl, and R remain out of scope for this batch.
 - `2edc0b3`, `95e9da2`: added a bounded, versioned, gzip-persisted project symbol index under the OS user cache and attached it to `Server`; no workspace files are created.
 - `10569b0`: project-wide `/api/project/symbols` searches now use the cached symbol index instead of rescanning source files per query.
 - `4766b3a`: editor saves incrementally replace the saved file's symbols in the in-memory index.
+- `ad387fe`: expanded project symbol extraction for Go values plus PowerShell, Nim, Lua, ActionScript, Proto and GraphQL; Dart/C#/Kotlin continue through C-family extraction.
+- `b5ca056`..`9930d0c`: added bounded `/api/project/completions`, current unsaved-file symbol ranking, import/include/module path completion, lexical-context separation, route + shared-server `files.read` authorization.
+- `f02d18e`, `5fdca95`: Tier 2 source is merged with Tier 1 in CodeMirror; requests carry unsaved text/cursor/line context, are cancellable on typing, and replace full import prefixes correctly.
+- `b0addfb`, `e0a02cf`, `0b5f7cb`, `2371633`: added backend/UI/auth/symbol coverage tests.
+- `364d53a`: incremental editor-save symbol updates are also persisted to the OS cache, so restart does not reload stale symbols.
