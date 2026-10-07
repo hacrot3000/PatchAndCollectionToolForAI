@@ -23,14 +23,30 @@ func init() {
 	sql.Register(pythonSQLiteDriverName, pythonSQLiteDriver{})
 }
 
-// OpenSQLiteStore opens the shared identity store using Python's standard-library
-// sqlite3 module. This keeps TaskDeck's Go build free of a third-party SQLite
-// dependency while still using the native SQLite locking/WAL implementation.
-//
-// Shared-server mode fails closed if no suitable Python 3 runtime with sqlite3
-// support is available. Legacy mode never calls this function.
+// OpenSQLiteStore opens the shared identity store without adding a Go SQLite
+// dependency. Python 3.10+ with stdlib sqlite3 remains the preferred runtime.
+// When that runtime is unavailable, TaskDeck falls back to a compatible
+// sqlite3 CLI process while preserving a long-lived connection for WAL,
+// BEGIN IMMEDIATE and other connection-local behavior.
 func OpenSQLiteStore(ctx context.Context, dbPath string) (Store, error) {
-	db, err := openSQLiteDatabase(ctx, pythonSQLiteDriverName, dbPath)
+	_, _, pythonErr := resolvePythonSQLiteCommand()
+	if pythonErr == nil {
+		db, err := openSQLiteDatabase(ctx, pythonSQLiteDriverName, dbPath)
+		if err != nil {
+			return nil, err
+		}
+		return db, nil
+	}
+
+	_, cliErr := resolveSQLiteCLICommand()
+	if cliErr != nil {
+		return nil, fmt.Errorf(
+			"shared-server SQLite runtime unavailable: Python 3.10+ sqlite3: %v; sqlite3 CLI: %v",
+			pythonErr,
+			cliErr,
+		)
+	}
+	db, err := openSQLiteDatabase(ctx, cliSQLiteDriverName, dbPath)
 	if err != nil {
 		return nil, err
 	}
@@ -150,28 +166,63 @@ func openPythonSQLiteConn(dbPath string) (*pythonSQLiteConn, error) {
 }
 
 func resolvePythonSQLiteCommand() (string, []string, error) {
+	type candidate struct {
+		name   string
+		prefix []string
+	}
 	if configured := strings.TrimSpace(os.Getenv("TASKDECK_PYTHON")); configured != "" {
 		path, err := exec.LookPath(configured)
 		if err != nil {
 			return "", nil, fmt.Errorf("TASKDECK_PYTHON is not executable: %w", err)
 		}
+		if err := probePythonSQLiteRuntime(path, nil); err != nil {
+			return "", nil, fmt.Errorf("TASKDECK_PYTHON is not compatible with shared-server SQLite: %w", err)
+		}
 		return path, nil, nil
 	}
 
-	type candidate struct {
-		name   string
-		prefix []string
-	}
 	candidates := []candidate{{name: "python3"}, {name: "python"}}
 	if runtime.GOOS == "windows" {
 		candidates = append([]candidate{{name: "py", prefix: []string{"-3"}}}, candidates...)
 	}
+	var failures []string
 	for _, candidate := range candidates {
-		if path, err := exec.LookPath(candidate.name); err == nil {
-			return path, candidate.prefix, nil
+		path, err := exec.LookPath(candidate.name)
+		if err != nil {
+			continue
 		}
+		if err := probePythonSQLiteRuntime(path, candidate.prefix); err != nil {
+			failures = append(failures, candidate.name+": "+err.Error())
+			continue
+		}
+		return path, candidate.prefix, nil
 	}
-	return "", nil, fmt.Errorf("shared-server SQLite requires Python 3.10+ with the standard sqlite3 module")
+	if len(failures) > 0 {
+		return "", nil, fmt.Errorf("Python sqlite3 runtime is incompatible: %s", strings.Join(failures, "; "))
+	}
+	return "", nil, fmt.Errorf("Python 3.10+ with the standard sqlite3 module was not found in PATH")
+}
+
+func probePythonSQLiteRuntime(path string, prefix []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	args := append(append([]string(nil), prefix...),
+		"-c",
+		"import sqlite3,sys; raise SystemExit(0 if sys.version_info >= (3,10) else 3)",
+	)
+	cmd := exec.CommandContext(ctx, path, args...)
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		return fmt.Errorf("runtime probe timed out")
+	}
+	if err != nil {
+		detail := strings.TrimSpace(string(output))
+		if detail == "" {
+			detail = err.Error()
+		}
+		return fmt.Errorf("requires Python 3.10+ with sqlite3 (%s)", detail)
+	}
+	return nil
 }
 
 func (c *pythonSQLiteConn) Prepare(query string) (driver.Stmt, error) {

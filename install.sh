@@ -82,7 +82,9 @@ python_gate() {
 
     echo "WARNING: ${version:-Không tìm thấy Python 3} không đáp ứng yêu cầu Python 3.10+ của một số module." >&2
     echo "WARNING: TaskDeck core vẫn sẽ được cài và có thể chạy bình thường." >&2
-    echo "WARNING: Các module phụ thuộc Python 3.10+ có thể không chạy hoặc báo lỗi: Patch add-on; shared-server identity/auth (SQLite, backup, password hashing); self-update Python validation." >&2
+    echo "WARNING: Patch add-on và self-update Python validation vẫn cần Python 3.10+." >&2
+    echo "WARNING: Shared identity SQLite sẽ tự fallback sang sqlite3 CLI tương thích (SQLite 3.24+) nếu Python 3.10+ không khả dụng." >&2
+    echo "WARNING: Shared password hashing có thể dùng Python cũ nếu runtime đó có hashlib.scrypt; identity backup vẫn có thể cần Python mới hơn." >&2
 }
 
 validate_release() {

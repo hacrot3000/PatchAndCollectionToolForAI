@@ -6,8 +6,15 @@ import (
 	"testing"
 )
 
+func requirePythonScrypt(t *testing.T) {
+	t.Helper()
+	if _, _, err := resolvePythonScryptCommand(); err != nil {
+		t.Skipf("Python scrypt runtime unavailable: %v", err)
+	}
+}
+
 func TestPasswordScryptHashAndVerify(t *testing.T) {
-	requirePythonSQLite(t)
+	requirePythonScrypt(t)
 
 	password := "Mật khẩu shared server 🔐"
 	encoded, err := HashPassword(context.Background(), password)
