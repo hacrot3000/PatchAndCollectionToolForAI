@@ -144,7 +144,7 @@ Right-click một item chưa chọn sẽ chọn item đó rồi mở menu. Right
 Menu được tạo theo pane, loại item và số lượng selection:
 
 - **Host / Local**: Open Folder, **Upload to remote FTP/SFTP** cho cả file/folder/mixed selection, Rename (single item), Delete selected items, New Folder, Copy Name/Path, Select All/Clear Selection, Refresh; Host file còn có Download to browser.
-- **Remote FTP/SFTP**: Open Folder, **Download to left** cho cả file/folder/mixed selection, Download to browser (single file), Rename (single item), Delete selected items, New Remote Folder, Copy Name/Path, Select All/Clear Selection, Refresh.
+- **Remote FTP/SFTP**: Open Folder, **Edit remote file** (single text file) mở trực tiếp trong TaskDeck Editor, **Download to left** cho cả file/folder/mixed selection, Download to browser (single file), Rename (single item), Delete selected items, New Remote Folder, Copy Name/Path, Select All/Clear Selection, Refresh. Editor giữ SHA-256 lúc mở; Save/Ctrl+S (hoặc Auto-save nếu bật) upload ngược về đúng remote path và báo conflict nếu file trên server đã đổi trước khi ghi.
 - Folder delete ở **Host/Local** vẫn non-recursive; **Remote FTP/SFTP** dùng background scanner + Transfer Queue để delete đệ quy theo post-order.
 - Local rename dùng native `FileSystemHandle.move()`; nếu browser không hỗ trợ API này TaskDeck sẽ báo rõ thay vì mô phỏng bằng copy/delete.
 
