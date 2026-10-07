@@ -62,6 +62,8 @@ func TestInstallScriptBuildsVersionedTaskdeckRelease(t *testing.T) {
 		"PYTHON_310_AVAILABLE=0",
 		"TaskDeck core vẫn sẽ được cài và có thể chạy bình thường",
 		"if (( PYTHON_310_AVAILABLE )); then",
+		"TASKDECK_INSTALL_FULL_VALIDATION",
+		"installer dùng compile-only validation",
 		"python3 test_python_patch_entry.py",
 		"GOPROXY=off GOSUMDB=off go test ./...",
 		"GOPROXY=off GOSUMDB=off go test -vet=off -run '^$' ./...",
