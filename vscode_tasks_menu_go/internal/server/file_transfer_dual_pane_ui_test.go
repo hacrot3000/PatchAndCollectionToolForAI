@@ -323,6 +323,43 @@ func TestFileTransferQueueScalesForLargeStreamingScans(t *testing.T) {
 }
 
 
+func TestFileTransferSuggestsCompressedFolderUploadWithoutRemovingNormalPath(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const compressedUploadScanFileThreshold=200;",
+		"const compressedUploadScanDurationMS=2500;",
+		"async function quickScanHostUploadSelection(view,entries)",
+		"async function quickScanLocalUploadSelection(view,entries)",
+		"/api/file-transfer/upload-scan",
+		"function requestCompressedUploadDecision(view,entries,scan",
+		"Upload normally",
+		"Compress + upload",
+		"async function buildLocalSelectionTarGz(view,entries)",
+		"new CompressionStream('gzip')",
+		"async function uploadCompressedSelection(view,entries)",
+		"/api/file-transfer/archive-upload",
+		"/api/file-transfer/archive-extract",
+		"Archive uploaded — manual extraction required",
+		"Copy POSIX command",
+		"Copy PowerShell command",
+		"const decision=await compressedUploadDecision(view,selected);",
+		"if(decision==='archive')",
+		"await createServerTransferJob(view,{kind:'host_upload'",
+		"kind:'local_upload_scan'",
+		"compressedUploadRootsClear(view,entries)",
+		"canAutoExtractCompressedUpload(view)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("compressed folder upload UI missing %q", want)
+		}
+	}
+	if !strings.Contains(js, "Upload the selection normally instead?") {
+		t.Fatal("compressed upload failure must offer normal upload fallback")
+	}
+}
+
 func TestFileTransferConnectionPoolUIAndParallelWorkers(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil { t.Fatal(err) }
