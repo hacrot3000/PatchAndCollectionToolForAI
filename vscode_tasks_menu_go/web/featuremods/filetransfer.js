@@ -421,6 +421,10 @@ function upsertPersistentFileTransferJob(job){
 function removePersistentFileTransferJob(jobID){
   writePersistentFileTransferJobs(readPersistentFileTransferJobs().filter(job=>job.id!==jobID));
 }
+function clearPersistentFileTransferJobsForProfile(profileID){
+  profileID=String(profileID||'');
+  writePersistentFileTransferJobs(readPersistentFileTransferJobs().filter(job=>String(job.profile_id||'')!==profileID));
+}
 function newFileTransferJobID(){
   if(globalThis.crypto?.randomUUID)return globalThis.crypto.randomUUID();
   return 'ft-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
@@ -1194,7 +1198,7 @@ function runTransferScan(view,label,scanner){
 async function stopTransferScans(view){
   const queue=view.transferQueue;if(!queue)return;
   queue.scanGeneration=(queue.scanGeneration||0)+1;
-  clearPersistentLocalScansForProfile(view.profile.id);
+  clearPersistentLocalScansForProfile(view.profile.id);clearPersistentFileTransferJobsForProfile(view.profile.id);
   queue.scanLabel='Stopping scan…';scheduleTransferQueueRender(view);persistFileTransferSession();
   try{await serverTransferQueueControl(view,'stop_scans');}
   finally{
@@ -1206,7 +1210,7 @@ async function stopTransferScans(view){
 async function clearTransferQueue(view){
   const queue=view.transferQueue;if(!queue)return;
   queue.scanGeneration=(queue.scanGeneration||0)+1;
-  clearPersistentLocalScansForProfile(view.profile.id);
+  clearPersistentLocalScansForProfile(view.profile.id);clearPersistentFileTransferJobsForProfile(view.profile.id);
   queue.pending=[];queue.pendingHead=0;queue.priorityPending=[];queue.priorityHead=0;
   const kept=[];
   for(const item of queue.items){
@@ -2840,9 +2844,14 @@ async function runPersistentRemoteDeleteJob(view,job){
     });
     view.remote.status.textContent='Delete scan complete · '+state.files+' file(s) · '+state.folders+' folder(s) queued';
   }catch(error){
-    runtime.scanFailed=true;
-    view.remote.status.textContent='Delete scan interrupted · will resume after reload';
-    console.warn('Persistent remote delete scan failed',error);
+    if(error?.transferScanStopped){
+      runtime.scanFailed=false;removePersistentFileTransferJob(job.id);
+      view.remote.status.textContent='Delete scan stopped';
+    }else{
+      runtime.scanFailed=true;
+      view.remote.status.textContent='Delete scan interrupted · will resume after reload';
+      console.warn('Persistent remote delete scan failed',error);
+    }
   }finally{
     runtime.scanning=false;activeRemoteDeleteJobs.delete(job.id);maybeCompletePersistentDeleteJob(view,job.id);
   }
