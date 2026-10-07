@@ -32,9 +32,10 @@ type projectCompletionItem struct {
 	Detail     string `json:"detail,omitempty"`
 	Path       string `json:"path,omitempty"`
 	Line       int    `json:"line,omitempty"`
-	InsertText string `json:"insert_text,omitempty"`
-	Source     string `json:"source,omitempty"`
-	Score      int    `json:"score,omitempty"`
+	InsertText    string `json:"insert_text,omitempty"`
+	ReplacePrefix string `json:"replace_prefix,omitempty"`
+	Source        string `json:"source,omitempty"`
+	Score         int    `json:"score,omitempty"`
 }
 
 type projectCompletionResponse struct {
@@ -354,7 +355,7 @@ func projectImportCompletionItems(ctx context.Context, s *Server, req projectCom
 		seen[insert] = true
 		out = append(out, projectCompletionItem{
 			Label: label, Kind: "module", Detail: candidate.Path, Path: candidate.Path,
-			InsertText: insert, Source: "project-path", Score: candidate.Score + 5000,
+			InsertText: insert, ReplacePrefix: prefix, Source: "project-path", Score: candidate.Score + 5000,
 		})
 		if len(out) >= req.Limit {
 			break
