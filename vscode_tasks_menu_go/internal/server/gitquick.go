@@ -98,7 +98,13 @@ func gitCompatibleArgs(args []string) []string {
 			if source == "HEAD" && !staged {
 				return append([]string{"checkout", "--"}, paths...)
 			}
-			return append([]string{"checkout", source, "--"}, paths...)
+			if staged && worktree {
+				return append([]string{"checkout", source, "--"}, paths...)
+			}
+			// A legacy "git checkout <tree> -- <path>" also rewrites the
+			// index, while "git restore --source=<tree> --worktree" must leave
+			// the index untouched. Do not silently change semantics here.
+			return out
 		}
 	}
 	if len(out) >= 2 && out[0] == "stash" && out[1] == "push" {
@@ -119,11 +125,6 @@ func gitCompatibleArgs(args []string) []string {
 			legacy = append(legacy, message)
 		}
 		return legacy
-	}
-	for i := range out {
-		if strings.Contains(out[i], "iso-strict") {
-			out[i] = strings.ReplaceAll(out[i], "iso-strict", "iso")
-		}
 	}
 	return out
 }
