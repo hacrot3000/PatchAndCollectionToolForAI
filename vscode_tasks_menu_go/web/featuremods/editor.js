@@ -102,6 +102,11 @@ let editorAutoSaveEnabled=localStorage.getItem(editorAutoSavePreferenceKey)==='1
 const editorAutoSaveDelayMS=1000;
 const editorMinimapPreferenceKey='vscode-tasks-menu:editor-minimap';
 let editorMinimapEnabled=localStorage.getItem(editorMinimapPreferenceKey)==='1';
+const editorSessionPersistDelayMS=250;
+let editorSessionPersistTimer=null;
+let editorSessionPersisting=false;
+let editorSessionPersistQueued=false;
+let editorSessionRestoring=false;
 
 function editorSplitLeaf(id){return {type:'leaf',id};}
 function editorSplitNode(first,second,orientation,ratio=.5){return {type:'split',first,second,orientation:orientation==='horizontal'?'horizontal':'vertical',ratio};}
@@ -782,6 +787,115 @@ function jumpFromEditorMinimap(view,event){
   view.cm.focus();
 }
 
+function localEditorViewsInTabOrder(){
+  const ordered=[...tabsHost.querySelectorAll('.editor-tab')].map(tab=>String(tab.dataset.id||''));
+  const seen=new Set(),views=[];
+  for(const id of ordered){
+    const view=editors.get(id);
+    if(!view||view.closed||view.file?.remote_workspace_id||seen.has(id))continue;
+    seen.add(id);views.push(view);
+  }
+  for(const [id,view] of editors){
+    if(!view||view.closed||view.file?.remote_workspace_id||seen.has(id))continue;
+    seen.add(id);views.push(view);
+  }
+  return views;
+}
+function editorSessionPayload(){
+  const activeView=activeEditorID?editors.get(activeEditorID):null;
+  return {
+    version:1,
+    active:activeView&&!activeView.file?.remote_workspace_id?String(activeView.file?.path||''):'',
+    tabs:localEditorViewsInTabOrder().map(view=>{
+      const selection=view.cm.state.selection.main;
+      return {
+        path:String(view.file?.path||''),
+        dirty:Boolean(view.dirty),
+        content:view.dirty?view.cm.state.doc.toString():'',
+        source_sha256:String(view.file?.sha256||''),
+        selection:{anchor:selection.anchor,head:selection.head},
+        line_ending:view.desiredLineEnding||view.file?.line_ending||'lf',
+        encoding:view.desiredEncoding||editorEncodingChoice(view.file)
+      };
+    }).filter(tab=>tab.path)
+  };
+}
+async function persistEditorSessionNow(){
+  if(editorSessionRestoring)return false;
+  if(editorSessionPersisting){editorSessionPersistQueued=true;return false;}
+  editorSessionPersisting=true;
+  try{
+    await app.jsonFetch('/api/project/editor-session',{
+      method:'PUT',cache:'no-store',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(editorSessionPayload())
+    });
+    return true;
+  }catch(error){
+    console.warn('Editor session persistence failed',error);
+    return false;
+  }finally{
+    editorSessionPersisting=false;
+    if(editorSessionPersistQueued){
+      editorSessionPersistQueued=false;
+      scheduleEditorSessionPersist();
+    }
+  }
+}
+function scheduleEditorSessionPersist(){
+  if(editorSessionRestoring||editorSessionPersistTimer)return;
+  editorSessionPersistTimer=setTimeout(()=>{
+    editorSessionPersistTimer=null;
+    persistEditorSessionNow();
+  },editorSessionPersistDelayMS);
+}
+function restoreEditorSelection(view,selection){
+  if(!view||view.closed)return;
+  const length=view.cm.state.doc.length;
+  const anchor=Math.max(0,Math.min(length,Number(selection?.anchor)||0));
+  const head=Math.max(0,Math.min(length,Number(selection?.head)||anchor));
+  view.internalUpdate=true;
+  try{view.cm.dispatch({selection:{anchor,head},scrollIntoView:true});}
+  finally{view.internalUpdate=false;}
+}
+async function restorePersistedEditorSession(){
+  if(editorSessionRestoring)return false;
+  editorSessionRestoring=true;
+  try{
+    const state=await app.jsonFetch('/api/project/editor-session',{cache:'no-store'});
+    const tabs=Array.isArray(state?.tabs)?state.tabs:[];
+    for(const item of tabs){
+      const pathValue=String(item?.path||'').trim();
+      if(!pathValue)continue;
+      try{
+        let view=editors.get(editorID(pathValue));
+        if(!view){
+          const file=await app.jsonFetch('/api/project/file?path='+encodeURIComponent(pathValue));
+          if(item?.dirty){
+            file.content=String(item.content??'');
+            if(item.source_sha256)file.sha256=String(item.source_sha256);
+            if(item.external_changed)file.warning='Recovered unsaved swap; source file changed on disk since the swap was written.';
+          }
+          view=createEditor(file);
+        }
+        if(item?.line_ending)view.desiredLineEnding=String(item.line_ending);
+        if(item?.encoding)view.desiredEncoding=String(item.encoding);
+        syncEditorFormatControls(view);
+        if(item?.dirty)setDirty(view,true);
+        restoreEditorSelection(view,item?.selection);
+      }catch(error){console.warn('Editor session restore skipped '+pathValue,error);}
+    }
+    const active=String(state?.active||'').trim();
+    if(active&&editors.has(editorID(active)))activateEditor(editorID(active),{force:true});
+    else{
+      const first=localEditorViewsInTabOrder()[0];
+      if(first)activateEditor(first.id,{force:true});
+    }
+    return true;
+  }finally{
+    editorSessionRestoring=false;
+  }
+}
+
 function setDirty(view,dirty){
   if(!view||view.closed)return;
   view.dirty=Boolean(dirty);
@@ -790,6 +904,7 @@ function setDirty(view,dirty){
   view.save.disabled=Boolean(view.file.read_only)||!view.dirty||view.saving;
   if(view.dirty)scheduleEditorAutoSave(view);
   else{clearTimeout(view.autoSaveTimer);view.autoSaveTimer=null;}
+  if(!view.file?.remote_workspace_id)scheduleEditorSessionPersist();
 }
 function editorReadOnly(view){
   return Boolean(view?.file?.read_only||view?.tabReadOnly);
@@ -894,6 +1009,7 @@ function installEditorDispatchGuard(view){
       if(!view.internalUpdate)setDirty(view,true);
       scheduleEditorMinimap(view);
     }
+    if(!view.internalUpdate&&!view.file?.remote_workspace_id)scheduleEditorSessionPersist();
   };
 }
 function setEditorDocument(view,file){
@@ -956,6 +1072,8 @@ function activateEditorDOM(id){
     else if(peer)setTimeout(()=>scheduleEditorMinimap(view),0);
   }
   if(root)renderEditorSplit(root);else syncEditorSplitForActive();
+  const activeView=editors.get(id);
+  if(activeView&&!activeView.file?.remote_workspace_id)scheduleEditorSessionPersist();
 }
 function activateEditor(id,{force=false}={}){
   if(!editors.has(id))return false;
@@ -1387,6 +1505,7 @@ function destroyEditor(id){
   detachEditorFromSplit(id);
   try{view.cm.destroy();}catch{}
   view.tab.remove();view.pane.remove();editors.delete(id);pruneEditorSplitRoots();
+  if(!view.file?.remote_workspace_id)scheduleEditorSessionPersist();
   if(activeEditorID===id){
     activeEditorID='';
     const next=editors.values().next();
@@ -1871,5 +1990,8 @@ globalThis.TaskMenuEditor={
   get minimapEnabled(){return editorMinimapEnabled;},
   languageForPath:editorLanguageDefinition,
   get languageRegistry(){return editorLanguageRegistry.map(item=>({...item}));},
+  persistSession:persistEditorSessionNow,
+  restorePersistedSession:restorePersistedEditorSession,
   get active(){return activeEditorID;}
 };
+setTimeout(()=>restorePersistedEditorSession().catch(error=>console.warn('Editor session restore failed',error)),0);
