@@ -3022,6 +3022,48 @@ function leftDoubleClick(view,entry){
   if(entryType(entry)==='directory')loadLeftDirectory(view,joinPath(view.left.currentPath,entry.name,false)).catch(app.showError);
   else transferLeftEntriesToRemote(view,[entry]).catch(app.showError);
 }
+function remoteEditorWritable(){
+  return app.hasPermission('transfer.upload')&&app.hasPermission('files.upload')&&app.hasPermission('files.write');
+}
+function remoteEditorVirtualPath(view,remotePath){
+  const protocol=String(view?.profile?.protocol||'remote').toLowerCase();
+  const profileID=encodeURIComponent(String(view?.profile?.id||'profile'));
+  return protocol+'://'+profileID+'/'+String(remotePath||'').replace(/^\/+/, '');
+}
+function remoteEditorDocument(view,remotePath,data){
+  const raw=String(data?.content??''),bom=raw.charCodeAt(0)===0xfeff,content=bom?raw.slice(1):raw;
+  const protocol=String(view?.profile?.protocol||'remote').toUpperCase();
+  const profileName=String(view?.profile?.name||view?.profile?.id||'Remote');
+  return {
+    path:remoteEditorVirtualPath(view,remotePath),
+    remote_transfer_profile_id:String(view?.profile?.id||''),
+    remote_path:String(remotePath||''),
+    remote_profile_name:profileName,
+    remote_protocol:protocol,
+    content,
+    sha256:String(data?.sha256||''),
+    size:new TextEncoder().encode(raw).length,
+    line_ending:/\r\n/.test(content)?'crlf':'lf',
+    bom,
+    encoding:'utf-8',
+    read_only:!remoteEditorWritable(),
+    large_file:false,
+    warning:'Remote '+protocol+' · '+profileName+' · Save uploads directly to '+String(remotePath||'')
+  };
+}
+async function editRemoteFile(view,entry){
+  if(entryType(entry)!=='file')throw new Error('Remote editor can open files only');
+  const editor=globalThis.TaskMenuEditor;
+  if(!editor?.openDocument)throw new Error('Editor is unavailable');
+  const remotePath=joinPath(view.remote.currentPath,entry.name,true);
+  view.remote.status.textContent='Opening remote file in editor…';
+  const params=new URLSearchParams({profile_id:String(view.profile.id),path:remotePath});
+  const data=await app.jsonFetch('/api/file-transfer/text?'+params.toString(),{cache:'no-store'});
+  const opened=await editor.openDocument(remoteEditorDocument(view,remotePath,data));
+  view.remote.status.textContent='Editing '+entry.name+' · Save/Ctrl+S uploads to remote';
+  return opened;
+}
+
 function remoteDoubleClick(view,entry){
   if(entryType(entry)==='directory'&&remoteConnectionPoolFull(view)){syncRemoteNavigationAvailability(view);return;}
   if(entryType(entry)==='directory')loadRemoteDirectory(view,joinPath(view.remote.currentPath,entry.name,true)).catch(app.showError);
@@ -3135,6 +3177,7 @@ function remoteContext(view,entry,event){
   }
   if(selected.length)items.push({label:selected.length>1?'Download selected items to left ←':'Download to left ←',action:()=>transferRemoteEntriesToLeft(view,selected)});
   if(selected.length===1&&entryType(selected[0])==='file'){
+    items.push({label:'Edit remote file',disabled:remoteConnectionPoolFull(view),action:()=>editRemoteFile(view,selected[0])});
     items.push({label:'Download to browser',action:()=>downloadFileToBrowser(view,joinPath(panel.currentPath,selected[0].name,true))});
   }
   if(items.length)items.push({separator:true});
@@ -3148,6 +3191,15 @@ function remoteContext(view,entry,event){
   items.push({separator:true},...commonSelectionMenu(panel,true,()=>loadRemoteDirectory(view,panel.currentPath,{force:true})));
   showContextMenu(items,event.clientX,event.clientY,contextTitle(panel,entry));
 }
+
+window.addEventListener('taskmenu:file-transfer-remote-edited',event=>{
+  const profileID=String(event.detail?.profile_id||''),remotePath=normalizeRemotePath(event.detail?.path||'.');
+  const view=views.get(profileID);if(!view||view.closed)return;
+  invalidateRemoteCache(view,parentPath(remotePath,true));
+  if(normalizeRemotePath(view.remote.currentPath||'.')===parentPath(remotePath,true)){
+    loadRemoteDirectory(view,view.remote.currentPath,{force:true}).catch(()=>{});
+  }
+});
 
 function installDivider(view,divider,sites){
   const storageKey='taskdeck:file-transfer:split:'+workspaceKey()+':'+view.profile.id;
