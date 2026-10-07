@@ -1439,11 +1439,12 @@ async function resolveSaveConflict(view){
     const choice=await conflictChoice(view);
     if(choice==='cancel')return null;
     if(choice==='compare'){await showConflictCompare(view,latest);continue;}
-    if(choice==='reload'){setEditorDocument(view,latest);return latest;}
+    if(choice==='reload'){setEditorDocument(view,latest);await persistEditorSessionNow();return latest;}
     if(choice==='overwrite'){
       const result=await putEditorFile(view,latest.sha256);
       if(result.conflict)continue;
       applySavedEditorFile(view,result.file);
+      await persistEditorSessionNow();
       return result.file;
     }
   }
@@ -1457,6 +1458,7 @@ async function saveEditor(view){
     const result=await putEditorFile(view,view.file.sha256);
     if(result.conflict)return resolveSaveConflict(view);
     applySavedEditorFile(view,result.file);
+    await persistEditorSessionNow();
     if(result.file.history_warning)app.showError(new Error(result.file.history_warning));
     return result.file;
   }finally{
@@ -1497,6 +1499,7 @@ async function closeEditor(id){
   }
   rememberClosedEditor(view);
   destroyEditor(id);
+  if(!view.file?.remote_workspace_id)await persistEditorSessionNow();
   return true;
 }
 function destroyEditor(id){
@@ -1665,6 +1668,7 @@ async function reloadEditor(view){
   if(view.dirty&&!window.confirm('Discard unsaved changes and reload '+view.file.path+'?'))return;
   const file=await readLatestEditorFile(view);
   setEditorDocument(view,file);
+  if(!view.file?.remote_workspace_id)await persistEditorSessionNow();
 }
 
 async function handleExternalFileChange(view,latest=null){
@@ -1683,11 +1687,12 @@ async function handleExternalFileChange(view,latest=null){
       const choice=await conflictChoice(view);
       if(choice==='cancel')return false;
       if(choice==='compare'){await showConflictCompare(view,latest);continue;}
-      if(choice==='reload'){setEditorDocument(view,latest);return true;}
+      if(choice==='reload'){setEditorDocument(view,latest);await persistEditorSessionNow();return true;}
       if(choice==='overwrite'){
         const result=await putEditorFile(view,latest.sha256);
         if(result.conflict){latest=await readLatestEditorFile(view);continue;}
         applySavedEditorFile(view,result.file);
+        await persistEditorSessionNow();
         return true;
       }
     }
@@ -1908,6 +1913,26 @@ document.addEventListener('keydown',event=>{
     goToLine(view);
   }
 });
+
+function persistEditorSessionKeepalive(){
+  if(editorSessionRestoring)return false;
+  let body='';
+  try{body=JSON.stringify(editorSessionPayload());}catch{return false;}
+  if(body.length>60000)return false;
+  if(navigator.sendBeacon){
+    try{
+      return navigator.sendBeacon('/api/project/editor-session',new Blob([body],{type:'application/json'}));
+    }catch{}
+  }
+  try{
+    fetch('/api/project/editor-session',{
+      method:'POST',credentials:'same-origin',keepalive:true,
+      headers:{'Content-Type':'application/json'},body
+    }).catch(()=>{});
+    return true;
+  }catch{return false;}
+}
+window.addEventListener('pagehide',()=>persistEditorSessionKeepalive());
 
 window.addEventListener('beforeunload',event=>{
   if(![...editors.values()].some(view=>!view.closed&&view.dirty))return;
