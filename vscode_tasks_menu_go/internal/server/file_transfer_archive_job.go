@@ -54,8 +54,12 @@ func (r fileTransferContextReader) Read(p []byte) (int, error) {
 
 func writeLargeFileTransferTarGz(ctx context.Context, writer io.Writer, sources []projectArchiveSource, progress func(fileTransferArchiveProgress)) error {
 	counting := &fileTransferArchiveCountingWriter{dst: writer}
-	gz := gzip.NewWriter(counting)
+	gz, err := gzip.NewWriterLevel(counting, gzip.BestSpeed)
+	if err != nil {
+		return err
+	}
 	tw := tar.NewWriter(gz)
+	copyBuffer := make([]byte, 256<<10)
 	state := fileTransferArchiveProgress{}
 	lastReport := time.Now()
 	report := func(force bool) {
@@ -110,7 +114,7 @@ func writeLargeFileTransferTarGz(ctx context.Context, writer io.Writer, sources 
 			if err != nil {
 				return err
 			}
-			_, copyErr := io.CopyBuffer(tw, fileTransferContextReader{ctx: ctx, r: file}, make([]byte, 256<<10))
+			_, copyErr := io.CopyBuffer(tw, fileTransferContextReader{ctx: ctx, r: file}, copyBuffer)
 			closeErr := file.Close()
 			report(false)
 			if copyErr != nil {
