@@ -55,7 +55,8 @@ type editorSwapRecord struct {
 }
 
 func isTaskDeckSwapName(name string) bool {
-	return strings.Contains(strings.ToLower(name), editorSwapMarker)
+	lower := strings.ToLower(strings.TrimSpace(name))
+	return strings.HasSuffix(lower, editorSwapMarker) || strings.Contains(lower, editorSwapMarker+".")
 }
 
 func editorSessionOwnerKey(r *http.Request) string {
@@ -79,7 +80,11 @@ func writeEditorJSONAtomic(path string, value any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".taskdeck-editor-*")
+	pattern := ".taskdeck-editor-*"
+	if isTaskDeckSwapName(filepath.Base(path)) {
+		pattern = ".taskdeck-swap.*"
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), pattern)
 	if err != nil {
 		return err
 	}
@@ -353,7 +358,7 @@ func (s *Server) projectEditorSession(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		writeJSON(w, http.StatusOK, s.loadEditorSession(r))
-	case http.MethodPut:
+	case http.MethodPut, http.MethodPost:
 		var state editorSessionState
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, projectEditableLimit*editorSessionMaxTabs+(1<<20)))
 		decoder.DisallowUnknownFields()
