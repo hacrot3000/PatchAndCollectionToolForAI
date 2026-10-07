@@ -340,7 +340,8 @@ function formatBytes(size){
 const legacyKeywordSets={
   shell:new Set('if then else elif fi for while until do done case esac in function select time coproc readonly local export declare typeset unset shift break continue return'.split(' ')),
   cmake:new Set('if elseif else endif foreach endforeach while endwhile function endfunction macro endmacro return break continue'.split(' ')),
-  lua:new Set('and break do else elseif end false for function goto if in local nil not or repeat return then true until while'.split(' '))
+  lua:new Set('and break do else elseif end false for function goto if in local nil not or repeat return then true until while'.split(' ')),
+  nim:new Set('addr and as asm bind block break case cast concept const continue converter defer discard distinct div do elif else end enum except export finally for from func if import in include interface is isnot iterator let macro method mixin mod nil not notin object of or out proc ptr raise ref return shl shr static template try tuple type using var when while xor yield'.split(' '))
 };
 const legacyMarks=new Map();
 function legacyHighlightKind(pathValue){
@@ -349,6 +350,7 @@ function legacyHighlightKind(pathValue){
   const ext=(name.includes('.')?name.slice(name.lastIndexOf('.')+1):'');
   if(name==='cmakelists.txt'||ext==='cmake')return 'cmake';
   if(['sh','bash','zsh','fish','ksh'].includes(ext)||name==='.bashrc'||name==='.zshrc')return 'shell';
+  if(['nim','nims','nimble'].includes(ext))return 'nim';
   if(ext==='lua')return 'lua';
   return '';
 }
@@ -363,6 +365,14 @@ function legacyLineTokens(kind,text){
   while(i<text.length){
     const ch=text[i],next=text[i+1]||'';
     if((kind==='lua'&&ch==='-'&&next==='-')||(kind!=='lua'&&ch==='#')){tokens.push({from:i,to:text.length,type:'comment'});break;}
+    if(kind==='nim'&&ch.charCodeAt(0)===96){
+      let j=i+1;while(j<text.length&&text.charCodeAt(j)!==96)j++;if(j<text.length)j++;
+      i=j;firstWord=false;continue;
+    }
+    if(kind==='nim'&&text.startsWith('\"\"\"',i)){
+      const end=text.indexOf('\"\"\"',i+3),j=end<0?text.length:end+3;
+      tokens.push({from:i,to:j,type:'string'});i=j;firstWord=false;continue;
+    }
     if(ch==='"'||ch==="'"){
       const quote=ch;let j=i+1;
       while(j<text.length){if(text[j]==='\\'){j+=2;continue;}if(text[j]===quote){j++;break;}j++;}
@@ -385,8 +395,9 @@ function legacyLineTokens(kind,text){
     if(identStart(ch)){
       let j=i+1;while(j<text.length&&identPart(text[j]))j++;
       const word=text.slice(i,j);const lower=word.toLowerCase();
+      const keywordWord=kind==='nim'?lower.replaceAll('_',''):lower;
       let type='';
-      if(keywords.has(lower))type='keyword';
+      if(keywords.has(keywordWord))type='keyword';
       else if(kind==='cmake'&&/^\s*\(/.test(text.slice(j)))type='command';
       else if(kind==='shell'&&firstWord)type='command';
       if(type)tokens.push({from:i,to:j,type});
@@ -550,6 +561,7 @@ function languageLabel(pathValue){
   const legacy=legacyHighlightKind(pathValue);
   if(legacy==='cmake')return 'CMake';
   if(legacy==='shell')return 'Shell';
+  if(legacy==='nim')return 'Nim';
   if(legacy==='lua')return 'Lua';
   return 'Plain text';
 }
