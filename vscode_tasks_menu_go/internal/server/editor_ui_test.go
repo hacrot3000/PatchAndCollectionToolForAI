@@ -180,6 +180,29 @@ func TestEditorSmartEnterPreservesIndentAndSplitsPairs(t *testing.T) {
 }
 
 
+func TestEditorOpeningBraceKeepsCurrentIndent(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function smartEditorOpenBrace(view)",
+		"const insert=right==='}'?'{':'{}'",
+		"selection:{anchor:pos+1}",
+		"event.key==='{'",
+		"if(smartEditorOpenBrace(view))",
+		"event.preventDefault();event.stopPropagation()",
+		"if(tabLines>0)return '\\t'",
+		"return '\\t'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor opening-brace indentation behavior missing %q", want)
+		}
+	}
+}
+
+
 func TestEditorDirtySaveShortcutsAndCloseFlow(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/editor.js")
 	if err != nil {
