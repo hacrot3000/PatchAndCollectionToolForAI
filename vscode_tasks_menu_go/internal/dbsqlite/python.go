@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -26,7 +27,11 @@ type Python struct {
 
 func FindPython() (Python, error) {
 	var failures []string
-	for _, name := range []string{"python3", "python"} {
+	candidates := []string{"python3.13", "python3.12", "python3.11", "python3.10", "python3", "python"}
+	if configured := strings.TrimSpace(os.Getenv("TASKDECK_PYTHON")); configured != "" {
+		candidates = []string{configured}
+	}
+	for _, name := range candidates {
 		path, err := exec.LookPath(name)
 		if err != nil {
 			continue
