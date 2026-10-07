@@ -173,7 +173,7 @@ func TestFileTransferWorkspaceHasParentRowsAndBackgroundOnlySelection(t *testing
 		"tr.className='ft-parent-row'",
 		"label.textContent='..'",
 		"tr.onclick=event=>event.preventDefault();",
-		"tr.ondblclick=event=>{event.preventDefault();panel.goUp?.().catch(app.showError);}",
+		"tr.ondblclick=event=>{event.preventDefault();if(panel.navigationDisabled)return;panel.goUp?.().catch(app.showError);}",
 		"outline:none!important;box-shadow:none!important",
 		"user-select:none;-moz-user-select:none;-webkit-user-select:none",
 		".ft-table tbody tr.selected{background:#29384b}",
