@@ -117,6 +117,36 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 	}
 }
 
+func TestPatchPanelUploadsPatchCollectPackagesFromBrowser(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"['upload','Upload','Upload PATCH/COLLECT package(s) from this browser']",
+		"patchUploadInput.type='file'",
+		"patchUploadInput.multiple=true",
+		".zip,.tar,.tgz,.tar.gz",
+		"async function choosePatchUpload()",
+		"async function uploadPatchPackage(file,overwrite=false)",
+		"async function uploadPatchPackages(files)",
+		"new FormData()",
+		"'/api/patch/upload'",
+		"'?overwrite=1'",
+		"already exists in Patch queue. Overwrite it?",
+		"Packages are published directly to patchs/ and then classified by the Patch runtime.",
+		"refreshPatchQueueAfterUpload()",
+		"refreshQueueSessionSilently(activeSessionId)",
+		"await openQueueWhileRunning()",
+		"app.hasPermission?.('patch.run')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Patch browser upload UI missing %q", want)
+		}
+	}
+}
+
 func TestPatchPanelLoadsBeforeActivityBar(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/next.js")
 	if err != nil {
