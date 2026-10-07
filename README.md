@@ -142,7 +142,7 @@ hoặc PowerShell:
 .\tools\run_python_patches.ps1
 ```
 
-PATCH/COLLECT package được đặt trong `patchs/` của project và runner sẽ tự phân loại theo manifest/contract hiện có.
+PATCH/COLLECT package có thể được đặt trực tiếp trong `patchs/` của project **hoặc upload từ browser bằng nút Upload trong panel Patch**. Browser upload hỗ trợ chọn nhiều package ZIP/TAR/TGZ, publish atomically vào `patchs/`, hỏi xác nhận trước khi overwrite tên trùng và tự refresh Queue; Python Patch runtime vẫn là nguồn quyết định việc nhận diện/validate package trước khi người dùng chọn chạy.
 
 ## TaskDeck (`vscode_tasks_menu`)
 
@@ -382,7 +382,7 @@ or PowerShell:
 .\tools\run_python_patches.ps1
 ```
 
-Place PATCH/COLLECT packages in the project's `patchs/` directory; the runner classifies them according to the existing manifest/contracts.
+PATCH/COLLECT packages can be placed in the project's `patchs/` directory **or uploaded from the browser with the Patch panel's Upload action**. Browser upload accepts multiple ZIP/TAR/TGZ packages, publishes them atomically into `patchs/`, confirms before overwriting a duplicate name, and refreshes Queue automatically; the Python Patch runtime remains authoritative for package classification/validation before the user explicitly selects execution.
 
 ### TaskDeck (`vscode_tasks_menu`)
 
