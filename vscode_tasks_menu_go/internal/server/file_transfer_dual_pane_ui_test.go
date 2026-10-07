@@ -32,6 +32,53 @@ func TestFileTransferWorkspaceIsDualPaneWithHostAndLocalBrowser(t *testing.T) {
 	}
 }
 
+func TestFileTransferRemoteFileOpensInEditorAndSavesBack(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function remoteEditorWritable()",
+		"function remoteEditorVirtualPath(view,remotePath)",
+		"function remoteEditorDocument(view,remotePath,data)",
+		"async function editRemoteFile(view,entry)",
+		"label:'Edit remote file'",
+		"/api/file-transfer/text?",
+		"remote_transfer_profile_id:String(view?.profile?.id||'')",
+		"remote_path:String(remotePath||'')",
+		"read_only:!remoteEditorWritable()",
+		"Save/Ctrl+S uploads to remote",
+		"TaskMenuEditor",
+		"openDocument(remoteEditorDocument(view,remotePath,data))",
+		"taskmenu:file-transfer-remote-edited",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer remote editor integration missing %q", want)
+		}
+	}
+
+	editorData, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	editor := string(editorData)
+	for _, want := range []string{
+		"if(view.file?.remote_transfer_profile_id)",
+		"app.fetchWithLease('/api/file-transfer/text'",
+		"profile_id:view.file.remote_transfer_profile_id",
+		"path:view.file.remote_path",
+		"expected_sha256:expectedSHA256",
+		"new URLSearchParams({profile_id:view.file.remote_transfer_profile_id,path:view.file.remote_path})",
+		"if(response.status===409)return {conflict:true};",
+		"makeSide(isRemote?'Remote (latest)':'Disk (latest)'",
+	} {
+		if !strings.Contains(editor, want) {
+			t.Fatalf("editor remote transfer save contract missing %q", want)
+		}
+	}
+}
+
 func TestFileTransferWorkspaceKeepsPerScopePathMemoryAndSorting(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil {
