@@ -41,7 +41,7 @@ Persist:
 - [x] Restore tabs + dirty contents + cursor after reload/restart/update.
 - [x] Remove swap after Save/discard/reload and keep conflict-safe behavior.
 - [x] Add backend/frontend/shared-auth regression tests.
-- [ ] Document behavior in README and perform final build-oriented import/route review.
+- [x] Document behavior in README and perform final build-oriented import/route review.
 
 ## Progress
 
@@ -67,8 +67,21 @@ Persist:
 
 ## Resume checkpoint
 
-Remaining before declaring complete:
-1. document the feature and recovery semantics in README;
-2. inspect all touched Go imports/routes for build-time issues;
-3. review any stale-swap edge cases around project rename/delete and either fix them safely or document the behavior;
-4. update this handoff to complete with final HEAD.
+Final completion notes:
+- `9932d1d`: README documents server-side editor session recovery, swap naming, Git/Explorer hiding, conflict behavior and Remote Workspace scope.
+- `6a48f3a`, `d5087dc`: Explorer rename/undo now refuses to rename a dirty editor, matching trash/move safety and preventing an adjacent swap from being orphaned under the old filename.
+- `15c8c45`, `6388e07`: pagehide recovery uses `app.fetchWithLease(..., keepalive:true)` instead of `sendBeacon`, preserving the single-user browser lease header as well as shared-server cookies.
+- `e458208`: recovered swap metadata is validated for source path, SHA-256 and selection before use.
+- Final static build-oriented review found no unused imports in the touched Go files and confirmed the route is present in server registration, shared authorization and regression coverage. No GitHub workflow is configured to provide a repository-side build result.
+
+## Status
+
+This editor-session persistence batch is complete on `main`.
+
+Recovery guarantees:
+- normal editing checkpoints to the daemon approximately every 250 ms;
+- explicit self-update flushes synchronously before updater start;
+- Save/Reload/Discard/Close flush state immediately;
+- dirty content is stored atomically beside the source and clean tab/cursor metadata is stored outside the workspace;
+- daemon/browser restart restores local editor tabs, order, active tab, dirty buffer and cursor/selection;
+- external source changes never silently overwrite the recovered dirty buffer.
