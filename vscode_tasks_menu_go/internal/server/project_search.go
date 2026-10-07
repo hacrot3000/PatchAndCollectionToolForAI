@@ -188,7 +188,7 @@ func (s *Server) findExactProjectBasename(parent context.Context, query string, 
 			}
 			return nil
 		}
-		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() || !strings.EqualFold(entry.Name(), wanted) {
+		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() || isTaskDeckSwapName(entry.Name()) || !strings.EqualFold(entry.Name(), wanted) {
 			return nil
 		}
 		rel, err := filepath.Rel(root, current)
