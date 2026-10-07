@@ -163,6 +163,21 @@ Download tới browser vẫn dùng one-time ticket 90 giây để tương thích
 
 Directory listing, FTP control reply và SFTP stdout/stderr đều bị bound để tránh output không giới hạn.
 
+### Optimized folder upload
+
+Khi upload selection có ít nhất một folder, TaskDeck chạy một **quick scan bounded** trước khi enqueue upload thường:
+
+- Host và Local-browser đều scan tối đa khoảng **2.5 giây** và dừng sớm khi thấy **200 file**;
+- nếu scan hết thời gian nhưng đã thấy ít nhất 100 file, selection vẫn được xem là đủ lớn để gợi ý tối ưu;
+- nếu không đạt ngưỡng, TaskDeck đi thẳng vào upload thường và không hiện thêm dialog;
+- nếu selection lớn, dialog luôn có **Compress + upload**, **Upload normally** và **Cancel**; Upload normally tiếp tục dùng scanner/queue/conflict/recovery hiện hữu, không đổi semantics;
+- archive mode chỉ được enable khi các top-level name đang chọn chưa tồn tại trong Remote folder hiện tại; auto-extract cũng kiểm tra lại trên server ngay trước khi giải nén để chống stale cache/race;
+- Host tạo `.tar.gz` tạm bằng Go stdlib rồi upload một file; Local-browser stream các file qua TAR writer built-in + browser-native `CompressionStream('gzip')`, không dùng npm/CDN/third-party package;
+- SFTP có quyền `ssh.use` sẽ tự extract archive qua SSH profile liên kết và xóa archive sau khi extract thành công;
+- FTP, hoặc SFTP không có quyền chạy SSH, chỉ upload archive rồi hiện **POSIX** và **PowerShell** extraction command có nút Copy; archive chỉ bị xóa trong command sau khi extract thành công;
+- nếu auto-extract thất bại, TaskDeck giữ archive trên remote và chuyển sang dialog lệnh thủ công thay vì tự fallback sang thao tác có thể overwrite;
+- nếu bước tạo/upload archive thất bại trước khi extract, người dùng được hỏi có muốn **Upload normally** thay thế hay không;
+- với FTP, đường dẫn thấy trong FTP có thể là chroot/virtual path và không nhất thiết trùng đường dẫn shell; lệnh thủ công cần được điều chỉnh nếu server ánh xạ FTP root khác shell filesystem.
 ### Remote folder session cache
 
 Remote listing được cache theo **FTP/SFTP profile + remote path** trong session của tab browser:
