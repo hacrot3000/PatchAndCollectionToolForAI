@@ -336,6 +336,7 @@ function basename(pathValue){
   return parts[parts.length-1]||pathValue;
 }
 function editorID(pathValue){return 'editor:'+pathValue;}
+function remoteEditorDocument(file){return Boolean(file?.remote_workspace_id||file?.remote_transfer_profile_id);}
 function formatBytes(size){
   const value=Number(size||0);
   if(value<1024)return value+' B';
@@ -792,11 +793,11 @@ function localEditorViewsInTabOrder(){
   const seen=new Set(),views=[];
   for(const id of ordered){
     const view=editors.get(id);
-    if(!view||view.closed||view.file?.remote_workspace_id||seen.has(id))continue;
+    if(!view||view.closed||remoteEditorDocument(view.file)||seen.has(id))continue;
     seen.add(id);views.push(view);
   }
   for(const [id,view] of editors){
-    if(!view||view.closed||view.file?.remote_workspace_id||seen.has(id))continue;
+    if(!view||view.closed||remoteEditorDocument(view.file)||seen.has(id))continue;
     seen.add(id);views.push(view);
   }
   return views;
@@ -805,7 +806,7 @@ function editorSessionPayload(){
   const activeView=activeEditorID?editors.get(activeEditorID):null;
   return {
     version:1,
-    active:activeView&&!activeView.file?.remote_workspace_id?String(activeView.file?.path||''):'',
+    active:activeView&&!remoteEditorDocument(activeView.file)?String(activeView.file?.path||''):'',
     tabs:localEditorViewsInTabOrder().map(view=>{
       const selection=view.cm.state.selection.main;
       return {
@@ -906,7 +907,7 @@ function setDirty(view,dirty){
   view.save.disabled=Boolean(view.file.read_only)||!view.dirty||view.saving;
   if(view.dirty)scheduleEditorAutoSave(view);
   else{clearTimeout(view.autoSaveTimer);view.autoSaveTimer=null;}
-  if(!view.file?.remote_workspace_id)scheduleEditorSessionPersist();
+  if(!remoteEditorDocument(view.file))scheduleEditorSessionPersist();
 }
 function editorReadOnly(view){
   return Boolean(view?.file?.read_only||view?.tabReadOnly);
@@ -1011,7 +1012,7 @@ function installEditorDispatchGuard(view){
       if(!view.internalUpdate)setDirty(view,true);
       scheduleEditorMinimap(view);
     }
-    if(!view.internalUpdate&&!view.file?.remote_workspace_id)scheduleEditorSessionPersist();
+    if(!view.internalUpdate&&!remoteEditorDocument(view.file))scheduleEditorSessionPersist();
   };
 }
 function setEditorDocument(view,file){
@@ -1039,6 +1040,14 @@ function setEditorDocument(view,file){
   updateAutoSaveButton(view);
   setDirty(view,false);
   scheduleEditorMinimap(view);
+  if(view.file?.remote_transfer_profile_id){
+    window.dispatchEvent(new CustomEvent('taskmenu:file-transfer-remote-edited',{detail:{
+      profile_id:String(view.file.remote_transfer_profile_id),
+      path:String(view.file.remote_path||''),
+      sha256:String(view.file.sha256||''),
+      size:Number(view.file.size)||0
+    }}));
+  }
 }
 function applySavedEditorFile(view,file){
   if(!view||view.closed||!file)return;
@@ -1075,7 +1084,7 @@ function activateEditorDOM(id){
   }
   if(root)renderEditorSplit(root);else syncEditorSplitForActive();
   const activeView=editors.get(id);
-  if(activeView&&!activeView.file?.remote_workspace_id)scheduleEditorSessionPersist();
+  if(activeView&&!remoteEditorDocument(activeView.file))scheduleEditorSessionPersist();
 }
 function activateEditor(id,{force=false}={}){
   if(!editors.has(id))return false;
@@ -1126,6 +1135,22 @@ function remoteEditorSerializedText(view){
   return text;
 }
 async function putEditorFile(view,expectedSHA256){
+  if(view.file?.remote_transfer_profile_id){
+    const response=await app.fetchWithLease('/api/file-transfer/text',{
+      method:'PUT',
+      cache:'no-store',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        profile_id:view.file.remote_transfer_profile_id,
+        path:view.file.remote_path,
+        content:remoteEditorSerializedText(view),
+        expected_sha256:expectedSHA256
+      })
+    });
+    if(response.status===409)return {conflict:true};
+    if(!response.ok)throw new Error((await response.text())||response.statusText);
+    return {file:remoteEditorFileFromResponse(view.file,await response.json())};
+  }
   if(view.file?.remote_workspace_id){
     const response=await app.fetchWithLease('/api/remote-workspace-files',{
       method:'POST',
@@ -1160,6 +1185,11 @@ async function putEditorFile(view,expectedSHA256){
   return {file:await response.json()};
 }
 async function readLatestEditorFile(view){
+  if(view.file?.remote_transfer_profile_id){
+    const params=new URLSearchParams({profile_id:view.file.remote_transfer_profile_id,path:view.file.remote_path});
+    const data=await app.jsonFetch('/api/file-transfer/text?'+params.toString(),{cache:'no-store'});
+    return remoteEditorFileFromResponse(view.file,data);
+  }
   if(view.file?.remote_workspace_id){
     const data=await app.jsonFetch('/api/remote-workspace-files',{
       method:'POST',headers:{'Content-Type':'application/json'},
@@ -1414,7 +1444,8 @@ function showConflictCompare(view,latest){
     const backdrop=document.createElement('div');backdrop.className='editor-dirty-backdrop';
     const dialog=document.createElement('div');dialog.className='editor-dirty-dialog editor-compare-dialog';dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');
     const title=document.createElement('h3');title.textContent='Compare changes';
-    const message=document.createElement('p');message.textContent=view.file.path+' — editor copy versus current file on disk.';
+    const isRemote=remoteEditorDocument(view.file);
+    const message=document.createElement('p');message.textContent=view.file.path+' — editor copy versus current '+(isRemote?'remote file.':'file on disk.');
     const grid=document.createElement('div');grid.className='editor-compare-grid';
     const makeSide=(label,text)=>{
       const side=document.createElement('div');side.className='editor-compare-side';
@@ -1422,7 +1453,7 @@ function showConflictCompare(view,latest){
       const pre=document.createElement('pre');pre.className='editor-compare-text';pre.textContent=text;
       side.append(head,pre);return side;
     };
-    grid.append(makeSide('Editor (unsaved)',view.cm.state.doc.toString()),makeSide('Disk (latest)',latest.content||''));
+    grid.append(makeSide('Editor (unsaved)',view.cm.state.doc.toString()),makeSide(isRemote?'Remote (latest)':'Disk (latest)',latest.content||''));
     const actions=document.createElement('div');actions.className='editor-dirty-actions';
     const close=document.createElement('button');close.type='button';close.textContent='Back';actions.append(close);
     dialog.append(title,message,grid,actions);backdrop.append(dialog);document.body.append(backdrop);
@@ -1470,7 +1501,7 @@ async function saveEditor(view){
   }
 }
 function rememberClosedEditor(view){
-  if(view?.file?.remote_workspace_id)return;
+  if(remoteEditorDocument(view?.file))return;
   const pathValue=String(view?.file?.path||'').trim();
   if(!pathValue)return;
   const index=closedEditorPaths.indexOf(pathValue);
@@ -1499,7 +1530,7 @@ async function closeEditor(id){
   }
   rememberClosedEditor(view);
   destroyEditor(id);
-  if(!view.file?.remote_workspace_id)await persistEditorSessionNow();
+  if(!remoteEditorDocument(view.file))await persistEditorSessionNow();
   return true;
 }
 function destroyEditor(id){
@@ -1510,7 +1541,7 @@ function destroyEditor(id){
   detachEditorFromSplit(id);
   try{view.cm.destroy();}catch{}
   view.tab.remove();view.pane.remove();editors.delete(id);pruneEditorSplitRoots();
-  if(!view.file?.remote_workspace_id)scheduleEditorSessionPersist();
+  if(!remoteEditorDocument(view.file))scheduleEditorSessionPersist();
   if(activeEditorID===id){
     activeEditorID='';
     const next=editors.values().next();
@@ -1551,7 +1582,7 @@ function createEditor(file){
   const reload=document.createElement('button');reload.type='button';reload.textContent='Reload';reload.title='Reload file from disk';
   const whitespace=document.createElement('button');whitespace.type='button';whitespace.className='editor-whitespace-toggle';whitespace.textContent='WS';whitespace.title='Toggle visible spaces and tabs';whitespace.setAttribute('aria-pressed','false');
   const find=document.createElement('button');find.type='button';find.className='editor-find-toggle';find.textContent='Find';find.title='Find / replace in this file (Ctrl/Cmd+F)';
-  const history=document.createElement('button');history.type='button';history.className='editor-history-toggle';history.textContent='History';history.title='Local file history captured before editor saves';history.hidden=Boolean(file.remote_workspace_id);
+  const history=document.createElement('button');history.type='button';history.className='editor-history-toggle';history.textContent='History';history.title='Local file history captured before editor saves';history.hidden=remoteEditorDocument(file);
   const outline=document.createElement('button');outline.type='button';outline.className='editor-outline-toggle';outline.textContent='Outline';outline.title='File symbol outline';
   const minimapToggle=document.createElement('button');minimapToggle.type='button';minimapToggle.className='editor-minimap-toggle';minimapToggle.title='Toggle editor minimap';minimapToggle.setAttribute('aria-pressed','false');
   const splitVertical=document.createElement('button');splitVertical.type='button';splitVertical.className='editor-split-action editor-split-vertical';splitVertical.textContent='Split ↔';splitVertical.title='Split editor vertically with another/open file';
@@ -1668,7 +1699,7 @@ async function reloadEditor(view){
   if(view.dirty&&!window.confirm('Discard unsaved changes and reload '+view.file.path+'?'))return;
   const file=await readLatestEditorFile(view);
   setEditorDocument(view,file);
-  if(!view.file?.remote_workspace_id)await persistEditorSessionNow();
+  if(!remoteEditorDocument(view.file))await persistEditorSessionNow();
 }
 
 async function handleExternalFileChange(view,latest=null){
@@ -1707,7 +1738,7 @@ function closeEditorsForTrashedPath(pathValue){
   pathValue=String(pathValue||'').trim();
   if(!pathValue)return;
   const prefix=pathValue+'/';
-  const affected=[...editors.values()].filter(view=>view.file.path===pathValue||view.file.path.startsWith(prefix));
+  const affected=[...editors.values()].filter(view=>!remoteEditorDocument(view.file)&&(view.file.path===pathValue||view.file.path.startsWith(prefix)));
   for(const view of affected){
     if(view.dirty)continue;
     destroyEditor(view.id);
@@ -1717,7 +1748,7 @@ function remapOpenedEditorPaths(oldPath,newPath){
   oldPath=String(oldPath||'').trim();newPath=String(newPath||'').trim();
   if(!oldPath||!newPath||oldPath===newPath)return;
   const prefix=oldPath+'/';
-  const changes=[...editors.entries()].filter(([,view])=>view.file.path===oldPath||view.file.path.startsWith(prefix));
+  const changes=[...editors.entries()].filter(([,view])=>!remoteEditorDocument(view.file)&&(view.file.path===oldPath||view.file.path.startsWith(prefix)));
   for(const [oldID,view] of changes){
     const suffix=view.file.path===oldPath?'':view.file.path.slice(oldPath.length);
     const nextPath=newPath+suffix;
@@ -1956,7 +1987,7 @@ window.addEventListener('resize',()=>{if(renderedEditorSplitRoot)layoutEditorSpl
 globalThis.TaskMenuEditor={
   editors,
   snapshotState(){
-    const localViews=[...editors.values()].filter(view=>!view.closed&&!view.file?.remote_workspace_id);
+    const localViews=[...editors.values()].filter(view=>!view.closed&&!remoteEditorDocument(view.file));
     const files=localViews.map(view=>String(view.file?.path||'')).filter(Boolean);
     const activeView=activeEditorID?editors.get(activeEditorID):null;
     return {files,active:activeView?.file?.remote_workspace_id?'':String(activeView?.file?.path||'')};
