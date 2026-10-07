@@ -60,13 +60,14 @@ func TestFileTransferProfileCRUDAndSecretProjection(t *testing.T) {
 		t.Fatalf("create leaked secret data: %s", createRR.Body.String())
 	}
 	var created struct {
-		ID        string `json:"id"`
-		HasSecret bool   `json:"has_secret"`
+		ID             string `json:"id"`
+		HasSecret      bool   `json:"has_secret"`
+		MaxConnections int    `json:"max_connections"`
 	}
 	if err := json.Unmarshal(createRR.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	if created.ID == "" || !created.HasSecret {
+	if created.ID == "" || !created.HasSecret || created.MaxConnections != filetransferprofile.DefaultMaxConnections {
 		t.Fatalf("created=%+v", created)
 	}
 	stored, err := store.Get(created.ID)
@@ -92,7 +93,7 @@ func TestFileTransferProfileCRUDAndSecretProjection(t *testing.T) {
 
 	update := httptest.NewRequest(http.MethodPut, "/api/file-transfer/profiles/"+created.ID, fileTransferJSONBody(t, map[string]any{
 		"name": "FTP Renamed", "protocol": "ftp", "host": "ftp.example.com",
-		"username": "deploy", "initial_path": "/release",
+		"username": "deploy", "initial_path": "/release", "max_connections": 5,
 	}))
 	update.Header.Set("Content-Type", "application/json")
 	updateRR := httptest.NewRecorder()
@@ -104,7 +105,7 @@ func TestFileTransferProfileCRUDAndSecretProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if afterUpdate.SecretRef != stored.SecretRef || afterUpdate.InitialPath != "/release" {
+	if afterUpdate.SecretRef != stored.SecretRef || afterUpdate.InitialPath != "/release" || afterUpdate.MaxConnections != 5 {
 		t.Fatalf("updated=%+v", afterUpdate)
 	}
 
