@@ -91,7 +91,7 @@ func (s *Server) runSFTPLinkedSSHCommand(ctx context.Context, profile filetransf
 	cmd.Stderr = output
 	err = cmd.Run()
 	if runCtx.Err() == context.DeadlineExceeded {
-		return output.String(), errors.New("remote archive extraction timed out")
+		return output.String(), errors.New("linked SSH command timed out")
 	}
 	if err != nil {
 		if text := output.String(); text != "" {
