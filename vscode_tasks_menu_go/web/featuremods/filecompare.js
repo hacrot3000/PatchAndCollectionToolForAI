@@ -9,6 +9,12 @@ style.textContent=`
 .file-compare-head{display:flex;align-items:center;gap:7px;padding:7px 9px;border-bottom:1px solid #303843}
 .file-compare-title{font-weight:700;font-size:12px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-compare-head button{padding:4px 7px;font-size:11px}.file-compare-head button.active{background:#34445a;border-color:#6f91bb}
 .file-compare-summary{font:10px ui-monospace,monospace;opacity:.66;white-space:nowrap}
+.file-compare-head .file-compare-edit-toggle.active{background:#294c3a;border-color:#4d8769}
+.file-compare-editor-deck{height:36%;min-height:190px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border-bottom:1px solid #303843;background:#0d1218}.file-compare-editor-deck.hidden{display:none}
+.file-compare-editor-pane{min-width:0;min-height:0;display:flex;flex-direction:column}.file-compare-editor-pane+.file-compare-editor-pane{border-left:1px solid #303843}
+.file-compare-editor-head{display:flex;align-items:center;gap:7px;padding:4px 8px;border-bottom:1px solid #252d37;background:#131a22;font:10px ui-monospace,monospace}.file-compare-editor-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-compare-dirty{color:#f2c96d;font-weight:800}.file-compare-dirty.hidden{visibility:hidden}.file-compare-save{padding:3px 8px;font-size:10px}.file-compare-save.dirty{background:#266340;border-color:#4c9a6b;color:#ecfff3}.file-compare-save:disabled{opacity:.42}
+.file-compare-editor-host{flex:1;min-height:0;overflow:hidden}.file-compare-editor-host .cm-editor{height:100%;font-size:12px}.file-compare-editor-host .cm-scroller{overflow:auto;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
+@media(max-width:850px){.file-compare-editor-deck{grid-template-columns:1fr;grid-template-rows:minmax(140px,1fr) minmax(140px,1fr);height:48%}.file-compare-editor-pane+.file-compare-editor-pane{border-left:0;border-top:1px solid #303843}}
 .file-compare-filters{display:flex;align-items:center;gap:6px;padding:5px 9px;border-bottom:1px solid #303843;background:#111820;flex-wrap:wrap}.file-compare-filters button{padding:3px 7px;font-size:10px}.file-compare-filters button.active{background:#34445a;border-color:#6f91bb}.file-compare-filter-note{font:10px ui-monospace,monospace;opacity:.52;margin-left:auto}
 .file-compare-gap{grid-column:1/-1;padding:2px 8px;text-align:center;font:10px/1.4 ui-monospace,monospace;opacity:.52;background:rgba(120,140,165,.07);border-bottom:1px solid rgba(255,255,255,.035)}
 .file-compare-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border-bottom:1px solid #303843;background:#151b23}
@@ -23,7 +29,7 @@ style.textContent=`
 .file-compare-hunk{border-top:1px solid #3a4350;border-bottom:1px solid #3a4350;margin:5px 0}.file-compare-hunk-head{position:sticky;left:0;display:flex;align-items:center;gap:6px;padding:4px 8px;background:#171e27;font:10px ui-monospace,monospace;z-index:1}.file-compare-hunk-label{flex:1;opacity:.72}.file-compare-hunk-head button{padding:2px 6px;font-size:10px}
 .file-compare-inline{min-width:640px}.file-compare-inline-line{display:grid;grid-template-columns:52px 20px minmax(0,1fr);border-bottom:1px solid rgba(255,255,255,.035);font:11px/1.45 ui-monospace,monospace}.file-compare-inline-line span{padding:1px 7px}.file-compare-inline-no{text-align:right;opacity:.45}.file-compare-inline-line.removed.important{background:rgba(229,72,86,.28)}.file-compare-inline-line.added.important{background:rgba(232,174,55,.28)}.file-compare-inline-line.removed.unimportant,.file-compare-inline-line.added.unimportant{background:rgba(58,149,214,.23)}
 .file-compare-empty{padding:24px;text-align:center;opacity:.62}
-html[data-taskmenu-theme="light"] .file-compare-dialog{background:#fff;border-color:#b9c0c8}.file-compare-body{color:inherit}html[data-taskmenu-theme="light"] .file-compare-filters{background:#f8fafc;border-color:#d0d7de}html[data-taskmenu-theme="light"] .file-compare-columns,html[data-taskmenu-theme="light"] .file-compare-hunk-head{background:#f6f8fa;border-color:#d0d7de}html[data-taskmenu-theme="light"] .file-compare-cell.removed.important,html[data-taskmenu-theme="light"] .file-compare-inline-line.removed.important{background:#ffe2e5}html[data-taskmenu-theme="light"] .file-compare-cell.added.important,html[data-taskmenu-theme="light"] .file-compare-inline-line.added.important{background:#fff1c9}html[data-taskmenu-theme="light"] .file-compare-cell.removed.unimportant,html[data-taskmenu-theme="light"] .file-compare-cell.added.unimportant,html[data-taskmenu-theme="light"] .file-compare-inline-line.removed.unimportant,html[data-taskmenu-theme="light"] .file-compare-inline-line.added.unimportant{background:#e3f3ff}
+html[data-taskmenu-theme="light"] .file-compare-dialog{background:#fff;border-color:#b9c0c8}.file-compare-body{color:inherit}html[data-taskmenu-theme="light"] .file-compare-filters{background:#f8fafc;border-color:#d0d7de}html[data-taskmenu-theme="light"] .file-compare-editor-deck{background:#fff;border-color:#d0d7de}html[data-taskmenu-theme="light"] .file-compare-editor-head{background:#f6f8fa;border-color:#d0d7de}html[data-taskmenu-theme="light"] .file-compare-columns,html[data-taskmenu-theme="light"] .file-compare-hunk-head{background:#f6f8fa;border-color:#d0d7de}html[data-taskmenu-theme="light"] .file-compare-cell.removed.important,html[data-taskmenu-theme="light"] .file-compare-inline-line.removed.important{background:#ffe2e5}html[data-taskmenu-theme="light"] .file-compare-cell.added.important,html[data-taskmenu-theme="light"] .file-compare-inline-line.added.important{background:#fff1c9}html[data-taskmenu-theme="light"] .file-compare-cell.removed.unimportant,html[data-taskmenu-theme="light"] .file-compare-cell.added.unimportant,html[data-taskmenu-theme="light"] .file-compare-inline-line.removed.unimportant,html[data-taskmenu-theme="light"] .file-compare-inline-line.added.unimportant{background:#e3f3ff}
 `;
 document.head.append(style);
 
@@ -34,9 +40,10 @@ const title=document.createElement('div');title.className='file-compare-title';
 const summary=document.createElement('div');summary.className='file-compare-summary';
 const sideButton=document.createElement('button');sideButton.type='button';sideButton.textContent='Side by side';
 const inlineButton=document.createElement('button');inlineButton.type='button';inlineButton.textContent='Inline';
+const editButton=document.createElement('button');editButton.type='button';editButton.className='file-compare-edit-toggle';editButton.textContent='Edit';editButton.title='Edit both writable files with syntax highlighting';
 const reloadButton=document.createElement('button');reloadButton.type='button';reloadButton.textContent='↻';reloadButton.title='Reload both compare sources';
 const closeButton=document.createElement('button');closeButton.type='button';closeButton.textContent='×';closeButton.title='Close compare';
-head.append(title,summary,sideButton,inlineButton,reloadButton,closeButton);
+head.append(title,summary,sideButton,inlineButton,editButton,reloadButton,closeButton);
 const filters=document.createElement('div');filters.className='file-compare-filters';
 const viewAllButton=document.createElement('button');viewAllButton.type='button';viewAllButton.textContent='View all';viewAllButton.title='Show the complete file comparison';
 const viewDiffButton=document.createElement('button');viewDiffButton.type='button';viewDiffButton.textContent='View diff';viewDiffButton.title='Show changed lines only';
@@ -47,14 +54,28 @@ filters.append(viewAllButton,viewDiffButton,viewContextButton,viewUnimportantBut
 const columns=document.createElement('div');columns.className='file-compare-columns';
 const leftLabel=document.createElement('div');leftLabel.className='file-compare-column';
 const rightLabel=document.createElement('div');rightLabel.className='file-compare-column';columns.append(leftLabel,rightLabel);
+const editorDeck=document.createElement('div');editorDeck.className='file-compare-editor-deck hidden';
+function compareEditorPane(side){
+  const pane=document.createElement('div');pane.className='file-compare-editor-pane '+side;
+  const paneHead=document.createElement('div');paneHead.className='file-compare-editor-head';
+  const paneLabel=document.createElement('span');paneLabel.className='file-compare-editor-label';
+  const dirty=document.createElement('span');dirty.className='file-compare-dirty hidden';dirty.textContent='●';dirty.title='Unsaved compare changes';
+  const save=document.createElement('button');save.type='button';save.className='file-compare-save';save.textContent='Save';save.title='Save this compare side';
+  const host=document.createElement('div');host.className='file-compare-editor-host';
+  paneHead.append(paneLabel,dirty,save);pane.append(paneHead,host);
+  return {pane,label:paneLabel,dirty,save,host,editor:null};
+}
+const leftEditorUI=compareEditorPane('left'),rightEditorUI=compareEditorPane('right');editorDeck.append(leftEditorUI.pane,rightEditorUI.pane);
 const body=document.createElement('div');body.className='file-compare-body';
-dialog.append(head,filters,columns,body);backdrop.append(dialog);document.body.append(backdrop);
+dialog.append(head,filters,columns,editorDeck,body);backdrop.append(dialog);document.body.append(backdrop);
 
 let current=null;
 let viewMode='side';
 let contentMode='all';
 let showUnimportant=true;
 let compareSelection=null;
+let editMode=false;
+let renderTimer=0;
 
 function sourceIdentity(source){
   if(!source)return '';
@@ -95,6 +116,79 @@ async function openSources(sources,{title='Selected files'}={}){
   if(sources.length!==2)throw new Error('File Compare requires exactly two readable files');
   clearCompareSelection();
   return open({title,left:sources[0],right:sources[1]});
+}
+function compareSideUI(side){return side==='left'?leftEditorUI:rightEditorUI;}
+function compareSideSource(side){return current?.[side]||null;}
+function compareHasDirty(){return Boolean(current&&(current.left?.dirty||current.right?.dirty));}
+function syncCompareSaveState(side){
+  const source=compareSideSource(side),ui=compareSideUI(side);if(!ui)return;
+  ui.label.textContent=source?.label||side;
+  ui.label.title=ui.label.textContent;
+  ui.dirty.classList.toggle('hidden',!source?.dirty);
+  ui.save.disabled=!sourceWritable(source)||!source?.dirty||Boolean(source?.saving);
+  ui.save.classList.toggle('dirty',Boolean(source?.dirty&&!source?.saving));
+  ui.save.textContent=source?.saving?'Saving…':'Save';
+}
+function scheduleCompareRender(){
+  clearTimeout(renderTimer);
+  renderTimer=setTimeout(()=>{renderTimer=0;render();},120);
+}
+function setSourceBuffer(side,text,{syncEditor=true,immediate=false}={}){
+  const source=compareSideSource(side);if(!source)return;
+  source.text=String(text??'');
+  source.dirty=source.text!==String(source.baselineText??'');
+  current.syntax=null;
+  if(syncEditor)compareSideUI(side)?.editor?.setText(source.text);
+  syncCompareSaveState(side);
+  if(immediate)render();else scheduleCompareRender();
+}
+function destroyCompareEditors(){
+  clearTimeout(renderTimer);renderTimer=0;
+  for(const ui of [leftEditorUI,rightEditorUI]){
+    try{ui.editor?.destroy?.();}catch{}
+    ui.editor=null;ui.host.replaceChildren();
+  }
+}
+function ensureCompareEditors(){
+  if(!current||!editMode)return;
+  const api=globalThis.TaskMenuEditor;
+  if(!api?.createDetachedEditor)throw new Error('Syntax editor is unavailable for File Compare');
+  for(const side of ['left','right']){
+    const source=compareSideSource(side),ui=compareSideUI(side);
+    if(!ui.editor){
+      ui.editor=api.createDetachedEditor(ui.host,source?.text||'',compareSyntaxPath(source,side==='left'?current.right:current.left),{
+        readOnly:!sourceWritable(source),
+        onChange:text=>setSourceBuffer(side,text,{syncEditor:false})
+      });
+    }else{
+      ui.editor.setReadOnly(!sourceWritable(source));
+      ui.editor.setText(source?.text||'');
+    }
+    syncCompareSaveState(side);
+  }
+}
+function setEditMode(enabled){
+  editMode=Boolean(enabled);
+  editorDeck.classList.toggle('hidden',!editMode);
+  editButton.classList.toggle('active',editMode);
+  editButton.setAttribute('aria-pressed',editMode?'true':'false');
+  if(editMode)ensureCompareEditors();
+}
+async function saveCompareSide(side){
+  const source=compareSideSource(side);if(!source||!sourceWritable(source))throw new Error((source?.label||side)+' is read-only');
+  if(!source.dirty)return false;
+  source.saving=true;syncCompareSaveState(side);
+  try{
+    await saveSource(source,source.text);
+    source.baselineText=source.text;source.dirty=false;
+    if(source.kind==='remote'){
+      window.dispatchEvent(new CustomEvent('taskmenu:file-transfer-remote-edited',{detail:{
+        profile_id:String(source.profileID||source.meta?.profile_id||''),path:String(source.path||source.meta?.path||''),sha256:String(source.meta?.sha256||'')
+      }}));
+    }
+    window.dispatchEvent(new CustomEvent('taskmenu:file-compare-write',{detail:{label:source.label,path:source.path||'',profile_id:source.profileID||'',source_kind:source.kind||''}}));
+    render();return true;
+  }finally{source.saving=false;syncCompareSaveState(side);}
 }
 
 const compareKeywordText={
@@ -428,12 +522,14 @@ function replaceLineRange(text,start,count,replacementLines){
 async function loadSource(source){
   const loaded=await source.load();
   source.text=String(loaded?.text??loaded?.content??'');
+  source.baselineText=source.text;source.dirty=false;source.saving=false;
   if(loaded&&typeof loaded==='object')Object.assign(source.meta||(source.meta={}),loaded);
   return source;
 }
 async function saveSource(source,text){
-  if(typeof source.writeText!=='function')throw new Error((source.label||'Compare side')+' is read-only');
-  const result=await source.writeText(text,source);
+  const saver=typeof source.saveText==='function'?source.saveText:source.writeText;
+  if(typeof saver!=='function')throw new Error((source.label||'Compare side')+' is read-only');
+  const result=await saver(text,source);
   source.text=text;
   if(result&&typeof result==='object')Object.assign(source.meta||(source.meta={}),result);
 }
@@ -457,8 +553,8 @@ function renderSide(model,indexes){
       const hRows=model.rows.slice(h.rowStart,h.rowEnd),important=hRows.filter(item=>item.importance==='important').length,unimportant=hRows.filter(item=>item.importance==='unimportant').length;
       const label=document.createElement('span');label.className='file-compare-hunk-label';label.textContent='Change '+(h.index+1)+' · left '+(h.leftStart+1)+'+'+h.leftCount+' ↔ right '+(h.rightStart+1)+'+'+h.rightCount+' · '+important+' important / '+unimportant+' unimportant';
       hh.append(label);
-      if(typeof current?.right?.writeText==='function'){const b=document.createElement('button');b.type='button';b.textContent='Left → Right';b.title='Apply the entire change block, including rows hidden by filters';b.onclick=()=>copyHunk(h,'left-to-right').catch(app.showError);hh.append(b);}
-      if(typeof current?.left?.writeText==='function'){const b=document.createElement('button');b.type='button';b.textContent='Right → Left';b.title='Apply the entire change block, including rows hidden by filters';b.onclick=()=>copyHunk(h,'right-to-left').catch(app.showError);hh.append(b);}
+      if(sourceWritable(current?.right)){const b=document.createElement('button');b.type='button';b.textContent='Left → Right';b.title='Apply the entire change block, including rows hidden by filters';b.onclick=()=>copyHunk(h,'left-to-right').catch(app.showError);hh.append(b);}
+      if(sourceWritable(current?.left)){const b=document.createElement('button');b.type='button';b.textContent='Right → Left';b.title='Apply the entire change block, including rows hidden by filters';b.onclick=()=>copyHunk(h,'right-to-left').catch(app.showError);hh.append(b);}
       card.append(hh);frag.append(card);
     }
     const ranges=compareInlineRanges(row.left?.text||'',row.right?.text||'');
@@ -497,6 +593,7 @@ function render(){
   title.textContent=(current.title||'File Compare')+' · '+leftLabel.textContent+' ↔ '+rightLabel.textContent;
   summary.textContent=model.identical?'identical':model.hunks.length+' change block'+(model.hunks.length===1?'':'s')+' · '+model.stats.important+' important · '+model.stats.unimportant+' unimportant';
   sideButton.classList.toggle('active',viewMode==='side');inlineButton.classList.toggle('active',viewMode==='inline');columns.style.display=viewMode==='side'?'grid':'none';syncCompareFilterButtons();
+  syncCompareSaveState('left');syncCompareSaveState('right');
   if(model.identical){const empty=document.createElement('div');empty.className='file-compare-empty';empty.textContent='No differences';body.append(empty);return;}
   const indexes=compareVisibleIndexes(model);
   if(!indexes.length){const empty=document.createElement('div');empty.className='file-compare-empty';empty.textContent='No differences match the current filters';body.append(empty);return;}
@@ -505,29 +602,43 @@ function render(){
 async function copyHunk(hunk,direction){
   if(!current)return;
   const from=direction==='left-to-right'?current.left:current.right;
-  const to=direction==='left-to-right'?current.right:current.left;
+  const targetSide=direction==='left-to-right'?'right':'left';
+  const to=compareSideSource(targetSide);
+  if(!sourceWritable(to))throw new Error((to?.label||'Destination')+' is read-only');
   const start=direction==='left-to-right'?hunk.rightStart:hunk.leftStart;
   const count=direction==='left-to-right'?hunk.rightCount:hunk.leftCount;
   const replacement=direction==='left-to-right'?hunk.leftLines:hunk.rightLines;
   const next=replaceLineRange(to.text,start,count,replacement);
-  if(!window.confirm('Apply change '+(hunk.index+1)+' from '+(from.label||'source')+' to '+(to.label||'destination')+'?'))return;
-  await saveSource(to,next);await reload();window.dispatchEvent(new CustomEvent('taskmenu:file-compare-write',{detail:{label:to.label,path:to.path||'',profile_id:to.profileID||'',source_kind:to.kind||''}}));
+  if(!window.confirm('Apply change '+(hunk.index+1)+' from '+(from.label||'source')+' to '+(to.label||'destination')+'?\n\nThe destination will be marked unsaved until you press Save.'))return;
+  setSourceBuffer(targetSide,next,{syncEditor:true,immediate:true});
 }
-async function reload(){if(!current)return;await Promise.all([loadSource(current.left),loadSource(current.right)]);render();}
+async function reload(){
+  if(!current)return;
+  if(compareHasDirty()&&!window.confirm('Discard unsaved compare edits and reload both files?'))return false;
+  await Promise.all([loadSource(current.left),loadSource(current.right)]);
+  current.syntax=null;
+  if(editMode)ensureCompareEditors();
+  render();return true;
+}
 async function open(options){
   if(!options?.left?.load||!options?.right?.load)throw new Error('File compare requires left and right sources');
+  if(compareHasDirty()&&!window.confirm('Discard unsaved changes in the current File Compare?'))return false;
+  destroyCompareEditors();editMode=false;editorDeck.classList.add('hidden');editButton.classList.remove('active');
   current={title:options.title||'File Compare',left:{...options.left,meta:{...(options.left.meta||{})}},right:{...options.right,meta:{...(options.right.meta||{})}}};
-  await Promise.all([loadSource(current.left),loadSource(current.right)]);backdrop.classList.add('visible');render();
+  await Promise.all([loadSource(current.left),loadSource(current.right)]);backdrop.classList.add('visible');render();return true;
 }
-function close(){backdrop.classList.remove('visible');current=null;body.replaceChildren();}
+function close({force=false}={}){
+  if(!force&&compareHasDirty()&&!window.confirm('Close File Compare and discard unsaved changes?'))return false;
+  destroyCompareEditors();backdrop.classList.remove('visible');current=null;body.replaceChildren();return true;
+}
 function projectSource(pathValue,{writable=true,label=''}={}){
   pathValue=String(pathValue||'').trim();
   const source={kind:'project',path:pathValue,label:label||pathValue,meta:{},load:async()=>{
     const file=await app.jsonFetch('/api/project/file?path='+encodeURIComponent(pathValue));
     return {text:file.content,sha256:file.sha256,file};
   }};
-  if(writable)source.writeText=async text=>{
-    const sha=source.meta?.sha256||source.meta?.file?.sha256;
+  if(writable)source.writeText=async(text,activeSource=source)=>{
+    const sha=activeSource.meta?.sha256||activeSource.meta?.file?.sha256;
     if(!sha)throw new Error('Project compare source SHA is unavailable');
     const saved=await app.jsonFetch('/api/project/file',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:pathValue,content:text,expected_sha256:sha})});
     return {text:saved.content,sha256:saved.sha256,file:saved};
@@ -535,10 +646,22 @@ function projectSource(pathValue,{writable=true,label=''}={}){
   return source;
 }
 function editorSource(view,{label='Current editor'}={}){
-  return {kind:'editor',editorID:String(view?.id||''),path:view?.file?.path||'',label:(label+' · '+(view?.file?.path||'')),load:async()=>({text:view.cm.state.doc.toString()}),writeText:async text=>{
-    if(view.closed)throw new Error('Editor is closed');
-    const doc=view.cm.state.doc;view.cm.dispatch({changes:{from:0,to:doc.length,insert:text}});view.cm.focus();return {text};
+  const source={kind:'editor',editorID:String(view?.id||''),path:view?.file?.path||'',label:(label+' · '+(view?.file?.path||'')),meta:{},load:async()=>{
+    if(view?.closed)throw new Error('Editor is closed');
+    const text=view.cm.state.doc.toString();return {text,editor_snapshot:text};
   }};
+  source.saveText=async(text,activeSource=source)=>{
+    if(view.closed)throw new Error('Editor is closed');
+    const currentText=view.cm.state.doc.toString(),expected=String(activeSource.meta?.editor_snapshot??currentText);
+    if(currentText!==expected)throw new Error('Editor changed after File Compare opened. Reload compare before saving this side.');
+    const doc=view.cm.state.doc;view.cm.dispatch({changes:{from:0,to:doc.length,insert:text}});
+    await globalThis.TaskMenuEditor?.saveEditor?.(view);
+    if(view.dirty)throw new Error('Editor still has unsaved changes after save');
+    const savedText=view.cm.state.doc.toString();
+    return {text:savedText,editor_snapshot:savedText,sha256:String(view.file?.sha256||''),file:view.file};
+  };
+  source.writeText=source.saveText;
+  return source;
 }
 function savedEditorSource(view){
   return projectSource(view?.file?.path,{writable:false,label:'Saved · '+(view?.file?.path||'')});
@@ -556,8 +679,8 @@ function remoteSource(profileID,pathValue,{writable=true,label=''}={}){
     const data=await app.jsonFetch('/api/file-transfer/text?'+params.toString());
     return {text:data.content,sha256:data.sha256,profile_id:data.profile_id,path:data.path};
   }};
-  if(writable)source.writeText=async text=>{
-    const sha=source.meta?.sha256;
+  if(writable)source.writeText=async(text,activeSource=source)=>{
+    const sha=activeSource.meta?.sha256;
     if(!sha)throw new Error('Remote compare source SHA is unavailable');
     return app.jsonFetch('/api/file-transfer/text',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:profileID,path:pathValue,content:text,expected_sha256:sha})});
   };
@@ -568,9 +691,9 @@ function browserFileHandleSource(handle,{label='Local browser file',path=''}={})
   const source={kind:'browser-local',path,label,meta:{},load:async()=>{
     const file=await handle.getFile();
     return {text:await file.text(),size:file.size,lastModified:file.lastModified};
-  },writeText:async text=>{
+  },writeText:async(text,activeSource=source)=>{
     const before=await handle.getFile();
-    if(source.meta?.lastModified!==undefined&&(before.lastModified!==source.meta.lastModified||before.size!==source.meta.size))throw new Error('Local browser file changed after compare load');
+    if(activeSource.meta?.lastModified!==undefined&&(before.lastModified!==activeSource.meta.lastModified||before.size!==activeSource.meta.size))throw new Error('Local browser file changed after compare load');
     if(typeof handle.createWritable!=='function')throw new Error('Local browser file is read-only');
     const writer=await handle.createWritable();
     try{await writer.write(text);await writer.close();}catch(error){try{await writer.abort?.();}catch{}throw error;}
@@ -673,6 +796,9 @@ async function promptProjectCompare(pathValue){
 }
 
 sideButton.onclick=()=>{viewMode='side';render();};inlineButton.onclick=()=>{viewMode='inline';render();};
+editButton.onclick=()=>{try{setEditMode(!editMode);}catch(error){app.showError(error);}};
+leftEditorUI.save.onclick=()=>saveCompareSide('left').catch(app.showError);
+rightEditorUI.save.onclick=()=>saveCompareSide('right').catch(app.showError);
 viewAllButton.onclick=()=>{contentMode='all';render();};
 viewDiffButton.onclick=()=>{contentMode='diff';render();};
 viewContextButton.onclick=()=>{contentMode='context';render();};
