@@ -350,6 +350,9 @@ const editorLanguageRegistry=[
   {id:'markdown',label:'Markdown',extensions:['md','markdown','mkd'],codeMirror:'markdown'},
   {id:'html',label:'HTML',extensions:['html','htm','hbs','handlebars'],codeMirror:'html'},
   {id:'css',label:'CSS',extensions:['css'],codeMirror:'css'},
+  {id:'scss',label:'SCSS',extensions:['scss'],codeMirror:'sass'},
+  {id:'sass',label:'Sass',extensions:['sass'],legacy:'sass'},
+  {id:'less',label:'Less',extensions:['less'],codeMirror:'less'},
   {id:'xml',label:'XML',extensions:['xml','svg'],codeMirror:'xml'},
   {id:'java',label:'Java',extensions:['java'],codeMirror:'java'},
   {id:'php',label:'PHP',extensions:['php'],codeMirror:'php'},
@@ -380,15 +383,19 @@ const legacyKeywordSets={
   shell:new Set('if then else elif fi for while until do done case esac in function select time coproc readonly local export declare typeset unset shift break continue return'.split(' ')),
   cmake:new Set('if elseif else endif foreach endforeach while endwhile function endfunction macro endmacro return break continue'.split(' ')),
   lua:new Set('and break do else elseif end false for function goto if in local nil not or repeat return then true until while'.split(' ')),
-  nim:new Set('addr and as asm bind block break case cast concept const continue converter defer discard distinct div do elif else end enum except export finally for from func if import in include interface is isnot iterator let macro method mixin mod nil not notin object of or out proc ptr raise ref return shl shr static template try tuple type using var when while xor yield'.split(' '))
+  nim:new Set('addr and as asm bind block break case cast concept const continue converter defer discard distinct div do elif else end enum except export finally for from func if import in include interface is isnot iterator let macro method mixin mod nil not notin object of or out proc ptr raise ref return shl shr static template try tuple type using var when while xor yield'.split(' ')),
+  sass:new Set('mixin include function return if else each for while extend at-root content import use forward debug warn error'.split(' '))
 };
 const legacyLineCommentMarkers={
   shell:['#'],
   cmake:['#'],
   lua:['--'],
-  nim:['#']
+  nim:['#'],
+  sass:['//']
 };
-const legacyBlockCommentMarkers={};
+const legacyBlockCommentMarkers={
+  sass:[['/*','*/']]
+};
 function legacyCommentToken(kind,text,index){
   for(const marker of legacyLineCommentMarkers[kind]||[]){
     if(text.startsWith(marker,index))return {to:text.length};
@@ -435,7 +442,7 @@ function legacyLineTokens(kind,text){
       while(j<text.length){if(text[j]==='\\'){j+=2;continue;}if(text[j]===quote){j++;break;}j++;}
       tokens.push({from:i,to:j,type:'string'});i=j;firstWord=false;continue;
     }
-    if(kind==='shell'&&ch.charCodeAt(0)===36){
+    if((kind==='shell'||kind==='sass')&&ch.charCodeAt(0)===36){
       let j=i+1;
       if(text[j]==='{'){j++;while(j<text.length&&text[j]!=='}')j++;if(j<text.length)j++;}
       else while(j<text.length&&/[A-Za-z0-9_@*#?$!\-]/.test(text[j]))j++;
