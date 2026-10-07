@@ -470,6 +470,10 @@ function upsertPersistentLocalScan(scan){
 function removePersistentLocalScan(scanID){
   writePersistentLocalScans(readPersistentLocalScans().filter(item=>item.id!==scanID));
 }
+function clearPersistentLocalScansForProfile(profileID){
+  profileID=String(profileID||'');
+  writePersistentLocalScans(readPersistentLocalScans().filter(item=>String(item.profile_id||'')!==profileID));
+}
 function localPersistentKey(spec){
   if(!spec)return '';
   if(spec.kind==='local_upload')return 'upload:'+spec.root_id+':'+spec.source_path+'=>'+spec.profile_id+':'+spec.target_path;
@@ -878,7 +882,7 @@ function renderTransferQueue(view){
   pruneQueueSelection(queue);
   const counts=queueCounts(view);
   const totalScans=(queue.activeScans||0)+(queue.serverActiveScans||0);
-  const queuedScans=Number(queue.serverQueuedScans)||0;
+  const queuedScans=(queue.pendingLocalScans||0)+Number(queue.serverQueuedScans||0);
   const scanText=totalScans>0?'Scanning '+totalScans+' · ':'';
   const scanQueueText=queuedScans>0?'Scan queued '+queuedScans+' · ':'';
   const maxConnections=Math.max(1,Number(queue.serverMaxConnections||view.profile?.max_connections||3)||3);
@@ -895,6 +899,8 @@ function renderTransferQueue(view){
   const shown=visible.length<queue.items.length?' · Showing '+visible.length+'/'+queue.items.length:'';
   queue.summary.textContent=pauseText+connectionText+scanText+scanQueueText+'Queued '+counts.queued+' · Running '+counts.running+' · Conflict '+counts.conflict+' · Done '+counts.success+' · Skipped '+counts.skipped+' · Failed '+counts.failed+shown;
   queue.retry.disabled=counts.failed===0;queue.clear.disabled=counts.success===0&&counts.skipped===0;
+  const scanBusy=totalScans>0||queuedScans>0;
+  queue.stopScan.disabled=!scanBusy;queue.clearQueue.disabled=queue.items.length===0&&!scanBusy;
   queue.body.replaceChildren();
   if(!queue.items.length){
     const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=8;td.className='ft-queue-empty';td.textContent='No transfers in this session';tr.append(td);queue.body.append(tr);return;
@@ -929,6 +935,16 @@ async function serverTransferQueueControl(view,action,itemIDs=[],extra={}){
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({profile_id:view.profile.id,action,item_ids:itemIDs,...extra})
   });
+}
+async function serverTransferQueueControlBatched(view,action,itemIDs=[],extra={}){
+  const ids=[...(itemIDs||[])].filter(Boolean);
+  if(!ids.length)return serverTransferQueueControl(view,action,[],extra);
+  let result=null;
+  const batchSize=1000;
+  for(let offset=0;offset<ids.length;offset+=batchSize){
+    result=await serverTransferQueueControl(view,action,ids.slice(offset,offset+batchSize),extra);
+  }
+  return result;
 }
 async function createServerTransferJob(view,payload){
   payload={...payload};
@@ -1148,13 +1164,24 @@ function enqueueTransferTasks(view,tasks){
   }
   persistLocalTransferQueue(view);scheduleTransferQueueRender(view);if(!queue.paused)processTransferQueue(view);
 }
+function transferScanStoppedError(){
+  const error=new Error('Transfer scan stopped');error.transferScanStopped=true;return error;
+}
+function assertTransferScanActive(view,generation){
+  const queue=view?.transferQueue;
+  if(!queue||generation!==queue.scanGeneration)throw transferScanStoppedError();
+}
 function runTransferScan(view,label,scanner){
   const queue=view.transferQueue;if(!queue)throw new Error('Transfer queue is unavailable');
+  const generation=queue.scanGeneration;
+  queue.pendingLocalScans=(queue.pendingLocalScans||0)+1;scheduleTransferQueueRender(view);
   const execute=async()=>{
+    assertTransferScanActive(view,generation);
     queue.activeScans++;queue.scanLabel=String(label||'Scanning');scheduleTransferQueueRender(view);
-    try{return await scanner();}
+    try{return await scanner({generation,check:()=>assertTransferScanActive(view,generation)});}
     finally{
       queue.activeScans=Math.max(0,queue.activeScans-1);
+      queue.pendingLocalScans=Math.max(0,(queue.pendingLocalScans||0)-1);
       if(queue.activeScans===0)queue.scanLabel='';
       scheduleTransferQueueRender(view);
       if(hasRunnableTransfer(queue))processTransferQueue(view);
@@ -1163,6 +1190,35 @@ function runTransferScan(view,label,scanner){
   };
   queue.scanChain=queue.scanChain.then(execute,execute);
   return queue.scanChain;
+}
+async function stopTransferScans(view){
+  const queue=view.transferQueue;if(!queue)return;
+  queue.scanGeneration=(queue.scanGeneration||0)+1;
+  clearPersistentLocalScansForProfile(view.profile.id);
+  queue.scanLabel='Stopping scan…';scheduleTransferQueueRender(view);persistFileTransferSession();
+  try{await serverTransferQueueControl(view,'stop_scans');}
+  finally{
+    queue.scanLabel='';
+    await syncServerTransferQueue(view).catch(()=>{});
+    scheduleTransferQueueRender(view);
+  }
+}
+async function clearTransferQueue(view){
+  const queue=view.transferQueue;if(!queue)return;
+  queue.scanGeneration=(queue.scanGeneration||0)+1;
+  clearPersistentLocalScansForProfile(view.profile.id);
+  queue.pending=[];queue.pendingHead=0;queue.priorityPending=[];queue.priorityHead=0;
+  const kept=[];
+  for(const item of queue.items){
+    if(item.server){kept.push(item);continue;}
+    if(item.status==='running'){item.removeAfterRun=true;kept.push(item);}
+    else{item.run=null;}
+  }
+  queue.items=kept;queue.selectedIDs.clear();queue.selectionAnchor=null;
+  persistLocalTransferQueue(view);scheduleTransferQueueRender(view);persistFileTransferSession();
+  await serverTransferQueueControl(view,'clear_queue');
+  await syncServerTransferQueue(view);
+  if((queue.runningCount||0)===0&&!hasAnyPendingTransfer(queue))afterTransferQueueIdle(view);
 }
 async function pauseTransferQueue(view){
   const queue=view.transferQueue;if(!queue)return;
@@ -1183,7 +1239,7 @@ async function resumeSelectedTransfers(view){
     if(item.status==='queued'&&typeof item.run==='function')queue.priorityPending.push(item);
   }
   persistLocalTransferQueue(view);scheduleTransferQueueRender(view);processTransferQueue(view);
-  if(serverIDs.length){await serverTransferQueueControl(view,'resume_selected',serverIDs);await syncServerTransferQueue(view);}
+  if(serverIDs.length){await serverTransferQueueControlBatched(view,'resume_selected',serverIDs);await syncServerTransferQueue(view);}
 }
 async function removeSelectedTransfers(view){
   const queue=view.transferQueue;if(!queue)return;
@@ -1197,7 +1253,7 @@ async function removeSelectedTransfers(view){
   queue.items=queue.items.filter(item=>item.status!=='removed');
   queue.selectedIDs.clear();queue.selectionAnchor=null;
   persistLocalTransferQueue(view);scheduleTransferQueueRender(view);
-  if(serverIDs.length){await serverTransferQueueControl(view,'remove_selected',serverIDs);await syncServerTransferQueue(view);}
+  if(serverIDs.length){await serverTransferQueueControlBatched(view,'remove_selected',serverIDs);await syncServerTransferQueue(view);}
   if((queue.runningCount||0)===0&&queue.activeScans===0&&!hasAnyPendingTransfer(queue))afterTransferQueueIdle(view);
 }
 function queueContextMenu(view,event,item=null,visible=[]){
@@ -1209,8 +1265,11 @@ function queueContextMenu(view,event,item=null,visible=[]){
   const selected=queueSelectedItems(queue);
   const resumable=selected.some(candidate=>(candidate.status==='queued'||candidate.status==='failed')&&(candidate.server||typeof candidate.run==='function'));
   const conflicts=selected.filter(candidate=>candidate.status==='conflict');
+  const scanBusy=(queue.activeScans||0)>0||(queue.pendingLocalScans||0)>0||(queue.serverActiveScans||0)>0||(queue.serverQueuedScans||0)>0;
   const menu=[
-    {label:queue.paused?'Resume queue':'Pause queue',action:()=>queue.paused?resumeTransferQueue(view):pauseTransferQueue(view)}
+    {label:queue.paused?'Resume queue':'Pause queue',action:()=>queue.paused?resumeTransferQueue(view):pauseTransferQueue(view)},
+    {label:'Stop scan',disabled:!scanBusy,action:()=>stopTransferScans(view)},
+    {label:'Clear queue',danger:true,disabled:queue.items.length===0&&!scanBusy,action:()=>clearTransferQueue(view)}
   ];
   if(selected.length){
     menu.push({separator:true});
@@ -1240,17 +1299,19 @@ function createTransferQueue(view){
   if(!canEditConnectionLimit)connectionWrap.title='Changing Max connections requires settings.write permission';
   connectionWrap.append(connectionText,connectionLimit);
   const retry=document.createElement('button');retry.type='button';retry.textContent='Retry failed';
+  const stopScan=document.createElement('button');stopScan.type='button';stopScan.textContent='Stop scan';
   const clear=document.createElement('button');clear.type='button';clear.textContent='Clear done';
-  head.append(title,summary,spacer,connectionWrap,retry,clear);
+  const clearQueue=document.createElement('button');clearQueue.type='button';clearQueue.textContent='Clear queue';clearQueue.classList.add('danger');
+  head.append(title,summary,spacer,connectionWrap,retry,stopScan,clear,clearQueue);
   const wrap=document.createElement('div');wrap.className='ft-queue-wrap';
   const table=document.createElement('table');table.className='ft-queue-table';
   const thead=document.createElement('thead'),hr=document.createElement('tr');
   for(const label of ['','', 'Kind','Source','Target','Size','Status','Error']){const th=document.createElement('th');th.textContent=label;hr.append(th);}
   thead.append(hr);const body=document.createElement('tbody');table.append(thead,body);wrap.append(table);root.append(resizer,head,wrap);
   const queue={
-    root,resizer,body,summary,retry,clear,connectionLimit,items:[],pending:[],pendingHead:0,priorityPending:[],priorityHead:0,
+    root,resizer,body,summary,retry,stopScan,clear,clearQueue,connectionLimit,items:[],pending:[],pendingHead:0,priorityPending:[],priorityHead:0,
     sequence:0,running:false,runningCount:0,poolRetryTimer:0,paused:false,selectedIDs:new Set(),selectionAnchor:null,
-    activeScans:0,serverActiveScans:0,serverQueuedScans:0,serverMaxConnections:Math.max(1,Number(view.profile?.max_connections||3)||3),
+    activeScans:0,pendingLocalScans:0,scanGeneration:0,serverActiveScans:0,serverQueuedScans:0,serverMaxConnections:Math.max(1,Number(view.profile?.max_connections||3)||3),
     serverActiveConnections:0,serverActiveTransfers:0,serverActiveBrowses:0,serverBusy:false,serverRevision:0,scanLabel:'',scanChain:Promise.resolve(),remoteDirty:new Set(),leftDirty:false
   };
   view.transferQueue=queue;
@@ -1263,6 +1324,12 @@ function createTransferQueue(view){
     finally{connectionLimit.disabled=!canEditConnectionLimit;}
   };
   root.oncontextmenu=event=>{if(event.target.closest('tbody tr'))return;queueContextMenu(view,event);};
+  stopScan.onclick=()=>stopTransferScans(view).catch(app.showError);
+  clearQueue.onclick=()=>{
+    const total=queue.items.length+(queue.pendingLocalScans||0)+(queue.serverQueuedScans||0);
+    if(total>0&&!confirm('Clear the entire transfer queue and stop all scans for this FTP/SFTP profile?\n\nRunning transfers cannot be interrupted safely; they will finish and then disappear from the queue.'))return;
+    clearTransferQueue(view).catch(app.showError);
+  };
   retry.onclick=async()=>{
     for(const item of queue.items)if(!item.server&&item.status==='failed'&&typeof item.run==='function'){item.status='queued';item.error='';queue.pending.push(item);}
     persistLocalTransferQueue(view);scheduleTransferQueueRender(view);processTransferQueue(view);
@@ -2199,20 +2266,23 @@ function enqueueLocalUploadHandle(view,handle,sourcePath,targetPath,state){
   }]);
 }
 async function scanHostUploadEntry(view,parent,entry,remoteParent,state){
+  assertTransferScanActive(view,state?.scanGeneration);
   const sourcePath=joinPath(parent,entry.name,false),targetPath=joinPath(remoteParent,entry.name,true);
   if(entryType(entry)!=='directory'){
     enqueueHostUploadFile(view,sourcePath,targetPath,entry.size,state);return;
   }
   await ensureRemoteScanDirectory(view,targetPath,state);
-  const children=await fetchHostDirectoryEntries(sourcePath);
-  for(const child of children)await scanHostUploadEntry(view,sourcePath,child,targetPath,state);
+  const children=await fetchHostDirectoryEntries(sourcePath);assertTransferScanActive(view,state?.scanGeneration);
+  for(const child of children){assertTransferScanActive(view,state?.scanGeneration);await scanHostUploadEntry(view,sourcePath,child,targetPath,state);}
 }
 async function scanLocalUploadHandle(view,handle,targetPath,sourcePath,state){
+  assertTransferScanActive(view,state?.scanGeneration);
   if(handle.kind!=='directory'){
     enqueueLocalUploadHandle(view,handle,sourcePath,targetPath,state);return;
   }
   await ensureRemoteScanDirectory(view,targetPath,state);
   for await(const [name,child] of handle.entries()){
+    assertTransferScanActive(view,state?.scanGeneration);
     await scanLocalUploadHandle(view,child,joinPath(targetPath,name,true),joinPath(sourcePath,name,false),state);
   }
 }
@@ -2226,8 +2296,10 @@ async function runPersistentLocalUploadScan(view,scan){
     view.left.localRoot=root;
     const state=newRemoteScanState(scan.remote_base||'.');
     state.jobID=String(scan.id||'');state.conflictPolicy=normalizeConflictPolicy(scan.conflict_policy);
-    await runTransferScan(view,'Upload scan',async()=>{
+    await runTransferScan(view,'Upload scan',async control=>{
+      state.scanGeneration=control.generation;
       for(const selected of scan.selected||[]){
+        control.check();
         const sourcePath=normalizeRelativePath(selected.source_path||'.');
         const parent=parentPath(sourcePath,false),name=pathLeaf(sourcePath,false);
         const dir=await directoryHandleForPath(root.handle,parent);
@@ -2238,6 +2310,7 @@ async function runPersistentLocalUploadScan(view,scan){
     removePersistentLocalScan(scan.id);
     view.remote.status.textContent='Local upload scan complete · '+state.files+' file(s) discovered';
   }catch(error){
+    if(error?.transferScanStopped){removePersistentLocalScan(scan.id);view.remote.status.textContent='Upload scan stopped';return;}
     view.remote.status.textContent=String(error?.message||error);
     throw error;
   }finally{activeLocalTransferScans.delete(scan.id);}
@@ -2256,8 +2329,10 @@ async function runPersistentLocalDownloadScan(view,scan){
       localHandles:new Map([['.',root.handle]]),files:0,folders:0,view,
       jobID:String(scan.id||''),conflictPolicy:normalizeConflictPolicy(scan.conflict_policy)
     };
-    await runTransferScan(view,'Download scan',async()=>{
+    await runTransferScan(view,'Download scan',async control=>{
+      state.scanGeneration=control.generation;
       for(const selected of scan.selected||[]){
+        control.check();
         const remotePath=normalizeRemotePath(selected.remote_path);
         const remoteParent=parentPath(remotePath,true);
         const entry={name:pathLeaf(remotePath,true),type:selected.directory?'directory':'file',size:Number(selected.size)||0,modified:String(selected.modified||'')};
@@ -2267,6 +2342,7 @@ async function runPersistentLocalDownloadScan(view,scan){
     removePersistentLocalScan(scan.id);
     view.left.status.textContent='Local download scan complete · '+state.files+' file(s) discovered';
   }catch(error){
+    if(error?.transferScanStopped){removePersistentLocalScan(scan.id);view.left.status.textContent='Download scan stopped';return;}
     view.left.status.textContent=String(error?.message||error);
     throw error;
   }finally{activeLocalTransferScans.delete(scan.id);}
@@ -2643,13 +2719,14 @@ function enqueueRemoteDownloadFile(view,remotePath,leftPath,size,state,modified=
   }]);
 }
 async function scanRemoteDownloadEntry(view,remoteParent,entry,leftParent,state){
+  assertTransferScanActive(view,state?.scanGeneration);
   const remotePath=joinPath(remoteParent,entry.name,true),leftPath=joinPath(leftParent,entry.name,false);
   if(entryType(entry)!=='directory'){
     enqueueRemoteDownloadFile(view,remotePath,leftPath,entry.size,state,entry.modified);return;
   }
   await ensureLeftScanDirectory(view,leftPath,state);
-  const listing=await fetchRemoteDirectory(view,remotePath);
-  for(const child of listing.entries)await scanRemoteDownloadEntry(view,remotePath,child,leftPath,state);
+  const listing=await fetchRemoteDirectory(view,remotePath);assertTransferScanActive(view,state?.scanGeneration);
+  for(const child of listing.entries){assertTransferScanActive(view,state?.scanGeneration);await scanRemoteDownloadEntry(view,remotePath,child,leftPath,state);}
 }
 async function streamRemoteEntriesToLeft(view,entries){
   const selected=[...(entries||[])];if(!selected.length)throw new Error('Select one or more remote items first');
@@ -2728,12 +2805,13 @@ function enqueueRemoteDeleteItem(view,path,directory,state,jobID=''){
   }]);
 }
 async function scanRemoteDeleteEntry(view,remoteParent,entry,state,jobID=''){
+  assertTransferScanActive(view,state?.scanGeneration);
   const remotePath=joinPath(remoteParent,entry.name,true);
   if(entryType(entry)!=='directory'){
     enqueueRemoteDeleteItem(view,remotePath,false,state,jobID);return;
   }
-  const listing=await fetchRemoteDirectory(view,remotePath,{force:true});
-  for(const child of listing.entries)await scanRemoteDeleteEntry(view,remotePath,child,state,jobID);
+  const listing=await fetchRemoteDirectory(view,remotePath,{force:true});assertTransferScanActive(view,state?.scanGeneration);
+  for(const child of listing.entries){assertTransferScanActive(view,state?.scanGeneration);await scanRemoteDeleteEntry(view,remotePath,child,state,jobID);}
   enqueueRemoteDeleteItem(view,remotePath,true,state,jobID);
 }
 async function scanPersistentRemoteDeleteTarget(view,target,state,jobID){
@@ -2754,8 +2832,9 @@ async function runPersistentRemoteDeleteJob(view,job){
   const state={files:0,folders:0};
   view.remote.status.textContent='Resuming delete scan…';
   try{
-    await runTransferScan(view,'Delete scan',async()=>{
-      for(const target of job.targets)await scanPersistentRemoteDeleteTarget(view,target,state,job.id);
+    await runTransferScan(view,'Delete scan',async control=>{
+      state.scanGeneration=control.generation;
+      for(const target of job.targets){control.check();await scanPersistentRemoteDeleteTarget(view,target,state,job.id);}
     });
     view.remote.status.textContent='Delete scan complete · '+state.files+' file(s) · '+state.folders+' folder(s) queued';
   }catch(error){
