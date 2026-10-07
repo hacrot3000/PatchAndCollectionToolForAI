@@ -1001,13 +1001,13 @@ Checkpoint: `bfa7af5c` adds View all / View diff / View diff context / View unim
 
 Goal: reuse the generic syntax-aware File Compare engine for any two text files selected from Project Explorer, FTP/SFTP panes, or open editor tabs, with writable two-sided compare.
 
-- [ ] Add a reusable Compare A selection state that can hold project, editor, local-browser, FTP or SFTP file sources.
+- [x] Add a reusable Compare A selection state that can hold project, editor, local-browser, FTP or SFTP file sources.
 - [ ] Support direct compare when exactly two files are selected in Project Explorer or File Transfer panes.
 - [ ] Add context actions: Select for compare / Compare with selected file; choosing the second file opens Compare immediately.
 - [ ] Add equivalent compare actions on editor/view tabs.
-- [ ] Upgrade File Compare sides to editable buffers with dirty indicators and per-side Save buttons.
-- [ ] Preserve hunk copy Left → Right / Right → Left while making copied content dirty instead of auto-saving.
-- [ ] Saving a project side writes through the project file optimistic-lock API; saving FTP/SFTP writes through the existing text upload API with SHA guard.
+- [x] Upgrade File Compare sides to editable syntax-highlighted buffers with dirty indicators and per-side Save buttons.
+- [x] Preserve hunk copy Left → Right / Right → Left while making copied content dirty instead of auto-saving.
+- [x] Saving a project side writes through the project file optimistic-lock API; saving FTP/SFTP writes through the existing text upload API with SHA guard.
 - [ ] Add regression coverage, documentation, and verify CI against the known baseline failures.
 
-Checkpoint: implementation not started. Existing File Compare already supports project, editor, browser-local, Git and remote source abstractions; this work must extend those abstractions rather than create another diff engine.
+Checkpoint: `901abf4b` adds cross-surface Compare A state/source identity. `5cb3bfb7` exposes a detached syntax editor from the existing Editor engine. `dd69a62a` adds two editable compare buffers, dirty/save state, unsaved-close/reload guards, hunk copy that marks dirty instead of auto-saving, and fixes source writers to use the active cloned SHA metadata for optimistic locking.
