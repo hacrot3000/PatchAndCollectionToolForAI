@@ -52,7 +52,27 @@ func TestInstallScriptBuildsVersionedTaskdeckRelease(t *testing.T) {
 		"if (( PYTHON_310_AVAILABLE )); then",
 		"python3 test_python_patch_entry.py",
 		"GOPROXY=off GOSUMDB=off go test ./...",
-		"GOPROXY=off GOSUMDB=off go test -run '^$' ./...",
+		"GOPROXY=off GOSUMDB=off go test -vet=off -run '^",
+		"Shared identity SQLite sẽ tự fallback sang sqlite3 CLI tương thích",
+		"Shared password hashing có thể dùng Python cũ nếu runtime đó có hashlib.scrypt",
+		"self-update Python validation",
+		"GOPROXY=off GOSUMDB=off go",
+		"$SOURCE/internal/dbsqlite/sqlite_helper.py",
+		"-buildvcs=false",
+		"./cmd/vscode_tasks_menu",
+		`$STAGED_RELEASE/patchtool/python_patch_entry.py`,
+		`cp -a "$SOURCE_ROOT/_patch_lib" "$STAGED_RELEASE/patchtool/_patch_lib"`,
+		`atomic_symlink "$FINAL_RELEASE" "$CURRENT_LINK"`,
+		`atomic_symlink "$CURRENT_LINK/taskdeck" "$TARGET"`,
+		"$TARGET.revision",
+	} {
+		if !strings.Contains(src, want) { t.Fatalf("install.sh missing %q", want) }
+	}
+	if strings.Contains(src, `die "Cần Python 3.10+`) {
+		t.Fatal("install.sh must not abort installation when Python 3.10+ is unavailable")
+	}
+}
+ ./...",
 		"Shared identity SQLite sẽ tự fallback sang sqlite3 CLI tương thích",
 		"Shared password hashing có thể dùng Python cũ nếu runtime đó có hashlib.scrypt",
 		"self-update Python validation",
