@@ -1098,7 +1098,7 @@ func (s *Server) scanHostUploadJob(ctx context.Context, queue *fileTransferServe
 			SourceModified: info.ModTime().UTC().Format(time.RFC3339Nano),
 			TargetModified: existing.Modified,
 		}
-		return s.enqueueServerTransferConflictAware(queue, jobID, "Upload", "→", rel, remotePath, "host_upload", info.Size(), conflict)
+		return s.enqueueServerTransferConflictAware(ctx, queue, jobID, "Upload", "→", rel, remotePath, "host_upload", info.Size(), conflict)
 	}
 	for _, requested := range req.HostPaths {
 		if err := ctx.Err(); err != nil { return err }
@@ -1159,7 +1159,7 @@ func (s *Server) scanHostDownloadJob(ctx context.Context, queue *fileTransferSer
 				SourceModified: target.Modified,
 				TargetModified: existing.ModTime().UTC().Format(time.RFC3339Nano),
 			}
-			return s.enqueueServerTransferConflictAware(queue, jobID, "Download", "←", target.Path, hostRel, "host_download", target.Size, conflict)
+			return s.enqueueServerTransferConflictAware(ctx, queue, jobID, "Download", "←", target.Path, hostRel, "host_download", target.Size, conflict)
 		}
 		if _, err := s.ensureBackgroundHostDirectory(hostRel); err != nil {
 			return err
