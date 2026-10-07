@@ -196,3 +196,29 @@ func TestProjectCompletionRequestBoundsLimitAndDocumentSize(t *testing.T) {
 		t.Fatalf("oversized document err=%v", err)
 	}
 }
+
+
+func TestProjectSymbolIndexRecoversFromCorruptPersistedCache(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
+	root := t.TempDir()
+	writeCompletionFixture(t, root, "src/recover.go", "package src\ntype RecoveredSymbol struct {}\n")
+
+	cacheFile, err := projectSymbolIndexCacheFile(root)
+	if err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(filepath.Dir(cacheFile), 0o700); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(cacheFile, []byte("not-a-valid-gzip-index"), 0o600); err != nil { t.Fatal(err) }
+
+	s := &Server{Workspace: root}
+	idx, err := s.currentProjectSymbolIndex(context.Background())
+	if err != nil {
+		t.Fatalf("corrupt cache should rebuild: %v", err)
+	}
+	results := searchProjectSymbolIndex(idx, "RecoveredSymbol", 10)
+	if len(results) != 1 || results[0].Path != "src/recover.go" {
+		t.Fatalf("rebuilt symbol missing: %+v", results)
+	}
+	if _, err := loadProjectSymbolIndexCache(root, idx.Fingerprint); err != nil {
+		t.Fatalf("rebuilt cache was not persisted as valid gzip index: %v", err)
+	}
+}
