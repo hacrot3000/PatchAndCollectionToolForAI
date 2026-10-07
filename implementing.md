@@ -996,3 +996,18 @@ Requested improvement for Git/File Compare. Keep this section updated after ever
 - [x] Run/verify CI on the resulting main branch commits. Targeted diff validation PASS; full workflow remains red only because the same 11 pre-existing baseline tests were already failing before this work.
 
 Checkpoint: `bfa7af5c` adds View all / View diff / View diff context / View unimportant, bounded brace/indent-aware context expansion, hidden-line separators, and filter-safe hunk apply behavior. `4b1277f8` adds regression coverage; `811bb301` and `36a06abb` update user-facing docs. `3854fa51` added fail-safe important/unimportant classification; `ca89d572` added syntax/intra-line highlighting. CI run `37631679049`: JavaScript syntax PASS on Go 1.19/1.23 jobs and the new File Compare regression tests PASS; the workflow overall is still red due to the exact same 11 unrelated baseline failures present in pre-work run `37618156702` at `3e5a9a40`.
+
+## Active follow-up — Arbitrary file compare workflow (2026-10-07)
+
+Goal: reuse the generic syntax-aware File Compare engine for any two text files selected from Project Explorer, FTP/SFTP panes, or open editor tabs, with writable two-sided compare.
+
+- [ ] Add a reusable Compare A selection state that can hold project, editor, local-browser, FTP or SFTP file sources.
+- [ ] Support direct compare when exactly two files are selected in Project Explorer or File Transfer panes.
+- [ ] Add context actions: Select for compare / Compare with selected file; choosing the second file opens Compare immediately.
+- [ ] Add equivalent compare actions on editor/view tabs.
+- [ ] Upgrade File Compare sides to editable buffers with dirty indicators and per-side Save buttons.
+- [ ] Preserve hunk copy Left → Right / Right → Left while making copied content dirty instead of auto-saving.
+- [ ] Saving a project side writes through the project file optimistic-lock API; saving FTP/SFTP writes through the existing text upload API with SHA guard.
+- [ ] Add regression coverage, documentation, and verify CI against the known baseline failures.
+
+Checkpoint: implementation not started. Existing File Compare already supports project, editor, browser-local, Git and remote source abstractions; this work must extend those abstractions rather than create another diff engine.
