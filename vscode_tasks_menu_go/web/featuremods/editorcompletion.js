@@ -324,7 +324,7 @@ function completionOptionType(kind){
 }
 function tier2Source(file){
   const p=completionProfile(file),language=languageForFile(file);
-  if(!p||!language||file?.remote_workspace_id)return ()=>null;
+  if(!p||!language||(file?.remote_workspace_id||file?.remote_transfer_profile_id))return ()=>null;
   let controller=null;
   return async context=>{
     const mode=currentLexicalMode(context,p.syntax);
