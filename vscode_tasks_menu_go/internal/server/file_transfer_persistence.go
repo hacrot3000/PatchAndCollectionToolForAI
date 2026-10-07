@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"bletonfc/vscode_tasks_menu/internal/filetransferprofile"
 	"bletonfc/vscode_tasks_menu/internal/projectfiles"
 )
 
