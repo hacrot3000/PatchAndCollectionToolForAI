@@ -120,6 +120,92 @@ func TestFileCompareClassifiesAndFiltersChanges(t *testing.T) {
 	}
 }
 
+func TestFileCompareSupportsArbitraryWritableSelections(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"let compareSelection=null",
+		"function selectForCompare(source)",
+		"async function compareWithSelected(source",
+		"async function openSources(sources",
+		"function createDetachedEditor",
+		"file-compare-editor-deck",
+		"Save Left",
+		"Save Right",
+		"async function saveCompareSide(side)",
+		"source.baselineText=source.text",
+		"setSourceBuffer(targetSide,next",
+		"The destination will be marked unsaved until you press Save.",
+		"const saver=typeof source.saveText==='function'?source.saveText:source.writeText",
+		"activeSource.meta?.sha256",
+		"taskmenu:file-transfer-remote-edited",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("arbitrary writable compare missing %q", want)
+		}
+	}
+
+	editorData, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	editorJS := string(editorData)
+	for _, want := range []string{
+		"function createDetachedEditor(host,text,pathValue",
+		"cmFactory.newEditor(host,String(text??''),languageOptions(pathValue))",
+		"createDetachedEditor,",
+	} {
+		if !strings.Contains(editorJS, want) {
+			t.Fatalf("detached compare editor support missing %q", want)
+		}
+	}
+}
+
+func TestFileCompareSelectionActionsAcrossExplorerTransferAndTabs(t *testing.T) {
+	files := map[string][]string{
+		"featuremods/projectfileactions.js": {
+			"Select for compare",
+			"Compare with selected file",
+			"selectProjectForCompare(pathValue)",
+			"compareProjectWithSelected(pathValue)",
+		},
+		"featuremods/explorer.js": {
+			"Compare selected files",
+			"paths.length===2&&paths.every(value=>findLoadedItem(value)?.type==='file')",
+			"compare.openProjectFiles(paths[0],paths[1])",
+		},
+		"featuremods/filetransfer.js": {
+			"function compareRemoteFileSource(view,entry)",
+			"function appendCompareSelectionActions(items,source)",
+			"Compare selected files",
+			"compareTransferSources(compareFiles.map(item=>compareLeftFileSource(view,item))",
+			"compareTransferSources(compareFiles.map(item=>compareRemoteFileSource(view,item))",
+			"writable:remoteEditorWritable()",
+		},
+		"featuremods/tabcontext.js": {
+			"Select current editor for compare",
+			"Compare selected file ↔ current editor",
+			"compare?.selectForCompare?.(currentCompareSource)",
+			"compare?.compareWithSelected?.(currentCompareSource",
+		},
+	}
+	for file, wants := range files {
+		data, err := webassets.Files.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		js := string(data)
+		for _, want := range wants {
+			if !strings.Contains(js, want) {
+				t.Fatalf("%s missing arbitrary compare integration %q", file, want)
+			}
+		}
+	}
+}
+
 func TestProjectAndEditorMenusExposeGenericCompare(t *testing.T) {
 	shared, err := webassets.Files.ReadFile("featuremods/projectfileactions.js")
 	if err != nil {
