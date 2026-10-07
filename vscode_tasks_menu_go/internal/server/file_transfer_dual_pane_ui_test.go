@@ -305,7 +305,7 @@ func TestFileTransferQueueScalesForLargeStreamingScans(t *testing.T) {
 		"function scheduleTransferQueueRender(view)",
 		"setTimeout(()=>{queue.renderTimer=0;renderTransferQueue(view);},80)",
 		"document.createDocumentFragment()",
-		"if(queue.activeScans===0&&!hasAnyPendingTransfer(queue))await afterTransferQueueIdle(view)",
+		"(queue.runningCount||0)===0&&queue.activeScans===0&&!hasAnyPendingTransfer(queue)",
 		"await item.run(item)",
 		"function nextPendingTransfer(queue)",
 		"queue.items.push(item)",
@@ -322,6 +322,40 @@ func TestFileTransferQueueScalesForLargeStreamingScans(t *testing.T) {
 	}
 }
 
+
+func TestFileTransferConnectionPoolUIAndParallelWorkers(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function remoteConnectionUsage(view)",
+		"function remoteConnectionPoolFull(view)",
+		"function transferWorkerLimit(view)",
+		"serverActiveScans",
+		"serverQueuedScans",
+		"serverActiveTransfers",
+		"Connections '+activeConnections+'/'+maxConnections",
+		"Scan queued '+queuedScans",
+		"async function runTransferQueueItem(view,item)",
+		"queue.runningCount=(queue.runningCount||0)+1",
+		"while((queue.runningCount||0)<limit)",
+		"Waiting for an FTP/SFTP connection slot",
+		"scheduleTransferPoolRetry(view)",
+		"Max connections",
+		"updateViewMaxConnections(view,connectionLimit.value)",
+		"panel.pathInput.disabled=full",
+		"panel.pathHistorySelect.disabled=full",
+		"panel.pathGo.disabled=full",
+		"panel.pathUp.disabled=full",
+		"panel.refresh.disabled=full",
+		"if(entryType(entry)==='directory'&&remoteConnectionPoolFull(view))",
+		"disabled:remoteConnectionPoolFull(view)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer connection-pool UI missing %q", want)
+		}
+	}
+}
 
 func TestFileTransferRemoteDeleteUsesDaemonQueue(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
