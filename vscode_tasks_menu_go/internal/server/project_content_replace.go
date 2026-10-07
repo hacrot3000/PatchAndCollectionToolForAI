@@ -494,6 +494,7 @@ func (s *Server) projectReplaceApply(w http.ResponseWriter, r *http.Request, tok
 	s.auditSharedSuccess(r, "file.replace", "project", "project", map[string]any{
 		"files": len(plan.Files), "replacements": plan.TotalReplacements,
 	})
+	s.invalidateProjectSymbolIndex()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "token": plan.Token, "files": projectReplacePlanPaths(plan.Files), "total_replacements": plan.TotalReplacements,
 	})
@@ -538,6 +539,7 @@ func (s *Server) projectReplaceUndo(w http.ResponseWriter, r *http.Request, toke
 	s.auditSharedSuccess(r, "file.replace.undo", "project", "project", map[string]any{
 		"files": len(plan.Files), "replacements": plan.TotalReplacements,
 	})
+	s.invalidateProjectSymbolIndex()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "token": plan.Token, "files": projectReplacePlanPaths(plan.Files), "total_replacements": plan.TotalReplacements,
 	})
