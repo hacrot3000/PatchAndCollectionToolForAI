@@ -158,6 +158,7 @@ func TestCreateHostArchiveUploadJobQueuesSingleWorkerItem(t *testing.T) {
 	queue := s.fileTransferServerQueue(profile.ID)
 	queue.mu.Lock()
 	queue.Paused = true
+	queue.persist = nil
 	queue.mu.Unlock()
 	job, err := s.createFileTransferServerJob(fileTransferJobCreateRequest{
 		ProfileID: profile.ID,
@@ -287,21 +288,21 @@ func TestRemoteDeleteDirectoryWaitsForRunningDescendants(t *testing.T) {
 		},
 	}
 	q.mu.Lock()
-	if got := q.nextRunnableLocked(); got != nil {
-		q.mu.Unlock()
-		t.Fatalf("directory became runnable while descendant is still running: %#v", got)
-	}
-	q.Items[0].Status = "success"
 	got := q.nextRunnableLocked()
 	if got == nil || got.ID != "subdir" {
 		q.mu.Unlock()
-		t.Fatalf("deepest directory should run after its descendants finish, got %#v", got)
+		t.Fatalf("deepest directory should run once its own descendants finish, got %#v", got)
 	}
 	got.Status = "success"
+	if parent := q.nextRunnableLocked(); parent != nil {
+		q.mu.Unlock()
+		t.Fatalf("parent directory became runnable while sibling descendant is still running: %#v", parent)
+	}
+	q.Items[0].Status = "success"
 	got = q.nextRunnableLocked()
 	q.mu.Unlock()
 	if got == nil || got.ID != "rootdir" {
-		t.Fatalf("parent directory should run only after child directory completes, got %#v", got)
+		t.Fatalf("parent directory should run only after every descendant completes, got %#v", got)
 	}
 }
 
