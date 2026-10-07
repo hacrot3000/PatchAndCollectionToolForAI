@@ -595,7 +595,7 @@ Các capability mới trong Connections/Workbench:
 - **Ctrl/Cmd+Shift+P** mở Unified Command Palette: tìm/mở file tools, Explorer/Search/Symbols/Project Profiles/Snapshots, chạy trực tiếp task theo label, mở/refresh Git, mở SSH/Database/SFTP/FTP Connections, Settings và toàn bộ terminal actions; palette cũ của terminal được giữ alias tương thích;
 - **Ctrl/Cmd+P** mở Global Quick Open: project files qua bounded backend search, recently opened, mọi workspace tab, terminal/task session, database tab, SSH/DB/SFTP/FTP saved profiles; prefix `>` command, `@` symbol, `#` text search, `git:` branch/commit graph search và `ssh:` profile; không fetch toàn project tree;
 - **Operation Center** gom background work vào một panel `Queued / Running / Completed / Failed`: Git background jobs, file-transfer/file-copy queue, Patch runs, task sessions + durable task history, self-update và DB import/export; action Open/Cancel/Retry/Copy error/Clear completed được delegate về đúng subsystem, không tạo job engine thứ hai;
-- server-side FTP/SFTP queue được journal qua daemon restart và upload/download có resumable partial-transfer support khi transport cho phép.
+- server-side FTP/SFTP queue được journal qua daemon restart và upload/download có resumable partial-transfer support khi transport cho phép; mỗi profile có shared connection budget cấu hình được (mặc định 3) cho scan + parallel transfer + remote browse, scan vượt limit được queue và pane Remote bị khóa navigation khi pool đã đầy.
 
 Hướng dẫn sử dụng, dependency, giới hạn bảo mật, policy host key, secret rotation/backup/recovery và offline/self-update build được tổng hợp tại:
 
