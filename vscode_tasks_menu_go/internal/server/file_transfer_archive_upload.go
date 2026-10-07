@@ -117,6 +117,7 @@ type fileTransferArchiveExtractRequest struct {
 	RemoteDestination string  `json:"remote_destination"`
 	Roots            []string `json:"roots"`
 	Format           string   `json:"format,omitempty"`
+	MergePolicy      string   `json:"merge_policy,omitempty"`
 }
 
 func fileTransferArchiveRoots(sources []projectArchiveSource) []string {
@@ -356,6 +357,11 @@ func (s *Server) fileTransferArchiveExtract(w http.ResponseWriter, r *http.Reque
 	if req.Format == "" {
 		req.Format = "tar.gz"
 	}
+	req.MergePolicy, err = normalizeFileTransferArchiveMergePolicy(req.MergePolicy)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if req.ProfileID == "" || req.RemoteArchive == "" || req.RemoteDestination == "" {
 		http.Error(w, "profile_id, remote_archive and remote_destination are required", http.StatusBadRequest)
 		return
@@ -378,7 +384,7 @@ func (s *Server) fileTransferArchiveExtract(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "automatic archive extraction requires SFTP linked to an SSH profile", http.StatusBadRequest)
 		return
 	}
-	command, err := remoteArchiveExtractIntoExistingCommand(req.Format, req.RemoteArchive, req.RemoteDestination, roots)
+	command, err := remoteArchiveExtractCommandWithPolicy(req.Format, req.RemoteArchive, req.RemoteDestination, roots, req.MergePolicy)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
