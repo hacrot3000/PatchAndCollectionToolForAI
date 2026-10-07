@@ -33,7 +33,7 @@ function joinPath(parent,name){
   return parent?parent+'/'+name:name;
 }
 async function pollEditor(view){
-  if(!view||view.closed||!view.file?.path||view.file?.remote_workspace_id||view.saving)return;
+  if(!view||view.closed||!view.file?.path||(view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id)||view.saving)return;
   const path=String(view.file.path);
   if(busyFiles.has(path))return;
   busyFiles.add(path);
@@ -63,7 +63,7 @@ async function pollEditors(){
   if(!enabled||document.hidden)return;
   const activePaths=new Set();
   for(const view of editor.editors?.values?.()||[]){
-    if(view?.closed||!view.file?.path||view.file?.remote_workspace_id)continue;
+    if(view?.closed||!view.file?.path||(view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id))continue;
     const path=String(view.file.path);activePaths.add(path);
     if(!fileSignatures.has(path))fileSignatures.set(path,fileSignature(view.file));
     await pollEditor(view);
@@ -116,7 +116,7 @@ function stop(){
 }
 function refreshBaselines(){
   fileSignatures.clear();directorySignatures.clear();directoryEntries.clear();
-  for(const view of editor.editors?.values?.()||[])if(view?.file?.path&&!view.file?.remote_workspace_id)fileSignatures.set(String(view.file.path),fileSignature(view.file));
+  for(const view of editor.editors?.values?.()||[])if(view?.file?.path&&!(view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id))fileSignatures.set(String(view.file.path),fileSignature(view.file));
 }
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden)return;
