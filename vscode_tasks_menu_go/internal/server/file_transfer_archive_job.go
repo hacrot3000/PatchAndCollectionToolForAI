@@ -239,6 +239,7 @@ func (s *Server) backgroundHostArchiveUpload(ctx context.Context, queue *fileTra
 	queue.mu.Lock()
 	if live := queue.Jobs[item.JobID]; live != nil {
 		live.RemoteArchive = remoteArchive
+		live.RemoteDestination = req.RemoteDir
 		live.ArchiveBytes = info.Size()
 		live.ManualCommands = commands
 	}
