@@ -15,13 +15,13 @@ style.textContent=`
 .file-compare-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);min-width:780px}
 .file-compare-cell{display:grid;grid-template-columns:48px minmax(0,1fr);min-width:0;border-bottom:1px solid rgba(255,255,255,.035)}
 .file-compare-cell+.file-compare-cell{border-left:1px solid #303843}.file-compare-no{padding:1px 7px;text-align:right;user-select:none;opacity:.45;font:10px/1.45 ui-monospace,monospace;border-right:1px solid rgba(255,255,255,.06)}
-.file-compare-code{padding:1px 7px;white-space:pre;overflow-x:auto;font:11px/1.45 ui-monospace,monospace}.file-compare-cell.removed{background:rgba(185,67,67,.18)}.file-compare-cell.added{background:rgba(54,145,78,.18)}.file-compare-cell.blank{opacity:.3}
+.file-compare-code{padding:1px 7px;white-space:pre;overflow-x:auto;font:11px/1.45 ui-monospace,monospace}.file-compare-cell.removed.important{background:rgba(229,72,86,.28)}.file-compare-cell.added.important{background:rgba(232,174,55,.28)}.file-compare-cell.removed.unimportant,.file-compare-cell.added.unimportant{background:rgba(58,149,214,.23)}.file-compare-cell.blank{opacity:.3}
 .file-compare-syntax-keyword{color:#c792ea}.file-compare-syntax-comment{color:#6a9955;font-style:italic}.file-compare-syntax-string{color:#ce9178}.file-compare-syntax-number{color:#b5cea8}.file-compare-syntax-command{color:#dcdcaa}.file-compare-syntax-variable{color:#9cdcfe}
 .file-compare-inline-change{border-radius:2px;box-shadow:inset 0 -1px 0 rgba(255,255,255,.28)}.file-compare-inline-change.removed{background:rgba(255,84,98,.38)}.file-compare-inline-change.added{background:rgba(255,196,74,.40)}
 .file-compare-hunk{border-top:1px solid #3a4350;border-bottom:1px solid #3a4350;margin:5px 0}.file-compare-hunk-head{position:sticky;left:0;display:flex;align-items:center;gap:6px;padding:4px 8px;background:#171e27;font:10px ui-monospace,monospace;z-index:1}.file-compare-hunk-label{flex:1;opacity:.72}.file-compare-hunk-head button{padding:2px 6px;font-size:10px}
-.file-compare-inline{min-width:640px}.file-compare-inline-line{display:grid;grid-template-columns:52px 20px minmax(0,1fr);border-bottom:1px solid rgba(255,255,255,.035);font:11px/1.45 ui-monospace,monospace}.file-compare-inline-line span{padding:1px 7px}.file-compare-inline-no{text-align:right;opacity:.45}.file-compare-inline-line.removed{background:rgba(185,67,67,.18)}.file-compare-inline-line.added{background:rgba(54,145,78,.18)}
+.file-compare-inline{min-width:640px}.file-compare-inline-line{display:grid;grid-template-columns:52px 20px minmax(0,1fr);border-bottom:1px solid rgba(255,255,255,.035);font:11px/1.45 ui-monospace,monospace}.file-compare-inline-line span{padding:1px 7px}.file-compare-inline-no{text-align:right;opacity:.45}.file-compare-inline-line.removed.important{background:rgba(229,72,86,.28)}.file-compare-inline-line.added.important{background:rgba(232,174,55,.28)}.file-compare-inline-line.removed.unimportant,.file-compare-inline-line.added.unimportant{background:rgba(58,149,214,.23)}
 .file-compare-empty{padding:24px;text-align:center;opacity:.62}
-html[data-taskmenu-theme="light"] .file-compare-dialog{background:#fff;border-color:#b9c0c8}.file-compare-body{color:inherit}html[data-taskmenu-theme="light"] .file-compare-columns,html[data-taskmenu-theme="light"] .file-compare-hunk-head{background:#f6f8fa;border-color:#d0d7de}html[data-taskmenu-theme="light"] .file-compare-cell.removed,html[data-taskmenu-theme="light"] .file-compare-inline-line.removed{background:#fff0f0}html[data-taskmenu-theme="light"] .file-compare-cell.added,html[data-taskmenu-theme="light"] .file-compare-inline-line.added{background:#effaf1}
+html[data-taskmenu-theme="light"] .file-compare-dialog{background:#fff;border-color:#b9c0c8}.file-compare-body{color:inherit}html[data-taskmenu-theme="light"] .file-compare-columns,html[data-taskmenu-theme="light"] .file-compare-hunk-head{background:#f6f8fa;border-color:#d0d7de}html[data-taskmenu-theme="light"] .file-compare-cell.removed.important,html[data-taskmenu-theme="light"] .file-compare-inline-line.removed.important{background:#ffe2e5}html[data-taskmenu-theme="light"] .file-compare-cell.added.important,html[data-taskmenu-theme="light"] .file-compare-inline-line.added.important{background:#fff1c9}html[data-taskmenu-theme="light"] .file-compare-cell.removed.unimportant,html[data-taskmenu-theme="light"] .file-compare-cell.added.unimportant,html[data-taskmenu-theme="light"] .file-compare-inline-line.removed.unimportant,html[data-taskmenu-theme="light"] .file-compare-inline-line.added.unimportant{background:#e3f3ff}
 `;
 document.head.append(style);
 
@@ -163,6 +163,49 @@ function compareInlineRanges(left,right){
   return {left:leftRanges,right:rightRanges};
 }
 function compareRangeContains(ranges,offset){return ranges.some(range=>offset>=range.from&&offset<range.to);}
+function compareCommentTokens(tokens){return (tokens||[]).filter(token=>token.type==='comment');}
+function compareTextWithoutRanges(text,ranges){
+  text=String(text||'');if(!ranges?.length)return text;
+  let at=0,out='';
+  for(const range of ranges){if(range.from>at)out+=text.slice(at,range.from);at=Math.max(at,range.to);}
+  return out+text.slice(at);
+}
+function compareCommentOnly(text,tokens){
+  const comments=compareCommentTokens(tokens);
+  return comments.length>0&&compareTextWithoutRanges(text,comments).trim()==='';
+}
+function compareRowLanguageID(row){
+  const leftPath=compareSyntaxPath(current?.left,current?.right),rightPath=compareSyntaxPath(current?.right,current?.left);
+  return compareLanguageID(row.left?leftPath:rightPath);
+}
+const compareIndentInsensitiveLanguages=new Set(['cpp','go','javascript','typescript','java','php','rust','csharp','kotlin','dart','protobuf','actionscript','css','scss','less','sql','json','html','xml','vue']);
+function classifyCompareRow(row){
+  if(row.hunk<0)return 'context';
+  const syntax=ensureCompareSyntax();
+  const leftText=row.left?.text??'',rightText=row.right?.text??'';
+  const leftTokens=row.left?syntax.left[row.left.no-1]||[]:[],rightTokens=row.right?syntax.right[row.right.no-1]||[]:[];
+  if(!row.left||!row.right){
+    const text=row.left?leftText:rightText,tokens=row.left?leftTokens:rightTokens;
+    if(text.trim()===''||compareCommentOnly(text,tokens))return 'unimportant';
+    return 'important';
+  }
+  if(leftText===rightText)return 'context';
+  if(compareCommentOnly(leftText,leftTokens)&&compareCommentOnly(rightText,rightTokens))return 'unimportant';
+  const leftComments=compareCommentTokens(leftTokens),rightComments=compareCommentTokens(rightTokens);
+  if((leftComments.length||rightComments.length)&&compareTextWithoutRanges(leftText,leftComments).trimEnd()===compareTextWithoutRanges(rightText,rightComments).trimEnd())return 'unimportant';
+  const language=compareRowLanguageID(row);
+  if(compareIndentInsensitiveLanguages.has(language)&&leftText.trim()===rightText.trim())return 'unimportant';
+  return 'important';
+}
+function enrichCompareModel(model){
+  let important=0,unimportant=0;
+  for(const row of model.rows){
+    row.importance=classifyCompareRow(row);
+    if(row.hunk<0)continue;
+    if(row.importance==='unimportant')unimportant++;else important++;
+  }
+  model.stats={important,unimportant};return model;
+}
 function renderCompareCode(node,text,tokens=[],changed=[],changeKind=''){
   text=String(text??'');
   if(!text){node.textContent='\u00a0';return;}
@@ -252,8 +295,8 @@ async function saveSource(source,text){
   source.text=text;
   if(result&&typeof result==='object')Object.assign(source.meta||(source.meta={}),result);
 }
-function cell(spec,side,changed=[]){
-  const node=document.createElement('div');node.className='file-compare-cell '+(spec?.kind||'blank');
+function cell(spec,side,changed=[],importance='context'){
+  const node=document.createElement('div');node.className='file-compare-cell '+(spec?.kind||'blank')+(spec&&spec.kind!=='context'?' '+importance:'');
   const no=document.createElement('span');no.className='file-compare-no';no.textContent=spec?.no?String(spec.no):'';
   const code=document.createElement('span');code.className='file-compare-code';
   const syntax=ensureCompareSyntax();
@@ -275,7 +318,7 @@ function renderSide(model){
       card.append(hh);frag.append(card);
     }
     const ranges=compareInlineRanges(row.left?.text||'',row.right?.text||'');
-    const line=document.createElement('div');line.className='file-compare-row';line.append(cell(row.left,'left',ranges.left),cell(row.right,'right',ranges.right));frag.append(line);
+    const line=document.createElement('div');line.className='file-compare-row';line.append(cell(row.left,'left',ranges.left,row.importance),cell(row.right,'right',ranges.right,row.importance));frag.append(line);
   }
   body.append(frag);
 }
@@ -289,12 +332,12 @@ function renderInline(model){
       const code=document.createElement('span');const syntax=ensureCompareSyntax();renderCompareCode(code,row.left.text,syntax.left[row.left.no-1]||[]);line.append(no,mark,code);host.append(line);continue;
     }
     if(row.left){
-      const line=document.createElement('div');line.className='file-compare-inline-line removed';
+      const line=document.createElement('div');line.className='file-compare-inline-line removed '+row.importance;
       const no=document.createElement('span');no.className='file-compare-inline-no';no.textContent=String(row.left.no);
       const mark=document.createElement('span');mark.textContent='−';const code=document.createElement('span');const syntax=ensureCompareSyntax();const ranges=compareInlineRanges(row.left.text,row.right?.text||'');renderCompareCode(code,row.left.text,syntax.left[row.left.no-1]||[],ranges.left,'removed');line.append(no,mark,code);host.append(line);
     }
     if(row.right){
-      const line=document.createElement('div');line.className='file-compare-inline-line added';
+      const line=document.createElement('div');line.className='file-compare-inline-line added '+row.importance;
       const no=document.createElement('span');no.className='file-compare-inline-no';no.textContent=String(row.right.no);
       const mark=document.createElement('span');mark.textContent='+';const code=document.createElement('span');const syntax=ensureCompareSyntax();const ranges=compareInlineRanges(row.left?.text||'',row.right.text);renderCompareCode(code,row.right.text,syntax.right[row.right.no-1]||[],ranges.right,'added');line.append(no,mark,code);host.append(line);
     }
@@ -303,10 +346,10 @@ function renderInline(model){
 }
 function render(){
   body.replaceChildren();if(!current)return;
-  const model=buildCompareModel(current.left.text,current.right.text);current.model=model;
+  const model=enrichCompareModel(buildCompareModel(current.left.text,current.right.text));current.model=model;
   leftLabel.textContent=current.left.label||'Left';rightLabel.textContent=current.right.label||'Right';
   title.textContent=(current.title||'File Compare')+' · '+leftLabel.textContent+' ↔ '+rightLabel.textContent;
-  summary.textContent=model.identical?'identical':model.hunks.length+' change block'+(model.hunks.length===1?'':'s');
+  summary.textContent=model.identical?'identical':model.hunks.length+' change block'+(model.hunks.length===1?'':'s')+' · '+model.stats.important+' important · '+model.stats.unimportant+' unimportant';
   sideButton.classList.toggle('active',viewMode==='side');inlineButton.classList.toggle('active',viewMode==='inline');columns.style.display=viewMode==='side'?'grid':'none';
   if(model.identical){const empty=document.createElement('div');empty.className='file-compare-empty';empty.textContent='No differences';body.append(empty);return;}
   if(viewMode==='inline')renderInline(model);else renderSide(model);
