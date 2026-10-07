@@ -89,14 +89,19 @@ func TestSQLiteCLIDriverIdentityRoundTripAndTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		_ = conn.Close()
 		t.Fatal(err)
 	}
 	if _, err := conn.ExecContext(ctx, "INSERT INTO cli_tx_probe(value) VALUES (?)", "rolled back"); err != nil {
+		_ = conn.Close()
 		t.Fatal(err)
 	}
 	if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
+		_ = conn.Close()
+		t.Fatal(err)
+	}
+	if err := conn.Close(); err != nil {
 		t.Fatal(err)
 	}
 	var count int
