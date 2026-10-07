@@ -417,8 +417,11 @@ func (s *Server) projectCompletions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "project symbol index unavailable", http.StatusInternalServerError)
 		return
 	}
-	symbols := projectSymbolCompletionItems(idx, req)
 	paths := projectImportCompletionItems(r.Context(), s, req)
+	symbols := projectSymbolCompletionItems(idx, req)
+	if _, _, importContext := completionImportContext(req.Language, req.LinePrefix); importContext {
+		symbols = nil
+	}
 	writeJSON(w, http.StatusOK, projectCompletionResponse{
 		Items: mergeProjectCompletionItems(req.Limit, paths, symbols),
 		IndexedFiles: idx.ScannedFiles,
