@@ -298,6 +298,8 @@ func sharedRoutePermissions(r *http.Request) []string {
 		}
 	case "/api/patch/ai-pack":
 		return []string{identity.PermissionPatchView}
+	case "/api/patch/upload":
+		return []string{identity.PermissionPatchRun}
 	case "/api/files/selection":
 		return []string{identity.PermissionFilesRead}
 	case "/api/files/preview":
