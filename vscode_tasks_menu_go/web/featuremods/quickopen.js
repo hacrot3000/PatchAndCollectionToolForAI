@@ -57,11 +57,11 @@ function localQuickOpenItems(){
   for(const pathValue of globalThis.TaskMenuExplorer?.recent||[])add(fileItem(pathValue,{kind:'recent',detail:'Recently opened',recent:true}));
   for(const view of globalThis.TaskMenuEditor?.editors?.values?.()||[]){
     if(view?.closed)continue;const pathValue=String(view.file?.path||'').trim();if(!pathValue)continue;
-    const remote=Boolean(view.file?.remote_workspace_id);
+    const remote=Boolean(view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id);
     add({
       id:'editor:'+pathValue,kind:remote?'remote':'tab',
       name:(remote?'Remote Editor · ':'Editor · ')+(pathValue.split('/').pop()||pathValue),
-      path:pathValue,detail:remote?'Open Remote Workspace editor tab':'Open editor tab',
+      path:pathValue,detail:remote?'Open remote editor tab':'Open editor tab',
       run:()=>remote?globalThis.TaskMenuEditor?.activateEditor?.(view.id):globalThis.TaskMenuEditor?.openFile?.(pathValue)
     });
   }
