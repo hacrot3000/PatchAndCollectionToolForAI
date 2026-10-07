@@ -212,7 +212,7 @@ func resolvePythonScryptCommand() (string, []string, error) {
 		return path, nil, nil
 	}
 
-	candidates := []candidate{{name: "python3"}, {name: "python"}}
+	candidates := []candidate{{name: "python3.13"}, {name: "python3.12"}, {name: "python3.11"}, {name: "python3.10"}, {name: "python3"}, {name: "python"}}
 	if runtime.GOOS == "windows" {
 		candidates = append([]candidate{{name: "py", prefix: []string{"-3"}}}, candidates...)
 	}
