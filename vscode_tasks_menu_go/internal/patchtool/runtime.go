@@ -96,7 +96,13 @@ func pythonCommand() (string, []string, error) {
 		}
 		return explicit, nil, nil
 	}
-	for _, name := range []string{"python3", "python"} {
+	if explicit := strings.TrimSpace(os.Getenv("TASKDECK_PYTHON")); explicit != "" {
+		if !regularFile(explicit) {
+			return "", nil, fmt.Errorf("TASKDECK_PYTHON is not an executable file: %s", explicit)
+		}
+		return explicit, nil, nil
+	}
+	for _, name := range []string{"python3.13", "python3.12", "python3.11", "python3.10", "python3", "python"} {
 		if path, err := exec.LookPath(name); err == nil {
 			return path, nil, nil
 		}
