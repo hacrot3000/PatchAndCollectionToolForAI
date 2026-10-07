@@ -41,8 +41,8 @@ Ruby, Perl, and R remain out of scope for this batch.
 - [x] Add import/include/module path suggestions.
 - [x] Merge/dedupe Tier 1 + Tier 2 suggestions in the editor.
 - [x] Add backend/UI/auth/symbol extraction regression tests.
-- [ ] Add explicit boundary/cache-corruption/import-empty-prefix regression tests.
-- [ ] Update README with editor autocomplete behavior, cache location, limits, and offline dependency policy.
+- [x] Add explicit boundary/cache-corruption/import-empty-prefix regression tests.
+- [x] Update README with editor autocomplete behavior, cache location, limits, and offline dependency policy.
 
 ## Progress
 
@@ -75,7 +75,14 @@ Current implementation already contains the complete Tier 1/Tier 2 vertical path
 - incremental save updates and mutation invalidation;
 - shared-server authorization.
 
-Remaining work before declaring this batch complete:
-1. strengthen regression tests for request limits/cache recovery and empty import-prefix behavior;
-2. document editor autocomplete and the offline/vendor policy in README;
-3. re-read final HEAD for stale handoff/checklist references and update this file to completed.
+Final completion notes:
+- `c30a280`: import/include/module completion now supports explicit completion with an empty typed prefix instead of falling back to the current filename.
+- `9fcad1b`: regression coverage for empty-prefix import suggestions and request/document limits.
+- `39150e9`: regression coverage for corrupt persisted symbol-index recovery/rebuild.
+- `9c650bb`: README documents Tier 1/Tier 2 behavior, cache location, hard limits, offline vendoring policy, and the boundary with future LSP semantic completion.
+
+## Status
+
+This Tier 1 + Tier 2 batch is complete on `main`.
+
+Tier 3 semantic completion (persistent LSP sessions + `textDocument/completion` for type-aware member suggestions such as `object.member`) remains intentionally deferred. The current LSP lifecycle is ephemeral per action and should not be reused for keystroke-driven completion without a persistent-session redesign.
