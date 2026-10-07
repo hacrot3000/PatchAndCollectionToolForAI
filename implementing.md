@@ -982,3 +982,17 @@ Roadmap đã được thực hiện theo thứ tự ưu tiên sau:
 Toàn bộ roadmap trên đã hoàn tất. Các ưu tiên ban đầu như Project Explorer, Project Search/Replace, Generic Visual Diff/3-way Merge, Git Commit Graph, Git Reflog Recovery, Command Palette, Unified Operation Center, Git Worktree, Project Snapshots và File Watcher hiện đều đã có implementation thực tế trên `main`.
 
 Các thay đổi tiếp theo nên được mở thành roadmap/ticket mới dựa trên nhu cầu sử dụng thực tế hoặc bug report, thay vì tiếp tục coi tài liệu này là backlog đang mở.
+
+## Active follow-up — Syntax-aware visual diff (2026-10-07)
+
+Requested improvement for Git/File Compare. Keep this section updated after every small commit so work can resume safely after interruption.
+
+- [ ] Reuse the editor language registry for diff syntax highlighting on both sides.
+- [ ] Add conservative important/unimportant classification. Default is important; only confirmed comment-only, whitespace/formatting-only, or comment-tail-only changes may be marked unimportant.
+- [ ] Add intra-line changed-span highlighting for paired removed/added lines.
+- [ ] Add display controls: View all, View diff, View diff context, and View unimportant.
+- [ ] Add structural diff-context expansion (brace/indent-aware with bounded fallback) and preserve hunk copy/apply behavior.
+- [ ] Add regression coverage and update user-facing documentation.
+- [ ] Run/verify CI on the resulting main branch commits.
+
+Checkpoint: implementation not started yet. Existing generic File Compare is the shared path used by Git visual diff, so improvements should live there rather than forking a Git-only renderer.
