@@ -28,6 +28,9 @@ const (
 	fileTransferJobRemoteDelete      = "remote_delete"
 	fileTransferJobHostArchiveUpload = "host_archive_upload"
 
+	remoteDeleteModeScan         = "scan"
+	remoteDeleteModeSSHRecursive = "ssh_recursive"
+
 	// Large multi-selection actions can legitimately carry tens of thousands
 	// of remote paths/item IDs. Keep the general file-transfer JSON limit small,
 	// but give the background job/queue endpoints a bounded bulk-action budget.
@@ -51,6 +54,7 @@ type fileTransferJobCreateRequest struct {
 	ConflictPolicy  string                  `json:"conflict_policy,omitempty"`
 	MergePolicy     string                  `json:"merge_policy,omitempty"`
 	AutoExtract     bool                    `json:"auto_extract,omitempty"`
+	DeleteMode      string                  `json:"delete_mode,omitempty"`
 }
 
 type fileTransferJobControlRequest struct {
@@ -773,9 +777,39 @@ func (s *Server) executeFileTransferServerItem(ctx context.Context, queue *fileT
 			return nil
 		}
 		return err
+	case "remote_delete_ssh":
+		return s.backgroundRemoteDeleteSSH(ctx, profileID, item.Source)
 	default:
 		return fmt.Errorf("unsupported background file-transfer operation %q", item.Operation)
 	}
+}
+
+func remoteDeleteSSHCommand(remotePath string) (string, error) {
+	remotePath = normalizeBackgroundRemotePath(remotePath)
+	if remotePath == "" || remotePath == "." || remotePath == "/" {
+		return "", errors.New("refusing SSH recursive delete for remote root/current directory")
+	}
+	if strings.ContainsAny(remotePath, "\x00\r\n") {
+		return "", errors.New("remote delete path contains unsupported control characters")
+	}
+	target := remoteArchiveShellQuote(remotePath)
+	return "set -eu; target=" + target + "; case \"$target\" in ''|/|.|..) echo 'refusing unsafe recursive delete target' >&2; exit 64;; esac; rm -rf -- \"$target\"", nil
+}
+
+func (s *Server) backgroundRemoteDeleteSSH(ctx context.Context, profileID, remotePath string) error {
+	profile, err := s.resolveFileTransferProfile(profileID)
+	if err != nil {
+		return err
+	}
+	if profile.Protocol != filetransferprofile.ProtocolSFTP || strings.TrimSpace(profile.SSHProfileID) == "" {
+		return errors.New("fast recursive delete requires SFTP linked to an SSH profile")
+	}
+	command, err := remoteDeleteSSHCommand(remotePath)
+	if err != nil {
+		return err
+	}
+	_, err = s.runSFTPLinkedSSHCommand(ctx, profile, command)
+	return err
 }
 
 func (s *Server) backgroundListRemote(ctx context.Context, profileID, remotePath string) ([]fileTransferEntry, error) {
@@ -1342,8 +1376,30 @@ func (s *Server) createFileTransferServerJob(req fileTransferJobCreateRequest) (
 	if req.ProfileID == "" {
 		return nil, errors.New("profile_id is required")
 	}
-	if _, err := s.resolveFileTransferProfile(req.ProfileID); err != nil {
+	profile, err := s.resolveFileTransferProfile(req.ProfileID)
+	if err != nil {
 		return nil, err
+	}
+	req.DeleteMode = strings.TrimSpace(req.DeleteMode)
+	if req.Kind == fileTransferJobRemoteDelete {
+		if req.DeleteMode == "" {
+			req.DeleteMode = remoteDeleteModeScan
+		}
+		switch req.DeleteMode {
+		case remoteDeleteModeScan:
+		case remoteDeleteModeSSHRecursive:
+			if profile.Protocol != filetransferprofile.ProtocolSFTP || strings.TrimSpace(profile.SSHProfileID) == "" {
+				return nil, errors.New("SSH recursive delete requires an SFTP profile linked to SSH")
+			}
+			for i := range req.RemoteTargets {
+				req.RemoteTargets[i].Path = normalizeBackgroundRemotePath(req.RemoteTargets[i].Path)
+				if _, err := remoteDeleteSSHCommand(req.RemoteTargets[i].Path); err != nil {
+					return nil, err
+				}
+			}
+		default:
+			return nil, fmt.Errorf("unsupported remote delete mode %q", req.DeleteMode)
+		}
 	}
 	switch req.Kind {
 	case fileTransferJobHostUpload, fileTransferJobHostArchiveUpload:
@@ -1390,6 +1446,19 @@ func (s *Server) createFileTransferServerJob(req fileTransferJobCreateRequest) (
 			Kind: "Compressed upload", Direction: "→", Source: source, Target: req.RemoteDir,
 			Status: "queued", Operation: "host_archive_upload", Detail: "Waiting to compress",
 		})
+	} else if req.Kind == fileTransferJobRemoteDelete && req.DeleteMode == remoteDeleteModeSSHRecursive {
+		job.Status = "queued"
+		job.ScanDone = true
+		job.Phase = "queued"
+		for _, target := range req.RemoteTargets {
+			queue.Sequence++
+			queue.Items = append(queue.Items, &fileTransferServerItem{
+				ID: fmt.Sprintf("srv-%s-%d", jobID, queue.Sequence), JobID: jobID,
+				Kind: "SSH delete", Direction: "×", Source: target.Path,
+				Status: "queued", Operation: "remote_delete_ssh", Directory: target.Directory,
+				Detail: "Fast recursive delete via linked SSH",
+			})
+		}
 	} else {
 		queue.enqueueScanLocked(jobID, req)
 	}
@@ -1440,6 +1509,11 @@ func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if strings.TrimSpace(req.Kind) == fileTransferJobHostArchiveUpload && req.AutoExtract {
+			if !s.requireSharedActionPermission(w, r, identity.PermissionSSHUse, req.Kind, "file_transfer:"+req.ProfileID) {
+				return
+			}
+		}
+		if strings.TrimSpace(req.Kind) == fileTransferJobRemoteDelete && strings.TrimSpace(req.DeleteMode) == remoteDeleteModeSSHRecursive {
 			if !s.requireSharedActionPermission(w, r, identity.PermissionSSHUse, req.Kind, "file_transfer:"+req.ProfileID) {
 				return
 			}
