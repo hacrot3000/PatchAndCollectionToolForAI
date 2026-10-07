@@ -57,9 +57,34 @@ async function openProjectHostApplication(pathValue){
   if(!response.ok)throw new Error((await response.text()).trim()||('HTTP '+response.status));
   return response.json();
 }
+function projectCompareSource(pathValue){
+  const compare=globalThis.TaskMenuFileCompare;if(!compare?.projectSource)throw new Error('File Compare unavailable');
+  pathValue=cleanPath(pathValue);
+  return compare.projectSource(pathValue,{label:'Project · '+pathValue});
+}
+function selectProjectForCompare(pathValue){
+  const compare=globalThis.TaskMenuFileCompare;if(!compare?.selectForCompare)throw new Error('File Compare unavailable');
+  return compare.selectForCompare(projectCompareSource(pathValue));
+}
+function compareProjectWithSelected(pathValue){
+  const compare=globalThis.TaskMenuFileCompare;if(!compare?.compareWithSelected)throw new Error('File Compare unavailable');
+  return compare.compareWithSelected(projectCompareSource(pathValue),{title:'Selected project files'});
+}
 async function openProjectDiff(pathValue){
   const compare=globalThis.TaskMenuFileCompare;if(!compare?.promptProjectCompare)throw new Error('File Compare unavailable');
   return compare.promptProjectCompare(pathValue);
+}
+function projectCompareActions(pathValue){
+  const compare=globalThis.TaskMenuFileCompare,source=projectCompareSource(pathValue);
+  const actions=[{label:'Select for compare',title:'Use this file as Compare A',run:()=>selectProjectForCompare(pathValue)}];
+  if(compare?.selection)actions.push({
+    label:'Compare with selected file',
+    title:'Open File Compare using the previously selected Compare A file and this file',
+    disabled:!compare.canCompareWithSelected?.(source),
+    run:()=>compareProjectWithSelected(pathValue)
+  });
+  actions.push({label:'Compare with another project file…',run:()=>openProjectDiff(pathValue)});
+  return actions;
 }
 function openWithButton(host,label,run,options={}){
   const button=document.createElement('button');button.type='button';button.textContent=label;button.disabled=Boolean(options.disabled);
@@ -255,7 +280,7 @@ function standardActions(pathValue,type='file'){
     {label:type==='dir'?'Search / Replace in folder…':'Search / Replace in containing folder…',run:()=>searchScope(pathValue,type)}
   );
   if(type==='file')actions.push(
-    {label:'Compare with another file…',run:()=>openProjectDiff(pathValue)},
+    ...projectCompareActions(pathValue),
     {separator:true},
     {label:'SHA-256 checksum',run:()=>copyProjectChecksum(pathValue,'sha256')},
     {label:'MD5 checksum (compatibility)',run:()=>copyProjectChecksum(pathValue,'md5')},
@@ -294,4 +319,4 @@ document.addEventListener('pointerdown',event=>{if(menu.classList.contains('open
 document.addEventListener('keydown',event=>{if(event.key==='Escape')closeMenu();});
 window.addEventListener('blur',closeMenu);window.addEventListener('resize',closeMenu);
 
-globalThis.TaskMenuProjectFileActions={standardActions,openMenu,closeMenu,copyText,parentPath,createProjectArchive,extractProjectArchive,previewProjectArchive,downloadProjectPathsAsZip,projectArchiveKind,openProjectWith,projectPreviewInfo,downloadProjectFile,openProjectHostApplication};
+globalThis.TaskMenuProjectFileActions={projectCompareSource,selectProjectForCompare,compareProjectWithSelected,projectCompareActions,standardActions,openMenu,closeMenu,copyText,parentPath,createProjectArchive,extractProjectArchive,previewProjectArchive,downloadProjectPathsAsZip,projectArchiveKind,openProjectWith,projectPreviewInfo,downloadProjectFile,openProjectHostApplication};
