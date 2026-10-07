@@ -318,6 +318,28 @@ func TestEditorLanguageMappingCoversRequiredIDEFormats(t *testing.T) {
 		}
 	}
 }
+func TestEditorSupportsSCSSSassAndLess(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"{id:'scss',label:'SCSS',extensions:['scss'],codeMirror:'sass'}",
+		"{id:'sass',label:'Sass',extensions:['sass'],legacy:'sass'}",
+		"{id:'less',label:'Less',extensions:['less'],codeMirror:'less'}",
+		"sass:new Set(",
+		"sass:['//']",
+		"sass:[['/*','*/']]",
+		"(kind==='shell'||kind==='sass')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor Sass/Less coverage missing %q", want)
+		}
+	}
+}
+
+
 func TestVendoredCodeMirrorExposesIDEHooksAndTypeScriptModes(t *testing.T) {
 	data, err := webassets.Files.ReadFile("vendor/codemirror6-all.min.js")
 	if err != nil {
