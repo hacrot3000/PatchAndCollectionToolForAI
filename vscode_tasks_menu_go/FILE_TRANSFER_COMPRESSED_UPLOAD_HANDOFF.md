@@ -95,3 +95,12 @@ Implemented:
 Validation:
 - Existing tests cover cancellable large-writer behavior, queued `host_archive_upload` job creation, running-item cancellation/removal, merge-policy behavior, and Local compressed queue cancellation.
 - Static UI contract includes `kind:'host_archive_upload'`, `merge_policy:mergePolicy`, `handleCompressedUploadJobResults(...)` and `Cancel / remove selected`.
+
+## Final checkpoint for huge-folder fix
+
+- HEAD code path for Host compressed upload is queue-owned `host_archive_upload`, not synchronous archive upload.
+- Legacy `/api/file-transfer/archive-upload` was also migrated from `writeProjectTarGz()` to `writeLargeFileTransferTarGz()` so older callers no longer hit the 20,000-entry Project Archive limit.
+- Regression `TestLegacyCompressedUploadRouteDoesNotUseProjectArchiveLimits` locks that separation.
+- Current GitHub HEAD after this batch: `b2cce0dc071d96e832a04409f468ab806269cdf2`.
+- GitHub reports no status checks and no workflow runs for this HEAD.
+- A broad static scan found unrelated stale UI-test contracts from later remote-editor/queue changes on main; this batch therefore does not claim a full repository-wide UI test pass. Compressed-upload-specific queue/cancel/resource-limit contracts are present.
