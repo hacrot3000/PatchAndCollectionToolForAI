@@ -111,19 +111,63 @@ func resolveSQLiteCLICommand() (string, error) {
 func probeSQLiteCLI(path string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	const probe = "CREATE TABLE t(k TEXT UNIQUE); INSERT INTO t(k) VALUES('x') ON CONFLICT(k) DO NOTHING; INSERT INTO t(k) VALUES('x') ON CONFLICT(k) DO NOTHING; SELECT count(*) FROM t;"
+
+	versionCmd := exec.CommandContext(ctx, path, "--version")
+	versionOutput, err := versionCmd.CombinedOutput()
+	if ctx.Err() != nil {
+		return fmt.Errorf("sqlite3 version probe timed out")
+	}
+	if err != nil {
+		return fmt.Errorf("cannot read sqlite3 version: %s", strings.TrimSpace(string(versionOutput)))
+	}
+	fields := strings.Fields(string(versionOutput))
+	if len(fields) == 0 || !sqliteVersionAtLeast(fields[0], 3, 7, 0) {
+		return fmt.Errorf("SQLite 3.7.0+ required; found %q", strings.TrimSpace(string(versionOutput)))
+	}
+
+	const probe = "CREATE TABLE t(k TEXT UNIQUE,v TEXT); INSERT OR IGNORE INTO t(k,v) VALUES('x','a'); INSERT OR IGNORE INTO t(k,v) VALUES('x','b'); BEGIN IMMEDIATE; UPDATE t SET v='c' WHERE k='x'; COMMIT; SELECT count(*)||':'||max(v) FROM t;"
 	cmd := exec.CommandContext(ctx, path, "-batch", ":memory:", probe)
 	output, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {
 		return fmt.Errorf("sqlite3 capability probe timed out")
 	}
 	if err != nil {
-		return fmt.Errorf("sqlite3 lacks required UPSERT support (SQLite 3.24+ required): %s", strings.TrimSpace(string(output)))
+		return fmt.Errorf("sqlite3 lacks required legacy transaction features: %s", strings.TrimSpace(string(output)))
 	}
-	if strings.TrimSpace(string(output)) != "1" {
+	if strings.TrimSpace(string(output)) != "1:c" {
 		return fmt.Errorf("unexpected sqlite3 capability probe output %q", strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func sqliteVersionAtLeast(version string, wantMajor, wantMinor, wantPatch int) bool {
+	parts := strings.Split(version, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	values := []int{0, 0, 0}
+	for i := 0; i < len(values) && i < len(parts); i++ {
+		part := parts[i]
+		end := 0
+		for end < len(part) && part[end] >= '0' && part[end] <= '9' {
+			end++
+		}
+		if end == 0 {
+			return false
+		}
+		value, err := strconv.Atoi(part[:end])
+		if err != nil {
+			return false
+		}
+		values[i] = value
+	}
+	want := []int{wantMajor, wantMinor, wantPatch}
+	for i := range values {
+		if values[i] != want[i] {
+			return values[i] > want[i]
+		}
+	}
+	return true
 }
 
 func openCLISQLiteConn(dbPath string) (*cliSQLiteConn, error) {
