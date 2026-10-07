@@ -373,6 +373,13 @@ function legacyLineTokens(kind,text){
       const end=text.indexOf('\"\"\"',i+3),j=end<0?text.length:end+3;
       tokens.push({from:i,to:j,type:'string'});i=j;firstWord=false;continue;
     }
+    if(kind==='lua'&&ch==='['){
+      const match=text.slice(i).match(/^\[(=*)\[/);
+      if(match){
+        const close=']'+match[1]+']',end=text.indexOf(close,i+match[0].length),j=end<0?text.length:end+close.length;
+        tokens.push({from:i,to:j,type:'string'});i=j;firstWord=false;continue;
+      }
+    }
     if(ch==='"'||ch==="'"){
       const quote=ch;let j=i+1;
       while(j<text.length){if(text[j]==='\\'){j+=2;continue;}if(text[j]===quote){j++;break;}j++;}
