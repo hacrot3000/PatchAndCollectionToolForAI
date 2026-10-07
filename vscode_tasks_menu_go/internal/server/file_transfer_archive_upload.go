@@ -186,6 +186,9 @@ func fileTransferManualExtractCommands(format, archivePath, destination string, 
 }
 
 func remoteArchiveExtractIntoExistingCommand(format, archivePath, destination string, roots []string) (string, error) {
+	if format != "tar.gz" && format != "zip" {
+		return "", errors.New("unsupported remote archive format")
+	}
 	commands := fileTransferManualExtractCommands(format, archivePath, destination, roots)
 	command := commands["posix"]
 	if format == "tar.gz" {
