@@ -243,17 +243,13 @@ func (s *Server) projectSymbols(w http.ResponseWriter,r *http.Request){
 		writeJSON(w,http.StatusOK,projectSymbolSearchResponse{Results:results,ScannedFiles:1,ScannedBytes:int64(len(data))});return
 	}
 	if query=="" { writeJSON(w,http.StatusOK,projectSymbolSearchResponse{Results:[]projectSymbolResult{}});return }
-	roots,err:=s.workspaceRootViews(!s.Config.SharedServerEnabled);if err!=nil{http.Error(w,"workspace roots unavailable",http.StatusInternalServerError);return}
-	response:=projectSymbolSearchResponse{Results:[]projectSymbolResult{}}
-	top:=make(projectSymbolHeap,0,limit);heap.Init(&top)
-	for _,root:=range roots {
-		if !root.Available{continue}
-		err:=scanProjectSymbolsRoot(r.Context(),root,query,limit,&top,&response)
-		if err!=nil&&err!=context.Canceled&&err!=context.DeadlineExceeded{http.Error(w,fmt.Sprintf("symbol search failed: %v",err),http.StatusInternalServerError);return}
-		if r.Context().Err()!=nil{return}
-		if response.Truncated{break}
+	idx,err:=s.currentProjectSymbolIndex(r.Context())
+	if err!=nil{http.Error(w,fmt.Sprintf("symbol index unavailable: %v",err),http.StatusInternalServerError);return}
+	response:=projectSymbolSearchResponse{
+		Results:searchProjectSymbolIndex(idx,query,limit),
+		ScannedFiles:idx.ScannedFiles,
+		ScannedBytes:idx.ScannedBytes,
+		Truncated:idx.Truncated,
 	}
-	response.Results=[]projectSymbolResult(top)
-	sort.Slice(response.Results,func(i,j int)bool{return projectSymbolBetter(response.Results[i],response.Results[j])})
 	writeJSON(w,http.StatusOK,response)
 }
