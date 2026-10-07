@@ -2509,14 +2509,29 @@ async function compressedUploadDecision(view,entries){
 async function streamLeftEntriesToRemote(view,entries){
   const selected=[...(entries||[])];if(!selected.length)throw new Error('Select one or more left items first');
   const source=view.left.source,sourceBase=normalizeRelativePath(view.left.currentPath||'.'),remoteBase=normalizeRemotePath(view.remote.currentPath||'.');
+  let root=null;
+  if(source!=='host'){
+    root=view.left.localRoot;if(!root)throw new Error('Choose a local folder first');
+    const granted=await ensureHandlePermission(root.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
+  }
+
+  const decision=await compressedUploadDecision(view,selected);
+  if(decision==='cancel'){view.remote.status.textContent='Upload cancelled';return;}
+  if(decision==='archive'){
+    try{await uploadCompressedSelection(view,selected);return;}
+    catch(error){
+      const message=String(error?.message||error||'Compressed upload failed');
+      const fallback=confirm('Compressed upload could not be completed:\n\n'+message+'\n\nUpload the selection normally instead?');
+      if(!fallback)throw error;
+    }
+  }
+
   if(source==='host'){
     const hostPaths=selected.map(entry=>joinPath(sourceBase,entry.name,false));
     view.remote.status.textContent='Background upload queued on TaskDeck daemon…';
     await createServerTransferJob(view,{kind:'host_upload',host_paths:hostPaths,remote_dir:remoteBase});
     return;
   }
-  const root=view.left.localRoot;if(!root)throw new Error('Choose a local folder first');
-  const granted=await ensureHandlePermission(root.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
   const scan={
     id:newFileTransferJobID(),kind:'local_upload_scan',profile_id:String(view.profile.id||''),root_id:String(root.id||''),
     source_base:sourceBase,remote_base:remoteBase,created_at:Date.now(),conflict_policy:effectiveDirectionConflictPolicy(view,'upload'),
