@@ -3072,7 +3072,10 @@ function remoteDoubleClick(view,entry){
 function compareLeftFileSource(view,entry){
   const compare=globalThis.TaskMenuFileCompare;if(!compare)throw new Error('File Compare unavailable');
   const leftPath=joinPath(view.left.currentPath,entry.name,false);
-  if(view.left.source==='host')return compare.projectSource(leftPath,{label:'Host · '+leftPath});
+  if(view.left.source==='host'){
+    const writable=!app.sharedMode||Boolean(app.hasPermission?.('files.write')||app.hasPermission?.('project.admin'));
+    return compare.projectSource(leftPath,{label:'Host · '+leftPath,writable});
+  }
   if(entry.handle)return compare.browserFileHandleSource(entry.handle,{label:'Local · '+leftPath,path:leftPath});
   throw new Error('Selected local browser file handle is unavailable');
 }
@@ -3080,7 +3083,7 @@ function compareRemoteFileSource(view,entry){
   const compare=globalThis.TaskMenuFileCompare;if(!compare?.remoteSource)throw new Error('File Compare unavailable');
   const remotePath=joinPath(view.remote.currentPath,entry.name,true);
   const protocol=String(view.profile?.protocol||'remote').toUpperCase();
-  return compare.remoteSource(view.profile.id,remotePath,{label:protocol+' · '+remotePath});
+  return compare.remoteSource(view.profile.id,remotePath,{label:protocol+' · '+remotePath,writable:remoteEditorWritable()});
 }
 function appendCompareSelectionActions(items,source){
   const compare=globalThis.TaskMenuFileCompare;if(!compare?.selectForCompare)return;
