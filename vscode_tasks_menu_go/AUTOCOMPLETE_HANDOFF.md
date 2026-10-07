@@ -33,9 +33,9 @@ Ruby, Perl, and R remain out of scope for this batch.
 - [x] Add `editorcompletion.js` with Tier 1 keyword/snippet completion.
 - [x] Extend centralized language registry with completion metadata.
 - [x] Enable Tier 1 for all currently supported programming/config languages where useful.
-- [ ] Refactor Project Symbols extraction into reusable project index primitives.
-- [ ] Add in-memory project symbol index with invalidation/incremental refresh.
-- [ ] Add persisted versioned project index cache without dirtying the workspace.
+- [x] Refactor Project Symbols extraction into reusable project index primitives.
+- [x] Add in-memory project symbol index with invalidation/incremental refresh.
+- [x] Add persisted versioned project index cache without dirtying the workspace.
 - [ ] Add `/api/project/completions` with bounded prefix/fuzzy ranking.
 - [ ] Merge current unsaved editor text into completion context.
 - [ ] Add import/include/module path suggestions.
@@ -50,3 +50,6 @@ Ruby, Perl, and R remain out of scope for this batch.
 - `cc101e0`: centralized language registry now carries completion profile IDs and `editorOptionsForFile` accepts completion extensions.
 - `58ad9db`, `08bdb1d`: added and loaded `editorcompletion.js` with automatic keyword/snippet completion, CodeMirror snippet placeholders, comment/string suppression, and Ctrl+Space through the vendored completion keymap.
 - `20b97f6`: added Tier 1 regression tests and offline/no-runtime-download assertions.
+- `2edc0b3`, `95e9da2`: added a bounded, versioned, gzip-persisted project symbol index under the OS user cache and attached it to `Server`; no workspace files are created.
+- `10569b0`: project-wide `/api/project/symbols` searches now use the cached symbol index instead of rescanning source files per query.
+- `4766b3a`: editor saves incrementally replace the saved file's symbols in the in-memory index.
