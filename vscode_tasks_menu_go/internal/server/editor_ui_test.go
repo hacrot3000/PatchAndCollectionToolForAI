@@ -367,6 +367,12 @@ func TestEditorCommonProjectLanguageModes(t *testing.T) {
 		"legacyCommandFirstKinds",
 		"powershell:[['<#','#>']]",
 		"actionscript:[['/*','*/']]",
+		"filenamePrefixes:['makefile.','gnumakefile.']",
+		"extensions:['ts','mts','cts']",
+		"const firstNonWhitespace=text.search(/\\S/)",
+		"(kind==='toml'||kind==='config')&&i===firstNonWhitespace",
+		"kind==='makefile'&&text[j]==='('",
+		"kind==='powershell'?/[A-Za-z0-9_:?\\-]/",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("editor common language mode missing %q", want)
