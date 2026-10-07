@@ -54,6 +54,48 @@ let current=null;
 let viewMode='side';
 let contentMode='all';
 let showUnimportant=true;
+let compareSelection=null;
+
+function sourceIdentity(source){
+  if(!source)return '';
+  return [
+    String(source.kind||'source'),
+    String(source.profileID||source.repoID||source.editorID||''),
+    String(source.path||''),
+    String(source.ref||source.state||'')
+  ].join('|');
+}
+function sourceWritable(source){return typeof source?.saveText==='function'||typeof source?.writeText==='function';}
+function selectionSnapshot(){
+  if(!compareSelection)return null;
+  return {identity:compareSelection.identity,label:compareSelection.label,path:compareSelection.source?.path||'',kind:compareSelection.source?.kind||''};
+}
+function announceCompareSelection(){
+  window.dispatchEvent(new CustomEvent('taskmenu:file-compare-selection-changed',{detail:selectionSnapshot()}));
+}
+function selectForCompare(source){
+  if(!source?.load)throw new Error('Compare selection requires a readable file source');
+  compareSelection={source,identity:sourceIdentity(source),label:String(source.label||source.path||'Selected file')};
+  announceCompareSelection();
+  return selectionSnapshot();
+}
+function clearCompareSelection(){compareSelection=null;announceCompareSelection();}
+function canCompareWithSelected(source){
+  return Boolean(compareSelection&&source?.load&&compareSelection.identity!==sourceIdentity(source));
+}
+async function compareWithSelected(source,{title='Selected files'}={}){
+  if(!compareSelection){selectForCompare(source);return false;}
+  if(!canCompareWithSelected(source))throw new Error('Choose a different second file for compare');
+  const left=compareSelection.source;clearCompareSelection();
+  await open({title,left,right:source});
+  return true;
+}
+async function openSources(sources,{title='Selected files'}={}){
+  sources=(Array.isArray(sources)?sources:[]).filter(source=>source?.load);
+  if(sources.length!==2)throw new Error('File Compare requires exactly two readable files');
+  clearCompareSelection();
+  return open({title,left:sources[0],right:sources[1]});
+}
 
 const compareKeywordText={
   cpp:'alignas alignof and and_eq asm atomic_cancel atomic_commit atomic_noexcept auto bitand bitor bool break case catch char char8_t char16_t char32_t class compl concept const consteval constexpr constinit const_cast continue co_await co_return co_yield decltype default delete do double dynamic_cast else enum explicit export extern false float for friend goto if inline int long mutable namespace new noexcept not not_eq nullptr operator or or_eq private protected public reflexpr register reinterpret_cast requires return short signed sizeof static static_assert static_cast struct switch synchronized template this thread_local throw true try typedef typeid typename union unsigned using virtual void volatile wchar_t while xor xor_eq',
@@ -480,7 +522,7 @@ async function open(options){
 function close(){backdrop.classList.remove('visible');current=null;body.replaceChildren();}
 function projectSource(pathValue,{writable=true,label=''}={}){
   pathValue=String(pathValue||'').trim();
-  const source={path:pathValue,label:label||pathValue,meta:{},load:async()=>{
+  const source={kind:'project',path:pathValue,label:label||pathValue,meta:{},load:async()=>{
     const file=await app.jsonFetch('/api/project/file?path='+encodeURIComponent(pathValue));
     return {text:file.content,sha256:file.sha256,file};
   }};
@@ -493,7 +535,7 @@ function projectSource(pathValue,{writable=true,label=''}={}){
   return source;
 }
 function editorSource(view,{label='Current editor'}={}){
-  return {path:view?.file?.path||'',label:(label+' · '+(view?.file?.path||'')),load:async()=>({text:view.cm.state.doc.toString()}),writeText:async text=>{
+  return {kind:'editor',editorID:String(view?.id||''),path:view?.file?.path||'',label:(label+' · '+(view?.file?.path||'')),load:async()=>({text:view.cm.state.doc.toString()}),writeText:async text=>{
     if(view.closed)throw new Error('Editor is closed');
     const doc=view.cm.state.doc;view.cm.dispatch({changes:{from:0,to:doc.length,insert:text}});view.cm.focus();return {text};
   }};
@@ -502,7 +544,7 @@ function savedEditorSource(view){
   return projectSource(view?.file?.path,{writable:false,label:'Saved · '+(view?.file?.path||'')});
 }
 function clipboardSource({label='Clipboard'}={}){
-  return {label,load:async()=>{
+  return {kind:'clipboard',label,load:async()=>{
     if(!navigator.clipboard?.readText)throw new Error('Clipboard read is unavailable in this browser/context');
     return {text:await navigator.clipboard.readText()};
   }};
@@ -639,4 +681,4 @@ reloadButton.onclick=()=>reload().catch(app.showError);closeButton.onclick=close
 backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)close();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&backdrop.classList.contains('visible'))close();});
 
-globalThis.TaskMenuFileCompare={open,close,reload,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,emptyCompareSource,openGitCommitFileDiff,openGitCommitFileDiffBetween,gitStateSource,workingProjectSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,openGitStatePair,promptProjectCompare,get current(){return current;}};
+globalThis.TaskMenuFileCompare={open,close,reload,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,emptyCompareSource,openGitCommitFileDiff,openGitCommitFileDiffBetween,gitStateSource,workingProjectSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,openGitStatePair,promptProjectCompare,selectForCompare,clearCompareSelection,compareWithSelected,openSources,canCompareWithSelected,sourceIdentity,sourceWritable,get selection(){return selectionSnapshot();},get current(){return current;}};
