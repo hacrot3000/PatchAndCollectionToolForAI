@@ -407,7 +407,7 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			var mutationLease sharedMutationLease
-			if sharedPatchMutationRequired(req.PatchMode) {
+			if sharedPatchMutationRequired(req.PatchMode, req.PatchUI) {
 				var ok bool
 				mutationLease, ok = s.acquireSharedMutation(w, r, "patch.run", "")
 				if !ok {
@@ -835,6 +835,40 @@ func buildPatchPromptResponseCommand(state session.ProtocolState, req patchPromp
 		"command":  "prompt_response",
 		"payload":  payload,
 	})
+}
+
+func patchPromptResponseRequiresWorkspaceMutation(state session.ProtocolState, req patchPromptResponseRequest) bool {
+	if !strings.EqualFold(strings.TrimSpace(req.Action), "select") || len(req.Indexes) == 0 || len(state.Prompt) == 0 {
+		return false
+	}
+	var prompt struct {
+		Items []struct {
+			Index int    `json:"index"`
+			Kind  string `json:"kind"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(state.Prompt, &prompt); err != nil {
+		return false
+	}
+	selected := make(map[int]bool, len(req.Indexes))
+	for _, index := range req.Indexes {
+		selected[index] = true
+	}
+	for _, item := range prompt.Items {
+		if selected[item.Index] && strings.EqualFold(strings.TrimSpace(item.Kind), "PATCH") {
+			return true
+		}
+	}
+	return false
+}
+
+func patchResumeActionRequiresWorkspaceMutation(req patchResumeActionRequest) bool {
+	switch strings.ToLower(strings.TrimSpace(req.Action)) {
+	case "all", "failed", "remaining":
+		return true
+	default:
+		return false
+	}
 }
 
 type patchItemActionRequest struct {
@@ -1743,6 +1777,22 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 		meta.Title = title
 		s.auditSharedSuccess(r, "session.title", "session", id, map[string]any{"kind": meta.Kind})
 		writeJSON(w, http.StatusOK, meta)
+	case "mutation-lock":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		meta, ok := s.Sessions.Metadata(id)
+		if !ok || meta.Kind != tasks.SessionKindPatch {
+			http.Error(w, "Patch session not found", http.StatusNotFound)
+			return
+		}
+		_, ok = s.ensureSharedPatchMutationForSession(w, r, id)
+		if !ok {
+			return
+		}
+		s.auditSharedSuccess(r, "patch.mutation_lock", "session", id, map[string]any{"reason": "interactive_terminal_fallback"})
+		writeJSON(w, http.StatusOK, map[string]bool{"locked": true})
 	case "prompt-response":
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1779,11 +1829,22 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		var mutationLease sharedMutationLease
+		if patchPromptResponseRequiresWorkspaceMutation(state, req) {
+			var ok bool
+			mutationLease, ok = s.ensureSharedPatchMutationForSession(w, r, id)
+			if !ok {
+				return
+			}
+		}
 		if err := writer.ProtocolCommand(id, command); err != nil {
+			s.releaseSharedMutation(mutationLease)
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		s.auditSharedSuccess(r, "patch.prompt_response", "session", id, nil)
+		s.auditSharedSuccess(r, "patch.prompt_response", "session", id, map[string]any{
+			"workspace_mutation_lock": mutationLease.token != "",
+		})
 		writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
 	case "parallel-collect":
 		if r.Method != http.MethodPost {
@@ -1964,11 +2025,22 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		var mutationLease sharedMutationLease
+		if patchResumeActionRequiresWorkspaceMutation(req) {
+			var ok bool
+			mutationLease, ok = s.ensureSharedPatchMutationForSession(w, r, id)
+			if !ok {
+				return
+			}
+		}
 		if err := writer.ProtocolCommand(id, command); err != nil {
+			s.releaseSharedMutation(mutationLease)
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		s.auditSharedSuccess(r, "patch.resume_action", "session", id, nil)
+		s.auditSharedSuccess(r, "patch.resume_action", "session", id, map[string]any{
+			"workspace_mutation_lock": mutationLease.token != "",
+		})
 		writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
 	case "history-cleanup":
 		if r.Method != http.MethodPost {
