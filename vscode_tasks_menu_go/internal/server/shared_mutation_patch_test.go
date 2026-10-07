@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -11,13 +12,43 @@ import (
 
 func TestSharedPatchMutationModeSelection(t *testing.T) {
 	for _, mode := range []string{"", "queue", "resume"} {
-		if !sharedPatchMutationRequired(mode) {
-			t.Fatalf("mode %q must hold workspace mutation lock", mode)
+		if sharedPatchMutationRequired(mode, "native") {
+			t.Fatalf("native mode %q must defer workspace mutation lock until PATCH execution", mode)
+		}
+		if !sharedPatchMutationRequired(mode, "terminal") {
+			t.Fatalf("terminal mode %q must conservatively hold workspace mutation lock", mode)
 		}
 	}
 	for _, mode := range []string{"history", "plan", "health"} {
-		if sharedPatchMutationRequired(mode) {
+		if sharedPatchMutationRequired(mode, "native") || sharedPatchMutationRequired(mode, "terminal") {
 			t.Fatalf("read-only mode %q must not hold workspace mutation lock", mode)
+		}
+	}
+}
+
+func TestNativePatchCommandLockClassification(t *testing.T) {
+	state := session.ProtocolState{Prompt: json.RawMessage(`{
+		"protocol":"taskdeck.patch","version":1,"type":"prompt","prompt_id":"p1","prompt_kind":"queue_selection",
+		"actions":["select","cancel"],
+		"items":[{"index":1,"kind":"PATCH"},{"index":2,"kind":"COLLECT"}]
+	}`)}
+	if !patchPromptResponseRequiresWorkspaceMutation(state, patchPromptResponseRequest{PromptID: "p1", Action: "select", Indexes: []int{1}}) {
+		t.Fatal("PATCH selection must acquire workspace mutation lock")
+	}
+	if patchPromptResponseRequiresWorkspaceMutation(state, patchPromptResponseRequest{PromptID: "p1", Action: "select", Indexes: []int{2}}) {
+		t.Fatal("COLLECT-only selection must not acquire workspace mutation lock")
+	}
+	if patchPromptResponseRequiresWorkspaceMutation(state, patchPromptResponseRequest{PromptID: "p1", Action: "cancel"}) {
+		t.Fatal("queue cancel must not acquire workspace mutation lock")
+	}
+	for _, action := range []string{"all", "failed", "remaining"} {
+		if !patchResumeActionRequiresWorkspaceMutation(patchResumeActionRequest{Action: action}) {
+			t.Fatalf("Resume action %q must acquire workspace mutation lock", action)
+		}
+	}
+	for _, action := range []string{"collect_failed", "delete_failed", "history", "normal"} {
+		if patchResumeActionRequiresWorkspaceMutation(patchResumeActionRequest{Action: action}) {
+			t.Fatalf("Resume action %q must not hold source workspace mutation lock", action)
 		}
 	}
 }
