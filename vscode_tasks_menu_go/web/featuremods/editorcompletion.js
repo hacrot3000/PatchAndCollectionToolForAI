@@ -336,12 +336,13 @@ function tier2Source(file){
     const prefix=token?.text||'';
     if(!importContext&&!context.explicit&&prefix.length<2)return null;
     controller?.abort();
-    controller=new AbortController();
-    context.addEventListener('abort',()=>controller?.abort(),{onDocChange:true});
+    const requestController=new AbortController();
+    controller=requestController;
+    context.addEventListener('abort',()=>requestController.abort(),{onDocChange:true});
     let data;
     try{
       data=await app.jsonFetch('/api/project/completions',{
-        method:'POST',cache:'no-store',signal:controller.signal,
+        method:'POST',cache:'no-store',signal:requestController.signal,
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
           path:String(file.path||''),
