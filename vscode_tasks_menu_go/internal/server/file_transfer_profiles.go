@@ -191,6 +191,7 @@ func (s *Server) fileTransferProfiles(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.updateFileTransferQueueLimit(created.ID, created.MaxConnections)
 		s.auditConnection(r, ConnectionAuditEvent{Kind: "file_transfer_profile", Action: "create", ProfileID: created.ID, Success: true})
 		writeJSON(w, http.StatusCreated, fileTransferProfileProjection(created))
 	default:
@@ -311,6 +312,7 @@ func (s *Server) fileTransferProfileItem(w http.ResponseWriter, r *http.Request)
 				}
 			}
 		}
+		s.updateFileTransferQueueLimit(updated.ID, updated.MaxConnections)
 		s.auditConnection(r, ConnectionAuditEvent{Kind: "file_transfer_profile", Action: "update", ProfileID: updated.ID, Success: true})
 		writeJSON(w, http.StatusOK, fileTransferProfileProjection(updated))
 	case http.MethodDelete:
