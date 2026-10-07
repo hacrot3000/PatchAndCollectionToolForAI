@@ -289,25 +289,30 @@ func TestEditorLanguageMappingCoversRequiredIDEFormats(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
+		"else if(ext==='go')options.go=true",
 		"else if(ext==='jsx')options.jsx=true",
 		"else if(ext==='ts')options.typescript=true",
 		"else if(ext==='tsx')options.tsx=true",
 		"if(name==='cmakelists.txt'||ext==='cmake')return 'cmake'",
 		"if(['sh','bash','zsh','fish','ksh'].includes(ext)",
+		"if(['nim','nims','nimble'].includes(ext))return 'nim'",
 		"if(ext==='lua')return 'lua'",
+		"if(kind==='lua'&&ch==='[')",
+		"match(/^\\[(=*)\\[/)",
 		"function legacySyntaxExtension(kind)",
 		"buildLegacyDecorations(update.view,kind)",
 		"options.extraExtensions=[activeLineDecorationExtension(),whitespaceDecorationExtension(),bracketMatchingExtension()]",
 		"options.extraExtensions.push(legacySyntaxExtension(legacy))",
 		"return 'CMake'",
 		"return 'Shell'",
+		"return 'Nim'",
 		"return 'Lua'",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("editor language coverage missing %q", want)
 		}
 	}
-	for _, forbidden := range []string{"CMake (plain)", "Shell (plain)", "Lua (plain)"} {
+	for _, forbidden := range []string{"CMake (plain)", "Shell (plain)", "Nim (plain)", "Lua (plain)"} {
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("editor still marks required language as plain text: %q", forbidden)
 		}
