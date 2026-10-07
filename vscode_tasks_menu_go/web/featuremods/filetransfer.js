@@ -1132,20 +1132,24 @@ function removeFinishedQueueItem(queue,item){
 async function runTransferQueueItem(view,item){
   const queue=view.transferQueue;if(!queue)return;
   queue.runningCount=(queue.runningCount||0)+1;queue.running=true;
+  item.abortController=new AbortController();
   item.status='running';item.error='';persistLocalTransferQueue(view);scheduleTransferQueueRender(view);syncRemoteNavigationAvailability(view);
   let poolBusy=false;
   try{
-    const result=await item.run(item);
+    const result=await item.run(item,item.abortController.signal);
     item.status=result?.skipped?'skipped':'success';item.run=null;
     if(item.jobID)markPersistentDeleteItemSuccess(view,item.jobID);
   }catch(error){
-    if(isTransferPoolBusy(error)){
+    if(error?.name==='AbortError'||item.abortController?.signal?.aborted){
+      item.status='stopped';item.error='';item.detail='Cancelled';item.run=null;
+    }else if(isTransferPoolBusy(error)){
       poolBusy=true;item.status='queued';item.error='Waiting for an FTP/SFTP connection slot';
       noteTransferPoolFull(view);queue.pending.push(item);
     }else{
       item.status='failed';item.error=String(error?.message||error||'Transfer failed');
     }
   }finally{
+    item.abortController=null;
     queue.runningCount=Math.max(0,(queue.runningCount||1)-1);queue.running=queue.runningCount>0;
     if(!poolBusy)removeFinishedQueueItem(queue,item);
     persistLocalTransferQueue(view);scheduleTransferQueueRender(view);syncRemoteNavigationAvailability(view);
@@ -1174,7 +1178,8 @@ function enqueueTransferTasks(view,tasks){
     queue.sequence++;
     const item={
       id:task.id||queue.sequence,status:task.status||'queued',error:task.error||'',direction:task.direction||'',kind:task.kind||'Transfer',
-      source:task.source||'',target:task.target||'',size:Number(task.size)||0,run:task.run,removeAfterRun:false,
+      source:task.source||'',target:task.target||'',size:Number(task.size)||0,detail:String(task.detail||''),files:Number(task.files)||0,
+      bytesDone:Number(task.bytesDone)||0,run:task.run,removeAfterRun:false,abortController:null,
       jobID:String(task.jobID||''),conflictPolicy:normalizeConflictPolicy(task.conflictPolicy),conflictJobID:String(task.conflictJobID||task.persistSpec?.job_id||''),persistSpec:task.persistSpec||null
     };
     queue.items.push(item);
@@ -1230,8 +1235,9 @@ async function clearTransferQueue(view){
   const kept=[];
   for(const item of queue.items){
     if(item.server){kept.push(item);continue;}
-    if(item.status==='running'){item.removeAfterRun=true;kept.push(item);}
-    else{item.run=null;}
+    if(item.status==='running'){
+      item.removeAfterRun=true;item.detail='Cancelling…';item.abortController?.abort();kept.push(item);
+    }else{item.run=null;}
   }
   queue.items=kept;queue.selectedIDs.clear();queue.selectionAnchor=null;
   persistLocalTransferQueue(view);scheduleTransferQueueRender(view);persistFileTransferSession();
@@ -1266,7 +1272,7 @@ async function removeSelectedTransfers(view){
   for(const item of queue.items){
     if(!selectedIDs.has(item.id))continue;
     if(item.server){if(item.serverID)serverIDs.push(item.serverID);continue;}
-    if(item.status==='running'){item.removeAfterRun=true;continue;}
+    if(item.status==='running'){item.removeAfterRun=true;item.detail='Cancelling…';item.abortController?.abort();continue;}
     item.status='removed';item.run=null;
   }
   queue.items=queue.items.filter(item=>item.status!=='removed');
@@ -1294,8 +1300,8 @@ function queueContextMenu(view,event,item=null,visible=[]){
     menu.push({separator:true});
     if(conflicts.length)menu.push({label:'Resolve conflict…',action:()=>resolveServerConflictItems(view,conflicts)});
     menu.push({label:'Resume selected',disabled:!resumable,action:()=>resumeSelectedTransfers(view)});
-    const hasRunningServer=selected.some(candidate=>candidate.server&&candidate.status==='running');
-    menu.push({label:hasRunningServer?'Cancel / remove selected':'Remove selected',danger:true,action:()=>removeSelectedTransfers(view)});
+    const hasRunning=selected.some(candidate=>candidate.status==='running');
+    menu.push({label:hasRunning?'Cancel / remove selected':'Remove selected',danger:true,action:()=>removeSelectedTransfers(view)});
   }
   showContextMenu(menu,event.clientX,event.clientY,selected.length?selected.length+' queue item(s) selected':'Transfer Queue');
 }
