@@ -1990,7 +1990,7 @@ globalThis.TaskMenuEditor={
     const localViews=[...editors.values()].filter(view=>!view.closed&&!remoteEditorDocument(view.file));
     const files=localViews.map(view=>String(view.file?.path||'')).filter(Boolean);
     const activeView=activeEditorID?editors.get(activeEditorID):null;
-    return {files,active:activeView?.file?.remote_workspace_id?'':String(activeView?.file?.path||'')};
+    return {files,active:remoteEditorDocument(activeView?.file)?'':String(activeView?.file?.path||'')};
   },
   async restoreState(state){
     const files=Array.isArray(state?.files)?state.files.map(String).filter(Boolean):[];
