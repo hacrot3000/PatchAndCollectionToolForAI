@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -44,6 +45,32 @@ func requireSelfUpdatePython(t *testing.T) {
 	t.Helper()
 	if _, err := pythonForSelfUpdate(context.Background()); err != nil {
 		t.Skipf("self-update Python unavailable: %v", err)
+	}
+}
+
+
+func TestPythonForSelfUpdatePrefersVersionedRuntimeOverLegacyPython3(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	bin := t.TempDir()
+	python310 := filepath.Join(bin, "python3.10")
+	legacyPython3 := filepath.Join(bin, "python3")
+	if err := os.WriteFile(python310, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyPython3, []byte("#!/bin/sh\nexit 3\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("TASKDECK_PYTHON", "")
+
+	found, err := pythonForSelfUpdate(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found != python310 {
+		t.Fatalf("python=%q want %q", found, python310)
 	}
 }
 
