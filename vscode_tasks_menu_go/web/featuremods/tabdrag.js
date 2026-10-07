@@ -37,6 +37,7 @@ function saveOrder(){
   try{sessionStorage.setItem(storageKey(),JSON.stringify(currentIDs()));}
   catch(e){console.warn('Cannot persist tab order',e);}
   globalThis.TaskMenuTerminalRestore?.persistSnapshot?.();
+  globalThis.TaskMenuEditor?.persistSession?.();
 }
 function readOrder(){
   try{
