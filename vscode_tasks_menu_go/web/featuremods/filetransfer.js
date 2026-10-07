@@ -1780,10 +1780,10 @@ async function localSelectedFile(view,entry){
   const handle=await dir.getFileHandle(entry.name);return handle.getFile();
 }
 
-async function uploadBrowserFileToPath(view,file,target){
+async function uploadBrowserFileToPath(view,file,target,signal=null){
   const form=new FormData();
   form.append('profile_id',view.profile.id);form.append('path',target);form.append('file',file,file.name);
-  const response=await app.fetchWithLease('/api/file-transfer/upload',{method:'POST',body:form,cache:'no-store'});
+  const response=await app.fetchWithLease('/api/file-transfer/upload',{method:'POST',body:form,cache:'no-store',signal});
   if(!response.ok){
     const message=(await response.text()).trim()||response.statusText;
     if(response.status===429&&response.headers.get('X-TaskDeck-Transfer-Pool-Full')==='1'){
@@ -2519,16 +2519,39 @@ function tarHeader(path,size,mtime,directory=false){
   return header;
 }
 function tarPadding(size){const remaining=Number(size)%512;return remaining?new Uint8Array(512-remaining):null;}
-async function* localTarEntryChunks(handle,path){
+function compressedUploadAbortError(){
+  const error=new Error('Compressed upload cancelled');error.name='AbortError';return error;
+}
+function assertCompressedUploadActive(signal){if(signal?.aborted)throw compressedUploadAbortError();}
+function updateLocalCompressedItem(view,item,detail,files=0,bytes=0,size=0){
+  if(!item)return;
+  item.detail=detail;item.files=files;item.bytesDone=bytes;if(size>0)item.size=size;
+  scheduleTransferQueueRender(view);
+}
+async function* localTarEntryChunks(handle,path,state){
+  assertCompressedUploadActive(state?.signal);
   if(handle.kind==='directory'){
     yield tarHeader(path,0,Date.now(),true);
-    for await(const [name,child] of handle.entries())yield* localTarEntryChunks(child,path+'/'+name);
+    for await(const [name,child] of handle.entries()){
+      assertCompressedUploadActive(state?.signal);
+      yield* localTarEntryChunks(child,path+'/'+name,state);
+    }
     return;
   }
-  const file=await handle.getFile();yield tarHeader(path,file.size,file.lastModified,false);
+  const file=await handle.getFile();
+  state.files++;state.bytes+=Number(file.size)||0;
+  const now=performance.now();
+  if(now-state.lastReport>250){
+    state.lastReport=now;updateLocalCompressedItem(state.view,state.item,'Compressing · '+state.files+' files · '+formatSize(state.bytes),state.files,state.bytes);
+  }
+  yield tarHeader(path,file.size,file.lastModified,false);
   const reader=file.stream().getReader();
-  try{while(true){const part=await reader.read();if(part.done)break;if(part.value?.byteLength)yield part.value;}}
-  finally{reader.releaseLock();}
+  try{
+    while(true){
+      assertCompressedUploadActive(state?.signal);
+      const part=await reader.read();if(part.done)break;if(part.value?.byteLength)yield part.value;
+    }
+  }finally{reader.releaseLock();}
   const padding=tarPadding(file.size);if(padding)yield padding;
 }
 function readableStreamFromAsyncGenerator(generator){
@@ -2538,25 +2561,58 @@ function readableStreamFromAsyncGenerator(generator){
     async cancel(){if(iterator.return)await iterator.return();}
   });
 }
-async function buildLocalSelectionTarGz(view,entries){
+async function buildLocalSelectionTarGz(view,entries,item=null,signal=null){
   if(typeof CompressionStream!=='function')throw new Error('This browser does not provide native gzip compression.');
+  const state={view,item,signal,files:0,bytes:0,lastReport:0};
   async function* chunks(){
-    for(const entry of entries)yield* localTarEntryChunks(await localUploadEntryHandle(view,entry),entry.name);
+    for(const entry of entries){
+      assertCompressedUploadActive(signal);
+      yield* localTarEntryChunks(await localUploadEntryHandle(view,entry),entry.name,state);
+    }
     yield new Uint8Array(1024);
   }
+  updateLocalCompressedItem(view,item,'Compressing selected folders',0,0);
   const stream=readableStreamFromAsyncGenerator(chunks()).pipeThrough(new CompressionStream('gzip'));
   const blob=await new Response(stream).blob();
+  assertCompressedUploadActive(signal);
   const stamp=new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14);
   const random=Array.from(crypto.getRandomValues(new Uint8Array(4)),byte=>byte.toString(16).padStart(2,'0')).join('');
+  updateLocalCompressedItem(view,item,'Compressed · '+state.files+' files · '+formatSize(blob.size),state.files,state.bytes,blob.size);
   return new File([blob],'.taskdeck-folder-'+stamp+'-'+random+'.tar.gz',{type:'application/gzip',lastModified:Date.now()});
 }
-async function autoExtractCompressedUpload(view,remoteArchive,remoteDir,roots,mergePolicy='fail'){
+async function autoExtractCompressedUpload(view,remoteArchive,remoteDir,roots,mergePolicy='fail',signal=null){
   const response=await app.fetchWithLease('/api/file-transfer/archive-extract',{
-    method:'POST',headers:{'Content-Type':'application/json'},
+    method:'POST',headers:{'Content-Type':'application/json'},signal,
     body:JSON.stringify({profile_id:view.profile.id,remote_archive:remoteArchive,remote_destination:remoteDir,roots,format:'tar.gz',merge_policy:mergePolicy})
   });
   if(!response.ok)throw new Error((await response.text()).trim()||('HTTP '+response.status));
   return response.json();
+}
+async function runLocalCompressedUpload(view,entries,remoteDir,roots,mergePolicy,item,signal){
+  const archive=await buildLocalSelectionTarGz(view,entries,item,signal);
+  const remoteArchive=joinPath(remoteDir,archive.name,true);
+  assertCompressedUploadActive(signal);
+  updateLocalCompressedItem(view,item,'Uploading archive · '+formatSize(archive.size),item.files||0,item.bytesDone||0,archive.size);
+  await uploadBrowserFileToPath(view,archive,remoteArchive,signal);
+  const commands=compressedUploadManualCommands(remoteArchive,remoteDir,roots,mergePolicy);
+  invalidateRemoteCache(view,remoteDir);
+  assertCompressedUploadActive(signal);
+  if(canAutoExtractCompressedUpload(view)){
+    updateLocalCompressedItem(view,item,'Extracting archive through SSH',item.files||0,item.bytesDone||0,archive.size);
+    try{
+      await autoExtractCompressedUpload(view,remoteArchive,remoteDir,roots,mergePolicy,signal);
+      updateLocalCompressedItem(view,item,'Completed · '+(item.files||0)+' files',item.files||0,item.bytesDone||0,archive.size);
+      markRemoteQueueDirty(view,remoteDir);return;
+    }catch(error){
+      if(error?.name==='AbortError'||signal?.aborted)throw compressedUploadAbortError();
+      updateLocalCompressedItem(view,item,'Auto-extract failed · manual extraction required',item.files||0,item.bytesDone||0,archive.size);
+      await showManualExtractCommands(view,remoteArchive,remoteDir,roots,commands);
+      markRemoteQueueDirty(view,remoteDir);return;
+    }
+  }
+  updateLocalCompressedItem(view,item,'Archive uploaded · manual extraction required',item.files||0,item.bytesDone||0,archive.size);
+  await showManualExtractCommands(view,remoteArchive,remoteDir,roots,commands);
+  markRemoteQueueDirty(view,remoteDir);
 }
 async function uploadCompressedSelection(view,entries,mergePolicy='fail'){
   const source=view.left.source,remoteDir=normalizeRemotePath(view.remote.currentPath||'.'),roots=selectedArchiveRoots(entries);
@@ -2572,29 +2628,12 @@ async function uploadCompressedSelection(view,entries,mergePolicy='fail'){
     });
     return;
   }
-
-  view.remote.status.textContent='Compressing selected items…';
-  const archive=await buildLocalSelectionTarGz(view,entries);
-  const remoteArchive=joinPath(remoteDir,archive.name,true);
-  view.remote.status.textContent='Uploading compressed archive '+formatSize(archive.size)+'…';
-  await uploadBrowserFileToPath(view,archive,remoteArchive);
-  const commands=compressedUploadManualCommands(remoteArchive,remoteDir,roots,mergePolicy);
-  invalidateRemoteCache(view,remoteDir);
-  if(canAutoExtractCompressedUpload(view)){
-    view.remote.status.textContent='Archive uploaded; extracting through SSH…';
-    try{
-      await autoExtractCompressedUpload(view,remoteArchive,remoteDir,roots,mergePolicy);
-      view.remote.status.textContent='Compressed folder upload complete';
-      await loadRemoteDirectory(view,remoteDir,{force:true});return;
-    }catch(error){
-      view.remote.status.textContent='Archive uploaded but automatic extraction failed; manual command required';
-      await showManualExtractCommands(view,remoteArchive,remoteDir,roots,commands);
-      await loadRemoteDirectory(view,remoteDir,{force:true});return;
-    }
-  }
-  view.remote.status.textContent='Archive uploaded; manual extraction required';
-  await showManualExtractCommands(view,remoteArchive,remoteDir,roots,commands);
-  await loadRemoteDirectory(view,remoteDir,{force:true});
+  const sourceLabel=entries.length===1?String(entries[0]?.name||'Local selection'):(String(entries[0]?.name||'Local selection')+' (+'+(entries.length-1)+' selected)');
+  enqueueTransferTasks(view,[{
+    direction:'→',kind:'Compressed upload',source:sourceLabel,target:remoteDir,detail:'Waiting to compress',
+    run:(item,signal)=>runLocalCompressedUpload(view,entries,remoteDir,roots,mergePolicy,item,signal)
+  }]);
+  view.remote.status.textContent='Compressed upload queued in Transfer Queue…';
 }
 async function compressedUploadDecision(view,entries){
   if(!selectionContainsFolder(entries))return 'normal';
