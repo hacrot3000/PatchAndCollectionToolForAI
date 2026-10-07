@@ -60,7 +60,8 @@ async function openProjectHostApplication(pathValue){
 function projectCompareSource(pathValue){
   const compare=globalThis.TaskMenuFileCompare;if(!compare?.projectSource)throw new Error('File Compare unavailable');
   pathValue=cleanPath(pathValue);
-  return compare.projectSource(pathValue,{label:'Project · '+pathValue});
+  const writable=!app.sharedMode||Boolean(app.hasPermission?.('files.write')||app.hasPermission?.('project.admin'));
+  return compare.projectSource(pathValue,{label:'Project · '+pathValue,writable});
 }
 function selectProjectForCompare(pathValue){
   const compare=globalThis.TaskMenuFileCompare;if(!compare?.selectForCompare)throw new Error('File Compare unavailable');
