@@ -433,14 +433,14 @@ def _execute_git_operation_detailed(repo: Path, op: dict[str, Any]) -> GitOperat
     if kind == "status":
         cp = _run(repo, ["status", "--short", "--branch", "--untracked-files=all"])
     elif kind == "current_branch":
-        cp = _run(repo, ["branch", "--show-current"])
+        cp = _run(repo, ["symbolic-ref", "--quiet", "--short", "HEAD"])
     elif kind == "branches":
         cp = _run(repo, ["for-each-ref", "--format=%(refname:short)%09%(objectname:short)%09%(HEAD)", "refs/heads/"])
     elif kind == "log":
         _verify_ref(repo, op["ref"])
         cp = _run(
             repo,
-            ["log", "--no-show-signature", "--decorate", "--date=iso-strict", f"-n{op['max_entries']}",
+            ["log", "--no-show-signature", "--decorate", "--date=iso", f"-n{op['max_entries']}",
              "--pretty=format:%h%x09%ad%x09%d%x09%s%x09[%an]", op["ref"], *path_tail],
             timeout=60,
         )
@@ -473,9 +473,13 @@ def _execute_git_operation_detailed(repo: Path, op: dict[str, Any]) -> GitOperat
         if dirty.stdout:
             raise GitSafeError("switch refused: worktree/index/untracked state is not clean")
         _assert_switch_has_no_external_filter_execution(repo, branch)
-        cp = _run(repo, ["switch", "--no-guess", branch], timeout=60)
+        # The branch is already verified as an existing local ref, so
+        # checkout cannot trigger remote-branch guessing. This preserves the
+        # same safety contract while supporting Git 1.8.x, which predates
+        # "git switch" and "branch --show-current".
+        cp = _run(repo, ["checkout", branch], timeout=60)
         if cp.returncode == 0:
-            verify = _run(repo, ["branch", "--show-current"])
+            verify = _run(repo, ["symbolic-ref", "--quiet", "--short", "HEAD"])
             if verify.returncode != 0 or verify.stdout.strip() != branch:
                 raise GitSafeError("switch verification failed; current branch did not match requested local branch")
     else:
