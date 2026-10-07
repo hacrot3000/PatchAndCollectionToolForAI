@@ -2872,6 +2872,18 @@ async function streamRemoteDeleteEntries(view,entries){
   const base=normalizeRemotePath(view.remote.currentPath||'.');
   const targets=selected.map(entry=>({path:joinPath(base,entry.name,true),directory:entryType(entry)==='directory'}));
   view.remote.status.textContent='Background delete queued on TaskDeck daemon…';
+  // Large file-only selections used to exceed the JSON request limit. Split
+  // them into bounded jobs so tens of thousands of selected files remain
+  // actionable without depending on browser/server body size. Keep recursive
+  // directory deletion as one approval-scoped job.
+  if(dirs===0&&targets.length>1000){
+    for(let offset=0;offset<targets.length;offset+=1000){
+      view.remote.status.textContent='Queueing delete '+Math.min(offset+1000,targets.length)+'/'+targets.length+'…';
+      await createServerTransferJob(view,{kind:'remote_delete',remote_targets:targets.slice(offset,offset+1000)});
+    }
+    view.remote.status.textContent='Background delete queued · '+targets.length+' file(s)';
+    return;
+  }
   await createServerTransferJob(view,{kind:'remote_delete',remote_targets:targets});
 }
 async function deleteRemoteEntries(view,entries){return streamRemoteDeleteEntries(view,entries);}
