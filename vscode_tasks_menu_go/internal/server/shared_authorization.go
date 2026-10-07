@@ -337,6 +337,11 @@ func sharedRoutePermissions(r *http.Request) []string {
 			return []string{identity.PermissionFilesRead}
 		}
 		return []string{identity.PermissionFilesWrite}
+	case "/api/project/editor-session":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionFilesRead}
+		}
+		return []string{identity.PermissionFilesWrite}
 	case "/api/project/file-history":
 		return []string{identity.PermissionFilesRead}
 	case "/api/project/mutate":
