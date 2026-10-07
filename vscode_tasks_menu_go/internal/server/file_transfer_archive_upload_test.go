@@ -1,6 +1,9 @@
 package server
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,6 +81,54 @@ func TestFileTransferManualExtractCommandsPreflightAndCleanup(t *testing.T) {
 func TestRemoteArchiveExtractIntoExistingCommandRejectsUnknownFormat(t *testing.T) {
 	if _, err := remoteArchiveExtractIntoExistingCommand("rar", "/tmp/archive.rar", "/srv/app", []string{"assets"}); err == nil {
 		t.Fatal("unsupported archive format was accepted")
+	}
+}
+
+func TestCompressedUploadOverwritePolicyAllowsExistingRoots(t *testing.T) {
+	commands := fileTransferManualExtractCommandsWithPolicy("tar.gz", "/tmp/archive.tar.gz", "/srv/app", []string{"assets"}, "overwrite")
+	if strings.Contains(commands["posix"], "test ! -e") {
+		t.Fatalf("overwrite POSIX command still blocks existing roots: %s", commands["posix"])
+	}
+	if strings.Contains(commands["powershell"], "Test-Path -LiteralPath (Join-Path") {
+		t.Fatalf("overwrite PowerShell command still blocks existing roots: %s", commands["powershell"])
+	}
+	command, err := remoteArchiveExtractCommandWithPolicy("tar.gz", "/tmp/archive.tar.gz", "/srv/app", []string{"assets"}, "overwrite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(command, "tar -xzf") || strings.Contains(command, "test ! -e") {
+		t.Fatalf("overwrite extract command=%s", command)
+	}
+}
+
+func TestCompressedUploadMergePolicyValidation(t *testing.T) {
+	for _, value := range []string{"", "fail", "overwrite"} {
+		if _, err := normalizeFileTransferArchiveMergePolicy(value); err != nil {
+			t.Fatalf("merge policy %q rejected: %v", value, err)
+		}
+	}
+	if _, err := normalizeFileTransferArchiveMergePolicy("unsafe"); err == nil {
+		t.Fatal("unsupported merge policy accepted")
+	}
+}
+
+func TestLargeCompressedUploadWriterCanBeCancelled(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 32; i++ {
+		if err := os.WriteFile(filepath.Join(root, fmt.Sprintf("f-%03d.txt", i)), []byte(strings.Repeat("x", 4096)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var out bytes.Buffer
+	err = writeLargeFileTransferTarGz(ctx, &out, []projectArchiveSource{{Virtual: "many", Path: root, Info: info, Base: "many"}}, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled huge-folder writer error=%v", err)
 	}
 }
 
