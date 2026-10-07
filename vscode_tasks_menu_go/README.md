@@ -151,7 +151,7 @@ Git workflow nâng cao hiện có:
   - **Force delete local** → `git branch -D <branch>`: chỉ xóa local branch nhưng cho phép bỏ branch chưa merge, vì vậy UI cảnh báo nguy cơ mất commit;
   - **Forget local ref** → `git branch -dr <remote>/<branch>`: chỉ xóa remote-tracking ref trong máy hiện tại; branch trên server không đổi và lần fetch sau có thể tạo ref lại;
   - **Delete on remote / Delete upstream remote** → `git push <remote> --delete <branch>`: xóa branch thật trên remote server nhưng không xóa local branch cùng tên;
-- Diff dùng **visual side-by-side** theo hunk, có line number và highlight added/removed; raw unified patch vẫn có thể mở bên dưới để đối chiếu chính xác output Git;
+- Diff dùng **visual side-by-side** theo hunk, có line number, syntax highlighting cho từng bên và intra-line highlighting cho đúng đoạn thay đổi; thay đổi logic mặc định dùng nền đỏ/amber, còn chỉ khi chắc chắn là comment/cosmetic mới dùng nền xanh; toolbar có **View all / View diff / View diff context / View unimportant** và raw unified patch vẫn có thể mở bên dưới để đối chiếu chính xác output Git;
 - Diff biểu diễn đúng ba lớp state của Git theo chuỗi **HEAD (committed) → Index (staged) → Working tree (not staged)**:
   - **HEAD ↔ Staged** chỉ xem phần đã stage, đồng thời hỗ trợ **Unstage hunk**;
   - **Staged ↔ Working** chỉ xem phần sửa tiếp nhưng chưa stage, đồng thời hỗ trợ **Stage hunk / Discard hunk**;
