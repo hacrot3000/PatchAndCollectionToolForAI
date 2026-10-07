@@ -129,10 +129,23 @@ func (l *sharedMutationLock) releaseOperation(operation string) bool {
 	return true
 }
 
-func sharedPatchMutationRequired(mode string) bool {
-	switch strings.ToLower(strings.TrimSpace(mode)) {
+func sharedPatchMutationRequired(mode, uiMode string) bool {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	uiMode = strings.ToLower(strings.TrimSpace(uiMode))
+	if uiMode == "" {
+		uiMode = "native"
+	}
+	switch mode {
 	case "history", "plan", "health":
 		return false
+	case "", "queue", "resume":
+		// Native Queue/Resume are selector/read surfaces until a concrete PATCH
+		// execution command is submitted. Holding the global workspace lock while
+		// waiting at those prompts blocks unrelated Git/self-update work for no
+		// safety benefit. Terminal UI remains conservative because its raw PTY
+		// input bypasses the structured command endpoints where deferred locking
+		// can be enforced.
+		return uiMode == "terminal"
 	default:
 		return true
 	}
@@ -159,6 +172,32 @@ func (s *Server) refreshSharedMutationLock() {
 
 func (s *Server) releaseSharedMutationForSession(sessionID string) {
 	s.sharedMutation.releaseResource("patch.run", strings.TrimSpace(sessionID))
+}
+
+func (s *Server) ensureSharedPatchMutationForSession(w http.ResponseWriter, r *http.Request, sessionID string) (sharedMutationLease, bool) {
+	sessionID = strings.TrimSpace(sessionID)
+	if !s.Config.SharedServerEnabled {
+		return sharedMutationLease{}, true
+	}
+	if sessionID == "" {
+		http.Error(w, "Patch session id is required for workspace mutation lock", http.StatusBadRequest)
+		return sharedMutationLease{}, false
+	}
+	s.refreshSharedMutationLock()
+	if holder, ok := s.sharedMutation.snapshot(); ok &&
+		holder.Operation == "patch.run" && holder.ResourceID == sessionID {
+		return sharedMutationLease{}, true
+	}
+	lease, ok := s.acquireSharedMutation(w, r, "patch.run", "")
+	if !ok {
+		return sharedMutationLease{}, false
+	}
+	if lease.token != "" && !s.sharedMutation.bindResource(lease.token, sessionID) {
+		s.releaseSharedMutation(lease)
+		http.Error(w, "workspace mutation lock lost while binding Patch session", http.StatusServiceUnavailable)
+		return sharedMutationLease{}, false
+	}
+	return lease, true
 }
 
 func (s *Server) acquireSharedMutation(w http.ResponseWriter, r *http.Request, operation, resourceID string) (sharedMutationLease, bool) {
@@ -210,15 +249,57 @@ func (s *Server) sharedMutationStatus(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	s.refreshSharedMutationLock()
-	holder, ok := s.sharedMutation.snapshot()
-	if !ok {
+	switch r.Method {
+	case http.MethodGet:
+		s.refreshSharedMutationLock()
+		holder, ok := s.sharedMutation.snapshot()
+		if !ok {
+			writeJSON(w, http.StatusOK, sharedMutationStatusResponse{Locked: false})
+			return
+		}
+		writeJSON(w, http.StatusOK, sharedMutationStatusResponse{Locked: true, Holder: &holder})
+	case http.MethodDelete:
+		if !s.requireSharedActionPermission(w, r, identity.PermissionProjectAdmin, "mutation.force_release", "workspace") {
+			return
+		}
+		if r.URL.Query().Get("confirm") != "1" {
+			http.Error(w, "explicit confirmation is required", http.StatusBadRequest)
+			return
+		}
+		s.refreshSharedMutationLock()
+		holder, ok := s.sharedMutation.snapshot()
+		if !ok {
+			writeJSON(w, http.StatusOK, sharedMutationStatusResponse{Locked: false})
+			return
+		}
+		expectedOperation := strings.TrimSpace(r.URL.Query().Get("operation"))
+		expectedResource := strings.TrimSpace(r.URL.Query().Get("resource_id"))
+		if expectedOperation == "" || expectedOperation != holder.Operation || expectedResource != holder.ResourceID {
+			http.Error(w, "mutation lock changed; refresh before releasing it", http.StatusConflict)
+			return
+		}
+		if holder.Operation != "patch.run" || holder.ResourceID == "" {
+			http.Error(w, "only a Patch session lock can be force-released safely from the UI", http.StatusConflict)
+			return
+		}
+		if s.Sessions != nil {
+			if meta, exists := s.Sessions.Metadata(holder.ResourceID); exists && meta.Status == "running" {
+				if err := s.Sessions.Stop(holder.ResourceID); err != nil {
+					http.Error(w, "cannot stop active Patch session before releasing lock", http.StatusConflict)
+					return
+				}
+			}
+		}
+		s.releaseSharedMutationForSession(holder.ResourceID)
+		principal, _ := PrincipalFromContext(r.Context())
+		s.appendSharedAudit(r, &principal, nil, "mutation.force_release", "workspace", holder.ResourceID, "success", map[string]any{
+			"holder_user_id":     holder.UserID,
+			"holder_username":    holder.Username,
+			"holder_operation":   holder.Operation,
+			"holder_resource_id": holder.ResourceID,
+		})
 		writeJSON(w, http.StatusOK, sharedMutationStatusResponse{Locked: false})
-		return
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
-	writeJSON(w, http.StatusOK, sharedMutationStatusResponse{Locked: true, Holder: &holder})
 }
