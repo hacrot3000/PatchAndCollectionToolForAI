@@ -959,7 +959,7 @@ async function syncServerTransferQueue(view){
     size:Number(item.size)||0,decision:String(item.decision||''),conflict:item.conflict||null,run:null,removeAfterRun:false
   }));
   const wasBusy=Boolean(queue.serverBusy);
-  const busy=Number(snapshot?.active_scans||0)>0||serverItems.some(item=>item.status==='queued'||item.status==='running'||item.status==='conflict');
+  const busy=Number(snapshot?.active_scans||0)>0||Number(snapshot?.queued_scans||0)>0||serverItems.some(item=>item.status==='queued'||item.status==='running'||item.status==='conflict');
   queue.serverActiveScans=Number(snapshot?.active_scans)||0;
   queue.serverQueuedScans=Number(snapshot?.queued_scans)||0;
   queue.serverMaxConnections=Math.max(1,Number(snapshot?.max_connections||view.profile?.max_connections||3)||3);
@@ -2920,7 +2920,8 @@ async function fileTransferOperationSnapshot(){
     for(const job of Array.isArray(snapshot?.jobs)?snapshot.jobs:[]){
       const jobItems=items.filter(item=>String(item?.job_id||'')===String(job?.id||''));
       const failed=jobItems.find(item=>String(item?.status||'')==='failed');
-      const status=String(job?.status||'queued').toLowerCase();
+      const rawStatus=String(job?.status||'queued').toLowerCase();
+      const status=rawStatus==='scan_queued'?'queued':rawStatus;
       operations.push({
         source:'transfer',id:String(job?.id||''),profile_id:profileID,
         title:(String(profile?.protocol||'SFTP').toUpperCase()+' · '+String(profile?.name||profile?.host||profileID)),
