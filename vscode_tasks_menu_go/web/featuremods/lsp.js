@@ -46,7 +46,7 @@ function cursorPosition(view){
   return {line:line.number-1,character:pos-line.from};
 }
 function requestPayload(view,action,extra={}){
-  if(view?.file?.remote_workspace_id)throw new Error('Language Server actions are not available for Remote Workspace files');
+  if((view?.file?.remote_workspace_id||view?.file?.remote_transfer_profile_id))throw new Error('Language Server actions are not available for Remote Workspace files');
   return {
     action,path:String(view.file.path||''),text:view.cm.state.doc.toString(),
     position:cursorPosition(view),...extra
@@ -220,7 +220,7 @@ function close(){backdrop.classList.remove('visible');currentView=null;}
 
 async function decorateView(view){
   if(!view||view.closed||view.lspButton?.isConnected)return;
-  if(view.file?.remote_workspace_id)return;
+  if((view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id))return;
   if(!lspMapped(view.file?.path))return;
   const head=view.pane?.querySelector?.('.editor-head');if(!head)return;
   const button=document.createElement('button');button.type='button';button.className='editor-lsp';button.textContent='LSP';button.title='Language Server actions';
