@@ -2444,7 +2444,9 @@ function showManualExtractCommands(remoteArchive,remoteDir,roots,commands=null){
     const backdrop=document.createElement('div');backdrop.className='ft-upload-choice-backdrop';
     const box=document.createElement('div');box.className='ft-upload-choice';box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');
     const title=document.createElement('h3');title.textContent='Archive uploaded — manual extraction required';
-    const note=document.createElement('p');note.textContent='TaskDeck cannot run a remote shell for this FTP/SFTP session. Archive: '+remoteArchive+' · Destination: '+remoteDir+'. Run one of these commands on the remote server. Both commands check that selected top-level destinations do not already exist and remove the archive only after successful extraction.';
+    const note=document.createElement('p');
+    const ftpPathWarning=String(views.get(activeViewID)?.profile?.protocol||'').toLowerCase()==='ftp'?' FTP paths may be chroot/virtual paths; adjust the shell paths if your FTP root is mapped differently on the server.':'';
+    note.textContent='TaskDeck cannot run a remote shell for this FTP/SFTP session. Archive: '+remoteArchive+' · Destination: '+remoteDir+'. Run one of these commands on the remote server. Both commands check that selected top-level destinations do not already exist and remove the archive only after successful extraction.'+ftpPathWarning;
     const posixLabel=document.createElement('p');posixLabel.textContent='POSIX shell:';
     const posix=document.createElement('textarea');posix.className='ft-upload-command';posix.readOnly=true;posix.value=commands.posix||'';
     const copyPosix=document.createElement('button');copyPosix.type='button';copyPosix.textContent='Copy POSIX command';copyPosix.onclick=()=>copyText(posix.value);
