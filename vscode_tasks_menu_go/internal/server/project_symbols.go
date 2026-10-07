@@ -2,14 +2,13 @@ package server
 
 import (
 	"container/heap"
-	"errors"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 )
