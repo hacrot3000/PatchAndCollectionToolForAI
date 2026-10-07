@@ -99,6 +99,40 @@ func TestNormalizeFTPTLSModesAndPorts(t *testing.T) {
 	}
 }
 
+func TestNormalizeDefaultsAndValidatesMaxConnections(t *testing.T) {
+	ftp, err := Normalize(Profile{
+		ID: "ftp-pool", Name: "FTP Pool", Protocol: ProtocolFTP,
+		Host: "ftp.example.com", Username: "deploy",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ftp.MaxConnections != DefaultMaxConnections || ftp.MaxConnections != 3 {
+		t.Fatalf("FTP max connections=%d want default 3", ftp.MaxConnections)
+	}
+
+	sftp, err := Normalize(Profile{
+		ID: "sftp-pool", Name: "SFTP Pool", Protocol: ProtocolSFTP,
+		SSHProfileID: "prod-ssh", MaxConnections: 7,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sftp.MaxConnections != 7 {
+		t.Fatalf("SFTP max connections=%d want 7", sftp.MaxConnections)
+	}
+
+	for _, value := range []int{-1, 17} {
+		_, err := Normalize(Profile{
+			ID: "bad-pool", Name: "Bad Pool", Protocol: ProtocolFTP,
+			Host: "ftp.example.com", Username: "deploy", MaxConnections: value,
+		})
+		if err == nil || !strings.Contains(err.Error(), "max connections") {
+			t.Fatalf("max_connections=%d error=%v", value, err)
+		}
+	}
+}
+
 func TestNormalizeSFTPRejectsFTPTLSMode(t *testing.T) {
 	_, err := Normalize(Profile{
 		ID: "sftp-prod", Name: "SFTP", Protocol: ProtocolSFTP,
