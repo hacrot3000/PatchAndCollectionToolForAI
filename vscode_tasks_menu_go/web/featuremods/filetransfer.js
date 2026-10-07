@@ -3076,11 +3076,28 @@ function compareLeftFileSource(view,entry){
   if(entry.handle)return compare.browserFileHandleSource(entry.handle,{label:'Local · '+leftPath,path:leftPath});
   throw new Error('Selected local browser file handle is unavailable');
 }
+function compareRemoteFileSource(view,entry){
+  const compare=globalThis.TaskMenuFileCompare;if(!compare?.remoteSource)throw new Error('File Compare unavailable');
+  const remotePath=joinPath(view.remote.currentPath,entry.name,true);
+  const protocol=String(view.profile?.protocol||'remote').toUpperCase();
+  return compare.remoteSource(view.profile.id,remotePath,{label:protocol+' · '+remotePath});
+}
+function appendCompareSelectionActions(items,source){
+  const compare=globalThis.TaskMenuFileCompare;if(!compare?.selectForCompare)return;
+  items.push({label:'Select for compare',action:()=>compare.selectForCompare(source)});
+  if(compare.selection)items.push({
+    label:'Compare with selected file',
+    disabled:!compare.canCompareWithSelected?.(source),
+    action:()=>compare.compareWithSelected(source,{title:'Selected files'})
+  });
+}
+async function compareTransferSources(sources,title='Selected transfer files'){
+  const compare=globalThis.TaskMenuFileCompare;if(!compare?.openSources)throw new Error('File Compare unavailable');
+  return compare.openSources(sources,{title});
+}
 async function compareLeftRemoteFiles(view,leftEntry,remoteEntry){
   if(entryType(leftEntry)!=='file'||entryType(remoteEntry)!=='file')throw new Error('File Compare requires one file on each side');
-  const compare=globalThis.TaskMenuFileCompare;if(!compare?.openLeftRemote)throw new Error('File Compare unavailable');
-  const remotePath=joinPath(view.remote.currentPath,remoteEntry.name,true);
-  return compare.openLeftRemote(compareLeftFileSource(view,leftEntry),view.profile.id,remotePath);
+  return compareTransferSources([compareLeftFileSource(view,leftEntry),compareRemoteFileSource(view,remoteEntry)],'Left ↔ Remote');
 }
 function transferArchiveKind(name){
   const lower=String(name||'').toLowerCase();
@@ -3133,6 +3150,12 @@ function commonSelectionMenu(panel,remote,onRefresh){
 }
 function leftContext(view,entry,event){
   const panel=view.left,selected=selectedEntries(panel),items=[];
+  const compareFiles=selected.filter(item=>entryType(item)==='file');
+  if(selected.length===2&&compareFiles.length===2){
+    items.push({label:'Compare selected files',action:()=>compareTransferSources(compareFiles.map(item=>compareLeftFileSource(view,item)),'Selected left files')});
+  }
+  if(selected.length===1&&entryType(selected[0])==='file')appendCompareSelectionActions(items,compareLeftFileSource(view,selected[0]));
+  if(items.length)items.push({separator:true});
   if(panel.source==='host'&&selected.length===1){
     const projectPath=joinPath(panel.currentPath,selected[0].name,false);
     const projectType=entryType(selected[0])==='directory'?'dir':'file';
@@ -3168,6 +3191,12 @@ function leftContext(view,entry,event){
 }
 function remoteContext(view,entry,event){
   const panel=view.remote,selected=selectedEntries(panel),items=[];
+  const compareFiles=selected.filter(item=>entryType(item)==='file');
+  if(selected.length===2&&compareFiles.length===2){
+    items.push({label:'Compare selected files',action:()=>compareTransferSources(compareFiles.map(item=>compareRemoteFileSource(view,item)),'Selected remote files')});
+  }
+  if(selected.length===1&&entryType(selected[0])==='file')appendCompareSelectionActions(items,compareRemoteFileSource(view,selected[0]));
+  if(items.length)items.push({separator:true});
   if(selected.length===1&&entryType(selected[0])==='directory'){
     items.push({label:'Open folder',disabled:remoteConnectionPoolFull(view),action:()=>loadRemoteDirectory(view,joinPath(panel.currentPath,selected[0].name,true))});
   }
