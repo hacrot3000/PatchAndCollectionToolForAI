@@ -462,6 +462,30 @@ func TestFileTransferQueueSupportsPauseSelectionAndKind(t *testing.T) {
 	}
 }
 
+func TestFileTransferRemoteFolderDeleteOffersSSHOrControlledScan(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function canUseSSHRecursiveDelete(view)",
+		"function requestRemoteDeleteDecision(view,entries)",
+		"Choose remote delete method",
+		"FAST — SSH rm -rf",
+		"CONTROLLED — scan + delete each item",
+		"Fast delete via SSH (rm -rf)",
+		"TaskDeck quotes paths and refuses remote root/current-directory targets",
+		"delete_mode:'ssh_recursive'",
+		"delete_mode:'scan'",
+		"Folder deletion waits for all descendants to finish",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing remote delete method contract %q", want)
+		}
+	}
+}
+
 func TestFileTransferRemoteFileDeleteBatchesVeryLargeSelections(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil {
