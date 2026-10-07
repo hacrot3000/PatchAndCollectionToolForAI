@@ -24,6 +24,12 @@ func TestProjectSymbolsFromTextSupportsCommonLanguages(t *testing.T) {
 		{"api.php", "final class Api {}\npublic function load() {}\n", []string{"Api:class", "load:function"}},
 		{"lib.rs", "pub struct Store {}\npub async fn load() {}\nimpl Store {\n}\n", []string{"Store:struct", "load:function", "Store:impl"}},
 		{"tool.sh", "build() { echo ok; }\nfunction deploy { echo ok; }\n", []string{"build:function", "deploy:function"}},
+		{"tool.ps1", "function Deploy-App { }\n", []string{"Deploy-App:function"}},
+		{"module.nim", "proc buildApp*(name: string): int =\n  discard\nThing* = object\n", []string{"buildApp:proc", "Thing:object"}},
+		{"module.lua", "local function load_user(id)\nend\nfunction API.start()\nend\n", []string{"load_user:function", "API.start:function"}},
+		{"Main.as", "public class Main {\n public function run():void { }\n}\n", []string{"Main:class", "run:function"}},
+		{"schema.proto", "message User {}\nservice UserService {}\nrpc GetUser(GetUserRequest) returns (User);\n", []string{"User:message", "UserService:service", "GetUser:method"}},
+		{"schema.graphql", "type User { id: ID! }\ninput UserInput { name: String! }\nscalar DateTime\n", []string{"User:type", "UserInput:input", "DateTime:scalar"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.path, func(t *testing.T) {
