@@ -34,7 +34,8 @@ func TestEditorSessionPersistenceFrontendContract(t *testing.T) {
 		"restorePersistedSession:restorePersistedEditorSession",
 		"setTimeout(()=>restorePersistedEditorSession()",
 		"function persistEditorSessionKeepalive()",
-		"navigator.sendBeacon('/api/project/editor-session'",
+		"app.fetchWithLease('/api/project/editor-session'",
+		"keepalive:true",
 		"window.addEventListener('pagehide',()=>persistEditorSessionKeepalive())",
 	} {
 		if !strings.Contains(js, want) {
