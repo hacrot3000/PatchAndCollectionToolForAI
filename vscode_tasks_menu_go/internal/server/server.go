@@ -57,6 +57,10 @@ type Server struct {
 	projectIndex           *projectFileIndex
 	projectIndexRefreshing bool
 
+	projectSymbolIndexMu         sync.Mutex
+	projectSymbolIndex           *projectSymbolIndex
+	projectSymbolIndexRefreshing bool
+
 	gitReposMu      sync.Mutex
 	gitRepos        []gitRepository
 	gitReposAt      time.Time
