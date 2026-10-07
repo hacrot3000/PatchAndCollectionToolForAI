@@ -98,6 +98,9 @@ func TestEditorInitialLanguageCoverageMapping(t *testing.T) {
 		"options.tsx=true",
 		"return 'CMake'",
 		"return 'Shell'",
+		"['nim','nims','nimble'].includes(ext)",
+		"nim:new Set(",
+		"return 'Nim'",
 		"return 'Lua'",
 	} {
 		if !strings.Contains(js, want) {
