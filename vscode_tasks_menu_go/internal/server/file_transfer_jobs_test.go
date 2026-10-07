@@ -155,6 +155,10 @@ func TestCreateHostArchiveUploadJobQueuesSingleWorkerItem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	queue := s.fileTransferServerQueue(profile.ID)
+	queue.mu.Lock()
+	queue.Paused = true
+	queue.mu.Unlock()
 	job, err := s.createFileTransferServerJob(fileTransferJobCreateRequest{
 		ProfileID: profile.ID,
 		Kind: fileTransferJobHostArchiveUpload,
@@ -169,7 +173,6 @@ func TestCreateHostArchiveUploadJobQueuesSingleWorkerItem(t *testing.T) {
 	if !job.ScanDone || job.Status != "queued" || job.Phase != "queued" {
 		t.Fatalf("compressed upload job=%#v", job)
 	}
-	queue := s.fileTransferServerQueue(profile.ID)
 	queue.mu.Lock()
 	defer queue.mu.Unlock()
 	if len(queue.PendingScans) != 0 || queue.QueuedScans != 0 {
