@@ -562,16 +562,33 @@ func validateCandidateSources(ctx context.Context, goSource, sourceRoot string, 
 }
 
 func pythonForSelfUpdate(ctx context.Context) (string, error) {
-	for _, name := range []string{"python3", "python"} {
+	if configured := strings.TrimSpace(os.Getenv("TASKDECK_PYTHON")); configured != "" {
+		path, err := exec.LookPath(configured)
+		if err != nil {
+			return "", fmt.Errorf("TASKDECK_PYTHON is not executable: %w", err)
+		}
+		probe := exec.CommandContext(ctx, path, "-c", "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 3)")
+		if out, err := probe.CombinedOutput(); err != nil {
+			return "", fmt.Errorf("TASKDECK_PYTHON requires Python 3.10+: %w: %s", err, trimOutput(out))
+		}
+		return path, nil
+	}
+
+	var failures []string
+	for _, name := range []string{"python3.13", "python3.12", "python3.11", "python3.10", "python3", "python"} {
 		path, err := exec.LookPath(name)
 		if err != nil {
 			continue
 		}
 		probe := exec.CommandContext(ctx, path, "-c", "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 3)")
 		if out, err := probe.CombinedOutput(); err != nil {
-			return "", fmt.Errorf("Python 3.10+ is required: %w: %s", err, trimOutput(out))
+			failures = append(failures, name+": "+trimOutput(out))
+			continue
 		}
 		return path, nil
+	}
+	if len(failures) > 0 {
+		return "", fmt.Errorf("Python 3.10+ was not found; incompatible candidates: %s", strings.Join(failures, "; "))
 	}
 	return "", fmt.Errorf("Python 3.10+ was not found in PATH")
 }
