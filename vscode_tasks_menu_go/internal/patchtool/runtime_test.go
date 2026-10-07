@@ -94,6 +94,32 @@ func TestEntryCommandPassesWorkspaceAndPatchArgs(t *testing.T) {
 	}
 }
 
+
+func TestPythonCommandPrefersVersionedPythonOverLegacyPython3(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("PATH fixture is POSIX-only")
+	}
+	bin := t.TempDir()
+	python310 := filepath.Join(bin, "python3.10")
+	legacyPython3 := filepath.Join(bin, "python3")
+	writeFile(t, python310, 0o755)
+	writeFile(t, legacyPython3, 0o755)
+	t.Setenv("PATH", bin)
+	t.Setenv("TASKDECK_PATCH_PYTHON", "")
+	t.Setenv("TASKDECK_PYTHON", "")
+
+	command, prefix, err := pythonCommand()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command != python310 {
+		t.Fatalf("command=%q want versioned Python %q", command, python310)
+	}
+	if len(prefix) != 0 {
+		t.Fatalf("unexpected Python prefix: %#v", prefix)
+	}
+}
+
 func TestResolveBundledRuntimeThroughExecutableSymlink(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink creation is not reliably available on Windows CI")
