@@ -107,8 +107,11 @@ func TestNormalizeDefaultsAndValidatesMaxConnections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ftp.MaxConnections != DefaultMaxConnections || ftp.MaxConnections != 3 {
-		t.Fatalf("FTP max connections=%d want default 3", ftp.MaxConnections)
+	if DefaultMaxConnections != 3 {
+		t.Fatalf("DefaultMaxConnections=%d want 3", DefaultMaxConnections)
+	}
+	if ftp.MaxConnections != DefaultMaxConnections {
+		t.Fatalf("FTP max connections=%d want default %d", ftp.MaxConnections, DefaultMaxConnections)
 	}
 
 	sftp, err := Normalize(Profile{
