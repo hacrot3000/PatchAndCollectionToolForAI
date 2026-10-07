@@ -666,6 +666,37 @@ function languageOptions(pathValue){
 function languageLabel(pathValue){
   return editorLanguageDefinition(pathValue)?.label||'Plain text';
 }
+function createDetachedEditor(host,text,pathValue,{onChange=null,readOnly=false}={}){
+  if(!host)throw new Error('Detached editor host is required');
+  const cm=cmFactory.newEditor(host,String(text??''),languageOptions(pathValue));
+  let internal=false;
+  const originalDispatch=cm.dispatch.bind(cm);
+  cm.dispatch=(...input)=>{
+    const transaction=input.length===1&&input[0]?.startState?input[0]:cm.state.update(...input);
+    if(transaction.docChanged&&readOnly&&!internal)return;
+    originalDispatch(transaction);
+    if(transaction.docChanged&&!internal&&typeof onChange==='function')onChange(cm.state.doc.toString(),transaction);
+  };
+  const applyReadOnly=()=>{
+    cm.contentDOM.setAttribute('contenteditable',readOnly?'false':'true');
+    cm.contentDOM.setAttribute('aria-readonly',readOnly?'true':'false');
+  };
+  applyReadOnly();
+  return {
+    cm,
+    setText(value){
+      value=String(value??'');
+      if(cm.state.doc.toString()===value)return;
+      internal=true;
+      try{cm.dispatch({changes:{from:0,to:cm.state.doc.length,insert:value}});}finally{internal=false;}
+    },
+    setReadOnly(value){readOnly=Boolean(value);applyReadOnly();},
+    get text(){return cm.state.doc.toString();},
+    focus(){cm.focus();},
+    destroy(){cm.destroy();}
+  };
+}
+
 function editorMetaText(file){
   const ending=(file.line_ending||'lf').toUpperCase();
   const bom=file.bom?' + BOM':'';
@@ -2041,6 +2072,7 @@ globalThis.TaskMenuEditor={
   },
   get autoSaveEnabled(){return editorAutoSaveEnabled;},
   get minimapEnabled(){return editorMinimapEnabled;},
+  createDetachedEditor,
   languageForPath:editorLanguageDefinition,
   get languageRegistry(){return editorLanguageRegistry.map(item=>({...item}));},
   persistSession:persistEditorSessionNow,
