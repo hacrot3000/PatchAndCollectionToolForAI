@@ -2901,7 +2901,7 @@ function requestRemoteDeleteDecision(view,entries){
       'FAST — SSH rm -rf\n'+
       '• Runs deletion directly on the remote server without scanning every file first.\n'+
       '• Usually much faster for folders containing thousands or tens of thousands of files.\n'+
-      '• Risk: destructive and immediate; per-file progress/retry is bypassed, and remote shell permissions/filesystem semantics apply. TaskDeck quotes paths and refuses remote root/current-directory targets, but you should verify the selected path carefully.\n\n'+
+      '• Risk: destructive and immediate; per-file progress/retry is bypassed, and remote shell permissions/filesystem semantics apply. SFTP can expose a virtual/chroot path that does not map to the same SSH shell path. TaskDeck quotes paths and refuses remote root/current-directory targets, but you must verify that the displayed SFTP path maps to the intended SSH filesystem location.\n\n'+
       'CONTROLLED — scan + delete each item\n'+
       '• Enumerates the tree and deletes files/subfolders through the transfer queue.\n'+
       '• Gives per-item progress, retry/error visibility and works without shell deletion.\n'+
