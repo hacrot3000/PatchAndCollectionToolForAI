@@ -340,6 +340,41 @@ func TestEditorSupportsSCSSSassAndLess(t *testing.T) {
 }
 
 
+func TestEditorCommonProjectLanguageModes(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"{id:'dockerfile',label:'Dockerfile'",
+		"filenamePrefixes:['dockerfile.']",
+		"{id:'makefile',label:'Makefile'",
+		"filenames:['makefile','gnumakefile','bsdmakefile']",
+		"{id:'toml',label:'TOML',extensions:['toml']",
+		"{id:'powershell',label:'PowerShell',extensions:['ps1','psm1','psd1']",
+		"{id:'kotlin',label:'Kotlin',extensions:['kt','kts']",
+		"{id:'csharp',label:'C#',extensions:['cs','csx']",
+		"{id:'dart',label:'Dart',extensions:['dart']",
+		"{id:'protobuf',label:'Protocol Buffers',extensions:['proto']",
+		"{id:'graphql',label:'GraphQL',extensions:['graphql','gql']",
+		"{id:'actionscript',label:'ActionScript',extensions:['as']",
+		"{id:'nginx',label:'Nginx'",
+		"{id:'apache',label:'Apache'",
+		"{id:'config',label:'Config',extensions:['ini','properties'],filenames:['.env'],filenamePrefixes:['.env.']",
+		"legacyDollarVariableKinds",
+		"legacyHyphenIdentifierKinds",
+		"legacyCommandFirstKinds",
+		"powershell:[['<#','#>']]",
+		"actionscript:[['/*','*/']]",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("editor common language mode missing %q", want)
+		}
+	}
+}
+
+
 func TestVendoredCodeMirrorExposesIDEHooksAndTypeScriptModes(t *testing.T) {
 	data, err := webassets.Files.ReadFile("vendor/codemirror6-all.min.js")
 	if err != nil {
