@@ -217,6 +217,7 @@ func (s *Server) projectFileSave(w http.ResponseWriter, r *http.Request) {
 	if nextBOM {
 		text = text[3:]
 	}
+	s.updateProjectSymbolIndexFile(rel, string(text))
 	writeJSON(w, http.StatusOK, projectFileResponse{
 		Path:       rel,
 		Content:    string(text),
