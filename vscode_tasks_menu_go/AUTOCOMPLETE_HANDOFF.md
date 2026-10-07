@@ -29,7 +29,7 @@ Ruby, Perl, and R remain out of scope for this batch.
 
 ## Implementation plan
 
-- [ ] Add a generic CodeMirror completion hook usable by the file editor.
+- [x] Add a generic CodeMirror completion hook usable by the file editor.
 - [ ] Add `editorcompletion.js` with Tier 1 keyword/snippet completion.
 - [ ] Extend centralized language registry with completion metadata.
 - [ ] Enable Tier 1 for all currently supported programming/config languages where useful.
@@ -45,3 +45,4 @@ Ruby, Perl, and R remain out of scope for this batch.
 ## Progress
 
 - Handoff initialized before implementation.
+- `e5d9de6`: vendored CodeMirror now exposes `autocompletion`, `completeFromList`, `snippetCompletion`, and `startCompletion` from the already committed bundle. No new dependency added.
