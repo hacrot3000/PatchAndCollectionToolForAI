@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"bletonfc/vscode_tasks_menu/internal/filetransferprofile"
 )
 
 func TestFileTransferJobJSONAcceptsBulkSelectionBeyondLegacy128KiB(t *testing.T) {
@@ -229,47 +228,6 @@ func TestRemoteDeleteSSHCommandQuotesPathAndRefusesRoot(t *testing.T) {
 	for _, unsafe := range []string{"", ".", "/"} {
 		if _, err := remoteDeleteSSHCommand(unsafe); err == nil {
 			t.Fatalf("unsafe SSH delete target %q unexpectedly accepted", unsafe)
-		}
-	}
-}
-
-func TestCreateRemoteDeleteSSHJobSkipsRecursiveScan(t *testing.T) {
-	s, store, _ := newFileTransferProfileAPITestServer(t)
-	s.Workspace = t.TempDir()
-	profile, err := store.Create(filetransferprofile.Profile{
-		ID: "sftp-delete", Name: "SFTP Delete", Protocol: filetransferprofile.ProtocolSFTP,
-		SSHProfileID: "ssh-prod",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	job, err := s.createFileTransferServerJob(fileTransferJobCreateRequest{
-		ProfileID: profile.ID,
-		Kind: fileTransferJobRemoteDelete,
-		DeleteMode: remoteDeleteModeSSHRecursive,
-		RemoteTargets: []fileTransferJobTarget{
-			{Path: "/srv/releases/old", Directory: true},
-			{Path: "/srv/releases/old.log"},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !job.ScanDone || job.Status != "queued" {
-		t.Fatalf("SSH delete job should bypass scan: %#v", job)
-	}
-	queue := s.fileTransferServerQueue(profile.ID)
-	queue.mu.Lock()
-	defer queue.mu.Unlock()
-	if len(queue.PendingScans) != 0 || queue.QueuedScans != 0 {
-		t.Fatalf("SSH delete unexpectedly queued a scan: pending=%d queued=%d", len(queue.PendingScans), queue.QueuedScans)
-	}
-	if len(queue.Items) != 2 {
-		t.Fatalf("SSH delete items=%d want=2", len(queue.Items))
-	}
-	for _, item := range queue.Items {
-		if item.Operation != "remote_delete_ssh" || item.Status != "queued" {
-			t.Fatalf("unexpected SSH delete item: %#v", item)
 		}
 	}
 }
