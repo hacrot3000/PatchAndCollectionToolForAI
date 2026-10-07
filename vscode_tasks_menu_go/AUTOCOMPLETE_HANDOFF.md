@@ -40,7 +40,9 @@ Ruby, Perl, and R remain out of scope for this batch.
 - [x] Merge current unsaved editor text into completion context.
 - [x] Add import/include/module path suggestions.
 - [x] Merge/dedupe Tier 1 + Tier 2 suggestions in the editor.
-- [ ] Add tests and update documentation.
+- [x] Add backend/UI/auth/symbol extraction regression tests.
+- [ ] Add explicit boundary/cache-corruption/import-empty-prefix regression tests.
+- [ ] Update README with editor autocomplete behavior, cache location, limits, and offline dependency policy.
 
 ## Progress
 
@@ -58,3 +60,22 @@ Ruby, Perl, and R remain out of scope for this batch.
 - `f02d18e`, `5fdca95`: Tier 2 source is merged with Tier 1 in CodeMirror; requests carry unsaved text/cursor/line context, are cancellable on typing, and replace full import prefixes correctly.
 - `b0addfb`, `e0a02cf`, `0b5f7cb`, `2371633`: added backend/UI/auth/symbol coverage tests.
 - `364d53a`: incremental editor-save symbol updates are also persisted to the OS cache, so restart does not reload stale symbols.
+
+- `3085b85`, `8525e90`, `b075163`, `b224cec`: invalidate completion indexes after project mutations, replace operations, and archive extraction; persisted caches are removed safely when invalidated.
+- `c2c4fd5`: removed an accidental duplicate root-level handoff and retained this file as the canonical handoff.
+
+## Resume checkpoint — 2026-10-07
+
+Current implementation already contains the complete Tier 1/Tier 2 vertical path:
+- vendored CodeMirror completion primitives;
+- automatic keyword/snippet completion;
+- cached project symbol index;
+- unsaved-current-file merge;
+- import/include/module suggestions;
+- incremental save updates and mutation invalidation;
+- shared-server authorization.
+
+Remaining work before declaring this batch complete:
+1. strengthen regression tests for request limits/cache recovery and empty import-prefix behavior;
+2. document editor autocomplete and the offline/vendor policy in README;
+3. re-read final HEAD for stale handoff/checklist references and update this file to completed.
