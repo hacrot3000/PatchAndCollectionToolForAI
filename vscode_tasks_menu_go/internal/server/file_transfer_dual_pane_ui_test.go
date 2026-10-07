@@ -462,6 +462,33 @@ func TestFileTransferQueueSupportsPauseSelectionAndKind(t *testing.T) {
 	}
 }
 
+func TestFileTransferQueueCanStopScansClearAllAndBatchLargeSelections(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function assertTransferScanActive(view,generation)",
+		"pendingLocalScans:0,scanGeneration:0",
+		"async function stopTransferScans(view)",
+		"serverTransferQueueControl(view,'stop_scans')",
+		"clearPersistentLocalScansForProfile(view.profile.id)",
+		"async function clearTransferQueue(view)",
+		"serverTransferQueueControl(view,'clear_queue')",
+		"stopScan.textContent='Stop scan'",
+		"clearQueue.textContent='Clear queue'",
+		"Clear the entire transfer queue and stop all scans",
+		"async function serverTransferQueueControlBatched(view,action,itemIDs=[],extra={})",
+		"const batchSize=1000;",
+		"serverTransferQueueControlBatched(view,'remove_selected',serverIDs)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing stop/clear/bulk-selection contract %q", want)
+		}
+	}
+}
+
 func TestFileTransferQueuePauseDoesNotStopScanners(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err != nil {
