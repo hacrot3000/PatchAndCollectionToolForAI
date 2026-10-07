@@ -54,6 +54,32 @@ func TestGenericFileCompareSupportsCoreSourcesAndViews(t *testing.T) {
 	}
 }
 
+func TestFileCompareHighlightsSyntaxAndChangedSpans(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function compareLanguageID(pathValue)",
+		"TaskMenuEditor?.languageForPath?.",
+		"function compareSyntaxSource(pathValue,text)",
+		"file-compare-syntax-keyword",
+		"file-compare-syntax-comment",
+		"function compareInlineRanges(left,right)",
+		"function renderCompareCode(node,text,tokens=[],changed=[],changeKind='')",
+		"file-compare-inline-change",
+		"compareInlineRanges(row.left?.text||'',row.right?.text||'')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("file compare syntax/intra-line highlighting missing %q", want)
+		}
+	}
+	if strings.Contains(js, ".innerHTML") {
+		t.Fatal("file compare syntax highlighting must keep source rendering textContent-only")
+	}
+}
+
 func TestProjectAndEditorMenusExposeGenericCompare(t *testing.T) {
 	shared, err := webassets.Files.ReadFile("featuremods/projectfileactions.js")
 	if err != nil {
