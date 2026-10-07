@@ -171,8 +171,9 @@ Khi upload selection có ít nhất một folder, TaskDeck chạy một **quick 
 - nếu scan hết thời gian nhưng đã thấy ít nhất 100 file, selection vẫn được xem là đủ lớn để gợi ý tối ưu;
 - nếu không đạt ngưỡng, TaskDeck đi thẳng vào upload thường và không hiện thêm dialog;
 - nếu selection lớn, dialog luôn có **Compress + upload**, **Upload normally** và **Cancel**; Upload normally tiếp tục dùng scanner/queue/conflict/recovery hiện hữu, không đổi semantics;
-- archive mode chỉ được enable khi các top-level name đang chọn chưa tồn tại trong Remote folder hiện tại; auto-extract cũng kiểm tra lại trên server ngay trước khi giải nén để chống stale cache/race;
+- archive mode **không bị disable** chỉ vì top-level name đã tồn tại. Khi có collision, dialog đổi sang **Compress + merge/overwrite** và cảnh báo rõ rằng directory sẽ merge, file trùng tên sẽ bị overwrite; **Upload normally** vẫn là lựa chọn an toàn nếu cần per-file conflict policy;
 - Host tạo `.tar.gz` tạm bằng Go stdlib rồi upload một file; Local-browser stream các file qua TAR writer built-in + browser-native `CompressionStream('gzip')`, không dùng npm/CDN/third-party package;
+- Host compressed upload chạy thành một item riêng trong **Transfer Queue** với phase/progress `Compressing → Uploading → Extracting/Manual extract`; right-click item đang chạy → **Cancel / remove selected** để hủy qua context cancellation. Writer riêng cho compressed upload không dùng entry/resource limit của Project Archive, nên phù hợp với cây hàng trăm nghìn file; archive nén vẫn có safety cap 64 GiB;
 - SFTP có quyền `ssh.use` sẽ tự extract archive qua SSH profile liên kết và xóa archive sau khi extract thành công;
 - FTP, hoặc SFTP không có quyền chạy SSH, chỉ upload archive rồi hiện **POSIX** và **PowerShell** extraction command có nút Copy; archive chỉ bị xóa trong command sau khi extract thành công;
 - nếu auto-extract thất bại, TaskDeck giữ archive trên remote và chuyển sang dialog lệnh thủ công thay vì tự fallback sang thao tác có thể overwrite;
