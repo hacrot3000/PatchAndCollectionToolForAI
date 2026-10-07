@@ -747,6 +747,13 @@ function showContextMenu(event,pathValue,type){
     appendSharedProjectActions(pathValue,type);
     contextSeparator();
   }
+  if(paths.length===2&&paths.every(value=>findLoadedItem(value)?.type==='file')){
+    contextAction('Compare selected files',()=>{
+      const compare=globalThis.TaskMenuFileCompare;if(!compare?.openProjectFiles)throw new Error('File Compare unavailable');
+      return compare.openProjectFiles(paths[0],paths[1]);
+    });
+    contextSeparator();
+  }
   contextAction(paths.length>1?'Copy selected':'Copy',()=>setProjectClipboard('copy',paths));
   contextAction(paths.length>1?'Cut selected':'Cut',()=>setProjectClipboard('cut',paths));
   contextAction(paths.length>1?'Duplicate selected':'Duplicate',()=>duplicateSelectedProjectItems());
