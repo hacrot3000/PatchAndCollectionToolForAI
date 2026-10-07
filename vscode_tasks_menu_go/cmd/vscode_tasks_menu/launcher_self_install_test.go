@@ -47,6 +47,9 @@ func TestInstallScriptBuildsVersionedTaskdeckRelease(t *testing.T) {
 		`RELEASES_DIR="$APP_ROOT/releases"`,
 		`CURRENT_LINK="$APP_ROOT/current"`,
 		`FINAL_RELEASE="$RELEASES_DIR/$RELEASE_ID"`,
+		"PATCH_PYTHON_AVAILABLE=0",
+		"TaskDeck vẫn sẽ được cài, nhưng Patch add-on sẽ không chạy",
+		"if (( PATCH_PYTHON_AVAILABLE )); then",
 		"python3 test_python_patch_entry.py",
 		"GOPROXY=off GOSUMDB=off go test ./...",
 		"GOPROXY=off GOSUMDB=off go",
@@ -60,5 +63,8 @@ func TestInstallScriptBuildsVersionedTaskdeckRelease(t *testing.T) {
 		"$TARGET.revision",
 	} {
 		if !strings.Contains(src, want) { t.Fatalf("install.sh missing %q", want) }
+	}
+	if strings.Contains(src, `die "Cần Python 3.10+`) {
+		t.Fatal("install.sh must not abort installation when Python 3.10+ is unavailable")
 	}
 }
