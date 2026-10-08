@@ -799,9 +799,8 @@ function showContextMenu(event,pathValue,type){
   if(paths.every(value=>favorites.has(value)))contextAction(paths.length>1?'Unpin selected':'Unpin',()=>unpinPaths(paths));
   else contextAction(paths.length>1?'Pin selected':'Pin',()=>pinPaths(paths));
   if(paths.length>1)contextAction('Clear selection',()=>{selected.clear();lastSelectedPath='';render();});
-  contextMenu.style.left=Math.min(event.clientX,window.innerWidth-230)+'px';
-  contextMenu.style.top=Math.min(event.clientY,window.innerHeight-220)+'px';
   contextMenu.classList.add('visible');
+  globalThis.TaskMenuContextViewport.place(contextMenu,event.clientX,event.clientY);
 }
 async function toggleDirectory(pathValue){
   if(expanded.has(pathValue)){
