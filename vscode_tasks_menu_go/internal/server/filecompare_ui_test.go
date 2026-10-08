@@ -18,6 +18,29 @@ func TestGenericFileCompareFeatureLoads(t *testing.T) {
 	}
 }
 
+func TestFileCompareOpensAsWorkspaceTabInsteadOfModal(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const tabsHost=document.querySelector('#tabs'),panesHost=document.querySelector('#panes')",
+		"pane.className='pane file-compare-pane hidden'",
+		"tab.className='tab file-compare-tab'",
+		"tab.dataset.viewKind='file-compare'",
+		"function activateCompareTab()",
+		"app.activateExternalView(compareTabID,{force:true})",
+		"window.addEventListener('taskmenu:view-activated'",
+		"pane.classList.toggle('hidden',!active)",
+		"const wasActive=Boolean(compareTab?.classList.contains('active'))",
+		"if(!force&&compareHasDirty()",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("File Compare workspace-tab contract missing %q",want) }
+	}
+	for _,forbidden:=range []string{".file-compare-backdrop{","document.body.append(backdrop)","backdrop.classList.add('visible')"} {
+		if strings.Contains(js,forbidden) { t.Fatalf("File Compare must not use modal overlay: %q",forbidden) }
+	}
+}
+
 func TestGenericFileCompareSupportsCoreSourcesAndViews(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
 	if err != nil {
