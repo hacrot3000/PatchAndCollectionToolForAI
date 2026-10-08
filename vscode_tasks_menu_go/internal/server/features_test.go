@@ -57,6 +57,41 @@ func TestEmbeddedFeaturesDetectedFilesCanBeIgnoredAndPrioritized(t *testing.T) {
 	}
 }
 
+func TestEmbeddedDetectedRowsHighlightAcrossFullWidthAndKeepButtonIdentity(t *testing.T) {
+	js := embeddedFeaturesJS(t)
+	for _, want := range []string{
+		".detected-row{display:flex;align-items:center;",
+		"padding:5px 7px;min-height:30px;border-radius:6px;box-sizing:border-box",
+		".detected-actions .detected-row:hover",
+		".detected-actions .detected-row:focus-within",
+		"box-shadow:inset 0 0 0 1px",
+		"html[data-taskmenu-theme=\"light\"] .detected-actions .detected-row:hover",
+		"html[data-taskmenu-theme=\"light\"] .detected-actions .detected-row:focus-within",
+		"row.className='detected-row';row.title=file.path",
+		"row.className='detected-row';row.title=url",
+		"download.title='Download '+file.path",
+		"copy.title='Copy path: '+file.path",
+		"ignore.title='Ignore file: '+file.path",
+		"open.title='Open URL: '+url",
+		"copy.title='Copy URL: '+url",
+		"ignore.title='Ignore URL: '+url",
+		"setAttribute('aria-label',",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("detected file/URL row must highlight and identify corresponding action: missing %q", want)
+		}
+	}
+	priority, err := webassets.Files.ReadFile("featuremods/ptvpriority.js")
+	if err != nil { t.Fatal(err) }
+	if !strings.Contains(string(priority),".detected-row.ptv-primary{background:") {
+		t.Fatal("Patch Tool primary artifact backgrounds need row highlight override coverage")
+	}
+	// The hover selector is more specific than the later-loaded .detected-row.ptv-primary.
+	if !strings.Contains(js,".detected-actions .detected-row:hover") {
+		t.Fatal("hover must override the primary detected-artifact background")
+	}
+}
+
 func TestEmbeddedFeaturesSuppressGitCommandOutputFromFileDetection(t *testing.T) {
 	js := embeddedFeaturesJS(t)
 	for _, want := range []string{
@@ -108,7 +143,7 @@ func TestEmbeddedFeaturesDetectionToggleCoversFilesAndURLs(t *testing.T) {
 		"saveIgnoredURLs",
 		"function ignoreURL(state,url)",
 		"!state.ignoredURLs.has(url)",
-		"ignore.title='Hide this URL for the current session'",
+		"ignore.title='Ignore URL: '+url",
 		"ignore.onclick=()=>ignoreURL(state,url)",
 	} {
 		if !strings.Contains(js, want) {
