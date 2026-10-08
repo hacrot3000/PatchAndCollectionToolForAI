@@ -189,7 +189,7 @@ func TestFileComparePreservesDirtyBuffersAndSelectionsDuringAsyncOperations(t *t
 		}
 	}
 	start := strings.Index(js, "async function saveSource(source,text)")
-	end := strings.Index(js, "function cell(spec,side", )
+	end := strings.Index(js, "function cell(spec,side")
 	if start < 0 || end <= start {
 		t.Fatal("cannot isolate File Compare source-saving logic")
 	}
