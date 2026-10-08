@@ -4,15 +4,13 @@ This file is an **active backlog only**. Completed features and their original d
 
 ## Remaining verification
 
-- [ ] Restore a green full `vscode_tasks_menu_go/internal/server` Go test suite. The current main-branch CI is failing UI contract assertions not all attributable to the file-compare work. Inspect the latest CI run instead of accepting the old "11 pre-existing failures" note without rechecking.
 - [ ] Verify the arbitrary-file-compare flow after the test-contract cleanup: two selected files in Project Explorer or the FTP/SFTP panes; Select for compare → Compare with selected file across surfaces; editor-tab source; editing either writable side, dirty indicator, Left/Right Save, and optimistic-lock rejection for concurrent external updates.
-- [ ] Re-run GitHub Actions for the resulting `main` commits and update/remove the remaining items only when validated.
+- [ ] Confirm the Go 1.19/1.23 matrix on the latest compare Reload changes (`643f8fea`), then remove this CI task. The earlier matrix at `fcbe7394` and subsequent documentation commit `7aa50f76` passed.
 
 ## Progress checkpoints
 
 - `17f552e2` — added regression coverage for arbitrary, editable compare workflows.
 - `a9b3dd4d` — corrected stale comparison test assertions to match current module contracts (tests previously expected code in the wrong module or obsolete variable names).
-
 - `8245c773`, `3febcbfa` — safe concurrent Save and transactional compare selection/open; `ab09aad2`, `d0cf2a97` add regression checks.
 - `294b00f7`, `253825eb` — read-only source protection + tests for Project, Editor, and local browser files.
 - `27ab611d`, `643f8fea` — transactional two-source Reload and regression assertions.
