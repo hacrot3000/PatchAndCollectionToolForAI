@@ -2343,6 +2343,13 @@ func (s *Server) sharedSessionWebSocket(w http.ResponseWriter, r *http.Request, 
 				readDone <- true
 				return
 			}
+			if meta.Kind == tasks.SessionKindPatch && !s.sharedPatchRawInputAllowed(id) {
+				s.appendSharedAudit(r, &principal, nil, "patch.raw_input", "session", id, "denied", map[string]any{
+					"reason": "workspace_mutation_lock_required",
+				})
+				readDone <- true
+				return
+			}
 			if err := s.Sessions.Input(id, data); err != nil {
 				readDone <- false
 				return
