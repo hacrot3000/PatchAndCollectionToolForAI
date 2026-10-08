@@ -2579,8 +2579,12 @@ globalThis.TaskMenuDatabase={
   },
   saveTextWithLocation,
   restoreSessions:restoreDatabaseSessions,
+  get ready(){return databaseSessionsReady;},
   get views(){return dbViews;}
 };
 
-if(app.taskData?.workspace)restoreDatabaseSessions().catch(error=>console.warn('Database session restore failed',error));
-else window.addEventListener('taskmenu:tasks',()=>restoreDatabaseSessions().catch(error=>console.warn('Database session restore failed',error)),{once:true});
+const databaseSessionsReady=new Promise(resolve=>{
+  const run=()=>restoreDatabaseSessions().catch(error=>console.warn('Database session restore failed',error)).finally(resolve);
+  if(app.taskData?.workspace)run();
+  else window.addEventListener('taskmenu:tasks',run,{once:true});
+});
