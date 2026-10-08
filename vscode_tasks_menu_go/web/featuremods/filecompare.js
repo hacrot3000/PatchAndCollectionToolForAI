@@ -1042,4 +1042,60 @@ viewContextButton.onclick=()=>{contentMode='context';render();};
 viewUnimportantButton.onclick=()=>{showUnimportant=!showUnimportant;render();};
 reloadButton.onclick=()=>reload().catch(app.showError);closeButton.onclick=()=>close();
 
-globalThis.TaskMenuFileCompare={open,close,reload,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,emptyCompareSource,openGitCommitFileDiff,openGitCommitFileDiffBetween,gitStateSource,workingProjectSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,openGitStatePair,promptProjectCompare,selectForCompare,clearCompareSelection,compareWithSelected,openSources,canCompareWithSelected,sourceIdentity,sourceWritable,get selection(){return selectionSnapshot();},get current(){return current;}};
+function compareSourceDescriptor(source){
+  if(!source)return null;
+  const kind=String(source.kind||'');
+  const descriptor={kind,label:String(source.label||'').slice(0,256)};
+  if(kind==='project'||kind==='remote'||kind==='git-commit'||kind==='git-head'||kind==='git-index'||kind==='editor'){
+    descriptor.path=String(source.path||'').slice(0,4096);
+    if(!descriptor.path)return null;
+    if(kind==='remote'){descriptor.profileID=String(source.profileID||'');if(!descriptor.profileID)return null;}
+    if(kind.startsWith('git-')){descriptor.repoID=String(source.repoID||'');if(!descriptor.repoID)return null;}
+    if(kind==='git-commit'){descriptor.ref=String(source.ref||'');if(!descriptor.ref)return null;}
+    if(kind==='editor')descriptor.editorID=String(source.editorID||'');
+    return descriptor;
+  }
+  if(kind==='empty')return descriptor;
+  // Browser File System Access handles and clipboard data cannot be safely serialized.
+  return null;
+}
+function compareSourceFromDescriptor(spec){
+  const path=String(spec?.path||''),label=String(spec?.label||'');
+  switch(spec?.kind){
+    case 'project':return projectSource(path,{label});
+    case 'remote':return remoteSource(spec.profileID,path,{label});
+    case 'git-commit':return gitCommitSource(spec.repoID,path,spec.ref,{label,allowMissing:true});
+    case 'git-head':return gitStateSource(spec.repoID,path,'head',{label});
+    case 'git-index':return gitStateSource(spec.repoID,path,'index',{label});
+    case 'editor':{
+      const editor=[...(globalThis.TaskMenuEditor?.editors?.values?.()||[])].find(view=>!view.closed&&(view.id===spec.editorID||view.file?.path===path));
+      return editor?editorSource(editor,{label:label||'Restored editor'}):projectSource(path,{label});
+    }
+    case 'empty':return emptyCompareSource(label);
+    default:return null;
+  }
+}
+function snapshotCompareState(){
+  if(!current)return null;
+  const left=compareSourceDescriptor(current.left),right=compareSourceDescriptor(current.right);
+  if(!left||!right)return null;
+  return {version:1,title:String(current.title||'File Compare').slice(0,256),left,right,
+    viewMode,contentMode,showUnimportant,editMode};
+}
+async function restoreCompareState(saved){
+  if(!saved||saved.version!==1)return false;
+  if(current)return true;
+  const left=compareSourceFromDescriptor(saved.left),right=compareSourceFromDescriptor(saved.right);
+  if(!left||!right)return false;
+  const opened=await open({title:String(saved.title||'File Compare'),left,right});
+  if(opened){
+    viewMode=saved.viewMode==='inline'?'inline':'side';
+    contentMode=['all','diff','context'].includes(saved.contentMode)?saved.contentMode:'all';
+    showUnimportant=saved.showUnimportant!==false;
+    render();
+    if(saved.editMode)setEditMode(true);
+  }
+  return Boolean(opened);
+}
+
+globalThis.TaskMenuFileCompare={open,close,reload,snapshotState:snapshotCompareState,restoreState:restoreCompareState,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,emptyCompareSource,openGitCommitFileDiff,openGitCommitFileDiffBetween,gitStateSource,workingProjectSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,openGitStatePair,promptProjectCompare,selectForCompare,clearCompareSelection,compareWithSelected,openSources,canCompareWithSelected,sourceIdentity,sourceWritable,get selection(){return selectionSnapshot();},get current(){return current;}};
