@@ -77,6 +77,43 @@ func TestGenericFileCompareSupportsCoreSourcesAndViews(t *testing.T) {
 	}
 }
 
+func TestFileCompareCopiesArbitrarySelectedLinesOnly(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err!=nil { t.Fatal(err) }
+	js:=string(data)
+	for _,want:=range []string{
+		"function selectedLinePatch(model,side,indexes)",
+		"const positions=[...new Set(indexes)].sort((a,b)=>a-b)",
+		"if(first.hunk<0||first.hunk!==last.hunk)",
+		"const preceding=model.rows.slice(hunk.rowStart,positions[0]).filter(row=>row[targetSide]).length",
+		"count:rows.filter(row=>row[targetSide]).length",
+		"lines:rows.filter(row=>row[sourceSide]).map(row=>row[sourceSide].text)",
+		"function updateSelectedCompareLines()",
+		"window.getSelection?.()",
+		"range.intersectsNode(code)",
+		"button.textContent=selected.side==='left'?'Copy to right →':'← Copy to left'",
+		"async function copySelectedCompareLines(selected)",
+		"setSourceBuffer(patch.side,replaceLineRange(target.text,patch.start,patch.count,patch.lines),{syncEditor:true,immediate:true})",
+		"body.addEventListener('mouseup'",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("partial-line diff copy missing %q",want) }
+	}
+}
+func TestFileCompareCentersHunkCopyControls(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err!=nil { t.Fatal(err) }
+	js:=string(data)
+	for _,want:=range []string{
+		".file-compare-hunk-head{position:sticky;left:0;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)",
+		"actions.className='file-compare-hunk-actions'",
+		"hh.append(label,actions,info)",
+		"b.textContent='Left → Right'",
+		"b.textContent='Right → Left'",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("center diff copy controls missing %q",want) }
+	}
+}
+
 func TestFileCompareHighlightsSyntaxAndChangedSpans(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
 	if err != nil {
