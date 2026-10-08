@@ -262,7 +262,7 @@ async function digest(src,entry,algo,signal){
   const hash=await crypto.subtle.digest('SHA-256',bytes);
   return [...new Uint8Array(hash)].map(x=>x.toString(16).padStart(2,'0')).join('');
  }
- const data=await app.jsonFetch('/api/directory-compare/hash',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:src.kind,profile_id:src.profileID||'',path:entry.path,algorithm:algo}),signal});
+ const data=await app.jsonFetch(src.kind==='project'?'/api/directory-compare/project-hash':'/api/directory-compare/remote-hash',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:src.kind,profile_id:src.profileID||'',path:entry.path,algorithm:algo}),signal});
  return data.digest;
 }
 async function detailDiff(row,signal){
