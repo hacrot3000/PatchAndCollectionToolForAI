@@ -128,6 +128,14 @@ function syncCompareHorizontalOffset(){
   body.style.setProperty('--file-compare-shift-x',(-horizontalScroll.scrollLeft)+'px');
 }
 horizontalScroll.addEventListener('scroll',syncCompareHorizontalOffset);
+body.addEventListener('wheel',event=>{
+  if(horizontalScroll.hidden)return;
+  const delta=Math.abs(event.deltaX)>Math.abs(event.deltaY)?event.deltaX:event.shiftKey?(event.deltaX||event.deltaY):0;
+  if(!delta)return;
+  const before=horizontalScroll.scrollLeft;
+  horizontalScroll.scrollLeft+=delta;
+  if(horizontalScroll.scrollLeft!==before)event.preventDefault();
+},{passive:false});
 function compareSharedHorizontalOverflow(contentWidth,viewportWidth,paddingLeft=0,paddingRight=0){
   return Math.max(0,Math.ceil(contentWidth-Math.max(0,viewportWidth-paddingLeft-paddingRight)));
 }
@@ -137,12 +145,18 @@ function updateCompareHorizontalMeasure(){
   }
   if(pane.classList.contains('hidden')||!body.clientWidth)return;
   let maxOverflow=0;
+  const paddingByClass=new Map();
   for(const inner of body.querySelectorAll('.file-compare-code-inner')){
     const viewport=inner.parentElement;
     if(!viewport?.clientWidth)continue;
-    const padding=getComputedStyle(viewport);
-    const overflow=compareSharedHorizontalOverflow(inner.scrollWidth,viewport.clientWidth,
-      parseFloat(padding.paddingLeft)||0,parseFloat(padding.paddingRight)||0);
+    const kind=viewport.className;
+    let padding=paddingByClass.get(kind);
+    if(padding===undefined){
+      const css=getComputedStyle(viewport);
+      padding=(parseFloat(css.paddingLeft)||0)+(parseFloat(css.paddingRight)||0);
+      paddingByClass.set(kind,padding);
+    }
+    const overflow=compareSharedHorizontalOverflow(inner.scrollWidth,viewport.clientWidth,padding);
     maxOverflow=Math.max(maxOverflow,overflow);
   }
   if(maxOverflow<=1){
