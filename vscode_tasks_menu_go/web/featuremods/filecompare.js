@@ -65,7 +65,7 @@ const viewAllButton=document.createElement('button');viewAllButton.type='button'
 const viewDiffButton=document.createElement('button');viewDiffButton.type='button';viewDiffButton.textContent='View diff';viewDiffButton.title='Show changed lines only';
 const viewContextButton=document.createElement('button');viewContextButton.type='button';viewContextButton.textContent='View diff context';viewContextButton.title='Show changed lines plus the enclosing brace/indentation block when it can be identified';
 const viewUnimportantButton=document.createElement('button');viewUnimportantButton.type='button';viewUnimportantButton.textContent='View unimportant';viewUnimportantButton.title='Toggle confirmed comment/cosmetic changes (blue)';
-const filterNote=document.createElement('span');filterNote.className='file-compare-filter-note';filterNote.textContent='blue = unimportant · red/amber = logic-sensitive';
+const filterNote=document.createElement('span');filterNote.className='file-compare-filter-note';filterNote.textContent='Select changed lines to copy just those lines · blue = cosmetic · red/amber = logic-sensitive';
 filters.append(viewAllButton,viewDiffButton,viewContextButton,viewUnimportantButton,filterNote);
 const columns=document.createElement('div');columns.className='file-compare-columns';
 const leftLabel=document.createElement('div');leftLabel.className='file-compare-column';
