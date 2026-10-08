@@ -1035,13 +1035,8 @@ function showGitGraphContext(event,commit,detailHost){
   add('Copy SHA',()=>copyText(commit.sha));
   menu.onpointerdown=event=>event.stopPropagation();
   document.body.append(menu);
-  menu.style.left=Math.max(4,event.clientX)+'px';menu.style.top=Math.max(4,event.clientY)+'px';
-  requestAnimationFrame(()=>{
-    const rect=menu.getBoundingClientRect();
-    menu.style.left=Math.max(4,Math.min(event.clientX,window.innerWidth-rect.width-4))+'px';
-    menu.style.top=Math.max(4,Math.min(event.clientY,window.innerHeight-rect.height-4))+'px';
-    const close=()=>menu.remove();setTimeout(()=>document.addEventListener('pointerdown',close,{once:true}),0);
-  });
+  globalThis.TaskMenuContextViewport.place(menu,event.clientX,event.clientY);
+  const close=()=>menu.remove();setTimeout(()=>document.addEventListener('pointerdown',close,{once:true}),0);
 }
 function gitGraphDetailHeader(commit,host,subtitle=''){
   const head=el('div','git-graph-detail-head');
