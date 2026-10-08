@@ -17,6 +17,8 @@ style.textContent=`
 #tabs>[data-taskdeck-tab-type="diff"]{--taskdeck-type-accent:#bf91e7}
 #tabs>[data-taskdeck-tab-type="patch"]{--taskdeck-type-accent:#e7b96c}
 #tabs>[data-taskdeck-tab-type="transfer"]{--taskdeck-type-accent:#8cc5dd}
+#tabs>[data-taskdeck-tab-type="ftp"]{--taskdeck-type-accent:#88c7dc}
+#tabs>[data-taskdeck-tab-type="sftp"]{--taskdeck-type-accent:#9fb6e9}
 #tabs>[data-taskdeck-tab-type="database"]{--taskdeck-type-accent:#dd9c91}
 #tabs>[data-taskdeck-tab-type="hex"]{--taskdeck-type-accent:#c0acc3}
 html[data-taskmenu-theme="light"] #tabs>[data-taskdeck-tab-type]::before{opacity:1}
@@ -27,7 +29,11 @@ function tabType(tab){
   if(tab.classList.contains('file-compare-tab'))return 'diff';
   if(tab.classList.contains('editor-tab'))return 'editor';
   if(tab.classList.contains('db-tab'))return 'database';
-  if(tab.classList.contains('ft-tab'))return 'transfer';
+  if(tab.classList.contains('ft-tab')){
+    const id=String(tab.dataset.id||'').replace(/^file-transfer:/,'');
+    const protocol=String(globalThis.TaskMenuFileTransfer?.views?.get?.(id)?.profile?.protocol||'').toLowerCase();
+    return protocol==='sftp'?'sftp':protocol==='ftp'?'ftp':'transfer';
+  }
   if(tab.classList.contains('hex-tab'))return 'hex';
   const meta=app.views.get(tab.dataset.id||'')?.meta;
   if(meta){
