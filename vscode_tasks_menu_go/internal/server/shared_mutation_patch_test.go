@@ -53,6 +53,44 @@ func TestNativePatchCommandLockClassification(t *testing.T) {
 	}
 }
 
+func TestNativePatchQueueLeavesWorkspaceAvailableForOtherMutations(t *testing.T) {
+	if sharedPatchMutationRequired("queue", "native") {
+		t.Fatal("native Queue must not reserve the workspace")
+	}
+	lock := &sharedMutationLock{}
+	principal := identity.Principal{UserID: "alice", Username: "alice"}
+	now := time.Now().UTC()
+
+	gitLease, conflict, err := lock.acquire(principal, "git.write", "main", now)
+	if err != nil || conflict != nil || gitLease.token == "" {
+		t.Fatalf("Git mutation should be available while native Queue is idle: lease=%+v conflict=%+v err=%v", gitLease, conflict, err)
+	}
+	if !lock.release(gitLease.token) {
+		t.Fatal("failed to release Git mutation test lease")
+	}
+
+	updateLease, conflict, err := lock.acquire(principal, "selfupdate.run", "", now.Add(time.Second))
+	if err != nil || conflict != nil || updateLease.token == "" {
+		t.Fatalf("self-update should be available while native Queue is idle: lease=%+v conflict=%+v err=%v", updateLease, conflict, err)
+	}
+}
+
+func TestActivePatchMutationStillBlocksOtherWorkspaceMutations(t *testing.T) {
+	lock := &sharedMutationLock{}
+	patchUser := identity.Principal{UserID: "alice", Username: "alice"}
+	otherUser := identity.Principal{UserID: "bob", Username: "bob"}
+	lease, conflict, err := lock.acquire(patchUser, "patch.run", "patch-session", time.Now().UTC())
+	if err != nil || conflict != nil || lease.token == "" {
+		t.Fatalf("prepare Patch mutation lease=%+v conflict=%+v err=%v", lease, conflict, err)
+	}
+	if _, conflict, err := lock.acquire(otherUser, "selfupdate.run", "", time.Now().UTC()); err != nil || conflict == nil || conflict.Operation != "patch.run" {
+		t.Fatalf("active Patch must block self-update: conflict=%+v err=%v", conflict, err)
+	}
+	if _, conflict, err := lock.acquire(otherUser, "git.write", "main", time.Now().UTC()); err != nil || conflict == nil || conflict.ResourceID != "patch-session" {
+		t.Fatalf("active Patch must block Git mutation: conflict=%+v err=%v", conflict, err)
+	}
+}
+
 func TestSharedPatchMutationLockReleasesStoppedAndCompletedSession(t *testing.T) {
 	principal := identity.Principal{UserID: "alice", Username: "alice"}
 	service := &ownershipTestService{supported: true, items: []session.Metadata{{
