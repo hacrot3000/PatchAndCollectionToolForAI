@@ -38,6 +38,7 @@ function saveOrder(){
   catch(e){console.warn('Cannot persist tab order',e);}
   globalThis.TaskMenuTerminalRestore?.persistSnapshot?.();
   globalThis.TaskMenuEditor?.persistSession?.();
+  globalThis.TaskMenuWorkspaceTabs?.saveNow?.();
 }
 function readOrder(){
   try{
@@ -157,7 +158,13 @@ const tabObserver=new MutationObserver(records=>{
   // Reordering uses append(), which also produces childList records. Only a
   // genuinely new workspace tab should trigger saved-order restoration.
   if(installedNewTab&&!dragged){
-    queueMicrotask(()=>{if(!dragged)applyOrder(readOrder());});
+    queueMicrotask(()=>{
+      if(dragged)return;
+      // The unified semantic-order store is authoritative once hydration completes.
+      const manager=globalThis.TaskMenuWorkspaceTabs;
+      if(manager){if(!manager.restoring)manager.scheduleSave?.();return;}
+      applyOrder(readOrder());
+    });
   }
 });
 tabObserver.observe(tabsHost,{childList:true});
