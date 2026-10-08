@@ -59,7 +59,9 @@ func TestSharedProjectFileActionRegistryProvidesCommonWorkflow(t *testing.T) {
 		"TaskMenuGitFiles",
 		"TaskMenuProjectSearch",
 		"TaskMenuExplorer",
-		"globalThis.TaskMenuProjectFileActions={standardActions,openMenu",
+		"globalThis.TaskMenuProjectFileActions={",
+		"projectCompareSource,selectProjectForCompare,compareProjectWithSelected,projectCompareActions,",
+		"standardActions,openMenu",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("shared project file action registry missing %q", want)
