@@ -54,7 +54,8 @@ func TestWorkspaceSnapshotManagerUI(t *testing.T) {
 		"TaskMenuFileTransfer?.restoreState?.",
 		"TaskMenuGitFiles?.restoreState?.",
 		"TaskMenuTabOrder?.applyOrder?.",
-		"Ctrl+Alt+S",
+		"event.key.toLowerCase()==='s'",
+		"(event.ctrlKey||event.metaKey)&&event.altKey",
 		"TaskMenuWorkspaceSnapshots=",
 	} {
 		if !strings.Contains(js,want) { t.Fatalf("workspacesnapshots.js missing %q",want) }
