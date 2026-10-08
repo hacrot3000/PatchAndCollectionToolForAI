@@ -106,7 +106,7 @@ func TestTabContextSupportsPresetSubmenus(t *testing.T) {
 		"openCustomSubmenu(item,action.children)",
 		"tab-context-submenu",
 		"positionSubmenu(owner)",
-		"ownerRect.left-rect.width-4",
+		"TaskMenuContextViewport.place(submenu,ownerRect.right,ownerRect.top,{anchor:ownerRect,submenu:true})",
 		"submenu?.contains(target)",
 	} {
 		if !strings.Contains(js, want) {
