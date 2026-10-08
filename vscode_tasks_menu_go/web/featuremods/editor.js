@@ -2077,6 +2077,7 @@ globalThis.TaskMenuEditor={
   get languageRegistry(){return editorLanguageRegistry.map(item=>({...item}));},
   persistSession:persistEditorSessionNow,
   restorePersistedSession:restorePersistedEditorSession,
+  get ready(){return editorSessionReady;},
   get active(){return activeEditorID;}
 };
-setTimeout(()=>restorePersistedEditorSession().catch(error=>console.warn('Editor session restore failed',error)),0);
+const editorSessionReady=new Promise(resolve=>setTimeout(()=>restorePersistedEditorSession().catch(error=>console.warn('Editor session restore failed',error)).finally(resolve),0));
