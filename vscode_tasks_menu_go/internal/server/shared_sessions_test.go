@@ -374,6 +374,86 @@ func TestSharedSessionWebSocketSeparatesViewAndControl(t *testing.T) {
 	}
 }
 
+func TestSharedPatchWebSocketRawInputRequiresOwningMutationLock(t *testing.T) {
+	service := &sharedWebSocketTestService{
+		ownershipTestService: &ownershipTestService{supported: true, items: []session.Metadata{{
+			ID: "patch-native", Kind: tasks.SessionKindPatch, OwnerUserID: "alice", ProjectID: "project-1", Status: "running",
+		}}},
+		input: make(chan []byte, 2),
+	}
+	s := sharedSessionTestServer(t, service)
+	principal := identity.Principal{
+		UserID: "alice", Username: "alice", ProjectID: "project-1",
+		Permissions: map[string]bool{
+			identity.PermissionPatchView: true,
+			identity.PermissionPatchRun:  true,
+		},
+	}
+	serve := func() *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r = r.WithContext(context.WithValue(r.Context(), sharedPrincipalContextKey{}, principal))
+			s.sessionItem(w, r)
+		}))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	unlockedServer := serve()
+	unlockedConn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(unlockedServer.URL, "http")+"/api/sessions/patch-native/ws", nil)
+	if err != nil {
+		unlockedServer.Close()
+		t.Fatal(err)
+	}
+	if _, backlog, err := unlockedConn.Read(ctx); err != nil || string(backlog) != "ready" {
+		unlockedServer.Close()
+		t.Fatalf("unlocked Patch backlog=%q err=%v", backlog, err)
+	}
+	if err := unlockedConn.Write(ctx, websocket.MessageText, []byte("1\n")); err != nil {
+		unlockedServer.Close()
+		t.Fatal(err)
+	}
+	if _, _, err := unlockedConn.Read(ctx); websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
+		unlockedServer.Close()
+		t.Fatalf("unlocked Patch raw input close status=%v err=%v", websocket.CloseStatus(err), err)
+	}
+	unlockedServer.Close()
+	select {
+	case input := <-service.input:
+		t.Fatalf("unlocked Patch raw input reached PTY: %q", input)
+	default:
+	}
+
+	lease, conflict, err := s.sharedMutation.acquire(principal, "patch.run", "", time.Now().UTC())
+	if err != nil || conflict != nil {
+		t.Fatalf("acquire Patch lock conflict=%+v err=%v", conflict, err)
+	}
+	if !s.sharedMutation.bindResource(lease.token, "patch-native") {
+		t.Fatal("bind Patch lock to session failed")
+	}
+
+	lockedServer := serve()
+	defer lockedServer.Close()
+	lockedConn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(lockedServer.URL, "http")+"/api/sessions/patch-native/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockedConn.Close(websocket.StatusNormalClosure, "test complete")
+	if _, backlog, err := lockedConn.Read(ctx); err != nil || string(backlog) != "ready" {
+		t.Fatalf("locked Patch backlog=%q err=%v", backlog, err)
+	}
+	if err := lockedConn.Write(ctx, websocket.MessageText, []byte("1\n")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case input := <-service.input:
+		if string(input) != "1\n" {
+			t.Fatalf("locked Patch input=%q", input)
+		}
+	case <-ctx.Done():
+		t.Fatal("locked Patch raw input did not reach PTY")
+	}
+}
+
 func TestSharedSessionAuthorizationDenialsAreAudited(t *testing.T) {
 	ctx := context.Background()
 	store, err := identity.OpenSQLiteStore(ctx, filepath.Join(t.TempDir(), "identity", "identity.db"))
