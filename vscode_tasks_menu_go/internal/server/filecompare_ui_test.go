@@ -198,6 +198,24 @@ func TestFileComparePreservesDirtyBuffersAndSelectionsDuringAsyncOperations(t *t
 	}
 }
 
+func TestFileCompareDisablesSaveForReadOnlySources(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"writable=!app.sharedMode||Boolean(app.hasPermission?.('files.write')||app.hasPermission?.('project.admin'))",
+		"if(view?.file?.read_only||view?.tabReadOnly||globalThis.TaskMenuEditor?.isTabReadOnly?.(view))return source",
+		"if(typeof handle.createWritable!=='function')delete source.writeText",
+		"const disabled=!sourceWritable(source)||!source?.dirty||Boolean(source?.saving)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("File Compare must respect read-only sources: missing %q", want)
+		}
+	}
+}
+
 func TestFileCompareSelectionActionsAcrossExplorerTransferAndTabs(t *testing.T) {
 	files := map[string][]string{
 		"featuremods/projectfileactions.js": {
