@@ -69,10 +69,23 @@ root.append(toolbar,header,tree,legend);pane.append(root);panes.append(pane);
 
 function sourceProject(path){return {kind:'project',path:String(path||'.'),label:'Host · '+path};}
 function sourceRemote(profileID,path){return {kind:'remote',profileID:String(profileID),path:String(path||'.'),label:'Remote · '+path};}
-function sourceBrowser(handle,path,options={}){return {kind:'browser',handle,rootHandle:Boolean(options.rootHandle),path:String(path||'.'),label:'Local · '+path};}
+function sourceBrowser(handle,path,options={}){return {kind:'browser',handle,rootHandle:Boolean(options.rootHandle),profileID:String(options.profileID||''),rootID:String(options.rootID||''),path:String(path||'.'),label:'Local · '+path};}
 function relativeJoin(a,b){const base=String(a||'.');return (base==='.'?'':base==='/'?'/':base.replace(/\/+$/,'')+'/')+b;}
-function descriptor(s){return s?.kind==='project'?{kind:s.kind,path:s.path}:s?.kind==='remote'?{kind:s.kind,path:s.path,profileID:s.profileID}:null;}
-function rehydrate(s){return s?.kind==='project'?sourceProject(s.path):s?.kind==='remote'?sourceRemote(s.profileID,s.path):null;}
+function descriptor(s){
+ if(s?.kind==='project')return {kind:'project',path:s.path};
+ if(s?.kind==='remote')return {kind:'remote',path:s.path,profileID:s.profileID};
+ if(s?.kind==='browser'&&s.rootHandle&&s.profileID&&s.rootID)return {kind:'browser-transfer',path:s.path,profileID:s.profileID,rootID:s.rootID};
+ return null;
+}
+function rehydrate(s){
+ if(s?.kind==='project')return sourceProject(s.path);
+ if(s?.kind==='remote')return sourceRemote(s.profileID,s.path);
+ if(s?.kind==='browser-transfer'){
+  const view=globalThis.TaskMenuFileTransfer?.views?.get?.(s.profileID);
+  if(view?.left?.localRoot?.handle&&view.left.localRoot.id===s.rootID)return sourceBrowser(view.left.localRoot.handle,s.path,{rootHandle:true,profileID:s.profileID,rootID:s.rootID});
+ }
+ return null;
+}
 function touch(){globalThis.TaskMenuWorkspaceTabs?.scheduleSave?.();}
 function ensureTab(){
  if(tab)return;
