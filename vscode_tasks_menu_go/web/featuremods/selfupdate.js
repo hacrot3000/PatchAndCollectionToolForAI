@@ -161,6 +161,7 @@ async function checkAndStartUpdate(){
       return;
     }
 
+    globalThis.TaskMenuWorkspaceTabs?.saveNow?.();
     await globalThis.TaskMenuEditor?.persistSession?.();
     await terminalRestore()?.persistSnapshot?.();
 
