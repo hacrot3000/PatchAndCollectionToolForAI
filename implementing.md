@@ -1,6 +1,6 @@
 # TaskDeck — outstanding implementation work
 
-This file is an **active backlog only**. Completed features and their original design notes were removed as requested on 2026-10-08. For historical details, see [the archived roadmap in Git history](https://github.com/hacrot3000/PatchAndCollectionToolForAI/blob/e2d0c2be7d51ba5e51f3907f268397ea5b6e404f/implementing.md).
+This file is an **active backlog only**. Completed features and their original design notes were removed as requested on 2026-10-08. For historical details, see [the archived roadmap in Git history](https://github.com/hacrot3000/PatchAndCollectionToolForAI/blob/120c9b549a01883ad9e49178c485c631ca26fd59/implementing.md).
 
 ## Remaining verification
 
