@@ -215,11 +215,4 @@ clearButton.onclick=clearCompleted;closeButton.onclick=close;
 backdrop.onmousedown=event=>{if(event.target===backdrop)close();};
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&backdrop.classList.contains('visible'))close();});
 
-function installLauncher(){
-  const rail=document.querySelector('.task-activity-bar');if(!rail)return false;
-  if(rail.querySelector('[data-view="operations"]'))return true;
-  const button=document.createElement('button');button.type='button';button.className='task-activity-button';button.dataset.view='operations';button.title='Operation Center';button.setAttribute('aria-label','Operation Center');button.textContent='⇅';button.onclick=open;rail.append(button);return true;
-}
-if(!installLauncher()){const observer=new MutationObserver(()=>{if(installLauncher())observer.disconnect();});observer.observe(document.body,{childList:true,subtree:true});}
-
 globalThis.TaskMenuOperationCenter={open,close,refresh,begin,get items(){return [...operations];},get visible(){return backdrop.classList.contains('visible');}};
