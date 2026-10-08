@@ -15,7 +15,10 @@ css.textContent=[
 '.dircmp-row{border-bottom:1px solid #29303a;min-height:28px}.dircmp-row:hover{background:#263342}',
 '.dircmp-cell{display:flex;align-items:center;min-width:0;gap:6px;padding:3px 6px;overflow:hidden;white-space:nowrap}',
 '.dircmp-cell .dircmp-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-'.dircmp-cell .dircmp-icon{flex:none;min-width:12px}.dircmp-center{display:flex;gap:3px;align-items:center;justify-content:center;min-width:0;font:10px system-ui}',
+'.dircmp-cell .dircmp-icon{flex:none;min-width:12px}'+
+'.dircmp-icon[data-status="left-only"]{color:#e9b279}.dircmp-icon[data-status="right-only"]{color:#8ebceb}'+
+'.dircmp-icon[data-status="important"]{color:#ed948f}.dircmp-icon[data-status="unimportant"]{color:#88c6c9}'+
+'.dircmp-icon[data-status="changed"]{color:#e2b76c}.dircmp-icon[data-status="same"]{color:#85bba4}.dircmp-center{display:flex;gap:3px;align-items:center;justify-content:center;min-width:0;font:10px system-ui}',
 '.dircmp-center span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dircmp-center button{font-size:11px;padding:1px 4px}',
 '.dircmp-name[data-status="left-only"],.dircmp-center[data-status="left-only"]{color:#e9b279}',
 '.dircmp-name[data-status="right-only"],.dircmp-center[data-status="right-only"]{color:#8ebceb}',
@@ -38,7 +41,7 @@ css.textContent=[
 'html[data-taskmenu-theme="light"] .dircmp-modal{background:#fff;color:#27313c}'
 ].join('\n');
 document.head.append(css);
-let tab=null,session=null,choice=null,controller=null,serial=0,showIdentical=true,collapsed=new Set();
+let tab=null,session=null,choice=null,controller=null,serial=0,showIdentical=true,collapsed=new Set(),renderedRows=800;
 const pane=document.createElement('div');pane.className='pane dircmp-pane hidden';pane.dataset.id=TAB_ID;
 const root=document.createElement('div');root.className='dircmp-root';
 const toolbar=document.createElement('div');toolbar.className='dircmp-tools';
@@ -47,9 +50,15 @@ const scanBtn=document.createElement('button');scanBtn.textContent='Rescan struc
 const compareBtn=document.createElement('button');compareBtn.textContent='Compare files…';
 const showLabel=document.createElement('label');const showCheck=document.createElement('input');showCheck.type='checkbox';showCheck.checked=true;
 showLabel.append(showCheck,document.createTextNode(' Show identical'));
+const search=document.createElement('input');search.type='search';search.placeholder='Filter paths…';search.title='Find files and folders';search.style.maxWidth='145px';
+const statusFilter=document.createElement('select');statusFilter.title='Filter difference type';
+for(const [value,label] of [['all','All types'],['left-only','Left only'],['right-only','Right only'],['changed','Checksum/size changed'],['important','Important edits'],['unimportant','Minor edits'],['type-mismatch','Type mismatch'],['unknown','Not checked / errors']]){
+ const option=document.createElement('option');option.value=value;option.textContent=label;statusFilter.append(option);
+}
+const exportBtn=document.createElement('button');exportBtn.textContent='Export JSON';exportBtn.title='Export the current comparison report';
 const status=document.createElement('span');status.className='dircmp-status';
 const cancelBtn=document.createElement('button');cancelBtn.textContent='Cancel';cancelBtn.disabled=true;
-toolbar.append(heading,scanBtn,compareBtn,showLabel,status,cancelBtn);
+toolbar.append(heading,scanBtn,compareBtn,showLabel,statusFilter,search,exportBtn,status,cancelBtn);
 const header=document.createElement('div');header.className='dircmp-head';
 const leftHead=document.createElement('div'),middleHead=document.createElement('div'),rightHead=document.createElement('div');
 middleHead.textContent='Status / Copy';header.append(leftHead,middleHead,rightHead);
@@ -141,7 +150,7 @@ function mergeTrees(a,b){
  const paths=new Set([...a.keys(),...b.keys()]);
  return [...paths].sort((x,y)=>x.localeCompare(y,undefined,{numeric:true,sensitivity:'base'})).map(path=>{
   const left=a.get(path)||null,right=b.get(path)||null;
-  const state=!left?'right-only':!right?'left-only':left.kind!==right.kind?'type-mismatch':left.kind==='dir'?'same':'unknown';
+  const state=!left?'right-only':!right?'left-only':left.kind!==right.kind?'type-mismatch':left.kind==='dir'?'same':left.size!==right.size?'changed':'unknown';
   return {path,left,right,kind:left?.kind||right?.kind,state,detail:''};
  });
 }
@@ -158,7 +167,10 @@ function visibleRows(){
  if(!session)return [];
  const keep=new Set();
  for(const row of session.rows){
-  if(showIdentical||!['same','unknown'].includes(row.state)||(row.state==='unknown'&&row.detail)){
+  const filter=statusFilter.value;
+  const wanted=filter==='all'||row.state===filter||(filter==='changed'&&row.state==='changed');
+  const matchPath=!search.value||row.path.toLowerCase().includes(search.value.toLowerCase());
+  if(wanted&&matchPath&&(showIdentical||!['same','unknown'].includes(row.state)||(row.state==='unknown'&&row.detail))){
    keep.add(row.path);
    const pieces=row.path.split('/');for(let i=1;i<pieces.length;i++)keep.add(pieces.slice(0,i).join('/'));
   }
@@ -185,7 +197,7 @@ function makeCell(row,side){
  const entry=row[side],node=document.createElement('div');node.className='dircmp-cell';
  const depth=Math.min(48,row.path.split('/').length-1);
  node.style.paddingLeft=(6+depth*12)+'px';
- const icon=document.createElement('span');icon.className='dircmp-icon';icon.textContent=entry?.kind==='dir'?(collapsed.has(row.path)?'▸':'▾'):entry?'▣':'·';
+ const icon=document.createElement('span');icon.className='dircmp-icon';icon.dataset.status=row.state;icon.textContent=entry?.kind==='dir'?(collapsed.has(row.path)?'▸':'▾'):entry?'▣':'·';
  const name=document.createElement('span');name.className='dircmp-name';name.textContent=row.path.split('/').at(-1);name.dataset.status=row.state;
  name.title=(entry?.path||'Absent')+' · '+(stateLabel[row.state]||row.state)+(row.detail?' · '+row.detail:'');
  node.append(icon,name);
@@ -196,7 +208,8 @@ function makeCell(row,side){
 function render(){
  tree.replaceChildren();if(!session)return;
  const fragment=document.createDocumentFragment();
- for(const row of visibleRows()){
+ const rows=visibleRows();
+ for(const row of rows.slice(0,renderedRows)){
   const div=document.createElement('div');div.className='dircmp-row';
   const mid=document.createElement('div');mid.className='dircmp-center';mid.dataset.status=row.state;
   const caption=document.createElement('span');caption.textContent=stateLabel[row.state]||row.state;caption.title=row.detail||caption.textContent;mid.append(caption);
@@ -209,6 +222,10 @@ function render(){
   div.append(makeCell(row,'left'),mid,makeCell(row,'right'));fragment.append(div);
  }
  tree.append(fragment);
+ if(rows.length>renderedRows){
+  const more=document.createElement('button');more.textContent='Show more · '+(rows.length-renderedRows)+' remaining';
+  more.style.margin='10px';more.onclick=()=>{renderedRows+=800;render();};tree.append(more);
+ }
  if(!tree.childNodes.length){const empty=document.createElement('div');empty.className='dircmp-cell';empty.textContent='No differences in current view';tree.append(empty);}
  const counts={};for(const r of session.rows)counts[r.state]=(counts[r.state]||0)+1;
  status.textContent=(session.mode==='structure'?'Structure scan':session.mode+' compare')+' · '+session.rows.length+' items · '+Object.entries(counts).map(([k,v])=>k+' '+v).join(', ');
@@ -435,7 +452,17 @@ async function restoreState(saved){
 cancelBtn.onclick=()=>{cancelWork();status.textContent='Cancelled · prior completed results preserved';};
 scanBtn.onclick=()=>structureScan().catch(app.showError);
 compareBtn.onclick=async()=>{const mode=await chooseMode();if(mode)compareContents(mode).catch(app.showError);};
-showCheck.onchange=()=>{showIdentical=showCheck.checked;render();touch();};
+showCheck.onchange=()=>{showIdentical=showCheck.checked;renderedRows=800;render();touch();};
+statusFilter.onchange=()=>{renderedRows=800;render();};
+search.oninput=()=>{renderedRows=800;render();};
+exportBtn.onclick=()=>{
+ if(!session)return;
+ const output={left:descriptor(session.left),right:descriptor(session.right),mode:session.mode,created_at:new Date().toISOString(),
+  entries:session.rows.map(row=>({path:row.path,state:row.state,kind:row.kind,detail:row.detail,left_size:row.left?.size??null,right_size:row.right?.size??null,stats:row.stats||null}))};
+ const url=URL.createObjectURL(new Blob([JSON.stringify(output,null,2)],{type:'application/json'}));
+ const link=document.createElement('a');link.href=url;link.download='taskdeck-directory-compare.json';document.body.append(link);link.click();link.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),30000);
+};
 window.addEventListener('taskmenu:view-activated',event=>{
  const on=event.detail?.kind==='external'&&event.detail?.id===TAB_ID;
  if(tab)tab.classList.toggle('active',on);
