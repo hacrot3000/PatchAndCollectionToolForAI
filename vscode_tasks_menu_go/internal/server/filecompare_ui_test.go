@@ -131,7 +131,6 @@ func TestFileCompareSupportsArbitraryWritableSelections(t *testing.T) {
 		"function selectForCompare(source)",
 		"async function compareWithSelected(source",
 		"async function openSources(sources",
-		"function createDetachedEditor",
 		"file-compare-editor-deck",
 		"Save Left",
 		"Save Right",
@@ -227,9 +226,9 @@ func TestProjectAndEditorMenusExposeGenericCompare(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Compare current ↔ saved",
-		"TaskMenuFileCompare?.openEditorSaved?.(view)",
+		"compare?.openEditorSaved?.(view)",
 		"Compare current ↔ clipboard",
-		"TaskMenuFileCompare?.openEditorClipboard?.(view)",
+		"compare?.openEditorClipboard?.(view)",
 	} {
 		if !strings.Contains(string(tabContext), want) {
 			t.Fatalf("editor context missing compare action %q", want)
@@ -254,7 +253,7 @@ func TestFileCompareSupportsGitAndRemoteSources(t *testing.T) {
 		"function browserFileHandleSource(handle",
 		"Local browser file changed after compare load",
 		"async function openLeftRemote",
-		"source_kind:to.kind",
+		"source_kind:source.kind",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("file compare external source support missing %q", want)
@@ -296,7 +295,7 @@ func TestFileTransferMenusExposeSelectedLocalRemoteCompare(t *testing.T) {
 		"Compare with selected left file",
 		"TaskMenuFileCompare",
 		"browserFileHandleSource",
-		"openLeftRemote",
+		"compareTransferSources([compareLeftFileSource(view,leftEntry),compareRemoteFileSource(view,remoteEntry)]",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("File Transfer compare integration missing %q", want)
