@@ -203,7 +203,7 @@ Các capability chính đã triển khai:
 - **Project-scoped administration:** project admin chỉ xem/sửa users, custom roles, sessions và audit thuộc project của mình; direct-ID cross-project access bị từ chối.
 - **Password lifecycle:** đổi password self-service và operator reset dùng chung policy; đổi/reset password revoke toàn bộ login session của global user trên các project.
 - **Audit:** ghi authentication, authorization denial, task/terminal/Patch/file/settings/self-update/admin actions và mutation-lock conflict; không ghi password/raw token/keystroke.
-- **Shared workspace mutation lock:** phối hợp Patch mutation, file writes và self-update để tránh nhiều mutation xung đột trên cùng workspace.
+- **Shared workspace mutation lock:** chỉ giữ lock khi có mutation thật. Native Patch Queue/Resume ở trạng thái chờ không còn khóa Git/file/self-update; lock `patch.run` chỉ được acquire ngay trước khi chạy PATCH (COLLECT-only không khóa source workspace). Terminal Patch vẫn giữ policy bảo thủ vì input PTY không đi qua structured action API. Admin `project.admin` thấy nút **Unlock** trên badge lock; thao tác này Stop Patch session đang giữ lock rồi mới release, không bypass một PATCH còn chạy.
 - **Identity DB backup/restore:** SQLite online backup, integrity check, private backup file, pre-restore safety snapshot và rollback hữu hạn.
 - **HTTPS/reverse-proxy hardening:** shared mode yêu cầu TLS thật ở TaskDeck listener; internal self-update handoff/detach cần cả loopback và private daemon control token.
 - **Schema migration an toàn:** auth session được project-scope; session legacy không xác định project bị revoke khi migrate thay vì được gán project bằng suy đoán.
