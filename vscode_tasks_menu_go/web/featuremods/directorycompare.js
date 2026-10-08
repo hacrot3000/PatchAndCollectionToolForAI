@@ -453,6 +453,7 @@ async function copyRow(row,from){
  const file=row[from],existing=row[from==='left'?'right':'left'];
  if(!file||file.kind!=='file'||existing?.kind==='dir')throw new Error('Cannot copy this entry');
  const target=relativeJoin(dst.path,row.path);
+ if(src.kind===dst.kind&&file.path===target&&((src.kind==='remote'&&src.profileID===dst.profileID)||src.kind==='project'||(src.kind==='browser'&&src.handle===dst.handle)))throw new Error('Source and destination are the same file');
  if(!confirm('Copy '+file.path+' → '+target+'?\n'+(existing?'This will OVERWRITE existing data where supported.':'This creates a missing file.')+'\nReview direction before proceeding.'))return;
  if(src.kind==='project'&&dst.kind==='project'){
   if(existing)throw new Error('Host-to-host overwrite is blocked: rename/remove destination explicitly first.');
