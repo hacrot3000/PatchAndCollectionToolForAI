@@ -311,7 +311,9 @@ async function detailDiff(row,signal){
  const api=globalThis.TaskMenuFileCompare;
  const l=compareFileSource(session.left,row.left),r=compareFileSource(session.right,row.right);
  const [a,b]=await Promise.all([l.load(),r.load()]);assertActive(signal);
- return api.analyzeTexts(String(a?.text??a?.content??''),String(b?.text??b?.content??''),row.path);
+ const left=String(a?.text??a?.content??''),right=String(b?.text??b?.content??'');
+ if(left.length>1024*1024||right.length>1024*1024)throw new Error('Detailed text diff is limited to 1 MiB per side; checksum result remains valid');
+ return api.analyzeTexts(left,right,row.path);
 }
 async function compareContents(mode){
  cancelWork();const generation=++serial,ctrl=new AbortController();controller=ctrl;
