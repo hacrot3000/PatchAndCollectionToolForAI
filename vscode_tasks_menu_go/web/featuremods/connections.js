@@ -446,9 +446,7 @@ function showConnectionContextMenu(items,x,y){
   }
   if(!menu.childElementCount)return;
   document.body.append(menu);connectionContextMenu=menu;
-  const rect=menu.getBoundingClientRect();
-  menu.style.left=Math.max(4,Math.min(x,window.innerWidth-rect.width-4))+'px';
-  menu.style.top=Math.max(4,Math.min(y,window.innerHeight-rect.height-4))+'px';
+  globalThis.TaskMenuContextViewport.place(menu,x,y);
 }
 
 document.addEventListener('pointerdown',event=>{
