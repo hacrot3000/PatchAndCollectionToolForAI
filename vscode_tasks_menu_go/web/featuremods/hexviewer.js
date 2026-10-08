@@ -165,4 +165,17 @@ window.addEventListener('taskmenu:view-activated',event=>{
   }
 });
 
-globalThis.TaskMenuHexViewer={open,close,views};
+function snapshotHexState(){
+  return [...views.values()].map(view=>({path:String(view.path||''),offset:Math.max(0,Number(view.currentOffset)||0)})).filter(item=>item.path);
+}
+async function restoreHexState(items){
+  for(const item of Array.isArray(items)?items:[]){
+    const path=String(item?.path||'').trim();if(!path)continue;
+    try{
+      const view=await open(path);
+      const offset=Number(item.offset)||0;
+      if(view&&offset>0)await load(view,offset);
+    }catch(error){console.warn('Cannot restore HEX tab '+path,error);}
+  }
+}
+globalThis.TaskMenuHexViewer={open,close,views,snapshotState:snapshotHexState,restoreState:restoreHexState};
