@@ -41,6 +41,37 @@ func TestFileCompareOpensAsWorkspaceTabInsteadOfModal(t *testing.T) {
 	}
 }
 
+func TestFileCompareTabKeepsCompactNamesInOneLineWithFullHoverTitle(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		".file-compare-tab{display:inline-flex;align-items:center;flex:0 0 auto;max-width:260px;min-width:0;white-space:nowrap",
+		".file-compare-tab-label{display:flex;align-items:center;flex:0 1 auto;min-width:0;max-width:220px;overflow:hidden;white-space:nowrap",
+		".file-compare-tab-filename{display:block;flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}",
+		"function compareTabSourceName(source)",
+		"function compactCompareTabName(name,limit)",
+		"function compareTabDisplayNames(left,right)",
+		"function updateCompareTabLabel(left,right)",
+		"const [leftName,rightName]=compareTabDisplayNames(left,right)",
+		"leftSpan.className='file-compare-tab-filename'",
+		"separator.textContent='↔'",
+		"rightSpan.className='file-compare-tab-filename'",
+		"label.replaceChildren(leftSpan,separator,rightSpan)",
+		"compareTab.title=fullName(left)+' ↔ '+fullName(right)",
+		"compareTab.dataset.title=compareTab.title",
+		"updateCompareTabLabel(current.left,current.right)",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("File Compare compact tab label missing %q",want) }
+	}
+	for _, forbidden := range []string{
+		"textContent='Compare · '+shortName",
+		".file-compare-tab-label{display:block;max-width:260px",
+	} {
+		if strings.Contains(js,forbidden) { t.Fatalf("File Compare tab must not regress to wrapped/long label: %q",forbidden) }
+	}
+}
+
 func TestGenericFileCompareSupportsCoreSourcesAndViews(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
 	if err != nil {
