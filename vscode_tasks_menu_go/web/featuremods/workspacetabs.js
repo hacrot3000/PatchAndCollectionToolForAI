@@ -24,6 +24,7 @@ function descriptor(tab,ordinals){
   const editor=globalThis.TaskMenuEditor?.editors?.get?.(id);
   if(editor?.file)return {kind:'editor',path:String(editor.file.path||''),id};
   if(tab.classList.contains('file-compare-tab'))return {kind:'compare'};
+  if(tab.classList.contains('dircmp-tab'))return {kind:'directory-compare'};
   if(tab.classList.contains('task-patch-tab'))return {kind:'patch'};
   if(tab.classList.contains('hex-tab'))return {kind:'hex',path:String(globalThis.TaskMenuHexViewer?.views?.get?.(id)?.path||'')};
   if(tab.classList.contains('ft-tab'))return {kind:'transfer',profileID:id.replace(/^file-transfer:/,'')};
@@ -81,6 +82,7 @@ function capture(){
   const rows=describeTabs(),active=rows.find(row=>row.tab.classList.contains('active'))?.info||null;
   return {version:VERSION,order:rows.map(row=>row.info),active,
     compare:globalThis.TaskMenuFileCompare?.snapshotState?.()||null,
+    directoryCompare:globalThis.TaskMenuDirectoryCompare?.snapshotState?.()||null,
     hex:globalThis.TaskMenuHexViewer?.snapshotState?.()||[],
     remoteEditors:globalThis.TaskMenuEditor?.snapshotRemoteState?.()||[],
     patchOpen:Boolean(globalThis.TaskMenuPatchPanel?.tab&&!globalThis.TaskMenuPatchPanel.tab.hidden),
@@ -120,6 +122,10 @@ async function restoreStartup(){
     // Restore feature tabs after their underlying file/session providers are ready.
     if(saved?.remoteEditors?.length)await globalThis.TaskMenuEditor?.restoreRemoteState?.(saved.remoteEditors);
     if(saved?.hex?.length)await globalThis.TaskMenuHexViewer?.restoreState?.(saved.hex);
+    if(saved?.directoryCompare){
+      try{await globalThis.TaskMenuDirectoryCompare?.restoreState?.(saved.directoryCompare);}
+      catch(error){console.warn('Directory Compare restore skipped',error);}
+    }
     if(saved?.compare){
       try{await globalThis.TaskMenuFileCompare?.restoreState?.(saved.compare);}
       catch(error){console.warn('Workspace File Compare restore skipped',error);}
