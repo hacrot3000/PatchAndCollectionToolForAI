@@ -96,6 +96,11 @@ func TestWorkspaceTabFeatureRecoveryAndStartupReady(t *testing.T) {
     requireWorkspaceTabSource(t,database,"get ready(){return databaseSessionsReady;}")
     transfer:=readWorkspaceTabFeature(t,"filetransfer.js")
     requireWorkspaceTabSource(t,transfer,"get ready(){return fileTransferSessionReady;}")
+    patch:=readWorkspaceTabFeature(t,"patchpanel.js")
+    requireWorkspaceTabSource(t,patch,
+        "patchTab.hidden=true;",
+        "window.dispatchEvent(new Event('taskmenu:workspace-tab-changed'))",
+    )
     selfUpdate:=readWorkspaceTabFeature(t,"selfupdate.js")
     requireWorkspaceTabSource(t,selfUpdate,"TaskMenuWorkspaceTabs?.saveNow?.()")
 }
