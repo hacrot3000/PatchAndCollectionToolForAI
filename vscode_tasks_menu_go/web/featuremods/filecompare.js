@@ -19,7 +19,7 @@ style.textContent=`
 .file-compare-gap{grid-column:1/-1;padding:2px 8px;text-align:center;font:10px/1.4 ui-monospace,monospace;opacity:.52;background:rgba(120,140,165,.07);border-bottom:1px solid rgba(255,255,255,.035)}
 .file-compare-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border-bottom:1px solid #303843;background:#151b23}
 .file-compare-column{padding:6px 9px;font:11px ui-monospace,monospace;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-compare-column+.file-compare-column{border-left:1px solid #303843}
-.file-compare-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;background:#0b0f14;--file-compare-scroll-x:0px}
+.file-compare-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;background:#0b0f14;--file-compare-shift-x:0px}
 .file-compare-horizontal-scroll{flex:0 0 auto;box-sizing:border-box;width:100%;height:19px;overflow-x:scroll;overflow-y:hidden;scrollbar-width:auto;background:#151b23;border-top:1px solid #303843}
 .file-compare-horizontal-scroll[hidden]{display:none}
 .file-compare-horizontal-size{height:1px;pointer-events:none}
@@ -30,7 +30,7 @@ style.textContent=`
 .file-compare-line-copy:hover{background:#315c7c}
 .file-compare-cell+.file-compare-cell{border-left:1px solid #303843}.file-compare-no{padding:1px 7px;text-align:right;user-select:none;opacity:.45;font:10px/1.45 ui-monospace,monospace;border-right:1px solid rgba(255,255,255,.06)}
 .file-compare-code{display:block;min-width:0;padding:1px 7px;white-space:pre;overflow:hidden;font:11px/1.45 ui-monospace,monospace}
-.file-compare-code-inner{display:inline-block;min-width:100%;white-space:pre;transform:translateX(calc(-1 * var(--file-compare-scroll-x,0px)))}.file-compare-cell.removed.important{background:rgba(229,72,86,.28)}.file-compare-cell.added.important{background:rgba(232,174,55,.28)}.file-compare-cell.removed.unimportant,.file-compare-cell.added.unimportant{background:rgba(58,149,214,.23)}.file-compare-cell.blank{opacity:.3}
+.file-compare-code-inner{display:inline-block;min-width:100%;white-space:pre;transform:translateX(var(--file-compare-shift-x,0px))}.file-compare-cell.removed.important{background:rgba(229,72,86,.28)}.file-compare-cell.added.important{background:rgba(232,174,55,.28)}.file-compare-cell.removed.unimportant,.file-compare-cell.added.unimportant{background:rgba(58,149,214,.23)}.file-compare-cell.blank{opacity:.3}
 .file-compare-syntax-keyword{color:#c792ea}.file-compare-syntax-comment{color:#6a9955;font-style:italic}.file-compare-syntax-string{color:#ce9178}.file-compare-syntax-number{color:#b5cea8}.file-compare-syntax-command{color:#dcdcaa}.file-compare-syntax-variable{color:#9cdcfe}
 .file-compare-inline-change{border-radius:2px;box-shadow:inset 0 -1px 0 rgba(255,255,255,.28)}.file-compare-inline-change.removed{background:rgba(255,84,98,.38)}.file-compare-inline-change.added{background:rgba(255,196,74,.40)}
 .file-compare-hunk{border-top:1px solid #3a4350;border-bottom:1px solid #3a4350;margin:5px 0}
@@ -125,9 +125,12 @@ let editMode=false;
 let renderTimer=0;
 let horizontalMeasureFrame=0;
 function syncCompareHorizontalOffset(){
-  body.style.setProperty('--file-compare-scroll-x',horizontalScroll.scrollLeft+'px');
+  body.style.setProperty('--file-compare-shift-x',(-horizontalScroll.scrollLeft)+'px');
 }
 horizontalScroll.addEventListener('scroll',syncCompareHorizontalOffset);
+function compareSharedHorizontalOverflow(contentWidth,viewportWidth,paddingLeft=0,paddingRight=0){
+  return Math.max(0,Math.ceil(contentWidth-Math.max(0,viewportWidth-paddingLeft-paddingRight)));
+}
 function updateCompareHorizontalMeasure(){
   if(!current){
     horizontalScroll.hidden=true;horizontalScroll.scrollLeft=0;syncCompareHorizontalOffset();return;
@@ -137,7 +140,10 @@ function updateCompareHorizontalMeasure(){
   for(const inner of body.querySelectorAll('.file-compare-code-inner')){
     const viewport=inner.parentElement;
     if(!viewport?.clientWidth)continue;
-    maxOverflow=Math.max(maxOverflow,inner.scrollWidth-viewport.clientWidth);
+    const padding=getComputedStyle(viewport);
+    const overflow=compareSharedHorizontalOverflow(inner.scrollWidth,viewport.clientWidth,
+      parseFloat(padding.paddingLeft)||0,parseFloat(padding.paddingRight)||0);
+    maxOverflow=Math.max(maxOverflow,overflow);
   }
   if(maxOverflow<=1){
     horizontalScroll.hidden=true;horizontalScroll.scrollLeft=0;syncCompareHorizontalOffset();return;
