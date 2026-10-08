@@ -1,6 +1,8 @@
 // Shared viewport-fitting policy for all right-click menus and nested submenus.
 // Menus must be made visible and appended to the document before this is called.
 const margin=6;
+const trackedMenus=new Map();
+const naturalMinimums=new WeakMap();
 const css=document.createElement('style');
 css.textContent=`
 .project-explorer-context,.ft-context,.task-connection-context-menu,
@@ -33,7 +35,10 @@ function place(menu,x,y,{anchor=null,submenu=false,gap=4}={}){
  menu.style.boxSizing='border-box';
  menu.style.maxWidth=roomWidth+'px';
  // A CSS min-width must not override the available width on narrow windows.
- const requestedMinimum=parseFloat(window.getComputedStyle(menu).minWidth)||0;
+ if(!naturalMinimums.has(menu)){
+   naturalMinimums.set(menu,parseFloat(window.getComputedStyle(menu).minWidth)||0);
+ }
+ const requestedMinimum=naturalMinimums.get(menu);
  menu.style.minWidth=Math.min(requestedMinimum,roomWidth)+'px';
  menu.style.maxHeight=roomHeight+'px';
  menu.style.overflowY='auto';
@@ -53,6 +58,18 @@ function place(menu,x,y,{anchor=null,submenu=false,gap=4}={}){
  left=bounded(left,v.left+margin,v.right-margin-width);
  top=bounded(top,v.top+margin,v.bottom-margin-height);
  menu.style.left=left+'px';menu.style.top=top+'px';
+ for(const node of trackedMenus.keys())if(!node.isConnected)trackedMenus.delete(node);
+ trackedMenus.set(menu,{x,y,anchor,submenu,gap});
  return {left,top,width,height,scrollable:rect.height>=roomHeight};
 }
-globalThis.TaskMenuContextViewport={place,viewport};
+function refitMenus(){
+ for(const [menu,options] of trackedMenus){
+   if(!menu.isConnected){trackedMenus.delete(menu);continue;}
+   if(window.getComputedStyle(menu).display==='none'||menu.getClientRects?.().length===0)continue;
+   place(menu,options.x,options.y,options);
+ }
+}
+window.addEventListener?.('resize',refitMenus);
+window.visualViewport?.addEventListener?.('resize',refitMenus);
+window.visualViewport?.addEventListener?.('scroll',refitMenus);
+globalThis.TaskMenuContextViewport={place,viewport,refitMenus};
