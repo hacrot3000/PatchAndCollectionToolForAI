@@ -393,9 +393,21 @@ async function downloadSourceBlob(src,entry){
  }
  const response=await app.fetchWithLease(url,{cache:'no-store'});
  if(!response.ok)throw new Error('Download source failed: '+(await response.text()));
- const blob=await response.blob();
- if(blob.size>64*1024*1024)throw new Error('Transfer data exceeds 64 MiB direct copy limit');
- return blob;
+ const limit=64*1024*1024;
+ if(Number(response.headers.get('content-length')||0)>limit){await response.body?.cancel?.();throw new Error('Transfer response exceeds the 64 MiB direct copy limit');}
+ if(!response.body?.getReader){
+  const blob=await response.blob();if(blob.size>limit)throw new Error('Transfer response exceeds the direct copy limit');return blob;
+ }
+ const reader=response.body.getReader(),chunks=[];let bytes=0;
+ try{
+  for(;;){
+   const part=await reader.read();if(part.done)break;
+   bytes+=part.value.byteLength;
+   if(bytes>limit){await reader.cancel();throw new Error('Direct copy exceeded 64 MiB. Use Transfer Queue for large files.');}
+   chunks.push(part.value);
+  }
+ }finally{reader.releaseLock();}
+ return new Blob(chunks);
 }
 async function writeBlobDestination(dst,row,blob){
  const path=relativeJoin(dst.path,row.path);
