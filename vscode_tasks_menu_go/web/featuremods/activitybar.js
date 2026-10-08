@@ -19,6 +19,8 @@ function installActivityBar(){
   .task-activity-button svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
   body:not(.task-sidebar-auto-hide) .task-activity-bar{display:flex;position:fixed;top:var(--taskmenu-header-height,30px);left:0;z-index:1900;width:var(--taskmenu-sidebar-inline-width,310px);min-width:0;height:46px;border-right:1px solid #30343b;border-bottom:1px solid #30343b;flex-direction:row;align-items:center;justify-content:flex-start;padding:2px 8px;gap:4px}
   body:not(.task-sidebar-auto-hide) .task-activity-button{width:38px;height:38px;min-height:38px;flex:0 0 38px}
+  /* At the minimum 220px sidebar width, six actions must fit without clipping. */
+  body:not(.task-sidebar-auto-hide) .task-activity-bar>.task-activity-button{flex:0 1 38px;min-width:29px}
   body:not(.task-sidebar-auto-hide) .task-activity-button.active::before{left:7px;right:7px;top:auto;bottom:-3px;width:auto;height:2px;border-radius:2px 2px 0 0}
   body:not(.task-sidebar-auto-hide) #menu{padding-top:56px}
   body:not(.task-sidebar-auto-hide) .project-explorer{top:calc(var(--taskmenu-header-height,30px) + 46px)!important;left:0!important;bottom:0!important;width:var(--taskmenu-sidebar-inline-width,310px)!important;box-shadow:none!important}
