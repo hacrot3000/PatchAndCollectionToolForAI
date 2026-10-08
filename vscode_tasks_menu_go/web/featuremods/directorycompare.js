@@ -61,7 +61,7 @@ root.append(toolbar,header,tree,legend);pane.append(root);panes.append(pane);
 function sourceProject(path){return {kind:'project',path:String(path||'.'),label:'Host · '+path};}
 function sourceRemote(profileID,path){return {kind:'remote',profileID:String(profileID),path:String(path||'.'),label:'Remote · '+path};}
 function sourceBrowser(handle,path,options={}){return {kind:'browser',handle,rootHandle:Boolean(options.rootHandle),path:String(path||'.'),label:'Local · '+path};}
-function relativeJoin(a,b){return (a==='.'?'':String(a).replace(/\/+$/,'')+'/')+b;}
+function relativeJoin(a,b){const base=String(a||'.');return (base==='.'?'':base==='/'?'/':base.replace(/\/+$/,'')+'/')+b;}
 function descriptor(s){return s?.kind==='project'?{kind:s.kind,path:s.path}:s?.kind==='remote'?{kind:s.kind,path:s.path,profileID:s.profileID}:null;}
 function rehydrate(s){return s?.kind==='project'?sourceProject(s.path):s?.kind==='remote'?sourceRemote(s.profileID,s.path):null;}
 function touch(){globalThis.TaskMenuWorkspaceTabs?.scheduleSave?.();}
@@ -336,7 +336,7 @@ async function browserTargetDirectory(source,relative){
  return dir;
 }
 async function ensureRemoteParents(source,path){
- const root=String(source.path||'.').replace(/\/+$/,'');
+ const rawRoot=String(source.path||'.');const root=rawRoot==='/'?'/':rawRoot.replace(/\/+$/,'');
  const parts=path.slice((root==='.'?0:root.length)).replace(/^\/+|\/+$/g,'').split('/');
  parts.pop();
  let here=root||'.';
