@@ -672,15 +672,20 @@ function selectedLinePatch(model,side,indexes){
   if(first.hunk<0||first.hunk!==last.hunk)throw new Error('Select changed lines within one diff block');
   const hunk=model.hunks[first.hunk],sourceSide=side,targetSide=side==='left'?'right':'left';
   if(positions.some(i=>model.rows[i].hunk!==hunk.index||!model.rows[i][sourceSide]))throw new Error('Selected lines must belong to one side of one change block');
-  const rows=model.rows.slice(positions[0],positions[positions.length-1]+1);
-  if(rows.some(row=>row.hunk!==hunk.index))throw new Error('Selected rows span multiple changes');
-  const preceding=model.rows.slice(hunk.rowStart,positions[0]).filter(row=>row[targetSide]).length;
-  return {
-    side:targetSide,start:(targetSide==='right'?hunk.rightStart:hunk.leftStart)+preceding,
-    count:rows.filter(row=>row[targetSide]).length,
-    lines:rows.filter(row=>row[sourceSide]).map(row=>row[sourceSide].text),
-    sourceLines:rows.filter(row=>row[sourceSide]).length
-  };
+  const sourceLines=positions.map(i=>model.rows[i][sourceSide].text);
+  // Map each selected source row separately: target-only rows *between* selected lines
+  // are not selected and must not be removed by a broad range replacement.
+  const steps=positions.map(index=>{
+    const row=model.rows[index];
+    const preceding=model.rows.slice(hunk.rowStart,index).filter(item=>item[targetSide]).length;
+    return {index,start:(targetSide==='right'?hunk.rightStart:hunk.leftStart)+preceding,count:row[targetSide]?1:0,lines:[row[sourceSide].text]};
+  });
+  steps.sort((a,b)=>b.start-a.start||b.index-a.index);
+  return {side:targetSide,steps,sourceLines:sourceLines.length};
+}
+function applySelectedLinePatch(text,patch){
+  for(const step of patch.steps)text=replaceLineRange(text,step.start,step.count,step.lines);
+  return text;
 }
 function compareSelectionSide(node){
   const element=node instanceof Element?node:node?.parentElement;
@@ -734,7 +739,7 @@ async function copySelectedCompareLines(selected){
   const target=current[patch.side];
   if(!sourceWritable(target))throw new Error('Destination file is read-only');
   if(!window.confirm('Copy '+patch.sourceLines+' selected line(s) '+(selected.side==='left'?'left → right':'right → left')+'?\n\nOnly the selected rows will be replaced. Save remains manual.'))return;
-  setSourceBuffer(patch.side,replaceLineRange(target.text,patch.start,patch.count,patch.lines),{syncEditor:true,immediate:true});
+  setSourceBuffer(patch.side,applySelectedLinePatch(target.text,patch),{syncEditor:true,immediate:true});
 }
 body.addEventListener('mouseup',event=>{if(!event.target?.closest?.('button'))updateSelectedCompareLines();});
 body.addEventListener('keyup',event=>{if(event.key==='Shift'||event.shiftKey)updateSelectedCompareLines();});
