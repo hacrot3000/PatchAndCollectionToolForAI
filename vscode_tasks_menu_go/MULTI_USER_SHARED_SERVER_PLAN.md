@@ -571,16 +571,27 @@ Initial candidates:
 
 Read operations and safe independent operations should not unnecessarily acquire the lock.
 
+Implemented lifecycle:
+- native Patch **Queue** and **Resume** selector sessions do not acquire the workspace mutation lock while waiting for user input;
+- a structured Queue selection acquires `patch.run` immediately before the command is sent only when the selection contains a PATCH; COLLECT-only selection stays unlocked;
+- native Resume acquires `patch.run` only for actions that can replay PATCH work;
+- terminal Patch Queue/Resume remain conservative and acquire the lock at session start because raw PTY input cannot be classified by the server before execution;
+- completed/stopped Patch sessions release stale locks automatically;
+- `project.admin` can explicitly **Stop & release** an active Patch lock from the header badge. This is not a lock bypass: TaskDeck stops the owning Patch session before release and verifies the exact operation/resource ID to avoid releasing a changed lock.
+
 Expected behavior:
 
 ```text
-User A: PATCH mutation running
-User B: view History       -> allowed
-User B: read files         -> allowed
-User B: conflicting PATCH  -> queued/blocked with owner information
+User A: native Queue open, waiting     -> no workspace lock
+User B: Git mutation / self-update     -> allowed
+User A: selects COLLECT only           -> no source-workspace lock
+User A: selects PATCH                  -> patch.run lock acquired
+User B: view History / read files      -> allowed
+User B: conflicting mutation           -> blocked with holder information
+Admin: Stop & release Patch lock       -> owning Patch session stopped, then unlocked
 ```
 
-The lock should be represented server-side and auditable, not only in browser state.
+The lock is represented server-side and audited, not only in browser state.
 
 ## 11. Audit
 
