@@ -109,15 +109,17 @@ function canCompareWithSelected(source){
 async function compareWithSelected(source,{title='Selected files'}={}){
   if(!compareSelection){selectForCompare(source);return false;}
   if(!canCompareWithSelected(source))throw new Error('Choose a different second file for compare');
-  const left=compareSelection.source;clearCompareSelection();
-  await open({title,left,right:source});
-  return true;
+  const selected=compareSelection;
+  const opened=await open({title,left:selected.source,right:source});
+  if(opened&&compareSelection===selected)clearCompareSelection();
+  return Boolean(opened);
 }
 async function openSources(sources,{title='Selected files'}={}){
   sources=(Array.isArray(sources)?sources:[]).filter(source=>source?.load);
   if(sources.length!==2)throw new Error('File Compare requires exactly two readable files');
-  clearCompareSelection();
-  return open({title,left:sources[0],right:sources[1]});
+  const opened=await open({title,left:sources[0],right:sources[1]});
+  if(opened)clearCompareSelection();
+  return opened;
 }
 function compareSideUI(side){return side==='left'?leftEditorUI:rightEditorUI;}
 function compareSideSource(side){return current?.[side]||null;}
@@ -633,10 +635,13 @@ async function reload(){
 async function open(options){
   if(!options?.left?.load||!options?.right?.load)throw new Error('File compare requires left and right sources');
   if(compareHasSaving()){window.alert('A compare file is still being saved. Finish that operation before opening another comparison.');return false;}
+  // Prepare both files first: a failed remote read must not destroy the current comparison.
+  const next={title:options.title||'File Compare',left:{...options.left,meta:{...(options.left.meta||{})}},right:{...options.right,meta:{...(options.right.meta||{})}}};
+  await Promise.all([loadSource(next.left),loadSource(next.right)]);
+  if(compareHasSaving()){window.alert('A compare file started saving while sources were loading. Try again after the save finishes.');return false;}
   if(compareHasDirty()&&!window.confirm('Discard unsaved changes in the current File Compare?'))return false;
   destroyCompareEditors();editMode=false;editorDeck.classList.add('hidden');editButton.classList.remove('active');
-  current={title:options.title||'File Compare',left:{...options.left,meta:{...(options.left.meta||{})}},right:{...options.right,meta:{...(options.right.meta||{})}}};
-  await Promise.all([loadSource(current.left),loadSource(current.right)]);backdrop.classList.add('visible');render();return true;
+  current=next;backdrop.classList.add('visible');render();return true;
 }
 function close({force=false}={}){
   if(!force&&compareHasSaving()){window.alert('A compare file is still being saved. Finish that operation before closing.');return false;}
