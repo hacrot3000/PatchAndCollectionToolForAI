@@ -474,6 +474,7 @@ async function copyRow(row,from){
 async function open(left,right){
  if(!left||!right)throw new Error('Select two folders');
  cancelWork();serial++;session={left,right,rows:[],mode:'structure'};
+ statusFilter.value='all';search.value='';renderedRows=800;
  ensureTab();setTitles();app.activateExternalView(TAB_ID,{force:true});await structureScan();return true;
 }
 function select(source){choice=source;return source;}
