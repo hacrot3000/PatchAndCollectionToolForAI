@@ -856,6 +856,7 @@ function installPatchPanel(){
     if(!panel.classList.contains('visible'))rememberReturnView();
     resumePatchPanelLifecycle();
     patchTab.hidden=false;
+    window.dispatchEvent(new Event('taskmenu:workspace-tab-changed'));
     app.claimForegroundView?.('external:patch');
     app.activateExternalView('patch',{force:true});
     setVisible(true);
@@ -870,6 +871,7 @@ function installPatchPanel(){
     suspendPatchPanelLifecycle();
     setVisible(false);
     patchTab.hidden=true;
+    window.dispatchEvent(new Event('taskmenu:workspace-tab-changed'));
     app.releaseForegroundView?.('external:patch');
     if(wasVisible||String(app.active||'')==='external:patch')restoreReturnView();
   }
@@ -881,6 +883,7 @@ function installPatchPanel(){
       suspendPatchPanelLifecycle();
       setVisible(false);
       patchTab.hidden=true;
+      window.dispatchEvent(new Event('taskmenu:workspace-tab-changed'));
       app.releaseForegroundView?.('external:patch');
       restoreReturnView();
     }
