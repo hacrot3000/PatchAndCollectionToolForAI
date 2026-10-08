@@ -82,6 +82,10 @@ func TestFileCompareCopiesArbitrarySelectedLinesOnly(t *testing.T) {
 	if err!=nil { t.Fatal(err) }
 	js:=string(data)
 	for _,want:=range []string{
+		"function ensureFreshCompareModel()",
+		"model.sourceText={left:current.left.text,right:current.right.text}",
+		"ensureFreshCompareModel();",
+		"current.model.hunks[hunk.index]!==hunk",
 		"function selectedLinePatch(model,side,indexes)",
 		"const positions=[...new Set(indexes)].sort((a,b)=>a-b)",
 		"if(first.hunk<0||first.hunk!==last.hunk)",
