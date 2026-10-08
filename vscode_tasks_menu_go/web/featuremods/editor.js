@@ -2015,7 +2015,60 @@ window.addEventListener('taskmenu:view-activated',event=>{
 });
 window.addEventListener('resize',()=>{if(renderedEditorSplitRoot)layoutEditorSplit();for(const view of editors.values())scheduleEditorMinimap(view);});
 
+// Browser-reload recovery of remote editor tabs. Unlike local editor tabs, these
+// cannot be served by /api/project/editor-session.
+function remoteEditorSessionKey(){
+  return 'taskdeck:remote-editor-drafts:'+encodeURIComponent(String(app.taskData?.workspace||''))+':'+encodeURIComponent(String(app.currentUser?.user_id||'local'));
+}
+function snapshotRemoteEditorTabs(){
+  const result=[];
+  const drafts={};
+  for(const view of editors.values()){
+    if(view.closed||!remoteEditorDocument(view.file))continue;
+    const file=view.file;
+    const descriptor={path:String(file.path||''),remote_path:String(file.remote_path||''),
+      remote_transfer_profile_id:String(file.remote_transfer_profile_id||''),
+      remote_workspace_id:String(file.remote_workspace_id||'')};
+    if(!descriptor.remote_path||(!descriptor.remote_transfer_profile_id&&!descriptor.remote_workspace_id))continue;
+    result.push(descriptor);
+    if(view.dirty){
+      const content=view.cm.state.doc.toString();
+      if(content.length<=512*1024)drafts[descriptor.path]={content,sha256:String(view.file?.sha256||'')};
+    }
+  }
+  try{
+    if(Object.keys(drafts).length)sessionStorage.setItem(remoteEditorSessionKey(),JSON.stringify(drafts));
+    else sessionStorage.removeItem(remoteEditorSessionKey());
+  }catch(error){console.warn('Remote editor recovery storage unavailable',error);}
+  return result;
+}
+async function restoreRemoteEditorTabs(tabs){
+  let drafts={};
+  try{drafts=JSON.parse(sessionStorage.getItem(remoteEditorSessionKey())||'{}')||{};}catch{}
+  for(const item of Array.isArray(tabs)?tabs:[]){
+    const path=String(item?.path||'').trim(),remotePath=String(item?.remote_path||'').trim();
+    const transferID=String(item?.remote_transfer_profile_id||''),workspaceID=String(item?.remote_workspace_id||'');
+    if(!path||!remotePath||(!transferID&&!workspaceID))continue;
+    if(editors.has(editorID(path)))continue;
+    const base={path,remote_path:remotePath,remote_transfer_profile_id:transferID,remote_workspace_id:workspaceID};
+    try{
+      const data=transferID
+        ?await app.jsonFetch('/api/file-transfer/text?'+new URLSearchParams({profile_id:transferID,path:remotePath}).toString(),{cache:'no-store'})
+        :await app.jsonFetch('/api/remote-workspace-files',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({workspace_id:workspaceID,operation:'read',path:remotePath})});
+      const file=remoteEditorFileFromResponse(base,data),draft=drafts[path];
+      if(draft&&typeof draft.content==='string'){
+        file.content=draft.content;
+        if(draft.sha256)file.sha256=draft.sha256;
+      }
+      const view=await openDocument(file);
+      if(draft&&typeof draft.content==='string')setDirty(view,true);
+    }catch(error){console.warn('Remote editor tab restore failed for '+path,error);}
+  }
+}
 globalThis.TaskMenuEditor={
+  snapshotRemoteState:snapshotRemoteEditorTabs,
+  restoreRemoteState:restoreRemoteEditorTabs,
   editors,
   snapshotState(){
     const localViews=[...editors.values()].filter(view=>!view.closed&&!remoteEditorDocument(view.file));
