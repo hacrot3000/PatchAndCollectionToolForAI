@@ -276,6 +276,7 @@ function chooseMode(){
   let first=null;
   for(const [value,label] of choices){
    const row=document.createElement('label'),radio=document.createElement('input');radio.type='radio';radio.name='dircmp-method';radio.value=value;
+   if(value==='md5'&&(session.left.kind==='browser'||session.right.kind==='browser')){radio.disabled=true;row.title='Browser-local MD5 is unavailable: use SHA-256 or CRC32';}
    if(!first){first=radio;radio.checked=true;}
    row.append(radio,document.createTextNode(' '+label));modal.append(row);
   }
