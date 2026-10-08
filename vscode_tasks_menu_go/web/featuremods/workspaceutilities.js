@@ -48,8 +48,8 @@ function installWorkspaceUtilitiesLauncher(){
   launcher.setAttribute('aria-controls',menu.id);
   const entries=[
     {name:'Workspace snapshots',description:'Save or restore workspace state',icon:'◫',open:()=>globalThis.TaskMenuWorkspaceSnapshots?.open?.()},
-    {name:'Operation Center',description:'Track and manage operations',icon:'⇅',open:()=>globalThis.TaskMenuOperationCenter?.open?.()},
-    {name:'Project Health',description:'Review project status and diagnostics',icon:'♥',open:()=>globalThis.TaskMenuProjectHealth?.open?.()}
+    {name:'OPERATION CENTER',description:'Track and manage operations',icon:'⇅',open:()=>globalThis.TaskMenuOperationCenter?.open?.()},
+    {name:'PROJECT HEALTH',description:'Review project status and diagnostics',icon:'♥',open:()=>globalThis.TaskMenuProjectHealth?.open?.()}
   ];
   const items=entries.map(entry=>{
     const item=document.createElement('button');
@@ -128,4 +128,7 @@ if(app?.layoutProfile!=='mobile'&&!safeInstallWorkspaceUtilities()){
     if(safeInstallWorkspaceUtilities())observer.disconnect();
   });
   observer.observe(document.body,{childList:true,subtree:true});
+  window.addEventListener('taskmenu:tasks',()=>{
+    if(safeInstallWorkspaceUtilities())observer.disconnect();
+  },{once:true});
 }
