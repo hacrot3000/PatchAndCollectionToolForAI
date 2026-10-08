@@ -12,6 +12,7 @@ import (
  "io"
  "net/http"
  "os"
+ pathpkg "path"
  "path/filepath"
  "strings"
 
@@ -19,6 +20,11 @@ import (
  "bletonfc/vscode_tasks_menu/internal/ftpclient"
  "bletonfc/vscode_tasks_menu/internal/sftpclient"
 )
+
+type directoryCompareContextReader struct {ctx context.Context;r io.Reader}
+func (reader directoryCompareContextReader) Read(p []byte)(int,error){
+ select{case <-reader.ctx.Done():return 0,reader.ctx.Err();default:return reader.r.Read(p)}
+}
 
 // Hashing is read-only and streamed/bounded. MD5/CRC32 are compatibility checks,
 // never authentication or security integrity decisions.
@@ -59,7 +65,7 @@ func (s *Server) directoryCompareHash(w http.ResponseWriter,r *http.Request){
    var info os.FileInfo
    info,err=file.Stat()
    if err==nil&&(!info.Mode().IsRegular()||info.Size()>maxFileTransferBytes){err=errors.New("not a regular file or file exceeds hash size limit")}
-   if err==nil{size,err=io.Copy(digester,io.LimitReader(file,maxFileTransferBytes+1));if size>maxFileTransferBytes{err=errors.New("hash size limit exceeded")}}
+   if err==nil{size,err=io.Copy(digester,io.LimitReader(directoryCompareContextReader{ctx:r.Context(),r:file},maxFileTransferBytes+1));if size>maxFileTransferBytes{err=errors.New("hash size limit exceeded")}}
    _=file.Close()
   }
  case "remote":
@@ -88,6 +94,19 @@ func (s *Server) directoryCompareRemoteHash(ctx context.Context,profile filetran
   })
   return maxFileTransferBytes-limiter.remaining,err
  case filetransferprofile.ProtocolSFTP:
+  // Reject known oversize files before invoking the external SFTP GET.
+  entries,listErr:=s.backgroundListRemote(ctx,profile.ID,pathpkg.Dir(path))
+  if listErr!=nil{return 0,listErr}
+  expectedName:=pathpkg.Base(path);found:=false
+  for _,entry:=range entries{
+   if entry.Name==expectedName{
+    found=true
+    if entry.Size>maxFileTransferBytes{return 0,errors.New("remote file exceeds hashing limit")}
+    if entry.Type!="file"{return 0,errors.New("remote hash target is not a regular file")}
+    break
+   }
+  }
+  if !found{return 0,os.ErrNotExist}
   dir,err:=os.MkdirTemp("","taskdeck-directory-hash-*")
   if err!=nil{return 0,err}
   defer os.RemoveAll(dir)
