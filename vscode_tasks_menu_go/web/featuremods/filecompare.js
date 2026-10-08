@@ -4,7 +4,7 @@ if(!app)throw new Error('TaskMenuApp unavailable for file compare');
 const style=document.createElement('style');
 style.textContent=`
 .file-compare-pane{padding:0!important;overflow:hidden!important;background:#10151c}
-.file-compare-tab .close{margin-left:7px}.file-compare-tab-label{display:block;max-width:260px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.file-compare-tab.dirty::after{content:'●';color:#f2c96d;margin-left:5px}
+.file-compare-tab{display:inline-flex;align-items:center;flex:0 0 auto;max-width:260px;min-width:0;white-space:nowrap;box-sizing:border-box}.file-compare-tab .close{margin-left:7px;flex:0 0 auto}.file-compare-tab-label{display:flex;align-items:center;flex:0 1 auto;min-width:0;max-width:220px;overflow:hidden;white-space:nowrap}.file-compare-tab-filename{display:block;flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.file-compare-tab-separator{flex:0 0 auto;margin:0 5px}.file-compare-tab.dirty::after{content:'●';color:#f2c96d;margin-left:5px}
 .file-compare-dialog{width:100%;height:100%;display:flex;flex-direction:column;min-width:0;min-height:0;background:#10151c;border:0;overflow:hidden}
 .file-compare-head{display:flex;align-items:center;gap:7px;padding:7px 9px;border-bottom:1px solid #303843}
 .file-compare-title{font-weight:700;font-size:12px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-compare-head button{padding:4px 7px;font-size:11px}.file-compare-head button.active{background:#34445a;border-color:#6f91bb}
@@ -705,6 +705,38 @@ function renderInline(model,indexes){
   }
   body.append(host);
 }
+function compareTabSourceName(source){
+  return String(source?.path||source?.label||'file').split(/[\\/]/).pop()||'file';
+}
+function compactCompareTabName(name,limit){
+  if(name.length<=limit)return name;
+  const dot=name.lastIndexOf('.');
+  const extension=dot>0?name.slice(dot):'';
+  const tailLength=extension&&extension.length<=10?extension.length:Math.min(7,Math.floor(limit/2));
+  return name.slice(0,Math.max(1,limit-tailLength-1))+'…'+name.slice(-tailLength);
+}
+function compareTabDisplayNames(left,right){
+  const a=compareTabSourceName(left),b=compareTabSourceName(right);
+  // Reserve visible space for BOTH filenames, giving unused capacity to the longer name.
+  let aLimit=Math.min(17,a.length),bLimit=Math.min(17,b.length);
+  let spare=34-aLimit-bLimit;
+  const aExtra=Math.min(spare,a.length-aLimit);aLimit+=aExtra;spare-=aExtra;
+  bLimit+=Math.min(spare,b.length-bLimit);
+  return [compactCompareTabName(a,aLimit),compactCompareTabName(b,bLimit)];
+}
+function updateCompareTabLabel(left,right){
+  if(!compareTab)return;
+  const [leftName,rightName]=compareTabDisplayNames(left,right);
+  const label=compareTab.querySelector('.file-compare-tab-label');
+  const leftSpan=document.createElement('span');leftSpan.className='file-compare-tab-filename';leftSpan.textContent=leftName;
+  const separator=document.createElement('span');separator.className='file-compare-tab-separator';separator.textContent='↔';separator.setAttribute('aria-hidden','true');
+  const rightSpan=document.createElement('span');rightSpan.className='file-compare-tab-filename';rightSpan.textContent=rightName;
+  label.replaceChildren(leftSpan,separator,rightSpan);
+  const fullName=source=>String(source?.path||source?.label||'file');
+  compareTab.title=fullName(left)+' ↔ '+fullName(right);
+  compareTab.dataset.title=compareTab.title;
+  compareTab.setAttribute('aria-label','Compare '+fullName(left)+' and '+fullName(right));
+}
 function render(){
   selectedCompareLines=null;body.replaceChildren();scheduleCompareHorizontalMeasure();if(!current)return;
   const model=enrichCompareModel(buildCompareModel(current.left.text,current.right.text));
@@ -712,10 +744,7 @@ function render(){
   leftLabel.textContent=current.left.label||'Left';rightLabel.textContent=current.right.label||'Right';
   title.textContent=(current.title||'File Compare')+' · '+leftLabel.textContent+' ↔ '+rightLabel.textContent;
   if(compareTab){
-    const shortName=source=>String(source?.path||source?.label||'file').split(/[\\/]/).pop().slice(0,55)||'file';
-    compareTab.querySelector('.file-compare-tab-label').textContent='Compare · '+shortName(current.left)+' ↔ '+shortName(current.right);
-    compareTab.title=title.textContent;
-    compareTab.dataset.title=title.textContent;
+    updateCompareTabLabel(current.left,current.right);
   }
   summary.textContent=model.identical?'identical':model.hunks.length+' change block'+(model.hunks.length===1?'':'s')+' · '+model.stats.important+' important · '+model.stats.unimportant+' unimportant';
   sideButton.classList.toggle('active',viewMode==='side');inlineButton.classList.toggle('active',viewMode==='inline');columns.style.display=viewMode==='side'?'grid':'none';syncCompareFilterButtons();
