@@ -44,6 +44,10 @@ func (s *Server) directoryCompareHash(w http.ResponseWriter,r *http.Request){
  digester,err:=directoryCompareHasher(strings.ToLower(strings.TrimSpace(req.Algorithm)))
  if err!=nil||req.Path=="" {http.Error(w,"valid path and algorithm required",http.StatusBadRequest);return}
  source:=strings.ToLower(strings.TrimSpace(req.Source))
+ if (r.URL.Path=="/api/directory-compare/project-hash"&&source!="project")||
+    (r.URL.Path=="/api/directory-compare/remote-hash"&&source!="remote"){
+    http.Error(w,"checksum source does not match authorized route",http.StatusBadRequest);return
+ }
  var size int64
  switch source {
  case "project":
