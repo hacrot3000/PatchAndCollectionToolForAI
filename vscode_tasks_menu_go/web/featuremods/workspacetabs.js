@@ -82,6 +82,7 @@ function capture(){
   return {version:VERSION,order:rows.map(row=>row.info),active,
     compare:globalThis.TaskMenuFileCompare?.snapshotState?.()||null,
     hex:globalThis.TaskMenuHexViewer?.snapshotState?.()||[],
+    remoteEditors:globalThis.TaskMenuEditor?.snapshotRemoteState?.()||[],
     patchOpen:Boolean(globalThis.TaskMenuPatchPanel?.tab&&!globalThis.TaskMenuPatchPanel.tab.hidden),
     updatedAt:Date.now()};
 }
@@ -117,6 +118,7 @@ async function restoreStartup(){
       globalThis.TaskMenuFileTransfer?.ready
     ]);
     // Restore feature tabs after their underlying file/session providers are ready.
+    if(saved?.remoteEditors?.length)await globalThis.TaskMenuEditor?.restoreRemoteState?.(saved.remoteEditors);
     if(saved?.hex?.length)await globalThis.TaskMenuHexViewer?.restoreState?.(saved.hex);
     if(saved?.compare){
       try{await globalThis.TaskMenuFileCompare?.restoreState?.(saved.compare);}
