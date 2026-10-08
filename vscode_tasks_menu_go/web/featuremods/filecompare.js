@@ -4,7 +4,7 @@ if(!app)throw new Error('TaskMenuApp unavailable for file compare');
 const style=document.createElement('style');
 style.textContent=`
 .file-compare-pane{padding:0!important;overflow:hidden!important;background:#10151c}
-.file-compare-tab .close{margin-left:7px}.file-compare-tab.dirty::after{content:'●';color:#f2c96d;margin-left:5px}
+.file-compare-tab .close{margin-left:7px}.file-compare-tab-label{display:block;max-width:260px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.file-compare-tab.dirty::after{content:'●';color:#f2c96d;margin-left:5px}
 .file-compare-dialog{width:100%;height:100%;display:flex;flex-direction:column;min-width:0;min-height:0;background:#10151c;border:0;overflow:hidden}
 .file-compare-head{display:flex;align-items:center;gap:7px;padding:7px 9px;border-bottom:1px solid #303843}
 .file-compare-title{font-weight:700;font-size:12px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-compare-head button{padding:4px 7px;font-size:11px}.file-compare-head button.active{background:#34445a;border-color:#6f91bb}
@@ -643,6 +643,12 @@ function render(){
   model.sourceText={left:current.left.text,right:current.right.text};current.model=model;
   leftLabel.textContent=current.left.label||'Left';rightLabel.textContent=current.right.label||'Right';
   title.textContent=(current.title||'File Compare')+' · '+leftLabel.textContent+' ↔ '+rightLabel.textContent;
+  if(compareTab){
+    const shortName=source=>String(source?.path||source?.label||'file').split(/[\\/]/).pop().slice(0,55)||'file';
+    compareTab.querySelector('.file-compare-tab-label').textContent='Compare · '+shortName(current.left)+' ↔ '+shortName(current.right);
+    compareTab.title=title.textContent;
+    compareTab.dataset.title=title.textContent;
+  }
   summary.textContent=model.identical?'identical':model.hunks.length+' change block'+(model.hunks.length===1?'':'s')+' · '+model.stats.important+' important · '+model.stats.unimportant+' unimportant';
   sideButton.classList.toggle('active',viewMode==='side');inlineButton.classList.toggle('active',viewMode==='inline');columns.style.display=viewMode==='side'?'grid':'none';syncCompareFilterButtons();
   syncCompareSaveState('left');syncCompareSaveState('right');
