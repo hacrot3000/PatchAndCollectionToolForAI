@@ -1,3 +1,4 @@
+import '/featuremods/contextviewport.js';
 import '/featuremods/notifications.js';
 import '/featuremods/approvals.js';
 import '/featuremods/addons.js';
