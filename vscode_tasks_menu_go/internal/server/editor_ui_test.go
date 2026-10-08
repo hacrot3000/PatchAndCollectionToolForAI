@@ -84,7 +84,7 @@ func TestEditorInitialLanguageCoverageMapping(t *testing.T) {
 	for _, want := range []string{
 		"const editorLanguageRegistry=[",
 		"{id:'cpp',label:'C/C++'",
-		"{id:'go',label:'Go',extensions:['go'],codeMirror:'go'}",
+		"{id:'go',label:'Go',extensions:['go'],codeMirror:'go'",
 		"{id:'python',label:'Python'",
 		"{id:'javascript',label:'JavaScript'",
 		"{id:'typescript',label:'TypeScript'",
@@ -376,9 +376,9 @@ func TestEditorSupportsSCSSSassAndLess(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		"{id:'scss',label:'SCSS',extensions:['scss'],codeMirror:'sass'}",
-		"{id:'sass',label:'Sass',extensions:['sass'],legacy:'sass'}",
-		"{id:'less',label:'Less',extensions:['less'],codeMirror:'less'}",
+		"{id:'scss',label:'SCSS',extensions:['scss'],codeMirror:'sass'",
+		"{id:'sass',label:'Sass',extensions:['sass'],legacy:'sass'",
+		"{id:'less',label:'Less',extensions:['less'],codeMirror:'less'",
 		"sass:new Set(",
 		"sass:['//']",
 		"sass:[['/*','*/']]",
@@ -604,7 +604,8 @@ func TestEditorLargeFileMode(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"function editorOptionsForFile(file)",
-		"file?.large_file?{}:languageOptions(file.path)",
+		"if(file?.large_file)return {}",
+		"const options=languageOptions(file.path)",
 		"editor-large-file",
 		"LARGE FILE",
 		"Large-file mode: read-only plain text without syntax/whitespace decorations",
