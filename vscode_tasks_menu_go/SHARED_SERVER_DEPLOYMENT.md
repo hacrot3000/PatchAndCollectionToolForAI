@@ -247,6 +247,35 @@ one maintenance operation so they all run code compatible with the same schema.
 The migrations are serialized with `BEGIN IMMEDIATE`. The v3 trigger is a
 guardrail, not a substitute for coordinated restart.
 
+## Workspace mutation-lock recovery
+
+On current releases, native Patch **Queue/Resume** selector sessions do not hold
+the workspace mutation lock while they are merely waiting for user input. A
+`patch.run` lock is acquired only immediately before PATCH execution; a
+COLLECT-only native selection does not lock source-workspace mutations.
+
+When the header shows a real `patch.run` lock, a project administrator sees an
+**Unlock** action. TaskDeck does not bypass the lock: it stops the exact Patch
+session that owns the lock, verifies the operation/resource ID is still the same,
+then releases it and records an audit event.
+
+During upgrade from an older TaskDeck that acquired `patch.run` as soon as
+Queue/Resume was opened, self-update can itself be blocked by that old lock.
+Recover in this order:
+
+1. In **Users & Access → Sessions**, find the Patch session ID shown in the lock
+   message and Stop that session. Then retry self-update.
+2. If the old UI cannot stop the session, restart the TaskDeck daemon. The
+   workspace coordination lock is process-local, so daemon restart clears that
+   stale runtime lock. Do not reopen the Patch panel before updating.
+3. For a global TaskDeck install, daemon control uses the normal CLI, for example
+   `taskdeck --status`, `taskdeck --stop-daemon`, and
+   `taskdeck --restart-daemon`.
+
+Never work around a lock by manually deleting project files or by forcing Git or
+self-update concurrently with a PATCH that is actually mutating the workspace.
+The admin recovery path is intentionally Stop-then-release.
+
 ## Operational checks
 
 Use [SHARED_SERVER_ACCEPTANCE.md](SHARED_SERVER_ACCEPTANCE.md) as the complete
