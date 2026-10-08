@@ -120,12 +120,12 @@ function installWorkspaceUtilitiesLauncher(){
   return true;
 }
 function safeInstallWorkspaceUtilities(){
-  try{installWorkspaceUtilitiesLauncher();}
-  catch(error){console.warn('Workspace utilities activity launcher unavailable',error);}
+  try{return installWorkspaceUtilitiesLauncher();}
+  catch(error){console.warn('Workspace utilities activity launcher unavailable',error);return false;}
 }
-if(!safeInstallWorkspaceUtilities()){
+if(app?.layoutProfile!=='mobile'&&!safeInstallWorkspaceUtilities()){
   const observer=new MutationObserver(()=>{
-    if(installWorkspaceUtilitiesLauncher())observer.disconnect();
+    if(safeInstallWorkspaceUtilities())observer.disconnect();
   });
   observer.observe(document.body,{childList:true,subtree:true});
 }
