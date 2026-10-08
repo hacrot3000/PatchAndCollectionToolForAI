@@ -324,6 +324,71 @@ async function mkdirProjectParents(path){
   await app.jsonFetch('/api/project/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'mkdir',path:dir})});
  }
 }
+function relativeParent(path){const index=path.lastIndexOf('/');return index<0?'':path.slice(0,index);}
+function leafName(path){return path.split('/').at(-1);}
+async function browserTargetDirectory(source,relative){
+ let dir=source.handle;
+ if(source.rootHandle){
+  for(const name of String(source.path||'.').split('/').filter(x=>x&&x!=='.'))dir=await dir.getDirectoryHandle(name);
+ }
+ const parent=relativeParent(relative);
+ for(const name of parent.split('/').filter(Boolean))dir=await dir.getDirectoryHandle(name,{create:true});
+ return dir;
+}
+async function ensureRemoteParents(source,path){
+ const root=String(source.path||'.').replace(/\/+$/,'');
+ const parts=path.slice((root==='.'?0:root.length)).replace(/^\/+|\/+$/g,'').split('/');
+ parts.pop();
+ let here=root||'.';
+ for(const part of parts){
+  const data=await app.jsonFetch('/api/file-transfer/list',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:source.profileID,path:here})});
+  const existing=(data?.entries||[]).find(e=>e.name===part);
+  if(existing){
+   if(kind(existing)!=='dir')throw new Error('Destination path is not a folder: '+part);
+  }else{
+   const next=relativeJoin(here,part);
+   await app.jsonFetch('/api/file-transfer/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:source.profileID,path:next,action:'mkdir',directory:true})});
+  }
+  here=relativeJoin(here,part);
+ }
+}
+async function downloadSourceBlob(src,entry){
+ if(entry.size>64*1024*1024)throw new Error('Direct cross-source copy is limited to 64 MiB; use Transfer Queue for large files.');
+ if(src.kind==='browser')return entry.handle.getFile();
+ let url;
+ if(src.kind==='project')url='/api/project/download?path='+encodeURIComponent(entry.path);
+ else if(src.kind==='remote'){
+  const ticket=await app.jsonFetch('/api/file-transfer/download-ticket',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:src.profileID,path:entry.path})});
+  url='/api/file-transfer/download?ticket='+encodeURIComponent(ticket.ticket);
+ }
+ const response=await app.fetchWithLease(url,{cache:'no-store'});
+ if(!response.ok)throw new Error('Download source failed: '+(await response.text()));
+ const blob=await response.blob();
+ if(blob.size>64*1024*1024)throw new Error('Transfer data exceeds 64 MiB direct copy limit');
+ return blob;
+}
+async function writeBlobDestination(dst,row,blob){
+ const path=relativeJoin(dst.path,row.path);
+ if(dst.kind==='browser'){
+  const parent=await browserTargetDirectory(dst,row.path);
+  const handle=await parent.getFileHandle(leafName(row.path),{create:true});
+  const stream=await handle.createWritable();
+  try{await stream.write(blob);await stream.close();}
+  catch(e){try{await stream.abort();}catch{}throw e;}
+  return;
+ }
+ if(dst.kind==='remote'){
+  await ensureRemoteParents(dst,path);
+  const data=new FormData();
+  data.append('profile_id',dst.profileID);
+  data.append('path',path);
+  data.append('file',blob,leafName(row.path));
+  const response=await app.fetchWithLease('/api/file-transfer/upload',{method:'POST',body:data,cache:'no-store'});
+  if(!response.ok)throw new Error('Remote upload failed: '+(await response.text()));
+  return;
+ }
+ throw new Error('Host destination requires a server-managed transfer (use Transfer Queue).');
+}
 async function copyRow(row,from){
  const src=session[from],dst=session[from==='left'?'right':'left'];
  const file=row[from],existing=row[from==='left'?'right':'left'];
@@ -335,13 +400,15 @@ async function copyRow(row,from){
   await mkdirProjectParents(target);
   await app.jsonFetch('/api/project/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'copy',path:file.path,new_path:target})});
  }else if(src.kind==='project'&&dst.kind==='remote'){
-  if(existing)throw new Error('Remote overwrite from Directory Compare is blocked. Use Transfer Queue conflict resolver.');
+  await ensureRemoteParents(dst,target);
   await app.jsonFetch('/api/file-transfer/host-to-remote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:dst.profileID,host_path:file.path,remote_path:target})});
  }else if(src.kind==='remote'&&dst.kind==='project'){
   if(existing)throw new Error('Host overwrite is blocked. Use Transfer Queue conflict resolver.');
   await mkdirProjectParents(target);
   await app.jsonFetch('/api/file-transfer/remote-to-host',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:src.profileID,remote_path:file.path,host_dir:target.split('/').slice(0,-1).join('/')||'.',overwrite:false})});
- }else throw new Error('This copy pairing needs Transfer Queue for binary-safe delivery; use that tool instead.');
+ }else if(dst.kind==='remote'||dst.kind==='browser'){
+  await writeBlobDestination(dst,row,await downloadSourceBlob(src,file));
+ }else throw new Error('Browser-local to Host copying requires Transfer Queue or manual upload.');
  await structureScan();
 }
 async function open(left,right){
