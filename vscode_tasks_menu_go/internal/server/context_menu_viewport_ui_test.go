@@ -56,7 +56,7 @@ func TestContextViewportBoundsOversizedMenusAndSupportsZoom(t *testing.T) {
         "menu.style.overscrollBehavior='contain'",
         "if(left+width>v.right-margin)left=anchor.left-width-gap",
         "top=anchor.top-height-gap",
-        "globalThis.TaskMenuContextViewport={place,viewport}",
+        "globalThis.TaskMenuContextViewport={place,viewport,refitMenus}",
     } {
         if !strings.Contains(js,want){t.Errorf("shared context viewport helper missing %q",want)}
     }
