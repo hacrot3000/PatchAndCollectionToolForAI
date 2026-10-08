@@ -258,17 +258,7 @@ function runCustomAction(action,item){
 function positionSubmenu(owner){
   if(!submenu)return;
   const ownerRect=owner.getBoundingClientRect();
-  submenu.style.left=(ownerRect.right+4)+'px';
-  submenu.style.top=Math.max(4,ownerRect.top)+'px';
-  requestAnimationFrame(()=>{
-    if(!submenu)return;
-    const rect=submenu.getBoundingClientRect();
-    let left=ownerRect.right+4;
-    if(left+rect.width>window.innerWidth-4)left=Math.max(4,ownerRect.left-rect.width-4);
-    const top=Math.max(4,Math.min(ownerRect.top,window.innerHeight-rect.height-4));
-    submenu.style.left=left+'px';
-    submenu.style.top=top+'px';
-  });
+  globalThis.TaskMenuContextViewport.place(submenu,ownerRect.right,ownerRect.top,{anchor:ownerRect,submenu:true});
 }
 
 function openCustomSubmenu(owner,actions){
