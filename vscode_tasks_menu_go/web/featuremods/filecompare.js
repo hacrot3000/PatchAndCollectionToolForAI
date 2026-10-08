@@ -122,6 +122,7 @@ async function openSources(sources,{title='Selected files'}={}){
 function compareSideUI(side){return side==='left'?leftEditorUI:rightEditorUI;}
 function compareSideSource(side){return current?.[side]||null;}
 function compareHasDirty(){return Boolean(current&&(current.left?.dirty||current.right?.dirty));}
+function compareHasSaving(){return Boolean(current&&(current.left?.saving||current.right?.saving));}
 function syncCompareSaveState(side){
   const source=compareSideSource(side),ui=compareSideUI(side);if(!ui)return;
   const topSave=side==='left'?leftTopSave:rightTopSave;
@@ -182,11 +183,13 @@ function setEditMode(enabled){
 }
 async function saveCompareSide(side){
   const source=compareSideSource(side);if(!source||!sourceWritable(source))throw new Error((source?.label||side)+' is read-only');
-  if(!source.dirty)return false;
+  if(!source.dirty||source.saving)return false;
+  const savingText=source.text;
   source.saving=true;syncCompareSaveState(side);
   try{
-    await saveSource(source,source.text);
-    source.baselineText=source.text;source.dirty=false;
+    await saveSource(source,savingText);
+    source.baselineText=savingText;
+    source.dirty=source.text!==savingText;
     if(source.kind==='remote'){
       window.dispatchEvent(new CustomEvent('taskmenu:file-transfer-remote-edited',{detail:{
         profile_id:String(source.profileID||source.meta?.profile_id||''),path:String(source.path||source.meta?.path||''),sha256:String(source.meta?.sha256||'')
@@ -536,7 +539,7 @@ async function saveSource(source,text){
   const saver=typeof source.saveText==='function'?source.saveText:source.writeText;
   if(typeof saver!=='function')throw new Error((source.label||'Compare side')+' is read-only');
   const result=await saver(text,source);
-  source.text=text;
+  // Never overwrite an editor buffer that changed while the remote write was in flight.
   if(result&&typeof result==='object')Object.assign(source.meta||(source.meta={}),result);
 }
 function cell(spec,side,changed=[],importance='context'){
@@ -620,6 +623,7 @@ async function copyHunk(hunk,direction){
 }
 async function reload(){
   if(!current)return;
+  if(compareHasSaving()){window.alert('A compare file is still being saved. Finish that operation before reloading.');return false;}
   if(compareHasDirty()&&!window.confirm('Discard unsaved compare edits and reload both files?'))return false;
   await Promise.all([loadSource(current.left),loadSource(current.right)]);
   current.syntax=null;
@@ -628,12 +632,14 @@ async function reload(){
 }
 async function open(options){
   if(!options?.left?.load||!options?.right?.load)throw new Error('File compare requires left and right sources');
+  if(compareHasSaving()){window.alert('A compare file is still being saved. Finish that operation before opening another comparison.');return false;}
   if(compareHasDirty()&&!window.confirm('Discard unsaved changes in the current File Compare?'))return false;
   destroyCompareEditors();editMode=false;editorDeck.classList.add('hidden');editButton.classList.remove('active');
   current={title:options.title||'File Compare',left:{...options.left,meta:{...(options.left.meta||{})}},right:{...options.right,meta:{...(options.right.meta||{})}}};
   await Promise.all([loadSource(current.left),loadSource(current.right)]);backdrop.classList.add('visible');render();return true;
 }
 function close({force=false}={}){
+  if(!force&&compareHasSaving()){window.alert('A compare file is still being saved. Finish that operation before closing.');return false;}
   if(!force&&compareHasDirty()&&!window.confirm('Close File Compare and discard unsaved changes?'))return false;
   destroyCompareEditors();backdrop.classList.remove('visible');current=null;body.replaceChildren();return true;
 }
