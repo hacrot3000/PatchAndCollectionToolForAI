@@ -281,21 +281,21 @@ function render(state){
     .map((file,index)=>({file,index,score:filePriority(file)}))
     .sort((a,b)=>b.score-a.score||a.index-b.index);
   for(const {file} of ranked){
-    const row=document.createElement('div');row.className='detected-row';
+    const row=document.createElement('div');row.className='detected-row';row.title=file.path;
     const kind=document.createElement('span');kind.className='detected-kind';kind.textContent='FILE';
     const link=document.createElement('a');link.className='detected-link';link.href=file.url;link.download=file.name||'';link.textContent=compactDetectedPath(file.path);link.title=file.path;
-    const download=document.createElement('button');download.className='detected-download';download.textContent='Download';download.onclick=()=>openDownload(file);
-    const copy=document.createElement('button');copy.className='detected-copy';copy.textContent='Copy';copy.onclick=()=>copyText(file.path,copy).catch(app.showError);
-    const ignore=document.createElement('button');ignore.className='detected-ignore';ignore.textContent='Ignore';ignore.title='Hide this file for the current session';ignore.onclick=()=>ignoreFile(state,file);
+    const download=document.createElement('button');download.className='detected-download';download.textContent='Download';download.title='Download '+file.path;download.setAttribute('aria-label',download.title);download.onclick=()=>openDownload(file);
+    const copy=document.createElement('button');copy.className='detected-copy';copy.textContent='Copy';copy.title='Copy path: '+file.path;copy.setAttribute('aria-label',copy.title);copy.onclick=()=>copyText(file.path,copy).catch(app.showError);
+    const ignore=document.createElement('button');ignore.className='detected-ignore';ignore.textContent='Ignore';ignore.title='Ignore file: '+file.path;ignore.setAttribute('aria-label',ignore.title);ignore.onclick=()=>ignoreFile(state,file);
     row.append(kind,link,download,copy,ignore);rows.push(row);
   }
   for(const url of [...state.urls.values()].reverse().filter(url=>!state.ignoredURLs.has(url))){
-    const row=document.createElement('div');row.className='detected-row';
+    const row=document.createElement('div');row.className='detected-row';row.title=url;
     const kind=document.createElement('span');kind.className='detected-kind';kind.textContent='URL';
     const link=document.createElement('a');link.className='detected-link';link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.textContent=url;link.title=url;
-    const open=document.createElement('button');open.textContent='Open';open.onclick=()=>window.open(url,'_blank','noopener');
-    const copy=document.createElement('button');copy.className='detected-copy';copy.textContent='Copy';copy.onclick=()=>copyText(url,copy).catch(app.showError);
-    const ignore=document.createElement('button');ignore.className='detected-ignore';ignore.textContent='Ignore';ignore.title='Hide this URL for the current session';ignore.onclick=()=>ignoreURL(state,url);
+    const open=document.createElement('button');open.textContent='Open';open.title='Open URL: '+url;open.setAttribute('aria-label',open.title);open.onclick=()=>window.open(url,'_blank','noopener');
+    const copy=document.createElement('button');copy.className='detected-copy';copy.textContent='Copy';copy.title='Copy URL: '+url;copy.setAttribute('aria-label',copy.title);copy.onclick=()=>copyText(url,copy).catch(app.showError);
+    const ignore=document.createElement('button');ignore.className='detected-ignore';ignore.textContent='Ignore';ignore.title='Ignore URL: '+url;ignore.setAttribute('aria-label',ignore.title);ignore.onclick=()=>ignoreURL(state,url);
     row.append(kind,link,open,copy,ignore);rows.push(row);
   }
   state.bar.replaceChildren(...rows.slice(0,12));
