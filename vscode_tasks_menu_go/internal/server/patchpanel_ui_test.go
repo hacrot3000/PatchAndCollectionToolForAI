@@ -105,7 +105,9 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"failure?.diagnosis_kind",
 		"snapshot?.group_counts",
 		"state?.available===false",
-		"TaskMenuPatchPanel={open,close,deactivate,toggle,start,prepareAIPack,renderAIPack,copyAIPackPrompt,openLegacyHistoryTerminal,openQueueWhileRunning,refreshQueueSession,removeRunFromActive,launchParallelCollect,pollParallelCollectRuns,renderParallelCollectRuns,enterRunningView,finishRunningView,leaveRunningView,openTerminalEvidence,renderQueueSnapshot,setQueueSummaryView,renderQueuePrompt,selectedPromptPriorities,selectAllPromptPatches,clearPromptSelection,renderResumeSnapshot,renderResumePrompt,submitResumeAction,renderHistorySnapshot,renderHistoryPrompt,renderHistoryReport,submitHistoryDetail,submitHistoryManagement,renderHistoryManagementResult,historyItemSupportAllowed,submitHistorySupport,renderHistorySupportResult,historyCleanupProjection,renderHistoryCleanupCapability,setHistorySearchQuery,submitHistoryCleanupPreview,submitHistoryCleanupDelete,renderHistoryCleanupResult,enterPlanView,leavePlanView,renderPlanSnapshot,enterHealthView,leaveHealthView,renderHealthSnapshot,submitItemAction,submitQueueDelete,renderActionResult,renderItemLifecycle,renderProgress,renderArtifacts,operationSnapshot:patchOperationSnapshot,operationControl:patchOperationControl",
+        "globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,",
+        "choosePatchUpload,uploadPatchPackage,uploadPatchPackages,prepareAIPack,",
+        "operationSnapshot:patchOperationSnapshot,operationControl:patchOperationControl",
 		"Patch panel enhancement disabled:",
 	} {
 		if !strings.Contains(js, want) {
@@ -623,7 +625,7 @@ func TestPatchPanelNativePlanIsReadOnlyPrimaryView(t *testing.T) {
 		"renderPlanSnapshot(state.plan_snapshot)",
 		"task-patch-panel.plan .task-patch-summary",
 		"planTerminal.onclick=()=>openTerminalEvidence().catch(app.showError)",
-		"planBack.onclick=leavePlanView",
+		"planBack.onclick=()=>refreshQueueFromSummary().catch(app.showError)",
 		"app.materializeSession(meta,false)",
 		"Native Plan snapshot unavailable or timed out. Use Terminal evidence/fallback.",
 	} {
@@ -689,7 +691,7 @@ func TestPatchPanelNativeHealthIsReadOnlyPrimaryView(t *testing.T) {
 		"renderHealthSnapshot(state.health_snapshot)",
 		"task-patch-panel.health .task-patch-summary",
 		"healthTerminal.onclick=()=>openTerminalEvidence().catch(app.showError)",
-		"healthBack.onclick=leaveHealthView",
+		"healthBack.onclick=()=>refreshQueueFromSummary().catch(app.showError)",
 		"app.materializeSession(meta,false)",
 		"Native Health snapshot unavailable or timed out. Use Terminal evidence/fallback.",
 	} {
@@ -1785,7 +1787,7 @@ func TestPatchCollectSuccessColorDoesNotChangeFailureHandoffFlow(t *testing.T) {
 			t.Fatalf("COLLECT success styling must preserve failure/handoff behavior: missing %q", want)
 		}
 	}
-	if strings.Contains(js, "failed&&foregroundIsCollectOnly") {
+	if strings.Contains(js, "const collectSuccess=failed&&foregroundIsCollectOnly") {
 		t.Fatal("failed COLLECT runs must never use collect-success styling")
 	}
 }
@@ -1796,8 +1798,8 @@ func TestPatchPanelAutoLoadsQueueOnFirstNativeOpen(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"function open(){",
-		"if(!activeSessionId&&!latestQueueSnapshot&&!runningMode&&!historyMode&&!planMode&&!healthMode)",
-		"void start('queue').catch(app.showError)",
+		"async function refreshQueueForActivity(reason='activity')",
+		"void refreshQueueForActivity('patch-tab')",
 	} {
 		if !strings.Contains(js,want) {
 			t.Fatalf("first native Patch open must auto-load Queue: missing %q",want)
@@ -1833,7 +1835,7 @@ func TestPatchPanelAIPackIsOnDemandCachedAndCopyable(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"['ai-pack','AI Pack','Package current docs + standard prompt for a new AI chat']",
-		"mode==='ai-pack'?prepareAIPack(button)",
+		"if(mode==='ai-pack'){prepareAIPack(button).catch(app.showError);return;}",
 		"async function prepareAIPack(sourceButton=null)",
 		"app.jsonFetch('/api/patch/ai-pack',{method:'POST'})",
 		"Hashing only the core PATCH/COLLECT contract docs. ZIP is rebuilt only when those packaged docs change.",
