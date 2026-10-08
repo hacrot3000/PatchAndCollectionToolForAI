@@ -204,10 +204,7 @@ function showContextMenu(items,x,y){
   appendContextMenuItems(menu,items);
   document.body.append(menu);contextMenu=menu;
   menu.addEventListener('scroll',()=>hideSiblingContextSubmenus(menu,null),{passive:true});
-  const rect=menu.getBoundingClientRect();
-  const left=Math.max(4,Math.min(x,window.innerWidth-rect.width-4));
-  const top=Math.max(4,Math.min(y,window.innerHeight-rect.height-4));
-  menu.style.left=left+'px';menu.style.top=top+'px';
+  globalThis.TaskMenuContextViewport.place(menu,x,y);
 }
 document.addEventListener('pointerdown',event=>{if(contextMenu&&!contextMenu.contains(event.target))closeContextMenu();},true);
 window.addEventListener('blur',closeContextMenu);
