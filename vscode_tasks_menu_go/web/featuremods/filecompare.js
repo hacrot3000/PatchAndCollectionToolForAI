@@ -631,6 +631,34 @@ function buildCompareModel(leftText,rightText){
   flushChange();if(hunk){hunk.rowEnd=rows.length;hunks.push(hunk);}
   return {rows,hunks,identical:hunks.length===0};
 }
+// Reuse the SAME language-aware row criteria for Directory Compare without
+// mutating the open File Compare tab or its syntax cache.
+function analyzeCompareTexts(leftText,rightText,path=''){
+  const model=buildCompareModel(leftText,rightText);
+  const leftTokens=compareSyntaxSource(path,leftText),rightTokens=compareSyntaxSource(path,rightText);
+  const language=compareLanguageID(path);
+  const withoutComments=(text,tokens)=>compareTextWithoutRanges(text,compareCommentTokens(tokens));
+  let important=0,unimportant=0,added=0,removed=0,modified=0;
+  for(const row of model.rows){
+    if(row.hunk<0)continue;
+    const lt=row.left?.text??'',rt=row.right?.text??'';
+    const l=row.left?leftTokens[row.left.no-1]||[]:[],r=row.right?rightTokens[row.right.no-1]||[]:[];
+    let minor=false;
+    if(!row.left||!row.right){
+      const text=row.left?lt:rt,tokens=row.left?l:r;
+      minor=text.trim()===''||compareCommentOnly(text,tokens);
+    }else{
+      minor=(compareCommentOnly(lt,l)&&compareCommentOnly(rt,r))||
+        ((compareCommentTokens(l).length||compareCommentTokens(r).length)&&withoutComments(lt,l).trimEnd()===withoutComments(rt,r).trimEnd())||
+        (compareIndentInsensitiveLanguages.has(language)&&lt.trim()===rt.trim());
+    }
+    if(minor)unimportant++;else important++;
+    if(row.left&&row.right)modified++;
+    else if(row.left)removed++;
+    else if(row.right)added++;
+  }
+  return {identical:model.identical,important,unimportant,added,removed,modified,hunks:model.hunks.length};
+}
 function replaceLineRange(text,start,count,replacementLines){
   const lines=splitLines(text);
   lines.splice(start,count,...replacementLines);
@@ -1177,4 +1205,4 @@ async function restoreCompareState(saved){
   return Boolean(opened);
 }
 
-globalThis.TaskMenuFileCompare={open,close,reload,snapshotState:snapshotCompareState,restoreState:restoreCompareState,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,emptyCompareSource,openGitCommitFileDiff,openGitCommitFileDiffBetween,gitStateSource,workingProjectSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,openGitStatePair,promptProjectCompare,selectForCompare,clearCompareSelection,compareWithSelected,openSources,canCompareWithSelected,sourceIdentity,sourceWritable,get selection(){return selectionSnapshot();},get current(){return current;}};
+globalThis.TaskMenuFileCompare={open,close,reload,analyzeTexts:analyzeCompareTexts,snapshotState:snapshotCompareState,restoreState:restoreCompareState,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,emptyCompareSource,openGitCommitFileDiff,openGitCommitFileDiffBetween,gitStateSource,workingProjectSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,openGitStatePair,promptProjectCompare,selectForCompare,clearCompareSelection,compareWithSelected,openSources,canCompareWithSelected,sourceIdentity,sourceWritable,get selection(){return selectionSnapshot();},get current(){return current;}};
