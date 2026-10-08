@@ -648,7 +648,7 @@ function close({force=false}={}){
   if(!force&&compareHasDirty()&&!window.confirm('Close File Compare and discard unsaved changes?'))return false;
   destroyCompareEditors();backdrop.classList.remove('visible');current=null;body.replaceChildren();return true;
 }
-function projectSource(pathValue,{writable=true,label=''}={}){
+function projectSource(pathValue,{writable=!app.sharedMode||Boolean(app.hasPermission?.('files.write')||app.hasPermission?.('project.admin')),label=''}={}){
   pathValue=String(pathValue||'').trim();
   const source={kind:'project',path:pathValue,label:label||pathValue,meta:{},load:async()=>{
     const file=await app.jsonFetch('/api/project/file?path='+encodeURIComponent(pathValue));
@@ -667,6 +667,7 @@ function editorSource(view,{label='Current editor'}={}){
     if(view?.closed)throw new Error('Editor is closed');
     const text=view.cm.state.doc.toString();return {text,editor_snapshot:text};
   }};
+  if(view?.file?.read_only||view?.tabReadOnly||globalThis.TaskMenuEditor?.isTabReadOnly?.(view))return source;
   source.saveText=async(text,activeSource=source)=>{
     if(view.closed)throw new Error('Editor is closed');
     const currentText=view.cm.state.doc.toString(),expected=String(activeSource.meta?.editor_snapshot??currentText);
@@ -717,6 +718,7 @@ function browserFileHandleSource(handle,{label='Local browser file',path=''}={})
     const after=await handle.getFile();
     return {text,size:after.size,lastModified:after.lastModified};
   }};
+  if(typeof handle.createWritable!=='function')delete source.writeText;
   return source;
 }
 async function openLeftRemote(leftSource,profileID,remotePath){
