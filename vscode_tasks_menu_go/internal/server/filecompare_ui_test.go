@@ -209,7 +209,7 @@ func TestFileComparePreservesDirtyBuffersAndSelectionsDuringAsyncOperations(t *t
 		"await Promise.all([loadSource(refreshed.left),loadSource(refreshed.right)])",
 		"if(current!==original)return false",
 		"current=refreshed;current.syntax=null",
-		"current=next;backdrop.classList.add('visible');render()",
+		"current=next;ensureCompareTab();render();activateCompareTab()",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("compare async edit/open regression guard missing %q", want)
