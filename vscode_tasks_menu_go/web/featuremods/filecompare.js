@@ -19,14 +19,18 @@ style.textContent=`
 .file-compare-gap{grid-column:1/-1;padding:2px 8px;text-align:center;font:10px/1.4 ui-monospace,monospace;opacity:.52;background:rgba(120,140,165,.07);border-bottom:1px solid rgba(255,255,255,.035)}
 .file-compare-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border-bottom:1px solid #303843;background:#151b23}
 .file-compare-column{padding:6px 9px;font:11px ui-monospace,monospace;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-compare-column+.file-compare-column{border-left:1px solid #303843}
-.file-compare-body{flex:1;min-height:0;overflow:auto;background:#0b0f14}
-.file-compare-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);min-width:780px}
+.file-compare-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;background:#0b0f14;--file-compare-scroll-x:0px}
+.file-compare-horizontal-scroll{flex:0 0 auto;box-sizing:border-box;width:100%;height:19px;overflow-x:scroll;overflow-y:hidden;scrollbar-width:auto;background:#151b23;border-top:1px solid #303843}
+.file-compare-horizontal-scroll[hidden]{display:none}
+.file-compare-horizontal-size{height:1px;pointer-events:none}
+.file-compare-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);min-width:0}
 .file-compare-cell{display:grid;grid-template-columns:48px minmax(0,1fr);min-width:0;border-bottom:1px solid rgba(255,255,255,.035)}
 .file-compare-row{position:relative}.file-compare-cell.compare-line-selected{outline:1px solid #63b6ff;outline-offset:-1px}
 .file-compare-line-copy{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:3;white-space:nowrap;font-size:10px;padding:3px 7px;background:#243f57;border:1px solid #6da6d0;color:#f4faff;border-radius:5px;box-shadow:0 2px 9px #0009;cursor:pointer}
 .file-compare-line-copy:hover{background:#315c7c}
 .file-compare-cell+.file-compare-cell{border-left:1px solid #303843}.file-compare-no{padding:1px 7px;text-align:right;user-select:none;opacity:.45;font:10px/1.45 ui-monospace,monospace;border-right:1px solid rgba(255,255,255,.06)}
-.file-compare-code{padding:1px 7px;white-space:pre;overflow-x:auto;font:11px/1.45 ui-monospace,monospace}.file-compare-cell.removed.important{background:rgba(229,72,86,.28)}.file-compare-cell.added.important{background:rgba(232,174,55,.28)}.file-compare-cell.removed.unimportant,.file-compare-cell.added.unimportant{background:rgba(58,149,214,.23)}.file-compare-cell.blank{opacity:.3}
+.file-compare-code{display:block;min-width:0;padding:1px 7px;white-space:pre;overflow:hidden;font:11px/1.45 ui-monospace,monospace}
+.file-compare-code-inner{display:inline-block;min-width:100%;white-space:pre;transform:translateX(calc(-1 * var(--file-compare-scroll-x,0px)))}.file-compare-cell.removed.important{background:rgba(229,72,86,.28)}.file-compare-cell.added.important{background:rgba(232,174,55,.28)}.file-compare-cell.removed.unimportant,.file-compare-cell.added.unimportant{background:rgba(58,149,214,.23)}.file-compare-cell.blank{opacity:.3}
 .file-compare-syntax-keyword{color:#c792ea}.file-compare-syntax-comment{color:#6a9955;font-style:italic}.file-compare-syntax-string{color:#ce9178}.file-compare-syntax-number{color:#b5cea8}.file-compare-syntax-command{color:#dcdcaa}.file-compare-syntax-variable{color:#9cdcfe}
 .file-compare-inline-change{border-radius:2px;box-shadow:inset 0 -1px 0 rgba(255,255,255,.28)}.file-compare-inline-change.removed{background:rgba(255,84,98,.38)}.file-compare-inline-change.added{background:rgba(255,196,74,.40)}
 .file-compare-hunk{border-top:1px solid #3a4350;border-bottom:1px solid #3a4350;margin:5px 0}
@@ -36,7 +40,8 @@ style.textContent=`
 .file-compare-hunk-info{grid-column:3;text-align:right;opacity:.66;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .file-compare-hunk-head button{padding:2px 6px;font-size:10px}
 @media(max-width:930px){.file-compare-hunk-info{display:none}.file-compare-hunk-head{grid-template-columns:minmax(0,1fr) auto}}
-.file-compare-inline{min-width:640px}.file-compare-inline-line{display:grid;grid-template-columns:52px 20px minmax(0,1fr);border-bottom:1px solid rgba(255,255,255,.035);font:11px/1.45 ui-monospace,monospace}.file-compare-inline-line span{padding:1px 7px}.file-compare-inline-no{text-align:right;opacity:.45}.file-compare-inline-line.removed.important{background:rgba(229,72,86,.28)}.file-compare-inline-line.added.important{background:rgba(232,174,55,.28)}.file-compare-inline-line.removed.unimportant,.file-compare-inline-line.added.unimportant{background:rgba(58,149,214,.23)}
+.file-compare-inline{min-width:0;width:100%}.file-compare-inline-line{display:grid;grid-template-columns:52px 20px minmax(0,1fr);border-bottom:1px solid rgba(255,255,255,.035);font:11px/1.45 ui-monospace,monospace}.file-compare-inline-line>span{padding:1px 7px}
+.file-compare-inline-code{display:block;min-width:0;white-space:pre;overflow:hidden}.file-compare-inline-no{text-align:right;opacity:.45}.file-compare-inline-line.removed.important{background:rgba(229,72,86,.28)}.file-compare-inline-line.added.important{background:rgba(232,174,55,.28)}.file-compare-inline-line.removed.unimportant,.file-compare-inline-line.added.unimportant{background:rgba(58,149,214,.23)}
 .file-compare-empty{padding:24px;text-align:center;opacity:.62}
 html[data-taskmenu-theme="light"] .file-compare-dialog{background:#fff;border-color:#b9c0c8}.file-compare-body{color:inherit}html[data-taskmenu-theme="light"] .file-compare-filters{background:#f8fafc;border-color:#d0d7de}html[data-taskmenu-theme="light"] .file-compare-editor-deck{background:#fff;border-color:#d0d7de}html[data-taskmenu-theme="light"] .file-compare-editor-head{background:#f6f8fa;border-color:#d0d7de}html[data-taskmenu-theme="light"] .file-compare-columns,html[data-taskmenu-theme="light"] .file-compare-hunk-head{background:#f6f8fa;border-color:#d0d7de}html[data-taskmenu-theme="light"] .file-compare-cell.removed.important,html[data-taskmenu-theme="light"] .file-compare-inline-line.removed.important{background:#ffe2e5}html[data-taskmenu-theme="light"] .file-compare-cell.added.important,html[data-taskmenu-theme="light"] .file-compare-inline-line.added.important{background:#fff1c9}html[data-taskmenu-theme="light"] .file-compare-cell.removed.unimportant,html[data-taskmenu-theme="light"] .file-compare-cell.added.unimportant,html[data-taskmenu-theme="light"] .file-compare-inline-line.removed.unimportant,html[data-taskmenu-theme="light"] .file-compare-inline-line.added.unimportant{background:#e3f3ff}
 `;
@@ -83,7 +88,10 @@ function compareEditorPane(side){
 }
 const leftEditorUI=compareEditorPane('left'),rightEditorUI=compareEditorPane('right');editorDeck.append(leftEditorUI.pane,rightEditorUI.pane);
 const body=document.createElement('div');body.className='file-compare-body';
-dialog.append(head,filters,columns,editorDeck,body);pane.append(dialog);
+const horizontalScroll=document.createElement('div');horizontalScroll.className='file-compare-horizontal-scroll';horizontalScroll.hidden=true;
+horizontalScroll.tabIndex=0;horizontalScroll.setAttribute('aria-label','Scroll both diff columns horizontally');
+const horizontalSize=document.createElement('div');horizontalSize.className='file-compare-horizontal-size';horizontalScroll.append(horizontalSize);
+dialog.append(head,filters,columns,editorDeck,body,horizontalScroll);pane.append(dialog);
 function ensureCompareTab(){
   if(compareTab)return compareTab;
   const tab=document.createElement('button');tab.type='button';tab.className='tab file-compare-tab';tab.dataset.id=compareTabID;tab.dataset.viewKind='file-compare';
@@ -105,6 +113,7 @@ window.addEventListener('taskmenu:view-activated',event=>{
   const active=event.detail?.kind==='external'&&event.detail?.id===compareTabID;
   pane.classList.toggle('hidden',!active);
   compareTab?.classList.toggle('active',Boolean(active));
+  if(active)scheduleCompareHorizontalMeasure();
 });
 
 let current=null;
@@ -114,6 +123,40 @@ let showUnimportant=true;
 let compareSelection=null;
 let editMode=false;
 let renderTimer=0;
+let horizontalMeasureFrame=0;
+function syncCompareHorizontalOffset(){
+  body.style.setProperty('--file-compare-scroll-x',horizontalScroll.scrollLeft+'px');
+}
+horizontalScroll.addEventListener('scroll',syncCompareHorizontalOffset);
+function updateCompareHorizontalMeasure(){
+  if(!current){
+    horizontalScroll.hidden=true;horizontalScroll.scrollLeft=0;syncCompareHorizontalOffset();return;
+  }
+  if(pane.classList.contains('hidden')||!body.clientWidth)return;
+  let maxOverflow=0;
+  for(const inner of body.querySelectorAll('.file-compare-code-inner')){
+    const viewport=inner.parentElement;
+    if(!viewport?.clientWidth)continue;
+    maxOverflow=Math.max(maxOverflow,inner.scrollWidth-viewport.clientWidth);
+  }
+  if(maxOverflow<=1){
+    horizontalScroll.hidden=true;horizontalScroll.scrollLeft=0;syncCompareHorizontalOffset();return;
+  }
+  horizontalScroll.hidden=false;
+  horizontalSize.style.width=Math.ceil(horizontalScroll.clientWidth+maxOverflow)+'px';
+  // Setting a smaller track can clamp scrollLeft without dispatching a scroll event.
+  syncCompareHorizontalOffset();
+}
+function scheduleCompareHorizontalMeasure(){
+  if(horizontalMeasureFrame)return;
+  horizontalMeasureFrame=requestAnimationFrame(()=>{
+    horizontalMeasureFrame=0;updateCompareHorizontalMeasure();
+  });
+}
+if(typeof ResizeObserver==='function'){
+  const horizontalObserver=new ResizeObserver(scheduleCompareHorizontalMeasure);
+  horizontalObserver.observe(body);
+}else window.addEventListener('resize',scheduleCompareHorizontalMeasure);
 let selectedCompareLines=null;
 
 function sourceIdentity(source){
@@ -491,6 +534,11 @@ function syncCompareFilterButtons(){
   viewUnimportantButton.setAttribute('aria-pressed',showUnimportant?'true':'false');
   viewUnimportantButton.textContent=showUnimportant?'View unimportant ✓':'View unimportant';
 }
+function renderClippedCompareCode(code,text,tokens=[],changed=[],changeKind=''){
+  const inner=document.createElement('span');inner.className='file-compare-code-inner';
+  renderCompareCode(inner,text,tokens,changed,changeKind);
+  code.append(inner);
+}
 function renderCompareCode(node,text,tokens=[],changed=[],changeKind=''){
   text=String(text??'');
   if(!text){node.textContent='\u00a0';return;}
@@ -589,7 +637,7 @@ function cell(spec,side,changed=[],importance='context'){
   const code=document.createElement('span');code.className='file-compare-code';
   const syntax=ensureCompareSyntax();
   const tokens=spec?.no?(side==='left'?syntax.left:syntax.right)[spec.no-1]||[]:[];
-  renderCompareCode(code,spec?spec.text:'',tokens,changed,spec?.kind==='removed'?'removed':spec?.kind==='added'?'added':'');
+  renderClippedCompareCode(code,spec?spec.text:'',tokens,changed,spec?.kind==='removed'?'removed':spec?.kind==='added'?'added':'');
   node.append(no,code);return node;
 }
 function renderSide(model,indexes){
@@ -622,23 +670,23 @@ function renderInline(model,indexes){
       const line=document.createElement('div');line.className='file-compare-inline-line';
       const no=document.createElement('span');no.className='file-compare-inline-no';no.textContent=String(row.left.no);
       const mark=document.createElement('span');mark.textContent=' ';
-      const code=document.createElement('span');const syntax=ensureCompareSyntax();renderCompareCode(code,row.left.text,syntax.left[row.left.no-1]||[]);line.append(no,mark,code);host.append(line);continue;
+      const code=document.createElement('span');code.className='file-compare-inline-code';const syntax=ensureCompareSyntax();renderClippedCompareCode(code,row.left.text,syntax.left[row.left.no-1]||[]);line.append(no,mark,code);host.append(line);continue;
     }
     if(row.left){
       const line=document.createElement('div');line.className='file-compare-inline-line removed '+row.importance;
       const no=document.createElement('span');no.className='file-compare-inline-no';no.textContent=String(row.left.no);
-      const mark=document.createElement('span');mark.textContent='−';const code=document.createElement('span');const syntax=ensureCompareSyntax();const ranges=compareInlineRanges(row.left.text,row.right?.text||'');renderCompareCode(code,row.left.text,syntax.left[row.left.no-1]||[],ranges.left,'removed');line.append(no,mark,code);host.append(line);
+      const mark=document.createElement('span');mark.textContent='−';const code=document.createElement('span');code.className='file-compare-inline-code';const syntax=ensureCompareSyntax();const ranges=compareInlineRanges(row.left.text,row.right?.text||'');renderClippedCompareCode(code,row.left.text,syntax.left[row.left.no-1]||[],ranges.left,'removed');line.append(no,mark,code);host.append(line);
     }
     if(row.right){
       const line=document.createElement('div');line.className='file-compare-inline-line added '+row.importance;
       const no=document.createElement('span');no.className='file-compare-inline-no';no.textContent=String(row.right.no);
-      const mark=document.createElement('span');mark.textContent='+';const code=document.createElement('span');const syntax=ensureCompareSyntax();const ranges=compareInlineRanges(row.left?.text||'',row.right.text);renderCompareCode(code,row.right.text,syntax.right[row.right.no-1]||[],ranges.right,'added');line.append(no,mark,code);host.append(line);
+      const mark=document.createElement('span');mark.textContent='+';const code=document.createElement('span');code.className='file-compare-inline-code';const syntax=ensureCompareSyntax();const ranges=compareInlineRanges(row.left?.text||'',row.right.text);renderClippedCompareCode(code,row.right.text,syntax.right[row.right.no-1]||[],ranges.right,'added');line.append(no,mark,code);host.append(line);
     }
   }
   body.append(host);
 }
 function render(){
-  selectedCompareLines=null;body.replaceChildren();if(!current)return;
+  selectedCompareLines=null;body.replaceChildren();scheduleCompareHorizontalMeasure();if(!current)return;
   const model=enrichCompareModel(buildCompareModel(current.left.text,current.right.text));
   model.sourceText={left:current.left.text,right:current.right.text};current.model=model;
   leftLabel.textContent=current.left.label||'Left';rightLabel.textContent=current.right.label||'Right';
