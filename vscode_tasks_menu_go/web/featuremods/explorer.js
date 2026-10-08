@@ -754,6 +754,16 @@ function showContextMenu(event,pathValue,type){
     });
     contextSeparator();
   }
+  const directoryCompare=globalThis.TaskMenuDirectoryCompare;
+  const dirPaths=paths.filter(value=>findLoadedItem(value)?.type==='dir'||(value===pathValue&&type==='dir'));
+  if(dirPaths.length===2&&paths.length===2){
+    contextAction('Compare selected directories',()=>directoryCompare.openSources(dirPaths.map(value=>directoryCompare.sourceProject(value))));
+    contextSeparator();
+  }else if(dirPaths.length===1&&paths.length===1){
+    contextAction('Select directory for compare',()=>directoryCompare.select(directoryCompare.sourceProject(dirPaths[0])));
+    if(directoryCompare?.selected)contextAction('Compare with selected directory',()=>directoryCompare.compareWithSelected(directoryCompare.sourceProject(dirPaths[0])));
+    contextSeparator();
+  }
   contextAction(paths.length>1?'Copy selected':'Copy',()=>setProjectClipboard('copy',paths));
   contextAction(paths.length>1?'Cut selected':'Cut',()=>setProjectClipboard('cut',paths));
   contextAction(paths.length>1?'Duplicate selected':'Duplicate',()=>duplicateSelectedProjectItems());
